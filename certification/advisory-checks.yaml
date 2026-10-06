@@ -1,0 +1,59 @@
+# Advisory check-runs excluded from release gate "build-test".
+#
+# A check is advisory when it is filed on a SHA but does not judge that SHA's build, tests,
+# security, or contracts. Two shapes are allowed:
+#   * name: one job whose own steps are release automation or a read-only scheduled observer.
+#   * workflow: every check-run of one Actions workflow. Use this only when the workflow is a
+#     shadow observer that GitHub files on the default-branch SHA while the job checks out a
+#     different revision. Never point this at ci.yml or any workflow whose jobs build or test
+#     the pinned source.
+#
+# HARD GUARDRAIL (tools/test_check_build_test.py and certification/test_build_test.py):
+#   * NEVER list a build, test, security, or contract job of the pinned source. A red protocol
+#     certification, release-matrix browser test, or server test shard stays core.
+#   * A workflow entry that is not enriched with its path stays core. Missing metadata cannot
+#     hide a red.
+#   * If excluding an entry leaves no core CI lane, the component is BLOCKED, never pass.
+#   * Each entry has its own why. Do not add a name because a run was red.
+
+honua-sdk-js:
+  - name: "Shadow parity"
+    why: >-
+      Scheduled read-only collector (`.github/workflows/sdk-shadow-parity.yml`, job `collect`).
+      The workflow text says it is deliberately not a gate: it observes other Actions runs, runs
+      no npm ci, builds nothing, and publishes no status beyond its own job. On 984425f9 the only
+      attempt (run 37469718860, 2026-10-06T13:18Z) exited because `gh api` returned HTTP 502
+      while listing jobs of an older run. That is a GitHub error in the collector, not a test of
+      the published SDK. The SDK's unit, browser, verify, and build lanes stay core.
+  - name: "release-please-refresh"
+    why: >-
+      Release Please base-refresh (`.github/workflows/release-please.yml`). It updates the
+      release-please branch with `scripts/refresh-release-please-base.mjs` and runs no SDK build
+      or test. On 984425f9 the push attempt succeeded. The later workflow_dispatch (run
+      37453273643, the finish-stranded-draft recovery) published the release from the
+      release-please job, then this job failed because RELEASE_PLEASE_PRS_CREATED was empty.
+      That bookkeeping miss does not describe the published source. `release-please-ci`, which
+      dispatches canonical CI, is not listed here.
+  - name: "Publish artifacts PR + gate strict validation"
+    why: >-
+      Derived-artifact automation (`.github/workflows/regenerate-derived-artifacts.yml`, job
+      `commit-and-validate`). It opens a regeneration pull request and merges it only when
+      strict CI on that generated child commit is green. It does not build or test the pinned
+      SHA. On 984425f9 run 37455141007 failed while watching strict CI of the generated branch,
+      whose red jobs were "Validate sample runner boundaries and generated selection" and
+      "Browser smoke suite not re-proven" on that child commit. Two earlier runs of this same
+      job on 984425f9 succeeded. The pinned SHA's own browser, unit, and verify lanes stay
+      core, as does "Three-engine smoke and source-packed parity". The sibling job
+      "Regenerate + reseal on trunk", which does build the SDK, is not listed.
+
+honua-server:
+  - workflow: ".github/workflows/server-test-prebuild-observe.yml"
+    why: >-
+      Server Test Prebuild Observation is a non-authoritative shadow measurement. Its own
+      header says nothing gated depends on it. workflow_run files every check on the
+      default-branch SHA, while the producer checks out `needs.plan.outputs.head_sha`, the
+      pull-request head. On c19f29d the two red jobs (run 37432003056) compiled
+      928507999, not c19f29d: the log shows the policy checkout at c19f29d and the source
+      checkout at 928507999, then CS0103 for BaseUrlResolver. c19f29d's own CI workflow
+      is not this file. Build & Format Check and the full-matrix lanes stay core, and a
+      prebuild check with no recorded workflow path stays core too.

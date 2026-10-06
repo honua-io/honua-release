@@ -1,0 +1,1568 @@
+{
+  "component": "honua-sdk-js",
+  "sha": "984425f9d88b3c699cbd4766538ba311b48790aa",
+  "check_runs": [
+    {
+      "id": 112289915261,
+      "name": "claude",
+      "status": "completed",
+      "conclusion": "skipped",
+      "started_at": "2026-10-06T13:18:34Z",
+      "completed_at": "2026-10-06T13:18:34Z",
+      "details_url": "https://github.com/honua-io/honua-sdk-js/actions/runs/37469771714/job/112289915261",
+      "html_url": "https://github.com/honua-io/honua-sdk-js/actions/runs/37469771714/job/112289915261",
+      "app": {
+        "slug": "github-actions"
+      },
+      "check_suite": {
+        "id": 101493869472
+      }
+    },
+    {
+      "id": 112289727175,
+      "name": "Shadow parity",
+      "status": "completed",
+      "conclusion": "failure",
+      "started_at": "2026-10-06T13:18:12Z",
+      "completed_at": "2026-10-06T13:19:58Z",
+      "details_url": "https://github.com/honua-io/honua-sdk-js/actions/runs/37469718860/job/112289727175",
+      "html_url": "https://github.com/honua-io/honua-sdk-js/actions/runs/37469718860/job/112289727175",
+      "app": {
+        "slug": "github-actions"
+      },
+      "check_suite": {
+        "id": 101493718812
+      }
+    },
+    {
+      "id": 112262602766,
+      "name": "realtime-contract",
+      "status": "completed",
+      "conclusion": "success",
+      "started_at": "2026-10-06T12:13:27Z",
+      "completed_at": "2026-10-06T12:19:02Z",
+      "details_url": "https://github.com/honua-io/honua-sdk-js/actions/runs/37461701342/job/112262602766",
+      "html_url": "https://github.com/honua-io/honua-sdk-js/actions/runs/37461701342/job/112262602766",
+      "app": {
+        "slug": "github-actions"
+      },
+      "check_suite": {
+        "id": 101471205603
+      }
+    },
+    {
+      "id": 112248944463,
+      "name": "Compare browser impact routing",
+      "status": "completed",
+      "conclusion": "skipped",
+      "started_at": "2026-10-06T11:37:13Z",
+      "completed_at": "2026-10-06T11:37:13Z",
+      "details_url": "https://github.com/honua-io/honua-sdk-js/actions/runs/37457606955/job/112248944463",
+      "html_url": "https://github.com/honua-io/honua-sdk-js/actions/runs/37457606955/job/112248944463",
+      "app": {
+        "slug": "github-actions"
+      },
+      "check_suite": {
+        "id": 101459889517
+      }
+    },
+    {
+      "id": 112248376092,
+      "name": "Compare browser impact routing",
+      "status": "completed",
+      "conclusion": "success",
+      "started_at": "2026-10-06T11:35:42Z",
+      "completed_at": "2026-10-06T11:36:37Z",
+      "details_url": "https://github.com/honua-io/honua-sdk-js/actions/runs/37457436529/job/112248376092",
+      "html_url": "https://github.com/honua-io/honua-sdk-js/actions/runs/37457436529/job/112248376092",
+      "app": {
+        "slug": "github-actions"
+      },
+      "check_suite": {
+        "id": 101459418585
+      }
+    },
+    {
+      "id": 112246810645,
+      "name": "Publish artifacts PR + gate strict validation",
+      "status": "completed",
+      "conclusion": "failure",
+      "started_at": "2026-10-06T11:31:25Z",
+      "completed_at": "2026-10-06T11:35:22Z",
+      "details_url": "https://github.com/honua-io/honua-sdk-js/actions/runs/37455141007/job/112246810645",
+      "html_url": "https://github.com/honua-io/honua-sdk-js/actions/runs/37455141007/job/112246810645",
+      "app": {
+        "slug": "github-actions"
+      },
+      "check_suite": {
+        "id": 101453097000
+      }
+    },
+    {
+      "id": 112245906659,
+      "name": "Verify published release against the registry",
+      "status": "completed",
+      "conclusion": "skipped",
+      "started_at": "2026-10-06T11:28:56Z",
+      "completed_at": "2026-10-06T11:28:56Z",
+      "details_url": "https://github.com/honua-io/honua-sdk-js/actions/runs/37454543245/job/112245906659",
+      "html_url": "https://github.com/honua-io/honua-sdk-js/actions/runs/37454543245/job/112245906659",
+      "app": {
+        "slug": "github-actions"
+      },
+      "check_suite": {
+        "id": 101451457347
+      }
+    },
+    {
+      "id": 112241792226,
+      "name": "SDK verified",
+      "status": "completed",
+      "conclusion": "success",
+      "started_at": "2026-10-06T11:18:34Z",
+      "completed_at": "2026-10-06T11:18:37Z",
+      "details_url": "https://github.com/honua-io/honua-sdk-js/actions/runs/37453198234/job/112241792226",
+      "html_url": "https://github.com/honua-io/honua-sdk-js/actions/runs/37453198234/job/112241792226",
+      "app": {
+        "slug": "github-actions"
+      },
+      "check_suite": {
+        "id": 101447756781
+      }
+    },
+    {
+      "id": 112241065381,
+      "name": "Verify: merged unit coverage",
+      "status": "completed",
+      "conclusion": "success",
+      "started_at": "2026-10-06T11:16:59Z",
+      "completed_at": "2026-10-06T11:17:45Z",
+      "details_url": "https://github.com/honua-io/honua-sdk-js/actions/runs/37453198234/job/112241065381",
+      "html_url": "https://github.com/honua-io/honua-sdk-js/actions/runs/37453198234/job/112241065381",
+      "app": {
+        "slug": "github-actions"
+      },
+      "check_suite": {
+        "id": 101447756781
+      }
+    },
+    {
+      "id": 112240802911,
+      "name": "Regenerate + reseal on trunk",
+      "status": "completed",
+      "conclusion": "success",
+      "started_at": "2026-10-06T11:15:14Z",
+      "completed_at": "2026-10-06T11:31:21Z",
+      "details_url": "https://github.com/honua-io/honua-sdk-js/actions/runs/37455141007/job/112240802911",
+      "html_url": "https://github.com/honua-io/honua-sdk-js/actions/runs/37455141007/job/112240802911",
+      "app": {
+        "slug": "github-actions"
+      },
+      "check_suite": {
+        "id": 101453097000
+      }
+    },
+    {
+      "id": 112240759303,
+      "name": "Persist the release-matrix receipt through evidence automation",
+      "status": "completed",
+      "conclusion": "success",
+      "started_at": "2026-10-06T11:14:58Z",
+      "completed_at": "2026-10-06T11:15:03Z",
+      "details_url": "https://github.com/honua-io/honua-sdk-js/actions/runs/37454546336/job/112240759303",
+      "html_url": "https://github.com/honua-io/honua-sdk-js/actions/runs/37454546336/job/112240759303",
+      "app": {
+        "slug": "github-actions"
+      },
+      "check_suite": {
+        "id": 101451465615
+      }
+    },
+    {
+      "id": 112240013431,
+      "name": "release-please-disposition",
+      "status": "completed",
+      "conclusion": "skipped",
+      "started_at": "2026-10-06T11:12:52Z",
+      "completed_at": "2026-10-06T11:12:52Z",
+      "details_url": "https://github.com/honua-io/honua-sdk-js/actions/runs/37453198320/job/112240013431",
+      "html_url": "https://github.com/honua-io/honua-sdk-js/actions/runs/37453198320/job/112240013431",
+      "app": {
+        "slug": "github-actions"
+      },
+      "check_suite": {
+        "id": 101447757007
+      }
+    },
+    {
+      "id": 112239874895,
+      "name": "Compare browser impact routing",
+      "status": "completed",
+      "conclusion": "success",
+      "started_at": "2026-10-06T11:12:43Z",
+      "completed_at": "2026-10-06T11:13:41Z",
+      "details_url": "https://github.com/honua-io/honua-sdk-js/actions/runs/37454864646/job/112239874895",
+      "html_url": "https://github.com/honua-io/honua-sdk-js/actions/runs/37454864646/job/112239874895",
+      "app": {
+        "slug": "github-actions"
+      },
+      "check_suite": {
+        "id": 101452331540
+      }
+    },
+    {
+      "id": 112239782736,
+      "name": "Deploy to GitHub Pages",
+      "status": "completed",
+      "conclusion": "success",
+      "started_at": "2026-10-06T11:12:27Z",
+      "completed_at": "2026-10-06T11:12:54Z",
+      "details_url": "https://github.com/honua-io/honua-sdk-js/actions/runs/37454508474/job/112239782736",
+      "html_url": "https://github.com/honua-io/honua-sdk-js/actions/runs/37454508474/job/112239782736",
+      "app": {
+        "slug": "github-actions"
+      },
+      "check_suite": {
+        "id": 101451362218
+      }
+    },
+    {
+      "id": 112239397624,
+      "name": "release-please-disposition",
+      "status": "completed",
+      "conclusion": "skipped",
+      "started_at": "2026-10-06T11:11:09Z",
+      "completed_at": "2026-10-06T11:11:09Z",
+      "details_url": "https://github.com/honua-io/honua-sdk-js/actions/runs/37453273643/job/112239397624",
+      "html_url": "https://github.com/honua-io/honua-sdk-js/actions/runs/37453273643/job/112239397624",
+      "app": {
+        "slug": "github-actions"
+      },
+      "check_suite": {
+        "id": 101447963943
+      }
+    },
+    {
+      "id": 112239395576,
+      "name": "release-please-ci",
+      "status": "completed",
+      "conclusion": "skipped",
+      "started_at": "2026-10-06T11:11:09Z",
+      "completed_at": "2026-10-06T11:11:08Z",
+      "details_url": "https://github.com/honua-io/honua-sdk-js/actions/runs/37453273643/job/112239395576",
+      "html_url": "https://github.com/honua-io/honua-sdk-js/actions/runs/37453273643/job/112239395576",
+      "app": {
+        "slug": "github-actions"
+      },
+      "check_suite": {
+        "id": 101447963943
+      }
+    },
+    {
+      "id": 112238841344,
+      "name": "release-please-refresh",
+      "status": "completed",
+      "conclusion": "failure",
+      "started_at": "2026-10-06T11:10:57Z",
+      "completed_at": "2026-10-06T11:11:08Z",
+      "details_url": "https://github.com/honua-io/honua-sdk-js/actions/runs/37453273643/job/112238841344",
+      "html_url": "https://github.com/honua-io/honua-sdk-js/actions/runs/37453273643/job/112238841344",
+      "app": {
+        "slug": "github-actions"
+      },
+      "check_suite": {
+        "id": 101447963943
+      }
+    },
+    {
+      "id": 112238828187,
+      "name": "Three-engine smoke and source-packed parity",
+      "status": "completed",
+      "conclusion": "failure",
+      "started_at": "2026-10-06T11:12:05Z",
+      "completed_at": "2026-10-06T11:14:55Z",
+      "details_url": "https://github.com/honua-io/honua-sdk-js/actions/runs/37454546336/job/112238828187",
+      "html_url": "https://github.com/honua-io/honua-sdk-js/actions/runs/37454546336/job/112238828187",
+      "app": {
+        "slug": "github-actions"
+      },
+      "check_suite": {
+        "id": 101451465615
+      }
+    },
+    {
+      "id": 112238820113,
+      "name": "Ensure derived artifacts are fresh",
+      "status": "completed",
+      "conclusion": "skipped",
+      "started_at": "2026-10-06T11:09:36Z",
+      "completed_at": "2026-10-06T11:09:35Z",
+      "details_url": "https://github.com/honua-io/honua-sdk-js/actions/runs/37454543245/job/112238820113",
+      "html_url": "https://github.com/honua-io/honua-sdk-js/actions/runs/37454543245/job/112238820113",
+      "app": {
+        "slug": "github-actions"
+      },
+      "check_suite": {
+        "id": 101451457347
+      }
+    },
+    {
+      "id": 112238819807,
+      "name": "publish-js-packages",
+      "status": "completed",
+      "conclusion": "success",
+      "started_at": "2026-10-06T11:10:36Z",
+      "completed_at": "2026-10-06T11:28:55Z",
+      "details_url": "https://github.com/honua-io/honua-sdk-js/actions/runs/37454543245/job/112238819807",
+      "html_url": "https://github.com/honua-io/honua-sdk-js/actions/runs/37454543245/job/112238819807",
+      "app": {
+        "slug": "github-actions"
+      },
+      "check_suite": {
+        "id": 101451457347
+      }
+    },
+    {
+      "id": 112238700540,
+      "name": "Build site",
+      "status": "completed",
+      "conclusion": "success",
+      "started_at": "2026-10-06T11:10:30Z",
+      "completed_at": "2026-10-06T11:12:13Z",
+      "details_url": "https://github.com/honua-io/honua-sdk-js/actions/runs/37454508474/job/112238700540",
+      "html_url": "https://github.com/honua-io/honua-sdk-js/actions/runs/37454508474/job/112238700540",
+      "app": {
+        "slug": "github-actions"
+      },
+      "check_suite": {
+        "id": 101451362218
+      }
+    },
+    {
+      "id": 112238692349,
+      "name": "PR Fast (under 2 minutes)",
+      "status": "completed",
+      "conclusion": "skipped",
+      "started_at": "2026-10-06T11:09:15Z",
+      "completed_at": "2026-10-06T11:09:14Z",
+      "details_url": "https://github.com/honua-io/honua-sdk-js/actions/runs/37454505857/job/112238692349",
+      "html_url": "https://github.com/honua-io/honua-sdk-js/actions/runs/37454505857/job/112238692349",
+      "app": {
+        "slug": "github-actions"
+      },
+      "check_suite": {
+        "id": 101451355270
+      }
+    },
+    {
+      "id": 112238691129,
+      "name": "JS SDK",
+      "status": "completed",
+      "conclusion": "success",
+      "started_at": "2026-10-06T11:11:32Z",
+      "completed_at": "2026-10-06T12:00:39Z",
+      "details_url": "https://github.com/honua-io/honua-sdk-js/actions/runs/37454505857/job/112238691129",
+      "html_url": "https://github.com/honua-io/honua-sdk-js/actions/runs/37454505857/job/112238691129",
+      "app": {
+        "slug": "github-actions"
+      },
+      "check_suite": {
+        "id": 101451355270
+      }
+    },
+    {
+      "id": 112238690999,
+      "name": "MCP SDK",
+      "status": "completed",
+      "conclusion": "success",
+      "started_at": "2026-10-06T11:10:51Z",
+      "completed_at": "2026-10-06T11:13:57Z",
+      "details_url": "https://github.com/honua-io/honua-sdk-js/actions/runs/37454505857/job/112238690999",
+      "html_url": "https://github.com/honua-io/honua-sdk-js/actions/runs/37454505857/job/112238690999",
+      "app": {
+        "slug": "github-actions"
+      },
+      "check_suite": {
+        "id": 101451355270
+      }
+    },
+    {
+      "id": 112238690702,
+      "name": "Deterministic Benchmark Lab",
+      "status": "completed",
+      "conclusion": "success",
+      "started_at": "2026-10-06T11:09:32Z",
+      "completed_at": "2026-10-06T11:11:22Z",
+      "details_url": "https://github.com/honua-io/honua-sdk-js/actions/runs/37454505857/job/112238690702",
+      "html_url": "https://github.com/honua-io/honua-sdk-js/actions/runs/37454505857/job/112238690702",
+      "app": {
+        "slug": "github-actions"
+      },
+      "check_suite": {
+        "id": 101451355270
+      }
+    },
+    {
+      "id": 112237767347,
+      "name": "Deploy to GitHub Pages",
+      "status": "completed",
+      "conclusion": "skipped",
+      "started_at": "2026-10-06T11:06:39Z",
+      "completed_at": "2026-10-06T11:06:39Z",
+      "details_url": "https://github.com/honua-io/honua-sdk-js/actions/runs/37453772066/job/112237767347",
+      "html_url": "https://github.com/honua-io/honua-sdk-js/actions/runs/37453772066/job/112237767347",
+      "app": {
+        "slug": "github-actions"
+      },
+      "check_suite": {
+        "id": 101449351714
+      }
+    },
+    {
+      "id": 112237465139,
+      "name": "Publish artifacts PR + gate strict validation",
+      "status": "completed",
+      "conclusion": "success",
+      "started_at": "2026-10-06T11:08:36Z",
+      "completed_at": "2026-10-06T11:09:17Z",
+      "details_url": "https://github.com/honua-io/honua-sdk-js/actions/runs/37454035869/job/112237465139",
+      "html_url": "https://github.com/honua-io/honua-sdk-js/actions/runs/37454035869/job/112237465139",
+      "app": {
+        "slug": "github-actions"
+      },
+      "check_suite": {
+        "id": 101450077233
+      }
+    },
+    {
+      "id": 112237235014,
+      "name": "release-please-ci",
+      "status": "completed",
+      "conclusion": "failure",
+      "started_at": "2026-10-06T11:06:58Z",
+      "completed_at": "2026-10-06T11:12:51Z",
+      "details_url": "https://github.com/honua-io/honua-sdk-js/actions/runs/37453198320/job/112237235014",
+      "html_url": "https://github.com/honua-io/honua-sdk-js/actions/runs/37453198320/job/112237235014",
+      "app": {
+        "slug": "github-actions"
+      },
+      "check_suite": {
+        "id": 101447757007
+      }
+    },
+    {
+      "id": 112237160051,
+      "name": "Regenerate + reseal on trunk",
+      "status": "completed",
+      "conclusion": "success",
+      "started_at": "2026-10-06T11:05:08Z",
+      "completed_at": "2026-10-06T11:05:49Z",
+      "details_url": "https://github.com/honua-io/honua-sdk-js/actions/runs/37454035869/job/112237160051",
+      "html_url": "https://github.com/honua-io/honua-sdk-js/actions/runs/37454035869/job/112237160051",
+      "app": {
+        "slug": "github-actions"
+      },
+      "check_suite": {
+        "id": 101450077233
+      }
+    },
+    {
+      "id": 112237123060,
+      "name": "Compare browser impact routing",
+      "status": "completed",
+      "conclusion": "success",
+      "started_at": "2026-10-06T11:05:00Z",
+      "completed_at": "2026-10-06T11:05:50Z",
+      "details_url": "https://github.com/honua-io/honua-sdk-js/actions/runs/37454027331/job/112237123060",
+      "html_url": "https://github.com/honua-io/honua-sdk-js/actions/runs/37454027331/job/112237123060",
+      "app": {
+        "slug": "github-actions"
+      },
+      "check_suite": {
+        "id": 101450054058
+      }
+    },
+    {
+      "id": 112236434457,
+      "name": "release-please-refresh",
+      "status": "completed",
+      "conclusion": "success",
+      "started_at": "2026-10-06T11:04:51Z",
+      "completed_at": "2026-10-06T11:05:12Z",
+      "details_url": "https://github.com/honua-io/honua-sdk-js/actions/runs/37453198320/job/112236434457",
+      "html_url": "https://github.com/honua-io/honua-sdk-js/actions/runs/37453198320/job/112236434457",
+      "app": {
+        "slug": "github-actions"
+      },
+      "check_suite": {
+        "id": 101447757007
+      }
+    },
+    {
+      "id": 112236298922,
+      "name": "Build site",
+      "status": "completed",
+      "conclusion": "failure",
+      "started_at": "2026-10-06T11:04:49Z",
+      "completed_at": "2026-10-06T11:06:39Z",
+      "details_url": "https://github.com/honua-io/honua-sdk-js/actions/runs/37453772066/job/112236298922",
+      "html_url": "https://github.com/honua-io/honua-sdk-js/actions/runs/37453772066/job/112236298922",
+      "app": {
+        "slug": "github-actions"
+      },
+      "check_suite": {
+        "id": 101449351714
+      }
+    },
+    {
+      "id": 112236287561,
+      "name": "PR Fast (under 2 minutes)",
+      "status": "completed",
+      "conclusion": "skipped",
+      "started_at": "2026-10-06T11:02:36Z",
+      "completed_at": "2026-10-06T11:02:35Z",
+      "details_url": "https://github.com/honua-io/honua-sdk-js/actions/runs/37453768611/job/112236287561",
+      "html_url": "https://github.com/honua-io/honua-sdk-js/actions/runs/37453768611/job/112236287561",
+      "app": {
+        "slug": "github-actions"
+      },
+      "check_suite": {
+        "id": 101449341616
+      }
+    },
+    {
+      "id": 112236286604,
+      "name": "Deterministic Benchmark Lab",
+      "status": "completed",
+      "conclusion": "success",
+      "started_at": "2026-10-06T11:09:30Z",
+      "completed_at": "2026-10-06T11:11:17Z",
+      "details_url": "https://github.com/honua-io/honua-sdk-js/actions/runs/37453768611/job/112236286604",
+      "html_url": "https://github.com/honua-io/honua-sdk-js/actions/runs/37453768611/job/112236286604",
+      "app": {
+        "slug": "github-actions"
+      },
+      "check_suite": {
+        "id": 101449341616
+      }
+    },
+    {
+      "id": 112236286413,
+      "name": "MCP SDK",
+      "status": "completed",
+      "conclusion": "success",
+      "started_at": "2026-10-06T11:06:41Z",
+      "completed_at": "2026-10-06T11:09:29Z",
+      "details_url": "https://github.com/honua-io/honua-sdk-js/actions/runs/37453768611/job/112236286413",
+      "html_url": "https://github.com/honua-io/honua-sdk-js/actions/runs/37453768611/job/112236286413",
+      "app": {
+        "slug": "github-actions"
+      },
+      "check_suite": {
+        "id": 101449341616
+      }
+    },
+    {
+      "id": 112236286144,
+      "name": "JS SDK",
+      "status": "completed",
+      "conclusion": "success",
+      "started_at": "2026-10-06T11:03:57Z",
+      "completed_at": "2026-10-06T11:53:12Z",
+      "details_url": "https://github.com/honua-io/honua-sdk-js/actions/runs/37453768611/job/112236286144",
+      "html_url": "https://github.com/honua-io/honua-sdk-js/actions/runs/37453768611/job/112236286144",
+      "app": {
+        "slug": "github-actions"
+      },
+      "check_suite": {
+        "id": 101449341616
+      }
+    },
+    {
+      "id": 112235382657,
+      "name": "Browser (examples)",
+      "status": "completed",
+      "conclusion": "success",
+      "started_at": "2026-10-06T11:11:29Z",
+      "completed_at": "2026-10-06T11:15:58Z",
+      "details_url": "https://github.com/honua-io/honua-sdk-js/actions/runs/37453198234/job/112235382657",
+      "html_url": "https://github.com/honua-io/honua-sdk-js/actions/runs/37453198234/job/112235382657",
+      "app": {
+        "slug": "github-actions"
+      },
+      "check_suite": {
+        "id": 101447756781
+      }
+    },
+    {
+      "id": 112235382634,
+      "name": "Unit coverage (4/4)",
+      "status": "completed",
+      "conclusion": "success",
+      "started_at": "2026-10-06T11:11:56Z",
+      "completed_at": "2026-10-06T11:15:18Z",
+      "details_url": "https://github.com/honua-io/honua-sdk-js/actions/runs/37453198234/job/112235382634",
+      "html_url": "https://github.com/honua-io/honua-sdk-js/actions/runs/37453198234/job/112235382634",
+      "app": {
+        "slug": "github-actions"
+      },
+      "check_suite": {
+        "id": 101447756781
+      }
+    },
+    {
+      "id": 112235382587,
+      "name": "Unit coverage (2/4)",
+      "status": "completed",
+      "conclusion": "success",
+      "started_at": "2026-10-06T11:13:09Z",
+      "completed_at": "2026-10-06T11:15:45Z",
+      "details_url": "https://github.com/honua-io/honua-sdk-js/actions/runs/37453198234/job/112235382587",
+      "html_url": "https://github.com/honua-io/honua-sdk-js/actions/runs/37453198234/job/112235382587",
+      "app": {
+        "slug": "github-actions"
+      },
+      "check_suite": {
+        "id": 101447756781
+      }
+    },
+    {
+      "id": 112235382581,
+      "name": "Browser (offline)",
+      "status": "completed",
+      "conclusion": "success",
+      "started_at": "2026-10-06T11:07:37Z",
+      "completed_at": "2026-10-06T11:10:12Z",
+      "details_url": "https://github.com/honua-io/honua-sdk-js/actions/runs/37453198234/job/112235382581",
+      "html_url": "https://github.com/honua-io/honua-sdk-js/actions/runs/37453198234/job/112235382581",
+      "app": {
+        "slug": "github-actions"
+      },
+      "check_suite": {
+        "id": 101447756781
+      }
+    },
+    {
+      "id": 112235382562,
+      "name": "Browser (realtime)",
+      "status": "completed",
+      "conclusion": "success",
+      "started_at": "2026-10-06T11:09:20Z",
+      "completed_at": "2026-10-06T11:11:27Z",
+      "details_url": "https://github.com/honua-io/honua-sdk-js/actions/runs/37453198234/job/112235382562",
+      "html_url": "https://github.com/honua-io/honua-sdk-js/actions/runs/37453198234/job/112235382562",
+      "app": {
+        "slug": "github-actions"
+      },
+      "check_suite": {
+        "id": 101447756781
+      }
+    },
+    {
+      "id": 112235382548,
+      "name": "Browser (map)",
+      "status": "completed",
+      "conclusion": "success",
+      "started_at": "2026-10-06T11:11:28Z",
+      "completed_at": "2026-10-06T11:17:14Z",
+      "details_url": "https://github.com/honua-io/honua-sdk-js/actions/runs/37453198234/job/112235382548",
+      "html_url": "https://github.com/honua-io/honua-sdk-js/actions/runs/37453198234/job/112235382548",
+      "app": {
+        "slug": "github-actions"
+      },
+      "check_suite": {
+        "id": 101447756781
+      }
+    },
+    {
+      "id": 112235382537,
+      "name": "Unit coverage (1/4)",
+      "status": "completed",
+      "conclusion": "success",
+      "started_at": "2026-10-06T11:09:42Z",
+      "completed_at": "2026-10-06T11:14:12Z",
+      "details_url": "https://github.com/honua-io/honua-sdk-js/actions/runs/37453198234/job/112235382537",
+      "html_url": "https://github.com/honua-io/honua-sdk-js/actions/runs/37453198234/job/112235382537",
+      "app": {
+        "slug": "github-actions"
+      },
+      "check_suite": {
+        "id": 101447756781
+      }
+    },
+    {
+      "id": 112235382499,
+      "name": "Verify: core, types, style, coverage",
+      "status": "completed",
+      "conclusion": "success",
+      "started_at": "2026-10-06T11:11:33Z",
+      "completed_at": "2026-10-06T11:16:20Z",
+      "details_url": "https://github.com/honua-io/honua-sdk-js/actions/runs/37453198234/job/112235382499",
+      "html_url": "https://github.com/honua-io/honua-sdk-js/actions/runs/37453198234/job/112235382499",
+      "app": {
+        "slug": "github-actions"
+      },
+      "check_suite": {
+        "id": 101447756781
+      }
+    },
+    {
+      "id": 112235382450,
+      "name": "Unit coverage (3/4)",
+      "status": "completed",
+      "conclusion": "success",
+      "started_at": "2026-10-06T11:05:52Z",
+      "completed_at": "2026-10-06T11:09:16Z",
+      "details_url": "https://github.com/honua-io/honua-sdk-js/actions/runs/37453198234/job/112235382450",
+      "html_url": "https://github.com/honua-io/honua-sdk-js/actions/runs/37453198234/job/112235382450",
+      "app": {
+        "slug": "github-actions"
+      },
+      "check_suite": {
+        "id": 101447756781
+      }
+    },
+    {
+      "id": 112235382402,
+      "name": "Verify: examples, demos, scaffolds",
+      "status": "completed",
+      "conclusion": "success",
+      "started_at": "2026-10-06T11:05:52Z",
+      "completed_at": "2026-10-06T11:12:40Z",
+      "details_url": "https://github.com/honua-io/honua-sdk-js/actions/runs/37453198234/job/112235382402",
+      "html_url": "https://github.com/honua-io/honua-sdk-js/actions/runs/37453198234/job/112235382402",
+      "app": {
+        "slug": "github-actions"
+      },
+      "check_suite": {
+        "id": 101447756781
+      }
+    },
+    {
+      "id": 112235382380,
+      "name": "Verify: MCP",
+      "status": "completed",
+      "conclusion": "success",
+      "started_at": "2026-10-06T11:09:10Z",
+      "completed_at": "2026-10-06T11:11:35Z",
+      "details_url": "https://github.com/honua-io/honua-sdk-js/actions/runs/37453198234/job/112235382380",
+      "html_url": "https://github.com/honua-io/honua-sdk-js/actions/runs/37453198234/job/112235382380",
+      "app": {
+        "slug": "github-actions"
+      },
+      "check_suite": {
+        "id": 101447756781
+      }
+    },
+    {
+      "id": 112235382294,
+      "name": "Verify: package, publish surface, bundles",
+      "status": "completed",
+      "conclusion": "success",
+      "started_at": "2026-10-06T11:00:43Z",
+      "completed_at": "2026-10-06T11:10:14Z",
+      "details_url": "https://github.com/honua-io/honua-sdk-js/actions/runs/37453198234/job/112235382294",
+      "html_url": "https://github.com/honua-io/honua-sdk-js/actions/runs/37453198234/job/112235382294",
+      "app": {
+        "slug": "github-actions"
+      },
+      "check_suite": {
+        "id": 101447756781
+      }
+    },
+    {
+      "id": 112235168592,
+      "name": "Publish artifacts PR + gate strict validation",
+      "status": "completed",
+      "conclusion": "success",
+      "started_at": "2026-10-06T11:01:58Z",
+      "completed_at": "2026-10-06T11:02:38Z",
+      "details_url": "https://github.com/honua-io/honua-sdk-js/actions/runs/37453197810/job/112235168592",
+      "html_url": "https://github.com/honua-io/honua-sdk-js/actions/runs/37453197810/job/112235168592",
+      "app": {
+        "slug": "github-actions"
+      },
+      "check_suite": {
+        "id": 101447755573
+      }
+    },
+    {
+      "id": 112235130825,
+      "name": "Deploy to GitHub Pages",
+      "status": "completed",
+      "conclusion": "skipped",
+      "started_at": "2026-10-06T10:59:26Z",
+      "completed_at": "2026-10-06T10:59:26Z",
+      "details_url": "https://github.com/honua-io/honua-sdk-js/actions/runs/37453198221/job/112235130825",
+      "html_url": "https://github.com/honua-io/honua-sdk-js/actions/runs/37453198221/job/112235130825",
+      "app": {
+        "slug": "github-actions"
+      },
+      "check_suite": {
+        "id": 101447756732
+      }
+    },
+    {
+      "id": 112234732341,
+      "name": "SDK build (producer)",
+      "status": "completed",
+      "conclusion": "success",
+      "started_at": "2026-10-06T10:58:24Z",
+      "completed_at": "2026-10-06T11:00:10Z",
+      "details_url": "https://github.com/honua-io/honua-sdk-js/actions/runs/37453198234/job/112234732341",
+      "html_url": "https://github.com/honua-io/honua-sdk-js/actions/runs/37453198234/job/112234732341",
+      "app": {
+        "slug": "github-actions"
+      },
+      "check_suite": {
+        "id": 101447756781
+      }
+    },
+    {
+      "id": 112234732281,
+      "name": "Quickstart budget (clean install)",
+      "status": "completed",
+      "conclusion": "success",
+      "started_at": "2026-10-06T10:59:09Z",
+      "completed_at": "2026-10-06T11:00:40Z",
+      "details_url": "https://github.com/honua-io/honua-sdk-js/actions/runs/37453198234/job/112234732281",
+      "html_url": "https://github.com/honua-io/honua-sdk-js/actions/runs/37453198234/job/112234732281",
+      "app": {
+        "slug": "github-actions"
+      },
+      "check_suite": {
+        "id": 101447756781
+      }
+    },
+    {
+      "id": 112234668253,
+      "name": "release-please",
+      "status": "completed",
+      "conclusion": "success",
+      "started_at": "2026-10-06T11:04:49Z",
+      "completed_at": "2026-10-06T11:09:39Z",
+      "details_url": "https://github.com/honua-io/honua-sdk-js/actions/runs/37453273643/job/112234668253",
+      "html_url": "https://github.com/honua-io/honua-sdk-js/actions/runs/37453273643/job/112234668253",
+      "app": {
+        "slug": "github-actions"
+      },
+      "check_suite": {
+        "id": 101447963943
+      }
+    },
+    {
+      "id": 112234428228,
+      "name": "Regenerate + reseal on trunk",
+      "status": "completed",
+      "conclusion": "success",
+      "started_at": "2026-10-06T10:57:52Z",
+      "completed_at": "2026-10-06T10:59:33Z",
+      "details_url": "https://github.com/honua-io/honua-sdk-js/actions/runs/37453197810/job/112234428228",
+      "html_url": "https://github.com/honua-io/honua-sdk-js/actions/runs/37453197810/job/112234428228",
+      "app": {
+        "slug": "github-actions"
+      },
+      "check_suite": {
+        "id": 101447755573
+      }
+    },
+    {
+      "id": 112234415707,
+      "name": "Analyze (python)",
+      "status": "completed",
+      "conclusion": "success",
+      "started_at": "2026-10-06T10:57:27Z",
+      "completed_at": "2026-10-06T10:58:18Z",
+      "details_url": "https://github.com/honua-io/honua-sdk-js/actions/runs/37453197010/job/112234415707",
+      "html_url": "https://github.com/honua-io/honua-sdk-js/actions/runs/37453197010/job/112234415707",
+      "app": {
+        "slug": "github-actions"
+      },
+      "check_suite": {
+        "id": 101447753231
+      }
+    },
+    {
+      "id": 112234415536,
+      "name": "Analyze (javascript-typescript)",
+      "status": "completed",
+      "conclusion": "success",
+      "started_at": "2026-10-06T10:57:27Z",
+      "completed_at": "2026-10-06T11:11:24Z",
+      "details_url": "https://github.com/honua-io/honua-sdk-js/actions/runs/37453197010/job/112234415536",
+      "html_url": "https://github.com/honua-io/honua-sdk-js/actions/runs/37453197010/job/112234415536",
+      "app": {
+        "slug": "github-actions"
+      },
+      "check_suite": {
+        "id": 101447753231
+      }
+    },
+    {
+      "id": 112234415166,
+      "name": "Analyze (actions)",
+      "status": "completed",
+      "conclusion": "success",
+      "started_at": "2026-10-06T10:57:28Z",
+      "completed_at": "2026-10-06T10:58:12Z",
+      "details_url": "https://github.com/honua-io/honua-sdk-js/actions/runs/37453197010/job/112234415166",
+      "html_url": "https://github.com/honua-io/honua-sdk-js/actions/runs/37453197010/job/112234415166",
+      "app": {
+        "slug": "github-actions"
+      },
+      "check_suite": {
+        "id": 101447753231
+      }
+    },
+    {
+      "id": 112234414963,
+      "name": "PR Fast (under 2 minutes)",
+      "status": "completed",
+      "conclusion": "skipped",
+      "started_at": "2026-10-06T10:57:24Z",
+      "completed_at": "2026-10-06T10:57:24Z",
+      "details_url": "https://github.com/honua-io/honua-sdk-js/actions/runs/37453198295/job/112234414963",
+      "html_url": "https://github.com/honua-io/honua-sdk-js/actions/runs/37453198295/job/112234414963",
+      "app": {
+        "slug": "github-actions"
+      },
+      "check_suite": {
+        "id": 101447756933
+      }
+    },
+    {
+      "id": 112234414607,
+      "name": "trivy / Trivy fs",
+      "status": "completed",
+      "conclusion": "success",
+      "started_at": "2026-10-06T10:57:28Z",
+      "completed_at": "2026-10-06T10:57:56Z",
+      "details_url": "https://github.com/honua-io/honua-sdk-js/actions/runs/37453198868/job/112234414607",
+      "html_url": "https://github.com/honua-io/honua-sdk-js/actions/runs/37453198868/job/112234414607",
+      "app": {
+        "slug": "github-actions"
+      },
+      "check_suite": {
+        "id": 101447758566
+      }
+    },
+    {
+      "id": 112234414413,
+      "name": "scorecard / Scorecard analysis",
+      "status": "completed",
+      "conclusion": "success",
+      "started_at": "2026-10-06T10:57:27Z",
+      "completed_at": "2026-10-06T10:58:04Z",
+      "details_url": "https://github.com/honua-io/honua-sdk-js/actions/runs/37453198868/job/112234414413",
+      "html_url": "https://github.com/honua-io/honua-sdk-js/actions/runs/37453198868/job/112234414413",
+      "app": {
+        "slug": "github-actions"
+      },
+      "check_suite": {
+        "id": 101447758566
+      }
+    },
+    {
+      "id": 112234414084,
+      "name": "Binary artifact policy",
+      "status": "completed",
+      "conclusion": "success",
+      "started_at": "2026-10-06T10:58:03Z",
+      "completed_at": "2026-10-06T10:58:13Z",
+      "details_url": "https://github.com/honua-io/honua-sdk-js/actions/runs/37453198868/job/112234414084",
+      "html_url": "https://github.com/honua-io/honua-sdk-js/actions/runs/37453198868/job/112234414084",
+      "app": {
+        "slug": "github-actions"
+      },
+      "check_suite": {
+        "id": 101447758566
+      }
+    },
+    {
+      "id": 112234413822,
+      "name": "Analyze (javascript-typescript)",
+      "status": "completed",
+      "conclusion": "success",
+      "started_at": "2026-10-06T10:57:35Z",
+      "completed_at": "2026-10-06T11:00:39Z",
+      "details_url": "https://github.com/honua-io/honua-sdk-js/actions/runs/37453196976/job/112234413822",
+      "html_url": "https://github.com/honua-io/honua-sdk-js/actions/runs/37453196976/job/112234413822",
+      "app": {
+        "slug": "github-actions"
+      },
+      "check_suite": {
+        "id": 101447753169
+      }
+    },
+    {
+      "id": 112234413534,
+      "name": "Analyze (python)",
+      "status": "completed",
+      "conclusion": "success",
+      "started_at": "2026-10-06T10:57:32Z",
+      "completed_at": "2026-10-06T10:58:16Z",
+      "details_url": "https://github.com/honua-io/honua-sdk-js/actions/runs/37453196976/job/112234413534",
+      "html_url": "https://github.com/honua-io/honua-sdk-js/actions/runs/37453196976/job/112234413534",
+      "app": {
+        "slug": "github-actions"
+      },
+      "check_suite": {
+        "id": 101447753169
+      }
+    },
+    {
+      "id": 112234413514,
+      "name": "Integration + Conformance",
+      "status": "completed",
+      "conclusion": "success",
+      "started_at": "2026-10-06T10:57:31Z",
+      "completed_at": "2026-10-06T10:59:04Z",
+      "details_url": "https://github.com/honua-io/honua-sdk-js/actions/runs/37453198273/job/112234413514",
+      "html_url": "https://github.com/honua-io/honua-sdk-js/actions/runs/37453198273/job/112234413514",
+      "app": {
+        "slug": "github-actions"
+      },
+      "check_suite": {
+        "id": 101447756887
+      }
+    },
+    {
+      "id": 112234413220,
+      "name": "JS SDK",
+      "status": "completed",
+      "conclusion": "success",
+      "started_at": "2026-10-06T10:57:27Z",
+      "completed_at": "2026-10-06T11:37:09Z",
+      "details_url": "https://github.com/honua-io/honua-sdk-js/actions/runs/37453198295/job/112234413220",
+      "html_url": "https://github.com/honua-io/honua-sdk-js/actions/runs/37453198295/job/112234413220",
+      "app": {
+        "slug": "github-actions"
+      },
+      "check_suite": {
+        "id": 101447756933
+      }
+    },
+    {
+      "id": 112234413201,
+      "name": "Conformance Drift Guardrail",
+      "status": "completed",
+      "conclusion": "success",
+      "started_at": "2026-10-06T10:57:28Z",
+      "completed_at": "2026-10-06T10:57:49Z",
+      "details_url": "https://github.com/honua-io/honua-sdk-js/actions/runs/37453198273/job/112234413201",
+      "html_url": "https://github.com/honua-io/honua-sdk-js/actions/runs/37453198273/job/112234413201",
+      "app": {
+        "slug": "github-actions"
+      },
+      "check_suite": {
+        "id": 101447756887
+      }
+    },
+    {
+      "id": 112234413116,
+      "name": "Deterministic Benchmark Lab",
+      "status": "completed",
+      "conclusion": "success",
+      "started_at": "2026-10-06T10:57:27Z",
+      "completed_at": "2026-10-06T10:59:08Z",
+      "details_url": "https://github.com/honua-io/honua-sdk-js/actions/runs/37453198295/job/112234413116",
+      "html_url": "https://github.com/honua-io/honua-sdk-js/actions/runs/37453198295/job/112234413116",
+      "app": {
+        "slug": "github-actions"
+      },
+      "check_suite": {
+        "id": 101447756933
+      }
+    },
+    {
+      "id": 112234412931,
+      "name": "MCP SDK",
+      "status": "completed",
+      "conclusion": "success",
+      "started_at": "2026-10-06T10:57:27Z",
+      "completed_at": "2026-10-06T11:00:44Z",
+      "details_url": "https://github.com/honua-io/honua-sdk-js/actions/runs/37453198295/job/112234412931",
+      "html_url": "https://github.com/honua-io/honua-sdk-js/actions/runs/37453198295/job/112234412931",
+      "app": {
+        "slug": "github-actions"
+      },
+      "check_suite": {
+        "id": 101447756933
+      }
+    },
+    {
+      "id": 112234412713,
+      "name": "release-please",
+      "status": "completed",
+      "conclusion": "success",
+      "started_at": "2026-10-06T10:57:27Z",
+      "completed_at": "2026-10-06T11:02:59Z",
+      "details_url": "https://github.com/honua-io/honua-sdk-js/actions/runs/37453198320/job/112234412713",
+      "html_url": "https://github.com/honua-io/honua-sdk-js/actions/runs/37453198320/job/112234412713",
+      "app": {
+        "slug": "github-actions"
+      },
+      "check_suite": {
+        "id": 101447757007
+      }
+    },
+    {
+      "id": 112234412678,
+      "name": "Vendored schemas match pinned upstream",
+      "status": "completed",
+      "conclusion": "success",
+      "started_at": "2026-10-06T10:57:26Z",
+      "completed_at": "2026-10-06T10:57:32Z",
+      "details_url": "https://github.com/honua-io/honua-sdk-js/actions/runs/37453198357/job/112234412678",
+      "html_url": "https://github.com/honua-io/honua-sdk-js/actions/runs/37453198357/job/112234412678",
+      "app": {
+        "slug": "github-actions"
+      },
+      "check_suite": {
+        "id": 101447757117
+      }
+    },
+    {
+      "id": 112234412588,
+      "name": "Admission",
+      "status": "completed",
+      "conclusion": "success",
+      "started_at": "2026-10-06T10:57:27Z",
+      "completed_at": "2026-10-06T10:58:17Z",
+      "details_url": "https://github.com/honua-io/honua-sdk-js/actions/runs/37453198234/job/112234412588",
+      "html_url": "https://github.com/honua-io/honua-sdk-js/actions/runs/37453198234/job/112234412588",
+      "app": {
+        "slug": "github-actions"
+      },
+      "check_suite": {
+        "id": 101447756781
+      }
+    },
+    {
+      "id": 112234412516,
+      "name": "Build site",
+      "status": "completed",
+      "conclusion": "failure",
+      "started_at": "2026-10-06T10:57:34Z",
+      "completed_at": "2026-10-06T10:59:26Z",
+      "details_url": "https://github.com/honua-io/honua-sdk-js/actions/runs/37453198221/job/112234412516",
+      "html_url": "https://github.com/honua-io/honua-sdk-js/actions/runs/37453198221/job/112234412516",
+      "app": {
+        "slug": "github-actions"
+      },
+      "check_suite": {
+        "id": 101447756732
+      }
+    },
+    {
+      "id": 112234412230,
+      "name": "Documentation release freshness",
+      "status": "completed",
+      "conclusion": "success",
+      "started_at": "2026-10-06T10:57:27Z",
+      "completed_at": "2026-10-06T10:57:41Z",
+      "details_url": "https://github.com/honua-io/honua-sdk-js/actions/runs/37453198299/job/112234412230",
+      "html_url": "https://github.com/honua-io/honua-sdk-js/actions/runs/37453198299/job/112234412230",
+      "app": {
+        "slug": "github-actions"
+      },
+      "check_suite": {
+        "id": 101447756953
+      }
+    }
+  ],
+  "workflow_runs": [
+    {
+      "id": 37469771714,
+      "name": "Claude Code",
+      "path": ".github/workflows/claude.yml",
+      "event": "issue_comment",
+      "status": "completed",
+      "conclusion": "skipped",
+      "run_attempt": 1,
+      "head_sha": "984425f9d88b3c699cbd4766538ba311b48790aa",
+      "workflow_id": 342637663,
+      "created_at": "2026-10-06T13:18:33Z",
+      "updated_at": "2026-10-06T13:18:40Z",
+      "html_url": "https://github.com/honua-io/honua-sdk-js/actions/runs/37469771714"
+    },
+    {
+      "id": 37469718860,
+      "name": "SDK Shadow Parity",
+      "path": ".github/workflows/sdk-shadow-parity.yml",
+      "event": "schedule",
+      "status": "completed",
+      "conclusion": "failure",
+      "run_attempt": 1,
+      "head_sha": "984425f9d88b3c699cbd4766538ba311b48790aa",
+      "workflow_id": 336731179,
+      "created_at": "2026-10-06T13:18:09Z",
+      "updated_at": "2026-10-06T13:19:58Z",
+      "html_url": "https://github.com/honua-io/honua-sdk-js/actions/runs/37469718860"
+    },
+    {
+      "id": 37461701342,
+      "name": "Realtime Cross-Transport Conformance",
+      "path": ".github/workflows/realtime-live-conformance.yml",
+      "event": "schedule",
+      "status": "completed",
+      "conclusion": "success",
+      "run_attempt": 1,
+      "head_sha": "984425f9d88b3c699cbd4766538ba311b48790aa",
+      "workflow_id": 322005026,
+      "created_at": "2026-10-06T12:13:11Z",
+      "updated_at": "2026-10-06T12:19:03Z",
+      "html_url": "https://github.com/honua-io/honua-sdk-js/actions/runs/37461701342"
+    },
+    {
+      "id": 37457606955,
+      "name": "Browser Impact Observation",
+      "path": ".github/workflows/browser-impact-observe.yml",
+      "event": "workflow_run",
+      "status": "completed",
+      "conclusion": "skipped",
+      "run_attempt": 1,
+      "head_sha": "984425f9d88b3c699cbd4766538ba311b48790aa",
+      "workflow_id": 334068160,
+      "created_at": "2026-10-06T11:37:12Z",
+      "updated_at": "2026-10-06T11:37:13Z",
+      "html_url": "https://github.com/honua-io/honua-sdk-js/actions/runs/37457606955"
+    },
+    {
+      "id": 37457436529,
+      "name": "Browser Impact Observation",
+      "path": ".github/workflows/browser-impact-observe.yml",
+      "event": "workflow_run",
+      "status": "completed",
+      "conclusion": "success",
+      "run_attempt": 1,
+      "head_sha": "984425f9d88b3c699cbd4766538ba311b48790aa",
+      "workflow_id": 334068160,
+      "created_at": "2026-10-06T11:35:39Z",
+      "updated_at": "2026-10-06T11:36:38Z",
+      "html_url": "https://github.com/honua-io/honua-sdk-js/actions/runs/37457436529"
+    },
+    {
+      "id": 37455141007,
+      "name": "Regenerate derived artifacts",
+      "path": ".github/workflows/regenerate-derived-artifacts.yml",
+      "event": "workflow_dispatch",
+      "status": "completed",
+      "conclusion": "failure",
+      "run_attempt": 1,
+      "head_sha": "984425f9d88b3c699cbd4766538ba311b48790aa",
+      "workflow_id": 316356155,
+      "created_at": "2026-10-06T11:15:01Z",
+      "updated_at": "2026-10-06T11:35:23Z",
+      "html_url": "https://github.com/honua-io/honua-sdk-js/actions/runs/37455141007"
+    },
+    {
+      "id": 37454864646,
+      "name": "Browser Impact Observation",
+      "path": ".github/workflows/browser-impact-observe.yml",
+      "event": "workflow_run",
+      "status": "completed",
+      "conclusion": "success",
+      "run_attempt": 1,
+      "head_sha": "984425f9d88b3c699cbd4766538ba311b48790aa",
+      "workflow_id": 334068160,
+      "created_at": "2026-10-06T11:12:29Z",
+      "updated_at": "2026-10-06T11:13:41Z",
+      "html_url": "https://github.com/honua-io/honua-sdk-js/actions/runs/37454864646"
+    },
+    {
+      "id": 37454546336,
+      "name": "First Map Release Smoke",
+      "path": ".github/workflows/first-map-release-smoke.yml",
+      "event": "workflow_dispatch",
+      "status": "completed",
+      "conclusion": "failure",
+      "run_attempt": 1,
+      "head_sha": "984425f9d88b3c699cbd4766538ba311b48790aa",
+      "workflow_id": 315336896,
+      "created_at": "2026-10-06T11:09:36Z",
+      "updated_at": "2026-10-06T11:15:05Z",
+      "html_url": "https://github.com/honua-io/honua-sdk-js/actions/runs/37454546336"
+    },
+    {
+      "id": 37454543245,
+      "name": "Publish JS SDK Packages",
+      "path": ".github/workflows/publish-js-sdk.yml",
+      "event": "workflow_dispatch",
+      "status": "completed",
+      "conclusion": "success",
+      "run_attempt": 1,
+      "head_sha": "984425f9d88b3c699cbd4766538ba311b48790aa",
+      "workflow_id": 241050048,
+      "created_at": "2026-10-06T11:09:34Z",
+      "updated_at": "2026-10-06T11:28:56Z",
+      "html_url": "https://github.com/honua-io/honua-sdk-js/actions/runs/37454543245"
+    },
+    {
+      "id": 37454508474,
+      "name": "Docs site",
+      "path": ".github/workflows/docs-site.yml",
+      "event": "workflow_dispatch",
+      "status": "completed",
+      "conclusion": "success",
+      "run_attempt": 1,
+      "head_sha": "984425f9d88b3c699cbd4766538ba311b48790aa",
+      "workflow_id": 307826775,
+      "created_at": "2026-10-06T11:09:14Z",
+      "updated_at": "2026-10-06T11:12:55Z",
+      "html_url": "https://github.com/honua-io/honua-sdk-js/actions/runs/37454508474"
+    },
+    {
+      "id": 37454505857,
+      "name": "SDK CI",
+      "path": ".github/workflows/ci.yml",
+      "event": "workflow_dispatch",
+      "status": "completed",
+      "conclusion": "success",
+      "run_attempt": 1,
+      "head_sha": "984425f9d88b3c699cbd4766538ba311b48790aa",
+      "workflow_id": 241050046,
+      "created_at": "2026-10-06T11:09:13Z",
+      "updated_at": "2026-10-06T12:00:39Z",
+      "html_url": "https://github.com/honua-io/honua-sdk-js/actions/runs/37454505857"
+    },
+    {
+      "id": 37454035869,
+      "name": "Regenerate derived artifacts",
+      "path": ".github/workflows/regenerate-derived-artifacts.yml",
+      "event": "workflow_dispatch",
+      "status": "completed",
+      "conclusion": "success",
+      "run_attempt": 1,
+      "head_sha": "984425f9d88b3c699cbd4766538ba311b48790aa",
+      "workflow_id": 316356155,
+      "created_at": "2026-10-06T11:04:58Z",
+      "updated_at": "2026-10-06T11:09:19Z",
+      "html_url": "https://github.com/honua-io/honua-sdk-js/actions/runs/37454035869"
+    },
+    {
+      "id": 37454027331,
+      "name": "Browser Impact Observation",
+      "path": ".github/workflows/browser-impact-observe.yml",
+      "event": "workflow_run",
+      "status": "completed",
+      "conclusion": "success",
+      "run_attempt": 1,
+      "head_sha": "984425f9d88b3c699cbd4766538ba311b48790aa",
+      "workflow_id": 334068160,
+      "created_at": "2026-10-06T11:04:53Z",
+      "updated_at": "2026-10-06T11:05:52Z",
+      "html_url": "https://github.com/honua-io/honua-sdk-js/actions/runs/37454027331"
+    },
+    {
+      "id": 37453772066,
+      "name": "Docs site",
+      "path": ".github/workflows/docs-site.yml",
+      "event": "workflow_dispatch",
+      "status": "completed",
+      "conclusion": "failure",
+      "run_attempt": 1,
+      "head_sha": "984425f9d88b3c699cbd4766538ba311b48790aa",
+      "workflow_id": 307826775,
+      "created_at": "2026-10-06T11:02:36Z",
+      "updated_at": "2026-10-06T11:06:40Z",
+      "html_url": "https://github.com/honua-io/honua-sdk-js/actions/runs/37453772066"
+    },
+    {
+      "id": 37453768611,
+      "name": "SDK CI",
+      "path": ".github/workflows/ci.yml",
+      "event": "workflow_dispatch",
+      "status": "completed",
+      "conclusion": "success",
+      "run_attempt": 1,
+      "head_sha": "984425f9d88b3c699cbd4766538ba311b48790aa",
+      "workflow_id": 241050046,
+      "created_at": "2026-10-06T11:02:34Z",
+      "updated_at": "2026-10-06T11:53:13Z",
+      "html_url": "https://github.com/honua-io/honua-sdk-js/actions/runs/37453768611"
+    },
+    {
+      "id": 37453273643,
+      "name": "Release Please",
+      "path": ".github/workflows/release-please.yml",
+      "event": "workflow_dispatch",
+      "status": "completed",
+      "conclusion": "failure",
+      "run_attempt": 1,
+      "head_sha": "984425f9d88b3c699cbd4766538ba311b48790aa",
+      "workflow_id": 243336045,
+      "created_at": "2026-10-06T10:58:05Z",
+      "updated_at": "2026-10-06T11:11:09Z",
+      "html_url": "https://github.com/honua-io/honua-sdk-js/actions/runs/37453273643"
+    },
+    {
+      "id": 37453198868,
+      "name": "Security",
+      "path": ".github/workflows/security.yml",
+      "event": "push",
+      "status": "completed",
+      "conclusion": "success",
+      "run_attempt": 1,
+      "head_sha": "984425f9d88b3c699cbd4766538ba311b48790aa",
+      "workflow_id": 292188213,
+      "created_at": "2026-10-06T10:57:24Z",
+      "updated_at": "2026-10-06T10:58:14Z",
+      "html_url": "https://github.com/honua-io/honua-sdk-js/actions/runs/37453198868"
+    },
+    {
+      "id": 37453198221,
+      "name": "Docs site",
+      "path": ".github/workflows/docs-site.yml",
+      "event": "push",
+      "status": "completed",
+      "conclusion": "failure",
+      "run_attempt": 1,
+      "head_sha": "984425f9d88b3c699cbd4766538ba311b48790aa",
+      "workflow_id": 307826775,
+      "created_at": "2026-10-06T10:57:23Z",
+      "updated_at": "2026-10-06T10:59:27Z",
+      "html_url": "https://github.com/honua-io/honua-sdk-js/actions/runs/37453198221"
+    },
+    {
+      "id": 37453196976,
+      "name": "Code Quality: Push on trunk",
+      "path": "dynamic/github-code-quality/codeql",
+      "event": "dynamic",
+      "status": "completed",
+      "conclusion": "success",
+      "run_attempt": 1,
+      "head_sha": "984425f9d88b3c699cbd4766538ba311b48790aa",
+      "workflow_id": 343198742,
+      "created_at": "2026-10-06T10:57:23Z",
+      "updated_at": "2026-10-06T11:00:40Z",
+      "html_url": "https://github.com/honua-io/honua-sdk-js/actions/runs/37453196976"
+    },
+    {
+      "id": 37453198299,
+      "name": "Documentation release freshness",
+      "path": ".github/workflows/docs-release.yml",
+      "event": "push",
+      "status": "completed",
+      "conclusion": "success",
+      "run_attempt": 1,
+      "head_sha": "984425f9d88b3c699cbd4766538ba311b48790aa",
+      "workflow_id": 350751803,
+      "created_at": "2026-10-06T10:57:23Z",
+      "updated_at": "2026-10-06T10:57:42Z",
+      "html_url": "https://github.com/honua-io/honua-sdk-js/actions/runs/37453198299"
+    },
+    {
+      "id": 37453198357,
+      "name": "Schema sync gate",
+      "path": ".github/workflows/schema-sync.yml",
+      "event": "push",
+      "status": "completed",
+      "conclusion": "success",
+      "run_attempt": 1,
+      "head_sha": "984425f9d88b3c699cbd4766538ba311b48790aa",
+      "workflow_id": 308233255,
+      "created_at": "2026-10-06T10:57:23Z",
+      "updated_at": "2026-10-06T10:57:33Z",
+      "html_url": "https://github.com/honua-io/honua-sdk-js/actions/runs/37453198357"
+    },
+    {
+      "id": 37453198291,
+      "name": "Regenerate derived artifacts",
+      "path": ".github/workflows/regenerate-derived-artifacts.yml",
+      "event": "push",
+      "status": "completed",
+      "conclusion": "cancelled",
+      "run_attempt": 1,
+      "head_sha": "984425f9d88b3c699cbd4766538ba311b48790aa",
+      "workflow_id": 316356155,
+      "created_at": "2026-10-06T10:57:23Z",
+      "updated_at": "2026-10-06T10:57:25Z",
+      "html_url": "https://github.com/honua-io/honua-sdk-js/actions/runs/37453198291"
+    },
+    {
+      "id": 37453198273,
+      "name": "SDK Integration",
+      "path": ".github/workflows/integration.yml",
+      "event": "push",
+      "status": "completed",
+      "conclusion": "success",
+      "run_attempt": 1,
+      "head_sha": "984425f9d88b3c699cbd4766538ba311b48790aa",
+      "workflow_id": 267708584,
+      "created_at": "2026-10-06T10:57:23Z",
+      "updated_at": "2026-10-06T10:59:05Z",
+      "html_url": "https://github.com/honua-io/honua-sdk-js/actions/runs/37453198273"
+    },
+    {
+      "id": 37453197810,
+      "name": "Regenerate derived artifacts",
+      "path": ".github/workflows/regenerate-derived-artifacts.yml",
+      "event": "workflow_dispatch",
+      "status": "completed",
+      "conclusion": "success",
+      "run_attempt": 1,
+      "head_sha": "984425f9d88b3c699cbd4766538ba311b48790aa",
+      "workflow_id": 316356155,
+      "created_at": "2026-10-06T10:57:23Z",
+      "updated_at": "2026-10-06T11:02:39Z",
+      "html_url": "https://github.com/honua-io/honua-sdk-js/actions/runs/37453197810"
+    },
+    {
+      "id": 37453197010,
+      "name": "Push on trunk",
+      "path": "dynamic/github-code-scanning/codeql",
+      "event": "dynamic",
+      "status": "completed",
+      "conclusion": "success",
+      "run_attempt": 1,
+      "head_sha": "984425f9d88b3c699cbd4766538ba311b48790aa",
+      "workflow_id": 292274985,
+      "created_at": "2026-10-06T10:57:23Z",
+      "updated_at": "2026-10-06T11:11:25Z",
+      "html_url": "https://github.com/honua-io/honua-sdk-js/actions/runs/37453197010"
+    },
+    {
+      "id": 37453198234,
+      "name": "SDK Verification",
+      "path": ".github/workflows/sdk-verification.yml",
+      "event": "push",
+      "status": "completed",
+      "conclusion": "success",
+      "run_attempt": 1,
+      "head_sha": "984425f9d88b3c699cbd4766538ba311b48790aa",
+      "workflow_id": 335749058,
+      "created_at": "2026-10-06T10:57:23Z",
+      "updated_at": "2026-10-06T11:18:38Z",
+      "html_url": "https://github.com/honua-io/honua-sdk-js/actions/runs/37453198234"
+    },
+    {
+      "id": 37453198320,
+      "name": "Release Please",
+      "path": ".github/workflows/release-please.yml",
+      "event": "push",
+      "status": "completed",
+      "conclusion": "failure",
+      "run_attempt": 1,
+      "head_sha": "984425f9d88b3c699cbd4766538ba311b48790aa",
+      "workflow_id": 243336045,
+      "created_at": "2026-10-06T10:57:23Z",
+      "updated_at": "2026-10-06T11:12:53Z",
+      "html_url": "https://github.com/honua-io/honua-sdk-js/actions/runs/37453198320"
+    },
+    {
+      "id": 37453198295,
+      "name": "SDK CI",
+      "path": ".github/workflows/ci.yml",
+      "event": "push",
+      "status": "completed",
+      "conclusion": "success",
+      "run_attempt": 1,
+      "head_sha": "984425f9d88b3c699cbd4766538ba311b48790aa",
+      "workflow_id": 241050046,
+      "created_at": "2026-10-06T10:57:23Z",
+      "updated_at": "2026-10-06T11:37:10Z",
+      "html_url": "https://github.com/honua-io/honua-sdk-js/actions/runs/37453198295"
+    }
+  ]
+}

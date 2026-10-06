@@ -1629,6 +1629,41 @@ def test_an_unreadable_server_vocabulary_refuses(body, message):
         resolver.advertised_capabilities(Server(), candidate)
 
 
+def test_green_passes_advisory_and_accepts_the_server_fixture_sha():
+    """c19f29d is green only when the resolver hands the advisory list to the evaluator."""
+    captured = json.loads((
+        resolver.ROOT / 'tools' / 'fixtures' / 'candidate-resolution-2026-10-06' / 'honua-server-c19f29d.json'
+    ).read_text())
+    seen = {}
+    original = resolver.ci.evaluate
+
+    def evaluate(*args, **kwargs):
+        seen['advisory'] = kwargs.get('advisory')
+        return original(*args, **kwargs)
+
+    github = resolver.GitHub()
+
+    def pages(path, key=None):
+        assert captured['sha'] in path
+        if key == 'check_runs':
+            return iter(captured['check_runs'])
+        if key == 'workflow_runs':
+            return iter(captured['workflow_runs'])
+        raise AssertionError(path)
+
+    github.pages = pages
+    resolver.ci.evaluate = evaluate
+    try:
+        ok, why = github.green('honua-server', 'honua-io/honua-server', captured['sha'])
+    finally:
+        resolver.ci.evaluate = original
+    assert ok, why
+    assert 'full-matrix run 37435142851 completed successfully' in why
+    workflows = seen['advisory']['honua-server']['workflows']
+    assert '.github/workflows/server-test-prebuild-observe.yml' in workflows
+    assert '.github/workflows/ci.yml' not in workflows
+
+
 def test_the_documented_baseline_is_the_dotnet_fixture_and_resolves():
     doc = (resolver.ROOT / 'docs' / 'SDK-SERVER-BASELINE-RULE.md').read_text(encoding='utf-8')
     section = doc.split('## The SDK capability baseline file', 1)[1]

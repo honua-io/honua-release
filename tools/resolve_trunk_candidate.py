@@ -155,7 +155,8 @@ class GitHub:
         result = ci.evaluate({'components': {name: {'sha': sha}}}, lambda *_: payload,
                              enforcement='strict', env_gated=ci.load_env_gated(),
                              rollup=ci.load_rollup(), security=ci.load_security(),
-                             governance=ci.load_governance(), full_matrix=ci.load_full_matrix())
+                             governance=ci.load_governance(), full_matrix=ci.load_full_matrix(),
+                             advisory=ci.load_advisory())
         row = result['components'][0]
         return row['decided'] == 'pass', row['why']
 
