@@ -45,6 +45,7 @@ ENV_GATED_PATH = REPO_ROOT / "certification" / "env-gated-checks.yaml"
 ROLLUP_PATH = REPO_ROOT / "certification" / "rollup-checks.yaml"
 SECURITY_PATH = REPO_ROOT / "certification" / "security-checks.yaml"
 GOVERNANCE_PATH = REPO_ROOT / "certification" / "governance-checks.yaml"
+ADVISORY_PATH = REPO_ROOT / "certification" / "advisory-checks.yaml"
 FULL_MATRIX_PATH = REPO_ROOT / "certification" / "full-matrix-checks.yaml"
 ORG = "honua-io"
 
@@ -130,6 +131,35 @@ def load_governance(path=GOVERNANCE_PATH) -> dict[str, frozenset[str]]:
     return _load_check_names(path)
 
 
+def load_advisory(path=ADVISORY_PATH) -> dict[str, dict[str, frozenset[str]]]:
+    """Load checks that are filed on a SHA but do not judge that SHA.
+
+    An entry is either a job `name` or an Actions `workflow` path. A workflow entry
+    excludes every check-run of that workflow. That is how a workflow_run observer
+    which GitHub files on the default-branch SHA, while the job checks out a
+    different revision, stays out of the core verdict. Missing file => empty map.
+    Never list a build, test, security, or contract job of the pinned source.
+    """
+    p = Path(path)
+    if not p.exists():
+        return {}
+    data = yaml.safe_load(p.read_text(encoding="utf-8")) or {}
+    out: dict[str, dict[str, frozenset[str]]] = {}
+    for comp, entries in data.items():
+        names: set[str] = set()
+        workflows: set[str] = set()
+        for entry in entries or []:
+            entry = entry or {}
+            name = str(entry.get("name", "")).strip()
+            workflow = str(entry.get("workflow", "")).strip()
+            if name:
+                names.add(name)
+            if workflow:
+                workflows.add(workflow)
+        out[str(comp)] = {"names": frozenset(names), "workflows": frozenset(workflows)}
+    return out
+
+
 def load_full_matrix(path=FULL_MATRIX_PATH) -> dict[str, dict]:
     """Load components whose release pin requires an authoritative full-matrix Actions run."""
     p = Path(path)
@@ -193,7 +223,9 @@ def _latest_named_runs(runs: list[dict]) -> list[dict]:
 def classify(payload, env_gated_names: frozenset[str] = frozenset(),
              rollup_names: frozenset[str] = frozenset(),
              security_names: frozenset[str] = frozenset(),
-             governance_names: frozenset[str] = frozenset()) -> tuple[str, str]:
+             governance_names: frozenset[str] = frozenset(),
+             advisory_names: frozenset[str] = frozenset(),
+             advisory_workflows: frozenset[str] = frozenset()) -> tuple[str, str]:
     """Map a component's check-runs payload to (status, why). Pure → unit-tested.
 
     `env_gated_names` are check-run names to treat as env-gated live/staging-integration lanes: they
@@ -203,10 +235,14 @@ def classify(payload, env_gated_names: frozenset[str] = frozenset(),
     verdict because they merely mirror the leaf shards and go red on a starvation-cancelled leaf.
     `security_names` are dependency-security check-runs (Dependabot updates, SCA/advisory scanners)
     that run no build/unit/integration of the component; they too are excluded from the core verdict
-    because they are the security gate's concern (gate_security), not a build/test verdict. The
-    pass/fail/blocked decision is made on the CORE (remaining) check-runs only, so a real compile/unit
-    -test red still fails (it surfaces on a leaf shard that stays in core); env-gated, roll-up and
-    security lanes can never mask it."""
+    because they are the security gate's concern (gate_security), not a build/test verdict.
+    `governance_names` are non-build review and attestation jobs. `advisory_names` and
+    `advisory_workflows` are jobs, or whole Actions workflows, that GitHub files on a SHA but
+    that do not judge that SHA. A workflow exclusion applies only when enrichment recorded
+    `_workflow_path`; a missing path stays core. The pass/fail/blocked decision is made on the
+    CORE (remaining) check-runs only, so a real compile/unit-test red still fails (it surfaces
+    on a leaf shard that stays in core); env-gated, roll-up, security, governance and advisory
+    lanes can never mask it."""
     if payload == NOT_FOUND:
         return "blocked", "pinned sha or repo not resolvable (404 / no access)"
     if not isinstance(payload, dict):
@@ -216,8 +252,16 @@ def classify(payload, env_gated_names: frozenset[str] = frozenset(),
         return "blocked", "no CI check-runs for the pinned sha (not built yet?)"
     runs = _latest_named_runs(runs)
 
+    def _advisory(run: dict) -> bool:
+        # A workflow exclusion applies only when enrichment recorded the path. Without
+        # that path the run stays core, so a missing metadata read cannot hide a red.
+        if str(run.get("name", "")) in advisory_names:
+            return True
+        path = str(run.get("_workflow_path") or "").strip()
+        return bool(path) and path in advisory_workflows
+
     excluded = env_gated_names | rollup_names | security_names | governance_names
-    core = [r for r in runs if str(r.get("name", "")) not in excluded]
+    core = [r for r in runs if str(r.get("name", "")) not in excluded and not _advisory(r)]
     env = [r for r in runs if str(r.get("name", "")) in env_gated_names]
     # env-gated lanes that did not finish green — the ones we deliberately skip (env not provisioned).
     env_skipped = [r for r in env
@@ -243,19 +287,29 @@ def classify(payload, env_gated_names: frozenset[str] = frozenset(),
     governance_note = (f"; {len(governance_nongreen)} non-build governance check(s) excluded "
                        f"({sorted({str(r.get('name')) for r in governance_nongreen})}) — no build/test work"
                        if governance_nongreen else "")
-    env_note = env_note + rollup_note + security_note + governance_note
+    advisory_nongreen = [r for r in runs if _advisory(r)
+                         and (r.get("status") != "completed" or str(r.get("conclusion")) not in GREEN)]
+    advisory_note = (f"; {len(advisory_nongreen)} advisory check(s) excluded "
+                     f"({sorted({str(r.get('name')) for r in advisory_nongreen})}) — not a verdict on this sha"
+                     if advisory_nongreen else "")
+    env_note = env_note + rollup_note + security_note + governance_note + advisory_note
 
     if not core:
-        # Only env-gated / roll-up / security lanes ran → no core build/test signal to certify on. Never pass.
-        return "blocked", "only env-gated / roll-up / security check-runs present; no core build/test signal"
+        # Only excluded lanes ran → no core build/test signal to certify on. Never pass.
+        return "blocked", ("only env-gated / roll-up / security / governance / advisory "
+                           "check-runs present; no core build/test signal")
 
     # A CORE (build/unit) red is decisive and is evaluated FIRST — before "still in progress" — so a
     # real failure is never masked as blocked-in-progress just because sibling shards are still
     # running (that mid-run window is exactly when a live train read could otherwise tolerate a red).
-    conclusions = [str(r.get("conclusion")) for r in core if r.get("status") == "completed"]
+    completed = [r for r in core if r.get("status") == "completed"]
+    conclusions = [str(r.get("conclusion")) for r in completed]
     reds = [c for c in conclusions if c in RED]
     if reds:
-        return "fail", f"{len(reds)}/{len(core)} core check-run(s) red ({sorted(set(reds))}){env_note}"
+        red_names = sorted({str(r.get("name") or "(unnamed)") for r in completed
+                            if str(r.get("conclusion")) in RED})
+        return "fail", (f"{len(reds)}/{len(core)} core check-run(s) red "
+                        f"({sorted(set(reds))}: {red_names}){env_note}")
 
     incomplete = [r for r in core if r.get("status") != "completed"]
     if incomplete:
@@ -359,19 +413,29 @@ def _fetch_paginated_collection(url: str, headers: dict[str, str], key: str) -> 
 
 def _enrich_action_workflow_ids(payload: dict, workflow_payload: dict) -> dict:
     """Attach stable workflow IDs to Actions check-runs so same-named jobs stay independent."""
-    workflows = {
-        int(run["id"]): str(run.get("workflow_id") or run.get("path") or "")
-        for run in (workflow_payload.get("workflow_runs") or [])
-        if run.get("id") is not None
-    }
+    workflows = {}
+    paths = {}
+    for run in (workflow_payload.get("workflow_runs") or []):
+        if run.get("id") is None:
+            continue
+        run_id = int(run["id"])
+        workflows[run_id] = str(run.get("workflow_id") or run.get("path") or "")
+        if run.get("path"):
+            paths[run_id] = str(run.get("path"))
     for run in payload.get("check_runs") or []:
         app = run.get("app") or {}
         if not isinstance(app, dict) or app.get("slug") != "github-actions":
             continue
         match = _ACTIONS_RUN_URL.search(str(run.get("details_url") or ""))
-        workflow_id = workflows.get(int(match.group(1))) if match else None
+        if not match:
+            continue
+        actions_run_id = int(match.group(1))
+        workflow_id = workflows.get(actions_run_id)
         if workflow_id:
             run["_workflow_id"] = workflow_id
+        path = paths.get(actions_run_id)
+        if path:
+            run["_workflow_path"] = path
     return payload
 
 
@@ -411,13 +475,15 @@ def evaluate(manifest: dict, fetch: Fetcher, enforcement: str = "bootstrap",
              rollup: dict[str, frozenset[str]] | None = None,
              security: dict[str, frozenset[str]] | None = None,
              governance: dict[str, frozenset[str]] | None = None,
-             full_matrix: dict[str, dict] | None = None) -> dict:
+             full_matrix: dict[str, dict] | None = None,
+             advisory: dict[str, dict[str, frozenset[str]]] | None = None) -> dict:
     components = manifest.get("components") or {}
     env_gated = env_gated or {}
     rollup = rollup or {}
     security = security or {}
     governance = governance or {}
     full_matrix = full_matrix or {}
+    advisory = advisory or {}
     rows = []
     for name, comp in components.items():
         comp = comp or {}
@@ -427,9 +493,12 @@ def evaluate(manifest: dict, fetch: Fetcher, enforcement: str = "bootstrap",
                          "why": "no sha pinned in manifest (cannot resolve CI)"})
             continue
         payload = fetch(name, sha)
+        advice = advisory.get(name) or {}
         status, why = classify(payload, env_gated.get(name, frozenset()),
                                rollup.get(name, frozenset()), security.get(name, frozenset()),
-                               governance.get(name, frozenset()))
+                               governance.get(name, frozenset()),
+                               advice.get("names", frozenset()),
+                               advice.get("workflows", frozenset()))
         if name in full_matrix:
             matrix_status, matrix_why = classify_full_matrix(payload, full_matrix[name], sha)
             if matrix_status != "pass":
@@ -468,6 +537,8 @@ def main(argv: list[str] | None = None) -> int:
                     help="YAML of per-component non-build governance check-run names")
     ap.add_argument("--full-matrix", default=str(FULL_MATRIX_PATH),
                     help="YAML of components requiring a completed full-matrix Actions run")
+    ap.add_argument("--advisory", default=str(ADVISORY_PATH),
+                    help="YAML of per-component advisory check names and workflow paths")
     ap.add_argument("--out", default=str(REPO_ROOT / "certification" / "gate-report-build-test.json"))
     args = ap.parse_args(argv)
 
@@ -477,8 +548,9 @@ def main(argv: list[str] | None = None) -> int:
     security = load_security(args.security)
     governance = load_governance(args.governance)
     full_matrix = load_full_matrix(args.full_matrix)
+    advisory = load_advisory(args.advisory)
     report = evaluate(manifest, _default_fetch, args.enforcement, env_gated, rollup, security, governance,
-                      full_matrix)
+                      full_matrix, advisory)
     Path(args.out).write_text(json.dumps(report, indent=2) + "\n", encoding="utf-8")
 
     print(f"== build-test (per-repo CI on pinned SHAs) — {report['overallStatus'].upper()} "

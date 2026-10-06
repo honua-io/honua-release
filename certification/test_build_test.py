@@ -350,6 +350,30 @@ def test_load_governance_never_lists_build_or_test_lane():
             assert not banned.search(name.lower()), f"{comp}: '{name}' looks like a core lane"
 
 
+def test_load_advisory_never_hides_a_product_build_test_or_contract_lane():
+    import re
+
+    advisory = bt.load_advisory()
+    banned = re.compile(
+        r"\b(?:restore|build|compile|unit|tests?|integration|playwright|validate|certify|smoke|coverage)\b"
+    )
+    forbidden_names = {
+        "certify",
+        "Three-engine smoke and source-packed parity",
+        "Build site",
+        "Build & Format Check",
+        "release-please-ci",
+        "Server Tests (FeatureServer Tiles and Replica)",
+    }
+    forbidden_workflows = {".github/workflows/ci.yml", ".github/workflows/sdk-certification.yml",
+                           ".github/workflows/first-map-release-smoke.yml"}
+    for comp, policy in advisory.items():
+        for name in policy["names"]:
+            assert name not in forbidden_names, f"{comp}: '{name}' is a product lane"
+            assert not banned.search(name.lower()), f"{comp}: '{name}' looks like a core lane"
+        assert not (policy["workflows"] & forbidden_workflows), comp
+
+
 # ---- evaluate -------------------------------------------------------------------------------------
 def _fetch_map(mapping):
     return lambda repo, sha: mapping.get(repo, bt.NOT_FOUND)

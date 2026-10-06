@@ -155,7 +155,8 @@ class GitHub:
         result = ci.evaluate({'components': {name: {'sha': sha}}}, lambda *_: payload,
                              enforcement='strict', env_gated=ci.load_env_gated(),
                              rollup=ci.load_rollup(), security=ci.load_security(),
-                             governance=ci.load_governance(), full_matrix=ci.load_full_matrix())
+                             governance=ci.load_governance(), full_matrix=ci.load_full_matrix(),
+                             advisory=ci.load_advisory())
         row = result['components'][0]
         return row['decided'] == 'pass', row['why']
 
@@ -280,6 +281,42 @@ class Registry:
         return {'image': f'ghcr.io/{repository}@{digest}', 'digest': digest, 'platformDigests': children,
                 'artifactSourceRevision': sha}
 
+    def lambda_manifest_digest(self, repository, tag, sha):
+        """Digest of the single linux/amd64 Lambda manifest bound to `sha`.
+
+        The nightly tag is that manifest, or an index whose only linux platform is amd64
+        plus a non-linux attestation descriptor. Lambda runs the single-arch manifest, so
+        an index pins the child. A tag that is not that shape refuses; it does not raise
+        KeyError and abort the rest of the candidate walk.
+        """
+        raw, _ = self.request(repository, 'manifests/' + tag, manifest=True)
+        digest = 'sha256:' + hashlib.sha256(raw).hexdigest()
+        document = self.document(repository, digest, manifest=True)
+        if not isinstance(document, dict):
+            raise ResolutionError('Lambda image manifest is not an object')
+        if 'manifests' in document:
+            linux = [item for item in (document.get('manifests') or [])
+                     if isinstance(item, dict) and (item.get('platform') or {}).get('os') == 'linux']
+            amd64 = [item for item in linux if (item.get('platform') or {}).get('architecture') == 'amd64']
+            child = str(amd64[0].get('digest') or '') if len(linux) == 1 and len(amd64) == 1 else ''
+            if not DIGEST.fullmatch(child):
+                raise ResolutionError('Lambda image is not a single linux/amd64 manifest')
+            digest = child
+            document = self.document(repository, digest, manifest=True)
+            if not isinstance(document, dict):
+                raise ResolutionError('Lambda image manifest is not an object')
+        config_digest = str((document.get('config') or {}).get('digest') or '')
+        if not DIGEST.fullmatch(config_digest):
+            raise ResolutionError('Lambda image has no config')
+        config = self.document(repository, config_digest)
+        if not isinstance(config, dict):
+            raise ResolutionError('Lambda image config is not an object')
+        labels = (config.get('config') or {}).get('Labels') or {}
+        revision = labels.get('org.opencontainers.image.revision') if isinstance(labels, dict) else None
+        if revision != sha or config.get('architecture') != 'amd64' or config.get('os') != 'linux':
+            raise ResolutionError('Lambda image is not bound to candidate source')
+        return digest
+
     def image(self, name, component, sha):
         repository = component['image'].removeprefix('ghcr.io/').split('@')[0].split(':')[0]
         reasons = []
@@ -288,13 +325,7 @@ class Registry:
                 result = self.identity(repository, tag, sha, component.get('architectures', ['amd64']))
                 if component.get('awsLambdaImage'):
                     lambda_tag = f'nightly-lambda-aot-{sha[:7]}-amd64'
-                    raw, _ = self.request(repository, 'manifests/' + lambda_tag, manifest=True)
-                    digest = 'sha256:' + hashlib.sha256(raw).hexdigest()
-                    child = self.document(repository, digest, manifest=True)
-                    config = self.document(repository, child['config']['digest'])
-                    if (config.get('config', {}).get('Labels', {}).get('org.opencontainers.image.revision') != sha
-                            or config.get('architecture') != 'amd64' or config.get('os') != 'linux'):
-                        raise ResolutionError('Lambda image is not bound to candidate source')
+                    digest = self.lambda_manifest_digest(repository, lambda_tag, sha)
                     existing = str(component.get('awsLambdaEcrDigest') or '')
                     # A moved source pin cannot keep yesterday's mirror digest (honua-release#99).
                     ecr = existing if component.get('sha') == sha and (
