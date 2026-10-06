@@ -1578,7 +1578,36 @@
       "docker": true,
       "session": null,
       "checkout": null,
-      "blocks": []
+      "blocks": [
+        {
+          "index": 0,
+          "line": 36,
+          "language": "yaml",
+          "infoString": "yaml",
+          "intent": "file",
+          "intentSource": "marker",
+          "sha256": "de35edd9a292eba0d8393aca44d84baa9986c769adfaa0eeff88b365869a8e40",
+          "file": "compose.yaml"
+        },
+        {
+          "index": 1,
+          "line": 76,
+          "language": "shell",
+          "infoString": "sh",
+          "intent": "run",
+          "intentSource": "heuristic",
+          "sha256": "9acdd1ecfbf74e89f690023e96ab44ce25d5eeb98048bcdc1dd38f8f0ff836df"
+        },
+        {
+          "index": 2,
+          "line": 86,
+          "language": "shell",
+          "infoString": "sh",
+          "intent": "run",
+          "intentSource": "heuristic",
+          "sha256": "18da6f781aad763bf1e7c709eb51cc6f5192e5e947fc0949ca609d9dd7a1b96e"
+        }
+      ]
     },
     {
       "id": "honua-server-docs-get-started-quickstart",
@@ -2766,15 +2795,15 @@
   ],
   "summary": {
     "documents": 35,
-    "blocks": 222,
+    "blocks": 225,
     "byIntent": {
       "alternative": 1,
       "compile": 8,
       "excluded": 4,
-      "file": 21,
+      "file": 22,
       "illustrative": 14,
       "output": 6,
-      "run": 166,
+      "run": 168,
       "teardown": 2
     }
   }
