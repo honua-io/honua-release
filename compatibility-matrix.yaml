@@ -52,7 +52,7 @@ contracts:
     # docs/GRPC-0.2.0-ALPHA.1-CUT.md.
     clients:
       honua-sdk-dotnet: ">=1.3.0"                   # floor = oldest supported (published artifact is 1.10.3)
-      honua-sdk-js:     ">=0.0.14-alpha.0"          # floor = oldest supported (published artifact is 0.1.13)
+      honua-sdk-js:     ">=0.0.14-alpha.0"          # floor = oldest supported (published artifact is 0.1.14)
   admin:               # console <-> server admin/control-plane API
     # REAL: advertised at /api/v1/admin/capabilities (AdminApiMajor="v1", AdminApiMajorNumber=1,
     # basePath /api/v1/admin; capabilities exposes compatibility.controlPlaneApi.major=1).

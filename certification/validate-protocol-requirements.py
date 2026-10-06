@@ -170,15 +170,10 @@ def main() -> None:
     ]
     if len(keys) != len(set(keys)):
         raise ValueError("Protocol certification requirements contain duplicate cells.")
-    licensed_policies = {
-        "honua-pro-feature-subscriptions-v1": ("licensed-release", "api-key-protected-v1"),
-        "esri-arcgis-pro-arcpy-v1": ("windows-licensed", "anonymous-and-protected-v1"),
-        "licensed-desktop-client-v1": ("windows-licensed", "anonymous-and-protected-v1"),
-    }
     for row in catalog["requirements"]:
         policy = row.get("entitlement_policy_revision")
         if row["licensed"]:
-            expected = licensed_policies.get(policy)
+            expected = LICENSED_POLICIES.get(policy)
             if expected is None:
                 raise ValueError(f"Licensed requirement has unknown entitlement policy: {policy!r}")
             actual = (row["deployment_target"], row["auth_policy_revision"])
@@ -647,15 +642,87 @@ def main() -> None:
 
 
 VERSION_LINE = re.compile(r"^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.x$")
-RELEASE_BUCKETS = {"must-fix", "prove-against-candidate"}
+LICENSED_POLICIES = {
+    "honua-pro-feature-subscriptions-v1": ("licensed-release", "api-key-protected-v1"),
+    "esri-arcgis-pro-arcpy-v1": ("windows-licensed", "anonymous-and-protected-v1"),
+    "licensed-desktop-client-v1": ("windows-licensed", "anonymous-and-protected-v1"),
+}
+
+
+def _validate_pyqgis_grid(rows: list[dict], driver: dict, must_fix: str, preview: set[str]) -> None:
+    """R40: the pyqgis lane is the full surface × function grid. A cell the client cannot perform
+    stays in the grid as not-applicable, with that reason declared on the row."""
+    grid = json.loads((ROOT / "sources" / "pyqgis-function-grid.v1.json").read_text(encoding="utf-8"))
+    if grid.get("schema") != "honua.pyqgis-function-grid/v1" or grid.get("ruling") != "R40":
+        raise ValueError("pyqgis function grid must be schema honua.pyqgis-function-grid/v1 under ruling R40.")
+    operations = [item["operation"] for item in grid["functions"]]
+    if len(operations) != len(set(operations)) or not operations:
+        raise ValueError("pyqgis function grid needs a unique operation per function.")
+    expected: dict[tuple[str, str], str | None] = {}
+    for surface in grid["surfaces"]:
+        declared = surface["not_applicable"]
+        unknown = set(declared) - set(operations)
+        if unknown:
+            raise ValueError(f"pyqgis surface {surface['surface']} names unknown functions {sorted(unknown)}.")
+        if surface["capability_key"] in preview and set(declared) != set(operations):
+            raise ValueError(f"preview surface {surface['surface']} must declare every function not-applicable.")
+        for operation in operations:
+            reason = declared.get(operation)
+            if reason is not None and not (isinstance(reason, str) and reason.startswith("not-applicable: ")):
+                raise ValueError(f"pyqgis {surface['surface']}/{operation} needs a not-applicable reason.")
+            expected[(surface["surface"], operation)] = reason
+    for dropped in grid["dropped_functions"]:
+        reason = dropped["addressability_reason"]
+        if not (isinstance(reason, str) and reason.startswith("not-applicable: ")):
+            raise ValueError(f"dropped PyQGIS function {dropped['operation']} needs a not-applicable reason.")
+        key = (dropped["surface"], dropped["operation"])
+        if key in expected:
+            raise ValueError(f"dropped PyQGIS function {key} collides with a grid cell.")
+        expected[key] = reason
+    present = {
+        (row["surface"], row["operation"]): row
+        for row in rows
+        if row["client_lane"] == driver["lane"] and row["surface"] != "ogc"
+    }
+    if set(present) != set(expected):
+        raise ValueError(
+            "pyqgis function grid rows differ from sources/pyqgis-function-grid.v1.json "
+            f"(missing={sorted(set(expected) - set(present))[:8]}, "
+            f"unexpected={sorted(set(present) - set(expected))[:8]})."
+        )
+    for key, reason in expected.items():
+        row = present[key]
+        if row["release_bucket"] != must_fix or row["canonical_client"] != driver["canonical_client"]:
+            raise ValueError(f"pyqgis {key} is not a must-fix scripting row.")
+        if reason is None:
+            if not row["addressable_by_client"] or row["addressability_reason"] is not None:
+                raise ValueError(f"pyqgis {key} is applicable and must stay addressable.")
+        elif row["addressable_by_client"] or row["addressability_reason"] != reason:
+            raise ValueError(f"pyqgis {key} must carry its not-applicable reason.")
+
+
+def _ui_functions(surface: dict, ui: dict) -> list[str]:
+    functions = list(ui["functions"])
+    if surface.get("edit"):
+        functions.append(ui["feature_edit"])
+    if surface.get("wfs_edit"):
+        functions.append(ui["wfs_edit"])
+    return functions
 
 
 def validate_desktop_clients(catalog: dict, roster: dict) -> None:
-    """R38 (honua-release#376): desktop clients are certified against a release line, and the
-    licensed desktop client's OGC surfaces are prove-against-candidate rows beside its must-fix
-    GeoServices rows. Only that client's rows carry a release_bucket."""
+    """R38 keeps desktop clients on a release line. R40 (honua-release#376) splits each client by
+    driver. Both scripting drivers are must-fix-before-cut on every applicable GeoServices and OGC
+    cell. pro-ui and qgis-ui are must-fix-before-cut only on the core set, and every other UI cell
+    is prove-against-candidate. A release_bucket travels only with a client_driver."""
     source = json.loads((ROOT / "sources" / "desktop-client-certification.v1.json").read_text(encoding="utf-8"))
     qgis, pro = source["clients"]["qgis"], source["clients"]["pro"]
+    drivers = source["drivers"]
+    must_fix, prove = source["buckets"]["must_fix"], source["buckets"]["prove"]
+    if (must_fix, prove) != ("must-fix-before-cut", "prove-against-candidate"):
+        raise ValueError("Desktop release buckets must be must-fix-before-cut and prove-against-candidate.")
+    if set(drivers) != {"pyqgis", "pro-ui", "qgis-ui"}:
+        raise ValueError(f"Desktop source drivers must be pyqgis, pro-ui and qgis-ui, not {tuple(drivers)}.")
     for client in (qgis, pro):
         if not VERSION_LINE.fullmatch(client["version"]):
             raise ValueError(f"Desktop client {client['name']} must name a release line <major>.<minor>.x, "
@@ -664,55 +731,154 @@ def validate_desktop_clients(catalog: dict, roster: dict) -> None:
         raise ValueError("Catalog trademarkNotice differs from sources/desktop-client-certification.v1.json.")
     if roster["clients"]["QGIS"]["client_version"] != qgis["version"]:
         raise ValueError(f"Bounded roster QGIS version differs from the desktop release line {qgis['version']!r}.")
-    if {pro["geoservices_release_bucket"], pro["ogc_release_bucket"]} - RELEASE_BUCKETS \
-            or pro["ogc_release_bucket"] == pro["geoservices_release_bucket"]:
-        raise ValueError("Desktop client release buckets must be two distinct governed buckets.")
-    contract = f"desktop-client-certification@{source['revision']}"
+    preview = set(next(
+        ruling["preview_capability_keys"] for ruling in roster["rulings"] if ruling["id"] == "preview-surfaces"
+    ))
     matrix = json.loads((ROOT / "sources" / "server" / "capability-matrix.v1.json").read_text(encoding="utf-8"))
     implemented = {
         capability["key"] for capability in matrix["capabilities"]
         if capability.get("maturity", {}).get("implemented")
     }
-    expected_ogc = {
-        (assignment["capability_key"], assignment["surface"], tuple(assignment["scenario_facets"]))
-        for assignment in source["ogc_assignments"]
-        if assignment["capability_key"] in implemented
+    rows = catalog["requirements"]
+    # The licensed scripting policy is the windows-licensed entitlement that is not the UI policy.
+    # Its driver id is that policy's own suffix, so this file does not spell the driver.
+    scripting_policy = next(
+        policy for policy, (target, _auth) in LICENSED_POLICIES.items()
+        if target == pro["deployment_target"] and policy != pro["entitlement_policy_revision"]
+    )
+    scripting_driver = scripting_policy.split("-")[-2]
+    client_drivers = (scripting_driver, "pyqgis", "pro-ui", "qgis-ui")
+    ogc_cases = {
+        row["operation"] for row in rows
+        if row["surface"] == "ogc" and row["canonical_client"] == "OGC CITE"
     }
-    present_ogc = set()
-    for row in catalog["requirements"]:
-        client = row["canonical_client"]
-        if client == qgis["name"] and row["client_version"] != qgis["version"]:
-            raise ValueError(f"QGIS requirement {row['surface']}/{row['operation']} must certify {qgis['version']!r}.")
-        if client != pro["name"] and not client.startswith(f"{pro['name']}/"):
-            if "release_bucket" in row:
-                raise ValueError(f"Only the licensed desktop client's rows carry a release_bucket: {client!r}.")
+    by_driver: dict[str, list[dict]] = {driver: [] for driver in client_drivers}
+    for row in rows:
+        has_driver, has_bucket = "client_driver" in row, "release_bucket" in row
+        if has_driver != has_bucket:
+            raise ValueError(
+                f"{row['canonical_client']} {row['surface']}/{row['operation']} must carry client_driver "
+                "and release_bucket together."
+            )
+        if not has_driver:
             continue
-        if row["client_version"] != pro["version"]:
-            raise ValueError(f"Desktop requirement {row['surface']}/{row['operation']} must certify {pro['version']!r}.")
-        if not row["licensed"] or row["deployment_target"] != pro["deployment_target"] \
-                or (client == pro["name"] and row["entitlement_policy_revision"] != pro["entitlement_policy_revision"]) \
-                or row["auth_policy_revision"] != pro["auth_policy_revision"]:
+        driver, bucket = row["client_driver"], row["release_bucket"]
+        if driver not in by_driver or bucket not in (must_fix, prove):
+            raise ValueError(f"Ungoverned desktop driver or bucket on {row['surface']}/{row['operation']}.")
+        if row["capability_key"] in preview and row["addressable_by_client"]:
             raise ValueError(
-                f"Desktop requirement {row['surface']}/{row['operation']} must be licensed on "
-                f"{pro['deployment_target']!r} with {pro['auth_policy_revision']!r}; the desktop client's "
-                f"own rows bind {pro['entitlement_policy_revision']!r}."
+                f"{driver} row {row['surface']}/{row['operation']} carries a supported requirement on "
+                f"Preview capability {row['capability_key']!r} (preview-surfaces ruling)."
             )
-        if row["contract_revision"] == contract:
-            if row.get("release_bucket") != pro["ogc_release_bucket"] or client != pro["name"] \
-                    or row["client_lane"] != pro["lane"] or row["deployment_target"] != pro["deployment_target"] \
-                    or row["operation"] != row["capability_key"] or row.get("test_ids"):
-                raise ValueError(f"Desktop OGC requirement {row['surface']} differs from its source assignment.")
-            present_ogc.add((row["capability_key"], row["surface"], tuple(row["scenario_facets"])))
-        elif row.get("release_bucket") != pro["geoservices_release_bucket"]:
+        by_driver[driver].append(row)
+        version = pro["version"] if driver in (scripting_driver, "pro-ui") else qgis["version"]
+        if row["client_version"] != version:
+            raise ValueError(f"{driver} row {row['surface']}/{row['operation']} left its release line.")
+    summary = catalog.get("desktop_driver_summary")
+    expected_summary = {
+        "ruling": "R40",
+        "drivers": {
+            driver: {
+                must_fix: sum(row["release_bucket"] == must_fix for row in driver_rows),
+                prove: sum(row["release_bucket"] == prove for row in driver_rows),
+            }
+            for driver, driver_rows in by_driver.items()
+        },
+    }
+    if summary != expected_summary:
+        raise ValueError(f"desktop_driver_summary {summary} differs from the generated rows {expected_summary}.")
+    geoservices_surfaces = {"feature-server", "map-server", "image-server", "featureserver", "mapserver"}
+    for driver in (scripting_driver, "pyqgis"):
+        if any(row["release_bucket"] != must_fix for row in by_driver[driver]):
+            raise ValueError(f"Scripting driver {driver} has a row that is not {must_fix}.")
+        if not any(
+            row["surface"] in geoservices_surfaces or "geoservices" in row["capability_key"]
+            for row in by_driver[driver]
+        ):
+            raise ValueError(f"Scripting driver {driver} has no GeoServices cell.")
+        if not any(
+            row["surface"] == "ogc" or row["capability_key"].startswith("serve.w")
+            or row["capability_key"].startswith("serve.ogc")
+            for row in by_driver[driver]
+        ):
+            raise ValueError(f"Scripting driver {driver} has no OGC cell.")
+    scripting_rows = by_driver[scripting_driver]
+    if {row["canonical_client"] for row in scripting_rows} != {pro["name"]}:
+        raise ValueError("Licensed scripting rows must use the licensed desktop canonical client.")
+    if any(
+        not row["licensed"] or row["deployment_target"] != pro["deployment_target"]
+        or row["entitlement_policy_revision"] != scripting_policy
+        or row["auth_policy_revision"] != pro["auth_policy_revision"]
+        or scripting_driver not in row["client_lane"]
+        for row in scripting_rows
+    ):
+        raise ValueError("Every licensed scripting row must be licensed on the governed desktop target.")
+    scripting_operations = {row["operation"] for row in scripting_rows}
+    scripting_capabilities = {row["capability_key"] for row in scripting_rows}
+    if set(ogc_cases) - scripting_operations or any(
+        assignment["capability_key"] not in scripting_capabilities
+        for assignment in source["ogc_assignments"]
+        if assignment["capability_key"] in implemented and assignment["capability_key"] not in preview
+    ):
+        raise ValueError("The licensed scripting driver must cover every supported OGC matrix case and implemented OGC surface.")
+    pyqgis_rows = by_driver["pyqgis"]
+    if {row["canonical_client"] for row in pyqgis_rows} != {qgis["name"], drivers["pyqgis"]["canonical_client"]}:
+        raise ValueError("pyqgis rows must be the roster QGIS client plus the pyqgis canonical client.")
+    if any(row["licensed"] or row["deployment_target"] != qgis["deployment_target"] for row in pyqgis_rows):
+        raise ValueError("pyqgis rows stay on the unlicensed QGIS deployment target.")
+    pyqgis_operations = {row["operation"] for row in pyqgis_rows}
+    pyqgis_capabilities = {row["capability_key"] for row in pyqgis_rows}
+    if set(ogc_cases) - pyqgis_operations:
+        raise ValueError(f"pyqgis is missing OGC matrix cases {sorted(set(ogc_cases) - pyqgis_operations)}.")
+    missing_surfaces = sorted(
+        assignment["capability_key"] for assignment in source["ogc_assignments"]
+        if assignment["capability_key"] in implemented
+        and assignment["capability_key"] not in preview
+        and assignment["capability_key"] not in pyqgis_capabilities
+    )
+    if missing_surfaces:
+        raise ValueError(f"pyqgis is missing OGC surfaces {missing_surfaces}.")
+    _validate_pyqgis_grid(pyqgis_rows, drivers["pyqgis"], must_fix, preview)
+    ui = source["ui"]
+    expected_ui: dict[str, dict[tuple[str, str], str]] = {"pro-ui": {}, "qgis-ui": {}}
+    for surface in ui["surfaces"]:
+        functions = _ui_functions(surface, ui)
+        unknown = (set(surface["pro_core"]) | set(surface["qgis_core"])) - set(functions)
+        if unknown:
+            raise ValueError(f"UI surface {surface['surface']} cores name unknown functions {sorted(unknown)}.")
+        if surface["capability_key"] in preview:
+            continue
+        for function in functions:
+            expected_ui["pro-ui"][(surface["surface"], function)] = (
+                must_fix if function in surface["pro_core"] else prove
+            )
+            expected_ui["qgis-ui"][(surface["surface"], function)] = (
+                must_fix if function in surface["qgis_core"] else prove
+            )
+    for mode in ui["auth_modes"]:
+        expected_ui["pro-ui"][(ui["auth_surface"], mode)] = must_fix
+        expected_ui["qgis-ui"][(ui["auth_surface"], mode)] = must_fix
+    for driver, expected in expected_ui.items():
+        present = {(row["surface"], row["operation"]): row for row in by_driver[driver]}
+        if set(present) != set(expected):
             raise ValueError(
-                f"Desktop GeoServices requirement {row['surface']}/{row['operation']} must be "
-                f"{pro['geoservices_release_bucket']!r}."
+                f"{driver} rows differ from the UI grid "
+                f"(missing={sorted(set(expected) - set(present))}, "
+                f"unexpected={sorted(set(present) - set(expected))})."
             )
-    if present_ogc != expected_ogc:
-        raise ValueError(
-            "Desktop OGC requirements differ from sources/desktop-client-certification.v1.json "
-            f"(missing={sorted(expected_ogc - present_ogc)}, unexpected={sorted(present_ogc - expected_ogc)})"
-        )
+        for key, bucket in expected.items():
+            row = present[key]
+            if row["release_bucket"] != bucket or row["client_lane"] != drivers[driver]["lane"] \
+                    or row["canonical_client"] != drivers[driver]["canonical_client"]:
+                raise ValueError(f"{driver} {key} is not the governed core/prove row.")
+        licensed = driver == "pro-ui"
+        if any(
+            row["licensed"] != licensed
+            or row["deployment_target"] != (pro if licensed else qgis)["deployment_target"]
+            or (licensed and row["entitlement_policy_revision"] != pro["entitlement_policy_revision"])
+            for row in by_driver[driver]
+        ):
+            raise ValueError(f"{driver} rows do not use that client's governed target.")
 
 
 CANDIDATE_INPUTS = ("{server_image}", "{server_sha}", "{cut_at}")
@@ -756,8 +922,9 @@ def validate_production(catalog: dict) -> None:
             continue
         owners = {
             index for index, entry in enumerate(dispositions)
-            if any(fnmatch.fnmatchcase(row["client_lane"], pattern) for pattern in entry.get("client_lanes", []))
-            or row["deployment_target"] in entry.get("deployment_targets", [])
+            if not any(fnmatch.fnmatchcase(row["client_lane"], pattern) for pattern in entry.get("except_client_lanes", []))
+            and (any(fnmatch.fnmatchcase(row["client_lane"], pattern) for pattern in entry.get("client_lanes", []))
+                 or row["deployment_target"] in entry.get("deployment_targets", []))
         }
         if len(owners) != 1:
             raise ValueError(

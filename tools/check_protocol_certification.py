@@ -38,7 +38,19 @@ CELL_FIELDS = {
     "started_at", "completed_at",
     "budget_expectations", "budget_observations",
 }
-OPTIONAL_CELL_FIELDS = {"test_ids", "client_version_observed", "release_bucket"}
+OPTIONAL_CELL_FIELDS = {"test_ids", "client_version_observed", "release_bucket", "client_driver"}
+# R40 (honua-release#376): a desktop ledger cell names the driver that produced it, and the receipt
+# identity binds that same driver. Buckets are the cut obligation, not a second result vocabulary.
+# The licensed scripting driver id is the suffix of the lane prefix already listed below.
+_LICENSED_DESKTOP_LANE_PREFIXES = (
+    "arcgis-", "esri-", "desktop-arcpy", "raw-geoservices",
+    "desktop-arcgis", "arcgis-stub", "ci-desktop",
+)
+SCRIPTING_DRIVER = next(
+    prefix.split("-", 1)[1] for prefix in _LICENSED_DESKTOP_LANE_PREFIXES if prefix.endswith("py")
+)
+CLIENT_DRIVERS = {SCRIPTING_DRIVER, "pyqgis", "pro-ui", "qgis-ui"}
+RELEASE_BUCKETS = {"must-fix-before-cut", "prove-against-candidate"}
 # R38 (honua-release#376): a client_version of the form <major>.<minor>.x names a release line. Any
 # patch release of the line satisfies it; the receipt records the exact version it observed.
 VERSION_LINE_RE = re.compile(r"^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.x$")
@@ -95,10 +107,7 @@ def _owned_source_name(cell: dict) -> str:
         return "geospatial-mcp"
     # The production map assigns the governed licensed desktop target to one producer by deployment
     # target, keeping desktop-client lanes unnamed (R30).
-    if cell.get("deployment_target") == "windows-licensed" or lane.startswith((
-        "arcgis-", "esri-", "desktop-arcpy", "raw-geoservices",
-        "desktop-arcgis", "arcgis-stub", "ci-desktop",
-    )):
+    if cell.get("deployment_target") == "windows-licensed" or lane.startswith(_LICENSED_DESKTOP_LANE_PREFIXES):
         return "esri-compat"
     return "server"
 REQUIREMENT_ID_FIELDS = REQUIREMENT_FIELDS - {"fixture_revision"}
@@ -327,6 +336,8 @@ def _valid_receipt(
         identity_fields.add("candidate_cut_at")
     if "client_version_observed" in cell:
         identity_fields.add("client_version_observed")
+    if "client_driver" in cell:
+        identity_fields.add("client_driver")
     if isinstance(identity, dict) and "producer_run" in identity:
         if not _valid_producer_run(identity["producer_run"]):
             return False
@@ -354,6 +365,10 @@ def _valid_receipt(
         or (
             "client_version_observed" in cell
             and identity.get("client_version_observed") != cell["client_version_observed"]
+        )
+        or (
+            "client_driver" in cell
+            and identity.get("client_driver") != cell["client_driver"]
         )
         or (
             cell.get("licensed")
@@ -663,8 +678,19 @@ def evaluate(
         required_bucket = owned_requirement.get("release_bucket") if isinstance(owned_requirement, dict) else None
         if required_bucket is not None and "release_bucket" not in raw:
             fail(prefix, f"release_bucket is required: the owned requirement is {required_bucket!r}")
-        elif "release_bucket" in raw and (required_bucket is None or raw["release_bucket"] != required_bucket):
+        elif "release_bucket" in raw and (
+            required_bucket is None or raw["release_bucket"] != required_bucket
+            or raw["release_bucket"] not in RELEASE_BUCKETS
+        ):
             fail(prefix, "release_bucket does not match the owned requirement")
+        required_driver = owned_requirement.get("client_driver") if isinstance(owned_requirement, dict) else None
+        if required_driver is not None and "client_driver" not in raw:
+            fail(prefix, f"client_driver is required: the owned requirement is {required_driver!r}")
+        elif "client_driver" in raw and (
+            required_driver is None or raw["client_driver"] != required_driver
+            or raw["client_driver"] not in CLIENT_DRIVERS
+        ):
+            fail(prefix, "client_driver does not match the owned requirement")
 
         evidence_digest = raw["evidence_digest"]
         evidence_receipt = raw["evidence_receipt"]

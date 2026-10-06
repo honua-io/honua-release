@@ -132,7 +132,7 @@ class MatrixExpectationTests(unittest.TestCase):
             {
                 "npm-node-geoservices-error": ("active", None),
                 "npm-mcp-tools-list": ("active", None),
-                # @honua/mcp-server 0.1.13 preserves the initialize-bound setup view (sdk-js#1875).
+                # @honua/mcp-server 0.1.14 retains the initialize-bound setup view (sdk-js#1875).
                 "npm-mcp-setup-view-tools-list": ("active", None),
                 "pypi-python-geoservices-error": ("active", None),
                 "pypi-admin-clean-install": ("active", None),
@@ -181,7 +181,7 @@ class MatrixExpectationTests(unittest.TestCase):
     def test_workflow_cells_block_only_what_the_pinned_clients_cannot_do(self):
         _, matrix = inputs()
         cells = {c["id"]: c for c in matrix["cells"]}
-        # The pinned 0.1.13 proxy keeps the setup selector (sdk-js#1875): every MCP step must pass.
+        # The pinned 0.1.14 proxy retains the setup selector (sdk-js#1875): every MCP step must pass.
         self.assertNotIn("blockedSteps", cells["npm-mcp-workflow"])
         # honua-sdk 0.1.13 + honua-admin 0.1.10 ship a command for every step (sdk-python#258).
         self.assertNotIn("blockedSteps", cells["pypi-cli-workflow"])

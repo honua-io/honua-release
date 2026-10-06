@@ -1,23 +1,47 @@
 {
   "schema": "honua.desktop-client-certification/v1",
-  "revision": "2026-10-04.2",
-  "ruling": "R38 https://github.com/honua-io/honua-release/issues/376#issuecomment-5977886218",
+  "revision": "2026-10-04.3",
+  "ruling": "R40 https://github.com/honua-io/honua-release/issues/376",
   "trademarkNotice": "Esri, ArcGIS, and the Esri product names used here are trademarks, registered trademarks, or service marks of Esri in the United States and other countries. They identify the products Honua is compatible with; Honua is not affiliated with, sponsored by, or endorsed by Esri.",
   "version_rule": "A client_version of the form <major>.<minor>.x names a release line: a receipt from any patch release of that line satisfies it, and the receipt records the exact version it observed.",
+  "buckets": {
+    "must_fix": "must-fix-before-cut",
+    "prove": "prove-against-candidate"
+  },
+  "drivers": {
+    "pyqgis": {
+      "kind": "scripting",
+      "lane": "desktop-pyqgis",
+      "client": "qgis",
+      "canonical_client": "QGIS/pyqgis",
+      "roster_client": "QGIS"
+    },
+    "pro-ui": {
+      "kind": "ui",
+      "lane": "desktop-pro-ui",
+      "client": "pro",
+      "canonical_client": "ArcGIS Pro"
+    },
+    "qgis-ui": {
+      "kind": "ui",
+      "lane": "desktop-qgis-ui",
+      "client": "qgis",
+      "canonical_client": "QGIS/qgis-ui"
+    }
+  },
   "clients": {
     "qgis": {
       "name": "QGIS",
-      "version": "3.44.x"
+      "version": "3.44.x",
+      "deployment_target": "local-docker",
+      "auth_policy_revision": "anonymous-and-protected-v1"
     },
     "pro": {
       "name": "ArcGIS Pro",
       "version": "3.7.x",
-      "lane": "desktop-pro",
       "deployment_target": "windows-licensed",
       "auth_policy_revision": "anonymous-and-protected-v1",
-      "entitlement_policy_revision": "licensed-desktop-client-v1",
-      "geoservices_release_bucket": "must-fix",
-      "ogc_release_bucket": "prove-against-candidate"
+      "entitlement_policy_revision": "licensed-desktop-client-v1"
     }
   },
   "ogc_assignments": [
@@ -30,5 +54,106 @@
     {"capability_key": "serve.ogc-api-maps", "surface": "ogc-api-maps", "scenario_facets": ["positive", "auth", "crs-axis", "media-schema"]},
     {"capability_key": "serve.vector-tiles", "surface": "vector-tiles", "scenario_facets": ["positive", "auth", "media-schema"]},
     {"capability_key": "serve.i3s-scene", "surface": "i3s", "scenario_facets": ["positive", "auth", "media-schema"]}
-  ]
+  ],
+  "ui": {
+    "functions": ["connect", "add-layer", "render", "identify", "query"],
+    "feature_edit": "edit",
+    "wfs_edit": "wfs-t-edit",
+    "auth_surface": "auth",
+    "auth_capability": "desktop.auth",
+    "auth_modes": ["anonymous", "token-api-key", "portal-sign-in"],
+    "facets": {
+      "geoservices": ["positive", "auth", "media-schema"],
+      "ogc": ["positive", "auth", "crs-axis", "media-schema"],
+      "auth": ["auth"]
+    },
+    "surfaces": [
+      {
+        "surface": "feature-server",
+        "capability_key": "serve.geoservices-featureserver",
+        "family": "geoservices",
+        "edit": true,
+        "pro_core": ["connect", "add-layer", "render", "identify", "query", "edit"],
+        "qgis_core": ["connect", "add-layer", "render", "identify", "query", "edit"]
+      },
+      {
+        "surface": "map-server",
+        "capability_key": "serve.geoservices-mapserver",
+        "family": "geoservices",
+        "pro_core": ["connect", "add-layer", "render", "identify", "query"],
+        "qgis_core": ["connect", "add-layer", "render", "identify", "query"]
+      },
+      {
+        "surface": "image-server",
+        "capability_key": "serve.geoservices-imageserver",
+        "family": "geoservices",
+        "pro_core": ["render"],
+        "qgis_core": ["render"]
+      },
+      {
+        "surface": "wms",
+        "capability_key": "serve.wms",
+        "family": "ogc",
+        "pro_core": [],
+        "qgis_core": ["connect", "add-layer", "render", "identify", "query"]
+      },
+      {
+        "surface": "wfs",
+        "capability_key": "serve.wfs",
+        "family": "ogc",
+        "wfs_edit": true,
+        "pro_core": [],
+        "qgis_core": ["connect", "add-layer", "render", "identify", "query", "wfs-t-edit"]
+      },
+      {
+        "surface": "wcs",
+        "capability_key": "serve.wcs",
+        "family": "ogc",
+        "pro_core": [],
+        "qgis_core": ["connect", "add-layer", "render", "identify", "query"]
+      },
+      {
+        "surface": "wmts",
+        "capability_key": "serve.wmts",
+        "family": "ogc",
+        "pro_core": [],
+        "qgis_core": []
+      },
+      {
+        "surface": "ogc-api-features",
+        "capability_key": "serve.ogc-api-features",
+        "family": "ogc",
+        "pro_core": [],
+        "qgis_core": []
+      },
+      {
+        "surface": "ogc-api-tiles",
+        "capability_key": "serve.ogc-api-tiles",
+        "family": "ogc",
+        "pro_core": [],
+        "qgis_core": []
+      },
+      {
+        "surface": "ogc-api-maps",
+        "capability_key": "serve.ogc-api-maps",
+        "family": "ogc",
+        "pro_core": [],
+        "qgis_core": []
+      },
+      {
+        "surface": "vector-tiles",
+        "capability_key": "serve.vector-tiles",
+        "family": "ogc",
+        "pro_core": [],
+        "qgis_core": []
+      },
+      {
+        "surface": "i3s",
+        "capability_key": "serve.i3s-scene",
+        "family": "ogc",
+        "pro_core": [],
+        "qgis_core": []
+      }
+    ]
+  }
 }

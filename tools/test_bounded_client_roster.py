@@ -190,6 +190,50 @@ def test_preview_surface_cells_are_explicit_and_carry_no_requirement():
     ]
 
 
+def _preview_capabilities(roster: dict) -> set[str]:
+    return set(next(
+        ruling for ruling in roster["rulings"] if ruling["id"] == "preview-surfaces"
+    )["preview_capability_keys"])
+
+
+def test_preview_surfaces_yield_no_supported_desktop_driver_requirement():
+    """R40 under release#351: no client driver, UI or scripting, gets a supported requirement on a
+    Preview surface. The release gate requires every addressable supported row, so a Preview row
+    there would let a capability outside the GA denominator fail the cut."""
+    catalog = _load(CERTIFICATION / CATALOG)
+    preview = _preview_capabilities(_load(CERTIFICATION / ROSTER))
+    driver_rows = [row for row in catalog["requirements"] if "client_driver" in row]
+
+    assert driver_rows
+    assert not [
+        _key(row) + (row["client_driver"],) for row in driver_rows
+        if row["capability_key"] in preview and row["addressable_by_client"]
+    ]
+    assert not [
+        _key(row) for row in driver_rows
+        if row["capability_key"] in preview and row["client_driver"] in {"pro-ui", "qgis-ui"}
+    ]
+    summary = catalog["desktop_driver_summary"]["drivers"]
+    for driver in ("pro-ui", "qgis-ui"):
+        assert sum(summary[driver].values()) == sum(row["client_driver"] == driver for row in driver_rows)
+
+
+def test_validator_rejects_a_desktop_driver_row_on_a_preview_surface(certification_copy: Path):
+    catalog = _load(certification_copy / CATALOG)
+    preview_ui = dict(next(
+        row for row in catalog["requirements"]
+        if row.get("client_driver") == "qgis-ui" and row["capability_key"] == "serve.wms"
+    ))
+    preview_ui.update(capability_key="serve.wmts", surface="wmts")
+    catalog["requirements"].append(preview_ui)
+    _write(certification_copy / CATALOG, catalog)
+
+    result = _run(certification_copy, "validate-protocol-requirements.py")
+
+    assert result.returncode != 0
+    assert "carries a supported requirement on Preview capability 'serve.wmts'" in result.stderr
+
+
 def test_cells_no_released_client_can_exercise_are_explicit_non_addressable_rows():
     """release#359: governed rows name released clients that can exercise the operation."""
     catalog = _load(CERTIFICATION / CATALOG)

@@ -28,7 +28,9 @@ name: demo-canary
 
 on:
   schedule:
-    - cron: "23 */6 * * *"   # every 6 hours
+    # Daily (was every 6 hours): the demo deployment changes only when it is redeployed, so four
+    # identical red runs a day added nothing. A failure opens/updates one tracking issue below.
+    - cron: "23 6 * * *"
   workflow_dispatch:
     inputs:
       base_url:
@@ -71,8 +73,10 @@ jobs:
           HONUA_DEMO_API_KEY: ${{ secrets.HONUA_DEMO_API_KEY }}
         run: |
           set -uo pipefail
-          python e2e/demo_canary.py --base "$HONUA_DEMO_BASE_URL" > /tmp/canary.log 2>&1
-          RC=$?
+          # The step shell is `bash -e`: capture the exit code explicitly, or a failing canary aborts
+          # here before the log, the status output and the tracking issue below ever see it.
+          RC=0
+          python e2e/demo_canary.py --base "$HONUA_DEMO_BASE_URL" > /tmp/canary.log 2>&1 || RC=$?
           cat /tmp/canary.log
           STATUS="$(python -c "import json;print(json.load(open('e2e/gate-report-demo-canary.json'))['status'])" 2>/dev/null || echo fail)"
           echo "status=$STATUS" >> "$GITHUB_OUTPUT"
@@ -222,8 +226,10 @@ jobs:
           echo "The demo canary passed, but $detail. This is an evidence-pipeline failure, not a demo regression." >> "$GITHUB_STEP_SUMMARY"
           exit 1
 
-      - name: Open/update issue on a genuine FAIL
-        if: ${{ always() && github.event_name == 'schedule' && steps.canary.outcome == 'failure' && steps.canary.outputs.status == 'fail' }}
+      # One issue for any failed scheduled run: a genuine canary FAIL, or a failed evidence step
+      # (binding/publication) that would otherwise leave the run red with nobody told.
+      - name: Open/update issue on a failed scheduled run
+        if: ${{ always() && github.event_name == 'schedule' && (steps.canary.outputs.status == 'fail' || failure()) }}
         uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
         with:
           script: |
@@ -238,6 +244,8 @@ jobs:
             \`e2e/canary-quarantine.yaml\`) do not trigger this alert.
 
             **Run**: ${runUrl}
+            **Canary status**: \`${{ steps.canary.outputs.status || 'not produced' }}\` (a \`pass\` here means an
+            evidence binding/publication step failed instead — see the failed step in the run).
 
             ## Acceptance Criteria
 
