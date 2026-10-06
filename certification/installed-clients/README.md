@@ -31,7 +31,7 @@ sends `initialize` with `_meta["honua.io/workflow-view"] = "setup"`, then a sele
 `tools/list`, and must return the complete server-authored `setup` view with the matrix's
 `toolCount` (25). Published `@honua/mcp-server` 0.1.12 dropped the selector and returned the 12-tool
 `default` view ([honua-sdk-js#1875](https://github.com/honua-io/honua-sdk-js/issues/1875)). The pinned
-0.1.13 proxy keeps the `setup` view, so the cell is active. A proxy that drops the selector again
+0.1.14 proxy retains the `setup` view, so the cell is active. A proxy that drops the selector again
 reports the 12-tool `default` view and fails the cell.
 
 The NuGet cell restores the pinned `Honua.Sdk` from anonymous nuget.org into a clean consumer with
