@@ -104,19 +104,19 @@
     },
     "honua-sdk-python-wheel": {
       "discover": "honua services --format json",
-      "create-datasource": "(no datasource command in the PyPI honua CLI)",
-      "test-datasource": "(no datasource command in the PyPI honua CLI)",
-      "publish": "(no publish command in the PyPI honua CLI)",
-      "list": "(no published-layer listing command in the PyPI honua CLI)",
-      "query": "(no query command in the PyPI honua CLI)",
-      "served": "(no query command in the PyPI honua CLI)",
-      "propose-publication": "(no proposal command in the PyPI honua CLI)",
-      "self-approval-refused": "(no approval command in the PyPI honua CLI)",
-      "approve": "(no approval command in the PyPI honua CLI)",
-      "proposal-resolved": "(no proposal command in the PyPI honua CLI)",
-      "approved-served": "(no query command in the PyPI honua CLI)",
-      "unpublish": "(no unpublish command in the PyPI honua CLI)",
-      "unpublished-refused": "(no query command in the PyPI honua CLI)"
+      "create-datasource": "honua datasource create --password-env",
+      "test-datasource": "honua datasource test",
+      "publish": "honua layer publish",
+      "list": "honua layer list --service-name",
+      "query": "honua query <service> <layer> --where",
+      "served": "honua query <service> <layer> --count --json",
+      "propose-publication": "honua-mcp-proxy tools/list {view: setup} + tools/call honua_publish_service (proposer)",
+      "self-approval-refused": "honua proposal approve (proposer key)",
+      "approve": "honua proposal approve (approver key)",
+      "proposal-resolved": "honua proposal read --wait (approver key)",
+      "approved-served": "honua query <service> <layer>",
+      "unpublish": "honua layer unpublish --service-name",
+      "unpublished-refused": "honua query <service> <layer>"
     }
   }
 }
