@@ -46,17 +46,50 @@ TRANSIENT = ('error connecting', 'could not resolve host', 'connection reset by 
              'tls', 'timeout', 'timed out', 'temporary failure in name resolution')
 # R30 detail is whatever the vendor-terms classifier calls confidential; never restate the terms here.
 DESKTOP_DETAIL = tuple(pattern for _, pattern in CONFIDENTIAL)
+# Same title facts classify() uses. Persisted after redaction so the placeholder title
+# cannot move a release blocker between buckets on the next offline regeneration.
+_TITLE_EXCLUSION = re.compile(r'(?i)\bepic\b|bug[- ]hunt\b|\bprogram\b|\btriage\b|\bratification\b')
+_TITLE_TEST = re.compile(r'(?i)^\s*(\[[a-z-]+\]\s*)?test\b')
+_TITLE_CI = re.compile(r'(?i)^\s*(perf|test|chore|fix|feat|ci)\(ci\)|^\s*ci[:(]')
+_TITLE_BUG = re.compile(r'(?i)^\s*(\[[a-z-]+\]\s*)?(bug|fix)\b')
+_TITLE_SIGNALS = ('excluded', 'test', 'ci', 'bug')
 
 
 def issue_key(issue):
     return f"{issue['repo']}#{issue['number']}"
 
 
+def title_signals(title):
+    """Non-sensitive classification facts taken from a title."""
+    title = title or ''
+    present = {
+        'excluded': _TITLE_EXCLUSION.search(title) is not None,
+        'test': _TITLE_TEST.match(title) is not None,
+        'ci': _TITLE_CI.match(title) is not None,
+        'bug': _TITLE_BUG.match(title) is not None,
+    }
+    return [name for name in _TITLE_SIGNALS if present[name]]
+
+
 def public_issue(issue):
-    """R30: retain the issue identity while keeping desktop certification detail private."""
+    """R30: retain the issue identity while keeping desktop certification detail private.
+
+    The redacted title is not a classification input. Title-derived signals are
+    stored beside it so offline regeneration keeps the live bucket.
+    """
     title = issue.get('title') or ''
     if any(pattern.search(title) for pattern in DESKTOP_DETAIL):
-        return {**issue, 'title': f"Evidence {issue_key(issue)}"}
+        redacted = {key: value for key, value in issue.items() if key != 'title_signals'}
+        redacted['title'] = f"Evidence {issue_key(issue)}"
+        signals = title_signals(title)
+        if signals:
+            redacted['title_signals'] = signals
+        return redacted
+    # Already redacted: keep the stored signals. A live title remains the source of truth.
+    if title == f"Evidence {issue_key(issue)}":
+        return issue
+    if 'title_signals' in issue:
+        return {key: value for key, value in issue.items() if key != 'title_signals'}
     return issue
 
 
@@ -146,6 +179,24 @@ def fetch_retained_owner(owner):
     return {**owner, 'state': item['state']}
 
 
+def _title_facts(issue):
+    """Return excluded, is_test, title_is_ci, title_is_bug.
+
+    A persisted Evidence title is read from title_signals, never from the placeholder.
+    """
+    title = issue.get('title') or ''
+    if title == f"Evidence {issue_key(issue)}" and 'title_signals' in issue:
+        signals = issue['title_signals']
+        if not isinstance(signals, list) or any(signal not in _TITLE_SIGNALS for signal in signals):
+            raise ValueError(f"{issue_key(issue)}: unclassified: invalid title_signals")
+        found = set(signals)
+        return ('excluded' in found, 'test' in found, 'ci' in found, 'bug' in found)
+    return (_TITLE_EXCLUSION.search(title) is not None,
+            _TITLE_TEST.match(title) is not None,
+            _TITLE_CI.match(title) is not None,
+            _TITLE_BUG.match(title) is not None)
+
+
 def classify(issue, rules):
     key = issue_key(issue)
     labels = set(issue['labels'])
@@ -167,13 +218,12 @@ def classify(issue, rules):
     # item is must-fix-before-cut whatever its priority; only an explicit
     # release/2026.2 label overrides. Test-expansion items (test(...)),
     # bug-hunt PROGRAM/tracking issues and epics are not bugs and keep their
-    # bucket rules.
-    title = issue.get('title') or ''
-    if 'release/2026.2' not in labels and not re.search(r'(?i)\bepic\b|bug[- ]hunt\b|\bprogram\b|\btriage\b|\bratification\b', title):
-        is_test = re.match(r'(?i)^\s*(\[[a-z-]+\]\s*)?test\b', title) is not None
-        is_ci = 'area/ci' in labels or re.match(r'(?i)^\s*(perf|test|chore|fix|feat|ci)\(ci\)|^\s*ci[:(]', title) is not None
+    # bucket rules. A redacted title carries those facts in title_signals.
+    excluded, is_test, title_is_ci, title_is_bug = _title_facts(issue)
+    if 'release/2026.2' not in labels and not excluded:
+        is_ci = 'area/ci' in labels or title_is_ci
         is_bug = ('bug' in labels
-                  or re.match(r'(?i)^\s*(\[[a-z-]+\]\s*)?(bug|fix)\b', title) is not None
+                  or title_is_bug
                   or (any(s.startswith('bug-hunt/') for s in labels) and not is_test))
         if is_ci:
             return 'must-fix-before-cut', 'CI work is pre-cut (operator ruling 2026-09-11).'
@@ -522,7 +572,11 @@ def compact_snapshot(data):
 
 
 def public_snapshot(data):
-    """Return the publishable inventory with sensitive titles reduced to identifiers."""
+    """Return the publishable inventory with sensitive titles reduced to identifiers.
+
+    Title-derived classification signals are kept, so a later --check cannot
+    reclassify a blocker from the placeholder title.
+    """
     return {**data, 'issues': [public_issue(issue) for issue in data['issues']]}
 
 

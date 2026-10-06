@@ -1188,6 +1188,11 @@ def recorded_pins():
 def replay_registry(monkeypatch):
     urls = json.loads((RECORDED / 'urls.json').read_text())
     responses = {url: (RECORDED / filename).read_bytes() for filename, url in urls.items()}
+    # Project metadata is synthetic, not a captured PyPI response. See the fixture README.
+    pin = recorded_pins()['python']
+    metadata_url = f"https://pypi.org/pypi/{pin['package']}/{pin['version']}/json"
+    assert metadata_url not in responses
+    responses[metadata_url] = (RECORDED / 'pypi-metadata.synthetic.json').read_bytes()
     monkeypatch.setattr(verifier, '_request', lambda url, **kw: responses[url])
 
 

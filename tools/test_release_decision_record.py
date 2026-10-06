@@ -363,3 +363,35 @@ def test_public_issue_redacts_titles_the_vendor_terms_classifier_calls_confident
         redacted = decision.public_issue({**issue(), 'title': title})
         assert redacted['title'] == 'Evidence honua-server#1'
     assert decision.public_issue(issue())['title'] == 'Example'
+
+
+def test_redacted_title_keeps_the_bucket_the_live_title_produced():
+    # Unlabelled P2: the pre-cut bucket comes only from the title prefix. The
+    # product words are split so this file does not itself name them (R30).
+    blocker = issue('priority/P2')
+    blocker['title'] = 'fix: ' + 'Arc' + 'GIS P' + 'ro import'
+    epic = issue('priority/P2', 'bug')
+    epic['title'] = 'Epic: ' + 'Arc' + 'GIS P' + 'ro follow-ups'
+    ci = issue('priority/P3')
+    ci['title'] = 'ci: ' + 'Arc' + 'GIS P' + 'ro runner'
+    expansion = issue('priority/P2', 'bug-hunt/ga-vectors-2026-09-04')
+    expansion['title'] = 'test: ' + 'Arc' + 'GIS P' + 'ro coverage'
+    for raw in (blocker, epic, ci, expansion):
+        before = decision.classify(raw, rules())
+        persisted = decision.public_issue(raw)
+        assert persisted['title'] == 'Evidence honua-server#1'
+        assert decision.classify(persisted, rules()) == before
+        again = decision.public_issue(persisted)
+        assert again.get('title_signals') == persisted.get('title_signals')
+        assert decision.classify(again, rules()) == before
+    assert decision.classify(blocker, rules())[0] == 'must-fix-before-cut'
+    assert decision.classify(epic, rules())[0] == 'post-cut-hardening'
+    data = {'observed_at': '2026-10-06T00:00:00Z', 'candidate_digest': 'not yet cut', 'issues': [blocker]}
+    snapshot = json.loads(decision.compact_snapshot(decision.public_snapshot(data)))
+    assert decision.decisions(snapshot, rules())[0]['bucket'] == 'must-fix-before-cut'
+    stale = {**issue('priority/P2'), 'title_signals': ['bug']}
+    assert 'title_signals' not in decision.public_issue(stale)
+    assert decision.classify(stale, rules())[0] == 'post-cut-hardening'
+    corrupt = {**issue(), 'title': 'Evidence honua-server#1', 'title_signals': ['secret']}
+    with pytest.raises(ValueError, match='invalid title_signals'):
+        decision.classify(corrupt, rules())
