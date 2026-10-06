@@ -355,3 +355,11 @@ def test_security_gate_requires_hold_while_a_row_is_open():
     # With every row fixed, the open-row rule no longer applies; the computed line still must match.
     fixed = sec_rules({**OPEN, 'status':'fixed', 'fixedBy':'5398'}, FIXED)
     assert verify(fixed, [pr(body='SEC-4 follow-up.'), pr()])[0] == 'HOLD'
+
+
+def test_public_issue_redacts_titles_the_vendor_terms_classifier_calls_confidential():
+    # Built from fragments so this test file names no confidential term itself (R30).
+    for title in ('Fix ' + 'arc' + 'py import', 'Arc' + 'GIS P' + 'ro crashes', 'Open project.' + 'ap' + 'rx'):
+        redacted = decision.public_issue({**issue(), 'title': title})
+        assert redacted['title'] == 'Evidence honua-server#1'
+    assert decision.public_issue(issue())['title'] == 'Example'

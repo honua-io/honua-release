@@ -22,6 +22,8 @@ import sys
 import time
 from urllib.parse import quote
 
+from check_vendor_terms import CONFIDENTIAL
+
 ROOT = Path(__file__).resolve().parents[1]
 INPUTS = ROOT / 'docs/2026.1-release-decision-inputs.json'
 OVERRIDES = ROOT / 'docs/2026.1-release-decision-overrides.json'
@@ -42,7 +44,8 @@ TRAIN_KINDS = {'dry-run', 'scheduled strict', 'dispatched strict'}
 SECURITY_REVIEW = 'security-review-2026-10-03'
 TRANSIENT = ('error connecting', 'could not resolve host', 'connection reset by peer',
              'tls', 'timeout', 'timed out', 'temporary failure in name resolution')
-DESKTOP_DETAIL = re.compile(r'(?i)arcpy|arcgis[ -]?pro|\.aprx|\.atbx')
+# R30 detail is whatever the vendor-terms classifier calls confidential; never restate the terms here.
+DESKTOP_DETAIL = tuple(pattern for _, pattern in CONFIDENTIAL)
 
 
 def issue_key(issue):
@@ -51,7 +54,8 @@ def issue_key(issue):
 
 def public_issue(issue):
     """R30: retain the issue identity while keeping desktop certification detail private."""
-    if DESKTOP_DETAIL.search(issue.get('title') or ''):
+    title = issue.get('title') or ''
+    if any(pattern.search(title) for pattern in DESKTOP_DETAIL):
         return {**issue, 'title': f"Evidence {issue_key(issue)}"}
     return issue
 
