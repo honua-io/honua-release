@@ -22,11 +22,14 @@ import sys
 import time
 from urllib.parse import quote
 
+from check_vendor_terms import CONFIDENTIAL
+
 ROOT = Path(__file__).resolve().parents[1]
 INPUTS = ROOT / 'docs/2026.1-release-decision-inputs.json'
 OVERRIDES = ROOT / 'docs/2026.1-release-decision-overrides.json'
 RECORD = ROOT / 'docs/2026.1-release-decision-record.md'
 LEDGER = ROOT / 'docs/2026.1-release-decision-ledger.json'
+BURNDOWN = ROOT / 'docs/2026.1-release-burndown.jsonl'
 BUCKETS = {
     'must-fix-before-cut': 'MUST FIX BEFORE CANDIDATE CUT',
     'prove-against-candidate': 'MUST PROVE AGAINST THE CANDIDATE BEFORE GA',
@@ -41,10 +44,53 @@ TRAIN_KINDS = {'dry-run', 'scheduled strict', 'dispatched strict'}
 SECURITY_REVIEW = 'security-review-2026-10-03'
 TRANSIENT = ('error connecting', 'could not resolve host', 'connection reset by peer',
              'tls', 'timeout', 'timed out', 'temporary failure in name resolution')
+# R30 detail is whatever the vendor-terms classifier calls confidential; never restate the terms here.
+DESKTOP_DETAIL = tuple(pattern for _, pattern in CONFIDENTIAL)
+# Same title facts classify() uses. Persisted after redaction so the placeholder title
+# cannot move a release blocker between buckets on the next offline regeneration.
+_TITLE_EXCLUSION = re.compile(r'(?i)\bepic\b|bug[- ]hunt\b|\bprogram\b|\btriage\b|\bratification\b')
+_TITLE_TEST = re.compile(r'(?i)^\s*(\[[a-z-]+\]\s*)?test\b')
+_TITLE_CI = re.compile(r'(?i)^\s*(perf|test|chore|fix|feat|ci)\(ci\)|^\s*ci[:(]')
+_TITLE_BUG = re.compile(r'(?i)^\s*(\[[a-z-]+\]\s*)?(bug|fix)\b')
+_TITLE_SIGNALS = ('excluded', 'test', 'ci', 'bug')
 
 
 def issue_key(issue):
     return f"{issue['repo']}#{issue['number']}"
+
+
+def title_signals(title):
+    """Non-sensitive classification facts taken from a title."""
+    title = title or ''
+    present = {
+        'excluded': _TITLE_EXCLUSION.search(title) is not None,
+        'test': _TITLE_TEST.match(title) is not None,
+        'ci': _TITLE_CI.match(title) is not None,
+        'bug': _TITLE_BUG.match(title) is not None,
+    }
+    return [name for name in _TITLE_SIGNALS if present[name]]
+
+
+def public_issue(issue):
+    """R30: retain the issue identity while keeping desktop certification detail private.
+
+    The redacted title is not a classification input. Title-derived signals are
+    stored beside it so offline regeneration keeps the live bucket.
+    """
+    title = issue.get('title') or ''
+    if any(pattern.search(title) for pattern in DESKTOP_DETAIL):
+        redacted = {key: value for key, value in issue.items() if key != 'title_signals'}
+        redacted['title'] = f"Evidence {issue_key(issue)}"
+        signals = title_signals(title)
+        if signals:
+            redacted['title_signals'] = signals
+        return redacted
+    # Already redacted: keep the stored signals. A live title remains the source of truth.
+    if title == f"Evidence {issue_key(issue)}":
+        return issue
+    if 'title_signals' in issue:
+        return {key: value for key, value in issue.items() if key != 'title_signals'}
+    return issue
 
 
 def link(key):
@@ -92,13 +138,19 @@ def normalize(item, previous=None):
         'title': item['title'], 'state': item['state'],
         'labels': sorted(label['name'] for label in item['labels']),
         'body_sha256': hashlib.sha256((item.get('body') or '').encode()).hexdigest(),
-        'updated_at': item['updated_at'], 'family': (previous or {}).get('family'),
+        'created_at': item['created_at'], 'updated_at': item['updated_at'],
+        'family': (previous or {}).get('family'),
     }
+
+
+def org_repos():
+    """Every org repository the caller can read; the release dashboard scans the same list."""
+    return pages('orgs/honua-io/repos?per_page=100')
 
 
 def refresh(data):
     previous = {issue_key(i): i for i in data['issues']}
-    repos = pages('orgs/honua-io/repos?per_page=100')
+    repos = org_repos()
     def fetch(repo):
         return pages(f"repos/honua-io/{repo['name']}/issues?state=open&labels=release%2F2026.1&per_page=100")
     with ThreadPoolExecutor(max_workers=5) as pool:
@@ -127,6 +179,24 @@ def fetch_retained_owner(owner):
     return {**owner, 'state': item['state']}
 
 
+def _title_facts(issue):
+    """Return excluded, is_test, title_is_ci, title_is_bug.
+
+    A persisted Evidence title is read from title_signals, never from the placeholder.
+    """
+    title = issue.get('title') or ''
+    if title == f"Evidence {issue_key(issue)}" and 'title_signals' in issue:
+        signals = issue['title_signals']
+        if not isinstance(signals, list) or any(signal not in _TITLE_SIGNALS for signal in signals):
+            raise ValueError(f"{issue_key(issue)}: unclassified: invalid title_signals")
+        found = set(signals)
+        return ('excluded' in found, 'test' in found, 'ci' in found, 'bug' in found)
+    return (_TITLE_EXCLUSION.search(title) is not None,
+            _TITLE_TEST.match(title) is not None,
+            _TITLE_CI.match(title) is not None,
+            _TITLE_BUG.match(title) is not None)
+
+
 def classify(issue, rules):
     key = issue_key(issue)
     labels = set(issue['labels'])
@@ -148,13 +218,12 @@ def classify(issue, rules):
     # item is must-fix-before-cut whatever its priority; only an explicit
     # release/2026.2 label overrides. Test-expansion items (test(...)),
     # bug-hunt PROGRAM/tracking issues and epics are not bugs and keep their
-    # bucket rules.
-    title = issue.get('title') or ''
-    if 'release/2026.2' not in labels and not re.search(r'(?i)\bepic\b|bug[- ]hunt\b|\bprogram\b|\btriage\b|\bratification\b', title):
-        is_test = re.match(r'(?i)^\s*(\[[a-z-]+\]\s*)?test\b', title) is not None
-        is_ci = 'area/ci' in labels or re.match(r'(?i)^\s*(perf|test|chore|fix|feat|ci)\(ci\)|^\s*ci[:(]', title) is not None
+    # bucket rules. A redacted title carries those facts in title_signals.
+    excluded, is_test, title_is_ci, title_is_bug = _title_facts(issue)
+    if 'release/2026.2' not in labels and not excluded:
+        is_ci = 'area/ci' in labels or title_is_ci
         is_bug = ('bug' in labels
-                  or re.match(r'(?i)^\s*(\[[a-z-]+\]\s*)?(bug|fix)\b', title) is not None
+                  or title_is_bug
                   or (any(s.startswith('bug-hunt/') for s in labels) and not is_test))
         if is_ci:
             return 'must-fix-before-cut', 'CI work is pre-cut (operator ruling 2026-09-11).'
@@ -191,7 +260,9 @@ def classify(issue, rules):
     raise ValueError(f'{key}: unclassified')
 
 
-def decisions(data, rules):
+def decisions(data, rules, strict=True):
+    """Classify every cohort issue. `strict=False` (the dashboard) keeps an issue the rules
+    cannot classify, with bucket None and the classifier's error as its reason."""
     seen = set()
     rows = []
     for issue in data['issues']:
@@ -199,8 +270,13 @@ def decisions(data, rules):
         if key in seen:
             raise ValueError(f'{key}: duplicate issue')
         seen.add(key)
-        bucket, reason = classify(issue, rules)
-        rows.append({**issue, 'bucket': bucket, 'reason': reason,
+        try:
+            bucket, reason = classify(issue, rules)
+        except ValueError as exc:
+            if strict:
+                raise
+            bucket, reason = None, str(exc)
+        rows.append({**public_issue(issue), 'bucket': bucket, 'reason': reason,
                      'implementation_ticket_closed': issue['state'] == 'closed',
                      'qualified_against_candidate': False,
                      'qualification': 'not yet cut' if data['candidate_digest'] == 'not yet cut' else 'not proven; gate receipts required'})
@@ -467,10 +543,41 @@ def render(data, rows, rules):
     return '\n'.join(content)
 
 
+def burndown_point(data, rows):
+    """One burn-down observation: open cohort counts per bucket on the observed UTC day."""
+    counts = Counter(r['bucket'] for r in rows if r['state'] == 'open')
+    return {'date': data['observed_at'][:10], 'observed_at': data['observed_at'],
+            'open': {b: counts[b] for b in BUCKETS}}
+
+
+def read_burndown(path=None):
+    path = path or BURNDOWN
+    if not path.exists():
+        return []
+    return [json.loads(line) for line in path.read_text().splitlines() if line.strip()]
+
+
+def append_burndown(point, path=None):
+    """Idempotent per day: a later refresh on the same UTC day replaces that day's point."""
+    path = path or BURNDOWN
+    series = {p['date']: p for p in read_burndown(path)}
+    series[point['date']] = point
+    path.write_text(''.join(json.dumps(series[d], sort_keys=True) + '\n' for d in sorted(series)))
+
+
 def compact_snapshot(data):
     metadata = {k:v for k,v in data.items() if k != 'issues'}
     prefix = json.dumps(metadata, indent=2).rstrip()[:-1].rstrip()
     return prefix + ',\n  \"issues\": [\n' + ',\n'.join('    ' + json.dumps(r, ensure_ascii=False) for r in data['issues']) + '\n  ]\n}\n'
+
+
+def public_snapshot(data):
+    """Return the publishable inventory with sensitive titles reduced to identifiers.
+
+    Title-derived classification signals are kept, so a later --check cannot
+    reclassify a blocker from the placeholder title.
+    """
+    return {**data, 'issues': [public_issue(issue) for issue in data['issues']]}
 
 
 def main():
@@ -500,7 +607,7 @@ def main():
     if args.apply:
         # Keep newly discovered cohort members before removing any release label.
         # An interrupted write pass must remain resumable from this same inventory.
-        INPUTS.write_text(compact_snapshot(data))
+        INPUTS.write_text(compact_snapshot(public_snapshot(data)))
         apply_labels(rows, rules)
         data = refresh(data)
         rows = decisions(data, rules)
@@ -509,13 +616,16 @@ def main():
         verify_labels(rows, rules)
     artifacts = {RECORD: render(data, rows, rules), LEDGER: compact_snapshot({'observed_at':data['observed_at'], 'candidate_digest':data['candidate_digest'], 'issues':rows})}
     if args.refresh:
-        artifacts[INPUTS] = compact_snapshot(data)
+        artifacts[INPUTS] = compact_snapshot(public_snapshot(data))
     for path, text in artifacts.items():
         if args.check:
             if not path.exists() or path.read_text() != text:
                 raise ValueError(f'{path.name}: regeneration drift')
         else:
             path.write_text(text)
+    if args.refresh:
+        # The published dashboard draws this series; every refresh adds (or replaces) its day.
+        append_burndown(burndown_point(data, rows))
     if args.tables:
         args.tables.write_text(tables(rows) + '\n')
     print(json.dumps(dict(Counter(r['bucket'] for r in rows if r['state']=='open')), sort_keys=True))

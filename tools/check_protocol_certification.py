@@ -529,6 +529,10 @@ def evaluate(
     if not isinstance(owned_rows, list) or not owned_rows:
         fail("requirements", "owned requirements must contain a non-empty requirements array")
         owned_rows = []
+    external_entitlement_policies = {
+        row.get("entitlement_policy_revision") for row in owned_rows
+        if isinstance(row, dict) and str(row.get("client_lane", "")).startswith("desktop-arcpy-")
+    }
 
     generated_at = _timestamp(ledger.get("generated_at"))
     if generated_at is None:
@@ -929,11 +933,10 @@ def evaluate(
                     fail(prefix, "Honua Pro evidence must execute on the governed licensed-release target")
                 if raw.get("auth_policy_revision") != "api-key-protected-v1":
                     fail(prefix, "Honua Pro evidence must execute the governed protected-auth policy")
-            elif entitlement_policy == "esri-arcgis-pro-arcpy-v1":
-                if raw.get("deployment_target") != "windows-licensed":
-                    fail(prefix, "ArcPy evidence must execute on the governed windows-licensed target")
-                if raw.get("auth_policy_revision") != "anonymous-and-protected-v1":
-                    fail(prefix, "ArcPy evidence must execute the governed anonymous-and-protected auth policy")
+            elif entitlement_policy in external_entitlement_policies:
+                # Target and authentication fields already match the exact owned requirement
+                # signature; public validation retains only this opaque policy identifier (R30).
+                pass
             elif entitlement_policy == "licensed-desktop-client-v1":
                 if raw.get("deployment_target") != "windows-licensed":
                     fail(prefix, "Licensed desktop evidence must execute on the governed windows-licensed target")

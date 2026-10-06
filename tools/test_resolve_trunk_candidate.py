@@ -343,6 +343,99 @@ def test_registry_rejects_wrong_sha_or_incomplete_architectures(sha, architectur
         registry.identity('honua-io/server', 'nightly-aaaaaaa', NEW, architectures)
 
 
+def _add_document(documents, value):
+    raw = json.dumps(value).encode()
+    digest = 'sha256:' + hashlib.sha256(raw).hexdigest()
+    documents[digest] = raw
+    return digest
+
+
+def _bound_image(documents, sha):
+    config = _add_document(documents, {'architecture': 'amd64', 'os': 'linux',
+                                       'config': {'Labels': {'org.opencontainers.image.revision': sha}}})
+    child = _add_document(documents, {'config': {'digest': config},
+                                      'mediaType': 'application/vnd.oci.image.manifest.v1+json'})
+    index = _add_document(documents, {'manifests': [
+        {'digest': child, 'platform': {'architecture': 'amd64', 'os': 'linux'}},
+    ]})
+    return index, child
+
+
+def _lambda_registry(sha, shape, lambda_sha=None):
+    """shape is 'manifest', 'index', or 'attestation-only'. The server image stays bound to sha."""
+    documents = {}
+    server, server_child = _bound_image(documents, sha)
+    lambda_sha = sha if lambda_sha is None else lambda_sha
+    _, lambda_child = _bound_image(documents, lambda_sha)
+    attestation = _add_document(documents, {'mediaType': 'application/vnd.oci.image.manifest.v1+json',
+                                            'layers': []})
+    if shape == 'manifest':
+        pinned = lambda_child
+    elif shape == 'index':
+        pinned = _add_document(documents, {
+            'mediaType': 'application/vnd.oci.image.index.v1+json',
+            'manifests': [
+                {'digest': lambda_child, 'platform': {'architecture': 'amd64', 'os': 'linux'}},
+                {'digest': attestation, 'platform': {'architecture': 'unknown', 'os': 'unknown'},
+                 'annotations': {'vnd.docker.reference.type': 'attestation-manifest'}},
+            ],
+        })
+    else:
+        pinned = _add_document(documents, {'manifests': [
+            {'digest': attestation, 'platform': {'architecture': 'unknown', 'os': 'unknown'}},
+        ]})
+        lambda_child = None
+    registry = resolver.Registry(None)
+
+    def request(repository, suffix, **_):
+        target = suffix.split('/')[-1]
+        if target == f'nightly-{sha[:7]}':
+            body, digest = documents[server], server
+        elif target == f'nightly-lambda-aot-{sha[:7]}-amd64':
+            body, digest = documents[pinned], pinned
+        else:
+            body, digest = documents[target], target
+        return body, {'Docker-Content-Digest': digest}
+
+    registry.request = request
+    registry.tags = lambda repository: [f'nightly-{sha[:7]}', f'nightly-lambda-aot-{sha[:7]}-amd64']
+    return registry, server_child, lambda_child
+
+
+def _lambda_component():
+    return {'image': 'ghcr.io/honua-io/honua-server:old',
+            'awsLambdaImage': 'ghcr.io/honua-io/honua-server:old-lambda',
+            'architectures': ['amd64'], 'sha': OLD}
+
+
+def test_lambda_image_pins_a_single_architecture_manifest():
+    registry, _, child = _lambda_registry(NEW, 'manifest')
+    result = registry.image('honua-server', _lambda_component(), NEW)
+    assert result['awsLambdaDigest'] == child
+    assert result['awsLambdaImage'].endswith('@' + child)
+    assert result['awsLambdaEcrDigest'] == 'pending-ecr-mirror'
+
+
+def test_lambda_attested_index_pins_the_linux_amd64_child():
+    registry, server_child, child = _lambda_registry(NEW, 'index')
+    result = registry.image('honua-server', _lambda_component(), NEW)
+    assert result['awsLambdaDigest'] == child
+    assert result['awsLambdaDigest'] != result['digest']
+    assert result['platformDigests'] == {'amd64': server_child}
+
+
+def test_lambda_index_without_a_linux_amd64_image_refuses():
+    registry, _, _ = _lambda_registry(NEW, 'attestation-only')
+    with pytest.raises(resolver.ResolutionError, match='single linux/amd64'):
+        registry.image('honua-server', _lambda_component(), NEW)
+
+
+def test_lambda_child_bound_to_another_revision_refuses():
+    registry, _, _ = _lambda_registry(NEW, 'index', lambda_sha=OLD)
+    with pytest.raises(resolver.ResolutionError, match='Lambda image is not bound to candidate source'):
+        registry.image('honua-server', _lambda_component(), NEW)
+
+
 def test_github_api_disables_color_before_parsing_json(monkeypatch):
     seen = {}
 
@@ -1188,6 +1281,11 @@ def recorded_pins():
 def replay_registry(monkeypatch):
     urls = json.loads((RECORDED / 'urls.json').read_text())
     responses = {url: (RECORDED / filename).read_bytes() for filename, url in urls.items()}
+    # Project metadata is synthetic, not a captured PyPI response. See the fixture README.
+    pin = recorded_pins()['python']
+    metadata_url = f"https://pypi.org/pypi/{pin['package']}/{pin['version']}/json"
+    assert metadata_url not in responses
+    responses[metadata_url] = (RECORDED / 'pypi-metadata.synthetic.json').read_bytes()
     monkeypatch.setattr(verifier, '_request', lambda url, **kw: responses[url])
 
 
@@ -1627,6 +1725,41 @@ def test_an_unreadable_server_vocabulary_refuses(body, message):
     candidate = {'components': {'honua-server': {'repository': 'https://github.com/honua-io/honua-server', 'sha': NEW}}}
     with pytest.raises(resolver.ResolutionError, match=message):
         resolver.advertised_capabilities(Server(), candidate)
+
+
+def test_green_passes_advisory_and_accepts_the_server_fixture_sha():
+    """c19f29d is green only when the resolver hands the advisory list to the evaluator."""
+    captured = json.loads((
+        resolver.ROOT / 'tools' / 'fixtures' / 'candidate-resolution-2026-10-06' / 'honua-server-c19f29d.json'
+    ).read_text())
+    seen = {}
+    original = resolver.ci.evaluate
+
+    def evaluate(*args, **kwargs):
+        seen['advisory'] = kwargs.get('advisory')
+        return original(*args, **kwargs)
+
+    github = resolver.GitHub()
+
+    def pages(path, key=None):
+        assert captured['sha'] in path
+        if key == 'check_runs':
+            return iter(captured['check_runs'])
+        if key == 'workflow_runs':
+            return iter(captured['workflow_runs'])
+        raise AssertionError(path)
+
+    github.pages = pages
+    resolver.ci.evaluate = evaluate
+    try:
+        ok, why = github.green('honua-server', 'honua-io/honua-server', captured['sha'])
+    finally:
+        resolver.ci.evaluate = original
+    assert ok, why
+    assert 'full-matrix run 37435142851 completed successfully' in why
+    workflows = seen['advisory']['honua-server']['workflows']
+    assert '.github/workflows/server-test-prebuild-observe.yml' in workflows
+    assert '.github/workflows/ci.yml' not in workflows
 
 
 def test_the_documented_baseline_is_the_dotnet_fixture_and_resolves():

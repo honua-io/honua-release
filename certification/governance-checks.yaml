@@ -32,3 +32,13 @@ honua-server:
       reported as such in the gate explanation; it is excluded here because reporting it as a
       component BUILD failure is precisely the misattribution this file exists to prevent. Every
       product build/test lane on this sha is green.
+  - name: "Post exact-head Claude review evidence"
+    why: >-
+      Claude Review's evidence job (`.github/workflows/claude-review.yml`, job `review`).
+      It checks out the trusted reviewer policy, stages the pull request diff as read-only
+      data, and posts review evidence with the Claude App token. It restores nothing,
+      compiles nothing, and runs no server test. On c19f29d the one red attempt (run
+      37432738540) stopped because the reviewer reported success after 49 turns, over the
+      configured maximum of 40; a later attempt of the same workflow completed skipped.
+      A review-budget miss is not a build of the pinned source. The server leaf lanes and
+      the full-matrix run stay decisive.

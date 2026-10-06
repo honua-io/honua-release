@@ -1,7 +1,14 @@
 Recorded public registry responses for WI-4, captured anonymously on 2026-10-02.
-`urls.json` maps each response body to its exact HTTPS request URL. JSON and
+`urls.json` maps each response body to its exact HTTPS request URL. Those JSON and
 package bodies are unedited; the npm tarball is large because it is the actual
 published SDK archive. Tests replay these bytes without live registry requests.
+
+`pypi-metadata.synthetic.json` is not in `urls.json`, is not a PyPI response, and
+is not registry evidence. The captured project description is desktop-client
+procedure prose, so it is not in this repository (honua-release#427). Recorded-registry
+tests serve this synthetic document for the project-metadata URL because the verifier
+reads only the artifact filename, sha256, and download URL. The wheel bytes and the
+publish attestation stay the captured responses.
 
 `pins.json` contains hand-transcribed primary package pins, not a registry
 response. Tests' expected identities were written by hand from registry metadata

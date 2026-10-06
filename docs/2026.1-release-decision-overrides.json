@@ -917,7 +917,7 @@
     "honua-esri-compat#75": {
       "body_sha256": "7d0655fe86c9a9520fd4d53c9f9a3b134b2f374d02991de0293f1cd5c3217ba9",
       "named_promise": true,
-      "reason": "Reviewed body identifies this existing behavior or release-evidence invariant: certification: run ArcGIS Pro/arcpy on a licensed Windows runner"
+      "reason": "Reviewed body identifies this existing release-evidence invariant: evidence honua-esri-compat#75"
     },
     "honua-evidence#22": {
       "body_sha256": "8f89f81c2c84174f4d35806d8d077089e5e1b382cd9df2e03fac6cc59c485a4e",
@@ -1227,7 +1227,7 @@
     "honua-sdk-python#205": {
       "body_sha256": "d39ec2da79be9b13093a23fc79e5cd4c8255d1c9220c8629db1c1178e27bd1c2",
       "named_promise": true,
-      "reason": "Reviewed body identifies this existing behavior or release-evidence invariant: correctness defect in the already-shipped honua_gp ArcPy-compatibility shim \u2014 GetCount silently queries a misresolved endpoint and returns 404 instead of the correct count (verified against honua-esri-compat's existing licensed parity harness, PR #70). Silent wrong data in shipped Esri-compatibility functionality."
+      "reason": "Reviewed body identifies this existing behavior or release-evidence invariant: evidence honua-esri-compat#70 records silent wrong data in an already-shipped compatibility surface."
     },
     "honua-sdk-python#21": {
       "body_sha256": "9efc241ece6e49893690fd2d9eeec9e4053aa51170ffe237e4685b2532e7bc0c",
@@ -2087,7 +2087,7 @@
     "honua-server#4614": {
       "body_sha256": "58b04b8d5be3a9a5ee4ce7214f5219c66a8877e122d0658e310664c390cc1cb2",
       "named_promise": true,
-      "reason": "Reviewed body identifies this existing behavior or release-evidence invariant: 'Esri toolbox import works' \u2014 ArcPy remote-toolbox import via the documented SOAP syntax 404s; this is the same already-advertised GP compatibility boundary as honua-esri-compat #74/#75/#88, not new scope."
+      "reason": "Reviewed body identifies this existing behavior or release-evidence invariant: evidence honua-esri-compat#74/#75/#88 records failure in an already-advertised compatibility boundary, not new scope."
     },
     "honua-server#4616": {
       "body_sha256": "186b874b00d870212c381914e815f05c9370479f39c13235aadfdd07f4fc0d76",

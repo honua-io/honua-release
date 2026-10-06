@@ -1,7 +1,6 @@
 {
   "npm.json": "https://registry.npmjs.org/%40honua%2Fsdk-js/0.1.12",
   "npm.tgz": "https://registry.npmjs.org/@honua/sdk-js/-/sdk-js-0.1.12.tgz",
-  "pypi.json": "https://pypi.org/pypi/honua-sdk/0.1.12/json",
   "pypi.whl": "https://files.pythonhosted.org/packages/29/7d/ad04a696860960b5cce865c9a8b2ea53b165da200c6b8a2156ba5501f926/honua_sdk-0.1.12-py3-none-any.whl",
   "nuget-registration.json": "https://api.nuget.org/v3/registration5-gz-semver2/honua.sdk/1.10.1.json",
   "nuget-catalog.json": "https://api.nuget.org/v3/catalog0/data/2026.09.29.05.11.14/honua.sdk.1.10.1.json",
