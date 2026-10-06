@@ -63,6 +63,18 @@
       "issue": "honua-io/honua-release#425"
     },
     {
+      "repo": "honua-release",
+      "paths": [
+        "tools/fixtures/candidate-resolution-2026-10-06/honua-server-c19f29d.json"
+      ],
+      "tokens": [
+        "Esri Leaflet"
+      ],
+      "reason": "Verbatim GitHub check-run name on the recorded c19f29d payload (job \"Esri Leaflet Browser Tests\"). The fixture is the Actions response the candidate resolver classifies; the name belongs to the honua-server workflow and renaming it would falsify that evidence. The exception is this token in this file only.",
+      "owner": "@mikemcdougall",
+      "issue": "honua-io/honua-release#470"
+    },
+    {
       "repo": "honua-server",
       "paths": [
         "src/Honua.Protocols.GeoServices/Catalog/GeoservicesCatalogEndpoints.cs",

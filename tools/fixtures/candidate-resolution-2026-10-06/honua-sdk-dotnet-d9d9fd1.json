@@ -1,0 +1,818 @@
+{
+  "component": "honua-sdk-dotnet",
+  "sha": "d9d9fd1fcbe99570594160a6a3cc61b70594257b",
+  "check_runs": [
+    {
+      "id": 112005516889,
+      "name": "Moving Canary Evidence and Alert",
+      "status": "completed",
+      "conclusion": "success",
+      "started_at": "2026-10-05T22:20:39Z",
+      "completed_at": "2026-10-05T22:20:45Z",
+      "details_url": "https://github.com/honua-io/honua-sdk-dotnet/actions/runs/37381201203/job/112005516889",
+      "html_url": "https://github.com/honua-io/honua-sdk-dotnet/actions/runs/37381201203/job/112005516889",
+      "app": {
+        "slug": "github-actions"
+      },
+      "check_suite": {
+        "id": 101255581314
+      }
+    },
+    {
+      "id": 112003354440,
+      "name": "Contract Conformance (moving canary)",
+      "status": "completed",
+      "conclusion": "success",
+      "started_at": "2026-10-05T22:14:51Z",
+      "completed_at": "2026-10-05T22:20:36Z",
+      "details_url": "https://github.com/honua-io/honua-sdk-dotnet/actions/runs/37381201203/job/112003354440",
+      "html_url": "https://github.com/honua-io/honua-sdk-dotnet/actions/runs/37381201203/job/112003354440",
+      "app": {
+        "slug": "github-actions"
+      },
+      "check_suite": {
+        "id": 101255581314
+      }
+    },
+    {
+      "id": 111999844920,
+      "name": "certify",
+      "status": "completed",
+      "conclusion": "failure",
+      "started_at": "2026-10-05T22:05:24Z",
+      "completed_at": "2026-10-05T22:05:57Z",
+      "details_url": "https://github.com/honua-io/honua-sdk-dotnet/actions/runs/37380181171/job/111999844920",
+      "html_url": "https://github.com/honua-io/honua-sdk-dotnet/actions/runs/37380181171/job/111999844920",
+      "app": {
+        "slug": "github-actions"
+      },
+      "check_suite": {
+        "id": 101252824175
+      }
+    },
+    {
+      "id": 111984693047,
+      "name": "Staging Read-Only Integration",
+      "status": "completed",
+      "conclusion": "success",
+      "started_at": "2026-10-05T21:32:28Z",
+      "completed_at": "2026-10-05T21:34:48Z",
+      "details_url": "https://github.com/honua-io/honua-sdk-dotnet/actions/runs/37375416719/job/111984693047",
+      "html_url": "https://github.com/honua-io/honua-sdk-dotnet/actions/runs/37375416719/job/111984693047",
+      "app": {
+        "slug": "github-actions"
+      },
+      "check_suite": {
+        "id": 101239847573
+      }
+    },
+    {
+      "id": 111982749692,
+      "name": "Staging Configuration Preflight",
+      "status": "completed",
+      "conclusion": "success",
+      "started_at": "2026-10-05T21:27:19Z",
+      "completed_at": "2026-10-05T21:27:21Z",
+      "details_url": "https://github.com/honua-io/honua-sdk-dotnet/actions/runs/37375416719/job/111982749692",
+      "html_url": "https://github.com/honua-io/honua-sdk-dotnet/actions/runs/37375416719/job/111982749692",
+      "app": {
+        "slug": "github-actions"
+      },
+      "check_suite": {
+        "id": 101239847573
+      }
+    },
+    {
+      "id": 111818951625,
+      "name": "Publish Packages",
+      "status": "completed",
+      "conclusion": "success",
+      "started_at": "2026-10-05T15:12:49Z",
+      "completed_at": "2026-10-05T15:37:51Z",
+      "details_url": "https://github.com/honua-io/honua-sdk-dotnet/actions/runs/37324427367/job/111818951625",
+      "html_url": "https://github.com/honua-io/honua-sdk-dotnet/actions/runs/37324427367/job/111818951625",
+      "app": {
+        "slug": "github-actions"
+      },
+      "check_suite": {
+        "id": 101094678402
+      }
+    },
+    {
+      "id": 111817513046,
+      "name": "Release Staging Integration / Staging Read-Only Integration",
+      "status": "completed",
+      "conclusion": "success",
+      "started_at": "2026-10-05T14:39:02Z",
+      "completed_at": "2026-10-05T14:40:43Z",
+      "details_url": "https://github.com/honua-io/honua-sdk-dotnet/actions/runs/37324427367/job/111817513046",
+      "html_url": "https://github.com/honua-io/honua-sdk-dotnet/actions/runs/37324427367/job/111817513046",
+      "app": {
+        "slug": "github-actions"
+      },
+      "check_suite": {
+        "id": 101094678402
+      }
+    },
+    {
+      "id": 111814837800,
+      "name": "Release Staging Integration / Staging Configuration Preflight",
+      "status": "completed",
+      "conclusion": "success",
+      "started_at": "2026-10-05T14:37:33Z",
+      "completed_at": "2026-10-05T14:37:36Z",
+      "details_url": "https://github.com/honua-io/honua-sdk-dotnet/actions/runs/37324427367/job/111814837800",
+      "html_url": "https://github.com/honua-io/honua-sdk-dotnet/actions/runs/37324427367/job/111814837800",
+      "app": {
+        "slug": "github-actions"
+      },
+      "check_suite": {
+        "id": 101094678402
+      }
+    },
+    {
+      "id": 111812141637,
+      "name": "Moving Canary Evidence and Alert",
+      "status": "completed",
+      "conclusion": "skipped",
+      "started_at": "2026-10-05T14:25:56Z",
+      "completed_at": "2026-10-05T14:25:56Z",
+      "details_url": "https://github.com/honua-io/honua-sdk-dotnet/actions/runs/37324365537/job/111812141637",
+      "html_url": "https://github.com/honua-io/honua-sdk-dotnet/actions/runs/37324365537/job/111812141637",
+      "app": {
+        "slug": "github-actions"
+      },
+      "check_suite": {
+        "id": 101094507408
+      }
+    },
+    {
+      "id": 111811408160,
+      "name": "Release Smoke",
+      "status": "completed",
+      "conclusion": "success",
+      "started_at": "2026-10-05T14:24:24Z",
+      "completed_at": "2026-10-05T14:31:46Z",
+      "details_url": "https://github.com/honua-io/honua-sdk-dotnet/actions/runs/37324427367/job/111811408160",
+      "html_url": "https://github.com/honua-io/honua-sdk-dotnet/actions/runs/37324427367/job/111811408160",
+      "app": {
+        "slug": "github-actions"
+      },
+      "check_suite": {
+        "id": 101094678402
+      }
+    },
+    {
+      "id": 111811349617,
+      "name": "Dispatch the .NET SDK publish",
+      "status": "completed",
+      "conclusion": "success",
+      "started_at": "2026-10-05T14:24:16Z",
+      "completed_at": "2026-10-05T14:24:21Z",
+      "details_url": "https://github.com/honua-io/honua-sdk-dotnet/actions/runs/37324365696/job/111811349617",
+      "html_url": "https://github.com/honua-io/honua-sdk-dotnet/actions/runs/37324365696/job/111811349617",
+      "app": {
+        "slug": "github-actions"
+      },
+      "check_suite": {
+        "id": 101094508076
+      }
+    },
+    {
+      "id": 111811200621,
+      "name": "trivy / Trivy fs",
+      "status": "completed",
+      "conclusion": "success",
+      "started_at": "2026-10-05T14:24:02Z",
+      "completed_at": "2026-10-05T14:25:11Z",
+      "details_url": "https://github.com/honua-io/honua-sdk-dotnet/actions/runs/37324366681/job/111811200621",
+      "html_url": "https://github.com/honua-io/honua-sdk-dotnet/actions/runs/37324366681/job/111811200621",
+      "app": {
+        "slug": "github-actions"
+      },
+      "check_suite": {
+        "id": 101094510970
+      }
+    },
+    {
+      "id": 111811200268,
+      "name": "scorecard / Scorecard analysis",
+      "status": "completed",
+      "conclusion": "success",
+      "started_at": "2026-10-05T14:23:57Z",
+      "completed_at": "2026-10-05T14:25:03Z",
+      "details_url": "https://github.com/honua-io/honua-sdk-dotnet/actions/runs/37324366681/job/111811200268",
+      "html_url": "https://github.com/honua-io/honua-sdk-dotnet/actions/runs/37324366681/job/111811200268",
+      "app": {
+        "slug": "github-actions"
+      },
+      "check_suite": {
+        "id": 101094510970
+      }
+    },
+    {
+      "id": 111811197577,
+      "name": "Analyze (csharp)",
+      "status": "completed",
+      "conclusion": "success",
+      "started_at": "2026-10-05T14:23:56Z",
+      "completed_at": "2026-10-05T14:28:26Z",
+      "details_url": "https://github.com/honua-io/honua-sdk-dotnet/actions/runs/37324365519/job/111811197577",
+      "html_url": "https://github.com/honua-io/honua-sdk-dotnet/actions/runs/37324365519/job/111811197577",
+      "app": {
+        "slug": "github-actions"
+      },
+      "check_suite": {
+        "id": 101094507347
+      }
+    },
+    {
+      "id": 111811197136,
+      "name": ".NET SDK (GeoServices)",
+      "status": "completed",
+      "conclusion": "success",
+      "started_at": "2026-10-05T14:23:57Z",
+      "completed_at": "2026-10-05T14:24:55Z",
+      "details_url": "https://github.com/honua-io/honua-sdk-dotnet/actions/runs/37324365494/job/111811197136",
+      "html_url": "https://github.com/honua-io/honua-sdk-dotnet/actions/runs/37324365494/job/111811197136",
+      "app": {
+        "slug": "github-actions"
+      },
+      "check_suite": {
+        "id": 101094507298
+      }
+    },
+    {
+      "id": 111811197093,
+      "name": "Build DocFX site",
+      "status": "completed",
+      "conclusion": "success",
+      "started_at": "2026-10-05T14:23:57Z",
+      "completed_at": "2026-10-05T14:26:33Z",
+      "details_url": "https://github.com/honua-io/honua-sdk-dotnet/actions/runs/37324365527/job/111811197093",
+      "html_url": "https://github.com/honua-io/honua-sdk-dotnet/actions/runs/37324365527/job/111811197093",
+      "app": {
+        "slug": "github-actions"
+      },
+      "check_suite": {
+        "id": 101094507397
+      }
+    },
+    {
+      "id": 111811196857,
+      "name": ".NET SDK (Processes)",
+      "status": "completed",
+      "conclusion": "success",
+      "started_at": "2026-10-05T14:23:57Z",
+      "completed_at": "2026-10-05T14:24:37Z",
+      "details_url": "https://github.com/honua-io/honua-sdk-dotnet/actions/runs/37324365494/job/111811196857",
+      "html_url": "https://github.com/honua-io/honua-sdk-dotnet/actions/runs/37324365494/job/111811196857",
+      "app": {
+        "slug": "github-actions"
+      },
+      "check_suite": {
+        "id": 101094507298
+      }
+    },
+    {
+      "id": 111811196609,
+      "name": ".NET SDK (ConsoleShare)",
+      "status": "completed",
+      "conclusion": "success",
+      "started_at": "2026-10-05T14:23:57Z",
+      "completed_at": "2026-10-05T14:24:45Z",
+      "details_url": "https://github.com/honua-io/honua-sdk-dotnet/actions/runs/37324365494/job/111811196609",
+      "html_url": "https://github.com/honua-io/honua-sdk-dotnet/actions/runs/37324365494/job/111811196609",
+      "app": {
+        "slug": "github-actions"
+      },
+      "check_suite": {
+        "id": 101094507298
+      }
+    },
+    {
+      "id": 111811196596,
+      "name": ".NET SDK (Meta)",
+      "status": "completed",
+      "conclusion": "success",
+      "started_at": "2026-10-05T14:23:58Z",
+      "completed_at": "2026-10-05T14:25:27Z",
+      "details_url": "https://github.com/honua-io/honua-sdk-dotnet/actions/runs/37324365494/job/111811196596",
+      "html_url": "https://github.com/honua-io/honua-sdk-dotnet/actions/runs/37324365494/job/111811196596",
+      "app": {
+        "slug": "github-actions"
+      },
+      "check_suite": {
+        "id": 101094507298
+      }
+    },
+    {
+      "id": 111811196568,
+      "name": ".NET SDK (Offline)",
+      "status": "completed",
+      "conclusion": "success",
+      "started_at": "2026-10-05T14:23:56Z",
+      "completed_at": "2026-10-05T14:24:27Z",
+      "details_url": "https://github.com/honua-io/honua-sdk-dotnet/actions/runs/37324365494/job/111811196568",
+      "html_url": "https://github.com/honua-io/honua-sdk-dotnet/actions/runs/37324365494/job/111811196568",
+      "app": {
+        "slug": "github-actions"
+      },
+      "check_suite": {
+        "id": 101094507298
+      }
+    },
+    {
+      "id": 111811196542,
+      "name": ".NET SDK (Abstractions)",
+      "status": "completed",
+      "conclusion": "success",
+      "started_at": "2026-10-05T14:23:57Z",
+      "completed_at": "2026-10-05T14:25:21Z",
+      "details_url": "https://github.com/honua-io/honua-sdk-dotnet/actions/runs/37324365494/job/111811196542",
+      "html_url": "https://github.com/honua-io/honua-sdk-dotnet/actions/runs/37324365494/job/111811196542",
+      "app": {
+        "slug": "github-actions"
+      },
+      "check_suite": {
+        "id": 101094507298
+      }
+    },
+    {
+      "id": 111811196522,
+      "name": ".NET SDK (Admin)",
+      "status": "completed",
+      "conclusion": "success",
+      "started_at": "2026-10-05T14:23:56Z",
+      "completed_at": "2026-10-05T14:24:35Z",
+      "details_url": "https://github.com/honua-io/honua-sdk-dotnet/actions/runs/37324365494/job/111811196522",
+      "html_url": "https://github.com/honua-io/honua-sdk-dotnet/actions/runs/37324365494/job/111811196522",
+      "app": {
+        "slug": "github-actions"
+      },
+      "check_suite": {
+        "id": 101094507298
+      }
+    },
+    {
+      "id": 111811196503,
+      "name": ".NET SDK (Catalogs)",
+      "status": "completed",
+      "conclusion": "success",
+      "started_at": "2026-10-05T14:23:58Z",
+      "completed_at": "2026-10-05T14:24:45Z",
+      "details_url": "https://github.com/honua-io/honua-sdk-dotnet/actions/runs/37324365494/job/111811196503",
+      "html_url": "https://github.com/honua-io/honua-sdk-dotnet/actions/runs/37324365494/job/111811196503",
+      "app": {
+        "slug": "github-actions"
+      },
+      "check_suite": {
+        "id": 101094507298
+      }
+    },
+    {
+      "id": 111811196488,
+      "name": ".NET SDK (Spec)",
+      "status": "completed",
+      "conclusion": "success",
+      "started_at": "2026-10-05T14:23:56Z",
+      "completed_at": "2026-10-05T14:24:36Z",
+      "details_url": "https://github.com/honua-io/honua-sdk-dotnet/actions/runs/37324365494/job/111811196488",
+      "html_url": "https://github.com/honua-io/honua-sdk-dotnet/actions/runs/37324365494/job/111811196488",
+      "app": {
+        "slug": "github-actions"
+      },
+      "check_suite": {
+        "id": 101094507298
+      }
+    },
+    {
+      "id": 111811196474,
+      "name": "Security Audit (NuGet)",
+      "status": "completed",
+      "conclusion": "success",
+      "started_at": "2026-10-05T14:23:57Z",
+      "completed_at": "2026-10-05T14:24:53Z",
+      "details_url": "https://github.com/honua-io/honua-sdk-dotnet/actions/runs/37324365494/job/111811196474",
+      "html_url": "https://github.com/honua-io/honua-sdk-dotnet/actions/runs/37324365494/job/111811196474",
+      "app": {
+        "slug": "github-actions"
+      },
+      "check_suite": {
+        "id": 101094507298
+      }
+    },
+    {
+      "id": 111811196457,
+      "name": ".NET SDK (Scenes)",
+      "status": "completed",
+      "conclusion": "success",
+      "started_at": "2026-10-05T14:23:56Z",
+      "completed_at": "2026-10-05T14:24:30Z",
+      "details_url": "https://github.com/honua-io/honua-sdk-dotnet/actions/runs/37324365494/job/111811196457",
+      "html_url": "https://github.com/honua-io/honua-sdk-dotnet/actions/runs/37324365494/job/111811196457",
+      "app": {
+        "slug": "github-actions"
+      },
+      "check_suite": {
+        "id": 101094507298
+      }
+    },
+    {
+      "id": 111811196456,
+      "name": ".NET SDK (Cli)",
+      "status": "completed",
+      "conclusion": "success",
+      "started_at": "2026-10-05T14:23:58Z",
+      "completed_at": "2026-10-05T14:24:39Z",
+      "details_url": "https://github.com/honua-io/honua-sdk-dotnet/actions/runs/37324365494/job/111811196456",
+      "html_url": "https://github.com/honua-io/honua-sdk-dotnet/actions/runs/37324365494/job/111811196456",
+      "app": {
+        "slug": "github-actions"
+      },
+      "check_suite": {
+        "id": 101094507298
+      }
+    },
+    {
+      "id": 111811196430,
+      "name": ".NET SDK (Grpc)",
+      "status": "completed",
+      "conclusion": "success",
+      "started_at": "2026-10-05T14:23:56Z",
+      "completed_at": "2026-10-05T14:24:31Z",
+      "details_url": "https://github.com/honua-io/honua-sdk-dotnet/actions/runs/37324365494/job/111811196430",
+      "html_url": "https://github.com/honua-io/honua-sdk-dotnet/actions/runs/37324365494/job/111811196430",
+      "app": {
+        "slug": "github-actions"
+      },
+      "check_suite": {
+        "id": 101094507298
+      }
+    },
+    {
+      "id": 111811196408,
+      "name": ".NET SDK (Field)",
+      "status": "completed",
+      "conclusion": "success",
+      "started_at": "2026-10-05T14:23:57Z",
+      "completed_at": "2026-10-05T14:24:39Z",
+      "details_url": "https://github.com/honua-io/honua-sdk-dotnet/actions/runs/37324365494/job/111811196408",
+      "html_url": "https://github.com/honua-io/honua-sdk-dotnet/actions/runs/37324365494/job/111811196408",
+      "app": {
+        "slug": "github-actions"
+      },
+      "check_suite": {
+        "id": 101094507298
+      }
+    },
+    {
+      "id": 111811196403,
+      "name": ".NET SDK (Studio)",
+      "status": "completed",
+      "conclusion": "success",
+      "started_at": "2026-10-05T14:23:56Z",
+      "completed_at": "2026-10-05T14:24:44Z",
+      "details_url": "https://github.com/honua-io/honua-sdk-dotnet/actions/runs/37324365494/job/111811196403",
+      "html_url": "https://github.com/honua-io/honua-sdk-dotnet/actions/runs/37324365494/job/111811196403",
+      "app": {
+        "slug": "github-actions"
+      },
+      "check_suite": {
+        "id": 101094507298
+      }
+    },
+    {
+      "id": 111811196386,
+      "name": "release-please",
+      "status": "completed",
+      "conclusion": "success",
+      "started_at": "2026-10-05T14:23:56Z",
+      "completed_at": "2026-10-05T14:24:13Z",
+      "details_url": "https://github.com/honua-io/honua-sdk-dotnet/actions/runs/37324365696/job/111811196386",
+      "html_url": "https://github.com/honua-io/honua-sdk-dotnet/actions/runs/37324365696/job/111811196386",
+      "app": {
+        "slug": "github-actions"
+      },
+      "check_suite": {
+        "id": 101094508076
+      }
+    },
+    {
+      "id": 111811196366,
+      "name": ".NET SDK (OgcFeatures)",
+      "status": "completed",
+      "conclusion": "success",
+      "started_at": "2026-10-05T14:23:56Z",
+      "completed_at": "2026-10-05T14:25:15Z",
+      "details_url": "https://github.com/honua-io/honua-sdk-dotnet/actions/runs/37324365494/job/111811196366",
+      "html_url": "https://github.com/honua-io/honua-sdk-dotnet/actions/runs/37324365494/job/111811196366",
+      "app": {
+        "slug": "github-actions"
+      },
+      "check_suite": {
+        "id": 101094507298
+      }
+    },
+    {
+      "id": 111811196351,
+      "name": "Code Coverage",
+      "status": "completed",
+      "conclusion": "success",
+      "started_at": "2026-10-05T14:23:57Z",
+      "completed_at": "2026-10-05T14:26:48Z",
+      "details_url": "https://github.com/honua-io/honua-sdk-dotnet/actions/runs/37324365494/job/111811196351",
+      "html_url": "https://github.com/honua-io/honua-sdk-dotnet/actions/runs/37324365494/job/111811196351",
+      "app": {
+        "slug": "github-actions"
+      },
+      "check_suite": {
+        "id": 101094507298
+      }
+    },
+    {
+      "id": 111811196334,
+      "name": "Admin Bootstrap Sample",
+      "status": "completed",
+      "conclusion": "success",
+      "started_at": "2026-10-05T14:23:58Z",
+      "completed_at": "2026-10-05T14:25:43Z",
+      "details_url": "https://github.com/honua-io/honua-sdk-dotnet/actions/runs/37324365494/job/111811196334",
+      "html_url": "https://github.com/honua-io/honua-sdk-dotnet/actions/runs/37324365494/job/111811196334",
+      "app": {
+        "slug": "github-actions"
+      },
+      "check_suite": {
+        "id": 101094507298
+      }
+    },
+    {
+      "id": 111811196280,
+      "name": ".NET SDK (Geometry)",
+      "status": "completed",
+      "conclusion": "success",
+      "started_at": "2026-10-05T14:23:56Z",
+      "completed_at": "2026-10-05T14:24:39Z",
+      "details_url": "https://github.com/honua-io/honua-sdk-dotnet/actions/runs/37324365494/job/111811196280",
+      "html_url": "https://github.com/honua-io/honua-sdk-dotnet/actions/runs/37324365494/job/111811196280",
+      "app": {
+        "slug": "github-actions"
+      },
+      "check_suite": {
+        "id": 101094507298
+      }
+    },
+    {
+      "id": 111811196191,
+      "name": "SDK Capability Coverage Snapshot",
+      "status": "completed",
+      "conclusion": "success",
+      "started_at": "2026-10-05T14:23:57Z",
+      "completed_at": "2026-10-05T14:24:05Z",
+      "details_url": "https://github.com/honua-io/honua-sdk-dotnet/actions/runs/37324365494/job/111811196191",
+      "html_url": "https://github.com/honua-io/honua-sdk-dotnet/actions/runs/37324365494/job/111811196191",
+      "app": {
+        "slug": "github-actions"
+      },
+      "check_suite": {
+        "id": 101094507298
+      }
+    },
+    {
+      "id": 111811196117,
+      "name": "Contract Conformance (pinned)",
+      "status": "completed",
+      "conclusion": "success",
+      "started_at": "2026-10-05T14:23:55Z",
+      "completed_at": "2026-10-05T14:25:55Z",
+      "details_url": "https://github.com/honua-io/honua-sdk-dotnet/actions/runs/37324365537/job/111811196117",
+      "html_url": "https://github.com/honua-io/honua-sdk-dotnet/actions/runs/37324365537/job/111811196117",
+      "app": {
+        "slug": "github-actions"
+      },
+      "check_suite": {
+        "id": 101094507408
+      }
+    },
+    {
+      "id": 111811196065,
+      "name": "GitHub Workflow Validation",
+      "status": "completed",
+      "conclusion": "success",
+      "started_at": "2026-10-05T14:23:56Z",
+      "completed_at": "2026-10-05T14:24:11Z",
+      "details_url": "https://github.com/honua-io/honua-sdk-dotnet/actions/runs/37324365494/job/111811196065",
+      "html_url": "https://github.com/honua-io/honua-sdk-dotnet/actions/runs/37324365494/job/111811196065",
+      "app": {
+        "slug": "github-actions"
+      },
+      "check_suite": {
+        "id": 101094507298
+      }
+    },
+    {
+      "id": 111811196025,
+      "name": "Browser WASM Smoke",
+      "status": "completed",
+      "conclusion": "success",
+      "started_at": "2026-10-05T14:23:55Z",
+      "completed_at": "2026-10-05T14:25:14Z",
+      "details_url": "https://github.com/honua-io/honua-sdk-dotnet/actions/runs/37324365494/job/111811196025",
+      "html_url": "https://github.com/honua-io/honua-sdk-dotnet/actions/runs/37324365494/job/111811196025",
+      "app": {
+        "slug": "github-actions"
+      },
+      "check_suite": {
+        "id": 101094507298
+      }
+    },
+    {
+      "id": 111811195976,
+      "name": "Trimmed Browser WASM Runtime",
+      "status": "completed",
+      "conclusion": "success",
+      "started_at": "2026-10-05T14:23:56Z",
+      "completed_at": "2026-10-05T14:26:30Z",
+      "details_url": "https://github.com/honua-io/honua-sdk-dotnet/actions/runs/37324365562/job/111811195976",
+      "html_url": "https://github.com/honua-io/honua-sdk-dotnet/actions/runs/37324365562/job/111811195976",
+      "app": {
+        "slug": "github-actions"
+      },
+      "check_suite": {
+        "id": 101094507498
+      }
+    },
+    {
+      "id": 111811195919,
+      "name": "API Compatibility",
+      "status": "completed",
+      "conclusion": "success",
+      "started_at": "2026-10-05T14:23:56Z",
+      "completed_at": "2026-10-05T14:27:07Z",
+      "details_url": "https://github.com/honua-io/honua-sdk-dotnet/actions/runs/37324365494/job/111811195919",
+      "html_url": "https://github.com/honua-io/honua-sdk-dotnet/actions/runs/37324365494/job/111811195919",
+      "app": {
+        "slug": "github-actions"
+      },
+      "check_suite": {
+        "id": 101094507298
+      }
+    }
+  ],
+  "workflow_runs": [
+    {
+      "id": 37381201203,
+      "name": "Conformance Gate",
+      "path": ".github/workflows/conformance.yml",
+      "event": "schedule",
+      "status": "completed",
+      "conclusion": "success",
+      "run_attempt": 1,
+      "head_sha": "d9d9fd1fcbe99570594160a6a3cc61b70594257b",
+      "workflow_id": 286179464,
+      "created_at": "2026-10-05T22:14:47Z",
+      "updated_at": "2026-10-05T22:20:46Z",
+      "html_url": "https://github.com/honua-io/honua-sdk-dotnet/actions/runs/37381201203"
+    },
+    {
+      "id": 37380181171,
+      "name": ".NET SDK Protocol Certification",
+      "path": ".github/workflows/sdk-certification.yml",
+      "event": "schedule",
+      "status": "completed",
+      "conclusion": "failure",
+      "run_attempt": 1,
+      "head_sha": "d9d9fd1fcbe99570594160a6a3cc61b70594257b",
+      "workflow_id": 339062222,
+      "created_at": "2026-10-05T22:05:21Z",
+      "updated_at": "2026-10-05T22:05:58Z",
+      "html_url": "https://github.com/honua-io/honua-sdk-dotnet/actions/runs/37380181171"
+    },
+    {
+      "id": 37375416719,
+      "name": ".NET SDK Staging Integration",
+      "path": ".github/workflows/staging-integration.yml",
+      "event": "schedule",
+      "status": "completed",
+      "conclusion": "success",
+      "run_attempt": 1,
+      "head_sha": "d9d9fd1fcbe99570594160a6a3cc61b70594257b",
+      "workflow_id": 255442667,
+      "created_at": "2026-10-05T21:22:08Z",
+      "updated_at": "2026-10-05T21:34:49Z",
+      "html_url": "https://github.com/honua-io/honua-sdk-dotnet/actions/runs/37375416719"
+    },
+    {
+      "id": 37324427367,
+      "name": "Publish .NET SDK Packages",
+      "path": ".github/workflows/publish-dotnet-sdk.yml",
+      "event": "workflow_dispatch",
+      "status": "completed",
+      "conclusion": "success",
+      "run_attempt": 1,
+      "head_sha": "d9d9fd1fcbe99570594160a6a3cc61b70594257b",
+      "workflow_id": 241050083,
+      "created_at": "2026-10-05T14:24:19Z",
+      "updated_at": "2026-10-05T15:37:51Z",
+      "html_url": "https://github.com/honua-io/honua-sdk-dotnet/actions/runs/37324427367"
+    },
+    {
+      "id": 37324366681,
+      "name": "Security",
+      "path": ".github/workflows/security.yml",
+      "event": "push",
+      "status": "completed",
+      "conclusion": "success",
+      "run_attempt": 1,
+      "head_sha": "d9d9fd1fcbe99570594160a6a3cc61b70594257b",
+      "workflow_id": 292189924,
+      "created_at": "2026-10-05T14:23:53Z",
+      "updated_at": "2026-10-05T14:25:15Z",
+      "html_url": "https://github.com/honua-io/honua-sdk-dotnet/actions/runs/37324366681"
+    },
+    {
+      "id": 37324365519,
+      "name": "CodeQL",
+      "path": ".github/workflows/codeql.yml",
+      "event": "push",
+      "status": "completed",
+      "conclusion": "success",
+      "run_attempt": 1,
+      "head_sha": "d9d9fd1fcbe99570594160a6a3cc61b70594257b",
+      "workflow_id": 281668159,
+      "created_at": "2026-10-05T14:23:52Z",
+      "updated_at": "2026-10-05T14:28:29Z",
+      "html_url": "https://github.com/honua-io/honua-sdk-dotnet/actions/runs/37324365519"
+    },
+    {
+      "id": 37324365494,
+      "name": ".NET SDK CI",
+      "path": ".github/workflows/ci.yml",
+      "event": "push",
+      "status": "completed",
+      "conclusion": "success",
+      "run_attempt": 1,
+      "head_sha": "d9d9fd1fcbe99570594160a6a3cc61b70594257b",
+      "workflow_id": 241050082,
+      "created_at": "2026-10-05T14:23:52Z",
+      "updated_at": "2026-10-05T14:27:17Z",
+      "html_url": "https://github.com/honua-io/honua-sdk-dotnet/actions/runs/37324365494"
+    },
+    {
+      "id": 37324365696,
+      "name": "Release Please",
+      "path": ".github/workflows/release-please.yml",
+      "event": "push",
+      "status": "completed",
+      "conclusion": "success",
+      "run_attempt": 1,
+      "head_sha": "d9d9fd1fcbe99570594160a6a3cc61b70594257b",
+      "workflow_id": 243336033,
+      "created_at": "2026-10-05T14:23:52Z",
+      "updated_at": "2026-10-05T14:24:23Z",
+      "html_url": "https://github.com/honua-io/honua-sdk-dotnet/actions/runs/37324365696"
+    },
+    {
+      "id": 37324365562,
+      "name": "Browser WASM Trim Safety",
+      "path": ".github/workflows/browser-trim.yml",
+      "event": "push",
+      "status": "completed",
+      "conclusion": "success",
+      "run_attempt": 1,
+      "head_sha": "d9d9fd1fcbe99570594160a6a3cc61b70594257b",
+      "workflow_id": 311525534,
+      "created_at": "2026-10-05T14:23:52Z",
+      "updated_at": "2026-10-05T14:26:32Z",
+      "html_url": "https://github.com/honua-io/honua-sdk-dotnet/actions/runs/37324365562"
+    },
+    {
+      "id": 37324365537,
+      "name": "Conformance Gate",
+      "path": ".github/workflows/conformance.yml",
+      "event": "push",
+      "status": "completed",
+      "conclusion": "success",
+      "run_attempt": 1,
+      "head_sha": "d9d9fd1fcbe99570594160a6a3cc61b70594257b",
+      "workflow_id": 286179464,
+      "created_at": "2026-10-05T14:23:52Z",
+      "updated_at": "2026-10-05T14:25:56Z",
+      "html_url": "https://github.com/honua-io/honua-sdk-dotnet/actions/runs/37324365537"
+    },
+    {
+      "id": 37324365527,
+      "name": "Docs",
+      "path": ".github/workflows/docs.yml",
+      "event": "push",
+      "status": "completed",
+      "conclusion": "success",
+      "run_attempt": 1,
+      "head_sha": "d9d9fd1fcbe99570594160a6a3cc61b70594257b",
+      "workflow_id": 281668157,
+      "created_at": "2026-10-05T14:23:52Z",
+      "updated_at": "2026-10-05T14:26:39Z",
+      "html_url": "https://github.com/honua-io/honua-sdk-dotnet/actions/runs/37324365527"
+    }
+  ]
+}
