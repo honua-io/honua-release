@@ -2,7 +2,9 @@
   "private_repositories": [
     "agent-delivery-spec",
     "honua-client-compat",
-    "honua-esri-compat"
+    "honua-esri-compat",
+    "honua-sales",
+    "honua-support"
   ],
   "restricted_terms": [
     "ArcGIS Pro",

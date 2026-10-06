@@ -20,17 +20,25 @@ REFUSED = re.compile(r"^REFUSED: (?P<reason>.+)$")
 def parse(text: str, resolver_status: int) -> dict | None:
     rows: dict[str, dict] = {}
     matched = False
+    # A qualification refusal is one exception. resolve_trunk_candidate.py prints
+    # `REFUSED: {exc}`, and the message continues on the following lines
+    # (`candidate qualification refused:` then one component failure per line).
+    # Those lines belong to this refusal until the next recognized marker.
+    refusal = None
     for line in text.splitlines():
         if match := RESOLVED.match(line):
+            refusal = None
             matched = True
             row = rows.setdefault(match['component'], {'component': match['component']})
             row.update(verdict='resolved', selected_sha=match['sha'][:7])
         elif match := SKIPS.match(line):
+            refusal = None
             matched = True
             row = rows.setdefault(match['component'], {'component': match['component']})
             row.update(selected_sha=match['sha'][:7], age_days=(float(match['age']) if match['age'] else None),
                        newer_commits_skipped=int(match['skipped']))
         elif match := STALE.match(line):
+            refusal = None
             matched = True
             row = rows.setdefault(match['component'], {'component': match['component']})
             row.update(verdict='stale', selected_sha=match['sha'][:7])
@@ -41,6 +49,10 @@ def parse(text: str, resolver_status: int) -> dict | None:
             component = component_match['component'] if component_match else '(resolver)'
             row = rows.setdefault(component, {'component': component})
             row.update(verdict='refused', reason=reason)
+            refusal = row
+        elif refusal is not None and line.strip():
+            matched = True
+            refusal['reason'] += '\n' + line
     if not matched:
         return None
     normalized = []

@@ -1,0 +1,6 @@
+REFUSED: candidate qualification refused:
+honua-server: capability keys missing from the advertised set
+sdk-python: package identity did not match the selected sha
+RESOLVED server 1234567890abcdef1234567890abcdef12345678
+SKIPS server: selected 1234567 (5.0 days old); 4 newer trunk commit(s) skipped
+STALE-CANDIDATE: server selected 1234567 (4 commits, 4.1 days behind)

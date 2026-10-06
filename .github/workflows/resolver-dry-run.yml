@@ -1,3 +1,8 @@
+# Scheduled read-only candidate resolution. RELEASE_GH_TOKEN reads the other component
+# repositories. Only refs/heads/trunk receives it: workflow_dispatch --ref runs this
+# workflow file and the checkout from that ref, so any other branch would hand the
+# cross-repository token to unmerged code. The schedule fires on the default branch.
+
 name: resolver-dry-run
 
 on:
@@ -14,6 +19,7 @@ concurrency:
 
 jobs:
   resolve:
+    if: github.ref == 'refs/heads/trunk'
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
@@ -26,7 +32,7 @@ jobs:
       - name: Capture resolver dry run
         id: resolver
         env:
-          GH_TOKEN: ${{ secrets.RELEASE_GH_TOKEN }}
+          GH_TOKEN: ${{ github.ref == 'refs/heads/trunk' && secrets.RELEASE_GH_TOKEN || github.token }}
         run: |
           set +e
           python3 tools/resolve_trunk_candidate.py --dry-run > resolver-dry-run.log 2>&1

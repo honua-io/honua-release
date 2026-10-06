@@ -35,3 +35,27 @@ def test_garbage_is_a_broken_run_and_writes_no_json(tmp_path):
     output = tmp_path / 'result.json'
     assert summary.main([str(FIXTURES / 'garbage.txt'), '1', '--json-out', str(output)]) == 2
     assert not output.exists()
+
+
+def test_qualification_refusal_keeps_the_following_diagnostic_lines(tmp_path, capsys):
+    output = tmp_path / 'result.json'
+    assert summary.main([str(FIXTURES / 'qualification-refused.txt'), '1', '--json-out', str(output)]) == 0
+    report = json.loads(output.read_text())
+    assert report['resolves'] is False
+    by_component = {row['component']: row for row in report['rows']}
+    assert by_component['(resolver)']['reason'] == (
+        'candidate qualification refused:\n'
+        'honua-server: capability keys missing from the advertised set\n'
+        'sdk-python: package identity did not match the selected sha')
+    assert by_component['server']['verdict'] == 'stale'
+    assert by_component['server']['selected_sha'] == '1234567'
+    rendered = capsys.readouterr().out
+    assert 'capability keys missing from the advertised set' in rendered
+    assert 'package identity did not match the selected sha' in rendered
+
+
+def test_org_token_is_passed_only_on_trunk():
+    workflow = (Path(__file__).resolve().parents[1] / '.github/workflows/resolver-dry-run.yml').read_text()
+    assert "if: github.ref == 'refs/heads/trunk'" in workflow
+    assert "GH_TOKEN: ${{ github.ref == 'refs/heads/trunk' && secrets.RELEASE_GH_TOKEN || github.token }}" in workflow
+    assert 'GH_TOKEN: ${{ secrets.RELEASE_GH_TOKEN }}' not in workflow

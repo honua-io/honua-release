@@ -1,3 +1,5 @@
+import json
+
 import dashboard_content_gate as gate
 
 
@@ -29,3 +31,17 @@ def test_restricted_term_fails():
 def test_neutral_private_reference_row_passes():
     reference = 'honua-esri-compat#74'
     assert gate.violations(page(f'<tr><td>{reference}</td><td>Evidence {reference}</td></tr>'), POLICY) == []
+
+
+def test_committed_policy_flags_private_support_and_sales_titles():
+    policy = json.loads(gate.POLICY.read_text(encoding='utf-8'))
+    names = set(policy['private_repositories'])
+    assert {'honua-support', 'honua-sales'} <= names
+    support = gate.violations(
+        page('<tr><td>honua-support#5</td><td>staffed manual support title</td></tr>'), policy)
+    sales = gate.violations(
+        page('<tr><td>honua-sales#14</td><td>customer discovery title</td></tr>'), policy)
+    assert any('honua-support#5' in problem and 'staffed manual support title' in problem for problem in support)
+    assert any('honua-sales#14' in problem and 'customer discovery title' in problem for problem in sales)
+    assert gate.violations(
+        page('<tr><td>honua-support#5</td><td>Evidence honua-support#5</td></tr>'), policy) == []
