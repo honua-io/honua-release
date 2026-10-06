@@ -9,7 +9,8 @@ it runs only on Honua's own demo stack and is not offered for customer deploymen
 
 Use the signed platform lock for the server image and component identities. Save
 the following self-contained customer quickstart as `compose.yaml`. The default
-is the digest-pinned 2026.1 candidate; when certifying a newer signed platform
+is the server image `platform-manifest.yaml` pins for 2026.1 (`nightly-87966c3`,
+by digest); when certifying a newer signed platform
 lock, set `HONUA_SERVER_IMAGE` to its digest-pinned server image.
 
 <!-- doc-run: file=compose.yaml -->
@@ -28,7 +29,7 @@ services:
       retries: 30
 
   honua:
-    image: ${HONUA_SERVER_IMAGE:-ghcr.io/honua-io/honua-server@sha256:3ef3bd41a2f84d1f3a6194c11db496f741cc4d869b54bf57e9d7067dd9cf3d39}
+    image: ${HONUA_SERVER_IMAGE:-ghcr.io/honua-io/honua-server@sha256:069f196bfa5c7201223d4d89868934242c4ace8805a6e48c122a88d84fa6eb1a}
     depends_on:
       db:
         condition: service_healthy
