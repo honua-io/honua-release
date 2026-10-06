@@ -9,6 +9,8 @@
 #
 # Coverage reads open PRs only (read-only GitHub API). RELEASE_GH_TOKEN, when set, also covers
 # private repositories; with the default token their tickets show "not observed", never "uncovered".
+# The org token is given only to trunk code (push to trunk, or a dispatch on trunk): a pull request
+# or a dispatch on another branch runs unmerged code and gets github.token. Only trunk deploys.
 # The page never links a private repository and never renders a PR title or body (R30).
 #
 # Operator step: Settings -> Pages -> Build and deployment -> Source: "GitHub Actions" must be set
@@ -56,17 +58,17 @@ jobs:
         run: python -m pytest tools/test_release_dashboard.py -q
       - name: Render the dashboard with live in-flight coverage
         env:
-          GH_TOKEN: ${{ secrets.RELEASE_GH_TOKEN || github.token }}
+          GH_TOKEN: ${{ github.ref == 'refs/heads/trunk' && github.event_name != 'pull_request' && secrets.RELEASE_GH_TOKEN || github.token }}
         run: python tools/release_dashboard.py --live --out site/index.html
       - name: Configure Pages
-        if: github.event_name != 'pull_request'
+        if: github.ref == 'refs/heads/trunk' && github.event_name != 'pull_request'
         uses: actions/configure-pages@45bfe0192ca1faeb007ade9deae92b16b8254a0d # v6.0.0
       - uses: actions/upload-pages-artifact@fc324d3547104276b827a68afc52ff2a11cc49c9 # v5.0.0
         with:
           path: site
 
   deploy:
-    if: github.event_name != 'pull_request'
+    if: github.ref == 'refs/heads/trunk' && github.event_name != 'pull_request'
     needs: build
     runs-on: ubuntu-latest
     timeout-minutes: 10

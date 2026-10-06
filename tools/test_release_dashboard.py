@@ -119,10 +119,14 @@ def test_closing_refs_follow_github_keywords(body, expected):
     assert dashboard.closing_refs(body, 'honua-server') == expected
 
 
-def test_live_coverage_reads_the_record_repo_list_and_batches_merge_states(monkeypatch):
-    repos = [{'name': 'honua-server', 'private': False}, {'name': 'honua-support', 'private': True}]
-    prs = {'honua-server': [{'number': 40, 'body': 'Closes #11'}, {'number': 41, 'body': 'Refs #11'}],
-           'honua-support': [{'number': 2, 'body': 'Fixes honua-io/honua-server#11\nCloses #3'}]}
+def test_live_coverage_reads_default_branch_prs_and_batches_merge_states(monkeypatch):
+    repos = [{'name': 'honua-server', 'private': False, 'default_branch': 'trunk'},
+             {'name': 'honua-support', 'private': True, 'default_branch': 'main'}]
+    def pr(number, body, base):
+        return {'number': number, 'body': body, 'base': {'ref': base}}
+    prs = {'honua-server': [pr(40, 'Closes #11', 'trunk'), pr(41, 'Refs #11', 'trunk'),
+                            pr(42, 'Closes #12', 'land/batch-1')],  # not the default branch: closes nothing
+           'honua-support': [pr(2, 'Fixes honua-io/honua-server#11\nCloses #3', 'main')]}
     monkeypatch.setattr(decision, 'org_repos', lambda: repos)
     monkeypatch.setattr(decision, 'pages', lambda endpoint: prs[endpoint.split('/')[2]])
     queries = []

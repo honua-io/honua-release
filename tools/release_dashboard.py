@@ -35,7 +35,7 @@ SLOT = {bucket: i + 1 for i, bucket in enumerate(record.BUCKETS)}
 HIDDEN_LABELS = {'release/2026.1'}
 REPO_URL = 'https://github.com/honua-io/{repo}/{kind}/{number}'
 RECORD_URL = 'https://github.com/honua-io/honua-release/blob/trunk/docs/2026.1-release-decision-record.md'
-# GitHub's closing keywords. A ref is `#N` (the PR's own repo), `owner/repo#N` or an issue URL.
+# GitHub's closing keywords (honoured only on a PR into the default branch). A ref is `#N` (the PR's own repo), `owner/repo#N` or an issue URL.
 CLOSING = re.compile(
     r'\b(?:close[sd]?|fix(?:e[sd])?|resolve[sd]?):?[ \t]+'
     r'(?:https://github\.com/(?P<url_owner>[\w.-]+)/(?P<url_repo>[\w.-]+)/issues/(?P<url_number>\d+)'
@@ -70,10 +70,15 @@ def merge_states(prs):
 
 
 def harvest_coverage():
-    """Open PRs that close a ticket, from the same org repository list the record refresh reads."""
+    """Open PRs that close a ticket, from the same org repository list the record refresh reads.
+
+    GitHub honours closing keywords only on a PR that targets its repository's default branch, so
+    a PR into a staging, release or stacked branch covers nothing.
+    """
     repos = record.org_repos()
     def fetch(repo):
-        return repo['name'], record.pages(f"repos/honua-io/{repo['name']}/pulls?state=open&per_page=100")
+        prs = record.pages(f"repos/honua-io/{repo['name']}/pulls?state=open&per_page=100")
+        return repo['name'], [pr for pr in prs if pr['base']['ref'] == repo['default_branch']]
     closes = {}
     with ThreadPoolExecutor(max_workers=5) as pool:
         for name, prs in pool.map(fetch, repos):
