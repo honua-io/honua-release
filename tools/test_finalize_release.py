@@ -167,6 +167,7 @@ def test_driver_refuses_substituted_candidate_before_writing_release_files(tmp_p
         "--train-run-attempt", str(identity["train_run_attempt"]),
         "--train-run-url", identity["train_run_url"],
         "--certification-mode", identity["certification_mode"],
+        "--certification-time", report["generatedAt"],
         "--out-manifest", str(out_manifest),
         "--out-notes", str(out_notes),
     ])
@@ -247,6 +248,7 @@ def test_driver_refuses_an_incoherent_ga_stamp_before_writing_release_files(tmp_
         "--train-run-attempt", str(identity["train_run_attempt"]),
         "--train-run-url", identity["train_run_url"],
         "--certification-mode", identity["certification_mode"],
+        "--certification-time", report["generatedAt"],
         "--out-manifest", str(out_manifest),
         "--out-notes", str(out_notes),
     ])

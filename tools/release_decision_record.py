@@ -385,6 +385,8 @@ def verify_security(data, rows, rules, record_text):
         errors.append(f'record does not carry the computed decision: {line}')
     if any(f['status'] == 'open' for f in security_findings(rules)) and verdict != 'HOLD':
         errors.append('an open GA-blocking security finding requires Decision: HOLD')
+    if any(f['status'] == 'open' for f in security_findings(rules)):
+        errors.append('GA-blocking security findings remain open')
     if errors:
         raise ValueError('Security findings gate failed:\n' + '\n'.join(errors))
     return verdict

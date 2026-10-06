@@ -116,6 +116,7 @@ def test_incompatible_forward_schema_never_claims_rollback(tmp_path):
     result = _run(tmp_path, a, b, env)
     assert result["status"] == "ManualInterventionRequired"
     assert next(c for c in result["children"] if c["id"] == "schema")["state"] == "Failed"
+    assert result["providerMutations"] == []  # REL-005: incompatibility refuses before mutation.
 
 
 def test_exact_from_lock_bytes_are_required(tmp_path):
