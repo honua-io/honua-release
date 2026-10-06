@@ -637,7 +637,7 @@ class WorkflowTests(unittest.TestCase):
         self.assertFalse(judge(setup_view("default", list(PINNED_DEFAULT_VIEW), "default.v2"), FIXTURE, {}, {}, {})[0])
 
     def test_mcp_setup_view_is_blocked_only_by_the_dropped_selector(self):
-        # The committed cell is active: @honua/mcp-server 0.1.13 keeps the setup view (sdk-js#1875).
+        # The committed cell is active: @honua/mcp-server 0.1.14 retains the setup view (sdk-js#1875).
         committed, plan = workflow_cell("npm-mcp-workflow"), cli_plan()
         status, detail, _ = evaluate_workflow(committed, passing_mcp_observations(), "honua-mcp-server", plan)
         self.assertEqual(status, "pass", detail)
