@@ -28,15 +28,16 @@ GitHub login for any journey.
 ## Start the pinned server
 
 This quickstart requires Docker with the Compose plugin and Python 3. Save the
-following file as `compose.yaml`. It uses the digest-pinned server from the
-customer manifest. When checking a newer signed release lock, set
-`HONUA_SERVER_IMAGE` to that lock's digest-pinned server image before starting.
+following file as `compose.yaml`. It uses the digest-pinned server and the
+`supportingImages.postgres` database image from the customer manifest. When
+checking a newer signed release lock, set `HONUA_SERVER_IMAGE` to that lock's
+digest-pinned server image before starting.
 
 <!-- doc-run: file=compose.yaml -->
 ```yaml
 services:
   db:
-    image: postgis/postgis:16-3.4
+    image: pgrouting/pgrouting:17-3.5-3.7.3@sha256:5e6767abbd1fd9ead84c9988aa31bac71ca292ef8a1fc2e4a5ee2b613ac6a7bb
     environment:
       POSTGRES_USER: honua
       POSTGRES_PASSWORD: honua
