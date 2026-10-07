@@ -1569,11 +1569,11 @@
       "id": "honua-release-docs-customer-install",
       "repo": "honua-io/honua-release",
       "path": "docs/CUSTOMER-INSTALL.md",
-      "revision": "d5aac4338640a39259f8f1176364904342d4d577",
+      "revision": "e5cd4da0e94a4784e19f274187269b304d0c9e9b",
       "revisionRule": {
         "checkout": true
       },
-      "url": "https://github.com/honua-io/honua-release/blob/d5aac4338640a39259f8f1176364904342d4d577/docs/CUSTOMER-INSTALL.md",
+      "url": "https://github.com/honua-io/honua-release/blob/e5cd4da0e94a4784e19f274187269b304d0c9e9b/docs/CUSTOMER-INSTALL.md",
       "runtime": "python",
       "docker": true,
       "session": null,
