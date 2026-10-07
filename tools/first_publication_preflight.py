@@ -15,6 +15,7 @@ import hashlib
 import io
 import json
 import tarfile
+import time
 import urllib.error
 import urllib.parse
 import urllib.request
@@ -106,6 +107,12 @@ HELM_BOUNDARY = (
     "refuses appVersion 0.0.0 and requires a published ghcr.io/honua-io/honua-server:v<semver>-aot image "
     "before it will push a chart. This repo does not invent that server SemVer or an appVersion."
 )
+QGIS_REPO_URL = "https://api.github.com/repos/honua-io/honua-qgis-plugin"
+QGIS_PUBLIC_REPO_URL = "https://github.com/honua-io/honua-qgis-plugin"
+QGIS_PLUGIN_URL = "https://plugins.qgis.org/plugins/honua/"
+# Anonymous api.github.com denials on shared CI addresses are rate-limit or abuse blocks.
+# Retry them, then give up. A 403 is never itself evidence the repository is private.
+QGIS_DENIAL_RETRY_DELAYS = (10, 30, 60, 120, 80)
 QGIS_BOUNDARY = (
     "https://api.github.com/repos/honua-io/honua-qgis-plugin returned 404 to an unauthenticated request "
     "(a private repository is not distinguishable from a missing one) and "
@@ -169,6 +176,57 @@ def _parse_json(body: bytes, url: str) -> dict:
 
 def _sha512_sri(data: bytes) -> str:
     return "sha512-" + base64.b64encode(hashlib.sha512(data).digest()).decode("ascii")
+
+
+def _sleep(seconds: float) -> None:
+    time.sleep(seconds)
+
+
+def _inconclusive_github_denial(response: Response) -> bool:
+    """True when GitHub refused the request instead of answering whether the repo exists."""
+    if response.status not in {403, 429}:
+        return False
+    text = response.body.decode("utf-8", errors="replace").lower()
+    return any(
+        marker in text
+        for marker in (
+            "rate limit",
+            "secondary rate",
+            "too many requests",
+            "temporarily blocked",
+            "automated requests",
+            "abuse detection",
+        )
+    )
+
+
+def _probe_qgis_repo(transport) -> Response:
+    """Classify the QGIS repo without treating an API denial as privacy evidence.
+
+    A definitive API status is returned as-is. A rate-limit or abuse denial is
+    retried within a 300 second budget. While that denial persists, an anonymous
+    404 from the public repository page is the same non-visibility the receipt
+    records; the denied status is not stored. Any other denial is returned so
+    the caller can refuse it.
+    """
+    response = transport.get(QGIS_REPO_URL)
+    waited = 0
+    delays = iter(QGIS_DENIAL_RETRY_DELAYS)
+    while _inconclusive_github_denial(response):
+        page = transport.get(QGIS_PUBLIC_REPO_URL)
+        if page.status == 404:
+            return Response(404, page.body, QGIS_REPO_URL)
+        try:
+            delay = next(delays)
+        except StopIteration:
+            break
+        if waited >= 300:
+            break
+        delay = min(delay, 300 - waited)
+        _sleep(delay)
+        waited += delay
+        response = transport.get(QGIS_REPO_URL)
+    return response
 
 
 def _status_only(status: int, url: str, *, allowed: set[int]) -> int:
@@ -854,11 +912,11 @@ def build_receipt(
         urls=[helm_url],
     ))
 
-    qgis_repo_url = "https://api.github.com/repos/honua-io/honua-qgis-plugin"
-    qgis_plugin_url = "https://plugins.qgis.org/plugins/honua/"
-    qgis_repo = transport.get(qgis_repo_url)
+    qgis_repo_url = QGIS_REPO_URL
+    qgis_plugin_url = QGIS_PLUGIN_URL
+    qgis_repo = _probe_qgis_repo(transport)
     qgis_plugin = transport.get(qgis_plugin_url)
-    if qgis_repo.status == 403:
+    if qgis_repo.status in {403, 429}:
         raise PreflightError("GitHub API denied the QGIS repo probe; that is not evidence the repo is private")
     if qgis_repo.status not in {200, 404} or qgis_plugin.status not in {200, 404}:
         raise PreflightError(

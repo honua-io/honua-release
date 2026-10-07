@@ -706,3 +706,77 @@ def test_public_nuget_pin_refuses_studio_bytes_that_are_not_the_named_package():
         _public_pin_receipt(_public_pin_world(bodies=wrong), _public_pin_manifest())
     with pytest.raises(preflight.PreflightError, match="not a valid .nupkg"):
         _public_pin_receipt(_public_pin_world(bodies={"Honua.Sdk.Studio": b"nupkg-bytes"}), _public_pin_manifest())
+
+
+RATE_LIMIT_BODY = b'{"message":"API rate limit exceeded for 0.0.0.0."}'
+ABUSE_BODY = b'{"message":"We have detected automated requests from this IP and have temporarily blocked it."}'
+PERMISSION_BODY = b'{"message":"Resource not accessible by integration"}'
+
+
+class _QgisTransport:
+    def __init__(self, api_results, page_status=404):
+        self.inner = World()
+        self.api_results = list(api_results)
+        self.page_status = page_status
+        self.seen = []
+
+    def get(self, url: str) -> preflight.Response:
+        self.seen.append(url)
+        if url == preflight.QGIS_REPO_URL:
+            status, body = self.api_results.pop(0)
+            return preflight.Response(status, body, url)
+        if url == preflight.QGIS_PUBLIC_REPO_URL:
+            return preflight.Response(self.page_status, b"html", url)
+        return self.inner.get(url)
+
+
+def _qgis_receipt(transport: _QgisTransport) -> dict:
+    return preflight.build_receipt(
+        transport,
+        _manifest(),
+        observed_at="2026-09-26T00:00:00Z",
+        retained={"grpc_sha256": _sha(transport.inner.grpc_body), "bsr_sha256": _sha(transport.inner.bsr_body)},
+    )
+
+
+def test_qgis_rate_limit_uses_the_public_404_and_does_not_record_the_denial(monkeypatch):
+    slept = []
+    monkeypatch.setattr(preflight, "_sleep", slept.append)
+    transport = _QgisTransport([(403, RATE_LIMIT_BODY)])
+    channel = _channel(_qgis_receipt(transport), "qgis:honua-qgis-plugin")
+    assert channel == _channel(_receipt(), "qgis:honua-qgis-plugin")
+    assert channel["http_status"] == 404
+    assert slept == []
+    assert transport.api_results == []
+
+
+def test_qgis_permission_denial_is_not_evidence_the_repo_is_private(monkeypatch):
+    slept = []
+    monkeypatch.setattr(preflight, "_sleep", slept.append)
+    transport = _QgisTransport([(403, PERMISSION_BODY)], page_status=404)
+    with pytest.raises(preflight.PreflightError, match="not evidence the repo is private"):
+        _qgis_receipt(transport)
+    assert slept == []
+    assert preflight.QGIS_PUBLIC_REPO_URL not in transport.seen
+
+
+def test_qgis_rate_limit_retries_until_the_api_answers(monkeypatch):
+    slept = []
+    monkeypatch.setattr(preflight, "_sleep", slept.append)
+    transport = _QgisTransport([
+        (403, RATE_LIMIT_BODY),
+        (404, b'{"message":"Not Found"}'),
+    ], page_status=503)
+    channel = _channel(_qgis_receipt(transport), "qgis:honua-qgis-plugin")
+    assert channel["http_status"] == 404
+    assert channel["disposition"] == "blocked-on-operator"
+    assert slept == [10]
+
+
+def test_qgis_abuse_block_without_a_public_404_still_fails(monkeypatch):
+    slept = []
+    monkeypatch.setattr(preflight, "_sleep", slept.append)
+    transport = _QgisTransport([(403, ABUSE_BODY)] * 6, page_status=403)
+    with pytest.raises(preflight.PreflightError, match="not evidence the repo is private"):
+        _qgis_receipt(transport)
+    assert slept == [10, 30, 60, 120, 80]
