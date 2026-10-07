@@ -357,6 +357,29 @@ def test_security_gate_requires_hold_while_a_row_is_open():
     assert verify(fixed, [pr(body='SEC-4 follow-up.'), pr()])[0] == 'HOLD'
 
 
+def test_private_repository_rows_keep_only_the_neutral_placeholder():
+    # Private repositories are the content-gate denylist. An ordinary title is still detail.
+    support = issue('priority/P2', 'bug')
+    support['repo'] = 'honua-support'
+    support['number'] = 5
+    support['title'] = 'bug: staffed manual support title'
+    before = decision.classify(support, rules())
+    redacted = decision.public_issue(support)
+    assert redacted['title'] == 'Evidence honua-support#5'
+    assert 'staffed' not in json.dumps({k: v for k, v in redacted.items() if k != 'labels'})
+    assert redacted['title_signals'] == ['bug']
+    assert decision.classify(redacted, rules()) == before
+    assert decision.public_issue(redacted) == redacted
+    sales = issue()
+    sales['repo'] = 'honua-sales'
+    sales['number'] = 14
+    sales['title'] = 'Customer discovery title'
+    assert decision.public_issue(sales)['title'] == 'Evidence honua-sales#14'
+    assert 'title_signals' not in decision.public_issue(sales)
+    assert decision.classify(decision.public_issue(sales), rules()) == decision.classify(sales, rules())
+    assert decision.public_issue(issue())['title'] == 'Example'
+
+
 def test_public_issue_redacts_titles_the_vendor_terms_classifier_calls_confidential():
     # Built from fragments so this test file names no confidential term itself (R30).
     for title in ('Fix ' + 'arc' + 'py import', 'Arc' + 'GIS P' + 'ro crashes', 'Open project.' + 'ap' + 'rx'):
