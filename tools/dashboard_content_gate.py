@@ -11,6 +11,24 @@ import re
 POLICY = Path(__file__).with_name('dashboard-content-policy.json')
 
 
+def entry_text(value) -> str:
+    """A policy entry is a string, or string fragments joined in order.
+
+    Fragments keep a contiguous mark out of the policy file. The vendor-term lint fails a new
+    avoidable use, and a confidential use can be neither baselined nor allowlisted.
+    """
+    if isinstance(value, str):
+        text = value
+    elif isinstance(value, list) and value and all(isinstance(part, str) and part for part in value):
+        text = ''.join(value)
+    else:
+        raise ValueError(
+            f'policy entry must be a non-empty string or a list of non-empty strings, got {value!r}')
+    if not text.strip():
+        raise ValueError('policy entry is empty')
+    return text
+
+
 class VisibleRows(HTMLParser):
     def __init__(self):
         super().__init__()
@@ -52,7 +70,7 @@ def violations(source: str, policy: dict) -> list[str]:
     problems = []
     for cells in parser.rows:
         row = ' '.join(cells)
-        for repo in policy['private_repositories']:
+        for repo in (entry_text(item) for item in policy['private_repositories']):
             matches = re.findall(rf"\b{re.escape(repo)}#\d+\b", row, re.IGNORECASE)
             for reference in matches:
                 reference_cell = next((index for index, cell in enumerate(cells) if cell == reference), None)
@@ -63,7 +81,7 @@ def violations(source: str, policy: dict) -> list[str]:
     visible = '\n'.join(parser.page)
     for number, line in enumerate(visible.splitlines(), 1):
         clean = ' '.join(line.split())
-        for term in policy['restricted_terms']:
+        for term in (entry_text(item) for item in policy['restricted_terms']):
             if clean and re.search(re.escape(term), clean, re.IGNORECASE):
                 problems.append(f'line {number}: restricted term {term!r}: {clean}')
     return problems

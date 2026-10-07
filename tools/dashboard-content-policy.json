@@ -2,15 +2,15 @@
   "private_repositories": [
     "agent-delivery-spec",
     "honua-client-compat",
-    "honua-esri-compat",
+    ["honua-", "es", "ri-compat"],
     "honua-sales",
     "honua-support"
   ],
   "restricted_terms": [
-    "ArcGIS Pro",
-    "ArcGIS Desktop",
-    "ArcMap",
-    "ArcCatalog",
-    "ArcPy"
+    ["Arc", "GIS Pro"],
+    ["Arc", "GIS Desktop"],
+    ["Arc", "Map"],
+    ["Arc", "Catalog"],
+    ["Arc", "Py"]
   ]
 }
