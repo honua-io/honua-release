@@ -983,11 +983,11 @@
       "id": "honua-sdk-dotnet-readme",
       "repo": "honua-io/honua-sdk-dotnet",
       "path": "README.md",
-      "revision": "d9d9fd1fcbe99570594160a6a3cc61b70594257b",
+      "revision": "66413fe30f09533a008cf1552def8a2d05cc4fde",
       "revisionRule": {
         "clientArtifact": "honua-sdk-dotnet"
       },
-      "url": "https://github.com/honua-io/honua-sdk-dotnet/blob/d9d9fd1fcbe99570594160a6a3cc61b70594257b/README.md",
+      "url": "https://github.com/honua-io/honua-sdk-dotnet/blob/66413fe30f09533a008cf1552def8a2d05cc4fde/README.md",
       "runtime": "dotnet",
       "docker": false,
       "session": null,
@@ -1099,11 +1099,11 @@
       "id": "honua-sdk-dotnet-install",
       "repo": "honua-io/honua-sdk-dotnet",
       "path": "INSTALL.md",
-      "revision": "d9d9fd1fcbe99570594160a6a3cc61b70594257b",
+      "revision": "66413fe30f09533a008cf1552def8a2d05cc4fde",
       "revisionRule": {
         "clientArtifact": "honua-sdk-dotnet"
       },
-      "url": "https://github.com/honua-io/honua-sdk-dotnet/blob/d9d9fd1fcbe99570594160a6a3cc61b70594257b/INSTALL.md",
+      "url": "https://github.com/honua-io/honua-sdk-dotnet/blob/66413fe30f09533a008cf1552def8a2d05cc4fde/INSTALL.md",
       "runtime": "dotnet",
       "docker": false,
       "session": null,
@@ -1235,11 +1235,11 @@
       "id": "honua-sdk-dotnet-docs-quickstart",
       "repo": "honua-io/honua-sdk-dotnet",
       "path": "docs/quickstart.md",
-      "revision": "d9d9fd1fcbe99570594160a6a3cc61b70594257b",
+      "revision": "66413fe30f09533a008cf1552def8a2d05cc4fde",
       "revisionRule": {
         "clientArtifact": "honua-sdk-dotnet"
       },
-      "url": "https://github.com/honua-io/honua-sdk-dotnet/blob/d9d9fd1fcbe99570594160a6a3cc61b70594257b/docs/quickstart.md",
+      "url": "https://github.com/honua-io/honua-sdk-dotnet/blob/66413fe30f09533a008cf1552def8a2d05cc4fde/docs/quickstart.md",
       "runtime": "dotnet",
       "docker": false,
       "session": null,
@@ -1569,16 +1569,45 @@
       "id": "honua-release-docs-customer-install",
       "repo": "honua-io/honua-release",
       "path": "docs/CUSTOMER-INSTALL.md",
-      "revision": "99e8ff05126cb6961875d22570ec0b2413fcbe8d",
+      "revision": "e5cd4da0e94a4784e19f274187269b304d0c9e9b",
       "revisionRule": {
         "checkout": true
       },
-      "url": "https://github.com/honua-io/honua-release/blob/99e8ff05126cb6961875d22570ec0b2413fcbe8d/docs/CUSTOMER-INSTALL.md",
+      "url": "https://github.com/honua-io/honua-release/blob/e5cd4da0e94a4784e19f274187269b304d0c9e9b/docs/CUSTOMER-INSTALL.md",
       "runtime": "python",
       "docker": true,
       "session": null,
       "checkout": null,
-      "blocks": []
+      "blocks": [
+        {
+          "index": 0,
+          "line": 37,
+          "language": "yaml",
+          "infoString": "yaml",
+          "intent": "file",
+          "intentSource": "marker",
+          "sha256": "492e226eb01dda56175297e69e3e8a3c653f9684ab34e607e060a71b018dd854",
+          "file": "compose.yaml"
+        },
+        {
+          "index": 1,
+          "line": 77,
+          "language": "shell",
+          "infoString": "sh",
+          "intent": "run",
+          "intentSource": "heuristic",
+          "sha256": "9acdd1ecfbf74e89f690023e96ab44ce25d5eeb98048bcdc1dd38f8f0ff836df"
+        },
+        {
+          "index": 2,
+          "line": 87,
+          "language": "shell",
+          "infoString": "sh",
+          "intent": "run",
+          "intentSource": "heuristic",
+          "sha256": "18da6f781aad763bf1e7c709eb51cc6f5192e5e947fc0949ca609d9dd7a1b96e"
+        }
+      ]
     },
     {
       "id": "honua-server-docs-get-started-quickstart",
@@ -2766,15 +2795,15 @@
   ],
   "summary": {
     "documents": 35,
-    "blocks": 222,
+    "blocks": 225,
     "byIntent": {
       "alternative": 1,
       "compile": 8,
       "excluded": 4,
-      "file": 21,
+      "file": 22,
       "illustrative": 14,
       "output": 6,
-      "run": 166,
+      "run": 168,
       "teardown": 2
     }
   }
