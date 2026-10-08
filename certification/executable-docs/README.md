@@ -25,3 +25,23 @@ prerequisites use the reader container’s tool installation mechanism.
 Run `python3 -m pytest certification/executable-docs -q` for offline regressions and
 `python3 certification/executable-docs/docker_regressions.py` for live Docker checks.
 Runtime evidence under root `out/` is ignored and must not be committed.
+
+## Candidate seed
+
+`e2e/harness/seed/seed.sh` publishes the demo services in a fixed order. The first nine
+layer ids stay on that order (`maui-parcels` through `e2e`). `maui-buildings` is a small
+synthetic polygon fixture appended after them. Its layer id is whatever the admin API
+returns. Documents that still write the public demo's `layer_id=13` substitute
+`{fixture.mauiBuildingsLayerId}` from `out/seed-manifest.json` after the seed runs.
+
+`maui-inspections` is the only service published with `storageMode` `managed` and
+capabilities `Query`, `Create`, `Update`, and `Delete`. That is the candidate admin
+contract for an editable layer. Other demo services stay source-backed, and anonymous
+write stays on the inspections scratch service only.
+
+Rows the pinned documents still query, and this fixture does not invent, stay as they
+are: service `parcels` at layer 0, OGC collection `parcels`, and `apply_edits("svc", 0, ...)`.
+Making any of those layer 0 would move the nine stable publication ids. TLS gRPC and the
+`create-honua-app` scaffold pin are outside this seed slice. The pinned `@honua/sdk-js`
+0.1.14 CLI queries `zone = '1'` on `maui-parcels/1`, which the existing parcel grid
+already serves. It does not query `tmk_txt`.

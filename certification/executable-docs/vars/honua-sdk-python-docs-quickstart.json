@@ -22,6 +22,10 @@
     "https://demo.honua.io": {
       "value": "{candidate.baseUrl}",
       "documentedAt": "docs/quickstart.md:35 — \"Base URL | `https://demo.honua.io`\" in the endpoint table the reader substitutes"
+    },
+    "layer_id=13": {
+      "value": "layer_id={fixture.mauiBuildingsLayerId}",
+      "documentedAt": "docs/quickstart.md:36-37 — the endpoint table names FeatureServer service `maui-buildings` and \"Layer id | `13`\". That 13 is the public demo's publication id. The candidate seed returns the id it published and the runner binds it into `layer_id=13`."
     }
   }
 }
