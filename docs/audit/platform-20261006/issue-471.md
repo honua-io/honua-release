@@ -28,3 +28,10 @@ this repair does not change findings, credentials, or enforcement.
 Nonblocking P2: [QGIS fallback observation provenance](https://github.com/honua-io/honua-release/issues/477).
 An API rate-limit denial followed by a public-page 404 is currently attributed to the API URL.
 The QGIS row remains blocked-on-operator; correcting that observation source is a separate repair.
+
+Local verification on 2026-10-08: `python3 -m pytest tools/ e2e/test_licensing.py
+e2e/test_upgrade_chaos.py e2e/test_cloud.py -q` passed all 3,071 tests with no skips or failures
+(two existing tarfile deprecation warnings), under shared build slot 3. The 115 focused workflow,
+binding and finalizer tests also passed. Actionlint passed for every changed workflow, and
+`git diff --check` passed. Independent review found no remaining supported P0/P1 implementation
+findings. The live findings verifier still exits 1 for the open SEC-N rows listed above.
