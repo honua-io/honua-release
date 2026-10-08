@@ -1,0 +1,5 @@
+RESOLVED server 1234567890abcdef1234567890abcdef12345678 ghcr.io/honua/server@sha256:abc
+SKIPS server: selected 1234567 (1.5 days old); 2 newer trunk commit(s) skipped
+RESOLVED sdk-python abcdef0123456789abcdef0123456789abcdef01
+SKIPS sdk-python: selected abcdef0 (0.2 days old); 0 newer trunk commit(s) skipped
+PASS: exact trunk candidate in resolved-candidate; dry_run=True

@@ -1,0 +1,16 @@
+{
+  "private_repositories": [
+    "agent-delivery-spec",
+    "honua-client-compat",
+    ["honua-", "es", "ri-compat"],
+    "honua-sales",
+    "honua-support"
+  ],
+  "restricted_terms": [
+    ["Arc", "GIS Pro"],
+    ["Arc", "GIS Desktop"],
+    ["Arc", "Map"],
+    ["Arc", "Catalog"],
+    ["Arc", "Py"]
+  ]
+}

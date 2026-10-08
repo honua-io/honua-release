@@ -7,8 +7,10 @@ Live:    python3 tools/release_dashboard.py --live [--write-coverage coverage.js
 The ticket set, buckets, repo list and Decision come from release_decision_record (the committed
 inputs and overrides); the burn-down series is the one its --refresh appends to. --live adds the
 in-flight coverage: the open PRs, in every org repository the token can read, whose body closes a
-ticket. The page is public (R30): ticket titles appear as recorded, private repositories are never
-linked, security findings appear by public SEC-N id only, and no PR title or body is rendered.
+ticket. The page is public (R30): a private-repository row shows only `repo#n` and the neutral
+title `Evidence repo#n`, with no issue title or classifier detail. Other ticket titles appear as
+recorded, private repositories are never linked, security findings appear by public SEC-N id only,
+and no PR title or body is rendered.
 """
 from __future__ import annotations
 
@@ -144,9 +146,13 @@ def ticket_row(row, public):
             + f' <span class="state">{esc(pr["merge_state"])}</span>' for pr in row['prs'])
     else:
         cover = f'<span class="{row["coverage"].replace(" ", "-")}">{esc(row["coverage"])}</span>'
-    why = f'<div class="why">{esc(row["reason"])}</div>' if row['bucket'] is None else ''
+    # Private rows carry the neutral placeholder only. Classifier reasons are detail and stay off
+    # the public page, including when the row is unbucketed.
+    private = (row['repo'] or '').lower() in record.private_repositories()
+    title = record.placeholder_title(row) if private else row['title']
+    why = '' if private or row['bucket'] is not None else f'<div class="why">{esc(row["reason"])}</div>'
     return (f'<tr><td class="ticket">{ref(row["repo"], row["number"], "issues", public)}</td>'
-            f'<td class="title">{esc(row["title"])}{why}</td><td class="tags">{tags}</td>'
+            f'<td class="title">{esc(title)}{why}</td><td class="tags">{tags}</td>'
             f'<td class="num">{"—" if row["age"] is None else row["age"]}</td><td class="cover">{cover}</td></tr>')
 
 

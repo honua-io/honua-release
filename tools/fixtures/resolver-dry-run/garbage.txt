@@ -1,0 +1,1 @@
+network command unexpectedly produced no resolver diagnostics

@@ -1,0 +1,4 @@
+RESOLVED server 1234567890abcdef1234567890abcdef12345678
+SKIPS server: selected 1234567 (5.0 days old); 4 newer trunk commit(s) skipped
+STALE-CANDIDATE: server selected 1234567 (4 commits, 4.1 days behind)
+REFUSED: sdk-python: no green trunk commit satisfied the package identity

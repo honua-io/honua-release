@@ -3,6 +3,7 @@ import json
 import re
 
 import pytest
+import dashboard_content_gate as gate
 import release_dashboard as dashboard
 import release_decision_record as decision
 
@@ -86,13 +87,39 @@ def test_bucket_tables_sort_uncovered_first_then_oldest_and_show_merge_state():
 
 
 def test_private_or_unread_repositories_are_never_linked_or_called_uncovered():
-    prove = section(page(), 'bucket-prove-against-candidate')
-    assert '<td class="ticket">honua-support#3</td>' in prove
+    html = page()
+    prove = section(html, 'bucket-prove-against-candidate')
+    assert '<td class="ticket">honua-support#3</td><td class="title">Evidence honua-support#3</td>' in prove
+    assert 'evidence: support receipt' not in html
     assert 'honua-io/honua-support' not in prove
     assert '<span class="not-observed">not observed</span>' in prove
     offline = dashboard.render(DATA, RULES, None, SERIES)
     assert 'href="https://github.com/honua-io/honua-server/issues' not in offline
     assert 'class="uncovered"' not in offline
+    assert gate.violations(html, json.loads(gate.POLICY.read_text(encoding='utf-8'))) == []
+
+
+def test_private_unbucketed_row_omits_the_classifier_reason():
+    data = {**DATA, 'issues': [*DATA['issues'],
+            issue('honua-sales', 9, 'Customer discovery title', ['priority/P1', 'release/2026.1'], '2026-09-30T00:00:00Z')]}
+    html = dashboard.render(data, RULES, COVERAGE, SERIES)
+    row = re.search(r'<tr><td class="ticket">honua-sales#9</td>.*?</tr>', html).group(0)
+    assert row.startswith('<tr><td class="ticket">honua-sales#9</td><td class="title">Evidence honua-sales#9</td>')
+    assert 'Customer discovery title' not in html
+    assert 'admission review' not in row
+    assert gate.violations(html, json.loads(gate.POLICY.read_text(encoding='utf-8'))) == []
+
+
+def test_committed_cohort_renders_private_rows_without_titles():
+    data = json.loads(decision.INPUTS.read_text(encoding='utf-8'))
+    rules = json.loads(decision.OVERRIDES.read_text(encoding='utf-8'))
+    private = decision.private_repositories()
+    rows = decision.decisions(data, rules, strict=False)
+    for row in rows:
+        if row['repo'].lower() in private:
+            assert row['title'] == decision.placeholder_title(row)
+    html = dashboard.render(data, rules, None, decision.read_burndown())
+    assert gate.violations(html, json.loads(gate.POLICY.read_text(encoding='utf-8'))) == []
 
 
 def test_unclassifiable_ticket_is_shown_unbucketed_not_dropped_and_titles_are_escaped():

@@ -23,6 +23,8 @@ import time
 from urllib.parse import quote
 
 from check_vendor_terms import CONFIDENTIAL
+from dashboard_content_gate import POLICY as DASHBOARD_POLICY
+from dashboard_content_gate import entry_text as dashboard_policy_entry
 
 ROOT = Path(__file__).resolve().parents[1]
 INPUTS = ROOT / 'docs/2026.1-release-decision-inputs.json'
@@ -59,6 +61,21 @@ def issue_key(issue):
     return f"{issue['repo']}#{issue['number']}"
 
 
+def private_repositories():
+    """Repositories whose public rows may show only `repo#n` and a neutral placeholder.
+
+    The content gate reads the same policy. A private row that still carries a title or
+    classifier detail fails that gate; redaction happens here, where the row is produced.
+    """
+    policy = json.loads(DASHBOARD_POLICY.read_text(encoding='utf-8'))
+    return {dashboard_policy_entry(item).lower() for item in policy['private_repositories']}
+
+
+def placeholder_title(issue):
+    """Neutral public title for a redacted row: `Evidence repo#n`."""
+    return f"Evidence {issue_key(issue)}"
+
+
 def title_signals(title):
     """Non-sensitive classification facts taken from a title."""
     title = title or ''
@@ -72,21 +89,26 @@ def title_signals(title):
 
 
 def public_issue(issue):
-    """R30: retain the issue identity while keeping desktop certification detail private.
+    """R30: retain the issue identity while keeping private-repository detail off public rows.
 
-    The redacted title is not a classification input. Title-derived signals are
-    stored beside it so offline regeneration keeps the live bucket.
+    A private-repository row, and any title the vendor-terms classifier calls confidential,
+    is published as `Evidence repo#n`. The redacted title is not a classification input.
+    Title-derived signals are stored beside it so offline regeneration keeps the live bucket.
     """
     title = issue.get('title') or ''
-    if any(pattern.search(title) for pattern in DESKTOP_DETAIL):
+    placeholder = placeholder_title(issue)
+    private = (issue.get('repo') or '').lower() in private_repositories()
+    if private or any(pattern.search(title) for pattern in DESKTOP_DETAIL):
+        # Already redacted: keep the stored signals. A live title remains the source of truth.
+        if title == placeholder:
+            return issue
         redacted = {key: value for key, value in issue.items() if key != 'title_signals'}
-        redacted['title'] = f"Evidence {issue_key(issue)}"
+        redacted['title'] = placeholder
         signals = title_signals(title)
         if signals:
             redacted['title_signals'] = signals
         return redacted
-    # Already redacted: keep the stored signals. A live title remains the source of truth.
-    if title == f"Evidence {issue_key(issue)}":
+    if title == placeholder:
         return issue
     if 'title_signals' in issue:
         return {key: value for key, value in issue.items() if key != 'title_signals'}
@@ -185,7 +207,7 @@ def _title_facts(issue):
     A persisted Evidence title is read from title_signals, never from the placeholder.
     """
     title = issue.get('title') or ''
-    if title == f"Evidence {issue_key(issue)}" and 'title_signals' in issue:
+    if title == placeholder_title(issue) and 'title_signals' in issue:
         signals = issue['title_signals']
         if not isinstance(signals, list) or any(signal not in _TITLE_SIGNALS for signal in signals):
             raise ValueError(f"{issue_key(issue)}: unclassified: invalid title_signals")
