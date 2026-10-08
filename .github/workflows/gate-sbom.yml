@@ -4,7 +4,7 @@
 #   platform-sbom  the aggregated platform CycloneDX BOM from the pinned platform-manifest.yaml
 #                  (tools/generate_bom.py — deterministic, unit-tested): every component with its
 #                  version + purl + pinned SHA + image + contract surfaces. Always producible.
-#   image-sbom     a per-artifact SBOM of the manifest-pinned server IMAGE via Syft, in BOTH CycloneDX
+#   image-sbom     a per-architecture SBOM of the pinned server image via Syft, in BOTH CycloneDX
 #                  and SPDX. Blocked (honest) when the image can't be pulled — never a fake green.
 #
 # All BOMs land in bom/ and are uploaded as artifacts (promote signs the platform BOM). enforcement:
@@ -142,6 +142,10 @@ jobs:
   # ── per-artifact SBOM of the pinned server image (CycloneDX + SPDX) via Syft ─────────────────────
   image-sbom:
     runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        architecture: [amd64, arm64]
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - name: Use the immutable candidate inputs
@@ -163,11 +167,11 @@ jobs:
           c = yaml.safe_load(open('platform-manifest.yaml'))['components']['honua-server']
           image = c['image'].split('@', 1)[0]
           if ':' in image.rsplit('/', 1)[-1]: image = image.rsplit(':', 1)[0]
-          print(f"{image}@{c['digest']}")
+          print(f"{image}@{c['platformDigests']['${{ matrix.architecture }}']}")
           PY
           )"
           echo "image=$IMG" >> "$GITHUB_OUTPUT"
-          echo "resolved server image: ${IMG:-<none>}"
+          echo "resolved server linux/${{ matrix.architecture }} image: ${IMG:-<none>}"
 
       - name: Install Syft
         run: |
@@ -185,15 +189,15 @@ jobs:
           GH_TOKEN: ${{ secrets.RELEASE_GH_TOKEN || github.token }}
         run: |
           set -uo pipefail
-          GATE=sbom-server-image; STATUS=blocked; WHY=""
+          GATE=sbom-server-image-${{ matrix.architecture }}; STATUS=blocked; WHY=""
           mkdir -p bom
           IMG='${{ steps.img.outputs.image }}'
           echo "$GH_TOKEN" | docker login ghcr.io -u honua --password-stdin >/dev/null 2>&1 || true
           if [ -z "$IMG" ]; then
             STATUS=blocked; WHY="no server image pinned in the manifest"
-          elif docker pull "$IMG" >/tmp/pull.log 2>&1; then
+          elif docker pull --platform "linux/${{ matrix.architecture }}" "$IMG" >/tmp/pull.log 2>&1; then
             SAFE="$(echo "$IMG" | tr '/:@' '___')"
-            if syft "$IMG" -o "cyclonedx-json=bom/${SAFE}.cdx.json" -o "spdx-json=bom/${SAFE}.spdx.json" >/tmp/syft.log 2>&1; then
+            if syft --platform "linux/${{ matrix.architecture }}" "$IMG" -o "cyclonedx-json=bom/${SAFE}.cdx.json" -o "spdx-json=bom/${SAFE}.spdx.json" >/tmp/syft.log 2>&1; then
               CN="$(jq '.components|length' "bom/${SAFE}.cdx.json" 2>/dev/null || echo 0)"
               if [ "$CN" -gt 0 ] 2>/dev/null; then
                 STATUS=pass; WHY="Syft SBOM of $IMG: $CN packages (CycloneDX + SPDX)"
@@ -214,7 +218,7 @@ jobs:
         if: always()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
-          name: sbom-bom-server-image
+          name: sbom-bom-server-image-${{ matrix.architecture }}
           path: bom/
           if-no-files-found: warn
 
@@ -222,7 +226,7 @@ jobs:
         if: always()
         uses: ./.github/actions/gate-fragment
         with:
-          gate: ${{ env.gate || 'sbom-server-image' }}
+          gate: ${{ env.gate || format('sbom-server-image-{0}', matrix.architecture) }}
           status: ${{ env.status || 'fail' }}
           source: image
           why: ${{ env.why || 'job crashed before recording a result' }}
@@ -258,9 +262,23 @@ jobs:
           PLATFORM_LABEL: ${{ inputs.platform_label }}
           ENFORCEMENT: ${{ inputs.enforcement }}
           RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          IMAGE_RESULT: ${{ needs.image-sbom.result }}
+          OTHER_RESULT: ${{ needs.platform-sbom.result }}
         run: |
           set -euo pipefail
           mkdir -p out
+          shopt -s nullglob
+          frags=(fragments/*.json)
+          if [ "$IMAGE_RESULT" != "success" ] || [ "$OTHER_RESULT" != "success" ] || \
+            [ ${#frags[@]} -eq 0 ] || ! jq -e -s \
+              --argjson expected '["sbom-platform","sbom-server-image-amd64","sbom-server-image-arm64"]' \
+              '([.[].gate] | sort) == ($expected | sort)' "${frags[@]}" >/dev/null; then
+            mkdir -p fragments
+            jq -n '{gate:"sbom-coverage",status:"fail",source:"coverage",
+              why:"missing, duplicate or unexpected SBOM receipts, or a BOM producer did not succeed"}' \
+              > fragments/coverage.json
+            frags+=(fragments/coverage.json)
+          fi
           jq -s \
             --arg label "$PLATFORM_LABEL" --arg enf "$ENFORCEMENT" \
             --arg ts "$(date -u +%FT%TZ)" --arg run "$RUN_URL" '
@@ -276,7 +294,7 @@ jobs:
                           fail:([$g[]|select(.decided=="fail")]|length) },
                 overallStatus:( if any($g[];.decided=="fail") then "fail"
                                 elif any($g[];.decided=="blocked") then "blocked" else "pass" end) }' \
-            fragments/*.json > out/gate-report.json
+            "${frags[@]}" > out/gate-report.json
           cat out/gate-report.json
           OVERALL=$(jq -r .overallStatus out/gate-report.json)
           echo "overall_status=$OVERALL" >> "$GITHUB_OUTPUT"

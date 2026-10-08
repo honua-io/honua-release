@@ -47,6 +47,7 @@ concurrency:
 
 permissions:
   contents: read
+  pull-requests: read           # gate-security-findings verifies public merged fix PRs
   id-token: write               # OIDC for keyless signing / cloud auth (no static creds)
   packages: read                # pull staging images / OCI charts in the artifact-consume gate
   checks: read                  # gate-build-test reads each pinned component's check-runs (subset guard)
