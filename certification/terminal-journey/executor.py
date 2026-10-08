@@ -536,10 +536,12 @@ class JourneyExecutor:
 
         def buffer():
             spec = self.fixture["buffer"]
+            # AnalysisPlanStepKind is Geoprocess and outputs are ArtifactKind names.
+            # The candidate rejects kind "Process" and a step-id output with invalid_argument.
             plan = {"planId": self.state["workspaceId"] + "-buffer", "intentId": "journey-buffer",
-                    "steps": [{"stepId": "buffer", "kind": "Process", "processId": "geometry.buffer", "inputs": {
+                    "steps": [{"stepId": "buffer", "kind": "Geoprocess", "processId": "geometry.buffer", "inputs": {
                         "wkb": oracles.point_wkb(*spec["point"]), "srid": str(spec["srid"]),
-                        "distance": str(spec["distance"]), "geodesic": "false"}}], "outputs": ["buffer"]}
+                        "distance": str(spec["distance"]), "geodesic": "false"}}], "outputs": ["FeatureLayer"]}
             call(5, "honua_validate_plan", {"plan": plan})
             call(5, "honua_dry_run_plan", {"plan": plan})
             call(5, "honua_execute_plan", {"plan": plan, "idempotencyKey": self.state["workspaceId"] + "-buffer"})
