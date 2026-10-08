@@ -1,11 +1,11 @@
 # Release gate (e) — security review. Scans the platform artifacts the release repo can reach and
 # fails the gate on real findings (AGENTS.md: a gate that can't fail is worse than no gate).
 #
-#   image-scan  Trivy vulnerability scan of the manifest-pinned server image (CVEs in OS + app deps)
+#   image-scan  Trivy vulnerability scan of each pinned server/console architecture (OS + app deps)
 #   repo-scan   Trivy filesystem scan of this repo: secrets, vulnerable deps, license, IaC misconfig
 #
 # Component-level SAST (CodeQL) + each repo's own dep/secret scans live in the component repos; this
-# gate covers the platform-level artifacts (the shipped server image) + the release repo itself.
+# gate covers the shipped server/console images + the release repo itself.
 #
 # Trigger scope: workflow_dispatch / workflow_call (the train) / nightly — NOT per-PR, because a CVE
 # in the upstream server image is not an individual honua-release PR's fault (same rationale as the
@@ -105,7 +105,7 @@ jobs:
           set -uo pipefail
           IMG='${{ steps.img.outputs.image }}'
           echo "$GH_TOKEN" | docker login ghcr.io -u honua --password-stdin >/dev/null 2>&1 || true
-          if [ -n "$IMG" ] && docker pull "$IMG" >/tmp/pull.log 2>&1; then
+          if [ -n "$IMG" ] && docker pull --platform "linux/${{ matrix.architecture }}" "$IMG" >/tmp/pull.log 2>&1; then
             echo "pulled=1" >> "$GITHUB_OUTPUT"
           else
             echo "pulled=0" >> "$GITHUB_OUTPUT"; echo "image unpullable (expected if private/not built):"; tail -n 3 /tmp/pull.log || true
@@ -116,6 +116,8 @@ jobs:
         if: steps.pull.outputs.pulled == '1'
         uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
         continue-on-error: true     # we translate the outcome into a gate verdict ourselves
+        env:
+          TRIVY_PLATFORM: linux/${{ matrix.architecture }}
         with:
           image-ref: ${{ steps.img.outputs.image }}
           scan-type: image
@@ -218,6 +220,8 @@ jobs:
           PLATFORM_LABEL: ${{ inputs.platform_label }}
           ENFORCEMENT: ${{ inputs.enforcement }}
           RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          IMAGE_RESULT: ${{ needs.image-scan.result }}
+          OTHER_RESULT: ${{ needs.repo-scan.result }}
         run: |
           set -euo pipefail
           mkdir -p out
@@ -242,6 +246,16 @@ jobs:
                           fail:( if $np=="fail" then 1 else 0 end) },
                 overallStatus:$np }' > out/gate-report.json
           else
+            # Every matrix cell and the repo scan must contribute exactly one receipt.
+            # A partial upload or failed producer must never become a passing subset.
+            if [ "$IMAGE_RESULT" != "success" ] || [ "$OTHER_RESULT" != "success" ] || ! jq -e -s \
+              --argjson expected '["security-image-honua-server-amd64","security-image-honua-server-arm64","security-image-honua-console-amd64","security-image-honua-console-arm64","security-repo"]' \
+              '([.[].gate] | sort) == ($expected | sort)' "${frags[@]}" >/dev/null; then
+              jq -n '{gate:"security-coverage",status:"fail",source:"coverage",
+                why:"missing, duplicate or unexpected scan receipts, or a scan producer did not succeed"}' \
+                > fragments/coverage.json
+              frags+=(fragments/coverage.json)
+            fi
             jq -s \
               --arg label "$PLATFORM_LABEL" --arg enf "$ENFORCEMENT" \
               --arg ts "$(date -u +%FT%TZ)" --arg run "$RUN_URL" '
