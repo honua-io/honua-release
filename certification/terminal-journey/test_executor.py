@@ -475,6 +475,75 @@ def test_tenant_denial_cannot_pass_from_a_blanket_studio_rbac_refusal():
     assert result.invocation == "GET /api/v1/studio/package-families"
 
 
+def test_buffer_plan_sent_to_validate_dry_run_and_execute_matches_the_accepted_contract():
+    """Capture the plans run_build submits. Expected kind and artifact names are contract literals."""
+    spec = {"point": [5, 7], "srid": 3857, "distance": 2}
+    transport = mock.Mock()
+    transport.credentials = {"proposer": "private-proposer"}
+    engine = engine_for(transport, execution={"buffer": spec})
+    engine.observation.setup_discovery["tools"].extend(
+        {"name": name, "inputSchema": {"type": "object"}}
+        for name in ("honua_validate_plan", "honua_dry_run_plan", "honua_execute_plan"))
+    captured = []
+
+    def tool(name, arguments, view):
+        captured.append((name, copy.deepcopy(arguments)))
+        if name == "honua_execute_plan":
+            return {"structuredContent": {"jobId": "job-buffer-1", "status": "accepted"}}
+        return {"structuredContent": {"accepted": True}}
+
+    transport.tool.side_effect = tool
+    feature = buffer_fixture()
+    transport.get_json.side_effect = [
+        {"jobID": "job-buffer-1", "status": "successful"},
+        {"outputs": {"result": {"value": feature}}},
+    ]
+    results = engine.run_build()
+    stage = next(result for result in results if result.number == 5)
+    buffer = next(check for check in stage.checks if check.id == "5.buffer")
+    assert buffer.status == "pass"
+    assert buffer.invocation == "geometry.buffer canonical job lifecycle"
+    assert engine.evidence["proofs"]["buffer"] == {
+        "centroid": [5, 7], "vertexCount": 32, "ordinatesVerified": True}
+    # This capture is not a live certification. The stage stays blocked until the
+    # candidate returns policy, actuator and verification identities.
+    assert stage.status == "blocked"
+    assert any(check.id == "5.canonical-evidence" and check.status == "blocked" for check in stage.checks)
+
+    expected_wkb = base64.b64encode(struct.pack("<BIdd", 1, 1, 5.0, 7.0)).decode()
+    expected_plan = {
+        "planId": "workspace-buffer",
+        "intentId": "journey-buffer",
+        "steps": [{
+            "stepId": "buffer",
+            "kind": "Geoprocess",
+            "processId": "geometry.buffer",
+            "inputs": {
+                "wkb": expected_wkb,
+                "srid": "3857",
+                "distance": "2",
+                "geodesic": "false",
+            },
+        }],
+        "outputs": ["FeatureLayer"],
+    }
+    assert [name for name, _ in captured] == [
+        "honua_validate_plan", "honua_dry_run_plan", "honua_execute_plan"]
+    assert captured[0][1] == {"plan": expected_plan}
+    assert captured[1][1] == {"plan": expected_plan}
+    assert captured[2][1] == {
+        "plan": expected_plan,
+        "idempotencyKey": "workspace-buffer",
+    }
+    assert captured[0][1]["plan"] == captured[1][1]["plan"] == captured[2][1]["plan"]
+    for name, arguments in captured:
+        step, = arguments["plan"]["steps"]
+        assert step["kind"] == "Geoprocess"
+        assert arguments["plan"]["outputs"] == ["FeatureLayer"]
+        assert step["kind"] != "Process"
+        assert arguments["plan"]["outputs"] != ["buffer"]
+
+
 def test_http_transport_mints_each_fixture_bearer_at_request_time(live_http):
     url, seen = live_http
     transport = transport_for(url)
