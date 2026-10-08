@@ -762,6 +762,23 @@ def test_the_recorded_leaflet_check_name_is_allowlisted_only_in_the_server_fixtu
     assert not entry.covers("honua-release", other, token)
 
 
+def test_the_pinned_quickstart_excerpt_allowlists_only_its_esri_comment():
+    """The seed fixture quotes a pinned quickstart block. The exception does not cover any other token or path."""
+    path = "certification/executable-docs/fixtures/pinned-seed-queries.json"
+    token = "Esri"
+    entries = [entry for entry in vt.load_allowlist(vt.ALLOWLIST) if entry.covers("honua-release", path, token)]
+    assert len(entries) == 1
+    entry = entries[0]
+    assert entry.tokens == (token,)
+    assert entry.paths == (path,)
+    assert entry.reason and entry.owner
+    assert "d88cc0bc53aca77fb204408ab924e69d5dce6e84f36f67394d55354292464fc2" in entry.reason
+    assert not entry.covers("honua-release", path, "ArcGIS")
+    assert not entry.covers("honua-release", path, SCRIPTING)
+    other = "certification/executable-docs/inventory.json"
+    assert not entry.covers("honua-release", other, token)
+
+
 def test_the_gate_pins_its_tooling_and_fails_on_known_confidential_uses():
     workflow = (vt.ROOT / ".github" / "workflows" / "gate-vendor-terms.yml").read_text()
     assert "--fail-on-known-confidential" in workflow
