@@ -30,7 +30,10 @@ def parse(text: str, resolver_status: int) -> dict | None:
             refusal = None
             matched = True
             row = rows.setdefault(match['component'], {'component': match['component']})
-            row.update(verdict='resolved', selected_sha=match['sha'][:7])
+            # Redirected stdout may arrive after a refusal written to stderr.
+            # Selection evidence must never erase that terminal failure.
+            row.setdefault('verdict', 'resolved')
+            row.update(selected_sha=match['sha'][:7])
         elif match := SKIPS.match(line):
             refusal = None
             matched = True
@@ -41,7 +44,8 @@ def parse(text: str, resolver_status: int) -> dict | None:
             refusal = None
             matched = True
             row = rows.setdefault(match['component'], {'component': match['component']})
-            row.update(verdict='stale', selected_sha=match['sha'][:7])
+            # The resolver defines staleness as informational, not a refusal.
+            row.update(stale=True, selected_sha=match['sha'][:7])
         elif match := REFUSED.match(line):
             matched = True
             reason = match['reason']
@@ -59,6 +63,7 @@ def parse(text: str, resolver_status: int) -> dict | None:
     for row in rows.values():
         normalized.append({
             'component': row['component'], 'verdict': row.get('verdict', 'refused'),
+            'stale': row.get('stale', False),
             'selected_sha': row.get('selected_sha'), 'age_days': row.get('age_days'),
             'newer_commits_skipped': row.get('newer_commits_skipped'), 'reason': row.get('reason'),
         })
@@ -68,12 +73,13 @@ def parse(text: str, resolver_status: int) -> dict | None:
 
 def markdown(report: dict) -> str:
     lines = ['## Resolver dry run', '',
-             '| Component | Verdict | Selected SHA | Age (days) | Newer commits skipped | Reason |',
-             '|---|---|---|---:|---:|---|']
+             '| Component | Verdict | Stale | Selected SHA | Age (days) | Newer commits skipped | Reason |',
+             '|---|---|---|---|---:|---:|---|']
     for row in report['rows']:
         value = lambda key: '—' if row[key] is None else str(row[key])
         reason = value('reason').replace('|', '\\|').replace('\n', ' ')
-        lines.append(f"| {row['component']} | {row['verdict']} | {value('selected_sha')} | "
+        stale = 'yes' if row['stale'] else '—'
+        lines.append(f"| {row['component']} | {row['verdict']} | {stale} | {value('selected_sha')} | "
                      f"{value('age_days')} | {value('newer_commits_skipped')} | {reason} |")
     lines += ['', f"**Resolves:** `{'true' if report['resolves'] else 'false'}`", '']
     return '\n'.join(lines)
