@@ -59,28 +59,57 @@ def _fragment_names(workflow):
     return ["sbom-platform", "sbom-server-image-amd64", "sbom-server-image-arm64"]
 
 
-@pytest.mark.parametrize("workflow", ["gate-security.yml", "gate-sbom.yml"])
-@pytest.mark.parametrize("problem", ["none", "missing", "duplicate", "failed-producer"])
+@pytest.mark.parametrize("workflow,problem", [
+    (workflow, problem)
+    for workflow in ("gate-security.yml", "gate-sbom.yml")
+    for problem in ("none", "empty", "duplicate", "unexpected", "failed-image", "failed-other",
+                    *[f"missing:{name}" for name in _fragment_names(workflow)])
+])
 @pytest.mark.parametrize("enforcement", ["strict", "bootstrap"])
 def test_scan_reports_cannot_pass_partial_duplicate_or_failed_coverage(tmp_path, workflow, problem, enforcement):
     names = _fragment_names(workflow)
     fragments = tmp_path / "fragments"
     fragments.mkdir()
-    selected = names[:-1] if problem == "missing" else names
+    selected = [name for name in names if problem != f"missing:{name}"]
+    if problem == "empty":
+        selected = []
     if problem == "duplicate":
         selected = selected + [names[0]]
+    if problem == "unexpected":
+        selected = selected[:-1] + ["unexpected-scan"]
     for i, name in enumerate(selected):
         (fragments / f"{i}.json").write_text(json.dumps({"gate": name, "status": "pass", "why": "tested"}))
     step = _step(workflow, "report", "Assemble gate-report.json")
     env = {"PLATFORM_LABEL": "2026.1-rc.1", "ENFORCEMENT": enforcement,
            "RUN_URL": "https://example.test/run/1", "GITHUB_OUTPUT": str(tmp_path / "output"),
            "GITHUB_STEP_SUMMARY": str(tmp_path / "summary"),
-           "IMAGE_RESULT": "failure" if problem == "failed-producer" else "success",
-           "OTHER_RESULT": "success"}
+           "IMAGE_RESULT": "failure" if problem == "failed-image" else "success",
+           "OTHER_RESULT": "failure" if problem == "failed-other" else "success"}
     result = _run(step["run"], tmp_path, env)
     assert result.returncode == 0, result.stderr
     report = json.loads((tmp_path / "out/gate-report.json").read_text())
     assert (report["overallStatus"] == "pass") == (problem == "none"), report
+
+
+@pytest.mark.parametrize("workflow,job,component,architecture", [
+    ("gate-security.yml", "image-scan", component, architecture)
+    for component in ("honua-server", "honua-console") for architecture in ("amd64", "arm64")
+] + [("gate-sbom.yml", "image-sbom", "honua-server", architecture) for architecture in ("amd64", "arm64")])
+def test_image_resolvers_use_child_digest_instead_of_tag_or_index(tmp_path, workflow, job, component, architecture):
+    children = {"amd64": "sha256:" + "a" * 64, "arm64": "sha256:" + "b" * 64}
+    manifest = {"components": {component: {"image": "registry.example:5000/honua/image:mutable",
+                                          "digest": "sha256:" + "c" * 64, "platformDigests": children}}}
+    (tmp_path / "platform-manifest.yaml").write_text(yaml.safe_dump(manifest))
+    bindir = tmp_path / "bin"
+    bindir.mkdir()
+    (bindir / "python").symlink_to(sys.executable)
+    step_name = "Resolve pinned component image" if job == "image-scan" else "Resolve pinned server image"
+    script = _step(workflow, job, step_name)["run"]
+    script = script.replace("${{ matrix.component }}", component).replace("${{ matrix.architecture }}", architecture)
+    output = tmp_path / "output"
+    result = _run(script, tmp_path, {"PATH": f"{bindir}:{os.environ['PATH']}", "GITHUB_OUTPUT": str(output)})
+    assert result.returncode == 0, result.stderr
+    assert output.read_text().strip() == f"image=registry.example:5000/honua/image@{children[architecture]}"
 
 
 @pytest.mark.parametrize("architecture", ["amd64", "arm64"])
