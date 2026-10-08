@@ -81,6 +81,24 @@ def test_bound_candidate_verifies_against_exact_bytes_and_identity(tmp_path: Pat
     assert ok, why
 
 
+def test_bound_report_after_burn_uses_minting_freshness_and_keeps_findings_required(tmp_path: Path):
+    manifest_path, matrix_path = _files(tmp_path / "candidate")
+    minted = datetime.now(timezone.utc) - timedelta(hours=60)
+    report = _bound_report(manifest_path, matrix_path)
+    report["generatedAt"] = minted.isoformat()
+    ok, why = _verify(report, manifest_path, matrix_path, certification_time=minted)
+    assert ok, why
+    ok, why = _verify(report, manifest_path, matrix_path)
+    assert not ok and "stale" in why
+    report["generatedAt"] = (minted - timedelta(hours=25)).isoformat()
+    ok, why = _verify(report, manifest_path, matrix_path, certification_time=minted)
+    assert not ok and "stale" in why
+    report["generatedAt"] = minted.isoformat()
+    report["gates"] = [row for row in report["gates"] if row["gate"] != "security-findings"]
+    ok, why = _verify(report, manifest_path, matrix_path, certification_time=minted)
+    assert not ok and "security-findings" in why
+
+
 def test_post_certification_mutation_is_refused(tmp_path: Path):
     manifest_path, matrix_path = _files(tmp_path / "candidate")
     report = _bound_report(manifest_path, matrix_path)
