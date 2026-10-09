@@ -2349,7 +2349,7 @@ def test_gp_driver_redis_off_fails_when_the_job_is_accepted_or_refusal_is_untype
 
 # ---- topology-aware S2 (MCP catalog) and S3 (Studio) drivers --------------------------------------
 # The real drivers run against an in-process stub of the candidate. The stub serves a Redis-on
-# server (the canonical 124-tool catalog) or a Redis-off one (minus the 20 durable-control-plane
+# server (the canonical 129-tool catalog) or a Redis-off one (minus the 23 durable-control-plane
 # tools, or with them once honua-server S1 has landed), and reports its topology through the
 # capability manifest / proposals endpoint the way the server does.
 _EXPECTED_TOOLS = json.loads((E2E_DIR / "drivers/mcp/expected-tools.json").read_text())
@@ -2360,10 +2360,11 @@ _REDIS_OFF_DETAIL = ("The operation proposal and approval control plane requires
                      "listed, inspected, approved, or rejected.")
 
 
-def test_durable_control_plane_roster_is_the_20_redis_gated_admin_tools():
-    assert len(_FULL_ROSTER) == 124 and len(set(_FULL_ROSTER)) == 124
-    assert len(_DURABLE_ONLY) == 20 and set(_DURABLE_ONLY) <= set(_FULL_ROSTER)
-    assert all(n.startswith(("honua_admin_layer_", "honua_admin_services_")) for n in _DURABLE_ONLY)
+def test_durable_control_plane_roster_is_the_23_redis_gated_admin_tools():
+    assert len(_FULL_ROSTER) == 129 and len(set(_FULL_ROSTER)) == 129
+    assert len(_DURABLE_ONLY) == 23 and set(_DURABLE_ONLY) <= set(_FULL_ROSTER)
+    assert all(n.startswith(("honua_admin_layer_", "honua_admin_services_", "honua_admin_connections_",
+                                      "honua_admin_import_")) for n in _DURABLE_ONLY)
     assert not set(_DURABLE_ONLY) & set(_EXPECTED_TOOLS["criticalTools"])
     assert not set(_DURABLE_ONLY) & set(_EXPECTED_TOOLS["defaultView"]["tools"])
 
@@ -2494,27 +2495,27 @@ def _s2(catalog, topology, redis, signal="jobs.runner"):
     return rows[1]
 
 
-def test_s2_redis_on_full_124_catalog_passes():
+def test_s2_redis_on_full_129_catalog_passes():
     row = _s2(_FULL_ROSTER, "redis-on", None)
     assert row["status"] == "pass", row["why"]
     assert row["evidence"]["topology"]["topology"] == "redis-on"
     assert row["evidence"]["topology"]["durableControlPlaneTools"]["state"] == "required"
 
 
-def test_s2_redis_off_104_catalog_passes_with_topology_recorded():
+def test_s2_redis_off_106_catalog_passes_with_topology_recorded():
     catalog = [n for n in _FULL_ROSTER if n not in _DURABLE_ONLY]
-    assert len(catalog) == 104
+    assert len(catalog) == 106
     for signal in ("jobs.runner", "operations.proposals", "admin-proposals"):
         row = _s2(catalog, "redis-off", "off", signal)
         assert row["status"] == "pass", (signal, row["why"])
         topo = row["evidence"]["topology"]
         assert topo["topology"] == "redis-off" and topo["declared"] == "off" and topo["mismatch"] is None
         assert topo["reasonCode"] and topo["signal"].startswith(("manifest:", "admin-proposals:"))
-        assert topo["durableControlPlaneTools"] == {"state": "absent", "count": 20}
+        assert topo["durableControlPlaneTools"] == {"state": "absent", "count": 23}
         assert "redis-off" in row["why"]
 
 
-def test_s2_redis_off_after_server_s1_still_passes_with_the_20_advertised():
+def test_s2_redis_off_after_server_s1_still_passes_with_the_23_advertised():
     row = _s2(_FULL_ROSTER, "redis-off", "off", "operations.proposals")
     assert row["status"] == "pass", row["why"]
     assert row["evidence"]["topology"]["durableControlPlaneTools"]["state"] == "advertised"
@@ -2537,7 +2538,7 @@ def test_s2_redis_off_extra_name_or_partial_durable_block_fails():
     assert row["status"] == "fail" and "partially advertised" in row["why"]
 
 
-def test_s2_redis_on_cell_cannot_pass_on_a_104_catalog():
+def test_s2_redis_on_cell_cannot_pass_on_a_106_catalog():
     catalog = [n for n in _FULL_ROSTER if n not in _DURABLE_ONLY]
     # A Redis-on cell whose server lost its control plane: the topology contradicts the cell.
     row = _s2(catalog, "redis-off", "on")

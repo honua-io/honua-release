@@ -78,7 +78,7 @@
   },
   "mcp": {
     "protocolVersion": "2025-06-18",
-    "views": {"setup": {"toolCount": 25}, "default": {"toolCount": 12}},
+    "views": {"setup": {"toolCount": 37}, "default": {"toolCount": 12}},
     "render": {
       "bbox": [-100.0, -10.0, -35.0, 70.0],
       "width": 260,

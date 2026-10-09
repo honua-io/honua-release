@@ -199,7 +199,8 @@ class ImportFidelityGateTests(unittest.TestCase):
             receipt["consumer"]["version"] = "1.10.0"
 
         def wrong_server(receipt):
-            receipt["server"]["image"] = receipt["server"]["image"].replace("069f196b", "00000000")
+            image = receipt["server"]["image"]
+            receipt["server"]["image"] = image.rsplit("@sha256:", 1)[0] + "@sha256:" + "0" * 64
 
         def mocks(receipt):
             receipt["sdkSeamMocks"] = True

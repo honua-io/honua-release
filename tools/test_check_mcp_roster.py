@@ -23,7 +23,8 @@ REPO_ROOT = Path(__file__).resolve().parents[1]
 ROSTER_FIXTURE = REPO_ROOT / 'tools' / 'fixtures' / 'mcp-roster' / 'mcp-tool-roster.v1.json'
 EXPECTED = REPO_ROOT / 'e2e' / 'drivers' / 'mcp' / 'expected-tools.json'
 PINNED = '87966c3f7b6c840ffc4d4da0b451714ab717b18a'
-# Hand-authored tools at the 87966c3 pin; the roster projects them as durable-control-plane admin tools.
+# Hand-authored tools absent at the 87966c3 pin; the roster (and the 3ecd214 pin) projects them as
+# durable-control-plane admin tools.
 CONNECT_IMPORT = {'honua_admin_connections_create', 'honua_admin_connections_test',
                   'honua_admin_import_upload_url'}
 
@@ -86,12 +87,14 @@ def test_pass_when_expected_matches_the_roster():
     assert summary['missing'] == summary['extra'] == summary['durableMismatch'] == summary['retiredSeen'] == []
 
 
-def test_committed_expected_tools_is_missing_the_tools_the_roster_adds():
-    """Today's snapshot predates the roster: canonical tools are absent from fullCatalog.tools."""
-    summary = cmr.check(json.loads(EXPECTED.read_text(encoding='utf-8')), roster())
-    assert summary['status'] == 'fail'
-    assert set(summary['missing']) >= CONNECT_IMPORT
-    assert summary['extra'] == []
+def test_committed_expected_tools_matches_the_roster_in_both_topologies():
+    """Regenerated at the 3ecd214 re-pin: the committed snapshot equals the roster, durable block included."""
+    committed = json.loads(EXPECTED.read_text(encoding='utf-8'))
+    for topology in cmr.TOPOLOGIES:
+        summary = cmr.check(committed, roster(), topology=topology)
+        assert summary['status'] == 'pass', (topology, summary['reasons'])
+    durable = committed['fullCatalog']['requiresDurableControlPlane']['tools']
+    assert CONNECT_IMPORT <= set(durable) and len(durable) == 23
 
 
 def test_missing_tool_fails():

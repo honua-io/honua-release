@@ -32,6 +32,13 @@ services:
 
   redis:
     image: redis:7-alpine
+    # The pinned server (3ecd214 onward) composes the durable job substrate and the governed
+    # proposal control plane only on a Redis that attests the durable policy: AOF on,
+    # appendfsync everysec|always, maxmemory-policy noeviction. A stock redis:7-alpine runs with
+    # appendonly no, so the server reports jobs.runner and operations.proposals
+    # dependency-unavailable and this Redis-on cell reads as Redis-off (honua-server
+    # docs/guides/deploy/troubleshooting.md, "Start it with the durable policy").
+    command: ["redis-server", "--appendonly", "yes", "--appendfsync", "everysec", "--maxmemory-policy", "noeviction"]
     healthcheck:
       test: ["CMD", "redis-cli", "ping"]
       interval: 3s
