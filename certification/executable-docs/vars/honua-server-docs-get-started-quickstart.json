@@ -9,6 +9,14 @@
     "ghcr.io/honua-io/honua-server:2026.1": {
       "value": "{candidate.image}",
       "documentedAt": "docs/get-started/quickstart.md §1 — \"(`ghcr.io/honua-io/honua-server:2026.1` once 2026.1 is generally available); only release promotion moves that tag\" (honua-io/honua-server#5738). Same candidate image@digest as the -rc channel"
+    },
+    "ghcr.io/honua-io/honua-server:rc": {
+      "value": "{candidate.image}",
+      "documentedAt": "docs/get-started/quickstart.md — the server image is the release channel `ghcr.io/honua-io/honua-server:rc`, the tag honua-server's release-bundle workflow publishes for the rc channel (.github/workflows/release-bundle.yml, `--tag ${REGISTRY_GHCR}/${IMAGE_NAME}:${channel}`); the gate certifies the candidate behind the channel, so the executed block pulls the manifest's image@digest"
+    },
+    "ghcr.io/honua-io/honua-server:ga": {
+      "value": "{candidate.image}",
+      "documentedAt": "docs/get-started/quickstart.md — `ghcr.io/honua-io/honua-server:ga` once 2026.1 is generally available (release-bundle publishes `:ga` and `:latest` for the ga channel); same candidate image@digest"
     }
   }
 }
