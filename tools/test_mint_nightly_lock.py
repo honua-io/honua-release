@@ -71,6 +71,12 @@ def build_inputs(candidate, tmp_path, *, gate_fixtures=None, missing_post_gate=F
     bind_qualification(draft.lock, *real_paths, '2026.1-rc.3')
     qualification_lock = tmp_path / 'qualification-lock.json'
     qualification_lock.write_bytes(canonical_bytes(draft.lock))
+    # The genuine-model canary records the lock digest it ran against on every attempt.
+    for journey in journeys:
+        for row in journey['cells']:
+            for attempt in row['attempts']:
+                if attempt['driver'] == 'genuine-model':
+                    attempt['lockDigest'] = 'sha256:' + _sha256(qualification_lock)
     report = nightly.declare_evidence(report, qualification_lock, journeys)
     nightly.snapshot(*real_paths, report, tmp_path / 'notes')
     return report, real_paths
@@ -709,6 +715,24 @@ def test_missing_model_observation_cannot_be_turned_into_a_passing_receipt(input
     assert declared['evidenceReceipts']['deterministic-journey']['status'] == 'fail'
     assert declared['evidenceReceipts']['nightly-model-journey']['status'] == 'fail'
     refuses_before_signing(declared, paths, tmp_path, 'nightly receipt')
+
+
+@pytest.mark.parametrize('bound', [None, 'sha256:' + 'b' * 64])
+def test_model_journey_attempt_bound_to_another_lock_cannot_be_retained(inputs, tmp_path, bound):
+    # The canary's own lockDigest is what promotion compares, never the digest the mint holds:
+    # a genuine-model attempt that ran against another lock, or recorded none, does not count.
+    report, paths = inputs
+    lock = tmp_path / 'qualification-lock.json'
+    stamp = report['generatedAt']
+    journeys = [{'status': 'pass', 'runId': RUN, 'runAttempt': 1, 'candidateDigest': _sha256(paths[0]),
+                 'cells': [{'cell': 'aws-ecs/redis-off', 'status': 'pass', 'attempts': [
+                     {'number': 1, 'status': 'pass', 'driver': 'genuine-model', 'completedAt': stamp,
+                      'lockDigest': bound}]}]}]
+    declared = nightly.declare_evidence(report, lock, journeys)
+    assert declared['evidenceReceipts']['nightly-model-journey']['status'] == 'fail'
+    journeys[0]['cells'][0]['attempts'][0]['lockDigest'] = 'sha256:' + _sha256(lock)
+    declared = nightly.declare_evidence(report, lock, journeys)
+    assert declared['evidenceReceipts']['nightly-model-journey']['status'] == 'pass'
 
 
 def test_installed_client_gate_must_pass_to_mint(inputs, tmp_path):

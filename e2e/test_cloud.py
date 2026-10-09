@@ -3028,3 +3028,77 @@ def test_cell_teardown_captures_ecs_diagnostics_before_destroy_and_uploads_them(
 def test_redact_log_strips_key_values_bearer_tokens_and_postgres_uri_passwords(line, secret, kept):
     redacted = run_cloud._redact_log(line)
     assert secret not in redacted and kept in redacted
+
+
+
+# ---- genuine-model canary on the nightly cell (fix unit J3) ------------------------------------------
+LOCK = "sha256:" + "c" * 64
+
+
+def _model_cell(monkeypatch, run_id, *, deterministic_status):
+    monkeypatch.setenv("GITHUB_RUN_ID", run_id)
+    monkeypatch.setenv("GITHUB_RUN_ATTEMPT", "1")
+    directory = run_cloud.cloud_journey.cell_dir("aws-ecs/redis-off")
+    directory.mkdir(parents=True, exist_ok=True)
+    receipt = directory / "receipt-1.json"
+    receipt.write_text(json.dumps({"status": deterministic_status}))
+    (directory / run_cloud.JOURNEY_NAME).write_text(json.dumps(
+        {"journeyAttempts": [{"number": 1, "receipt": str(receipt.relative_to(run_cloud.E2E_DIR))}]}))
+    return directory
+
+
+def _canary_receipt(attempt, status, attribution):
+    return {"mode": "genuine-model", "cell": "aws-ecs/redis-off", "attempt": attempt, "lockDigest": LOCK,
+            "status": status, "failureAttribution": attribution,
+            "completedAt": f"2026-10-08T12:0{attempt}:00.000000Z"}
+
+
+def test_model_canary_is_refused_without_this_jobs_passing_deterministic_journey(monkeypatch):
+    sys.path.insert(0, str(run_cloud.E2E_DIR.parent / "tools"))
+    directory = _model_cell(monkeypatch, "990001", deterministic_status="fail")
+    try:
+        calls = []
+        report = run_cloud.model_canary_phase(
+            {"cell": "aws-ecs/redis-off", "endpoint": "http://cell.example"}, admin_key="k",
+            lock_digest=LOCK, run=lambda *a, **k: calls.append(a))
+        assert calls == []
+        assert report["status"] == "fail" and "deterministic journey did not pass" in report["why"]
+        assert json.loads((directory / "model-journey" / "gate-report-journey.json").read_text())["status"] == "fail"
+    finally:
+        shutil.rmtree(run_cloud.cloud_journey.EVIDENCE / "990001", ignore_errors=True)
+
+
+def test_model_canary_binds_each_attempt_to_the_lock_and_reports_the_nightly_row(monkeypatch):
+    sys.path.insert(0, str(run_cloud.E2E_DIR.parent / "tools"))
+    directory = _model_cell(monkeypatch, "990002", deterministic_status="pass")
+    try:
+        calls = []
+
+        def fake_run(argv, *, env, cwd, check):
+            calls.append((argv, env))
+            number = int(argv[argv.index("--attempt") + 1])
+            outcome = ("fail", "infrastructure") if number == 1 else ("pass", None)
+            Path(argv[argv.index("--output") + 1]).write_text(json.dumps(_canary_receipt(number, *outcome)))
+            return subprocess.CompletedProcess(argv, 1 if number == 1 else 0)
+
+        report = run_cloud.model_canary_phase(
+            {"cell": "aws-ecs/redis-off", "endpoint": "https://cell.example/"}, admin_key="cell-key",
+            lock_digest=LOCK, run=fake_run)
+        assert len(calls) == 2
+        argv, env = calls[0]
+        assert argv[argv.index("--lock-digest") + 1] == LOCK
+        assert argv[argv.index("--cell") + 1] == "aws-ecs/redis-off"
+        assert argv[argv.index("--base-url") + 1] == "https://cell.example/api"
+        # Owner ruling canary-http-cell-2026-10-08: only this cell's own host may use plain HTTP.
+        assert argv[argv.index("--allow-http-cell") + 1] == "cell.example"
+        assert argv[argv.index("--deterministic-receipt") + 1].endswith("receipt-1.json")
+        assert env["TERMINAL_MODEL_API_KEY"] == "cell-key" and "cell-key" not in argv
+        row = report["cells"][0]
+        assert report["status"] == row["status"] == "pass"
+        assert [(a["number"], a["status"], a["failureAttribution"], a["lockDigest"], a["driver"])
+                for a in row["attempts"]] == [(1, "fail", "infrastructure", LOCK, "genuine-model"),
+                                              (2, "pass", None, LOCK, "genuine-model")]
+        # Canary receipts never take the receipt-*.json names the deterministic gate must account for.
+        assert not list((directory / "model-journey").glob("receipt-*.json"))
+    finally:
+        shutil.rmtree(run_cloud.cloud_journey.EVIDENCE / "990002", ignore_errors=True)

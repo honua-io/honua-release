@@ -271,6 +271,23 @@ def test_journey_pass_rule_has_a_negative_per_rule_and_tier(tmp_path, name, muta
     _failed(fixture, f"evidence:{name}")
 
 
+@pytest.mark.parametrize("bound", ["first", "second", "both"])
+def test_nightly_model_canary_attempt_bound_to_another_lock_does_not_count(tmp_path, bound):
+    # Fix unit J3: each genuine-model canary attempt records the lock digest it ran against. A
+    # receipt whose own lockDigest is right still fails when any attempt in its ledger ran
+    # against another lock, including an attributed failure that a passing retry follows.
+    fixture = _fixture(tmp_path)
+    def change(receipt):
+        cell = receipt["cells"][0]
+        attempt = cell["attempts"][0]
+        cell["attemptCount"] = 2
+        cell["attempts"] = [{**attempt, "status": "fail", "failureAttribution": "model"}, {**attempt, "attempt": 2}]
+        for index in {"first": (0,), "second": (1,), "both": (0, 1)}[bound]:
+            cell["attempts"][index]["lockDigest"] = OTHER_LOCK
+    _edit(_receipt(fixture, "nightly-model-journey"), change)
+    _failed(fixture, "evidence:nightly-model-journey")
+
+
 @pytest.mark.parametrize("attribution", ["model", "infrastructure"])
 def test_second_attempt_pass_and_preview_failure_are_allowed(tmp_path, attribution):
     fixture = _fixture(tmp_path)

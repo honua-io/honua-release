@@ -385,7 +385,19 @@ def test_recorded_minting_run_uploads_fetch_into_a_complete_layout(inputs, tmp_p
         journey = json.loads(path.read_text())
         journey['candidateDigest'] = report['candidate']['artifacts']['platform-manifest.yaml']['sha256']
         journeys.append(journey)
-    report = nightly.declare_evidence(report, tmp_path / 'qualification-lock.json', journeys)
+    # The recorded run predates lock binding (fix unit J3). The canary now records, on every
+    # genuine-model attempt, the digest of the lock it ran against; that lock's bytes exist only in
+    # this test, so bind the recorded model row to it here. Without the binding nothing mints.
+    lock = tmp_path / 'qualification-lock.json'
+    unbound = nightly.declare_evidence(report, lock, journeys)
+    assert unbound['evidenceReceipts']['nightly-model-journey']['status'] == 'fail'
+    for journey in journeys:
+        for row in journey['cells']:
+            for attempt in row['attempts']:
+                if attempt.get('driver') == 'genuine-model':
+                    attempt['lockDigest'] = 'sha256:' + nightly._sha256(lock)
+    report = nightly.declare_evidence(report, lock, journeys)
+    assert report['evidenceReceipts']['nightly-model-journey']['status'] == 'pass'
     validate = nightly.validate_live_report
     monkeypatch.setattr(nightly, 'validate_live_report',
                         lambda value: validate(value, now=fetcher._time(metadata['updated_at'])))

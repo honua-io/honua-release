@@ -225,6 +225,14 @@
         "post_ga_2026_1_x": 17
       },
       "effect": "Highs and default-on Mediums block GA; each is a security_findings row, and the Decision stays HOLD while any row is open. The two multi-tenant-only findings do not gate (R29). No public cohort issue changes bucket."
+    },
+    "canary-http-cell-2026-10-08": {
+      "date": "2026-10-08",
+      "authority": "https://github.com/honua-io/honua-release/pull/489",
+      "ruling": "The genuine-model canary may send the ephemeral cloud cell's random per-run application key over plain HTTP, only to the ALB hostname the harness provisioned for that cell (terminal_model_canary.py --allow-http-cell). Every other non-loopback HTTP endpoint is still refused, and the receipt records transport http-cell-allowed with the host. HTTPS on the cell is 2026.1.x hardening.",
+      "effect": "Unblocks the nightly ECS Redis-off genuine-model cell (fix unit J3). It places no issue in a different bucket.",
+      "moved": [],
+      "basis": "Owner ruling 2026-10-08 (option b) on honua-release#489"
     }
   },
   "security_findings": [
