@@ -356,7 +356,7 @@ def probe_setup_view(proxy: Path, remote_url: str, expect: dict[str, Any]) -> tu
     meta = result.get("_meta") if isinstance(result.get("_meta"), dict) else {}
     observed = f"view={meta.get('view')!r} revision={meta.get('revision')!r} tools={len(tools)}"
     if (
-        view == "setup" and count == 25
+        view == "setup" and count == 37
         and result.get("nextCursor") is None
         and meta.get("view") == "default" and meta.get("revision") == "default.v1"
         and meta.get("toolCount") == 12

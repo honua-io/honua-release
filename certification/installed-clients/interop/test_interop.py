@@ -223,7 +223,9 @@ class ContractTests(unittest.TestCase):
     def test_matrix_blocks_only_the_observed_seams(self):
         self.assertEqual(CELLS["interop-import-render-buffer"]["status"], "active")
         self.assertEqual(set(CELLS["interop-publish-query-edit"]["blockedSteps"]), {"count", "edit", "read-back"})
-        self.assertEqual(set(CELLS["interop-api-key-revocation"]["blockedSteps"]), {"mcp-revoked"})
+        # honua-server#5435 is in the 3ecd214 pin: a revoked session is refused, so the cell is active.
+        self.assertEqual(CELLS["interop-api-key-revocation"]["status"], "active")
+        self.assertNotIn("blockedSteps", CELLS["interop-api-key-revocation"])
         approval = CELLS["interop-proposal-approval"]["blockedSteps"]
         self.assertNotIn("create-draft", approval)
         self.assertEqual(approval["published-url"]["blockedBy"], "https://github.com/honua-io/honua-sdk-dotnet/issues/411")
@@ -326,7 +328,7 @@ class OracleTests(unittest.TestCase):
         self.assertIn("still authenticated", summary)
         ok, summary = judge.oracle_revocation_observed({"timedOut": True, "timeoutSeconds": bound, "succeededAfterRevocation": 0}, FIXTURE)
         self.assertFalse(ok)
-        self.assertRegex(summary, CELLS["interop-api-key-revocation"]["blockedSteps"]["mcp-revoked"]["signature"])
+        self.assertRegex(summary, r"did not answer within 30s of its first call after revocation \(no refusal surfaced")
 
     def test_identity_oracles(self):
         minted = {"keyId": "k", "status": "active", "permissions": ["admin:write"], "secretWritten": True, "secretPrivate": True}

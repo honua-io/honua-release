@@ -167,7 +167,7 @@ class MatrixExpectationTests(unittest.TestCase):
                     "https://github.com/honua-io/honua-sdk-dotnet/issues/411",
                     "https://github.com/honua-io/honua-server/issues/5433",
                 ]),
-                "interop-api-key-revocation": ("blocked", ["https://github.com/honua-io/honua-server/issues/5435"]),
+                "interop-api-key-revocation": ("active", None),
             },
         )
 
@@ -176,7 +176,7 @@ class MatrixExpectationTests(unittest.TestCase):
         cell = next(c for c in matrix["cells"] if c["id"] == "npm-mcp-setup-view-tools-list")
         self.assertEqual(cell["artifact"], "honua-mcp-server")
         self.assertEqual(cell["driver"], "npm-mcp-setup-view")
-        self.assertEqual(cell["expect"], {"workflowView": "setup", "toolCount": 25})
+        self.assertEqual(cell["expect"], {"workflowView": "setup", "toolCount": 37})
 
     def test_workflow_cells_block_only_what_the_pinned_clients_cannot_do(self):
         _, matrix = inputs()
@@ -346,9 +346,9 @@ for line in sys.stdin:
             view = message["params"].get("_meta", {{}}).get("honua.io/workflow-view", "default")
         result = {{"protocolVersion": "2025-06-18", "capabilities": {{}}, "serverInfo": {{"name": "fake", "version": "1"}}}}
     elif method == "tools/list":
-        count = 25 if view == "setup" else 12
+        count = 37 if view == "setup" else 12
         tools = [{{"name": f"tool_{{i}}", "inputSchema": {{"type": "object"}}}} for i in range(count)]
-        result = {{"tools": tools, "_meta": {{"view": view, "revision": {{"default": "default.v1", "setup": "setup.v2"}}.get(view, view + ".v1"), "toolCount": count}}}}
+        result = {{"tools": tools, "_meta": {{"view": view, "revision": {{"default": "default.v1", "setup": "setup.v3"}}.get(view, view + ".v1"), "toolCount": count}}}}
     else:
         continue
     if method == "initialize" and "FAKE_INITIALIZE" in config:
@@ -367,7 +367,7 @@ class McpExchangeTests(unittest.TestCase):
         self.proxy = Path(self.tmp.name) / "honua-mcp-proxy"
         self.proxy.write_text(FAKE_MCP.format(python=sys.executable))
         self.proxy.chmod(0o755)
-        self.expect = {"workflowView": "setup", "toolCount": 25}
+        self.expect = {"workflowView": "setup", "toolCount": 37}
 
     @contextlib.contextmanager
     def fake(self, config):
@@ -387,11 +387,11 @@ class McpExchangeTests(unittest.TestCase):
         with self.fake({"FAKE_PRESERVE": "1"}):
             ok, detail = mod.probe_setup_view(self.proxy, "http://127.0.0.1:9/mcp", self.expect)
         self.assertTrue(ok, detail)
-        self.assertIn("with 25 tools", detail)
+        self.assertIn("with 37 tools", detail)
 
     def test_setup_view_tool_count_is_exact(self):
         with self.fake({"FAKE_PRESERVE": "1"}):
-            ok, _ = mod.probe_setup_view(self.proxy, "http://127.0.0.1:9/mcp", {"workflowView": "setup", "toolCount": 24})
+            ok, _ = mod.probe_setup_view(self.proxy, "http://127.0.0.1:9/mcp", {"workflowView": "setup", "toolCount": 36})
         self.assertFalse(ok)
 
     def test_mcp_executable_contracts_launch_the_installed_shim_configured(self):
