@@ -46,6 +46,34 @@ honua-sdk-js:
       core, as does "Three-engine smoke and source-packed parity". The sibling job
       "Regenerate + reseal on trunk", which does build the SDK, is not listed.
 
+honua-sdk-dotnet:
+  - name: "follow"
+    why: >-
+      Scheduled pin-PR opener (`.github/workflows/certification-pin-follow.yml`, job `follow`,
+      cron 16:00). It checks out trunk, copies the honua-release manifest's Honua.Sdk coordinate
+      into certification/candidate-pins.json, pushes chore/certification-pin-follow, opens or
+      updates one pull request and dispatches sdk-certification.yml on it. It builds and tests
+      nothing. On 66413fe3 run 37685097250 opened honua-sdk-dotnet#423 (Honua.Sdk 1.10.4) and then
+      failed with "could not create workflow dispatch event: HTTP 422: No ref found for: f31fb9ae"
+      when dispatching certification on the pin commit. That is a dispatch race in the opener,
+      not a verdict on 66413fe3. Under honua-release#471. `certify` (sdk-certification.yml) is NOT
+      listed: it stays core, and on 66413fe3 it refuses because the pin file there names 1.10.3
+      while the manifest names 1.10.4 (run 37841698037).
+
+honua-helm:
+  - name: "Publish chart by digest"
+    why: >-
+      Scheduled chart publication (`.github/workflows/chart-nightly.yml`, "Nightly Chart
+      Publication", cron 13:45). It publishes the chart for the newest honua-release nightly
+      candidate stamped at refs/nightly-candidates/*, checking out that candidate's pinned
+      honua-helm revision rather than the trunk SHA GitHub files the check on. Until the first
+      nightly lock is minted no candidate is stamped, so on 1bfac13 run 37832296711 refused with
+      "no honua-release nightly candidate is stamped (refs/nightly-candidates/*); nothing to
+      publish". Mint needs resolve, and resolve skipped 1bfac13 for exactly this red, so the check
+      cannot go green before the lock it publishes exists. It is release automation downstream of
+      mint, not a verdict on the helm SHA. Under honua-release#471. lint-chart,
+      install-upgrade-rollback-smoke, the OKF documentation bundle and the security scans stay core.
+
 honua-server:
   - workflow: ".github/workflows/server-test-prebuild-observe.yml"
     why: >-

@@ -181,6 +181,38 @@
       "ruling": "The Helm chart is published by digest with keyless signing (#231 WI-6); Helm/EKS remain Preview.",
       "moved": []
     },
+    "R13": {
+      "date": "2026-09-29",
+      "authority": "https://github.com/honua-io/honua-release/issues/376#issuecomment-5883910929",
+      "ruling": "Update scope: in 2026.1 the operator supplies the update target; the agent proposes it, explains the preflight, then applies and rolls back through the existing actuators. The signed feed, customer-side verification and discovery are 2026.1.x (honua-devops#205). The trust-policy evaluator, telemetry consent, auto-apply, rings and fleet halt are 2026.2. No unsigned update channel ships.",
+      "effect": "Recorded individually from the R11-R17 posting so the update-scope boundary is citable on its own. It places no issue in a different bucket.",
+      "moved": [],
+      "basis": "R11-R17 posting, R13 bullet (release-2026.1-plan/posted/R11.md line 7)"
+    },
+    "ops-loop-retirement-2026-10-08": {
+      "date": "2026-10-08",
+      "authority": "https://github.com/honua-io/honua-release/issues/376",
+      "ruling": "The honua-devops ops loop is retired for 2026.1; the loop and its tools are deleted. The agent path is server /mcp (propose) plus REST /api/v1/admin/proposals/{id}/approve by a separate principal. honua-devops stays the provisioning executor.",
+      "effect": "Interface ruling for the rc.3 fix plan; it places no issue in a different bucket.",
+      "moved": [],
+      "basis": "Owner decision 2 recorded during 2026.1 rc.3 fix planning, 2026-10-08"
+    },
+    "redis-governed-control-plane-2026-10-08": {
+      "date": "2026-10-08",
+      "authority": "https://github.com/honua-io/honua-release/issues/376",
+      "ruling": "Redis is a requirement of the governed control plane for 2026.1 (capability key plus typed refusals); a Postgres proposal store is 2026.1.x. A Redis-off cell is a serving, configure and style/render topology: journey stages 5-8 (GP, durable compositions, proposal, approval) on Redis-off cells pass by recording the typed unavailable refusal with the manifest reasonCode, not by executing. The promotion-readiness pass rule and the operating envelope are amended accordingly.",
+      "effect": "Topology ruling for the rc.3 fix plan; it places no issue in a different bucket.",
+      "moved": [],
+      "basis": "Owner decision 3 recorded during 2026.1 rc.3 fix planning, 2026-10-08"
+    },
+    "ecs-rollback-actuator-2026-10-08": {
+      "date": "2026-10-08",
+      "authority": "https://github.com/honua-io/honua-release/issues/376",
+      "ruling": "ECS update/rollback proof (M3 evidence): server actuators on Lambda (alias shift) and on ECS Redis-on (retained controller on the runner); ECS Redis-off records actuator terraform-exact-apply, labelled as such.",
+      "effect": "Evidence-labelling ruling for the update-rollback receipt class; it places no issue in a different bucket.",
+      "moved": [],
+      "basis": "Owner decision 4 recorded during 2026.1 rc.3 fix planning, 2026-10-08"
+    },
     "security-review-2026-10-03": {
       "date": "2026-10-03",
       "authority": "https://github.com/honua-io/honua-release/issues/376#issuecomment-5965525512",
