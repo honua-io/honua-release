@@ -5,7 +5,8 @@
 - Server source: `honua-server@6b5f34fe725ec58b785d12b143942eb5f0a66aff` (current `origin/trunk` at the cut)
 - Local image: `honua-server:release-123-6b5f34f@sha256:5ae2ed71fca3cb0c0d73f962c6cef90cd58b497e124c57c64caec226785c446b`
 - Receipt: `terminal-journey-issue-123.json`
-- Receipt SHA-256: `8b709b44cc31f1a63ef70eb66833be40cd35154671490c56da278dd488b26d69`
+- Receipt SHA-256: `68ad55c950ed742bfe5bdbdaab6113a99a4e97f9544a1907e7837e387619c71f`
+- Schema migration (honua-release#491): added `operationInstanceId`, `correlationId`, `auditId` and `proposalId` as `null` to every stage row, which the receipt schema now requires on all rows. Nothing observed was changed. As-recorded SHA-256: `8b709b44cc31f1a63ef70eb66833be40cd35154671490c56da278dd488b26d69`
 - Outcome: **blocked**
 
 The server image was built locally from a clean detached worktree with

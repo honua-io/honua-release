@@ -1,6 +1,7 @@
 # Issue 377 local Docker observation — 2026-09-29
 
-- Receipt SHA-256: `091da311104f69e4edcedd491598529182b009121d60fda8b29413d3f5489982`
+- Receipt SHA-256: `d70981e174b5ac33cde5c65377afda637dd396dc4993f26ea80955645d719c22`
+- Schema migration (honua-release#491): added `operationInstanceId`, `correlationId`, `auditId` and `proposalId` as `null` to every stage row, which the receipt schema now requires on all rows. Nothing observed was changed. As-recorded SHA-256: `091da311104f69e4edcedd491598529182b009121d60fda8b29413d3f5489982`
 - Status: `fail`; no candidate qualification.
 - Candidate snapshot: `2026.1-rc.2`, source `87966c3f7b6c840ffc4d4da0b451714ab717b18a`.
 - Image: `ghcr.io/honua-io/honua-server:nightly-87966c3@sha256:069f196bfa5c7201223d4d89868934242c4ace8805a6e48c122a88d84fa6eb1a`.
