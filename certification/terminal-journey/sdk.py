@@ -20,17 +20,28 @@ HERE = Path(__file__).resolve().parent
 
 def prepare(manifest, workdir):
     pin = manifest.get("clientArtifacts", {}).get("honua-sdk-dotnet")
-    if not pin or pin.get("ecosystem") != "nuget" or pin.get("registry") != "github-packages":
+    registry = (pin or {}).get("registry")
+    if not pin or pin.get("ecosystem") != "nuget" or registry not in {"github-packages", "nuget.org"}:
         raise ExecutionError("install published .NET SDK", "manifest lacks a supported published .NET SDK pin", blocked=True)
-    token = os.environ.get("GITHUB_TOKEN") or os.environ.get("GH_TOKEN")
-    if not token:
-        raise ExecutionError("install published .NET SDK", "GitHub Packages read credential is unavailable", blocked=True)
     verifier = pins._load_verifier()
-    owner = pin["repository"].split("/")[0]
     package, version = pin["package"], pin["version"]
-    url = (f"https://nuget.pkg.github.com/{urllib.parse.quote(owner)}/download/"
-           f"{urllib.parse.quote(package)}/{urllib.parse.quote(version)}/{urllib.parse.quote(package + '.' + version + '.nupkg')}")
+    token = None
+    if registry == "nuget.org":
+        # Public nuget.org pin: reuse the manifest gate's own registration, catalog,
+        # package-hash and repository-commit verification, then re-hash the bytes.
+        lower = (urllib.parse.quote(package.lower()), urllib.parse.quote(version.lower()))
+        url = f"https://api.nuget.org/v3-flatcontainer/{lower[0]}/{lower[1]}/{lower[0]}.{lower[1]}.nupkg"
+        owner = None
+    else:
+        token = os.environ.get("GITHUB_TOKEN") or os.environ.get("GH_TOKEN")
+        if not token:
+            raise ExecutionError("install published .NET SDK", "GitHub Packages read credential is unavailable", blocked=True)
+        owner = pin["repository"].split("/")[0]
+        url = (f"https://nuget.pkg.github.com/{urllib.parse.quote(owner)}/download/"
+               f"{urllib.parse.quote(package)}/{urllib.parse.quote(version)}/{urllib.parse.quote(package + '.' + version + '.nupkg')}")
     try:
+        if registry == "nuget.org":
+            verifier._verify_nuget_package("honua-sdk-dotnet", pin, None)
         data = verifier._request(url, token=token)
         if "sha256:" + hashlib.sha256(data).hexdigest() != pin["digest"]:
             raise ExecutionError("install published .NET SDK", "downloaded package does not match manifest digest")
@@ -52,17 +63,23 @@ def prepare(manifest, workdir):
     shutil.copyfile(HERE / "sdk-import" / "Program.cs", destination / "Program.cs")
     # Source configuration contains URLs only. The read credential is an ephemeral
     # NuGet environment override, not XML, argv, logs or receipt data.
-    (destination / "NuGet.Config").write_text(
-        '<configuration><packageSources><clear />'
-        '<add key="nuget" value="https://api.nuget.org/v3/index.json" />'
-        f'<add key="journey" value="https://nuget.pkg.github.com/{owner}/index.json" />'
-        '</packageSources><packageSourceMapping>'
-        '<packageSource key="journey"><package pattern="Honua.Sdk.*" /></packageSource>'
-        '<packageSource key="nuget"><package pattern="*" /></packageSource>'
-        '</packageSourceMapping></configuration>')
-    env = {**os.environ, "NuGetPackageSourceCredentials_journey":
-           f"Username=journey-reader;Password={token};ValidAuthenticationTypes=Basic",
-           "NUGET_PACKAGES": str(destination / "packages")}
+    env = {**os.environ, "NUGET_PACKAGES": str(destination / "packages")}
+    if owner is None:
+        (destination / "NuGet.Config").write_text(
+            '<configuration><packageSources><clear />'
+            '<add key="nuget" value="https://api.nuget.org/v3/index.json" />'
+            '</packageSources></configuration>')
+    else:
+        (destination / "NuGet.Config").write_text(
+            '<configuration><packageSources><clear />'
+            '<add key="nuget" value="https://api.nuget.org/v3/index.json" />'
+            f'<add key="journey" value="https://nuget.pkg.github.com/{owner}/index.json" />'
+            '</packageSources><packageSourceMapping>'
+            '<packageSource key="journey"><package pattern="Honua.Sdk.*" /></packageSource>'
+            '<packageSource key="nuget"><package pattern="*" /></packageSource>'
+            '</packageSourceMapping></configuration>')
+        env["NuGetPackageSourceCredentials_journey"] = (
+            f"Username=journey-reader;Password={token};ValidAuthenticationTypes=Basic")
     try:
         result = subprocess.run(["dotnet", "build", str(destination / "JourneyImport.csproj"),
                                  "-c", "Release", f"-p:JourneySdkVersion={version}",

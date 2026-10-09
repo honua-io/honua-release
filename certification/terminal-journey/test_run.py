@@ -203,7 +203,7 @@ class StageDisciplineTests(unittest.TestCase):
             root=None,
             reason=None,
             command_surface=[
-                {"command": "honua-mcp-proxy", "status": "present", "requiredBy": [1, 4, 5, 6, 7]},
+                {"command": "honua-mcp-proxy", "status": "present", "requiredBy": [1, 3, 4, 5, 6, 7]},
                 {
                     "command": "honua admin",
                     "requiredBy": [2, 3, 8],
@@ -220,7 +220,8 @@ class StageDisciplineTests(unittest.TestCase):
 
     def test_present_admin_does_not_claim_credential_or_mutation_execution(self):
         workspace = pins.ClientWorkspace(status="pass", root=None, reason=None,
-            command_surface=[{"command": "honua admin", "status": "present"}])
+            command_surface=[{"command": "honua admin", "status": "present"},
+                             {"command": "honua-mcp-proxy", "status": "present"}])
         observation = stagelib.Observation(anonymous_api_keys_status=401)
         for number in (2, 3, 8):
             with self.subTest(stage=number):
@@ -271,9 +272,11 @@ class StageDisciplineTests(unittest.TestCase):
         check = next(c for c in stagelib.stage_2(observation, self._no_blockers) if c.id == "2.2-admin-endpoint-present")
         self.assertEqual(check.status, "fail")
 
-    def test_stage_8_honestly_names_server_3599(self):
+    def test_stage_8_placeholder_cites_the_driver_not_closed_server_issues(self):
         result = stagelib._resolve(stagelib.stage_8(stagelib.Observation(), self._no_blockers), 8, "approval", "approve")
-        self.assertIn("https://github.com/honua-io/honua-server/issues/3599", result.blocked_by)
+        self.assertIn(stagelib.JOURNEY_DRIVER, result.blocked_by)
+        for number in (3474, 3599, 3431):
+            self.assertNotIn(f"https://github.com/honua-io/honua-server/issues/{number}", result.blocked_by)
 
     def test_blocked_check_without_a_dependency_is_rejected_by_the_schema(self):
         receipt = build()
@@ -399,6 +402,92 @@ class ReceiptTests(unittest.TestCase):
         stage = receipt["stages"][2]
         stage.update(status="pass", blockedBy=[], checks=[{"id": "x", "kind": "mcp-tool", "invocation": "x", "status": "pass", "detail": "x"}])
         stage["evidence"] = {"uri": "u", "source": "live-local-docker", "freshness": "verified-current", "completeness": "complete", "observedAt": "2026-08-29T00:00:00Z"}
+        with self.assertRaises(Exception):
+            validate(receipt)
+
+    def _passing_stage(self, number):
+        receipt = build()
+        receipt["mode"] = "live"
+        stage = receipt["stages"][number - 1]
+        stage.update(status="pass", blockedBy=[], checks=[{"id": "x", "kind": "mcp-tool", "invocation": "x", "status": "pass", "detail": "x"}])
+        stage["evidence"] = {"uri": "u", "source": "live-local-docker", "freshness": "verified-current", "completeness": "complete", "observedAt": "2026-08-29T00:00:00Z"}
+        stage.update(operationId="studio.draft.save-version", operationInstanceId="opinst-1",
+                     correlationId="00-corr", auditId="audit-1")
+        return receipt, stage
+
+    def test_passing_mutation_stage_is_keyed_on_server_emitted_ids_not_legacy_ids(self):
+        # The candidate emits operationInstanceId/correlationId/auditId; policy-decision,
+        # actuator, verification and approval ids are optional and may stay null.
+        receipt, stage = self._passing_stage(6)
+        self.assertIsNone(stage["policyDecisionId"])
+        self.assertIsNone(stage["actuatorId"])
+        self.assertIsNone(stage["verificationId"])
+        validate(receipt)
+        for key in ("policyDecisionId", "approvalId", "actuatorId", "verificationId"):
+            del stage[key]
+        validate(receipt)
+        for key in ("operationInstanceId", "correlationId", "auditId"):
+            with self.subTest(missing=key):
+                changed, row = self._passing_stage(6)
+                row[key] = None
+                with self.assertRaises(Exception):
+                    validate(changed)
+
+    def test_passing_proposal_and_approval_stages_require_the_server_proposal_id(self):
+        for number in (7, 8):
+            with self.subTest(stage=number):
+                receipt, stage = self._passing_stage(number)
+                with self.assertRaises(Exception):
+                    validate(receipt)
+                stage["proposalId"] = "proposal-1"
+                self.assertIsNone(stage["approvalId"])
+                validate(receipt)
+
+    def test_every_stage_row_carries_the_server_identity_fields_even_when_not_passing(self):
+        receipt = build()
+        validate(receipt)
+        for key in ("operationInstanceId", "correlationId", "auditId", "proposalId"):
+            with self.subTest(missing=key):
+                changed = json.loads(json.dumps(receipt))
+                self.assertEqual(changed["stages"][3]["status"], "blocked")
+                del changed["stages"][3][key]
+                with self.assertRaises(Exception):
+                    validate(changed)
+
+    def test_contract_marks_legacy_identities_optional(self):
+        legacy = {"policyDecisionId", "approvalId", "actuatorId", "verificationId"}
+        self.assertFalse(legacy & set(JOURNEY["receiptRequired"]))
+        self.assertTrue(legacy <= set(JOURNEY["receiptOptional"]))
+        self.assertTrue({"operationInstanceId", "correlationId", "auditId", "proposalId"} <= set(JOURNEY["receiptRequired"]))
+        closed = {f"https://github.com/honua-io/honua-server/issues/{n}"
+                  for n in (3411, 3431, 3474, 3475, 3583, 3599, 3741)}
+        self.assertFalse(closed & {b for s in JOURNEY["stages"] for b in s["blockedBy"]})
+        placeholders = [c for fn in stagelib.STAGE_IMPLEMENTATIONS.values()
+                        for c in fn(stagelib.Observation(), lambda number: [])]
+        self.assertFalse(closed & {b for c in placeholders for b in c.blocked_by})
+
+    def test_stage_5_is_keyed_on_job_identities_in_contract_and_schema(self):
+        keys = JOURNEY["stageEvidenceKeys"]
+        self.assertEqual(keys["5"], ["jobId", "resourceUri", "jobStatus", "jobCreatedAt"])
+        for number in ("3", "4", "6", "7", "8"):
+            self.assertTrue({"operationId", "operationInstanceId", "correlationId", "auditId"} <= set(keys[number]))
+        receipt, stage = self._passing_stage(5)
+        # A passing GP stage carries no operation ids: the job runtime is not the gateway.
+        stage.update(operationId=None, operationInstanceId=None, correlationId=None, auditId=None)
+        with self.assertRaises(Exception):
+            validate(receipt)
+        stage.update(jobId="job-1", resourceUri="honua://jobs/job-1", jobStatus="accepted",
+                     jobCreatedAt="2026-10-08T00:00:00Z")
+        validate(receipt)
+        for key in ("jobId", "resourceUri", "jobStatus", "jobCreatedAt"):
+            with self.subTest(missing=key):
+                changed = json.loads(json.dumps(receipt))
+                changed["stages"][4][key] = None
+                with self.assertRaises(Exception):
+                    validate(changed)
+        # Operation-gateway stages still require operation ids even with job fields set.
+        receipt, stage = self._passing_stage(3)
+        stage.update(operationInstanceId=None, jobId="job-1", resourceUri="u", jobStatus="s", jobCreatedAt="t")
         with self.assertRaises(Exception):
             validate(receipt)
 

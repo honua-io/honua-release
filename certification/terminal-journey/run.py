@@ -233,6 +233,14 @@ def build_receipt(
                     "blockedBy": list(stage["blockedBy"]),
                     "checks": [],
                     "operationId": None,
+                    "operationInstanceId": None,
+                    "correlationId": None,
+                    "auditId": None,
+                    "proposalId": None,
+                    "jobId": None,
+                    "resourceUri": None,
+                    "jobStatus": None,
+                    "jobCreatedAt": None,
                     "policyDecisionId": None,
                     "approvalId": None,
                     "actuatorId": None,
@@ -263,6 +271,14 @@ def build_receipt(
                     "blockedBy": result.blocked_by,
                     "checks": [c.as_receipt() for c in result.checks],
                     "operationId": result.operation_id,
+                    "operationInstanceId": result.operation_instance_id,
+                    "correlationId": result.correlation_id,
+                    "auditId": result.audit_id,
+                    "proposalId": result.proposal_id,
+                    "jobId": result.job_id,
+                    "resourceUri": result.resource_uri,
+                    "jobStatus": result.job_status,
+                    "jobCreatedAt": result.job_created_at,
                     "policyDecisionId": result.policy_decision_id,
                     "approvalId": result.approval_id,
                     "actuatorId": result.actuator_id,
@@ -442,7 +458,7 @@ def run_live(
                 notices.append(f"Published SDK preparation: {exc.command}: {exc.reason}")
         transport = Transport(base_url, bindir / "honua-mcp-proxy" if bindir else None,
                               bindir / "honua" if bindir else None, workdir, credentials)
-        execution = executor.JourneyExecutor(state, target, observation, transport)
+        execution = executor.JourneyExecutor(state, target, observation, transport, manifest=manifest)
         results[2:] = [stagelib.merge_execution(original, executed)
                        for original, executed in zip(results[2:], execution.run_build(), strict=True)]
     finally:

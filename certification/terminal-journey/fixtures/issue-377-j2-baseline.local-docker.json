@@ -2,13 +2,13 @@
   "schemaVersion": 1,
   "receiptSchema": "terminal-journey-receipt-v1",
   "evidenceKey": "release.e2e.terminal-zero-to-map",
-  "generatedAt": "2026-10-03T00:00:26.849581Z",
+  "generatedAt": "2026-10-08T23:12:15.701719Z",
   "mode": "live",
   "target": {
     "id": "local-docker",
     "kind": "local-docker",
     "configPath": "certification/terminal-journey/targets/local-docker.json",
-    "configSha256": "589f145c4e90e68de464b2d59a9eb6666f88462ee5ba6116705068a2fcb8b425",
+    "configSha256": "d6dbc7b2bf40a0b8b0e09689321968b0fa2170e470d4d0254c9e40ea353c0814",
     "baseUrl": "http://127.0.0.1:8137",
     "composeProject": "honua-terminal-journey"
   },
@@ -17,46 +17,47 @@
   "clientArtifacts": {
     "honua-sdk-js": {
       "package": "@honua/sdk-js",
-      "version": "0.1.9-beta.0",
-      "integrity": "sha512-xVJnTpZnscV1exvoSGH/I1qbqhlxTy3FcldKJTCQe8N2gq5legwV8huu2FKGVmvi+/bc9pnvu4HobpsIGnR5OQ==",
+      "version": "0.1.14",
+      "integrity": "sha512-4AZPZ/505HVTnk7hdEK8820BevUf6qtAHPK2DFASmdsCrYjJxELUMIZgoy4KxkqOwh/440zf8tdirSoLsM9jfg==",
       "digest": null,
-      "sourceSha": "c99e71197dd940ed952aecb024c6de273456f2ae"
+      "sourceSha": "984425f9d88b3c699cbd4766538ba311b48790aa"
     },
     "honua-mcp-server": {
       "package": "@honua/mcp-server",
-      "version": "0.1.4-beta.0",
-      "integrity": "sha512-TqqVscgNZMg+y+qUs3f9ShpKT8n38W3njXkTciqXKdXsk5PILG1fjwQur5/Da0KVg895L0qH5EqXRAwnjzO30w==",
+      "version": "0.1.14",
+      "integrity": "sha512-dxwoQoysTJkf3iyNDOlyrM31J4x6k8wTJZRXTAk7qy5sXnnOshqjVJqETFL1acKKvKF6owHwABPZoWZOAhHTTw==",
       "digest": null,
-      "sourceSha": "ac29d1601f499ebd9b099fd4629b0997fdc81f1f"
+      "sourceSha": "704eb9573eec7320cad19edc588486986c5a4046"
     }
   },
   "clientWorkspace": {
     "status": "pass",
     "source": "published-registry-bytes",
-    "root": "/tmp/405-coordinator-final/clients",
+    "root": "/tmp/j2-work/clients",
     "reason": null,
     "resolved": [
       {
         "name": "honua-mcp-server",
         "package": "@honua/mcp-server",
-        "version": "0.1.4-beta.0",
+        "version": "0.1.14",
         "ecosystem": "npm",
-        "registryUrl": "https://registry.npmjs.org/@honua/mcp-server/-/mcp-server-0.1.4-beta.0.tgz",
+        "registryUrl": "https://registry.npmjs.org/@honua/mcp-server/-/mcp-server-0.1.14.tgz",
         "integrityVerified": true,
-        "tarballSha256": "dabe43b704c2d38386c011e64379ad5e0c0444c748e81fa5c45844bcc5587061",
+        "tarballSha256": "1907f20eb96ba8b928734c429a8efedfdad76f5a006a214dbc0862c588dd8628",
         "bin": {
           "honua-mcp": "dist/src/index.js",
-          "honua-mcp-proxy": "dist/src/proxy.js"
+          "honua-mcp-proxy": "dist/src/proxy.js",
+          "honua-zero-to-map-release": "dist/src/release/zero-to-map-cli.js"
         }
       },
       {
         "name": "honua-sdk-js",
         "package": "@honua/sdk-js",
-        "version": "0.1.9-beta.0",
+        "version": "0.1.14",
         "ecosystem": "npm",
-        "registryUrl": "https://registry.npmjs.org/@honua/sdk-js/-/sdk-js-0.1.9-beta.0.tgz",
+        "registryUrl": "https://registry.npmjs.org/@honua/sdk-js/-/sdk-js-0.1.14.tgz",
         "integrityVerified": true,
-        "tarballSha256": "b2cf6e70ea222294fb432c6d614ee2a889fe28c7ec3f8cff3c078b4090846ff0",
+        "tarballSha256": "28457a24296f5d495bd57f95a1bc282fceb67ad5e9983c8e507701f54171a396",
         "bin": {
           "honua": "./dist/src/cli/bin.js",
           "honua-plugin-certify": "./dist/src/plugin/bin.js"
@@ -70,7 +71,7 @@
           1
         ],
         "status": "present",
-        "providedBy": "@honua/sdk-js@0.1.9-beta.0",
+        "providedBy": "@honua/sdk-js@0.1.14",
         "detail": "shipped as ./dist/src/cli/bin.js"
       },
       {
@@ -81,7 +82,7 @@
           8
         ],
         "status": "present",
-        "providedBy": "@honua/sdk-js@0.1.9-beta.0",
+        "providedBy": "@honua/sdk-js@0.1.14",
         "detail": "the pinned honua CLI advertises an `admin` command"
       },
       {
@@ -94,13 +95,11 @@
           7
         ],
         "status": "present",
-        "providedBy": "@honua/mcp-server@0.1.4-beta.0",
+        "providedBy": "@honua/mcp-server@0.1.14",
         "detail": "shipped as dist/src/proxy.js"
       }
     ],
-    "installNotes": [
-      "the pinned client pair does not co-install under npm's default peer resolution (npm error peer @honua/sdk-js@\"^0.1.4-beta.0\" from @honua/mcp-server@0.1.4-beta.0); npm's caret ranges exclude prereleases with a different patch tuple, so the exact manifest-verified bytes were installed with --legacy-peer-deps. Bytes are unchanged; only npm's range solver was bypassed."
-    ]
+    "installNotes": []
   },
   "server": {
     "sourceSha": "87966c3f7b6c840ffc4d4da0b451714ab717b18a",
@@ -123,11 +122,8 @@
       "number": 1,
       "stage": "installed-client-handoff",
       "command": "install exact manifest clients; verify readiness, identity, auth, profiles and tools/list",
-      "status": "blocked",
-      "blockedBy": [
-        "https://github.com/honua-io/honua-release/issues/7",
-        "https://github.com/honua-io/honua-server/issues/3428"
-      ],
+      "status": "pass",
+      "blockedBy": [],
       "checks": [
         {
           "id": "1.1-candidate-image",
@@ -168,21 +164,15 @@
           "id": "1.5-proxy-tools-list",
           "kind": "mcp-tool",
           "invocation": "honua-mcp-proxy \u2192 initialize + paginated tools/list",
-          "status": "blocked",
-          "detail": "setup transport or JSON contract could not be observed",
-          "blockedBy": [
-            "https://github.com/honua-io/honua-release/issues/7"
-          ]
+          "status": "pass",
+          "detail": "pinned proxy enumerated 124 tools (paginated independently of any expected count)"
         },
         {
           "id": "1.6-bounded-setup-view",
           "kind": "mcp-tool",
           "invocation": "server-authored bounded setup/profile tool view",
-          "status": "blocked",
-          "detail": "setup transport or JSON contract could not be observed",
-          "blockedBy": [
-            "https://github.com/honua-io/honua-server/issues/3428"
-          ]
+          "status": "pass",
+          "detail": "verified initialize-bound HTTP/proxy setup parity; {'descriptorBytes': 81337, 'largestDescriptorBytes': 7196, 'descriptorDigest': 'sha256:b3f239d34cfd37004b46b56d255082588d512ad50b7973141f38ae50aea7621d', 'descriptorSizes': [3415, 2216, 4431, 5004, 3906, 2052, 1810, 7196, 3010, 3682, 4538, 5671, 5433, 1835, 2400, 5560, 3569, 1667, 1505, 2272, 1920, 3188, 1482, 2421, 1128]}"
         }
       ],
       "operationId": null,
@@ -195,11 +185,11 @@
       "actuatorId": null,
       "verificationId": null,
       "evidence": {
-        "uri": "https://github.com/honua-io/honua-release/pull/405",
+        "uri": "https://github.com/honua-io/honua-release/issues/377",
         "source": "live-local-docker",
         "freshness": "verified-current",
-        "completeness": "partial",
-        "observedAt": "2026-10-03T00:00:26.849462Z"
+        "completeness": "complete",
+        "observedAt": "2026-10-08T23:12:15.701494Z"
       }
     },
     {
@@ -221,7 +211,7 @@
           "kind": "cli",
           "invocation": "HONUA_ADMIN_KEY=<env> honua admin secure createAdminApiKey --base-url <loopback> --json --yes --body {\"name\":\"honua-terminal-journey-preflight\",\"permissions\":[\"admin:read\"]} --secret-output <private-sink>; getAdminApiKeyEffectivePermissions --path id=<id>; listAdminApiKeys; revokeAdminApiKey --yes --path id=<id>",
           "status": "pass",
-          "detail": "temporary admin:read key 022d4e82-e4bc-4ab2-8ca4-131c544eb632 reported canAuthenticate true; list omitted key material; revoke removed the active key; private sink deleted"
+          "detail": "temporary admin:read key c755e6c8-0a7e-4f41-bcd0-30359a3b331e reported canAuthenticate true; list omitted key material; revoke removed the active key; private sink deleted"
         },
         {
           "id": "2.2-admin-endpoint-present",
@@ -241,11 +231,11 @@
       "actuatorId": null,
       "verificationId": null,
       "evidence": {
-        "uri": "https://github.com/honua-io/honua-release/pull/405",
+        "uri": "https://github.com/honua-io/honua-release/issues/377",
         "source": "live-local-docker",
         "freshness": "verified-current",
         "completeness": "complete",
-        "observedAt": "2026-10-03T00:00:26.849462Z"
+        "observedAt": "2026-10-08T23:12:15.701494Z"
       }
     },
     {
@@ -275,9 +265,9 @@
         {
           "id": "3.execution",
           "kind": "cli",
-          "invocation": "initialize + tools/list",
+          "invocation": "CreateConnectionAsync",
           "status": "blocked",
-          "detail": "initialize-bound discovery is not verified",
+          "detail": "verified published SDK bridge is unavailable",
           "blockedBy": [
             "https://github.com/honua-io/honua-release/issues/123"
           ]
@@ -333,11 +323,11 @@
       "actuatorId": null,
       "verificationId": null,
       "evidence": {
-        "uri": "https://github.com/honua-io/honua-release/pull/405",
+        "uri": "https://github.com/honua-io/honua-release/issues/377",
         "source": "live-local-docker",
         "freshness": "verified-current",
         "completeness": "partial",
-        "observedAt": "2026-10-03T00:00:26.849462Z"
+        "observedAt": "2026-10-08T23:12:15.701494Z"
       }
     },
     {
@@ -346,7 +336,6 @@
       "command": "honua_get_style; honua_apply_style_preset; honua_render_map; validate decoded PNG",
       "status": "blocked",
       "blockedBy": [
-        "https://github.com/honua-io/honua-release/issues/7",
         "https://github.com/honua-io/honua-release/issues/123",
         "https://github.com/honua-io/honua-server/issues/3411"
       ],
@@ -362,11 +351,8 @@
           "id": "4.1-style-tools-present",
           "kind": "mcp-tool",
           "invocation": "mcp tools/list \u220b honua_get_style, honua_apply_style_preset, honua_render_map",
-          "status": "blocked",
-          "detail": "the candidate tool surface could not be enumerated: setup transport or JSON contract could not be observed",
-          "blockedBy": [
-            "https://github.com/honua-io/honua-release/issues/7"
-          ]
+          "status": "pass",
+          "detail": "all 3 tools present in the 124-tool candidate surface"
         },
         {
           "id": "4.execution",
@@ -419,11 +405,11 @@
       "actuatorId": null,
       "verificationId": null,
       "evidence": {
-        "uri": "https://github.com/honua-io/honua-release/pull/405",
+        "uri": "https://github.com/honua-io/honua-release/issues/377",
         "source": "live-local-docker",
         "freshness": "verified-current",
         "completeness": "partial",
-        "observedAt": "2026-10-03T00:00:26.849462Z"
+        "observedAt": "2026-10-08T23:12:15.701494Z"
       }
     },
     {
@@ -432,8 +418,6 @@
       "command": "discover/run geometry.buffer; wait/cancel canonical job; retain result",
       "status": "blocked",
       "blockedBy": [
-        "https://github.com/honua-io/honua-release/issues/7",
-        "https://github.com/honua-io/honua-release/issues/123",
         "https://github.com/honua-io/honua-server/issues/3411"
       ],
       "checks": [
@@ -448,31 +432,15 @@
           "id": "5.1-gp-tools-present",
           "kind": "mcp-tool",
           "invocation": "mcp tools/list \u220b honua_plan_analysis, honua_execute_plan, honua_cancel_job",
-          "status": "blocked",
-          "detail": "the candidate tool surface could not be enumerated: setup transport or JSON contract could not be observed",
-          "blockedBy": [
-            "https://github.com/honua-io/honua-release/issues/7"
-          ]
-        },
-        {
-          "id": "5.execution",
-          "kind": "cli",
-          "invocation": "initialize + tools/list",
-          "status": "blocked",
-          "detail": "initialize-bound discovery is not verified",
-          "blockedBy": [
-            "https://github.com/honua-io/honua-release/issues/123"
-          ]
+          "status": "pass",
+          "detail": "all 3 tools present in the 124-tool candidate surface"
         },
         {
           "id": "5.buffer",
           "kind": "artifact",
-          "invocation": "buffer",
-          "status": "blocked",
-          "detail": "required live assertion has not executed",
-          "blockedBy": [
-            "https://github.com/honua-io/honua-release/issues/123"
-          ]
+          "invocation": "geometry.buffer canonical job lifecycle",
+          "status": "pass",
+          "detail": "independent live assertion passed"
         },
         {
           "id": "5.canonical-evidence",
@@ -495,11 +463,11 @@
       "actuatorId": null,
       "verificationId": null,
       "evidence": {
-        "uri": "https://github.com/honua-io/honua-release/pull/405",
+        "uri": "https://github.com/honua-io/honua-release/issues/377",
         "source": "live-local-docker",
         "freshness": "verified-current",
         "completeness": "partial",
-        "observedAt": "2026-10-03T00:00:26.849462Z"
+        "observedAt": "2026-10-08T23:12:15.701494Z"
       }
     },
     {
@@ -508,7 +476,6 @@
       "command": "create/mutate/validate/version map+dashboard; restart/reopen; compare hashes",
       "status": "blocked",
       "blockedBy": [
-        "https://github.com/honua-io/honua-release/issues/7",
         "https://github.com/honua-io/honua-release/issues/123",
         "https://github.com/honua-io/honua-server/issues/3411"
       ],
@@ -524,21 +491,15 @@
           "id": "6.1-studio-draft-tools-present",
           "kind": "mcp-tool",
           "invocation": "mcp tools/list \u220b honua_studio_create_draft, honua_studio_update_draft, honua_studio_validate_draft",
-          "status": "blocked",
-          "detail": "the candidate tool surface could not be enumerated: setup transport or JSON contract could not be observed",
-          "blockedBy": [
-            "https://github.com/honua-io/honua-release/issues/7"
-          ]
+          "status": "pass",
+          "detail": "all 3 tools present in the 124-tool candidate surface"
         },
         {
           "id": "6.2-studio-composition-tools-present",
           "kind": "mcp-tool",
           "invocation": "mcp tools/list \u220b honua_studio_add_layer, honua_studio_set_layer_style, honua_studio_set_view, honua_studio_add_widget, honua_studio_add_control",
-          "status": "blocked",
-          "detail": "the candidate tool surface could not be enumerated: setup transport or JSON contract could not be observed",
-          "blockedBy": [
-            "https://github.com/honua-io/honua-release/issues/7"
-          ]
+          "status": "pass",
+          "detail": "all 5 tools present in the 124-tool candidate surface"
         },
         {
           "id": "6.execution",
@@ -601,11 +562,11 @@
       "actuatorId": null,
       "verificationId": null,
       "evidence": {
-        "uri": "https://github.com/honua-io/honua-release/pull/405",
+        "uri": "https://github.com/honua-io/honua-release/issues/377",
         "source": "live-local-docker",
         "freshness": "verified-current",
         "completeness": "partial",
-        "observedAt": "2026-10-03T00:00:26.849462Z"
+        "observedAt": "2026-10-08T23:12:15.701494Z"
       }
     },
     {
@@ -614,7 +575,6 @@
       "command": "submit and poll durable AwaitingApproval proposal bound to item/version/hash",
       "status": "blocked",
       "blockedBy": [
-        "https://github.com/honua-io/honua-release/issues/7",
         "https://github.com/honua-io/honua-release/issues/123",
         "https://github.com/honua-io/honua-server/issues/3411"
       ],
@@ -630,11 +590,8 @@
           "id": "7.1-proposal-tool-present",
           "kind": "mcp-tool",
           "invocation": "mcp tools/list \u220b honua_studio_propose_publication",
-          "status": "blocked",
-          "detail": "the candidate tool surface could not be enumerated: setup transport or JSON contract could not be observed",
-          "blockedBy": [
-            "https://github.com/honua-io/honua-release/issues/7"
-          ]
+          "status": "pass",
+          "detail": "all 1 tools present in the 124-tool candidate surface"
         },
         {
           "id": "7.execution",
@@ -677,11 +634,11 @@
       "actuatorId": null,
       "verificationId": null,
       "evidence": {
-        "uri": "https://github.com/honua-io/honua-release/pull/405",
+        "uri": "https://github.com/honua-io/honua-release/issues/377",
         "source": "live-local-docker",
         "freshness": "verified-current",
         "completeness": "partial",
-        "observedAt": "2026-10-03T00:00:26.849462Z"
+        "observedAt": "2026-10-08T23:12:15.701494Z"
       }
     },
     {
@@ -799,19 +756,19 @@
       "actuatorId": null,
       "verificationId": null,
       "evidence": {
-        "uri": "https://github.com/honua-io/honua-release/pull/405",
+        "uri": "https://github.com/honua-io/honua-release/issues/377",
         "source": "live-local-docker",
         "freshness": "verified-current",
         "completeness": "partial",
-        "observedAt": "2026-10-03T00:00:26.849462Z"
+        "observedAt": "2026-10-08T23:12:15.701494Z"
       }
     }
   ],
   "failure": null,
   "notices": [
     "Isolated PostGIS, Redis, authored GeoServices source, and two exact-candidate server replicas. Licensing remains disabled.",
-    "the pinned client pair does not co-install under npm's default peer resolution (npm error peer @honua/sdk-js@\"^0.1.4-beta.0\" from @honua/mcp-server@0.1.4-beta.0); npm's caret ranges exclude prereleases with a different patch tuple, so the exact manifest-verified bytes were installed with --legacy-peer-deps. Bytes are unchanged; only npm's range solver was bypassed.",
-    "Setup discovery sidecar: /tmp/405-coordinator-final/setup-discovery.json; SHA-256: be74904db704fa131e929fd1f27dabc7aeb5103a17ac8aba81e0a6297f0a601e"
+    "Setup discovery sidecar: /tmp/j2-work/setup-discovery.json; SHA-256: 9f94a376cc08393e16f871f6d0b13ccccec2a3f80339ae3f70fcf510d484fa55",
+    "Published SDK preparation: install published .NET SDK: manifest lacks a supported published .NET SDK pin"
   ],
   "linkedEvidence": {
     "awsProvisioning": "honua-release#129",
