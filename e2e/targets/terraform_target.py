@@ -13,8 +13,12 @@ import json
 import os
 import re
 import shutil
+import secrets
 import subprocess
+import time
+import urllib.error
 import urllib.parse
+import urllib.request
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -70,6 +74,18 @@ class TfTargetSpec:
     architecture_env: str = ""
     architecture_var: str = ""
     architecture_is_list: bool = False
+    # (ENV_NAME, terraform_var) pairs. The env value is passed as `-var=terraform_var=<value>` when
+    # the pinned root declares terraform_var; a declaring root with the env unset is BLOCKED rather
+    # than applied with the module's fallback (the Lambda+Batch cell must run the pinned Batch image).
+    env_vars: tuple[tuple[str, str], ...] = ()
+    # Opt-in vars: passed only when `opt_in_env` is "true". A root that does not declare one of them
+    # is a provisioning failure, not a silent drop: the caller asked for that capability.
+    opt_in_env: str = ""
+    opt_in_vars: tuple[str, ...] = ()
+    # Run the generic server image on the runner against the cell's database before the cell is
+    # probed. The serverless root keeps skip_migrations=true (a Lambda cold start must not race a
+    # schema migration), so without this step the Lambda serves an unmigrated database.
+    migrate_image_env: str = ""
 
 
 class TerraformTarget(DeployTarget):
@@ -86,7 +102,17 @@ class TerraformTarget(DeployTarget):
 
     @property
     def admin_api_key(self) -> str:
-        return os.environ.get("HONUA_ADMIN_PASSWORD", f"Honua-Gate-Aa1!CloudParity-00000000-{self.run_id}")
+        # Never derived: the Actions run id is public, so a password computed from it is a published
+        # credential for a public endpoint. The provision phase mints one per cell.
+        value = os.environ.get("HONUA_ADMIN_PASSWORD", "")
+        if not value:
+            raise ProvisionError(f"{self.name}: HONUA_ADMIN_PASSWORD is unset; refusing to derive an "
+                                 "admin password from the public run id")
+        return value
+
+    @property
+    def migrates_before_serving(self) -> bool:
+        return bool(self.spec.migrate_image_env)
 
     # --- prerequisites -------------------------------------------------------------------------
     def _iac_root(self) -> Path | None:
@@ -142,6 +168,13 @@ class TerraformTarget(DeployTarget):
             missing.append("HONUA_AWS_RUNNER_CIDR (ephemeral runner /32 for ALB ingress)")
         if self.spec.architecture_env and not os.environ.get(self.spec.architecture_env):
             missing.append(f"{self.spec.architecture_env} (manifest-pinned runtime architecture)")
+        for env_name, variable in self.spec.env_vars:
+            if not os.environ.get(env_name) and self._root_declares(variable):
+                missing.append(f"{env_name} (pinned value for terraform var {variable})")
+        if self.spec.migrate_image_env and not os.environ.get(self.spec.migrate_image_env):
+            missing.append(f"{self.spec.migrate_image_env} (generic server image for the pre-serving migration)")
+        if self.spec.migrate_image_env and not shutil.which("docker"):
+            missing.append("docker CLI (pre-serving migration)")
         if missing:
             return Availability(False, f"{self.name} not runnable: " + "; ".join(missing), missing)
         return Availability(True, f"{self.name} prerequisites present")
@@ -150,7 +183,7 @@ class TerraformTarget(DeployTarget):
     def _tf(self, root: Path, *args: str, check: bool = True) -> subprocess.CompletedProcess:
         return subprocess.run(["terraform", f"-chdir={root}", *args], text=True, capture_output=True, check=check)
 
-    def _vars(self, redis_enabled: bool) -> list[str]:
+    def _vars(self, redis_enabled: bool, *, destroy: bool = False) -> list[str]:
         # The Redis mode MUST be part of the prefix. The cert harness runs the redis-on and redis-off
         # cells for the same target with the SAME run_id (one GITHUB_RUN_ID across the whole matrix) IN
         # PARALLEL against one AWS account; an identical name_prefix collides on named resources (RDS
@@ -160,10 +193,13 @@ class TerraformTarget(DeployTarget):
         # to 18 chars to stay well inside RDS(63)/Lambda(64) identifier budgets once the module suffixes.
         redis_tag = "r" if redis_enabled else "n"
         prefix = f"honua{redis_tag}{self.name.replace('-', '')[:5]}{self.run_id[:6]}".lower()[:18]
-        # honua-iac requires at least 32 characters plus mixed-case, digit and special
-        # characters. Keep the ephemeral fallback deterministic so the same value is
-        # available to destroy after a partial apply.
-        admin_pw = self.admin_api_key
+        # honua-iac requires at least 32 characters plus mixed-case, digit and special characters.
+        # The teardown job is a fresh runner without the provision job's password; destroy evaluates
+        # but never applies the value, so a throwaway one satisfies the input contract there.
+        if destroy and not os.environ.get("HONUA_ADMIN_PASSWORD"):
+            admin_pw = f"Honua-Destroy-Aa1!{secrets.token_urlsafe(32)}"
+        else:
+            admin_pw = self.admin_api_key
         values = [
             "-input=false", "-no-color",
             *(f"-var-file={self._resolve_var_file(v)}" for v in self.spec.ephemeral_var_files),
@@ -177,7 +213,16 @@ class TerraformTarget(DeployTarget):
             *(f"-var={v}" for v in self.spec.ephemeral_vars),
             *(f"-var={v}" for v in self.spec.declared_ephemeral_vars
               if self._root_declares(v.split("=", 1)[0])),
+            *(f"-var={variable}={os.environ[env_name]}" for env_name, variable in self.spec.env_vars
+              if os.environ.get(env_name) and self._root_declares(variable)),
         ]
+        if self.spec.opt_in_env and os.environ.get(self.spec.opt_in_env, "").strip().lower() == "true":
+            undeclared = [v.split("=", 1)[0] for v in self.spec.opt_in_vars
+                          if not self._root_declares(v.split("=", 1)[0])]
+            if undeclared:
+                raise ProvisionError(f"{self.name}: {self.spec.opt_in_env}=true but the pinned root does "
+                                     f"not declare {', '.join(undeclared)}")
+            values.extend(f"-var={v}" for v in self.spec.opt_in_vars)
         if self.spec.needs_runner_db_access:
             raw_cidr = self._runner_cidr("HONUA_AWS_DB_INGRESS_CIDR")
             values.extend([
@@ -263,7 +308,7 @@ class TerraformTarget(DeployTarget):
         mode = False if redis_enabled is None else redis_enabled
         try:
             destroy = self._tf(root, "destroy", "-auto-approve",
-                               *(self._last_vars or self._vars(mode)), check=False)
+                               *(self._last_vars or self._vars(mode, destroy=True)), check=False)
         except OSError as error:
             raise ProvisionError(f"{self.name} teardown failed: {error}") from error
         if destroy.returncode != 0:
@@ -303,24 +348,31 @@ class TerraformTarget(DeployTarget):
             if result.returncode and "InvalidPermission.Duplicate" not in (result.stderr or ""):
                 raise ProvisionError(f"{self.name}: could not admit the journey runner to {group}")
 
-    def seed_database(self, sql: str) -> dict:
-        """Use this cell's existing connection secret in memory; never persist or log it."""
+    def _state_secrets(self, names: tuple[str, ...]) -> list[str]:
+        """The cell's Secrets Manager values named `names`, read from Terraform state in memory."""
         if self._workdir is None:
             raise ProvisionError("cloud database is not provisioned")
         state = json.loads(self._tf(self._workdir, "show", "-json").stdout)
 
-        def connections(module):
+        def walk(module):
             for resource in module.get("resources", []):
                 if resource.get("type") == "aws_secretsmanager_secret_version" and resource.get(
-                        "name") in ("db_connection", "connection_string"):
+                        "name") in names:
                     yield resource["values"]["secret_string"]
             for child in module.get("child_modules", []):
-                yield from connections(child)
+                yield from walk(child)
 
-        values = list(connections(state["values"]["root_module"]))
+        return list(walk(state["values"]["root_module"]))
+
+    def _connection_string(self) -> str:
+        values = self._state_secrets(("db_connection", "connection_string"))
         if len(values) != 1:
             raise ProvisionError("cell must have exactly one database connection secret")
-        parts = dict(part.split("=", 1) for part in values[0].split(";") if "=" in part)
+        return values[0]
+
+    def seed_database(self, sql: str) -> dict:
+        """Use this cell's existing connection secret in memory; never persist or log it."""
+        parts = dict(part.split("=", 1) for part in self._connection_string().split(";") if "=" in part)
         parts = {k.strip().lower(): v for k, v in parts.items()}
         connection = {"host": parts["host"], "port": int(parts.get("port", "5432")),
             "databaseName": parts["database"], "username": parts["username"],
@@ -337,6 +389,98 @@ class TerraformTarget(DeployTarget):
         return connection
 
 
+    # --- pre-serving migration (serverless) ------------------------------------------------------
+    MIGRATE_PORT = 18080
+    MIGRATE_ATTEMPTS = 60
+    MIGRATE_DELAY_SECONDS = 5.0
+    _PASSTHROUGH_ENV = ("PATH", "HOME", "LANG", "DOCKER_HOST", "DOCKER_CONFIG")
+
+    def migrate(self, redis_enabled: bool = False, *, run=subprocess.run, probe=None,
+                sleep=time.sleep) -> dict:
+        """Migrate the cell's database with the generic server image, then stop it.
+
+        The image runs on this runner (the cell's RDS admits the runner's /32) with migrations
+        enabled and the cell's own connection string, admin password and master key, until
+        /healthz/ready answers 200. Secrets reach docker through the process environment
+        (`-e NAME` with no value), never argv. Raises ProvisionError with the reason; the container
+        is always removed.
+        """
+        image = os.environ.get(self.spec.migrate_image_env, "").strip()
+        if not image:
+            raise ProvisionError(f"{self.name}: {self.spec.migrate_image_env} is unset; cannot migrate")
+        connection = self._connection_string()
+        master_keys = self._state_secrets(("master_key",))
+        admin = self.admin_api_key
+        name = f"honua-migrate-{self.name}-{'r' if redis_enabled else 'n'}-{self.run_id}"[:63]
+        env = {k: os.environ[k] for k in self._PASSTHROUGH_ENV if k in os.environ}
+        server_env = {
+            "HONUA_SKIP_MIGRATIONS": "false",
+            "ConnectionStrings__DefaultConnection": connection,
+            "HONUA_ADMIN_PASSWORD": admin,
+            "Licensing__Mode": "Disabled",
+            "HostValidation__AllowedHosts": "*",
+            "AllowedHosts": "*",
+        }
+        if len(master_keys) == 1:
+            server_env["Security__ConnectionEncryption__MasterKey"] = master_keys[0]
+        env.update(server_env)
+        hidden = [v for v in (connection, admin, *master_keys) if v]
+        probe = probe or self._probe_ready
+        url = f"http://127.0.0.1:{self.MIGRATE_PORT}/healthz/ready"
+        result: dict = {"image": image, "path": "/healthz/ready", "ready": False, "attempts": 0}
+        started = run(["docker", "run", "-d", "--name", name,
+                       "-p", f"127.0.0.1:{self.MIGRATE_PORT}:8080",
+                       *(arg for key in server_env for arg in ("-e", key)), image],
+                      text=True, capture_output=True, env=env, check=False)
+        try:
+            if started.returncode:
+                raise ProvisionError(f"{self.name}: migration container did not start: "
+                                     + self._redact(started.stderr or started.stdout, hidden))
+            last = None
+            for attempt in range(1, self.MIGRATE_ATTEMPTS + 1):
+                result["attempts"] = attempt
+                last = probe(url)
+                if last == 200:
+                    result.update(ready=True, status=200)
+                    return result
+                state = run(["docker", "inspect", "-f", "{{.State.Running}} {{.State.ExitCode}}", name],
+                            text=True, capture_output=True, check=False)
+                running, _, code = (state.stdout or "").strip().partition(" ")
+                if state.returncode == 0 and running == "false":
+                    raise ProvisionError(f"{self.name}: migration container exited {code or '?'} before "
+                                         "Ready: " + self._container_tail(name, run, hidden))
+                if attempt < self.MIGRATE_ATTEMPTS:
+                    sleep(self.MIGRATE_DELAY_SECONDS)
+            raise ProvisionError(f"{self.name}: migration never reported Ready at /healthz/ready "
+                                 f"(last status {last}) after {self.MIGRATE_ATTEMPTS} probes: "
+                                 + self._container_tail(name, run, hidden))
+        finally:
+            run(["docker", "rm", "-f", name], text=True, capture_output=True, check=False)
+
+    @staticmethod
+    def _probe_ready(url: str) -> int:
+        try:
+            with urllib.request.urlopen(url, timeout=10) as response:  # noqa: S310 - loopback only
+                return response.status
+        except urllib.error.HTTPError as error:
+            return error.code
+        except OSError:
+            return 0
+
+    @staticmethod
+    def _redact(text: str, hidden: list[str]) -> str:
+        text = (text or "").strip()
+        for value in hidden:
+            text = text.replace(value, "[redacted]")
+        text = re.sub(r"(?i)(password|pwd|masterkey|api[-_]?key)(\s*[=:]\s*)[^;\s\"']+",
+                      r"\1\2[redacted]", text)
+        return text[-2000:]
+
+    def _container_tail(self, name: str, run, hidden: list[str]) -> str:
+        logs = run(["docker", "logs", "--tail", "20", name], text=True, capture_output=True, check=False)
+        return self._redact((logs.stdout or "") + (logs.stderr or ""), hidden) or "no container output"
+
+
 # The two terraform-output cells. EKS is a separate, heavier target (cluster + Helm + LB).
 SERVERLESS_SPEC = TfTargetSpec(
     name="aws-serverless",
@@ -348,6 +492,13 @@ SERVERLESS_SPEC = TfTargetSpec(
     architecture_env="HONUA_LAMBDA_ARCHITECTURE",
     architecture_var="lambda_architectures",
     architecture_is_list=True,
+    # The 2026.1 GA serverless cell is Lambda + AWS Batch geoprocessing (rc.3 fix unit C2). Passed
+    # only when the pinned root declares them (honua-iac feat/lambda-batch-ga-cell exposes them on
+    # examples/aws-serverless); the release account pre-creates AWSServiceRoleForBatch.
+    declared_ephemeral_vars=("enable_gp_batch=true", "use_batch_service_linked_role=true"),
+    # The manifest's generic server image, amd64 child by digest (resolved by e2e-cloud-aws.yml).
+    env_vars=(("HONUA_GP_BATCH_IMAGE", "gp_batch_image"),),
+    migrate_image_env="HONUA_MIGRATE_IMAGE",
 )
 ECS_SPEC = TfTargetSpec(
     name="aws-ecs",
@@ -361,6 +512,10 @@ ECS_SPEC = TfTargetSpec(
     # The manifest explicitly selects the proven architecture and excludes the broken ARM64 child.
     ephemeral_vars=("alb_deletion_protection=false",),
     declared_ephemeral_vars=("rds_deletion_protection=false", "enable_postgis=true"),
+    # Genuine-model cell only (rc.3 fix unit C6): the workflow sets HONUA_ENABLE_BEDROCK_AI=true for
+    # aws-ecs/redis-off when its genuine_model_bedrock input is on; every other run stays cost-free.
+    opt_in_env="HONUA_ENABLE_BEDROCK_AI",
+    opt_in_vars=("enable_bedrock_ai=true", "bedrock_ai_region=us-east-1"),
     ephemeral_var_files=("e2e/terraform/aws-ecs-new-deployment.tfvars.json",),
     needs_runner_db_access=True,
     needs_runner_alb_access=True,
