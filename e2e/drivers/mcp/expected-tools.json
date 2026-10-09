@@ -1,5 +1,5 @@
 {
-  "_comment": "Expected MCP discovery surface for the honua-server image pinned in ../../../platform-manifest.yaml. honua-server#3819 (2026-08-31) made discovery BOUNDED: an unnegotiated tools/list serves the server-authored `default` workflow view, not the whole catalog, and the complete catalog is an explicit admin-only `view: \"full\"` export paginated at 12 descriptors per page. This file therefore snapshots BOTH surfaces. It stands in for the Track A CapabilityManifestEmitter (honua-server#2338) until that emitter lands on trunk. Regenerate after a server re-pin by reading the booted candidate: `defaultView` from tools/list {} (its result and _meta), `fullCatalog.tools` by following nextCursor on tools/list {\"view\":\"full\"} with the admin key. Live tools are advertised with the honua_ prefix.",
+  "_comment": "Expected MCP discovery surface for the honua-server image pinned in ../../../platform-manifest.yaml. honua-server#3819 (2026-08-31) made discovery BOUNDED: an unnegotiated tools/list serves the server-authored `default` workflow view, not the whole catalog, and the complete catalog is an explicit admin-only `view: \"full\"` export paginated at 12 descriptors per page. This file therefore snapshots BOTH surfaces. It stands in for the Track A CapabilityManifestEmitter (honua-server#2338) until that emitter lands on trunk. Regenerate after a server re-pin by reading the booted candidate: `defaultView` from tools/list {} (its result and _meta), `fullCatalog.tools` by following nextCursor on tools/list {\"view\":\"full\"} with the admin key. Live tools are advertised with the honua_ prefix. The regeneration is gated: gate-contract.yml job mcp-tool-roster runs tools/check_mcp_roster.py, which holds this file to honua-server's generated canonical roster (docs/gis/data/mcp-tool-roster.v1.json) at the pinned sha and reports blocked while the pin predates that artifact.",
   "defaultView": {
     "_comment": "The bounded default view every unnegotiated client -- authenticated or not -- receives. It is budget-bounded by construction, so the whole view arrives in ONE page with no nextCursor. The driver asserts this roster EXACTLY (an extra tool means the bound leaked; a missing tool means the view shrank), plus the _meta identity below, so a future default-view change fails loudly instead of reading like a server regression (the honua-release#105 / honua-release#300 mis-diagnosis class).",
     "view": "default",
@@ -177,7 +177,32 @@
       "honua_supported_operation_kinds",
       "honua_validate_package",
       "honua_validate_plan"
-    ]
+    ],
+    "requiresDurableControlPlane": {
+      "_comment": "The `tools` roster above is the CANONICAL full catalog: the Redis-on topology, where every cell must advertise all of it. These 20 names are the subset that depends on the durable control plane. honua-server registers the operation proposal store, its gateway and the admin executors only inside `if (connectedRedis != null && redisCacheEntitled)` (src/Honua.Server/Program.cs:628, :687-700), and AddOperationsToolset (:947) projects the 20 AdminApiOperationCatalog executors into MCP only when that store exists (OperationsServiceCollectionExtensions.cs:137, `hasProposalStore`). So on a Redis-off install the full view is 124 - 20 = 104 tools (observed on the ECS Redis-off cell, e2e-cloud-aws run 37793903534). honua-server S1 (spec redis-off-topology-honest-control-plane) registers an unavailable proposal store outside the Redis block, after which these tools advertise on Redis-off too and refuse at call time. The S2 driver therefore accepts EITHER state for exactly these names -- all present or all absent, never a partial set -- and only when the cell declares Redis off (E2E_REDIS=off) AND the server confirms it (capability `operations.proposals`, else GET /api/v1/admin/proposals 503, else `jobs.runner` dependency-unavailable). Every other name stays exact in both directions. Redis-on cells get no relaxation.",
+      "tools": [
+        "honua_admin_layer_drawing_info_get",
+        "honua_admin_layer_drawing_info_set",
+        "honua_admin_layer_fields_get",
+        "honua_admin_layer_fields_set",
+        "honua_admin_layer_filter_get",
+        "honua_admin_layer_filter_set",
+        "honua_admin_layer_popup_info_get",
+        "honua_admin_layer_popup_info_set",
+        "honua_admin_layer_publish",
+        "honua_admin_layer_set_enabled",
+        "honua_admin_layer_style_export_sld",
+        "honua_admin_layer_style_get",
+        "honua_admin_layer_style_import_sld",
+        "honua_admin_layer_style_set",
+        "honua_admin_services_access_policy_set",
+        "honua_admin_services_layer_metadata_set",
+        "honua_admin_services_list",
+        "honua_admin_services_protocols_set",
+        "honua_admin_services_settings_get",
+        "honua_admin_services_timeinfo_set"
+      ]
+    }
   },
   "criticalTools": [
     "honua_validate_package",

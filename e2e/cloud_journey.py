@@ -22,7 +22,8 @@ HERE = ROOT / "certification/terminal-journey"
 EVIDENCE = ROOT / "e2e/cloud-evidence"
 GA_CELLS = tuple(f"{target}/redis-{redis}" for target in ("aws-ecs", "aws-serverless")
                  for redis in ("off", "on"))
-PREVIEW_TARGETS = ("aws-eks", "aws-mixed")
+# aws-mixed is out for 2026.1 rc.3 (no examples/aws-mixed root); restore it when honua-iac#209 lands.
+PREVIEW_TARGETS = ("aws-eks",)
 
 
 def drivers():

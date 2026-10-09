@@ -22,6 +22,8 @@ from datetime import datetime, timedelta, timezone
 import hashlib
 from pathlib import Path
 
+import pytest
+
 E2E_DIR = Path(__file__).resolve().parent
 sys.path.insert(0, str(E2E_DIR))
 
@@ -43,7 +45,16 @@ atexit.register(shutil.rmtree, SELFTEST_EVIDENCE.parent, True)
 _AWS_ENV = ("AWS_ACCESS_KEY_ID", "AWS_ROLE_ARN", "AWS_PROFILE", "AWS_WEB_IDENTITY_TOKEN_FILE",
             "HONUA_LAMBDA_IMAGE_URI", "HONUA_ECS_IMAGE", "HONUA_IAC_DIR", "HONUA_HELM_DIR",
             "HONUA_AWS_DB_INGRESS_CIDR", "HONUA_LAMBDA_ARCHITECTURE", "HONUA_ECS_ARCHITECTURE",
-            "HONUA_AWS_RUNNER_CIDR")
+            "HONUA_AWS_RUNNER_CIDR", "HONUA_GP_BATCH_IMAGE", "HONUA_MIGRATE_IMAGE",
+            "HONUA_ENABLE_BEDROCK_AI")
+
+TEST_ADMIN_PASSWORD = "Test-Cell-Aa1!" + "x" * 24
+
+
+@pytest.fixture(autouse=True)
+def _cell_admin_password(monkeypatch):
+    # The provision phase mints a per-cell password; the Terraform targets refuse to run without one.
+    monkeypatch.setenv("HONUA_ADMIN_PASSWORD", TEST_ADMIN_PASSWORD)
 
 TEST_SERVER_SHA = "a" * 40
 
@@ -450,13 +461,39 @@ def test_ecs_explicitly_selects_new_connection_encryption_key(monkeypatch):
     assert "honua_connection_encryption_master_key" not in _tf_vars(args)
 
 
-def test_ephemeral_admin_password_meets_iac_contract(monkeypatch):
+def test_admin_password_is_never_derived_from_the_public_run_id(monkeypatch):
     monkeypatch.delenv("HONUA_ADMIN_PASSWORD", raising=False)
+    monkeypatch.setenv("HONUA_LAMBDA_IMAGE_URI", "img")
+    monkeypatch.setenv("HONUA_ECS_IMAGE", "img")
+    monkeypatch.setenv("HONUA_AWS_DB_INGRESS_CIDR", "192.0.2.10/32")
+    monkeypatch.setenv("HONUA_AWS_RUNNER_CIDR", "192.0.2.10/32")
+    monkeypatch.setenv("HONUA_LAMBDA_ARCHITECTURE", "x86_64")
+    monkeypatch.setenv("HONUA_ECS_ARCHITECTURE", "x86_64")
+    for factory in (serverless, ecs):
+        target = factory(run_id="r1")
+        with pytest.raises(ProvisionError, match="HONUA_ADMIN_PASSWORD is unset"):
+            target.admin_api_key
+        with pytest.raises(ProvisionError, match="HONUA_ADMIN_PASSWORD is unset"):
+            target._vars(False)
+    # Teardown on a fresh runner has no password: destroy gets a random throwaway, not one from r1.
+    first = _tf_vars(serverless(run_id="r1")._vars(False, destroy=True))["honua_admin_password"]
+    second = _tf_vars(serverless(run_id="r1")._vars(False, destroy=True))["honua_admin_password"]
+    assert first != second and "r1" not in first
+    for password in (first, TEST_ADMIN_PASSWORD):
+        assert len(password) >= 32
+        assert any(c.isupper() for c in password)
+        assert any(c.islower() for c in password)
+        assert any(c.isdigit() for c in password)
+        assert any(not c.isalnum() for c in password)
+
+
+def test_ephemeral_admin_password_meets_iac_contract(monkeypatch):
     monkeypatch.setenv("HONUA_LAMBDA_IMAGE_URI", "img")
     monkeypatch.setenv("HONUA_AWS_DB_INGRESS_CIDR", "192.0.2.10/32")
     monkeypatch.setenv("HONUA_AWS_RUNNER_CIDR", "192.0.2.10/32")
     monkeypatch.setenv("HONUA_LAMBDA_ARCHITECTURE", "arm64")
     password = _tf_vars(serverless(run_id="r1")._vars(False))["honua_admin_password"]
+    assert password == TEST_ADMIN_PASSWORD
     assert len(password) >= 32
     assert any(c.isupper() for c in password)
     assert any(c.islower() for c in password)
@@ -1287,7 +1324,7 @@ def test_preview_cell_failure_is_informational_and_cannot_fill_a_ga_cell():
         previews = [{"cell": f"{target}/redis-off", "status": "fail"} for target in cj.PREVIEW_TARGETS]
         result = _aggregate_fixture([report, *previews], root)
         assert result["status"] == "blocked"  # focused dispatch remains diagnostic
-        assert [r["evidenceTier"] for r in result["cells"]] == ["GA", "Preview", "Preview"]
+        assert [r["evidenceTier"] for r in result["cells"]] == ["GA", *(["Preview"] * len(cj.PREVIEW_TARGETS))]
         result = _aggregate_fixture([*previews], root, full_scope=True)
         assert result["status"] == "fail" and "missing required cells" in result["why"]
 
@@ -1475,8 +1512,10 @@ def test_cloud_workflow_requires_only_four_ga_cells_and_runs_preview():
     job = workflow["jobs"]["parity"]
     assert len(cj.GA_CELLS) == 4 and all("eks" not in c and "mixed" not in c for c in cj.GA_CELLS)
     assert "aws-eks" in job["strategy"]["matrix"]["target"]
-    assert "aws-mixed" in job["strategy"]["matrix"]["target"]
-    assert job["with"]["preview"] == "${{ matrix.target == 'aws-eks' || matrix.target == 'aws-mixed' }}"
+    # rc.3: examples/aws-mixed does not exist; the cell is out of the matrix until honua-iac#209.
+    assert "aws-mixed" not in job["strategy"]["matrix"]["target"]
+    assert "aws-mixed" not in workflow[True]["workflow_dispatch"]["inputs"]["target"]["options"]
+    assert job["with"]["preview"] == "${{ matrix.target == 'aws-eks' }}"
     assert job["strategy"]["fail-fast"] is False and job["strategy"]["max-parallel"] == 2
     # Preview tolerance lives on the called cell's jobs; a reusable-workflow call cannot carry it.
     assert all(cell_job["continue-on-error"] == "${{ inputs.preview }}" for cell_job in cell["jobs"].values())
@@ -2305,3 +2344,605 @@ def test_gp_driver_redis_off_passes_on_the_typed_capability_unavailable_refusal(
 def test_gp_driver_redis_off_fails_when_the_job_is_accepted_or_refusal_is_untyped():
     assert _run_gp_driver_against(201, json.dumps({"jobID": "j1", "status": "accepted"}))["status"] == "fail"
     assert _run_gp_driver_against(503, json.dumps({"title": "Service Unavailable"}))["status"] == "fail"
+
+
+# ---- topology-aware S2 (MCP catalog) and S3 (Studio) drivers --------------------------------------
+# The real drivers run against an in-process stub of the candidate. The stub serves a Redis-on
+# server (the canonical 124-tool catalog) or a Redis-off one (minus the 20 durable-control-plane
+# tools, or with them once honua-server S1 has landed), and reports its topology through the
+# capability manifest / proposals endpoint the way the server does.
+_EXPECTED_TOOLS = json.loads((E2E_DIR / "drivers/mcp/expected-tools.json").read_text())
+_FULL_ROSTER = sorted(_EXPECTED_TOOLS["fullCatalog"]["tools"])
+_DURABLE_ONLY = sorted(_EXPECTED_TOOLS["fullCatalog"]["requiresDurableControlPlane"]["tools"])
+_REDIS_OFF_DETAIL = ("The operation proposal and approval control plane requires a Redis-backed durable "
+                     "store. This server was started without a Redis connection, so proposals cannot be "
+                     "listed, inspected, approved, or rejected.")
+
+
+def test_durable_control_plane_roster_is_the_20_redis_gated_admin_tools():
+    assert len(_FULL_ROSTER) == 124 and len(set(_FULL_ROSTER)) == 124
+    assert len(_DURABLE_ONLY) == 20 and set(_DURABLE_ONLY) <= set(_FULL_ROSTER)
+    assert all(n.startswith(("honua_admin_layer_", "honua_admin_services_")) for n in _DURABLE_ONLY)
+    assert not set(_DURABLE_ONLY) & set(_EXPECTED_TOOLS["criticalTools"])
+    assert not set(_DURABLE_ONLY) & set(_EXPECTED_TOOLS["defaultView"]["tools"])
+
+
+def _manifest(topology, signal):
+    caps = [{"id": "ogc.features", "available": True, "supported": True}]
+    off = topology == "redis-off"
+    if signal == "operations.proposals":
+        caps.append({"id": "operations.proposals", "supported": True, "available": not off,
+                     "reasonCode": "disabled-by-configuration" if off else None})
+    caps.append({"id": "jobs.runner", "supported": True, "available": not off,
+                 "reasonCode": "dependency-unavailable" if off else None})
+    return {"schemaVersion": "1", "capabilities": caps}
+
+
+def _serve(handler_for):
+    """Start a stub candidate. handler_for(method, path, body, authed) -> (status, json-able)."""
+    import http.server
+    import threading
+
+    class Handler(http.server.BaseHTTPRequestHandler):
+        def log_message(self, *args):
+            pass
+
+        def _handle(self, method):
+            body = self.rfile.read(int(self.headers.get("Content-Length") or 0))
+            payload = json.loads(body) if body else None
+            status, reply = handler_for(method, self.path, payload, bool(self.headers.get("X-API-Key")))
+            data = json.dumps(reply).encode()
+            self.send_response(status)
+            self.send_header("Content-Type", "application/json")
+            self.send_header("Content-Length", str(len(data)))
+            self.end_headers()
+            self.wfile.write(data)
+
+        def do_GET(self):
+            self._handle("GET")
+
+        def do_POST(self):
+            self._handle("POST")
+
+    server = http.server.ThreadingHTTPServer(("127.0.0.1", 0), Handler)
+    threading.Thread(target=server.serve_forever, daemon=True).start()
+    return server
+
+
+def _common_routes(method, path, topology, signal):
+    if path == "/healthz/ready":
+        return 200, {}
+    if method == "GET" and path == "/api/v1/capabilities/manifest":
+        return 200, _manifest(topology, signal)
+    if method == "GET" and path == "/api/v1/admin/proposals":
+        if signal != "admin-proposals":
+            return 404, {}
+        if topology == "redis-off":
+            return 503, {"type": "https://honua.io/problems/capability-unavailable", "status": 503,
+                         "code": "dependency-unavailable", "missingDependency": "redis"}
+        return 200, {"data": []}
+    return None
+
+
+def _mcp_handler(catalog, topology, signal):
+    dv = _EXPECTED_TOOLS["defaultView"]
+    page = _EXPECTED_TOOLS["fullCatalog"]["pageSize"]
+    meta = {"view": dv["view"], "title": dv["title"], "revision": dv["revision"], "toolCount": dv["toolCount"],
+            "fullCatalogView": dv["fullCatalogView"], "stages": dv["stages"]}
+
+    def rpc_result(result):
+        return 200, {"jsonrpc": "2.0", "id": 1, "result": result}
+
+    def handle(method, path, body, authed):
+        common = _common_routes(method, path, topology, signal)
+        if common:
+            return common
+        assert method == "POST" and path == "/mcp", path
+        m, params = body["method"], body.get("params") or {}
+        if m == "initialize":
+            return rpc_result({"protocolVersion": "2025-06-18", "serverInfo": {"name": "honua.operator.mcp"}})
+        if m == "tools/list":
+            if params.get("view") != "full":
+                return rpc_result({"tools": [{"name": n} for n in dv["tools"]], "_meta": meta})
+            if not authed:
+                return 200, {"jsonrpc": "2.0", "id": 1,
+                             "error": {"code": -32001, "message": "denied", "data": {"code": "permission_denied"}}}
+            start = int(params.get("cursor") or 0)
+            result = {"tools": [{"name": n} for n in catalog[start:start + page]]}
+            if start + page < len(catalog):
+                result["nextCursor"] = str(start + page)
+            return rpc_result(result)
+        assert m == "tools/call"
+        name, args = params["name"], params.get("arguments") or {}
+        if name == "honua_list_capabilities":
+            if args.get("fullExport"):
+                if not authed:
+                    return rpc_result({"isError": True, "structuredContent": {"code": "permission_denied"}})
+                return rpc_result({"structuredContent": {"toolCount": len(catalog), "resourceCount": 3,
+                                                         "tools": [{"name": n} for n in catalog]}})
+            return rpc_result({"structuredContent": {
+                "toolCount": page, "resourceCount": 3, "totalToolCount": len(catalog), "totalResourceCount": 3,
+                "nextToolCursor": "t12",
+                "workflowViews": [{"name": dv["view"], "toolCount": dv["toolCount"], "revision": dv["revision"]}]}})
+        return rpc_result({"content": []})
+    return handle
+
+
+def _run_driver(driver, handler, redis):
+    server = _serve(handler)
+    try:
+        with tempfile.TemporaryDirectory() as out:
+            env = {**os.environ, "E2E_BASE": f"http://127.0.0.1:{server.server_address[1]}",
+                   "E2E_API_KEY": "k", "E2E_OUT": out}
+            env.pop("E2E_REDIS", None)
+            if redis is not None:
+                env["E2E_REDIS"] = redis
+            subprocess.run(["bash", str(E2E_DIR / f"drivers/{driver}/run.sh")], env=env, check=True,
+                           capture_output=True, timeout=300)
+            return [json.loads(line) for line in Path(out, "scenarios.jsonl").read_text().splitlines()]
+    finally:
+        server.shutdown()
+
+
+def _s2(catalog, topology, redis, signal="jobs.runner"):
+    rows = _run_driver("mcp", _mcp_handler(sorted(catalog), topology, signal), redis)
+    assert [r["scenario"] for r in rows] == ["S1-mcp-handshake", "S2-mcp-tool-catalog"]
+    return rows[1]
+
+
+def test_s2_redis_on_full_124_catalog_passes():
+    row = _s2(_FULL_ROSTER, "redis-on", None)
+    assert row["status"] == "pass", row["why"]
+    assert row["evidence"]["topology"]["topology"] == "redis-on"
+    assert row["evidence"]["topology"]["durableControlPlaneTools"]["state"] == "required"
+
+
+def test_s2_redis_off_104_catalog_passes_with_topology_recorded():
+    catalog = [n for n in _FULL_ROSTER if n not in _DURABLE_ONLY]
+    assert len(catalog) == 104
+    for signal in ("jobs.runner", "operations.proposals", "admin-proposals"):
+        row = _s2(catalog, "redis-off", "off", signal)
+        assert row["status"] == "pass", (signal, row["why"])
+        topo = row["evidence"]["topology"]
+        assert topo["topology"] == "redis-off" and topo["declared"] == "off" and topo["mismatch"] is None
+        assert topo["reasonCode"] and topo["signal"].startswith(("manifest:", "admin-proposals:"))
+        assert topo["durableControlPlaneTools"] == {"state": "absent", "count": 20}
+        assert "redis-off" in row["why"]
+
+
+def test_s2_redis_off_after_server_s1_still_passes_with_the_20_advertised():
+    row = _s2(_FULL_ROSTER, "redis-off", "off", "operations.proposals")
+    assert row["status"] == "pass", row["why"]
+    assert row["evidence"]["topology"]["durableControlPlaneTools"]["state"] == "advertised"
+
+
+def test_s2_redis_off_missing_a_non_listed_name_fails():
+    dropped = "honua_validate_package"
+    assert dropped not in _DURABLE_ONLY
+    catalog = [n for n in _FULL_ROSTER if n not in _DURABLE_ONLY and n != dropped]
+    row = _s2(catalog, "redis-off", "off")
+    assert row["status"] == "fail" and dropped in row["why"]
+
+
+def test_s2_redis_off_extra_name_or_partial_durable_block_fails():
+    catalog = [n for n in _FULL_ROSTER if n not in _DURABLE_ONLY] + ["honua_unrecorded_tool"]
+    row = _s2(catalog, "redis-off", "off")
+    assert row["status"] == "fail" and "honua_unrecorded_tool" in row["why"]
+    partial = [n for n in _FULL_ROSTER if n not in _DURABLE_ONLY[:3]]
+    row = _s2(partial, "redis-off", "off")
+    assert row["status"] == "fail" and "partially advertised" in row["why"]
+
+
+def test_s2_redis_on_cell_cannot_pass_on_a_104_catalog():
+    catalog = [n for n in _FULL_ROSTER if n not in _DURABLE_ONLY]
+    # A Redis-on cell whose server lost its control plane: the topology contradicts the cell.
+    row = _s2(catalog, "redis-off", "on")
+    assert row["status"] == "fail" and "declares Redis on" in row["why"]
+    # A cell declaring Redis off gets no relaxation the server does not confirm.
+    row = _s2(catalog, "redis-on", "off")
+    assert row["status"] == "fail" and "full catalog missing tools" in json.dumps(row["evidence"]["failures"])
+
+
+def _studio_handler(topology, signal, draft_reply):
+    posts = []
+    families = [{"family": f, "format": fmt, "currentSchemaVersion": "1.0",
+                 "supportedOperations": ["publish-request.create"], "publishSupported": True}
+                for f, fmt in (("query", "studio_query_package.v1"), ("analysis", "studio_analysis_package.v1"),
+                               ("map", "honua_map_package.v1"))]
+
+    def handle(method, path, body, authed):
+        common = _common_routes(method, path, topology, signal)
+        if common:
+            return common
+        if method == "GET" and path == "/api/v1/admin/license":
+            return 200, {"data": {"edition": "Enterprise", "mode": "disabled"}}
+        if method == "GET" and path == "/api/v1/studio/package-families":
+            return 200, {"data": {"families": families}}
+        if method == "POST" and path == "/api/v1/studio/package-drafts":
+            posts.append(body)
+            return draft_reply
+        return 404, {}
+    return handle, posts
+
+
+def _s3(topology, redis, draft_reply, signal="jobs.runner"):
+    handler, posts = _studio_handler(topology, signal, draft_reply)
+    rows = _run_driver("studio", handler, redis)
+    assert [r["scenario"] for r in rows] == ["S3-studio-authoring"]
+    return rows[0], posts
+
+
+def test_s3_redis_off_passes_on_the_typed_409_for_query_analysis_and_map():
+    row, posts = _s3("redis-off", "off", (409, {"status": 409, "title": "Conflict", "detail": _REDIS_OFF_DETAIL}))
+    assert row["status"] == "pass", row["why"]
+    assert row["evidence"]["topology"]["topology"] == "redis-off"
+    assert sorted(row["evidence"]["families"]) == ["analysis", "map", "query"]
+    assert [p["envelope"]["family"] for p in posts] == ["query", "analysis", "map"]
+    map_body = posts[2]["envelope"]["body"]
+    assert posts[2]["envelope"]["format"] == "honua_map_package.v1" == map_body["format"]
+    assert map_body["mapPackageId"] == posts[2]["packageKey"]
+    assert "{layerId}" not in json.dumps(map_body)
+
+
+def test_s3_redis_off_fails_when_a_draft_is_composed_or_refused_untyped():
+    row, _ = _s3("redis-off", "off", (201, {"data": {"draftId": "d1"}}))
+    assert row["status"] == "fail"
+    row, _ = _s3("redis-off", "off", (409, {"status": 409, "detail": "Draft key already exists."}))
+    assert row["status"] == "fail"
+
+
+def test_s3_topology_mismatch_fails_before_any_lifecycle():
+    row, posts = _s3("redis-off", "on", (409, {"detail": _REDIS_OFF_DETAIL}))
+    assert row["status"] == "fail" and "declares Redis on" in row["why"] and posts == []
+
+# ---- rc.3 fix units C2 / C4 / C6: Lambda+Batch cell, pre-serving migration, Bedrock opt-in ---------
+def _iac_root_with(monkeypatch, base, example, *variables):
+    root = Path(base) / "infrastructure" / "terraform" / "examples" / example
+    root.mkdir(parents=True, exist_ok=True)
+    (root / "variables.tf").write_text(
+        "".join(f'variable "{name}" {{}}\n' for name in ("region", *variables)), encoding="utf-8")
+    monkeypatch.setenv("HONUA_IAC_DIR", str(base))
+    return root
+
+
+def _serverless_env(monkeypatch):
+    monkeypatch.setenv("HONUA_LAMBDA_IMAGE_URI", "img")
+    monkeypatch.setenv("HONUA_AWS_DB_INGRESS_CIDR", "192.0.2.10/32")
+    monkeypatch.setenv("HONUA_LAMBDA_ARCHITECTURE", "x86_64")
+
+
+def test_mixed_cell_is_out_of_the_rc3_run_cloud_registry():
+    assert "aws-mixed" not in run_cloud.REGISTRY
+    assert {"aws-serverless", "aws-ecs", "aws-eks"} <= set(run_cloud.REGISTRY)
+
+
+def test_serverless_spec_provisions_the_lambda_batch_ga_cell(monkeypatch):
+    from targets.terraform_target import SERVERLESS_SPEC
+    assert {"enable_gp_batch=true", "use_batch_service_linked_role=true"} <= set(
+        SERVERLESS_SPEC.declared_ephemeral_vars)
+    assert ("HONUA_GP_BATCH_IMAGE", "gp_batch_image") in SERVERLESS_SPEC.env_vars
+    assert SERVERLESS_SPEC.migrate_image_env == "HONUA_MIGRATE_IMAGE"
+    _serverless_env(monkeypatch)
+    batch_image = "ghcr.io/honua-io/honua-server@sha256:" + "c" * 64
+    monkeypatch.setenv("HONUA_GP_BATCH_IMAGE", batch_image)
+    with tempfile.TemporaryDirectory() as base:
+        # An older iac pin that does not declare the Batch inputs gets none of them.
+        _iac_root_with(monkeypatch, base, "aws-serverless")
+        values = _tf_vars(serverless(run_id="r1")._vars(False))
+        assert not {"enable_gp_batch", "use_batch_service_linked_role", "gp_batch_image"} & set(values)
+        _iac_root_with(monkeypatch, base, "aws-serverless", "enable_gp_batch",
+                       "use_batch_service_linked_role", "gp_batch_image")
+        values = _tf_vars(serverless(run_id="r1")._vars(False))
+        assert values["enable_gp_batch"] == "true"
+        assert values["use_batch_service_linked_role"] == "true"
+        assert values["gp_batch_image"] == batch_image
+        assert json.loads(values["lambda_architectures"]) == ["x86_64"]
+
+
+def test_serverless_is_blocked_when_the_root_takes_a_batch_image_and_none_is_pinned(monkeypatch):
+    for var in _AWS_ENV:
+        monkeypatch.delenv(var, raising=False)
+    with tempfile.TemporaryDirectory() as base:
+        _iac_root_with(monkeypatch, base, "aws-serverless", "gp_batch_image")
+        avail = serverless().availability()
+        assert any("HONUA_GP_BATCH_IMAGE" in m for m in avail.missing)
+        assert any("HONUA_MIGRATE_IMAGE" in m for m in avail.missing)
+        monkeypatch.setenv("HONUA_GP_BATCH_IMAGE", "img@sha256:" + "c" * 64)
+        monkeypatch.setenv("HONUA_MIGRATE_IMAGE", "img@sha256:" + "c" * 64)
+        avail = serverless().availability()
+        assert not any("HONUA_GP_BATCH_IMAGE" in m or "HONUA_MIGRATE_IMAGE" in m for m in avail.missing)
+    # ECS never migrates from the runner (its task runs migrations) and takes no Batch image.
+    assert not ecs().migrates_before_serving and serverless().migrates_before_serving
+
+
+def test_ecs_bedrock_is_opt_in_and_fails_closed_on_a_root_without_it(monkeypatch):
+    from targets.terraform_target import ECS_SPEC
+    assert ECS_SPEC.opt_in_env == "HONUA_ENABLE_BEDROCK_AI"
+    assert set(ECS_SPEC.opt_in_vars) == {"enable_bedrock_ai=true", "bedrock_ai_region=us-east-1"}
+    monkeypatch.setenv("HONUA_ECS_IMAGE", "img")
+    monkeypatch.setenv("HONUA_ECS_ARCHITECTURE", "x86_64")
+    monkeypatch.setenv("HONUA_AWS_DB_INGRESS_CIDR", "192.0.2.10/32")
+    monkeypatch.setenv("HONUA_AWS_RUNNER_CIDR", "192.0.2.10/32")
+    with tempfile.TemporaryDirectory() as base:
+        _iac_root_with(monkeypatch, base, "aws", "enable_bedrock_ai", "bedrock_ai_region")
+        for flag in (None, "false"):
+            if flag is None:
+                monkeypatch.delenv("HONUA_ENABLE_BEDROCK_AI", raising=False)
+            else:
+                monkeypatch.setenv("HONUA_ENABLE_BEDROCK_AI", flag)
+            assert "enable_bedrock_ai" not in _tf_vars(ecs(run_id="r1")._vars(False))
+        monkeypatch.setenv("HONUA_ENABLE_BEDROCK_AI", "true")
+        values = _tf_vars(ecs(run_id="r1")._vars(False))
+        assert values["enable_bedrock_ai"] == "true" and values["bedrock_ai_region"] == "us-east-1"
+        _iac_root_with(monkeypatch, base, "aws")
+        with pytest.raises(ProvisionError, match="does not declare enable_bedrock_ai"):
+            ecs(run_id="r1")._vars(False)
+    # Serverless has no Bedrock opt-in.
+    _serverless_env(monkeypatch)
+    assert "enable_bedrock_ai" not in _tf_vars(serverless(run_id="r1")._vars(False))
+
+
+def test_cloud_workflow_threads_the_batch_image_and_scopes_bedrock_to_the_genuine_model_cell():
+    workflow, cell = _cloud_workflows()
+    candidate = workflow["jobs"]["candidate"]
+    assert candidate["outputs"]["gp_batch_image"] == "${{ steps.pins.outputs.gp_batch_image }}"
+    pins = next(step["run"] for step in candidate["steps"] if step.get("id") == "pins")
+    assert 'server.get("platformDigests")' in pins and '"amd64"' in pins
+    assert 'pins["gp_batch_image"] = f"{repository}@{amd64}"' in pins
+    parity = workflow["jobs"]["parity"]["with"]
+    assert parity["gp_batch_image"] == "${{ needs.candidate.outputs.gp_batch_image }}"
+    assert parity["enable_bedrock"] == ("${{ (inputs.genuine_model_bedrock || false) && "
+                                        "matrix.target == 'aws-ecs' && matrix.redis == 'off' }}")
+    for trigger in ("workflow_dispatch", "workflow_call"):
+        assert workflow[True][trigger]["inputs"]["genuine_model_bedrock"]["default"] is False
+    assert cell["env"]["HONUA_GP_BATCH_IMAGE"] == "${{ inputs.gp_batch_image }}"
+    assert cell["env"]["HONUA_MIGRATE_IMAGE"] == "${{ inputs.gp_batch_image }}"
+    assert cell["env"]["HONUA_ENABLE_BEDROCK_AI"] == "${{ inputs.enable_bedrock }}"
+    assert cell[True]["workflow_call"]["inputs"]["enable_bedrock"]["default"] is False
+
+
+def test_manifest_batch_image_is_the_ecs_amd64_child_by_digest():
+    import re as _re
+    server = run_cloud.cloud_journey.manifest()["components"]["honua-server"]
+    image, amd64 = server["image"], server["platformDigests"]["amd64"]
+    repository = image.rsplit(":", 1)[0] if "/" not in image.rsplit(":", 1)[-1] else image
+    batch_image = f"{repository}@{amd64}"
+    # honua-iac's gp_batch_image validation: registry/repository@sha256:<hex>, no tag.
+    assert _re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._-]*(:[0-9]+)?(/[A-Za-z0-9._-]+)+@sha256:[0-9a-f]{64}",
+                         batch_image), batch_image
+
+
+def _migration_target(monkeypatch, secrets_in_state):
+    _serverless_env(monkeypatch)
+    monkeypatch.setenv("HONUA_MIGRATE_IMAGE", "ghcr.io/honua-io/honua-server@sha256:" + "c" * 64)
+    target = serverless(run_id="run42")
+    target._workdir = Path(".")
+    state = {"values": {"root_module": {"resources": [], "child_modules": [{"resources": [
+        {"type": "aws_secretsmanager_secret_version", "name": name, "values": {"secret_string": value}}
+        for name, value in secrets_in_state.items()]}]}}}
+    monkeypatch.setattr(target, "_tf", lambda root, *args, **kw: subprocess.CompletedProcess(
+        args, 0, json.dumps(state), ""))
+    return target
+
+
+_CONNECTION = "Host=db.example;Port=5432;Database=honua;Username=honua;Password=S3cret-db-pw"
+
+
+class _Docker:
+    def __init__(self, *, start=0, running="true 0", logs=""):
+        self.calls, self.envs = [], []
+        self.start, self.running, self.logs = start, running, logs
+
+    def __call__(self, argv, **kwargs):
+        self.calls.append(argv)
+        self.envs.append(kwargs.get("env"))
+        verb = argv[1]
+        if verb == "run":
+            return subprocess.CompletedProcess(argv, self.start, "cid\n", "pull denied" if self.start else "")
+        if verb == "inspect":
+            return subprocess.CompletedProcess(argv, 0, self.running + "\n", "")
+        if verb == "logs":
+            return subprocess.CompletedProcess(argv, 0, self.logs, "")
+        return subprocess.CompletedProcess(argv, 0, "", "")
+
+
+def test_serverless_migration_runs_the_generic_image_until_ready_then_stops(monkeypatch):
+    target = _migration_target(monkeypatch, {"connection_string": _CONNECTION, "master_key": "mk-123"})
+    docker = _Docker()
+    statuses = iter([0, 503, 200])
+    result = target.migrate(redis_enabled=True, run=docker, probe=lambda url: next(statuses),
+                            sleep=lambda _s: None)
+    assert result["ready"] is True and result["attempts"] == 3 and result["path"] == "/healthz/ready"
+    start = docker.calls[0]
+    assert start[:2] == ["docker", "run"] and start[-1] == "ghcr.io/honua-io/honua-server@sha256:" + "c" * 64
+    assert "127.0.0.1:18080:8080" in start
+    # Secrets travel in the docker process environment, named but never valued on argv.
+    argv = " ".join(start)
+    for secret in (_CONNECTION, "mk-123", TEST_ADMIN_PASSWORD):
+        assert secret not in argv
+    for name in ("HONUA_SKIP_MIGRATIONS", "ConnectionStrings__DefaultConnection",
+                 "Security__ConnectionEncryption__MasterKey", "HONUA_ADMIN_PASSWORD", "Licensing__Mode"):
+        assert name in start
+    env = docker.envs[0]
+    assert env["HONUA_SKIP_MIGRATIONS"] == "false"
+    assert env["ConnectionStrings__DefaultConnection"] == _CONNECTION
+    assert env["Security__ConnectionEncryption__MasterKey"] == "mk-123"
+    assert env["Licensing__Mode"] == "Disabled"
+    assert "AWS_ACCESS_KEY_ID" not in env
+    # The container is always removed.
+    assert docker.calls[-1][:3] == ["docker", "rm", "-f"]
+    assert json.dumps(result).find(_CONNECTION) == -1
+
+
+def test_serverless_migration_failure_is_a_redacted_reason_and_the_container_is_removed(monkeypatch):
+    target = _migration_target(monkeypatch, {"connection_string": _CONNECTION, "master_key": "mk-123"})
+    docker = _Docker(running="false 134",
+                     logs=f"fatal: migration 0042 failed for {_CONNECTION}\nPassword=leak; api_key: abc\n")
+    with pytest.raises(ProvisionError) as error:
+        target.migrate(run=docker, probe=lambda url: 503, sleep=lambda _s: None)
+    message = str(error.value)
+    assert "exited 134 before Ready" in message and "migration 0042 failed" in message
+    assert "S3cret-db-pw" not in message and "leak" not in message and "abc" not in message
+    assert docker.calls[-1][:3] == ["docker", "rm", "-f"]
+
+    never = _Docker()
+    monkeypatch.setattr(type(target), "MIGRATE_ATTEMPTS", 3)
+    with pytest.raises(ProvisionError, match=r"never reported Ready .*last status 503"):
+        target.migrate(run=never, probe=lambda url: 503, sleep=lambda _s: None)
+    assert never.calls[-1][:3] == ["docker", "rm", "-f"]
+
+    refused = _Docker(start=1)
+    with pytest.raises(ProvisionError, match="did not start: pull denied"):
+        target.migrate(run=refused, probe=lambda url: 200, sleep=lambda _s: None)
+    assert refused.calls[-1][:3] == ["docker", "rm", "-f"]
+
+    monkeypatch.delenv("HONUA_MIGRATE_IMAGE")
+    with pytest.raises(ProvisionError, match="HONUA_MIGRATE_IMAGE is unset"):
+        target.migrate(run=_Docker(), probe=lambda url: 200, sleep=lambda _s: None)
+
+
+class _MigratingStub(_ServingStub):
+    migrates_before_serving = True
+
+    def __init__(self, error=None):
+        super().__init__()
+        self.error, self.order = error, []
+
+    def provision(self, redis_enabled: bool = False) -> str:
+        self.order.append("provision")
+        return self.endpoint
+
+    def migrate(self, redis_enabled: bool = False) -> dict:
+        self.order.append("migrate")
+        if self.error:
+            raise ProvisionError(self.error)
+        return {"ready": True, "attempts": 1, "path": "/healthz/ready"}
+
+
+def test_provision_phase_migrates_before_the_first_probe_and_fails_the_cell_on_error(monkeypatch):
+    monkeypatch.setenv("AWS_ACCESS_KEY_ID", "AKIAEXAMPLE")
+    probes = []
+    stub = _MigratingStub()
+    monkeypatch.setattr(run_cloud, "_READY_ATTEMPTS", 1)
+    monkeypatch.setattr(run_cloud, "_READY_DELAY_SECONDS", 0)
+
+    def fetch_factory(**kwargs):
+        def fetch(url):
+            stub.order.append("probe")
+            probes.append(url)
+            return cc.HttpResponse(200, "")
+        return fetch
+
+    monkeypatch.setattr(run_cloud, "make_fetch", fetch_factory)
+    monkeypatch.setattr(run_cloud, "run_canonical", lambda *a, **k: [])
+    monkeypatch.setattr(run_cloud.canary_probes, "run_canary", lambda *a, **k: [])
+    monkeypatch.setattr(run_cloud, "seed_cell", lambda *a, **k: None)
+    state = run_cloud.provision_phase(stub, "stub", require_real=True, redis_enabled=False)
+    assert stub.order[:3] == ["provision", "migrate", "probe"]
+    assert state["report"]["migration"]["ready"] is True and state["endpoint"] == stub.endpoint
+
+    failing = _MigratingStub(error="migration container exited 1 before Ready: boom")
+    state = run_cloud.provision_phase(failing, "stub", require_real=True, redis_enabled=False)
+    report = state["report"]
+    assert failing.order == ["provision", "migrate"]
+    assert report["status"] == "fail" and report["why"].startswith("migration failed: ")
+    assert "exited 1 before Ready" in report["why"]
+
+    leaky = _MigratingStub(error="did not start: Host=db;Username=u;Password=S3cret; "
+                                 "postgres://honua:S3cret@db:5432/honua")
+    report = run_cloud.provision_phase(leaky, "stub", require_real=True, redis_enabled=False)["report"]
+    assert report["why"].startswith("migration failed: ") and "S3cret" not in report["why"]
+    # Nothing was probed, the endpoint is not handed to the journey, and teardown still destroys.
+    assert state["endpoint"] is None and state["provisionAttempted"] is True
+
+
+def test_ecs_readiness_diagnostics_capture_stop_reasons_and_the_server_log_tail(monkeypatch):
+    target = ecs(run_id="r1")
+    monkeypatch.setattr(target, "_iac_root", lambda: Path("iac"))
+    task_arn = "arn:aws:ecs:us-east-1:1:task/cluster/abc123"
+    definition = "arn:aws:ecs:us-east-1:1:task-definition/honua:7"
+    lines = [{"message": f"line {i}"} for i in range(250)] + [{"message": "Password=hunter2 boot failed"}]
+    calls = []
+
+    def run(argv, **kwargs):
+        calls.append(argv)
+        if argv[0] == "terraform":
+            return subprocess.CompletedProcess(argv, 0, {"ecs_cluster_name": "c1", "ecs_service_name": "s1"}[argv[-1]], "")
+        verb = argv[2]
+        payload = {
+            "list-tasks": {"taskArns": [task_arn] if "STOPPED" in argv else []},
+            "describe-tasks": {"tasks": [{"taskArn": task_arn, "lastStatus": "STOPPED",
+                "desiredStatus": "STOPPED", "stopCode": "EssentialContainerExited",
+                "stoppedReason": "Essential container in task exited", "taskDefinitionArn": definition,
+                "createdAt": "2026-10-08T00:00:00Z",
+                "containers": [{"name": "honua", "lastStatus": "STOPPED", "exitCode": 139,
+                                "reason": "token=abc"}]}]},
+            "describe-task-definition": {"taskDefinition": {"containerDefinitions": [{"name": "honua",
+                "logConfiguration": {"options": {"awslogs-group": "/ecs/honua", "awslogs-stream-prefix": "honua"}}}]}},
+            "get-log-events": {"events": lines},
+        }[verb]
+        return subprocess.CompletedProcess(argv, 0, json.dumps(payload), "")
+
+    report = run_cloud.ecs_readiness_diagnostics(target, run=run, redact=run_cloud._redact_log)
+    assert run_cloud.cloud_journey.PREVIEW_TARGETS == ("aws-eks",)
+    assert report["cluster"] == "c1" and report["service"] == "s1"
+    task = report["tasks"][0]
+    assert task["stoppedReason"] == "Essential container in task exited"
+    assert task["stopCode"] == "EssentialContainerExited" and task["containers"][0]["exitCode"] == 139
+    assert task["containers"][0]["reason"] == "token=[redacted]"
+    log = report["logs"][0]
+    assert log["logStream"] == "honua/honua/abc123" and len(log["lines"]) == 200
+    assert log["lines"][-1] == "Password=[redacted] boot failed"
+    get_logs = next(c for c in calls if "get-log-events" in c)
+    assert get_logs[get_logs.index("--limit") + 1] == "200"
+
+
+def test_diagnose_phase_runs_only_for_a_cell_that_never_became_ready(monkeypatch):
+    cj = run_cloud.cloud_journey
+    directory = _phase_env(monkeypatch, run_id="diag-c2")
+    seen = []
+    monkeypatch.setattr(run_cloud, "ecs_readiness_diagnostics",
+                        lambda target, **kw: seen.append(target.name) or {"tasks": [], "logs": []})
+    argv = ["--phase", "diagnose", "--target", "aws-ecs", "--redis", "off"]
+    try:
+        run_cloud._write_json(directory / run_cloud.HANDOFF_NAME, {"cell": "aws-ecs/redis-off", "ready": True})
+        assert run_cloud.main(argv) == 0 and seen == []
+        run_cloud._write_json(directory / run_cloud.HANDOFF_NAME, {"cell": "aws-ecs/redis-off", "ready": False})
+        assert run_cloud.main(argv) == 0 and seen == ["aws-ecs"]
+        written = json.loads((directory / run_cloud.DIAGNOSTICS_NAME).read_text())
+        assert written["cell"] == "aws-ecs/redis-off"
+        # A diagnostics error is recorded, never raised: the step must not change the verdict.
+        monkeypatch.setattr(run_cloud, "ecs_readiness_diagnostics",
+                            lambda target, **kw: (_ for _ in ()).throw(RuntimeError("Password=x denied")))
+        assert run_cloud.main(argv) == 0
+        assert "Password=[redacted]" in json.loads((directory / run_cloud.DIAGNOSTICS_NAME).read_text())["error"]
+    finally:
+        shutil.rmtree(cj.EVIDENCE / "diag-c2", ignore_errors=True)
+
+
+def test_cell_teardown_captures_ecs_diagnostics_before_destroy_and_uploads_them():
+    _, cell = _cloud_workflows()
+    steps = cell["jobs"]["teardown"]["steps"]
+    names = [step.get("name", "") for step in steps]
+    diagnose = names.index("Capture ECS readiness diagnostics")
+    destroy = next(i for i, name in enumerate(names) if name.startswith("Tear down"))
+    restore = names.index("Restore the Terraform state")
+    assert restore < diagnose < destroy
+    step = steps[diagnose]
+    assert step["continue-on-error"] is True and "inputs.target == 'aws-ecs'" in step["if"]
+    assert "--phase diagnose" in step["run"]
+    upload = next(s for s in steps if s.get("name") == "Upload cloud gate-report (per cell)")
+    assert "e2e/cloud-evidence/**/diagnostics-*.json" in upload["with"]["path"]
+
+
+@pytest.mark.parametrize("line, secret, kept", [
+    ("Password=hunter2;Host=db", "hunter2", "Password=[redacted]"),
+    ("Authorization: Bearer eyJhbGciOi.payload.sig", "eyJhbGciOi.payload.sig", "Authorization: Bearer [redacted]"),
+    ("authorization:bearer tok-123 retry", "tok-123", "authorization:bearer [redacted] retry"),
+    ("connecting to postgres://honua:p%40ss@db.example:5432/honua", "p%40ss",
+     "postgres://honua:[redacted]@db.example:5432/honua"),
+    ("dsn=postgresql://admin:S3cret@10.0.0.5/gis", "S3cret", "postgresql://admin:[redacted]@10.0.0.5/gis"),
+])
+def test_redact_log_strips_key_values_bearer_tokens_and_postgres_uri_passwords(line, secret, kept):
+    redacted = run_cloud._redact_log(line)
+    assert secret not in redacted and kept in redacted
