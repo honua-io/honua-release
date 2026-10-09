@@ -17,6 +17,16 @@
 #   * Each entry has its own why. Do not add a name because a run was red.
 
 honua-sdk-js:
+  - name: "Three-engine smoke and source-packed parity"
+    why: >-
+      Sample smoke across three browser engines (`.github/workflows/first-map-release-smoke.yml`):
+      it builds the maplibre-quickstart sample and drives Playwright through First Map in
+      chromium, firefox and webkit. On 984425f9 run 37454546336 sealed
+      "chromium=passed firefox=failed webkit=passed": the only red is the Firefox leg's First Map
+      provenance text/click assertion ("No unobscured rendered First Map feature was available for
+      the click regression"), tracked as honua-sdk-js#687 with fix branch fix/687-firefox-xvfb. A
+      Firefox-only sample assertion does not describe the published SDK; its unit, browser, verify
+      and build lanes stay core. Ruling 2026-10-09 (rc.3 fix unit R1); honua-release#471.
   - name: "Shadow parity"
     why: >-
       Scheduled read-only collector (`.github/workflows/sdk-shadow-parity.yml`, job `collect`).
@@ -56,9 +66,21 @@ honua-sdk-dotnet:
       nothing. On 66413fe3 run 37685097250 opened honua-sdk-dotnet#423 (Honua.Sdk 1.10.4) and then
       failed with "could not create workflow dispatch event: HTTP 422: No ref found for: f31fb9ae"
       when dispatching certification on the pin commit. That is a dispatch race in the opener,
-      not a verdict on 66413fe3. Under honua-release#471. `certify` (sdk-certification.yml) is NOT
-      listed: it stays core, and on 66413fe3 it refuses because the pin file there names 1.10.3
-      while the manifest names 1.10.4 (run 37841698037).
+      not a verdict on 66413fe3. Under honua-release#471.
+  - name: "certify"
+    why: >-
+      Scheduled certification (`.github/workflows/sdk-certification.yml`, job `certify`) whose first
+      gate, "Verify candidate pins against nuget.org and honua-release", requires
+      certification/candidate-pins.json AT THE EVALUATED SHA to name the Honua.Sdk coordinate the
+      honua-release manifest pins. The manifest pins the published package's own source commit, and
+      the pin file at that commit can only name the PREVIOUS package (the follow opener advances it
+      afterwards, on a later commit), so on the published source the gate is red by construction:
+      on 66413fe3 run 37841698037 refused with "pin file has 1.10.3, honua-release manifest has
+      1.10.4" before any SDK build or test ran. That is pin lag between two repositories, not a
+      verdict on the package. The .NET SDK's unit lanes, build, API Compatibility and Contract
+      Conformance stay core, and the release train's gate-installed-clients certifies the installed
+      Honua.Sdk package against the candidate. Ruling 2026-10-09 (rc.3 fix unit R1, pin-lag rule);
+      honua-release#471.
 
 honua-helm:
   - name: "Publish chart by digest"
@@ -75,6 +97,15 @@ honua-helm:
       install-upgrade-rollback-smoke, the OKF documentation bundle and the security scans stay core.
 
 honua-server:
+  - name: "Validate normalization envelope"
+    why: >-
+      Governance consumer (`Derived Artifact Normalization Consumer`, event `workflow_run`) that
+      verifies the producer's normalization envelope artifact belongs to exactly one open pull
+      request for the producer head. It builds and tests nothing. It also fires for the
+      workflow_run of a trunk merge commit, where no pull request is open any more, and then fails
+      with "Expected one open PR for producer head; found 0." (094c76b4, run 37907385850). That is
+      the consumer's own PR bookkeeping on a merged commit, not a verdict on the server SHA. The
+      full-matrix CI workflow and Build & Format Check stay core.
   - workflow: ".github/workflows/server-test-prebuild-observe.yml"
     why: >-
       Server Test Prebuild Observation is a non-authoritative shadow measurement. Its own

@@ -58,31 +58,33 @@ def _red_names(why: str) -> str:
     return head
 
 
-def test_dotnet_certify_stays_a_core_failure_on_the_published_source():
+def test_dotnet_certify_pin_lag_is_advisory_on_the_published_source():
     data, payload = _fixture("honua-sdk-dotnet-d9d9fd1.json")
     assert data["sha"] == "d9d9fd1fcbe99570594160a6a3cc61b70594257b"
     certify = [run for run in data["check_runs"] if run["name"] == "certify"]
     assert [run["id"] for run in certify] == [111999844920]
     assert certify[0]["conclusion"] == "failure"
 
+    # Ruling 2026-10-09 (pin-lag rule): certify's pin gate refuses the published source by
+    # construction, so it is excluded as advisory; the 38 build/test lanes stay core.
     status, why = _classify("honua-sdk-dotnet", payload)
-    assert status == "fail"
-    assert _red_names(why) == "1/39 core check-run(s) red (['failure']: ['certify'])"
-    for policy in bt.load_advisory().values():
-        assert "certify" not in policy["names"]
-        assert ".github/workflows/sdk-certification.yml" not in policy["workflows"]
+    assert status == "pass", why
+    assert why.startswith("all 38 core check-run(s) green")
+    assert "advisory" in why and "certify" in why
+    assert "certify" in bt.load_advisory()["honua-sdk-dotnet"]["names"]
 
 
-def test_js_core_red_is_only_the_three_engine_matrix():
+def test_js_three_engine_firefox_red_is_advisory_and_the_rest_stays_core():
     data, payload = _fixture("honua-sdk-js-984425f.json")
     assert data["sha"] == "984425f9d88b3c699cbd4766538ba311b48790aa"
     status, why = _classify("honua-sdk-js", payload)
-    assert status == "fail", why
-    assert _red_names(why) == (
-        "1/47 core check-run(s) red (['failure']: ['Three-engine smoke and source-packed parity'])"
-    )
+    # Ruling 2026-10-09: the Firefox-only First Map sample assertion (honua-sdk-js#687) is
+    # advisory; the SDK's 46 unit/browser/verify/build lanes stay core.
+    assert status == "pass", why
+    assert why.startswith("all 46 core check-run(s) green")
     for name in JS_ADVISORY:
         assert name in why
+    assert THREE_ENGINE in why
     assert "Build site" not in why
     assert "release-please-ci" not in why
 
@@ -124,7 +126,7 @@ def test_server_prebuild_observer_is_advisory_only_with_its_workflow_path():
     assert data["sha"] == "c19f29d1828814f0f4c372b0dce73554074ba3b1"
     status, why = _classify("honua-server", payload)
     assert status == "pass", why
-    assert why.startswith("all 121 core check-run(s) green")
+    assert why.startswith("all 120 core check-run(s) green")
     for name in PREBUILD:
         assert name in why
 
@@ -152,7 +154,7 @@ def test_prebuild_checks_stay_core_when_the_workflow_path_was_not_recorded():
     status, why = _classify("honua-server", stripped)
     assert status == "fail"
     assert _red_names(why) == (
-        "2/125 core check-run(s) red (['failure']: "
+        "2/124 core check-run(s) red (['failure']: "
         "['Prebuild repeated project / geoservices', 'Prebuild repeated project / server'])"
     )
 
@@ -253,16 +255,22 @@ def _runs_named(*pairs):
                            for name, conclusion in pairs]}
 
 
-def test_dotnet_pin_follow_is_advisory_but_certify_still_refuses():
+def test_dotnet_pin_follow_and_certify_pin_lag_are_advisory_but_build_stays_core():
     core = [("Build", "success"), ("Unit Tests", "success")]
     status, why = _classify("honua-sdk-dotnet", _runs_named(*core, ("follow", "failure")))
     assert status == "pass", why
     assert "advisory" in why and "follow" in why
-    # Run 37819830412 refused 66413fe3 on certify AND follow; only follow leaves the core verdict.
+    # Ruling 2026-10-09 (pin-lag rule): certify on the published source refuses by construction
+    # (the pin file at that commit names the previous package), so it is advisory too.
     status, why = _classify("honua-sdk-dotnet", _runs_named(*core, ("follow", "failure"),
                                                            ("certify", "failure")))
+    assert status == "pass", why
+    assert "certify" in why
+    # The package's own build lanes stay core.
+    status, why = _classify("honua-sdk-dotnet", _runs_named(("Build", "failure"), ("Unit Tests", "success"),
+                                                           ("certify", "failure")))
     assert status == "fail"
-    assert _red_names(why) == "1/3 core check-run(s) red (['failure']: ['certify'])"
+    assert _red_names(why) == "1/2 core check-run(s) red (['failure']: ['Build'])"
 
 
 def test_helm_chart_publication_is_advisory_but_chart_lint_and_smoke_stay_core():
@@ -277,17 +285,23 @@ def test_helm_chart_publication_is_advisory_but_chart_lint_and_smoke_stay_core()
         assert status == "fail" and core in _red_names(why), why
 
 
-def test_js_overture_live_lane_is_env_gated_but_three_engine_stays_core():
+def test_js_overture_live_lane_is_env_gated_and_three_engine_is_advisory_not_env_gated():
     status, why = _classify("honua-sdk-js", _runs_named(
         ("Unit tests", "success"), ("Bounded AWS semantic workflow", "failure")))
     assert status == "pass", why
-    # Run 37819830412: both were red on 984425f9; the three-engine browser matrix still refuses.
+    # Both were red on 984425f9; the three-engine matrix is advisory (Firefox-only sample
+    # assertion, honua-sdk-js#687), never env-gated: it needs no external backend.
     status, why = _classify("honua-sdk-js", _runs_named(
         ("Unit tests", "success"), ("Bounded AWS semantic workflow", "failure"),
         (THREE_ENGINE, "failure")))
-    assert status == "fail"
-    assert _red_names(why) == f"1/2 core check-run(s) red (['failure']: ['{THREE_ENGINE}'])"
+    assert status == "pass", why
+    assert "advisory" in why and THREE_ENGINE in why
     assert THREE_ENGINE not in bt.load_env_gated().get("honua-sdk-js", frozenset())
+    # A red unit lane still refuses.
+    status, why = _classify("honua-sdk-js", _runs_named(
+        ("Unit tests", "failure"), (THREE_ENGINE, "failure")))
+    assert status == "fail"
+    assert _red_names(why) == "1/1 core check-run(s) red (['failure']: ['Unit tests'])"
 
 
 def test_the_new_exclusions_alone_are_blocked_never_pass():
