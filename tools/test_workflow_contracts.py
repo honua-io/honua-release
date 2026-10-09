@@ -1293,11 +1293,12 @@ def test_cloud_matrix_is_the_rc3_ga_set_plus_eks_preview_and_threads_the_batch_i
     assert cell["env"]["HONUA_GP_BATCH_IMAGE"] == "${{ inputs.gp_batch_image }}"
     assert cell["env"]["HONUA_MIGRATE_IMAGE"] == "${{ inputs.gp_batch_image }}"
     # The receipt checker and the cloud journey agree with the matrix: no aws-mixed Preview row.
-    import check_journey_receipts
-    sys.path.insert(0, str(REPO_ROOT / "e2e"))
-    import cloud_journey
-    assert check_journey_receipts.PREVIEW_CELLS == ("aws-eks/redis-off", "aws-eks/redis-on")
-    assert cloud_journey.PREVIEW_TARGETS == ("aws-eks",)
+    # Read as text: this suite also runs where the checkers' own dependencies are not installed.
+    receipts = (REPO_ROOT / "tools" / "check_journey_receipts.py").read_text(encoding="utf-8")
+    journey = (REPO_ROOT / "e2e" / "cloud_journey.py").read_text(encoding="utf-8")
+    assert 'PREVIEW_CELLS = tuple(f"{target}/redis-{redis}" for target in ("aws-eks",)' in receipts
+    assert 'PREVIEW_TARGETS = ("aws-eks",)' in journey
+    assert '"aws-mixed"' not in receipts and '"aws-mixed"' not in journey
     teardown = [step.get("name") for step in cell["jobs"]["teardown"]["steps"]]
     assert teardown.index("Capture ECS readiness diagnostics") < next(
         i for i, name in enumerate(teardown) if (name or "").startswith("Tear down"))
