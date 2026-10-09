@@ -245,3 +245,53 @@ def test_resolver_source_passes_the_advisory_list_into_evaluate():
         bt.load_advisory()["honua-server"]["workflows"]
     )
     assert ".github/workflows/ci.yml" not in bt.load_advisory()["honua-server"]["workflows"]
+
+
+# ---- 2026-10-08 resolver refusals (honua-release#471, nightly-certification run 37819830412) ----
+def _runs_named(*pairs):
+    return {"check_runs": [{"name": name, "status": "completed", "conclusion": conclusion}
+                           for name, conclusion in pairs]}
+
+
+def test_dotnet_pin_follow_is_advisory_but_certify_still_refuses():
+    core = [("Build", "success"), ("Unit Tests", "success")]
+    status, why = _classify("honua-sdk-dotnet", _runs_named(*core, ("follow", "failure")))
+    assert status == "pass", why
+    assert "advisory" in why and "follow" in why
+    # Run 37819830412 refused 66413fe3 on certify AND follow; only follow leaves the core verdict.
+    status, why = _classify("honua-sdk-dotnet", _runs_named(*core, ("follow", "failure"),
+                                                           ("certify", "failure")))
+    assert status == "fail"
+    assert _red_names(why) == "1/3 core check-run(s) red (['failure']: ['certify'])"
+
+
+def test_helm_chart_publication_is_advisory_but_chart_lint_and_smoke_stay_core():
+    status, why = _classify("honua-helm", _runs_named(
+        ("lint-chart", "success"), ("install-upgrade-rollback-smoke", "success"),
+        ("Publish chart by digest", "failure")))
+    assert status == "pass", why
+    for core in ("lint-chart", "install-upgrade-rollback-smoke"):
+        status, why = _classify("honua-helm", _runs_named(
+            ("lint-chart", "success"), ("install-upgrade-rollback-smoke", "success"),
+            ("Publish chart by digest", "failure"), (core, "failure")))
+        assert status == "fail" and core in _red_names(why), why
+
+
+def test_js_overture_live_lane_is_env_gated_but_three_engine_stays_core():
+    status, why = _classify("honua-sdk-js", _runs_named(
+        ("Unit tests", "success"), ("Bounded AWS semantic workflow", "failure")))
+    assert status == "pass", why
+    # Run 37819830412: both were red on 984425f9; the three-engine browser matrix still refuses.
+    status, why = _classify("honua-sdk-js", _runs_named(
+        ("Unit tests", "success"), ("Bounded AWS semantic workflow", "failure"),
+        (THREE_ENGINE, "failure")))
+    assert status == "fail"
+    assert _red_names(why) == f"1/2 core check-run(s) red (['failure']: ['{THREE_ENGINE}'])"
+    assert THREE_ENGINE not in bt.load_env_gated().get("honua-sdk-js", frozenset())
+
+
+def test_the_new_exclusions_alone_are_blocked_never_pass():
+    for component, name in (("honua-sdk-dotnet", "follow"), ("honua-helm", "Publish chart by digest"),
+                            ("honua-sdk-js", "Bounded AWS semantic workflow")):
+        status, why = _classify(component, _runs_named((name, "failure")))
+        assert status == "blocked", (component, why)
