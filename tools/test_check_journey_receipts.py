@@ -352,7 +352,13 @@ def test_preview_never_blocks_or_counts(intake, status):
     result = intake.evaluate()
     assert result["status"] == "pass"
     preview = [r for r in result["cells"] if r["evidenceTier"] == "Preview"]
-    assert len(preview) == 4 and not any(r["counted"] for r in preview)
+    assert len(preview) == 2 and not any(r["counted"] for r in preview)
+
+
+def test_rc3_preview_cells_are_eks_only():
+    # aws-mixed has no IaC root until honua-iac#209; it must not show up as an uncounted "missing" row.
+    assert checker.PREVIEW_CELLS == ("aws-eks/redis-off", "aws-eks/redis-on")
+    assert not any("aws-mixed" in cell for cell in (*checker.GA_CELLS, *checker.PREVIEW_CELLS))
 
 
 def test_preview_pass_cannot_replace_ga_receipt(intake):
