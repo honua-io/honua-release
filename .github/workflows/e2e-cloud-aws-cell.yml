@@ -30,6 +30,9 @@ on:
       # job image and the image its pre-serving migration runs on the provision runner.
       gp_batch_image: { required: false, type: string, default: "" }
       enable_bedrock: { required: false, type: boolean, default: false }
+      # Fix unit J3: the genuine-model canary runs after this cell's journey whenever Bedrock is on
+      # (the caller enables it only for aws-ecs / redis off), bound to this lock digest.
+      lock_digest: { required: false, type: string, default: "" }
     secrets:
       RELEASE_GH_TOKEN:
         required: false
@@ -324,6 +327,38 @@ jobs:
         run: |
           python e2e/run_cloud.py --phase journey --target "${{ inputs.target }}" --redis "${{ inputs.redis }}" \
             --sealed-key "$RUNNER_TEMP/journey-key/sealed/app-key.sealed" --private-key "$RUNNER_TEMP/journey-key/private.pem"
+
+      # Genuine-model canary (fix unit J3): after the cell journey, against the same endpoint, chained to
+      # this job's passing deterministic receipt and bound to the lock digest. Bedrock is reached by
+      # the cell's task role; this job still holds no AWS credential. The row it writes is what the
+      # nightly mint retains as promotion-receipts/nightly-model-journey.
+      - name: Run the genuine-model canary on ${{ inputs.target }} / redis-${{ inputs.redis }}
+        if: ${{ always() && inputs.enable_bedrock }}
+        env:
+          LOCK_DIGEST: ${{ inputs.lock_digest }}
+          TERMINAL_MODEL_NAME: ${{ vars.TERMINAL_MODEL_NAME || 'us.anthropic.claude-sonnet-4-5-20250929-v1:0' }}
+          TERMINAL_MODEL_RUNTIME: aws-bedrock
+          TERMINAL_MODEL_QUANTIZATION: provider-managed
+          TERMINAL_MODEL_SIGNING_MANIFEST_SHA256: ${{ vars.TERMINAL_MODEL_SIGNING_MANIFEST_SHA256 }}
+        run: |
+          set -euo pipefail
+          if [ "${{ inputs.target }}" != aws-ecs ] || [ "${{ inputs.redis }}" != off ]; then
+            echo "::error::the genuine-model canary runs on aws-ecs / redis-off only"; exit 1
+          fi
+          python -m pip install "cryptography>=45.0"
+          python e2e/run_cloud.py --phase model-canary --target "${{ inputs.target }}" --redis "${{ inputs.redis }}" \
+            --sealed-key "$RUNNER_TEMP/journey-key/sealed/app-key.sealed" --private-key "$RUNNER_TEMP/journey-key/private.pem" \
+            --lock-digest "$LOCK_DIGEST"
+      # Matches the train's journey-gate-report* download, which feeds mint_nightly_lock --declare-evidence.
+      - name: Upload the nightly-model-journey row
+        if: ${{ always() && inputs.enable_bedrock }}
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: journey-gate-report-nightly-model
+          path: |
+            ${{ env.CELL_DIR }}/model-journey/gate-report-journey.json
+            ${{ env.CELL_DIR }}/model-journey/model-canary-*.json
+          if-no-files-found: error
 
       - name: Upload the journey receipts
         if: always()

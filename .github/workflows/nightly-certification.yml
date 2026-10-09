@@ -334,6 +334,10 @@ jobs:
       candidate_ref: ${{ needs.protocol_ledger.outputs.candidate_ref }}
       capacity_receipt_url: ${{ needs.capacity.outputs.receipt_url }}
       dr_receipt_url: ${{ needs.dr.outputs.receipt_url }}
+      # R19: every night runs the genuine-model canary on its ECS Redis-off cell; the night takes no
+      # hand-supplied input, so this is not switchable here. Cost-free cloud runs use e2e-cloud-aws,
+      # whose genuine_model input defaults to false.
+      genuine_model: true
     secrets: inherit
 
   mint:

@@ -506,11 +506,15 @@ def declare_evidence(report: dict, lock: Path, journeys: list[dict]) -> dict:
                     if (row.get('cell') not in required or row.get('status') != 'pass' or not attempts
                             or any(attempt.get('driver') != mode for attempt in attempts)):
                         continue
+                    # A genuine-model attempt carries the lock digest the canary ran against, and
+                    # _journey refuses any other lock. The deterministic cell receipts are bound to
+                    # this train's candidate digest above, which this lock was generated from.
                     cells.append({'cell': row['cell'], 'mode': mode, 'attemptCount': len(attempts),
                                   'attempts': [{'attempt': a['number'], 'status': a['status'],
                                                 'failureAttribution': a.get('failureAttribution'),
                                                 'completedAt': a.get('completedAt'),
-                                                'lockDigest': digest} for a in attempts]})
+                                                'lockDigest': a.get('lockDigest') if mode == 'genuine-model'
+                                                else digest} for a in attempts]})
             receipt['cells'] = cells
             if not _journey(receipt, required, mode, digest, completed - timedelta(hours=24), completed):
                 receipt['status'] = 'fail'
