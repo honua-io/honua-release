@@ -26,9 +26,7 @@ from probes import Check, CredentialProbe, HttpResult, McpError, blocked
 SERVER = "https://github.com/honua-io/honua-server/issues"
 RELEASE = "https://github.com/honua-io/honua-release/issues"
 
-OPERATION_RUNTIME = f"{SERVER}/3411"          # single typed operation envelope/runtime
 AUTH_SESSION = f"{SERVER}/3430"               # auth-before-tenant, session binding
-SCOPE_NARROWING = f"{SERVER}/3431"            # bearer scope narrowing through approval replay
 PROPOSAL_AUTHZ = f"{SERVER}/3474"             # proposal/resource authorization
 EVIDENCE_POSTURE = f"{SERVER}/3475"           # source evidence freshness/completeness
 ROLLBACK_TRUTH = f"{SERVER}/3301"             # rollback capability truth
@@ -42,7 +40,6 @@ NO_REDIS_VARIANT = f"{RELEASE}/202"           # Redis-optional local install var
 
 # In-flight PRs that would unblock the corresponding contract.
 UNBLOCKING_PR = {
-    OPERATION_RUNTIME: "https://github.com/honua-io/honua-server/pull/3579",
     REDIS_POSTURE: "https://github.com/honua-io/honua-server/pull/3583",
     SETUP_VIEW: "https://github.com/honua-io/honua-server/pull/3591",
 }
@@ -398,7 +395,7 @@ def stage_3(observation: Observation, workspace_blockers: Callable[[int], list[s
             "unified typed operation envelope for every mutating step",
             "the driver has not executed service publication and captured the "
             "operation/policy/actuator/verification identities from this target",
-            [JOURNEY_DRIVER, OPERATION_RUNTIME],
+            [JOURNEY_DRIVER],
         ),
     ]
 
@@ -416,14 +413,14 @@ def stage_4(observation: Observation, workspace_blockers: Callable[[int], list[s
             "stage 3 could not publish a layer, so the canonical published-layer style "
             "path has no subject; the style mutation additionally needs the typed "
             "operation envelope",
-            [OPERATION_RUNTIME],
+            [JOURNEY_DRIVER],
         ),
         blocked(
             "4.3-decoded-png",
             "artifact",
             "decode the rendered PNG and prove the style change is visible",
             "no render artifact exists while the style path is blocked",
-            [OPERATION_RUNTIME],
+            [JOURNEY_DRIVER],
         ),
     ]
 
@@ -438,7 +435,7 @@ def stage_5(observation: Observation, workspace_blockers: Callable[[int], list[s
             "the local target composes PostGIS and Honua Server only. Without Redis the "
             "job runner refuses submission, and the typed refusal contract that would "
             "make that refusal certifiable is not on the candidate",
-            [REDIS_POSTURE, NO_REDIS_VARIANT, OPERATION_RUNTIME],
+            [REDIS_POSTURE, NO_REDIS_VARIANT],
         ),
     ]
 
@@ -454,7 +451,7 @@ def stage_6(observation: Observation, workspace_blockers: Callable[[int], list[s
             "saving an immutable version is a mutation and must enter the canonical "
             "operation runtime; the restart/reopen identity comparison additionally "
             "needs the source-evidence posture that marks a read complete and current",
-            [OPERATION_RUNTIME, EVIDENCE_POSTURE],
+            [JOURNEY_DRIVER, EVIDENCE_POSTURE],
         ),
     ]
 
@@ -469,7 +466,7 @@ def stage_7(observation: Observation, workspace_blockers: Callable[[int], list[s
             "proposal and resource authorization (tenant, owner, scope, nondisclosure) "
             "is not on the candidate, and the local target has no Redis-backed control "
             "plane to make the proposal durable",
-            [PROPOSAL_AUTHZ, REDIS_POSTURE, OPERATION_RUNTIME],
+            [PROPOSAL_AUTHZ, REDIS_POSTURE],
         ),
     ]
 
@@ -488,7 +485,7 @@ def stage_8(observation: Observation, workspace_blockers: Callable[[int], list[s
             "approve from a separate human principal; proposer self-approval must be denied; poll to published URL",
             "there is no durable proposal to approve, and approved replay must "
             "revalidate the proposer's current authority under narrowed bearer scopes",
-            [JOURNEY_DRIVER, APPROVAL_COMMAND, PROPOSAL_AUTHZ, SCOPE_NARROWING],
+            [JOURNEY_DRIVER, APPROVAL_COMMAND, PROPOSAL_AUTHZ],
         ),
     ]
 

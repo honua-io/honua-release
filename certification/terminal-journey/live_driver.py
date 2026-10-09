@@ -47,7 +47,7 @@ STATE_ROOT = Path.cwd() / ".terminal-journey" / "sessions"
 
 # Blockers that stop a live model run before any action can be attempted.
 EXECUTE_BLOCKERS = [stagelib.JOURNEY_DRIVER]
-APPROVE_BLOCKERS = [stagelib.PROPOSAL_AUTHZ, stagelib.SCOPE_NARROWING]
+APPROVE_BLOCKERS = [stagelib.PROPOSAL_AUTHZ]
 
 
 class DriverError(RuntimeError):
