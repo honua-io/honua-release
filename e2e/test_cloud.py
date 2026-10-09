@@ -64,7 +64,8 @@ def _cell_admin_password(monkeypatch):
 _CELL_WORKFLOW_ENV = ("HONUA_LAMBDA_IMAGE_URI", "HONUA_LAMBDA_ARCHITECTURE", "HONUA_ECS_IMAGE",
                       "HONUA_ECS_ARCHITECTURE", "HONUA_GP_BATCH_IMAGE", "HONUA_MIGRATE_IMAGE",
                       "HONUA_ENABLE_BEDROCK_AI", "HONUA_CLOUD_COST_CEILING_USD", "HONUA_RUN_URL",
-                      "CELL_DIR", "CELL_ARTIFACT")
+                      "CELL_DIR", "CELL_ARTIFACT", "HONUA_AWS_OPERATION_KEY_RING_SECRET_ARN",
+                      "HONUA_AWS_OPERATION_KEY_RING_SECRET_KMS_KEY_ARN")
 
 
 @pytest.fixture(autouse=True)
@@ -2766,6 +2767,70 @@ def test_serverless_is_blocked_when_the_root_takes_a_batch_image_and_none_is_pin
     assert not ecs().migrates_before_serving and serverless().migrates_before_serving
 
 
+KEY_RING_ARN = "arn:aws:secretsmanager:us-east-1:123456789012:secret:honua/keyring-AbCdEf"
+KEY_RING_KMS = "arn:aws:kms:us-east-1:123456789012:key/0000-1111"
+
+
+def _ecs_env(monkeypatch):
+    monkeypatch.setenv("HONUA_ECS_IMAGE", "img")
+    monkeypatch.setenv("HONUA_ECS_ARCHITECTURE", "x86_64")
+    monkeypatch.setenv("HONUA_AWS_DB_INGRESS_CIDR", "192.0.2.10/32")
+    monkeypatch.setenv("HONUA_AWS_RUNNER_CIDR", "192.0.2.10/32")
+
+
+def test_ecs_spec_maps_the_operation_key_ring_secret_for_redis_on_cells(monkeypatch):
+    from targets.terraform_target import ECS_SPEC
+    assert ("HONUA_AWS_OPERATION_KEY_RING_SECRET_ARN", "operation_key_ring_certificate_secret_arn") in ECS_SPEC.redis_env_vars
+    assert ("HONUA_AWS_OPERATION_KEY_RING_SECRET_KMS_KEY_ARN",
+            "operation_key_ring_certificate_secret_kms_key_arn") in ECS_SPEC.redis_env_vars
+    assert ECS_SPEC.redis_required_vars == ("operation_key_ring_certificate_secret_arn",)
+    _ecs_env(monkeypatch)
+    names = ("operation_key_ring_certificate_secret_arn", "operation_key_ring_certificate_secret_kms_key_arn")
+    with tempfile.TemporaryDirectory() as base:
+        # An older iac pin (v0.2.0) declares neither: nothing is passed and nothing refuses.
+        _iac_root_with(monkeypatch, base, "aws")
+        assert not set(names) & set(_tf_vars(ecs(run_id="r1")._vars(True)))
+        _iac_root_with(monkeypatch, base, "aws", *names)
+        # Redis-off never takes the key ring, even when the variables are set.
+        monkeypatch.setenv("HONUA_AWS_OPERATION_KEY_RING_SECRET_ARN", KEY_RING_ARN)
+        monkeypatch.setenv("HONUA_AWS_OPERATION_KEY_RING_SECRET_KMS_KEY_ARN", KEY_RING_KMS)
+        assert not set(names) & set(_tf_vars(ecs(run_id="r1")._vars(False)))
+        values = _tf_vars(ecs(run_id="r1")._vars(True))
+        assert values["operation_key_ring_certificate_secret_arn"] == KEY_RING_ARN
+        assert values["operation_key_ring_certificate_secret_kms_key_arn"] == KEY_RING_KMS
+        # The KMS key is optional (AWS-managed aws/secretsmanager key).
+        monkeypatch.setenv("HONUA_AWS_OPERATION_KEY_RING_SECRET_KMS_KEY_ARN", "")
+        values = _tf_vars(ecs(run_id="r1")._vars(True))
+        assert values["operation_key_ring_certificate_secret_arn"] == KEY_RING_ARN
+        assert "operation_key_ring_certificate_secret_kms_key_arn" not in values
+
+
+def test_redis_on_ecs_refuses_without_the_key_ring_secret_but_destroy_still_plans(monkeypatch):
+    _ecs_env(monkeypatch)
+    with tempfile.TemporaryDirectory() as base:
+        _iac_root_with(monkeypatch, base, "aws", "operation_key_ring_certificate_secret_arn")
+        monkeypatch.setenv("HONUA_AWS_OPERATION_KEY_RING_SECRET_ARN", "")
+        with pytest.raises(ProvisionError, match="HONUA_AWS_OPERATION_KEY_RING_SECRET_ARN"):
+            ecs(run_id="r1")._vars(True)
+        assert "operation_key_ring_certificate_secret_arn" not in _tf_vars(ecs(run_id="r1")._vars(True, destroy=True))
+        assert "operation_key_ring_certificate_secret_arn" not in _tf_vars(ecs(run_id="r1")._vars(False))
+    # Serverless has no key-ring mapping.
+    from targets.terraform_target import SERVERLESS_SPEC
+    assert SERVERLESS_SPEC.redis_env_vars == () and SERVERLESS_SPEC.redis_required_vars == ()
+
+
+def test_cell_provision_and_teardown_export_the_key_ring_repository_variables():
+    _, cell = _cloud_workflows()
+    steps = {step.get("name", ""): step for job in cell["jobs"].values() for step in job.get("steps", [])}
+    provision = next(step for name, step in steps.items() if name.startswith("Provision "))
+    teardown = next(step for name, step in steps.items() if name.startswith("Tear down "))
+    for step in (provision, teardown):
+        for var in ("HONUA_AWS_OPERATION_KEY_RING_SECRET_ARN", "HONUA_AWS_OPERATION_KEY_RING_SECRET_KMS_KEY_ARN"):
+            assert step["env"][var] == "${{ vars." + var + " }}"
+    # Step-scoped, not workflow-level: the self-test never sees them.
+    assert "HONUA_AWS_OPERATION_KEY_RING_SECRET_ARN" not in cell["env"]
+
+
 def test_ecs_bedrock_is_opt_in_and_fails_closed_on_a_root_without_it(monkeypatch):
     from targets.terraform_target import ECS_SPEC
     assert ECS_SPEC.opt_in_env == "HONUA_ENABLE_BEDROCK_AI"
@@ -3013,7 +3078,7 @@ def test_ecs_readiness_diagnostics_capture_stop_reasons_and_the_server_log_tail(
     # Environment variable NAMES only: a missing or renamed setting is visible, no value is read.
     container = report["taskDefinitions"][0]["containers"][0]
     assert container["environmentNames"] == ["ASPNETCORE_ENVIRONMENT", "ConnectionStrings__Redis"]
-    assert container["secretNames"] == ["HONUA_ADMIN_PASSWORD"]
+    assert container["valueFromNames"] == ["HONUA_ADMIN_PASSWORD"]
     assert "hunter2" not in json.dumps(report) and "Production" not in json.dumps(report)
 
 
@@ -3084,7 +3149,7 @@ def test_diagnose_phase_runs_for_every_cell_and_prints_the_log_tail(monkeypatch,
                        "stoppedReason": "Essential container in task exited",
                        "containers": [{"name": "honua", "exitCode": 134, "reason": ""}]}],
             "taskDefinitions": [{"taskDefinitionArn": "td:1", "containers": [
-                {"name": "honua", "environmentNames": ["ConnectionStrings__Redis"], "secretNames": []}]}],
+                {"name": "honua", "environmentNames": ["ConnectionStrings__Redis"], "valueFromNames": []}]}],
             "logs": [{"taskArn": "t1", "logStream": "ecs/honua/t1", "lines": ["Unhandled exception: boom"]}]})
         capsys.readouterr()
         assert run_cloud.main(argv) == 0 and seen == ["aws-ecs", "aws-ecs"]

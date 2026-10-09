@@ -147,6 +147,10 @@ jobs:
           HONUA_IAC_DIR: ${{ github.workspace }}/_honua-iac
           HONUA_HELM_DIR: ${{ github.workspace }}/_honua-helm
           HONUA_CLOUD_PROVISION_MARKER: ${{ runner.temp }}/honua-cloud-provision-attempted
+          # honua-iac#216: the Redis-on ECS cell needs the operator-owned key-ring certificate secret
+          # (owner step in e2e/README.md). Empty when the repository variables are unset.
+          HONUA_AWS_OPERATION_KEY_RING_SECRET_ARN: ${{ vars.HONUA_AWS_OPERATION_KEY_RING_SECRET_ARN }}
+          HONUA_AWS_OPERATION_KEY_RING_SECRET_KMS_KEY_ARN: ${{ vars.HONUA_AWS_OPERATION_KEY_RING_SECRET_KMS_KEY_ARN }}
         run: |
           set -euo pipefail
           [ -d "$HONUA_IAC_DIR/infrastructure/terraform" ] || unset HONUA_IAC_DIR
@@ -547,6 +551,10 @@ jobs:
         env:
           HONUA_IAC_DIR: ${{ github.workspace }}/_honua-iac
           HONUA_CLOUD_PROVISION_MARKER: ${{ runner.temp }}/honua-cloud-provision-attempted
+          # honua-iac#216: the Redis-on ECS cell needs the operator-owned key-ring certificate secret
+          # (owner step in e2e/README.md). Empty when the repository variables are unset.
+          HONUA_AWS_OPERATION_KEY_RING_SECRET_ARN: ${{ vars.HONUA_AWS_OPERATION_KEY_RING_SECRET_ARN }}
+          HONUA_AWS_OPERATION_KEY_RING_SECRET_KMS_KEY_ARN: ${{ vars.HONUA_AWS_OPERATION_KEY_RING_SECRET_KMS_KEY_ARN }}
         run: |
           set -euo pipefail
           [ -d "$HONUA_IAC_DIR/infrastructure/terraform" ] || unset HONUA_IAC_DIR

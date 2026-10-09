@@ -216,7 +216,10 @@ def generate(manifest_path: Path, matrix_path: Path, *, image_inspector=None,
         elif seed:
             apath = f"{cpath}.artifacts[0]"
             version = component.get("artifactVersion") or component.get("version")
-            resolution = "AT-CUT" if name == "honua-server" else ("PUBLISH" if name in {"honua-console", "honua-helm"} else "DECISION")
+            # honua-iac may be pinned to an untagged trunk commit between releases (the cloud cells need
+            # inputs newer than the last tag); the cut then needs that commit published as a tag.
+            resolution = "AT-CUT" if name == "honua-server" else (
+                "PUBLISH" if name in {"honua-console", "honua-helm", "honua-iac"} else "DECISION")
             imaged = name in IMAGED_COMPONENTS and seed["kind"] in ("image", "oci-chart")
             if not version or version == PRERELEASE:
                 refuse(f"{apath}.version: source snapshot/pre-release is not a released artifact version", resolution)

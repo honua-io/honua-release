@@ -676,7 +676,7 @@ def ecs_readiness_diagnostics(target, *, run=subprocess.run, redact=None) -> dic
             {"name": container.get("name"),
              "environmentNames": sorted(str(item.get("name")) for item in container.get("environment") or []
                                         if item.get("name")),
-             "secretNames": sorted(str(item.get("name")) for item in container.get("secrets") or []
+             "valueFromNames": sorted(str(item.get("name")) for item in container.get("secrets") or []
                                    if item.get("name"))}
             for container in definition.get("containerDefinitions", [])]})
     # Every stopped task, and the newest task whatever its state. The awslogs stream of a container is
@@ -743,8 +743,8 @@ def _phase_diagnose(args) -> int:
     for definition in diagnostics.get("taskDefinitions", []):
         for container in definition.get("containers", []):
             print(f"   {definition['taskDefinitionArn']} {container['name']}: environment names "
-                  f"{', '.join(container['environmentNames']) or '(none)'}; secret names "
-                  f"{', '.join(container['secretNames']) or '(none)'}")
+                  f"{', '.join(container['environmentNames']) or '(none)'}; valueFrom names "
+                  f"{', '.join(container['valueFromNames']) or '(none)'}")
     for log in diagnostics.get("logs", []):
         print(f"::group::{log.get('logStream')} ({log.get('taskArn')})")
         if "error" in log:
