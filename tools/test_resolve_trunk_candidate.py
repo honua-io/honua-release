@@ -1,6 +1,7 @@
 import base64
 import copy
 import hashlib
+import itertools
 import json
 import re
 import subprocess
@@ -550,7 +551,9 @@ def test_an_exhausted_rate_limit_retries_then_refuses(monkeypatch, tmp_path, cap
     [['not', 'a', 'page']],
 ])
 def test_a_truncated_check_run_page_refuses_before_ci_is_judged(monkeypatch, pages):
-    served = iter(pages)
+    # A moved count is re-read PAGING_ATTEMPTS times; serving the same movement again still refuses.
+    served = itertools.cycle(pages)
+    monkeypatch.setattr(resolver.time, 'sleep', lambda _: None)
     gh = FakeGh({f'repos/honua-io/server/commits/{NEW}/check-runs': lambda _: next(served),
                  f'repos/honua-io/server/actions/runs': {'total_count': 0, 'workflow_runs': []}})
     monkeypatch.setattr(resolver.subprocess, 'run', gh)
@@ -568,6 +571,50 @@ def test_a_complete_multi_page_listing_is_read_in_full(monkeypatch):
     rows = list(resolver.GitHub().pages('repos/honua-io/server/commits/x/check-runs', 'check_runs'))
     assert [row['id'] for row in rows] == list(range(101))
     assert gh.calls[1].endswith('page=2')
+
+
+def test_a_count_that_moves_once_is_re_read_from_page_one_and_then_served_in_full(monkeypatch):
+    moved_first = {'total_count': 101, 'check_runs': [{'id': n} for n in range(100)]}
+    moved_second = {'total_count': 102, 'check_runs': [{'id': 100}, {'id': 101}]}
+    settled_first = {'total_count': 102, 'check_runs': [{'id': n} for n in range(100)]}
+    settled_second = {'total_count': 102, 'check_runs': [{'id': 100}, {'id': 101}]}
+    served = iter([moved_first, moved_second, settled_first, settled_second])
+    gh = FakeGh({'repos/honua-io/server/commits': lambda _: next(served)})
+    monkeypatch.setattr(resolver.subprocess, 'run', gh)
+    monkeypatch.setattr(resolver.time, 'sleep', lambda _: None)
+    rows = list(resolver.GitHub().pages('repos/honua-io/server/commits/x/check-runs', 'check_runs'))
+    assert [row['id'] for row in rows] == list(range(102))
+    # Page 1 was read twice: the first pass stopped at the movement and nothing from it was served.
+    assert [call[-6:] for call in gh.calls] == ['page=1', 'page=2', 'page=1', 'page=2']
+
+
+def test_a_count_that_keeps_moving_refuses_after_the_attempt_budget(monkeypatch):
+    calls = itertools.count()
+    gh = FakeGh({'repos/honua-io/server/commits': lambda path: (
+        {'total_count': 100 + next(calls), 'check_runs': [{'id': n} for n in range(100)]})})
+    monkeypatch.setattr(resolver.subprocess, 'run', gh)
+    monkeypatch.setattr(resolver.time, 'sleep', lambda _: None)
+    with pytest.raises(resolver.ResolutionError, match=r'total_count moved .* \(3 attempts\)'):
+        list(resolver.GitHub().pages('repos/honua-io/server/commits/x/check-runs', 'check_runs'))
+    assert len(gh.calls) == 2 * resolver.PAGING_ATTEMPTS
+
+
+def test_a_spec_artifact_missing_at_a_newer_commit_is_skipped_and_the_walk_takes_the_next_one():
+    class Predates(GitHub):
+        def file(self, repository, sha, path):
+            if sha == NEW:
+                raise resolver.ResolutionError(f'gh api repos/{repository}/contents/{path}?ref={sha} failed: '
+                                               'gh: Not Found (HTTP 404)', status=404)
+            return b'{"schemas": []}'
+
+    spec = {'repository': 'https://github.com/honua-io/geospatial-mcp',
+            'artifact': f'spec:https://github.com/honua-io/geospatial-mcp/blob/{OLD}/spec/schemas/index.json'}
+    walk = {}
+    selected = resolver.select_component('geospatial-mcp', spec, Predates(), None, 2, walk)
+    assert selected['sha'] == OLD
+    assert selected['artifactSourceRevision'] == OLD
+    assert walk['skipped'] == [{'sha': NEW, 'reason': 'no spec/schemas/index.json at this commit'}]
+    assert walk.get('aborted') is None
 
 
 def test_non_json_answer_refuses(monkeypatch):
