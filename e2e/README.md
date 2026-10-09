@@ -177,13 +177,29 @@ free of model charges) sets `HONUA_ENABLE_BEDROCK_AI=true` on `aws-ecs/redis-off
 `enable_bedrock_ai=true` and `bedrock_ai_region=us-east-1`. A pinned root that does not declare those
 inputs fails the cell rather than silently running without the model.
 
+### Operation key-ring certificate on the Redis-on ECS cell
+With Redis connected outside Development/Test, honua-server enables the durable operation secret
+channel and exits at startup unless `Operations:SecretChannel:KeyRingCertificatePath` names a
+certificate. honua-iac#216 (in the pinned iac trunk) has `examples/aws` inject it from an
+operator-owned secret and refuse a Redis plan without `operation_key_ring_certificate_secret_arn`.
+**Owner step:** create a Secrets Manager secret in us-east-1 holding the certificate (base64 PKCS#12,
+or JSON `{pkcs12,password}`, including the private key; format per the honua-iac aws-ecs module
+README) that the cell execution role can read under its permissions boundary, and set the repository
+variable `HONUA_AWS_OPERATION_KEY_RING_SECRET_ARN` (plus `HONUA_AWS_OPERATION_KEY_RING_SECRET_KMS_KEY_ARN`
+for a customer-managed key). The cell workflow exports both to the provision and teardown steps; the
+harness passes them only to Redis-on ECS cells whose pinned root declares them, and a declaring root
+with the ARN unset refuses provisioning with this step named.
+
 ### ECS readiness diagnostics
-When an `aws-ecs` cell's provision handoff is not `ready`, the teardown job runs
-`run_cloud.py --phase diagnose` before destroying it. It writes `diagnostics-ecs.json` into the cell's
-evidence (uploaded with the gate report): every service task's `stopCode`, `stoppedReason` and
-container exit reasons from `aws ecs describe-tasks`, and the last 200 CloudWatch log lines of the
-newest task's containers. Credentials are redacted from every line. The step is informational and
-never changes the verdict. The journey job holds no AWS credential, so it cannot read these.
+Before destroying every `aws-ecs` cell, the teardown job runs `run_cloud.py --phase diagnose`. It
+writes `diagnostics-ecs.json` into the cell's evidence (uploaded with the gate report) and prints the
+same to the job log: every service task's `stopCode`, `stoppedReason` and container exit reasons
+from `aws ecs describe-tasks`; the last 300 CloudWatch log lines of each stopped task's containers
+(and the newest task's), read from the awslogs group/stream prefix in the task definition; and each
+task definition's environment and secret variable NAMES, never values. The log group is destroyed
+with the cell, so this is the only record of an exit cause. Credentials, connection strings and AWS
+key ids are redacted from every line. The step is informational and never changes the verdict. The
+journey job holds no AWS credential, so it cannot read these.
 
 ### Cells leave nothing billing — including what `terraform destroy` cannot delete
 Teardown removing a resource is not the same as the resource stopping costing money. The EKS cell's

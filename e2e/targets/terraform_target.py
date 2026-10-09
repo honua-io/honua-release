@@ -78,6 +78,12 @@ class TfTargetSpec:
     # the pinned root declares terraform_var; a declaring root with the env unset is BLOCKED rather
     # than applied with the module's fallback (the Lambda+Batch cell must run the pinned Batch image).
     env_vars: tuple[tuple[str, str], ...] = ()
+    # (ENV_NAME, terraform_var) pairs for redis-on cells only, passed when the env is set and the
+    # pinned root declares terraform_var. A var named in redis_required_vars that the root declares
+    # but whose env is unset refuses provisioning with the owner step, rather than letting the plan
+    # refuse later with a module error; destroy never refuses (a cell that could not plan built nothing).
+    redis_env_vars: tuple[tuple[str, str], ...] = ()
+    redis_required_vars: tuple[str, ...] = ()
     # Opt-in vars: passed only when `opt_in_env` is "true". A root that does not declare one of them
     # is a provisioning failure, not a silent drop: the caller asked for that capability.
     opt_in_env: str = ""
@@ -216,6 +222,18 @@ class TerraformTarget(DeployTarget):
             *(f"-var={variable}={os.environ[env_name]}" for env_name, variable in self.spec.env_vars
               if os.environ.get(env_name) and self._root_declares(variable)),
         ]
+        if redis_enabled:
+            declared = [(env_name, variable) for env_name, variable in self.spec.redis_env_vars
+                        if self._root_declares(variable)]
+            values.extend(f"-var={variable}={os.environ[env_name].strip()}" for env_name, variable in declared
+                          if os.environ.get(env_name, "").strip())
+            unset = [env_name for env_name, variable in declared
+                     if variable in self.spec.redis_required_vars and not os.environ.get(env_name, "").strip()]
+            if unset and not destroy:
+                raise ProvisionError(
+                    f"{self.name}: the pinned root requires {', '.join(unset)} on a Redis-on cell (an "
+                    "operator-owned Secrets Manager secret holding the operation key-ring certificate; "
+                    "owner step in e2e/README.md)")
         if self.spec.opt_in_env and os.environ.get(self.spec.opt_in_env, "").strip().lower() == "true":
             undeclared = [v.split("=", 1)[0] for v in self.spec.opt_in_vars
                           if not self._root_declares(v.split("=", 1)[0])]
@@ -521,6 +539,15 @@ ECS_SPEC = TfTargetSpec(
     # aws-ecs/redis-off when its genuine_model_bedrock input is on; every other run stays cost-free.
     opt_in_env="HONUA_ENABLE_BEDROCK_AI",
     opt_in_vars=("enable_bedrock_ai=true", "bedrock_ai_region=us-east-1"),
+    # honua-iac#216: with Redis connected outside Development/Test the server enables the durable
+    # operation secret channel and exits at startup unless
+    # Operations:SecretChannel:KeyRingCertificatePath names a certificate. examples/aws injects it
+    # from an operator-owned Secrets Manager secret and refuses a Redis plan without the ARN. Only
+    # the ARN crosses into Terraform; the KMS key is needed only for a customer-managed key.
+    redis_env_vars=(("HONUA_AWS_OPERATION_KEY_RING_SECRET_ARN", "operation_key_ring_certificate_secret_arn"),
+                    ("HONUA_AWS_OPERATION_KEY_RING_SECRET_KMS_KEY_ARN",
+                     "operation_key_ring_certificate_secret_kms_key_arn")),
+    redis_required_vars=("operation_key_ring_certificate_secret_arn",),
     ephemeral_var_files=("e2e/terraform/aws-ecs-new-deployment.tfvars.json",),
     needs_runner_db_access=True,
     needs_runner_alb_access=True,

@@ -56,6 +56,35 @@ def _cell_admin_password(monkeypatch):
     # The provision phase mints a per-cell password; the Terraform targets refuse to run without one.
     monkeypatch.setenv("HONUA_ADMIN_PASSWORD", TEST_ADMIN_PASSWORD)
 
+
+# e2e-cloud-aws-cell.yml sets these at workflow level, so they reach its "Self-test the cloud parity
+# logic" step too. A live cell's values must never steer a unit test: with HONUA_ENABLE_BEDROCK_AI=true
+# (the aws-ecs/redis-off cell) ten provision tests refused before the cell ever provisioned. Every
+# test starts without them and sets exactly what it exercises.
+_CELL_WORKFLOW_ENV = ("HONUA_LAMBDA_IMAGE_URI", "HONUA_LAMBDA_ARCHITECTURE", "HONUA_ECS_IMAGE",
+                      "HONUA_ECS_ARCHITECTURE", "HONUA_GP_BATCH_IMAGE", "HONUA_MIGRATE_IMAGE",
+                      "HONUA_ENABLE_BEDROCK_AI", "HONUA_CLOUD_COST_CEILING_USD", "HONUA_RUN_URL",
+                      "CELL_DIR", "CELL_ARTIFACT", "HONUA_AWS_OPERATION_KEY_RING_SECRET_ARN",
+                      "HONUA_AWS_OPERATION_KEY_RING_SECRET_KMS_KEY_ARN")
+
+
+@pytest.fixture(autouse=True)
+def _hermetic_cell_env(monkeypatch):
+    for var in _CELL_WORKFLOW_ENV:
+        monkeypatch.delenv(var, raising=False)
+
+
+def test_self_test_clears_every_cell_workflow_env_var():
+    import yaml
+    workflow = E2E_DIR.parent / ".github/workflows/e2e-cloud-aws-cell.yml"
+    cell = yaml.safe_load(workflow.read_text(encoding="utf-8"))
+    leaked = {name for name in cell["env"] if name.startswith(("HONUA_", "CELL_"))} - set(_CELL_WORKFLOW_ENV)
+    assert not leaked, f"cell workflow env reaches the self-test unreset: {sorted(leaked)}"
+
+
+def test_bedrock_flag_from_the_cell_env_does_not_reach_a_test():
+    assert "HONUA_ENABLE_BEDROCK_AI" not in os.environ
+
 TEST_SERVER_SHA = "a" * 40
 
 
@@ -2738,6 +2767,70 @@ def test_serverless_is_blocked_when_the_root_takes_a_batch_image_and_none_is_pin
     assert not ecs().migrates_before_serving and serverless().migrates_before_serving
 
 
+KEY_RING_ARN = "arn:aws:secretsmanager:us-east-1:123456789012:secret:honua/keyring-AbCdEf"
+KEY_RING_KMS = "arn:aws:kms:us-east-1:123456789012:key/0000-1111"
+
+
+def _ecs_env(monkeypatch):
+    monkeypatch.setenv("HONUA_ECS_IMAGE", "img")
+    monkeypatch.setenv("HONUA_ECS_ARCHITECTURE", "x86_64")
+    monkeypatch.setenv("HONUA_AWS_DB_INGRESS_CIDR", "192.0.2.10/32")
+    monkeypatch.setenv("HONUA_AWS_RUNNER_CIDR", "192.0.2.10/32")
+
+
+def test_ecs_spec_maps_the_operation_key_ring_secret_for_redis_on_cells(monkeypatch):
+    from targets.terraform_target import ECS_SPEC
+    assert ("HONUA_AWS_OPERATION_KEY_RING_SECRET_ARN", "operation_key_ring_certificate_secret_arn") in ECS_SPEC.redis_env_vars
+    assert ("HONUA_AWS_OPERATION_KEY_RING_SECRET_KMS_KEY_ARN",
+            "operation_key_ring_certificate_secret_kms_key_arn") in ECS_SPEC.redis_env_vars
+    assert ECS_SPEC.redis_required_vars == ("operation_key_ring_certificate_secret_arn",)
+    _ecs_env(monkeypatch)
+    names = ("operation_key_ring_certificate_secret_arn", "operation_key_ring_certificate_secret_kms_key_arn")
+    with tempfile.TemporaryDirectory() as base:
+        # An older iac pin (v0.2.0) declares neither: nothing is passed and nothing refuses.
+        _iac_root_with(monkeypatch, base, "aws")
+        assert not set(names) & set(_tf_vars(ecs(run_id="r1")._vars(True)))
+        _iac_root_with(monkeypatch, base, "aws", *names)
+        # Redis-off never takes the key ring, even when the variables are set.
+        monkeypatch.setenv("HONUA_AWS_OPERATION_KEY_RING_SECRET_ARN", KEY_RING_ARN)
+        monkeypatch.setenv("HONUA_AWS_OPERATION_KEY_RING_SECRET_KMS_KEY_ARN", KEY_RING_KMS)
+        assert not set(names) & set(_tf_vars(ecs(run_id="r1")._vars(False)))
+        values = _tf_vars(ecs(run_id="r1")._vars(True))
+        assert values["operation_key_ring_certificate_secret_arn"] == KEY_RING_ARN
+        assert values["operation_key_ring_certificate_secret_kms_key_arn"] == KEY_RING_KMS
+        # The KMS key is optional (AWS-managed aws/secretsmanager key).
+        monkeypatch.setenv("HONUA_AWS_OPERATION_KEY_RING_SECRET_KMS_KEY_ARN", "")
+        values = _tf_vars(ecs(run_id="r1")._vars(True))
+        assert values["operation_key_ring_certificate_secret_arn"] == KEY_RING_ARN
+        assert "operation_key_ring_certificate_secret_kms_key_arn" not in values
+
+
+def test_redis_on_ecs_refuses_without_the_key_ring_secret_but_destroy_still_plans(monkeypatch):
+    _ecs_env(monkeypatch)
+    with tempfile.TemporaryDirectory() as base:
+        _iac_root_with(monkeypatch, base, "aws", "operation_key_ring_certificate_secret_arn")
+        monkeypatch.setenv("HONUA_AWS_OPERATION_KEY_RING_SECRET_ARN", "")
+        with pytest.raises(ProvisionError, match="HONUA_AWS_OPERATION_KEY_RING_SECRET_ARN"):
+            ecs(run_id="r1")._vars(True)
+        assert "operation_key_ring_certificate_secret_arn" not in _tf_vars(ecs(run_id="r1")._vars(True, destroy=True))
+        assert "operation_key_ring_certificate_secret_arn" not in _tf_vars(ecs(run_id="r1")._vars(False))
+    # Serverless has no key-ring mapping.
+    from targets.terraform_target import SERVERLESS_SPEC
+    assert SERVERLESS_SPEC.redis_env_vars == () and SERVERLESS_SPEC.redis_required_vars == ()
+
+
+def test_cell_provision_and_teardown_export_the_key_ring_repository_variables():
+    _, cell = _cloud_workflows()
+    steps = {step.get("name", ""): step for job in cell["jobs"].values() for step in job.get("steps", [])}
+    provision = next(step for name, step in steps.items() if name.startswith("Provision "))
+    teardown = next(step for name, step in steps.items() if name.startswith("Tear down "))
+    for step in (provision, teardown):
+        for var in ("HONUA_AWS_OPERATION_KEY_RING_SECRET_ARN", "HONUA_AWS_OPERATION_KEY_RING_SECRET_KMS_KEY_ARN"):
+            assert step["env"][var] == "${{ vars." + var + " }}"
+    # Step-scoped, not workflow-level: the self-test never sees them.
+    assert "HONUA_AWS_OPERATION_KEY_RING_SECRET_ARN" not in cell["env"]
+
+
 def test_ecs_bedrock_is_opt_in_and_fails_closed_on_a_root_without_it(monkeypatch):
     from targets.terraform_target import ECS_SPEC
     assert ECS_SPEC.opt_in_env == "HONUA_ENABLE_BEDROCK_AI"
@@ -2944,7 +3037,7 @@ def test_ecs_readiness_diagnostics_capture_stop_reasons_and_the_server_log_tail(
     monkeypatch.setattr(target, "_iac_root", lambda: Path("iac"))
     task_arn = "arn:aws:ecs:us-east-1:1:task/cluster/abc123"
     definition = "arn:aws:ecs:us-east-1:1:task-definition/honua:7"
-    lines = [{"message": f"line {i}"} for i in range(250)] + [{"message": "Password=hunter2 boot failed"}]
+    lines = [{"message": f"line {i}"} for i in range(350)] + [{"message": "Password=hunter2 boot failed"}]
     calls = []
 
     def run(argv, **kwargs):
@@ -2961,6 +3054,9 @@ def test_ecs_readiness_diagnostics_capture_stop_reasons_and_the_server_log_tail(
                 "containers": [{"name": "honua", "lastStatus": "STOPPED", "exitCode": 139,
                                 "reason": "token=abc"}]}]},
             "describe-task-definition": {"taskDefinition": {"containerDefinitions": [{"name": "honua",
+                "environment": [{"name": "ConnectionStrings__Redis", "value": "redis://u:hunter2@cache"},
+                                {"name": "ASPNETCORE_ENVIRONMENT", "value": "Production"}],
+                "secrets": [{"name": "HONUA_ADMIN_PASSWORD", "valueFrom": "arn:aws:secretsmanager:x"}],
                 "logConfiguration": {"options": {"awslogs-group": "/ecs/honua", "awslogs-stream-prefix": "honua"}}}]}},
             "get-log-events": {"events": lines},
         }[verb]
@@ -2974,13 +3070,68 @@ def test_ecs_readiness_diagnostics_capture_stop_reasons_and_the_server_log_tail(
     assert task["stopCode"] == "EssentialContainerExited" and task["containers"][0]["exitCode"] == 139
     assert task["containers"][0]["reason"] == "token=[redacted]"
     log = report["logs"][0]
-    assert log["logStream"] == "honua/honua/abc123" and len(log["lines"]) == 200
+    assert log["logStream"] == "honua/honua/abc123" and len(log["lines"]) == 300
+    assert log["taskArn"] == task_arn and log["logGroup"] == "/ecs/honua"
     assert log["lines"][-1] == "Password=[redacted] boot failed"
     get_logs = next(c for c in calls if "get-log-events" in c)
-    assert get_logs[get_logs.index("--limit") + 1] == "200"
+    assert get_logs[get_logs.index("--limit") + 1] == "300"
+    # Environment variable NAMES only: a missing or renamed setting is visible, no value is read.
+    container = report["taskDefinitions"][0]["containers"][0]
+    assert container["environmentNames"] == ["ASPNETCORE_ENVIRONMENT", "ConnectionStrings__Redis"]
+    assert container["valueFromNames"] == ["HONUA_ADMIN_PASSWORD"]
+    assert "hunter2" not in json.dumps(report) and "Production" not in json.dumps(report)
 
 
-def test_diagnose_phase_runs_only_for_a_cell_that_never_became_ready(monkeypatch):
+def test_ecs_diagnostics_tail_every_stopped_task_and_report_unreadable_streams(monkeypatch):
+    target = ecs(run_id="r2")
+    monkeypatch.setattr(target, "_iac_root", lambda: Path("iac"))
+    definition = "arn:aws:ecs:us-east-1:1:task-definition/honua:8"
+    arns = [f"arn:aws:ecs:us-east-1:1:task/cluster/t{i}" for i in range(3)]
+    states = {arns[0]: "STOPPED", arns[1]: "STOPPED", arns[2]: "RUNNING"}
+    streams = []
+
+    def run(argv, **kwargs):
+        if argv[0] == "terraform":
+            return subprocess.CompletedProcess(argv, 0, {"ecs_cluster_name": "c1", "ecs_service_name": "s1"}[argv[-1]], "")
+        verb = argv[2]
+        if verb == "get-log-events":
+            stream = argv[argv.index("--log-stream-name") + 1]
+            streams.append(stream)
+            if stream.endswith("/t1"):
+                return subprocess.CompletedProcess(argv, 254, "", "ResourceNotFoundException: Password=x stream gone")
+            return subprocess.CompletedProcess(argv, 0, json.dumps({"events": [{"message": stream}]}), "")
+        payload = {
+            "list-tasks": {"taskArns": [a for a in arns if (states[a] == "STOPPED") == ("STOPPED" in argv)]},
+            "describe-tasks": {"tasks": [{"taskArn": a, "lastStatus": states[a], "taskDefinitionArn": definition,
+                                          "createdAt": f"2026-10-09T0{i}:00:00Z", "containers": []}
+                                         for i, a in enumerate(arns)]},
+            "describe-task-definition": {"taskDefinition": {"containerDefinitions": [{"name": "honua",
+                "logConfiguration": {"options": {"awslogs-group": "/ecs/honua", "awslogs-stream-prefix": "ecs"}}}]}},
+        }[verb]
+        return subprocess.CompletedProcess(argv, 0, json.dumps(payload), "")
+
+    report = run_cloud.ecs_readiness_diagnostics(target, run=run, redact=run_cloud._redact_log)
+    # The newest task (running) plus every stopped task, each read once.
+    assert sorted(streams) == ["ecs/honua/t0", "ecs/honua/t1", "ecs/honua/t2"]
+    unreadable = next(log for log in report["logs"] if log["logStream"] == "ecs/honua/t1")
+    assert "ResourceNotFoundException" in unreadable["error"] and "Password=[redacted]" in unreadable["error"]
+
+
+@pytest.mark.parametrize("line, secret, kept", [
+    ("redis://default:s3cr3t@cache:6379", "s3cr3t", "redis://default:[redacted]@cache:6379"),
+    ("ConnectionStrings__Redis=cache:6379,password=s3cr3t", "s3cr3t", "ConnectionStrings__Redis=[redacted]"),
+    ("key AKIAABCDEFGHIJKLMNOP leaked", "AKIAABCDEFGHIJKLMNOP", "[redacted-aws-key-id]"),
+])
+def test_redact_log_strips_uri_userinfo_connection_strings_and_aws_key_ids(line, secret, kept):
+    redacted = run_cloud._redact_log(line)
+    assert secret not in redacted and kept in redacted
+
+
+def test_redact_log_keeps_a_setting_name_in_an_error():
+    assert run_cloud._redact_log("ConnectionStrings:Redis is required") == "ConnectionStrings:Redis is required"
+
+
+def test_diagnose_phase_runs_for_every_cell_and_prints_the_log_tail(monkeypatch, capsys):
     cj = run_cloud.cloud_journey
     directory = _phase_env(monkeypatch, run_id="diag-c2")
     seen = []
@@ -2988,10 +3139,23 @@ def test_diagnose_phase_runs_only_for_a_cell_that_never_became_ready(monkeypatch
                         lambda target, **kw: seen.append(target.name) or {"tasks": [], "logs": []})
     argv = ["--phase", "diagnose", "--target", "aws-ecs", "--redis", "off"]
     try:
+        # A ready cell is diagnosed too: a task that served and later exited is only explainable
+        # from its log, and the log group is destroyed with the cell.
         run_cloud._write_json(directory / run_cloud.HANDOFF_NAME, {"cell": "aws-ecs/redis-off", "ready": True})
-        assert run_cloud.main(argv) == 0 and seen == []
-        run_cloud._write_json(directory / run_cloud.HANDOFF_NAME, {"cell": "aws-ecs/redis-off", "ready": False})
         assert run_cloud.main(argv) == 0 and seen == ["aws-ecs"]
+        run_cloud._write_json(directory / run_cloud.HANDOFF_NAME, {"cell": "aws-ecs/redis-off", "ready": False})
+        monkeypatch.setattr(run_cloud, "ecs_readiness_diagnostics", lambda target, **kw: seen.append(target.name) or {
+            "tasks": [{"taskArn": "t1", "lastStatus": "STOPPED", "stopCode": "EssentialContainerExited",
+                       "stoppedReason": "Essential container in task exited",
+                       "containers": [{"name": "honua", "exitCode": 134, "reason": ""}]}],
+            "taskDefinitions": [{"taskDefinitionArn": "td:1", "containers": [
+                {"name": "honua", "environmentNames": ["ConnectionStrings__Redis"], "valueFromNames": []}]}],
+            "logs": [{"taskArn": "t1", "logStream": "ecs/honua/t1", "lines": ["Unhandled exception: boom"]}]})
+        capsys.readouterr()
+        assert run_cloud.main(argv) == 0 and seen == ["aws-ecs", "aws-ecs"]
+        printed = capsys.readouterr().out
+        assert "exitCode=134" in printed and "Unhandled exception: boom" in printed
+        assert "environment names ConnectionStrings__Redis" in printed
         written = json.loads((directory / run_cloud.DIAGNOSTICS_NAME).read_text())
         assert written["cell"] == "aws-ecs/redis-off"
         # A diagnostics error is recorded, never raised: the step must not change the verdict.

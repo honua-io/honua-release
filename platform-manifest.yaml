@@ -575,11 +575,23 @@ components:
     # aws-cert roots), which the aws-ecs cloud cell's licensing-disabled check needs; v0.1.0 predates
     # it (e2e-cloud-aws run 36532006583). A 0.x minor, not a patch: new optional inputs and
     # apply-affecting default changes (honua-iac docs/module-versioning.md).
-    version: "0.2.0"                   # release tag v0.2.0 (annotated tag object 8818f08); Git-source distribution
-    sha: "28fee583ca86de758e72bd4ff4a5f12927d503f0"   # trunk HEAD = v0.2.0^{} (honua-iac#210 release notes on 8ec0737; all trunk checks green)
-    artifact: "archive:https://github.com/honua-io/honua-iac/archive/refs/tags/v0.2.0.tar.gz"
-    artifactSourceRevision: "28fee583ca86de758e72bd4ff4a5f12927d503f0"   # the tarball's pax comment
-    artifactSha256: "sha256:c27d26acdb70717bb9e54c3946708f59f2d109d2ce4807b445e1fa00cf849f89"   # two anonymous downloads, identical bytes
+    # 2026-10-09 ADVANCE v0.2.0 (28fee58) -> trunk 5b09d0dd (19 commits ahead, honua-iac#224), the
+    # sha the nightly resolver selected (nightly-certification run 37971855781, job resolve:
+    # "RESOLVED honua-iac 5b09d0dd227c8b3567efefe94e13c920066c9eb5"). The cloud cells need inputs that
+    # v0.2.0's roots do not declare: examples/aws gains enable_bedrock_ai / bedrock_ai_region (the
+    # ECS Redis-off Bedrock cell), and examples/aws-serverless gains enable_gp_batch,
+    # use_batch_service_linked_role and image_repository_policy_mode (the guardrailed cell role
+    # cannot SetRepositoryPolicy, so the serverless cells run in ECR reuse mode). Without them the
+    # harness drops those variables (e2e-cloud-aws runs 37984313518, 37984366556). Push CI at this
+    # sha is green (Static Terraform Validate, Terraform Policy Gates, Terraform 1.5 Floor Validate,
+    # CodeQL, OKF bundle). The only red check run is a manual workflow_dispatch AWS Live Validation
+    # (run 37943907525) that failed loading AWS credentials before any Terraform ran. No tag
+    # carries this sha, so it is pinned by sha, and the archive is the sha's own tarball.
+    version: "pre-release"             # untagged trunk commit; v0.2.0 is the newest tag
+    sha: "5b09d0dd227c8b3567efefe94e13c920066c9eb5"   # branch: trunk HEAD (resolver-selected 2026-10-09)
+    artifact: "archive:https://github.com/honua-io/honua-iac/archive/5b09d0dd227c8b3567efefe94e13c920066c9eb5.tar.gz"
+    artifactSourceRevision: "5b09d0dd227c8b3567efefe94e13c920066c9eb5"   # the tarball's pax comment
+    artifactSha256: "sha256:2a476888f60400380bf7300715a3cefe6a3fea5d47450483114a91ae835c968d"   # two anonymous downloads, identical bytes
 
   honua-helm:
     repository: "https://github.com/honua-io/honua-helm"
