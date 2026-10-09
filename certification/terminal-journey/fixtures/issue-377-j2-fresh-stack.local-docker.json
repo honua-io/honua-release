@@ -2,13 +2,13 @@
   "schemaVersion": 1,
   "receiptSchema": "terminal-journey-receipt-v1",
   "evidenceKey": "release.e2e.terminal-zero-to-map",
-  "generatedAt": "2026-10-09T06:56:33.120420Z",
+  "generatedAt": "2026-10-09T08:01:59.759831Z",
   "mode": "live",
   "target": {
     "id": "local-docker",
     "kind": "local-docker",
     "configPath": "certification/terminal-journey/targets/local-docker.json",
-    "configSha256": "dd5bde5ae51caecfdc5e06631e66c1740bf9551740f7276ca5730cddeb2a3798",
+    "configSha256": "a3b1f712e6938ca705d967e77a8d5dfdeb432f4b266735db3355c113ba374c84",
     "baseUrl": "http://127.0.0.1:8137",
     "composeProject": "honua-terminal-journey"
   },
@@ -194,7 +194,7 @@
         "source": "live-local-docker",
         "freshness": "verified-current",
         "completeness": "complete",
-        "observedAt": "2026-10-09T06:56:33.106505Z"
+        "observedAt": "2026-10-09T08:01:59.759589Z"
       }
     },
     {
@@ -216,7 +216,7 @@
           "kind": "cli",
           "invocation": "HONUA_ADMIN_KEY=<env> honua admin secure createAdminApiKey --base-url <loopback> --json --yes --body {\"name\":\"honua-terminal-journey-preflight\",\"permissions\":[\"admin:read\"]} --secret-output <private-sink>; getAdminApiKeyEffectivePermissions --path id=<id>; listAdminApiKeys; revokeAdminApiKey --yes --path id=<id>",
           "status": "pass",
-          "detail": "temporary admin:read key 08b486b3-27e6-4f67-bc15-cdd29f9cbce3 reported canAuthenticate true; list omitted key material; revoke removed the active key; private sink deleted"
+          "detail": "temporary admin:read key 1446c493-7dc3-4b73-92bb-c8ec5b7c35b4 reported canAuthenticate true; list omitted key material; revoke removed the active key; private sink deleted"
         },
         {
           "id": "2.2-admin-endpoint-present",
@@ -244,7 +244,7 @@
         "source": "live-local-docker",
         "freshness": "verified-current",
         "completeness": "complete",
-        "observedAt": "2026-10-09T06:56:33.106505Z"
+        "observedAt": "2026-10-09T08:01:59.759589Z"
       }
     },
     {
@@ -298,9 +298,9 @@
         }
       ],
       "operationId": "service.publish",
-      "operationInstanceId": "opinst-ae5b255c7bc04669818b13a76bc50223",
-      "correlationId": "corr-2bd74821d5a0432eb2b4f0e32af12f37",
-      "auditId": "audit-dev-e317546e93ad491f804e6d9104b61054",
+      "operationInstanceId": "opinst-55c86fd63ea6404bbb29601aea61861e",
+      "correlationId": "corr-cd6063b697914ab0a855c9b0c68b0689",
+      "auditId": "audit-dev-989be6562060428889f93ab21e9186a2",
       "proposalId": null,
       "jobId": null,
       "resourceUri": null,
@@ -315,7 +315,7 @@
         "source": "live-local-docker",
         "freshness": "verified-current",
         "completeness": "complete",
-        "observedAt": "2026-10-09T06:56:33.106505Z"
+        "observedAt": "2026-10-09T08:01:59.759589Z"
       }
     },
     {
@@ -387,7 +387,7 @@
         "source": "live-local-docker",
         "freshness": "verified-current",
         "completeness": "partial",
-        "observedAt": "2026-10-09T06:56:33.106505Z"
+        "observedAt": "2026-10-09T08:01:59.759589Z"
       }
     },
     {
@@ -434,7 +434,7 @@
       "jobId": "gp-930825dda2e4445393d952cf",
       "resourceUri": "honua://jobs/gp-930825dda2e4445393d952cf",
       "jobStatus": "Queued",
-      "jobCreatedAt": "2026-10-09T06:53:39.16611+00:00",
+      "jobCreatedAt": "2026-10-09T08:00:50.4088916+00:00",
       "policyDecisionId": null,
       "approvalId": null,
       "actuatorId": null,
@@ -444,7 +444,7 @@
         "source": "live-local-docker",
         "freshness": "verified-current",
         "completeness": "complete",
-        "observedAt": "2026-10-09T06:56:33.106505Z"
+        "observedAt": "2026-10-09T08:01:59.759589Z"
       }
     },
     {
@@ -505,9 +505,9 @@
         }
       ],
       "operationId": "studio.content.reopen-version",
-      "operationInstanceId": "opinst-dc8c02e2ed3b4e4290c8e939e35fc66b",
-      "correlationId": "00-5e74831884d3e74da9695e869e24bfa4-02db600acb7d409e-00",
-      "auditId": "audit-dev-538e9e9cbf34415d9b999ba30366095c",
+      "operationInstanceId": "opinst-c6077c5bf78e477fa7b7600ae76313a4",
+      "correlationId": "00-d01fa795eab6834d4955618864c67c19-95e454ea0c6651ad-00",
+      "auditId": "audit-dev-5a1775d296b8400dae68d151b8163957",
       "proposalId": null,
       "jobId": null,
       "resourceUri": null,
@@ -522,7 +522,7 @@
         "source": "live-local-docker",
         "freshness": "verified-current",
         "completeness": "complete",
-        "observedAt": "2026-10-09T06:56:33.106505Z"
+        "observedAt": "2026-10-09T08:01:59.759589Z"
       }
     },
     {
@@ -562,10 +562,10 @@
         }
       ],
       "operationId": "studio.content.create-publication-request",
-      "operationInstanceId": "opinst-0a42cde65a194fb1accf6f6fe621f0d9",
-      "correlationId": "00-230408bcadbe5519c2c0f2cdb6a0edb6-dd3ebd6d527b82df-00",
+      "operationInstanceId": "opinst-c929cbceb6e842e8b55919942f66017e",
+      "correlationId": "00-8d0d8974099fada76f57d0bdf30e505d-ba6f3a5c5e5f490e-00",
       "auditId": "15",
-      "proposalId": "proposal-a7c34d4ae0434edba2a0b94160b06b4f",
+      "proposalId": "proposal-790c6c5a0e0849c3b01f9c758b823c80",
       "jobId": null,
       "resourceUri": null,
       "jobStatus": null,
@@ -579,7 +579,7 @@
         "source": "live-local-docker",
         "freshness": "verified-current",
         "completeness": "complete",
-        "observedAt": "2026-10-09T06:56:33.106505Z"
+        "observedAt": "2026-10-09T08:01:59.759589Z"
       }
     },
     {
@@ -654,10 +654,10 @@
         }
       ],
       "operationId": "studio.content.create-publication-request",
-      "operationInstanceId": "opinst-0a42cde65a194fb1accf6f6fe621f0d9",
-      "correlationId": "00-230408bcadbe5519c2c0f2cdb6a0edb6-dd3ebd6d527b82df-00",
+      "operationInstanceId": "opinst-c929cbceb6e842e8b55919942f66017e",
+      "correlationId": "00-8d0d8974099fada76f57d0bdf30e505d-ba6f3a5c5e5f490e-00",
       "auditId": "15",
-      "proposalId": "proposal-a7c34d4ae0434edba2a0b94160b06b4f",
+      "proposalId": "proposal-790c6c5a0e0849c3b01f9c758b823c80",
       "jobId": null,
       "resourceUri": null,
       "jobStatus": null,
@@ -671,7 +671,7 @@
         "source": "live-local-docker",
         "freshness": "verified-current",
         "completeness": "complete",
-        "observedAt": "2026-10-09T06:56:33.106505Z"
+        "observedAt": "2026-10-09T08:01:59.759589Z"
       }
     }
   ],

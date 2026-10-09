@@ -135,7 +135,9 @@ stages 1-8 receipt needs a fresh stack and the stage 3 import gap resolved.
 
 [issue-377-j2-fresh-stack.local-docker.json](issue-377-j2-fresh-stack.local-docker.json)
 is a `run.py --mode live` run of `targets/local-docker.json` on a freshly created
-stack (`docker compose down -v` beforehand, `2026-10-09T06:56:33Z`). The candidate
+stack (`docker compose down -v` beforehand, `2026-10-09T08:01:59Z`). It ran from a
+`git archive` of the committed tree, so the receipt's target `configSha256`
+(`a3b1f712…`) is the hash of the committed `targets/local-docker.json` bytes. The candidate
 and clients are unchanged: server `87966c3`
 (`sha256:069f196bfa5c7201223d4d89868934242c4ace8805a6e48c122a88d84fa6eb1a`),
 `@honua/sdk-js@0.1.14`, `@honua/mcp-server@0.1.14` and `Honua.Sdk@1.10.4`.
