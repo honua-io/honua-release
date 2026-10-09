@@ -780,8 +780,8 @@ def test_loop_handoffs_preserve_error_context_and_multiple_approval_boundaries(m
                 return {"status": "pass"}
             if operation == "approve":
                 approved.add(stage_id)
-                return {"status": "approved", "proposalId": stage_id, "approvalId": "test-approval",
-                        "proposerSelfApproval": "denied"}
+                return {"status": "approved", "proposalId": stage_id, "resolvedBy": "test-approver",
+                        "auditId": "test-audit", "proposerSelfApproval": "denied"}
             if operation == "verify":
                 if verify_owned:
                     return verify_owned(payload)
@@ -954,7 +954,12 @@ def _owned_verification_fixture(monkeypatch):
     canonical = {key: "unit-" + key for key in executor.ID_FIELDS}
     engine.evidence["publicationOperation"] = canonical
     engine.evidence["approvalResolution"] = {"requestedBy": "unit-proposer", "resolvedBy": "unit-approver"}
-    engine.evidence["approval"] = {"approvalId": "approval"}
+    # Approval is keyed on the server-emitted proposal, resolver and replay audit ids.
+    engine.evidence["approval"] = {"proposalId": canonical["proposalId"], "resolvedBy": "unit-approver",
+                                   "auditId": canonical["auditId"], "approvalId": None}
+    # Stage 5 runs on the job runtime and is keyed on the job identities it returns.
+    engine.evidence["jobEvidence"] = {"5": {"jobId": "unit-jobId", "resourceUri": "honua://jobs/unit-jobId",
+                                            "jobStatus": "accepted", "jobCreatedAt": "2026-10-08T00:00:00Z"}}
     for number in range(3, 9):
         pending = engine.result(number)
         for check in pending.checks:
