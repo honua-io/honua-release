@@ -15,6 +15,9 @@
 #                   above certify a surface nobody is policing. This reads that variable's live state
 #                   and blocks a strict cut while suppression is active (honua-release#71; register in
 #                   certification/contract-suppression-policy.yaml).
+#   mcp-tool-roster REAL: hold e2e/drivers/mcp/expected-tools.json to honua-server's generated MCP tool
+#                   roster at the pinned sha (tools/check_mcp_roster.py, honua-server#5734). Drift
+#                   fails the job; a pin that predates the roster warns as blocked.
 #
 # Trigger: workflow_dispatch / workflow_call (the train) / nightly. bootstrap tolerates a missing
 # baseline (blocked); strict fails on it; a real wire break always fails.
@@ -281,6 +284,67 @@ jobs:
           why: ${{ env.why || 'job crashed before recording a result' }}
           enforcement: ${{ inputs.enforcement }}
           prefix: con-
+
+  # ───────────────────────────────────────────────────────────────────────────
+  # mcp-tool-roster — honua-server#5734 (spec mcp-tool-roster-and-parity-gates). The MCP discovery
+  # snapshot e2e/drivers/mcp/expected-tools.json is hand-regenerated after every server re-pin; this
+  # job holds it to the server's generated canonical roster (docs/gis/data/mcp-tool-roster.v1.json)
+  # AT THE MANIFEST-PINNED honua-server sha, for both topologies the MCP driver certifies.
+  #   pass     the snapshot matches the roster
+  #   fail     drift (missing/extra/durable/retired/schema) or an unreadable roster: the job FAILS
+  #   blocked  the pinned sha predates the roster (404): a warning plus step summary, never green and
+  #            never red; it clears when the pin advances past honua-server#5742.
+  # Kept out of the con- fragment report on purpose: a pin that predates the artifact must not turn a
+  # strict cut red, while real drift still fails this workflow.
+  # ───────────────────────────────────────────────────────────────────────────
+  mcp-tool-roster:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Use the immutable candidate inputs
+        if: ${{ inputs.candidate_ref }}
+        uses: ./.github/actions/candidate-input
+        with:
+          candidate_ref: ${{ inputs.candidate_ref }}
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.12"
+      - run: python -m pip install "pyyaml>=6.0" pytest
+
+      - name: Self-test the roster parity check
+        run: python -m pytest tools/test_check_mcp_roster.py -q
+
+      - name: expected-tools.json vs the pinned server's canonical MCP roster
+        env:
+          RELEASE_GH_TOKEN: ${{ secrets.RELEASE_GH_TOKEN }}
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -uo pipefail
+          FAILED=0
+          for TOPOLOGY in redis-on redis-off; do
+            if python tools/check_mcp_roster.py --topology "$TOPOLOGY" > "roster-$TOPOLOGY.json" 2> "roster-$TOPOLOGY.log"; then
+              RC=0
+            else
+              RC=$?
+            fi
+            cat "roster-$TOPOLOGY.log"; cat "roster-$TOPOLOGY.json"
+            case "$RC" in
+              0) STATUS=pass ;;
+              3) STATUS=blocked
+                 echo "::warning title=MCP tool roster ($TOPOLOGY)::$(head -n1 "roster-$TOPOLOGY.log")" ;;
+              1) STATUS=fail; FAILED=1
+                 echo "::error title=MCP tool roster ($TOPOLOGY)::expected-tools.json drifted from the pinned server roster" ;;
+              *) STATUS=fail; FAILED=1
+                 echo "::error title=MCP tool roster ($TOPOLOGY)::roster check could not run (exit $RC)" ;;
+            esac
+            {
+              echo "## MCP tool roster ($TOPOLOGY) — $STATUS"
+              echo ""; echo '```'; cat "roster-$TOPOLOGY.log"; echo '```'
+              echo '<details><summary>summary JSON</summary>'; echo ""
+              echo '```json'; cat "roster-$TOPOLOGY.json"; echo '```'; echo '</details>'
+            } >> "$GITHUB_STEP_SUMMARY"
+          done
+          exit "$FAILED"
 
   # ───────────────────────────────────────────────────────────────────────────
   # report — aggregate con- fragments; fail per enforcement.

@@ -16,7 +16,21 @@ from transport import ExecutionError, Transport
 
 ISSUER = "https://terminal-journey.invalid"
 AUDIENCE = "terminal-journey"
-GRANTS = {"proposer": ["admin:write"], "approver": ["admin:approve"], "viewer": ["read:journey"]}
+# The operator publishes, styles and runs GP as a full admin. The proposer is the
+# Studio author and must NOT resolve to the `admin` role: an admin caller publishes
+# immediately (StudioProposePublicationTool PublishImmediately) and stage 7 would never
+# observe a durable AwaitingApproval proposal. `write:journey` is the narrowest key
+# grant that authenticates as the non-admin `layer-write-key` role; Studio authoring
+# for that role comes from the RBAC grants below. The approver is a separate
+# principal holding only `admin:approve`.
+GRANTS = {"operator": ["admin:write"], "proposer": ["write:journey"], "approver": ["admin:approve"],
+          "viewer": ["read:journey"]}
+# API keys carry only server-stamped roles (ApiKeyAuthenticationHandler); there is no
+# key grant that confers Studio authoring to a non-admin key. The isolated fixture
+# therefore binds StudioDraft operator grants to the proposer's stamped role.
+AUTHOR_ROLE = "layer-write-key"
+AUTHOR_GRANTS = [{"service": "StudioDraft", "layer": "*", "operation": operation}
+                 for operation in ("Create", "Read", "Update", "Publish")]
 
 
 def _path(workdir):
@@ -80,6 +94,7 @@ def credentials(target, workdir, base_url, *, mint=False):
     if mint:
         bootstrap = probes.resolve_env_default(target["adminPassword"]["env"], target["adminPassword"]["default"])
         transport = Transport(base_url, None, None, workdir, {"bootstrap": bootstrap})
+        _grant_author_role(transport)
         for name, grants in GRANTS.items():
             raw, _ = transport.http("POST", "/api/v1/admin/api-keys/", principal="bootstrap", expected=(201,), body={
                 "name": f"journey-{Path(workdir).name}-{name}", "permissions": grants,
@@ -96,6 +111,22 @@ def credentials(target, workdir, base_url, *, mint=False):
     # A fresh single-use bearer avoids weakening the candidate's replay protection.
     resolved["other-tenant"] = lambda: _other_tenant_token(private["signingKey"])
     return resolved
+
+
+def _grant_author_role(transport):
+    roles = transport.get_json("/api/v1/admin/roles/", principal="bootstrap")["data"]
+    existing = [role for role in roles if role.get("name") == AUTHOR_ROLE]
+    if existing:
+        role_id = existing[0]["roleId"]
+    else:
+        raw, _ = transport.http("POST", "/api/v1/admin/roles/", principal="bootstrap", expected=(201,),
+                                body={"name": AUTHOR_ROLE, "description": "terminal journey Studio author"})
+        role_id = json.loads(raw)["data"]["roleId"]
+    raw, _ = transport.http("PUT", f"/api/v1/admin/roles/{role_id}/permissions", principal="bootstrap",
+                            body={"permissions": AUTHOR_GRANTS})
+    granted = {(g["service"], g["layer"], g["operation"]) for g in json.loads(raw)["data"]}
+    if not {(g["service"], g["layer"], g["operation"]) for g in AUTHOR_GRANTS} <= granted:
+        raise ExecutionError("grant Studio author role", "candidate did not persist the StudioDraft author grants")
 
 
 def cleanup(workdir):

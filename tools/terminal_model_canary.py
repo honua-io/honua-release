@@ -1257,8 +1257,11 @@ def execute_live(
                         or approval.get("proposerSelfApproval") != "denied"
                     ):
                         raise CanaryError("separate-principal approval or proposer denial was not proved")
-                    if approval.get("proposalId") != proposal_id or not approval.get("approvalId"):
-                        raise CanaryError("approval did not bind the requested proposal and approval identity")
+                    # The candidate emits no separate approval id; the approval is keyed on
+                    # the proposal, its resolving principal and the audited approved replay.
+                    if approval.get("proposalId") != proposal_id or not all(
+                            approval.get(key) for key in ("resolvedBy", "auditId")):
+                        raise CanaryError("approval did not bind the requested proposal, resolver and audit identity")
                     builder.record_action(
                         stage_id=stage_id,
                         attribution=HARNESS_DRIVEN,

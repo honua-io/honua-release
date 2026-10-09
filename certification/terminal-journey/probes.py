@@ -47,7 +47,8 @@ class Check:
             "status": self.status,
             "detail": self.detail,
         }
-        if self.status == "blocked":
+        if self.status == "blocked" or (self.status == "fail" and self.blocked_by):
+            # A failed check carries blockedBy only when the cause is a tracked issue.
             row["blockedBy"] = list(dict.fromkeys(self.blocked_by))
         return row
 

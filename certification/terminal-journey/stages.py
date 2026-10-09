@@ -26,21 +26,27 @@ from probes import Check, CredentialProbe, HttpResult, McpError, blocked
 SERVER = "https://github.com/honua-io/honua-server/issues"
 RELEASE = "https://github.com/honua-io/honua-release/issues"
 
+# server#3411 (operation envelope/runtime) and server#3431 (scope narrowing through
+# approval replay) are closed; the candidate now emits the canonical operation
+# identities and stage evidence is keyed on them. Their former placeholder checks cite
+# the executable-stages driver instead, which is what still has to observe them.
+# server#3474 (proposal authorization), #3475 (source evidence posture), #3583 (Redis-off
+# typed refusal) and #3599 (approval command) are closed too; their placeholder checks
+# likewise cite the executable-stages driver.
 AUTH_SESSION = f"{SERVER}/3430"               # auth-before-tenant, session binding
-PROPOSAL_AUTHZ = f"{SERVER}/3474"             # proposal/resource authorization
-EVIDENCE_POSTURE = f"{SERVER}/3475"           # source evidence freshness/completeness
 ROLLBACK_TRUTH = f"{SERVER}/3301"             # rollback capability truth
 ROSTER_EXPORTS = f"{SERVER}/3363"             # authoritative Admin roster exports
-APPROVAL_COMMAND = f"{SERVER}/3599"            # separate-principal approval command
 SETUP_VIEW = f"{SERVER}/3428"                 # bounded server-authored terminal setup view
-REDIS_POSTURE = f"{SERVER}/3583"              # typed refusal when Redis is absent
 INSTALLED_CLIENTS = f"{RELEASE}/7"            # installed-client execution engine
 JOURNEY_DRIVER = f"{RELEASE}/123"             # executable stages and per-run observations
+# honua_render_map rasterizes the layer's stored style, not the preset
+# honua_apply_style_preset associates, and the apply output drops the
+# style.apply-preset operation handle (server PR #5744).
+STYLE_RENDER = f"{SERVER}/5744"
 NO_REDIS_VARIANT = f"{RELEASE}/202"           # Redis-optional local install variant
 
 # In-flight PRs that would unblock the corresponding contract.
 UNBLOCKING_PR = {
-    REDIS_POSTURE: "https://github.com/honua-io/honua-server/pull/3583",
     SETUP_VIEW: "https://github.com/honua-io/honua-server/pull/3591",
 }
 
@@ -86,6 +92,20 @@ class Observation:
     setup_discovery: dict[str, Any] | None = None
 
 
+# Receipt key -> StageResult attribute for the server-emitted canonical identities.
+RECEIPT_ATTRS = {
+    "operationInstanceId": "operation_instance_id",
+    "correlationId": "correlation_id",
+    "auditId": "audit_id",
+    "proposalId": "proposal_id",
+    # Stage 5 runs on the job runtime, not the operation gateway (journey.v1.json).
+    "jobId": "job_id",
+    "resourceUri": "resource_uri",
+    "jobStatus": "job_status",
+    "jobCreatedAt": "job_created_at",
+}
+
+
 @dataclass
 class StageResult:
     number: int
@@ -95,6 +115,18 @@ class StageResult:
     blocked_by: list[str] = field(default_factory=list)
     checks: list[Check] = field(default_factory=list)
     operation_id: str | None = None
+    # Identities the candidate emits for the stage's canonical invocation.
+    operation_instance_id: str | None = None
+    correlation_id: str | None = None
+    audit_id: str | None = None
+    proposal_id: str | None = None
+    # Stage 5 job-runtime identities as honua_execute_plan returned them.
+    job_id: str | None = None
+    resource_uri: str | None = None
+    job_status: str | None = None
+    job_created_at: str | None = None
+    # Optional legacy receipt identities. No candidate emits them (see journey.v1.json
+    # notes); they stay null unless a candidate actually returns one.
     policy_decision_id: str | None = None
     approval_id: str | None = None
     actuator_id: str | None = None
@@ -114,7 +146,9 @@ def _resolve(checks: list[Check], number: int, stage_id: str, command: str) -> S
         status = "blocked"
     blockers: list[str] = []
     for check in checks:
-        if check.status == "blocked":
+        # A blocked check names what is missing; a failed check may name the tracked
+        # upstream cause of its observed failure.
+        if check.status in ("blocked", "fail"):
             blockers.extend(check.blocked_by)
     return StageResult(
         number=number,
@@ -394,7 +428,7 @@ def stage_3(observation: Observation, workspace_blockers: Callable[[int], list[s
             "mcp-tool",
             "unified typed operation envelope for every mutating step",
             "the driver has not executed service publication and captured the "
-            "operation/policy/actuator/verification identities from this target",
+            "operation instance, correlation and audit identities from this target",
             [JOURNEY_DRIVER],
         ),
     ]
@@ -435,7 +469,7 @@ def stage_5(observation: Observation, workspace_blockers: Callable[[int], list[s
             "the local target composes PostGIS and Honua Server only. Without Redis the "
             "job runner refuses submission, and the typed refusal contract that would "
             "make that refusal certifiable is not on the candidate",
-            [REDIS_POSTURE, NO_REDIS_VARIANT],
+            [NO_REDIS_VARIANT, JOURNEY_DRIVER],
         ),
     ]
 
@@ -451,7 +485,7 @@ def stage_6(observation: Observation, workspace_blockers: Callable[[int], list[s
             "saving an immutable version is a mutation and must enter the canonical "
             "operation runtime; the restart/reopen identity comparison additionally "
             "needs the source-evidence posture that marks a read complete and current",
-            [JOURNEY_DRIVER, EVIDENCE_POSTURE],
+            [JOURNEY_DRIVER],
         ),
     ]
 
@@ -466,7 +500,7 @@ def stage_7(observation: Observation, workspace_blockers: Callable[[int], list[s
             "proposal and resource authorization (tenant, owner, scope, nondisclosure) "
             "is not on the candidate, and the local target has no Redis-backed control "
             "plane to make the proposal durable",
-            [PROPOSAL_AUTHZ, REDIS_POSTURE],
+            [JOURNEY_DRIVER],
         ),
     ]
 
@@ -485,7 +519,7 @@ def stage_8(observation: Observation, workspace_blockers: Callable[[int], list[s
             "approve from a separate human principal; proposer self-approval must be denied; poll to published URL",
             "there is no durable proposal to approve, and approved replay must "
             "revalidate the proposer's current authority under narrowed bearer scopes",
-            [JOURNEY_DRIVER, APPROVAL_COMMAND, PROPOSAL_AUTHZ],
+            [JOURNEY_DRIVER],
         ),
     ]
 

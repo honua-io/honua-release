@@ -1239,7 +1239,8 @@ def _ecs_receipt(cell="aws-ecs/redis-off"):
         stage.update(status="pass", blockedBy=[], checks=[{
             "id": "fixture-probe", "kind": "http", "invocation": "GET /fixture",
             "status": "pass", "detail": "offline fixture"}])
-        for key in ("operationId", "policyDecisionId", "actuatorId", "verificationId", "approvalId"):
+        for key in ("operationId", "operationInstanceId", "correlationId", "auditId", "proposalId",
+                    "jobId", "resourceUri", "jobStatus", "jobCreatedAt"):
             stage[key] = "fixture-" + key
         stage["evidence"].update(source="live-aws-ecs", freshness="verified-current",
             completeness="complete", observedAt=receipt["generatedAt"])
