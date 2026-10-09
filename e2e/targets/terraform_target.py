@@ -499,6 +499,19 @@ class TerraformTarget(DeployTarget):
         return self._redact((logs.stdout or "") + (logs.stderr or ""), hidden) or "no container output"
 
 
+# With Redis connected outside Development/Test the server enables the durable operation secret
+# channel and exits at startup unless Operations:SecretChannel:KeyRingCertificatePath names a
+# certificate. Both AWS roots take it from an operator-owned Secrets Manager secret and refuse a Redis
+# plan without the ARN: examples/aws injects it through ECS task secrets (honua-iac#216), and
+# examples/aws-serverless hands the Lambda an aws:secretsmanager: reference the server resolves with
+# the function role. Only the ARN crosses into Terraform; the KMS key is needed only for a
+# customer-managed key. Passed on Redis-on cells only, and only when the pinned root declares them.
+_OPERATION_KEY_RING_ENV_VARS = (
+    ("HONUA_AWS_OPERATION_KEY_RING_SECRET_ARN", "operation_key_ring_certificate_secret_arn"),
+    ("HONUA_AWS_OPERATION_KEY_RING_SECRET_KMS_KEY_ARN", "operation_key_ring_certificate_secret_kms_key_arn"),
+)
+_OPERATION_KEY_RING_REQUIRED_VARS = ("operation_key_ring_certificate_secret_arn",)
+
 # The two terraform-output cells. EKS is a separate, heavier target (cluster + Helm + LB).
 SERVERLESS_SPEC = TfTargetSpec(
     name="aws-serverless",
@@ -521,6 +534,10 @@ SERVERLESS_SPEC = TfTargetSpec(
                              "image_repository_policy_mode=reuse"),
     # The manifest's generic server image, amd64 child by digest (resolved by e2e-cloud-aws.yml).
     env_vars=(("HONUA_GP_BATCH_IMAGE", "gp_batch_image"),),
+    # Redis-on Lambda cells: the operation key-ring certificate secret (see above). An iac pin whose
+    # serverless root predates these variables declares neither, so nothing is passed or refused.
+    redis_env_vars=_OPERATION_KEY_RING_ENV_VARS,
+    redis_required_vars=_OPERATION_KEY_RING_REQUIRED_VARS,
     migrate_image_env="HONUA_MIGRATE_IMAGE",
 )
 ECS_SPEC = TfTargetSpec(
@@ -539,15 +556,9 @@ ECS_SPEC = TfTargetSpec(
     # aws-ecs/redis-off when its genuine_model_bedrock input is on; every other run stays cost-free.
     opt_in_env="HONUA_ENABLE_BEDROCK_AI",
     opt_in_vars=("enable_bedrock_ai=true", "bedrock_ai_region=us-east-1"),
-    # honua-iac#216: with Redis connected outside Development/Test the server enables the durable
-    # operation secret channel and exits at startup unless
-    # Operations:SecretChannel:KeyRingCertificatePath names a certificate. examples/aws injects it
-    # from an operator-owned Secrets Manager secret and refuses a Redis plan without the ARN. Only
-    # the ARN crosses into Terraform; the KMS key is needed only for a customer-managed key.
-    redis_env_vars=(("HONUA_AWS_OPERATION_KEY_RING_SECRET_ARN", "operation_key_ring_certificate_secret_arn"),
-                    ("HONUA_AWS_OPERATION_KEY_RING_SECRET_KMS_KEY_ARN",
-                     "operation_key_ring_certificate_secret_kms_key_arn")),
-    redis_required_vars=("operation_key_ring_certificate_secret_arn",),
+    # honua-iac#216: the operation key-ring certificate secret for Redis-on cells (see above).
+    redis_env_vars=_OPERATION_KEY_RING_ENV_VARS,
+    redis_required_vars=_OPERATION_KEY_RING_REQUIRED_VARS,
     ephemeral_var_files=("e2e/terraform/aws-ecs-new-deployment.tfvars.json",),
     needs_runner_db_access=True,
     needs_runner_alb_access=True,

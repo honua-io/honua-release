@@ -177,17 +177,23 @@ free of model charges) sets `HONUA_ENABLE_BEDROCK_AI=true` on `aws-ecs/redis-off
 `enable_bedrock_ai=true` and `bedrock_ai_region=us-east-1`. A pinned root that does not declare those
 inputs fails the cell rather than silently running without the model.
 
-### Operation key-ring certificate on the Redis-on ECS cell
+### Operation key-ring certificate on the Redis-on ECS and Lambda cells
 With Redis connected outside Development/Test, honua-server enables the durable operation secret
 channel and exits at startup unless `Operations:SecretChannel:KeyRingCertificatePath` names a
 certificate. honua-iac#216 (in the pinned iac trunk) has `examples/aws` inject it from an
 operator-owned secret and refuse a Redis plan without `operation_key_ring_certificate_secret_arn`.
+`examples/aws-serverless` takes the same input from honua-iac#226: Lambda cannot resolve Secrets
+Manager into env, so the function receives an `aws:secretsmanager:<arn>` reference that the server
+resolves with the function role, and the module grants that role read on exactly the secret.
+`SERVERLESS_SPEC` carries the same `redis_env_vars` mapping as `ECS_SPEC`. Until the iac pin
+includes honua-iac#226 the serverless root declares neither variable, so the harness passes nothing
+and the Redis-on Lambda cell still fails readiness for this reason.
 **Owner step:** create a Secrets Manager secret in us-east-1 holding the certificate (base64 PKCS#12,
 or JSON `{pkcs12,password}`, including the private key; format per the honua-iac aws-ecs module
-README) that the cell execution role can read under its permissions boundary, and set the repository
+README) that the ECS execution role and the Lambda function role can read under their permissions boundary, and set the repository
 variable `HONUA_AWS_OPERATION_KEY_RING_SECRET_ARN` (plus `HONUA_AWS_OPERATION_KEY_RING_SECRET_KMS_KEY_ARN`
 for a customer-managed key). The cell workflow exports both to the provision and teardown steps; the
-harness passes them only to Redis-on ECS cells whose pinned root declares them, and a declaring root
+harness passes them only to Redis-on ECS and Lambda cells whose pinned root declares them, and a declaring root
 with the ARN unset refuses provisioning with this step named.
 
 ### ECS readiness diagnostics
