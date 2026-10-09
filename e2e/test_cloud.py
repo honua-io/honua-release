@@ -2618,8 +2618,8 @@ def test_mixed_cell_is_out_of_the_rc3_run_cloud_registry():
 
 def test_serverless_spec_provisions_the_lambda_batch_ga_cell(monkeypatch):
     from targets.terraform_target import SERVERLESS_SPEC
-    assert {"enable_gp_batch=true", "use_batch_service_linked_role=true"} <= set(
-        SERVERLESS_SPEC.declared_ephemeral_vars)
+    assert {"enable_gp_batch=true", "use_batch_service_linked_role=true",
+            "image_repository_policy_mode=reuse"} <= set(SERVERLESS_SPEC.declared_ephemeral_vars)
     assert ("HONUA_GP_BATCH_IMAGE", "gp_batch_image") in SERVERLESS_SPEC.env_vars
     assert SERVERLESS_SPEC.migrate_image_env == "HONUA_MIGRATE_IMAGE"
     _serverless_env(monkeypatch)
