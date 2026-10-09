@@ -351,12 +351,18 @@ jobs:
           RELEASE_GH_TOKEN: ${{ secrets.RELEASE_GH_TOKEN || github.token }}
         run: |
           set -euo pipefail
-          dotnet nuget update source github-honua \
-            --username "${GITHUB_ACTOR}" \
-            --password "${RELEASE_GH_TOKEN}" \
-            --store-password-in-clear-text \
-            --valid-authentication-types basic \
-            --configfile _console/NuGet.config
+          # Authenticate the GitHub Packages feed only when the pinned Console declares it. From
+          # c652ef22 the Console restores Honua.Sdk from nuget.org alone, and `update source` on an
+          # undeclared source crashes ("Object reference not set to an instance of an object").
+          # The restore below still runs either way and fails on any unresolvable package.
+          if grep -q 'key="github-honua"' _console/NuGet.config; then
+            dotnet nuget update source github-honua \
+              --username "${GITHUB_ACTOR}" \
+              --password "${RELEASE_GH_TOKEN}" \
+              --store-password-in-clear-text \
+              --valid-authentication-types basic \
+              --configfile _console/NuGet.config
+          fi
           dotnet restore _console/src/Honua.Console.Web/Honua.Console.Web.csproj \
             --configfile _console/NuGet.config \
             --nologo
