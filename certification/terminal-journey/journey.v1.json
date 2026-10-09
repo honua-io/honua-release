@@ -5,15 +5,15 @@
   "stages": [
     {"number": 1, "id": "installed-client-handoff", "command": "install exact manifest clients; verify readiness, identity, auth, profiles and tools/list", "clientCommands": ["honua", "honua-mcp-proxy"], "blockedBy": ["https://github.com/honua-io/honua-release/issues/123", "https://github.com/honua-io/honua-server/issues/3428"]},
     {"number": 2, "id": "credential-preflight", "command": "honua admin apiKeys list/effective-permissions", "clientCommands": ["honua admin"], "blockedBy": ["https://github.com/honua-io/honua-release/issues/123"]},
-    {"number": 3, "id": "publish-service", "command": "honua admin connection create/test; import; publish/configure layer and access policy", "clientCommands": ["honua admin"], "blockedBy": ["https://github.com/honua-io/honua-release/issues/123"]},
+    {"number": 3, "id": "publish-service", "command": "honua admin connection create/test; import; publish/configure layer and access policy", "clientCommands": ["honua admin", "honua-mcp-proxy"], "blockedBy": ["https://github.com/honua-io/honua-release/issues/123"]},
     {"number": 4, "id": "style-render", "command": "honua_get_style; honua_apply_style_preset; honua_render_map; validate decoded PNG", "clientCommands": ["honua-mcp-proxy"], "blockedBy": ["https://github.com/honua-io/honua-release/issues/123"]},
-    {"number": 5, "id": "bounded-gp", "command": "discover/run geometry.buffer; wait/cancel canonical job; retain result", "clientCommands": ["honua-mcp-proxy"], "blockedBy": ["https://github.com/honua-io/honua-release/issues/123", "https://github.com/honua-io/honua-server/issues/3583"]},
-    {"number": 6, "id": "durable-compositions", "command": "create/mutate/validate/version map+dashboard; restart/reopen; compare hashes", "clientCommands": ["honua-mcp-proxy"], "blockedBy": ["https://github.com/honua-io/honua-release/issues/123", "https://github.com/honua-io/honua-server/issues/3475"]},
-    {"number": 7, "id": "publication-proposal", "command": "submit and poll durable AwaitingApproval proposal bound to item/version/hash", "clientCommands": ["honua-mcp-proxy"], "blockedBy": ["https://github.com/honua-io/honua-server/issues/3474", "https://github.com/honua-io/honua-server/issues/3583"]},
-    {"number": 8, "id": "separate-principal-approval", "command": "honua admin operate approveOperationProposal --profile approver --yes; poll published URL", "clientCommands": ["honua admin"], "blockedBy": ["https://github.com/honua-io/honua-release/issues/123", "https://github.com/honua-io/honua-server/issues/3599", "https://github.com/honua-io/honua-server/issues/3474"]}
+    {"number": 5, "id": "bounded-gp", "command": "discover/run geometry.buffer; wait/cancel canonical job; retain result", "clientCommands": ["honua-mcp-proxy"], "blockedBy": ["https://github.com/honua-io/honua-release/issues/123"]},
+    {"number": 6, "id": "durable-compositions", "command": "create/mutate/validate/version map+dashboard; restart/reopen; compare hashes", "clientCommands": ["honua-mcp-proxy"], "blockedBy": ["https://github.com/honua-io/honua-release/issues/123"]},
+    {"number": 7, "id": "publication-proposal", "command": "submit and poll durable AwaitingApproval proposal bound to item/version/hash", "clientCommands": ["honua-mcp-proxy"], "blockedBy": ["https://github.com/honua-io/honua-release/issues/123"]},
+    {"number": 8, "id": "separate-principal-approval", "command": "honua admin operate approveOperationProposal --profile approver --yes; poll published URL", "clientCommands": ["honua admin"], "blockedBy": ["https://github.com/honua-io/honua-release/issues/123"]}
   ],
   "receiptRequired": ["release", "clientArtifacts", "clientWorkspace", "server", "fixtureRevision", "configRevision", "authPolicyRevision", "stage", "command", "operationId", "operationInstanceId", "correlationId", "auditId", "proposalId", "evidence", "status"],
-  "receiptOptional": ["policyDecisionId", "approvalId", "actuatorId", "verificationId"],
+  "receiptOptional": ["policyDecisionId", "approvalId", "actuatorId", "verificationId", "jobId", "resourceUri", "jobStatus", "jobCreatedAt"],
   "clientCommandSources": {
     "honua": "honua-sdk-js",
     "honua admin": "honua-sdk-js",
@@ -22,8 +22,18 @@
   "notes": [
     "`clientCommands` names the terminal commands each stage needs from the pinned #136 clientArtifacts. A stage whose command is not shipped by the pinned bytes is blocked on honua-release#7 regardless of server readiness.",
     "Command providers describe the expected package. The per-run integrity-verified commandSurface, including a successful `honua --help` probe for `admin`, determines presence; metadata cannot prove execution of credentialed or mutating verbs.",
-    "Stage evidence is keyed on the identities the server emits for a canonical invocation (honua-server OperationExecutionModels: operationInstanceId, correlationId, auditId, and proposalId for proposal/approval stages). A passing stage 3-8 must carry operationInstanceId/correlationId/auditId; stages 7-8 also proposalId. Approval is keyed on proposalId + resolvedBy + the approved replay's auditId.",
-    "`receiptOptional` fields (policyDecisionId, approvalId, actuatorId, verificationId) are kept as nullable receipt fields for compatibility with earlier receipts. No Honua candidate emits them, so they are never required and never invented; they are recorded only if a candidate actually returns one.",
+    "Stage evidence is keyed on the identities the server emits (`stageEvidenceKeys`). Stages 3, 4, 6, 7 and 8 go through the operation gateway and must carry operationId/operationInstanceId/correlationId/auditId (honua-server OperationExecutionModels); stages 7-8 also proposalId. Approval is keyed on proposalId + resolvedBy + the approved replay's auditId.",
+    "Stage 5 (bounded GP) runs on the job runtime, not the operation gateway: honua_execute_plan returns {jobId, status, createdAt, resourceUri} and no operation identities. A passing stage 5 is therefore keyed on jobId + resourceUri + jobStatus + jobCreatedAt as submitted, and the canonical job lifecycle check reads that jobId back.",
+    "Stage 3 imports through the admin multipart upload (`honua admin import uploadImportFile`, POST /api/v1/admin/import/upload) of the committed fixture GeoJSON, then publishes the imported table through honua_publish_service (canonical service.publish). The GeoServices URL import is not used locally: GeoservicesServiceUrlValidation requires HTTPS and rejects private-network hosts with no operator opt-in.",
+    "`receiptOptional` fields are nullable receipt fields. policyDecisionId, approvalId, actuatorId and verificationId are kept for compatibility with earlier receipts; no Honua candidate emits them, so they are never required and never invented. jobId, resourceUri, jobStatus and jobCreatedAt carry the stage 5 job evidence and are null on other stages.",
     "`blockedBy` lists the upstream contracts a stage waits on. It is contract metadata; the live driver derives the authoritative per-run blocker set from its own probes."
-  ]
+  ],
+  "stageEvidenceKeys": {
+    "3": ["operationId", "operationInstanceId", "correlationId", "auditId"],
+    "4": ["operationId", "operationInstanceId", "correlationId", "auditId"],
+    "5": ["jobId", "resourceUri", "jobStatus", "jobCreatedAt"],
+    "6": ["operationId", "operationInstanceId", "correlationId", "auditId"],
+    "7": ["operationId", "operationInstanceId", "correlationId", "auditId", "proposalId"],
+    "8": ["operationId", "operationInstanceId", "correlationId", "auditId", "proposalId"]
+  }
 }

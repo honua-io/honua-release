@@ -54,22 +54,20 @@
       "sslRequired": false,
       "sslMode": "Disable"
     },
-    "importRequest": {
-      "serviceUrl": "http://source:8080/arcgis/rest/services/journey/FeatureServer",
-      "layerId": 0,
+    "upload": {
+      "path": "fixtures/journey-source.geojson",
+      "sha256": "0b16843475363f699ff6918e7eb027a2ba733a2d5c0e5226a025f9b9d51e93a4",
       "tableName": "journey_source",
       "targetSchema": "public",
-      "targetSrid": 4326,
-      "autoPublish": false
+      "targetSrid": 4326
     },
     "publishRequest": {
       "schema": "public",
-      "table": "journey_source",
       "layerName": "journey_source",
-      "geometryColumn": "geom",
+      "geometryColumn": "geometry",
       "geometryType": "Point",
       "srid": 4326,
-      "primaryKey": "objectid",
+      "primaryKey": "id",
       "serviceName": "journey"
     },
     "serviceId": "journey",

@@ -6,6 +6,7 @@ the model selects calls from freshly observed, initialize-bound descriptors.
 from __future__ import annotations
 
 import base64
+import hashlib
 import json
 import os
 import re
@@ -28,6 +29,13 @@ CANONICAL_KEYS = ("operationInstanceId", "correlationId", "auditId")
 # Older receipt identities no candidate emits. They stay optional, nullable receipt
 # fields and are retained only if a candidate ever returns them.
 LEGACY_RECEIPT_KEYS = ("policyDecisionId", "actuatorId", "verificationId", "approvalId")
+# Per-stage evidence keys (journey.v1.json `stageEvidenceKeys`). Stage 5 runs on the job
+# runtime, which is not the operation gateway: it is keyed on its job identities.
+CONTRACT = json.loads((Path(__file__).resolve().parent / "journey.v1.json").read_text())
+STAGE_EVIDENCE_KEYS = {int(k): tuple(v) for k, v in CONTRACT["stageEvidenceKeys"].items()}
+JOB_KEYS = ("jobId", "resourceUri", "jobStatus", "jobCreatedAt")
+# Stage 3 file import: the pinned CLI's multipart admin upload of the committed fixture.
+UPLOAD_COMMAND = "honua admin import uploadImportFile"
 TOKEN = re.compile(r"[A-Za-z0-9][A-Za-z0-9_.:-]{0,199}\Z")
 STAGE_TOOLS = {
     1: {"honua_list_capabilities"},
@@ -46,8 +54,7 @@ STAGE_TOOLS = {
 # produces the AwaitingApproval proposal stage 7 must observe. Targets that supply
 # no operator credential fall back to the proposer for every stage.
 STAGE_PRINCIPALS = {3: "operator", 4: "operator", 5: "operator", 6: "proposer", 7: "proposer", 8: "operator"}
-SDK_METHODS = {"CreateConnectionAsync", "TestConnectionAsync", "StartGeoservicesImportAsync",
-               "GetGeoservicesImportJobStatusAsync", "PublishLayerAsync"}
+SDK_METHODS = {"CreateConnectionAsync", "TestConnectionAsync"}
 
 
 def identity(value, label):
@@ -159,6 +166,8 @@ class JourneyExecutor:
             # render. No fictional network failure and no hidden mutation of a write.
             send_arguments = {**arguments, "width": -1}
             fault["status"] = "submitted"
+        if name == "honua_publish_service":
+            self.bind_publication(arguments)
         if name == "honua_render_map":
             self.evidence.setdefault("proofs", {}).pop("pixel", None)
             self.evidence["checks"].setdefault("4", {}).pop("pixel", None)
@@ -177,6 +186,8 @@ class JourneyExecutor:
                 raise ExecutionError(name, "candidate did not apply the selected canonical style")
             self._check(4, "style-applied", name, lambda: {"styleId": identity(output["styleId"], name)})
         self._record(number, name, output)
+        if name == "honua_publish_service":
+            self.record_publication(output)
         if name == "honua_render_map":
             self.check_render(output)
             if (fault and fault["status"] == "observed"
@@ -184,6 +195,7 @@ class JourneyExecutor:
                 fault["status"] = "recovered"
                 recovered = {"id": fault["id"], "recovered": True}
         if name == "honua_execute_plan":
+            self.record_job(output)
             self.check_job()
         if name == "honua_studio_save_version":
             self.check_map()
@@ -198,12 +210,19 @@ class JourneyExecutor:
     def execute_sdk_command(self, number, action, view):
         """Interpret one typed bridge command; never invoke a shell or model argv."""
         command = action.get("command", "")
+        if number == 3 and command == UPLOAD_COMMAND:
+            # Fixed, fixture-bound upload: the model chooses the step, never its arguments.
+            if "honua_ingest_dataset" not in {tool["name"] for tool in view["tools"]}:
+                raise ExecutionError(UPLOAD_COMMAND, "upload is outside the observed bounded ingest view")
+            self.upload_dataset()
+            return {"status": "pass", "accepted": True, "resources": dict(self.resources),
+                    "injectedError": None, "recoveredError": None,
+                    "canonicalIds": self.evidence["canonicalIds"].get("3", {})}
         pieces = command.split(" ", 2) if isinstance(command, str) else []
         if number != 3 or len(pieces) != 3 or pieces[0] != "honua-journey-sdk" or pieces[1] not in SDK_METHODS:
             raise ExecutionError("model terminal command", "command is outside the typed published SDK bridge")
         method = pieces[1]
-        capability = "honua_publish_service" if method == "PublishLayerAsync" else "honua_ingest_dataset"
-        if capability not in {tool["name"] for tool in view["tools"]}:
+        if "honua_ingest_dataset" not in {tool["name"] for tool in view["tools"]}:
             raise ExecutionError(method, "SDK operation is outside the observed bounded ingest/publication view")
         try:
             arguments = discovery.parse(pieces[2].encode("utf-8"))
@@ -214,9 +233,6 @@ class JourneyExecutor:
         expected = {
             "CreateConnectionAsync": [self.fixture["datasource"]],
             "TestConnectionAsync": [self.resources.get("connectionId")],
-            "StartGeoservicesImportAsync": [self.fixture["importRequest"]],
-            "GetGeoservicesImportJobStatusAsync": [self.resources.get("jobId")],
-            "PublishLayerAsync": [self.resources.get("connectionId"), self.fixture["publishRequest"]],
         }[method]
         if arguments != expected or any(value is None for value in expected):
             raise ExecutionError(method, "SDK arguments do not bind the authored fixture and observed resource identities")
@@ -226,15 +242,9 @@ class JourneyExecutor:
             if not password:
                 raise ExecutionError(method, "datasource password environment reference is unavailable", blocked=True)
             arguments = [{**datasource, "password": password}]
-        if method == "StartGeoservicesImportAsync" and self.resources.get("jobId"):
-            raise ExecutionError(method, "import has already been submitted; poll its observed job identity")
         output = self.sdk_call(method, arguments)
         if method == "TestConnectionAsync":
             self._check(3, "datasource", method, lambda: self.prove_connection(output))
-        if method == "GetGeoservicesImportJobStatusAsync" and output.get("status") == "Completed":
-            self._check(3, "import-complete", method, lambda: self.prove_import(output))
-        if method == "PublishLayerAsync":
-            self.check_features()
         return {"status": "pass", "accepted": True, "resources": dict(self.resources),
                 "injectedError": None, "recoveredError": None,
                 "canonicalIds": self.evidence["canonicalIds"].get("3", {})}
@@ -244,13 +254,99 @@ class JourneyExecutor:
             raise oracles.ProofError("datasource test did not prove the created connection healthy")
         return {"healthy": True}
 
-    def prove_import(self, result):
-        if (result.get("status") != "Completed" or result.get("jobId") != self.resources.get("jobId")
-                or type(result.get("featuresProcessed")) is not int or type(result.get("failedFeatures")) is not int
-                or result.get("featuresProcessed") != len(self.fixture["features"])
-                or result.get("failedFeatures") != 0):
-            raise oracles.ProofError("import lifecycle identity, completion or independent feature counts differ")
-        return {"featureCount": len(self.fixture["features"]), "failedCount": 0}
+    def fixture_dataset(self):
+        """The committed upload fixture, pinned by digest and equal to the authored rows."""
+        spec = self.fixture.get("upload")
+        if not isinstance(spec, dict):
+            raise ExecutionError(UPLOAD_COMMAND, "target declares no upload fixture", blocked=True)
+        base = Path(stages.__file__).resolve().parent
+        path = (base / spec["path"]).resolve()
+        if not path.is_relative_to(base / "fixtures") or not path.is_file():
+            raise ExecutionError(UPLOAD_COMMAND, "upload fixture is outside the committed journey fixtures")
+        raw = path.read_bytes()
+        if hashlib.sha256(raw).hexdigest() != spec["sha256"]:
+            raise ExecutionError(UPLOAD_COMMAND, "upload fixture digest differs from the target pin")
+        document = json.loads(raw)
+        if document.get("type") != "FeatureCollection" or document.get("features") != self.fixture["features"]:
+            raise ExecutionError(UPLOAD_COMMAND, "upload fixture differs from the authored feature rows")
+        return spec, path
+
+    def upload_dataset(self):
+        if self.resources.get("importTable"):
+            raise ExecutionError(UPLOAD_COMMAND, "fixture dataset has already been uploaded; publish its observed table")
+        spec, path = self.fixture_dataset()
+        body = {"file": "@" + str(path), "TableName": spec["tableName"],
+                "TargetSrid": str(spec["targetSrid"]), "OverwriteExisting": "true"}
+        if spec.get("targetSchema"):
+            body["TargetSchema"] = spec["targetSchema"]
+        self.evidence["actions"].setdefault("3", []).append(UPLOAD_COMMAND)
+        code, document = self.transport.cli_admin("import", "uploadImportFile", self.principal(3), body=body,
+                                                  content_type="multipart/form-data", yes=True)
+        if code or not isinstance(document, dict):
+            raise ExecutionError(UPLOAD_COMMAND, "typed CLI multipart upload failed")
+        document = document.get("data", document)
+        if document.get("jobId") is not None:
+            # Large or forced-background uploads return a durable import job; follow it.
+            job_id = identity(document["jobId"], UPLOAD_COMMAND)
+
+            def read():
+                status_code, status = self.transport.cli_admin("import", "getImportJobStatus", self.principal(3),
+                                                               path={"jobId": job_id})
+                if status_code or not isinstance(status, dict):
+                    raise ExecutionError("honua admin import getImportJobStatus", "typed CLI job read failed")
+                return status.get("data", status)
+            document = self.poll("honua admin import getImportJobStatus", read,
+                                 lambda r: str(r.get("status", "")).lower() in {"completed", "failed", "cancelled"})
+            document = document.get("result", document)
+        self._check(3, "import-complete", UPLOAD_COMMAND, lambda: self.prove_upload(document))
+        self.prove_upload(document)
+        self.resources["importTable"] = identity(document["physicalTableName"], UPLOAD_COMMAND)
+        self.resources["importSchema"] = identity(document.get("schema") or spec.get("targetSchema") or "public",
+                                                  UPLOAD_COMMAND)
+        return document
+
+    def prove_upload(self, result):
+        spec = self.fixture["upload"]
+        expected = len(self.fixture["features"])
+        if (result.get("success") is not True or type(result.get("featureCount")) is not int
+                or result["featureCount"] != expected or result.get("tableName") != spec["tableName"]
+                or result.get("errorMessage") or result.get("errorCode")
+                or not isinstance(result.get("physicalTableName"), str) or not result["physicalTableName"]):
+            raise oracles.ProofError("upload import did not report a clean import of every fixture feature")
+        return {"featureCount": expected, "failedCount": 0, "datasetSha256": spec["sha256"],
+                "physicalTableName": result["physicalTableName"]}
+
+    def bind_publication(self, arguments):
+        """service.publish must publish exactly the table this journey uploaded."""
+        wanted = {"connectionId": self.resources.get("connectionId"), "table": self.resources.get("importTable"),
+                  "schema": self.resources.get("importSchema")}
+        if any(value is None for value in wanted.values()):
+            raise ExecutionError("honua_publish_service", "uploaded dataset is unavailable", blocked=True)
+        if any(arguments.get(key) != value for key, value in wanted.items()):
+            raise ExecutionError("honua_publish_service", "publication does not bind the uploaded dataset and connection")
+
+    def record_publication(self, output):
+        if output.get("status") != "Completed" or output.get("requiresApproval"):
+            raise ExecutionError("honua_publish_service", "service.publish did not complete for the operator")
+        layer = output.get("layerId")
+        if type(layer) is int and layer >= 0:
+            self.resources["layerId"] = layer
+        elif isinstance(layer, str) and layer.isdigit() and len(layer) <= 18:
+            self.resources["layerId"] = int(layer)
+        else:
+            raise ExecutionError("honua_publish_service", "candidate omitted the published layer identity")
+        self.check_features()
+
+    def record_job(self, output):
+        """Stage 5 job-runtime evidence, exactly as honua_execute_plan returned it."""
+        job = {"jobId": identity(output.get("jobId"), "honua_execute_plan")}
+        for key, source in (("resourceUri", "resourceUri"), ("jobStatus", "status"), ("jobCreatedAt", "createdAt")):
+            value = output.get(source)
+            if not isinstance(value, str) or not 0 < len(value) <= 2048 or any(c.isspace() for c in value):
+                raise ExecutionError("honua_execute_plan", f"candidate omitted a bounded job {source}")
+            job[key] = value
+        self.evidence.setdefault("jobEvidence", {})["5"] = job
+        return job
 
     def sdk_call(self, method, arguments):
         if method not in SDK_METHODS:
@@ -529,17 +625,22 @@ class JourneyExecutor:
         canonical = self.evidence["canonicalIds"].get(str(number), {})
         if number >= 3 and required:
             missing = self.canonical_gaps(number)
+            receipt = "canonical job receipt" if number == 5 else "canonical operation receipt"
             if missing:
-                checks.append(probes.blocked(f"{number}.canonical-evidence", "http", "canonical operation receipt",
+                checks.append(probes.blocked(f"{number}.canonical-evidence", "http", receipt,
                     "candidate has not returned the canonical " + ", ".join(missing) + " for this stage",
                     [stages.JOURNEY_DRIVER]))
             else:
-                checks.append(probes.Check(f"{number}.canonical-evidence", "http", "canonical operation receipt", "pass",
+                checks.append(probes.Check(f"{number}.canonical-evidence", "http", receipt, "pass",
                     "candidate returned " + ", ".join(self.canonical_required(number)) + " for this stage"))
         result = stages._resolve(checks, number, stage["id"], stage["command"])
         result.operation_id = canonical.get("operationId")
         for key in CANONICAL_KEYS + ("proposalId",):
             setattr(result, stages.RECEIPT_ATTRS[key], canonical.get(key))
+        if number == 5:
+            job = self.evidence.get("jobEvidence", {}).get("5", {})
+            for key in JOB_KEYS:
+                setattr(result, stages.RECEIPT_ATTRS[key], job.get(key))
         result.policy_decision_id, result.actuator_id, result.verification_id = (
             ids.get("policyDecisionId"), ids.get("actuatorId"), ids.get("verificationId"))
         result.approval_id = (self.evidence.get("approval") or {}).get("approvalId") if number == 8 else None
@@ -547,12 +648,14 @@ class JourneyExecutor:
 
     @staticmethod
     def canonical_required(number):
-        """Server-emitted identities a passing stage must carry (receipt.schema.json)."""
-        required = ("operationId",) + CANONICAL_KEYS
-        return required + ("proposalId",) if number in (7, 8) else required
+        """Server-emitted identities a passing stage must carry (journey.v1.json stageEvidenceKeys)."""
+        return STAGE_EVIDENCE_KEYS[number]
 
     def canonical_gaps(self, number):
-        canonical = self.evidence["canonicalIds"].get(str(number), {})
+        if number == 5:
+            canonical = self.evidence.get("jobEvidence", {}).get("5", {})
+        else:
+            canonical = self.evidence["canonicalIds"].get(str(number), {})
         missing = [key for key in self.canonical_required(number) if not canonical.get(key)]
         if number == 8:
             approval = self.evidence.get("approval") or {}
@@ -576,20 +679,11 @@ class JourneyExecutor:
             tested = self.sdk_call("TestConnectionAsync", [connection_id])
             self._check(3, "datasource", "TestConnectionAsync", lambda: self.prove_connection(tested))
             self.prove_connection(tested)
-            started = self.sdk_call("StartGeoservicesImportAsync", [self.fixture["importRequest"]])
-            job_id = identity(started["jobId"], "StartGeoservicesImportAsync")
-            finished = self.poll("GetGeoservicesImportJobStatusAsync",
-                lambda: self.sdk_call("GetGeoservicesImportJobStatusAsync", [job_id]),
-                lambda r: r.get("status") in {"Completed", "Failed", "NeedsReview", "Cancelled"})
-            if finished["status"] != "Completed":
-                raise ExecutionError("GetGeoservicesImportJobStatusAsync", "import did not complete cleanly")
-            self._check(3, "import-complete", "GetGeoservicesImportJobStatusAsync", lambda: self.prove_import(finished))
-            self.prove_import(finished)
-            published = self.sdk_call("PublishLayerAsync", [connection_id, self.fixture["publishRequest"]])
-            if type(published.get("layerId")) is not int:
-                raise ExecutionError("PublishLayerAsync", "published SDK omitted layer identity")
-            self.resources["layerId"] = published["layerId"]
-            self.check_features()
+            # The GeoServices URL import cannot read a private-network fixture source
+            # (HTTPS-only validator, no opt-in); import the committed fixture by upload.
+            self.upload_dataset()
+            call(3, "honua_publish_service", {**self.fixture["publishRequest"], "connectionId": connection_id,
+                 "schema": self.resources["importSchema"], "table": self.resources["importTable"]})
 
         def style():
             if "layerId" not in self.resources:

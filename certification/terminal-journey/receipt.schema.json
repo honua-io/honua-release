@@ -316,6 +316,10 @@
         "correlationId": {"type": ["string", "null"], "description": "Server-emitted correlation identity (OperationHandle.CorrelationId)."},
         "auditId": {"type": ["string", "null"], "description": "Server-emitted durable acceptance-audit identity (OperationHandle.AuditId)."},
         "proposalId": {"type": ["string", "null"], "description": "Server-emitted durable proposal identity (OperationHandle.ProposalId)."},
+        "jobId": {"type": ["string", "null"], "description": "Stage 5 only: server-emitted job identity from honua_execute_plan (the job runtime is not the operation gateway)."},
+        "resourceUri": {"type": ["string", "null"], "description": "Stage 5 only: server-emitted job resource URI from honua_execute_plan."},
+        "jobStatus": {"type": ["string", "null"], "description": "Stage 5 only: job status the candidate reported at submission."},
+        "jobCreatedAt": {"type": ["string", "null"], "description": "Stage 5 only: job creation time the candidate reported at submission."},
         "policyDecisionId": {"type": ["string", "null"], "description": "Optional legacy field. No Honua candidate emits a policy-decision id; it stays null unless one is actually returned."},
         "approvalId": {"type": ["string", "null"], "description": "Optional legacy field. The candidate reports approval as proposalId + resolvedBy + the approved replay's auditId, not a separate approval id."},
         "actuatorId": {"type": ["string", "null"], "description": "Optional legacy field. No Honua candidate emits an actuator id."},
@@ -364,10 +368,10 @@
           }
         },
         {
-          "description": "Passing mutation stages must carry the canonical identities the candidate emits for the stage's invocation (honua-server OperationExecutionModels: operationInstanceId, correlationId, auditId). Policy-decision, actuator and verification ids are not part of the server contract and are not required.",
+          "description": "Passing operation-gateway stages (3, 4, 6, 7, 8) must carry the canonical identities the candidate emits for the stage's invocation (honua-server OperationExecutionModels: operationInstanceId, correlationId, auditId). Policy-decision, actuator and verification ids are not part of the server contract and are not required.",
           "if": {
             "properties": {
-              "number": {"enum": [3, 4, 5, 6, 7, 8]},
+              "number": {"enum": [3, 4, 6, 7, 8]},
               "status": {"const": "pass"}
             },
             "required": ["number", "status"]
@@ -379,6 +383,22 @@
               "operationInstanceId": {"type": "string", "minLength": 1},
               "correlationId": {"type": "string", "minLength": 1},
               "auditId": {"type": "string", "minLength": 1}
+            }
+          }
+        },
+        {
+          "description": "A passing bounded-GP stage is keyed on the job runtime's identities, not operation ids: honua_execute_plan returns jobId, resourceUri, status and createdAt.",
+          "if": {
+            "properties": {"number": {"const": 5}, "status": {"const": "pass"}},
+            "required": ["number", "status"]
+          },
+          "then": {
+            "required": ["jobId", "resourceUri", "jobStatus", "jobCreatedAt"],
+            "properties": {
+              "jobId": {"type": "string", "minLength": 1},
+              "resourceUri": {"type": "string", "minLength": 1},
+              "jobStatus": {"type": "string", "minLength": 1},
+              "jobCreatedAt": {"type": "string", "minLength": 1}
             }
           }
         },

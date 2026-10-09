@@ -67,21 +67,41 @@ def prove_buffer(feature, *, x, y, distance, segments=32):
     return {"centroid": [x, y], "vertexCount": len(expected), "ordinatesVerified": True}
 
 
+def _journey_attribute(properties):
+    """Read the fixture key from a published feature.
+
+    A file-upload import stores source attributes in one JSONB `properties` column
+    (honua.create_import_table: id, geometry, properties), and publishing projects source
+    columns verbatim, so the fixture key may be nested one level. Exactly one location
+    must hold it; the layout is reported, never guessed.
+    """
+    nested = properties.get("properties")
+    top = "journey_id" in properties
+    inner = isinstance(nested, dict) and "journey_id" in nested
+    if top == inner:
+        raise ProofError("published feature does not carry exactly one journey_id")
+    return (properties["journey_id"], "columns") if top else (nested["journey_id"], "import-jsonb-properties")
+
+
 def prove_features(document, expected):
     """Compare an unordered GeoJSON feature collection to authored fixture rows."""
     try:
         features = document["features"]
         if document["type"] != "FeatureCollection" or len(features) != len(expected):
             raise ProofError("imported feature count differs from fixture")
-        observed = sorted((f["properties"]["journey_id"], f["geometry"]["type"],
-                           f["geometry"]["coordinates"]) for f in features)
+        rows = [(_journey_attribute(f["properties"]), f["geometry"]["type"], f["geometry"]["coordinates"])
+                for f in features]
+        layouts = {layout for (_, layout), _, _ in rows}
+        if len(layouts) != 1:
+            raise ProofError("published features mix attribute layouts")
+        observed = sorted((value, kind, coordinates) for (value, _), kind, coordinates in rows)
         wanted = sorted((f["properties"]["journey_id"], f["geometry"]["type"],
                          f["geometry"]["coordinates"]) for f in expected)
         if observed != wanted:
             raise ProofError("imported feature IDs or ordinates differ from fixture")
-    except (KeyError, TypeError) as exc:
+    except (KeyError, TypeError, AttributeError) as exc:
         raise ProofError("invalid imported feature collection") from exc
-    return {"featureCount": len(expected), "contentDigest": content_digest(wanted)}
+    return {"featureCount": len(expected), "contentDigest": content_digest(wanted), "attributeLayout": layouts.pop()}
 
 
 def png_pixel(png, size, position):

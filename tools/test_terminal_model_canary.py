@@ -957,6 +957,9 @@ def _owned_verification_fixture(monkeypatch):
     # Approval is keyed on the server-emitted proposal, resolver and replay audit ids.
     engine.evidence["approval"] = {"proposalId": canonical["proposalId"], "resolvedBy": "unit-approver",
                                    "auditId": canonical["auditId"], "approvalId": None}
+    # Stage 5 runs on the job runtime and is keyed on the job identities it returns.
+    engine.evidence["jobEvidence"] = {"5": {"jobId": "unit-jobId", "resourceUri": "honua://jobs/unit-jobId",
+                                            "jobStatus": "accepted", "jobCreatedAt": "2026-10-08T00:00:00Z"}}
     for number in range(3, 9):
         pending = engine.result(number)
         for check in pending.checks:

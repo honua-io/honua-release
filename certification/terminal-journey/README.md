@@ -12,7 +12,7 @@ this roster.
 | --- | --- |
 | `journey.v1.json` | The eight numbered stages: id, command, the pinned client commands each needs, and its upstream contracts. Imported by #161; never duplicated there. |
 | `receipt.schema.json` | `terminal-journey-receipt-v1`. Binds package integrities, source SHAs, and the server/fixture/config/auth-policy tuple to a per-stage outcome. |
-| `targets/local-docker.json` | Local Docker target. Extends the owned Docker fixture with a second candidate replica, Redis and an authored GeoServices source; the server digest remains manifest-bound. |
+| `targets/local-docker.json` | Local Docker target. Extends the owned Docker fixture with a second candidate replica, Redis and an authored GeoServices source; the server digest remains manifest-bound. Stage 3 uploads `fixtures/journey-source.geojson` instead of importing from that source. |
 | `pins.py` | Consumes the exact #136 `clientArtifacts` from published registry bytes and proves which terminal commands they actually ship. |
 | `probes.py` | Deterministic probe primitives: HTTP, compose lifecycle, and MCP JSON-RPC through the pinned `honua-mcp-proxy`. |
 | `stages.py` | Contract prerequisites and the outcome discipline. |
@@ -196,12 +196,26 @@ qualification.
 
 The first #377 executor slice adds fixed build-stage calls and the matching model
 action boundary. It has no shell execution. A model can select an observed MCP
-call, or stage 3's `honua-journey-sdk METHOD JSON_ARRAY` interpreter for the
-observed ingest/publication capabilities. The latter invokes the built bridge
+call, stage 3's `honua-journey-sdk METHOD JSON_ARRAY` interpreter for the
+datasource connection (`CreateConnectionAsync`, `TestConnectionAsync`), or the
+fixed `honua admin import uploadImportFile` step. The bridge invokes the built SDK
 with stdin JSON; it never executes that command string. Arguments bind the
 authored fixture and previously returned resource identities. The model observes
 the fixture, available method names and action results, rather than a forced
-sequence. An import submission cannot be repeated within a session.
+sequence. An upload cannot be repeated within a session.
+
+Stage 3 imports by file upload, not by GeoServices URL. The pinned CLI sends the
+committed `fixtures/journey-source.geojson` (pinned by SHA-256 in the target and
+required to equal the authored feature rows) as `multipart/form-data` to
+`POST /api/v1/admin/import/upload`, following a background import job if one is
+returned. `honua_publish_service` then publishes exactly the uploaded table
+through the canonical `service.publish` operation, which supplies the stage's
+operation identities, and the published features are compared with the fixture.
+A file-upload table keeps source attributes in one JSONB `properties` column, so
+the feature oracle accepts the fixture key either as a column or nested in that
+object, requires exactly one, and records which layout it saw. The GeoServices
+URL import stays out of the local run because `GeoservicesServiceUrlValidation`
+requires HTTPS and rejects private-network hosts with no operator opt-in.
 
 The bridge verifies the manifest's published `Honua.Sdk` digest and package
 identity, requires its exact `Honua.Sdk.Admin` dependency, and restores from the
@@ -239,8 +253,12 @@ Stage evidence is keyed on the identities the candidate actually emits for a
 canonical invocation (`OperationHandle` in honua-server
 `OperationExecutionModels.cs`): `operationInstanceId`, `correlationId` and
 `auditId`, plus `proposalId` for the proposal and approval stages. A passing
-stage 3-8 must carry them; a missing one is an explicit `canonical-evidence`
-blocker. Approval is keyed on `proposalId` + `resolvedBy` + the approved
+stage 3, 4, 6, 7 or 8 must carry them; a missing one is an explicit
+`canonical-evidence` blocker. Stage 5 runs on the job runtime, which is not the
+operation gateway: `honua_execute_plan` returns `jobId`, `status`, `createdAt`
+and `resourceUri` and no operation ids, so a passing stage 5 carries `jobId`,
+`resourceUri`, `jobStatus` and `jobCreatedAt` instead (`stageEvidenceKeys` in
+`journey.v1.json`). Approval is keyed on `proposalId` + `resolvedBy` + the approved
 replay's audited operation instance (`executionOperationId` and its `auditId`).
 `policyDecisionId`, `actuatorId`, `verificationId` and `approvalId` are optional,
 nullable receipt fields: no candidate emits them, so they are never required and

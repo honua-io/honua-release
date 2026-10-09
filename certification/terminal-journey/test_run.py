@@ -203,7 +203,7 @@ class StageDisciplineTests(unittest.TestCase):
             root=None,
             reason=None,
             command_surface=[
-                {"command": "honua-mcp-proxy", "status": "present", "requiredBy": [1, 4, 5, 6, 7]},
+                {"command": "honua-mcp-proxy", "status": "present", "requiredBy": [1, 3, 4, 5, 6, 7]},
                 {
                     "command": "honua admin",
                     "requiredBy": [2, 3, 8],
@@ -271,9 +271,11 @@ class StageDisciplineTests(unittest.TestCase):
         check = next(c for c in stagelib.stage_2(observation, self._no_blockers) if c.id == "2.2-admin-endpoint-present")
         self.assertEqual(check.status, "fail")
 
-    def test_stage_8_honestly_names_server_3599(self):
+    def test_stage_8_placeholder_cites_the_driver_not_closed_server_issues(self):
         result = stagelib._resolve(stagelib.stage_8(stagelib.Observation(), self._no_blockers), 8, "approval", "approve")
-        self.assertIn("https://github.com/honua-io/honua-server/issues/3599", result.blocked_by)
+        self.assertIn(stagelib.JOURNEY_DRIVER, result.blocked_by)
+        for number in (3474, 3599, 3431):
+            self.assertNotIn(f"https://github.com/honua-io/honua-server/issues/{number}", result.blocked_by)
 
     def test_blocked_check_without_a_dependency_is_rejected_by_the_schema(self):
         receipt = build()
@@ -443,12 +445,39 @@ class ReceiptTests(unittest.TestCase):
     def test_contract_marks_legacy_identities_optional(self):
         legacy = {"policyDecisionId", "approvalId", "actuatorId", "verificationId"}
         self.assertFalse(legacy & set(JOURNEY["receiptRequired"]))
-        self.assertEqual(legacy, set(JOURNEY["receiptOptional"]))
+        self.assertTrue(legacy <= set(JOURNEY["receiptOptional"]))
         self.assertTrue({"operationInstanceId", "correlationId", "auditId", "proposalId"} <= set(JOURNEY["receiptRequired"]))
-        closed = {"https://github.com/honua-io/honua-server/issues/3411",
-                  "https://github.com/honua-io/honua-server/issues/3431",
-                  "https://github.com/honua-io/honua-server/issues/3741"}
+        closed = {f"https://github.com/honua-io/honua-server/issues/{n}"
+                  for n in (3411, 3431, 3474, 3475, 3583, 3599, 3741)}
         self.assertFalse(closed & {b for s in JOURNEY["stages"] for b in s["blockedBy"]})
+        placeholders = [c for fn in stagelib.STAGE_IMPLEMENTATIONS.values()
+                        for c in fn(stagelib.Observation(), lambda number: [])]
+        self.assertFalse(closed & {b for c in placeholders for b in c.blocked_by})
+
+    def test_stage_5_is_keyed_on_job_identities_in_contract_and_schema(self):
+        keys = JOURNEY["stageEvidenceKeys"]
+        self.assertEqual(keys["5"], ["jobId", "resourceUri", "jobStatus", "jobCreatedAt"])
+        for number in ("3", "4", "6", "7", "8"):
+            self.assertTrue({"operationId", "operationInstanceId", "correlationId", "auditId"} <= set(keys[number]))
+        receipt, stage = self._passing_stage(5)
+        # A passing GP stage carries no operation ids: the job runtime is not the gateway.
+        stage.update(operationId=None, operationInstanceId=None, correlationId=None, auditId=None)
+        with self.assertRaises(Exception):
+            validate(receipt)
+        stage.update(jobId="job-1", resourceUri="honua://jobs/job-1", jobStatus="accepted",
+                     jobCreatedAt="2026-10-08T00:00:00Z")
+        validate(receipt)
+        for key in ("jobId", "resourceUri", "jobStatus", "jobCreatedAt"):
+            with self.subTest(missing=key):
+                changed = json.loads(json.dumps(receipt))
+                changed["stages"][4][key] = None
+                with self.assertRaises(Exception):
+                    validate(changed)
+        # Operation-gateway stages still require operation ids even with job fields set.
+        receipt, stage = self._passing_stage(3)
+        stage.update(operationInstanceId=None, jobId="job-1", resourceUri="u", jobStatus="s", jobCreatedAt="t")
+        with self.assertRaises(Exception):
+            validate(receipt)
 
 
 # ---------------------------------------------------------------------------

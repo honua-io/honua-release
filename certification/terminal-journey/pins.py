@@ -65,7 +65,8 @@ REQUIRED_COMMANDS: tuple[RequiredCommand, ...] = (
     # the subcommand row below reports them, so this row names only stage 1.
     RequiredCommand("honua", "honua-cli", (1,)),
     RequiredCommand("honua admin", "honua-admin", (2, 3, 8), subcommand_of="honua"),
-    RequiredCommand("honua-mcp-proxy", "honua-mcp-proxy", (1, 4, 5, 6, 7)),
+    # Stage 3 publishes the uploaded table through honua_publish_service on the proxy.
+    RequiredCommand("honua-mcp-proxy", "honua-mcp-proxy", (1, 3, 4, 5, 6, 7)),
 )
 
 

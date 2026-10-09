@@ -100,11 +100,29 @@ class Transport:
             return result
 
     def cli_approve(self, proposal_id, principal):
+        return self.cli_admin("operate", "approveOperationProposal", principal,
+                              path={"id": proposal_id}, yes=True, label="approveOperationProposal")
+
+    def cli_admin(self, group, operation, principal, *, path=None, body=None, content_type=None,
+                  yes=False, label=None):
+        """Run one fixed `honua admin <group> <operation>` from the verified installed CLI.
+
+        Arguments are built here from harness-owned values; nothing is shell-parsed and no
+        model argv reaches the child. Credentials travel only in the child environment.
+        """
+        label = label or f"honua admin {group} {operation}"
         if not self.honua or not self.honua.is_file():
-            raise ExecutionError("approveOperationProposal", "verified installed honua CLI is unavailable", blocked=True)
-        # No shell or caller-supplied flags; credentials travel only in the child environment.
-        args = [str(self.honua), "admin", "operate", "approveOperationProposal",
-                "--base-url", self.base_url, "--json", "--path", f"id={proposal_id}", "--profile", principal, "--yes"]
+            raise ExecutionError(label, "verified installed honua CLI is unavailable", blocked=True)
+        args = [str(self.honua), "admin", group, operation, "--base-url", self.base_url, "--json"]
+        for name, value in (path or {}).items():
+            args += ["--path", f"{name}={value}"]
+        if body is not None:
+            args += ["--body", json.dumps(body, allow_nan=False, separators=(",", ":"))]
+        if content_type:
+            args += ["--content-type", content_type]
+        args += ["--profile", principal]
+        if yes:
+            args.append("--yes")
         profiles = self.workdir / "profiles"
         profiles.mkdir(parents=True, exist_ok=True, mode=0o700)
         profiles.chmod(0o700)
@@ -112,16 +130,16 @@ class Transport:
         config.touch(mode=0o600, exist_ok=True)
         config.chmod(0o600)
         config.write_text(json.dumps({"profiles": {name: {"baseUrl": self.base_url}
-                                                  for name in ("proposer", "approver")}}))
+                                                  for name in ("operator", "proposer", "approver")}}))
         env = {"PATH": os.environ.get("PATH", ""), "HONUA_ADMIN_KEY": self.credentials[principal],
                "HONUA_CONFIG_HOME": str(self.workdir / "profiles")}
         try:
             result = subprocess.run(args, env=env, capture_output=True, text=True, timeout=120, check=False)
         except (OSError, subprocess.SubprocessError) as exc:
-            raise ExecutionError("approveOperationProposal", "typed CLI could not execute") from exc
+            raise ExecutionError(label, "typed CLI could not execute") from exc
         # Never retain stdout/stderr in a receipt, including on failure.
         if len(result.stdout.encode()) > MAX_BYTES:
-            raise ExecutionError("approveOperationProposal", "CLI response exceeds byte bound")
+            raise ExecutionError(label, "CLI response exceeds byte bound")
         try:
             document = json.loads(result.stdout)
         except (ValueError, TypeError):

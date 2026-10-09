@@ -47,7 +47,7 @@ STATE_ROOT = Path.cwd() / ".terminal-journey" / "sessions"
 
 # Blockers that stop a live model run before any action can be attempted.
 EXECUTE_BLOCKERS = [stagelib.JOURNEY_DRIVER]
-APPROVE_BLOCKERS = [stagelib.PROPOSAL_AUTHZ, stagelib.JOURNEY_DRIVER]
+APPROVE_BLOCKERS = [stagelib.JOURNEY_DRIVER]
 
 
 class DriverError(RuntimeError):
@@ -327,7 +327,8 @@ def op_observe(request: dict[str, Any]) -> dict[str, Any]:
                 "observation": {**_observation_payload(observation), "resources": dict(engine.resources),
                                 "fixture": _target.get("execution", {}),
                                 "terminalSurface": {"sdkCommand": "honua-journey-sdk",
-                                                    "sdkMethods": sorted(executor.SDK_METHODS)} if number == 3 else {},
+                                                    "sdkMethods": sorted(executor.SDK_METHODS),
+                                                    "uploadCommand": executor.UPLOAD_COMMAND} if number == 3 else {},
                                 "evidence": checks},
                 "toolView": _tool_view(observation), "blockedBy": blockers}
     return {
@@ -437,7 +438,7 @@ def op_approve(request: dict[str, Any]) -> dict[str, Any]:
             return {"status": "blocked" if exc.blocked else "fail", "principalProfile": "approver",
                     "proposalId": request.get("proposalId"), "approvalId": None,
                     "proposerSelfApproval": "denied-untested", "detail": f"{exc.command}: {exc.reason}",
-                    "blockedBy": [stagelib.APPROVAL_COMMAND] if exc.blocked else []}
+                    "blockedBy": [stagelib.JOURNEY_DRIVER] if exc.blocked else []}
     return {
         "status": "blocked",
         "principalProfile": "approver",
@@ -450,7 +451,7 @@ def op_approve(request: dict[str, Any]) -> dict[str, Any]:
             "resource authorization is not implemented, and the local target composes no "
             "Redis-backed control plane to make a proposal durable"
         ),
-        "blockedBy": list(dict.fromkeys(APPROVE_BLOCKERS + [stagelib.REDIS_POSTURE])),
+        "blockedBy": list(APPROVE_BLOCKERS),
     }
 
 
