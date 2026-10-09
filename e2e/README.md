@@ -47,6 +47,39 @@ make e2e-strict   # E2E_REQUIRE_REAL=1: BLOCKED/SKIPPED => FAIL (the real releas
 CI: `.github/workflows/e2e-local-docker.yml` runs on PRs touching `e2e/`/manifest, on `workflow_dispatch`,
 and is `workflow_call`-able by the release train's `gate_e2e`.
 
+### Redis-on and Redis-off are two topologies, not one broken one
+
+honua-server composes the operation proposal store, its gateway and the admin executors only when Redis
+is connected and entitled (`Program.cs:628`). On a Redis-off install the 20 projected
+`honua_admin_layer_*`/`honua_admin_services_*` MCP tools are not registered (the full view is 104 tools,
+not 124), Studio draft mutations answer the typed 409 "requires a Redis-backed durable store", and GP
+submission answers 503 `capability-unavailable` (`missingDependency=redis`).
+
+The cell declares its topology through `E2E_REDIS` (`on` by default; the cloud runner sets it from the
+cell's Redis dimension) and the server must confirm it. `harness/lib/common.sh` `resolve_topology` asks,
+in order: the manifest capability `operations.proposals` (added by honua-server S1), then
+`GET /api/v1/admin/proposals` (200 vs the typed 503), then the manifest capability `jobs.runner`
+(`dependency-unavailable`/`license-required`). Only a declared **and** confirmed Redis-off cell gets the
+Redis-off expectation:
+
+- **S2** compares the full catalog against `drivers/mcp/expected-tools.json` `fullCatalog.tools` (the
+  canonical Redis-on roster) exactly, in both directions. On Redis-off the 20 names in
+  `fullCatalog.requiresDurableControlPlane` must be all present (after S1) or all absent (before it);
+  every other name stays exact. The evidence records `topology` and which state was observed.
+- **S3** on Redis-off asserts the typed refusal at `create-draft` for every family (query, analysis, map)
+  and passes with `topology: redis-off`; Redis-on drives the full lifecycle for the same families.
+- A topology the server contradicts (a Redis-on cell with no durable control plane, or a Redis-off cell
+  the server does not confirm) fails both scenarios.
+
+Diagnostic: `drivers/mcp/probe_topology.sh` prints one JSON summary of a running candidate —
+`topology`, `toolCount`, `missingFromRoster`, `extraOverRoster`, and `GET /api/v1/operations` — so the
+same pinned digest booted with and without `docker-compose.no-redis.yml` can be compared directly
+(acceptance: the catalogs differ by exactly the 20 names). It writes no scenario rows.
+
+```bash
+E2E_BASE=http://localhost:8080 E2E_API_KEY=honua-console-dev-key bash e2e/drivers/mcp/probe_topology.sh
+```
+
 ## Phase B — cross-cloud parity tier (AWS-first, scaffolded)
 
 The "also run cloud integration" layer: deploy a **real** honua-server to a cloud target via the actual

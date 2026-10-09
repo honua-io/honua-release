@@ -1,0 +1,14 @@
+{
+  "document": "honua-server-docs-get-started-quickstart",
+  "env": {},
+  "substitute": {
+    "ghcr.io/honua-io/honua-server:2026.1-rc": {
+      "value": "{candidate.image}",
+      "documentedAt": "docs/get-started/quickstart.md §1 — \"The server image is the 2026.1 release channel `ghcr.io/honua-io/honua-server:2026.1-rc` ... The exact digest for a release is `server.image` in that release's `customer-install-manifest.json`\"; §2 writes `HONUA_IMAGE=ghcr.io/honua-io/honua-server:2026.1-rc` (honua-io/honua-server#5738). The gate certifies the candidate behind the channel, so the executed block pulls the manifest's image@digest; the published page keeps the channel tag"
+    },
+    "ghcr.io/honua-io/honua-server:2026.1": {
+      "value": "{candidate.image}",
+      "documentedAt": "docs/get-started/quickstart.md §1 — \"(`ghcr.io/honua-io/honua-server:2026.1` once 2026.1 is generally available); only release promotion moves that tag\" (honua-io/honua-server#5738). Same candidate image@digest as the -rc channel"
+    }
+  }
+}

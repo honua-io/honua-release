@@ -482,7 +482,7 @@ class JourneyExecutor:
         if number >= 3 and required and (not canonical.get("operationId") or any(not ids.get(k) for k in
                 ("policyDecisionId", "actuatorId", "verificationId"))):
             checks.append(probes.blocked(f"{number}.canonical-evidence", "http", "canonical operation receipt",
-                "candidate has not returned the receipt's policy, actuator and verification identities", [stages.OPERATION_RUNTIME]))
+                "candidate has not returned the receipt's policy, actuator and verification identities", [stages.JOURNEY_DRIVER]))
         result = stages._resolve(checks, number, stage["id"], stage["command"])
         result.operation_id = canonical.get("operationId")
         result.policy_decision_id, result.actuator_id, result.verification_id = (
