@@ -641,6 +641,22 @@ def test_contract_gate_certifies_the_breaking_change_suppression_state():
     assert "blocked" in str(fragment["with"]["status"])
 
 
+def test_contract_gate_holds_expected_mcp_tools_to_the_pinned_server_roster():
+    """honua-server#5734: drift fails the job; a pin that predates the roster warns, never passes."""
+    job = _workflow("gate-contract.yml")["jobs"]["mcp-tool-roster"]
+    assert not _neutralised(job)
+    assert not any(_neutralised(step) for step in job["steps"])
+    commands = "\n".join(_step_text(step) for step in job["steps"])
+    assert "tools/test_check_mcp_roster.py" in commands
+    assert "tools/check_mcp_roster.py" in commands
+    assert "--roster" not in commands and "--server-sha" not in commands  # the pin, not an override
+    assert "for TOPOLOGY in redis-on redis-off" in commands
+    assert "3) STATUS=blocked" in commands and "::warning" in commands
+    assert "1) STATUS=fail; FAILED=1" in commands and "*) STATUS=fail; FAILED=1" in commands
+    assert 'exit "$FAILED"' in commands
+    assert "GITHUB_STEP_SUMMARY" in commands
+
+
 def test_contract_gate_report_cannot_be_assembled_from_survivors():
     """A cancelled check must not silently disappear from the gate report."""
     report = _workflow("gate-contract.yml")["jobs"]["report"]
