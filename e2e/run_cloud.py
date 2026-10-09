@@ -17,6 +17,7 @@ import secrets
 import subprocess
 import sys
 import time
+import urllib.parse
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -832,8 +833,12 @@ def model_canary_phase(state: dict, *, admin_key: str, lock_digest: str, run=sub
         env = {**os.environ, "TERMINAL_MODEL_API_KEY": admin_key}
         for number in range(1, max_attempts + 1):
             output = out / f"model-canary-{number}.json"
+            endpoint = str(state["endpoint"]).rstrip("/")
             argv = [sys.executable, str(E2E_DIR.parent / "tools" / "terminal_model_canary.py"),
-                    "--base-url", str(state["endpoint"]).rstrip("/") + "/api",
+                    "--base-url", endpoint + "/api",
+                    # Owner ruling canary-http-cell-2026-10-08: plain HTTP only to this cell's own
+                    # harness-provisioned ALB host, never to any other non-loopback host.
+                    "--allow-http-cell", urllib.parse.urlsplit(endpoint).hostname or "",
                     "--require-api-key", "--cell", cell, "--attempt", str(number),
                     "--lock-digest", lock_digest,
                     "--deterministic-receipt", str(deterministic.relative_to(E2E_DIR.parent)),

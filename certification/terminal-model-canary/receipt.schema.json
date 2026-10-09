@@ -88,10 +88,16 @@
     "endpoint": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["configured", "baseUrl", "model", "runtime", "quantization", "signingManifestSha256", "authentication"],
+      "required": ["configured", "baseUrl", "transport", "transportHost", "model", "runtime", "quantization",
+                   "signingManifestSha256", "authentication"],
       "properties": {
         "configured": {"type": "boolean"},
         "baseUrl": {"type": ["string", "null"]},
+        "transport": {
+          "description": "http-cell-allowed: plain HTTP to the provisioned cloud cell host only (ruling canary-http-cell-2026-10-08).",
+          "enum": ["https", "http-loopback", "http-cell-allowed", null]
+        },
+        "transportHost": {"type": ["string", "null"]},
         "model": {"type": ["string", "null"]},
         "runtime": {"type": ["string", "null"]},
         "quantization": {"type": ["string", "null"]},

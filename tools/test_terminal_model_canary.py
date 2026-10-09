@@ -1270,3 +1270,64 @@ def test_model_journey_report_counts_only_attempts_bound_to_the_lock(tmp_path: P
     ):
         bad = report_tool.build(receipts, **args)
         assert bad["status"] == bad["cells"][0]["status"] == "fail" and reason in bad["why"], reason
+
+
+# ---- owner ruling canary-http-cell-2026-10-08: plain HTTP only to the provisioned cell host ---------
+CELL_HOST = "honuanecsr1-alb-123456.us-east-1.elb.amazonaws.com"
+
+
+def _http_endpoint(url, allow=None):
+    return replace(_endpoint(), base_url=url, allow_http_cell=allow)
+
+
+def test_http_is_admitted_for_exactly_the_provisioned_cell_host_and_recorded():
+    endpoint = _http_endpoint(f"http://{CELL_HOST}/api", allow=CELL_HOST.upper())
+    assert endpoint.transport() == ("http-cell-allowed", CELL_HOST)
+    assert endpoint.proxy_chat_url() == f"http://{CELL_HOST}/api/v1/studio/ai/chat"
+    builder = canary.build_receipt_builder(manifest_path=MANIFEST, journey_path=JOURNEY, protocol_path=PROTOCOL,
+                                           endpoint=endpoint, driver_command=None, lock_digest=LOCK,
+                                           cell="aws-ecs/redis-off")
+    receipt = builder.validated_receipt(_schema())
+    assert receipt["endpoint"]["transport"] == "http-cell-allowed"
+    assert receipt["endpoint"]["transportHost"] == CELL_HOST
+    assert list(Draft202012Validator(_schema()).iter_errors(
+        {**receipt, "endpoint": {**receipt["endpoint"], "transport": "http-anywhere"}}))
+
+
+@pytest.mark.parametrize("url,allow", [
+    (f"http://other-alb.us-east-1.elb.amazonaws.com/api", CELL_HOST),   # another host
+    (f"http://{CELL_HOST}.evil.example/api", CELL_HOST),                 # suffix trick
+    (f"http://{CELL_HOST}/api", None),                                   # no ruling flag
+    ("http://203.0.113.7/api", CELL_HOST),                               # bare IP
+])
+def test_http_to_any_other_non_loopback_host_is_still_refused(url, allow):
+    with pytest.raises(canary.CanaryError, match="loopback or the --allow-http-cell host"):
+        _http_endpoint(url, allow).validated_base_url()
+
+
+def test_allowed_cell_host_never_exempts_a_provider_endpoint():
+    bedrock = "bedrock-runtime.us-east-1.amazonaws.com"
+    with pytest.raises(canary.CanaryError, match="direct-provider"):
+        _http_endpoint(f"http://{bedrock}/api", allow=bedrock).proxy_chat_url()
+    with pytest.raises(canary.CanaryError, match="direct-provider"):
+        _http_endpoint(f"https://{CELL_HOST}/api", allow=CELL_HOST).proxy_chat_url()
+
+
+def test_loopback_and_https_transport_are_unchanged():
+    assert _http_endpoint("http://127.0.0.1:8137/api").transport() == ("http-loopback", "127.0.0.1")
+    assert _http_endpoint("http://localhost:8137/api", CELL_HOST).transport() == ("http-loopback", "localhost")
+    assert _http_endpoint("https://candidate.example/api").transport() == ("https", "candidate.example")
+
+
+def test_cli_passes_the_cell_host_into_the_receipt(tmp_path: Path, monkeypatch):
+    for name in ("TERMINAL_MODEL_NAME", "TERMINAL_MODEL_API_KEY"):
+        monkeypatch.delenv(name, raising=False)
+    out = tmp_path / "cell.json"
+    assert canary.main(["--output", str(out), "--base-url", f"http://{CELL_HOST}/api",
+                        "--allow-http-cell", CELL_HOST, "--cell", "aws-ecs/redis-off",
+                        "--lock-digest", LOCK]) == 1
+    receipt = json.loads(out.read_text(encoding="utf-8"))
+    assert (receipt["endpoint"]["transport"], receipt["endpoint"]["transportHost"]) == (
+        "http-cell-allowed", CELL_HOST)
+    assert canary.main(["--output", str(tmp_path / "refused.json"),
+                        "--base-url", f"http://{CELL_HOST}/api"]) == 2

@@ -84,6 +84,16 @@ rc.3 plan). The schema requires:
   after a model failure stays a model failure.
 - `completedAt` — when the attempt finished.
 
+Plain HTTP is accepted for loopback, and for exactly one other host: the cloud cell's own
+harness-provisioned load-balancer hostname, named with `--allow-http-cell <hostname>` (owner ruling
+`canary-http-cell-2026-10-08` in `docs/2026.1-release-decision-overrides.json`). The cell's
+application key is random per run and is destroyed with the cell. HTTPS on the cell is 2026.1.x
+hardening. Any other non-loopback HTTP host is still refused, and the exemption never covers a
+provider endpoint (only an `*.elb.amazonaws.com` host qualifies). The receipt records
+`endpoint.transport` (`https`, `http-loopback` or `http-cell-allowed`) and `endpoint.transportHost`,
+so promotion evidence states how the key travelled. `e2e/run_cloud.py --phase model-canary` passes
+the provisioned cell's host.
+
 The harness also refuses a run whose driver reports a different candidate endpoint (`baseUrl`) than
 the model proxy: a driver that composed a local stack cannot certify a cloud cell, or the reverse.
 

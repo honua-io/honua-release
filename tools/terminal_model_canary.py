@@ -267,6 +267,10 @@ class EndpointConfig:
     quantization: str | None
     require_api_key: bool = False
     signing_manifest_sha256: str | None = None
+    # Owner ruling canary-http-cell-2026-10-08: the ephemeral cloud cell's ALB hostname, the one
+    # non-loopback host plain HTTP may reach. Its per-run application key is random and dies with
+    # the cell; HTTPS on the cell is 2026.1.x hardening.
+    allow_http_cell: str | None = None
 
     @classmethod
     def from_environment(
@@ -280,6 +284,7 @@ class EndpointConfig:
         use_api_key: bool = True,
         require_api_key: bool = False,
         signing_manifest_sha256: str | None = None,
+        allow_http_cell: str | None = None,
     ) -> "EndpointConfig":
         return cls(
             base_url=(base_url if base_url is not None else os.getenv("TERMINAL_MODEL_BASE_URL")) or None,
@@ -300,6 +305,7 @@ class EndpointConfig:
                 else os.getenv("TERMINAL_MODEL_SIGNING_MANIFEST_SHA256")
             )
             or None,
+            allow_http_cell=allow_http_cell or None,
         )
 
     @property
@@ -317,7 +323,9 @@ class EndpointConfig:
             missing.append("TERMINAL_MODEL_SIGNING_MANIFEST_SHA256")
         return missing
 
-    def validated_base_url(self) -> str:
+    def transport(self) -> tuple[str, str]:
+        """Classify the endpoint transport: https, http-loopback, or http-cell-allowed (the one
+        harness-provisioned cell host the owner ruling admits). Anything else is refused."""
         if not self.base_url:
             raise CanaryError("model endpoint base URL is absent")
         parsed = urllib.parse.urlsplit(self.base_url)
@@ -325,28 +333,45 @@ class EndpointConfig:
             raise CanaryError("model endpoint must be an absolute http(s) URL")
         if parsed.username or parsed.password or parsed.query or parsed.fragment:
             raise CanaryError("model endpoint URL must not contain credentials, query parameters, or fragments")
+        host = (parsed.hostname or "").lower().rstrip(".")
+        if parsed.scheme == "https":
+            return "https", host
         try:
-            loopback = ipaddress.ip_address(parsed.hostname or "").is_loopback
+            loopback = ipaddress.ip_address(host).is_loopback
         except ValueError:
-            loopback = parsed.hostname == "localhost"
-        if parsed.scheme == "http" and not loopback:
-            raise CanaryError("candidate HTTP endpoint must use loopback")
+            loopback = host == "localhost"
+        if loopback:
+            return "http-loopback", host
+        allowed = (self.allow_http_cell or "").strip().lower().rstrip(".")
+        if allowed and host == allowed:
+            return "http-cell-allowed", host
+        raise CanaryError("candidate HTTP endpoint must use loopback or the --allow-http-cell host")
+
+    def validated_base_url(self) -> str:
+        self.transport()
+        parsed = urllib.parse.urlsplit(self.base_url or "")
         return urllib.parse.urlunsplit((parsed.scheme, parsed.netloc, parsed.path.rstrip("/"), "", ""))
 
     def proxy_chat_url(self) -> str:
         base = self.validated_base_url()
-        host = (urllib.parse.urlsplit(base).hostname or "").lower().rstrip(".")
+        transport, host = self.transport()
+        # The admitted cell host is the harness's own load balancer in front of the candidate, never a
+        # provider endpoint: only an ELB hostname may carry the exemption from the AWS-domain refusal.
+        cell_alb = transport == "http-cell-allowed" and host.endswith(".elb.amazonaws.com")
         if ("/chat/completions" in base or base.rstrip("/").endswith("/v1")
-                or any(host == domain or host.endswith("." + domain)
-                       for domain in ("amazonaws.com", "anthropic.com", "openai.com"))):
+                or (not cell_alb and any(host == domain or host.endswith("." + domain)
+                                         for domain in ("amazonaws.com", "anthropic.com", "openai.com")))):
             raise CanaryError("direct-provider and OpenAI-compatible URLs are non-certifying")
         return base if base.endswith("/v1/studio/ai/chat") else f"{base}/v1/studio/ai/chat"
 
     def evidence(self) -> dict[str, Any]:
         base_url = self.validated_base_url() if self.base_url else None
+        transport, host = self.transport() if self.base_url else (None, None)
         return {
             "configured": self.configured,
             "baseUrl": base_url,
+            "transport": transport,
+            "transportHost": host,
             "model": self.model,
             "runtime": self.runtime,
             "quantization": self.quantization,
@@ -1423,6 +1448,9 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--lock", type=Path, help="platform-lock.json whose bytes must hash to --lock-digest")
     parser.add_argument("--cell", choices=CELLS, default="local-docker")
     parser.add_argument("--attempt", type=int, choices=(1, 2), default=1)
+    parser.add_argument("--allow-http-cell", metavar="HOSTNAME",
+                        help="the provisioned cloud cell's ALB hostname; plain HTTP is admitted for exactly "
+                             "this host (owner ruling canary-http-cell-2026-10-08)")
     args = parser.parse_args(argv)
     if args.max_actions_per_stage <= 0:
         parser.error("--max-actions-per-stage must be positive")
@@ -1440,6 +1468,7 @@ def main(argv: list[str] | None = None) -> int:
         use_api_key=not args.no_api_key,
         require_api_key=args.require_api_key,
         signing_manifest_sha256=args.signing_manifest_sha256,
+        allow_http_cell=args.allow_http_cell,
     )
     try:
         builder = build_receipt_builder(

@@ -3007,6 +3007,8 @@ def test_model_canary_binds_each_attempt_to_the_lock_and_reports_the_nightly_row
         assert argv[argv.index("--lock-digest") + 1] == LOCK
         assert argv[argv.index("--cell") + 1] == "aws-ecs/redis-off"
         assert argv[argv.index("--base-url") + 1] == "https://cell.example/api"
+        # Owner ruling canary-http-cell-2026-10-08: only this cell's own host may use plain HTTP.
+        assert argv[argv.index("--allow-http-cell") + 1] == "cell.example"
         assert argv[argv.index("--deterministic-receipt") + 1].endswith("receipt-1.json")
         assert env["TERMINAL_MODEL_API_KEY"] == "cell-key" and "cell-key" not in argv
         row = report["cells"][0]
