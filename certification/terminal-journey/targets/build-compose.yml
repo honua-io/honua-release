@@ -35,6 +35,25 @@ services:
       Oidc__Generic__Authority: "https://terminal-journey.invalid"
       Oidc__Generic__ClientId: "terminal-journey"
       Oidc__TokenValidation__SymmetricSigningKey: "${HONUA_JOURNEY_SIGNING_KEY:?fixture must mint an ephemeral signing key}"
+      # Genuine-model canary (fix unit J3). Off unless terminal-model-canary.yml sets
+      # HONUA_CANARY_STUDIO_AI_ENABLED; the deterministic journey leaves every value at its default.
+      # Names follow honua-server StudioAiProxyConfiguration (StudioAiProxy:*).
+      StudioAiProxy__Enabled: "${HONUA_CANARY_STUDIO_AI_ENABLED:-false}"
+      StudioAiProxy__DefaultProvider: bedrock
+      StudioAiProxy__Providers__bedrock__Kind: bedrock
+      StudioAiProxy__Providers__bedrock__Model: "${HONUA_CANARY_BEDROCK_MODEL:-us.anthropic.claude-sonnet-4-5-20250929-v1:0}"
+      StudioAiProxy__Providers__bedrock__Region: "${HONUA_CANARY_BEDROCK_REGION:-us-east-1}"
+      # Transcript signing: a key id plus a secret reference to a base64 Ed25519 seed, never the seed
+      # itself in configuration. The seed comes from the TERMINAL_MODEL_TRANSCRIPT_SIGNING_SEED secret.
+      StudioAiProxy__TranscriptSigning__KeyId: "${HONUA_CANARY_TRANSCRIPT_KEY_ID:-}"
+      StudioAiProxy__TranscriptSigning__PrivateKeyReference: "${HONUA_CANARY_TRANSCRIPT_KEY_REFERENCE:-}"
+      HONUA_CANARY_TRANSCRIPT_SIGNING_SEED: "${HONUA_CANARY_TRANSCRIPT_SIGNING_SEED:-}"
+      # Short-lived OIDC session credentials for the Bedrock-enabled role, passed under non-ambient
+      # names by the canary job. Empty for the deterministic journey.
+      AWS_REGION: "${HONUA_CANARY_BEDROCK_REGION:-us-east-1}"
+      AWS_ACCESS_KEY_ID: "${HONUA_CANARY_AWS_ACCESS_KEY_ID:-}"
+      AWS_SECRET_ACCESS_KEY: "${HONUA_CANARY_AWS_SECRET_ACCESS_KEY:-}"
+      AWS_SESSION_TOKEN: "${HONUA_CANARY_AWS_SESSION_TOKEN:-}"
     depends_on:
       redis:
         condition: service_healthy

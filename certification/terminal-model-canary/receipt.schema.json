@@ -9,7 +9,13 @@
     "receiptSchema",
     "evidenceKey",
     "generatedAt",
+    "completedAt",
     "status",
+    "mode",
+    "cell",
+    "attempt",
+    "lockDigest",
+    "failureAttribution",
     "scope",
     "journeyContract",
     "candidate",
@@ -30,7 +36,23 @@
     "receiptSchema": {"const": "terminal-model-canary-receipt-v1"},
     "evidenceKey": {"const": "release.e2e.terminal-model-canary"},
     "generatedAt": {"type": "string", "format": "date-time"},
+    "completedAt": {
+      "description": "When the attempt finished; promotion orders and windows attempts by it.",
+      "type": "string",
+      "format": "date-time"
+    },
     "status": {"enum": ["pass", "fail", "blocked", "skipped"]},
+    "mode": {"const": "genuine-model"},
+    "cell": {"enum": ["local-docker", "aws-ecs/redis-off"]},
+    "attempt": {"enum": [1, 2]},
+    "lockDigest": {
+      "description": "sha256 of the exact platform-lock.json bytes under certification; a pass requires it.",
+      "anyOf": [{"type": "string", "pattern": "^sha256:[0-9a-f]{64}$"}, {"type": "null"}]
+    },
+    "failureAttribution": {
+      "description": "Where an attempt that did not pass failed; null exactly when it passed.",
+      "enum": ["model", "infrastructure", null]
+    },
     "scope": {
       "type": "object",
       "additionalProperties": false,
@@ -298,6 +320,9 @@
       }
     }
   },
+  "if": {"required": ["status"], "properties": {"status": {"const": "pass"}}},
+  "then": {"properties": {"lockDigest": {"type": "string"}, "failureAttribution": {"const": null}}},
+  "else": {"properties": {"failureAttribution": {"enum": ["model", "infrastructure"]}}},
   "$defs": {
     "payloadSummary": {
       "description": "Digest of the redacted payload; arbitrary model/tool content is never retained.",

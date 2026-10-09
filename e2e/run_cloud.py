@@ -787,6 +787,89 @@ def _phase_journey(args) -> int:
     return 1 if journey.get("status") == "fail" else 0
 
 
+# The nightly genuine-model cell (check_promotion_readiness.JOURNEYS["nightly-model-journey"]).
+MODEL_CANARY_CELL = "aws-ecs/redis-off"
+MODEL_JOURNEY_DIR = "model-journey"
+
+
+def _passing_deterministic_receipt(cell_directory: Path) -> Path | None:
+    """The cell journey's passing receipt from this job, which the canary protocol requires."""
+    journey = _read_json(cell_directory / JOURNEY_NAME) or {}
+    for record in reversed(journey.get("journeyAttempts") or []):
+        path = E2E_DIR / str(record.get("receipt", ""))
+        receipt = _read_json(path) if path.is_file() else None
+        if receipt and receipt.get("status") == "pass":
+            return path
+    return None
+
+
+def model_canary_phase(state: dict, *, admin_key: str, lock_digest: str, run=subprocess.run,
+                       max_attempts: int = 2) -> dict:
+    """Credential-free: run the genuine-model canary on the cell after its deterministic journey.
+
+    Every attempt is bound to the lock digest under certification and chained to this job's passing
+    deterministic receipt. The cell's application key reaches the harness only through the
+    environment of its own process. The result is the journey row the nightly mint retains as
+    promotion-receipts/nightly-model-journey (tools/model_journey_report.py).
+    """
+    import model_journey_report  # noqa: PLC0415 (tools/ is added to sys.path by the caller)
+
+    cell = state["cell"]
+    directory = cloud_journey.cell_dir(cell)
+    out = directory / MODEL_JOURNEY_DIR
+    out.mkdir(parents=True, exist_ok=True)
+    run_id, run_attempt = _run_identity()
+    receipts: list[Path] = []
+    why = None
+    if cell != MODEL_CANARY_CELL:
+        why = f"{cell} is not the genuine-model cell ({MODEL_CANARY_CELL})"
+    elif not state.get("endpoint") or not admin_key:
+        why = "the cell has no endpoint or application key for the canary"
+    deterministic = _passing_deterministic_receipt(directory) if why is None else None
+    if why is None and deterministic is None:
+        why = "the cell's deterministic journey did not pass in this job; the canary is refused"
+    if why is None:
+        env = {**os.environ, "TERMINAL_MODEL_API_KEY": admin_key}
+        for number in range(1, max_attempts + 1):
+            output = out / f"model-canary-{number}.json"
+            argv = [sys.executable, str(E2E_DIR.parent / "tools" / "terminal_model_canary.py"),
+                    "--base-url", str(state["endpoint"]).rstrip("/") + "/api",
+                    "--require-api-key", "--cell", cell, "--attempt", str(number),
+                    "--lock-digest", lock_digest,
+                    "--deterministic-receipt", str(deterministic.relative_to(E2E_DIR.parent)),
+                    "--output", str(output)]
+            completed = run(argv, env=env, cwd=E2E_DIR.parent, check=False)
+            if not output.is_file():
+                why = f"canary harness refused the cell before writing attempt {number} (exit {completed.returncode})"
+                break
+            receipts.append(output)
+            if completed.returncode == 0:
+                break
+    report = model_journey_report.build(receipts, cell=MODEL_CANARY_CELL, lock_digest=lock_digest,
+                                        candidate_digest=cloud_journey.candidate_digest(),
+                                        run_id=run_id, run_attempt=run_attempt)
+    if why is not None:
+        report["cells"][0]["why"] = report["why"] = why
+        report["cells"][0]["status"] = report["status"] = report["overallStatus"] = "fail"
+    _write_json(out / "gate-report-journey.json", report)
+    return report
+
+
+def _phase_model_canary(args) -> int:
+    sys.path.insert(0, str(E2E_DIR.parent / "tools"))
+    cell = _cell(args.target, args.redis)
+    state = _read_json(cloud_journey.cell_dir(cell) / HANDOFF_NAME) or {"cell": cell}
+    try:
+        admin_key = open_key(args.sealed_key, args.private_key)
+    except Exception:
+        admin_key = ""
+    report = model_canary_phase(state, admin_key=admin_key, lock_digest=args.lock_digest,
+                                max_attempts=args.max_attempts)
+    print(f"== cloud-model-canary :: {cell} -> {report['status'].upper()} ==")
+    print(f"   {report['why']}")
+    return 0 if report["status"] == "pass" else 1
+
+
 def _phase_admit(args) -> int:
     cell = _cell(args.target, args.redis)
     state = _read_json(cloud_journey.cell_dir(cell) / HANDOFF_NAME)
@@ -898,8 +981,8 @@ def _phase_teardown(args) -> int:
 
 def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument("--phase", choices=("all", "provision", "seal-state", "journey", "deliver-key",
-                                        "admit", "open-state", "diagnose", "teardown"), default="all",
+    ap.add_argument("--phase", choices=("all", "provision", "seal-state", "journey", "model-canary",
+                                        "deliver-key", "admit", "open-state", "diagnose", "teardown"), default="all",
                     help="CI runs provision, journey and teardown as separate jobs (honua-release#381)")
     ap.add_argument("--bundle", type=Path, help="sealed Terraform state (seal-state / open-state)")
     ap.add_argument("--cidr", help="the journey runner's IPv4 /32 (admit)")
@@ -910,6 +993,7 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--sealed-key", type=Path,
                     help="the application key sealed to the journey runner (deliver-key writes, journey reads)")
     ap.add_argument("--max-attempts", type=int, choices=(1, 2), default=2)
+    ap.add_argument("--lock-digest", help="sha256:<hex> of the platform lock the genuine-model canary binds to")
     ap.add_argument("--cost-ceiling-usd", default=os.environ.get("HONUA_CLOUD_COST_CEILING_USD", "20"))
     ap.add_argument("--cost-report", type=Path)
     ap.add_argument("--target", default="aws-serverless", choices=sorted(REGISTRY))
@@ -921,6 +1005,7 @@ def main(argv: list[str] | None = None) -> int:
                     help="a reference (local-docker) endpoint to assert parity against")
     args = ap.parse_args(argv)
     phases = {"provision": _phase_provision, "seal-state": _phase_seal, "journey": _phase_journey,
+              "model-canary": _phase_model_canary,
               "deliver-key": _phase_deliver_key, "admit": _phase_admit, "open-state": _phase_open,
               "diagnose": _phase_diagnose, "teardown": _phase_teardown}
     if args.phase in phases:
@@ -932,6 +1017,8 @@ def main(argv: list[str] | None = None) -> int:
             ap.error("--phase deliver-key requires --public-key and --sealed-key")
         if args.phase == "journey" and bool(args.sealed_key) != bool(args.private_key):
             ap.error("--sealed-key and --private-key go together")
+        if args.phase == "model-canary" and not (args.sealed_key and args.private_key and args.lock_digest):
+            ap.error("--phase model-canary requires --sealed-key, --private-key and --lock-digest")
         return phases[args.phase](args)
 
     report = run(args.target, args.require_real, args.reference_endpoint, redis_enabled=(args.redis == "on"),

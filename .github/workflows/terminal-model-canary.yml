@@ -1,27 +1,60 @@
+# Genuine-model terminal canary (honua-release#161, fix unit J3 of the 2026.1 rc.3 plan).
+#
+# Claude on Bedrock drives the imported #123 journey only through the candidate server's signed
+# StudioAi proxy. Every receipt is one attempt on one cell, bound to the platform-lock digest it ran
+# against, and attributes a failure to the model or to infrastructure.
+#
+#   schedule / dispatch target=local-docker  -> the deterministic #123 journey, then the canary, in one
+#                                               job on the candidate compose stack (Bedrock via OIDC)
+#   dispatch / call target=aws-ecs/redis-off -> e2e-cloud-aws on the ECS Redis-off cell with Bedrock
+#                                               enabled; the cell's journey job runs the canary after
+#                                               the cell journey (e2e/run_cloud.py --phase model-canary)
+#   dispatch target=endpoint                 -> the original harness against an operator-named endpoint
+#
+# The nightly train runs the ECS Redis-off canary inside its own cloud cell (release-train.yml
+# gate_cloud_parity with genuine_model_bedrock), because the cell's ingress admits only that run's journey
+# runner and its artifact names are per run; its row becomes promotion-receipts/nightly-model-journey.
 name: Terminal model canary harness
 
 on:
+  schedule:
+    # 08:45 UTC: after the nightly deterministic local-docker (07:00) and cloud (07:17) journeys.
+    # The schedule supplies no inputs and runs the local-docker canary on the latest minted lock.
+    - cron: "45 8 * * *"
   workflow_dispatch:
     inputs:
-      runner:
-        description: Hosted runner for a reachable hosted endpoint, or self-hosted for a local endpoint
+      target:
+        description: Cell to run, or endpoint for an operator-named candidate endpoint
         required: true
+        type: choice
+        default: local-docker
+        options:
+          - local-docker
+          - aws-ecs/redis-off
+          - endpoint
+      lock_digest:
+        description: sha256:<hex> of the platform lock under certification; empty binds the latest minted nightly lock
+        required: false
+        type: string
+      runner:
+        description: (endpoint) Hosted runner for a reachable hosted endpoint, or self-hosted for a local endpoint
+        required: false
         type: choice
         default: ubuntu-latest
         options:
           - ubuntu-latest
           - self-hosted
       base_url:
-        description: Candidate Honua API base URL; direct provider URLs and empty values fail certification
+        description: (endpoint) Candidate Honua API base URL; direct provider URLs and empty values fail certification
         required: false
         type: string
       model:
-        description: Endpoint model identifier; empty uses the repository variable and otherwise records a skip
+        description: Endpoint model identifier; empty uses the repository variable or the Sonnet 4.5 profile
         required: false
         type: string
       authentication:
-        description: Use none for local endpoints or bearer for the hosted key secret
-        required: true
+        description: (endpoint) Use none for local endpoints or bearer for the hosted key secret
+        required: false
         type: choice
         default: none
         options:
@@ -36,19 +69,45 @@ on:
         required: false
         type: string
       deterministic_receipt:
-        description: Repository-local path to the green #123 receipt for this exact candidate
+        description: (endpoint) Repository-local path to the green #123 receipt for this exact candidate
         required: false
         type: string
       inject_stage:
         description: Optional #123 journey stage ID; defaults to the fourth imported stage
         required: false
         type: string
+  workflow_call:
+    inputs:
+      target:
+        description: local-docker | aws-ecs/redis-off
+        required: true
+        type: string
+      lock_digest:
+        description: sha256:<hex> of the exact platform-lock.json under certification
+        required: true
+        type: string
+      candidate_ref:
+        description: Nightly candidate snapshot to certify instead of the checkout's manifest
+        required: false
+        type: string
+        default: ""
+    secrets:
+      RELEASE_GH_TOKEN:
+        required: false
+      TERMINAL_MODEL_TRANSCRIPT_SIGNING_SEED:
+        required: false
 
 permissions:
   contents: read
 
+env:
+  # Claude Sonnet 4.5 cross-region inference profile: the honua-iac bedrock_ai_model default.
+  TERMINAL_MODEL_DEFAULT: us.anthropic.claude-sonnet-4-5-20250929-v1:0
+  TERMINAL_MODEL_BEDROCK_REGION: us-east-1
+
 jobs:
   harness:
+    if: github.event_name == 'workflow_dispatch' && inputs.target == 'endpoint'
     runs-on: ${{ inputs.runner }}
     timeout-minutes: 90
     env:
@@ -72,6 +131,7 @@ jobs:
           DETERMINISTIC_RECEIPT: ${{ inputs.deterministic_receipt }}
           INJECT_STAGE: ${{ inputs.inject_stage }}
           MODEL_AUTHENTICATION: ${{ inputs.authentication }}
+          LOCK_DIGEST: ${{ inputs.lock_digest }}
         run: |
           args=(
             --manifest platform-manifest.yaml
@@ -82,6 +142,7 @@ jobs:
           )
           [ -n "$DETERMINISTIC_RECEIPT" ] && args+=(--deterministic-receipt "$DETERMINISTIC_RECEIPT")
           [ -n "$INJECT_STAGE" ] && args+=(--inject-stage "$INJECT_STAGE")
+          [ -n "$LOCK_DIGEST" ] && args+=(--lock-digest "$LOCK_DIGEST")
           if [ "$MODEL_AUTHENTICATION" = "bearer" ]; then
             args+=(--require-api-key)
           else
@@ -95,3 +156,162 @@ jobs:
           name: terminal-model-canary-harness-receipt
           path: artifacts/terminal-model-canary-receipt.json
           if-no-files-found: error
+
+  # ── local-docker: deterministic #123 journey, then the genuine-model canary, in this one job ───────
+  local-docker:
+    if: github.event_name == 'schedule' || inputs.target == 'local-docker'
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    permissions:
+      contents: read
+      id-token: write                 # OIDC -> the Bedrock-enabled role; no static AWS keys
+    env:
+      TERMINAL_MODEL_NAME: ${{ inputs.model || vars.TERMINAL_MODEL_NAME || 'us.anthropic.claude-sonnet-4-5-20250929-v1:0' }}
+      TERMINAL_MODEL_RUNTIME: ${{ inputs.runtime || 'aws-bedrock' }}
+      TERMINAL_MODEL_QUANTIZATION: ${{ inputs.quantization || 'provider-managed' }}
+      # Trust anchor: SHA-256 of the canonical transcript-signing manifest the candidate publishes
+      # for the key below. Platform-controlled, never discovered from the candidate.
+      TERMINAL_MODEL_SIGNING_MANIFEST_SHA256: ${{ vars.TERMINAL_MODEL_SIGNING_MANIFEST_SHA256 }}
+      # targets/build-compose.yml routes the candidate's StudioAiProxy to Bedrock from these.
+      HONUA_CANARY_STUDIO_AI_ENABLED: "true"
+      HONUA_CANARY_BEDROCK_MODEL: ${{ inputs.model || vars.TERMINAL_MODEL_NAME || 'us.anthropic.claude-sonnet-4-5-20250929-v1:0' }}
+      HONUA_CANARY_BEDROCK_REGION: us-east-1
+      HONUA_CANARY_TRANSCRIPT_KEY_ID: terminal-model-canary
+      HONUA_CANARY_TRANSCRIPT_KEY_REFERENCE: env://HONUA_CANARY_TRANSCRIPT_SIGNING_SEED
+      HONUA_CANARY_TRANSCRIPT_SIGNING_SEED: ${{ secrets.TERMINAL_MODEL_TRANSCRIPT_SIGNING_SEED }}
+      GH_TOKEN: ${{ secrets.RELEASE_GH_TOKEN || github.token }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+      - name: Use the immutable candidate inputs
+        if: ${{ inputs.candidate_ref }}
+        uses: ./.github/actions/candidate-input
+        with:
+          candidate_ref: ${{ inputs.candidate_ref }}
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.12"
+      - uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68 # v6.0.0
+        with:
+          dotnet-version: "10.0.x"
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: "22"
+      - name: Install harness dependencies
+        run: python -m pip install "pyyaml>=6.0" "jsonschema>=4.23" "cryptography>=45.0"
+
+      # The receipt counts only for the lock it names. A caller passes the lock it is certifying; a
+      # scheduled or unbound dispatch binds the latest minted nightly lock and certifies its manifest.
+      - name: Select the platform lock under certification
+        id: lock
+        env:
+          LOCK_DIGEST: ${{ inputs.lock_digest }}
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/lock"
+          if [ -n "$LOCK_DIGEST" ]; then
+            [[ "$LOCK_DIGEST" =~ ^sha256:[0-9a-f]{64}$ ]] || { echo "::error::lock_digest must be sha256:<hex>"; exit 1; }
+            echo "digest=$LOCK_DIGEST" >> "$GITHUB_OUTPUT"
+            echo "path=" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          git fetch --no-tags origin '+refs/tags/nightly-lock/*:refs/tags/nightly-lock/*'
+          tag="$(git tag -l 'nightly-lock/*' --sort=-v:refname | head -n 1)"
+          [ -n "$tag" ] || { echo "::error::no minted nightly lock to bind the canary to"; exit 1; }
+          git show "${tag}:platform-lock.json" > "$RUNNER_TEMP/lock/platform-lock.json"
+          git show "${tag}:platform-manifest.yaml" > platform-manifest.yaml
+          echo "binding ${tag}"
+          echo "digest=sha256:$(sha256sum "$RUNNER_TEMP/lock/platform-lock.json" | cut -d' ' -f1)" >> "$GITHUB_OUTPUT"
+          echo "path=$RUNNER_TEMP/lock/platform-lock.json" >> "$GITHUB_OUTPUT"
+
+      # Protocol: the canary requires a green deterministic receipt for this exact candidate from
+      # within 24 hours. It is produced here, in the same job, before any AWS credential exists.
+      - name: "Run the deterministic #123 journey on the candidate stack"
+        id: deterministic
+        run: |
+          set -uo pipefail
+          python certification/terminal-journey/run.py --mode live \
+            --target certification/terminal-journey/targets/local-docker.json \
+            --workdir "$RUNNER_TEMP/terminal-journey" \
+            --output artifacts/terminal-journey-receipt.json \
+            --evidence-uri "${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}"
+          echo "exit=$?" >> "$GITHUB_OUTPUT"
+
+      # Credentials go to the candidate server container only, under non-ambient names that
+      # targets/build-compose.yml maps to AWS_*; no AWS_* variable enters this job's environment.
+      - name: Assume the Bedrock-enabled role (OIDC)
+        id: aws
+        if: ${{ vars.HONUA_AWS_ROLE_ARN != '' }}
+        uses: aws-actions/configure-aws-credentials@e1253824e5c10ff9df46874f81ed3ec929e19cfd # v6.3.0
+        with:
+          role-to-assume: ${{ vars.HONUA_AWS_ROLE_ARN }}
+          aws-region: us-east-1
+          output-credentials: true
+          output-env-credentials: false
+
+      - name: Run the genuine-model canary (Claude on Bedrock via the candidate proxy)
+        id: canary
+        env:
+          HONUA_CANARY_AWS_ACCESS_KEY_ID: ${{ steps.aws.outputs.aws-access-key-id }}
+          HONUA_CANARY_AWS_SECRET_ACCESS_KEY: ${{ steps.aws.outputs.aws-secret-access-key }}
+          HONUA_CANARY_AWS_SESSION_TOKEN: ${{ steps.aws.outputs.aws-session-token }}
+          LOCK_DIGEST: ${{ steps.lock.outputs.digest }}
+          LOCK_PATH: ${{ steps.lock.outputs.path }}
+          INJECT_STAGE: ${{ inputs.inject_stage }}
+        run: |
+          set -uo pipefail
+          args=(
+            --manifest platform-manifest.yaml
+            --journey certification/terminal-journey/journey.v1.json
+            --driver-protocol certification/terminal-model-canary/driver-protocol.v1.json
+            --receipt-schema certification/terminal-model-canary/receipt.schema.json
+            --base-url "http://127.0.0.1:8137/api"
+            --no-api-key
+            --cell local-docker
+            --attempt 1
+            --lock-digest "$LOCK_DIGEST"
+            --output artifacts/terminal-model-canary-receipt.json
+          )
+          [ -n "$LOCK_PATH" ] && args+=(--lock "$LOCK_PATH")
+          [ -n "${INJECT_STAGE:-}" ] && args+=(--inject-stage "$INJECT_STAGE")
+          # A red deterministic run leaves no green receipt: the canary is then refused (blocked).
+          [ -f artifacts/terminal-journey-receipt.json ] && \
+            args+=(--deterministic-receipt artifacts/terminal-journey-receipt.json)
+          python tools/terminal_model_canary.py "${args[@]}"
+      - name: Upload the deterministic and canary receipts
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: terminal-model-canary-local-docker-${{ github.run_attempt }}
+          path: |
+            artifacts/terminal-journey-receipt.json
+            artifacts/terminal-model-canary-receipt.json
+          if-no-files-found: warn
+
+  # ── aws-ecs/redis-off: the ECS Redis-off cell with Bedrock, canary after the cell journey ──────────
+  # A cloud cell certifies the candidate it deploys, so it binds only a lock named by its caller.
+  cloud-lock-required:
+    if: github.event_name != 'schedule' && inputs.target == 'aws-ecs/redis-off' && inputs.lock_digest == ''
+    runs-on: ubuntu-latest
+    steps:
+      - run: |
+          echo "::error::the aws-ecs/redis-off canary needs lock_digest (sha256:<hex> of the lock its candidate pins)"
+          exit 1
+
+  aws-ecs:
+    if: github.event_name != 'schedule' && inputs.target == 'aws-ecs/redis-off' && inputs.lock_digest != ''
+    permissions:
+      contents: read
+      actions: write                  # e2e-cloud-aws's top-level scope (iac-live dispatch)
+      id-token: write                 # OIDC -> AWS for provision / admit / teardown only
+    uses: ./.github/workflows/e2e-cloud-aws.yml
+    with:
+      candidate_ref: ${{ inputs.candidate_ref || '' }}
+      require_real: true
+      target: aws-ecs
+      redis_mode: "off"
+      run_iac_live: false
+      genuine_model_bedrock: true
+      lock_digest: ${{ inputs.lock_digest }}
+    secrets: inherit

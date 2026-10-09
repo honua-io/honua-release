@@ -40,6 +40,9 @@ on:
       dr_receipt_url: { required: true, type: string }
       candidate_ref: { required: false, type: string, default: "" }
       nightly: { required: false, type: boolean, default: false }
+      # Nightly only (fix unit J3): Bedrock on the ECS Redis-off cell and the genuine-model canary
+      # after its journey, bound to the qualification lock; its row is the nightly-model-journey class.
+      genuine_model: { required: false, type: boolean, default: false }
 
 concurrency:
   group: release-train          # never two cuts at once
@@ -83,6 +86,7 @@ jobs:
       certification_sha256: ${{ steps.candidate.outputs.certification_sha256 }}
       candidate_cut_at: ${{ steps.candidate.outputs.candidate_cut_at }}
       manifest_sha256: ${{ steps.candidate.outputs.manifest_sha256 }}
+      lock_digest: ${{ steps.candidate.outputs.lock_digest }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
@@ -195,6 +199,10 @@ jobs:
           print(f"candidate_cut_at={certification['candidateCutAt']}")
           PY
           echo "manifest_sha256=$(sha256sum platform-manifest.yaml | cut -d' ' -f1)" >> "$GITHUB_OUTPUT"
+          # The lock the gates qualify; mint_nightly_lock binds every nightly receipt to these bytes.
+          if [ -f frozen-lock/platform-lock.json ]; then
+            echo "lock_digest=sha256:$(sha256sum frozen-lock/platform-lock.json | cut -d' ' -f1)" >> "$GITHUB_OUTPUT"
+          fi
       # attest-build-provenance signs whatever bytes are at this path; it does not care whether the
       # lock is a real bound candidate or the labelled dry-run draft above, so this runs for both -
       # it's how rollback-certification's `gh attestation verify` gets a real, checkable subject
@@ -271,7 +279,7 @@ jobs:
     secrets: inherit           # RELEASE_GH_TOKEN for the private frozen-SDK source checkouts
 
   gate_cloud_parity:           # e) Slice-2 cloud CERT — wraps honua-iac terraform-manual-validation (run_live)
-    needs: gate_e2e            #    + asserts MCP/Studio/GP/demo scenarios. Self-skips (cloud-creds-unset).
+    needs: [freeze, gate_e2e]  #    + asserts MCP/Studio/GP/demo scenarios. Self-skips (cloud-creds-unset).
     uses: ./.github/workflows/e2e-cloud-aws.yml
     with:
       candidate_ref: ${{ inputs.candidate_ref }}
@@ -279,6 +287,10 @@ jobs:
       # FAIL. When cloud/OIDC creds are unset the whole tier SELF-SKIPS (status: skipped) so a local cut
       # is not reddened — but it is ready to enforce per-RC once HONUA_AWS_ROLE_ARN is wired.
       require_real: ${{ !inputs.dry_run }}
+      # The nightly's genuine-model canary runs in this ECS Redis-off cell after its journey (the
+      # cell admits only this run's journey runner, so a second workflow cannot reach it).
+      genuine_model_bedrock: ${{ inputs.nightly && inputs.genuine_model }}
+      lock_digest: ${{ needs.freeze.outputs.lock_digest }}
     secrets: inherit            # RELEASE_GH_TOKEN for the honua-iac dispatch wrapper + cross-repo checkout
 
   gate_conformance:            # c) cross-repo conformance (real, not false-pass; closes mcp#25, esri-compat#25)

@@ -41,6 +41,10 @@ on:
         description: "Enable Bedrock on the aws-ecs/redis-off cell for the genuine-model journey (billed tokens)"
         type: boolean
         default: false
+      lock_digest:
+        description: "sha256:<hex> of the platform lock the genuine-model canary binds to (required with genuine_model_bedrock)"
+        type: string
+        default: ""
   workflow_call:
     inputs:
       candidate_ref: { required: false, type: string, default: "" }
@@ -63,6 +67,10 @@ on:
       genuine_model_bedrock:
         type: boolean
         default: false
+      # Fix unit J3: the genuine-model canary runs on the Bedrock cell after its journey, bound to this lock.
+      lock_digest:
+        type: string
+        default: ""
     secrets:
       RELEASE_GH_TOKEN:
         required: false
@@ -361,6 +369,7 @@ jobs:
       gp_batch_image: ${{ needs.candidate.outputs.gp_batch_image }}
       # Bedrock is billed: only the genuine-model cell (ECS, Redis off), only when asked for.
       enable_bedrock: ${{ (inputs.genuine_model_bedrock || false) && matrix.target == 'aws-ecs' && matrix.redis == 'off' }}
+      lock_digest: ${{ inputs.lock_digest || '' }}
     secrets:
       RELEASE_GH_TOKEN: ${{ secrets.RELEASE_GH_TOKEN }}
 

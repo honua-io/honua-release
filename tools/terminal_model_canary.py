@@ -3,6 +3,11 @@
 
 The live journey adapter is owned by honua-release#123. Until that adapter is available, this tool
 emits an honest skipped/blocked receipt and cannot claim model execution.
+
+Every receipt is one attempt of the `genuine-model` journey on one cell, bound to the exact
+platform-lock digest under certification. A receipt that does not pass names whether the model or
+the infrastructure (driver, candidate proxy, provider, configuration) failed; promotion reads that
+attribution from the attempt ledger (tools/check_promotion_readiness.py).
 """
 from __future__ import annotations
 
@@ -42,6 +47,13 @@ MODEL_SELECTED = "MODEL_SELECTED"
 HARNESS_DRIVEN = "HARNESS_DRIVEN"
 MODEL_ACTION_KINDS = frozenset({"terminal_command", "tool_call"})
 HARNESS_ACTION_KINDS = frozenset({"setup", "error_injection", "approval", "verification", "teardown"})
+JOURNEY_MODE = "genuine-model"
+# Cells the genuine-model journey runs on: the local Docker venue and the nightly ECS Redis-off cell
+# that promotion requires (check_promotion_readiness.JOURNEYS["nightly-model-journey"]).
+CELLS = ("local-docker", "aws-ecs/redis-off")
+LOCK_DIGEST = re.compile(r"sha256:[0-9a-f]{64}")
+MODEL = "model"
+INFRASTRUCTURE = "infrastructure"
 ASSERTION_NAMES = (
     "toolProfilePresent",
     "evidenceFresh",
@@ -58,7 +70,25 @@ ASSERTION_NAMES = (
 
 
 class CanaryError(RuntimeError):
-    """Raised when the harness cannot produce trustworthy canary evidence."""
+    """Raised when the harness cannot produce trustworthy canary evidence.
+
+    Unless raised as ModelFailure, the failure is attributed to infrastructure: the driver,
+    the candidate proxy or provider, the configuration, or the evidence chain.
+    """
+
+
+class ModelFailure(CanaryError):
+    """The model itself failed the journey: unparseable or invalid action selection, no progress
+    within the bounded action budget, no recovery from the injected error, or a final state whose
+    assertions fail after every infrastructure step succeeded."""
+
+
+def lock_digest_of(path: Path) -> str:
+    """The lock binding promotion compares: `sha256:` plus the hex digest of the exact lock bytes."""
+    try:
+        return "sha256:" + hashlib.sha256(path.read_bytes()).hexdigest()
+    except OSError as exc:
+        raise CanaryError(f"cannot read platform lock {path}: {exc}") from exc
 
 
 def strict_json(raw: str | bytes) -> Any:
@@ -389,7 +419,16 @@ class ReceiptBuilder:
         injection_stage: str,
         deterministic_receipt: dict[str, Any] | None,
         redactor: Redactor,
+        lock_digest: str | None = None,
+        cell: str = "local-docker",
+        attempt: int = 1,
     ):
+        if lock_digest is not None and not LOCK_DIGEST.fullmatch(lock_digest):
+            raise CanaryError("lock digest must be sha256:<64 lowercase hex>")
+        if cell not in CELLS:
+            raise CanaryError(f"unknown genuine-model cell {cell!r}; expected one of {', '.join(CELLS)}")
+        if type(attempt) is not int or attempt not in (1, 2):
+            raise CanaryError("a genuine-model cell permits attempt 1 or 2")
         self.journey = journey
         self.protocol = protocol
         self.redactor = redactor
@@ -401,7 +440,15 @@ class ReceiptBuilder:
             "receiptSchema": RECEIPT_SCHEMA,
             "evidenceKey": EVIDENCE_KEY,
             "generatedAt": _now(),
+            "completedAt": None,
             "status": "blocked",
+            "mode": JOURNEY_MODE,
+            "cell": cell,
+            "attempt": attempt,
+            "lockDigest": lock_digest,
+            # Nothing has run yet, so a receipt that stops here failed on infrastructure.
+            # execute_live clears this when the model is first given control.
+            "failureAttribution": INFRASTRUCTURE,
             "scope": {
                 "delivery": "harness-only",
                 "executionToGreen": "blocked",
@@ -600,19 +647,30 @@ class ReceiptBuilder:
     def mark_stage(self, stage_id: str, status: str) -> None:
         self._stage_record(stage_id)["status"] = status
 
+    def attribute(self, attribution: str) -> None:
+        """Record where the attempt failed. The first attribution wins: a teardown error after
+        the model failed does not turn a model failure into an infrastructure one."""
+        if attribution not in (MODEL, INFRASTRUCTURE):
+            raise CanaryError(f"unknown failure attribution {attribution!r}")
+        if self.receipt["failureAttribution"] is None:
+            self.receipt["failureAttribution"] = attribution
+
     def mark_skipped(self, why: str) -> None:
+        self.attribute(INFRASTRUCTURE)
         self.receipt["status"] = "skipped"
         self.receipt["notices"].append(why)
         for stage in self.receipt["stages"]:
             stage["status"] = "skipped"
 
     def mark_blocked(self, why: str) -> None:
+        self.attribute(INFRASTRUCTURE)
         self.receipt["status"] = "blocked"
         self.receipt["notices"].append(why)
         for stage in self.receipt["stages"]:
             stage["status"] = "blocked"
 
-    def mark_failed(self, why: str) -> None:
+    def mark_failed(self, why: str, attribution: str = INFRASTRUCTURE) -> None:
+        self.attribute(attribution)
         self.receipt["status"] = "fail"
         self.receipt["notices"].append(why)
         for stage in self.receipt["stages"]:
@@ -642,7 +700,14 @@ class ReceiptBuilder:
             elif action["selectionEvidence"] is not None:
                 raise CanaryError("harness action carries false model-selection evidence")
 
+        if (self.receipt["status"] != "pass"
+                and self.receipt["failureAttribution"] not in (MODEL, INFRASTRUCTURE)):
+            raise CanaryError("a receipt that did not pass must attribute its failure to model or infrastructure")
         if self.receipt["status"] == "pass":
+            if self.receipt["failureAttribution"] is not None:
+                raise CanaryError("a pass cannot carry a failure attribution")
+            if not LOCK_DIGEST.fullmatch(str(self.receipt["lockDigest"] or "")):
+                raise CanaryError("a pass must be bound to the platform-lock digest under certification")
             if not self.receipt["endpoint"]["configured"] or not self.receipt["driver"]["configured"]:
                 raise CanaryError("a pass requires both model endpoint and #123 driver")
             if self.receipt["scope"]["executionToGreen"] != "pass":
@@ -662,6 +727,8 @@ class ReceiptBuilder:
                 raise CanaryError("a pass requires every security and proof assertion")
 
     def validated_receipt(self, schema: dict[str, Any]) -> dict[str, Any]:
+        if self.receipt["completedAt"] is None:
+            self.receipt["completedAt"] = _now()
         self.validate_invariants()
         errors = sorted(Draft202012Validator(schema).iter_errors(self.receipt), key=lambda error: list(error.path))
         if errors:
@@ -858,7 +925,7 @@ class CandidateProxyClient:
         verified_digest = self._verify_provenance(signed, transcript, manifest, request_body, provider_events)
         content = "".join(event.get("text", "") for name, event in events if name == "text_delta")
         if not isinstance(content, str) or not content.strip():
-            raise CanaryError("model response content is empty")
+            raise ModelFailure("model response content is empty")
         stop = next(event for name, event in events if name == "message_stop")
         usage = {
             "prompt_tokens": stop.get("promptTokens", 0),
@@ -925,20 +992,20 @@ def parse_model_action(content: str) -> tuple[str, dict[str, Any]]:
     try:
         action = json.loads(content)
     except json.JSONDecodeError as exc:
-        raise CanaryError("model did not select an action as JSON") from exc
+        raise ModelFailure("model did not select an action as JSON") from exc
     if not isinstance(action, dict) or action.get("kind") not in MODEL_ACTION_KINDS:
-        raise CanaryError("model action must be a terminal_command or tool_call object")
+        raise ModelFailure("model action must be a terminal_command or tool_call object")
     kind = action["kind"]
     if kind == "terminal_command" and (
         not isinstance(action.get("command"), str) or not action["command"].strip()
     ):
-        raise CanaryError("model-selected terminal_command must contain a command")
+        raise ModelFailure("model-selected terminal_command must contain a command")
     if kind == "tool_call" and (
         not isinstance(action.get("tool"), str)
         or not action["tool"].strip()
         or not isinstance(action.get("arguments"), dict)
     ):
-        raise CanaryError("model-selected tool_call must contain a tool and arguments object")
+        raise ModelFailure("model-selected tool_call must contain a tool and arguments object")
     return kind, action
 
 
@@ -951,6 +1018,9 @@ def build_receipt_builder(
     driver_command: Path | None,
     injection_stage: str | None = None,
     deterministic_receipt: dict[str, Any] | None = None,
+    lock_digest: str | None = None,
+    cell: str = "local-docker",
+    attempt: int = 1,
 ) -> ReceiptBuilder:
     manifest = load_manifest(manifest_path)
     journey = load_journey(journey_path)
@@ -974,6 +1044,9 @@ def build_receipt_builder(
         injection_stage=selected_stage,
         deterministic_receipt=deterministic_receipt,
         redactor=Redactor([endpoint.api_key] if endpoint.api_key else []),
+        lock_digest=lock_digest,
+        cell=cell,
+        attempt=attempt,
     )
 
 
@@ -999,6 +1072,8 @@ def unavailable_receipt(
         )
     elif not builder.receipt["linkedEvidence"]["deterministicReceipt"]:
         builder.mark_blocked("live execution requires a validated green deterministic #123 receipt")
+    elif not builder.receipt["lockDigest"]:
+        builder.mark_blocked("live execution requires --lock-digest: an unbound receipt counts for no lock")
     elif not endpoint.runtime or not endpoint.quantization:
         builder.mark_blocked("live execution requires explicit model runtime and quantization identifiers")
     else:
@@ -1072,6 +1147,7 @@ def execute_live(
     receipt = builder.receipt
     receipt["scope"]["executionToGreen"] = "attempted"
     receipt["scope"]["blockedBy"] = []
+    receipt["failureAttribution"] = None
     first_stage = builder.journey["stages"][0]["id"]
     last_stage = builder.journey["stages"][-1]["id"]
     workspace_id: str | None = None
@@ -1093,6 +1169,11 @@ def execute_live(
             or not setup.get("credentialReferences")
         ):
             raise CanaryError("#123 driver setup did not return a ready clean workspace")
+        driver_base = setup.get("baseUrl")
+        if driver_base is not None and _origin(str(driver_base)) != _origin(endpoint.validated_base_url()):
+            # The model must act on the candidate the driver observes: a driver that composed a
+            # local stack cannot certify a cloud cell's proxy, or the reverse.
+            raise CanaryError("#123 driver and the model proxy address different candidate endpoints")
         builder.record_action(
             stage_id=first_stage,
             attribution=HARNESS_DRIVEN,
@@ -1242,19 +1323,19 @@ def execute_live(
                         or recovered.get("id") != receipt["errorInjection"]["id"]
                         or recovered.get("recovered") is not True
                     ):
-                        raise CanaryError(
+                        raise ModelFailure(
                             "a later successful action did not prove recovery of the injected error"
                         )
                     builder.record_recovery(action_sequence, recovered)
             else:
-                raise CanaryError(
+                raise ModelFailure(
                     f"stage {stage_id} exceeded the bounded limit of {max_actions_per_stage} model actions"
                 )
 
         if not approved_proposals:
-            raise CanaryError("journey never reached the separate-principal approval boundary")
+            raise ModelFailure("journey never reached the separate-principal approval boundary")
         if receipt["errorInjection"]["status"] != "recovered":
-            raise CanaryError("model did not observe and recover from the injected error")
+            raise ModelFailure("model did not observe and recover from the injected error")
         verification_request = {"workspaceId": workspace_id, "candidate": receipt["candidate"]}
         verification = builder.redactor.value(driver.invoke("verify", verification_request))
         assertions = verification.get("assertions")
@@ -1277,7 +1358,8 @@ def execute_live(
             result=verification,
         )
         if any(value != "pass" for value in receipt["assertions"].values()):
-            raise CanaryError("one or more required final assertions failed")
+            # Verification itself answered, so the final state the model produced is what failed.
+            raise ModelFailure("one or more required final assertions failed")
         receipt["status"] = "pass"
         receipt["scope"]["executionToGreen"] = "pass"
     except (CanaryError, subprocess.TimeoutExpired, OSError, ValueError, TypeError, KeyError) as exc:
@@ -1285,7 +1367,7 @@ def execute_live(
                   else f"candidate/driver evidence validation failed ({type(exc).__name__})")
         if active_stage:
             detail = f"stage {active_stage['id']} ({active_stage['command']}): {detail}"
-        builder.mark_failed(detail)
+        builder.mark_failed(detail, MODEL if isinstance(exc, ModelFailure) else INFRASTRUCTURE)
     finally:
         if workspace_id:
             try:
@@ -1304,6 +1386,12 @@ def execute_live(
             except (CanaryError, subprocess.TimeoutExpired) as exc:
                 builder.mark_failed(f"isolated workspace teardown failed: {exc}")
     return receipt
+
+
+def _origin(url: str) -> tuple[str, str, int | None]:
+    parsed = urllib.parse.urlsplit(url)
+    port = parsed.port or {"http": 80, "https": 443}.get(parsed.scheme)
+    return parsed.scheme, (parsed.hostname or "").lower().rstrip("."), port
 
 
 def write_receipt(path: Path, receipt: dict[str, Any]) -> None:
@@ -1331,9 +1419,17 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--deterministic-receipt", type=Path)
     parser.add_argument("--inject-stage")
     parser.add_argument("--max-actions-per-stage", type=int, default=12)
+    parser.add_argument("--lock-digest", help="sha256:<hex> of the exact platform-lock.json under certification")
+    parser.add_argument("--lock", type=Path, help="platform-lock.json whose bytes must hash to --lock-digest")
+    parser.add_argument("--cell", choices=CELLS, default="local-docker")
+    parser.add_argument("--attempt", type=int, choices=(1, 2), default=1)
     args = parser.parse_args(argv)
     if args.max_actions_per_stage <= 0:
         parser.error("--max-actions-per-stage must be positive")
+    if args.lock_digest is not None and not LOCK_DIGEST.fullmatch(args.lock_digest):
+        parser.error("--lock-digest must be sha256:<64 lowercase hex>")
+    if args.lock is not None and args.lock_digest is None:
+        parser.error("--lock requires --lock-digest")
 
     endpoint = EndpointConfig.from_environment(
         base_url=args.base_url,
@@ -1354,8 +1450,14 @@ def main(argv: list[str] | None = None) -> int:
             driver_command=args.driver_command,
             injection_stage=args.inject_stage,
             deterministic_receipt=None,
+            lock_digest=args.lock_digest,
+            cell=args.cell,
+            attempt=args.attempt,
         )
-        if args.deterministic_receipt:
+        if args.lock is not None and lock_digest_of(args.lock) != args.lock_digest:
+            builder.mark_failed("the platform lock's bytes do not hash to --lock-digest; "
+                                "the receipt cannot be bound to that lock")
+        if builder.receipt["status"] != "fail" and args.deterministic_receipt:
             try:
                 builder.receipt["linkedEvidence"]["deterministicReceipt"] = (
                     validate_deterministic_receipt(
@@ -1373,6 +1475,7 @@ def main(argv: list[str] | None = None) -> int:
                 or args.driver_command is None
                 or not args.driver_command.is_file()
                 or not builder.receipt["linkedEvidence"]["deterministicReceipt"]
+                or not builder.receipt["lockDigest"]
                 or not endpoint.runtime
                 or not endpoint.quantization
             ):

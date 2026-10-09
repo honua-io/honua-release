@@ -601,16 +601,72 @@ def test_schema_rejects_false_model_attribution_without_selection_evidence():
     assert errors
 
 
-def test_workflow_is_manual_only_and_references_the_single_123_journey_contract():
+def test_workflow_references_the_single_123_journey_contract_and_never_runs_on_pull_requests():
     workflow, triggers = _workflow()
-    assert set(triggers) == {"workflow_dispatch"}
+    assert set(triggers) == {"schedule", "workflow_dispatch", "workflow_call"}
     assert "driver_command" not in triggers["workflow_dispatch"]["inputs"]
     job = workflow["jobs"]["harness"]
     commands = "\n".join(str(step.get("run", "")) for step in job["steps"])
     assert "certification/terminal-journey/journey.v1.json" in commands
     assert "tools/terminal_model_canary.py" in commands
-    assert "schedule" not in triggers and "pull_request" not in triggers
+    assert "pull_request" not in triggers
     assert job["runs-on"] == "${{ inputs.runner }}"
+
+
+def test_workflow_runs_nightly_and_on_call_bound_to_a_lock_for_both_cells():
+    workflow, triggers = _workflow()
+    assert triggers["schedule"] and all("cron" in row for row in triggers["schedule"])
+    call = triggers["workflow_call"]
+    assert set(call["inputs"]) >= {"target", "lock_digest"}
+    assert call["inputs"]["lock_digest"]["required"] is True
+    assert "TERMINAL_MODEL_TRANSCRIPT_SIGNING_SEED" in call["secrets"]
+    assert set(triggers["workflow_dispatch"]["inputs"]["target"]["options"]) == {
+        "local-docker", "aws-ecs/redis-off", "endpoint"}
+
+    local = workflow["jobs"]["local-docker"]
+    assert local["permissions"]["id-token"] == "write"
+    steps = local["steps"]
+    names = [step.get("name", "") for step in steps]
+    deterministic = next(i for i, n in enumerate(names) if "deterministic #123 journey" in n)
+    role = next(i for i, n in enumerate(names) if "Bedrock-enabled role" in n)
+    model = next(i for i, n in enumerate(names) if "genuine-model canary" in n)
+    # The deterministic receipt is produced first, in this job, before any AWS credential exists.
+    assert deterministic < role < model
+    assert "run.py --mode live" in steps[deterministic]["run"]
+    assert "targets/local-docker.json" in steps[deterministic]["run"]
+    aws = steps[role]
+    assert aws["uses"].startswith("aws-actions/configure-aws-credentials@")
+    assert aws["with"]["role-to-assume"] == "${{ vars.HONUA_AWS_ROLE_ARN }}"
+    assert aws["with"]["output-env-credentials"] is False
+    canary_run = steps[model]["run"]
+    for flag in ("--deterministic-receipt artifacts/terminal-journey-receipt.json", "--lock-digest",
+                 "--cell local-docker", "--attempt 1"):
+        assert flag in canary_run
+    env = local["env"]
+    assert env["HONUA_CANARY_STUDIO_AI_ENABLED"] == "true"
+    assert env["HONUA_CANARY_BEDROCK_REGION"] == "us-east-1"
+    assert "us.anthropic.claude-sonnet-4-5-20250929-v1:0" in env["HONUA_CANARY_BEDROCK_MODEL"]
+    assert env["HONUA_CANARY_TRANSCRIPT_SIGNING_SEED"] == "${{ secrets.TERMINAL_MODEL_TRANSCRIPT_SIGNING_SEED }}"
+
+    cloud = workflow["jobs"]["aws-ecs"]
+    assert cloud["uses"] == "./.github/workflows/e2e-cloud-aws.yml"
+    assert cloud["with"]["target"] == "aws-ecs" and cloud["with"]["redis_mode"] == "off"
+    assert cloud["with"]["genuine_model_bedrock"] is True
+    assert cloud["with"]["lock_digest"] == "${{ inputs.lock_digest }}"
+
+
+def test_compose_routes_studio_ai_to_bedrock_only_when_the_canary_enables_it():
+    compose = yaml.safe_load((REPO_ROOT / "certification" / "terminal-journey" / "targets" /
+                              "build-compose.yml").read_text(encoding="utf-8"))
+    env = compose["services"]["server"]["environment"]
+    assert env["StudioAiProxy__Enabled"] == "${HONUA_CANARY_STUDIO_AI_ENABLED:-false}"
+    assert env["StudioAiProxy__DefaultProvider"] == "bedrock"
+    assert env["StudioAiProxy__Providers__bedrock__Kind"] == "bedrock"
+    assert "us.anthropic.claude-sonnet-4-5-20250929-v1:0" in env["StudioAiProxy__Providers__bedrock__Model"]
+    assert "us-east-1" in env["StudioAiProxy__Providers__bedrock__Region"]
+    # The seed travels only by reference and from a secret; no static AWS key is declared.
+    assert env["StudioAiProxy__TranscriptSigning__PrivateKeyReference"] == "${HONUA_CANARY_TRANSCRIPT_KEY_REFERENCE:-}"
+    assert env["AWS_SESSION_TOKEN"] == "${HONUA_CANARY_AWS_SESSION_TOKEN:-}"
 
 
 def test_protocol_declares_123_as_the_live_adapter_owner():
@@ -1034,3 +1090,183 @@ def test_blocked_driver_evidence_names_dependency_stage_and_tool_before_action_l
     assert "initialize + tools/list" in detail
     assert dependency in detail
     assert "bounded limit" not in detail
+
+
+# ---- fix unit J3: lock binding, cell/attempt identity and failure attribution ------------------------
+LOCK = "sha256:" + "d" * 64
+
+
+def test_receipt_carries_lock_mode_cell_attempt_and_attribution_and_schema_requires_them():
+    endpoint = canary.EndpointConfig(None, None, None, "TERMINAL_MODEL_API_KEY", None, None)
+    builder = canary.build_receipt_builder(
+        manifest_path=MANIFEST, journey_path=JOURNEY, protocol_path=PROTOCOL, endpoint=endpoint,
+        driver_command=None, lock_digest=LOCK, cell="aws-ecs/redis-off", attempt=2)
+    canary.unavailable_receipt(builder, endpoint, None)
+    receipt = builder.validated_receipt(_schema())
+    assert (receipt["mode"], receipt["cell"], receipt["attempt"], receipt["lockDigest"]) == (
+        "genuine-model", "aws-ecs/redis-off", 2, LOCK)
+    assert receipt["failureAttribution"] == "infrastructure"
+    assert receipt["completedAt"].endswith("Z")
+    schema = _schema()
+    validator = Draft202012Validator(schema)
+    for field in ("lockDigest", "mode", "cell", "attempt", "failureAttribution", "completedAt"):
+        assert field in schema["required"]
+        broken = copy.deepcopy(receipt)
+        del broken[field]
+        assert list(validator.iter_errors(broken)), field
+    for field, value in (("mode", "deterministic"), ("cell", "aws-ecs/redis-on"), ("attempt", 3),
+                         ("lockDigest", "sha256:short"), ("failureAttribution", None)):
+        assert list(validator.iter_errors({**receipt, field: value})), field
+    passing = {**receipt, "status": "pass", "failureAttribution": None}
+    assert list(validator.iter_errors({**passing, "lockDigest": None}))
+    assert list(validator.iter_errors({**passing, "failureAttribution": "model"}))
+
+
+@pytest.mark.parametrize("kwargs", [{"lock_digest": "sha256:" + "D" * 64}, {"cell": "aws-serverless/redis-off"},
+                                    {"attempt": 3}])
+def test_builder_refuses_malformed_lock_cell_or_attempt(kwargs):
+    with pytest.raises(canary.CanaryError):
+        canary.build_receipt_builder(manifest_path=MANIFEST, journey_path=JOURNEY, protocol_path=PROTOCOL,
+                                     endpoint=_endpoint(), driver_command=None, **kwargs)
+
+
+def test_pass_requires_a_lock_digest_and_no_attribution():
+    builder = _builder(_endpoint())
+    builder.receipt["status"] = "pass"
+    builder.receipt["failureAttribution"] = None
+    with pytest.raises(canary.CanaryError, match="platform-lock digest"):
+        builder.validate_invariants()
+    builder.receipt["lockDigest"] = LOCK
+    builder.receipt["failureAttribution"] = "model"
+    with pytest.raises(canary.CanaryError, match="failure attribution"):
+        builder.validate_invariants()
+
+
+def test_cli_binds_the_lock_bytes_and_refuses_an_unbound_or_mismatched_run(tmp_path: Path, monkeypatch):
+    for name in ("TERMINAL_MODEL_BASE_URL", "TERMINAL_MODEL_NAME", "TERMINAL_MODEL_API_KEY"):
+        monkeypatch.delenv(name, raising=False)
+    lock = tmp_path / "platform-lock.json"
+    lock.write_bytes(b'{"platform":{"id":"2026.1-rc.3"}}')
+    digest = canary.lock_digest_of(lock)
+    assert digest == "sha256:" + hashlib.sha256(lock.read_bytes()).hexdigest()
+
+    out = tmp_path / "bound.json"
+    assert canary.main(["--output", str(out), "--lock", str(lock), "--lock-digest", digest,
+                        "--cell", "aws-ecs/redis-off", "--attempt", "2"]) == 1
+    bound = json.loads(out.read_text(encoding="utf-8"))
+    assert (bound["lockDigest"], bound["cell"], bound["attempt"]) == (digest, "aws-ecs/redis-off", 2)
+    assert bound["status"] == "skipped" and bound["failureAttribution"] == "infrastructure"
+
+    out = tmp_path / "mismatch.json"
+    assert canary.main(["--output", str(out), "--lock", str(lock), "--lock-digest", LOCK]) == 1
+    mismatch = json.loads(out.read_text(encoding="utf-8"))
+    assert mismatch["status"] == "fail" and mismatch["failureAttribution"] == "infrastructure"
+    assert "do not hash to --lock-digest" in mismatch["notices"][0]
+
+    with pytest.raises(SystemExit):
+        canary.main(["--output", str(tmp_path / "x.json"), "--lock-digest", "sha256:nothex"])
+    with pytest.raises(SystemExit):
+        canary.main(["--output", str(tmp_path / "x.json"), "--lock", str(lock)])
+
+
+def test_live_run_without_lock_or_same_job_deterministic_receipt_is_refused():
+    endpoint = replace(_endpoint(), base_url="http://127.0.0.1:8137/api", signing_manifest_sha256="a" * 64)
+    builder = canary.build_receipt_builder(manifest_path=MANIFEST, journey_path=JOURNEY, protocol_path=PROTOCOL,
+                                           endpoint=endpoint, driver_command=canary.DEFAULT_DRIVER,
+                                           lock_digest=LOCK)
+    canary.unavailable_receipt(builder, endpoint, canary.DEFAULT_DRIVER)
+    assert builder.receipt["status"] == "blocked"
+    assert "deterministic #123 receipt" in builder.receipt["notices"][-1]
+    builder = canary.build_receipt_builder(manifest_path=MANIFEST, journey_path=JOURNEY, protocol_path=PROTOCOL,
+                                           endpoint=endpoint, driver_command=canary.DEFAULT_DRIVER)
+    builder.receipt["linkedEvidence"]["deterministicReceipt"] = {"status": "pass"}
+    canary.unavailable_receipt(builder, endpoint, canary.DEFAULT_DRIVER)
+    assert builder.receipt["status"] == "blocked" and "--lock-digest" in builder.receipt["notices"][-1]
+    assert builder.receipt["failureAttribution"] == "infrastructure"
+
+
+def _attribution_run(monkeypatch, *, setup=None, model_reply="{}"):
+    class Driver:
+        def __init__(self, *_):
+            pass
+
+        def invoke(self, operation, payload):
+            if operation == "setup":
+                return setup or {"status": "ready", "workspaceId": "w", "toolView": {"v": 1},
+                                 "credentialReferences": [{"envVar": "K"}]}
+            if operation == "inject_error":
+                return {"status": "armed", "errorId": "recoverable-error-1", "recoverable": True}
+            if operation == "observe":
+                return {"status": "ready", "stageStatus": "ready", "observation": {}, "toolView": {}}
+            return {"status": "pass"}
+
+    class Model:
+        def __init__(self, *_):
+            pass
+
+        def complete(self, messages, certification):
+            return model_reply, {}, 0, {}
+
+    monkeypatch.setattr(canary, "DriverAdapter", Driver)
+    monkeypatch.setattr(canary, "CandidateProxyClient", Model)
+    endpoint = replace(_endpoint(), base_url="http://127.0.0.1:8137/api")
+    builder = canary.build_receipt_builder(manifest_path=MANIFEST, journey_path=JOURNEY, protocol_path=PROTOCOL,
+                                           endpoint=endpoint, driver_command=None, lock_digest=LOCK)
+    return canary.execute_live(builder, endpoint=endpoint, driver_command=canary.DEFAULT_DRIVER,
+                               max_actions_per_stage=2)
+
+
+def test_a_model_that_selects_no_valid_action_is_a_model_failure(monkeypatch):
+    receipt = _attribution_run(monkeypatch, model_reply="I would run honua status")
+    assert receipt["status"] == "fail" and receipt["failureAttribution"] == "model"
+    # Teardown still ran; its later evidence cannot re-attribute the model failure.
+    assert receipt["actions"][-1]["kind"] == "teardown"
+
+
+def test_a_model_that_never_finishes_a_stage_is_a_model_failure(monkeypatch):
+    receipt = _attribution_run(monkeypatch, model_reply=json.dumps(
+        {"kind": "tool_call", "tool": "honua_read", "arguments": {}}))
+    assert receipt["status"] == "fail" and receipt["failureAttribution"] == "model"
+    assert "bounded limit" in receipt["notices"][-1]
+
+
+def test_driver_setup_failure_is_an_infrastructure_failure(monkeypatch):
+    receipt = _attribution_run(monkeypatch, setup={"status": "blocked", "workspaceId": "w"})
+    assert receipt["status"] == "fail" and receipt["failureAttribution"] == "infrastructure"
+
+
+def test_driver_on_another_endpoint_than_the_model_proxy_cannot_certify_the_cell(monkeypatch):
+    # The cloud cell's proxy cannot be certified by a driver that composed a local stack.
+    receipt = _attribution_run(monkeypatch, setup={
+        "status": "ready", "workspaceId": "w", "toolView": {"v": 1}, "credentialReferences": [{"envVar": "K"}],
+        "baseUrl": "http://127.0.0.1:9999"})
+    assert receipt["status"] == "fail" and receipt["failureAttribution"] == "infrastructure"
+    assert "different candidate endpoints" in receipt["notices"][-1]
+
+
+def test_model_journey_report_counts_only_attempts_bound_to_the_lock(tmp_path: Path):
+    import model_journey_report as report_tool
+
+    written = []
+
+    def write(number, status, attribution, lock=LOCK):
+        written.append(number)
+        path = tmp_path / f"model-canary-{len(written)}-{number}.json"
+        path.write_text(json.dumps({"mode": "genuine-model", "cell": "aws-ecs/redis-off", "attempt": number,
+                                    "lockDigest": lock, "status": status, "failureAttribution": attribution,
+                                    "completedAt": f"2026-10-08T12:0{number}:00Z"}), encoding="utf-8")
+        return path
+
+    args = dict(cell="aws-ecs/redis-off", lock_digest=LOCK, candidate_digest="e" * 64, run_id="7", run_attempt="1")
+    good = report_tool.build([write(1, "fail", "model"), write(2, "pass", None)], **args)
+    assert good["status"] == "pass"
+    assert [a["lockDigest"] for a in good["cells"][0]["attempts"]] == [LOCK, LOCK]
+    assert {a["driver"] for a in good["cells"][0]["attempts"]} == {"genuine-model"}
+    for receipts, reason in (
+        ([write(1, "pass", None, lock="sha256:" + "f" * 64)], "another lock"),
+        ([write(1, "fail", None)], "unattributed"),
+        ([write(1, "fail", "infrastructure")], "did not pass"),
+        ([write(1, "pass", None), write(2, "pass", None)], "after a passing attempt"),
+    ):
+        bad = report_tool.build(receipts, **args)
+        assert bad["status"] == bad["cells"][0]["status"] == "fail" and reason in bad["why"], reason
