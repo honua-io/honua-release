@@ -2,7 +2,7 @@
   "schemaVersion": 1,
   "receiptSchema": "terminal-journey-receipt-v1",
   "evidenceKey": "release.e2e.terminal-zero-to-map",
-  "generatedAt": "2026-10-09T08:01:59.759831Z",
+  "generatedAt": "2026-10-09T18:48:18.148783Z",
   "mode": "live",
   "target": {
     "id": "local-docker",
@@ -12,7 +12,7 @@
     "baseUrl": "http://127.0.0.1:8137",
     "composeProject": "honua-terminal-journey"
   },
-  "status": "fail",
+  "status": "blocked",
   "release": "2026.1-rc.2",
   "clientArtifacts": {
     "honua-sdk-js": {
@@ -33,7 +33,7 @@
   "clientWorkspace": {
     "status": "pass",
     "source": "published-registry-bytes",
-    "root": "/tmp/j2-work/clients",
+    "root": "/tmp/j5b-journey-work/clients",
     "reason": null,
     "resolved": [
       {
@@ -103,8 +103,8 @@
     "installNotes": []
   },
   "server": {
-    "sourceSha": "87966c3f7b6c840ffc4d4da0b451714ab717b18a",
-    "image": "ghcr.io/honua-io/honua-server:nightly-87966c3@sha256:069f196bfa5c7201223d4d89868934242c4ace8805a6e48c122a88d84fa6eb1a"
+    "sourceSha": "3ecd214c1ce20e96ad4911b6f8447055dee9089d",
+    "image": "ghcr.io/honua-io/honua-server:nightly-3ecd214@sha256:62e312a8210ddf632ec5b903a2759327321966f72cbb9f75c0b2a3d2c1243458"
   },
   "fixtureRevision": "terminal-zero-to-map-v1",
   "configRevision": "terminal-profiles-v1",
@@ -131,7 +131,7 @@
           "kind": "compose",
           "invocation": "docker compose up -d --wait (server image pinned from platform-manifest.yaml)",
           "status": "pass",
-          "detail": "stack running the pinned candidate image ghcr.io/honua-io/honua-server:nightly-87966c3@sha256:069f196bfa5c7201223d4d89868934242c4ace8805a6e48c122a88d84fa6eb1a"
+          "detail": "stack running the pinned candidate image ghcr.io/honua-io/honua-server:nightly-3ecd214@sha256:62e312a8210ddf632ec5b903a2759327321966f72cbb9f75c0b2a3d2c1243458"
         },
         {
           "id": "1.2-readiness",
@@ -152,7 +152,7 @@
           "kind": "http",
           "invocation": "GET /api/v1/capabilities/manifest",
           "status": "pass",
-          "detail": "candidate identity reported: revision='87966c3f7b6c840ffc4d4da0b451714ab717b18a' source='commit-sha'; expected manifest revision='87966c3f7b6c840ffc4d4da0b451714ab717b18a'"
+          "detail": "candidate identity reported: revision='3ecd214c1ce20e96ad4911b6f8447055dee9089d' source='commit-sha'; expected manifest revision='3ecd214c1ce20e96ad4911b6f8447055dee9089d'"
         },
         {
           "id": "1.4-auth-enforced",
@@ -166,14 +166,14 @@
           "kind": "mcp-tool",
           "invocation": "honua-mcp-proxy \u2192 initialize + paginated tools/list",
           "status": "pass",
-          "detail": "pinned proxy enumerated 124 tools (paginated independently of any expected count)"
+          "detail": "pinned proxy enumerated 129 tools (paginated independently of any expected count)"
         },
         {
           "id": "1.6-bounded-setup-view",
           "kind": "mcp-tool",
           "invocation": "server-authored bounded setup/profile tool view",
           "status": "pass",
-          "detail": "verified initialize-bound HTTP/proxy setup parity; {'descriptorBytes': 81337, 'largestDescriptorBytes': 7196, 'descriptorDigest': 'sha256:b3f239d34cfd37004b46b56d255082588d512ad50b7973141f38ae50aea7621d', 'descriptorSizes': [3415, 2216, 4431, 5004, 3906, 2052, 1810, 7196, 3010, 3682, 4538, 5671, 5433, 1835, 2400, 5560, 3569, 1667, 1505, 2272, 1920, 3188, 1482, 2421, 1128]}"
+          "detail": "verified initialize-bound HTTP/proxy setup parity; {'descriptorBytes': 114473, 'largestDescriptorBytes': 7196, 'descriptorDigest': 'sha256:b9dc457cc601f3b7b6c041ab3ff2da5e2e60cbad1891eee68b5a40fe5d93da83', 'descriptorSizes': [3415, 2216, 4431, 5004, 3906, 2052, 1810, 7196, 3960, 3682, 5408, 5671, 5433, 1835, 2400, 5560, 4005, 2871, 2560, 4421, 3569, 1667, 1326, 1505, 2608, 2168, 2027, 2035, 2272, 1920, 2372, 2339, 2526, 3188, 1482, 2467, 1128]}"
         }
       ],
       "operationId": null,
@@ -194,7 +194,7 @@
         "source": "live-local-docker",
         "freshness": "verified-current",
         "completeness": "complete",
-        "observedAt": "2026-10-09T08:01:59.759589Z"
+        "observedAt": "2026-10-09T18:48:18.148614Z"
       }
     },
     {
@@ -216,7 +216,7 @@
           "kind": "cli",
           "invocation": "HONUA_ADMIN_KEY=<env> honua admin secure createAdminApiKey --base-url <loopback> --json --yes --body {\"name\":\"honua-terminal-journey-preflight\",\"permissions\":[\"admin:read\"]} --secret-output <private-sink>; getAdminApiKeyEffectivePermissions --path id=<id>; listAdminApiKeys; revokeAdminApiKey --yes --path id=<id>",
           "status": "pass",
-          "detail": "temporary admin:read key 1446c493-7dc3-4b73-92bb-c8ec5b7c35b4 reported canAuthenticate true; list omitted key material; revoke removed the active key; private sink deleted"
+          "detail": "temporary admin:read key b310e7e1-0a60-4881-8064-eea350d530a8 reported canAuthenticate true; list omitted key material; revoke removed the active key; private sink deleted"
         },
         {
           "id": "2.2-admin-endpoint-present",
@@ -244,7 +244,7 @@
         "source": "live-local-docker",
         "freshness": "verified-current",
         "completeness": "complete",
-        "observedAt": "2026-10-09T08:01:59.759589Z"
+        "observedAt": "2026-10-09T18:48:18.148614Z"
       }
     },
     {
@@ -298,9 +298,9 @@
         }
       ],
       "operationId": "service.publish",
-      "operationInstanceId": "opinst-55c86fd63ea6404bbb29601aea61861e",
-      "correlationId": "corr-cd6063b697914ab0a855c9b0c68b0689",
-      "auditId": "audit-dev-989be6562060428889f93ab21e9186a2",
+      "operationInstanceId": "opinst-c0f43dc900604b349b713c77009023ff",
+      "correlationId": "corr-b4cc7bc3a6634b759d9727b13236d21c",
+      "auditId": "audit-dev-e1b3ff53a24f43769b58ab46bea2191c",
       "proposalId": null,
       "jobId": null,
       "resourceUri": null,
@@ -315,17 +315,15 @@
         "source": "live-local-docker",
         "freshness": "verified-current",
         "completeness": "complete",
-        "observedAt": "2026-10-09T08:01:59.759589Z"
+        "observedAt": "2026-10-09T18:48:18.148614Z"
       }
     },
     {
       "number": 4,
       "stage": "style-render",
       "command": "honua_get_style; honua_apply_style_preset; honua_render_map; validate decoded PNG",
-      "status": "fail",
-      "blockedBy": [
-        "https://github.com/honua-io/honua-server/issues/5744"
-      ],
+      "status": "pass",
+      "blockedBy": [],
       "checks": [
         {
           "id": "4.client-pins",
@@ -339,7 +337,7 @@
           "kind": "mcp-tool",
           "invocation": "mcp tools/list \u220b honua_get_style, honua_apply_style_preset, honua_render_map",
           "status": "pass",
-          "detail": "all 3 tools present in the 124-tool candidate surface"
+          "detail": "all 3 tools present in the 129-tool candidate surface"
         },
         {
           "id": "4.style-applied",
@@ -352,27 +350,21 @@
           "id": "4.pixel",
           "kind": "artifact",
           "invocation": "honua_render_map + decode PNG",
-          "status": "fail",
-          "detail": "render pixel at (64, 64) is rgba(45, 105, 165, 255), not the authored style colour rgba(239, 32, 32, 255); the render reports the applied preset but rasterizes the layer's stored style",
-          "blockedBy": [
-            "https://github.com/honua-io/honua-server/issues/5744"
-          ]
+          "status": "pass",
+          "detail": "independent live assertion passed"
         },
         {
           "id": "4.canonical-evidence",
           "kind": "http",
           "invocation": "canonical operation receipt",
-          "status": "blocked",
-          "detail": "candidate has not returned the canonical operationId, operationInstanceId, correlationId, auditId for this stage; honua_apply_style_preset applied the preset but its output omits the operation handle",
-          "blockedBy": [
-            "https://github.com/honua-io/honua-server/issues/5744"
-          ]
+          "status": "pass",
+          "detail": "candidate returned operationId, operationInstanceId, correlationId, auditId for this stage"
         }
       ],
-      "operationId": null,
-      "operationInstanceId": null,
-      "correlationId": null,
-      "auditId": null,
+      "operationId": "style.apply-preset",
+      "operationInstanceId": "opinst-65d62c7dc56c47f9b70688bcd87f72b6",
+      "correlationId": "corr-cdc744a3fa554c6c98099e66fec825ae",
+      "auditId": "audit-dev-44e5e0ffb54e458b8d783371e249c9cb",
       "proposalId": null,
       "jobId": null,
       "resourceUri": null,
@@ -386,8 +378,8 @@
         "uri": "https://github.com/honua-io/honua-release/issues/377",
         "source": "live-local-docker",
         "freshness": "verified-current",
-        "completeness": "partial",
-        "observedAt": "2026-10-09T08:01:59.759589Z"
+        "completeness": "complete",
+        "observedAt": "2026-10-09T18:48:18.148614Z"
       }
     },
     {
@@ -409,7 +401,7 @@
           "kind": "mcp-tool",
           "invocation": "mcp tools/list \u220b honua_plan_analysis, honua_execute_plan, honua_cancel_job",
           "status": "pass",
-          "detail": "all 3 tools present in the 124-tool candidate surface"
+          "detail": "all 3 tools present in the 129-tool candidate surface"
         },
         {
           "id": "5.buffer",
@@ -431,10 +423,10 @@
       "correlationId": null,
       "auditId": null,
       "proposalId": null,
-      "jobId": "gp-930825dda2e4445393d952cf",
-      "resourceUri": "honua://jobs/gp-930825dda2e4445393d952cf",
+      "jobId": "gp-2dec8424d7015bae5f9d3e6b",
+      "resourceUri": "honua://jobs/gp-2dec8424d7015bae5f9d3e6b",
       "jobStatus": "Queued",
-      "jobCreatedAt": "2026-10-09T08:00:50.4088916+00:00",
+      "jobCreatedAt": "2026-10-09T18:47:28.504369+00:00",
       "policyDecisionId": null,
       "approvalId": null,
       "actuatorId": null,
@@ -444,7 +436,7 @@
         "source": "live-local-docker",
         "freshness": "verified-current",
         "completeness": "complete",
-        "observedAt": "2026-10-09T08:01:59.759589Z"
+        "observedAt": "2026-10-09T18:48:18.148614Z"
       }
     },
     {
@@ -466,14 +458,14 @@
           "kind": "mcp-tool",
           "invocation": "mcp tools/list \u220b honua_studio_create_draft, honua_studio_update_draft, honua_studio_validate_draft",
           "status": "pass",
-          "detail": "all 3 tools present in the 124-tool candidate surface"
+          "detail": "all 3 tools present in the 129-tool candidate surface"
         },
         {
           "id": "6.2-studio-composition-tools-present",
           "kind": "mcp-tool",
           "invocation": "mcp tools/list \u220b honua_studio_add_layer, honua_studio_set_layer_style, honua_studio_set_view, honua_studio_add_widget, honua_studio_add_control",
           "status": "pass",
-          "detail": "all 5 tools present in the 124-tool candidate surface"
+          "detail": "all 5 tools present in the 129-tool candidate surface"
         },
         {
           "id": "6.saved-map",
@@ -505,9 +497,9 @@
         }
       ],
       "operationId": "studio.content.reopen-version",
-      "operationInstanceId": "opinst-c6077c5bf78e477fa7b7600ae76313a4",
-      "correlationId": "00-d01fa795eab6834d4955618864c67c19-95e454ea0c6651ad-00",
-      "auditId": "audit-dev-5a1775d296b8400dae68d151b8163957",
+      "operationInstanceId": "opinst-2f31658950b742e785d75d262a3ef11e",
+      "correlationId": "00-4dcca26e5c2d72c46d81a1ea08c5d91d-f5be1e535f0622ab-00",
+      "auditId": "audit-dev-a9c05f12a69e4a10bf48b2609c14d6c2",
       "proposalId": null,
       "jobId": null,
       "resourceUri": null,
@@ -522,7 +514,7 @@
         "source": "live-local-docker",
         "freshness": "verified-current",
         "completeness": "complete",
-        "observedAt": "2026-10-09T08:01:59.759589Z"
+        "observedAt": "2026-10-09T18:48:18.148614Z"
       }
     },
     {
@@ -544,7 +536,7 @@
           "kind": "mcp-tool",
           "invocation": "mcp tools/list \u220b honua_studio_propose_publication",
           "status": "pass",
-          "detail": "all 1 tools present in the 124-tool candidate surface"
+          "detail": "all 1 tools present in the 129-tool candidate surface"
         },
         {
           "id": "7.durable-proposal",
@@ -562,10 +554,10 @@
         }
       ],
       "operationId": "studio.content.create-publication-request",
-      "operationInstanceId": "opinst-c929cbceb6e842e8b55919942f66017e",
-      "correlationId": "00-8d0d8974099fada76f57d0bdf30e505d-ba6f3a5c5e5f490e-00",
-      "auditId": "15",
-      "proposalId": "proposal-790c6c5a0e0849c3b01f9c758b823c80",
+      "operationInstanceId": "opinst-2299e3a2b980469e9cc4938b1a137c7c",
+      "correlationId": "00-9fe64fcd4a1758223053bb9039db3489-f64cd7e497e65494-00",
+      "auditId": "17",
+      "proposalId": "proposal-b8dbfb80350a4107a83248d069eec85e",
       "jobId": null,
       "resourceUri": null,
       "jobStatus": null,
@@ -579,7 +571,7 @@
         "source": "live-local-docker",
         "freshness": "verified-current",
         "completeness": "complete",
-        "observedAt": "2026-10-09T08:01:59.759589Z"
+        "observedAt": "2026-10-09T18:48:18.148614Z"
       }
     },
     {
@@ -654,10 +646,10 @@
         }
       ],
       "operationId": "studio.content.create-publication-request",
-      "operationInstanceId": "opinst-c929cbceb6e842e8b55919942f66017e",
-      "correlationId": "00-8d0d8974099fada76f57d0bdf30e505d-ba6f3a5c5e5f490e-00",
-      "auditId": "15",
-      "proposalId": "proposal-790c6c5a0e0849c3b01f9c758b823c80",
+      "operationInstanceId": "opinst-2299e3a2b980469e9cc4938b1a137c7c",
+      "correlationId": "00-9fe64fcd4a1758223053bb9039db3489-f64cd7e497e65494-00",
+      "auditId": "17",
+      "proposalId": "proposal-b8dbfb80350a4107a83248d069eec85e",
       "jobId": null,
       "resourceUri": null,
       "jobStatus": null,
@@ -671,20 +663,14 @@
         "source": "live-local-docker",
         "freshness": "verified-current",
         "completeness": "complete",
-        "observedAt": "2026-10-09T08:01:59.759589Z"
+        "observedAt": "2026-10-09T18:48:18.148614Z"
       }
     }
   ],
-  "failure": {
-    "number": 4,
-    "stage": "style-render",
-    "command": "honua_render_map + decode PNG",
-    "check": "4.pixel",
-    "detail": "render pixel at (64, 64) is rgba(45, 105, 165, 255), not the authored style colour rgba(239, 32, 32, 255); the render reports the applied preset but rasterizes the layer's stored style"
-  },
+  "failure": null,
   "notices": [
     "Isolated PostGIS, Redis, authored GeoServices source, and two exact-candidate server replicas. Licensing remains disabled.",
-    "Setup discovery sidecar: /tmp/j2-work/setup-discovery.json; SHA-256: 9f94a376cc08393e16f871f6d0b13ccccec2a3f80339ae3f70fcf510d484fa55"
+    "Setup discovery sidecar: /tmp/j5b-journey-work/setup-discovery.json; SHA-256: 5844ab77d20718eb1ef8c8a513112a9e358d8adc4f7b3374e396e365e7028cf9"
   ],
   "linkedEvidence": {
     "awsProvisioning": "honua-release#129",

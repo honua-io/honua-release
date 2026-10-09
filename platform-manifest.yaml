@@ -409,6 +409,10 @@ components:
       # 2026-10-09 re-pin: release/component-versions.json at 3ecd214 declares geoservices 2.0.0
       # (honua-server#5427, honua-release#425: layer geometryType is omitted unless it is one of the
       # five layer tokens, which drops a previously accepted token, so the contract major moved).
+      # Read live off the booted 3ecd214 image on the terminal-journey local-docker stack (2026-10-09):
+      #   $ curl -s http://127.0.0.1:8137/api/v1/capabilities/manifest
+      #   transports: geoservices-rest 2.0.0, ogc-http 1.0.0, stac 1.0.0
+      #   server.deploymentRevision = 3ecd214c1ce20e96ad4911b6f8447055dee9089d
       geoservices: "2.0.0"   # transports[].id=geoservices-rest contractVersion
       ogc: "1.0.0"           # transports[].id=ogc-http contractVersion
       stac: "1.0.0"          # transports[].id=stac contractVersion
@@ -448,11 +452,15 @@ components:
     #   $ gh api 'repos/honua-io/honua-server/git/trees/87966c3f7b...?recursive=1' \
     #       -q '.tree[].path' | grep 'Honua.Server/Migrations/' | sort -V | tail -1
     #   src/Honua.Server/Migrations/120_AddStudioTenantOwnership.sql
-    # RE-CHECKED AT 3ecd214c (2026-10-09 hand re-pin) - filename floor only, NOT the DbUp journal
-    # read-back; 121..125 arrived between 87966c3 and this pin:
+    # RE-CHECKED AT 3ecd214c (2026-10-09 hand re-pin); 121..125 arrived between 87966c3 and this pin.
+    # Filename floor:
     #   $ gh api 'repos/honua-io/honua-server/git/trees/3ecd214c1c...?recursive=1' \
     #       -q '.tree[].path' | grep 'Honua.Server/Migrations/' | sort -V | tail -1
     #   src/Honua.Server/Migrations/125_AddImportedAttachmentIdentity.sql
+    # DbUp journal read back from the booted 3ecd214 image (terminal-journey local-docker stack):
+    #   $ docker exec honua-terminal-journey-db-1 psql -U honua -d honua -Atc \
+    #       "select scriptname from public.schema_versions order by scriptname desc limit 1;"
+    #   Honua.Server.Migrations.125_AddImportedAttachmentIdentity.sql
     dbSchema: "125"
 
   honua-console:

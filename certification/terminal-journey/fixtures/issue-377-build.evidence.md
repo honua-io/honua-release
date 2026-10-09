@@ -175,3 +175,54 @@ Remaining blocker for stage 4 (server gap, present on server trunk too):
 - `StylePresetExecutor` only associates the style in the styleId catalog. `RasterMapRenderingPipeline` rasterizes `layers.maplibre_style`, and `RenderMapTool` says that rasterizing the applied vector style "is not yet supported".
 - `honua_apply_style_preset` submits the canonical `style.apply-preset` operation, but its MCP output drops the operation handle, so stage 4 has no operation ids either.
 - Supplying them would take a server change, now open as honua-server#5744 (render the applied layer style and return the apply-preset operation handle). The harness does not substitute another style path. It cites #5744 only when the render itself reports the applied preset, or when the preset was applied and the output omits the handle. Any other stage-4 failure stays uncited. Stage 4 re-runs once the pinned candidate carries #5744.
+
+## Re-record on the 3ecd214 server pin (2026-10-09)
+
+[issue-377-j2-fresh-stack.local-docker.json](issue-377-j2-fresh-stack.local-docker.json)
+is now a `run.py --mode live` run of `targets/local-docker.json` against the
+re-pinned server: `3ecd214c1ce20e96ad4911b6f8447055dee9089d`, image
+`nightly-3ecd214@sha256:62e312a8210ddf632ec5b903a2759327321966f72cbb9f75c0b2a3d2c1243458`
+(certified by ci.yml run 37945263858). The clients are unchanged:
+`@honua/sdk-js@0.1.14`, `@honua/mcp-server@0.1.14` and `Honua.Sdk@1.10.4`. The
+stack was new (no `honua-terminal-journey` containers or volumes existed
+beforehand), and the run was observed at `2026-10-09T18:48:18Z`. As before, it
+ran under WSL from an LF `git archive` of the committed tree, so the receipt's
+target `configSha256` (`a3b1f712…`) is the hash of the committed
+`targets/local-docker.json` bytes. A CRLF Windows checkout would hash
+differently. Docker used an empty temporary `DOCKER_CONFIG`, because the
+host's `desktop.exe` credential helper does not run inside WSL.
+
+**All eight stages pass.** The candidate now carries honua-server#5744, and
+stage 4 passes without any harness change:
+
+| Stage | Status | Evidence keys |
+|---|---|---|
+| 1 installed-client-handoff | pass | — |
+| 2 credential-preflight | pass | — |
+| 3 publish-service | pass | `service.publish` operationInstanceId, correlationId, auditId |
+| 4 style-render | **pass** | `style.apply-preset` operationInstanceId, correlationId, auditId |
+| 5 bounded-gp | pass | `jobId`, `jobStatus` |
+| 6 durable-compositions | pass | `studio.content.reopen-version` operation ids |
+| 7 publication-proposal | pass | operation ids and `proposalId` |
+| 8 separate-principal-approval | pass | approval joined to the proposal's publication handle |
+
+- **Stage 4.** `4.style-applied` and `4.pixel` both pass as independent live
+  assertions, which means the render now rasterizes the applied preset rather
+  than the stored default style. `honua_apply_style_preset` also returns the
+  canonical `style.apply-preset` operation handle (`4.canonical-evidence`).
+  Neither stage-4 check cites #5744 any more.
+- **Catalog.** The stage-4 tool check reads the 129-tool candidate surface. This
+  matches the regenerated `e2e/drivers/mcp/expected-tools.json`.
+
+The receipt's overall `status` is **`blocked`**, not `pass`. The only cause is
+the control-plane roster, which is `blocked` (`authoritative candidate roster
+exports unavailable`, honua-server#3363: `admin-openapi-operation-ids.json` and
+`admin-mcp-projection-manifest.json`). That roster block was already present in
+the 87966c3 receipt. It was hidden there because the stage-4 `fail` set the
+overall status. This receipt claims no update, rollback or operate
+qualification.
+
+The same stack also confirmed two manifest fields against the live candidate.
+The capability manifest advertises `geoservices-rest` contractVersion `2.0.0`
+with `deploymentRevision` 3ecd214, and the DbUp journal's highest script is
+`125_AddImportedAttachmentIdentity.sql`.
