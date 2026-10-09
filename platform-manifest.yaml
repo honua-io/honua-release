@@ -432,27 +432,29 @@ components:
     repository: "https://github.com/honua-io/honua-console"
     lifecycleStatus: GA
     version: "pre-release"             # no releases/tags; package.json declares 0.1.0 (un-released)
-    # 2026-09-16 RE-PIN (honua-server#3365 residual): 2cd3a73a -> dcb9eb2b. The old pin predates the
-    # focused 2026.1 operator client (honua-console#338, merge 95164a72) and the operator-bound reads
-    # and map proxy (honua-console#360, merge 274aa02c); it lacks /operate/release-witness and the
-    # read/approve receipt producer. dcb9eb2b is trunk HEAD, contains both merges, and is the newest
-    # sha with a published candidate:
-    #   $ docker buildx imagetools inspect ghcr.io/honua-io/honua-console:candidate-dcb9eb2b39ed-34879792105-1
-    #   Digest: sha256:37685c71c26931a512d9f1e6c4e19ecb270259f1a1e4c5ab4760caeb0450a619
-    #   linux/amd64 -> sha256:78a66dd0b0959fc1b035f89255ff4616cd739dfee7c32751c4af5efa584d7b95
-    #   linux/arm64 -> sha256:87d05274963736f2bd04a857ce27f62dc21b8d0a80736e9745b1abe0a7360a54
-    sha: "dcb9eb2b39ed4d0626462ce1bcd762e4717e0071"   # branch: trunk HEAD at re-pin time
-    # Public multi-architecture candidate built from this SHA by Console Container run 34879792105.
-    # That run verified CI on the trunk head, smoke-tested the digest, attached provenance, verified
-    # anonymous GHCR pull access, and promoted the same digest to the floating nightly tag.
-    image: "ghcr.io/honua-io/honua-console:candidate-dcb9eb2b39ed-34879792105-1"
-    digest: "sha256:37685c71c26931a512d9f1e6c4e19ecb270259f1a1e4c5ab4760caeb0450a619"
-    artifactSourceRevision: "dcb9eb2b39ed4d0626462ce1bcd762e4717e0071"
+    # 2026-10-08 ADVANCE (2026.1 rc.3 plan J5): dcb9eb2b -> c652ef22, the revision the candidate
+    # resolver selects (R18). dcb9eb2b predates the governed operator session (honua-console#405,
+    # merge b3e2cba5, 2026-10-02), so S4-console-studio failed every nightly e2e-local-docker run
+    # (runs 37633158367, 37789842510). c652ef22 contains #405
+    # (e2e/playwright/live/operator-session.setup.ts) and is the newest trunk commit that is CI-green
+    # and has a published SHA-bound image; the two newer commits have none. Resolver evidence,
+    # nightly-certification run 37819830412, job resolve:
+    #   RESOLVED honua-console c652ef22612d83277f8d39384be61411915dda1d
+    #     ghcr.io/honua-io/honua-console@sha256:686b104fc3f106df694782c243423c1c7110d568779abf5829514ab97349a908
+    #   skipped 720dd90: no published SHA-bound image
+    #   skipped 631594c: no published SHA-bound image
+    # The index and per-architecture digests below were re-read from GHCR with the resolver's own
+    # Registry.image() (tag candidate-c652ef22612d-37509939284-1) and match that run.
+    sha: "c652ef22612d83277f8d39384be61411915dda1d"   # resolver-selected trunk commit (2026-10-06)
+    # Public multi-architecture candidate built from this SHA by Console Container run 37509939284.
+    image: "ghcr.io/honua-io/honua-console:candidate-c652ef22612d-37509939284-1"
+    digest: "sha256:686b104fc3f106df694782c243423c1c7110d568779abf5829514ab97349a908"
+    artifactSourceRevision: "c652ef22612d83277f8d39384be61411915dda1d"
     architectures: [amd64, arm64]
-    # Extracted from this pinned index with docker buildx imagetools inspect on 2026-10-02.
+    # Read from this pinned index by the resolver's Registry.image() on 2026-10-08.
     platformDigests:
-      amd64: sha256:78a66dd0b0959fc1b035f89255ff4616cd739dfee7c32751c4af5efa584d7b95
-      arm64: sha256:87d05274963736f2bd04a857ce27f62dc21b8d0a80736e9745b1abe0a7360a54
+      amd64: sha256:02442e11801af8c741a7ee868e7ec8b782e49372d0dc93bd246cf3f9b464b252
+      arm64: sha256:ac43db0c0963972f27724dbc7b7091d5de5019b43eff1e7071bd93d2322aa7f9
 
   honua-sdk-dotnet:
     repository: "https://github.com/honua-io/honua-sdk-dotnet"

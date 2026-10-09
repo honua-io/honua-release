@@ -1,0 +1,23 @@
+# Slice-1 Redis-off topology: an override for compose.candidate.yml, applied by boot.sh when
+# E2E_REDIS=off.
+#
+#   docker compose -f compose.candidate.yml -f compose.no-redis.yml up -d
+#
+# This is the harness copy of honua-server's docker-compose.no-redis.yml (the Redis-optional local
+# install variant, honua-release#202). The server's file overrides its root quickstart compose
+# (services `postgres`/`honua`); this one applies the same three edits to the Slice-1 service names
+# (`db`/`server`): drop the redis service, drop the server's wait on it, and UNSET
+# ConnectionStrings__Redis. Unset, not blank: an empty connection string is still a configured key.
+#
+# Under the 2026.1 topology ruling (Redis is a requirement of the governed control plane), a
+# Redis-off server serves, configures and styles/renders; durable jobs, Studio drafts, proposals and
+# approvals refuse with typed `unavailable` errors. The drivers assert those refusals when
+# E2E_REDIS=off; anything else on this stack is a regression and fails the gate.
+services:
+  redis: !reset null
+
+  server:
+    depends_on: !override
+      db: { condition: service_healthy }
+    environment:
+      ConnectionStrings__Redis: !reset null
