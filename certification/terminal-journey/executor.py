@@ -298,8 +298,10 @@ class JourneyExecutor:
             document = self.poll("honua admin import getImportJobStatus", read,
                                  lambda r: str(r.get("status", "")).lower() in {"completed", "failed", "cancelled"})
             document = document.get("result", document)
-        self._check(3, "import-complete", UPLOAD_COMMAND, lambda: self.prove_upload(document))
-        self.prove_upload(document)
+        proved = self._check(3, "import-complete", UPLOAD_COMMAND, lambda: self.prove_upload(document))
+        if proved.status != "pass":
+            # The failed proof is already recorded; stop the stage as a handled failure.
+            raise ExecutionError(UPLOAD_COMMAND, proved.detail, blocked=proved.status == "blocked")
         self.resources["importTable"] = identity(document["physicalTableName"], UPLOAD_COMMAND)
         self.resources["importSchema"] = identity(document.get("schema") or spec.get("targetSchema") or "public",
                                                   UPLOAD_COMMAND)
@@ -345,6 +347,11 @@ class JourneyExecutor:
             if not isinstance(value, str) or not 0 < len(value) <= 2048 or any(c.isspace() for c in value):
                 raise ExecutionError("honua_execute_plan", f"candidate omitted a bounded job {source}")
             job[key] = value
+        # The resource URI must identify the same job (honua://jobs/<jobId>).
+        location = urllib.parse.urlsplit(job["resourceUri"])
+        if (location.query or location.fragment
+                or (location.netloc + location.path).rstrip("/").split("/")[-1] != job["jobId"]):
+            raise ExecutionError("honua_execute_plan", "job resourceUri does not identify the returned jobId")
         self.evidence.setdefault("jobEvidence", {})["5"] = job
         return job
 
@@ -558,6 +565,7 @@ class JourneyExecutor:
                 or not {f"{k}={v}" for k, v in sealed.items()} <= diff
                 or f"contentHash={self.resources.get('contentHash')}" not in diff):
             raise ExecutionError("GET approved execution handle", "approved replay handle does not join the proposal")
+        operation_id = identity(handle.get("operationId"), "GET approved execution handle")
         self.evidence["approval"] = {"proposalId": proposal_id,
                                      "resolvedBy": identity(final["resolvedBy"], "GET approved proposal"),
                                      "executionOperationId": execution_id,
@@ -567,7 +575,7 @@ class JourneyExecutor:
                                      "approvalId": (identity(final["approvalId"], "GET approved proposal")
                                                     if final.get("approvalId") else None),
                                      "proposerSelfApproval": "denied"}
-        self.evidence["canonicalIds"]["8"] = {"operationId": handle.get("operationId"),
+        self.evidence["canonicalIds"]["8"] = {"operationId": operation_id,
                                               "operationInstanceId": execution_id,
                                               "proposalId": proposal_id,
                                               "correlationId": self.evidence["approval"]["correlationId"],
@@ -716,8 +724,9 @@ class JourneyExecutor:
             created = self.sdk_call("CreateConnectionAsync", [{**datasource, "password": password}])
             connection_id = identity(str(created["connectionId"]), "CreateConnectionAsync")
             tested = self.sdk_call("TestConnectionAsync", [connection_id])
-            self._check(3, "datasource", "TestConnectionAsync", lambda: self.prove_connection(tested))
-            self.prove_connection(tested)
+            proved = self._check(3, "datasource", "TestConnectionAsync", lambda: self.prove_connection(tested))
+            if proved.status != "pass":
+                raise ExecutionError("TestConnectionAsync", proved.detail, blocked=proved.status == "blocked")
             # The GeoServices URL import cannot read a private-network fixture source
             # (HTTPS-only validator, no opt-in); import the committed fixture by upload.
             self.upload_dataset()

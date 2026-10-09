@@ -626,7 +626,8 @@ def test_approval_retains_a_server_reported_approval_id_and_rejects_an_unjoined_
     pending = {"proposalId": "proposal-1", "status": "Pending", "requestedBy": "actor-proposer", "diff": SEALED_DIFF}
     final = {**pending, "status": "Succeeded", "resolvedBy": "actor-approver",
              "executionOperationId": "opinst-exec", "approvalId": "approval-1"}
-    handle = {"operationInstanceId": "opinst-exec", "auditId": "audit-approval", "correlationId": "corr", **SEALED_HANDLE}
+    handle = {"operationInstanceId": "opinst-exec", "operationId": "studio.content.create-publication-request",
+              "auditId": "audit-approval", "correlationId": "corr", **SEALED_HANDLE}
     transport.get_json.side_effect = [pending, pending, final, handle]
     transport.cli_approve.side_effect = [(1, None), (0, None)]
     assert engine.approve("proposal-1")["approvalId"] == "approval-1"
@@ -973,3 +974,49 @@ def test_a_passing_render_carries_no_blocker():
               "layers": [{"styleId": "journey-solid-red"}]}
     assert engine.check_render(output).status == "pass"
     assert "blockedBy" not in engine.evidence["checks"]["4"]["pixel"]
+
+
+def test_failed_upload_proof_is_recorded_and_stops_the_stage_as_a_handled_failure():
+    engine = upload_engine()
+    engine.transport.cli_admin.return_value = (0, {**UPLOAD_RESULT, "success": False, "errorCode": "import.failed"})
+    with pytest.raises(ExecutionError) as raised:
+        engine.upload_dataset()
+    assert raised.value.blocked is False
+    assert engine.evidence["checks"]["3"]["import-complete"]["status"] == "fail"
+    assert "importTable" not in engine.resources
+
+
+def test_run_build_records_a_failed_upload_instead_of_aborting(monkeypatch):
+    engine = upload_engine()
+    monkeypatch.setenv("HONUA_JOURNEY_DATASOURCE_PASSWORD", "private-database-key")
+    engine.transport.cli_admin.return_value = (0, {**UPLOAD_RESULT, "featureCount": 1})
+    calls = iter([{"connectionId": "connection-1"}, {"connectionId": "connection-1", "isHealthy": True}])
+    with mock.patch.object(engine, "sdk_call", side_effect=lambda *args: next(calls)):
+        results = engine.run_build()
+    stage = results[0]
+    assert stage.status == "fail"
+    assert {c.id: c.status for c in stage.checks}["3.import-complete"] == "fail"
+    assert {c.id: c.status for c in stage.checks}["3.execution"] == "fail"
+
+
+@pytest.mark.parametrize("uri", ["honua://jobs/job-other", "honua://jobs/job-buffer-1-extra",
+                                 "honua://jobs/job-buffer-1?x=1", "honua://jobs/"])
+def test_stage_5_resource_uri_must_identify_the_returned_job(uri):
+    engine = engine_for(mock.Mock())
+    with pytest.raises(ExecutionError, match="does not identify the returned jobId"):
+        engine.record_job({**JOB_OUTPUT, "resourceUri": uri})
+    assert "jobEvidence" not in engine.evidence
+
+
+@pytest.mark.parametrize("operation_id", ["studio publish", " ", None])
+def test_approved_handle_operation_id_is_a_bounded_identity(operation_id):
+    transport = mock.Mock(credentials={"proposer": "private-proposer", "approver": "private-approver"})
+    engine = approval_engine(transport)
+    engine.evidence["publicationOperation"] = {"operationInstanceId": "opinst-pub", "proposalId": "proposal-1"}
+    pending = {**OBSERVED_PROPOSAL, "status": "Pending", "resolvedBy": None}
+    transport.get_json.side_effect = [pending, pending, OBSERVED_PROPOSAL,
+                                      {"data": {**OBSERVED_HANDLE, "operationId": operation_id}}]
+    transport.cli_approve.side_effect = [(1, None), (0, None)]
+    with pytest.raises(ExecutionError, match="bounded canonical identity"):
+        engine.approve("proposal-1")
+    assert "8" not in engine.evidence["canonicalIds"] and "approval" not in engine.evidence

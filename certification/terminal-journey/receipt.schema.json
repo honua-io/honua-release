@@ -295,6 +295,10 @@
         "blockedBy",
         "checks",
         "operationId",
+        "operationInstanceId",
+        "correlationId",
+        "auditId",
+        "proposalId",
         "evidence"
       ],
       "properties": {

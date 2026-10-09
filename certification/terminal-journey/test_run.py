@@ -443,6 +443,17 @@ class ReceiptTests(unittest.TestCase):
                 self.assertIsNone(stage["approvalId"])
                 validate(receipt)
 
+    def test_every_stage_row_carries_the_server_identity_fields_even_when_not_passing(self):
+        receipt = build()
+        validate(receipt)
+        for key in ("operationInstanceId", "correlationId", "auditId", "proposalId"):
+            with self.subTest(missing=key):
+                changed = json.loads(json.dumps(receipt))
+                self.assertEqual(changed["stages"][3]["status"], "blocked")
+                del changed["stages"][3][key]
+                with self.assertRaises(Exception):
+                    validate(changed)
+
     def test_contract_marks_legacy_identities_optional(self):
         legacy = {"policyDecisionId", "approvalId", "actuatorId", "verificationId"}
         self.assertFalse(legacy & set(JOURNEY["receiptRequired"]))
