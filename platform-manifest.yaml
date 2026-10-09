@@ -344,7 +344,7 @@ components:
     # 2026-10-09 re-pin to 3ecd214: reset to the sentinel. The 87966c3 mirror digest
     # (sha256:99eb4c9f...) belongs to the previous pin; the first e2e-cloud-aws run on this pin
     # mirrors the new Lambda manifest and fails with the ECR digest to record here.
-    awsLambdaEcrDigest: "pending-ecr-mirror"
+    awsLambdaEcrDigest: "sha256:87b6ae497b095462c3ea02ae9ae54fda4d6d0262c4cd04971fb47552d607afcd"
     awsLambdaArchitecture: "x86_64"
     # release#282 item 4: all contract versions remain UNVERIFIED until re-read from the booted candidate.
     contractVersions:
