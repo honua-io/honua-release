@@ -2,7 +2,7 @@
   "schemaVersion": 1,
   "receiptSchema": "terminal-journey-receipt-v1",
   "evidenceKey": "release.e2e.terminal-zero-to-map",
-  "generatedAt": "2026-10-09T05:29:33.318247Z",
+  "generatedAt": "2026-10-09T06:56:33.120420Z",
   "mode": "live",
   "target": {
     "id": "local-docker",
@@ -194,7 +194,7 @@
         "source": "live-local-docker",
         "freshness": "verified-current",
         "completeness": "complete",
-        "observedAt": "2026-10-09T05:29:33.317920Z"
+        "observedAt": "2026-10-09T06:56:33.106505Z"
       }
     },
     {
@@ -216,7 +216,7 @@
           "kind": "cli",
           "invocation": "HONUA_ADMIN_KEY=<env> honua admin secure createAdminApiKey --base-url <loopback> --json --yes --body {\"name\":\"honua-terminal-journey-preflight\",\"permissions\":[\"admin:read\"]} --secret-output <private-sink>; getAdminApiKeyEffectivePermissions --path id=<id>; listAdminApiKeys; revokeAdminApiKey --yes --path id=<id>",
           "status": "pass",
-          "detail": "temporary admin:read key 501ad778-3119-4906-81b4-bc316ad2078f reported canAuthenticate true; list omitted key material; revoke removed the active key; private sink deleted"
+          "detail": "temporary admin:read key 08b486b3-27e6-4f67-bc15-cdd29f9cbce3 reported canAuthenticate true; list omitted key material; revoke removed the active key; private sink deleted"
         },
         {
           "id": "2.2-admin-endpoint-present",
@@ -244,7 +244,7 @@
         "source": "live-local-docker",
         "freshness": "verified-current",
         "completeness": "complete",
-        "observedAt": "2026-10-09T05:29:33.317920Z"
+        "observedAt": "2026-10-09T06:56:33.106505Z"
       }
     },
     {
@@ -298,9 +298,9 @@
         }
       ],
       "operationId": "service.publish",
-      "operationInstanceId": "opinst-e8c4bf0b02dd4b1487c838e74a1ea78b",
-      "correlationId": "corr-88d468fb2ae74dc3bd0568c217858ddb",
-      "auditId": "audit-dev-75c63e17837c48e5a3e023063a52f9c0",
+      "operationInstanceId": "opinst-ae5b255c7bc04669818b13a76bc50223",
+      "correlationId": "corr-2bd74821d5a0432eb2b4f0e32af12f37",
+      "auditId": "audit-dev-e317546e93ad491f804e6d9104b61054",
       "proposalId": null,
       "jobId": null,
       "resourceUri": null,
@@ -315,7 +315,7 @@
         "source": "live-local-docker",
         "freshness": "verified-current",
         "completeness": "complete",
-        "observedAt": "2026-10-09T05:29:33.317920Z"
+        "observedAt": "2026-10-09T06:56:33.106505Z"
       }
     },
     {
@@ -324,7 +324,7 @@
       "command": "honua_get_style; honua_apply_style_preset; honua_render_map; validate decoded PNG",
       "status": "fail",
       "blockedBy": [
-        "https://github.com/honua-io/honua-release/issues/123"
+        "https://github.com/honua-io/honua-server/issues/5744"
       ],
       "checks": [
         {
@@ -353,16 +353,19 @@
           "kind": "artifact",
           "invocation": "honua_render_map + decode PNG",
           "status": "fail",
-          "detail": "render pixel at (64, 64) is rgba(45, 105, 165, 255), not the authored style colour rgba(239, 32, 32, 255)"
+          "detail": "render pixel at (64, 64) is rgba(45, 105, 165, 255), not the authored style colour rgba(239, 32, 32, 255); the render reports the applied preset but rasterizes the layer's stored style",
+          "blockedBy": [
+            "https://github.com/honua-io/honua-server/issues/5744"
+          ]
         },
         {
           "id": "4.canonical-evidence",
           "kind": "http",
           "invocation": "canonical operation receipt",
           "status": "blocked",
-          "detail": "candidate has not returned the canonical operationId, operationInstanceId, correlationId, auditId for this stage",
+          "detail": "candidate has not returned the canonical operationId, operationInstanceId, correlationId, auditId for this stage; honua_apply_style_preset applied the preset but its output omits the operation handle",
           "blockedBy": [
-            "https://github.com/honua-io/honua-release/issues/123"
+            "https://github.com/honua-io/honua-server/issues/5744"
           ]
         }
       ],
@@ -384,7 +387,7 @@
         "source": "live-local-docker",
         "freshness": "verified-current",
         "completeness": "partial",
-        "observedAt": "2026-10-09T05:29:33.317920Z"
+        "observedAt": "2026-10-09T06:56:33.106505Z"
       }
     },
     {
@@ -431,7 +434,7 @@
       "jobId": "gp-930825dda2e4445393d952cf",
       "resourceUri": "honua://jobs/gp-930825dda2e4445393d952cf",
       "jobStatus": "Queued",
-      "jobCreatedAt": "2026-10-09T05:28:47.8862926+00:00",
+      "jobCreatedAt": "2026-10-09T06:53:39.16611+00:00",
       "policyDecisionId": null,
       "approvalId": null,
       "actuatorId": null,
@@ -441,7 +444,7 @@
         "source": "live-local-docker",
         "freshness": "verified-current",
         "completeness": "complete",
-        "observedAt": "2026-10-09T05:29:33.317920Z"
+        "observedAt": "2026-10-09T06:56:33.106505Z"
       }
     },
     {
@@ -502,9 +505,9 @@
         }
       ],
       "operationId": "studio.content.reopen-version",
-      "operationInstanceId": "opinst-0c867a56d3414f7c9cbbf2b940268c75",
-      "correlationId": "00-9c09fe9a2f27a0dc8124c237bbf23258-63e583069a5a26ef-00",
-      "auditId": "audit-dev-bd73daa26fec4e0cb336828aaa7255fe",
+      "operationInstanceId": "opinst-dc8c02e2ed3b4e4290c8e939e35fc66b",
+      "correlationId": "00-5e74831884d3e74da9695e869e24bfa4-02db600acb7d409e-00",
+      "auditId": "audit-dev-538e9e9cbf34415d9b999ba30366095c",
       "proposalId": null,
       "jobId": null,
       "resourceUri": null,
@@ -519,7 +522,7 @@
         "source": "live-local-docker",
         "freshness": "verified-current",
         "completeness": "complete",
-        "observedAt": "2026-10-09T05:29:33.317920Z"
+        "observedAt": "2026-10-09T06:56:33.106505Z"
       }
     },
     {
@@ -559,10 +562,10 @@
         }
       ],
       "operationId": "studio.content.create-publication-request",
-      "operationInstanceId": "opinst-c48537f6d68b427180aaf2aaab3b4374",
-      "correlationId": "00-a47a056b96356e7e73de1e685e5bd35b-80ffa8d33b1c97d7-00",
+      "operationInstanceId": "opinst-0a42cde65a194fb1accf6f6fe621f0d9",
+      "correlationId": "00-230408bcadbe5519c2c0f2cdb6a0edb6-dd3ebd6d527b82df-00",
       "auditId": "15",
-      "proposalId": "proposal-f0422c0997ad47508945d445848af7f8",
+      "proposalId": "proposal-a7c34d4ae0434edba2a0b94160b06b4f",
       "jobId": null,
       "resourceUri": null,
       "jobStatus": null,
@@ -576,7 +579,7 @@
         "source": "live-local-docker",
         "freshness": "verified-current",
         "completeness": "complete",
-        "observedAt": "2026-10-09T05:29:33.317920Z"
+        "observedAt": "2026-10-09T06:56:33.106505Z"
       }
     },
     {
@@ -651,10 +654,10 @@
         }
       ],
       "operationId": "studio.content.create-publication-request",
-      "operationInstanceId": "opinst-c48537f6d68b427180aaf2aaab3b4374",
-      "correlationId": "00-a47a056b96356e7e73de1e685e5bd35b-80ffa8d33b1c97d7-00",
+      "operationInstanceId": "opinst-0a42cde65a194fb1accf6f6fe621f0d9",
+      "correlationId": "00-230408bcadbe5519c2c0f2cdb6a0edb6-dd3ebd6d527b82df-00",
       "auditId": "15",
-      "proposalId": "proposal-f0422c0997ad47508945d445848af7f8",
+      "proposalId": "proposal-a7c34d4ae0434edba2a0b94160b06b4f",
       "jobId": null,
       "resourceUri": null,
       "jobStatus": null,
@@ -668,7 +671,7 @@
         "source": "live-local-docker",
         "freshness": "verified-current",
         "completeness": "complete",
-        "observedAt": "2026-10-09T05:29:33.317920Z"
+        "observedAt": "2026-10-09T06:56:33.106505Z"
       }
     }
   ],
@@ -677,7 +680,7 @@
     "stage": "style-render",
     "command": "honua_render_map + decode PNG",
     "check": "4.pixel",
-    "detail": "render pixel at (64, 64) is rgba(45, 105, 165, 255), not the authored style colour rgba(239, 32, 32, 255)"
+    "detail": "render pixel at (64, 64) is rgba(45, 105, 165, 255), not the authored style colour rgba(239, 32, 32, 255); the render reports the applied preset but rasterizes the layer's stored style"
   },
   "notices": [
     "Isolated PostGIS, Redis, authored GeoServices source, and two exact-candidate server replicas. Licensing remains disabled.",

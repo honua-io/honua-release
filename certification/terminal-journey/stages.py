@@ -39,6 +39,10 @@ ROSTER_EXPORTS = f"{SERVER}/3363"             # authoritative Admin roster expor
 SETUP_VIEW = f"{SERVER}/3428"                 # bounded server-authored terminal setup view
 INSTALLED_CLIENTS = f"{RELEASE}/7"            # installed-client execution engine
 JOURNEY_DRIVER = f"{RELEASE}/123"             # executable stages and per-run observations
+# honua_render_map rasterizes the layer's stored style, not the preset
+# honua_apply_style_preset associates, and the apply output drops the
+# style.apply-preset operation handle (server PR #5744).
+STYLE_RENDER = f"{SERVER}/5744"
 NO_REDIS_VARIANT = f"{RELEASE}/202"           # Redis-optional local install variant
 
 # In-flight PRs that would unblock the corresponding contract.
@@ -142,7 +146,9 @@ def _resolve(checks: list[Check], number: int, stage_id: str, command: str) -> S
         status = "blocked"
     blockers: list[str] = []
     for check in checks:
-        if check.status == "blocked":
+        # A blocked check names what is missing; a failed check may name the tracked
+        # upstream cause of its observed failure.
+        if check.status in ("blocked", "fail"):
             blockers.extend(check.blocked_by)
     return StageResult(
         number=number,

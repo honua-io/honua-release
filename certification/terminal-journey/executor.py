@@ -388,7 +388,15 @@ class JourneyExecutor:
             proof = oracles.prove_pixel(raw, bbox=self.fixture["bbox"], point=self.fixture["pixelPoint"],
                 size=self.fixture["renderSize"], rgba=self.fixture["pixelRgba"])
             return proof
-        return self._check(4, "pixel", "honua_render_map + decode PNG", prove)
+        row = self._check(4, "pixel", "honua_render_map + decode PNG", prove)
+        reported = {layer.get("styleId") for layer in output.get("layers") or [] if isinstance(layer, dict)}
+        if row.status == "fail" and self.fixture.get("styleId") in reported:
+            # The candidate reports the applied preset on the rendered layer yet the
+            # pixels differ: the known server gap, not an unexplained failure.
+            row.blocked_by = [stages.STYLE_RENDER]
+            row.detail += "; the render reports the applied preset but rasterizes the layer's stored style"
+            self.evidence["checks"]["4"]["pixel"] = row.as_receipt()
+        return row
 
     def check_job(self):
         def prove():
@@ -652,9 +660,15 @@ class JourneyExecutor:
             missing = self.canonical_gaps(number)
             receipt = "canonical job receipt" if number == 5 else "canonical operation receipt"
             if missing:
-                checks.append(probes.blocked(f"{number}.canonical-evidence", "http", receipt,
-                    "candidate has not returned the canonical " + ", ".join(missing) + " for this stage",
-                    [stages.JOURNEY_DRIVER]))
+                cause = [stages.JOURNEY_DRIVER]
+                why = "candidate has not returned the canonical " + ", ".join(missing) + " for this stage"
+                applied = self.evidence["checks"].get("4", {}).get("style-applied", {}).get("status") == "pass"
+                if number == 4 and applied:
+                    # The preset was applied through style.apply-preset, whose MCP output
+                    # drops the operation handle: a tracked server gap.
+                    cause = [stages.STYLE_RENDER]
+                    why += "; honua_apply_style_preset applied the preset but its output omits the operation handle"
+                checks.append(probes.blocked(f"{number}.canonical-evidence", "http", receipt, why, cause))
             else:
                 checks.append(probes.Check(f"{number}.canonical-evidence", "http", receipt, "pass",
                     "candidate returned " + ", ".join(self.canonical_required(number)) + " for this stage"))

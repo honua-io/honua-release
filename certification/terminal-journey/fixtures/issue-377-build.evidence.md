@@ -135,19 +135,21 @@ stages 1-8 receipt needs a fresh stack and the stage 3 import gap resolved.
 
 [issue-377-j2-fresh-stack.local-docker.json](issue-377-j2-fresh-stack.local-docker.json)
 is a `run.py --mode live` run of `targets/local-docker.json` on a freshly created
-stack (`docker compose down -v` beforehand, `2026-10-09T05:29:33Z`). The candidate
+stack (`docker compose down -v` beforehand, `2026-10-09T06:56:33Z`). The candidate
 and clients are unchanged: server `87966c3`
 (`sha256:069f196bfa5c7201223d4d89868934242c4ace8805a6e48c122a88d84fa6eb1a`),
 `@honua/sdk-js@0.1.14`, `@honua/mcp-server@0.1.14` and `Honua.Sdk@1.10.4`.
 Seven of the eight stages pass. The receipt is a `fail` because of stage 4, which
-is a server gap (below).
+is a server gap (below) tracked as honua-server#5744. The receipt names that cause:
+the stage-4 `blockedBy`, the failed `4.pixel` check and the blocked
+`4.canonical-evidence` check all cite it.
 
 | Stage | Status | Evidence keys |
 |---|---|---|
 | 1 installed-client-handoff | pass | — |
 | 2 credential-preflight | pass | — |
 | 3 publish-service | pass | `service.publish` operationInstanceId, correlationId, auditId |
-| 4 style-render | **fail** | candidate returned no operation ids |
+| 4 style-render | **fail** (honua-server#5744) | candidate returned no operation ids |
 | 5 bounded-gp | pass | `jobId`, `resourceUri`, `jobStatus`, `jobCreatedAt` |
 | 6 durable-compositions | pass | Studio operation ids |
 | 7 publication-proposal | pass | operation ids and `proposalId` |
@@ -170,4 +172,4 @@ Remaining blocker for stage 4 (server gap, present on server trunk too):
 - `honua_apply_style_preset` reports `applied: true` and `styleVersion: 1`, and `honua_render_map` reports the layer's style as `journey-solid-red`. The pixels still come from the layer's stored default style: the render at (64, 64) is rgba(45, 105, 165, 255), not the authored rgba(239, 32, 32, 255).
 - `StylePresetExecutor` only associates the style in the styleId catalog. `RasterMapRenderingPipeline` rasterizes `layers.maplibre_style`, and `RenderMapTool` says that rasterizing the applied vector style "is not yet supported".
 - `honua_apply_style_preset` submits the canonical `style.apply-preset` operation, but its MCP output drops the operation handle, so stage 4 has no operation ids either.
-- Supplying them would take a server change. The harness does not substitute another style path.
+- Supplying them would take a server change, now open as honua-server#5744 (render the applied layer style and return the apply-preset operation handle). The harness does not substitute another style path. It cites #5744 only when the render itself reports the applied preset, or when the preset was applied and the output omits the handle. Any other stage-4 failure stays uncited. Stage 4 re-runs once the pinned candidate carries #5744.

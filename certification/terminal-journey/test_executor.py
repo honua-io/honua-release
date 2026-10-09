@@ -944,3 +944,32 @@ def test_cli_admin_builds_fixed_argv_and_keeps_the_credential_in_the_child_envir
     assert kwargs["env"]["HONUA_ADMIN_KEY"] == "private-operator"
     config = json.loads((tmp_path / "profiles" / "config.json").read_text())
     assert set(config["profiles"]) == {"operator", "proposer", "approver"}
+
+
+RENDER_FIXTURE = {"bbox": [0, 0, 4, 4], "pixelPoint": [2, 3], "renderSize": [20, 10],
+                  "pixelRgba": [239, 32, 32, 255], "styleId": "journey-solid-red"}
+
+
+@pytest.mark.parametrize("reported,cause", [("journey-solid-red", [stages.STYLE_RENDER]), (None, None)])
+def test_stage_4_pixel_failure_cites_the_tracked_gap_only_when_the_render_reports_the_preset(reported, cause):
+    engine = engine_for(mock.Mock(), execution=dict(RENDER_FIXTURE))
+    output = {"image": {"base64": base64.b64encode(png_fixture((45, 105, 165, 255))).decode()},
+              "layers": [{"serviceId": "svc", "layerId": 1, "styleId": reported}]}
+    assert engine.check_render(output).status == "fail"
+    row = engine.evidence["checks"]["4"]["pixel"]
+    assert row["status"] == "fail" and row.get("blockedBy") == cause
+    engine.evidence["checks"]["4"]["style-applied"] = {
+        "id": "4.style-applied", "kind": "artifact", "invocation": "apply", "status": "pass", "detail": "ok"}
+    result = engine.result(4)
+    assert result.status == "fail"
+    canonical = next(c for c in result.checks if c.id == "4.canonical-evidence")
+    assert canonical.status == "blocked" and canonical.blocked_by == [stages.STYLE_RENDER]
+    assert stages.STYLE_RENDER in result.blocked_by
+
+
+def test_a_passing_render_carries_no_blocker():
+    engine = engine_for(mock.Mock(), execution=dict(RENDER_FIXTURE))
+    output = {"image": {"base64": base64.b64encode(png_fixture()).decode()},
+              "layers": [{"styleId": "journey-solid-red"}]}
+    assert engine.check_render(output).status == "pass"
+    assert "blockedBy" not in engine.evidence["checks"]["4"]["pixel"]
