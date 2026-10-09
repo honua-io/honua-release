@@ -495,7 +495,12 @@ SERVERLESS_SPEC = TfTargetSpec(
     # The 2026.1 GA serverless cell is Lambda + AWS Batch geoprocessing (rc.3 fix unit C2). Passed
     # only when the pinned root declares them (honua-iac feat/lambda-batch-ga-cell exposes them on
     # examples/aws-serverless); the release account pre-creates AWSServiceRoleForBatch.
-    declared_ephemeral_vars=("enable_gp_batch=true", "use_batch_service_linked_role=true"),
+    # image_repository_policy_mode=reuse: the cell role's guardrail (ProtectMirrorRepo) denies
+    # ecr:SetRepositoryPolicy on the shared honua-server mirror, whose owner-installed policy already
+    # authorizes Lambda retrieval; "owned" mode (the module default) fails provisioning with
+    # AccessDenied, which is what every nightly aws-serverless cell has recorded.
+    declared_ephemeral_vars=("enable_gp_batch=true", "use_batch_service_linked_role=true",
+                             "image_repository_policy_mode=reuse"),
     # The manifest's generic server image, amd64 child by digest (resolved by e2e-cloud-aws.yml).
     env_vars=(("HONUA_GP_BATCH_IMAGE", "gp_batch_image"),),
     migrate_image_env="HONUA_MIGRATE_IMAGE",
