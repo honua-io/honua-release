@@ -56,8 +56,9 @@ honua-sdk-js:
       14bf817df11b311fd2e9183c0ca8a8ec-10 / 656568610 bytes, observed no ETag / unknown). Live
       execution is blocked." That is the external dataset release moving, not the SDK build.
       Under honua-release#471. "Three-engine smoke and source-packed parity"
-      (first-map-release-smoke.yml) is NOT listed: it serves its fixture from 127.0.0.1, needs no
-      external backend, and its red on 984425f9 is a Firefox First Map provenance assertion.
+      (first-map-release-smoke.yml) is not env-gated: it serves its fixture from 127.0.0.1 and
+      needs no external backend; its Firefox-only red on 984425f9 is classified in
+      advisory-checks.yaml (honua-sdk-js#687).
 
 honua-iac:
   - name: "AWS Live Validation"
