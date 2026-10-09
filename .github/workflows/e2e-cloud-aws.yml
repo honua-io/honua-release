@@ -140,7 +140,10 @@ jobs:
           digest = str(server.get("digest", ""))
           if not image or not re.fullmatch(r"sha256:[0-9a-f]{64}", digest):
               raise SystemExit("honua-server image and exact sha256 digest are required")
-          pins["server_image"] = f"{image}@{digest}"
+          # honua-iac >= 5b09d0d refuses a tag next to the digest (`repo:tag@sha256:` is a mutable
+          # reference); hand the module `repository@digest` only, the tag stays in the manifest.
+          repository = re.sub(r":[^/@]+$", "", image.split("@", 1)[0])
+          pins["server_image"] = f"{repository}@{digest}"
           ecs_architecture = str(server.get("awsEcsArchitecture", ""))
           if ecs_architecture not in {"arm64", "x86_64"}:
               raise SystemExit("honua-server awsEcsArchitecture must be arm64 or x86_64")
