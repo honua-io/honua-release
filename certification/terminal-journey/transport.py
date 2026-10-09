@@ -75,14 +75,14 @@ class Transport:
         except discovery.DiscoveryError as exc:
             raise ExecutionError("GET " + path, "candidate did not return valid bounded JSON") from exc
 
-    def tool(self, name, arguments, view):
+    def tool(self, name, arguments, view, principal="proposer"):
         """Re-negotiate the bounded view on the actual installed proxy session."""
         import probes
 
         if not self.proxy or not self.proxy.is_file():
             raise ExecutionError(name, "verified installed proxy is unavailable", blocked=True)
         with probes.McpProxySession(str(self.proxy), self.base_url + "/mcp",
-                                    {"HONUA_API_KEY": self.credentials["proposer"],
+                                    {"HONUA_API_KEY": self.credentials[principal],
                                      "HONUA_ADMIN_KEY": "", "HONUA_MCP_AUTH_TOKEN": ""}) as session:
             initialized = session.initialize(workflow_view="setup")
             if "error" in initialized:

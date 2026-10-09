@@ -21,6 +21,13 @@ import discovery
 from transport import ExecutionError, Transport
 
 ID_FIELDS = ("operationId", "operationInstanceId", "proposalId", "jobId", "correlationId", "auditId")
+# The identities the candidate actually emits for one canonical invocation
+# (honua-server OperationExecutionModels.cs: OperationHandle/OperationPolicyContext).
+# Stage evidence is keyed on these; nothing here is minted by the harness.
+CANONICAL_KEYS = ("operationInstanceId", "correlationId", "auditId")
+# Older receipt identities no candidate emits. They stay optional, nullable receipt
+# fields and are retained only if a candidate ever returns them.
+LEGACY_RECEIPT_KEYS = ("policyDecisionId", "actuatorId", "verificationId", "approvalId")
 TOKEN = re.compile(r"[A-Za-z0-9][A-Za-z0-9_.:-]{0,199}\Z")
 STAGE_TOOLS = {
     1: {"honua_list_capabilities"},
@@ -33,6 +40,12 @@ STAGE_TOOLS = {
     7: {"honua_studio_propose_publication", "honua_operation_status", "honua_get_operation_status"},
     8: {"honua_operation_status", "honua_get_operation_status", "honua_supported_operation_kinds"},
 }
+# Which fixture principal acts in each build stage. The service operator (an admin
+# key) publishes the service, styles it and runs GP. The Studio author is a
+# deliberately non-admin principal: an admin caller publishes immediately and never
+# produces the AwaitingApproval proposal stage 7 must observe. Targets that supply
+# no operator credential fall back to the proposer for every stage.
+STAGE_PRINCIPALS = {3: "operator", 4: "operator", 5: "operator", 6: "proposer", 7: "proposer", 8: "operator"}
 SDK_METHODS = {"CreateConnectionAsync", "TestConnectionAsync", "StartGeoservicesImportAsync",
                "GetGeoservicesImportJobStatusAsync", "PublishLayerAsync"}
 
@@ -59,6 +72,10 @@ class JourneyExecutor:
         self.evidence = state.setdefault("execution", {"actions": {}, "resources": {}, "checks": {}, "canonicalIds": {}})
         self.fixture = target.get("execution") or {}
 
+    def principal(self, number):
+        wanted = STAGE_PRINCIPALS.get(number, "proposer")
+        return wanted if self.transport.credentials.get(wanted) else "proposer"
+
     @property
     def resources(self):
         return self.evidence["resources"]
@@ -81,7 +98,7 @@ class JourneyExecutor:
         if ids.get("operationInstanceId"):
             self.evidence["canonicalIds"][str(number)] = ids
         # Retain explicit old receipt identities only when actually returned.
-        for key in ("policyDecisionId", "actuatorId", "verificationId", "approvalId"):
+        for key in LEGACY_RECEIPT_KEYS:
             if envelope.get(key):
                 self.evidence.setdefault("receiptIds", {}).setdefault(str(number), {})[key] = identity(envelope[key], command)
         for key in ("connectionId", "draftId", "itemId", "versionId", "contentHash", "jobId", "proposalId"):
@@ -145,7 +162,7 @@ class JourneyExecutor:
         if name == "honua_render_map":
             self.evidence.setdefault("proofs", {}).pop("pixel", None)
             self.evidence["checks"].setdefault("4", {}).pop("pixel", None)
-        result = self.transport.tool(name, send_arguments, view)
+        result = self.transport.tool(name, send_arguments, view, self.principal(number))
         if fault and fault["status"] == "submitted":
             error = result.get("structuredContent") or {}
             if result.get("isError") is not True or error.get("code") not in {"invalid_argument", "invalid_input"}:
@@ -241,7 +258,7 @@ class JourneyExecutor:
         if not self.state.get("sdkBinding") and self.manifest is not None:
             self.state["sdkBinding"] = sdk.prepare(self.manifest, self.transport.workdir)
         result = sdk.invoke(self.state.get("sdkBinding"), method, arguments,
-                            base_url=self.transport.base_url, credential=self.transport.credentials["proposer"])
+                            base_url=self.transport.base_url, credential=self.transport.credentials[self.principal(3)])
         if not isinstance(result, dict):
             raise ExecutionError(method, "published SDK omitted a typed result")
         identity_key = {"TestConnectionAsync": "connectionId", "GetGeoservicesImportJobStatusAsync": "jobId"}.get(method)
@@ -262,7 +279,8 @@ class JourneyExecutor:
 
     def check_features(self):
         return self._check(3, "imported-content", "GET imported layer features", lambda: oracles.prove_features(
-            self.transport.get_json(self.fixture["featurePath"].format(**self.resources)), self.fixture["features"]))
+            self.transport.get_json(self.fixture["featurePath"].format(**self.resources), principal=self.principal(3)),
+            self.fixture["features"]))
 
     def check_render(self, output):
         def prove():
@@ -270,7 +288,7 @@ class JourneyExecutor:
             if image.get("base64"):
                 raw = base64.b64decode(image["base64"], validate=True)
             else:
-                raw, _ = self.transport.http("GET", image["uri"])
+                raw, _ = self.transport.http("GET", image["uri"], principal=self.principal(4))
             proof = oracles.prove_pixel(raw, bbox=self.fixture["bbox"], point=self.fixture["pixelPoint"],
                 size=self.fixture["renderSize"], rgba=self.fixture["pixelRgba"])
             return proof
@@ -280,11 +298,11 @@ class JourneyExecutor:
         def prove():
             job_id = identity(self.resources.get("jobId"), "GET canonical job")
             path = "/ogc/processes/jobs/" + urllib.parse.quote(job_id, safe="")
-            job = self.poll("GET canonical job", lambda: self.transport.get_json(path),
+            job = self.poll("GET canonical job", lambda: self.transport.get_json(path, principal=self.principal(5)),
                             lambda r: r.get("status") in {"successful", "failed", "dismissed"})
             if job["status"] != "successful" or job.get("jobID") != job_id:
                 raise ExecutionError("GET canonical job", "job did not succeed with the submitted identity")
-            results = self.transport.get_json(path + "/results")
+            results = self.transport.get_json(path + "/results", principal=self.principal(5))
             values = results.get("outputs", results)
             if not isinstance(values, dict) or not values:
                 raise oracles.ProofError("canonical job returned no outputs")
@@ -296,10 +314,23 @@ class JourneyExecutor:
                 if href.startswith("data:application/geo+json;base64,"):
                     feature = json.loads(base64.b64decode(href.split(",", 1)[1], validate=True))
                 else:
-                    feature = self.transport.get_json(href)
+                    feature = self.transport.get_json(href, principal=self.principal(5))
             spec = self.fixture["buffer"]
             return oracles.prove_buffer(feature, x=spec["point"][0], y=spec["point"][1], distance=spec["distance"])
         return self._check(5, "buffer", "geometry.buffer canonical job lifecycle", prove)
+
+    def family_schema_version(self, family):
+        """Read the candidate's advertised schema version; never hard-code it."""
+        document = self.transport.get_json("/api/v1/studio/package-families", principal=self.principal(6))
+        rows = document.get("data", document) if isinstance(document, dict) else document
+        if isinstance(rows, dict):
+            rows = rows.get("families", rows.get("items"))
+        matches = [row for row in rows or [] if isinstance(row, dict)
+                   and str(row.get("family", "")).lower() == family]
+        if len(matches) != 1 or not isinstance(matches[0].get("currentSchemaVersion"), str):
+            raise ExecutionError("GET /api/v1/studio/package-families",
+                                 f"candidate does not advertise one current {family} schema version")
+        return matches[0]["currentSchemaVersion"]
 
     def map_path(self):
         return ("/api/v1/studio/content-items/" + identity(self.resources.get("itemId"), "read saved map")
@@ -347,7 +378,7 @@ class JourneyExecutor:
     def check_reopened(self):
         def prove():
             draft_id = identity(self.resources.get("draftId"), "GET reopened draft")
-            draft = self.transport.get_json("/api/v1/studio/package-drafts/" + draft_id)
+            draft = self.transport.get_json("/api/v1/studio/package-drafts/" + draft_id, principal=self.principal(6))
             draft = draft.get("data", draft)
             expected = self.expected_map_body()
             if draft.get("baseVersionId") != self.resources["versionId"] or draft["envelope"]["body"] != expected:
@@ -358,7 +389,9 @@ class JourneyExecutor:
     def check_proposal(self):
         def prove():
             proposal_id = identity(self.resources.get("proposalId"), "GET publication proposal")
-            proposal = self.transport.get_json("/api/v1/admin/proposals/" + proposal_id)
+            # The non-admin author cannot read the admin proposal route; an independent
+            # operator read proves durability.
+            proposal = self.transport.get_json("/api/v1/admin/proposals/" + proposal_id, principal=self.principal(8))
             if proposal.get("proposalId") != proposal_id or proposal.get("status") not in {"Pending", "AwaitingApproval"}:
                 raise ExecutionError("GET publication proposal", "publication did not persist awaiting separate approval")
             return {"proposalId": proposal_id, "status": "AwaitingApproval"}
@@ -372,14 +405,15 @@ class JourneyExecutor:
         if not keys.get("approver") or keys.get("approver") == keys.get("proposer"):
             raise ExecutionError("approveOperationProposal", "distinct proposer and approver credentials are required", blocked=True)
         path = "/api/v1/admin/proposals/" + proposal_id
-        before = self.transport.get_json(path)
+        reader = self.principal(8)
+        before = self.transport.get_json(path, principal=reader)
         code, _ = self.transport.cli_approve(proposal_id, "proposer")
-        denied = self.transport.get_json(path)
+        denied = self.transport.get_json(path, principal=reader)
         if code == 0 or denied.get("status") != before.get("status") or denied.get("resolvedBy"):
             raise ExecutionError("approveOperationProposal --profile proposer", "self-approval was not refused without mutation")
         # A CLI usage error is not a security denial. Independently exercise the
         # authenticated candidate endpoint and require its actual 403 response.
-        self.transport.http("POST", path + "/approve", expected=(403,))
+        self.transport.http("POST", path + "/approve", principal="proposer", expected=(403,))
         code, _ = self.transport.cli_approve(proposal_id, "approver")
         if code:
             raise ExecutionError("approveOperationProposal --profile approver", "typed separate-principal approval failed")
@@ -392,14 +426,28 @@ class JourneyExecutor:
                                               "requestedBy": identity(final["requestedBy"], "GET approved proposal"),
                                               "resolvedBy": identity(final["resolvedBy"], "GET approved proposal")}
         self._check(8, "separation", "typed CLI separate-principal approval", lambda: self.evidence["approvalResolution"])
-        # The proposal ID is a resolution resource, not an invented approval ID.
-        # Require a server-reported approval identity before receipt qualification.
-        approval_id = final.get("approvalId")
-        if not approval_id:
-            raise ExecutionError("GET approved proposal", "candidate does not report a canonical approval identity", blocked=True)
+        # The candidate emits no separate approval identity. The approval is keyed on
+        # what it does report: the proposal, the resolving principal, and the audited
+        # operation instance the approved replay executed. A server-reported approvalId
+        # is retained if one ever appears; it is never invented.
+        execution_id = identity(final.get("executionOperationId"), "GET approved proposal")
+        handle = self.transport.get_json("/api/v1/operations/handles/" + execution_id, principal=self.principal(8))
+        handle = handle.get("data", handle)
+        if handle.get("operationInstanceId") != execution_id or handle.get("proposalId") not in {None, proposal_id}:
+            raise ExecutionError("GET approved execution handle", "approved replay handle does not join the proposal")
         self.evidence["approval"] = {"proposalId": proposal_id,
-                                     "approvalId": identity(approval_id, "GET approved proposal"),
+                                     "resolvedBy": identity(final["resolvedBy"], "GET approved proposal"),
+                                     "executionOperationId": execution_id,
+                                     "auditId": identity(handle.get("auditId"), "GET approved execution handle"),
+                                     "correlationId": identity(handle.get("correlationId"), "GET approved execution handle"),
+                                     "approvalId": (identity(final["approvalId"], "GET approved proposal")
+                                                    if final.get("approvalId") else None),
                                      "proposerSelfApproval": "denied"}
+        self.evidence["canonicalIds"]["8"] = {"operationId": handle.get("operationId"),
+                                              "operationInstanceId": execution_id,
+                                              "proposalId": proposal_id,
+                                              "correlationId": self.evidence["approval"]["correlationId"],
+                                              "auditId": self.evidence["approval"]["auditId"]}
         return self.evidence["approval"]
 
     def verify_final(self):
@@ -431,7 +479,7 @@ class JourneyExecutor:
         def join():
             expected = self.evidence.get("publicationOperation", {})
             handle_id = identity(expected.get("operationInstanceId"), "GET canonical publication handle")
-            observed = self.transport.get_json("/api/v1/operations/handles/" + handle_id)
+            observed = self.transport.get_json("/api/v1/operations/handles/" + handle_id, principal=self.principal(8))
             observed = observed.get("data", observed)
             if any(not expected.get(k) or observed.get(k) != expected[k]
                    for k in ("operationId", "operationInstanceId", "proposalId", "correlationId", "auditId")):
@@ -440,7 +488,7 @@ class JourneyExecutor:
 
         def authority():
             handle_id = identity(self.evidence.get("publicationOperation", {}).get("operationInstanceId"), "GET current authority")
-            observed = self.transport.get_json("/api/v1/operations/handles/" + handle_id)
+            observed = self.transport.get_json("/api/v1/operations/handles/" + handle_id, principal=self.principal(8))
             observed = observed.get("data", observed)
             if (observed.get("status") != "Completed" or observed.get("policyDecision") != "Allow"
                     or str(observed.get("authorizationOutcome", "")).lower() not in {"allowed", "authorized"}):
@@ -479,16 +527,37 @@ class JourneyExecutor:
         stage = next(s for s in contract["stages"] if s["number"] == number)
         ids = self.evidence.get("receiptIds", {}).get(str(number), {})
         canonical = self.evidence["canonicalIds"].get(str(number), {})
-        if number >= 3 and required and (not canonical.get("operationId") or any(not ids.get(k) for k in
-                ("policyDecisionId", "actuatorId", "verificationId"))):
-            checks.append(probes.blocked(f"{number}.canonical-evidence", "http", "canonical operation receipt",
-                "candidate has not returned the receipt's policy, actuator and verification identities", [stages.JOURNEY_DRIVER]))
+        if number >= 3 and required:
+            missing = self.canonical_gaps(number)
+            if missing:
+                checks.append(probes.blocked(f"{number}.canonical-evidence", "http", "canonical operation receipt",
+                    "candidate has not returned the canonical " + ", ".join(missing) + " for this stage",
+                    [stages.JOURNEY_DRIVER]))
+            else:
+                checks.append(probes.Check(f"{number}.canonical-evidence", "http", "canonical operation receipt", "pass",
+                    "candidate returned " + ", ".join(self.canonical_required(number)) + " for this stage"))
         result = stages._resolve(checks, number, stage["id"], stage["command"])
         result.operation_id = canonical.get("operationId")
+        for key in CANONICAL_KEYS + ("proposalId",):
+            setattr(result, stages.RECEIPT_ATTRS[key], canonical.get(key))
         result.policy_decision_id, result.actuator_id, result.verification_id = (
             ids.get("policyDecisionId"), ids.get("actuatorId"), ids.get("verificationId"))
         result.approval_id = (self.evidence.get("approval") or {}).get("approvalId") if number == 8 else None
         return result
+
+    @staticmethod
+    def canonical_required(number):
+        """Server-emitted identities a passing stage must carry (receipt.schema.json)."""
+        required = ("operationId",) + CANONICAL_KEYS
+        return required + ("proposalId",) if number in (7, 8) else required
+
+    def canonical_gaps(self, number):
+        canonical = self.evidence["canonicalIds"].get(str(number), {})
+        missing = [key for key in self.canonical_required(number) if not canonical.get(key)]
+        if number == 8:
+            approval = self.evidence.get("approval") or {}
+            missing += [f"approval {key}" for key in ("proposalId", "resolvedBy", "auditId") if not approval.get(key)]
+        return missing
 
     def run_build(self):
         """Fixed harness calls, distinct from execute's model-selected calls."""
@@ -526,7 +595,7 @@ class JourneyExecutor:
             if "layerId" not in self.resources:
                 raise ExecutionError("honua_apply_style_preset", "imported published layer is unavailable", blocked=True)
             params = {"serviceId": self.fixture["serviceId"], "layerId": self.resources["layerId"]}
-            self.transport.http("POST", "/ogc/styles", body=self.fixture["style"], expected=(201,),
+            self.transport.http("POST", "/ogc/styles", principal=self.principal(4), body=self.fixture["style"], expected=(201,),
                                 extra_headers={"X-Style-Id": self.fixture["styleId"]})
             call(4, "honua_get_style", {"styleId": self.fixture["styleId"], "includeStylesheet": True})
             call(4, "honua_apply_style_preset", {**params, "styleId": self.fixture["styleId"]})
@@ -550,7 +619,7 @@ class JourneyExecutor:
             if "layerId" not in self.resources:
                 raise ExecutionError("honua_studio_create_draft", "imported published layer is unavailable", blocked=True)
             call(6, "honua_studio_create_draft", {"family": "map", "packageKey": self.state["workspaceId"],
-                 "schemaVersion": "1", "body": self.expected_map_body()})
+                 "schemaVersion": self.family_schema_version("map"), "body": self.expected_map_body()})
             call(6, "honua_studio_validate_draft", {"draftId": self.resources["draftId"]})
             call(6, "honua_studio_save_version", {"draftId": self.resources["draftId"], "generation": self.resources["generation"]})
             call(6, "honua_studio_reopen_version", {"itemId": self.resources["itemId"], "versionId": self.resources["versionId"]})

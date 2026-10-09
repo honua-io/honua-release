@@ -38,6 +38,7 @@
     "authPolicyRevision": "terminal-separate-principals-v1"
   },
   "principals": {
+    "operator": "HONUA_JOURNEY_OPERATOR_KEY",
     "proposer": "HONUA_JOURNEY_PROPOSER_KEY",
     "approver": "HONUA_JOURNEY_APPROVER_KEY",
     "viewer": "HONUA_JOURNEY_VIEWER_KEY",
@@ -190,7 +191,7 @@
         ]
       }
     },
-    "route": "journey-map",
+    "route": "/journey-map",
     "publishedPath": "/api/v1/studio/published/journey-map"
   }
 }

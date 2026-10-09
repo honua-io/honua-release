@@ -402,6 +402,54 @@ class ReceiptTests(unittest.TestCase):
         with self.assertRaises(Exception):
             validate(receipt)
 
+    def _passing_stage(self, number):
+        receipt = build()
+        receipt["mode"] = "live"
+        stage = receipt["stages"][number - 1]
+        stage.update(status="pass", blockedBy=[], checks=[{"id": "x", "kind": "mcp-tool", "invocation": "x", "status": "pass", "detail": "x"}])
+        stage["evidence"] = {"uri": "u", "source": "live-local-docker", "freshness": "verified-current", "completeness": "complete", "observedAt": "2026-08-29T00:00:00Z"}
+        stage.update(operationId="studio.draft.save-version", operationInstanceId="opinst-1",
+                     correlationId="00-corr", auditId="audit-1")
+        return receipt, stage
+
+    def test_passing_mutation_stage_is_keyed_on_server_emitted_ids_not_legacy_ids(self):
+        # The candidate emits operationInstanceId/correlationId/auditId; policy-decision,
+        # actuator, verification and approval ids are optional and may stay null.
+        receipt, stage = self._passing_stage(6)
+        self.assertIsNone(stage["policyDecisionId"])
+        self.assertIsNone(stage["actuatorId"])
+        self.assertIsNone(stage["verificationId"])
+        validate(receipt)
+        for key in ("policyDecisionId", "approvalId", "actuatorId", "verificationId"):
+            del stage[key]
+        validate(receipt)
+        for key in ("operationInstanceId", "correlationId", "auditId"):
+            with self.subTest(missing=key):
+                changed, row = self._passing_stage(6)
+                row[key] = None
+                with self.assertRaises(Exception):
+                    validate(changed)
+
+    def test_passing_proposal_and_approval_stages_require_the_server_proposal_id(self):
+        for number in (7, 8):
+            with self.subTest(stage=number):
+                receipt, stage = self._passing_stage(number)
+                with self.assertRaises(Exception):
+                    validate(receipt)
+                stage["proposalId"] = "proposal-1"
+                self.assertIsNone(stage["approvalId"])
+                validate(receipt)
+
+    def test_contract_marks_legacy_identities_optional(self):
+        legacy = {"policyDecisionId", "approvalId", "actuatorId", "verificationId"}
+        self.assertFalse(legacy & set(JOURNEY["receiptRequired"]))
+        self.assertEqual(legacy, set(JOURNEY["receiptOptional"]))
+        self.assertTrue({"operationInstanceId", "correlationId", "auditId", "proposalId"} <= set(JOURNEY["receiptRequired"]))
+        closed = {"https://github.com/honua-io/honua-server/issues/3411",
+                  "https://github.com/honua-io/honua-server/issues/3431",
+                  "https://github.com/honua-io/honua-server/issues/3741"}
+        self.assertFalse(closed & {b for s in JOURNEY["stages"] for b in s["blockedBy"]})
+
 
 # ---------------------------------------------------------------------------
 # Canary adapter contract

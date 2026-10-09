@@ -203,9 +203,87 @@ def test_missing_canonical_evidence_never_invents_ids_or_reports_pass():
                                                "status": "pass", "detail": "pixel verified"}}
     result = engine.result(4)
     assert result.status == "blocked"
+    assert result.operation_instance_id is None
+    assert result.audit_id is None
     assert result.policy_decision_id is None
     assert result.actuator_id is None
     assert result.verification_id is None
+    evidence = next(check for check in result.checks if check.id == "4.canonical-evidence")
+    assert evidence.status == "blocked"
+    assert "operationInstanceId" in evidence.detail and "auditId" in evidence.detail
+
+
+STUDIO_ENVELOPE = {"operation": {"operationInstanceId": "opinst-1", "operationId": "studio.draft.save-version",
+                                 "status": "Completed", "correlationId": "00-corr-01", "auditId": "audit-dev-1",
+                                 "policyDecision": "Allow"},
+                   "version": {"itemId": "item", "versionId": "version", "contentHash": "hash"}}
+
+
+def passing_stage_6_checks(engine):
+    for check in ("saved-map", "replica-map", "reopened-map"):
+        engine.evidence["checks"].setdefault("6", {})[check] = {
+            "id": f"6.{check}", "kind": "artifact", "invocation": check, "status": "pass", "detail": "verified"}
+
+
+def test_canonical_evidence_is_keyed_on_server_emitted_identities_without_legacy_ids():
+    engine = engine_for(mock.Mock())
+    engine._record(6, "honua_studio_save_version", copy.deepcopy(STUDIO_ENVELOPE))
+    passing_stage_6_checks(engine)
+    result = engine.result(6)
+    assert result.status == "pass"
+    assert (result.operation_id, result.operation_instance_id, result.correlation_id, result.audit_id) == (
+        "studio.draft.save-version", "opinst-1", "00-corr-01", "audit-dev-1")
+    # The candidate emits no policy-decision/actuator/verification ids; none is invented.
+    assert (result.policy_decision_id, result.actuator_id, result.verification_id, result.approval_id) == (
+        None, None, None, None)
+    assert next(c for c in result.checks if c.id == "6.canonical-evidence").status == "pass"
+
+
+@pytest.mark.parametrize("missing", ["operationInstanceId", "correlationId", "auditId"])
+def test_each_server_emitted_identity_is_required_for_a_passing_stage(missing):
+    engine = engine_for(mock.Mock())
+    envelope = copy.deepcopy(STUDIO_ENVELOPE)
+    envelope["operation"].pop(missing)
+    engine._record(6, "honua_studio_save_version", envelope)
+    passing_stage_6_checks(engine)
+    result = engine.result(6)
+    assert result.status == "blocked"
+    assert missing in next(c for c in result.checks if c.id == "6.canonical-evidence").detail
+
+
+def test_publication_stage_also_requires_the_server_proposal_identity():
+    engine = engine_for(mock.Mock())
+    envelope = copy.deepcopy(STUDIO_ENVELOPE)
+    engine._record(7, "honua_studio_propose_publication", envelope)
+    engine.evidence["checks"]["7"] = {"durable-proposal": {"id": "7.durable-proposal", "kind": "artifact",
+                                                           "invocation": "GET", "status": "pass", "detail": "ok"}}
+    assert engine.result(7).status == "blocked"
+    envelope["operation"]["proposalId"] = "proposal-1"
+    engine._record(7, "honua_studio_propose_publication", envelope)
+    result = engine.result(7)
+    assert result.status == "pass"
+    assert result.proposal_id == "proposal-1"
+
+
+def test_studio_schema_version_is_read_from_the_candidate_family_descriptor():
+    transport = mock.Mock(credentials={"proposer": "private-proposer"})
+    engine = engine_for(transport)
+    transport.get_json.return_value = {"success": True, "data": {"families": [
+        {"family": "query", "currentSchemaVersion": "9.9"}, {"family": "map", "currentSchemaVersion": "1.0"}]}}
+    assert engine.family_schema_version("map") == "1.0"
+    assert transport.get_json.call_args.args == ("/api/v1/studio/package-families",)
+    transport.get_json.return_value = {"data": {"families": [{"family": "query", "currentSchemaVersion": "1.0"}]}}
+    with pytest.raises(ExecutionError, match="current map schema version"):
+        engine.family_schema_version("map")
+
+
+def test_stage_principals_keep_the_studio_author_non_admin_and_fall_back_without_an_operator():
+    transport = mock.Mock(credentials={"proposer": "author", "operator": "admin", "approver": "approver"})
+    engine = engine_for(transport)
+    assert [engine.principal(n) for n in range(3, 9)] == [
+        "operator", "operator", "operator", "proposer", "proposer", "operator"]
+    transport.credentials.pop("operator")
+    assert {engine.principal(n) for n in range(3, 9)} == {"proposer"}
 
 
 def test_out_of_view_or_stage_calls_do_not_execute_a_transport():
@@ -345,14 +423,45 @@ def test_approval_poll_accepts_recorded_pending_executing_succeeded_sequence():
     engine = engine_for(transport)
     engine.resources["proposalId"] = "proposal-1"
     pending = {"proposalId": "proposal-1", "status": "Pending", "requestedBy": "actor-proposer"}
+    handle = {"operationInstanceId": "opinst-exec", "operationId": "studio.content.create-publication-request",
+              "proposalId": "proposal-1", "auditId": "audit-approval", "correlationId": "00-corr-approval"}
     transport.get_json.side_effect = [pending, pending, {**pending, "status": "Executing"},
-        {**pending, "status": "Succeeded", "resolvedBy": "actor-approver", "approvalId": "approval-1"}]
+        {**pending, "status": "Succeeded", "resolvedBy": "actor-approver", "executionOperationId": "opinst-exec"},
+        {"data": handle}]
     transport.cli_approve.side_effect = [(1, None), (0, None)]
     with mock.patch.object(executor.time, "sleep") as sleep:
         result = engine.approve("proposal-1")
-    assert result["approvalId"] == "approval-1"
+    # Keyed on what the candidate reports: proposal, resolver and the audited replay.
+    assert result["proposalId"] == "proposal-1"
+    assert result["resolvedBy"] == "actor-approver"
+    assert result["executionOperationId"] == "opinst-exec"
+    assert result["auditId"] == "audit-approval"
+    assert result["approvalId"] is None
+    assert transport.get_json.call_args.args == ("/api/v1/operations/handles/opinst-exec",)
+    assert engine.evidence["canonicalIds"]["8"]["auditId"] == "audit-approval"
     assert sleep.call_count == 1
     assert engine.evidence["checks"]["8"]["separation"]["status"] == "pass"
+
+
+def test_approval_retains_a_server_reported_approval_id_and_rejects_an_unjoined_replay():
+    transport = mock.Mock(credentials={"proposer": "private-proposer", "approver": "private-approver"})
+    engine = engine_for(transport)
+    engine.resources["proposalId"] = "proposal-1"
+    pending = {"proposalId": "proposal-1", "status": "Pending", "requestedBy": "actor-proposer"}
+    final = {**pending, "status": "Succeeded", "resolvedBy": "actor-approver",
+             "executionOperationId": "opinst-exec", "approvalId": "approval-1"}
+    handle = {"operationInstanceId": "opinst-exec", "auditId": "audit-approval", "correlationId": "corr"}
+    transport.get_json.side_effect = [pending, pending, final, handle]
+    transport.cli_approve.side_effect = [(1, None), (0, None)]
+    assert engine.approve("proposal-1")["approvalId"] == "approval-1"
+
+    engine = engine_for(transport)
+    engine.resources["proposalId"] = "proposal-1"
+    transport.get_json.side_effect = [pending, pending, final, {**handle, "proposalId": "proposal-other"}]
+    transport.cli_approve.side_effect = [(1, None), (0, None)]
+    with pytest.raises(ExecutionError, match="does not join the proposal"):
+        engine.approve("proposal-1")
+    assert "approval" not in engine.evidence
 
 
 @pytest.mark.parametrize("failure", [oracles.ProofError("bad render"), ExecutionError("render", "unavailable", blocked=True),
@@ -444,9 +553,11 @@ def test_local_fixture_mints_expiring_keys_and_fresh_signed_other_tenant_bearers
         transport.get_json.return_value = {"data": {"permissions": expected, "status": "active", "canAuthenticate": True}}
         return json.dumps({"data": {"key": "private-" + name, "apiKey": {"id": name}}}).encode(), 201
     transport.http.side_effect = mint
-    with mock.patch.object(local_fixture, "Transport", return_value=transport):
+    with mock.patch.object(local_fixture, "Transport", return_value=transport), \
+            mock.patch.object(local_fixture, "_grant_author_role") as author_role:
         keys = local_fixture.credentials(target, tmp_path, "http://127.0.0.1:8137", mint=True)
-    assert set(keys) == {"proposer", "approver", "viewer", "other-tenant"}
+    author_role.assert_called_once_with(transport)
+    assert set(keys) == {"operator", "proposer", "approver", "viewer", "other-tenant"}
     private_path = tmp_path / "private-principals.json"
     assert private_path.stat().st_mode & 0o777 == 0o600
     first_token = keys["other-tenant"]()
@@ -463,6 +574,36 @@ def test_local_fixture_mints_expiring_keys_and_fresh_signed_other_tenant_bearers
     assert not any("private-" in value for value in target["principals"].values())
     local_fixture.cleanup(tmp_path)
     assert not private_path.exists()
+
+
+def test_studio_author_principal_never_holds_an_admin_grant():
+    import local_fixture
+    # An admin caller publishes immediately and never yields an AwaitingApproval proposal.
+    assert not any(grant == "admin" or grant == "*" or grant.startswith("admin:")
+                   for grant in local_fixture.GRANTS["proposer"])
+    assert local_fixture.GRANTS["approver"] == ["admin:approve"]
+    assert local_fixture.GRANTS["proposer"] != local_fixture.GRANTS["approver"]
+
+
+@pytest.mark.parametrize("existing", [False, True])
+def test_author_role_is_created_or_reused_and_its_grants_are_read_back(existing):
+    import local_fixture
+    transport = mock.Mock()
+    transport.get_json.return_value = {"data": [{"roleId": "role-1", "name": "layer-write-key"}] if existing else []}
+    calls = []
+    def http(method, path, **kwargs):
+        calls.append((method, path))
+        if method == "POST":
+            return json.dumps({"data": {"roleId": "role-1"}}).encode(), 201
+        return json.dumps({"data": kwargs["body"]["permissions"]}).encode(), 200
+    transport.http.side_effect = http
+    local_fixture._grant_author_role(transport)
+    expected = [("PUT", "/api/v1/admin/roles/role-1/permissions")]
+    assert calls == ([] if existing else [("POST", "/api/v1/admin/roles/")]) + expected
+    transport.http.side_effect = lambda method, path, **kwargs: (json.dumps({"data": []}).encode(), 200)
+    transport.get_json.return_value = {"data": [{"roleId": "role-1", "name": "layer-write-key"}]}
+    with pytest.raises(ExecutionError, match="author grants"):
+        local_fixture._grant_author_role(transport)
 
 
 def test_tenant_denial_cannot_pass_from_a_blanket_studio_rbac_refusal():
@@ -486,7 +627,7 @@ def test_buffer_plan_sent_to_validate_dry_run_and_execute_matches_the_accepted_c
         for name in ("honua_validate_plan", "honua_dry_run_plan", "honua_execute_plan"))
     captured = []
 
-    def tool(name, arguments, view):
+    def tool(name, arguments, view, principal="proposer"):
         captured.append((name, copy.deepcopy(arguments)))
         if name == "honua_execute_plan":
             return {"structuredContent": {"jobId": "job-buffer-1", "status": "accepted"}}
@@ -506,7 +647,7 @@ def test_buffer_plan_sent_to_validate_dry_run_and_execute_matches_the_accepted_c
     assert engine.evidence["proofs"]["buffer"] == {
         "centroid": [5, 7], "vertexCount": 32, "ordinatesVerified": True}
     # This capture is not a live certification. The stage stays blocked until the
-    # candidate returns policy, actuator and verification identities.
+    # candidate returns the canonical operation instance, correlation and audit identities.
     assert stage.status == "blocked"
     assert any(check.id == "5.canonical-evidence" and check.status == "blocked" for check in stage.checks)
 

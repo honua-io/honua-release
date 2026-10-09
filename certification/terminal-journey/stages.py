@@ -26,6 +26,10 @@ from probes import Check, CredentialProbe, HttpResult, McpError, blocked
 SERVER = "https://github.com/honua-io/honua-server/issues"
 RELEASE = "https://github.com/honua-io/honua-release/issues"
 
+# server#3411 (operation envelope/runtime) and server#3431 (scope narrowing through
+# approval replay) are closed; the candidate now emits the canonical operation
+# identities and stage evidence is keyed on them. Their former placeholder checks cite
+# the executable-stages driver instead, which is what still has to observe them.
 AUTH_SESSION = f"{SERVER}/3430"               # auth-before-tenant, session binding
 PROPOSAL_AUTHZ = f"{SERVER}/3474"             # proposal/resource authorization
 EVIDENCE_POSTURE = f"{SERVER}/3475"           # source evidence freshness/completeness
@@ -86,6 +90,15 @@ class Observation:
     setup_discovery: dict[str, Any] | None = None
 
 
+# Receipt key -> StageResult attribute for the server-emitted canonical identities.
+RECEIPT_ATTRS = {
+    "operationInstanceId": "operation_instance_id",
+    "correlationId": "correlation_id",
+    "auditId": "audit_id",
+    "proposalId": "proposal_id",
+}
+
+
 @dataclass
 class StageResult:
     number: int
@@ -95,6 +108,13 @@ class StageResult:
     blocked_by: list[str] = field(default_factory=list)
     checks: list[Check] = field(default_factory=list)
     operation_id: str | None = None
+    # Identities the candidate emits for the stage's canonical invocation.
+    operation_instance_id: str | None = None
+    correlation_id: str | None = None
+    audit_id: str | None = None
+    proposal_id: str | None = None
+    # Optional legacy receipt identities. No candidate emits them (see journey.v1.json
+    # notes); they stay null unless a candidate actually returns one.
     policy_decision_id: str | None = None
     approval_id: str | None = None
     actuator_id: str | None = None
@@ -394,7 +414,7 @@ def stage_3(observation: Observation, workspace_blockers: Callable[[int], list[s
             "mcp-tool",
             "unified typed operation envelope for every mutating step",
             "the driver has not executed service publication and captured the "
-            "operation/policy/actuator/verification identities from this target",
+            "operation instance, correlation and audit identities from this target",
             [JOURNEY_DRIVER],
         ),
     ]
@@ -435,7 +455,7 @@ def stage_5(observation: Observation, workspace_blockers: Callable[[int], list[s
             "the local target composes PostGIS and Honua Server only. Without Redis the "
             "job runner refuses submission, and the typed refusal contract that would "
             "make that refusal certifiable is not on the candidate",
-            [REDIS_POSTURE, NO_REDIS_VARIANT],
+            [REDIS_POSTURE, NO_REDIS_VARIANT, JOURNEY_DRIVER],
         ),
     ]
 
@@ -466,7 +486,7 @@ def stage_7(observation: Observation, workspace_blockers: Callable[[int], list[s
             "proposal and resource authorization (tenant, owner, scope, nondisclosure) "
             "is not on the candidate, and the local target has no Redis-backed control "
             "plane to make the proposal durable",
-            [PROPOSAL_AUTHZ, REDIS_POSTURE],
+            [PROPOSAL_AUTHZ, REDIS_POSTURE, JOURNEY_DRIVER],
         ),
     ]
 

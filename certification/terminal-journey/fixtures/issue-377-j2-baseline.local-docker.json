@@ -1,0 +1,745 @@
+{
+  "schemaVersion": 1,
+  "receiptSchema": "terminal-journey-receipt-v1",
+  "evidenceKey": "release.e2e.terminal-zero-to-map",
+  "generatedAt": "2026-10-08T23:12:15.701719Z",
+  "mode": "live",
+  "target": {
+    "id": "local-docker",
+    "kind": "local-docker",
+    "configPath": "certification/terminal-journey/targets/local-docker.json",
+    "configSha256": "d6dbc7b2bf40a0b8b0e09689321968b0fa2170e470d4d0254c9e40ea353c0814",
+    "baseUrl": "http://127.0.0.1:8137",
+    "composeProject": "honua-terminal-journey"
+  },
+  "status": "blocked",
+  "release": "2026.1-rc.2",
+  "clientArtifacts": {
+    "honua-sdk-js": {
+      "package": "@honua/sdk-js",
+      "version": "0.1.14",
+      "integrity": "sha512-4AZPZ/505HVTnk7hdEK8820BevUf6qtAHPK2DFASmdsCrYjJxELUMIZgoy4KxkqOwh/440zf8tdirSoLsM9jfg==",
+      "digest": null,
+      "sourceSha": "984425f9d88b3c699cbd4766538ba311b48790aa"
+    },
+    "honua-mcp-server": {
+      "package": "@honua/mcp-server",
+      "version": "0.1.14",
+      "integrity": "sha512-dxwoQoysTJkf3iyNDOlyrM31J4x6k8wTJZRXTAk7qy5sXnnOshqjVJqETFL1acKKvKF6owHwABPZoWZOAhHTTw==",
+      "digest": null,
+      "sourceSha": "704eb9573eec7320cad19edc588486986c5a4046"
+    }
+  },
+  "clientWorkspace": {
+    "status": "pass",
+    "source": "published-registry-bytes",
+    "root": "/tmp/j2-work/clients",
+    "reason": null,
+    "resolved": [
+      {
+        "name": "honua-mcp-server",
+        "package": "@honua/mcp-server",
+        "version": "0.1.14",
+        "ecosystem": "npm",
+        "registryUrl": "https://registry.npmjs.org/@honua/mcp-server/-/mcp-server-0.1.14.tgz",
+        "integrityVerified": true,
+        "tarballSha256": "1907f20eb96ba8b928734c429a8efedfdad76f5a006a214dbc0862c588dd8628",
+        "bin": {
+          "honua-mcp": "dist/src/index.js",
+          "honua-mcp-proxy": "dist/src/proxy.js",
+          "honua-zero-to-map-release": "dist/src/release/zero-to-map-cli.js"
+        }
+      },
+      {
+        "name": "honua-sdk-js",
+        "package": "@honua/sdk-js",
+        "version": "0.1.14",
+        "ecosystem": "npm",
+        "registryUrl": "https://registry.npmjs.org/@honua/sdk-js/-/sdk-js-0.1.14.tgz",
+        "integrityVerified": true,
+        "tarballSha256": "28457a24296f5d495bd57f95a1bc282fceb67ad5e9983c8e507701f54171a396",
+        "bin": {
+          "honua": "./dist/src/cli/bin.js",
+          "honua-plugin-certify": "./dist/src/plugin/bin.js"
+        }
+      }
+    ],
+    "commandSurface": [
+      {
+        "command": "honua",
+        "requiredBy": [
+          1
+        ],
+        "status": "present",
+        "providedBy": "@honua/sdk-js@0.1.14",
+        "detail": "shipped as ./dist/src/cli/bin.js"
+      },
+      {
+        "command": "honua admin",
+        "requiredBy": [
+          2,
+          3,
+          8
+        ],
+        "status": "present",
+        "providedBy": "@honua/sdk-js@0.1.14",
+        "detail": "the pinned honua CLI advertises an `admin` command"
+      },
+      {
+        "command": "honua-mcp-proxy",
+        "requiredBy": [
+          1,
+          4,
+          5,
+          6,
+          7
+        ],
+        "status": "present",
+        "providedBy": "@honua/mcp-server@0.1.14",
+        "detail": "shipped as dist/src/proxy.js"
+      }
+    ],
+    "installNotes": []
+  },
+  "server": {
+    "sourceSha": "87966c3f7b6c840ffc4d4da0b451714ab717b18a",
+    "image": "ghcr.io/honua-io/honua-server:nightly-87966c3@sha256:069f196bfa5c7201223d4d89868934242c4ace8805a6e48c122a88d84fa6eb1a"
+  },
+  "fixtureRevision": "terminal-zero-to-map-v1",
+  "configRevision": "terminal-profiles-v1",
+  "authPolicyRevision": "terminal-separate-principals-v1",
+  "roster": {
+    "status": "blocked",
+    "reason": "authoritative candidate roster exports unavailable",
+    "blockedBy": "https://github.com/honua-io/honua-server/issues/3363",
+    "requiredExports": [
+      "admin-openapi-operation-ids.json",
+      "admin-mcp-projection-manifest.json"
+    ]
+  },
+  "stages": [
+    {
+      "number": 1,
+      "stage": "installed-client-handoff",
+      "command": "install exact manifest clients; verify readiness, identity, auth, profiles and tools/list",
+      "status": "pass",
+      "blockedBy": [],
+      "checks": [
+        {
+          "id": "1.1-candidate-image",
+          "kind": "compose",
+          "invocation": "docker compose up -d --wait (server image pinned from platform-manifest.yaml)",
+          "status": "pass",
+          "detail": "stack running the pinned candidate image ghcr.io/honua-io/honua-server:nightly-87966c3@sha256:069f196bfa5c7201223d4d89868934242c4ace8805a6e48c122a88d84fa6eb1a"
+        },
+        {
+          "id": "1.2-readiness",
+          "kind": "http",
+          "invocation": "GET /healthz/ready",
+          "status": "pass",
+          "detail": "HTTP 200: Ready"
+        },
+        {
+          "id": "1.2-licensing-disabled",
+          "kind": "http",
+          "invocation": "GET /api/v1/admin/license",
+          "status": "pass",
+          "detail": "admin license mode: disabled"
+        },
+        {
+          "id": "1.3-candidate-identity",
+          "kind": "http",
+          "invocation": "GET /api/v1/capabilities/manifest",
+          "status": "pass",
+          "detail": "candidate identity reported: revision='87966c3f7b6c840ffc4d4da0b451714ab717b18a' source='commit-sha'; expected manifest revision='87966c3f7b6c840ffc4d4da0b451714ab717b18a'"
+        },
+        {
+          "id": "1.4-auth-enforced",
+          "kind": "http",
+          "invocation": "GET /api/v1/admin/version without credentials",
+          "status": "pass",
+          "detail": "anonymous admin access refused with HTTP 401 (authentication precedes tenant resolution, https://github.com/honua-io/honua-server/issues/3430)"
+        },
+        {
+          "id": "1.5-proxy-tools-list",
+          "kind": "mcp-tool",
+          "invocation": "honua-mcp-proxy \u2192 initialize + paginated tools/list",
+          "status": "pass",
+          "detail": "pinned proxy enumerated 124 tools (paginated independently of any expected count)"
+        },
+        {
+          "id": "1.6-bounded-setup-view",
+          "kind": "mcp-tool",
+          "invocation": "server-authored bounded setup/profile tool view",
+          "status": "pass",
+          "detail": "verified initialize-bound HTTP/proxy setup parity; {'descriptorBytes': 81337, 'largestDescriptorBytes': 7196, 'descriptorDigest': 'sha256:b3f239d34cfd37004b46b56d255082588d512ad50b7973141f38ae50aea7621d', 'descriptorSizes': [3415, 2216, 4431, 5004, 3906, 2052, 1810, 7196, 3010, 3682, 4538, 5671, 5433, 1835, 2400, 5560, 3569, 1667, 1505, 2272, 1920, 3188, 1482, 2421, 1128]}"
+        }
+      ],
+      "operationId": null,
+      "policyDecisionId": null,
+      "approvalId": null,
+      "actuatorId": null,
+      "verificationId": null,
+      "evidence": {
+        "uri": "https://github.com/honua-io/honua-release/issues/377",
+        "source": "live-local-docker",
+        "freshness": "verified-current",
+        "completeness": "complete",
+        "observedAt": "2026-10-08T23:12:15.701494Z"
+      }
+    },
+    {
+      "number": 2,
+      "stage": "credential-preflight",
+      "command": "honua admin apiKeys list/effective-permissions",
+      "status": "pass",
+      "blockedBy": [],
+      "checks": [
+        {
+          "id": "2.1-admin-cli",
+          "kind": "cli",
+          "invocation": "honua --help (verified pinned client)",
+          "status": "pass",
+          "detail": "the pinned command surface includes `honua admin`; execution of `honua admin apiKeys list; honua admin apiKeys effective-permissions` is not proven by discovery"
+        },
+        {
+          "id": "2.3-credential-permissions",
+          "kind": "cli",
+          "invocation": "HONUA_ADMIN_KEY=<env> honua admin secure createAdminApiKey --base-url <loopback> --json --yes --body {\"name\":\"honua-terminal-journey-preflight\",\"permissions\":[\"admin:read\"]} --secret-output <private-sink>; getAdminApiKeyEffectivePermissions --path id=<id>; listAdminApiKeys; revokeAdminApiKey --yes --path id=<id>",
+          "status": "pass",
+          "detail": "temporary admin:read key c755e6c8-0a7e-4f41-bcd0-30359a3b331e reported canAuthenticate true; list omitted key material; revoke removed the active key; private sink deleted"
+        },
+        {
+          "id": "2.2-admin-endpoint-present",
+          "kind": "http",
+          "invocation": "GET /api/v1/admin/api-keys/ (credentialed surface exists on the candidate)",
+          "status": "pass",
+          "detail": "the candidate serves the authenticated Admin API-key surface (HTTP 401)"
+        }
+      ],
+      "operationId": null,
+      "policyDecisionId": null,
+      "approvalId": null,
+      "actuatorId": null,
+      "verificationId": null,
+      "evidence": {
+        "uri": "https://github.com/honua-io/honua-release/issues/377",
+        "source": "live-local-docker",
+        "freshness": "verified-current",
+        "completeness": "complete",
+        "observedAt": "2026-10-08T23:12:15.701494Z"
+      }
+    },
+    {
+      "number": 3,
+      "stage": "publish-service",
+      "command": "honua admin connection create/test; import; publish/configure layer and access policy",
+      "status": "blocked",
+      "blockedBy": [
+        "https://github.com/honua-io/honua-release/issues/123",
+        "https://github.com/honua-io/honua-server/issues/3411"
+      ],
+      "checks": [
+        {
+          "id": "3.client-pins",
+          "kind": "cli",
+          "invocation": "honua --help (verified pinned client)",
+          "status": "pass",
+          "detail": "the pinned command surface includes `honua admin`; execution of `verify pinned installed clients required by this stage` is not proven by discovery"
+        },
+        {
+          "id": "3.1-admin-cli",
+          "kind": "cli",
+          "invocation": "honua --help (verified pinned client)",
+          "status": "pass",
+          "detail": "the pinned command surface includes `honua admin`; execution of `honua admin connection create/test; import; publish/configure layer; access policy` is not proven by discovery"
+        },
+        {
+          "id": "3.execution",
+          "kind": "cli",
+          "invocation": "CreateConnectionAsync",
+          "status": "blocked",
+          "detail": "verified published SDK bridge is unavailable",
+          "blockedBy": [
+            "https://github.com/honua-io/honua-release/issues/123"
+          ]
+        },
+        {
+          "id": "3.datasource",
+          "kind": "artifact",
+          "invocation": "datasource",
+          "status": "blocked",
+          "detail": "required live assertion has not executed",
+          "blockedBy": [
+            "https://github.com/honua-io/honua-release/issues/123"
+          ]
+        },
+        {
+          "id": "3.import-complete",
+          "kind": "artifact",
+          "invocation": "import-complete",
+          "status": "blocked",
+          "detail": "required live assertion has not executed",
+          "blockedBy": [
+            "https://github.com/honua-io/honua-release/issues/123"
+          ]
+        },
+        {
+          "id": "3.imported-content",
+          "kind": "artifact",
+          "invocation": "imported-content",
+          "status": "blocked",
+          "detail": "required live assertion has not executed",
+          "blockedBy": [
+            "https://github.com/honua-io/honua-release/issues/123"
+          ]
+        },
+        {
+          "id": "3.canonical-evidence",
+          "kind": "http",
+          "invocation": "canonical operation receipt",
+          "status": "blocked",
+          "detail": "candidate has not returned the receipt's policy, actuator and verification identities",
+          "blockedBy": [
+            "https://github.com/honua-io/honua-server/issues/3411"
+          ]
+        }
+      ],
+      "operationId": null,
+      "policyDecisionId": null,
+      "approvalId": null,
+      "actuatorId": null,
+      "verificationId": null,
+      "evidence": {
+        "uri": "https://github.com/honua-io/honua-release/issues/377",
+        "source": "live-local-docker",
+        "freshness": "verified-current",
+        "completeness": "partial",
+        "observedAt": "2026-10-08T23:12:15.701494Z"
+      }
+    },
+    {
+      "number": 4,
+      "stage": "style-render",
+      "command": "honua_get_style; honua_apply_style_preset; honua_render_map; validate decoded PNG",
+      "status": "blocked",
+      "blockedBy": [
+        "https://github.com/honua-io/honua-release/issues/123",
+        "https://github.com/honua-io/honua-server/issues/3411"
+      ],
+      "checks": [
+        {
+          "id": "4.client-pins",
+          "kind": "cli",
+          "invocation": "honua --help (verified pinned client)",
+          "status": "pass",
+          "detail": "the pinned command surface includes `honua admin`; execution of `verify pinned installed clients required by this stage` is not proven by discovery"
+        },
+        {
+          "id": "4.1-style-tools-present",
+          "kind": "mcp-tool",
+          "invocation": "mcp tools/list \u220b honua_get_style, honua_apply_style_preset, honua_render_map",
+          "status": "pass",
+          "detail": "all 3 tools present in the 124-tool candidate surface"
+        },
+        {
+          "id": "4.execution",
+          "kind": "cli",
+          "invocation": "honua_apply_style_preset",
+          "status": "blocked",
+          "detail": "imported published layer is unavailable",
+          "blockedBy": [
+            "https://github.com/honua-io/honua-release/issues/123"
+          ]
+        },
+        {
+          "id": "4.pixel",
+          "kind": "artifact",
+          "invocation": "pixel",
+          "status": "blocked",
+          "detail": "required live assertion has not executed",
+          "blockedBy": [
+            "https://github.com/honua-io/honua-release/issues/123"
+          ]
+        },
+        {
+          "id": "4.style-applied",
+          "kind": "artifact",
+          "invocation": "style-applied",
+          "status": "blocked",
+          "detail": "required live assertion has not executed",
+          "blockedBy": [
+            "https://github.com/honua-io/honua-release/issues/123"
+          ]
+        },
+        {
+          "id": "4.canonical-evidence",
+          "kind": "http",
+          "invocation": "canonical operation receipt",
+          "status": "blocked",
+          "detail": "candidate has not returned the receipt's policy, actuator and verification identities",
+          "blockedBy": [
+            "https://github.com/honua-io/honua-server/issues/3411"
+          ]
+        }
+      ],
+      "operationId": null,
+      "policyDecisionId": null,
+      "approvalId": null,
+      "actuatorId": null,
+      "verificationId": null,
+      "evidence": {
+        "uri": "https://github.com/honua-io/honua-release/issues/377",
+        "source": "live-local-docker",
+        "freshness": "verified-current",
+        "completeness": "partial",
+        "observedAt": "2026-10-08T23:12:15.701494Z"
+      }
+    },
+    {
+      "number": 5,
+      "stage": "bounded-gp",
+      "command": "discover/run geometry.buffer; wait/cancel canonical job; retain result",
+      "status": "blocked",
+      "blockedBy": [
+        "https://github.com/honua-io/honua-server/issues/3411"
+      ],
+      "checks": [
+        {
+          "id": "5.client-pins",
+          "kind": "cli",
+          "invocation": "honua --help (verified pinned client)",
+          "status": "pass",
+          "detail": "the pinned command surface includes `honua admin`; execution of `verify pinned installed clients required by this stage` is not proven by discovery"
+        },
+        {
+          "id": "5.1-gp-tools-present",
+          "kind": "mcp-tool",
+          "invocation": "mcp tools/list \u220b honua_plan_analysis, honua_execute_plan, honua_cancel_job",
+          "status": "pass",
+          "detail": "all 3 tools present in the 124-tool candidate surface"
+        },
+        {
+          "id": "5.buffer",
+          "kind": "artifact",
+          "invocation": "geometry.buffer canonical job lifecycle",
+          "status": "pass",
+          "detail": "independent live assertion passed"
+        },
+        {
+          "id": "5.canonical-evidence",
+          "kind": "http",
+          "invocation": "canonical operation receipt",
+          "status": "blocked",
+          "detail": "candidate has not returned the receipt's policy, actuator and verification identities",
+          "blockedBy": [
+            "https://github.com/honua-io/honua-server/issues/3411"
+          ]
+        }
+      ],
+      "operationId": null,
+      "policyDecisionId": null,
+      "approvalId": null,
+      "actuatorId": null,
+      "verificationId": null,
+      "evidence": {
+        "uri": "https://github.com/honua-io/honua-release/issues/377",
+        "source": "live-local-docker",
+        "freshness": "verified-current",
+        "completeness": "partial",
+        "observedAt": "2026-10-08T23:12:15.701494Z"
+      }
+    },
+    {
+      "number": 6,
+      "stage": "durable-compositions",
+      "command": "create/mutate/validate/version map+dashboard; restart/reopen; compare hashes",
+      "status": "blocked",
+      "blockedBy": [
+        "https://github.com/honua-io/honua-release/issues/123",
+        "https://github.com/honua-io/honua-server/issues/3411"
+      ],
+      "checks": [
+        {
+          "id": "6.client-pins",
+          "kind": "cli",
+          "invocation": "honua --help (verified pinned client)",
+          "status": "pass",
+          "detail": "the pinned command surface includes `honua admin`; execution of `verify pinned installed clients required by this stage` is not proven by discovery"
+        },
+        {
+          "id": "6.1-studio-draft-tools-present",
+          "kind": "mcp-tool",
+          "invocation": "mcp tools/list \u220b honua_studio_create_draft, honua_studio_update_draft, honua_studio_validate_draft",
+          "status": "pass",
+          "detail": "all 3 tools present in the 124-tool candidate surface"
+        },
+        {
+          "id": "6.2-studio-composition-tools-present",
+          "kind": "mcp-tool",
+          "invocation": "mcp tools/list \u220b honua_studio_add_layer, honua_studio_set_layer_style, honua_studio_set_view, honua_studio_add_widget, honua_studio_add_control",
+          "status": "pass",
+          "detail": "all 5 tools present in the 124-tool candidate surface"
+        },
+        {
+          "id": "6.execution",
+          "kind": "cli",
+          "invocation": "honua_studio_create_draft",
+          "status": "blocked",
+          "detail": "imported published layer is unavailable",
+          "blockedBy": [
+            "https://github.com/honua-io/honua-release/issues/123"
+          ]
+        },
+        {
+          "id": "6.reopened-map",
+          "kind": "artifact",
+          "invocation": "reopened-map",
+          "status": "blocked",
+          "detail": "required live assertion has not executed",
+          "blockedBy": [
+            "https://github.com/honua-io/honua-release/issues/123"
+          ]
+        },
+        {
+          "id": "6.replica-map",
+          "kind": "artifact",
+          "invocation": "replica-map",
+          "status": "blocked",
+          "detail": "required live assertion has not executed",
+          "blockedBy": [
+            "https://github.com/honua-io/honua-release/issues/123"
+          ]
+        },
+        {
+          "id": "6.saved-map",
+          "kind": "artifact",
+          "invocation": "saved-map",
+          "status": "blocked",
+          "detail": "required live assertion has not executed",
+          "blockedBy": [
+            "https://github.com/honua-io/honua-release/issues/123"
+          ]
+        },
+        {
+          "id": "6.canonical-evidence",
+          "kind": "http",
+          "invocation": "canonical operation receipt",
+          "status": "blocked",
+          "detail": "candidate has not returned the receipt's policy, actuator and verification identities",
+          "blockedBy": [
+            "https://github.com/honua-io/honua-server/issues/3411"
+          ]
+        }
+      ],
+      "operationId": null,
+      "policyDecisionId": null,
+      "approvalId": null,
+      "actuatorId": null,
+      "verificationId": null,
+      "evidence": {
+        "uri": "https://github.com/honua-io/honua-release/issues/377",
+        "source": "live-local-docker",
+        "freshness": "verified-current",
+        "completeness": "partial",
+        "observedAt": "2026-10-08T23:12:15.701494Z"
+      }
+    },
+    {
+      "number": 7,
+      "stage": "publication-proposal",
+      "command": "submit and poll durable AwaitingApproval proposal bound to item/version/hash",
+      "status": "blocked",
+      "blockedBy": [
+        "https://github.com/honua-io/honua-release/issues/123",
+        "https://github.com/honua-io/honua-server/issues/3411"
+      ],
+      "checks": [
+        {
+          "id": "7.client-pins",
+          "kind": "cli",
+          "invocation": "honua --help (verified pinned client)",
+          "status": "pass",
+          "detail": "the pinned command surface includes `honua admin`; execution of `verify pinned installed clients required by this stage` is not proven by discovery"
+        },
+        {
+          "id": "7.1-proposal-tool-present",
+          "kind": "mcp-tool",
+          "invocation": "mcp tools/list \u220b honua_studio_propose_publication",
+          "status": "pass",
+          "detail": "all 1 tools present in the 124-tool candidate surface"
+        },
+        {
+          "id": "7.execution",
+          "kind": "cli",
+          "invocation": "honua_studio_propose_publication",
+          "status": "blocked",
+          "detail": "saved immutable map version is unavailable",
+          "blockedBy": [
+            "https://github.com/honua-io/honua-release/issues/123"
+          ]
+        },
+        {
+          "id": "7.durable-proposal",
+          "kind": "artifact",
+          "invocation": "durable-proposal",
+          "status": "blocked",
+          "detail": "required live assertion has not executed",
+          "blockedBy": [
+            "https://github.com/honua-io/honua-release/issues/123"
+          ]
+        },
+        {
+          "id": "7.canonical-evidence",
+          "kind": "http",
+          "invocation": "canonical operation receipt",
+          "status": "blocked",
+          "detail": "candidate has not returned the receipt's policy, actuator and verification identities",
+          "blockedBy": [
+            "https://github.com/honua-io/honua-server/issues/3411"
+          ]
+        }
+      ],
+      "operationId": null,
+      "policyDecisionId": null,
+      "approvalId": null,
+      "actuatorId": null,
+      "verificationId": null,
+      "evidence": {
+        "uri": "https://github.com/honua-io/honua-release/issues/377",
+        "source": "live-local-docker",
+        "freshness": "verified-current",
+        "completeness": "partial",
+        "observedAt": "2026-10-08T23:12:15.701494Z"
+      }
+    },
+    {
+      "number": 8,
+      "stage": "separate-principal-approval",
+      "command": "honua admin operate approveOperationProposal --profile approver --yes; poll published URL",
+      "status": "blocked",
+      "blockedBy": [
+        "https://github.com/honua-io/honua-release/issues/123",
+        "https://github.com/honua-io/honua-server/issues/3411"
+      ],
+      "checks": [
+        {
+          "id": "8.client-pins",
+          "kind": "cli",
+          "invocation": "honua --help (verified pinned client)",
+          "status": "pass",
+          "detail": "the pinned command surface includes `honua admin`; execution of `verify pinned installed clients required by this stage` is not proven by discovery"
+        },
+        {
+          "id": "8.1-admin-cli",
+          "kind": "cli",
+          "invocation": "honua --help (verified pinned client)",
+          "status": "pass",
+          "detail": "the pinned command surface includes `honua admin`; execution of `honua admin operate approveOperationProposal --path id=<proposal-id> --profile approver --yes` is not proven by discovery"
+        },
+        {
+          "id": "8.execution",
+          "kind": "cli",
+          "invocation": "approveOperationProposal",
+          "status": "blocked",
+          "detail": "durable publication proposal is unavailable",
+          "blockedBy": [
+            "https://github.com/honua-io/honua-release/issues/123"
+          ]
+        },
+        {
+          "id": "8.canonical-join",
+          "kind": "artifact",
+          "invocation": "canonical-join",
+          "status": "blocked",
+          "detail": "required live assertion has not executed",
+          "blockedBy": [
+            "https://github.com/honua-io/honua-release/issues/123"
+          ]
+        },
+        {
+          "id": "8.current-authority",
+          "kind": "artifact",
+          "invocation": "current-authority",
+          "status": "blocked",
+          "detail": "required live assertion has not executed",
+          "blockedBy": [
+            "https://github.com/honua-io/honua-release/issues/123"
+          ]
+        },
+        {
+          "id": "8.final-map",
+          "kind": "artifact",
+          "invocation": "final-map",
+          "status": "blocked",
+          "detail": "required live assertion has not executed",
+          "blockedBy": [
+            "https://github.com/honua-io/honua-release/issues/123"
+          ]
+        },
+        {
+          "id": "8.rbac-denial",
+          "kind": "artifact",
+          "invocation": "rbac-denial",
+          "status": "blocked",
+          "detail": "required live assertion has not executed",
+          "blockedBy": [
+            "https://github.com/honua-io/honua-release/issues/123"
+          ]
+        },
+        {
+          "id": "8.separation",
+          "kind": "artifact",
+          "invocation": "separation",
+          "status": "blocked",
+          "detail": "required live assertion has not executed",
+          "blockedBy": [
+            "https://github.com/honua-io/honua-release/issues/123"
+          ]
+        },
+        {
+          "id": "8.tenant-isolation",
+          "kind": "artifact",
+          "invocation": "tenant-isolation",
+          "status": "blocked",
+          "detail": "required live assertion has not executed",
+          "blockedBy": [
+            "https://github.com/honua-io/honua-release/issues/123"
+          ]
+        },
+        {
+          "id": "8.canonical-evidence",
+          "kind": "http",
+          "invocation": "canonical operation receipt",
+          "status": "blocked",
+          "detail": "candidate has not returned the receipt's policy, actuator and verification identities",
+          "blockedBy": [
+            "https://github.com/honua-io/honua-server/issues/3411"
+          ]
+        }
+      ],
+      "operationId": null,
+      "policyDecisionId": null,
+      "approvalId": null,
+      "actuatorId": null,
+      "verificationId": null,
+      "evidence": {
+        "uri": "https://github.com/honua-io/honua-release/issues/377",
+        "source": "live-local-docker",
+        "freshness": "verified-current",
+        "completeness": "partial",
+        "observedAt": "2026-10-08T23:12:15.701494Z"
+      }
+    }
+  ],
+  "failure": null,
+  "notices": [
+    "Isolated PostGIS, Redis, authored GeoServices source, and two exact-candidate server replicas. Licensing remains disabled.",
+    "Setup discovery sidecar: /tmp/j2-work/setup-discovery.json; SHA-256: 9f94a376cc08393e16f871f6d0b13ccccec2a3f80339ae3f70fcf510d484fa55",
+    "Published SDK preparation: install published .NET SDK: manifest lacks a supported published .NET SDK pin"
+  ],
+  "linkedEvidence": {
+    "awsProvisioning": "honua-release#129",
+    "genuineModelCanary": "honua-release#161"
+  }
+}

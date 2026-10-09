@@ -210,7 +210,15 @@ SDK checkout never substitutes for the pin. The standalone
 `test_sdk_bridge.py --dll PATH` exercise runs five actual published SDK HTTP calls
 against an authored loopback peer. It is serialization/transport evidence only.
 
-The local target needs environment references for `HONUA_JOURNEY_PROPOSER_KEY`,
+The local fixture mints four short-lived keys: an `operator` (`admin:write`) that
+publishes, styles and runs GP; a non-admin Studio `proposer` (`write:journey`,
+whose stamped `layer-write-key` role receives StudioDraft
+Create/Read/Update/Publish operator grants in the isolated stack), because an
+admin caller publishes immediately and never produces an AwaitingApproval
+proposal; a separate `approver` (`admin:approve`); and a `viewer`. Stage 6 reads
+the map family's `currentSchemaVersion` from `GET /api/v1/studio/package-families`.
+Other targets need environment references for `HONUA_JOURNEY_OPERATOR_KEY` (optional;
+the proposer is used when absent), `HONUA_JOURNEY_PROPOSER_KEY`,
 `HONUA_JOURNEY_APPROVER_KEY` and `HONUA_JOURNEY_DATASOURCE_PASSWORD`; approval
 requires different credentials and server-reported actor separation. Configure
 `viewer` and `other-tenant` principal environment references for the final RBAC
@@ -227,9 +235,17 @@ body and the immutable item/version/hash join. A proposer approval attempt must
 leave the proposal unchanged and the authenticated candidate must actually
 return 403; CLI usage failure cannot stand in for a security denial.
 
-Missing canonical policy, actuator, verification or approval identities remain
-explicit blockers. The executor neither invents IDs nor relaxes the receipt
-schema to turn content assertions into release qualification. The render fault
+Stage evidence is keyed on the identities the candidate actually emits for a
+canonical invocation (`OperationHandle` in honua-server
+`OperationExecutionModels.cs`): `operationInstanceId`, `correlationId` and
+`auditId`, plus `proposalId` for the proposal and approval stages. A passing
+stage 3-8 must carry them; a missing one is an explicit `canonical-evidence`
+blocker. Approval is keyed on `proposalId` + `resolvedBy` + the approved
+replay's audited operation instance (`executionOperationId` and its `auditId`).
+`policyDecisionId`, `actuatorId`, `verificationId` and `approvalId` are optional,
+nullable receipt fields: no candidate emits them, so they are never required and
+never invented. The executor does not relax the receipt schema to turn content
+assertions into release qualification. The render fault
 is a real read-only invalid-width request; only the candidate's structured
 refusal marks it observed, and an independently checked subsequent render marks
 recovery. Its failed action remains failed in the protocol JSON; the adapter
