@@ -1324,7 +1324,7 @@ def test_preview_cell_failure_is_informational_and_cannot_fill_a_ga_cell():
         previews = [{"cell": f"{target}/redis-off", "status": "fail"} for target in cj.PREVIEW_TARGETS]
         result = _aggregate_fixture([report, *previews], root)
         assert result["status"] == "blocked"  # focused dispatch remains diagnostic
-        assert [r["evidenceTier"] for r in result["cells"]] == ["GA", "Preview", "Preview"]
+        assert [r["evidenceTier"] for r in result["cells"]] == ["GA", *(["Preview"] * len(cj.PREVIEW_TARGETS))]
         result = _aggregate_fixture([*previews], root, full_scope=True)
         assert result["status"] == "fail" and "missing required cells" in result["why"]
 
