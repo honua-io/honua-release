@@ -185,7 +185,8 @@ def prove_pixel(png, *, bbox, point, size, rgba):
         raise ProofError("fixture point lies outside the image")
     observed = png_pixel(png, size, (px, py))
     if tuple(observed) != tuple(rgba):
-        raise ProofError("render pixel differs from authored style colour")
+        raise ProofError(f"render pixel at ({px}, {py}) is rgba{tuple(observed)}, not the authored "
+                         f"style colour rgba{tuple(rgba)}")
     return {"x": px, "y": py, "rgba": list(rgba), "sha256": hashlib.sha256(png).hexdigest()}
 
 

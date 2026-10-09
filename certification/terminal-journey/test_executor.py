@@ -584,13 +584,24 @@ def test_sdk_poll_cannot_replace_the_expected_identity_with_its_own_result(metho
     assert not engine.evidence["actions"]
 
 
+SEALED = {"itemId": "item-1", "versionId": "version-1", "contentHash": "hash-1"}
+SEALED_DIFF = ["itemId=item-1", "versionId=version-1", "contentHash=hash-1", "route=/journey-map"]
+SEALED_HANDLE = {"status": "Completed", "resourceIds": {"itemId": "item-1", "versionId": "version-1"}}
+
+
+def approval_engine(transport):
+    engine = engine_for(transport)
+    engine.resources.update(proposalId="proposal-1", **SEALED)
+    return engine
+
+
 def test_approval_poll_accepts_recorded_pending_executing_succeeded_sequence():
     transport = mock.Mock(credentials={"proposer": "private-proposer", "approver": "private-approver"})
-    engine = engine_for(transport)
-    engine.resources["proposalId"] = "proposal-1"
-    pending = {"proposalId": "proposal-1", "status": "Pending", "requestedBy": "actor-proposer"}
+    engine = approval_engine(transport)
+    pending = {"proposalId": "proposal-1", "status": "Pending", "requestedBy": "actor-proposer", "diff": SEALED_DIFF}
     handle = {"operationInstanceId": "opinst-exec", "operationId": "studio.content.create-publication-request",
-              "proposalId": "proposal-1", "auditId": "audit-approval", "correlationId": "00-corr-approval"}
+              "proposalId": "proposal-1", "auditId": "audit-approval", "correlationId": "00-corr-approval",
+              **SEALED_HANDLE}
     transport.get_json.side_effect = [pending, pending, {**pending, "status": "Executing"},
         {**pending, "status": "Succeeded", "resolvedBy": "actor-approver", "executionOperationId": "opinst-exec"},
         {"data": handle}]
@@ -611,23 +622,74 @@ def test_approval_poll_accepts_recorded_pending_executing_succeeded_sequence():
 
 def test_approval_retains_a_server_reported_approval_id_and_rejects_an_unjoined_replay():
     transport = mock.Mock(credentials={"proposer": "private-proposer", "approver": "private-approver"})
-    engine = engine_for(transport)
-    engine.resources["proposalId"] = "proposal-1"
-    pending = {"proposalId": "proposal-1", "status": "Pending", "requestedBy": "actor-proposer"}
+    engine = approval_engine(transport)
+    pending = {"proposalId": "proposal-1", "status": "Pending", "requestedBy": "actor-proposer", "diff": SEALED_DIFF}
     final = {**pending, "status": "Succeeded", "resolvedBy": "actor-approver",
              "executionOperationId": "opinst-exec", "approvalId": "approval-1"}
-    handle = {"operationInstanceId": "opinst-exec", "auditId": "audit-approval", "correlationId": "corr"}
+    handle = {"operationInstanceId": "opinst-exec", "auditId": "audit-approval", "correlationId": "corr", **SEALED_HANDLE}
     transport.get_json.side_effect = [pending, pending, final, handle]
     transport.cli_approve.side_effect = [(1, None), (0, None)]
     assert engine.approve("proposal-1")["approvalId"] == "approval-1"
 
-    engine = engine_for(transport)
-    engine.resources["proposalId"] = "proposal-1"
-    transport.get_json.side_effect = [pending, pending, final, {**handle, "proposalId": "proposal-other"}]
+    for unjoined in ({"proposalId": "proposal-other"}, {"status": "Executing"},
+                     {"resourceIds": {"itemId": "item-1", "versionId": "version-other"}}):
+        engine = approval_engine(transport)
+        transport.get_json.side_effect = [pending, pending, final, {**handle, **unjoined}]
+        transport.cli_approve.side_effect = [(1, None), (0, None)]
+        with pytest.raises(ExecutionError, match="does not join the proposal"):
+            engine.approve("proposal-1")
+        assert "approval" not in engine.evidence
+
+
+# Shapes observed on candidate 87966c3: the approved Studio publication completes the
+# publication's own handle; the proposal carries no executionOperationId and the
+# handle omits proposalId.
+OBSERVED_PROPOSAL = {"proposalId": "proposal-1", "kind": "StudioDraftMutation", "status": "Succeeded",
+                     "requestedBy": "actor-proposer", "resolvedBy": "actor-approver", "diff": SEALED_DIFF}
+OBSERVED_HANDLE = {"operationInstanceId": "opinst-pub", "operationId": "studio.content.create-publication-request",
+                   "handleId": "opinst-pub", "correlationId": "00-corr-pub", "auditId": "15",
+                   "authorizationOutcome": "approved", "policyDecision": "Allow", **SEALED_HANDLE}
+
+
+def test_approval_without_execution_id_joins_the_publication_handle_on_sealed_content():
+    transport = mock.Mock(credentials={"proposer": "private-proposer", "approver": "private-approver"})
+    engine = approval_engine(transport)
+    engine.evidence["publicationOperation"] = {
+        "operationId": "studio.content.create-publication-request", "operationInstanceId": "opinst-pub",
+        "proposalId": "proposal-1", "correlationId": "00-corr-pub", "auditId": "15"}
+    pending = {**OBSERVED_PROPOSAL, "status": "Pending", "resolvedBy": None}
+    transport.get_json.side_effect = [pending, pending, OBSERVED_PROPOSAL, {"data": OBSERVED_HANDLE}]
+    transport.cli_approve.side_effect = [(1, None), (0, None)]
+    result = engine.approve("proposal-1")
+    assert (result["executionOperationId"], result["executionSource"], result["auditId"]) == (
+        "opinst-pub", "publication-handle", "15")
+    assert engine.evidence["canonicalIds"]["8"]["proposalId"] == "proposal-1"
+    assert not engine.canonical_gaps(8)
+
+    # A proposal for different content cannot borrow the publication handle.
+    engine = approval_engine(transport)
+    engine.evidence["publicationOperation"] = {"operationInstanceId": "opinst-pub", "proposalId": "proposal-1"}
+    other = {**OBSERVED_PROPOSAL, "diff": ["itemId=item-1", "versionId=version-1", "contentHash=other"]}
+    transport.get_json.side_effect = [pending, pending, other, {"data": OBSERVED_HANDLE}]
     transport.cli_approve.side_effect = [(1, None), (0, None)]
     with pytest.raises(ExecutionError, match="does not join the proposal"):
         engine.approve("proposal-1")
-    assert "approval" not in engine.evidence
+
+
+@pytest.mark.parametrize("handle_proposal,status", [(None, "pass"), ("proposal-1", "pass"), ("proposal-other", "fail")])
+def test_publication_join_accepts_an_omitted_handle_proposal_but_not_a_different_one(handle_proposal, status):
+    transport = mock.Mock(credentials={"proposer": "p", "approver": "a", "operator": "o"})
+    engine = approval_engine(transport)
+    engine.evidence["publicationOperation"] = {
+        "operationId": "studio.content.create-publication-request", "operationInstanceId": "opinst-pub",
+        "proposalId": "proposal-1", "correlationId": "00-corr-pub", "auditId": "15"}
+    handle = {**OBSERVED_HANDLE, **({"proposalId": handle_proposal} if handle_proposal else {})}
+    transport.get_json.return_value = {"data": handle}
+    transport.http.return_value = (b"{}", 403)
+    engine.verify_authority()
+    checks = engine.evidence["checks"]["8"]
+    assert checks["canonical-join"]["status"] == status
+    assert checks["current-authority"]["status"] == "pass"
 
 
 @pytest.mark.parametrize("failure", [oracles.ProofError("bad render"), ExecutionError("render", "unavailable", blocked=True),

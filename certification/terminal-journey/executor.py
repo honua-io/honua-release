@@ -526,14 +526,34 @@ class JourneyExecutor:
         # what it does report: the proposal, the resolving principal, and the audited
         # operation instance the approved replay executed. A server-reported approvalId
         # is retained if one ever appears; it is never invented.
-        execution_id = identity(final.get("executionOperationId"), "GET approved proposal")
+        #
+        # OperationGateway records ExecutionOperationId only from a replay's job id; a
+        # Studio publication completes synchronously, so the candidate instead completes
+        # the publication's own canonical handle (the one honua_studio_propose_publication
+        # returned together with this proposalId). Use the proposal's execution id when
+        # present, otherwise that handle, and join it on the proposal's sealed content.
+        publication = self.evidence.get("publicationOperation") or {}
+        if final.get("executionOperationId"):
+            execution_id, source = identity(final["executionOperationId"], "GET approved proposal"), "proposal"
+        elif publication.get("proposalId") == proposal_id:
+            execution_id = identity(publication.get("operationInstanceId"), "GET approved proposal")
+            source = "publication-handle"
+        else:
+            raise ExecutionError("GET approved proposal", "candidate reported no execution for the approved proposal")
         handle = self.transport.get_json("/api/v1/operations/handles/" + execution_id, principal=self.principal(8))
         handle = handle.get("data", handle)
-        if handle.get("operationInstanceId") != execution_id or handle.get("proposalId") not in {None, proposal_id}:
+        sealed = {"itemId": self.resources.get("itemId"), "versionId": self.resources.get("versionId")}
+        diff = set(final.get("diff") or [])
+        if (handle.get("operationInstanceId") != execution_id or handle.get("proposalId") not in {None, proposal_id}
+                or handle.get("status") != "Completed"
+                or any((handle.get("resourceIds") or {}).get(k) != v for k, v in sealed.items())
+                or not {f"{k}={v}" for k, v in sealed.items()} <= diff
+                or f"contentHash={self.resources.get('contentHash')}" not in diff):
             raise ExecutionError("GET approved execution handle", "approved replay handle does not join the proposal")
         self.evidence["approval"] = {"proposalId": proposal_id,
                                      "resolvedBy": identity(final["resolvedBy"], "GET approved proposal"),
                                      "executionOperationId": execution_id,
+                                     "executionSource": source,
                                      "auditId": identity(handle.get("auditId"), "GET approved execution handle"),
                                      "correlationId": identity(handle.get("correlationId"), "GET approved execution handle"),
                                      "approvalId": (identity(final["approvalId"], "GET approved proposal")
@@ -577,17 +597,22 @@ class JourneyExecutor:
             handle_id = identity(expected.get("operationInstanceId"), "GET canonical publication handle")
             observed = self.transport.get_json("/api/v1/operations/handles/" + handle_id, principal=self.principal(8))
             observed = observed.get("data", observed)
-            if any(not expected.get(k) or observed.get(k) != expected[k]
-                   for k in ("operationId", "operationInstanceId", "proposalId", "correlationId", "auditId")):
+            keys = ("operationId", "operationInstanceId", "correlationId", "auditId")
+            # The handle may omit proposalId; the propose envelope returned it together
+            # with this operationInstanceId, so a handle that names a different proposal
+            # fails, and an omitted one is joined through that envelope.
+            if (any(not expected.get(k) or observed.get(k) != expected[k] for k in keys)
+                    or not expected.get("proposalId") or observed.get("proposalId") not in {None, expected["proposalId"]}):
                 raise ExecutionError("GET canonical publication handle", "canonical identity join differs")
-            return {k: observed[k] for k in ("operationId", "operationInstanceId", "proposalId", "correlationId", "auditId")}
+            return {**{k: observed[k] for k in keys}, "proposalId": expected["proposalId"],
+                    "proposalJoin": "handle" if observed.get("proposalId") else "propose-envelope"}
 
         def authority():
             handle_id = identity(self.evidence.get("publicationOperation", {}).get("operationInstanceId"), "GET current authority")
             observed = self.transport.get_json("/api/v1/operations/handles/" + handle_id, principal=self.principal(8))
             observed = observed.get("data", observed)
             if (observed.get("status") != "Completed" or observed.get("policyDecision") != "Allow"
-                    or str(observed.get("authorizationOutcome", "")).lower() not in {"allowed", "authorized"}):
+                    or str(observed.get("authorizationOutcome", "")).lower() not in {"allowed", "authorized", "approved"}):
                 raise ExecutionError("GET current authority", "completed replay does not report current allowed authority")
             return {"status": "Completed", "policyDecision": "Allow", "authorizationOutcome": observed["authorizationOutcome"]}
 

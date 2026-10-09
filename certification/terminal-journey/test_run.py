@@ -220,7 +220,8 @@ class StageDisciplineTests(unittest.TestCase):
 
     def test_present_admin_does_not_claim_credential_or_mutation_execution(self):
         workspace = pins.ClientWorkspace(status="pass", root=None, reason=None,
-            command_surface=[{"command": "honua admin", "status": "present"}])
+            command_surface=[{"command": "honua admin", "status": "present"},
+                             {"command": "honua-mcp-proxy", "status": "present"}])
         observation = stagelib.Observation(anonymous_api_keys_status=401)
         for number in (2, 3, 8):
             with self.subTest(stage=number):
