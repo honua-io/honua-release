@@ -2305,3 +2305,253 @@ def test_gp_driver_redis_off_passes_on_the_typed_capability_unavailable_refusal(
 def test_gp_driver_redis_off_fails_when_the_job_is_accepted_or_refusal_is_untyped():
     assert _run_gp_driver_against(201, json.dumps({"jobID": "j1", "status": "accepted"}))["status"] == "fail"
     assert _run_gp_driver_against(503, json.dumps({"title": "Service Unavailable"}))["status"] == "fail"
+
+
+# ---- topology-aware S2 (MCP catalog) and S3 (Studio) drivers --------------------------------------
+# The real drivers run against an in-process stub of the candidate. The stub serves a Redis-on
+# server (the canonical 124-tool catalog) or a Redis-off one (minus the 20 durable-control-plane
+# tools, or with them once honua-server S1 has landed), and reports its topology through the
+# capability manifest / proposals endpoint the way the server does.
+_EXPECTED_TOOLS = json.loads((E2E_DIR / "drivers/mcp/expected-tools.json").read_text())
+_FULL_ROSTER = sorted(_EXPECTED_TOOLS["fullCatalog"]["tools"])
+_DURABLE_ONLY = sorted(_EXPECTED_TOOLS["fullCatalog"]["requiresDurableControlPlane"]["tools"])
+_REDIS_OFF_DETAIL = ("The operation proposal and approval control plane requires a Redis-backed durable "
+                     "store. This server was started without a Redis connection, so proposals cannot be "
+                     "listed, inspected, approved, or rejected.")
+
+
+def test_durable_control_plane_roster_is_the_20_redis_gated_admin_tools():
+    assert len(_FULL_ROSTER) == 124 and len(set(_FULL_ROSTER)) == 124
+    assert len(_DURABLE_ONLY) == 20 and set(_DURABLE_ONLY) <= set(_FULL_ROSTER)
+    assert all(n.startswith(("honua_admin_layer_", "honua_admin_services_")) for n in _DURABLE_ONLY)
+    assert not set(_DURABLE_ONLY) & set(_EXPECTED_TOOLS["criticalTools"])
+    assert not set(_DURABLE_ONLY) & set(_EXPECTED_TOOLS["defaultView"]["tools"])
+
+
+def _manifest(topology, signal):
+    caps = [{"id": "ogc.features", "available": True, "supported": True}]
+    off = topology == "redis-off"
+    if signal == "operations.proposals":
+        caps.append({"id": "operations.proposals", "supported": True, "available": not off,
+                     "reasonCode": "disabled-by-configuration" if off else None})
+    caps.append({"id": "jobs.runner", "supported": True, "available": not off,
+                 "reasonCode": "dependency-unavailable" if off else None})
+    return {"schemaVersion": "1", "capabilities": caps}
+
+
+def _serve(handler_for):
+    """Start a stub candidate. handler_for(method, path, body, authed) -> (status, json-able)."""
+    import http.server
+    import threading
+
+    class Handler(http.server.BaseHTTPRequestHandler):
+        def log_message(self, *args):
+            pass
+
+        def _handle(self, method):
+            body = self.rfile.read(int(self.headers.get("Content-Length") or 0))
+            payload = json.loads(body) if body else None
+            status, reply = handler_for(method, self.path, payload, bool(self.headers.get("X-API-Key")))
+            data = json.dumps(reply).encode()
+            self.send_response(status)
+            self.send_header("Content-Type", "application/json")
+            self.send_header("Content-Length", str(len(data)))
+            self.end_headers()
+            self.wfile.write(data)
+
+        def do_GET(self):
+            self._handle("GET")
+
+        def do_POST(self):
+            self._handle("POST")
+
+    server = http.server.ThreadingHTTPServer(("127.0.0.1", 0), Handler)
+    threading.Thread(target=server.serve_forever, daemon=True).start()
+    return server
+
+
+def _common_routes(method, path, topology, signal):
+    if path == "/healthz/ready":
+        return 200, {}
+    if method == "GET" and path == "/api/v1/capabilities/manifest":
+        return 200, _manifest(topology, signal)
+    if method == "GET" and path == "/api/v1/admin/proposals":
+        if signal != "admin-proposals":
+            return 404, {}
+        if topology == "redis-off":
+            return 503, {"type": "https://honua.io/problems/capability-unavailable", "status": 503,
+                         "code": "dependency-unavailable", "missingDependency": "redis"}
+        return 200, {"data": []}
+    return None
+
+
+def _mcp_handler(catalog, topology, signal):
+    dv = _EXPECTED_TOOLS["defaultView"]
+    page = _EXPECTED_TOOLS["fullCatalog"]["pageSize"]
+    meta = {"view": dv["view"], "title": dv["title"], "revision": dv["revision"], "toolCount": dv["toolCount"],
+            "fullCatalogView": dv["fullCatalogView"], "stages": dv["stages"]}
+
+    def rpc_result(result):
+        return 200, {"jsonrpc": "2.0", "id": 1, "result": result}
+
+    def handle(method, path, body, authed):
+        common = _common_routes(method, path, topology, signal)
+        if common:
+            return common
+        assert method == "POST" and path == "/mcp", path
+        m, params = body["method"], body.get("params") or {}
+        if m == "initialize":
+            return rpc_result({"protocolVersion": "2025-06-18", "serverInfo": {"name": "honua.operator.mcp"}})
+        if m == "tools/list":
+            if params.get("view") != "full":
+                return rpc_result({"tools": [{"name": n} for n in dv["tools"]], "_meta": meta})
+            if not authed:
+                return 200, {"jsonrpc": "2.0", "id": 1,
+                             "error": {"code": -32001, "message": "denied", "data": {"code": "permission_denied"}}}
+            start = int(params.get("cursor") or 0)
+            result = {"tools": [{"name": n} for n in catalog[start:start + page]]}
+            if start + page < len(catalog):
+                result["nextCursor"] = str(start + page)
+            return rpc_result(result)
+        assert m == "tools/call"
+        name, args = params["name"], params.get("arguments") or {}
+        if name == "honua_list_capabilities":
+            if args.get("fullExport"):
+                if not authed:
+                    return rpc_result({"isError": True, "structuredContent": {"code": "permission_denied"}})
+                return rpc_result({"structuredContent": {"toolCount": len(catalog), "resourceCount": 3,
+                                                         "tools": [{"name": n} for n in catalog]}})
+            return rpc_result({"structuredContent": {
+                "toolCount": page, "resourceCount": 3, "totalToolCount": len(catalog), "totalResourceCount": 3,
+                "nextToolCursor": "t12",
+                "workflowViews": [{"name": dv["view"], "toolCount": dv["toolCount"], "revision": dv["revision"]}]}})
+        return rpc_result({"content": []})
+    return handle
+
+
+def _run_driver(driver, handler, redis):
+    server = _serve(handler)
+    try:
+        with tempfile.TemporaryDirectory() as out:
+            env = {**os.environ, "E2E_BASE": f"http://127.0.0.1:{server.server_address[1]}",
+                   "E2E_API_KEY": "k", "E2E_OUT": out}
+            env.pop("E2E_REDIS", None)
+            if redis is not None:
+                env["E2E_REDIS"] = redis
+            subprocess.run(["bash", str(E2E_DIR / f"drivers/{driver}/run.sh")], env=env, check=True,
+                           capture_output=True, timeout=300)
+            return [json.loads(line) for line in Path(out, "scenarios.jsonl").read_text().splitlines()]
+    finally:
+        server.shutdown()
+
+
+def _s2(catalog, topology, redis, signal="jobs.runner"):
+    rows = _run_driver("mcp", _mcp_handler(sorted(catalog), topology, signal), redis)
+    assert [r["scenario"] for r in rows] == ["S1-mcp-handshake", "S2-mcp-tool-catalog"]
+    return rows[1]
+
+
+def test_s2_redis_on_full_124_catalog_passes():
+    row = _s2(_FULL_ROSTER, "redis-on", None)
+    assert row["status"] == "pass", row["why"]
+    assert row["evidence"]["topology"]["topology"] == "redis-on"
+    assert row["evidence"]["topology"]["durableControlPlaneTools"]["state"] == "required"
+
+
+def test_s2_redis_off_104_catalog_passes_with_topology_recorded():
+    catalog = [n for n in _FULL_ROSTER if n not in _DURABLE_ONLY]
+    assert len(catalog) == 104
+    for signal in ("jobs.runner", "operations.proposals", "admin-proposals"):
+        row = _s2(catalog, "redis-off", "off", signal)
+        assert row["status"] == "pass", (signal, row["why"])
+        topo = row["evidence"]["topology"]
+        assert topo["topology"] == "redis-off" and topo["declared"] == "off" and topo["mismatch"] is None
+        assert topo["reasonCode"] and topo["signal"].startswith(("manifest:", "admin-proposals:"))
+        assert topo["durableControlPlaneTools"] == {"state": "absent", "count": 20}
+        assert "redis-off" in row["why"]
+
+
+def test_s2_redis_off_after_server_s1_still_passes_with_the_20_advertised():
+    row = _s2(_FULL_ROSTER, "redis-off", "off", "operations.proposals")
+    assert row["status"] == "pass", row["why"]
+    assert row["evidence"]["topology"]["durableControlPlaneTools"]["state"] == "advertised"
+
+
+def test_s2_redis_off_missing_a_non_listed_name_fails():
+    dropped = "honua_validate_package"
+    assert dropped not in _DURABLE_ONLY
+    catalog = [n for n in _FULL_ROSTER if n not in _DURABLE_ONLY and n != dropped]
+    row = _s2(catalog, "redis-off", "off")
+    assert row["status"] == "fail" and dropped in row["why"]
+
+
+def test_s2_redis_off_extra_name_or_partial_durable_block_fails():
+    catalog = [n for n in _FULL_ROSTER if n not in _DURABLE_ONLY] + ["honua_unrecorded_tool"]
+    row = _s2(catalog, "redis-off", "off")
+    assert row["status"] == "fail" and "honua_unrecorded_tool" in row["why"]
+    partial = [n for n in _FULL_ROSTER if n not in _DURABLE_ONLY[:3]]
+    row = _s2(partial, "redis-off", "off")
+    assert row["status"] == "fail" and "partially advertised" in row["why"]
+
+
+def test_s2_redis_on_cell_cannot_pass_on_a_104_catalog():
+    catalog = [n for n in _FULL_ROSTER if n not in _DURABLE_ONLY]
+    # A Redis-on cell whose server lost its control plane: the topology contradicts the cell.
+    row = _s2(catalog, "redis-off", "on")
+    assert row["status"] == "fail" and "declares Redis on" in row["why"]
+    # A cell declaring Redis off gets no relaxation the server does not confirm.
+    row = _s2(catalog, "redis-on", "off")
+    assert row["status"] == "fail" and "full catalog missing tools" in json.dumps(row["evidence"]["failures"])
+
+
+def _studio_handler(topology, signal, draft_reply):
+    posts = []
+    families = [{"family": f, "format": fmt, "currentSchemaVersion": "1.0",
+                 "supportedOperations": ["publish-request.create"], "publishSupported": True}
+                for f, fmt in (("query", "studio_query_package.v1"), ("analysis", "studio_analysis_package.v1"),
+                               ("map", "honua_map_package.v1"))]
+
+    def handle(method, path, body, authed):
+        common = _common_routes(method, path, topology, signal)
+        if common:
+            return common
+        if method == "GET" and path == "/api/v1/admin/license":
+            return 200, {"data": {"edition": "Enterprise", "mode": "disabled"}}
+        if method == "GET" and path == "/api/v1/studio/package-families":
+            return 200, {"data": {"families": families}}
+        if method == "POST" and path == "/api/v1/studio/package-drafts":
+            posts.append(body)
+            return draft_reply
+        return 404, {}
+    return handle, posts
+
+
+def _s3(topology, redis, draft_reply, signal="jobs.runner"):
+    handler, posts = _studio_handler(topology, signal, draft_reply)
+    rows = _run_driver("studio", handler, redis)
+    assert [r["scenario"] for r in rows] == ["S3-studio-authoring"]
+    return rows[0], posts
+
+
+def test_s3_redis_off_passes_on_the_typed_409_for_query_analysis_and_map():
+    row, posts = _s3("redis-off", "off", (409, {"status": 409, "title": "Conflict", "detail": _REDIS_OFF_DETAIL}))
+    assert row["status"] == "pass", row["why"]
+    assert row["evidence"]["topology"]["topology"] == "redis-off"
+    assert sorted(row["evidence"]["families"]) == ["analysis", "map", "query"]
+    assert [p["envelope"]["family"] for p in posts] == ["query", "analysis", "map"]
+    map_body = posts[2]["envelope"]["body"]
+    assert posts[2]["envelope"]["format"] == "honua_map_package.v1" == map_body["format"]
+    assert map_body["mapPackageId"] == posts[2]["packageKey"]
+    assert "{layerId}" not in json.dumps(map_body)
+
+
+def test_s3_redis_off_fails_when_a_draft_is_composed_or_refused_untyped():
+    row, _ = _s3("redis-off", "off", (201, {"data": {"draftId": "d1"}}))
+    assert row["status"] == "fail"
+    row, _ = _s3("redis-off", "off", (409, {"status": 409, "detail": "Draft key already exists."}))
+    assert row["status"] == "fail"
+
+
+def test_s3_topology_mismatch_fails_before_any_lifecycle():
+    row, posts = _s3("redis-off", "on", (409, {"detail": _REDIS_OFF_DETAIL}))
+    assert row["status"] == "fail" and "declares Redis on" in row["why"] and posts == []
