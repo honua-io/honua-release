@@ -616,14 +616,17 @@ def verify_journey(state: dict, journey: dict, journey_dir: Path) -> dict:
 
 
 DIAGNOSTICS_NAME = "diagnostics-ecs.json"
-_LOG_LINES = 200
+_LOG_LINES = 300
 
 
 def ecs_readiness_diagnostics(target, *, run=subprocess.run, redact=None) -> dict:
-    """Why an ECS cell never became ready: task stop reasons and the server task's last log lines.
+    """Why an ECS cell's tasks stopped: stop reasons, each stopped task's container log tail, and the
+    environment variable NAMES each task definition sets.
 
-    Read from ECS DescribeTasks and CloudWatch Logs while the cell still exists (teardown, before
-    destroy). Output lands in the public cell artifact, so every log line passes `redact`.
+    Read from ECS DescribeTasks / DescribeTaskDefinition and CloudWatch Logs while the cell still
+    exists (teardown, before destroy). The cell's log group is destroyed with it, so this is the
+    only place the exit cause survives. Output lands in the public cell artifact and the job log, so
+    every log line passes `redact` and no environment VALUE is ever read into the report.
     """
     redact = redact or (lambda text: text)
     root = target._iac_root()
@@ -639,7 +642,8 @@ def ecs_readiness_diagnostics(target, *, run=subprocess.run, redact=None) -> dic
         result = run(["aws", *args, "--region", target.region, "--output", "json"], text=True,
                      capture_output=True, check=False)
         if result.returncode:
-            raise RuntimeError(f"aws {' '.join(args[:2])} failed")
+            detail = redact(str(result.stderr or "").strip())[-500:]
+            raise RuntimeError(f"aws {' '.join(args[:2])} failed" + (f": {detail}" if detail else ""))
         return json.loads(result.stdout or "{}")
 
     cluster, service = out("ecs_cluster_name"), out("ecs_service_name")
@@ -650,7 +654,7 @@ def ecs_readiness_diagnostics(target, *, run=subprocess.run, redact=None) -> dic
         arns += aws("ecs", "list-tasks", "--cluster", cluster, "--service-name", service,
                     "--desired-status", status).get("taskArns", [])
     tasks = aws("ecs", "describe-tasks", "--cluster", cluster, "--tasks", *arns).get("tasks", []) if arns else []
-    report: dict = {"cluster": cluster, "service": service, "tasks": [], "logs": []}
+    report: dict = {"cluster": cluster, "service": service, "tasks": [], "logs": [], "taskDefinitions": []}
     definitions: dict = {}
     for task in tasks:
         report["tasks"].append({
@@ -666,8 +670,22 @@ def ecs_readiness_diagnostics(target, *, run=subprocess.run, redact=None) -> dic
         if arn and arn not in definitions:
             definitions[arn] = aws("ecs", "describe-task-definition", "--task-definition", arn).get(
                 "taskDefinition", {})
-    # The newest task's server container log: the stream is <prefix>/<container>/<task id>.
-    for task in sorted(tasks, key=lambda t: str(t.get("createdAt") or ""), reverse=True)[:1]:
+    # Names only: a missing or renamed setting shows up here, and no value can leak.
+    for arn, definition in definitions.items():
+        report["taskDefinitions"].append({"taskDefinitionArn": arn, "containers": [
+            {"name": container.get("name"),
+             "environmentNames": sorted(str(item.get("name")) for item in container.get("environment") or []
+                                        if item.get("name")),
+             "secretNames": sorted(str(item.get("name")) for item in container.get("secrets") or []
+                                   if item.get("name"))}
+            for container in definition.get("containerDefinitions", [])]})
+    # Every stopped task, and the newest task whatever its state. The awslogs stream of a container is
+    # <awslogs-stream-prefix>/<container name>/<task id>.
+    ordered = sorted(tasks, key=lambda t: str(t.get("createdAt") or ""), reverse=True)
+    chosen = [t for t in ordered if t.get("lastStatus") == "STOPPED"]
+    if ordered and ordered[0] not in chosen:
+        chosen.insert(0, ordered[0])
+    for task in chosen:
         task_id = str(task.get("taskArn", "")).rsplit("/", 1)[-1]
         for container in definitions.get(task.get("taskDefinitionArn"), {}).get("containerDefinitions", []):
             options = (container.get("logConfiguration") or {}).get("options") or {}
@@ -675,14 +693,15 @@ def ecs_readiness_diagnostics(target, *, run=subprocess.run, redact=None) -> dic
             if not group or not prefix:
                 continue
             stream = f"{prefix}/{container.get('name')}/{task_id}"
+            entry = {"taskArn": task.get("taskArn"), "container": container.get("name"),
+                     "logGroup": group, "logStream": stream}
             try:
                 events = aws("logs", "get-log-events", "--log-group-name", group, "--log-stream-name",
                              stream, "--limit", str(_LOG_LINES), "--no-start-from-head").get("events", [])
             except RuntimeError as error:
-                report["logs"].append({"container": container.get("name"), "error": str(error)})
+                report["logs"].append({**entry, "error": str(error)})
                 continue
-            report["logs"].append({"container": container.get("name"), "logGroup": group,
-                                   "logStream": stream,
+            report["logs"].append({**entry,
                                    "lines": [redact(str(e.get("message", ""))) for e in events][-_LOG_LINES:]})
     return report
 
@@ -694,6 +713,12 @@ def _redact_log(text: str) -> str:
     text = re.sub(r"(?i)(x-api-key\s*:\s*)\S+", r"\1[redacted]", text)
     text = re.sub(r"(?i)(authorization\s*:\s*bearer\s+)\S+", r"\1[redacted]", text)
     text = re.sub(r"(?i)(postgres(?:ql)?://[^:/\s]+:)[^@\s]+@", r"\1[redacted]@", text)
+    # Any other URI userinfo password (redis://, rediss://, amqp://, https://user:pass@...).
+    text = re.sub(r"(?i)([a-z][a-z0-9+.-]*://[^:/@\s]*:)[^@\s/]+@", r"\1[redacted]@", text)
+    # A whole connection-string setting, whatever its provider syntax.
+    text = re.sub(r"(?i)(connectionstrings?(?:__|:)\w+\s*=\s*)\S+", r"\1[redacted]", text)
+    # AWS access key ids.
+    text = re.sub(r"\b(?:AKIA|ASIA)[0-9A-Z]{16}\b", "[redacted-aws-key-id]", text)
     return text
 
 
@@ -701,10 +726,8 @@ def _phase_diagnose(args) -> int:
     """Teardown-side readiness diagnostics; never changes the verdict, never fails the job."""
     cell = _cell(args.target, args.redis)
     directory = cloud_journey.cell_dir(cell)
-    state = _read_json(directory / HANDOFF_NAME) or {}
-    if state.get("ready") is True:
-        print(f"{cell}: provision reported ready; no readiness diagnostics needed")
-        return 0
+    # Runs for a ready cell too: a task that served and later exited (EssentialContainerExited) is
+    # only explainable from its log, and the log group goes with the cell.
     try:
         diagnostics = ecs_readiness_diagnostics(_target(args.target), redact=_redact_log)
     except Exception as error:
@@ -714,6 +737,21 @@ def _phase_diagnose(args) -> int:
     for task in diagnostics.get("tasks", []):
         print(f"   task {task['taskArn']}: {task['lastStatus']} stopCode={task['stopCode']} "
               f"stoppedReason={task['stoppedReason']!r}")
+        for container in task.get("containers", []):
+            print(f"     container {container.get('name')}: exitCode={container.get('exitCode')} "
+                  f"reason={container.get('reason')!r}")
+    for definition in diagnostics.get("taskDefinitions", []):
+        for container in definition.get("containers", []):
+            print(f"   {definition['taskDefinitionArn']} {container['name']}: environment names "
+                  f"{', '.join(container['environmentNames']) or '(none)'}; secret names "
+                  f"{', '.join(container['secretNames']) or '(none)'}")
+    for log in diagnostics.get("logs", []):
+        print(f"::group::{log.get('logStream')} ({log.get('taskArn')})")
+        if "error" in log:
+            print(f"   log unavailable: {log['error']}")
+        for line in log.get("lines", []):
+            print(f"   {line}")
+        print("::endgroup::")
     print(f"{cell}: readiness diagnostics written to {directory / DIAGNOSTICS_NAME}")
     return 0
 
