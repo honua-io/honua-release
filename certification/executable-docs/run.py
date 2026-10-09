@@ -560,7 +560,14 @@ def _read(path: Path, suffix: str) -> str:
 DOTNET_ADD = re.compile(r"dotnet\s+add\s+(?:\S+\s+)?package\s+([\w.]+)(?:\s+(?:--version|-v)\s+([\w.\-+*]+))?")
 
 
+UNRESOLVED = re.compile(r"\{[a-zA-Z]+\.[A-Za-z0-9_]+\}")
+
+
 def substitute(code: str, table: dict[str, str]) -> str:
+    """Replace each literal in the executed code, longest first (so `...:2026.1-rc` wins over `...:2026.1`).
+
+    Only the code a block runs is substituted; the report's `command` and the published page keep the
+    document's own text (e.g. the release-channel tag the reader sees)."""
     for literal, value in sorted(table.items(), key=lambda kv: -len(kv[0])):
         code = code.replace(literal, value)
     return code
@@ -679,6 +686,12 @@ def run_document(doc: dict[str, Any], text: str, session: Session, context: dict
         session.ensure_dotnet_project()
     env_values = {k: render(str(v["value"]), context) for k, v in variables["env"].items()}
     subst = {k: render(str(v["value"]), context) for k, v in variables["substitute"].items()}
+    unresolved = sorted({f"{section}.{k} -> {v}" for section, table in (("env", env_values), ("substitute", subst))
+                         for k, v in table.items() if UNRESOLVED.search(v)})
+    if unresolved:
+        # Fail closed: a block must never run with a literal `{candidate.image}` (or fall back to the
+        # document's own text, e.g. a floating release-channel tag) because the run has no value for it.
+        raise RunError("variables reference values this run does not have: " + "; ".join(unresolved))
     session.env.update(env_values)
     packages = [(m.group(1), m.group(2)) for b in blocks if b.language == "shell"
                 for m in DOTNET_ADD.finditer(b.code)]
