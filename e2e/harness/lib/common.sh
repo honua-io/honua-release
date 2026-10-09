@@ -87,12 +87,20 @@ server_ready() {
 #      dependency-unavailable|license-required => off. Any other reason says nothing about Redis.
 # Nothing here degrades to redis-off on an unreadable answer: unreadable is `unknown`, and `unknown`
 # never earns a relaxed expectation.
+#
+# It also records TOPOLOGY_ENVIRONMENT, the manifest's `server.deploymentEnvironment` (empty when the
+# manifest is unreadable). The host environment decides WHICH operation-instance store a Redis-off
+# server composes (honua-server OperationsServiceCollectionExtensions): Development/Test always get
+# the in-memory VolatileOperationInstanceStore, every other environment gets the fail-closed
+# UnavailableOperationInstanceStore. Drivers whose Redis-off expectation depends on that store read it
+# from here rather than assuming the cloud cells' Production shape.
 detect_topology() {
-  TOPOLOGY=unknown; TOPOLOGY_SIGNAL=none; TOPOLOGY_REASON=""
+  TOPOLOGY=unknown; TOPOLOGY_SIGNAL=none; TOPOLOGY_REASON=""; TOPOLOGY_ENVIRONMENT=""
   local manifest="" manifest_code cap avail reason code typ dep
   api_get "/api/v1/capabilities/manifest"
   manifest_code="$HTTP_CODE"
   [ "$HTTP_CODE" = "200" ] && manifest="$HTTP_BODY"
+  TOPOLOGY_ENVIRONMENT="$(printf '%s' "$manifest" | jq -r '.server.deploymentEnvironment // ""' 2>/dev/null || true)"
 
   cap="$(printf '%s' "$manifest" | jq -c '[.capabilities[]? | select(.id=="operations.proposals")] | first // empty' 2>/dev/null || true)"
   if [ -n "$cap" ]; then
@@ -157,8 +165,9 @@ resolve_topology() {
 # topology_evidence -> one JSON object describing the resolved topology, for scenario evidence.
 topology_evidence() {
   jq -nc --arg t "$TOPOLOGY" --arg d "${TOPOLOGY_DECLARED:-}" --arg s "$TOPOLOGY_SIGNAL" \
-    --arg r "$TOPOLOGY_REASON" --arg m "${TOPOLOGY_MISMATCH:-}" \
+    --arg r "$TOPOLOGY_REASON" --arg m "${TOPOLOGY_MISMATCH:-}" --arg e "${TOPOLOGY_ENVIRONMENT:-}" \
     '{topology:$t, declared:$d, signal:$s,
+      deploymentEnvironment:(if $e == "" then null else $e end),
       reasonCode:(if $r == "" then null else $r end),
       mismatch:(if $m == "" then null else $m end)}'
 }

@@ -39,6 +39,17 @@
 #    refusal for every family -- the same shape as S5's typed capability-unavailable pass -- and
 #    records `topology: redis-off`. A family that composes a draft there, or is refused for any other
 #    reason, fails; a topology the server contradicts fails. Redis-on keeps the full lifecycle.
+#
+#    WHICH Redis-off shape applies is the server's host environment, read from the capability manifest
+#    (`server.deploymentEnvironment`, harness/lib/common.sh TOPOLOGY_ENVIRONMENT). A Development/Test
+#    host always composes the in-memory VolatileOperationInstanceStore (honua-server
+#    OperationsServiceCollectionExtensions), so on the Slice-1 stack (ASPNETCORE_ENVIRONMENT=Development)
+#    draft composition genuinely direct-executes without Redis -- observed on the pinned image in
+#    slice1-redis-off run 37892724773, all three families 201. There the seam drives composition to the
+#    content-version boundary, which must succeed, and requires the GOVERNED publish-request, which needs
+#    the Redis-only proposal gateway, to be refused with the same typed refusal. Any other environment
+#    (the cloud cells run Production) keeps the create-draft refusal. An environment the manifest does
+#    not report cannot be classified and fails.
 set -euo pipefail
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck source=../../harness/lib/common.sh
@@ -273,20 +284,33 @@ draft_request() {
 # create-draft must be refused with the typed durable-control-plane conflict. 503 capability-unavailable
 # naming redis is the same refusal on the shared problem envelope and is accepted as such.
 REDIS_OFF_DETAIL="requires a Redis-backed durable store"
+# typed_redis_refusal -> echoes the refusal kind for the last response (HTTP_CODE/HTTP_BODY), or
+# nothing when it is not the typed durable-control-plane refusal.
+typed_redis_refusal() {
+  local detail typ dep
+  detail="$(jget '.detail // ""')"; typ="$(jget '.type // ""')"; dep="$(jget '.missingDependency // ""')"
+  if [ "$HTTP_CODE" = "409" ] && [[ "$detail" == *"$REDIS_OFF_DETAIL"* ]]; then
+    echo "HTTP 409 (typed durable-control-plane conflict)"
+  elif [ "$HTTP_CODE" = "503" ] && [ "$typ" = "https://honua.io/problems/capability-unavailable" ] && [ "$dep" = "redis" ]; then
+    echo "HTTP 503 capability-unavailable (missingDependency=redis)"
+  fi
+}
+# not_typed STEP -> the failure detail for a response that is not the typed refusal. An untyped 5xx
+# is called out as the server gap it is: the typed-refusal contract is honua-server#5733's to deliver.
+not_typed() {
+  local gap=""
+  case "$HTTP_CODE" in 5??) gap=" -- an untyped server error, not the typed refusal (server gap, honua-server#5733)" ;; esac
+  printf 'fail:redis-off %s expected the typed refusal "%s", got HTTP %s%s %s\n' "$1" "$REDIS_OFF_DETAIL" "$HTTP_CODE" "$gap" \
+    "$(printf '%s' "$HTTP_BODY" | tr -d '\n' | cut -c1-180)"
+}
 refuse_family() {
-  local family="$1" req detail typ dep
+  local family="$1" req kind
   req="$(draft_request "$family")"
   [ "${req%%:*}" = "ok" ] || { echo "$req"; return; }
   api_post "/api/v1/studio/package-drafts" "${req#ok:}"
-  detail="$(jget '.detail // ""')"; typ="$(jget '.type // ""')"; dep="$(jget '.missingDependency // ""')"
-  if [ "$HTTP_CODE" = "409" ] && [[ "$detail" == *"$REDIS_OFF_DETAIL"* ]]; then
-    echo "pass:create-draft refused HTTP 409 (typed durable-control-plane conflict)"; return
-  fi
-  if [ "$HTTP_CODE" = "503" ] && [ "$typ" = "https://honua.io/problems/capability-unavailable" ] && [ "$dep" = "redis" ]; then
-    echo "pass:create-draft refused HTTP 503 capability-unavailable (missingDependency=redis)"; return
-  fi
-  printf 'fail:redis-off create-draft expected the typed 409 "%s", got HTTP %s %s\n' "$REDIS_OFF_DETAIL" "$HTTP_CODE" \
-    "$(printf '%s' "$HTTP_BODY" | tr -d '\n' | cut -c1-180)"
+  kind="$(typed_redis_refusal)"
+  if [ -n "$kind" ]; then echo "pass:create-draft refused $kind"; return; fi
+  not_typed create-draft
 }
 
 # author_family FAMILY -> echoes "pass:<detail>" | "fail:<detail>"
@@ -342,6 +366,18 @@ author_family() {
     return
   fi
 
+  # Redis-off on a volatile-store host: composition ran (above, and had to), but the governed publish
+  # needs the Redis-only proposal gateway, so it must be the typed refusal -- never accepted, never an
+  # untyped error.
+  if [ "${VOLATILE_REDIS_OFF:-false}" = true ]; then
+    api_post "/api/v1/studio/content-items/$item/versions/$ver/publish-requests" '{}'
+    local kind; kind="$(typed_redis_refusal)"
+    if [ -n "$kind" ]; then
+      echo "pass:item=$item version=$ver composition=volatile-store publish-request refused $kind"; return
+    fi
+    not_typed publish-request; return
+  fi
+
   r="$(studio_step "/api/v1/studio/content-items/$item/versions/$ver/publish-requests" '{}' publish-request "$GOVERNED_GATE")"
   [ "${r%%:*}" = "ok" ] || { echo "$r"; return; }
   local pstatus
@@ -363,21 +399,52 @@ if [ -n "$TOPOLOGY_MISMATCH" ]; then
 fi
 
 if [ "$TOPOLOGY_DECLARED" = off ] && [ "$TOPOLOGY" = redis-off ]; then
+  case "$(printf '%s' "$TOPOLOGY_ENVIRONMENT" | tr '[:upper:]' '[:lower:]')" in
+    "")
+      emit_scenario "$SCENARIO" fail \
+        "redis-off: the capability manifest reports no server.deploymentEnvironment, so the seam cannot tell which operation store this host composes" \
+        "$(jq -nc --argjson t "$TOPOLOGY_EVIDENCE" '{topology:$t}')"
+      exit 0 ;;
+    development|test) OP_STORE=volatile ;;
+    *) OP_STORE=unavailable ;;
+  esac
   results="{}"; any_fail=false
+  # The pass summary names only what each family actually proved: the families that reached the
+  # typed refusal, and separately those that stopped at their declared content-version boundary
+  # (analysis never sends a publish-request, so it cannot be claimed as refused there).
+  refused=(); at_boundary=()
   for family in "${STUDIO_FAMILIES[@]}"; do
-    r="$(refuse_family "$family")"
+    if [ "$OP_STORE" = volatile ]; then
+      r="$(VOLATILE_REDIS_OFF=true author_family "$family")"
+    else
+      r="$(refuse_family "$family")"
+    fi
     st="${r%%:*}"; detail="${r#*:}"
     results="$(jq -nc --argjson acc "$results" --arg f "$family" --arg s "$st" --arg d "$detail" \
       '$acc + {($f):{status:$s, detail:$d}}')"
-    [ "$st" = "pass" ] || any_fail=true
+    if [ "$st" != "pass" ]; then
+      any_fail=true
+    elif [[ "$detail" == *"publish=not-advertised-by-family"* ]]; then
+      at_boundary+=("$family")
+    else
+      refused+=("$family")
+    fi
   done
-  evidence="$(jq -nc --argjson fam "$results" --argjson t "$TOPOLOGY_EVIDENCE" '{topology:$t, families:$fam}')"
-  if [ "$any_fail" = true ]; then
-    emit_scenario "$SCENARIO" fail "redis-off: a family was not refused with the typed durable-store conflict" "$evidence"
+  evidence="$(jq -nc --argjson fam "$results" --argjson t "$TOPOLOGY_EVIDENCE" --arg s "$OP_STORE" \
+    '{topology:($t + {operationStore:$s}), families:$fam}')"
+  if [ "$OP_STORE" = volatile ]; then
+    refused_at="the governed publish-request (composition ran on the $TOPOLOGY_ENVIRONMENT host's volatile operation store)"
   else
-    emit_scenario "$SCENARIO" pass \
-      "redis-off ($TOPOLOGY_SIGNAL: $TOPOLOGY_REASON): $(IFS=+; echo "${STUDIO_FAMILIES[*]}") create-draft refused with the typed durable-store conflict" \
-      "$evidence"
+    refused_at="create-draft"
+  fi
+  if [ "$any_fail" = true ]; then
+    emit_scenario "$SCENARIO" fail "redis-off: a family was not refused with the typed durable-store refusal at $refused_at" "$evidence"
+  else
+    summary="redis-off ($TOPOLOGY_SIGNAL: $TOPOLOGY_REASON; $TOPOLOGY_ENVIRONMENT): $(IFS=+; echo "${refused[*]}") refused with the typed durable-store refusal at $refused_at"
+    if [ "${#at_boundary[@]}" -gt 0 ]; then
+      summary="$summary; $(IFS=+; echo "${at_boundary[*]}") passed at its declared content-version boundary (no publish-request.create advertised, none sent)"
+    fi
+    emit_scenario "$SCENARIO" pass "$summary" "$evidence"
   fi
   exit 0
 fi

@@ -2368,7 +2368,7 @@ def test_durable_control_plane_roster_is_the_20_redis_gated_admin_tools():
     assert not set(_DURABLE_ONLY) & set(_EXPECTED_TOOLS["defaultView"]["tools"])
 
 
-def _manifest(topology, signal):
+def _manifest(topology, signal, environment="Production"):
     caps = [{"id": "ogc.features", "available": True, "supported": True}]
     off = topology == "redis-off"
     if signal == "operations.proposals":
@@ -2376,7 +2376,10 @@ def _manifest(topology, signal):
                      "reasonCode": "disabled-by-configuration" if off else None})
     caps.append({"id": "jobs.runner", "supported": True, "available": not off,
                  "reasonCode": "dependency-unavailable" if off else None})
-    return {"schemaVersion": "1", "capabilities": caps}
+    manifest = {"schemaVersion": "1", "capabilities": caps}
+    if environment is not None:
+        manifest["server"] = {"deploymentEnvironment": environment}
+    return manifest
 
 
 def _serve(handler_for):
@@ -2410,11 +2413,11 @@ def _serve(handler_for):
     return server
 
 
-def _common_routes(method, path, topology, signal):
+def _common_routes(method, path, topology, signal, environment="Production"):
     if path == "/healthz/ready":
         return 200, {}
     if method == "GET" and path == "/api/v1/capabilities/manifest":
-        return 200, _manifest(topology, signal)
+        return 200, _manifest(topology, signal, environment)
     if method == "GET" and path == "/api/v1/admin/proposals":
         if signal != "admin-proposals":
             return 404, {}
@@ -2544,57 +2547,135 @@ def test_s2_redis_on_cell_cannot_pass_on_a_104_catalog():
     assert row["status"] == "fail" and "full catalog missing tools" in json.dumps(row["evidence"]["failures"])
 
 
-def _studio_handler(topology, signal, draft_reply):
+def _studio_handler(topology, signal, draft_reply, environment="Production", publish_reply=None):
     posts = []
     families = [{"family": f, "format": fmt, "currentSchemaVersion": "1.0",
-                 "supportedOperations": ["publish-request.create"], "publishSupported": True}
+                 "supportedOperations": ["publish-request.create"] if f != "analysis" else [],
+                 "publishSupported": f != "analysis", "limitations": []}
                 for f, fmt in (("query", "studio_query_package.v1"), ("analysis", "studio_analysis_package.v1"),
                                ("map", "honua_map_package.v1"))]
 
     def handle(method, path, body, authed):
-        common = _common_routes(method, path, topology, signal)
+        common = _common_routes(method, path, topology, signal, environment)
         if common:
             return common
         if method == "GET" and path == "/api/v1/admin/license":
             return 200, {"data": {"edition": "Enterprise", "mode": "disabled"}}
         if method == "GET" and path == "/api/v1/studio/package-families":
             return 200, {"data": {"families": families}}
-        if method == "POST" and path == "/api/v1/studio/package-drafts":
-            posts.append(body)
+        if method == "POST" and path == "/api/v1/admin/api-keys":
+            return 201, {"data": {"key": "approver-key"}}
+        if method != "POST":
+            return 404, {}
+        posts.append((path, body))
+        if path == "/api/v1/studio/package-drafts":
             return draft_reply
+        # The Development/Test lifecycle a volatile operation store serves (observed on the pinned
+        # image, slice1-redis-off run 37892724773): composition direct-executes, the governed
+        # publish-request is the step the missing proposal gateway answers.
+        if path.endswith("/validate"):
+            return 200, {"success": True, "data": {"status": "valid", "diagnostics": []}}
+        if path.endswith("/preview-plan"):
+            return 200, {"success": True, "data": {"draftId": "d", "synchronous": True}}
+        if path.endswith("/content-versions"):
+            return 201, {"success": True, "data": {"itemId": "item-1", "versionId": "ver-1", "versionNumber": 1}}
+        if path.endswith("/publish-requests"):
+            return publish_reply
         return 404, {}
     return handle, posts
 
 
-def _s3(topology, redis, draft_reply, signal="jobs.runner"):
-    handler, posts = _studio_handler(topology, signal, draft_reply)
+def _s3(topology, redis, draft_reply, signal="jobs.runner", environment="Production", publish_reply=None):
+    handler, posts = _studio_handler(topology, signal, draft_reply, environment, publish_reply)
     rows = _run_driver("studio", handler, redis)
     assert [r["scenario"] for r in rows] == ["S3-studio-authoring"]
     return rows[0], posts
 
 
-def test_s3_redis_off_passes_on_the_typed_409_for_query_analysis_and_map():
+_DRAFT_CREATED = (201, {"success": True, "data": {"draftId": "draft-1", "itemId": "item-1"}})
+# What the pinned image answers today for the governed publish on a Redis-off Development host
+# (AdminOperationApprovalBridge with no IOperationGateway) -- an untyped 500.
+_UNTYPED_PUBLISH_500 = (500, {"type": "https://honua.io/problems/studio", "title": "Internal Server Error",
+                              "status": 500,
+                              "detail": "Approval is required, but the durable proposal gateway is unavailable."})
+
+
+def test_s3_studio_redis_off_passes_on_the_typed_409_for_query_analysis_and_map():
     row, posts = _s3("redis-off", "off", (409, {"status": 409, "title": "Conflict", "detail": _REDIS_OFF_DETAIL}))
     assert row["status"] == "pass", row["why"]
     assert row["evidence"]["topology"]["topology"] == "redis-off"
     assert sorted(row["evidence"]["families"]) == ["analysis", "map", "query"]
-    assert [p["envelope"]["family"] for p in posts] == ["query", "analysis", "map"]
-    map_body = posts[2]["envelope"]["body"]
-    assert posts[2]["envelope"]["format"] == "honua_map_package.v1" == map_body["format"]
-    assert map_body["mapPackageId"] == posts[2]["packageKey"]
+    drafts = [body for path, body in posts if path == "/api/v1/studio/package-drafts"]
+    assert [d["envelope"]["family"] for d in drafts] == ["query", "analysis", "map"] and len(posts) == 3
+    map_body = drafts[2]["envelope"]["body"]
+    assert drafts[2]["envelope"]["format"] == "honua_map_package.v1" == map_body["format"]
+    assert map_body["mapPackageId"] == drafts[2]["packageKey"]
     assert "{layerId}" not in json.dumps(map_body)
 
 
-def test_s3_redis_off_fails_when_a_draft_is_composed_or_refused_untyped():
+def test_s3_studio_redis_off_fails_when_a_draft_is_composed_or_refused_untyped():
     row, _ = _s3("redis-off", "off", (201, {"data": {"draftId": "d1"}}))
     assert row["status"] == "fail"
     row, _ = _s3("redis-off", "off", (409, {"status": 409, "detail": "Draft key already exists."}))
     assert row["status"] == "fail"
 
 
-def test_s3_topology_mismatch_fails_before_any_lifecycle():
+def test_s3_studio_topology_mismatch_fails_before_any_lifecycle():
     row, posts = _s3("redis-off", "on", (409, {"detail": _REDIS_OFF_DETAIL}))
     assert row["status"] == "fail" and "declares Redis on" in row["why"] and posts == []
+
+
+def test_s3_studio_redis_off_production_records_the_unavailable_operation_store():
+    row, _ = _s3("redis-off", "off", (409, {"status": 409, "detail": _REDIS_OFF_DETAIL}))
+    assert row["status"] == "pass", row["why"]
+    topo = row["evidence"]["topology"]
+    assert topo["deploymentEnvironment"] == "Production" and topo["operationStore"] == "unavailable"
+    assert "query+analysis+map refused with the typed durable-store refusal at create-draft" in row["why"]
+    assert "content-version boundary" not in row["why"]
+
+
+def test_s3_studio_redis_off_development_composes_then_passes_on_a_typed_publish_refusal():
+    for publish in ((409, {"status": 409, "title": "Conflict", "detail": _REDIS_OFF_DETAIL}),
+                    (503, {"type": "https://honua.io/problems/capability-unavailable", "status": 503,
+                           "code": "dependency-unavailable", "missingDependency": "redis"})):
+        row, posts = _s3("redis-off", "off", _DRAFT_CREATED, environment="Development", publish_reply=publish)
+        assert row["status"] == "pass", row["why"]
+        assert row["evidence"]["topology"]["operationStore"] == "volatile"
+        fam = row["evidence"]["families"]
+        assert "publish-request refused" in fam["query"]["detail"] and "publish-request refused" in fam["map"]["detail"]
+        # analysis stops at its declared content-version boundary; it is never sent a publish.
+        assert "publish=not-advertised-by-family" in fam["analysis"]["detail"]
+        published = [path for path, _ in posts if path.endswith("/publish-requests")]
+        assert len(published) == 2
+        # The summary claims the refusal only for the families that sent a publish-request, and
+        # reports analysis at its own boundary.
+        assert "query+map refused with the typed durable-store refusal at the governed publish-request" in row["why"]
+        assert "analysis passed at its declared content-version boundary" in row["why"]
+        assert "analysis refused" not in row["why"] and "query+analysis+map" not in row["why"]
+        # No approver identity is minted: there is no proposal plane to approve against.
+        assert not any(path == "/api/v1/admin/api-keys" for path, _ in posts)
+
+
+def test_s3_studio_redis_off_development_untyped_publish_500_fails_and_names_the_server_gap():
+    row, _ = _s3("redis-off", "off", _DRAFT_CREATED, environment="Development", publish_reply=_UNTYPED_PUBLISH_500)
+    assert row["status"] == "fail"
+    detail = row["evidence"]["families"]["query"]["detail"]
+    assert "HTTP 500" in detail and "honua-server#5733" in detail
+    assert "governed publish-request" in row["why"]
+
+
+def test_s3_studio_redis_off_development_still_fails_when_composition_breaks_or_publish_is_accepted():
+    row, _ = _s3("redis-off", "off", (500, {"detail": "boom"}), environment="Development",
+                 publish_reply=(409, {"detail": _REDIS_OFF_DETAIL}))
+    assert row["status"] == "fail"
+    row, _ = _s3("redis-off", "off", _DRAFT_CREATED, environment="Development",
+                 publish_reply=(201, {"success": True, "data": {"status": "accepted"}}))
+    assert row["status"] == "fail"
+
+
+def test_s3_studio_redis_off_without_a_reported_environment_cannot_pass():
+    row, posts = _s3("redis-off", "off", (409, {"detail": _REDIS_OFF_DETAIL}), environment=None)
+    assert row["status"] == "fail" and "deploymentEnvironment" in row["why"] and posts == []
 
 # ---- rc.3 fix units C2 / C4 / C6: Lambda+Batch cell, pre-serving migration, Bedrock opt-in ---------
 def _iac_root_with(monkeypatch, base, example, *variables):
