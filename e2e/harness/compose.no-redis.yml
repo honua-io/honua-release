@@ -10,9 +10,13 @@
 # ConnectionStrings__Redis. Unset, not blank: an empty connection string is still a configured key.
 #
 # Under the 2026.1 topology ruling (Redis is a requirement of the governed control plane), a
-# Redis-off server serves, configures and styles/renders; durable jobs, Studio drafts, proposals and
-# approvals refuse with typed `unavailable` errors. The drivers assert those refusals when
-# E2E_REDIS=off; anything else on this stack is a regression and fails the gate.
+# Redis-off server serves, configures and styles/renders; durable jobs, proposals and approvals refuse
+# with typed `unavailable` errors. This stack runs ASPNETCORE_ENVIRONMENT=Development, where the
+# server composes an in-memory operation-instance store, so Studio draft COMPOSITION still runs here
+# and only the governed publish-request (which needs the Redis-only proposal gateway) is refused; a
+# Production Redis-off host (the cloud cells) refuses at create-draft. The drivers read the host
+# environment from the capability manifest and assert the matching refusal when E2E_REDIS=off;
+# anything else on this stack is a regression and fails the gate.
 services:
   redis: !reset null
 
