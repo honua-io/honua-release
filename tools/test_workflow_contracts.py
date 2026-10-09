@@ -1292,6 +1292,12 @@ def test_cloud_matrix_is_the_rc3_ga_set_plus_eks_preview_and_threads_the_batch_i
         assert triggers[trigger]["inputs"]["genuine_model_bedrock"]["default"] is False
     assert cell["env"]["HONUA_GP_BATCH_IMAGE"] == "${{ inputs.gp_batch_image }}"
     assert cell["env"]["HONUA_MIGRATE_IMAGE"] == "${{ inputs.gp_batch_image }}"
+    # The receipt checker and the cloud journey agree with the matrix: no aws-mixed Preview row.
+    import check_journey_receipts
+    sys.path.insert(0, str(REPO_ROOT / "e2e"))
+    import cloud_journey
+    assert check_journey_receipts.PREVIEW_CELLS == ("aws-eks/redis-off", "aws-eks/redis-on")
+    assert cloud_journey.PREVIEW_TARGETS == ("aws-eks",)
     teardown = [step.get("name") for step in cell["jobs"]["teardown"]["steps"]]
     assert teardown.index("Capture ECS readiness diagnostics") < next(
         i for i, name in enumerate(teardown) if (name or "").startswith("Tear down"))

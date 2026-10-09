@@ -167,7 +167,8 @@ def provision_phase(target, target_name: str, *, require_real: bool, redis_enabl
                 report["migration"] = target.migrate(redis_enabled=redis_enabled)
             except ProvisionError as e:
                 report["status"] = "fail"
-                report["why"] = f"migration failed: {e}"
+                # A docker or Npgsql error can echo the connection string; the report is public.
+                report["why"] = f"migration failed: {_redact_log(str(e))}"
                 return state
         fetch = make_fetch(timeout=10.0)
         # The budget is read from the module globals at CALL time so a test can shorten it; the
@@ -690,6 +691,8 @@ def _redact_log(text: str) -> str:
     text = re.sub(r"(?i)(password|pwd|masterkey|api[-_]?key|secret|token)(\s*[=:]\s*)[^;\s\"',]+",
                   r"\1\2[redacted]", text)
     text = re.sub(r"(?i)(x-api-key\s*:\s*)\S+", r"\1[redacted]", text)
+    text = re.sub(r"(?i)(authorization\s*:\s*bearer\s+)\S+", r"\1[redacted]", text)
+    text = re.sub(r"(?i)(postgres(?:ql)?://[^:/\s]+:)[^@\s]+@", r"\1[redacted]@", text)
     return text
 
 

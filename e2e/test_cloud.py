@@ -2847,6 +2847,11 @@ def test_provision_phase_migrates_before_the_first_probe_and_fails_the_cell_on_e
     assert failing.order == ["provision", "migrate"]
     assert report["status"] == "fail" and report["why"].startswith("migration failed: ")
     assert "exited 1 before Ready" in report["why"]
+
+    leaky = _MigratingStub(error="did not start: Host=db;Username=u;Password=S3cret; "
+                                 "postgres://honua:S3cret@db:5432/honua")
+    report = run_cloud.provision_phase(leaky, "stub", require_real=True, redis_enabled=False)["report"]
+    assert report["why"].startswith("migration failed: ") and "S3cret" not in report["why"]
     # Nothing was probed, the endpoint is not handed to the journey, and teardown still destroys.
     assert state["endpoint"] is None and state["provisionAttempted"] is True
 
@@ -2879,6 +2884,7 @@ def test_ecs_readiness_diagnostics_capture_stop_reasons_and_the_server_log_tail(
         return subprocess.CompletedProcess(argv, 0, json.dumps(payload), "")
 
     report = run_cloud.ecs_readiness_diagnostics(target, run=run, redact=run_cloud._redact_log)
+    assert run_cloud.cloud_journey.PREVIEW_TARGETS == ("aws-eks",)
     assert report["cluster"] == "c1" and report["service"] == "s1"
     task = report["tasks"][0]
     assert task["stoppedReason"] == "Essential container in task exited"
@@ -2927,3 +2933,16 @@ def test_cell_teardown_captures_ecs_diagnostics_before_destroy_and_uploads_them(
     assert "--phase diagnose" in step["run"]
     upload = next(s for s in steps if s.get("name") == "Upload cloud gate-report (per cell)")
     assert "e2e/cloud-evidence/**/diagnostics-*.json" in upload["with"]["path"]
+
+
+@pytest.mark.parametrize("line, secret, kept", [
+    ("Password=hunter2;Host=db", "hunter2", "Password=[redacted]"),
+    ("Authorization: Bearer eyJhbGciOi.payload.sig", "eyJhbGciOi.payload.sig", "Authorization: Bearer [redacted]"),
+    ("authorization:bearer tok-123 retry", "tok-123", "authorization:bearer [redacted] retry"),
+    ("connecting to postgres://honua:p%40ss@db.example:5432/honua", "p%40ss",
+     "postgres://honua:[redacted]@db.example:5432/honua"),
+    ("dsn=postgresql://admin:S3cret@10.0.0.5/gis", "S3cret", "postgresql://admin:[redacted]@10.0.0.5/gis"),
+])
+def test_redact_log_strips_key_values_bearer_tokens_and_postgres_uri_passwords(line, secret, kept):
+    redacted = run_cloud._redact_log(line)
+    assert secret not in redacted and kept in redacted
