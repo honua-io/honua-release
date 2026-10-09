@@ -40,6 +40,11 @@ from verify_client_artifacts import verify_manifest
 SHA = re.compile(r'[0-9a-f]{40}\Z')
 DIGEST = re.compile(r'sha256:[0-9a-f]{64}\Z')
 DELAYS = (0, 10, 30, 60, 120, 60)
+# A keyed listing whose total_count moves while it is being paged (a check run was added under the
+# reader, which happens for minutes after a merge while workflow_run consumers report) is re-read
+# from page 1 this many times before it refuses.
+PAGING_ATTEMPTS = 3
+PAGING_RETRY_DELAY = 15
 
 
 class ResolutionError(ValueError):
@@ -114,32 +119,45 @@ class GitHub:
             raise ResolutionError(f'gh api {path} returned non-JSON ({exc})') from exc
 
     def pages(self, path, key=None):
-        """Every row, or a refusal. Keyed pages must add up to their declared total_count."""
+        """Every row, or a refusal. Keyed pages must add up to their declared total_count.
+
+        A keyed listing is read in full before any row is yielded, so a total_count that moves
+        under the reader can be re-read from page 1 (PAGING_ATTEMPTS) instead of refusing on the
+        first movement; a count that keeps moving still refuses."""
         separator = '&' if '?' in path else '?'
-        page, seen, total = 1, 0, None
-        while True:
-            result = self.json(f'{path}{separator}per_page=100&page={page}')
-            if key:
-                rows = result.get(key) if isinstance(result, dict) else None
-                count = result.get('total_count') if isinstance(result, dict) else None
-                if not isinstance(rows, list) or not isinstance(count, int) or isinstance(count, bool):
-                    raise ResolutionError(f'gh api {path} page {page} has no {key} list and total_count')
-                if total is not None and count != total:
-                    raise ResolutionError(f'gh api {path} total_count moved from {total} to {count} while paging')
-                total = count
-            else:
-                rows = result
-                if not isinstance(rows, list):
-                    raise ResolutionError(f'gh api {path} page {page} is not a list')
-            if not all(isinstance(row, dict) for row in rows):
-                raise ResolutionError(f'gh api {path} page {page} contains a non-object row')
-            seen += len(rows)
-            yield from rows
-            if len(rows) < 100:
-                break
-            page += 1
-        if total is not None and seen != total:
-            raise ResolutionError(f'gh api {path} returned {seen} of {total} {key}; refusing a truncated page')
+        for attempt in range(1, PAGING_ATTEMPTS + 1):
+            page, seen, total, collected, moved = 1, 0, None, [], None
+            while True:
+                result = self.json(f'{path}{separator}per_page=100&page={page}')
+                if key:
+                    rows = result.get(key) if isinstance(result, dict) else None
+                    count = result.get('total_count') if isinstance(result, dict) else None
+                    if not isinstance(rows, list) or not isinstance(count, int) or isinstance(count, bool):
+                        raise ResolutionError(f'gh api {path} page {page} has no {key} list and total_count')
+                    if total is not None and count != total:
+                        moved = f'gh api {path} total_count moved from {total} to {count} while paging'
+                        break
+                    total = count
+                else:
+                    rows = result
+                    if not isinstance(rows, list):
+                        raise ResolutionError(f'gh api {path} page {page} is not a list')
+                if not all(isinstance(row, dict) for row in rows):
+                    raise ResolutionError(f'gh api {path} page {page} contains a non-object row')
+                seen += len(rows)
+                collected.extend(rows)
+                if len(rows) < 100:
+                    break
+                page += 1
+            if moved is None:
+                if total is not None and seen != total:
+                    raise ResolutionError(f'gh api {path} returned {seen} of {total} {key}; refusing a truncated page')
+                yield from collected
+                return
+            if attempt == PAGING_ATTEMPTS:
+                raise ResolutionError(f'{moved} ({attempt} attempts)')
+            print(f'{moved}; re-reading (attempt {attempt + 1} of {PAGING_ATTEMPTS})', file=sys.stderr)
+            time.sleep(PAGING_RETRY_DELAY)
 
     def commits(self, repository, limit):
         for index, row in enumerate(self.pages(f'repos/{repository}/commits?sha=trunk')):
@@ -388,7 +406,16 @@ def select_component(name, component, github, registry, limit, skips=None, decla
                     continue
             if str(component.get('artifact', '')).startswith('spec:'):
                 path = component['artifact'].split('/blob/', 1)[1].split('/', 1)[1]
-                data = github.file(repository, sha, path)
+                try:
+                    data = github.file(repository, sha, path)
+                except ResolutionError as exc:
+                    if getattr(exc, 'status', None) != 404:
+                        raise
+                    # The sha came from this token's own trunk listing, so a 404 here can only mean
+                    # the artifact does not exist at this commit (the trunk predates it). Skip it and
+                    # keep walking, the same rule as a missing declaration (release#471).
+                    skip(sha, f'no {path} at this commit')
+                    continue
                 selected.update(artifact=f'spec:https://github.com/{repository}/blob/{sha}/{path}',
                     artifactSourceRevision=sha, artifactSha256='sha256:' + hashlib.sha256(data).hexdigest(),
                     artifactVersion='1.0.0+' + sha[:8])
