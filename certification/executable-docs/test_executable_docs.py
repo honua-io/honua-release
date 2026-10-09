@@ -980,3 +980,106 @@ def test_blocked_marker_on_file_cued_unsupported_fence_keeps_document_red(tmp_pa
     assert "cannot execute" in result["blocks"][0]["markerError"]
     assert result["blocks"][1]["status"] == "pass"
     assert result["status"] == "fail"
+
+
+# ── release-channel tag → candidate digest (honua-server#5738, spec getting-started-channel-pins) ────
+
+CANDIDATE_DIGEST = "sha256:" + "c" * 64
+CANDIDATE_IMAGE = f"ghcr.io/honua-io/honua-server:nightly-87966c3@{CANDIDATE_DIGEST}"
+QUICKSTART_ID = "honua-server-docs-get-started-quickstart"
+
+
+def _quickstart(image: str) -> str:
+    return ("Pull the 2026.1 release channel `ghcr.io/honua-io/honua-server:2026.1-rc`.\n\n"
+            "```bash\ncat > .env <<EOF\nCOMPOSE_PROJECT_NAME=honua-quickstart\n"
+            f"HONUA_IMAGE={image}\nEOF\ndocker compose up -d --wait\n```\n")
+
+
+def _run_quickstart(tmp_path, monkeypatch, image: str, context: dict, variables: dict):
+    """Run a quickstart-shaped document; the fake Docker runs whatever image the executed block pinned."""
+    import re
+    from types import SimpleNamespace
+    import run
+    executed: list[str] = []
+
+    def run_shell(code, *args, **kwargs):
+        executed.append(code)
+        return run.Outcome("pass", "exit code 0", exit_code=0)
+
+    def fake_docker(*args, **kwargs):
+        pinned = re.search(r"HONUA_IMAGE=(\S+)", "\n".join(executed))
+        ran = pinned.group(1) if pinned else ""
+        if args[0] == "inspect" and "working_dir" in args[2]:
+            out = str(tmp_path)
+        elif args[0] == "inspect":
+            out = f"{ran}|sha256:{'1' * 64}|honua"
+        else:  # image inspect: a tag-only pull of a non-candidate image carries that image's own repo digest
+            out = json.dumps([ran] if "@" in ran else [f"ghcr.io/honua-io/honua-server@sha256:{'f' * 64}"])
+        return SimpleNamespace(returncode=0, stdout=out, stderr="")
+
+    snapshots = iter([set(), {"server"}, {"server"}])
+    monkeypatch.setattr(run, "docker", fake_docker)
+    monkeypatch.setattr(run, "snapshot_containers", lambda: next(snapshots))
+    session = SimpleNamespace(workdir=tmp_path, env={}, passed={}, servers_seen={}, run_shell=run_shell,
+                              installed_honua=lambda runtime: {})
+    result, _ = run.run_document({"runtime": "python", "docker": True}, _quickstart(image), session, context,
+                                 variables, CANDIDATE_DIGEST, [], set())
+    return result, executed
+
+
+@pytest.mark.parametrize("documented,use_vars,expected_image,status", [
+    # the channel tag executes as the candidate digest...
+    ("ghcr.io/honua-io/honua-server:2026.1-rc", True, CANDIDATE_IMAGE, "pass"),
+    ("ghcr.io/honua-io/honua-server:2026.1", True, CANDIDATE_IMAGE, "pass"),
+    # ...and without the substitution the floating tag is not the candidate: boots-candidate-image fails
+    ("ghcr.io/honua-io/honua-server:2026.1-rc", False, "ghcr.io/honua-io/honua-server:2026.1-rc", "fail"),
+    # the legacy hand-copied digest form runs unchanged: the candidate digest passes, any other fails
+    (f"ghcr.io/honua-io/honua-server@{CANDIDATE_DIGEST}", True, f"ghcr.io/honua-io/honua-server@{CANDIDATE_DIGEST}", "pass"),
+    (f"ghcr.io/honua-io/honua-server@sha256:{'a' * 64}", True, f"ghcr.io/honua-io/honua-server@sha256:{'a' * 64}", "fail"),
+])
+def test_quickstart_channel_tag_executes_the_candidate_digest(tmp_path, monkeypatch, documented, use_vars,
+                                                              expected_image, status):
+    variables = load_vars(HERE / "vars", QUICKSTART_ID) if use_vars else {"env": {}, "substitute": {}}
+    result, executed = _run_quickstart(tmp_path, monkeypatch, documented,
+                                       {"candidate.image": CANDIDATE_IMAGE}, variables)
+    assert f"HONUA_IMAGE={expected_image}\n" in executed[0]
+    check = result["checks"][0]
+    assert check["check"] == "boots-candidate-image" and check["status"] == status
+    assert result["status"] == status
+    # the report keeps the document's own text: the published page still reads as the channel
+    assert f"HONUA_IMAGE={documented}" in result["blocks"][0]["command"]
+
+
+def test_channel_substitution_without_a_candidate_image_fails_closed(tmp_path, monkeypatch):
+    import run
+    variables = load_vars(HERE / "vars", QUICKSTART_ID)
+    with pytest.raises(run.RunError, match=r"candidate\.image"):
+        _run_quickstart(tmp_path, monkeypatch, "ghcr.io/honua-io/honua-server:2026.1-rc", {}, variables)
+
+
+@pytest.mark.parametrize("server", [
+    {"image": "ghcr.io/honua-io/honua-server:nightly-87966c3"},
+    {"image": "ghcr.io/honua-io/honua-server:nightly-87966c3", "digest": ""},
+    {"image": "ghcr.io/honua-io/honua-server:2026.1-rc", "digest": "2026.1-rc"},
+])
+def test_missing_manifest_digest_fails_closed(server):
+    import run
+    with pytest.raises(run.RunError, match="immutable sha256 digest"):
+        run.candidate_from_manifest({"components": {"honua-server": server}})
+
+
+def test_candidate_image_is_derived_from_the_manifest_like_the_boot():
+    import run
+    image, digest = run.candidate_from_manifest(
+        {"components": {"honua-server": {"image": "ghcr.io/honua-io/honua-server:nightly-87966c3",
+                                         "digest": CANDIDATE_DIGEST}}})
+    assert (image, digest) == (CANDIDATE_IMAGE, CANDIDATE_DIGEST)
+
+
+def test_channel_substitution_prefers_the_longer_tag():
+    table = {k: render(v["value"], {"candidate.image": CANDIDATE_IMAGE})
+             for k, v in load_vars(HERE / "vars", QUICKSTART_ID)["substitute"].items()}
+    code = "a=ghcr.io/honua-io/honua-server:2026.1-rc\nb=ghcr.io/honua-io/honua-server:2026.1\n"
+    assert substitute(code, table) == f"a={CANDIDATE_IMAGE}\nb={CANDIDATE_IMAGE}\n"
+    legacy = f"HONUA_IMAGE=ghcr.io/honua-io/honua-server@sha256:{'a' * 64}\n"
+    assert substitute(legacy, table) == legacy
