@@ -2629,7 +2629,8 @@ def test_s3_studio_redis_off_production_records_the_unavailable_operation_store(
     assert row["status"] == "pass", row["why"]
     topo = row["evidence"]["topology"]
     assert topo["deploymentEnvironment"] == "Production" and topo["operationStore"] == "unavailable"
-    assert "at create-draft" in row["why"]
+    assert "query+analysis+map refused with the typed durable-store refusal at create-draft" in row["why"]
+    assert "content-version boundary" not in row["why"]
 
 
 def test_s3_studio_redis_off_development_composes_then_passes_on_a_typed_publish_refusal():
@@ -2645,6 +2646,11 @@ def test_s3_studio_redis_off_development_composes_then_passes_on_a_typed_publish
         assert "publish=not-advertised-by-family" in fam["analysis"]["detail"]
         published = [path for path, _ in posts if path.endswith("/publish-requests")]
         assert len(published) == 2
+        # The summary claims the refusal only for the families that sent a publish-request, and
+        # reports analysis at its own boundary.
+        assert "query+map refused with the typed durable-store refusal at the governed publish-request" in row["why"]
+        assert "analysis passed at its declared content-version boundary" in row["why"]
+        assert "analysis refused" not in row["why"] and "query+analysis+map" not in row["why"]
         # No approver identity is minted: there is no proposal plane to approve against.
         assert not any(path == "/api/v1/admin/api-keys" for path, _ in posts)
 

@@ -409,6 +409,10 @@ if [ "$TOPOLOGY_DECLARED" = off ] && [ "$TOPOLOGY" = redis-off ]; then
     *) OP_STORE=unavailable ;;
   esac
   results="{}"; any_fail=false
+  # The pass summary names only what each family actually proved: the families that reached the
+  # typed refusal, and separately those that stopped at their declared content-version boundary
+  # (analysis never sends a publish-request, so it cannot be claimed as refused there).
+  refused=(); at_boundary=()
   for family in "${STUDIO_FAMILIES[@]}"; do
     if [ "$OP_STORE" = volatile ]; then
       r="$(VOLATILE_REDIS_OFF=true author_family "$family")"
@@ -418,7 +422,13 @@ if [ "$TOPOLOGY_DECLARED" = off ] && [ "$TOPOLOGY" = redis-off ]; then
     st="${r%%:*}"; detail="${r#*:}"
     results="$(jq -nc --argjson acc "$results" --arg f "$family" --arg s "$st" --arg d "$detail" \
       '$acc + {($f):{status:$s, detail:$d}}')"
-    [ "$st" = "pass" ] || any_fail=true
+    if [ "$st" != "pass" ]; then
+      any_fail=true
+    elif [[ "$detail" == *"publish=not-advertised-by-family"* ]]; then
+      at_boundary+=("$family")
+    else
+      refused+=("$family")
+    fi
   done
   evidence="$(jq -nc --argjson fam "$results" --argjson t "$TOPOLOGY_EVIDENCE" --arg s "$OP_STORE" \
     '{topology:($t + {operationStore:$s}), families:$fam}')"
@@ -430,9 +440,11 @@ if [ "$TOPOLOGY_DECLARED" = off ] && [ "$TOPOLOGY" = redis-off ]; then
   if [ "$any_fail" = true ]; then
     emit_scenario "$SCENARIO" fail "redis-off: a family was not refused with the typed durable-store refusal at $refused_at" "$evidence"
   else
-    emit_scenario "$SCENARIO" pass \
-      "redis-off ($TOPOLOGY_SIGNAL: $TOPOLOGY_REASON; $TOPOLOGY_ENVIRONMENT): $(IFS=+; echo "${STUDIO_FAMILIES[*]}") refused with the typed durable-store refusal at $refused_at" \
-      "$evidence"
+    summary="redis-off ($TOPOLOGY_SIGNAL: $TOPOLOGY_REASON; $TOPOLOGY_ENVIRONMENT): $(IFS=+; echo "${refused[*]}") refused with the typed durable-store refusal at $refused_at"
+    if [ "${#at_boundary[@]}" -gt 0 ]; then
+      summary="$summary; $(IFS=+; echo "${at_boundary[*]}") passed at its declared content-version boundary (no publish-request.create advertised, none sent)"
+    fi
+    emit_scenario "$SCENARIO" pass "$summary" "$evidence"
   fi
   exit 0
 fi
