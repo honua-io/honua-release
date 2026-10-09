@@ -45,6 +45,20 @@ honua-sdk-dotnet:
       empty — i.e. staging is not provisioned in the gate context. All 15 .NET SDK unit lanes, build,
       API Compatibility and Contract Conformance remain authoritative and are NOT listed here.
 
+honua-sdk-js:
+  - name: "Bounded AWS semantic workflow"
+    why: >-
+      Weekly live-evidence lane (`.github/workflows/overture-live.yml`, "Overture AWS Live
+      Evidence", cron Tuesdays 07:15) with HONUA_OVERTURE_LIVE_ENABLED=true. It reads a pinned
+      Overture Maps object from the public AWS Open Data bucket
+      (overturemaps-us-west-2.s3.us-west-2.amazonaws.com). On 984425f9 run 37476516422 refused
+      before any SDK assertion: "Pinned object identity mismatch (expected
+      14bf817df11b311fd2e9183c0ca8a8ec-10 / 656568610 bytes, observed no ETag / unknown). Live
+      execution is blocked." That is the external dataset release moving, not the SDK build.
+      Under honua-release#471. "Three-engine smoke and source-packed parity"
+      (first-map-release-smoke.yml) is NOT listed: it serves its fixture from 127.0.0.1, needs no
+      external backend, and its red on 984425f9 is a Firefox First Map provenance assertion.
+
 honua-iac:
   - name: "AWS Live Validation"
     why: >-

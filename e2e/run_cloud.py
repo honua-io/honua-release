@@ -1,7 +1,9 @@
 #!/usr/bin/env python3
 """Provision a cloud cell, run the imported pinned journey, meter cost and always tear down.
 
-GA: {aws-ecs, aws-serverless} x Redis off/on. EKS and mixed ECS + Batch are Preview.
+GA: {aws-ecs, aws-serverless} x Redis off/on; aws-serverless is Lambda + AWS Batch geoprocessing.
+EKS is informational Preview. The mixed ECS + Batch cell is out of the 2026.1 rc.3 matrix: its IaC
+root does not exist yet (restore it when honua-iac#209 lands).
 Missing, blocked or invalid journey evidence cannot certify a GA cloud cell.
 """
 from __future__ import annotations
@@ -10,6 +12,7 @@ import argparse
 import hashlib
 import json
 import os
+import re
 import secrets
 import subprocess
 import sys
@@ -28,12 +31,9 @@ from targets import REGISTRY  # noqa: E402
 from targets.base import ProvisionError  # noqa: E402
 
 import cloud_journey  # noqa: E402
-from targets.terraform_target import TerraformTarget, TfTargetSpec  # noqa: E402
 
-# The pinned IaC must provide this topology; never substitute the all-ECS root as mixed evidence.
-REGISTRY = {**REGISTRY, "aws-mixed": lambda **kw: TerraformTarget(TfTargetSpec(
-    name="aws-mixed", root="infrastructure/terraform/examples/aws-mixed",
-    image_env="HONUA_ECS_IMAGE", image_var="honua_image"), **kw)}
+# No aws-mixed entry for 2026.1 rc.3: examples/aws-mixed does not exist in honua-iac, so the cell could
+# only ever report a missing root. Restore it (never as the all-ECS root) when honua-iac#209 lands.
 
 REPORT_PATH = E2E_DIR / "gate-report-cloud.json"
 
@@ -158,6 +158,18 @@ def provision_phase(target, target_name: str, *, require_real: bool, redis_enabl
         state["provisionAttempted"] = True
         endpoint = target.provision(redis_enabled=redis_enabled)
         report["endpoint"] = endpoint
+        if getattr(target, "migrates_before_serving", False):
+            # The serverless root boots the Lambda with skip_migrations=true; migrate the cell's
+            # database from this runner before anything is probed. A cell that cannot migrate fails
+            # here with the reason, and teardown still destroys what apply created.
+            report["migration"] = {"ready": False}
+            try:
+                report["migration"] = target.migrate(redis_enabled=redis_enabled)
+            except ProvisionError as e:
+                report["status"] = "fail"
+                # A docker or Npgsql error can echo the connection string; the report is public.
+                report["why"] = f"migration failed: {_redact_log(str(e))}"
+                return state
         fetch = make_fetch(timeout=10.0)
         # The budget is read from the module globals at CALL time so a test can shorten it; the
         # defaults on _wait_for_endpoint are bound at def time and cannot be monkeypatched.
@@ -602,6 +614,109 @@ def verify_journey(state: dict, journey: dict, journey_dir: Path) -> dict:
     return result
 
 
+DIAGNOSTICS_NAME = "diagnostics-ecs.json"
+_LOG_LINES = 200
+
+
+def ecs_readiness_diagnostics(target, *, run=subprocess.run, redact=None) -> dict:
+    """Why an ECS cell never became ready: task stop reasons and the server task's last log lines.
+
+    Read from ECS DescribeTasks and CloudWatch Logs while the cell still exists (teardown, before
+    destroy). Output lands in the public cell artifact, so every log line passes `redact`.
+    """
+    redact = redact or (lambda text: text)
+    root = target._iac_root()
+    if root is None:
+        raise ValueError("no Terraform working directory")
+
+    def out(name):
+        result = run(["terraform", f"-chdir={root}", "output", "-raw", name], text=True,
+                     capture_output=True, check=False)
+        return result.stdout.strip() if result.returncode == 0 else ""
+
+    def aws(*args):
+        result = run(["aws", *args, "--region", target.region, "--output", "json"], text=True,
+                     capture_output=True, check=False)
+        if result.returncode:
+            raise RuntimeError(f"aws {' '.join(args[:2])} failed")
+        return json.loads(result.stdout or "{}")
+
+    cluster, service = out("ecs_cluster_name"), out("ecs_service_name")
+    if not cluster or not service:
+        raise ValueError("the cell has no ecs_cluster_name / ecs_service_name output")
+    arns = []
+    for status in ("RUNNING", "STOPPED"):
+        arns += aws("ecs", "list-tasks", "--cluster", cluster, "--service-name", service,
+                    "--desired-status", status).get("taskArns", [])
+    tasks = aws("ecs", "describe-tasks", "--cluster", cluster, "--tasks", *arns).get("tasks", []) if arns else []
+    report: dict = {"cluster": cluster, "service": service, "tasks": [], "logs": []}
+    definitions: dict = {}
+    for task in tasks:
+        report["tasks"].append({
+            "taskArn": task.get("taskArn"), "lastStatus": task.get("lastStatus"),
+            "desiredStatus": task.get("desiredStatus"), "healthStatus": task.get("healthStatus"),
+            "stopCode": task.get("stopCode"), "stoppedReason": redact(str(task.get("stoppedReason") or "")),
+            "startedAt": task.get("startedAt"), "stoppedAt": task.get("stoppedAt"),
+            "containers": [{"name": c.get("name"), "lastStatus": c.get("lastStatus"),
+                            "exitCode": c.get("exitCode"), "healthStatus": c.get("healthStatus"),
+                            "reason": redact(str(c.get("reason") or ""))}
+                           for c in task.get("containers", [])]})
+        arn = task.get("taskDefinitionArn")
+        if arn and arn not in definitions:
+            definitions[arn] = aws("ecs", "describe-task-definition", "--task-definition", arn).get(
+                "taskDefinition", {})
+    # The newest task's server container log: the stream is <prefix>/<container>/<task id>.
+    for task in sorted(tasks, key=lambda t: str(t.get("createdAt") or ""), reverse=True)[:1]:
+        task_id = str(task.get("taskArn", "")).rsplit("/", 1)[-1]
+        for container in definitions.get(task.get("taskDefinitionArn"), {}).get("containerDefinitions", []):
+            options = (container.get("logConfiguration") or {}).get("options") or {}
+            group, prefix = options.get("awslogs-group"), options.get("awslogs-stream-prefix")
+            if not group or not prefix:
+                continue
+            stream = f"{prefix}/{container.get('name')}/{task_id}"
+            try:
+                events = aws("logs", "get-log-events", "--log-group-name", group, "--log-stream-name",
+                             stream, "--limit", str(_LOG_LINES), "--no-start-from-head").get("events", [])
+            except RuntimeError as error:
+                report["logs"].append({"container": container.get("name"), "error": str(error)})
+                continue
+            report["logs"].append({"container": container.get("name"), "logGroup": group,
+                                   "logStream": stream,
+                                   "lines": [redact(str(e.get("message", ""))) for e in events][-_LOG_LINES:]})
+    return report
+
+
+def _redact_log(text: str) -> str:
+    """Strip credentials a server log line might carry before it reaches a public artifact."""
+    text = re.sub(r"(?i)(password|pwd|masterkey|api[-_]?key|secret|token)(\s*[=:]\s*)[^;\s\"',]+",
+                  r"\1\2[redacted]", text)
+    text = re.sub(r"(?i)(x-api-key\s*:\s*)\S+", r"\1[redacted]", text)
+    text = re.sub(r"(?i)(authorization\s*:\s*bearer\s+)\S+", r"\1[redacted]", text)
+    text = re.sub(r"(?i)(postgres(?:ql)?://[^:/\s]+:)[^@\s]+@", r"\1[redacted]@", text)
+    return text
+
+
+def _phase_diagnose(args) -> int:
+    """Teardown-side readiness diagnostics; never changes the verdict, never fails the job."""
+    cell = _cell(args.target, args.redis)
+    directory = cloud_journey.cell_dir(cell)
+    state = _read_json(directory / HANDOFF_NAME) or {}
+    if state.get("ready") is True:
+        print(f"{cell}: provision reported ready; no readiness diagnostics needed")
+        return 0
+    try:
+        diagnostics = ecs_readiness_diagnostics(_target(args.target), redact=_redact_log)
+    except Exception as error:
+        diagnostics = {"error": f"{type(error).__name__}: {_redact_log(str(error))}"}
+    diagnostics["cell"] = cell
+    _write_json(directory / DIAGNOSTICS_NAME, diagnostics)
+    for task in diagnostics.get("tasks", []):
+        print(f"   task {task['taskArn']}: {task['lastStatus']} stopCode={task['stopCode']} "
+              f"stoppedReason={task['stoppedReason']!r}")
+    print(f"{cell}: readiness diagnostics written to {directory / DIAGNOSTICS_NAME}")
+    return 0
+
+
 def _target(target_name: str):
     return REGISTRY[target_name](run_id=os.environ.get("GITHUB_RUN_ID", "local"))
 
@@ -784,7 +899,7 @@ def _phase_teardown(args) -> int:
 def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--phase", choices=("all", "provision", "seal-state", "journey", "deliver-key",
-                                        "admit", "open-state", "teardown"), default="all",
+                                        "admit", "open-state", "diagnose", "teardown"), default="all",
                     help="CI runs provision, journey and teardown as separate jobs (honua-release#381)")
     ap.add_argument("--bundle", type=Path, help="sealed Terraform state (seal-state / open-state)")
     ap.add_argument("--cidr", help="the journey runner's IPv4 /32 (admit)")
@@ -807,7 +922,7 @@ def main(argv: list[str] | None = None) -> int:
     args = ap.parse_args(argv)
     phases = {"provision": _phase_provision, "seal-state": _phase_seal, "journey": _phase_journey,
               "deliver-key": _phase_deliver_key, "admit": _phase_admit, "open-state": _phase_open,
-              "teardown": _phase_teardown}
+              "diagnose": _phase_diagnose, "teardown": _phase_teardown}
     if args.phase in phases:
         if args.phase in ("seal-state", "open-state") and args.bundle is None:
             ap.error(f"--phase {args.phase} requires --bundle")

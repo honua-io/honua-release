@@ -49,6 +49,14 @@ class ResolutionError(ValueError):
         self.status = status
 
 
+class MissingDeclaration(ResolutionError):
+    """The contents API answered 404 for release/component-versions.json at a component sha.
+
+    At the manifest's pinned sha this is the same refusal as any other unreadable declaration.
+    Only the trunk walk treats it differently: a commit with no declaration cannot be a candidate,
+    so the walk skips it and keeps looking (release#471)."""
+
+
 def api_status(exc):
     """The HTTP status of a failed `gh api` call: the error body's status, else gh's exit report."""
     body = exc.stdout.decode('utf-8', errors='replace') if isinstance(exc.stdout, bytes) else exc.stdout or ''
@@ -338,9 +346,15 @@ class Registry:
         raise ResolutionError('no published SHA-bound image' + (': ' + '; '.join(reasons) if reasons else f' for {sha}'))
 
 
-def select_component(name, component, github, registry, limit, skips=None):
+def select_component(name, component, github, registry, limit, skips=None, declare=None):
     """`skips`, when given, receives every newer trunk commit passed over and why, whether or not
-    a commit qualifies; a sha weeks behind its trunk head must never be selected silently."""
+    a commit qualifies; a sha weeks behind its trunk head must never be selected silently.
+
+    `declare`, when given, reads the component's version declaration at a commit that otherwise
+    qualifies. A commit whose declaration is absent (MissingDeclaration) is skipped with that
+    reason and the walk continues; every other declaration error still stops the walk and refuses.
+    The sha came from this token's own trunk listing, so the 404 cannot be an invisible
+    repository or revision."""
     repository = component['repository'].removeprefix('https://github.com/')
     reasons = []
     skipped = []
@@ -378,6 +392,12 @@ def select_component(name, component, github, registry, limit, skips=None):
                 selected.update(artifact=f'spec:https://github.com/{repository}/blob/{sha}/{path}',
                     artifactSourceRevision=sha, artifactSha256='sha256:' + hashlib.sha256(data).hexdigest(),
                     artifactVersion='1.0.0+' + sha[:8])
+            if declare is not None:
+                try:
+                    declare(selected)
+                except MissingDeclaration:
+                    skip(sha, f'no {COMPONENT_VERSIONS_PATH} at this commit')
+                    continue
             if skips is not None:
                 skips['selected'] = sha
             return selected
@@ -564,6 +584,9 @@ def component_versions(github, name, component):
         if preview and getattr(exc, 'status', None) == 404:
             _require_visible_revision(github, where, repository, sha)
             return empty
+        if getattr(exc, 'status', None) == 404:
+            # Still a refusal at a pinned sha; the trunk walk alone may skip past it.
+            raise MissingDeclaration(f'{where} is missing or unreadable: {exc}', status=404) from exc
         raise ResolutionError(f'{where} is missing or unreadable: {exc}') from exc
     if preview and not raw.strip():
         return empty
@@ -847,9 +870,13 @@ def resolve(manifest, matrix, github, registry, limit=100, protocol_ledger='requ
     for name, component in manifest['components'].items():
         walk = {}
         try:
+            # The walk skips a trunk commit with no version declaration (release#471); declare()
+            # below still reads the selected commit's declaration and refuses on any error.
             candidate['components'][name] = (
                 select_sdk(name, component, candidate.get('clientArtifacts') or {}, identities, github)
-                if name in SDK_COMPONENTS else select_component(name, component, github, registry, limit, walk))
+                if name in SDK_COMPONENTS else select_component(
+                    name, component, github, registry, limit, walk,
+                    declare=lambda selected, name=name: component_versions(github, name, selected)))
             selected = candidate['components'][name]
             image = selected.get('image')
             print(f"RESOLVED {name} {selected['sha']}" + (f" {image}" if image else ''))

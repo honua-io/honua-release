@@ -47,6 +47,39 @@ make e2e-strict   # E2E_REQUIRE_REAL=1: BLOCKED/SKIPPED => FAIL (the real releas
 CI: `.github/workflows/e2e-local-docker.yml` runs on PRs touching `e2e/`/manifest, on `workflow_dispatch`,
 and is `workflow_call`-able by the release train's `gate_e2e`.
 
+### Redis-on and Redis-off are two topologies, not one broken one
+
+honua-server composes the operation proposal store, its gateway and the admin executors only when Redis
+is connected and entitled (`Program.cs:628`). On a Redis-off install the 20 projected
+`honua_admin_layer_*`/`honua_admin_services_*` MCP tools are not registered (the full view is 104 tools,
+not 124), Studio draft mutations answer the typed 409 "requires a Redis-backed durable store", and GP
+submission answers 503 `capability-unavailable` (`missingDependency=redis`).
+
+The cell declares its topology through `E2E_REDIS` (`on` by default; the cloud runner sets it from the
+cell's Redis dimension) and the server must confirm it. `harness/lib/common.sh` `resolve_topology` asks,
+in order: the manifest capability `operations.proposals` (added by honua-server S1), then
+`GET /api/v1/admin/proposals` (200 vs the typed 503), then the manifest capability `jobs.runner`
+(`dependency-unavailable`/`license-required`). Only a declared **and** confirmed Redis-off cell gets the
+Redis-off expectation:
+
+- **S2** compares the full catalog against `drivers/mcp/expected-tools.json` `fullCatalog.tools` (the
+  canonical Redis-on roster) exactly, in both directions. On Redis-off the 20 names in
+  `fullCatalog.requiresDurableControlPlane` must be all present (after S1) or all absent (before it);
+  every other name stays exact. The evidence records `topology` and which state was observed.
+- **S3** on Redis-off asserts the typed refusal at `create-draft` for every family (query, analysis, map)
+  and passes with `topology: redis-off`; Redis-on drives the full lifecycle for the same families.
+- A topology the server contradicts (a Redis-on cell with no durable control plane, or a Redis-off cell
+  the server does not confirm) fails both scenarios.
+
+Diagnostic: `drivers/mcp/probe_topology.sh` prints one JSON summary of a running candidate —
+`topology`, `toolCount`, `missingFromRoster`, `extraOverRoster`, and `GET /api/v1/operations` — so the
+same pinned digest booted with and without `docker-compose.no-redis.yml` can be compared directly
+(acceptance: the catalogs differ by exactly the 20 names). It writes no scenario rows.
+
+```bash
+E2E_BASE=http://localhost:8080 E2E_API_KEY=honua-console-dev-key bash e2e/drivers/mcp/probe_topology.sh
+```
+
 ## Phase B — cross-cloud parity tier (AWS-first, scaffolded)
 
 The "also run cloud integration" layer: deploy a **real** honua-server to a cloud target via the actual
@@ -59,7 +92,7 @@ deploy shapes and with/without its cache:
 
 | target | how | endpoint | Redis |
 |---|---|---|---|
-| `aws-serverless` | Lambda + API GW (`examples/aws-serverless`, ECR Lambda-AOT image) | `honua_url` output | `redis_enabled` |
+| `aws-serverless` | Lambda + API GW + AWS Batch geoprocessing (`examples/aws-serverless`, ECR Lambda-AOT image; Batch runs the generic server image) | `honua_url` output | `redis_enabled` |
 | `aws-ecs` | Fargate + ALB (`examples/aws`, container image) | `honua_url` output | `redis_enabled` |
 | `aws-eks` | k8s + Helm + LoadBalancer (`examples/aws-eks`) — heaviest, run least often | LB hostname (Helm) | Helm value |
 
@@ -106,6 +139,51 @@ digest, run/candidate binding, and the server identity provision observed before
 copies only verified files into the cell's evidence.
 `python e2e/run_cloud.py --phase <provision|journey|admit|teardown> ...` runs one phase; without
 `--phase` all three run in one process.
+
+GA cells for 2026.1 are `{aws-ecs, aws-serverless} × {redis-off, redis-on}`; `aws-eks` runs as
+informational Preview. The mixed ECS + Batch cell is not in the rc.3 matrix: honua-iac has no
+`examples/aws-mixed` root yet, so the cell could only report a missing root. Restore it in
+`run_cloud.py` and `e2e-cloud-aws.yml` when honua-iac#209 lands.
+
+`HONUA_ADMIN_PASSWORD` must be set before a Terraform cell provisions. The `provision` phase mints a
+random one per cell; a local `--phase all` run must export its own. The harness never derives one from
+the run id (the Actions run id is public). Teardown on a fresh runner passes a throwaway value, which
+`terraform destroy` evaluates but never applies.
+
+### The Lambda + Batch cell, and its migration before serving
+`aws-serverless` is the 2026.1 Lambda + AWS Batch GA cell. When the pinned honua-iac root declares
+them (honua-iac `feat/lambda-batch-ga-cell`), the cell applies `enable_gp_batch=true`,
+`use_batch_service_linked_role=true` and `gp_batch_image=$HONUA_GP_BATCH_IMAGE`. The workflow sets that
+image from the manifest: `components.honua-server.image`'s repository at `platformDigests.amd64`
+(honua-iac refuses a tag for the Batch image). If the root declares `gp_batch_image` and the env is
+unset, the cell is BLOCKED (FAIL under `--require-real`) instead of applying with the module's fallback.
+
+The serverless root boots the Lambda with `skip_migrations=true`, so a fresh cell would serve an
+unmigrated database. Between `terraform apply` and the first probe, `provision` therefore runs a
+`migrate` step: `docker run` of `HONUA_MIGRATE_IMAGE` (the same generic server image) on the provision
+runner with `HONUA_SKIP_MIGRATIONS=false`, the cell's own `ConnectionStrings__DefaultConnection` and
+connection-encryption master key (read in memory from Terraform state, the way `seed_database` reads
+the connection secret; passed to docker through its environment, never argv), the cell's admin password
+and `Licensing__Mode=Disabled`. It polls `http://127.0.0.1:18080/healthz/ready` until 200, then removes
+the container. The runner reaches RDS through the same /32 ingress the PostGIS bootstrap uses. A
+container that fails to start, exits, or never reports Ready fails the cell with `migration failed:
+<reason>` (log tail redacted) and teardown still destroys the cell. The provision report records the
+step under `migration`. A server-side `HONUA_MIGRATE_ONLY` exit mode would replace the poll; it is
+tracked for 2026.1.x.
+
+### Bedrock on the genuine-model cell
+`e2e-cloud-aws.yml` input `genuine_model_bedrock` (default off, so scheduled and ordinary runs stay
+free of model charges) sets `HONUA_ENABLE_BEDROCK_AI=true` on `aws-ecs/redis-off` only, which applies
+`enable_bedrock_ai=true` and `bedrock_ai_region=us-east-1`. A pinned root that does not declare those
+inputs fails the cell rather than silently running without the model.
+
+### ECS readiness diagnostics
+When an `aws-ecs` cell's provision handoff is not `ready`, the teardown job runs
+`run_cloud.py --phase diagnose` before destroying it. It writes `diagnostics-ecs.json` into the cell's
+evidence (uploaded with the gate report): every service task's `stopCode`, `stoppedReason` and
+container exit reasons from `aws ecs describe-tasks`, and the last 200 CloudWatch log lines of the
+newest task's containers. Credentials are redacted from every line. The step is informational and
+never changes the verdict. The journey job holds no AWS credential, so it cannot read these.
 
 ### Cells leave nothing billing — including what `terraform destroy` cannot delete
 Teardown removing a resource is not the same as the resource stopping costing money. The EKS cell's
