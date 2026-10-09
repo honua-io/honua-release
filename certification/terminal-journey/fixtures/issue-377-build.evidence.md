@@ -115,8 +115,8 @@ What changed in the harness, verified against the live candidate:
 Remaining blocker (server gap, not harness):
 
 - **Stage 3 import.** `POST /api/v1/admin/import/geoservices/start` (and
-  `/discover`) with the authored source `http://source:8080/arcgis/rest/services/journey/FeatureServer`
-  returns HTTP 400 `ServiceUrl must be a valid HTTPS URL`.
+  `/discover`) with the authored plain-HTTP fixture source on the compose network
+  (`http://source:8080/...`) returns HTTP 400 `ServiceUrl must be a valid HTTPS URL`.
   `GeoservicesServiceUrlValidation` requires HTTPS and rejects any host that
   resolves to a private or loopback address (`NetworkAddressValidator`), with no
   operator opt-in (unlike `OutboundHttpUrlValidator`'s `allowPrivateNetworks`).
