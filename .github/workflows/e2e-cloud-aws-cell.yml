@@ -26,6 +26,10 @@ on:
       ecs_architecture: { required: true, type: string }
       lambda_image: { required: false, type: string, default: "" }
       lambda_architecture: { required: true, type: string }
+      # The manifest's generic server image (amd64 child by digest): the Lambda+Batch cell's Batch
+      # job image and the image its pre-serving migration runs on the provision runner.
+      gp_batch_image: { required: false, type: string, default: "" }
+      enable_bedrock: { required: false, type: boolean, default: false }
     secrets:
       RELEASE_GH_TOKEN:
         required: false
@@ -39,6 +43,9 @@ env:
   HONUA_LAMBDA_ARCHITECTURE: ${{ inputs.lambda_architecture }}
   HONUA_ECS_IMAGE: ${{ inputs.server_image }}
   HONUA_ECS_ARCHITECTURE: ${{ inputs.ecs_architecture }}
+  HONUA_GP_BATCH_IMAGE: ${{ inputs.gp_batch_image }}
+  HONUA_MIGRATE_IMAGE: ${{ inputs.gp_batch_image }}
+  HONUA_ENABLE_BEDROCK_AI: ${{ inputs.enable_bedrock }}
   HONUA_CLOUD_COST_CEILING_USD: ${{ inputs.cost_ceiling_usd || '20' }}
   HONUA_RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
   CELL_DIR: e2e/cloud-evidence/${{ github.run_id }}/${{ github.run_attempt }}/${{ inputs.target }}/redis-${{ inputs.redis }}
@@ -481,6 +488,20 @@ jobs:
           else
             echo "no sealed state — provisioning never started or its state was lost (teardown decides)"
           fi
+      # J6: an ECS cell that never became ready leaves its reason in the cell artifact — every task's
+      # stoppedReason and the server task's last 200 CloudWatch log lines (credentials redacted), read
+      # while the cell still exists. Informational: it never changes the verdict.
+      - name: Capture ECS readiness diagnostics
+        if: ${{ always() && inputs.target == 'aws-ecs' && vars.HONUA_AWS_ROLE_ARN != '' }}
+        continue-on-error: true
+        env:
+          HONUA_IAC_DIR: ${{ github.workspace }}/_honua-iac
+          HONUA_CLOUD_PROVISION_MARKER: ${{ runner.temp }}/honua-cloud-provision-attempted
+        run: |
+          set -euo pipefail
+          if [ ! -f "$HONUA_CLOUD_PROVISION_MARKER" ]; then echo "nothing provisioned"; exit 0; fi
+          terraform -chdir="$HONUA_IAC_DIR/infrastructure/terraform/examples/aws" init -input=false -no-color >/dev/null
+          python e2e/run_cloud.py --phase diagnose --target "${{ inputs.target }}" --redis "${{ inputs.redis }}"
       # FAIL-CLOSED: if the cell provisioned anything and cleanup cannot complete, this step goes red
       # instead of leaving an orphaned VPC/cluster billing (honua-iac#142). The harness meter must
       # refresh e2e/cloud-evidence/run-cost.json with cumulative run USD before infrastructure goes.
@@ -507,4 +528,5 @@ jobs:
             e2e/cloud-evidence/**/extended/gate-report.json
             e2e/cloud-evidence/**/receipt-*.json
             e2e/cloud-evidence/**/target-*.json
+            e2e/cloud-evidence/**/diagnostics-*.json
           if-no-files-found: warn
