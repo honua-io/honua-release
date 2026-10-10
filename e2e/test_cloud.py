@@ -17,6 +17,7 @@ import shutil
 import subprocess
 import sys
 import tempfile
+import urllib.parse
 from unittest import mock
 from datetime import datetime, timedelta, timezone
 import hashlib
@@ -1960,6 +1961,151 @@ def test_attempt_admits_plain_http_only_to_the_provisioned_cell_load_balancer(mo
         assert seen[-1] == (None, None) and "Candidate transport: refused (203.0.113.9)" in notices
     finally:
         shutil.rmtree(cj.EVIDENCE / "offline-run", ignore_errors=True)
+
+
+# ---- owner decision 7 of 2026-10-10: journey attempts are idempotent (delete-and-recreate) --------
+_ATTEMPT1_CONNECTION = "3f2b8c1e-5d4a-4e7b-9c0d-1a2b3c4d5e6f"
+_OTHER_CONNECTION = "aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee"
+_ATTEMPT2_CONNECTION = "0f0e0d0c-0b0a-4908-8706-050403020100"
+_JOURNEY_EXECUTION = {"datasource": {"name": "journey_source"}, "styleId": "journey-solid-red"}
+
+
+class _CellHoldingAttempt1:
+    """A fake cell admin API that still holds what attempt 1 created: its journey_source connection
+    and its standalone style, beside an unrelated connection the reset must not touch. Creating a
+    connection whose name exists answers 409, as the cell did on every attempt 2."""
+
+    def __init__(self, *, in_use=False, list_status=200):
+        self.connections = {_ATTEMPT1_CONNECTION: "journey_source", _OTHER_CONNECTION: "customer_db"}
+        self.styles = {"journey-solid-red"}
+        self.in_use, self.list_status, self.calls = in_use, list_status, []
+
+    def __call__(self, method, url, admin_key):
+        assert admin_key == "cell-admin-key"
+        path = urllib.parse.urlsplit(url).path
+        self.calls.append((method, path))
+        if method == "GET" and path == "/api/v1/admin/connections":
+            if self.list_status != 200:
+                return self.list_status, None
+            return 200, {"success": True, "data": [{"connectionId": cid, "name": name}
+                                                   for cid, name in self.connections.items()]}
+        if method == "DELETE" and path.startswith("/api/v1/admin/connections/"):
+            cid = path.rsplit("/", 1)[1]
+            if cid not in self.connections:
+                return 404, None
+            if self.in_use:
+                return 409, {"success": False, "message": "Connection is in use by services"}
+            del self.connections[cid]
+            return 200, {"success": True}
+        if method == "DELETE" and path.startswith("/ogc/styles/"):
+            style = urllib.parse.unquote(path.rsplit("/", 1)[1])
+            if style not in self.styles:
+                return 404, None
+            self.styles.remove(style)
+            return 204, None
+        raise AssertionError(f"unexpected call {method} {path}")
+
+    def create_connection(self, name):
+        if name in self.connections.values():
+            return 409
+        self.connections[_ATTEMPT2_CONNECTION] = name
+        return 201
+
+
+def test_reset_deletes_attempt_ones_connection_and_style_so_attempt_two_can_create_them():
+    cj = run_cloud.cloud_journey
+    cell = _CellHoldingAttempt1()
+    assert cell.create_connection("journey_source") == 409   # the failure every attempt 2 hit
+    notices = cj.reset_prior_attempt("https://cell.example/", "cell-admin-key", _JOURNEY_EXECUTION, 2,
+                                     request=cell)
+    assert cell.calls == [("GET", "/api/v1/admin/connections"),
+                          ("DELETE", f"/api/v1/admin/connections/{_ATTEMPT1_CONNECTION}"),
+                          ("DELETE", "/ogc/styles/journey-solid-red")]
+    assert cell.connections == {_OTHER_CONNECTION: "customer_db"} and cell.styles == set()
+    assert cell.create_connection("journey_source") == 201   # attempt 2 is a genuine second try
+    (notice,) = notices
+    assert notice.startswith(cj.RETRY_STRATEGY_NOTICE + "Before attempt 2 the harness removed attempt 1's")
+    assert f"journey_source connection {_ATTEMPT1_CONNECTION} deleted" in notice
+    assert "style journey-solid-red deleted" in notice
+    assert "cell-admin-key" not in notice
+    # Attempt 3 removes what attempt 2 created, and says when an object was already gone.
+    again = cj.reset_prior_attempt("https://cell.example", "cell-admin-key", _JOURNEY_EXECUTION, 3, request=cell)
+    assert f"journey_source connection {_ATTEMPT2_CONNECTION} deleted" in again[0]
+    assert "style journey-solid-red already absent" in again[0]
+    assert cell.connections == {_OTHER_CONNECTION: "customer_db"}
+    empty = cj.reset_prior_attempt("https://cell.example", "cell-admin-key", _JOURNEY_EXECUTION, 2, request=cell)
+    assert "no journey_source connection was left" in empty[0]
+
+
+def test_reset_is_a_no_op_for_the_first_attempt():
+    cj = run_cloud.cloud_journey
+    cell = _CellHoldingAttempt1()
+    assert cj.reset_prior_attempt("https://cell.example", "cell-admin-key", _JOURNEY_EXECUTION, 1,
+                                  request=cell) == []
+    assert cell.calls == []
+
+
+def test_reset_reports_a_refused_or_unlistable_cell_instead_of_claiming_a_clean_retry():
+    cj = run_cloud.cloud_journey
+    busy = _CellHoldingAttempt1(in_use=True)
+    (notice,) = cj.reset_prior_attempt("https://cell.example", "cell-admin-key", _JOURNEY_EXECUTION, 2,
+                                       request=busy)
+    assert f"journey_source connection {_ATTEMPT1_CONNECTION} refused 409" in notice
+    assert _ATTEMPT1_CONNECTION in busy.connections
+    unlisted = _CellHoldingAttempt1(list_status=503)
+    (notice,) = cj.reset_prior_attempt("https://cell.example", "cell-admin-key", _JOURNEY_EXECUTION, 2,
+                                       request=unlisted)
+    assert "listing connections answered 503, so no journey_source connection was deleted" in notice
+    assert ("DELETE", f"/api/v1/admin/connections/{_ATTEMPT1_CONNECTION}") not in unlisted.calls
+    # A malformed id from the cell is never interpolated into a DELETE path.
+    odd = _CellHoldingAttempt1()
+    odd.connections = {"../../api-keys": "journey_source"}
+    (notice,) = cj.reset_prior_attempt("https://cell.example", "cell-admin-key", _JOURNEY_EXECUTION, 2,
+                                       request=odd)
+    assert "malformed id was not deleted" in notice
+    assert [c for c in odd.calls if c[0] == "DELETE" and "connections" in c[1]] == []
+
+
+def test_attempt_two_resets_attempt_ones_objects_and_names_the_strategy_in_its_receipt(monkeypatch):
+    cj = run_cloud.cloud_journey
+    driver, _ = cj.drivers()
+    monkeypatch.setenv("GITHUB_RUN_ID", "retry-run")
+    monkeypatch.setenv("GITHUB_RUN_ATTEMPT", "1")
+    monkeypatch.setattr(cj, "server_identity", lambda endpoint: None)
+    cell = _CellHoldingAttempt1()
+    order = []
+
+    def admin(*args, **kwargs):
+        order.append("reset")
+        return cell(*args)
+
+    monkeypatch.setattr(cj, "admin_request", admin)
+    workspace = driver.pins.ClientWorkspace(status="blocked", root=None, reason="offline")
+
+    def live(target, pinned, contract, workdir, base_url, keep):
+        order.append("driver")
+        return workspace, None, [], None
+
+    monkeypatch.setattr(driver, "run_live", live)
+    try:
+        record = cj.attempt("aws-ecs/redis-off", 1, "https://cell.example", "cell-admin-key", None)
+        notices = json.loads((E2E_DIR / record["receipt"]).read_text())["notices"]
+        assert order == ["driver"] and not any(n.startswith(cj.RETRY_STRATEGY_NOTICE) for n in notices)
+        order.clear()
+        record = cj.attempt("aws-ecs/redis-off", 2, "https://cell.example", "cell-admin-key", None)
+        notices = json.loads((E2E_DIR / record["receipt"]).read_text())["notices"]
+        assert order == ["reset", "reset", "reset", "driver"]   # the reset completes before the retry
+        (strategy,) = [n for n in notices if n.startswith(cj.RETRY_STRATEGY_NOTICE)]
+        assert f"journey_source connection {_ATTEMPT1_CONNECTION} deleted" in strategy
+        assert "cell-admin-key" not in json.dumps(notices)
+        # An endpoint the credential rule refuses never receives the admin key.
+        order.clear()
+        record = cj.attempt("aws-ecs/redis-off", 2, "http://203.0.113.9", "cell-admin-key", None)
+        notices = json.loads((E2E_DIR / record["receipt"]).read_text())["notices"]
+        assert "reset" not in order
+        assert any(n.startswith(cj.RETRY_STRATEGY_NOTICE + "Not applied before attempt 2") for n in notices)
+    finally:
+        shutil.rmtree(cj.EVIDENCE / "retry-run", ignore_errors=True)
 
 
 def test_server_identity_reads_the_anonymous_capability_manifest():

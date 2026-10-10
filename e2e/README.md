@@ -149,6 +149,19 @@ retried. An attempt whose driver raised, a failed stage or check, a blocked stag
 or a cost reading that is over the ceiling, stale or bound to another run is still `fail`.
 `--require-real` (the per-RC strict mode) turns every one of those blocks into `fail`, and the
 full-scope aggregate certifies only cells that `pass`.
+
+A second journey attempt is a real second try (owner decision 7 of 2026-10-10). The journey's stage 3
+and 4 objects have fixed authored names: the `journey_source` secure connection and the
+`journey-solid-red` style. Before this change, attempt 2 on every cell failed at
+`CreateConnectionAsync` because attempt 1's connection still existed. The strategy is
+delete-and-recreate. Before attempt N > 1, `cloud_journey.reset_prior_attempt` uses the cell's admin
+key (sent only where the driver's credential rule would send it, never on a redirect) to delete
+attempt N-1's connection by name and its style through the cell admin API. Attempt N then creates both
+again through the journey's own SDK and CLI calls. The upload needs no reset (`OverwriteExisting=true`),
+and Studio objects are keyed by the attempt's own workspace. Each retried receipt carries a
+`Journey retry strategy: delete-and-recreate.` notice with every outcome. A deletion the cell refuses
+(409 when attempt N-1 had already published a service on the connection) or a listing that fails is
+reported there, never hidden.
 `python e2e/run_cloud.py --phase <provision|journey|admit|teardown> ...` runs one phase; without
 `--phase` all three run in one process.
 

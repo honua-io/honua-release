@@ -9,6 +9,7 @@ import re
 import shutil
 import subprocess
 import sys
+import urllib.error
 import urllib.parse
 import urllib.request
 from contextlib import contextmanager
@@ -352,6 +353,89 @@ def observed_server(identity, running_image):
     return {"sourceSha": revision if commit else UNOBSERVED_SHA, "image": image}
 
 
+# Journey attempts are idempotent (owner decision 7 of 2026-10-10). The journey's stage 3 and 4
+# objects carry fixed authored names: the secure connection (`execution.datasource.name`,
+# journey_source) and the standalone style (`execution.styleId`). Attempt 1 leaves them on the cell,
+# so attempt 2 failed at CreateConnectionAsync on the existing connection and never added evidence.
+# Strategy: delete-and-recreate. Before attempt N > 1 the harness deletes what attempt N-1 left,
+# through the cell admin REST API with the cell's admin key, and attempt N re-creates every object
+# through the same SDK and CLI calls attempt 1 used, so the retry proves creation again rather than
+# reusing (and never re-proving) a prior attempt's object. The uploaded table needs nothing: the
+# upload passes OverwriteExisting=true. Studio objects are keyed by the attempt's own workspace id.
+RETRY_STRATEGY_NOTICE = "Journey retry strategy: delete-and-recreate. "
+CONNECTIONS_PATH = "/api/v1/admin/connections"
+STYLES_PATH = "/ogc/styles"
+_GUID = re.compile(r"[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}\Z")
+_STYLE_ID = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]{0,127}\Z")
+
+
+class _HoldRedirect(urllib.request.HTTPRedirectHandler):
+    def redirect_request(self, req, fp, code, msg, headers, newurl):
+        return None  # never carry the admin key to another location
+
+
+def admin_request(method, url, admin_key, *, timeout=30):
+    """(status, JSON document or None) for one cell admin call; 0 when the cell did not answer.
+    The key travels only in the X-API-Key header, is never re-sent on a redirect, and never
+    appears in what is returned."""
+    request = urllib.request.Request(url, method=method,
+                                     headers={"X-API-Key": admin_key, "Accept": "application/json"})
+    try:
+        with urllib.request.build_opener(_HoldRedirect).open(request, timeout=timeout) as response:
+            status, raw = response.status, response.read()
+    except urllib.error.HTTPError as error:
+        status, raw = error.code, (error.read() if error.fp else b"")
+    except (urllib.error.URLError, OSError, ValueError):
+        return 0, None
+    try:
+        return status, json.loads(raw.decode("utf-8")) if raw else None
+    except (UnicodeDecodeError, ValueError):
+        return status, None
+
+
+def _deleted(status):
+    return {200: "deleted", 204: "deleted", 404: "already absent",
+            409: "refused 409 (in use by a service the earlier attempt published; this attempt will "
+                 "meet the existing object)"}.get(status, f"answered {status or 'nothing'}")
+
+
+def reset_prior_attempt(endpoint, admin_key, execution, number, *, request=None):
+    """Delete attempt N-1's fixed-name journey objects before attempt N; returns the receipt notice.
+
+    Attempt 1 has nothing to reset and gets no notice. Every outcome is reported, including a
+    deletion the cell refused, so the notice says exactly what the retry starts from.
+    """
+    if number <= 1:
+        return []
+    request = request or admin_request
+    base = (endpoint or "").rstrip("/")
+    name = str(((execution or {}).get("datasource") or {}).get("name") or "")
+    style = str((execution or {}).get("styleId") or "")
+    steps = []
+    if name:
+        status, document = request("GET", base + CONNECTIONS_PATH, admin_key)
+        rows = document.get("data", document) if isinstance(document, dict) else document
+        if status != 200 or not isinstance(rows, list):
+            steps.append(f"listing connections answered {status or 'nothing'}, so no {name} connection was deleted")
+        else:
+            ids = [str(row.get("connectionId")) for row in rows
+                   if isinstance(row, dict) and row.get("name") == name]
+            if not ids:
+                steps.append(f"no {name} connection was left")
+            for connection_id in ids:
+                if not _GUID.match(connection_id):
+                    steps.append(f"{name} connection with a malformed id was not deleted")
+                    continue
+                status, _ = request("DELETE", f"{base}{CONNECTIONS_PATH}/{connection_id}", admin_key)
+                steps.append(f"{name} connection {connection_id} {_deleted(status)}")
+    if style and _STYLE_ID.match(style):
+        status, _ = request("DELETE", f"{base}{STYLES_PATH}/{urllib.parse.quote(style, safe='')}", admin_key)
+        steps.append(f"style {style} {_deleted(status)}")
+    return [f"{RETRY_STRATEGY_NOTICE}Before attempt {number} the harness removed attempt {number - 1}'s "
+            "fixed-name objects through the cell admin API, and this attempt re-creates them through "
+            "the journey's own SDK and CLI calls: " + ("; ".join(steps) or "nothing to remove") + "."]
+
+
 def attempt(cell, number, endpoint, admin_key, running_image=None):
     driver, adapter = drivers()
     run_id = os.environ.get("GITHUB_RUN_ID", "local")
@@ -378,6 +462,18 @@ def attempt(cell, number, endpoint, admin_key, running_image=None):
     target_path = directory / f"target-{number}.json"
     target_path.write_text(json.dumps(target) + "\n")
     notices = [f"Imported adapter protocol: {adapter.PROTOCOL}"]
+    if endpoint is not None and kind is not None and number > 1:
+        # The admin key goes only where the driver's own transport rule would send a credential:
+        # an https endpoint, or the provisioned cell load balancer over plain HTTP.
+        if urllib.parse.urlsplit(endpoint).scheme == "https" or http_cell_host(endpoint):
+            try:
+                notices.extend(reset_prior_attempt(endpoint, admin_key, target.get("execution"), number))
+            except Exception as error:  # never let the reset stop the attempt from being recorded
+                notices.append(f"{RETRY_STRATEGY_NOTICE}Resetting attempt {number - 1}'s objects raised "
+                               f"{type(error).__name__}; attempt {number} meets whatever it left.")
+        else:
+            notices.append(f"{RETRY_STRATEGY_NOTICE}Not applied before attempt {number}: the endpoint is "
+                           "refused for credentials, so attempt {0}'s objects were not removed.".format(number - 1))
     results = None
     workspace = driver.pins.ClientWorkspace(status="blocked", root=None,
                                             reason="cloud cell did not reach the driver")
