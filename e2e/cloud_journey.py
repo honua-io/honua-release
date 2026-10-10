@@ -9,6 +9,7 @@ import re
 import shutil
 import subprocess
 import sys
+import urllib.parse
 import urllib.request
 from contextlib import contextmanager
 from datetime import datetime, timezone
@@ -149,6 +150,48 @@ UNSUPPORTED_KIND_NOTICE = "Owned receipt schema lacks this cloud kind"
 UNSUPPORTED_KIND_ISSUE = "https://github.com/honua-io/honua-release/issues/377"
 
 
+MAX_ERROR_CHARS = 400
+
+
+def _scrub(text, secrets):
+    for secret in secrets:
+        if secret:
+            text = text.replace(secret, "[redacted]")
+    text = " ".join(str(text).split())
+    return text if len(text) <= MAX_ERROR_CHARS else text[:MAX_ERROR_CHARS] + "...(truncated)"
+
+
+def driver_failure_notices(error, trace_module, secrets):
+    """Receipt notices naming what the imported driver raised, where, and its last HTTP exchange.
+
+    The first notice keeps the DRIVER_ERROR_NOTICE prefix that marks the attempt failed. The
+    message, step and redacted HTTP summary come from harness-owned diagnostics; any known
+    credential value is scrubbed again before it can reach a receipt or the job log.
+    """
+    message = _scrub(str(error), secrets)
+    notices = [f"{DRIVER_ERROR_NOTICE}{type(error).__name__}" + (f": {message}" if message else "")]
+    lines = trace_module.describe_trace() if trace_module is not None else ["step: unknown (no driver trace)"]
+    notices.extend(f"Imported journey driver failure {_scrub(line, secrets)}" for line in lines)
+    return notices
+
+
+CELL_HTTP_HOST_SUFFIX = ".elb.amazonaws.com"
+
+
+def http_cell_host(endpoint):
+    """The cell host the imported driver may reach over plain HTTP, or None.
+
+    Only the harness-provisioned AWS load balancer of the cell under test qualifies (owner ruling
+    canary-http-cell-2026-10-08). HTTPS endpoints need no exemption; any other HTTP host stays
+    refused by the driver's credential transport policy.
+    """
+    parsed = urllib.parse.urlsplit(endpoint or "")
+    host = (parsed.hostname or "").lower().rstrip(".")
+    if parsed.scheme == "http" and host.endswith(CELL_HTTP_HOST_SUFFIX) and len(host) > len(CELL_HTTP_HOST_SUFFIX):
+        return host
+    return None
+
+
 def documented_blockers(receipt):
     """The tracked limitations a BLOCKED journey receipt names, or [] when it is not one.
 
@@ -238,12 +281,18 @@ def attempt(cell, number, endpoint, admin_key, running_image=None):
     workspace = driver.pins.ClientWorkspace(status="blocked", root=None,
                                             reason="cloud cell did not reach the driver")
     attribution = None
+    if "discovery" in sys.modules:
+        sys.modules["discovery"].reset_trace()
     try:
         if endpoint is not None:
             # pins.CANDIDATE_ENV_ALLOWLIST is the only environment run_live keeps.
             # That drops AWS_*, ACTIONS_ID_TOKEN_REQUEST_*, HONUA_AWS_*, GITHUB_TOKEN
             # and GH_TOKEN before npm install and the candidate CLIs start.
-            with admin_credential(admin_key), external_image(driver, running_image):
+            cell_host = http_cell_host(endpoint)
+            with (admin_credential(admin_key), external_image(driver, running_image),
+                  driver.probes.allow_http_cell(cell_host)):
+                transport = driver.probes.credential_transport(endpoint.rstrip("/") + "/")
+                notices.append(f"Candidate transport: {transport or 'refused'} ({urllib.parse.urlsplit(endpoint).hostname})")
                 with driver.pins.candidate_sandbox():
                     workspace, results, observed_notices, _ = driver.run_live(
                         target, pinned, contract, workdir, endpoint, True)
@@ -251,7 +300,9 @@ def attempt(cell, number, endpoint, admin_key, running_image=None):
     except Exception as error:
         # Driver exceptions must still produce an attempt receipt, without retaining credentials
         # or raw tool output. The outer finally still checks cost and destroys infrastructure.
-        notices.append(f"Imported journey driver raised {type(error).__name__}")
+        failure = driver_failure_notices(error, sys.modules.get("discovery"), (admin_key,))
+        notices.extend(failure)
+        print(f"{cell} journey attempt {number}: " + " | ".join(failure), file=sys.stderr, flush=True)
         attribution = "infrastructure"
     unsupported = target["kind"] == "none"
     if unsupported:
