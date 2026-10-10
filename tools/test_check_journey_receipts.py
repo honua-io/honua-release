@@ -123,6 +123,16 @@ def intake(tmp_path):
     return Intake(tmp_path)
 
 
+@pytest.fixture
+def preview_intake(tmp_path, monkeypatch):
+    # No cell is Preview since aws-eks went GA (honua-release#203), but the Preview policy stays for
+    # the next informational cell: exercise it on the former matrix, where EKS was Preview.
+    eks = tuple(cell for cell in checker.GA_CELLS if cell.startswith("aws-eks/"))
+    monkeypatch.setattr(checker, "GA_CELLS", tuple(c for c in checker.GA_CELLS if c not in eks))
+    monkeypatch.setattr(checker, "PREVIEW_CELLS", eks)
+    return Intake(tmp_path)
+
+
 def assert_red(intake, reason):
     report = intake.evaluate()
     assert report["status"] == report["overallStatus"] == "fail"
@@ -137,12 +147,12 @@ def test_hand_built_fixtures_validate_against_owned_schema():
         validator.validate(failed_receipt(cell))
 
 
-def test_all_four_exact_candidate_cells_pass_and_record_driver(intake):
+def test_all_six_exact_candidate_cells_pass_and_record_driver(intake):
     intake.write(checker.GA_CELLS[0], drivers=["genuine-model"])
     result = intake.evaluate()
     assert result["status"] == "pass"
     ga = [r for r in result["cells"] if r["counted"]]
-    assert len(ga) == 4
+    assert len(ga) == 6
     assert ga[0]["drivers"] == ["genuine-model"]
     assert ga[0]["attempts"][0]["completedAt"] == STAMP
     assert ga[1]["drivers"] == ["deterministic"]
@@ -344,7 +354,8 @@ def test_ga_cannot_self_label_as_preview(intake):
 
 
 @pytest.mark.parametrize("status", ["pass", "fail", "blocked", "skipped", "corrupt"])
-def test_preview_never_blocks_or_counts(intake, status):
+def test_preview_never_blocks_or_counts(preview_intake, status):
+    intake = preview_intake
     for cell in checker.PREVIEW_CELLS:
         report = intake.write(cell)
         report["status"] = status
@@ -357,13 +368,16 @@ def test_preview_never_blocks_or_counts(intake, status):
     assert len(preview) == 2 and not any(r["counted"] for r in preview)
 
 
-def test_rc3_preview_cells_are_eks_only():
-    # aws-mixed has no IaC root until honua-iac#209; it must not show up as an uncounted "missing" row.
-    assert checker.PREVIEW_CELLS == ("aws-eks/redis-off", "aws-eks/redis-on")
+def test_rc3_has_no_preview_cells_and_eks_is_ga():
+    # aws-eks is GA for 2026.1 (honua-release#203). aws-mixed has no IaC root until honua-iac#209;
+    # it must not show up as an uncounted "missing" row.
+    assert checker.PREVIEW_CELLS == ()
+    assert {"aws-eks/redis-off", "aws-eks/redis-on"} <= set(checker.GA_CELLS)
     assert not any("aws-mixed" in cell for cell in (*checker.GA_CELLS, *checker.PREVIEW_CELLS))
 
 
-def test_preview_pass_cannot_replace_ga_receipt(intake):
+def test_preview_pass_cannot_replace_ga_receipt(preview_intake):
+    intake = preview_intake
     for cell in checker.GA_CELLS:
         (intake.directory(cell) / "gate-report-cloud.json").unlink()
     for cell in checker.PREVIEW_CELLS:
@@ -371,7 +385,8 @@ def test_preview_pass_cannot_replace_ga_receipt(intake):
     assert_red(intake, "missing cell receipt")
 
 
-def test_preview_report_retains_only_allowlisted_metadata(intake):
+def test_preview_report_retains_only_allowlisted_metadata(preview_intake):
+    intake = preview_intake
     cell = checker.PREVIEW_CELLS[0]
     report = intake.write(cell)
     report["rawToolOutput"] = "sensitive-value"

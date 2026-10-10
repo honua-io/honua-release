@@ -218,7 +218,7 @@ def evaluate(receipts: Path, candidate: Path, candidate_digest: str, run_id: str
         rows.append(row)
     status = "fail" if errors else "pass"
     url = f"https://github.com/honua-io/honua-release/actions/runs/{run_id}"
-    why = "; ".join(errors) if errors else "all four GA journeys passed for the exact candidate"
+    why = "; ".join(errors) if errors else "all GA journeys passed for the exact candidate"
     return {"gate": "journey", "status": status, "overallStatus": status,
             "source": "cloud-cell-receipts", "why": why, "evidence_url": url,
             "candidateDigest": candidate_digest, "runId": run_id, "runAttempt": run_attempt,
