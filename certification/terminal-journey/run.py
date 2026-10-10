@@ -46,6 +46,10 @@ class GateError(RuntimeError):
     pass
 
 
+# Target kinds whose live observations the receipt schema attributes (evidence.source live-<kind>).
+LIVE_KINDS = ("local-docker", *local_fixture.CLOUD_KINDS)
+
+
 def load(path: Path) -> dict[str, Any]:
     return json.loads(path.read_text())
 
@@ -222,7 +226,10 @@ def build_receipt(
 ) -> dict[str, Any]:
     server = manifest["components"]["honua-server"]
     revisions = (target or {}).get("revisions", {})
-    evidence_source = "harness-build" if mode == "build" else "live-local-docker"
+    # A live observation is attributed to the target kind that produced it.
+    kind = (target or {}).get("kind")
+    evidence_source = "harness-build" if mode == "build" else (
+        f"live-{kind}" if kind in LIVE_KINDS else "live-local-docker")
     observed_at = None if mode == "build" else _now()
 
     stage_rows: list[dict[str, Any]] = []
@@ -385,8 +392,11 @@ def run_live(
 
     discovery.mark_step("resolve pinned client workspace")
     workdir = workdir.resolve()
-    compose_cfg = target["compose"]
-    notices.append(compose_cfg["notes"])
+    cloud = target.get("kind") in local_fixture.CLOUD_KINDS
+    if cloud and base_url_override is None:
+        raise GateError("a cloud target is externally provisioned; pass its endpoint as the base URL")
+    compose_cfg = target.get("compose") or {}
+    notices.append(compose_cfg.get("notes") or target.get("notes") or "externally managed target")
 
     workspace = pins.resolve_client_workspace(manifest, workdir / "clients")
     bindir: Path | None = None
@@ -406,20 +416,24 @@ def run_live(
 
     server = manifest["components"]["honua-server"]
     image_ref = f"{server['image']}@{server['digest']}"
-    port = int(compose_cfg["port"])
-    base_url = base_url_override or f"http://127.0.0.1:{port}"
-    compose = probes.Compose(
-        compose_file=str(ROOT / compose_cfg["file"]),
-        project=compose_cfg["project"],
-        env={
-            **(local_fixture.compose_env(target, workdir) if base_url_override is None else {}),
-            compose_cfg["imageEnv"]: image_ref,
-            compose_cfg["portEnv"]: str(port),
-            target["adminPassword"]["env"]: probes.resolve_env_default(
-                target["adminPassword"]["env"], target["adminPassword"]["default"]
-            ),
-        },
-    )
+    compose = None
+    if base_url_override is None:
+        port = int(compose_cfg["port"])
+        base_url = f"http://127.0.0.1:{port}"
+        compose = probes.Compose(
+            compose_file=str(ROOT / compose_cfg["file"]),
+            project=compose_cfg["project"],
+            env={
+                **local_fixture.compose_env(target, workdir),
+                compose_cfg["imageEnv"]: image_ref,
+                compose_cfg["portEnv"]: str(port),
+                target["adminPassword"]["env"]: probes.resolve_env_default(
+                    target["adminPassword"]["env"], target["adminPassword"]["default"]
+                ),
+            },
+        )
+    else:
+        base_url = base_url_override
 
     running_image: str | None = None
     discovery.mark_step("start or reach the candidate stack")
@@ -453,11 +467,24 @@ def run_live(
 
         discovery.mark_step("resolve journey principals")
         try:
+            # Local Docker mints against the stack it started; a cloud cell mints through its own
+            # admin API with the cell's bootstrap credential (cloud_target).
             credentials = local_fixture.credentials(target, workdir, base_url,
-                mint=base_url_override is None and observation.ready)
+                mint=(base_url_override is None or cloud) and observation.ready)
+            if cloud and observation.ready:
+                notices.append("Journey principals: " + ", ".join(sorted(
+                    name for name in local_fixture.GRANTS if credentials.get(name)))
+                    + " minted through the cell admin API (short-lived; revoked when the run ends)")
         except (ExecutionError, KeyError, ValueError, TypeError, AttributeError) as exc:
             credentials = {"proposer": ""}
             notices.append("Journey principal fixture could not establish verified short-lived grants")
+        if cloud:
+            topology = local_fixture.replica_topology(target)
+            if topology is not None:
+                notices.append(f"Cross-replica read: blocked; serving topology {topology['id']}: "
+                               f"{topology['description']}. {local_fixture.REPLICA_UNPROVABLE_REASON}")
+            for name, reason in sorted((target.get("unavailablePrincipals") or {}).items()):
+                notices.append(f"Principal {name} unavailable on this target: {reason.get('reason')}")
         credentials.setdefault("proposer", probes.resolve_env_default(
             target["adminPassword"]["env"], target["adminPassword"]["default"]))
         state = {"workspaceId": workdir.name, "workdir": str(workdir)}
@@ -474,7 +501,19 @@ def run_live(
         results[2:] = [stagelib.merge_execution(original, executed)
                        for original, executed in zip(results[2:], execution.run_build(), strict=True)]
     finally:
-        if base_url_override is None and not keep_stack:
+        if cloud:
+            # Best effort: the cell outlives this attempt, so revoke what this run minted. The
+            # revocation exchanges must not replace the diagnostics of a step that raised.
+            trace = dict(discovery.TRACE)
+            try:
+                revoked, failed = local_fixture.revoke(target, workdir, base_url)
+            finally:
+                discovery.TRACE.update(trace)
+            if revoked or failed:
+                notices.append(f"Journey principals revoked: {len(revoked)} of {len(revoked) + len(failed)}"
+                               + (f"; not revoked (they expire within an hour): {', '.join(failed)}" if failed else ""))
+            local_fixture.cleanup(workdir)
+        if compose is not None and not keep_stack:
             compose.down()
             local_fixture.cleanup(workdir)
 

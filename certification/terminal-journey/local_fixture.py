@@ -1,4 +1,11 @@
-"""Short-lived local Docker principals; private material never enters evidence."""
+"""Short-lived journey principals; private material never enters evidence.
+
+Local Docker mints them against the isolated compose stack, which also injects an ephemeral
+JWT signing key for the second-tenant bearer. A cloud cell (`aws-ecs`, `aws-serverless`) mints
+the same four API keys through the cell's admin REST API with the cell's bootstrap credential and
+revokes them when the run ends. A cell has no harness-held signing key, so no second-tenant
+bearer is fabricated there; the target documents that principal as unavailable.
+"""
 from __future__ import annotations
 
 import base64
@@ -6,6 +13,7 @@ import hashlib
 import hmac
 import json
 import os
+import re
 import secrets
 import time
 from datetime import datetime, timedelta, timezone
@@ -31,6 +39,10 @@ GRANTS = {"operator": ["admin:write"], "proposer": ["write:journey"], "approver"
 AUTHOR_ROLE = "layer-write-key"
 AUTHOR_GRANTS = [{"service": "StudioDraft", "layer": "*", "operation": operation}
                  for operation in ("Create", "Read", "Update", "Publish")]
+# Targets whose principals are minted through the candidate's own admin API.
+CLOUD_KINDS = ("aws-ecs", "aws-serverless")
+MINTED_KINDS = ("local-docker", *CLOUD_KINDS)
+KEY_ID = re.compile(r"[A-Za-z0-9][A-Za-z0-9-]{0,63}\Z")
 
 
 def _path(workdir):
@@ -68,9 +80,35 @@ def replica_port(target):
 
 
 def replica_url(target):
-    if target.get("kind") == "local-docker" and "replicaPort" in target.get("compose", {}):
+    if target.get("kind") == "local-docker" and "replicaPort" in (target.get("compose") or {}):
         return f"http://127.0.0.1:{replica_port(target)}"
     return target.get("replicaBaseUrl")
+
+
+# A cloud cell's cross-replica read-after-write cannot be proven from outside: the cell has one
+# endpoint and honua-server (798d517) returns no per-instance identity on its responses.
+REPLICA_UNPROVABLE_REASON = (
+    "cross-replica read-after-write is unprovable on this cell: it is reached through one endpoint "
+    "and the server returns no per-instance identity, so a re-read cannot be shown to come from "
+    "another replica")
+REPLICA_SERVER_NEED = ("honua-server: a per-instance (replica) identity on responses, so a "
+                       "cross-replica read can be observed through a single cell endpoint")
+
+
+def replica_topology(target):
+    """The declared serving topology behind a cloud cell's single endpoint, or None.
+
+    Only a cloud kind may re-read through its own endpoint, and only with a named topology.
+    """
+    topology = target.get("replicaTopology")
+    if (target.get("kind") in CLOUD_KINDS and isinstance(topology, dict)
+            and isinstance(topology.get("id"), str) and isinstance(topology.get("description"), str)):
+        return {"id": topology["id"], "description": topology["description"]}
+    return None
+
+
+def _bootstrap(target):
+    return probes.resolve_env_default(target["adminPassword"]["env"], target["adminPassword"].get("default", ""))
 
 
 def _other_tenant_token(signing_key):
@@ -87,13 +125,16 @@ def _other_tenant_token(signing_key):
 def credentials(target, workdir, base_url, *, mint=False):
     refs = target.get("principals") or {}
     resolved = {name: probes.resolve_env_default(ref, "") for name, ref in refs.items()}
-    if target.get("kind") != "local-docker" or not _path(workdir).exists():
-        return resolved
+    kind = target.get("kind")
     path = _path(workdir)
+    if mint and kind in CLOUD_KINDS and not path.exists():
+        # No signing key: a cloud cell trusts no harness-held issuer.
+        _save(path, {"keys": {}, "keyIds": {}})
+    if kind not in MINTED_KINDS or not path.exists():
+        return resolved
     private = json.loads(path.read_text())
     if mint:
-        bootstrap = probes.resolve_env_default(target["adminPassword"]["env"], target["adminPassword"]["default"])
-        transport = Transport(base_url, None, None, workdir, {"bootstrap": bootstrap})
+        transport = Transport(base_url, None, None, workdir, {"bootstrap": _bootstrap(target)})
         _grant_author_role(transport)
         for name, grants in GRANTS.items():
             raw, _ = transport.http("POST", "/api/v1/admin/api-keys/", principal="bootstrap", expected=(201,), body={
@@ -101,16 +142,53 @@ def credentials(target, workdir, base_url, *, mint=False):
                 "expiresAt": (datetime.now(timezone.utc) + timedelta(hours=1)).isoformat()})
             created = json.loads(raw)["data"]
             key_id, key = created["apiKey"]["id"], created["key"]
+            if not isinstance(key_id, str) or not KEY_ID.match(key_id) or not isinstance(key, str) or not key:
+                raise ExecutionError("mint journey principals", "candidate returned no bounded key identity")
             private["keys"][name] = key
+            # Retained so the run can revoke what it minted; an id is not key material.
+            private.setdefault("keyIds", {})[name] = key_id
             _save(path, private)
             effective = transport.get_json(f"/api/v1/admin/api-keys/{key_id}/effective-permissions", principal="bootstrap")["data"]
             if (sorted(effective["permissions"]) != sorted(grants) or effective["status"] != "active"
                     or effective["canAuthenticate"] is not True):
                 raise ExecutionError("mint journey principals", "candidate effective permissions differ from fixture grants")
     resolved.update(private["keys"])
-    # A fresh single-use bearer avoids weakening the candidate's replay protection.
-    resolved["other-tenant"] = lambda: _other_tenant_token(private["signingKey"])
+    if private.get("signingKey"):
+        # A fresh single-use bearer avoids weakening the candidate's replay protection.
+        resolved["other-tenant"] = lambda: _other_tenant_token(private["signingKey"])
     return resolved
+
+
+def revoke(target, workdir, base_url):
+    """Best effort: revoke every API key this run minted on a cloud cell.
+
+    Returns (revoked, failed) principal-name lists. Key material is never returned or logged;
+    a key that could not be revoked still expires an hour after minting and dies with the cell.
+    """
+    path = _path(workdir)
+    if target.get("kind") not in CLOUD_KINDS or not path.exists():
+        return [], []
+    try:
+        key_ids = dict(json.loads(path.read_text()).get("keyIds") or {})
+    except (OSError, ValueError, TypeError):
+        return [], ["unreadable private principal state"]
+    try:
+        transport = Transport(base_url, None, None, workdir, {"bootstrap": _bootstrap(target)})
+    except Exception:
+        return [], sorted(key_ids)
+    revoked, failed = [], []
+    for name, key_id in sorted(key_ids.items()):
+        try:
+            raw, _ = transport.http("POST", f"/api/v1/admin/api-keys/{key_id}/revoke",
+                                    principal="bootstrap", expected=(200,))
+            document = json.loads(raw)
+            data = document.get("data", document) if isinstance(document, dict) else None
+            if not isinstance(data, dict) or data.get("id") != key_id or data.get("status") != "revoked":
+                raise ExecutionError("revoke journey principal", "candidate did not report the key revoked")
+            revoked.append(name)
+        except Exception:
+            failed.append(name)
+    return revoked, failed
 
 
 def _grant_author_role(transport):
