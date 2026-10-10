@@ -309,6 +309,15 @@ class ReceiptTests(unittest.TestCase):
         self.assertEqual(receipt["target"]["baseUrl"], "http://127.0.0.1:8137")
         validate(receipt)
 
+    def test_live_receipt_names_the_redis_topology_only_when_the_target_declares_it(self):
+        target = json.loads((HERE / "targets" / "local-docker.json").read_text())
+        common = dict(mode="live", target_path=HERE / "targets" / "local-docker.json",
+                      target_base_url="http://127.0.0.1:8137")
+        self.assertNotIn("redisTopology", build(target=target, **common)["target"])
+        receipt = build(target={**target, "redisTopology": "redis-off"}, **common)
+        self.assertEqual(receipt["target"]["redisTopology"], "redis-off")
+        validate(receipt)
+
     def test_build_mode_cannot_claim_pass(self):
         receipt = build()
         receipt["status"] = "pass"

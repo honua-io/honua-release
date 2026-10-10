@@ -114,6 +114,27 @@ the cell. Preview and stub cells keep the documented blocked build receipt.
   `awsLambdaEcrDigest`, and the receipt then names the Lambda pin (`awsLambdaImage@awsLambdaDigest`).
 - **Transport.** Unchanged: the shared `probes.credential_transport` rule (HTTPS, loopback, or the
   cell's own load balancer for one attempt).
+- **Redis-off cells.** Under owner ruling `redis-governed-control-plane-2026-10-08` (Redis is a
+  requirement of the governed control plane), a stage on a cell that declares `redis-off` passes by
+  recording the candidate's typed refusal instead of executing: the tool error must carry
+  `code: unavailable` and `missingDependency: redis`, and the capability manifest must report the
+  stage's capability `dependency-unavailable`. The stage row then carries `topologyRefusal` (schema:
+  `receipt.schema.json`) and no canonical identity, because nothing ran, and the receipt target
+  names `redisTopology: redis-off` (the schema refuses a refusal on any other target). Stages 5
+  (`jobs.runner`) and 6-8 (`operations.proposals`) are the ruling as written; on a Production
+  Redis-off cell stages 6-8 stay blocked because stage 3 publishes no layer. Stage 3
+  (`operations.proposals`: `honua_publish_service` runs through the governed operation runtime)
+  extends it: the stage keeps its `topologyRefusal` evidence but is recorded `blocked`
+  (`extension-pending-owner-ruling`) until the owner rules; changing its entry in
+  `executor.TOPOLOGY_REFUSAL_STAGES` to `ruled` makes it a pass. Any other refusal, a redis-on cell,
+  or a manifest that reports the capability available keeps the failure. A local target can
+  declare `"redisTopology": "redis-off"` for the same treatment.
+
+A failing tool call names what the candidate said: the problem's `type`, `title`, `code`,
+`reasonCode`, `missingDependency`, `capability` and error `kind` as bounded tokens, and its message
+masked (credential-shaped members and the run's own principal keys redacted) and bounded. A
+`service.publish` that does not complete names its terminal `status`, policy outcome and masked
+message; a published-SDK refusal names the bridge's exception type only.
 
 See the [#120 acceptance audit](../../docs/2026.1-terminal-arc-acceptance.md) for
 pre-cut implementation gaps and separately released exact-candidate reruns.

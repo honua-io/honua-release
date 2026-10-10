@@ -294,6 +294,7 @@ def build_receipt(
                     "approvalId": result.approval_id,
                     "actuatorId": result.actuator_id,
                     "verificationId": result.verification_id,
+                    **({"topologyRefusal": result.topology_refusal} if result.topology_refusal else {}),
                     "evidence": {
                         "uri": evidence_uri,
                         "source": evidence_source,
@@ -331,6 +332,9 @@ def build_receipt(
             "detail": (check.detail if check else "stage failed") or "stage failed",
         }
 
+    from executor import declared_redis_topology
+
+    redis_topology = declared_redis_topology(target)
     return {
         "schemaVersion": 1,
         "receiptSchema": journey["receiptSchema"],
@@ -344,6 +348,7 @@ def build_receipt(
             "configSha256": _sha256_file(target_path) if target_path else None,
             "baseUrl": target_base_url,
             "composeProject": ((target or {}).get("compose") or {}).get("project"),
+            **({"redisTopology": redis_topology} if redis_topology else {}),
         },
         "status": status,
         "release": manifest["platformRelease"],

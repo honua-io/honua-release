@@ -3108,6 +3108,32 @@ def test_serverless_spec_provisions_the_lambda_batch_ga_cell(monkeypatch):
         assert json.loads(values["lambda_architectures"]) == ["x86_64"]
 
 
+def test_serverless_runs_the_event_driven_control_plane_when_the_root_declares_it(monkeypatch):
+    # Run 38052304982: on Lambda the in-process control-plane timers only run inside an invocation,
+    # so the stage 5 job stayed Queued. The module's TriggerMode=Event path is passed only on a root
+    # that declares it; the event functions keep the API image and the module's tick cadences.
+    from targets.terraform_target import SERVERLESS_SPEC
+    assert "enable_control_plane_events=true" in SERVERLESS_SPEC.declared_ephemeral_vars
+    _serverless_env(monkeypatch)
+    for redis in (True, False):
+        with tempfile.TemporaryDirectory() as base:
+            # An older iac pin whose root predates the variable gets nothing.
+            _iac_root_with(monkeypatch, base, "aws-serverless", "enable_gp_batch")
+            values = _tf_vars(serverless(run_id="r1")._vars(redis))
+            assert "enable_control_plane_events" not in values and values["enable_gp_batch"] == "true"
+            _iac_root_with(monkeypatch, base, "aws-serverless", "enable_control_plane_events",
+                           "control_plane_events_image", "control_plane_scheduled_tick_schedules")
+            values = _tf_vars(serverless(run_id="r1")._vars(redis))
+            assert values["enable_control_plane_events"] == "true"
+            assert "control_plane_events_image" not in values
+            assert "control_plane_scheduled_tick_schedules" not in values
+    # The ECS cell keeps its long-running in-process loop.
+    with tempfile.TemporaryDirectory() as base:
+        _ecs_env(monkeypatch)
+        _iac_root_with(monkeypatch, base, "aws", "enable_control_plane_events")
+        assert "enable_control_plane_events" not in _tf_vars(ecs(run_id="r1")._vars(False))
+
+
 def test_serverless_is_blocked_when_the_root_takes_a_batch_image_and_none_is_pinned(monkeypatch):
     for var in _AWS_ENV:
         monkeypatch.delenv(var, raising=False)

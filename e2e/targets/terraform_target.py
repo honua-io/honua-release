@@ -722,8 +722,18 @@ SERVERLESS_SPEC = TfTargetSpec(
     # ecr:SetRepositoryPolicy on the shared honua-server mirror, whose owner-installed policy already
     # authorizes Lambda retrieval; "owned" mode (the module default) fails provisioning with
     # AccessDenied, which is what every nightly aws-serverless cell has recorded.
+    # enable_control_plane_events=true: Lambda has no always-on host for the server's in-process
+    # control-plane timers (job reconciliation, workflow schedules, sweeps), which only run while an
+    # invocation is executing; on the first serverless journey run (38052304982) the stage 5 buffer
+    # job stayed Queued past its budget. The pinned module's TriggerMode=Event path
+    # (modules/aws-serverless/control-plane-events.tf) sets ControlPlane__TriggerMode=Event on the
+    # API function and drives the same work from EventBridge: a reconcile Lambda on every Batch job
+    # state change, a ~2-minute backstop and per-kind scheduled ticks. The event functions reuse the
+    # API image (control_plane_events_image left empty) and the module's default tick cadences,
+    # which mirror the in-process timers; JobReconciliation is already rate(1 minute), the
+    # EventBridge Scheduler floor, so no faster schedule is possible for the 120 s stage 5 budget.
     declared_ephemeral_vars=("enable_gp_batch=true", "use_batch_service_linked_role=true",
-                             "image_repository_policy_mode=reuse"),
+                             "image_repository_policy_mode=reuse", "enable_control_plane_events=true"),
     # The manifest's generic server image, amd64 child by digest (resolved by e2e-cloud-aws.yml).
     env_vars=(("HONUA_GP_BATCH_IMAGE", "gp_batch_image"),),
     # Redis-on Lambda cells: the operation key-ring certificate secret (see above). An iac pin whose

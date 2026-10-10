@@ -131,6 +131,8 @@ class StageResult:
     approval_id: str | None = None
     actuator_id: str | None = None
     verification_id: str | None = None
+    # A Redis-off stage recorded by the candidate's typed refusal (executor.TOPOLOGY_REFUSAL_STAGES).
+    topology_refusal: dict | None = None
 
     @property
     def first_failure(self) -> Check | None:

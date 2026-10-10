@@ -19,7 +19,8 @@ import probes
 import sdk
 import stages
 import discovery
-from transport import ExecutionError, Transport
+from transport import (ExecutionError, Transport, credential_values, describe_fields, describe_tool_error,
+                       masked_fields, tool_error)
 
 ID_FIELDS = ("operationId", "operationInstanceId", "proposalId", "jobId", "correlationId", "auditId")
 # The identities the candidate actually emits for one canonical invocation
@@ -55,6 +56,45 @@ STAGE_TOOLS = {
 # no operator credential fall back to the proposer for every stage.
 STAGE_PRINCIPALS = {3: "operator", 4: "operator", 5: "operator", 6: "proposer", 7: "proposer", 8: "operator"}
 SDK_METHODS = {"CreateConnectionAsync", "TestConnectionAsync"}
+# Redis-off cells (owner ruling redis-governed-control-plane-2026-10-08, "decision 3"): Redis is a
+# requirement of the governed control plane, and a stage on a Redis-off cell passes by recording the
+# candidate's typed unavailable refusal with the manifest reasonCode instead of executing. Per stage:
+# the capability whose manifest row must report the dependency unavailable, and whether the owner
+# ruling covers the stage. Decision 3 names stages 5-8. Stage 3 is included because on a Redis-off
+# Production host honua_publish_service (routed through the governed operation runtime) is refused
+# with the same durable-store refusal (reproduced against nightly-798d517); that EXTENDS decision 3
+# and is recorded BLOCKED (refusal evidence kept) until the owner rules. On a Production Redis-off cell stages 6-8 never
+# reach a tool call (they need the layer stage 3 would have published) and stay blocked on it; they
+# are listed so a host that does publish records their typed refusal the same strict way. Stage 8
+# approves through the CLI, whose output is never retained, so it cannot match and keeps its outcome.
+REDIS_OFF_RULING = "redis-governed-control-plane-2026-10-08"
+REDIS_OFF_RULING_AUTHORITY = "https://github.com/honua-io/honua-release/issues/376"
+# A stage whose entry is "extension-pending-owner-ruling" keeps its topologyRefusal evidence but is
+# recorded blocked on the owner's ruling; changing its entry to "ruled" makes it a pass.
+PENDING_EXTENSION_REASON = ("typed Redis-off refusal of service.publish; extending decision 3 to stage 3 "
+                            "awaits the owner ruling (pending_extension in the DRR overrides)")
+TOPOLOGY_REFUSAL_STAGES = {
+    3: {"capability": "operations.proposals", "ruling": "extension-pending-owner-ruling"},
+    5: {"capability": "jobs.runner", "ruling": "ruled"},
+    6: {"capability": "operations.proposals", "ruling": "ruled"},
+    7: {"capability": "operations.proposals", "ruling": "ruled"},
+    8: {"capability": "operations.proposals", "ruling": "ruled"},
+}
+CLOUD_CELL = re.compile(r"(?:aws-ecs|aws-serverless)/(redis-on|redis-off)\Z")
+
+
+def declared_redis_topology(target):
+    """The Redis topology a target declares: a cloud cell's id, or a local target's redisTopology."""
+    target = target or {}
+    if target.get("kind") in ("aws-ecs", "aws-serverless"):
+        match = CLOUD_CELL.match(str(target.get("id") or ""))
+        return match.group(1) if match else None
+    declared = target.get("redisTopology")
+    return declared if declared in ("redis-on", "redis-off") else None
+
+
+def _token(value):
+    return value if isinstance(value, str) and TOKEN.fullmatch(value) else None
 
 
 def identity(value, label):
@@ -63,9 +103,10 @@ def identity(value, label):
     return value
 
 
-def structured(result, command):
+def structured(result, command, secrets=()):
     if result.get("isError"):
-        raise ExecutionError(command, "candidate returned an MCP tool error")
+        problem = tool_error(result, secrets)
+        raise ExecutionError(command, describe_tool_error(problem), problem=problem)
     value = result.get("structuredContent")
     if not isinstance(value, dict):
         raise ExecutionError(command, "candidate omitted structured tool output")
@@ -180,7 +221,7 @@ class JourneyExecutor:
             injected = {"id": fault["id"], "recoverable": True}
             return {"status": "fail", "accepted": False, "injectedError": injected,
                     "recoveredError": None, "reason": "candidate refused the injected invalid render width"}
-        output = structured(result, name)
+        output = structured(result, name, credential_values(self.transport.credentials))
         if name == "honua_apply_style_preset":
             if output.get("applied") is not True or output.get("styleId") != arguments.get("styleId"):
                 raise ExecutionError(name, "candidate did not apply the selected canonical style")
@@ -345,7 +386,13 @@ class JourneyExecutor:
 
     def record_publication(self, output):
         if output.get("status") != "Completed" or output.get("requiresApproval"):
-            raise ExecutionError("honua_publish_service", "service.publish did not complete for the operator")
+            # service.publish is synchronous on the candidate (the submit handle is terminal), so name
+            # the terminal state it returned instead (masked; never the raw tool output).
+            seen = masked_fields({name: output.get(name) for name in (
+                "status", "requiresApproval", "policyOutcome", "authorizationOutcome", "message")},
+                credential_values(self.transport.credentials))
+            raise ExecutionError("honua_publish_service", "service.publish did not complete for the operator"
+                                 + (f" ({describe_fields(seen)})" if seen else ""))
         layer = output.get("layerId")
         if type(layer) is int and layer >= 0:
             self.resources["layerId"] = layer
@@ -687,6 +734,11 @@ class JourneyExecutor:
                     6: {"saved-map", "replica-map", "reopened-map"}, 7: {"durable-proposal"},
                     8: {"separation", "final-map", "canonical-join", "current-authority",
                         "tenant-isolation", "rbac-denial"}}.get(number, set())
+        refusal = self.evidence.get("topologyRefusals", {}).get(str(number))
+        if refusal is not None:
+            # A Redis-off stage passes on the typed refusal plus every assertion that ran before it
+            # (stage 3: datasource and import); nothing that needs the refused operation is required.
+            required = {3: {"datasource", "import-complete", "execution"}}.get(number, {"execution"})
         stored = self.evidence["checks"].get(str(number), {})
         checks = [probes.Check(r["id"], r["kind"], r["invocation"], r["status"], r["detail"], r.get("blockedBy", []))
                   for r in stored.values()]
@@ -697,7 +749,7 @@ class JourneyExecutor:
         stage = next(s for s in contract["stages"] if s["number"] == number)
         ids = self.evidence.get("receiptIds", {}).get(str(number), {})
         canonical = self.evidence["canonicalIds"].get(str(number), {})
-        if number >= 3 and required:
+        if number >= 3 and required and refusal is None:
             missing = self.canonical_gaps(number)
             receipt = "canonical job receipt" if number == 5 else "canonical operation receipt"
             if missing:
@@ -724,6 +776,7 @@ class JourneyExecutor:
         result.policy_decision_id, result.actuator_id, result.verification_id = (
             ids.get("policyDecisionId"), ids.get("actuatorId"), ids.get("verificationId"))
         result.approval_id = (self.evidence.get("approval") or {}).get("approvalId") if number == 8 else None
+        result.topology_refusal = refusal
         return result
 
     @staticmethod
@@ -741,6 +794,50 @@ class JourneyExecutor:
             approval = self.evidence.get("approval") or {}
             missing += [f"approval {key}" for key in ("proposalId", "resolvedBy", "auditId") if not approval.get(key)]
         return missing
+
+    def declared_redis_topology(self):
+        return declared_redis_topology(self.target)
+
+    def record_topology_refusal(self, number, exc):
+        """Record a Redis-off stage by the candidate's typed refusal; False leaves the failure as it is."""
+        spec = TOPOLOGY_REFUSAL_STAGES.get(number)
+        problem = exc.problem
+        if (spec is None or exc.blocked or self.declared_redis_topology() != "redis-off"
+                or problem.get("missingDependency") != "redis" or problem.get("code") != "unavailable"
+                or problem.get("capability", spec["capability"]) != spec["capability"]):
+            return False
+        try:
+            manifest = self.transport.get_json("/api/v1/capabilities/manifest", principal=self.principal(number))
+        except ExecutionError:
+            return False
+        rows = [row for row in (manifest.get("capabilities") if isinstance(manifest, dict) else None) or []
+                if isinstance(row, dict) and row.get("id") == spec["capability"]]
+        if (len(rows) != 1 or rows[0].get("available") is not False
+                or rows[0].get("reasonCode") != "dependency-unavailable"):
+            # The cell declares Redis off but the candidate does not report the dependency missing:
+            # the refusal is not the topology's, so the stage keeps its failure.
+            exc.reason += (f"; the cell declares redis-off but the capability manifest does not report "
+                           f"{spec['capability']} dependency-unavailable")
+            return False
+        server = manifest.get("server") if isinstance(manifest.get("server"), dict) else {}
+        refusal = {"topology": "redis-off", "ruling": REDIS_OFF_RULING, "rulingStatus": spec["ruling"],
+                   "tool": exc.command, "code": problem["code"], "missingDependency": "redis",
+                   "manifestCapability": spec["capability"], "manifestReasonCode": "dependency-unavailable",
+                   "deploymentEnvironment": _token(server.get("deploymentEnvironment")),
+                   **{key: problem[key] for key in ("kind", "capability", "message") if key in problem}}
+        self.evidence.setdefault("topologyRefusals", {})[str(number)] = refusal
+        evidence = (f"topology: redis-off; {exc.command} refused with the typed durable-store refusal "
+                    f"({describe_fields(problem)}); manifest {spec['capability']} reasonCode=dependency-unavailable"
+                    f" (owner ruling {REDIS_OFF_RULING})")
+        if spec["ruling"] == "ruled":
+            check = probes.Check(f"{number}.execution", "mcp-tool", exc.command, "pass", evidence)
+        else:
+            # The refusal evidence is kept, but a stage the ruling does not yet cover is not a pass:
+            # it stays blocked on the owner's ruling until its table entry reads "ruled".
+            check = probes.Check(f"{number}.execution", "mcp-tool", exc.command, "blocked",
+                                 PENDING_EXTENSION_REASON + "; " + evidence, [REDIS_OFF_RULING_AUTHORITY])
+        self.evidence["checks"].setdefault(str(number), {})["execution"] = check.as_receipt()
+        return True
 
     def run_build(self):
         """Fixed harness calls, distinct from execute's model-selected calls."""
@@ -817,6 +914,8 @@ class JourneyExecutor:
                     raise ExecutionError("journey fixture", "target has no independently authored execution fixture", blocked=True)
                 invoke()
             except ExecutionError as exc:
+                if self.record_topology_refusal(number, exc):
+                    continue
                 row = probes.Check(f"{number}.execution", "cli", exc.command,
                     "blocked" if exc.blocked else "fail", exc.reason, (exc.blocked_by or [stages.JOURNEY_DRIVER]) if exc.blocked else [])
                 self.evidence["checks"].setdefault(str(number), {})["execution"] = row.as_receipt()

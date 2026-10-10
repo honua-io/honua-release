@@ -203,7 +203,12 @@
       "ruling": "Redis is a requirement of the governed control plane for 2026.1 (capability key plus typed refusals); a Postgres proposal store is 2026.1.x. A Redis-off cell is a serving, configure and style/render topology: journey stages 5-8 (GP, durable compositions, proposal, approval) on Redis-off cells pass by recording the typed unavailable refusal with the manifest reasonCode, not by executing. The promotion-readiness pass rule and the operating envelope are amended accordingly.",
       "effect": "Topology ruling for the rc.3 fix plan; it places no issue in a different bucket.",
       "moved": [],
-      "basis": "Owner decision 3 recorded during 2026.1 rc.3 fix planning, 2026-10-08"
+      "basis": "Owner decision 3 recorded during 2026.1 rc.3 fix planning, 2026-10-08",
+      "pending_extension": {
+        "status": "awaiting owner ruling",
+        "scope": "journey stage 3 (publish-service) on Redis-off cells",
+        "note": "Owner note: the ruling names journey stages 5-8. On a Redis-off Production host (honua-server nightly-798d517, reproduced locally and seen on the aws-serverless/redis-off cell in e2e-cloud-aws run 38052304982) honua_publish_service is refused by the governed operation runtime with the typed durable-store refusal (code unavailable, missingDependency redis; the manifest reports operations.proposals dependency-unavailable). The terminal journey records that stage as BLOCKED on this ruling, keeping the refusal as topologyRefusal evidence (rulingStatus extension-pending-owner-ruling); once ruled, a one-line change (executor.TOPOLOGY_REFUSAL_STAGES[3] to ruled) records it as passed; this extends the ruling to stage 3 and leaves stage 4 style/render (which the ruling keeps on Redis-off) without a published layer. Stage 5 uses the ruling as written (jobs.runner refusal)."
+      }
     },
     "ecs-rollback-actuator-2026-10-08": {
       "date": "2026-10-08",
