@@ -84,6 +84,10 @@ class TfTargetSpec:
     # refuse later with a module error; destroy never refuses (a cell that could not plan built nothing).
     redis_env_vars: tuple[tuple[str, str], ...] = ()
     redis_required_vars: tuple[str, ...] = ()
+    # (ENV_NAME, terraform_var) pairs for recommended inputs: passed when the env is set and the
+    # pinned root declares terraform_var, on every cell. Unlike env_vars, an unset env never blocks or
+    # refuses; the root plans with its own default (and its own warning).
+    optional_env_vars: tuple[tuple[str, str], ...] = ()
     # Opt-in vars: passed only when `opt_in_env` is "true". A root that does not declare one of them
     # is a provisioning failure, not a silent drop: the caller asked for that capability.
     opt_in_env: str = ""
@@ -221,6 +225,8 @@ class TerraformTarget(DeployTarget):
               if self._root_declares(v.split("=", 1)[0])),
             *(f"-var={variable}={os.environ[env_name]}" for env_name, variable in self.spec.env_vars
               if os.environ.get(env_name) and self._root_declares(variable)),
+            *(f"-var={variable}={os.environ[env_name].strip()}" for env_name, variable in self.spec.optional_env_vars
+              if os.environ.get(env_name, "").strip() and self._root_declares(variable)),
         ]
         if redis_enabled:
             declared = [(env_name, variable) for env_name, variable in self.spec.redis_env_vars
@@ -512,6 +518,16 @@ _OPERATION_KEY_RING_ENV_VARS = (
 )
 _OPERATION_KEY_RING_REQUIRED_VARS = ("operation_key_ring_certificate_secret_arn",)
 
+# Without AuditLog:ChainVerification:Key the server still serves and writes audit rows, but scheduled
+# hash-chain verification never succeeds and its audit-chain-integrity health check is Unhealthy. The
+# roots take an operator-owned Secrets Manager secret (ECS task secrets; a Lambda/Batch
+# aws:secretsmanager: reference). Recommended, not required: passed on every cell when set and
+# declared, never refused when unset.
+_AUDIT_CHAIN_KEY_ENV_VARS = (
+    ("HONUA_AWS_AUDIT_CHAIN_KEY_SECRET_ARN", "audit_chain_key_secret_arn"),
+    ("HONUA_AWS_AUDIT_CHAIN_KEY_SECRET_KMS_KEY_ARN", "audit_chain_key_secret_kms_key_arn"),
+)
+
 # The two terraform-output cells. EKS is a separate, heavier target (cluster + Helm + LB).
 SERVERLESS_SPEC = TfTargetSpec(
     name="aws-serverless",
@@ -538,6 +554,7 @@ SERVERLESS_SPEC = TfTargetSpec(
     # serverless root predates these variables declares neither, so nothing is passed or refused.
     redis_env_vars=_OPERATION_KEY_RING_ENV_VARS,
     redis_required_vars=_OPERATION_KEY_RING_REQUIRED_VARS,
+    optional_env_vars=_AUDIT_CHAIN_KEY_ENV_VARS,
     migrate_image_env="HONUA_MIGRATE_IMAGE",
 )
 ECS_SPEC = TfTargetSpec(
@@ -559,6 +576,7 @@ ECS_SPEC = TfTargetSpec(
     # honua-iac#216: the operation key-ring certificate secret for Redis-on cells (see above).
     redis_env_vars=_OPERATION_KEY_RING_ENV_VARS,
     redis_required_vars=_OPERATION_KEY_RING_REQUIRED_VARS,
+    optional_env_vars=_AUDIT_CHAIN_KEY_ENV_VARS,
     ephemeral_var_files=("e2e/terraform/aws-ecs-new-deployment.tfvars.json",),
     needs_runner_db_access=True,
     needs_runner_alb_access=True,

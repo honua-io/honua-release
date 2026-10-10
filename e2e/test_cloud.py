@@ -65,7 +65,8 @@ _CELL_WORKFLOW_ENV = ("HONUA_LAMBDA_IMAGE_URI", "HONUA_LAMBDA_ARCHITECTURE", "HO
                       "HONUA_ECS_ARCHITECTURE", "HONUA_GP_BATCH_IMAGE", "HONUA_MIGRATE_IMAGE",
                       "HONUA_ENABLE_BEDROCK_AI", "HONUA_CLOUD_COST_CEILING_USD", "HONUA_RUN_URL",
                       "CELL_DIR", "CELL_ARTIFACT", "HONUA_AWS_OPERATION_KEY_RING_SECRET_ARN",
-                      "HONUA_AWS_OPERATION_KEY_RING_SECRET_KMS_KEY_ARN")
+                      "HONUA_AWS_OPERATION_KEY_RING_SECRET_KMS_KEY_ARN", "HONUA_AWS_AUDIT_CHAIN_KEY_SECRET_ARN",
+                      "HONUA_AWS_AUDIT_CHAIN_KEY_SECRET_KMS_KEY_ARN")
 
 
 @pytest.fixture(autouse=True)
@@ -2861,10 +2862,51 @@ def test_cell_provision_and_teardown_export_the_key_ring_repository_variables():
     provision = next(step for name, step in steps.items() if name.startswith("Provision "))
     teardown = next(step for name, step in steps.items() if name.startswith("Tear down "))
     for step in (provision, teardown):
-        for var in ("HONUA_AWS_OPERATION_KEY_RING_SECRET_ARN", "HONUA_AWS_OPERATION_KEY_RING_SECRET_KMS_KEY_ARN"):
+        for var in ("HONUA_AWS_OPERATION_KEY_RING_SECRET_ARN", "HONUA_AWS_OPERATION_KEY_RING_SECRET_KMS_KEY_ARN",
+                    "HONUA_AWS_AUDIT_CHAIN_KEY_SECRET_ARN", "HONUA_AWS_AUDIT_CHAIN_KEY_SECRET_KMS_KEY_ARN"):
             assert step["env"][var] == "${{ vars." + var + " }}"
     # Step-scoped, not workflow-level: the self-test never sees them.
     assert "HONUA_AWS_OPERATION_KEY_RING_SECRET_ARN" not in cell["env"]
+    assert "HONUA_AWS_AUDIT_CHAIN_KEY_SECRET_ARN" not in cell["env"]
+
+
+AUDIT_KEY_ARN = "arn:aws:secretsmanager:us-east-1:123456789012:secret:honua/audit-chain-AbCdEf"
+AUDIT_KEY_KMS = "arn:aws:kms:us-east-1:123456789012:key/2222-3333"
+
+
+@pytest.mark.parametrize("kind", ["serverless", "ecs"])
+def test_both_cell_kinds_map_the_audit_chain_key_when_declared_and_never_block(monkeypatch, kind):
+    from targets.terraform_target import ECS_SPEC, SERVERLESS_SPEC
+    spec, example, factory, env = {
+        "serverless": (SERVERLESS_SPEC, "aws-serverless", serverless, _serverless_env),
+        "ecs": (ECS_SPEC, "aws", ecs, _ecs_env),
+    }[kind]
+    assert spec.optional_env_vars == (
+        ("HONUA_AWS_AUDIT_CHAIN_KEY_SECRET_ARN", "audit_chain_key_secret_arn"),
+        ("HONUA_AWS_AUDIT_CHAIN_KEY_SECRET_KMS_KEY_ARN", "audit_chain_key_secret_kms_key_arn"),
+    )
+    env(monkeypatch)
+    names = ("audit_chain_key_secret_arn", "audit_chain_key_secret_kms_key_arn")
+    with tempfile.TemporaryDirectory() as base:
+        # A pinned root that declares neither gets nothing, even with the variables set.
+        _iac_root_with(monkeypatch, base, example)
+        monkeypatch.setenv("HONUA_AWS_AUDIT_CHAIN_KEY_SECRET_ARN", AUDIT_KEY_ARN)
+        monkeypatch.setenv("HONUA_AWS_AUDIT_CHAIN_KEY_SECRET_KMS_KEY_ARN", AUDIT_KEY_KMS)
+        assert not set(names) & set(_tf_vars(factory(run_id="r1")._vars(False)))
+        _iac_root_with(monkeypatch, base, example, *names)
+        # Declared: passed on Redis-off and Redis-on cells alike.
+        for redis in (False, True):
+            if redis:
+                monkeypatch.setenv("HONUA_AWS_OPERATION_KEY_RING_SECRET_ARN", KEY_RING_ARN)
+            values = _tf_vars(factory(run_id="r1")._vars(redis))
+            assert values["audit_chain_key_secret_arn"] == AUDIT_KEY_ARN
+            assert values["audit_chain_key_secret_kms_key_arn"] == AUDIT_KEY_KMS
+        # Recommended, not required: unset (or blank) never refuses and never blocks availability.
+        monkeypatch.setenv("HONUA_AWS_AUDIT_CHAIN_KEY_SECRET_ARN", " ")
+        monkeypatch.setenv("HONUA_AWS_AUDIT_CHAIN_KEY_SECRET_KMS_KEY_ARN", "")
+        values = _tf_vars(factory(run_id="r1")._vars(False))
+        assert not set(names) & set(values)
+        assert not any("AUDIT_CHAIN" in m for m in factory(run_id="r1").availability().missing)
 
 
 def test_ecs_bedrock_is_opt_in_and_fails_closed_on_a_root_without_it(monkeypatch):
