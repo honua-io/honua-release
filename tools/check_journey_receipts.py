@@ -23,11 +23,11 @@ import yaml
 from jsonschema import Draft202012Validator, FormatChecker
 
 ROOT = Path(__file__).resolve().parents[1]
-GA_CELLS = tuple(f"{target}/redis-{redis}" for target in ("aws-ecs", "aws-serverless")
+# aws-eks is GA for 2026.1 (honua-release#203; owner decisions 12/18 of 2026-10-10).
+GA_CELLS = tuple(f"{target}/redis-{redis}" for target in ("aws-ecs", "aws-serverless", "aws-eks")
                  for redis in ("off", "on"))
 # aws-mixed is out for 2026.1 rc.3 (no examples/aws-mixed root); restore it when honua-iac#209 lands.
-PREVIEW_CELLS = tuple(f"{target}/redis-{redis}" for target in ("aws-eks",)
-                      for redis in ("off", "on"))
+PREVIEW_CELLS: tuple[str, ...] = ()
 DRIVERS = ("deterministic", "genuine-model")
 MAX_AGE_SECONDS = 86400
 

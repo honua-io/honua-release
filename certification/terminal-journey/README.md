@@ -13,7 +13,7 @@ this roster.
 | `journey.v1.json` | The eight numbered stages: id, command, the pinned client commands each needs, and its upstream contracts. Imported by #161; never duplicated there. |
 | `receipt.schema.json` | `terminal-journey-receipt-v1`. Binds package integrities, source SHAs, and the server/fixture/config/auth-policy tuple to a per-stage outcome. |
 | `targets/local-docker.json` | Local Docker target. Extends the owned Docker fixture with a second candidate replica, Redis and an authored GeoServices source; the server digest remains manifest-bound. Stage 3 uploads `fixtures/journey-source.geojson` instead of importing from that source. |
-| `cloud_target.py` | Cloud cell targets (`aws-ecs`, `aws-serverless`), generated per attempt by `e2e/cloud_journey.py` from the local fixture. See [Cloud cells](#cloud-cells). |
+| `cloud_target.py` | Cloud cell targets (`aws-ecs`, `aws-serverless`, `aws-eks`), generated per attempt by `e2e/cloud_journey.py` from the local fixture. See [Cloud cells](#cloud-cells). |
 | `pins.py` | Consumes the exact #136 `clientArtifacts` from published registry bytes and proves which terminal commands they actually ship. |
 | `probes.py` | Deterministic probe primitives: HTTP, compose lifecycle, and MCP JSON-RPC through the pinned `honua-mcp-proxy`. |
 | `stages.py` | Contract prerequisites and the outcome discipline. |
@@ -82,10 +82,11 @@ redacted, bounded body excerpt).
 
 ## Cloud cells
 
-`e2e/cloud_journey.py` runs this driver against an `aws-ecs` or `aws-serverless` cell with a target
+`e2e/cloud_journey.py` runs this driver against an `aws-ecs`, `aws-serverless` or `aws-eks` cell with a target
 document `cloud_target.build` generates for each attempt (`target-<n>.json` next to the receipt).
-The receipt's target kind is the cell's, and its live evidence is `live-aws-ecs` or
-`live-aws-serverless`, so a cloud receipt can qualify its cell (#377). The schema and
+The receipt's target kind is the cell's, and its live evidence is `live-aws-ecs`,
+`live-aws-serverless` or `live-aws-eks` (the Helm chart on EKS, #203), so a cloud receipt can qualify
+its cell (#377). The schema and
 `cloud_journey.validate_attempt` bind every live source to the receipt's own kind and that kind to
 the cell. Preview and stub cells keep the documented blocked build receipt.
 

@@ -76,13 +76,13 @@ TOPOLOGY_REFUSAL_STAGES = {
     7: {"capability": "operations.proposals"},
     8: {"capability": "operations.proposals"},
 }
-CLOUD_CELL = re.compile(r"(?:aws-ecs|aws-serverless)/(redis-on|redis-off)\Z")
+CLOUD_CELL = re.compile(r"(?:aws-ecs|aws-serverless|aws-eks)/(redis-on|redis-off)\Z")
 
 
 def declared_redis_topology(target):
     """The Redis topology a target declares: a cloud cell's id, or a local target's redisTopology."""
     target = target or {}
-    if target.get("kind") in ("aws-ecs", "aws-serverless"):
+    if target.get("kind") in ("aws-ecs", "aws-serverless", "aws-eks"):
         match = CLOUD_CELL.match(str(target.get("id") or ""))
         return match.group(1) if match else None
     declared = target.get("redisTopology")

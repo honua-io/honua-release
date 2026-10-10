@@ -1,7 +1,7 @@
 """Short-lived journey principals; private material never enters evidence.
 
 Local Docker mints them against the isolated compose stack, which also injects an ephemeral
-JWT signing key for the second-tenant bearer. A cloud cell (`aws-ecs`, `aws-serverless`) mints
+JWT signing key for the second-tenant bearer. A cloud cell (`aws-ecs`, `aws-serverless`, `aws-eks`) mints
 the same four API keys through the cell's admin REST API with the cell's bootstrap credential and
 revokes them when the run ends. A cell has no harness-held signing key, so no second-tenant
 bearer is fabricated there; the target documents that principal as unavailable.
@@ -40,7 +40,7 @@ AUTHOR_ROLE = "layer-write-key"
 AUTHOR_GRANTS = [{"service": "StudioDraft", "layer": "*", "operation": operation}
                  for operation in ("Create", "Read", "Update", "Publish")]
 # Targets whose principals are minted through the candidate's own admin API.
-CLOUD_KINDS = ("aws-ecs", "aws-serverless")
+CLOUD_KINDS = ("aws-ecs", "aws-serverless", "aws-eks")
 MINTED_KINDS = ("local-docker", *CLOUD_KINDS)
 KEY_ID = re.compile(r"[A-Za-z0-9][A-Za-z0-9-]{0,63}\Z")
 

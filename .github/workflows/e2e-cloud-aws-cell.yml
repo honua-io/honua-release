@@ -113,7 +113,7 @@ jobs:
 
       # The gate's own verdict + parity logic must be trustworthy before we trust a run.
       - name: Self-test the cloud parity logic
-        run: python -m pytest e2e/test_cloud.py -q
+        run: python -m pytest e2e/test_cloud.py e2e/test_aws_eks.py -q
 
       # OIDC into AWS — only when a role is configured; otherwise an optional cell self-skips and a
       # require_real cell fails closed.
@@ -155,9 +155,10 @@ jobs:
           # Operator-owned audit hash-chain key secret (recommended; owner step in e2e/README.md).
           HONUA_AWS_AUDIT_CHAIN_KEY_SECRET_ARN: ${{ vars.HONUA_AWS_AUDIT_CHAIN_KEY_SECRET_ARN }}
           HONUA_AWS_AUDIT_CHAIN_KEY_SECRET_KMS_KEY_ARN: ${{ vars.HONUA_AWS_AUDIT_CHAIN_KEY_SECRET_KMS_KEY_ARN }}
-          # honua-release#450: the aws-ecs cells get a per-run HTTPS hostname
-          # <run id>-aws-ecs-redis-<on|off>.cert.<parent> in this public hosted zone (owner step in
-          # e2e/README.md). Not secrets. Unset (forks, other accounts) => plain-HTTP ALB, as before.
+          # honua-release#450: the aws-ecs (and, once the pinned root declares domain_name, aws-eks)
+          # cells get a per-run HTTPS hostname <run id>-<target>-redis-<on|off>.cert.<parent> in this
+          # public hosted zone (owner step in e2e/README.md). Not secrets. Unset (forks, other
+          # accounts) => plain-HTTP load balancer, as before.
           HONUA_AWS_CELL_DNS_ZONE_ID: ${{ vars.HONUA_AWS_CELL_DNS_ZONE_ID }}
           HONUA_AWS_CELL_DNS_PARENT: ${{ vars.HONUA_AWS_CELL_DNS_PARENT }}
         run: |
@@ -558,8 +559,10 @@ jobs:
       # environment variable NAMES (diagnostics-lambda.json). Read while the cell still exists: the
       # log groups are destroyed with it. Runs for ready cells too. Informational: it never changes
       # the verdict.
+      # An EKS cell leaves its namespace's pods, events, jobs and the server's last 300 log lines
+      # (diagnostics-eks.json), redacted the same way; this runner is admitted to the cluster API first.
       - name: Capture cell readiness diagnostics
-        if: ${{ always() && (inputs.target == 'aws-ecs' || inputs.target == 'aws-serverless') && vars.HONUA_AWS_ROLE_ARN != '' }}
+        if: ${{ always() && (inputs.target == 'aws-ecs' || inputs.target == 'aws-serverless' || inputs.target == 'aws-eks') && vars.HONUA_AWS_ROLE_ARN != '' }}
         continue-on-error: true
         env:
           HONUA_IAC_DIR: ${{ github.workspace }}/_honua-iac
@@ -571,9 +574,12 @@ jobs:
           case "$CELL_TARGET" in
             aws-ecs) ROOT=examples/aws ;;
             aws-serverless) ROOT=examples/aws-serverless ;;
+            aws-eks) ROOT="" ;;
             *) echo "no diagnostics for $CELL_TARGET"; exit 0 ;;
           esac
-          terraform -chdir="$HONUA_IAC_DIR/infrastructure/terraform/$ROOT" init -input=false -no-color >/dev/null
+          if [ -n "$ROOT" ]; then
+            terraform -chdir="$HONUA_IAC_DIR/infrastructure/terraform/$ROOT" init -input=false -no-color >/dev/null
+          fi
           python e2e/run_cloud.py --phase diagnose --target "$CELL_TARGET" --redis "${{ inputs.redis }}"
       # FAIL-CLOSED: if the cell provisioned anything and cleanup cannot complete, this step goes red
       # instead of leaving an orphaned VPC/cluster billing (honua-iac#142). Before destroy, the cell's
@@ -591,8 +597,8 @@ jobs:
           # Operator-owned audit hash-chain key secret (recommended; owner step in e2e/README.md).
           HONUA_AWS_AUDIT_CHAIN_KEY_SECRET_ARN: ${{ vars.HONUA_AWS_AUDIT_CHAIN_KEY_SECRET_ARN }}
           HONUA_AWS_AUDIT_CHAIN_KEY_SECRET_KMS_KEY_ARN: ${{ vars.HONUA_AWS_AUDIT_CHAIN_KEY_SECRET_KMS_KEY_ARN }}
-          # honua-release#450: the aws-ecs cells get a per-run HTTPS hostname
-          # <run id>-aws-ecs-redis-<on|off>.cert.<parent> in this public hosted zone (owner step in
+          # honua-release#450: the aws-ecs and aws-eks cells' per-run HTTPS hostname
+          # <run id>-<target>-redis-<on|off>.cert.<parent> in this public hosted zone (owner step in
           # e2e/README.md). Not secrets. Teardown recomputes the same name and confirms its records and certificate are gone.
           HONUA_AWS_CELL_DNS_ZONE_ID: ${{ vars.HONUA_AWS_CELL_DNS_ZONE_ID }}
           HONUA_AWS_CELL_DNS_PARENT: ${{ vars.HONUA_AWS_CELL_DNS_PARENT }}
