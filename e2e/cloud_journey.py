@@ -605,7 +605,9 @@ def validate_attempt(record, receipt, cell, *, run_id, run_attempt, at=None):
 
 def check_cost(path, ceiling, *, started_at):
     # A current run-scoped meter must supply cumulative USD before infrastructure is destroyed.
-    # AWS Cost Explorer's delayed account totals cannot honestly serve as this meter.
+    # AWS Cost Explorer's delayed account totals cannot honestly serve as this meter; the reading is
+    # e2e/cost_meter.py's live estimate (owner decision 9), and Cost Explorer's lagged actuals for
+    # earlier runs are enforced by the next run (aggregate's prior_runs).
     ceiling = Decimal(str(ceiling))
     if not ceiling.is_finite() or ceiling <= 0:
         raise ValueError("cost ceiling must be finite and positive")
@@ -617,10 +619,18 @@ def check_cost(path, ceiling, *, started_at):
     measured = datetime.fromisoformat(cost["measuredAt"].replace("Z", "+00:00"))
     if not started_at <= measured <= datetime.now(timezone.utc):
         raise ValueError("stale cost meter")
+    # The meter's own fields (estimate basis, the lagged actual slot) travel with the verdict.
+    extra = {key: cost[key] for key in ("meter", "estimateUsd", "estimateBasis", "actualUsd", "actualAsOf",
+                                        "currency") if key in cost}
+    if cost.get("status") == "unavailable":
+        # The meter ran and could not price the whole run: named, never pass.
+        return {**extra, "status": "unavailable", "why": cost.get("why", "run cost meter unavailable"),
+                "ceilingUsd": str(ceiling), "measuredAt": cost["measuredAt"], "scope": "run",
+                "runId": cost["runId"], "runAttempt": cost["runAttempt"]}
     amount = Decimal(str(cost["amount"]))
     if not amount.is_finite() or amount < 0:
         raise ValueError("invalid cost amount")
-    return {"status": "fail" if amount > ceiling else "pass", "amountUsd": str(amount),
+    return {**extra, "status": "fail" if amount > ceiling else "pass", "amountUsd": str(amount),
             "ceilingUsd": str(ceiling), "measuredAt": cost["measuredAt"], "scope": "run",
             "runId": cost["runId"], "runAttempt": cost["runAttempt"],
             "candidateDigest": candidate_digest()}
@@ -638,11 +648,63 @@ def cleanup(cell):
             shutil.rmtree(workdir)
 
 
+def prior_run_failures(prior_runs):
+    """Earlier runs whose SETTLED Cost Explorer spend exceeded their own ceiling (decision 9: the
+    ceiling is enforceable at the next run). Settled spend only ever grows, so an over-ceiling
+    settled figure fails even while later days are pending or the history is incomplete. The
+    current run's own row (a rerun's earlier attempts) is judged by prior_run_gate instead."""
+    failures = []
+    for prior in (prior_runs or {}).get("runs", []):
+        if prior.get("currentRun"):
+            continue
+        try:
+            settled = Decimal(str(prior.get("settledUsd", prior["actualUsd"] if prior.get("status") == "measured"
+                                            else "0")))
+            ceiling = Decimal(str(prior["ceilingUsd"]))
+        except Exception:
+            failures.append(f"prior run {prior.get('runId')} cost reading is malformed")
+            continue
+        if settled > ceiling:
+            failures.append(f"prior run {prior['runId']} cost ${settled} (Cost Explorer, settled spend "
+                            f"through {prior.get('actualAsOf')}) exceeded its ${ceiling} ceiling")
+    return failures
+
+
+def prior_run_gate(prior_runs, *, run_id, run_attempt, final_cost):
+    """(failures, gaps) the Cost Explorer reading adds to a full-scope run. A gap (no usable reading,
+    or a rerun whose earlier attempts have not settled) blocks a lenient run and fails a strict one."""
+    failures, gaps = prior_run_failures(prior_runs), []
+    if prior_runs.get("status") != "measured":
+        gaps.append(f"prior-run cost actuals {prior_runs.get('status', 'unavailable')}: "
+                    f"{prior_runs.get('why', 'no Cost Explorer reading')}")
+    elif str(run_attempt) != "1":
+        # A rerun shares its run id with the earlier attempts, whose cells the live estimate does
+        # not cover. Their spend must be settled in Cost Explorer and fit the ceiling with this one.
+        own = next((r for r in prior_runs.get("runs", []) if r.get("runId") == str(run_id)), None)
+        if own is None or own.get("status") != "measured":
+            gaps.append(f"rerun attempt {run_attempt}: earlier attempts' spend is "
+                        f"{'not yet in Cost Explorer' if own is None else own.get('status')}")
+        else:
+            estimate = Decimal(str((final_cost or {}).get("amountUsd") or "0"))
+            total, ceiling = estimate + Decimal(str(own["settledUsd"])), Decimal(str(own["ceilingUsd"]))
+            if total > ceiling:
+                failures.append(f"run {run_id} cost ${total} (this attempt's estimate + earlier attempts' "
+                                f"settled Cost Explorer spend) exceeds its ${ceiling} ceiling")
+    return failures, gaps
+
+
 def aggregate(reports, reports_root, *, require_real, full_scope, run_id, run_attempt,
-              final_cost=None):
+              final_cost=None, prior_runs=None):
     cells = []
     failures = []
     blocked = []
+    # A certifying (full-scope) run fails on an earlier run's settled over-ceiling actual, naming it,
+    # and cannot pass without a usable Cost Explorer reading (decision 9).
+    if full_scope and prior_runs is not None:
+        prior_failures, prior_gaps = prior_run_gate(prior_runs, run_id=run_id, run_attempt=run_attempt,
+                                                    final_cost=final_cost)
+        failures.extend(prior_failures)
+        (failures if require_real else blocked).extend(prior_gaps)
     # Per-cell readings predate later cells, teardowns and iac-live. Only a reading taken after
     # every cloud job finished bounds the whole run. A meter that produced no reading at all blocks
     # a non-strict run (named, never pass); require_real fails on it.
@@ -730,7 +792,7 @@ def aggregate(reports, reports_root, *, require_real, full_scope, run_id, run_at
             "cells": cells, "canaryProbes": [probe for row in cells for probe in row.get("canaryProbes", [])],
             "certifying": full_scope and require_real and status == "pass",
             "certifyingScope": full_scope, "lambdaGaQualification": "pending",
-            "finalCost": final_cost, "generatedAt": now()}
+            "finalCost": final_cost, "priorRunCosts": prior_runs, "generatedAt": now()}
 
 
 def main():
@@ -743,7 +805,17 @@ def main():
     parser.add_argument("--final-cost-after",
                         help="ISO time the aggregation began; the final reading must be later")
     parser.add_argument("--cost-ceiling-usd", default=os.environ.get("HONUA_CLOUD_COST_CEILING_USD", "20"))
+    parser.add_argument("--prior-run-costs", type=Path,
+                        help="cost_meter.py prior-runs output: Cost Explorer actuals of earlier runs")
     args = parser.parse_args()
+    prior_runs = None
+    if args.prior_run_costs is not None:
+        try:
+            prior_runs = json.loads(args.prior_run_costs.read_text())
+        except FileNotFoundError:
+            prior_runs = {"status": "unavailable", "why": f"no reading at {args.prior_run_costs}", "runs": []}
+        except ValueError as error:
+            prior_runs = {"status": "unavailable", "why": f"unreadable: {type(error).__name__}", "runs": []}
     final_cost = None
     if args.final_cost is not None:
         try:
@@ -765,7 +837,8 @@ def main():
         require_real=os.environ.get("REQUIRE_REAL") == "true",
         full_scope=os.environ.get("FULL_SCOPE") == "true",
         run_id=os.environ.get("GITHUB_RUN_ID", "local"),
-        run_attempt=os.environ.get("GITHUB_RUN_ATTEMPT", "1"), final_cost=final_cost)
+        run_attempt=os.environ.get("GITHUB_RUN_ATTEMPT", "1"), final_cost=final_cost,
+        prior_runs=prior_runs)
     args.output.parent.mkdir(parents=True, exist_ok=True)
     args.output.write_text(json.dumps(report, indent=2) + "\n")
     return 0

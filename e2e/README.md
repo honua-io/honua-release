@@ -130,7 +130,7 @@ CI: `.github/workflows/e2e-cloud-aws.yml` runs the **target × redis matrix** (6
 Each cell is three jobs (`.github/workflows/e2e-cloud-aws-cell.yml`, honua-release#381):
 `provision` (OIDC + AWS: apply, probes, database seed) → `journey` (`contents: read` only: the
 seam drivers and the manifest-pinned clients via `run_live`) → `teardown` (OIDC + AWS, `if: always()`:
-cost meter, destroy, cell verdict). An `admit` job (OIDC + AWS) seals the cell's random application key
+live cost estimate, destroy, cell verdict). An `admit` job (OIDC + AWS) seals the cell's random application key
 to an RSA key the journey runner generated, and opens the ECS ALB / EKS Service to the journey runner's
 own /32. Job outputs and step env are printed in the public log, so no credential travels that way. The
 Terraform working directory reaches teardown as a sealed artifact (ciphertext only; the passphrase,
@@ -330,6 +330,79 @@ The log groups are destroyed with the cell, so this is the only record of an exi
 Credentials, connection strings, URI userinfo passwords and AWS key ids are redacted from every line.
 The step is informational and never changes the verdict. The journey job holds no AWS credential, so
 it cannot read these.
+
+### Cost evidence (owner decision 9, 2026-10-10)
+`cost_ceiling_usd` (default 20) is a per-run ceiling. Two readings back it, recorded side by side:
+
+- **Live estimate (this run, gating now).** In each cell's teardown, before `terraform destroy`,
+  `e2e/cost_meter.py` reads the cell's Terraform state (`terraform show -json`), prices every
+  billable resource class for the hours since provision began plus a 0.5 h teardown allowance, and
+  adds measured usage: Lambda GB-seconds and invocations and HTTP API requests (CloudWatch sums), and
+  Batch job vCPU/GB-hours (`batch list-jobs` / `describe-jobs`). Prices come from
+  `e2e/cost-prices.json`, a committed table of public us-east-1 on-demand list prices with a
+  `pricesAsOf` date (read from the AWS Price List API). Classes billed "per hour or partial hour"
+  are billed whole hours. Data transfer, NAT data processing, ALB capacity beyond one LCU-hour per
+  hour, CloudWatch, S3/ECR, Route 53/ACM, Bedrock tokens and Lambda INIT time are **not** counted;
+  Fargate Spot is priced at the on-demand rate. The table's `excluded` list says so in every
+  reading. A resource the table cannot price, or a usage reading that fails, makes the estimate
+  `unavailable` (named, never `pass`). A metric with no datapoints yet is read again once after
+  CloudWatch's publication delay (120 s); if it is still empty, it counts as zero and is listed
+  under `noDatapointsAfterRetry`. The estimate lands in the cell gate-report's `cost`; the
+  `cloud-report` job sums the cells into `e2e/cloud-evidence/run-cost.json`, and `aggregate` takes
+  that sum as the run's cost: `pass` when it is at or under the ceiling, `fail` over it.
+- **Cost Explorer actual (earlier runs, gating at the next run).** Every cell resource is tagged
+  `honua-release:run-id=<GITHUB_RUN_ID>`, `honua-release:cell=<target>/redis-<on|off>` and
+  `honua-release:cost-ceiling-usd=<ceiling>` through the IaC root's `tags` variable.
+  - **Query.** `cloud-report` calls `ce:GetCostAndUsage` (daily UnblendedCost, every record type
+    except `Credit` and `Refund`). Credits are excluded because they net this account's plain
+    UnblendedCost to about $0. Commitment-covered usage still counts. The query groups by run id
+    and ceiling over the last 3 days to find runs. It then reads each run's whole billed history,
+    90 days back.
+  - **Settling.** Cost Explorer lags about a day. A day is settled 24 h after it ends (UTC):
+    - `settledUsd` sums the settled days and `actualUsd` sums every day seen.
+    - A run reads as `pending` until all its days are settled, then as `measured`.
+    - A run with history before the 90-day horizon reads as `incomplete`.
+    - Cost Explorer's `Estimated` flag stays on for the whole open billing month. It is recorded
+      as `estimatedByCostExplorer` and not waited on.
+  - **Enforcement.** A full-scope run fails when an earlier run's `settledUsd` exceeds that run's
+    own ceiling, and the failure names the earlier run id. Settled spend only grows, so an orphan
+    that keeps accruing fails it as well. The ceiling is enforceable at the next run, not during
+    the run that overspent.
+  - **No usable reading.** If the tag is not active as a cost-allocation tag (`tag-not-activated`)
+    or the query fails (`unavailable`), a full-scope run is `blocked`, and under `require_real` it
+    fails.
+  - **Rerun.** A rerun (`GITHUB_RUN_ATTEMPT` > 1) shares its run id with the earlier attempts,
+    which the live estimate does not cover. It certifies only when those attempts are `measured`
+    and this attempt's estimate plus their settled spend fits the ceiling.
+  - **Scope.** Every dispatched cell, Preview (EKS) included, must report its estimate, or report
+    that it never provisioned. Otherwise the run's estimate is `unavailable`. The `iac-live` job
+    is outside this ceiling: it dispatches a separate honua-iac workflow run with its own
+    deployment, lifecycle and teardown, and that run is not tagged with this run id. The basis
+    says so under `notCovered`.
+
+Evidence object (per cell in `cost`, per run in `finalCost`; earlier runs in `priorRunCosts.runs[]`):
+`{status, scope:"run", runId, runAttempt, currency:"USD", meter:"estimate", estimateUsd,
+estimateBasis, actualUsd|null, actualAsOf|null, ceilingUsd, measuredAt, amountUsd}`. `amountUsd`
+repeats the gated figure under the name the existing consumers read.
+
+Owner steps (once):
+1. **Activate the cost-allocation tags** `honua-release:run-id` and `honua-release:cost-ceiling-usd`
+   (optionally `honua-release:cell`) under Billing and Cost Management > Cost allocation tags.
+   A key appears there only after a tagged resource has billed (up to 24 h after the first tagged
+   run), and activation applies from then on. Request a backfill there if earlier runs should count.
+   Until then the prior-run reading is `tag-not-activated`, which blocks a full-scope run and fails a `require_real` one. Without the ceiling tag, an earlier
+   run is judged against the current run's ceiling (`ceilingSource: current-run-input`).
+2. **CI role permissions (read-only).** The `HONUA_AWS_ROLE_ARN` role needs `ce:GetCostAndUsage`,
+   `ce:ListCostAllocationTags`, `cloudwatch:GetMetricStatistics`, `batch:ListJobs` and
+   `batch:DescribeJobs`. `tag:GetResources` is optional and lets an operator list a run's resources.
+   `honua-release-cicd` has `PowerUserAccess`. `iam simulate-principal-policy` (2026-10-10) allows
+   all of these, but SCPs were not evaluated and the role was not assumed: its trust policy admits
+   only GitHub OIDC from `refs/heads/trunk`.
+
+Known gaps in the actuals (honua-iac, not this harness): ECS services and Batch job definitions do
+not set `propagate_tags`, so Fargate task and Batch job spend is not attributed to the run tag. The
+actual undercounts those lines, and the estimate still covers them. Public IPv4 charges for the
+ALB, and the EKS cell's Helm-created load balancer, carry no run tag either.
 
 ### Cells leave nothing billing — including what `terraform destroy` cannot delete
 Teardown removing a resource is not the same as the resource stopping costing money. The EKS cell's
