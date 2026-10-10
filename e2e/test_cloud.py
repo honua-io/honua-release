@@ -4415,17 +4415,119 @@ def test_run_cloud_hands_the_cell_redirect_expectation_and_a_non_following_fetch
         assert callable(kwargs["redirect_fetch"])
 
 
-def test_serverless_cell_gets_no_custom_domain_or_cors_input(monkeypatch):
-    # aws-serverless custom-domain wiring is out of scope; its spec must not inherit the ECS one.
+def test_serverless_cell_with_the_dns_variables_applies_its_https_domain_on_a_declaring_root(monkeypatch):
+    # honua-iac#232: examples/aws-serverless takes domain_name + route53_zone_id (API Gateway regional
+    # custom domain, DNS-validated ACM certificate, Route53 alias). Same per-run name as the ECS cells.
     from targets.terraform_target import SERVERLESS_SPEC
-    assert not SERVERLESS_SPEC.cell_domain and SERVERLESS_SPEC.cors_allowed_origins == ()
+    assert SERVERLESS_SPEC.cell_domain and SERVERLESS_SPEC.cors_allowed_origins == ("http://127.0.0.1:18099",)
+    assert not SERVERLESS_SPEC.alb_http_redirect and not SERVERLESS_SPEC.needs_runner_alb_access
     _serverless_env(monkeypatch)
     _cell_dns(monkeypatch)
     with tempfile.TemporaryDirectory() as base:
-        _iac_root_with(monkeypatch, base, "aws-serverless", *_DOMAIN_ROOT_VARS)
-        values = _tf_vars(serverless(run_id="r1")._vars(False))
-        assert not {"domain_name", "route53_zone_id", "cors_allowed_origins"} & set(values)
-        assert serverless(run_id="r1").cell_domain(False) is None
+        _iac_root_with(monkeypatch, base, "aws-serverless", "domain_name", "route53_zone_id",
+                       "cors_allowed_origins", "alb_enable_http_redirect")
+        for redis in (False, True):
+            if redis:
+                monkeypatch.setenv("HONUA_AWS_OPERATION_KEY_RING_SECRET_ARN", KEY_RING_ARN)
+            mode = "on" if redis else "off"
+            fqdn = f"38038433205-aws-serverless-redis-{mode}.cert.demo.honua.io"
+            target = serverless(run_id="38038433205")
+            assert target.cell_domain(redis) == (fqdn, CELL_ZONE)
+            for destroy in (False, True):
+                values = _tf_vars(target._vars(redis, destroy=destroy))
+                assert values["domain_name"] == fqdn and values["route53_zone_id"] == CELL_ZONE
+                assert json.loads(values["cors_allowed_origins"]) == ["http://127.0.0.1:18099"]
+                # No ALB: no runner ingress input and never the redirect listener.
+                assert not {"alb_enable_http_redirect", "allow_https_ingress_cidrs",
+                            "allow_http_ingress_cidrs"} & set(values)
+        expected, reason = serverless(run_id="r1").https_redirect_expectation(False)
+        assert expected is False and "API Gateway endpoint serves HTTPS only" in reason
+
+
+def test_serverless_cell_on_an_older_root_keeps_execute_api_instead_of_refusing(monkeypatch, capsys):
+    _serverless_env(monkeypatch)
+    _cell_dns(monkeypatch)
+    with tempfile.TemporaryDirectory() as base:
+        # A pin whose serverless root predates honua-iac#232 (one input alone is not enough either).
+        for declared in ((), ("domain_name",), ("route53_zone_id", "cors_allowed_origins")):
+            _iac_root_with(monkeypatch, base, "aws-serverless", *declared)
+            target = serverless(run_id="r1")
+            assert target.cell_domain(False) is None
+            values = _tf_vars(target._vars(False))
+            assert not {"domain_name", "route53_zone_id"} & set(values)
+        execute_api = "https://abc123.execute-api.us-east-1.amazonaws.com"
+        monkeypatch.setattr(target, "_tf", lambda root, *args, check=True: subprocess.CompletedProcess(
+            args, 0, execute_api + "\n", ""))
+        assert target.provision(redis_enabled=False) == execute_api
+        assert "keeps its default endpoint" in capsys.readouterr().out
+        # Teardown makes no DNS or ACM call for a cell that never had a name.
+        target._cell_dns_leftovers(False, run=lambda *a, **k: (_ for _ in ()).throw(
+            AssertionError("no AWS call for a cell without a domain")))
+
+
+def test_serverless_cell_reads_its_https_endpoint_from_honua_url(monkeypatch, capsys):
+    _serverless_env(monkeypatch)
+    _cell_dns(monkeypatch)
+    with tempfile.TemporaryDirectory() as base:
+        _iac_root_with(monkeypatch, base, "aws-serverless", "domain_name", "route53_zone_id")
+        target = serverless(run_id="38038433205")
+        calls = []
+
+        def tf(root, *args, check=True):
+            calls.append(args)
+            out = "https://38038433205-aws-serverless-redis-off.cert.demo.honua.io\n" if args[0] == "output" else ""
+            return subprocess.CompletedProcess(args, 0, out, "")
+        monkeypatch.setattr(target, "_tf", tf)
+        assert target.provision(redis_enabled=False) == \
+            "https://38038433205-aws-serverless-redis-off.cert.demo.honua.io"
+        assert ("output", "-raw", "honua_url") in calls
+        words = capsys.readouterr().out.split()
+        assert words[words.index("hostname") + 1] == "38038433205-aws-serverless-redis-off.cert.demo.honua.io"
+
+
+def test_serverless_dns_misconfiguration_refuses_provision_but_never_destroy(monkeypatch):
+    _serverless_env(monkeypatch)
+    monkeypatch.setenv("HONUA_AWS_CELL_DNS_ZONE_ID", CELL_ZONE)
+    with tempfile.TemporaryDirectory() as base:
+        _iac_root_with(monkeypatch, base, "aws-serverless", "domain_name", "route53_zone_id")
+        with pytest.raises(ProvisionError, match="HONUA_AWS_CELL_DNS_PARENT is unset"):
+            serverless(run_id="r1")._vars(False)
+        assert "domain_name" not in _tf_vars(serverless(run_id="r1")._vars(False, destroy=True))
+
+
+def test_serverless_teardown_confirms_its_dns_names_and_certificate_are_gone(monkeypatch, capsys):
+    _serverless_env(monkeypatch)
+    _cell_dns(monkeypatch)
+    own = "38038433205-aws-serverless-redis-on.cert.demo.honua.io"
+    zone = {"ResourceRecordSets": [
+        {"Name": "demo.honua.io.", "Type": "A"},
+        {"Name": "38038433205-aws-ecs-redis-on.cert.demo.honua.io.", "Type": "A"}]}
+    certs = {"CertificateSummaryList": []}
+
+    def run(argv, **kwargs):
+        if argv[1:3] == ["route53", "list-resource-record-sets"]:
+            return subprocess.CompletedProcess(argv, 0, json.dumps(zone), "")
+        if argv[1:3] == ["acm", "list-certificates"]:
+            return subprocess.CompletedProcess(argv, 0, json.dumps(certs), "")
+        raise AssertionError(argv)
+
+    with tempfile.TemporaryDirectory() as base:
+        _iac_root_with(monkeypatch, base, "aws-serverless", "domain_name", "route53_zone_id")
+        target = serverless(run_id="38038433205")
+        target._cell_dns_leftovers(True, run=run)   # the concurrent ECS name is a warning only
+        warning = [line for line in capsys.readouterr().out.splitlines()
+                   if line.startswith("::warning title=cell DNS names present")]
+        assert len(warning) == 1 and warning[0].rsplit(": ", 1)[1].split(", ") == [
+            "38038433205-aws-ecs-redis-on.cert.demo.honua.io"]
+        zone["ResourceRecordSets"].append({"Name": f"{own}.", "Type": "A"})
+        with pytest.raises(ProvisionError, match="1 Route53 record"):
+            target._cell_dns_leftovers(True, run=run)
+        zone["ResourceRecordSets"].pop()
+        certs["CertificateSummaryList"].append({"DomainName": own, "CertificateArn": "arn:cell"})
+        with pytest.raises(ProvisionError, match="1 ACM certificate"):
+            target._cell_dns_leftovers(True, run=run)
+        with pytest.raises(ProvisionError, match="could not verify"):
+            target._cell_dns_leftovers(True, run=lambda argv, **kw: subprocess.CompletedProcess(argv, 1, "", "x"))
 
 
 def test_admit_resolves_the_https_cell_hostname_to_its_alb_and_opens_443(monkeypatch):

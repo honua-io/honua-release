@@ -155,9 +155,9 @@ jobs:
           # Operator-owned audit hash-chain key secret (recommended; owner step in e2e/README.md).
           HONUA_AWS_AUDIT_CHAIN_KEY_SECRET_ARN: ${{ vars.HONUA_AWS_AUDIT_CHAIN_KEY_SECRET_ARN }}
           HONUA_AWS_AUDIT_CHAIN_KEY_SECRET_KMS_KEY_ARN: ${{ vars.HONUA_AWS_AUDIT_CHAIN_KEY_SECRET_KMS_KEY_ARN }}
-          # honua-release#450: the aws-ecs cells get a per-run HTTPS hostname
-          # <run id>-aws-ecs-redis-<on|off>.cert.<parent> in this public hosted zone (owner step in
-          # e2e/README.md). Not secrets. Unset (forks, other accounts) => plain-HTTP ALB, as before.
+          # honua-release#450: the aws-ecs and aws-serverless cells get a per-run HTTPS hostname
+          # <run id>-<target>-redis-<on|off>.cert.<parent> in this public hosted zone (owner step in
+          # e2e/README.md). Not secrets. Unset (forks, other accounts) => the default endpoint, as before.
           HONUA_AWS_CELL_DNS_ZONE_ID: ${{ vars.HONUA_AWS_CELL_DNS_ZONE_ID }}
           HONUA_AWS_CELL_DNS_PARENT: ${{ vars.HONUA_AWS_CELL_DNS_PARENT }}
         run: |
@@ -591,8 +591,8 @@ jobs:
           # Operator-owned audit hash-chain key secret (recommended; owner step in e2e/README.md).
           HONUA_AWS_AUDIT_CHAIN_KEY_SECRET_ARN: ${{ vars.HONUA_AWS_AUDIT_CHAIN_KEY_SECRET_ARN }}
           HONUA_AWS_AUDIT_CHAIN_KEY_SECRET_KMS_KEY_ARN: ${{ vars.HONUA_AWS_AUDIT_CHAIN_KEY_SECRET_KMS_KEY_ARN }}
-          # honua-release#450: the aws-ecs cells get a per-run HTTPS hostname
-          # <run id>-aws-ecs-redis-<on|off>.cert.<parent> in this public hosted zone (owner step in
+          # honua-release#450: the aws-ecs and aws-serverless cells get a per-run HTTPS hostname
+          # <run id>-<target>-redis-<on|off>.cert.<parent> in this public hosted zone (owner step in
           # e2e/README.md). Not secrets. Teardown recomputes the same name and confirms its records and certificate are gone.
           HONUA_AWS_CELL_DNS_ZONE_ID: ${{ vars.HONUA_AWS_CELL_DNS_ZONE_ID }}
           HONUA_AWS_CELL_DNS_PARENT: ${{ vars.HONUA_AWS_CELL_DNS_PARENT }}
