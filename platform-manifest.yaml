@@ -587,11 +587,19 @@ components:
     # CodeQL, OKF bundle). The only red check run is a manual workflow_dispatch AWS Live Validation
     # (run 37943907525) that failed loading AWS credentials before any Terraform ran. No tag
     # carries this sha, so it is pinned by sha, and the archive is the sha's own tarball.
+    # 2026-10-09 ADVANCE 5b09d0dd -> trunk 4b108f91 (1 commit ahead, the honua-iac#226 merge commit;
+    # 20 commits ahead of v0.2.0). modules/aws-serverless and examples/aws-serverless now declare
+    # operation_key_ring_certificate_secret_arn and operation_key_ring_certificate_secret_kms_key_arn
+    # and inject the Secrets Manager reference into the Lambda. The aws-serverless/redis-on cell
+    # needs it: the 3ecd214 server exits at startup on Redis without a key-ring certificate (e2e-cloud-aws
+    # run 37997262348, "server not ready"). Push CI at this sha is green (Terraform CI push: Static
+    # Terraform Validate, Terraform Policy Gates, Terraform 1.5 Floor Validate; CodeQL). Still untagged,
+    # so it is pinned by sha and the archive is the sha's own tarball.
     version: "pre-release"             # untagged trunk commit; v0.2.0 is the newest tag
-    sha: "5b09d0dd227c8b3567efefe94e13c920066c9eb5"   # branch: trunk HEAD (resolver-selected 2026-10-09)
-    artifact: "archive:https://github.com/honua-io/honua-iac/archive/5b09d0dd227c8b3567efefe94e13c920066c9eb5.tar.gz"
-    artifactSourceRevision: "5b09d0dd227c8b3567efefe94e13c920066c9eb5"   # the tarball's pax comment
-    artifactSha256: "sha256:2a476888f60400380bf7300715a3cefe6a3fea5d47450483114a91ae835c968d"   # two anonymous downloads, identical bytes
+    sha: "4b108f91a928c0e9700a8faf9475ce77c7dcea22"   # branch: trunk HEAD 2026-10-09 (honua-iac#226 merge commit)
+    artifact: "archive:https://github.com/honua-io/honua-iac/archive/4b108f91a928c0e9700a8faf9475ce77c7dcea22.tar.gz"
+    artifactSourceRevision: "4b108f91a928c0e9700a8faf9475ce77c7dcea22"   # the tarball's pax comment
+    artifactSha256: "sha256:8b032f023ff994abf51b2d6de6d9539906128a33bfaedfbafb3bc5b1d920357c"   # two anonymous downloads, identical bytes
 
   honua-helm:
     repository: "https://github.com/honua-io/honua-helm"
