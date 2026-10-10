@@ -8,6 +8,7 @@ image + the honua-iac tree are all present.
 """
 from __future__ import annotations
 
+import hashlib
 import ipaddress
 import json
 import os
@@ -96,6 +97,31 @@ class TfTargetSpec:
     # probed. The serverless root keeps skip_migrations=true (a Lambda cold start must not race a
     # schema migration), so without this step the Lambda serves an unmigrated database.
     migrate_image_env: str = ""
+    # honua-release#450: give the cell a per-run HTTPS hostname under the account's public hosted
+    # zone (domain_name + route53_zone_id: the module issues an ACM certificate, validates it in that
+    # zone and aliases the name to the ALB), so the pinned honua CLI/MCP proxy accept the endpoint
+    # (HTTPS-only for credentials) and the reviewed demo CSP admits it (https://*.honua.io). Only when
+    # both CELL_DNS_ZONE_ENV and CELL_DNS_PARENT_ENV are set; otherwise the cell keeps its plain-HTTP
+    # ALB endpoint, unchanged.
+    cell_domain: bool = False
+    # Browser origins the cell must answer CORS for, passed as cors_allowed_origins when the pinned
+    # root declares it (honua-iac fix unit C4 renders them as Cors__AllowedOrigins__<n>).
+    cors_allowed_origins: tuple[str, ...] = ()
+
+
+# Repository variables (not secrets) naming the public hosted zone that carries per-run cell names.
+CELL_DNS_ZONE_ENV = "HONUA_AWS_CELL_DNS_ZONE_ID"
+CELL_DNS_PARENT_ENV = "HONUA_AWS_CELL_DNS_PARENT"
+# Cell names live one level below the parent (`<label>.cert.<parent>`), apart from anything else the
+# zone serves, so the teardown check can tell the harness's records from the rest of the zone.
+CELL_DNS_SUBDOMAIN = "cert"
+# The demo pages are served from this loopback origin by e2e/drivers/demos/run.sh (E2E_SITE_PORT).
+DEMO_SITE_ORIGIN = "http://127.0.0.1:18099"
+# ACM limits the certificate's first domain name to 64 octets; one DNS label is at most 63.
+_ACM_DOMAIN_MAX = 64
+_DNS_LABEL_MAX = 63
+_ZONE_ID = re.compile(r"^Z[A-Z0-9]{1,31}$")
+_DNS_NAME = re.compile(r"^(?=.{1,253}$)(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,63}$")
 
 
 class TerraformTarget(DeployTarget):
@@ -253,10 +279,18 @@ class TerraformTarget(DeployTarget):
                 "-var=db_publicly_accessible=true",
                 f"-var=db_additional_ingress_cidrs={json.dumps([raw_cidr], separators=(',', ':'))}",
             ])
+        domain = self._domain_vars(redis_enabled, destroy=destroy)
+        values.extend(domain)
         if self.spec.needs_runner_alb_access:
             raw_cidr = self._runner_cidr("HONUA_AWS_RUNNER_CIDR")
-            values.append(
-                f"-var=allow_http_ingress_cidrs={json.dumps([raw_cidr], separators=(',', ':'))}")
+            # With a certificate the runner is admitted to the HTTPS listener; plain-HTTP ingress is
+            # not requested. (The module still serves a redirect-only listener on 80 to the same /32,
+            # because examples/aws does not expose alb_enable_http_redirect.)
+            ingress = "allow_https_ingress_cidrs" if domain else "allow_http_ingress_cidrs"
+            values.append(f"-var={ingress}={json.dumps([raw_cidr], separators=(',', ':'))}")
+        if self.spec.cors_allowed_origins and self._root_declares("cors_allowed_origins"):
+            values.append("-var=cors_allowed_origins="
+                          + json.dumps(list(self.spec.cors_allowed_origins), separators=(",", ":")))
         if self.spec.architecture_env:
             architecture = os.environ.get(self.spec.architecture_env, "").strip()
             if architecture not in {"arm64", "x86_64"}:
@@ -272,6 +306,112 @@ class TerraformTarget(DeployTarget):
             )
             values.append(f"-var={self.spec.architecture_var}={architecture_value}")
         return values
+
+    # --- per-run HTTPS cell hostname (honua-release#450) -----------------------------------------
+    def cell_domain_label(self, redis_enabled: bool) -> str:
+        """The DNS label naming this cell in this run: `<run id>-<target>-redis-<on|off>`.
+
+        Unique per run (the full Actions run id, never truncated) and per cell (target and Redis
+        mode), so concurrent cells and concurrent runs never share a certificate or alias record.
+        Deterministic, so the teardown job (a fresh runner) recomputes the name the apply used.
+        Lowercase LDH, at most 63 octets and short enough that `<label>.cert.<parent>` fits ACM's
+        64-octet limit; an over-long value keeps a hash suffix rather than being cut to a prefix
+        another run could share.
+        """
+        raw = f"{self.run_id}-{self.name}-redis-{'on' if redis_enabled else 'off'}".lower()
+        label = re.sub(r"-{2,}", "-", re.sub(r"[^a-z0-9-]", "-", raw)).strip("-")
+        parent = os.environ.get(CELL_DNS_PARENT_ENV, "").strip().lower().rstrip(".")
+        budget = min(_DNS_LABEL_MAX, _ACM_DOMAIN_MAX - len(f".{CELL_DNS_SUBDOMAIN}.{parent}"))
+        if budget < 16:
+            raise ProvisionError(f"{self.name}: {CELL_DNS_PARENT_ENV}={parent!r} leaves no room for a "
+                                 "cell label under ACM's 64-octet domain limit")
+        if len(label) > budget:
+            digest = hashlib.sha256(raw.encode()).hexdigest()[:10]
+            label = f"{label[:budget - 11].rstrip('-')}-{digest}"
+        return label
+
+    def cell_domain(self, redis_enabled: bool) -> tuple[str, str] | None:
+        """(fqdn, hosted zone id) for this cell, or None when the repository variables are unset.
+
+        Both variables or neither: one without the other is an owner misconfiguration and refuses
+        rather than silently provisioning plain HTTP.
+        """
+        if not self.spec.cell_domain:
+            return None
+        zone = os.environ.get(CELL_DNS_ZONE_ENV, "").strip()
+        parent = os.environ.get(CELL_DNS_PARENT_ENV, "").strip().lower().rstrip(".")
+        if not zone and not parent:
+            return None
+        if not zone or not parent:
+            missing = CELL_DNS_ZONE_ENV if not zone else CELL_DNS_PARENT_ENV
+            raise ProvisionError(f"{self.name}: {missing} is unset while the other cell DNS variable is "
+                                 "set; set both (owner step in e2e/README.md) or neither")
+        if not _ZONE_ID.fullmatch(zone):
+            raise ProvisionError(f"{self.name}: {CELL_DNS_ZONE_ENV} is not a Route53 hosted zone id")
+        if not _DNS_NAME.fullmatch(parent):
+            raise ProvisionError(f"{self.name}: {CELL_DNS_PARENT_ENV} is not a DNS name")
+        return f"{self.cell_domain_label(redis_enabled)}.{CELL_DNS_SUBDOMAIN}.{parent}", zone
+
+    def _domain_vars(self, redis_enabled: bool, *, destroy: bool) -> list[str]:
+        try:
+            domain = self.cell_domain(redis_enabled)
+        except ProvisionError:
+            if destroy:
+                # Destroy removes what the state holds whatever the inputs; it never refuses.
+                return []
+            raise
+        if domain is None:
+            return []
+        undeclared = [v for v in ("domain_name", "route53_zone_id", "allow_https_ingress_cidrs")
+                      if not self._root_declares(v)]
+        if undeclared:
+            if destroy:
+                return []
+            raise ProvisionError(f"{self.name}: {CELL_DNS_ZONE_ENV} is set but the pinned root does not "
+                                 f"declare {', '.join(undeclared)}")
+        fqdn, zone = domain
+        return [f"-var=domain_name={fqdn}", f"-var=route53_zone_id={zone}"]
+
+    def _cell_dns_leftovers(self, redis_enabled: bool, *, run=subprocess.run) -> None:
+        """After a successful destroy: this cell's certificate and records must be gone.
+
+        Read-only. A record or certificate of THIS cell still present, or a listing that cannot be
+        read, fails teardown closed (a stranded certificate or record is a leftover like any other,
+        and an unverified cleanup is not a verified one). Other `*.cert.<parent>` names
+        are listed as a warning only: they may belong to cells of a concurrent run.
+        """
+        try:
+            domain = self.cell_domain(redis_enabled)
+        except ProvisionError:
+            return
+        if domain is None:
+            return
+        fqdn, zone = domain
+        parent = fqdn.split(".", 1)[1]  # cert.<parent>
+
+        def aws(*args: str):
+            return run(["aws", *args, "--output", "json"], text=True, capture_output=True, check=False)
+
+        records = aws("route53", "list-resource-record-sets", "--hosted-zone-id", zone)
+        certificates = aws("acm", "list-certificates", "--region", self.region)
+        if records.returncode or certificates.returncode:
+            # Unverified cleanup is not cleanup: the teardown gate must be able to fail.
+            raise ProvisionError(f"{self.name} teardown could not verify {fqdn} was removed: listing the "
+                                 "hosted zone records or ACM certificates failed")
+        names = sorted({str(r.get("Name", "")).lower().rstrip(".")
+                        for r in json.loads(records.stdout or "{}").get("ResourceRecordSets", [])})
+        harness = [n for n in names if n.endswith("." + parent)]
+        own = [n for n in harness if n == fqdn or n.endswith("." + fqdn)]
+        own_certs = [c for c in json.loads(certificates.stdout or "{}").get("CertificateSummaryList", [])
+                     if str(c.get("DomainName", "")).lower().rstrip(".") == fqdn]
+        others = [n for n in harness if n not in own]
+        if others:
+            print(f"::warning title=cell DNS names present::{len(others)} other *.{parent} record(s) "
+                  f"remain (live cells of a concurrent run, or strands): {', '.join(others[:20])}",
+                  flush=True)
+        if own or own_certs:
+            raise ProvisionError(f"{self.name} teardown left {fqdn} behind: "
+                                 f"{len(own)} Route53 record(s), {len(own_certs)} ACM certificate(s)")
 
     def _runner_cidr(self, env_name: str) -> str:
         """The ephemeral runner's own address, validated as a single IPv4 /32.
@@ -310,6 +450,15 @@ class TerraformTarget(DeployTarget):
             raise ProvisionError(f"{self.name}: honua-iac root not found (set HONUA_IAC_DIR)")
         self._workdir = root
         self._last_vars = self._vars(redis_enabled)
+        if self.spec.cell_domain:
+            domain = self.cell_domain(redis_enabled)
+            if domain is None:
+                print(f"{self.name}: {CELL_DNS_ZONE_ENV}/{CELL_DNS_PARENT_ENV} unset; the cell keeps its "
+                      "plain-HTTP load balancer endpoint (no per-run HTTPS hostname, honua-release#450)",
+                      flush=True)
+            else:
+                print(f"{self.name}: HTTPS cell hostname {domain[0]} (ACM DNS validation in the hosted "
+                      "zone; the apply waits for issuance)", flush=True)
         try:
             self._tf(root, "init", "-input=false", "-no-color")
             self._tf(root, "apply", "-auto-approve", *self._last_vars)
@@ -338,6 +487,7 @@ class TerraformTarget(DeployTarget):
         if destroy.returncode != 0:
             detail = (destroy.stderr or destroy.stdout or "terraform destroy returned nonzero").strip()
             raise ProvisionError(f"{self.name} teardown failed: {detail}")
+        self._cell_dns_leftovers(mode)
 
     def admit(self, endpoint: str, cidr: str, *, redis_enabled: bool = False, run=subprocess.run) -> None:
         """Add one runner /32 to the security groups of the load balancer that serves `endpoint`.
@@ -359,7 +509,11 @@ class TerraformTarget(DeployTarget):
         listing = aws("elbv2", "describe-load-balancers")
         if listing.returncode:
             raise ProvisionError(f"{self.name}: could not list load balancers to admit the journey runner")
-        groups = [group for balancer in json.loads(listing.stdout).get("LoadBalancers", [])
+        balancers = json.loads(listing.stdout).get("LoadBalancers", [])
+        if not any(str(b.get("DNSName", "")).lower() == host for b in balancers):
+            # A per-run HTTPS hostname (honua-release#450) is a Route53 alias of the cell's ALB.
+            host = self._alias_target(host, aws) or host
+        groups = [group for balancer in balancers
                   if str(balancer.get("DNSName", "")).lower() == host
                   for group in balancer.get("SecurityGroups", [])]
         if not groups:
@@ -371,6 +525,23 @@ class TerraformTarget(DeployTarget):
                          "--ip-permissions", permission)
             if result.returncode and "InvalidPermission.Duplicate" not in (result.stderr or ""):
                 raise ProvisionError(f"{self.name}: could not admit the journey runner to {group}")
+
+    @staticmethod
+    def _alias_target(host: str, aws) -> str | None:
+        """The load balancer DNS name the cell hosted zone aliases `host` to, or None."""
+        zone = os.environ.get(CELL_DNS_ZONE_ENV, "").strip()
+        if not zone or not _ZONE_ID.fullmatch(zone):
+            return None
+        listing = aws("route53", "list-resource-record-sets", "--hosted-zone-id", zone,
+                      "--start-record-name", host, "--start-record-type", "A", "--max-items", "1")
+        if listing.returncode:
+            return None
+        for record in json.loads(listing.stdout or "{}").get("ResourceRecordSets", []):
+            if (str(record.get("Name", "")).lower().rstrip(".") == host and record.get("Type") == "A"
+                    and record.get("AliasTarget")):
+                target = str(record["AliasTarget"].get("DNSName", "")).lower().rstrip(".")
+                return target.removeprefix("dualstack.")
+        return None
 
     def _state_secrets(self, names: tuple[str, ...]) -> list[str]:
         """The cell's Secrets Manager values named `names`, read from Terraform state in memory."""
@@ -582,6 +753,9 @@ ECS_SPEC = TfTargetSpec(
     needs_runner_alb_access=True,
     architecture_env="HONUA_ECS_ARCHITECTURE",
     architecture_var="task_cpu_architecture",
+    # honua-release#450: per-run HTTPS hostname and the demo pages' origin (top-demo, S9).
+    cell_domain=True,
+    cors_allowed_origins=(DEMO_SITE_ORIGIN,),
 )
 
 

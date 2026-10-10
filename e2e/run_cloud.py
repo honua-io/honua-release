@@ -161,6 +161,11 @@ def provision_phase(target, target_name: str, *, require_real: bool, redis_enabl
         state["provisionAttempted"] = True
         endpoint = target.provision(redis_enabled=redis_enabled)
         report["endpoint"] = endpoint
+        # The scheme the pinned clients will be handed and the host they will see (honua-release#450:
+        # an ECS cell with a per-run hostname is https; the receipt's "Candidate transport" notice
+        # records the same pair). Identifiers only.
+        parsed = urllib.parse.urlsplit(endpoint)
+        report["transport"] = {"scheme": parsed.scheme, "host": (parsed.hostname or "").lower()}
         if getattr(target, "migrates_before_serving", False):
             # The serverless root boots the Lambda with skip_migrations=true; migrate the cell's
             # database from this runner before anything is probed. A cell that cannot migrate fails
