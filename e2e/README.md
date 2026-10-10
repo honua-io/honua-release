@@ -137,6 +137,17 @@ digest and application key are in Secrets Manager under `honua-cloud-cell-state/
 Teardown adopts no verdict the journey job reported about itself: it re-checks every receipt (path,
 digest, run/candidate binding, and the server identity provision observed before any client ran) and
 copies only verified files into the cell's evidence.
+
+A cell verdict is `pass`, `blocked` or `fail`. Outside `--require-real`, a cell whose only gaps are
+tracked, documented limitations is `blocked` (never `pass`) and its report names each blocker: a
+journey whose every attempt is a BLOCKED receipt naming its issues (the stages' `blockedBy`, or the
+honua-release#377 cloud-kind gap; `journeyBlockedBy`), a scenario BLOCKED on a named issue (for
+example `top-demo` on honua-release#450), or a missing run cost meter reading (`cost.status:
+unavailable`, written into the report with the path it looked for). A documented journey block is not
+retried. An attempt whose driver raised, a failed stage or check, a blocked stage that names no issue,
+or a cost reading that is over the ceiling, stale or bound to another run is still `fail`.
+`--require-real` (the per-RC strict mode) turns every one of those blocks into `fail`, and the
+full-scope aggregate certifies only cells that `pass`.
 `python e2e/run_cloud.py --phase <provision|journey|admit|teardown> ...` runs one phase; without
 `--phase` all three run in one process.
 
@@ -215,16 +226,27 @@ harness passes them to every ECS and Lambda cell whose pinned root declares them
 (`optional_env_vars`). The key is recommended, not required: an unset variable never blocks or
 refuses a cell, and the root plans with a warning.
 
-### ECS readiness diagnostics
-Before destroying every `aws-ecs` cell, the teardown job runs `run_cloud.py --phase diagnose`. It
-writes `diagnostics-ecs.json` into the cell's evidence (uploaded with the gate report) and prints the
-same to the job log: every service task's `stopCode`, `stoppedReason` and container exit reasons
-from `aws ecs describe-tasks`; the last 300 CloudWatch log lines of each stopped task's containers
-(and the newest task's), read from the awslogs group/stream prefix in the task definition; and each
-task definition's environment and secret variable NAMES, never values. The log group is destroyed
-with the cell, so this is the only record of an exit cause. Credentials, connection strings and AWS
-key ids are redacted from every line. The step is informational and never changes the verdict. The
-journey job holds no AWS credential, so it cannot read these.
+### Cell readiness diagnostics (ECS and Lambda)
+Before destroying every `aws-ecs` and `aws-serverless` cell, the teardown job runs
+`run_cloud.py --phase diagnose`. For an ECS cell it writes `diagnostics-ecs.json` into the cell's
+evidence (uploaded with the gate report) and prints the same to the job log: every service task's
+`stopCode`, `stoppedReason` and container exit reasons from `aws ecs describe-tasks`; the last 300
+CloudWatch log lines of each stopped task's containers (and the newest task's), read from the
+awslogs group/stream prefix in the task definition; and each task definition's environment and
+secret variable NAMES, never values.
+
+For a serverless cell it writes `diagnostics-lambda.json`: every Lambda function carrying the cell's
+name stem (the stem of the `lambda_function_name` output, matched against `aws lambda
+list-functions`, plus the API and control-plane function-name outputs), each with its state, last
+update status and environment variable NAMES (never values), and the last 300 lines of its log group
+merged from the group's newest streams. When `gp_batch_enabled` is true it also tails every
+`/aws/batch/<stem>-*` job log group. This is where a Lambda server's own startup and refusal reasons
+(a `dependency-unavailable` capability, a GP job that never left `running`) survive the cell.
+
+The log groups are destroyed with the cell, so this is the only record of an exit or refusal cause.
+Credentials, connection strings, URI userinfo passwords and AWS key ids are redacted from every line.
+The step is informational and never changes the verdict. The journey job holds no AWS credential, so
+it cannot read these.
 
 ### Cells leave nothing billing — including what `terraform destroy` cannot delete
 Teardown removing a resource is not the same as the resource stopping costing money. The EKS cell's

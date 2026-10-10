@@ -1316,5 +1316,5 @@ def test_cloud_matrix_is_the_rc3_ga_set_plus_eks_preview_and_threads_the_batch_i
     assert 'PREVIEW_TARGETS = ("aws-eks",)' in journey
     assert '"aws-mixed"' not in receipts and '"aws-mixed"' not in journey
     teardown = [step.get("name") for step in cell["jobs"]["teardown"]["steps"]]
-    assert teardown.index("Capture ECS readiness diagnostics") < next(
+    assert teardown.index("Capture cell readiness diagnostics") < next(
         i for i, name in enumerate(teardown) if (name or "").startswith("Tear down"))

@@ -247,6 +247,7 @@ def journey_phase(state: dict, *, admin_key: str, max_attempts: int = 2) -> dict
             require_real=state.get("requireReal", False),
             redis_enabled=state.get("redis") == "redis-on", seed_error=state.get("seedError"))
         journey["scenarioCoverage"] = _check_dicts(extended)
+        blockers: list[list[str]] = []
         for number in range(1, max_attempts + 1):
             record = cloud_journey.attempt(cell, number, endpoint, admin_key, state.get("runningImage"))
             journey["journeyAttempts"].append(record)
@@ -261,9 +262,14 @@ def journey_phase(state: dict, *, admin_key: str, max_attempts: int = 2) -> dict
                 break
             if passed:
                 break
+            blockers.append(cloud_journey.documented_blockers(receipt))
+            if blockers[-1]:
+                break  # a documented limitation is deterministic; another attempt cannot lift it
         else:
             journey["status"] = "fail"
             journey["why"] = "journey did not pass within the recorded attempt budget"
+        if journey.get("status") != "fail" and not passed:
+            journey.update(_journey_blocked_verdict(blockers, state.get("requireReal", False)))
     except Exception as e:
         journey["status"] = "fail"
         journey["why"] = f"cloud checks/journey failed: {type(e).__name__}"
@@ -275,6 +281,26 @@ def journey_phase(state: dict, *, admin_key: str, max_attempts: int = 2) -> dict
             journey["why"] = (journey.get("why", "") + "; " if journey.get("why") else "") + \
                 f"journey cleanup failed: {type(e).__name__}"
     return journey
+
+
+def _journey_blocked_verdict(blockers: list[list[str]], require_real: bool) -> dict:
+    """Verdict for a journey whose attempts all stopped on BLOCKED receipts.
+
+    Every attempt naming only tracked, documented limitations is `blocked` (honest, never pass)
+    with the blockers named; require_real (the per-RC strict mode) promotes it to fail. Any attempt
+    that is not a documented block keeps the journey a failure.
+    """
+    if not blockers or not all(blockers):
+        return {"status": "fail", "why": "journey did not pass within the recorded attempt budget"}
+    named = sorted({issue for attempt in blockers for issue in attempt})
+    if require_real:
+        return {"status": "fail", "blockedBy": named,
+                "why": f"require_real: journey blocked by tracked limitations {named}"}
+    return {"status": "blocked", "blockedBy": named,
+            "why": f"journey blocked by tracked limitations {named}"}
+
+
+_ISSUE_REF = re.compile(r"\b[a-z][a-z0-9-]*#\d+\b|https://github\.com/[\w.-]+/[\w.-]+/issues/\d+")
 
 
 def teardown_phase(state: dict, journey: dict, target, *, reference_endpoint: str | None,
@@ -289,9 +315,15 @@ def teardown_phase(state: dict, journey: dict, target, *, reference_endpoint: st
     report["journeyAttempts"] = report.get("journeyAttempts", []) + journey.get("journeyAttempts", [])
     if "readiness" in journey:
         report["journeyReadiness"] = journey["readiness"]
+    if journey.get("status") == "blocked" and require_real:
+        journey = {**journey, "status": "fail", "why": f"require_real: {journey.get('why')}"}
     if journey.get("status") == "fail" and report.get("status") != "fail":
         report["status"] = "fail"
         report["why"] = journey.get("why", "journey failed")
+    journey_blocked = journey.get("status") == "blocked"
+    if journey_blocked:
+        report["journeyBlockedBy"] = journey.get("blockedBy", [])
+    cost_unavailable = None
     if not state.get("provisionAttempted"):
         # Self-skipped, blocked, or never started: nothing was deployed, so nothing is destroyed.
         state["destroyed"] = False
@@ -308,14 +340,24 @@ def teardown_phase(state: dict, journey: dict, target, *, reference_endpoint: st
             report.update(status="fail", why=report.get("why", "") +
                           f"; receipt evidence unavailable: {type(e).__name__}")
         finally:
+            meter = cost_report or Path(os.environ.get("HONUA_CLOUD_COST_REPORT",
+                                                       "e2e/cloud-evidence/run-cost.json"))
             try:
-                report["cost"] = cloud_journey.check_cost(
-                    cost_report or Path(os.environ.get("HONUA_CLOUD_COST_REPORT",
-                                                      "e2e/cloud-evidence/run-cost.json")),
-                    cost_ceiling_usd, started_at=started_at)
+                report["cost"] = cloud_journey.check_cost(meter, cost_ceiling_usd, started_at=started_at)
                 if report["cost"]["status"] != "pass":
                     report.update(status="fail", why=report.get("why", "") +
                                   "; run cost exceeds ceiling")
+            except FileNotFoundError:
+                # No meter reading exists for this run. The cost entry is still written, naming
+                # what is missing; it never passes. require_real fails the cell on it, as before.
+                cost_unavailable = f"run cost meter unavailable: no reading at {meter}"
+                report["cost"] = {"status": "unavailable", "why": cost_unavailable, "scope": "run",
+                                  "ceilingUsd": str(cost_ceiling_usd),
+                                  "runId": os.environ.get("GITHUB_RUN_ID", "local"),
+                                  "runAttempt": os.environ.get("GITHUB_RUN_ATTEMPT", "1")}
+                if require_real:
+                    report.update(status="fail", why=report.get("why", "") +
+                                  "; cost evidence unavailable: FileNotFoundError")
             except Exception as e:
                 report.update(status="fail", why=report.get("why", "") +
                               f"; cost evidence unavailable: {type(e).__name__}")
@@ -401,13 +443,22 @@ def teardown_phase(state: dict, journey: dict, target, *, reference_endpoint: st
             report["why"] = f"parity divergence: {verdict.why}"
             return report
 
-    report["status"] = "blocked" if (blocked and not require_real) else "pass"
+    # Outside require_real, every tracked limitation leaves the cell BLOCKED with its blocker named:
+    # honest, never pass. (require_real returned fail above for blocked checks/scenarios, and the
+    # journey and cost paths already promoted theirs to fail.)
+    scenario_blocked = [f"{c.name} ({', '.join(_ISSUE_REF.findall(c.why)) or 'no tracked issue named'})"
+                        for c in extended if c.status == "blocked"]
+    blockers = ([f"journey blocked by tracked limitations {journey.get('blockedBy', [])}"] if journey_blocked else [])
+    blockers += [f"scenarios blocked: {scenario_blocked}"] if scenario_blocked else []
+    blockers += [cost_unavailable] if cost_unavailable else []
+    report["status"] = "blocked" if ((blocked or blockers) and not require_real) else "pass"
     # Say what actually happened. The old wording claimed "canonical set passed" even for a cell whose
     # canonical set was entirely BLOCKED — the sentence that made honua-release#128 invisible in the
     # job log for as long as it existed.
     report["why"] = report.get("why") or (
         f"{cell}: canonical set " + (f"blocked on {blocked}" if blocked else "passed")
-        + (" + parity ok" if reference_endpoint else " (parity skipped: no reference endpoint)"))
+        + (" + parity ok" if reference_endpoint else " (parity skipped: no reference endpoint)")
+        + "".join(f"; {blocker}" for blocker in blockers))
     return report
 
 
@@ -575,6 +626,7 @@ def verify_journey(state: dict, journey: dict, journey_dir: Path) -> dict:
         raise ValueError("journey attempt history is not 1..n within two attempts")
     expected = cloud_journey.observed_server(state.get("observedServer"), state.get("runningImage"))
     verified: list[tuple[int, bytes, bytes | None]] = []
+    blockers: list[list[str]] = []
     passed = False
     for record in records:
         if passed:
@@ -594,6 +646,8 @@ def verify_journey(state: dict, journey: dict, journey_dir: Path) -> dict:
                 config_bytes is None or hashlib.sha256(config_bytes).hexdigest() != receipt["target"]["configSha256"]):
             raise ValueError("journey target config digest mismatch")
         passed = cloud_journey.validate_attempt(record, receipt, cell, run_id=run_id, run_attempt=run_attempt)
+        if not passed:
+            blockers.append(cloud_journey.documented_blockers(receipt))
         verified.append((number, data, config_bytes))
     directory.mkdir(parents=True, exist_ok=True)
     for number, data, config_bytes in verified:
@@ -605,9 +659,15 @@ def verify_journey(state: dict, journey: dict, journey_dir: Path) -> dict:
         (directory / "extended").mkdir(parents=True, exist_ok=True)
         (directory / "extended" / "gate-report.json").write_bytes(gate.read_bytes())
     result = {**journey, "journeyAttempts": records}
+    result.pop("blockedBy", None)  # re-derived from the verified receipts below, never adopted
     # A provisioned endpoint the journey recorded no attempt against is a failed journey, whatever
     # the upload claims: an empty history must not leave the cell's verdict to the other rows.
     if not passed and (records or state.get("endpoint")):
+        if records and journey.get("status") != "fail":
+            # Blocked only when every verified receipt names tracked limitations (see
+            # cloud_journey.documented_blockers); the upload's own claim is not adopted.
+            result.update(_journey_blocked_verdict(blockers, state.get("requireReal", False)))
+            return result
         result["status"] = "fail"
         result["why"] = (journey.get("why") if journey.get("status") == "fail" else None) or (
             "journey did not pass within the recorded attempt budget" if records
@@ -616,19 +676,15 @@ def verify_journey(state: dict, journey: dict, journey_dir: Path) -> dict:
 
 
 DIAGNOSTICS_NAME = "diagnostics-ecs.json"
+LAMBDA_DIAGNOSTICS_NAME = "diagnostics-lambda.json"
 _LOG_LINES = 300
+# Newest log streams merged per Lambda/Batch log group. A Lambda log group holds one stream per
+# execution environment, so the last lines of the group span several streams.
+_LOG_STREAMS = 5
 
 
-def ecs_readiness_diagnostics(target, *, run=subprocess.run, redact=None) -> dict:
-    """Why an ECS cell's tasks stopped: stop reasons, each stopped task's container log tail, and the
-    environment variable NAMES each task definition sets.
-
-    Read from ECS DescribeTasks / DescribeTaskDefinition and CloudWatch Logs while the cell still
-    exists (teardown, before destroy). The cell's log group is destroyed with it, so this is the
-    only place the exit cause survives. Output lands in the public cell artifact and the job log, so
-    every log line passes `redact` and no environment VALUE is ever read into the report.
-    """
-    redact = redact or (lambda text: text)
+def _cell_readers(target, run, redact):
+    """`terraform output -raw` and read-only `aws ... --output json` against the cell's root/region."""
     root = target._iac_root()
     if root is None:
         raise ValueError("no Terraform working directory")
@@ -646,6 +702,97 @@ def ecs_readiness_diagnostics(target, *, run=subprocess.run, redact=None) -> dic
             raise RuntimeError(f"aws {' '.join(args[:2])} failed" + (f": {detail}" if detail else ""))
         return json.loads(result.stdout or "{}")
 
+    return out, aws
+
+
+def _log_group_tail(aws, group: str, redact) -> dict:
+    """The last _LOG_LINES lines of a log group, merged by timestamp from its newest streams."""
+    entry: dict = {"logGroup": group}
+    try:
+        streams = aws("logs", "describe-log-streams", "--log-group-name", group, "--order-by",
+                      "LastEventTime", "--descending", "--max-items", str(_LOG_STREAMS)).get("logStreams", [])
+    except RuntimeError as error:
+        return {**entry, "error": str(error)}
+    entry["logStreams"] = [str(s["logStreamName"]) for s in streams if s.get("logStreamName")]
+    events, errors = [], []
+    for stream in entry["logStreams"]:
+        try:
+            page = aws("logs", "get-log-events", "--log-group-name", group, "--log-stream-name", stream,
+                       "--limit", str(_LOG_LINES), "--no-start-from-head")
+        except RuntimeError as error:
+            errors.append(f"{stream}: {error}")
+            continue
+        events += [(int(e.get("timestamp") or 0), stream, str(e.get("message", "")))
+                   for e in page.get("events", [])]
+    events.sort(key=lambda event: (event[0], event[1]))
+    entry["lines"] = [redact(message.rstrip("\n")) for _, _, message in events][-_LOG_LINES:]
+    if errors:
+        entry["errors"] = errors
+    return entry
+
+
+def lambda_readiness_diagnostics(target, *, run=subprocess.run, redact=None) -> dict:
+    """The serverless counterpart of ecs_readiness_diagnostics: what the cell's Lambda functions and
+    Batch jobs logged about their own startup, dependency refusals and job execution.
+
+    Functions are the API function, the control-plane event functions and every other function
+    carrying the cell's name stem (`aws lambda list-functions`, filtered by the stem of the
+    `lambda_function_name` output); Batch log groups are read when `gp_batch_enabled` is true. Read
+    while the cell still exists (teardown, before destroy): its /aws/lambda/* and /aws/batch/* log
+    groups are destroyed with it. Every line passes `redact`; only environment variable NAMES are
+    recorded, never values.
+    """
+    redact = redact or (lambda text: text)
+    out, aws = _cell_readers(target, run, redact)
+    api = out("lambda_function_name")
+    if not api:
+        raise ValueError("the cell has no lambda_function_name output")
+    # The module names every function "<name_prefix>-<environment>-<role>"; the API one is "-honua".
+    stem = api[:-len("-honua")] if api.endswith("-honua") else api
+    named = [name for name in (api, out("control_plane_reconcile_function_name"),
+                               out("control_plane_backstop_function_name")) if name]
+    # The CLI follows list-functions pagination itself.
+    listed = {str(f["FunctionName"]): f for f in aws("lambda", "list-functions").get("Functions", [])
+              if str(f.get("FunctionName", "")).startswith(f"{stem}-")}
+    report: dict = {"nameStem": stem, "functions": [], "logs": []}
+    for name in sorted(set(listed) | set(named), key=lambda n: (n != api, n)):
+        function = listed.get(name, {})
+        group = (function.get("LoggingConfig") or {}).get("LogGroup") or f"/aws/lambda/{name}"
+        report["functions"].append({
+            "functionName": name, "listed": name in listed, "state": function.get("State"),
+            "lastUpdateStatus": function.get("LastUpdateStatus"),
+            "stateReason": redact(str(function.get("StateReason") or "")),
+            "lastModified": function.get("LastModified"), "architectures": function.get("Architectures"),
+            "memorySize": function.get("MemorySize"), "timeout": function.get("Timeout"),
+            # Names only: a missing or renamed setting shows up here, and no value can leak.
+            "environmentNames": sorted(str(key) for key in
+                                       (function.get("Environment") or {}).get("Variables") or {}),
+            "logGroup": group})
+        report["logs"].append({"functionName": name, **_log_group_tail(aws, group, redact)})
+    report["gpBatchEnabled"] = out("gp_batch_enabled").lower() == "true"
+    if report["gpBatchEnabled"]:
+        try:
+            groups = aws("logs", "describe-log-groups", "--log-group-name-prefix",
+                         f"/aws/batch/{stem}-").get("logGroups", [])
+        except RuntimeError as error:
+            report["logs"].append({"batch": True, "logGroup": f"/aws/batch/{stem}-*", "error": str(error)})
+            groups = []
+        for group in sorted(str(g["logGroupName"]) for g in groups if g.get("logGroupName")):
+            report["logs"].append({"batch": True, **_log_group_tail(aws, group, redact)})
+    return report
+
+
+def ecs_readiness_diagnostics(target, *, run=subprocess.run, redact=None) -> dict:
+    """Why an ECS cell's tasks stopped: stop reasons, each stopped task's container log tail, and the
+    environment variable NAMES each task definition sets.
+
+    Read from ECS DescribeTasks / DescribeTaskDefinition and CloudWatch Logs while the cell still
+    exists (teardown, before destroy). The cell's log group is destroyed with it, so this is the
+    only place the exit cause survives. Output lands in the public cell artifact and the job log, so
+    every log line passes `redact` and no environment VALUE is ever read into the report.
+    """
+    redact = redact or (lambda text: text)
+    out, aws = _cell_readers(target, run, redact)
     cluster, service = out("ecs_cluster_name"), out("ecs_service_name")
     if not cluster or not service:
         raise ValueError("the cell has no ecs_cluster_name / ecs_service_name output")
@@ -726,14 +873,20 @@ def _phase_diagnose(args) -> int:
     """Teardown-side readiness diagnostics; never changes the verdict, never fails the job."""
     cell = _cell(args.target, args.redis)
     directory = cloud_journey.cell_dir(cell)
-    # Runs for a ready cell too: a task that served and later exited (EssentialContainerExited) is
-    # only explainable from its log, and the log group goes with the cell.
+    serverless = args.target == "aws-serverless"
+    name = LAMBDA_DIAGNOSTICS_NAME if serverless else DIAGNOSTICS_NAME
+    # Runs for a ready cell too: a task that served and later exited (EssentialContainerExited), or a
+    # Lambda that refused a dependency, is only explainable from its log, and the log group goes
+    # with the cell.
     try:
-        diagnostics = ecs_readiness_diagnostics(_target(args.target), redact=_redact_log)
+        collect = lambda_readiness_diagnostics if serverless else ecs_readiness_diagnostics
+        diagnostics = collect(_target(args.target), redact=_redact_log)
     except Exception as error:
         diagnostics = {"error": f"{type(error).__name__}: {_redact_log(str(error))}"}
     diagnostics["cell"] = cell
-    _write_json(directory / DIAGNOSTICS_NAME, diagnostics)
+    _write_json(directory / name, diagnostics)
+    if "error" in diagnostics:
+        print(f"   diagnostics unavailable: {diagnostics['error']}")
     for task in diagnostics.get("tasks", []):
         print(f"   task {task['taskArn']}: {task['lastStatus']} stopCode={task['stopCode']} "
               f"stoppedReason={task['stoppedReason']!r}")
@@ -745,14 +898,22 @@ def _phase_diagnose(args) -> int:
             print(f"   {definition['taskDefinitionArn']} {container['name']}: environment names "
                   f"{', '.join(container['environmentNames']) or '(none)'}; valueFrom names "
                   f"{', '.join(container['valueFromNames']) or '(none)'}")
+    for function in diagnostics.get("functions", []):
+        print(f"   function {function['functionName']}: state={function.get('state')} "
+              f"lastUpdateStatus={function.get('lastUpdateStatus')} "
+              f"stateReason={function.get('stateReason')!r}; environment names "
+              f"{', '.join(function.get('environmentNames') or []) or '(none)'}")
     for log in diagnostics.get("logs", []):
-        print(f"::group::{log.get('logStream')} ({log.get('taskArn')})")
+        owner = log.get("taskArn") or log.get("functionName") or ("batch" if log.get("batch") else "")
+        print(f"::group::{log.get('logStream') or log.get('logGroup')} ({owner})")
         if "error" in log:
             print(f"   log unavailable: {log['error']}")
+        for error in log.get("errors", []):
+            print(f"   stream unavailable: {error}")
         for line in log.get("lines", []):
             print(f"   {line}")
         print("::endgroup::")
-    print(f"{cell}: readiness diagnostics written to {directory / DIAGNOSTICS_NAME}")
+    print(f"{cell}: readiness diagnostics written to {directory / name}")
     return 0
 
 
