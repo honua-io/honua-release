@@ -68,6 +68,7 @@ Redis-off expectation:
   every other name stays exact. The evidence records `topology` and which state was observed.
 - **S3** on Redis-off asserts the typed refusal at `create-draft` for every family (query, analysis, map)
   and passes with `topology: redis-off`; Redis-on drives the full lifecycle for the same families.
+- **S9** (`top-demo`) `S9-demos-geoprocessing` on Redis-off drives the demo's execution and passes with `topology: redis-off` only when the server returns S5's typed 503 capability-unavailable (`missingDependency=redis`) and the page renders it as its job-store-unavailable state (a page that spins on the refusal is `blocked`, naming the site); Redis-on still requires a completed live job.
 - A topology the server contradicts (a Redis-on cell with no durable control plane, or a Redis-off cell
   the server does not confirm) fails both scenarios.
 

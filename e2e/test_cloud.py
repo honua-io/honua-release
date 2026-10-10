@@ -2677,6 +2677,62 @@ def test_gp_driver_redis_off_fails_when_the_job_is_accepted_or_refusal_is_untype
     assert _run_gp_driver_against(503, json.dumps({"title": "Service Unavailable"}))["status"] == "fail"
 
 
+# ---- S9-demos-geoprocessing on a Redis-off cell (run 38047168879, aws-ecs/redis-off) ----------------
+# The demo page must show the same typed capability-unavailable refusal S5 asserts, not wait 120 s for a
+# job that can never run. The verdict logic is unit-tested in node; the topology plumbing in run.sh is
+# exercised for real against a stub candidate serving a fake capability manifest.
+def test_demos_geoprocessing_topology_verdicts_hold_for_both_topologies():
+    node = shutil.which("node")
+    if not node:
+        pytest.skip("node is not installed")
+    completed = subprocess.run([node, "--test", str(E2E_DIR / "drivers/demos/gp-topology.test.mjs")],
+                               capture_output=True, text=True, timeout=120)
+    assert completed.returncode == 0, completed.stdout + completed.stderr
+
+
+def _demos_topology_plumbing(declared, topology):
+    """Run run.sh's own topology block against a stub candidate; return what drive.mjs would receive."""
+    script = (E2E_DIR / "drivers/demos/run.sh").read_text(encoding="utf-8")
+    block = script.split("# ── topology (Redis-on vs Redis-off)", 1)[1].split("\n", 1)[1].split("# ── drive", 1)[0]
+    server = _serve(lambda method, path, body, authed: _common_routes(method, path, topology, "operations.proposals")
+                    or (404, {}))
+    try:
+        with tempfile.TemporaryDirectory() as out:
+            env = {**os.environ, "E2E_BASE": f"http://127.0.0.1:{server.server_address[1]}",
+                   "E2E_API_KEY": "k", "E2E_OUT": out, "E2E_REDIS": declared}
+            program = (f'source "{(E2E_DIR / "harness/lib/common.sh").as_posix()}"\n{block}\n'
+                       'printf "%s\n%s\n" "$E2E_TOPOLOGY_JSON" "$E2E_JOBS_RUNNER_JSON"')
+            completed = subprocess.run(["bash", "-c", program], env=env, capture_output=True, text=True,
+                                       timeout=60, check=True)
+    finally:
+        server.shutdown()
+    topo, jobs = completed.stdout.strip().splitlines()[-2:]
+    return json.loads(topo), json.loads(jobs)
+
+
+def test_demos_driver_resolves_redis_off_from_the_capability_manifest():
+    topo, jobs = _demos_topology_plumbing("off", "redis-off")
+    assert topo["topology"] == "redis-off" and topo["declared"] == "off" and topo["mismatch"] is None
+    assert jobs == {"id": "jobs.runner", "supported": True, "available": False,
+                    "reasonCode": "dependency-unavailable"}
+
+
+def test_demos_driver_keeps_redis_on_live_and_flags_a_contradicted_topology():
+    topo, jobs = _demos_topology_plumbing("on", "redis-on")
+    assert topo["topology"] == "redis-on" and topo["mismatch"] is None and jobs["available"] is True
+    topo, _ = _demos_topology_plumbing("off", "redis-on")
+    assert topo["mismatch"] and "declares Redis off" in topo["mismatch"]
+
+
+def test_demos_driver_hands_the_topology_to_the_page_driver_before_driving():
+    script = (E2E_DIR / "drivers/demos/run.sh").read_text(encoding="utf-8")
+    assert script.index("resolve_topology") < script.index('node "$HERE/drive.mjs"')
+    drive = (E2E_DIR / "drivers/demos/drive.mjs").read_text(encoding="utf-8")
+    assert 'parseEnvJson("E2E_TOPOLOGY_JSON")' in drive and "judgeRedisOffGeoprocessing" in drive
+    # The page's own execution response is observed, never routed, faked or rewritten.
+    assert "page.route(" not in drive.split("async function checkGeoprocessingRedisOff", 1)[1].split("/* ──", 1)[0]
+
+
 # ---- topology-aware S2 (MCP catalog) and S3 (Studio) drivers --------------------------------------
 # The real drivers run against an in-process stub of the candidate. The stub serves a Redis-on
 # server (the canonical 129-tool catalog) or a Redis-off one (minus the 23 durable-control-plane
