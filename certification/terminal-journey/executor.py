@@ -135,7 +135,7 @@ class JourneyExecutor:
         except ExecutionError as exc:
             row = probes.Check(f"{number}.{check}", "http", exc.command,
                                "blocked" if exc.blocked else "fail", exc.reason,
-                               [stages.JOURNEY_DRIVER] if exc.blocked else [])
+                               (exc.blocked_by or [stages.JOURNEY_DRIVER]) if exc.blocked else [])
         except (oracles.ProofError, KeyError, ValueError, TypeError, AttributeError, StopIteration) as exc:
             row = probes.Check(f"{number}.{check}", "artifact", command, "fail",
                                str(exc) if isinstance(exc, oracles.ProofError) else "live assertion omitted required evidence")
@@ -237,17 +237,33 @@ class JourneyExecutor:
         if arguments != expected or any(value is None for value in expected):
             raise ExecutionError(method, "SDK arguments do not bind the authored fixture and observed resource identities")
         if method == "CreateConnectionAsync":
-            datasource = dict(arguments[0])
-            password = os.environ.get(datasource.pop("passwordEnv"), "")
-            if not password:
-                raise ExecutionError(method, "datasource password environment reference is unavailable", blocked=True)
-            arguments = [{**datasource, "password": password}]
+            arguments = [self.datasource_arguments()]
         output = self.sdk_call(method, arguments)
         if method == "TestConnectionAsync":
             self._check(3, "datasource", method, lambda: self.prove_connection(output))
         return {"status": "pass", "accepted": True, "resources": dict(self.resources),
                 "injectedError": None, "recoveredError": None,
                 "canonicalIds": self.evidence["canonicalIds"].get("3", {})}
+
+    def datasource_arguments(self):
+        """The authored datasource with its environment references resolved, in memory only.
+
+        `passwordEnv` is required. A cloud target also names its connection coordinates
+        (`hostEnv`, `portEnv`, `databaseNameEnv`, `usernameEnv`) by reference, so the target
+        document the cloud harness retains carries no database host or login.
+        """
+        datasource = dict(self.fixture["datasource"])
+        resolved = {}
+        for reference in [key for key in datasource if key.endswith("Env")]:
+            field = reference[:-len("Env")]
+            value = os.environ.get(datasource.pop(reference) or "", "")
+            if not value:
+                raise ExecutionError("CreateConnectionAsync",
+                                     f"datasource {field} environment reference is unavailable", blocked=True)
+            resolved[field] = int(value) if field == "port" else value
+        if "password" not in resolved:
+            raise ExecutionError("CreateConnectionAsync", "datasource password environment reference is unavailable", blocked=True)
+        return {**datasource, **resolved}
 
     def prove_connection(self, result):
         if result.get("connectionId") != self.resources.get("connectionId") or result.get("isHealthy") is not True:
@@ -472,10 +488,16 @@ class JourneyExecutor:
 
     def check_map(self):
         self._check(6, "saved-map", "GET saved immutable map version", lambda: self._prove_map(self.transport, self.map_path()))
+        import local_fixture
+        topology = local_fixture.replica_topology(self.target)
+
         def replica():
-            import local_fixture
             endpoint = local_fixture.replica_url(self.target)
-            if not endpoint or endpoint.rstrip("/") == self.transport.base_url.rstrip("/"):
+            same = bool(endpoint) and endpoint.rstrip("/") == self.transport.base_url.rstrip("/")
+            # A cloud cell is reached through one endpoint only. Its target declares that the
+            # re-read goes through that endpoint and which serving topology sits behind it; the
+            # check names it, so the receipt never presents it as a separately addressed replica.
+            if not endpoint or (same and topology is None):
                 raise ExecutionError("cross-replica map read", "a distinct replica endpoint is required", blocked=True)
             loopback = {"localhost", "127.0.0.1", "::1"}
             if (urllib.parse.urlsplit(self.transport.base_url).hostname not in loopback
@@ -483,8 +505,13 @@ class JourneyExecutor:
                 raise ExecutionError("cross-replica map read", "remote target must declare its remote replica endpoint", blocked=True)
             other = Transport(endpoint, self.transport.proxy, self.transport.honua,
                               self.transport.workdir, self.transport.credentials)
-            return self._prove_map(other, self.map_path())
-        self._check(6, "replica-map", "GET saved map on a distinct replica", replica)
+            proof = self._prove_map(other, self.map_path())
+            if topology is not None:
+                proof = {**proof, "replicaTopology": topology["id"]}
+            return proof
+        command = ("GET saved map on a distinct replica" if topology is None
+                   else f"GET saved map again through the cell endpoint ({topology['id']}: {topology['description']})")
+        self._check(6, "replica-map", command, replica)
 
     def check_reopened(self):
         def prove():
@@ -634,6 +661,12 @@ class JourneyExecutor:
 
         def denied(path, principal, expected):
             if not self.transport.credentials.get(principal):
+                unavailable = (self.target.get("unavailablePrincipals") or {}).get(principal)
+                if isinstance(unavailable, dict) and unavailable.get("reason") and unavailable.get("blockedBy"):
+                    # The target topology documents why this principal cannot exist there. That one
+                    # assertion is blocked on its named dependency; the rest of the stage still runs.
+                    raise ExecutionError("GET authority denial", unavailable["reason"], blocked=True,
+                                         blocked_by=list(unavailable["blockedBy"]))
                 raise ExecutionError("GET authority denial", f"{principal} credential reference is unavailable", blocked=True)
             if principal == "other-tenant":
                 # Reach a non-admin Studio route before testing a private resource;
@@ -716,12 +749,7 @@ class JourneyExecutor:
 
         def service():
             self.view()
-            datasource = dict(self.fixture["datasource"])
-            reference = datasource.pop("passwordEnv")
-            password = os.environ.get(reference)
-            if not password:
-                raise ExecutionError("CreateConnectionAsync", "datasource password environment reference is unavailable", blocked=True)
-            created = self.sdk_call("CreateConnectionAsync", [{**datasource, "password": password}])
+            created = self.sdk_call("CreateConnectionAsync", [self.datasource_arguments()])
             connection_id = identity(str(created["connectionId"]), "CreateConnectionAsync")
             tested = self.sdk_call("TestConnectionAsync", [connection_id])
             proved = self._check(3, "datasource", "TestConnectionAsync", lambda: self.prove_connection(tested))
@@ -790,7 +818,7 @@ class JourneyExecutor:
                 invoke()
             except ExecutionError as exc:
                 row = probes.Check(f"{number}.execution", "cli", exc.command,
-                    "blocked" if exc.blocked else "fail", exc.reason, [stages.JOURNEY_DRIVER] if exc.blocked else [])
+                    "blocked" if exc.blocked else "fail", exc.reason, (exc.blocked_by or [stages.JOURNEY_DRIVER]) if exc.blocked else [])
                 self.evidence["checks"].setdefault(str(number), {})["execution"] = row.as_receipt()
             except (KeyError, ValueError, TypeError, AttributeError, StopIteration):
                 self.evidence["checks"].setdefault(str(number), {})["execution"] = probes.Check(

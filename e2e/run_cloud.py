@@ -114,11 +114,13 @@ def _results(rows) -> list[CheckResult]:
             for row in rows or []]
 
 
-def provision_phase(target, target_name: str, *, require_real: bool, redis_enabled: bool) -> dict:
+def provision_phase(target, target_name: str, *, require_real: bool, redis_enabled: bool,
+                    journey_datasource: dict | None = None) -> dict:
     """Credentialed half: provision, probe and seed the cell. Nothing third-party runs here.
 
     Returns the handoff the credential-free journey job and the teardown job consume. The handoff
     carries identifiers and verdicts only; the cell's application key goes to Secrets Manager.
+    `journey_datasource` receives the seed's connection in memory for the sealed journey handoff.
     """
     run_id, run_attempt = _run_identity()
     redis_mode = "redis-on" if redis_enabled else "redis-off"
@@ -192,8 +194,9 @@ def provision_phase(target, target_name: str, *, require_real: bool, redis_enabl
                                    if identity.status == 200 else None)
         # The seed needs the cell's database secret, so it runs here. Every seam driver and the
         # journey run later, in the job that holds no cloud credential, before any teardown.
+        seed_kwargs = {} if journey_datasource is None else {"datasource": journey_datasource}
         state["seedError"] = seed_cell(endpoint, target=target,
-                                       out=cloud_journey.cell_dir(cell) / "extended")
+                                       out=cloud_journey.cell_dir(cell) / "extended", **seed_kwargs)
         # The owned 1.1-candidate-image check needs the image ECS reports running.
         if target_name == "aws-ecs":
             try:
@@ -473,11 +476,14 @@ def run(target_name: str, require_real: bool, reference_endpoint: str | None,
         return {"gate": "cloud-parity", "target": target_name, "status": "fail",
                 "why": f"unknown target {target_name!r}; known: {sorted(REGISTRY)}"}
     target = cls(run_id=os.environ.get("GITHUB_RUN_ID", "local"))
-    state = provision_phase(target, target_name, require_real=require_real, redis_enabled=redis_enabled)
+    datasource: dict = {}
+    state = provision_phase(target, target_name, require_real=require_real, redis_enabled=redis_enabled,
+                            journey_datasource=datasource)
     if not state["provisionAttempted"]:
         return state["report"]
     try:
-        journey = journey_phase(state, admin_key=target.admin_api_key, max_attempts=max_attempts)
+        with cloud_journey.cell_datasource(datasource or None):
+            journey = journey_phase(state, admin_key=target.admin_api_key, max_attempts=max_attempts)
     except Exception as e:
         journey = {"status": "fail", "why": f"cloud checks/journey failed: {type(e).__name__}"}
     return teardown_phase(state, journey, target, reference_endpoint=reference_endpoint,
@@ -590,24 +596,47 @@ def open_state(root: Path, bundle: Path, secret_name: str, *, run=subprocess.run
     run(["tar", "-xzf", "-", "-C", str(root)], input=archive, check=True)
 
 
+# RSA-OAEP(SHA-256) seals at most k - 66 bytes per block (190 for a 2048-bit key). The handoff may
+# carry the cell datasource as well as the key, so it is sealed as consecutive blocks of at most
+# this many plaintext bytes; a value that fits one block seals exactly as before.
+SEAL_BLOCK_BYTES = 190
+
+
+def _modulus_bytes(private_key: Path, *, run=subprocess.run) -> int:
+    text = run(["openssl", "pkey", "-in", str(private_key), "-noout", "-text"],
+               capture_output=True, text=True, check=True).stdout
+    bits = re.search(r"\((\d+) bit", text)
+    if not bits or int(bits.group(1)) < 2048 or int(bits.group(1)) % 8:
+        raise ValueError("journey runner key must be RSA of at least 2048 bits")
+    return int(bits.group(1)) // 8
+
+
 def seal_key(secret_name: str, public_key: Path, sealed: Path, *, run=subprocess.run) -> None:
-    """Encrypt the cell's application key to the journey runner's own public key.
+    """Encrypt the cell's journey handoff to the journey runner's own public key.
 
     Job outputs and step env are printed in the public job log, so the key reaches the
     credential-free journey job only as RSA-OAEP ciphertext in an artifact.
     """
-    ciphertext = run(["openssl", "pkeyutl", "-encrypt", "-pubin", "-inkey", str(public_key),
-                      "-pkeyopt", "rsa_padding_mode:oaep", "-pkeyopt", "rsa_oaep_md:sha256"],
-                     input=read_secret(secret_name, run=run).encode("utf-8"),
-                     capture_output=True, check=True).stdout
+    plaintext = read_secret(secret_name, run=run).encode("utf-8")
+    ciphertext = b"".join(
+        run(["openssl", "pkeyutl", "-encrypt", "-pubin", "-inkey", str(public_key),
+             "-pkeyopt", "rsa_padding_mode:oaep", "-pkeyopt", "rsa_oaep_md:sha256"],
+            input=plaintext[offset:offset + SEAL_BLOCK_BYTES], capture_output=True, check=True).stdout
+        for offset in range(0, len(plaintext), SEAL_BLOCK_BYTES))
     sealed.parent.mkdir(parents=True, exist_ok=True)
     sealed.write_bytes(ciphertext)
 
 
 def open_key(sealed: Path, private_key: Path, *, run=subprocess.run) -> str:
-    return run(["openssl", "pkeyutl", "-decrypt", "-inkey", str(private_key),
-                "-pkeyopt", "rsa_padding_mode:oaep", "-pkeyopt", "rsa_oaep_md:sha256", "-in", str(sealed)],
-               capture_output=True, check=True).stdout.decode("utf-8")
+    ciphertext = sealed.read_bytes()
+    block = _modulus_bytes(private_key, run=run)
+    if not ciphertext or len(ciphertext) % block:
+        raise ValueError("sealed handoff is not a whole number of RSA blocks")
+    return b"".join(
+        run(["openssl", "pkeyutl", "-decrypt", "-inkey", str(private_key),
+             "-pkeyopt", "rsa_padding_mode:oaep", "-pkeyopt", "rsa_oaep_md:sha256"],
+            input=ciphertext[offset:offset + block], capture_output=True, check=True).stdout
+        for offset in range(0, len(ciphertext), block)).decode("utf-8")
 
 
 def verify_journey(state: dict, journey: dict, journey_dir: Path) -> dict:
@@ -945,12 +974,16 @@ def _phase_provision(args) -> int:
     # The Actions run id is public, so the cell's application key must not be derived from it.
     # It reaches the journey job only sealed to that runner's own public key.
     os.environ.setdefault("HONUA_ADMIN_PASSWORD", f"Honua-Gate-Aa1!{secrets.token_urlsafe(32)}")
+    datasource: dict = {}
     state = provision_phase(target, args.target, require_real=args.require_real,
-                            redis_enabled=args.redis == "on")
+                            redis_enabled=args.redis == "on", journey_datasource=datasource)
     if state["endpoint"]:
-        # The admit job seals this to the journey runner's public key (seal_key).
+        # The admit job seals this to the journey runner's public key (seal_key). With a seeded
+        # cell it also carries the seed's connection: the terminal journey's datasource
+        # (honua-release#377). It exists only in Secrets Manager and sealed to that runner.
         try:
-            store_secret(app_key_secret_name(cell), target.admin_api_key,
+            store_secret(app_key_secret_name(cell),
+                         cloud_journey.pack_handoff(target.admin_api_key, datasource or None),
                          "Ephemeral cloud-cell application key; deleted by teardown")
         except Exception as error:
             state["report"].update(status="fail", why="could not hand the cell's application key to "
@@ -973,11 +1006,13 @@ def _phase_journey(args) -> int:
         journey = {"cell": cell, "status": "fail", "why": "provision handoff missing or for another cell"}
     else:
         try:
-            admin_key = (open_key(args.sealed_key, args.private_key) if args.sealed_key
-                         else os.environ.get("HONUA_CLOUD_ADMIN_KEY", ""))
+            admin_key, datasource = cloud_journey.unpack_handoff(
+                open_key(args.sealed_key, args.private_key) if args.sealed_key
+                else os.environ.get("HONUA_CLOUD_ADMIN_KEY", ""))
         except Exception:
-            admin_key = ""
-        journey = journey_phase(state, admin_key=admin_key, max_attempts=args.max_attempts)
+            admin_key, datasource = "", None
+        with cloud_journey.cell_datasource(datasource):
+            journey = journey_phase(state, admin_key=admin_key, max_attempts=args.max_attempts)
     _write_json(cloud_journey.cell_dir(cell) / JOURNEY_NAME, journey)
     print(f"== cloud-journey :: {cell} -> {journey.get('status', 'recorded').upper()} ==")
     for c in journey.get("scenarioCoverage", []):
@@ -1069,7 +1104,7 @@ def _phase_model_canary(args) -> int:
     cell = _cell(args.target, args.redis)
     state = _read_json(cloud_journey.cell_dir(cell) / HANDOFF_NAME) or {"cell": cell}
     try:
-        admin_key = open_key(args.sealed_key, args.private_key)
+        admin_key, _ = cloud_journey.unpack_handoff(open_key(args.sealed_key, args.private_key))
     except Exception:
         admin_key = ""
     report = model_canary_phase(state, admin_key=admin_key, lock_digest=args.lock_digest,

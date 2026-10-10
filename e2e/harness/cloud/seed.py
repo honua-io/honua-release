@@ -57,3 +57,5 @@ def seed(endpoint, key, target, out):
         "slice1": {"e2e_src_fs": {"service": "e2e", "layerId": ids["e2e_src_fs"]}},
         "demo": demo}
     (out / "seed-manifest.json").write_text(json.dumps(manifest) + "\n")
+    # The in-memory connection, for a caller that hands it on sealed; never written here.
+    return connection

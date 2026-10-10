@@ -13,6 +13,7 @@ this roster.
 | `journey.v1.json` | The eight numbered stages: id, command, the pinned client commands each needs, and its upstream contracts. Imported by #161; never duplicated there. |
 | `receipt.schema.json` | `terminal-journey-receipt-v1`. Binds package integrities, source SHAs, and the server/fixture/config/auth-policy tuple to a per-stage outcome. |
 | `targets/local-docker.json` | Local Docker target. Extends the owned Docker fixture with a second candidate replica, Redis and an authored GeoServices source; the server digest remains manifest-bound. Stage 3 uploads `fixtures/journey-source.geojson` instead of importing from that source. |
+| `cloud_target.py` | Cloud cell targets (`aws-ecs`, `aws-serverless`), generated per attempt by `e2e/cloud_journey.py` from the local fixture. See [Cloud cells](#cloud-cells). |
 | `pins.py` | Consumes the exact #136 `clientArtifacts` from published registry bytes and proves which terminal commands they actually ship. |
 | `probes.py` | Deterministic probe primitives: HTTP, compose lifecycle, and MCP JSON-RPC through the pinned `honua-mcp-proxy`. |
 | `stages.py` | Contract prerequisites and the outcome discipline. |
@@ -78,6 +79,36 @@ HTTPS on the cell is 2026.1.x hardening). The receipt records `Candidate transpo
 http-cell-allowed (<host>)`. When the imported driver raises, the receipt and job log name the
 exception type and message, the step it reached and its last HTTP exchange (status, path and a
 redacted, bounded body excerpt).
+
+## Cloud cells
+
+`e2e/cloud_journey.py` runs this driver against an `aws-ecs` or `aws-serverless` cell with a target
+document `cloud_target.build` generates for each attempt (`target-<n>.json` next to the receipt).
+The receipt's target kind is the cell's, and its live evidence is `live-aws-ecs` or
+`live-aws-serverless`, so a cloud receipt can qualify its cell (#377). Preview and stub cells keep
+the documented blocked build receipt.
+
+- **Principals.** `local_fixture.credentials` mints the operator, proposer, approver and viewer keys
+  through the cell's admin REST API with the cell's bootstrap credential
+  (`HONUA_CLOUD_JOURNEY_ADMIN`), with the same grants and `layer-write-key` StudioDraft author grants
+  as local Docker. They expire after an hour and the run revokes them when it ends, best effort
+  (`local_fixture.revoke`; the receipt notes how many were revoked). Key material stays in the 0600
+  private state file and memory; the last-exchange trace masks it.
+- **Second tenant.** A cell trusts no issuer the harness holds a signing key for, and admin API keys
+  are tenant-independent, so no second-tenant principal is fabricated. The target documents it as
+  unavailable (`unavailablePrincipals`), and stage 8's tenant-isolation assertion is `blocked` on
+  #377 with that reason while the rest of stage 8 runs.
+- **Datasource.** The cell's own RDS database, with `sslRequired: true` and `sslMode: Require`. The
+  provision job seals the connection its fixture seed used to the journey runner together with the
+  application key (`cloud_journey.pack_handoff`). The target names the coordinates only by
+  environment reference (`HONUA_JOURNEY_DATASOURCE_{HOST,PORT,DATABASE,USERNAME,PASSWORD}`), so the
+  retained target document holds no host, login or password.
+- **Replica.** A cell has one endpoint, so the stage 6 re-read goes through it.
+  `replicaTopology` names what sits behind it and the check's invocation says so: `ecs-alb-tasks`
+  (the ALB spreads requests across ECS tasks; the read is not pinned to another task) or
+  `lambda-function` (one function; any warm or new instance answers).
+- **Transport.** Unchanged: the shared `probes.credential_transport` rule (HTTPS, loopback, or the
+  cell's own load balancer for one attempt).
 
 See the [#120 acceptance audit](../../docs/2026.1-terminal-arc-acceptance.md) for
 pre-cut implementation gaps and separately released exact-candidate reruns.
@@ -241,6 +272,7 @@ Create/Read/Update/Publish operator grants in the isolated stack), because an
 admin caller publishes immediately and never produces an AwaitingApproval
 proposal; a separate `approver` (`admin:approve`); and a `viewer`. Stage 6 reads
 the map family's `currentSchemaVersion` from `GET /api/v1/studio/package-families`.
+Cloud cells mint these through the cell admin API (see [Cloud cells](#cloud-cells)).
 Other targets need environment references for `HONUA_JOURNEY_OPERATOR_KEY` (optional;
 the proposer is used when absent), `HONUA_JOURNEY_PROPOSER_KEY`,
 `HONUA_JOURNEY_APPROVER_KEY` and `HONUA_JOURNEY_DATASOURCE_PASSWORD`; approval

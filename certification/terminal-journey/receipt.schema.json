@@ -42,7 +42,7 @@
       "required": ["id", "kind", "configPath", "configSha256"],
       "properties": {
         "id": {"type": "string", "minLength": 1},
-        "kind": {"enum": ["none", "local-docker", "aws-ecs"]},
+        "kind": {"description": "The target that produced the observations. aws-ecs and aws-serverless are cloud cells driven by e2e/cloud_journey.py (honua-release#377).", "enum": ["none", "local-docker", "aws-ecs", "aws-serverless"]},
         "configPath": {"type": ["string", "null"]},
         "configSha256": {"anyOf": [{"$ref": "#/$defs/sha256"}, {"type": "null"}]},
         "baseUrl": {"type": ["string", "null"]},
@@ -250,7 +250,7 @@
         "uri": {"type": "string", "minLength": 1},
         "source": {
           "description": "'harness-build' is a contract materialization, not an observation. Live observations are attributed to the target that produced them.",
-          "enum": ["harness-build", "live-local-docker", "live-aws-ecs"]
+          "enum": ["harness-build", "live-local-docker", "live-aws-ecs", "live-aws-serverless"]
         },
         "freshness": {"enum": ["unverified", "stale", "verified-current"]},
         "completeness": {"enum": ["incomplete", "partial", "complete"]},
@@ -345,7 +345,7 @@
               "checks": {"minItems": 1, "items": {"properties": {"status": {"const": "pass"}}}},
               "evidence": {
                 "properties": {
-                  "source": {"enum": ["live-local-docker", "live-aws-ecs"]},
+                  "source": {"enum": ["live-local-docker", "live-aws-ecs", "live-aws-serverless"]},
                   "freshness": {"const": "verified-current"},
                   "completeness": {"const": "complete"}
                 }
