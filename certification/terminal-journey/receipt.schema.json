@@ -310,7 +310,7 @@
     },
 
     "topologyRefusal": {
-      "description": "A Redis-off stage recorded by the candidate's typed unavailable refusal instead of an execution (owner ruling redis-governed-control-plane-2026-10-08: Redis is a requirement of the governed control plane). Present only on stage 3 (an extension of the ruling pending the owner's decision) and stages 5-8 (ruled). The cell must declare redis-off and the capability manifest must report the capability dependency-unavailable; the stage then carries no canonical operation or job identity because nothing ran.",
+      "description": "A Redis-off stage recorded by the candidate's typed unavailable refusal instead of an execution (owner ruling redis-governed-control-plane-2026-10-08: Redis is a requirement of the governed control plane). Present only on stage 3 (an extension of the ruling: blocked while it awaits the owner's decision) and stages 5-8 (ruled). The cell must declare redis-off and the capability manifest must report the capability dependency-unavailable; the stage then carries no canonical operation or job identity because nothing ran.",
       "type": "object",
       "additionalProperties": false,
       "required": ["topology", "ruling", "rulingStatus", "tool", "code", "missingDependency", "manifestCapability", "manifestReasonCode", "deploymentEnvironment"],
@@ -379,12 +379,14 @@
       },
       "allOf": [
         {
-          "description": "Only stages 3 (operations.proposals, an extension pending the owner's ruling), 5 (jobs.runner) and 6-8 (operations.proposals) may be recorded by a Redis-off topology refusal.",
+          "description": "Only stages 3 (operations.proposals), 5 (jobs.runner) and 6-8 (operations.proposals) may be recorded by a Redis-off topology refusal. Stage 3 extends the ruling: while that extension awaits the owner's ruling (rulingStatus extension-pending-owner-ruling) the stage is blocked, never a pass.",
           "if": {"required": ["topologyRefusal"]},
           "then": {
             "oneOf": [
-              {"properties": {"number": {"const": 3}, "topologyRefusal": {"properties": {
+              {"properties": {"number": {"const": 3}, "status": {"const": "blocked"}, "topologyRefusal": {"properties": {
                 "manifestCapability": {"const": "operations.proposals"}, "rulingStatus": {"const": "extension-pending-owner-ruling"}}}}},
+              {"properties": {"number": {"const": 3}, "topologyRefusal": {"properties": {
+                "manifestCapability": {"const": "operations.proposals"}, "rulingStatus": {"const": "ruled"}}}}},
               {"properties": {"number": {"const": 5}, "topologyRefusal": {"properties": {
                 "manifestCapability": {"const": "jobs.runner"}, "rulingStatus": {"const": "ruled"}}}}},
               {"properties": {"number": {"enum": [6, 7, 8]}, "topologyRefusal": {"properties": {

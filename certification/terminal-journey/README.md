@@ -124,7 +124,9 @@ the cell. Preview and stub cells keep the documented blocked build receipt.
   (`jobs.runner`) and 6-8 (`operations.proposals`) are the ruling as written; on a Production
   Redis-off cell stages 6-8 stay blocked because stage 3 publishes no layer. Stage 3
   (`operations.proposals`: `honua_publish_service` runs through the governed operation runtime)
-  extends it and is recorded `extension-pending-owner-ruling`. Any other refusal, a redis-on cell,
+  extends it: the stage keeps its `topologyRefusal` evidence but is recorded `blocked`
+  (`extension-pending-owner-ruling`) until the owner rules; changing its entry in
+  `executor.TOPOLOGY_REFUSAL_STAGES` to `ruled` makes it a pass. Any other refusal, a redis-on cell,
   or a manifest that reports the capability available keeps the failure. A local target can
   declare `"redisTopology": "redis-off"` for the same treatment.
 
