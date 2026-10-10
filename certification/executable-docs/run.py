@@ -1006,6 +1006,29 @@ def candidate_container() -> str:
     return cid[0]
 
 
+def refresh_seed_bindings(context: dict[str, Any]) -> None:
+    """Bind fixture layer ids from the manifest the seed wrote, when that file exists.
+
+    ``fixture.mauiBuildingsLayerId`` is the id the admin API returned for the
+    synthetic buildings service. It is not the public demo's layer 13. An older
+    manifest that has no buildings entry leaves the key unset.
+    """
+    manifest_path = Path(os.environ.get("E2E_OUT", str(ROOT / "out"))) / "seed-manifest.json"
+    if not manifest_path.is_file():
+        return
+    import importlib.util
+    path = ROOT / "e2e/harness/seed/plan.py"
+    spec = importlib.util.spec_from_file_location("honua_release_seed_plan", path)
+    if spec is None or spec.loader is None:
+        raise RunError(f"could not load the seed plan at {path}")
+    module = importlib.util.module_from_spec(spec)
+    # dataclass looks the class's module up in sys.modules while the class body runs.
+    sys.modules[spec.name] = module
+    spec.loader.exec_module(module)
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    context.update(module.bind_fixture_context(manifest))
+
+
 def boot_candidate() -> None:
     """Use the canonical stack with a TCP database probe, then its normal health/licensing oracle."""
     command = ["docker", "compose", "-f", str(ROOT / "e2e/harness/compose.candidate.yml"),
@@ -1051,8 +1074,11 @@ def main() -> int:
     context: dict[str, Any] = {"candidate.baseUrl": base_url, "candidate.apiKey": api_key,
                                "candidate.adminPassword": api_key, "candidate.image": image,
                                "candidate.mcpUrl": base_url + "/mcp", "candidate.grpcAddress": "localhost:8081",
-                               # a published layer of e2e/harness/seed (the seed asserts maui-zoning -> layer 2)
+                               # a published layer of e2e/harness/seed (the seed asserts maui-zoning -> layer 2).
+                               # maui-buildings is filled from the seed manifest when the seed has run:
+                               # the returned id, not the public demo's layer 13.
                                "fixture.featureService": "maui-zoning", "fixture.featureLayerId": "2"}
+    refresh_seed_bindings(context)
     context["_pins"] = {str(v["package"]): str(v["version"]) for v in manifest.get("clientArtifacts", {}).values()
                         if v.get("package") and v.get("version")}
     token = os.environ.get("GH_TOKEN") or os.environ.get("GITHUB_TOKEN")
@@ -1141,6 +1167,7 @@ def main() -> int:
                 os.environ["HONUA_SERVER_IMAGE"] = image
                 booted = True   # tear down whatever `up` started, even when it never became ready
                 boot_candidate()
+                refresh_seed_bindings(context)
             network = "host" if args.network == "host" else f"container:{candidate_container()}"
             run_phase(client_docs, network, tools)
     except Exception:

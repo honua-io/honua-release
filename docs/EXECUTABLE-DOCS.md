@@ -139,7 +139,7 @@ values the document already asks for:
 ```
 
 Values may reference `{candidate.baseUrl}` (`http://localhost:8080`), `{candidate.grpcAddress}`, `{candidate.apiKey}`,
-`{candidate.adminPassword}`, `{candidate.mcpUrl}`, `{candidate.image}`, `{session.appDir}` (the directory the session started in) and `{fixture.featureService}`/`{fixture.featureLayerId}` (a layer the candidate seed publishes, for "point this at one of your own layers"). `<doc-id>` is the
+`{candidate.adminPassword}`, `{candidate.mcpUrl}`, `{candidate.image}`, `{session.appDir}` (the directory the session started in), `{fixture.featureService}`/`{fixture.featureLayerId}` (a layer the candidate seed publishes, for "point this at one of your own layers"), and `{fixture.mauiBuildingsLayerId}` (the layer id the seed's `maui-buildings` publish returned, for docs that name the public demo's layer 13). `<doc-id>` is the
 document's `id` in `inventory.json`.
 
 ## Marking a block in a document

@@ -44,6 +44,51 @@ DB_HOST="${E2E_DB_HOST:-db}"   # hostname the SERVER uses to reach PostGIS (comp
 
 psql_apply() { $E2E_PSQL -v ON_ERROR_STOP=1 "$@"; }
 
+# SEED_DRY_RUN exercises this script's SQL and admin requests without PostGIS or the server.
+# The request bodies still come from plan.py, which is the same helper a real seed runs.
+if [ "${SEED_DRY_RUN:-}" = "1" ]; then
+  DRY_LAYER_SEQ=0
+  psql_apply() {
+    if [ -n "${SEED_DRY_SQL:-}" ]; then
+      cat >> "$SEED_DRY_SQL"
+    else
+      cat >/dev/null
+    fi
+  }
+  api_json() {
+    local method="$1" path="$2" data="${3:-}"
+    if [ -n "${SEED_DRY_REQUESTS:-}" ]; then
+      printf '%s\n' "$data" >> "$SEED_DRY_REQUESTS"
+    fi
+    case "$path" in
+      */layers/*/metadata|*/access-policy)
+        if [ "${SEED_DRY_FAIL:-}" = "access" ]; then
+          HTTP_CODE=403
+          HTTP_BODY='{"error":"permission refused"}'
+          return 0
+        fi
+        HTTP_CODE=200
+        HTTP_BODY='{}'
+        ;;
+      */layers)
+        if [ "${SEED_DRY_FAIL:-}" = "publish" ]; then
+          HTTP_CODE=500
+          HTTP_BODY='{"error":"publish refused"}'
+          return 0
+        fi
+        DRY_LAYER_SEQ=$((DRY_LAYER_SEQ + 1))
+        HTTP_CODE=201
+        HTTP_BODY="$(jq -nc --argjson id "$DRY_LAYER_SEQ" '{data:{layerId:$id}}')"
+        ;;
+      *)
+        HTTP_CODE=201
+        HTTP_BODY='{"data":{"connectionId":"dry-run-connection"}}'
+        ;;
+    esac
+  }
+  api_post() { api_json POST "$1" "${2:-}"; }
+fi
+
 echo "== seed: applying deterministic tables via psql =="
 psql_apply <<'SQL'
 CREATE SCHEMA IF NOT EXISTS honua_data;
@@ -243,6 +288,10 @@ INSERT INTO honua_data.workbench_assets (asset_id, title, category, risk, zone, 
  ('facility-1006','Airport fuel isolation valve', 'Critical asset','low',     'X', 39, ST_SetSRID(ST_MakePoint(-157.919,21.322),4326));
 SQL
 
+echo "== seed: applying the synthetic maui-buildings fixture =="
+buildings_sql="$(python3 "$HERE/plan.py" buildings-sql)"
+psql_apply <<<"$buildings_sql"
+
 echo "== seed: creating data connection =="
 api_post "/api/v1/admin/connections/" "$(jq -nc --arg h "$DB_HOST" \
   '{name:"e2e-pg",host:$h,port:5432,databaseName:"honua",username:"honua",password:"honua",provider:"PostGIS",sslRequired:false,sslMode:"Disable"}')"
@@ -250,92 +299,74 @@ CID="$(jget '.data.connectionId // .connectionId // .data.id')"
 [ -z "$CID" ] && { echo "::error:: could not create connection (HTTP $HTTP_CODE): $HTTP_BODY"; exit 1; }
 echo "   connection: $CID"
 
-publish_layer() { # table layerName serviceName geomType [primaryKey]
-  # No explicit `fields` list â€” let the server introspect the real columns so every attribute
-  # (e.g. the string zone_code) is exposed for the three-protocol parity queries.
-  api_post "/api/v1/admin/connections/$CID/layers" "$(jq -nc \
-    --arg t "$1" --arg ln "$2" --arg sn "$3" --arg gt "$4" --arg pk "${5:-gid}" \
-    '{schema:"honua_data",table:$t,layerName:$ln,serviceName:$sn,geometryColumn:"geom",geometryType:$gt,primaryKey:$pk,srid:4326,enabled:true}')"
-  jget '.data.layerId'
-}
+# Publish bodies come from plan.py so the admin request the seed sends is the one the
+# tests execute. No fields list: the server introspects columns (zone_code included).
+# Edit capabilities are declared only for maui-inspections, and only as storageMode
+# managed plus Query/Create/Update/Delete. maui-buildings is published last so the
+# first nine layer ids stay on their historical services.
 
-# The demo pages are anonymous â€” they never ship a credential. demo.honua.io publishes these layers
-# with AllowAnonymous (+ AllowAnonymousWrite on the inspections scratch layer), and without it every
-# demo request 401s and the OData /Layers catalog comes back empty. Both the SERVICE policy and the
-# per-LAYER policy have to be opened: the layer policy is what the OData catalog + OGC collection
-# listings filter on.
+# The demo pages are anonymous. They never ship a credential. demo.honua.io publishes
+# these layers with AllowAnonymous, and AllowAnonymousWrite on the inspections scratch
+# layer. Without that, every demo request 401s and the OData /Layers catalog comes
+# back empty. Both the service policy and the per-layer policy have to be opened:
+# the layer policy is what the OData catalog and OGC collection listings filter on.
 open_anonymous() { # serviceName layerId allowWrite
   api_json PUT "/api/v1/admin/services/$1/access-policy" \
-    "$(jq -nc --argjson w "$3" '{allowAnonymous:true,allowAnonymousWrite:$w}')" >/dev/null
+    "$(jq -nc --argjson w "$3" '{allowAnonymous:true,allowAnonymousWrite:$w}')"
+  printf '%s' "$HTTP_BODY" | python3 "$HERE/plan.py" require-http --step "access-policy $1" --status "$HTTP_CODE"
   api_json PUT "/api/v1/admin/services/$1/layers/$2/metadata" \
-    "$(jq -nc --argjson w "$3" '{accessPolicy:{allowAnonymous:true,allowAnonymousWrite:$w}}')" >/dev/null
+    "$(jq -nc --argjson w "$3" '{accessPolicy:{allowAnonymous:true,allowAnonymousWrite:$w}}')"
+  printf '%s' "$HTTP_BODY" | python3 "$HERE/plan.py" require-http --step "layer-metadata $1/$2" --status "$HTTP_CODE"
 }
 
 # ORDER IS THE CONTRACT: Honua assigns publication ids globally in publish order, and
-# honua-site's assets/demo/layers.json pins parcels=1, zoning=2, roads=3, flood=4, slr=5,
-# place-names=6. Publish the demo layers first, in that exact order.
-echo "== seed: publishing the honua-site demo services =="
-L_PARCELS="$(publish_layer maui_parcels        maui-parcels        maui-parcels        Polygon)"
-L_ZONING="$(publish_layer  maui_zoning         maui-zoning         maui-zoning         Polygon)"
-L_ROADS="$(publish_layer   maui_roads          maui-roads          maui-roads          LineString)"
-L_FLOOD="$(publish_layer   maui_flood_hazard   maui-flood-hazard   maui-flood-hazard   Polygon)"
-L_SLR="$(publish_layer     maui_sea_level_rise maui-sea-level-rise maui-sea-level-rise Polygon)"
-L_PLACES="$(publish_layer  maui_place_names    maui-place-names    maui-place-names    Point)"
-L_INSPECT="$(publish_layer maui_inspections    maui-inspections    maui-inspections    Point id)"
-L_WORKBENCH="$(publish_layer workbench_assets  workbench-assets    honua-workbench     Point OBJECTID)"
+# honua-site assets/demo/layers.json pins parcels=1, zoning=2, roads=3, flood=4, slr=5,
+# place-names=6. Those nine services are published first, in that order. maui-buildings
+# follows them. Docs that hard-code the public demo's layer 13 bind the returned id.
+echo "== seed: publishing services =="
+id_file="$E2E_OUT/seed-layer-ids.txt"
+: > "$id_file"
+while IFS= read -r body; do
+  svc="$(jq -r '.serviceName' <<<"$body")"
+  api_post "/api/v1/admin/connections/$CID/layers" "$body"
+  printf '%s' "$HTTP_BODY" | python3 "$HERE/plan.py" require-http --step "publish $svc" --status "$HTTP_CODE"
+  id="$(jget '.data.layerId // .layerId // empty')"
+  if [ -z "$id" ] || [ "$id" = "null" ]; then
+    echo "::error:: publish $svc returned no layerId (HTTP $HTTP_CODE): $HTTP_BODY" >&2
+    exit 1
+  fi
+  printf '%s %s\n' "$svc" "$id" >> "$id_file"
+  echo "   $svc -> layerId $id"
+done < <(python3 "$HERE/plan.py" publish-bodies | jq -c '.[]')
 
-echo "== seed: publishing the Slice-1 source layer into service 'e2e' =="
-L_SRC="$(publish_layer e2e_src_fs e2e_src_fs e2e Point)"
-
-echo "   maui-parcels      -> layerId $L_PARCELS"
-echo "   maui-zoning       -> layerId $L_ZONING"
-echo "   maui-roads        -> layerId $L_ROADS"
-echo "   maui-flood-hazard -> layerId $L_FLOOD"
-echo "   maui-sea-level-rise -> layerId $L_SLR"
-echo "   maui-place-names  -> layerId $L_PLACES"
-echo "   maui-inspections  -> layerId $L_INSPECT"
-echo "   workbench-assets  -> layerId $L_WORKBENCH"
-echo "   e2e_src_fs        -> layerId $L_SRC"
+layer_id_of() { # serviceName
+  awk -v svc="$1" '$1 == svc { print $2 }' "$id_file"
+}
 
 # honua-site pins these three ids; a drift here silently breaks the demos, so say so loudly.
 pin_check() { # label actual expected
-  [ "$2" = "$3" ] || echo "::warning:: seeded $1 layerId=$2 but honua-site/assets/demo/layers.json pins $3 â€” S9 demos will not resolve"
+  [ "$2" = "$3" ] || echo "::warning:: seeded $1 layerId=$2 but honua-site/assets/demo/layers.json pins $3 - S9 demos will not resolve"
 }
-pin_check maui-parcels    "$L_PARCELS" 1
-pin_check maui-zoning     "$L_ZONING"  2
-pin_check maui-place-names "$L_PLACES" 6
+pin_check maui-parcels "$(layer_id_of maui-parcels)" 1
+pin_check maui-zoning "$(layer_id_of maui-zoning)" 2
+pin_check maui-place-names "$(layer_id_of maui-place-names)" 6
 
 echo "== seed: opening anonymous access on the demo services =="
-open_anonymous maui-parcels        "$L_PARCELS"   false
-open_anonymous maui-zoning         "$L_ZONING"    false
-open_anonymous maui-roads          "$L_ROADS"     false
-open_anonymous maui-flood-hazard   "$L_FLOOD"     false
-open_anonymous maui-sea-level-rise "$L_SLR"       false
-open_anonymous maui-place-names    "$L_PLACES"    false
-open_anonymous maui-inspections    "$L_INSPECT"   true
-open_anonymous honua-workbench     "$L_WORKBENCH" false
+while IFS= read -r row; do
+  svc="$(jq -r '.serviceName' <<<"$row")"
+  write="$(jq -r '.allowAnonymousWrite' <<<"$row")"
+  open_anonymous "$svc" "$(layer_id_of "$svc")" "$write"
+done < <(python3 "$HERE/plan.py" access-plan | jq -c '.[]')
 
-jq -nc \
-  --arg cid "$CID" --arg svc "maui-zoning" \
-  --argjson srcId "${L_SRC:-null}" --argjson zoningId "${L_ZONING:-null}" \
-  --argjson parcels "${L_PARCELS:-null}" --argjson roads "${L_ROADS:-null}" \
-  --argjson flood "${L_FLOOD:-null}" --argjson slr "${L_SLR:-null}" \
-  --argjson places "${L_PLACES:-null}" --argjson inspect "${L_INSPECT:-null}" \
-  --argjson workbench "${L_WORKBENCH:-null}" \
-  '{connectionId:$cid,
-    service:$svc,
-    layers:{e2e_src_fs:$srcId, maui_zoning:$zoningId},
-    slice1:{e2e_src_fs:{service:"e2e", layerId:$srcId}},
-    demo:{
-      "maui-parcels":        {service:"maui-parcels",        layerId:$parcels},
-      "maui-zoning":         {service:"maui-zoning",         layerId:$zoningId},
-      "maui-roads":          {service:"maui-roads",          layerId:$roads},
-      "maui-flood-hazard":   {service:"maui-flood-hazard",   layerId:$flood},
-      "maui-sea-level-rise": {service:"maui-sea-level-rise", layerId:$slr},
-      "maui-place-names":    {service:"maui-place-names",    layerId:$places},
-      "maui-inspections":    {service:"maui-inspections",    layerId:$inspect},
-      "workbench-assets":    {service:"honua-workbench",     layerId:$workbench}
-    }}' \
-  > "$E2E_OUT/seed-manifest.json"
+ids_json="$(python3 -c '
+import json, sys
+ids = {}
+for line in sys.stdin:
+    service, layer_id = line.split()
+    ids[service] = int(layer_id)
+json.dump(ids, sys.stdout, separators=(",", ":"))
+' < "$id_file")"
+python3 "$HERE/plan.py" render-manifest --connection-id "$CID" --ids "$ids_json" > "$E2E_OUT/seed-manifest.json"
+rm -f "$id_file"
 echo "== seed: wrote $E2E_OUT/seed-manifest.json =="
 cat "$E2E_OUT/seed-manifest.json"

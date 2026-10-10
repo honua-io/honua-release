@@ -75,6 +75,18 @@
       "issue": "honua-io/honua-release#470"
     },
     {
+      "repo": "honua-release",
+      "paths": [
+        "certification/executable-docs/fixtures/pinned-seed-queries.json"
+      ],
+      "tokens": [
+        "Esri"
+      ],
+      "reason": "Verbatim fenced block from the pinned honua-sdk-python docs quickstart (inventory sha256 d88cc0bc53aca77fb204408ab924e69d5dce6e84f36f67394d55354292464fc2). certification/executable-docs/test_seed_contract.py requires those excerpt bytes to match the inventory block and the pinned tree, so renaming the comment in this fixture would falsify the pin. The token is that comment naming the geometry JSON rings/paths shape. An upstream rename belongs in honua-sdk-python; this excerpt updates when the pin moves. The exception is this token in this file only.",
+      "owner": "@mikemcdougall",
+      "issue": "honua-io/honua-release#423"
+    },
+    {
       "repo": "honua-server",
       "paths": [
         "src/Honua.Protocols.GeoServices/Catalog/GeoservicesCatalogEndpoints.cs",

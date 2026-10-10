@@ -13,7 +13,11 @@
     },
     "https://demo.honua.io": {
       "value": "{candidate.baseUrl}",
-      "documentedAt": "README.md:99-103 — the examples read the public demo `https://demo.honua.io` `maui-zoning` layer 2; \"To use your own server, change the base URL\""
+      "documentedAt": "README.md:102 — `with HonuaClient(\"https://demo.honua.io\") as client:` in the quick start that queries maui-buildings"
+    },
+    "layer_id=13": {
+      "value": "layer_id={fixture.mauiBuildingsLayerId}",
+      "documentedAt": "README.md:107 and README.md:167 — `locator=SourceLocator(service_id=\"maui-buildings\", layer_id=13)` is the public demo's publication id. The candidate seed appends maui-buildings after the nine stable services and the runner binds the layer id that publish returned."
     }
   }
 }

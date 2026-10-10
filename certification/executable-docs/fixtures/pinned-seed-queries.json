@@ -1,0 +1,124 @@
+{
+  "honua-sdk-python-readme": [
+    {
+      "index": 3,
+      "line": 99,
+      "sha256": "9b447f06d11c2e55b1ead5447973cdc43fc60d0240b7ad8d21d24a8f7d762a94",
+      "language": "python",
+      "intent": "run",
+      "code": "from honua_sdk import HonuaClient, Query, SourceDescriptor, SourceLocator\n\nwith HonuaClient(\"https://demo.honua.io\") as client:\n    source = client.source(\n        SourceDescriptor(\n            id=\"maui-buildings\",\n            protocol=\"geoservices-feature-service\",\n            locator=SourceLocator(service_id=\"maui-buildings\", layer_id=13),\n        )\n    )\n    result = source.query(Query(where=\"status = 'active'\", out_fields=[\"*\"]))\n\n    print(f\"Found {len(result.features)} features\")\n    for feature in result.features[:3]:\n        print(feature.id, feature.properties)\n\n    # Requires the [geopandas] extra\n    gdf = result.to_geodataframe()  # GeoDataFrame with geometry column + CRS set\n    print(gdf.head(), gdf.crs)\n"
+    },
+    {
+      "index": 4,
+      "line": 131,
+      "sha256": "db328cd64029d36b7cb3440c8bd151b7f9f2e414ef5a71ec532776a5f8db6de9",
+      "language": "python",
+      "intent": "run",
+      "code": "from honua_sdk import HonuaClient\n\nwith HonuaClient(\"https://demo.honua.io\") as client:\n    ogc = client.ogc_features()\n    collections = ogc.collections()\n\n    parcels = ogc.collection(\"parcels\")\n    items = parcels.items(limit=100, filter=\"status = 'active'\")\n    feature = parcels.item(\"123\")\n"
+    },
+    {
+      "index": 6,
+      "line": 159,
+      "sha256": "8c08ce0074b1c10d3477037545ccc00d6f2b32aaa7a4ecaf9504d6544a0d26f2",
+      "language": "python",
+      "intent": "run",
+      "code": "from honua_sdk import AsyncHonuaClient, Query, SourceDescriptor, SourceLocator\n\nasync with AsyncHonuaClient(\"https://demo.honua.io\") as client:\n    source = client.source(\n        SourceDescriptor(\n            id=\"maui-buildings\",\n            protocol=\"geoservices-feature-service\",\n            locator=SourceLocator(service_id=\"maui-buildings\", layer_id=13),\n        )\n    )\n    result = await source.query(Query(where=\"1=1\"))\n"
+    }
+  ],
+  "honua-sdk-python-docs-quickstart": [
+    {
+      "index": 1,
+      "line": 56,
+      "sha256": "a37895c61661c7e11d150a316f0ff064fd7d21df060216d99b8dc7e2eccdfed5",
+      "language": "python",
+      "intent": "run",
+      "code": "from honua_sdk import HonuaClient, Query, SourceDescriptor, SourceLocator\n\nwith HonuaClient(\"https://demo.honua.io\") as client:\n    source = client.source(\n        SourceDescriptor(\n            id=\"maui-buildings\",\n            protocol=\"geoservices-feature-service\",\n            locator=SourceLocator(service_id=\"maui-buildings\", layer_id=13),\n        )\n    )\n    result = source.query(Query(where=\"height > 10\", out_fields=[\"id\", \"height\"]))\n\nprint(f\"Found {len(result.features)} features\")\nfor feature in result.features[:3]:\n    print(feature.properties)\n"
+    },
+    {
+      "index": 3,
+      "line": 107,
+      "sha256": "745f3b50f9d411ca1658ddcd6add4bace4a768a7b6cf4715e0d7fe172d677beb",
+      "language": "python",
+      "intent": "run",
+      "code": "from honua_sdk.geopandas import features_to_geodataframe\n\nraw = client.query_features(\"maui-buildings\", layer_id=13, where=\"height > 10\")\ngdf = features_to_geodataframe(raw)\n"
+    },
+    {
+      "index": 10,
+      "line": 229,
+      "sha256": "695d2a959e3971e6508296e9ec425af86ddefd39f65b4549fb8e242b23ceb886",
+      "language": "python",
+      "intent": "run",
+      "code": "\"\"\"quickstart.py -- Honua SDK 5-minute demo.\"\"\"\n\nimport matplotlib.pyplot as plt\n\nfrom honua_sdk import (\n    HonuaClient,\n    Query,\n    SourceDescriptor,\n    SourceLocator,\n)\n\nSERVER = \"https://demo.honua.io\"\n\n# --- Query features --------------------------------------------------------\nwith HonuaClient(SERVER) as client:\n    source = client.source(\n        SourceDescriptor(\n            id=\"maui-buildings\",\n            protocol=\"geoservices-feature-service\",\n            locator=SourceLocator(service_id=\"maui-buildings\", layer_id=13),\n        )\n    )\n    result = source.query(Query(where=\"1=1\", out_fields=[\"*\"]))\n\nprint(f\"Found {len(result.features)} features\")\n\n# --- Build GeoDataFrame ----------------------------------------------------\ngdf = result.to_geodataframe()\n\n# --- Plot ------------------------------------------------------------------\nax = gdf.plot(column=\"render_height\", legend=True, figsize=(12, 8))\nax.set_title(\"Maui building footprints by height\")\n\nplt.savefig(\"features.png\", dpi=150, bbox_inches=\"tight\")\nplt.show()\n"
+    },
+    {
+      "index": 11,
+      "line": 283,
+      "sha256": "d88cc0bc53aca77fb204408ab924e69d5dce6e84f36f67394d55354292464fc2",
+      "language": "python",
+      "intent": "run",
+      "code": "import geopandas as gpd\nfrom shapely.geometry import shape\n\nraw = client.query_features(\"maui-buildings\", layer_id=13, where=\"height > 10\")\nfeatures = raw.get(\"features\", [])\n\nrows = []\nfor f in features:\n    attrs = dict(f.get(\"attributes\", {}))\n    geom = f.get(\"geometry\")\n\n    # Esri JSON rings/paths -> GeoJSON-style dict for shapely\n    if geom and \"rings\" in geom:\n        geom = {\"type\": \"Polygon\", \"coordinates\": geom[\"rings\"]}\n    elif geom and \"paths\" in geom:\n        geom = {\"type\": \"LineString\", \"coordinates\": geom[\"paths\"][0]}\n    elif geom and \"x\" in geom:\n        geom = {\"type\": \"Point\", \"coordinates\": [geom[\"x\"], geom[\"y\"]]}\n\n    attrs[\"geometry\"] = shape(geom) if geom else None\n    rows.append(attrs)\n\ngdf = gpd.GeoDataFrame(rows, geometry=\"geometry\", crs=\"EPSG:4326\")\n"
+    },
+    {
+      "index": 13,
+      "line": 347,
+      "sha256": "933a4938a90a67ffe937be8fb20982155b7c5add7abba68eaaf0cc42b22860fb",
+      "language": "python",
+      "intent": "run",
+      "code": "import time\nfrom honua_sdk import HonuaClient, HonuaRateLimitError\n\nwith HonuaClient(SERVER, retry_methods={\"GET\", \"POST\"}) as client:\n    for attempt in range(5):\n        try:\n            client.apply_edits(\"svc\", 0, adds=[{\"attributes\": {\"OBJECTID\": 1}}])\n            break\n        except HonuaRateLimitError as exc:\n            wait_s = exc.retry_after or 2 ** attempt\n            print(f\"429; sleeping {wait_s}s before retry {attempt + 1}\")\n            time.sleep(wait_s)\n    else:\n        raise SystemExit(\"Gave up after 5 retries\")\n"
+    }
+  ],
+  "honua-sdk-js-readme": [
+    {
+      "index": 10,
+      "line": 464,
+      "sha256": "f7b5412691498d9c2d9131536916720f86b9c0c6be6e373a769097054afee4f3",
+      "language": "shell",
+      "intent": "run",
+      "code": "npm i -g @honua/sdk-js            # or, without installing: npx -p @honua/sdk-js honua <command>\nexport HONUA_BASE_URL=https://demo.honua.io   # anonymous reads on the public demo\n\nhonua services                    # list published services\nhonua layers maui-parcels         # list a service's layers\nhonua query maui-parcels/1 --count\nhonua query maui-parcels/1 --limit 1 --format json   # one feature: shows the layer's fields\nhonua query maui-parcels/1 --where \"zone = '1'\" --limit 5\nhonua query maui-parcels/1 --bbox -156.7,20.7,-156.3,21.0 --format geojson\nhonua explain maui-parcels/1 --bbox -156.7,20.7,-156.3,21.0 --json   # the plan, no server call\nhonua stac collections\nhonua geocode \"1 Honolulu Pl, HI\"\nhonua tiles maui-parcels 12/912/1809 -o tile.png\n"
+    }
+  ],
+  "honua-sdk-python-install": [
+    {
+      "index": 3,
+      "line": 68,
+      "sha256": "65adc336e5e84b5d19d9dc679f6d10a72e5b0595e0b5fc4c2a34da40df067279",
+      "language": "python",
+      "intent": "run",
+      "code": "from honua_sdk import HonuaClient, Query, SourceDescriptor, SourceLocator\n\nwith HonuaClient(base_url=\"https://your-honua-server.com\") as client:\n    # Query features through the shared Source/Query/Result API\n    source = client.source(\n        SourceDescriptor(\n            id=\"parcels\",\n            protocol=\"geoservices-feature-service\",\n            locator=SourceLocator(service_id=\"parcels\", layer_id=0),\n        )\n    )\n    result = source.query(\n        Query(where=\"status = 'active'\", out_fields=[\"*\"])\n    )\n\n    print(f\"Found {len(result.features)} features\")\n"
+    },
+    {
+      "index": 4,
+      "line": 93,
+      "sha256": "10961693ca0f80f9e74675069dca7a921f42c82ec9d76fa90515f7f85d99ba04",
+      "language": "python",
+      "intent": "run",
+      "code": "import grpc\n\nfrom honua_sdk.grpc import HonuaGrpcClient, QueryFeaturesRequest\n\nrequest = QueryFeaturesRequest(service_id=\"parcels\", layer_id=0)\n\n# Production: TLS via channel credentials\nwith HonuaGrpcClient(\n    \"grpc.your-honua-server.com:443\",\n    credentials=grpc.ssl_channel_credentials(),\n) as client:\n    # Stream features\n    for page in client.query_features_stream(request):\n        print(page)\n\n# Local dev: plaintext channel (must opt in explicitly)\nwith HonuaGrpcClient(\"localhost:50051\", insecure=True) as client:\n    for page in client.query_features_stream(request):\n        print(page)\n"
+    },
+    {
+      "index": 6,
+      "line": 163,
+      "sha256": "caccdb5c5a8a76d0a1f43165112f1fb43f677f35129f6474bcfa9624d1f54004",
+      "language": "python",
+      "intent": "run",
+      "code": "from honua_sdk import HonuaClient, Query, SourceDescriptor, SourceLocator\n\nwith HonuaClient(base_url=\"https://your-honua-server.com\") as client:\n    source = client.source(\n        SourceDescriptor(\n            id=\"parcels\",\n            protocol=\"geoservices-feature-service\",\n            locator=SourceLocator(service_id=\"parcels\", layer_id=0),\n        )\n    )\n    result = source.query(Query(where=\"status = 'active'\", out_fields=[\"*\"]))\n    for feature in result.features:\n        # Typed ``QueryFeature`` -- attributes live under ``.properties``.\n        print(feature.id, feature.properties)\n"
+    }
+  ],
+  "honua-sdk-python-packages-honua-sdk-readme": [
+    {
+      "index": 1,
+      "line": 51,
+      "sha256": "2946094939d043b54532840b866d22da9949a536f97c5cf322664c24df489b27",
+      "language": "python",
+      "intent": "run",
+      "code": "from honua_sdk import HonuaClient, Query, SourceDescriptor, SourceLocator\n\nwith HonuaClient(\"https://your-honua-server.com\") as client:\n    source = client.source(\n        SourceDescriptor(\n            id=\"parcels\",\n            protocol=\"geoservices-feature-service\",\n            locator=SourceLocator(service_id=\"parcels\", layer_id=0),\n        )\n    )\n    result = source.query(Query(where=\"status = 'active'\", out_fields=[\"*\"]))\n    print(f\"Found {len(result.features)} features\")\n    for feature in result.features[:3]:\n        print(feature.id, feature.properties)\n\n    # Requires the [geopandas] extra\n    gdf = result.to_geodataframe()  # GeoDataFrame with geometry column + CRS set\n"
+    },
+    {
+      "index": 2,
+      "line": 80,
+      "sha256": "b5066ea65dfcc18a7e914c39284885eee9541de323a709ed8aea553628397b0e",
+      "language": "python",
+      "intent": "run",
+      "code": "from honua_sdk import AsyncHonuaClient, Query, SourceDescriptor, SourceLocator\n\nasync with AsyncHonuaClient(\"https://your-honua-server.com\") as client:\n    source = client.source(\n        SourceDescriptor(\n            id=\"parcels\",\n            protocol=\"geoservices-feature-service\",\n            locator=SourceLocator(service_id=\"parcels\", layer_id=0),\n        )\n    )\n    result = await source.query(Query(where=\"status = 'active'\", out_fields=[\"*\"]))\n    async for feature in source.stream(Query(where=\"status = 'active'\")):\n        print(feature.properties, feature.geometry)\n"
+    }
+  ]
+}
