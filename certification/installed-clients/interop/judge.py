@@ -361,12 +361,22 @@ def oracle_proposal_resolved(observed: dict[str, Any], principals: dict[str, Any
 
 
 def oracle_publication_active(observed: dict[str, Any], plan: dict[str, Any]) -> tuple[bool, str]:
+    """The publication request the JS SDK created (by the id the server named) polls to Active with its final URL.
+
+    The governed path names the pending request in the 202 handle's `resourceIds.requestId` (honua-server#5434);
+    approval persists the request under that id. An Active request without a URL is reported on its own, so a
+    server read that omits the final URL is not confused with a request that never went live.
+    """
     if not observed.get("requestId"):
         return False, "the publication request id is absent from the create response, so the request cannot be polled"
     state, url = observed.get("state"), observed.get("publicationUrl")
     route = plan["proposal"]["route"]
-    ok = state == "Active" and isinstance(url, str) and url.rstrip("/").endswith(route)
-    return ok, f"publication state {state!r}, URL at the fixture route: {isinstance(url, str) and url.rstrip('/').endswith(route)}"
+    if state == "Active" and not (isinstance(url, str) and url):
+        return False, (f"publication request polled to 'Active' (server status {observed.get('status')!r}), "
+                       "but the read carries no final publication URL")
+    at_route = isinstance(url, str) and url.rstrip("/").endswith(route)
+    ok = state == "Active" and at_route
+    return ok, f"publication state {state!r}, URL at the fixture route: {at_route}"
 
 
 def oracle_published_pointer(observed: dict[str, Any], saved: dict[str, Any] | None) -> tuple[bool, str]:
@@ -400,18 +410,27 @@ def content_hash_derived(observed: dict[str, Any], body: Any) -> tuple[bool, str
 
 def oracle_published_content(observed: dict[str, Any], fixture: dict[str, Any], plan: dict[str, Any],
                              saved: dict[str, Any] | None) -> tuple[bool, str]:
+    """Agreement across clients is checked first; the digest must then also be recomputed from its canonical input.
+
+    Agreement (family, the JS-saved content hash, the fixture map body) is what an oracle can check today.
+    Recomputing the digest needs a client-verifiable canonical form (honua-server#5449). Without one the
+    step reports agreement and names the missing derivation; it never passes on agreement alone.
+    """
     body = bound_map_body(fixture, plan["sites"]["collectionId"])
-    derived, derivation = content_hash_derived(observed, body)
-    checks = {
+    agreement = {
         "family map": str(observed.get("family") or "").lower() == fixture["proposal"]["envelope"]["family"],
         "content hash equals the saved version's": bool(saved) and observed.get("contentHash") == (saved or {}).get("contentHash"),
-        "content hash recomputed from the approved content": derived,
         "map body equals the fixture": observed.get("body") == body,
     }
-    failed = [name for name, ok in checks.items() if not ok]
-    if not failed:
-        return True, f"published version's family, content hash and map body equal the fixture and the saved version; {derivation}"
-    return False, f"published version differs: failed {', '.join(failed)}" + ("" if derived else f" ({derivation})")
+    failed = [name for name, ok in agreement.items() if not ok]
+    derived, derivation = content_hash_derived(observed, body)
+    if failed:
+        return False, f"published version differs: failed {', '.join(failed)}"
+    agreed = ("published version agrees across clients: family map, the content hash the JS SDK saved, "
+              "and the fixture map body")
+    if not derived:
+        return False, f"{agreed}; the content hash is not recomputed from the approved content: {derivation}"
+    return True, f"{agreed}; {derivation}"
 
 
 def oracle_published_url(observed: dict[str, Any], fixture: dict[str, Any], plan: dict[str, Any],

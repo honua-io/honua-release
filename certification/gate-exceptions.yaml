@@ -56,19 +56,6 @@ gates:
       in build-test. This is a real dependency problem in the pinned SDK, not a registry gap, so the
       gate's tolerant path deliberately does not excuse it.
 
-  contract:
-    issue: https://github.com/honua-io/honua-release/issues/71
-    why: >-
-      rest-sdk-api is GREEN as of honua-release#104: the four baselines in contracts/baselines/2026.1
-      were re-extracted at the pins landed by #101 (honua-server and honua-sdk-dotnet extract
-      byte-identically; honua-sdk-python added 11 symbols and removed none; honua-sdk-js added 942
-      importable names and removed none once the TS extractor stopped keying symbols by declaring
-      file). What keeps this gate red is the OTHER check: contract-suppression reports BLOCKED
-      because repo-wide breaking-change suppression is still ACTIVE in honua-io/honua-server
-      (OPENAPI_ALLOW_BREAKING_CHANGES=true, window opened 2026-07-29T16:53:29Z). It must be off, or
-      replaced by the per-PR mechanism, before the first published control-plane API release. That is
-      an owner action tracked by honua-release#71, not something any change in this repo can fix.
-
   cloud-parity:
     issue: https://github.com/honua-io/honua-release/issues/103
     why: >-

@@ -2,7 +2,7 @@
 # aws-serverless is Lambda + AWS Batch geoprocessing; EKS is informational Preview evidence. The mixed
 # ECS + Batch cell is out of the 2026.1 rc.3 matrix: its IaC root does not exist yet (restore it when
 # honua-iac#209 lands).
-# Every cell retains attempts, reads the run cost meter before teardown, and always runs its teardown job.
+# Every cell retains attempts, records its live cost estimate before teardown, and always runs its teardown job.
 # Extended MCP / Studio / GP / demo seams use the local drivers on the live endpoint before teardown.
 # They and the pinned journey clients run in each cell's credential-free journey job
 # (e2e-cloud-aws-cell.yml, honua-release#381). The reviewed site's CSP genuinely BLOCKs top-demo on an
@@ -30,7 +30,7 @@ on:
         options: [both, "off", "on"]
         default: both
       cost_ceiling_usd:
-        description: "Per-run USD ceiling; requires current cumulative run-cost.json from the harness meter"
+        description: "Per-run USD ceiling: the live estimate gates this run; Cost Explorer actuals gate the next"
         type: string
         default: "20"
       run_iac_live:
@@ -58,7 +58,7 @@ on:
         type: string
         default: both
       cost_ceiling_usd:
-        description: "Per-run USD ceiling; requires current cumulative run-cost.json from the harness meter"
+        description: "Per-run USD ceiling: the live estimate gates this run; Cost Explorer actuals gate the next"
         type: string
         default: "20"
       run_iac_live:
@@ -483,6 +483,32 @@ jobs:
           path: reports
         continue-on-error: true
 
+      # Owner decision 9: the run's cost is the sum of the cells' live estimates (each read from the
+      # cell's Terraform state before destroy), and Cost Explorer's lagged actuals for EARLIER runs
+      # (by the honua-release:run-id tag) are recorded here so an over-ceiling run fails the next
+      # certifying run. Read-only: ce:ListCostAllocationTags + ce:GetCostAndUsage (e2e/README.md).
+      - name: Configure AWS credentials for Cost Explorer (OIDC, read-only use)
+        if: ${{ vars.HONUA_AWS_ROLE_ARN != '' }}
+        continue-on-error: true
+        uses: aws-actions/configure-aws-credentials@e1253824e5c10ff9df46874f81ed3ec929e19cfd # v6.3.0
+        with:
+          role-to-assume: ${{ vars.HONUA_AWS_ROLE_ARN }}
+          aws-region: us-east-1
+      - name: Meter the run cost (cell estimates + prior-run Cost Explorer actuals)
+        env:
+          HONUA_CLOUD_COST_CEILING_USD: ${{ inputs.cost_ceiling_usd || '20' }}
+          REQUESTED_TARGET: ${{ inputs.target || 'all' }}
+          REQUESTED_REDIS: ${{ inputs.redis_mode || 'both' }}
+        run: |
+          set -euo pipefail
+          # Every cell the parity matrix dispatched (Preview included) must account for its cost.
+          TARGETS="aws-serverless aws-ecs aws-eks"; [ "$REQUESTED_TARGET" = all ] || TARGETS="$REQUESTED_TARGET"
+          MODES="off on"; [ "$REQUESTED_REDIS" = both ] || MODES="$REQUESTED_REDIS"
+          CELLS=""
+          for t in $TARGETS; do for r in $MODES; do CELLS="${CELLS:+$CELLS,}$t/redis-$r"; done; done
+          python e2e/cost_meter.py run --reports reports --output e2e/cloud-evidence/run-cost.json \
+            --expected-cells "$CELLS"
+          python e2e/cost_meter.py prior-runs --output e2e/cloud-evidence/prior-run-costs.json
       - name: Assemble cloud gate-report.json
         id: assemble
         env:
@@ -495,14 +521,15 @@ jobs:
           REQUESTED_IAC_LIVE: ${{ github.event_name == 'schedule' || inputs.run_iac_live }}
           HONUA_CLOUD_COST_CEILING_USD: ${{ inputs.cost_ceiling_usd || '20' }}
           AGGREGATION_STARTED_AT: ${{ steps.started.outputs.at }}
-        # The harness meter must refresh e2e/cloud-evidence/run-cost.json with cumulative run USD
-        # after every cloud job above has finished. Missing, stale or over-ceiling fails the gate.
+        # The meter step above wrote e2e/cloud-evidence/run-cost.json (the run's estimate) after every
+        # cloud job finished. Missing, stale or over-ceiling fails the gate; an earlier run's settled
+        # Cost Explorer actual over its ceiling fails a full-scope run.
         run: |
           set -euo pipefail
           mkdir -p out
           python e2e/cloud_journey.py --reports reports --output merged.json \
             --final-cost "${HONUA_CLOUD_COST_REPORT:-e2e/cloud-evidence/run-cost.json}" \
-            --final-cost-after "$AGGREGATION_STARTED_AT"
+            --final-cost-after "$AGGREGATION_STARTED_AT"             --prior-run-costs e2e/cloud-evidence/prior-run-costs.json
           if [ "$CANDIDATE_RESULT" != "success" ]; then
             jq --arg why "candidate prerequisite ended $CANDIDATE_RESULT" \
               '.status="fail" | .why=$why' merged.json > checked.json
@@ -545,6 +572,11 @@ jobs:
             echo "";
             echo "### Canary probes (honua-release#61 — generic/no-seed-id mode)";
             jq -r '.canaryProbes[]? | "- **\(.name)**: \(.status) — \(.why)"' out/gate-report-cloud.json;
+            echo "";
+            echo "### Run cost (owner decision 9)";
+            jq -r '.finalCost // {} | "- this run (live estimate): \(.status // "none") $\(.estimateUsd // .amountUsd // "n/a") of $\(.ceilingUsd // "n/a") \(.why // "")"' out/gate-report-cloud.json;
+            jq -r '.priorRunCosts // {} | "- earlier runs (Cost Explorer): \(.status // "none") \(.why // "")"' out/gate-report-cloud.json;
+            jq -r '.priorRunCosts.runs[]? | "  - run \(.runId): \(.status) $\(.actualUsd) of $\(.ceilingUsd) (\(.ceilingSource), through \(.actualAsOf))"' out/gate-report-cloud.json;
           } >> "$GITHUB_STEP_SUMMARY"
 
       - name: Upload aggregated cloud gate-report
