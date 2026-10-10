@@ -66,7 +66,8 @@ _CELL_WORKFLOW_ENV = ("HONUA_LAMBDA_IMAGE_URI", "HONUA_LAMBDA_ARCHITECTURE", "HO
                       "HONUA_ENABLE_BEDROCK_AI", "HONUA_CLOUD_COST_CEILING_USD", "HONUA_RUN_URL",
                       "CELL_DIR", "CELL_ARTIFACT", "HONUA_AWS_OPERATION_KEY_RING_SECRET_ARN",
                       "HONUA_AWS_OPERATION_KEY_RING_SECRET_KMS_KEY_ARN", "HONUA_AWS_AUDIT_CHAIN_KEY_SECRET_ARN",
-                      "HONUA_AWS_AUDIT_CHAIN_KEY_SECRET_KMS_KEY_ARN")
+                      "HONUA_AWS_AUDIT_CHAIN_KEY_SECRET_KMS_KEY_ARN", "HONUA_AWS_CELL_DNS_ZONE_ID",
+                      "HONUA_AWS_CELL_DNS_PARENT")
 
 
 @pytest.fixture(autouse=True)
@@ -3875,3 +3876,248 @@ def test_model_canary_step_is_green_only_on_a_pass_or_an_unbound_blocked_row(mon
                      lock_digest=lock, max_attempts=2)
     assert run_cloud._phase_model_canary(args) == code
     assert ("::notice::genuine-model canary blocked" in capsys.readouterr().out) is notice
+
+
+# ---- honua-release#450: per-run HTTPS hostname + demo CORS origin on the ECS cells -----------------
+CELL_ZONE = "Z089181827C9GKIKHXUTT"
+_DOMAIN_ROOT_VARS = ("domain_name", "route53_zone_id", "allow_https_ingress_cidrs",
+                     "allow_http_ingress_cidrs", "cors_allowed_origins")
+
+
+def _cell_dns(monkeypatch, zone=CELL_ZONE, parent="demo.honua.io"):
+    monkeypatch.setenv("HONUA_AWS_CELL_DNS_ZONE_ID", zone)
+    monkeypatch.setenv("HONUA_AWS_CELL_DNS_PARENT", parent)
+
+
+def test_cell_dns_variables_never_leak_into_a_test():
+    assert "HONUA_AWS_CELL_DNS_ZONE_ID" not in os.environ
+    assert "HONUA_AWS_CELL_DNS_PARENT" not in os.environ
+
+
+def test_ecs_cell_hostname_is_per_run_per_cell_and_under_the_parent(monkeypatch):
+    import re as _re
+    _ecs_env(monkeypatch)
+    _cell_dns(monkeypatch)
+    names = {(run, redis): ecs(run_id=run).cell_domain(redis)[0]
+             for run in ("38038433205", "38038433206") for redis in (True, False)}
+    assert names[("38038433205", False)] == "38038433205-aws-ecs-redis-off.cert.demo.honua.io"
+    assert names[("38038433205", True)] == "38038433205-aws-ecs-redis-on.cert.demo.honua.io"
+    # Two cells of one run, and the same cell of two runs, never share a name (run ids sharing a
+    # prefix included: the label carries the whole run id, unlike the 18-character name_prefix).
+    assert len(set(names.values())) == 4
+    for fqdn in names.values():
+        label = fqdn.split(".", 1)[0]
+        assert fqdn.endswith(".cert.demo.honua.io") and len(fqdn) <= 64
+        assert _re.fullmatch(r"[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?", label)
+        # The reviewed demo CSP admits https://(*.)honua.io only (honua-site csp-bootstrap.js).
+        assert _re.fullmatch(r"https://(?:[a-z0-9-]+\.)*honua\.io", "https://" + fqdn)
+    # Deterministic: the teardown job's fresh process recomputes the apply's name.
+    assert ecs(run_id="38038433205").cell_domain(False) == (names[("38038433205", False)], CELL_ZONE)
+    # A hostile or over-long run id still yields one valid, bounded, distinct label.
+    long_a = ecs(run_id="Local_Run." + "9" * 80).cell_domain_label(False)
+    long_b = ecs(run_id="Local_Run." + "9" * 79 + "8").cell_domain_label(False)
+    assert long_a != long_b and _re.fullmatch(r"[a-z0-9][a-z0-9-]*[a-z0-9]", long_a)
+    assert len(f"{long_a}.cert.demo.honua.io") <= 64
+    # Uppercase or trailing-dot parents normalise; the label sits one level under cert.<parent>.
+    _cell_dns(monkeypatch, parent="Demo.Honua.IO.")
+    assert ecs(run_id="r1").cell_domain(True)[0] == "r1-aws-ecs-redis-on.cert.demo.honua.io"
+
+
+def test_ecs_cell_with_the_dns_variables_applies_https_domain_and_https_ingress(monkeypatch):
+    _ecs_env(monkeypatch)
+    _cell_dns(monkeypatch)
+    with tempfile.TemporaryDirectory() as base:
+        _iac_root_with(monkeypatch, base, "aws", *_DOMAIN_ROOT_VARS)
+        for redis in (False, True):
+            if redis:
+                monkeypatch.setenv("HONUA_AWS_OPERATION_KEY_RING_SECRET_ARN", KEY_RING_ARN)
+            values = _tf_vars(ecs(run_id="38038433205")._vars(redis))
+            mode = "on" if redis else "off"
+            assert values["domain_name"] == f"38038433205-aws-ecs-redis-{mode}.cert.demo.honua.io"
+            assert values["route53_zone_id"] == CELL_ZONE
+            # HTTPS ingress for the runner's /32; plain-HTTP ingress is not requested.
+            assert json.loads(values["allow_https_ingress_cidrs"]) == ["192.0.2.10/32"]
+            assert "allow_http_ingress_cidrs" not in values
+            assert json.loads(values["cors_allowed_origins"]) == ["http://127.0.0.1:18099"]
+        # Destroy recomputes the same name, so teardown plans against what apply created.
+        assert _tf_vars(ecs(run_id="38038433205")._vars(False, destroy=True))["domain_name"] == \
+            "38038433205-aws-ecs-redis-off.cert.demo.honua.io"
+
+
+def test_ecs_cell_without_the_dns_variables_keeps_plain_http_and_says_so(monkeypatch, capsys):
+    _ecs_env(monkeypatch)
+    with tempfile.TemporaryDirectory() as base:
+        _iac_root_with(monkeypatch, base, "aws", *_DOMAIN_ROOT_VARS)
+        target = ecs(run_id="r1")
+        values = _tf_vars(target._vars(False))
+        assert "domain_name" not in values and "route53_zone_id" not in values
+        assert "allow_https_ingress_cidrs" not in values
+        assert json.loads(values["allow_http_ingress_cidrs"]) == ["192.0.2.10/32"]
+        # The CORS origin does not depend on the hostname.
+        assert json.loads(values["cors_allowed_origins"]) == ["http://127.0.0.1:18099"]
+        assert target.cell_domain(False) is None
+        monkeypatch.setattr(target, "_tf", lambda root, *args, check=True: subprocess.CompletedProcess(
+            args, 0, "http://cell.elb.amazonaws.com\n", ""))
+        assert target.provision(redis_enabled=False) == "http://cell.elb.amazonaws.com"
+        assert "plain-HTTP" in capsys.readouterr().out
+        # Blank values are unset, not a malformed zone.
+        monkeypatch.setenv("HONUA_AWS_CELL_DNS_ZONE_ID", " ")
+        monkeypatch.setenv("HONUA_AWS_CELL_DNS_PARENT", "")
+        assert "domain_name" not in _tf_vars(ecs(run_id="r1")._vars(False))
+
+
+def test_ecs_cell_logs_its_https_hostname_on_provision(monkeypatch, capsys):
+    _ecs_env(monkeypatch)
+    _cell_dns(monkeypatch)
+    with tempfile.TemporaryDirectory() as base:
+        _iac_root_with(monkeypatch, base, "aws", *_DOMAIN_ROOT_VARS)
+        target = ecs(run_id="38038433205")
+        monkeypatch.setattr(target, "_tf", lambda root, *args, check=True: subprocess.CompletedProcess(
+            args, 0, "https://38038433205-aws-ecs-redis-off.cert.demo.honua.io\n", ""))
+        assert target.provision(redis_enabled=False).startswith("https://")
+        assert "HTTPS cell hostname 38038433205-aws-ecs-redis-off.cert.demo.honua.io" in capsys.readouterr().out
+
+
+@pytest.mark.parametrize("zone,parent,match", [
+    (CELL_ZONE, "", "HONUA_AWS_CELL_DNS_PARENT is unset"),
+    ("", "demo.honua.io", "HONUA_AWS_CELL_DNS_ZONE_ID is unset"),
+    ("not-a-zone", "demo.honua.io", "hosted zone id"),
+    (CELL_ZONE, "demo honua io", "not a DNS name"),
+    (CELL_ZONE, "a" * 40 + ".honua.io", "64-octet"),
+])
+def test_ecs_cell_dns_misconfiguration_refuses_provision_but_never_destroy(monkeypatch, zone, parent, match):
+    _ecs_env(monkeypatch)
+    monkeypatch.setenv("HONUA_AWS_CELL_DNS_ZONE_ID", zone)
+    monkeypatch.setenv("HONUA_AWS_CELL_DNS_PARENT", parent)
+    with tempfile.TemporaryDirectory() as base:
+        _iac_root_with(monkeypatch, base, "aws", *_DOMAIN_ROOT_VARS)
+        with pytest.raises(ProvisionError, match=match):
+            ecs(run_id="r1")._vars(False)
+        assert "domain_name" not in _tf_vars(ecs(run_id="r1")._vars(False, destroy=True))
+
+
+def test_ecs_cell_dns_on_a_root_without_the_domain_inputs_refuses(monkeypatch):
+    _ecs_env(monkeypatch)
+    _cell_dns(monkeypatch)
+    with tempfile.TemporaryDirectory() as base:
+        _iac_root_with(monkeypatch, base, "aws", "allow_http_ingress_cidrs")
+        with pytest.raises(ProvisionError, match="domain_name"):
+            ecs(run_id="r1")._vars(False)
+        values = _tf_vars(ecs(run_id="r1")._vars(False, destroy=True))
+        # An older root without cors_allowed_origins gets no CORS var (Terraform rejects undeclared vars).
+        assert "domain_name" not in values and "cors_allowed_origins" not in values
+
+
+def test_serverless_cell_gets_no_custom_domain_or_cors_input(monkeypatch):
+    # aws-serverless custom-domain wiring is out of scope; its spec must not inherit the ECS one.
+    from targets.terraform_target import SERVERLESS_SPEC
+    assert not SERVERLESS_SPEC.cell_domain and SERVERLESS_SPEC.cors_allowed_origins == ()
+    _serverless_env(monkeypatch)
+    _cell_dns(monkeypatch)
+    with tempfile.TemporaryDirectory() as base:
+        _iac_root_with(monkeypatch, base, "aws-serverless", *_DOMAIN_ROOT_VARS)
+        values = _tf_vars(serverless(run_id="r1")._vars(False))
+        assert not {"domain_name", "route53_zone_id", "cors_allowed_origins"} & set(values)
+        assert serverless(run_id="r1").cell_domain(False) is None
+
+
+def test_admit_resolves_the_https_cell_hostname_to_its_alb_and_opens_443(monkeypatch):
+    _cell_dns(monkeypatch)
+    host = "38038433205-aws-ecs-redis-off.cert.demo.honua.io"
+    calls = []
+    balancers = {"LoadBalancers": [
+        {"DNSName": "other.elb.amazonaws.com", "SecurityGroups": ["sg-other"]},
+        {"DNSName": "cell-alb.us-east-1.elb.amazonaws.com", "SecurityGroups": ["sg-cell"]}]}
+    alias = {"ResourceRecordSets": [{"Name": host + ".", "Type": "A", "AliasTarget": {
+        "DNSName": "dualstack.Cell-ALB.us-east-1.elb.amazonaws.com.", "HostedZoneId": "Z35SXDOTRQ7X7K"}}]}
+
+    def run(argv, **kwargs):
+        calls.append(argv)
+        if argv[1:3] == ["elbv2", "describe-load-balancers"]:
+            return subprocess.CompletedProcess(argv, 0, json.dumps(balancers), "")
+        if argv[1:3] == ["route53", "list-resource-record-sets"]:
+            assert argv[argv.index("--hosted-zone-id") + 1] == CELL_ZONE
+            return subprocess.CompletedProcess(argv, 0, json.dumps(alias), "")
+        return subprocess.CompletedProcess(argv, 0, "", "")
+
+    ecs(run_id="38038433205").admit(f"https://{host}", "198.51.100.7/32", run=run)
+    authorize = [c for c in calls if c[1:3] == ["ec2", "authorize-security-group-ingress"]]
+    assert len(authorize) == 1 and authorize[0][authorize[0].index("--group-id") + 1] == "sg-cell"
+    permission = json.loads(authorize[0][authorize[0].index("--ip-permissions") + 1])[0]
+    assert permission["FromPort"] == permission["ToPort"] == 443
+    assert permission["IpRanges"][0]["CidrIp"] == "198.51.100.7/32"
+    # A name the zone does not alias to a balancer admits nobody.
+    alias["ResourceRecordSets"] = [{"Name": "other.cert.demo.honua.io.", "Type": "A",
+                                    "AliasTarget": {"DNSName": "cell-alb.us-east-1.elb.amazonaws.com."}}]
+    with pytest.raises(ProvisionError, match="no load balancer"):
+        ecs(run_id="38038433205").admit(f"https://{host}", "198.51.100.7/32", run=run)
+
+
+def test_teardown_confirms_the_cells_dns_names_and_certificate_are_gone(monkeypatch, capsys):
+    _ecs_env(monkeypatch)
+    _cell_dns(monkeypatch)
+    own = "38038433205-aws-ecs-redis-on.cert.demo.honua.io"
+    zone = {"ResourceRecordSets": [
+        {"Name": "demo.honua.io.", "Type": "A"},
+        {"Name": "_acme.demo.honua.io.", "Type": "CNAME"},
+        {"Name": "99-aws-ecs-redis-off.cert.demo.honua.io.", "Type": "A"}]}
+    certs = {"CertificateSummaryList": [{"DomainName": "demo.honua.io", "CertificateArn": "arn:demo"}]}
+
+    def run(argv, **kwargs):
+        if argv[1:3] == ["route53", "list-resource-record-sets"]:
+            return subprocess.CompletedProcess(argv, 0, json.dumps(zone), "")
+        if argv[1:3] == ["acm", "list-certificates"]:
+            return subprocess.CompletedProcess(argv, 0, json.dumps(certs), "")
+        raise AssertionError(argv)
+
+    target = ecs(run_id="38038433205")
+    target._cell_dns_leftovers(True, run=run)  # nothing of this cell remains: passes
+    out = capsys.readouterr().out
+    warning = [line for line in out.splitlines() if line.startswith("::warning title=cell DNS names present")]
+    assert len(warning) == 1 and warning[0].rsplit(": ", 1)[1].split(", ") == [
+        "99-aws-ecs-redis-off.cert.demo.honua.io"]
+    zone["ResourceRecordSets"].append({"Name": f"_0123abc.{own}.", "Type": "CNAME"})
+    with pytest.raises(ProvisionError, match="1 Route53 record"):
+        target._cell_dns_leftovers(True, run=run)
+    zone["ResourceRecordSets"].pop()
+    certs["CertificateSummaryList"].append({"DomainName": own, "CertificateArn": "arn:cell"})
+    with pytest.raises(ProvisionError, match="1 ACM certificate"):
+        target._cell_dns_leftovers(True, run=run)
+    # A listing that cannot be read fails closed: cleanup that was not verified is not certified.
+    with pytest.raises(ProvisionError, match="could not verify"):
+        target._cell_dns_leftovers(True, run=lambda argv, **kw: subprocess.CompletedProcess(argv, 1, "", "denied"))
+
+    # Unset variables: no AWS call at all.
+    def refuse(*args, **kwargs):
+        raise AssertionError("no AWS call without the cell DNS variables")
+    monkeypatch.delenv("HONUA_AWS_CELL_DNS_ZONE_ID")
+    monkeypatch.delenv("HONUA_AWS_CELL_DNS_PARENT")
+    target._cell_dns_leftovers(True, run=refuse)
+
+
+def test_provision_report_records_the_endpoint_transport(monkeypatch):
+    stub = _ServingStub("https://38038433205-aws-ecs-redis-off.cert.demo.honua.io")
+    monkeypatch.setattr(run_cloud, "_READY_ATTEMPTS", 1)
+    monkeypatch.setattr(run_cloud, "_READY_DELAY_SECONDS", 0)
+    monkeypatch.setattr(run_cloud, "make_fetch", lambda **kwargs: (lambda url: cc.HttpResponse(200, "")))
+    monkeypatch.setattr(run_cloud, "run_canonical", lambda *a, **k: [])
+    monkeypatch.setattr(run_cloud.canary_probes, "run_canary", lambda *a, **k: [])
+    monkeypatch.setattr(run_cloud, "seed_cell", lambda *a, **k: None)
+    state = run_cloud.provision_phase(stub, "stub", require_real=False, redis_enabled=False)
+    assert state["report"]["transport"] == {
+        "scheme": "https", "host": "38038433205-aws-ecs-redis-off.cert.demo.honua.io"}
+
+
+def test_cell_workflow_threads_the_cell_dns_repository_variables():
+    _, cell = _cloud_workflows()
+    steps = {step.get("name", ""): step for job in cell["jobs"].values() for step in job.get("steps", [])}
+    provision = next(step for name, step in steps.items() if name.startswith("Provision "))
+    teardown = next(step for name, step in steps.items() if name.startswith("Tear down "))
+    admit = next(step for name, step in steps.items() if name.startswith("Admit the journey runner"))
+    for step in (provision, teardown):
+        for var in ("HONUA_AWS_CELL_DNS_ZONE_ID", "HONUA_AWS_CELL_DNS_PARENT"):
+            assert step["env"][var] == "${{ vars." + var + " }}"
+    assert admit["env"]["HONUA_AWS_CELL_DNS_ZONE_ID"] == "${{ vars.HONUA_AWS_CELL_DNS_ZONE_ID }}"
+    # Step-scoped, never workflow-level, and the credential-free journey job never sees them.
+    assert not {"HONUA_AWS_CELL_DNS_ZONE_ID", "HONUA_AWS_CELL_DNS_PARENT"} & set(cell["env"])
+    assert "HONUA_AWS_CELL_DNS" not in json.dumps(cell["jobs"]["journey"])

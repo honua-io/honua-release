@@ -226,6 +226,47 @@ harness passes them to every ECS and Lambda cell whose pinned root declares them
 (`optional_env_vars`). The key is recommended, not required: an unset variable never blocks or
 refuses a cell, and the root plans with a warning.
 
+### Per-run HTTPS hostname and the demo CORS origin on the ECS cells (honua-release#450)
+The pinned `honua` CLI and `honua-mcp-proxy` refuse to send a credential over plain HTTP to any
+non-loopback host, so a journey against the ALB's `http://*.elb.amazonaws.com` endpoint stopped at
+stage 2 on every aws-ecs attempt (e2e-cloud-aws run 38038433205). The reviewed demo pages' CSP
+bootstrap also admits only `https://(*.)honua.io` backends (or loopback), so `top-demo` (S9) was
+BLOCKED on every cell. `ECS_SPEC` therefore gives each aws-ecs cell its own HTTPS name:
+
+    <GITHUB_RUN_ID>-aws-ecs-redis-<on|off>.cert.<HONUA_AWS_CELL_DNS_PARENT>
+    e.g. 38038433205-aws-ecs-redis-off.cert.demo.honua.io
+
+The label carries the whole run id plus the cell, so concurrent cells and concurrent runs never share
+a certificate or record. It is lowercase LDH, at most 63 octets, and short enough for ACM's 64-octet
+limit on the full name; an over-long value keeps a hash suffix instead of being truncated. The
+harness passes `domain_name` and `route53_zone_id` to `examples/aws`. The aws-ecs module then issues
+an ACM certificate, writes its DNS validation records in the zone, waits for issuance inside
+`terraform apply` (a few minutes), aliases the name to the ALB, and `honua_url` becomes
+`https://<name>`. The runner's /32 is passed as `allow_https_ingress_cidrs`, not
+`allow_http_ingress_cidrs`. `examples/aws` does not expose `alb_enable_http_redirect`, so the module
+still serves a redirect-only listener on port 80, open to the same /32 only. The admit job resolves
+the name to its ALB through the zone's alias record and opens 443 (the endpoint's scheme) to the
+journey runner. The provision report records `transport: {scheme, host}`, and each journey receipt
+records the same pair in its `Candidate transport` notice. `terraform destroy` removes the
+certificate, its validation records and the alias. Teardown then lists the zone and ACM read-only:
+any remaining record or certificate for this cell, or a listing that cannot be read, fails the
+cell closed, and other
+`*.cert.<parent>` names are reported as a warning (they may belong to a concurrent run's live cells).
+
+Every ECS cell also passes `cors_allowed_origins=["http://127.0.0.1:18099"]` when the pinned root
+declares it (honua-iac fix unit C4 renders `Cors__AllowedOrigins__0`). That is the origin
+`e2e/drivers/demos/run.sh` serves the demo pages from (`E2E_SITE_PORT`), so the cell answers CORS for
+the demos without a stub.
+
+**Owner step (done for honua-io/honua-release, account 585192672263):** set the repository
+variables `HONUA_AWS_CELL_DNS_ZONE_ID` (the public hosted zone id, `Z089181827C9GKIKHXUTT`) and
+`HONUA_AWS_CELL_DNS_PARENT` (`demo.honua.io`). They are not secrets. The cell workflow exports both
+to the provision and teardown steps, and the zone id to the admit step. The OIDC cell role needs ACM
+and Route53 write in that zone (`honua-release-cicd` has PowerUserAccess). With both variables unset
+(forks, other accounts) the cell keeps its plain-HTTP ALB endpoint and says so in the provision log.
+If only one is set, or a value is malformed, provisioning refuses. Destroy never refuses.
+aws-serverless and aws-eks have no custom-domain wiring yet.
+
 ### Cell readiness diagnostics (ECS and Lambda)
 Before destroying every `aws-ecs` and `aws-serverless` cell, the teardown job runs
 `run_cloud.py --phase diagnose`. For an ECS cell it writes `diagnostics-ecs.json` into the cell's
