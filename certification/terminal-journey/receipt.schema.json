@@ -310,14 +310,14 @@
     },
 
     "topologyRefusal": {
-      "description": "A Redis-off stage recorded by the candidate's typed unavailable refusal instead of an execution (owner ruling redis-governed-control-plane-2026-10-08: Redis is a requirement of the governed control plane). Present only on stage 3 (an extension of the ruling: blocked while it awaits the owner's decision) and stages 5-8 (ruled). The cell must declare redis-off and the capability manifest must report the capability dependency-unavailable; the stage then carries no canonical operation or job identity because nothing ran.",
+      "description": "A Redis-off stage recorded by the candidate's typed unavailable refusal instead of an execution (owner ruling redis-governed-control-plane-2026-10-08: Redis is a requirement of the governed control plane). Present only on stages 3 and 5-8 (decision 3 names stages 5-8; the owner extended it to stage 3 on 2026-10-10). The cell must declare redis-off and the capability manifest must report the capability dependency-unavailable; the stage then carries no canonical operation or job identity because nothing ran.",
       "type": "object",
       "additionalProperties": false,
       "required": ["topology", "ruling", "rulingStatus", "tool", "code", "missingDependency", "manifestCapability", "manifestReasonCode", "deploymentEnvironment"],
       "properties": {
         "topology": {"const": "redis-off"},
         "ruling": {"const": "redis-governed-control-plane-2026-10-08"},
-        "rulingStatus": {"enum": ["ruled", "extension-pending-owner-ruling"]},
+        "rulingStatus": {"const": "ruled"},
         "tool": {"type": "string", "minLength": 1},
         "code": {"const": "unavailable"},
         "missingDependency": {"const": "redis"},
@@ -379,18 +379,14 @@
       },
       "allOf": [
         {
-          "description": "Only stages 3 (operations.proposals), 5 (jobs.runner) and 6-8 (operations.proposals) may be recorded by a Redis-off topology refusal. Stage 3 extends the ruling: while that extension awaits the owner's ruling (rulingStatus extension-pending-owner-ruling) the stage is blocked, never a pass.",
+          "description": "Only stages 3 (operations.proposals), 5 (jobs.runner) and 6-8 (operations.proposals) may be recorded by a Redis-off topology refusal (decision 3, extended to stage 3 by the owner ruling of 2026-10-10).",
           "if": {"required": ["topologyRefusal"]},
           "then": {
             "oneOf": [
-              {"properties": {"number": {"const": 3}, "status": {"const": "blocked"}, "topologyRefusal": {"properties": {
-                "manifestCapability": {"const": "operations.proposals"}, "rulingStatus": {"const": "extension-pending-owner-ruling"}}}}},
-              {"properties": {"number": {"const": 3}, "topologyRefusal": {"properties": {
-                "manifestCapability": {"const": "operations.proposals"}, "rulingStatus": {"const": "ruled"}}}}},
+              {"properties": {"number": {"enum": [3, 6, 7, 8]}, "topologyRefusal": {"properties": {
+                "manifestCapability": {"const": "operations.proposals"}}}}},
               {"properties": {"number": {"const": 5}, "topologyRefusal": {"properties": {
-                "manifestCapability": {"const": "jobs.runner"}, "rulingStatus": {"const": "ruled"}}}}},
-              {"properties": {"number": {"enum": [6, 7, 8]}, "topologyRefusal": {"properties": {
-                "manifestCapability": {"const": "operations.proposals"}, "rulingStatus": {"const": "ruled"}}}}}
+                "manifestCapability": {"const": "jobs.runner"}}}}}
             ]
           }
         },
