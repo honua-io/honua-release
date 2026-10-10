@@ -54,13 +54,19 @@ async function requestPublication(args) {
     contentHash: args.contentHash,
     intent: { route: args.route, visibility: args.visibility },
   });
-  return { proposalId: request?.proposalId ?? null, requestId: request?.requestId ?? null, status: request?.status ?? null };
+  // A direct publication answers 201 with the request itself (`requestId`). The governed path answers 202 with
+  // the operation handle, which names the pending publication request in `resourceIds.requestId`
+  // (honua-server#5434); approval persists the request under that id.
+  const pending = request?.resourceIds?.requestId ?? null;
+  return { proposalId: request?.proposalId ?? null, requestId: request?.requestId ?? pending,
+    requestIdSource: request?.requestId ? "request" : pending ? "handle.resourceIds" : null, status: request?.status ?? null };
 }
 
 // HonuaStudioLifecycleClient.publicationRequests.poll
 async function publicationUrl(args) {
   const outcome = await studio.publicationRequests.poll(args.itemId, args.versionId, args.requestId, { timeoutMs: args.timeoutMs });
-  return { requestId: args.requestId, state: outcome.state ?? null, active: outcome.active, publicationUrl: outcome.publicationUrl ?? null };
+  return { requestId: args.requestId, state: outcome.state ?? null, active: outcome.active, publicationUrl: outcome.publicationUrl ?? null,
+    status: outcome.request?.status ?? null, exhausted: outcome.exhausted ?? null };
 }
 
 const identityQuery = async (client, args) =>
