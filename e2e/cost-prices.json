@@ -1,0 +1,49 @@
+{
+  "pricesAsOf": "2026-10-10",
+  "region": "us-east-1",
+  "currency": "USD",
+  "source": "AWS Price List API (aws pricing get-products, us-east-1), public on-demand list prices read 2026-10-10. No credits, savings plans, free tier or Spot discounts are applied.",
+  "hourly": {
+    "rds:db.t3.micro": "0.018",
+    "rds:db.t4g.micro": "0.016",
+    "elasticache:cache.t3.micro": "0.017",
+    "elasticache:cache.t4g.micro": "0.016",
+    "alb": "0.0225",
+    "alb-lcu": "0.008",
+    "elb-classic": "0.025",
+    "nat-gateway": "0.045",
+    "public-ipv4": "0.005",
+    "eks-cluster": "0.10",
+    "ec2:t3.medium": "0.0416",
+    "fargate-vcpu:x86_64": "0.04048",
+    "fargate-gb:x86_64": "0.004445",
+    "fargate-vcpu:arm64": "0.03238",
+    "fargate-gb:arm64": "0.00356"
+  },
+  "monthly": {
+    "rds-storage-gb": "0.115",
+    "ebs-gp3-gb": "0.08",
+    "secretsmanager-secret": "0.40",
+    "kms-key": "1.00"
+  },
+  "usage": {
+    "lambda-gb-second:x86_64": "0.0000166667",
+    "lambda-gb-second:arm64": "0.0000133334",
+    "lambda-request": "0.0000002",
+    "apigw-http-request": "0.000001"
+  },
+  "hoursPerMonth": "730",
+  "partialHourBilledAsFull": ["elasticache", "alb", "alb-lcu", "elb-classic", "nat-gateway", "public-ipv4", "eks-cluster"],
+  "excluded": [
+    "data transfer (in, out, inter-AZ)",
+    "NAT gateway data processing",
+    "ALB capacity beyond one LCU-hour per hour",
+    "CloudWatch logs, metrics and alarms",
+    "S3 and ECR storage and requests",
+    "Route 53 and ACM",
+    "Bedrock model tokens (the genuine-model cell)",
+    "Lambda INIT duration (not in the Duration metric)",
+    "Fargate Spot discount (Batch jobs are priced at the Fargate on-demand rate, an upper bound)",
+    "free tier and promotional credits"
+  ]
+}
