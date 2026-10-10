@@ -5,6 +5,7 @@ import hashlib
 import io
 import json
 import os
+import re
 import shutil
 import subprocess
 import urllib.parse
@@ -106,6 +107,9 @@ def invoke(binding, method, arguments, *, base_url, credential):
     except (ValueError, OSError, subprocess.SubprocessError) as exc:
         raise ExecutionError(method, "published SDK invocation failed") from exc
     if response.get("status") != "pass":
-        raise ExecutionError(method, "published SDK refused the operation",
+        # The bridge returns only the exception type name (never its message); name it when it is one.
+        error_type = response.get("errorType")
+        named = isinstance(error_type, str) and re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]{0,99}", error_type)
+        raise ExecutionError(method, "published SDK refused the operation" + (f" ({error_type})" if named else ""),
                              blocked=response.get("status") == "blocked")
     return response["result"]

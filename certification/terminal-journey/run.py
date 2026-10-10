@@ -294,6 +294,7 @@ def build_receipt(
                     "approvalId": result.approval_id,
                     "actuatorId": result.actuator_id,
                     "verificationId": result.verification_id,
+                    **({"topologyRefusal": result.topology_refusal} if result.topology_refusal else {}),
                     "evidence": {
                         "uri": evidence_uri,
                         "source": evidence_source,

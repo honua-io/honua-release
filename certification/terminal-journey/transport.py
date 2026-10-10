@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import subprocess
 import urllib.error
 import urllib.parse
@@ -15,12 +16,82 @@ MAX_BYTES = 4 * 1024 * 1024
 
 
 class ExecutionError(RuntimeError):
-    def __init__(self, command, reason, *, blocked=False, blocked_by=None):
+    def __init__(self, command, reason, *, blocked=False, blocked_by=None, problem=None):
         # blocked_by names the tracked dependency of a blocked step when it is more precise than
         # the journey driver itself (for example a capability the target topology does not offer).
+        # problem holds the masked typed fields of a candidate tool error (tool_error), if any.
         self.command, self.reason, self.blocked = command, reason, blocked
         self.blocked_by = list(blocked_by or [])
+        self.problem = dict(problem or {})
         super().__init__(f"{command}: {reason}")
+
+
+# The typed fields of an MCP tool error (honua-server McpToolHelpers.ErrorResult mirrors the problem
+# envelope in structuredContent) that a receipt may name. Only these scalar members are kept; the
+# message is masked and bounded. Nothing else of the tool output reaches a receipt.
+TOOL_ERROR_FIELDS = ("type", "title", "code", "reasonCode", "missingDependency", "capability", "kind",
+                     "retryable", "approvalRequired")
+TOOL_ERROR_MESSAGE_CHARS = 200
+
+
+def _bounded_token(value):
+    if isinstance(value, bool):
+        return "true" if value else "false"
+    if not isinstance(value, str):
+        return None
+    text = re.sub(r"[^ -~]", "?", value).strip()
+    return text[:120] if text and not discovery._SENSITIVE.search(text) else None
+
+
+def credential_values(credentials):
+    """Credential values a candidate message must never carry into a receipt."""
+    if not isinstance(credentials, dict):
+        return []
+    return [value.removeprefix("Bearer ") for value in credentials.values() if isinstance(value, str)]
+
+
+def masked_fields(values, secrets=()):
+    """Bounded scalar evidence for a receipt: tokens kept verbatim, the message masked and bounded."""
+    fields = {}
+    for name, value in values.items():
+        if name == "message":
+            continue
+        token = _bounded_token(value)
+        if token is not None:
+            fields[name] = token
+    message = values.get("message")
+    if isinstance(message, str) and message.strip():
+        for secret in secrets:
+            if isinstance(secret, str) and len(secret) >= 8:
+                message = message.replace(secret, "[redacted]")
+        masked = discovery.excerpt(message.encode("utf-8"))
+        fields["message"] = (masked if len(masked) <= TOOL_ERROR_MESSAGE_CHARS
+                             else masked[:TOOL_ERROR_MESSAGE_CHARS] + "...(truncated)")
+    return fields
+
+
+def describe_fields(fields):
+    return "; ".join(f"{name}={json.dumps(value) if name == 'message' else value}" for name, value in fields.items())
+
+
+def tool_error(result, secrets=()):
+    """The typed problem a candidate tool error carries, masked; never raw tool output."""
+    content = result.get("structuredContent")
+    content = content if isinstance(content, dict) else {}
+    nested = content.get("error") if isinstance(content.get("error"), dict) else {}
+    values = {name: content.get(name, nested.get(name)) for name in TOOL_ERROR_FIELDS}
+    message = content.get("message", content.get("detail", nested.get("message")))
+    if not isinstance(message, str):
+        texts = [block.get("text") for block in result.get("content") or []
+                 if isinstance(block, dict) and isinstance(block.get("text"), str)]
+        message = texts[0] if texts and not texts[0].lstrip().startswith(("{", "[")) else None
+    return masked_fields({**values, "message": message}, secrets)
+
+
+def describe_tool_error(fields):
+    if not fields:
+        return "candidate returned an MCP tool error without a typed problem"
+    return f"candidate returned an MCP tool error ({describe_fields(fields)})"
 
 
 def safe_url(base, path):
@@ -101,8 +172,17 @@ class Transport:
             response = session.request("tools/call", {"name": name, "arguments": arguments})
             result = response.get("result")
             if "error" in response or not isinstance(result, dict):
-                raise ExecutionError(name, "candidate tool call refused")
+                # A JSON-RPC error carries the same typed problem in error.data; name it (masked).
+                error = response.get("error") if isinstance(response.get("error"), dict) else {}
+                data = error.get("data") if isinstance(error.get("data"), dict) else {}
+                fields = tool_error({"structuredContent": {"message": error.get("message"), **data}},
+                                    self.secret_values())
+                raise ExecutionError(name, "candidate tool call refused"
+                                     + (f" ({describe_fields(fields)})" if fields else ""), problem=fields)
             return result
+
+    def secret_values(self):
+        return credential_values(self.credentials)
 
     def cli_approve(self, proposal_id, principal):
         return self.cli_admin("operate", "approveOperationProposal", principal,

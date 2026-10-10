@@ -13,12 +13,14 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from unittest import mock
 
+import jsonschema
 import pytest
 
 sys.path.insert(0, str(Path(__file__).parent))
 import executor
 import oracles
 import stages
+import transport as transport_module
 from transport import ExecutionError, Transport, safe_url
 
 
@@ -504,6 +506,96 @@ def test_publish_awaiting_operator_approval_is_not_a_published_layer():
         engine.execute(3, {"kind": "tool_call", "tool": "honua_publish_service",
                            "arguments": publish_arguments(engine)})
     assert "layerId" not in engine.resources
+
+
+OPERATOR_KEY = "hk_operator_0123456789abcdef"
+# The shape honua-server McpToolHelpers.ErrorResult returns: the typed problem mirrored in
+# structuredContent, plus members a receipt must never carry (remediation text, ids, raw content).
+TOOL_ERROR = {"isError": True, "content": [{"type": "text", "text": "{...}"}], "structuredContent": {
+    "status": "error", "code": "unavailable", "missingDependency": "redis", "capability": "operations.proposals",
+    "retryable": False, "remediation": "compose Redis", "proposalId": "proposal-private",
+    "message": f"The operation store requires Redis (caller {OPERATOR_KEY}; apiKey=hk_live_leaked) ",
+    "error": {"kind": "PreconditionFailed", "message": "ignored when the top-level message exists"}}}
+
+
+def test_mcp_tool_error_names_the_typed_problem_in_the_check_detail_and_masks_it():
+    """Run 38052304982 recorded only "candidate returned an MCP tool error" on the Redis-off cell."""
+    engine = upload_engine(operator=OPERATOR_KEY)
+    engine.resources.update(importTable="imported_journey_source", importSchema="public")
+    engine.transport.tool.return_value = copy.deepcopy(TOOL_ERROR)
+    with pytest.raises(ExecutionError) as raised:
+        engine.execute(3, {"kind": "tool_call", "tool": "honua_publish_service", "arguments": publish_arguments(engine)})
+    reason = raised.value.reason
+    assert reason.startswith("candidate returned an MCP tool error (")
+    for part in ("code=unavailable", "missingDependency=redis", "capability=operations.proposals",
+                 "kind=PreconditionFailed", "retryable=false", "message=\"The operation store requires Redis"):
+        assert part in reason
+    assert OPERATOR_KEY not in reason and "hk_live_leaked" not in reason and "[redacted]" in reason
+    assert "proposal-private" not in reason and "compose Redis" not in reason and " " not in reason
+    # The stage driver turns the error into the failing execution check verbatim.
+    engine.transport.tool.return_value = {"isError": True, "content": [{"type": "text", "text": "no envelope"}]}
+    with pytest.raises(ExecutionError, match=r"MCP tool error \(message=\"no envelope\"\)"):
+        engine.execute(3, {"kind": "tool_call", "tool": "honua_publish_service", "arguments": publish_arguments(engine)})
+    engine.transport.tool.return_value = {"isError": True}
+    with pytest.raises(ExecutionError, match="MCP tool error without a typed problem"):
+        engine.execute(3, {"kind": "tool_call", "tool": "honua_publish_service", "arguments": publish_arguments(engine)})
+
+
+def test_tool_error_fields_are_bounded_scalars_and_drop_credential_shaped_values():
+    fields = transport_module.tool_error({"structuredContent": {
+        "type": "https://honua.io/problems/capability-unavailable", "title": "x" * 500, "code": {"nested": 1},
+        "reasonCode": "dependency-unavailable", "capability": "session-token-store", "message": "y" * 5000}})
+    assert fields["type"] == "https://honua.io/problems/capability-unavailable"
+    assert fields["reasonCode"] == "dependency-unavailable" and len(fields["title"]) == 120
+    assert "code" not in fields and "capability" not in fields
+    assert len(fields["message"]) <= transport_module.TOOL_ERROR_MESSAGE_CHARS + len("...(truncated)")
+
+
+def test_a_json_rpc_tool_refusal_names_its_typed_problem(monkeypatch, tmp_path):
+    import probes
+
+    view = {"metadata": {"view": "setup"}, "tools": [{"name": "honua_publish_service"}]}
+
+    class Session:
+        def __init__(self, *args):
+            pass
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *args):
+            return False
+
+        def initialize(self, **kwargs):
+            return {}
+
+        def request(self, method, params):
+            if method == "tools/list":
+                return {"result": {"_meta": view["metadata"], "tools": view["tools"]}}
+            return {"error": {"code": -32603, "message": f"refused for {OPERATOR_KEY}",
+                              "data": {"code": "unavailable", "missingDependency": "redis", "token": "secret"}}}
+
+    monkeypatch.setattr(probes, "McpProxySession", Session)
+    proxy = tmp_path / "honua-mcp-proxy"
+    proxy.write_text("")
+    transport = Transport("http://127.0.0.1:8123", proxy, None, tmp_path, {"proposer": OPERATOR_KEY})
+    with pytest.raises(ExecutionError) as raised:
+        transport.tool("honua_publish_service", {}, view)
+    assert raised.value.reason == ('candidate tool call refused (code=unavailable; missingDependency=redis; '
+                                   'message="refused for [redacted]")')
+
+
+def test_a_publish_that_did_not_complete_names_its_terminal_state():
+    engine = upload_engine(operator=OPERATOR_KEY)
+    engine.resources.update(importTable="imported_journey_source", importSchema="public")
+    engine.transport.tool.return_value = {"structuredContent": {
+        **PUBLISH_OUTPUT, "status": "Failed", "layerId": None, "policyOutcome": "Allow",
+        "message": f"Operation validation failed (NpgsqlException) for {OPERATOR_KEY}"}}
+    with pytest.raises(ExecutionError) as raised:
+        engine.execute(3, {"kind": "tool_call", "tool": "honua_publish_service", "arguments": publish_arguments(engine)})
+    assert raised.value.reason == (
+        'service.publish did not complete for the operator (status=Failed; requiresApproval=false; '
+        'policyOutcome=Allow; message="Operation validation failed (NpgsqlException) for [redacted]")')
 
 
 def test_model_can_select_the_fixed_upload_step_but_not_its_arguments():
@@ -1020,3 +1112,136 @@ def test_approved_handle_operation_id_is_a_bounded_identity(operation_id):
     with pytest.raises(ExecutionError, match="bounded canonical identity"):
         engine.approve("proposal-1")
     assert "8" not in engine.evidence["canonicalIds"] and "approval" not in engine.evidence
+
+
+@pytest.mark.parametrize("error_type, detail", [
+    ("HonuaApiException", "published SDK refused the operation (HonuaApiException)"),
+    ("Npgsql: Password=hunter2", "published SDK refused the operation"),
+    (None, "published SDK refused the operation")])
+def test_sdk_refusal_names_only_the_bridge_exception_type(tmp_path, error_type, detail):
+    import sdk
+
+    dll = tmp_path / "JourneyImport.dll"
+    dll.write_bytes(b"")
+    stdout = json.dumps({"status": "fail", "errorType": error_type})
+    with mock.patch.object(sdk.subprocess, "run", return_value=mock.Mock(stdout=stdout)):
+        with pytest.raises(ExecutionError) as raised:
+            sdk.invoke({"dll": str(dll)}, "CreateConnectionAsync", [{}], base_url="http://127.0.0.1:1",
+                       credential="private")
+    assert raised.value.reason == detail
+
+
+# ---- Redis-off cells record governed stages by the typed refusal (owner ruling, decision 3) ----------
+# The refusal honua-server nightly-798d517 returned for honua_publish_service on a Production host
+# without Redis (local reproduction of the run 38052304982 redis-off cell; masked by tool_error).
+PUBLISH_REFUSAL = {"code": "unavailable", "missingDependency": "redis", "kind": "ExecutionFailed",
+                   "retryable": "false", "message": "The operation proposal and approval control plane "
+                   "requires a Redis-backed durable store."}
+GP_REFUSAL = {"code": "unavailable", "missingDependency": "redis", "capability": "jobs.runner",
+              "kind": "PreconditionFailed", "message": "Durable geoprocessing jobs and workflows require a "
+              "Redis-backed job store."}
+
+
+def capability_manifest(available=False, reason="dependency-unavailable"):
+    return {"server": {"deploymentEnvironment": "Production"}, "capabilities": [
+        {"id": capability, "available": available, "reasonCode": reason if not available else None}
+        for capability in ("operations.proposals", "jobs.runner")]}
+
+
+def cell_engine(cell="aws-serverless/redis-off", manifest=None):
+    engine = upload_engine(operator=OPERATOR_KEY)
+    engine.target.update(id=cell, kind=cell.split("/")[0])
+    engine.transport.get_json.return_value = manifest or capability_manifest()
+    engine.evidence["checks"]["3"] = {
+        name: {"id": f"3.{name}", "kind": "artifact", "invocation": name, "status": "pass", "detail": "ok"}
+        for name in ("datasource", "import-complete")}
+    return engine
+
+
+def stage_row(result):
+    row = {"number": result.number, "stage": result.stage, "command": result.command, "status": result.status,
+           "blockedBy": result.blocked_by, "checks": [c.as_receipt() for c in result.checks],
+           **{key: None for key in ("operationId", "operationInstanceId", "correlationId", "auditId",
+                                    "proposalId", "jobId", "resourceUri", "jobStatus", "jobCreatedAt")},
+           "evidence": {"uri": "https://example.invalid/run", "source": "live-aws-serverless",
+                        "freshness": "verified-current", "completeness": "complete",
+                        "observedAt": "2026-10-10T00:00:00Z"}}
+    if result.topology_refusal:
+        row["topologyRefusal"] = result.topology_refusal
+    return row
+
+
+def validate_stage(row):
+    schema = json.loads((Path(__file__).parent / "receipt.schema.json").read_text())
+    jsonschema.validate(row, {"$defs": schema["$defs"], "$ref": "#/$defs/stage"})
+
+
+@pytest.mark.parametrize("number, tool, problem, capability, ruling", [
+    (3, "honua_publish_service", PUBLISH_REFUSAL, "operations.proposals", "extension-pending-owner-ruling"),
+    (5, "honua_validate_plan", GP_REFUSAL, "jobs.runner", "ruled")])
+def test_redis_off_cell_records_the_typed_refusal_as_the_stage_outcome(number, tool, problem, capability, ruling):
+    engine = cell_engine()
+    error = ExecutionError(tool, executor.describe_tool_error(problem), problem=problem)
+    assert engine.record_topology_refusal(number, error)
+    result = engine.result(number)
+    assert result.status == "pass" and result.operation_instance_id is None and result.job_id is None
+    refusal = result.topology_refusal
+    assert (refusal["topology"], refusal["missingDependency"], refusal["manifestCapability"],
+            refusal["manifestReasonCode"], refusal["rulingStatus"], refusal["tool"]) == (
+        "redis-off", "redis", capability, "dependency-unavailable", ruling, tool)
+    assert refusal["deploymentEnvironment"] == "Production"
+    execution = next(c for c in result.checks if c.id == f"{number}.execution")
+    assert execution.detail.startswith("topology: redis-off; ") and "missingDependency=redis" in execution.detail
+    assert not any(c.id.endswith("canonical-evidence") for c in result.checks)
+    validate_stage(stage_row(result))
+    # Without the refusal record the same stage row may not pass without its canonical identities.
+    row = stage_row(result)
+    del row["topologyRefusal"]
+    with pytest.raises(jsonschema.ValidationError):
+        validate_stage(row)
+
+
+def test_stage_3_refusal_still_requires_the_datasource_and_import_that_ran_before_it():
+    engine = cell_engine()
+    engine.evidence["checks"]["3"].pop("import-complete")
+    assert engine.record_topology_refusal(3, ExecutionError("honua_publish_service", "x", problem=PUBLISH_REFUSAL))
+    assert engine.result(3).status == "blocked"
+
+
+@pytest.mark.parametrize("case", ["redis-on-cell", "local-target", "other-dependency", "not-unavailable",
+                                  "wrong-capability", "manifest-available", "ungoverned-stage", "blocked"])
+def test_anything_but_the_topology_refusal_on_a_redis_off_cell_keeps_its_failure(case):
+    engine = cell_engine(cell="aws-ecs/redis-on" if case == "redis-on-cell" else "aws-serverless/redis-off",
+                         manifest=capability_manifest(available=True) if case == "manifest-available" else None)
+    if case == "local-target":
+        engine.target.update(id="local-docker", kind="local-docker")
+    problem = dict(PUBLISH_REFUSAL)
+    if case == "other-dependency":
+        problem["missingDependency"] = "postgres"
+    if case == "not-unavailable":
+        problem["code"] = "internal"
+    if case == "wrong-capability":
+        problem["capability"] = "jobs.runner"
+    number = 4 if case == "ungoverned-stage" else 3
+    error = ExecutionError("honua_publish_service", "refused", problem=problem, blocked=case == "blocked")
+    assert not engine.record_topology_refusal(number, error)
+    assert "topologyRefusals" not in engine.evidence
+    if case == "manifest-available":
+        assert "does not report operations.proposals dependency-unavailable" in error.reason
+
+
+def test_a_local_target_may_declare_its_redis_topology():
+    engine = cell_engine()
+    engine.target.update(id="local-docker-no-redis", kind="local-docker", redisTopology="redis-off")
+    assert engine.declared_redis_topology() == "redis-off"
+    assert engine.record_topology_refusal(3, ExecutionError("honua_publish_service", "x", problem=PUBLISH_REFUSAL))
+
+
+def test_only_stages_3_and_5_may_carry_a_topology_refusal():
+    engine = cell_engine()
+    engine.record_topology_refusal(3, ExecutionError("honua_publish_service", "x", problem=PUBLISH_REFUSAL))
+    row = stage_row(engine.result(3))
+    validate_stage(row)
+    for number in (4, 5):
+        with pytest.raises(jsonschema.ValidationError):
+            validate_stage({**row, "number": number})
