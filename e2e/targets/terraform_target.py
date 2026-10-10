@@ -289,8 +289,8 @@ class TerraformTarget(DeployTarget):
         if self.spec.needs_runner_alb_access:
             raw_cidr = self._runner_cidr("HONUA_AWS_RUNNER_CIDR")
             # With a certificate the runner is admitted to the HTTPS listener; plain-HTTP ingress is
-            # not requested. (The module still serves a redirect-only listener on 80 to the same /32,
-            # because examples/aws does not expose alb_enable_http_redirect.)
+            # not requested. The module serves a redirect-only listener on 80 to the same /32
+            # (alb_enable_http_redirect, passed by _domain_vars when the root declares it).
             ingress = "allow_https_ingress_cidrs" if domain else "allow_http_ingress_cidrs"
             values.append(f"-var={ingress}={json.dumps([raw_cidr], separators=(',', ':'))}")
         if self.spec.cors_allowed_origins and self._root_declares("cors_allowed_origins"):
@@ -375,7 +375,29 @@ class TerraformTarget(DeployTarget):
             raise ProvisionError(f"{self.name}: {CELL_DNS_ZONE_ENV} is set but the pinned root does not "
                                  f"declare {', '.join(undeclared)}")
         fqdn, zone = domain
-        return [f"-var=domain_name={fqdn}", f"-var=route53_zone_id={zone}"]
+        values = [f"-var=domain_name={fqdn}", f"-var=route53_zone_id={zone}"]
+        # Owner decision 8 of 2026-10-10: an HTTPS cell answers plain HTTP on port 80 with a redirect
+        # to its HTTPS listener (the security-headers canary asserts it). Only on this TLS path: a
+        # plain-HTTP cell must not redirect to a port 443 that serves nothing. Passed only when the
+        # pinned examples/aws root declares the variable (same name as the aws-ecs module input).
+        if self._root_declares("alb_enable_http_redirect"):
+            values.append("-var=alb_enable_http_redirect=true")
+        return values
+
+    def https_redirect_expectation(self, redis_enabled: bool) -> tuple[bool, str]:
+        """(expected, reason): whether this cell is an HTTPS load-balancer cell whose plain-HTTP
+        listener must redirect to HTTPS. A cell that is not one says why, for a `blocked` canary row."""
+        if not self.spec.cell_domain:
+            return False, (f"{self.name} has no load-balancer HTTPS listener behind a custom domain, "
+                           "so no HTTP->HTTPS redirect is provisioned")
+        try:
+            domain = self.cell_domain(redis_enabled)
+        except ProvisionError as e:
+            return False, str(e)
+        if domain is None:
+            return False, (f"{self.name} is a plain-HTTP cell ({CELL_DNS_ZONE_ENV}/{CELL_DNS_PARENT_ENV} "
+                           "unset: no TLS listener), so no HTTP->HTTPS redirect is provisioned")
+        return True, f"HTTPS cell {domain[0]}"
 
     def _cell_dns_leftovers(self, redis_enabled: bool, *, run=subprocess.run) -> None:
         """After a successful destroy: this cell's certificate and records must be gone.
@@ -704,6 +726,61 @@ _AUDIT_CHAIN_KEY_ENV_VARS = (
     ("HONUA_AWS_AUDIT_CHAIN_KEY_SECRET_KMS_KEY_ARN", "audit_chain_key_secret_kms_key_arn"),
 )
 
+# The typed-operation policy every ECS and Lambda cell runs with.
+#
+# The cells run the server image's default environment, Production: neither iac module sets
+# ASPNETCORE_ENVIRONMENT. honua-server's src/Honua.Server/appsettings.Production.json enables
+# Operations:Policy with DefaultDecision Deny ("Operations require an explicit production policy
+# rule."), and src/Honua.Server/Features/Operations/OperationRuntimeStartupValidator.cs refuses to
+# boot in Production unless that policy is enabled with a fail-closed default. Every local journey
+# and e2e stack runs ASPNETCORE_ENVIRONMENT=Development, where the policy is inert, so the Production
+# policy was first exercised by e2e-cloud-aws run 38066103745 (aws-serverless, redis-on), whose
+# journey stage 3 recorded:
+#   3.execution fail | service.publish did not complete for the operator (status=Denied;
+#   requiresApproval=false; policyOutcome=Deny; authorizationOutcome=authorized;
+#   message="Operations require an explicit production policy rule.")
+# No cell can pass stage 3, or run any typed operation, without explicit rules.
+#
+# Rules are Operations:Policy:Rules:{i}:{OperationId,Tier,Role,Decision,Reason,ApprovalLane},
+# first match wins, OperationId "*" is a wildcard and Role is matched case-insensitively against the
+# caller's role claims (src/Honua.Core/Features/Operations/Policy/OperationPolicyOptions.cs,
+# .../Policy/Services/ConfigurableOperationPolicyDecisionPoint.cs). The roles an API key receives
+# (src/Honua.Hosting/Features/Authentication/ApiKeyAuthenticationHandler.cs, AdminApiKeyPermission.cs):
+#   * scoped-admin-key: the journey operator (admin:write) and approver (admin:approve) keys
+#     (certification/terminal-journey/local_fixture.py GRANTS) and any narrowly granted admin key;
+#   * admin: the bootstrap password admin and admin / * / admin:* keys;
+#   * layer-write-key (the proposer, write:journey) and scoped-api-key (the viewer) get no rule.
+# The proposer's publication goes through the Studio proposal path (journey stages 7-8), which does
+# not ride on these rules, and the default stays Deny so the cell is still an honest Production
+# topology. honua-iac's operations_policy_rules variable (examples/aws and examples/aws-serverless)
+# flattens the list into Operations__Policy__Rules__{i}__* environment entries; the harness passes it
+# only when the pinned root declares it, so an older iac pin passes nothing and the receipt keeps
+# recording the Deny. Reasons stay short: they land in the Lambda environment, which is capped at 4 KB.
+CELL_OPERATION_POLICY_RULES: tuple[tuple[tuple[str, str], ...], ...] = (
+    (("operation_id", "*"), ("role", "scoped-admin-key"), ("decision", "Allow"),
+     ("reason", "Release cell: scoped admin keys run typed operations")),
+    (("operation_id", "*"), ("role", "admin"), ("decision", "Allow"),
+     ("reason", "Release cell: bootstrap and full admins run typed operations")),
+)
+
+
+def _hcl_string(value: str) -> str:
+    # Only plain literals: a quote, backslash or template sequence would change what terraform parses.
+    if any(token in value for token in ('"', "\\", "${", "%{")) or not value.isprintable():
+        raise ValueError(f"not a plain HCL string literal: {value!r}")
+    return f'"{value}"'
+
+
+def hcl_object_list(rows) -> str:
+    """An HCL list-of-objects literal for a complex-typed `-var=name=<literal>` argument. Terraform
+    parses a -var value for a list(object) variable as an HCL expression; the harness passes argv
+    without a shell, so the literal needs no extra quoting."""
+    return "[" + ",".join("{" + ",".join(f"{key}={_hcl_string(value)}" for key, value in row) + "}"
+                          for row in rows) + "]"
+
+
+OPERATIONS_POLICY_RULES_VAR = "operations_policy_rules=" + hcl_object_list(CELL_OPERATION_POLICY_RULES)
+
 # The two terraform-output cells. EKS is a separate, heavier target (cluster + Helm + LB).
 SERVERLESS_SPEC = TfTargetSpec(
     name="aws-serverless",
@@ -733,7 +810,8 @@ SERVERLESS_SPEC = TfTargetSpec(
     # which mirror the in-process timers; JobReconciliation is already rate(1 minute), the
     # EventBridge Scheduler floor, so no faster schedule is possible for the 120 s stage 5 budget.
     declared_ephemeral_vars=("enable_gp_batch=true", "use_batch_service_linked_role=true",
-                             "image_repository_policy_mode=reuse", "enable_control_plane_events=true"),
+                             "image_repository_policy_mode=reuse", "enable_control_plane_events=true",
+                             OPERATIONS_POLICY_RULES_VAR),
     # The manifest's generic server image, amd64 child by digest (resolved by e2e-cloud-aws.yml).
     env_vars=(("HONUA_GP_BATCH_IMAGE", "gp_batch_image"),),
     # Redis-on Lambda cells: the operation key-ring certificate secret (see above). An iac pin whose
@@ -759,7 +837,8 @@ ECS_SPEC = TfTargetSpec(
     # key instead, but the release harness never adopts an existing ECS database.
     # The manifest explicitly selects the proven architecture and excludes the broken ARM64 child.
     ephemeral_vars=("alb_deletion_protection=false",),
-    declared_ephemeral_vars=("rds_deletion_protection=false", "enable_postgis=true"),
+    declared_ephemeral_vars=("rds_deletion_protection=false", "enable_postgis=true",
+                             OPERATIONS_POLICY_RULES_VAR),
     # Genuine-model cell only (rc.3 fix unit C6): the workflow sets HONUA_ENABLE_BEDROCK_AI=true for
     # aws-ecs/redis-off when its genuine_model_bedrock input is on; every other run stays cost-free.
     opt_in_env="HONUA_ENABLE_BEDROCK_AI",

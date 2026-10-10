@@ -191,7 +191,14 @@ def provision_phase(target, target_name: str, *, require_real: bool, redis_enabl
         # Cloud-tier unblock (honua-release#61): the canary probe set, GENERIC mode (no service/tile id
         # configured — nothing is seeded on a bare terraform cell yet), so data-dependent probes report
         # BLOCKED honestly rather than a fake pass/fail; reachability-only probes run for real.
-        canary_results = canary_probes.run_canary(endpoint, fetch)
+        # Owner decision 8 of 2026-10-10: an HTTPS load-balancer cell must redirect plain HTTP; any
+        # other cell records the redirect probe blocked with its reason.
+        expectation = getattr(target, "https_redirect_expectation", None)
+        https_redirect = (expectation(redis_enabled) if expectation is not None else
+                          (False, f"{target_name} does not provision an HTTP->HTTPS redirect listener"))
+        canary_results = canary_probes.run_canary(
+            endpoint, fetch, https_redirect=https_redirect,
+            redirect_fetch=make_fetch(timeout=10.0, follow_redirects=False))
         report["canaryProbes"] = _check_dicts(canary_results)
         # What the cell advertises before any pinned client ran: teardown holds journey receipts to it.
         identity = fetch(endpoint.rstrip("/") + cloud_journey.CAPABILITY_MANIFEST)

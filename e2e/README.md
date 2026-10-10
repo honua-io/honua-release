@@ -149,6 +149,19 @@ retried. An attempt whose driver raised, a failed stage or check, a blocked stag
 or a cost reading that is over the ceiling, stale or bound to another run is still `fail`.
 `--require-real` (the per-RC strict mode) turns every one of those blocks into `fail`, and the
 full-scope aggregate certifies only cells that `pass`.
+
+A second journey attempt is a real second try (owner decision 7 of 2026-10-10). The journey's stage 3
+and 4 objects have fixed authored names: the `journey_source` secure connection and the
+`journey-solid-red` style. Before this change, attempt 2 on every cell failed at
+`CreateConnectionAsync` because attempt 1's connection still existed. The strategy is
+delete-and-recreate. Before attempt N > 1, `cloud_journey.reset_prior_attempt` uses the cell's admin
+key (sent only where the driver's credential rule would send it, never on a redirect) to delete
+attempt N-1's connection by name and its style through the cell admin API. Attempt N then creates both
+again through the journey's own SDK and CLI calls. The upload needs no reset (`OverwriteExisting=true`),
+and Studio objects are keyed by the attempt's own workspace. Each retried receipt carries a
+`Journey retry strategy: delete-and-recreate.` notice with every outcome. A deletion the cell refuses
+(409 when attempt N-1 had already published a service on the connection) or a listing that fails is
+reported there, never hidden.
 `python e2e/run_cloud.py --phase <provision|journey|admit|teardown> ...` runs one phase; without
 `--phase` all three run in one process.
 
@@ -210,6 +223,23 @@ for a customer-managed key). The cell workflow exports both to the provision and
 harness passes them only to Redis-on ECS and Lambda cells whose pinned root declares them, and a declaring root
 with the ARN unset refuses provisioning with this step named.
 
+### Production operation policy on the ECS and Lambda cells
+Every cloud cell runs the server image's default environment, Production (the iac modules set no
+`ASPNETCORE_ENVIRONMENT`), whereas every local journey and e2e stack runs Development, where the typed
+operation policy is inert. Production enables `Operations:Policy` with a fail-closed `Deny` default
+(honua-server `src/Honua.Server/appsettings.Production.json`; the server refuses to boot in Production
+without it), so the first cloud journey to reach stage 3 (run 38066103745, aws-serverless redis-on)
+recorded `service.publish ... status=Denied; policyOutcome=Deny; message="Operations require an
+explicit production policy rule."`. The harness therefore passes `operations_policy_rules`
+(`CELL_OPERATION_POLICY_RULES` in `targets/terraform_target.py`) to both cells and both Redis modes:
+two `Allow` rules on every operation, one for role `scoped-admin-key` (the journey operator and
+approver keys) and one for role `admin` (the bootstrap admin and full-admin keys). The proposer
+(`layer-write-key`) and viewer (`scoped-api-key`) get no rule and the default stays `Deny`, so the
+cell remains an honest Production topology; the journey's governance proof (stages 7-8, the Studio
+proposal and approval path) does not ride on these rules. The variable is passed only when the pinned
+honua-iac root declares it, so the rules take effect once the iac pin carries `operations_policy_rules`;
+until then nothing is passed and the receipt keeps recording the Deny.
+
 ### Audit hash-chain key on every AWS cell
 Without `AuditLog:ChainVerification:Key` the server still serves and writes audit rows, but its
 scheduled hash-chain verification never succeeds (`Audit hash-chain integrity FAILED ... audit chain
@@ -248,8 +278,15 @@ harness passes `domain_name` and `route53_zone_id` to `examples/aws`. The aws-ec
 an ACM certificate, writes its DNS validation records in the zone, waits for issuance inside
 `terraform apply` (a few minutes), aliases the name to the ALB, and `honua_url` becomes
 `https://<name>`. The runner's /32 is passed as `allow_https_ingress_cidrs`, not
-`allow_http_ingress_cidrs`. `examples/aws` does not expose `alb_enable_http_redirect`, so the module
-still serves a redirect-only listener on port 80, open to the same /32 only. The admit job resolves
+`allow_http_ingress_cidrs`. On this TLS path only, the harness also passes
+`alb_enable_http_redirect=true` when the pinned `examples/aws` root declares it (owner decision 8 of
+2026-10-10; the module input already defaults to true, the root variable is a parallel honua-iac
+change), so the module serves a redirect-only listener on port 80, open to the same /32 only. A
+plain-HTTP cell never gets it: there is no port 443 to redirect to. The canary's `https-redirect`
+probe asserts it from the provision runner: on an HTTPS cell `http://<host>/healthz/live` must answer
+301 or 308 with `Location: https://<host>/healthz/live` (a missing listener, a 302, or any other
+target fails the cell); every other cell (plain-HTTP ECS, serverless, EKS) records the probe
+`blocked` with the reason. The admit job resolves
 the name to its ALB through the zone's alias record and opens 443 (the endpoint's scheme) to the
 journey runner. The provision report records `transport: {scheme, host}`, and each journey receipt
 records the same pair in its `Candidate transport` notice. `terraform destroy` removes the

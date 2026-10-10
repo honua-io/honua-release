@@ -17,6 +17,7 @@ import shutil
 import subprocess
 import sys
 import tempfile
+import urllib.parse
 from unittest import mock
 from datetime import datetime, timedelta, timezone
 import hashlib
@@ -1105,9 +1106,10 @@ def _isolated_journey():
             yield
 
 
-def _run_serving(monkeypatch, *, ready_status, checks, canary, require_real=False, extended=None):
+def _run_serving(monkeypatch, *, ready_status, checks, canary, require_real=False, extended=None,
+                 stub=None, canary_calls=None):
     """Drive run_cloud.run() against a stub that provisions, with canned probe verdicts."""
-    stub = _ServingStub()
+    stub = stub or _ServingStub()
     registry = run_cloud.REGISTRY
     attempts, delay = run_cloud._READY_ATTEMPTS, run_cloud._READY_DELAY_SECONDS
     try:
@@ -1118,7 +1120,9 @@ def _run_serving(monkeypatch, *, ready_status, checks, canary, require_real=Fals
         monkeypatch.setattr(run_cloud, "make_fetch",
                             lambda **kwargs: (lambda _url: cc.HttpResponse(ready_status, "")))
         monkeypatch.setattr(run_cloud, "run_canonical", lambda *a, **k: checks)
-        monkeypatch.setattr(run_cloud.canary_probes, "run_canary", lambda *a, **k: canary)
+        monkeypatch.setattr(run_cloud.canary_probes, "run_canary",
+                            lambda *a, **k: (canary_calls.append((a, k)) if canary_calls is not None
+                                             else None) or canary)
         _patch_seam(monkeypatch, lambda *a, **k: extended if extended is not None else
                     [cc.CheckResult(name, "pass", "driver passed") for name in cloud_driver.DRIVERS])
         with _isolated_journey():
@@ -1957,6 +1961,151 @@ def test_attempt_admits_plain_http_only_to_the_provisioned_cell_load_balancer(mo
         assert seen[-1] == (None, None) and "Candidate transport: refused (203.0.113.9)" in notices
     finally:
         shutil.rmtree(cj.EVIDENCE / "offline-run", ignore_errors=True)
+
+
+# ---- owner decision 7 of 2026-10-10: journey attempts are idempotent (delete-and-recreate) --------
+_ATTEMPT1_CONNECTION = "3f2b8c1e-5d4a-4e7b-9c0d-1a2b3c4d5e6f"
+_OTHER_CONNECTION = "aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee"
+_ATTEMPT2_CONNECTION = "0f0e0d0c-0b0a-4908-8706-050403020100"
+_JOURNEY_EXECUTION = {"datasource": {"name": "journey_source"}, "styleId": "journey-solid-red"}
+
+
+class _CellHoldingAttempt1:
+    """A fake cell admin API that still holds what attempt 1 created: its journey_source connection
+    and its standalone style, beside an unrelated connection the reset must not touch. Creating a
+    connection whose name exists answers 409, as the cell did on every attempt 2."""
+
+    def __init__(self, *, in_use=False, list_status=200):
+        self.connections = {_ATTEMPT1_CONNECTION: "journey_source", _OTHER_CONNECTION: "customer_db"}
+        self.styles = {"journey-solid-red"}
+        self.in_use, self.list_status, self.calls = in_use, list_status, []
+
+    def __call__(self, method, url, admin_key):
+        assert admin_key == "cell-admin-key"
+        path = urllib.parse.urlsplit(url).path
+        self.calls.append((method, path))
+        if method == "GET" and path == "/api/v1/admin/connections":
+            if self.list_status != 200:
+                return self.list_status, None
+            return 200, {"success": True, "data": [{"connectionId": cid, "name": name}
+                                                   for cid, name in self.connections.items()]}
+        if method == "DELETE" and path.startswith("/api/v1/admin/connections/"):
+            cid = path.rsplit("/", 1)[1]
+            if cid not in self.connections:
+                return 404, None
+            if self.in_use:
+                return 409, {"success": False, "message": "Connection is in use by services"}
+            del self.connections[cid]
+            return 200, {"success": True}
+        if method == "DELETE" and path.startswith("/ogc/styles/"):
+            style = urllib.parse.unquote(path.rsplit("/", 1)[1])
+            if style not in self.styles:
+                return 404, None
+            self.styles.remove(style)
+            return 204, None
+        raise AssertionError(f"unexpected call {method} {path}")
+
+    def create_connection(self, name):
+        if name in self.connections.values():
+            return 409
+        self.connections[_ATTEMPT2_CONNECTION] = name
+        return 201
+
+
+def test_reset_deletes_attempt_ones_connection_and_style_so_attempt_two_can_create_them():
+    cj = run_cloud.cloud_journey
+    cell = _CellHoldingAttempt1()
+    assert cell.create_connection("journey_source") == 409   # the failure every attempt 2 hit
+    notices = cj.reset_prior_attempt("https://cell.example/", "cell-admin-key", _JOURNEY_EXECUTION, 2,
+                                     request=cell)
+    assert cell.calls == [("GET", "/api/v1/admin/connections"),
+                          ("DELETE", f"/api/v1/admin/connections/{_ATTEMPT1_CONNECTION}"),
+                          ("DELETE", "/ogc/styles/journey-solid-red")]
+    assert cell.connections == {_OTHER_CONNECTION: "customer_db"} and cell.styles == set()
+    assert cell.create_connection("journey_source") == 201   # attempt 2 is a genuine second try
+    (notice,) = notices
+    assert notice.startswith(cj.RETRY_STRATEGY_NOTICE + "Before attempt 2 the harness removed attempt 1's")
+    assert f"journey_source connection {_ATTEMPT1_CONNECTION} deleted" in notice
+    assert "style journey-solid-red deleted" in notice
+    assert "cell-admin-key" not in notice
+    # Attempt 3 removes what attempt 2 created, and says when an object was already gone.
+    again = cj.reset_prior_attempt("https://cell.example", "cell-admin-key", _JOURNEY_EXECUTION, 3, request=cell)
+    assert f"journey_source connection {_ATTEMPT2_CONNECTION} deleted" in again[0]
+    assert "style journey-solid-red already absent" in again[0]
+    assert cell.connections == {_OTHER_CONNECTION: "customer_db"}
+    empty = cj.reset_prior_attempt("https://cell.example", "cell-admin-key", _JOURNEY_EXECUTION, 2, request=cell)
+    assert "no journey_source connection was left" in empty[0]
+
+
+def test_reset_is_a_no_op_for_the_first_attempt():
+    cj = run_cloud.cloud_journey
+    cell = _CellHoldingAttempt1()
+    assert cj.reset_prior_attempt("https://cell.example", "cell-admin-key", _JOURNEY_EXECUTION, 1,
+                                  request=cell) == []
+    assert cell.calls == []
+
+
+def test_reset_reports_a_refused_or_unlistable_cell_instead_of_claiming_a_clean_retry():
+    cj = run_cloud.cloud_journey
+    busy = _CellHoldingAttempt1(in_use=True)
+    (notice,) = cj.reset_prior_attempt("https://cell.example", "cell-admin-key", _JOURNEY_EXECUTION, 2,
+                                       request=busy)
+    assert f"journey_source connection {_ATTEMPT1_CONNECTION} refused 409" in notice
+    assert _ATTEMPT1_CONNECTION in busy.connections
+    unlisted = _CellHoldingAttempt1(list_status=503)
+    (notice,) = cj.reset_prior_attempt("https://cell.example", "cell-admin-key", _JOURNEY_EXECUTION, 2,
+                                       request=unlisted)
+    assert "listing connections answered 503, so no journey_source connection was deleted" in notice
+    assert ("DELETE", f"/api/v1/admin/connections/{_ATTEMPT1_CONNECTION}") not in unlisted.calls
+    # A malformed id from the cell is never interpolated into a DELETE path.
+    odd = _CellHoldingAttempt1()
+    odd.connections = {"../../api-keys": "journey_source"}
+    (notice,) = cj.reset_prior_attempt("https://cell.example", "cell-admin-key", _JOURNEY_EXECUTION, 2,
+                                       request=odd)
+    assert "malformed id was not deleted" in notice
+    assert [c for c in odd.calls if c[0] == "DELETE" and "connections" in c[1]] == []
+
+
+def test_attempt_two_resets_attempt_ones_objects_and_names_the_strategy_in_its_receipt(monkeypatch):
+    cj = run_cloud.cloud_journey
+    driver, _ = cj.drivers()
+    monkeypatch.setenv("GITHUB_RUN_ID", "retry-run")
+    monkeypatch.setenv("GITHUB_RUN_ATTEMPT", "1")
+    monkeypatch.setattr(cj, "server_identity", lambda endpoint: None)
+    cell = _CellHoldingAttempt1()
+    order = []
+
+    def admin(*args, **kwargs):
+        order.append("reset")
+        return cell(*args)
+
+    monkeypatch.setattr(cj, "admin_request", admin)
+    workspace = driver.pins.ClientWorkspace(status="blocked", root=None, reason="offline")
+
+    def live(target, pinned, contract, workdir, base_url, keep):
+        order.append("driver")
+        return workspace, None, [], None
+
+    monkeypatch.setattr(driver, "run_live", live)
+    try:
+        record = cj.attempt("aws-ecs/redis-off", 1, "https://cell.example", "cell-admin-key", None)
+        notices = json.loads((E2E_DIR / record["receipt"]).read_text())["notices"]
+        assert order == ["driver"] and not any(n.startswith(cj.RETRY_STRATEGY_NOTICE) for n in notices)
+        order.clear()
+        record = cj.attempt("aws-ecs/redis-off", 2, "https://cell.example", "cell-admin-key", None)
+        notices = json.loads((E2E_DIR / record["receipt"]).read_text())["notices"]
+        assert order == ["reset", "reset", "reset", "driver"]   # the reset completes before the retry
+        (strategy,) = [n for n in notices if n.startswith(cj.RETRY_STRATEGY_NOTICE)]
+        assert f"journey_source connection {_ATTEMPT1_CONNECTION} deleted" in strategy
+        assert "cell-admin-key" not in json.dumps(notices)
+        # An endpoint the credential rule refuses never receives the admin key.
+        order.clear()
+        record = cj.attempt("aws-ecs/redis-off", 2, "http://203.0.113.9", "cell-admin-key", None)
+        notices = json.loads((E2E_DIR / record["receipt"]).read_text())["notices"]
+        assert "reset" not in order
+        assert any(n.startswith(cj.RETRY_STRATEGY_NOTICE + "Not applied before attempt 2") for n in notices)
+    finally:
+        shutil.rmtree(cj.EVIDENCE / "retry-run", ignore_errors=True)
 
 
 def test_server_identity_reads_the_anonymous_capability_manifest():
@@ -3134,6 +3283,104 @@ def test_serverless_runs_the_event_driven_control_plane_when_the_root_declares_i
         assert "enable_control_plane_events" not in _tf_vars(ecs(run_id="r1")._vars(False))
 
 
+# ---- Production typed-operation policy on the ECS and Lambda cells (run 38066103745) --------------
+_EXPECTED_POLICY_LITERAL = (
+    '[{operation_id="*",role="scoped-admin-key",decision="Allow",'
+    'reason="Release cell: scoped admin keys run typed operations"},'
+    '{operation_id="*",role="admin",decision="Allow",'
+    'reason="Release cell: bootstrap and full admins run typed operations"}]')
+
+
+def test_cell_operation_policy_is_two_explicit_allow_rules_for_admin_roles_only():
+    # Run 38066103745 stage 3: service.publish ... status=Denied; policyOutcome=Deny; message=
+    # "Operations require an explicit production policy rule." The cells run Production, whose
+    # policy is fail-closed; the harness allows exactly the two admin roles and nothing else.
+    from targets.terraform_target import CELL_OPERATION_POLICY_RULES, OPERATIONS_POLICY_RULES_VAR
+    rules = [dict(rule) for rule in CELL_OPERATION_POLICY_RULES]
+    assert [(r["operation_id"], r["role"], r["decision"]) for r in rules] == [
+        ("*", "scoped-admin-key", "Allow"), ("*", "admin", "Allow")]
+    for rule in rules:
+        assert rule["role"].strip() and rule["decision"] == "Allow" and rule["reason"].strip()
+        assert set(rule) <= {"operation_id", "role", "tier", "decision", "reason", "approval_lane"}
+    # The proposer and viewer roles get no rule; the server's default Deny stays the fallback.
+    assert not {"layer-write-key", "scoped-api-key"} & {r["role"].lower() for r in rules}
+    assert OPERATIONS_POLICY_RULES_VAR == "operations_policy_rules=" + _EXPECTED_POLICY_LITERAL
+
+
+def test_hcl_object_list_refuses_anything_but_plain_string_literals():
+    from targets.terraform_target import hcl_object_list
+    assert hcl_object_list([(("a", "x"), ("b", "y=z"))]) == '[{a="x",b="y=z"}]'
+    for bad in ('say "hi"', "back\\slash", "${var.x}", "%{if x}", "two\nlines"):
+        with pytest.raises(ValueError):
+            hcl_object_list([(("reason", bad),)])
+
+
+def test_cell_operation_policy_passes_on_both_specs_and_redis_modes_only_when_declared(monkeypatch):
+    from targets.terraform_target import ECS_SPEC, OPERATIONS_POLICY_RULES_VAR, SERVERLESS_SPEC
+    assert OPERATIONS_POLICY_RULES_VAR in SERVERLESS_SPEC.declared_ephemeral_vars
+    assert OPERATIONS_POLICY_RULES_VAR in ECS_SPEC.declared_ephemeral_vars
+    monkeypatch.setenv("HONUA_AWS_OPERATION_KEY_RING_SECRET_ARN",
+                       "arn:aws:secretsmanager:us-east-1:111111111111:secret:keyring")
+    cells = ((serverless, "aws-serverless", _serverless_env, "enable_gp_batch"),
+             (ecs, "aws", _ecs_env, "enable_postgis"))
+    for factory, example, env, sibling in cells:
+        env(monkeypatch)
+        for redis in (True, False):
+            for destroy in (False, True):
+                with tempfile.TemporaryDirectory() as base:
+                    # An older iac pin whose root predates the variable passes nothing, so the
+                    # receipt keeps recording the server's Deny instead of a terraform error.
+                    _iac_root_with(monkeypatch, base, example, sibling)
+                    argv = factory(run_id="r1")._vars(redis, destroy=destroy)
+                    assert not any(a.startswith("-var=operations_policy_rules") for a in argv)
+                    assert sibling in _tf_vars(argv)
+                    _iac_root_with(monkeypatch, base, example, sibling, "operations_policy_rules")
+                    argv = factory(run_id="r1")._vars(redis, destroy=destroy)
+                    # One argv element carrying the whole literal, `=` and quotes intact (no shell).
+                    matching = [a for a in argv if a.startswith("-var=operations_policy_rules=")]
+                    assert matching == ["-var=operations_policy_rules=" + _EXPECTED_POLICY_LITERAL]
+                    assert _tf_vars(argv)["operations_policy_rules"] == _EXPECTED_POLICY_LITERAL
+
+
+def test_root_declares_matches_the_variable_name_of_a_value_with_equals_and_quotes(monkeypatch):
+    # declared_ephemeral_vars split on the FIRST `=`; a value holding `=` and `"` still names its
+    # variable correctly, and a root declaring only a prefix-sharing name does not match.
+    from targets.terraform_target import OPERATIONS_POLICY_RULES_VAR
+    assert OPERATIONS_POLICY_RULES_VAR.split("=", 1)[0] == "operations_policy_rules"
+    _serverless_env(monkeypatch)
+    with tempfile.TemporaryDirectory() as base:
+        _iac_root_with(monkeypatch, base, "aws-serverless", "operations_policy")
+        target = serverless(run_id="r1")
+        assert not target._root_declares("operations_policy_rules")
+        assert "operations_policy_rules" not in _tf_vars(target._vars(False))
+
+
+@pytest.mark.skipif(shutil.which("terraform") is None, reason="terraform CLI not installed")
+def test_cell_operation_policy_literal_is_accepted_by_terraform_for_the_iac_type(tmp_path):
+    # Local, provider-free plan: proves terraform parses the -var literal into the honua-iac
+    # variable's list(object) type with the expected values. No state, no cloud.
+    from targets.terraform_target import OPERATIONS_POLICY_RULES_VAR
+    (tmp_path / "main.tf").write_text(
+        'variable "operations_policy_rules" {\n'
+        '  type = list(object({ operation_id = optional(string, "*"), role = optional(string),\n'
+        '    tier = optional(string), decision = string, reason = optional(string),\n'
+        '    approval_lane = optional(string) }))\n'
+        '}\n'
+        'output "rules" { value = var.operations_policy_rules }\n', encoding="utf-8")
+    env = {**os.environ, "TF_IN_AUTOMATION": "1", "TF_DATA_DIR": str(tmp_path / ".terraform")}
+    run = lambda *args: subprocess.run(["terraform", f"-chdir={tmp_path}", *args], text=True,
+                                       capture_output=True, env=env, timeout=120)
+    assert run("init", "-input=false", "-backend=false").returncode == 0
+    plan = run("plan", "-input=false", "-no-color", "-refresh=false", "-out=plan.bin",
+               f"-var={OPERATIONS_POLICY_RULES_VAR}")
+    assert plan.returncode == 0, plan.stderr
+    shown = run("show", "-json", "plan.bin")
+    assert shown.returncode == 0, shown.stderr
+    rules = json.loads(shown.stdout)["planned_values"]["outputs"]["rules"]["value"]
+    assert [(r["operation_id"], r["role"], r["decision"], r["tier"]) for r in rules] == [
+        ("*", "scoped-admin-key", "Allow", None), ("*", "admin", "Allow", None)]
+
+
 def test_serverless_is_blocked_when_the_root_takes_a_batch_image_and_none_is_pinned(monkeypatch):
     for var in _AWS_ENV:
         monkeypatch.delenv(var, raising=False)
@@ -4108,6 +4355,64 @@ def test_ecs_cell_dns_on_a_root_without_the_domain_inputs_refuses(monkeypatch):
         values = _tf_vars(ecs(run_id="r1")._vars(False, destroy=True))
         # An older root without cors_allowed_origins gets no CORS var (Terraform rejects undeclared vars).
         assert "domain_name" not in values and "cors_allowed_origins" not in values
+
+
+# ---- owner decision 8 of 2026-10-10: the HTTPS ECS cell redirects plain HTTP ----------------------
+def test_ecs_https_cell_requests_the_http_redirect_only_on_the_tls_path_of_a_declaring_root(monkeypatch):
+    _ecs_env(monkeypatch)
+    with tempfile.TemporaryDirectory() as base:
+        _iac_root_with(monkeypatch, base, "aws", *_DOMAIN_ROOT_VARS, "alb_enable_http_redirect")
+        # Plain-HTTP cell: no redirect to a port 443 that serves nothing.
+        target = ecs(run_id="r1")
+        assert "alb_enable_http_redirect" not in _tf_vars(target._vars(False))
+        assert target.https_redirect_expectation(False)[0] is False
+        assert "plain-HTTP cell" in target.https_redirect_expectation(False)[1]
+        _cell_dns(monkeypatch)
+        for redis in (False, True):
+            if redis:
+                monkeypatch.setenv("HONUA_AWS_OPERATION_KEY_RING_SECRET_ARN", KEY_RING_ARN)
+            for destroy in (False, True):
+                values = _tf_vars(ecs(run_id="r1")._vars(redis, destroy=destroy))
+                assert values["alb_enable_http_redirect"] == "true" and "domain_name" in values
+            mode = "on" if redis else "off"
+            assert ecs(run_id="r1").https_redirect_expectation(redis) == (
+                True, f"HTTPS cell r1-aws-ecs-redis-{mode}.cert.demo.honua.io")
+        # An iac pin whose root predates the variable passes nothing (the module default applies).
+        _iac_root_with(monkeypatch, base, "aws", *_DOMAIN_ROOT_VARS)
+        values = _tf_vars(ecs(run_id="r1")._vars(False))
+        assert "alb_enable_http_redirect" not in values and "domain_name" in values
+
+
+def test_serverless_cell_never_requests_or_expects_the_http_redirect(monkeypatch):
+    _serverless_env(monkeypatch)
+    _cell_dns(monkeypatch)
+    with tempfile.TemporaryDirectory() as base:
+        _iac_root_with(monkeypatch, base, "aws-serverless", "alb_enable_http_redirect", "domain_name")
+        target = serverless(run_id="r1")
+        assert "alb_enable_http_redirect" not in _tf_vars(target._vars(False))
+        expected, reason = target.https_redirect_expectation(False)
+        assert expected is False and "no load-balancer HTTPS listener" in reason
+
+
+def test_ecs_dns_misconfiguration_expectation_is_blocked_with_the_refusal(monkeypatch):
+    _ecs_env(monkeypatch)
+    monkeypatch.setenv("HONUA_AWS_CELL_DNS_ZONE_ID", CELL_ZONE)
+    expected, reason = ecs(run_id="r1").https_redirect_expectation(False)
+    assert expected is False and "HONUA_AWS_CELL_DNS_PARENT is unset" in reason
+
+
+def test_run_cloud_hands_the_cell_redirect_expectation_and_a_non_following_fetch_to_the_canary(monkeypatch):
+    class _HttpsStub(_ServingStub):
+        def https_redirect_expectation(self, redis_enabled):
+            return True, f"HTTPS cell redis={redis_enabled}"
+
+    for stub, want in ((_HttpsStub("https://stub.example.invalid"), (True, "HTTPS cell redis=True")),
+                       (_ServingStub(), (False, "stub does not provision an HTTP->HTTPS redirect listener"))):
+        calls = []
+        _run_serving(monkeypatch, ready_status=200, checks=[], canary=[], stub=stub, canary_calls=calls)
+        (args, kwargs), = calls
+        assert kwargs["https_redirect"] == want
+        assert callable(kwargs["redirect_fetch"])
 
 
 def test_serverless_cell_gets_no_custom_domain_or_cors_input(monkeypatch):
