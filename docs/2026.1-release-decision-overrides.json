@@ -204,10 +204,13 @@
       "effect": "Topology ruling for the rc.3 fix plan; it places no issue in a different bucket.",
       "moved": [],
       "basis": "Owner decision 3 recorded during 2026.1 rc.3 fix planning, 2026-10-08",
-      "pending_extension": {
-        "status": "awaiting owner ruling",
+      "extension": {
+        "date": "2026-10-10",
+        "owner": "Mike McDougall (release owner)",
         "scope": "journey stage 3 (publish-service) on Redis-off cells",
-        "note": "Owner note: the ruling names journey stages 5-8. On a Redis-off Production host (honua-server nightly-798d517, reproduced locally and seen on the aws-serverless/redis-off cell in e2e-cloud-aws run 38052304982) honua_publish_service is refused by the governed operation runtime with the typed durable-store refusal (code unavailable, missingDependency redis; the manifest reports operations.proposals dependency-unavailable). The terminal journey records that stage as BLOCKED on this ruling, keeping the refusal as topologyRefusal evidence (rulingStatus extension-pending-owner-ruling); once ruled, a one-line change (executor.TOPOLOGY_REFUSAL_STAGES[3] to ruled) records it as passed; this extends the ruling to stage 3 and leaves stage 4 style/render (which the ruling keeps on Redis-off) without a published layer. Stage 5 uses the ruling as written (jobs.runner refusal)."
+        "ruling": "Decision 3 extends to stage 3 (publish-service). On a Redis-off cell honua_publish_service returns the typed durable-store refusal (code unavailable, missingDependency redis, kind ExecutionFailed, retryable false; the manifest reports operations.proposals dependency-unavailable), and the terminal journey records stage 3 as passed on that refusal exactly as it records stages 5-8, keeping the datasource and import checks that ran before it. Redis-on cells are unchanged. The promotion-readiness pass rule and the journey and operating-envelope documents count a stage 3 topology refusal toward a Redis-off cell's journey pass like stages 5-8.",
+        "basis": "Owner decision recorded 2026-10-10 after e2e-cloud-aws run 38066103745, whose aws-serverless/redis-off receipt recorded stage 3 blocked on the typed refusal pending this ruling (first seen in run 38052304982; reproduced against honua-server nightly-798d517).",
+        "open": "Not covered by this extension: with no layer published, stage 4 (style/render, which decision 3 keeps on Redis-off) and stages 6-8 (which need the layer and reach no tool call) stay blocked on a Production Redis-off cell, so that cell's receipt is not yet a journey pass."
       }
     },
     "ecs-rollback-actuator-2026-10-08": {

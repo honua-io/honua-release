@@ -121,12 +121,14 @@ the cell. Preview and stub cells keep the documented blocked build receipt.
   stage's capability `dependency-unavailable`. The stage row then carries `topologyRefusal` (schema:
   `receipt.schema.json`) and no canonical identity, because nothing ran, and the receipt target
   names `redisTopology: redis-off` (the schema refuses a refusal on any other target). Stages 5
-  (`jobs.runner`) and 6-8 (`operations.proposals`) are the ruling as written; on a Production
-  Redis-off cell stages 6-8 stay blocked because stage 3 publishes no layer. Stage 3
-  (`operations.proposals`: `honua_publish_service` runs through the governed operation runtime)
-  extends it: the stage keeps its `topologyRefusal` evidence but is recorded `blocked`
-  (`extension-pending-owner-ruling`) until the owner rules; changing its entry in
-  `executor.TOPOLOGY_REFUSAL_STAGES` to `ruled` makes it a pass. Any other refusal, a redis-on cell,
+  (`jobs.runner`) and 6-8 (`operations.proposals`) are the ruling as written; the owner extended it
+  to stage 3 on 2026-10-10 (`operations.proposals`: `honua_publish_service` runs through the
+  governed operation runtime, and on a Redis-off Production host it returns the typed durable-store
+  refusal; the ruling names it, so stage 3 also requires `kind: ExecutionFailed` and
+  `retryable: false`). Stage 3 then passes on its datasource and import checks plus the refusal; nothing that
+  needs the published layer is required of it. On a Production Redis-off cell stages 4 and 6-8 have
+  no published layer and stay blocked on it, so the cell receipt is not a pass until those stages
+  can run or are ruled. Any other refusal, a redis-on cell,
   or a manifest that reports the capability available keeps the failure. A local target can
   declare `"redisTopology": "redis-off"` for the same treatment.
 
