@@ -3134,6 +3134,104 @@ def test_serverless_runs_the_event_driven_control_plane_when_the_root_declares_i
         assert "enable_control_plane_events" not in _tf_vars(ecs(run_id="r1")._vars(False))
 
 
+# ---- Production typed-operation policy on the ECS and Lambda cells (run 38066103745) --------------
+_EXPECTED_POLICY_LITERAL = (
+    '[{operation_id="*",role="scoped-admin-key",decision="Allow",'
+    'reason="Release cell: scoped admin keys run typed operations"},'
+    '{operation_id="*",role="admin",decision="Allow",'
+    'reason="Release cell: bootstrap and full admins run typed operations"}]')
+
+
+def test_cell_operation_policy_is_two_explicit_allow_rules_for_admin_roles_only():
+    # Run 38066103745 stage 3: service.publish ... status=Denied; policyOutcome=Deny; message=
+    # "Operations require an explicit production policy rule." The cells run Production, whose
+    # policy is fail-closed; the harness allows exactly the two admin roles and nothing else.
+    from targets.terraform_target import CELL_OPERATION_POLICY_RULES, OPERATIONS_POLICY_RULES_VAR
+    rules = [dict(rule) for rule in CELL_OPERATION_POLICY_RULES]
+    assert [(r["operation_id"], r["role"], r["decision"]) for r in rules] == [
+        ("*", "scoped-admin-key", "Allow"), ("*", "admin", "Allow")]
+    for rule in rules:
+        assert rule["role"].strip() and rule["decision"] == "Allow" and rule["reason"].strip()
+        assert set(rule) <= {"operation_id", "role", "tier", "decision", "reason", "approval_lane"}
+    # The proposer and viewer roles get no rule; the server's default Deny stays the fallback.
+    assert not {"layer-write-key", "scoped-api-key"} & {r["role"].lower() for r in rules}
+    assert OPERATIONS_POLICY_RULES_VAR == "operations_policy_rules=" + _EXPECTED_POLICY_LITERAL
+
+
+def test_hcl_object_list_refuses_anything_but_plain_string_literals():
+    from targets.terraform_target import hcl_object_list
+    assert hcl_object_list([(("a", "x"), ("b", "y=z"))]) == '[{a="x",b="y=z"}]'
+    for bad in ('say "hi"', "back\\slash", "${var.x}", "%{if x}", "two\nlines"):
+        with pytest.raises(ValueError):
+            hcl_object_list([(("reason", bad),)])
+
+
+def test_cell_operation_policy_passes_on_both_specs_and_redis_modes_only_when_declared(monkeypatch):
+    from targets.terraform_target import ECS_SPEC, OPERATIONS_POLICY_RULES_VAR, SERVERLESS_SPEC
+    assert OPERATIONS_POLICY_RULES_VAR in SERVERLESS_SPEC.declared_ephemeral_vars
+    assert OPERATIONS_POLICY_RULES_VAR in ECS_SPEC.declared_ephemeral_vars
+    monkeypatch.setenv("HONUA_AWS_OPERATION_KEY_RING_SECRET_ARN",
+                       "arn:aws:secretsmanager:us-east-1:111111111111:secret:keyring")
+    cells = ((serverless, "aws-serverless", _serverless_env, "enable_gp_batch"),
+             (ecs, "aws", _ecs_env, "enable_postgis"))
+    for factory, example, env, sibling in cells:
+        env(monkeypatch)
+        for redis in (True, False):
+            for destroy in (False, True):
+                with tempfile.TemporaryDirectory() as base:
+                    # An older iac pin whose root predates the variable passes nothing, so the
+                    # receipt keeps recording the server's Deny instead of a terraform error.
+                    _iac_root_with(monkeypatch, base, example, sibling)
+                    argv = factory(run_id="r1")._vars(redis, destroy=destroy)
+                    assert not any(a.startswith("-var=operations_policy_rules") for a in argv)
+                    assert sibling in _tf_vars(argv)
+                    _iac_root_with(monkeypatch, base, example, sibling, "operations_policy_rules")
+                    argv = factory(run_id="r1")._vars(redis, destroy=destroy)
+                    # One argv element carrying the whole literal, `=` and quotes intact (no shell).
+                    matching = [a for a in argv if a.startswith("-var=operations_policy_rules=")]
+                    assert matching == ["-var=operations_policy_rules=" + _EXPECTED_POLICY_LITERAL]
+                    assert _tf_vars(argv)["operations_policy_rules"] == _EXPECTED_POLICY_LITERAL
+
+
+def test_root_declares_matches_the_variable_name_of_a_value_with_equals_and_quotes(monkeypatch):
+    # declared_ephemeral_vars split on the FIRST `=`; a value holding `=` and `"` still names its
+    # variable correctly, and a root declaring only a prefix-sharing name does not match.
+    from targets.terraform_target import OPERATIONS_POLICY_RULES_VAR
+    assert OPERATIONS_POLICY_RULES_VAR.split("=", 1)[0] == "operations_policy_rules"
+    _serverless_env(monkeypatch)
+    with tempfile.TemporaryDirectory() as base:
+        _iac_root_with(monkeypatch, base, "aws-serverless", "operations_policy")
+        target = serverless(run_id="r1")
+        assert not target._root_declares("operations_policy_rules")
+        assert "operations_policy_rules" not in _tf_vars(target._vars(False))
+
+
+@pytest.mark.skipif(shutil.which("terraform") is None, reason="terraform CLI not installed")
+def test_cell_operation_policy_literal_is_accepted_by_terraform_for_the_iac_type(tmp_path):
+    # Local, provider-free plan: proves terraform parses the -var literal into the honua-iac
+    # variable's list(object) type with the expected values. No state, no cloud.
+    from targets.terraform_target import OPERATIONS_POLICY_RULES_VAR
+    (tmp_path / "main.tf").write_text(
+        'variable "operations_policy_rules" {\n'
+        '  type = list(object({ operation_id = optional(string, "*"), role = optional(string),\n'
+        '    tier = optional(string), decision = string, reason = optional(string),\n'
+        '    approval_lane = optional(string) }))\n'
+        '}\n'
+        'output "rules" { value = var.operations_policy_rules }\n', encoding="utf-8")
+    env = {**os.environ, "TF_IN_AUTOMATION": "1", "TF_DATA_DIR": str(tmp_path / ".terraform")}
+    run = lambda *args: subprocess.run(["terraform", f"-chdir={tmp_path}", *args], text=True,
+                                       capture_output=True, env=env, timeout=120)
+    assert run("init", "-input=false", "-backend=false").returncode == 0
+    plan = run("plan", "-input=false", "-no-color", "-refresh=false", "-out=plan.bin",
+               f"-var={OPERATIONS_POLICY_RULES_VAR}")
+    assert plan.returncode == 0, plan.stderr
+    shown = run("show", "-json", "plan.bin")
+    assert shown.returncode == 0, shown.stderr
+    rules = json.loads(shown.stdout)["planned_values"]["outputs"]["rules"]["value"]
+    assert [(r["operation_id"], r["role"], r["decision"], r["tier"]) for r in rules] == [
+        ("*", "scoped-admin-key", "Allow", None), ("*", "admin", "Allow", None)]
+
+
 def test_serverless_is_blocked_when_the_root_takes_a_batch_image_and_none_is_pinned(monkeypatch):
     for var in _AWS_ENV:
         monkeypatch.delenv(var, raising=False)

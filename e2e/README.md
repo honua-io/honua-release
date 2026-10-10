@@ -210,6 +210,23 @@ for a customer-managed key). The cell workflow exports both to the provision and
 harness passes them only to Redis-on ECS and Lambda cells whose pinned root declares them, and a declaring root
 with the ARN unset refuses provisioning with this step named.
 
+### Production operation policy on the ECS and Lambda cells
+Every cloud cell runs the server image's default environment, Production (the iac modules set no
+`ASPNETCORE_ENVIRONMENT`), whereas every local journey and e2e stack runs Development, where the typed
+operation policy is inert. Production enables `Operations:Policy` with a fail-closed `Deny` default
+(honua-server `src/Honua.Server/appsettings.Production.json`; the server refuses to boot in Production
+without it), so the first cloud journey to reach stage 3 (run 38066103745, aws-serverless redis-on)
+recorded `service.publish ... status=Denied; policyOutcome=Deny; message="Operations require an
+explicit production policy rule."`. The harness therefore passes `operations_policy_rules`
+(`CELL_OPERATION_POLICY_RULES` in `targets/terraform_target.py`) to both cells and both Redis modes:
+two `Allow` rules on every operation, one for role `scoped-admin-key` (the journey operator and
+approver keys) and one for role `admin` (the bootstrap admin and full-admin keys). The proposer
+(`layer-write-key`) and viewer (`scoped-api-key`) get no rule and the default stays `Deny`, so the
+cell remains an honest Production topology; the journey's governance proof (stages 7-8, the Studio
+proposal and approval path) does not ride on these rules. The variable is passed only when the pinned
+honua-iac root declares it, so the rules take effect once the iac pin carries `operations_policy_rules`;
+until then nothing is passed and the receipt keeps recording the Deny.
+
 ### Audit hash-chain key on every AWS cell
 Without `AuditLog:ChainVerification:Key` the server still serves and writes audit rows, but its
 scheduled hash-chain verification never succeeds (`Audit hash-chain integrity FAILED ... audit chain
