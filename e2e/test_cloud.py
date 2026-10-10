@@ -2814,9 +2814,45 @@ def test_redis_on_ecs_refuses_without_the_key_ring_secret_but_destroy_still_plan
             ecs(run_id="r1")._vars(True)
         assert "operation_key_ring_certificate_secret_arn" not in _tf_vars(ecs(run_id="r1")._vars(True, destroy=True))
         assert "operation_key_ring_certificate_secret_arn" not in _tf_vars(ecs(run_id="r1")._vars(False))
-    # Serverless has no key-ring mapping.
-    from targets.terraform_target import SERVERLESS_SPEC
-    assert SERVERLESS_SPEC.redis_env_vars == () and SERVERLESS_SPEC.redis_required_vars == ()
+
+
+def test_serverless_spec_maps_the_operation_key_ring_secret_for_redis_on_cells(monkeypatch):
+    from targets.terraform_target import ECS_SPEC, SERVERLESS_SPEC
+    # Same contract as ECS: the Redis-on Lambda server exits without the certificate too.
+    assert SERVERLESS_SPEC.redis_env_vars == ECS_SPEC.redis_env_vars
+    assert SERVERLESS_SPEC.redis_required_vars == ("operation_key_ring_certificate_secret_arn",)
+    _serverless_env(monkeypatch)
+    names = ("operation_key_ring_certificate_secret_arn", "operation_key_ring_certificate_secret_kms_key_arn")
+    with tempfile.TemporaryDirectory() as base:
+        # A pinned serverless root that declares neither (iac 5b09d0dd): nothing passed, nothing refused.
+        _iac_root_with(monkeypatch, base, "aws-serverless")
+        monkeypatch.setenv("HONUA_AWS_OPERATION_KEY_RING_SECRET_ARN", "")
+        assert not set(names) & set(_tf_vars(serverless(run_id="r1")._vars(True)))
+        _iac_root_with(monkeypatch, base, "aws-serverless", *names)
+        # Redis-off never takes the key ring, even when the variables are set.
+        monkeypatch.setenv("HONUA_AWS_OPERATION_KEY_RING_SECRET_ARN", KEY_RING_ARN)
+        monkeypatch.setenv("HONUA_AWS_OPERATION_KEY_RING_SECRET_KMS_KEY_ARN", KEY_RING_KMS)
+        assert not set(names) & set(_tf_vars(serverless(run_id="r1")._vars(False)))
+        values = _tf_vars(serverless(run_id="r1")._vars(True))
+        assert values["operation_key_ring_certificate_secret_arn"] == KEY_RING_ARN
+        assert values["operation_key_ring_certificate_secret_kms_key_arn"] == KEY_RING_KMS
+        # The KMS key is optional (AWS-managed aws/secretsmanager key).
+        monkeypatch.setenv("HONUA_AWS_OPERATION_KEY_RING_SECRET_KMS_KEY_ARN", "")
+        values = _tf_vars(serverless(run_id="r1")._vars(True))
+        assert values["operation_key_ring_certificate_secret_arn"] == KEY_RING_ARN
+        assert "operation_key_ring_certificate_secret_kms_key_arn" not in values
+
+
+def test_redis_on_serverless_refuses_without_the_key_ring_secret_but_destroy_still_plans(monkeypatch):
+    _serverless_env(monkeypatch)
+    with tempfile.TemporaryDirectory() as base:
+        _iac_root_with(monkeypatch, base, "aws-serverless", "operation_key_ring_certificate_secret_arn")
+        monkeypatch.setenv("HONUA_AWS_OPERATION_KEY_RING_SECRET_ARN", "  ")
+        with pytest.raises(ProvisionError, match="HONUA_AWS_OPERATION_KEY_RING_SECRET_ARN"):
+            serverless(run_id="r1")._vars(True)
+        assert "operation_key_ring_certificate_secret_arn" not in _tf_vars(
+            serverless(run_id="r1")._vars(True, destroy=True))
+        assert "operation_key_ring_certificate_secret_arn" not in _tf_vars(serverless(run_id="r1")._vars(False))
 
 
 def test_cell_provision_and_teardown_export_the_key_ring_repository_variables():
