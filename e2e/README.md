@@ -222,14 +222,13 @@ audit data, admit it through the release-cell boundary (honua-iac `bootstrap/aws
 `runtime_audit_chain_key_secret_arns`), and set the repository variable
 `HONUA_AWS_AUDIT_CHAIN_KEY_SECRET_ARN` (plus `HONUA_AWS_AUDIT_CHAIN_KEY_SECRET_KMS_KEY_ARN` for a
 customer-managed key). The cell workflow exports both to the provision and teardown steps; the
-harness passes them to every ECS cell and every Redis-off Lambda cell whose pinned root declares
-them (`optional_env_vars`). The key is recommended, not required: an unset variable never blocks or
-refuses a cell, and the root plans with a warning. **Redis-on Lambda cells do not carry the key
-yet:** Lambda caps the function environment at 4 KB and the Redis-on cell with the key ring, GP
-Batch and the audit-key reference measured 4118 bytes, so `CreateFunction` refused the cell (run
-38046060497; the Redis-off Lambda of the same run carried the key and logged no Fatal). honua-iac
-must bring the Lambda environment under budget before the Redis-on cell can carry it; until then
-that Lambda logs the audit-chain Fatal above and its health check stays Unhealthy.
+harness passes them to every ECS and Lambda cell whose pinned root declares them
+(`optional_env_vars`). The key is recommended, not required: an unset variable never blocks or
+refuses a cell, and the root plans with a warning. Lambda caps the function environment at 4 KB:
+the Redis-on cell with the key ring, GP Batch and the audit-key reference once measured 4118 bytes
+and `CreateFunction` refused it (run 38046060497); honua-iac#230 (pinned from e218d17b) keeps that
+environment near 2.9 KB and fails the plan with the measured size whenever a root would exceed the
+cap, so the key is passed on both Redis modes.
 
 ### Per-run HTTPS hostname and the demo CORS origin on the ECS cells (honua-release#450)
 The pinned `honua` CLI and `honua-mcp-proxy` refuse to send a credential over plain HTTP to any
