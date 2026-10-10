@@ -543,19 +543,29 @@ jobs:
       # J6: an ECS cell leaves its tasks' exit cause in the cell artifact and this job log — every
       # task's stoppedReason, the last 300 CloudWatch log lines of each stopped task's containers
       # (and the newest task's), credentials redacted, and each task definition's environment
-      # variable NAMES (never values). Read while the cell still exists: the log group is destroyed
-      # with it. Runs for ready cells too. Informational: it never changes the verdict.
-      - name: Capture ECS readiness diagnostics
-        if: ${{ always() && inputs.target == 'aws-ecs' && vars.HONUA_AWS_ROLE_ARN != '' }}
+      # variable NAMES (never values). A serverless cell leaves the last 300 lines of each of its
+      # Lambda functions' log groups (API + control-plane event functions) and of its Batch job log
+      # groups when GP Batch is enabled, redacted the same way, plus each function's state and
+      # environment variable NAMES (diagnostics-lambda.json). Read while the cell still exists: the
+      # log groups are destroyed with it. Runs for ready cells too. Informational: it never changes
+      # the verdict.
+      - name: Capture cell readiness diagnostics
+        if: ${{ always() && (inputs.target == 'aws-ecs' || inputs.target == 'aws-serverless') && vars.HONUA_AWS_ROLE_ARN != '' }}
         continue-on-error: true
         env:
           HONUA_IAC_DIR: ${{ github.workspace }}/_honua-iac
           HONUA_CLOUD_PROVISION_MARKER: ${{ runner.temp }}/honua-cloud-provision-attempted
+          CELL_TARGET: ${{ inputs.target }}
         run: |
           set -euo pipefail
           if [ ! -f "$HONUA_CLOUD_PROVISION_MARKER" ]; then echo "nothing provisioned"; exit 0; fi
-          terraform -chdir="$HONUA_IAC_DIR/infrastructure/terraform/examples/aws" init -input=false -no-color >/dev/null
-          python e2e/run_cloud.py --phase diagnose --target "${{ inputs.target }}" --redis "${{ inputs.redis }}"
+          case "$CELL_TARGET" in
+            aws-ecs) ROOT=examples/aws ;;
+            aws-serverless) ROOT=examples/aws-serverless ;;
+            *) echo "no diagnostics for $CELL_TARGET"; exit 0 ;;
+          esac
+          terraform -chdir="$HONUA_IAC_DIR/infrastructure/terraform/$ROOT" init -input=false -no-color >/dev/null
+          python e2e/run_cloud.py --phase diagnose --target "$CELL_TARGET" --redis "${{ inputs.redis }}"
       # FAIL-CLOSED: if the cell provisioned anything and cleanup cannot complete, this step goes red
       # instead of leaving an orphaned VPC/cluster billing (honua-iac#142). The harness meter must
       # refresh e2e/cloud-evidence/run-cost.json with cumulative run USD before infrastructure goes.

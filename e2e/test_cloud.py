@@ -1652,6 +1652,22 @@ def test_cloud_report_cli_reads_the_final_cost_after_aggregation_started(monkeyp
         assert json.loads(output.read_text())["finalCost"]["amountUsd"] == "3"
 
 
+def test_cloud_report_names_a_missing_final_meter_reading_and_fails_it_only_when_strict(monkeypatch):
+    cj = run_cloud.cloud_journey
+    with tempfile.TemporaryDirectory() as directory:
+        root = Path(directory)
+        output = root / "out.json"
+        missing = root / "run-cost.json"
+        monkeypatch.setattr(sys, "argv", ["cloud_journey.py", "--reports", str(root / "none"),
+            "--output", str(output), "--final-cost", str(missing), "--final-cost-after", cj.now()])
+        for strict, status in (("false", "blocked"), ("true", "fail")):
+            monkeypatch.setenv("REQUIRE_REAL", strict)
+            cj.main()
+            report = json.loads(output.read_text())
+            assert report["status"] == status and report["finalCost"]["status"] == "unavailable"
+            assert str(missing) in report["why"]
+
+
 def test_cloud_report_validates_receipts_against_the_candidate_overlay():
     workflow, cell = _cloud_workflows()
     jobs = [("cloud-report", workflow["jobs"]["cloud-report"])] + [
@@ -2017,20 +2033,20 @@ def test_teardown_job_fails_closed_when_provisioned_state_never_arrives(monkeypa
             shutil.rmtree(cj.EVIDENCE / "phase381", ignore_errors=True)
 
 
-def _journey_upload(directory, receipts, *, run_id="offline-run", run_attempt="2"):
+def _journey_upload(directory, receipts, *, run_id="offline-run", run_attempt="2", cell="aws-ecs/redis-off"):
     """A journey job's upload: receipt files plus the journey.json records that name them."""
     cj = run_cloud.cloud_journey
-    cell_dir = cj.cell_dir("aws-ecs/redis-off")
+    cell_dir = cj.cell_dir(cell)
     records = []
     for number, receipt in enumerate(receipts, 1):
         data = json.dumps(receipt).encode()
         (directory / f"receipt-{number}.json").write_bytes(data)
         records.append({"number": number, "runId": run_id, "runAttempt": run_attempt,
-            "cell": "aws-ecs/redis-off", "candidateDigest": cj.candidate_digest(),
+            "cell": cell, "candidateDigest": cj.candidate_digest(),
             "receipt": str((cell_dir / f"receipt-{number}.json").relative_to(E2E_DIR)),
             "receiptSha256": hashlib.sha256(data).hexdigest(),
             "failureAttribution": None if receipt["status"] == "pass" else "infrastructure"})
-    return {"cell": "aws-ecs/redis-off", "status": "pass", "journeyAttempts": records}
+    return {"cell": cell, "status": "pass", "journeyAttempts": records}
 
 
 def test_teardown_reverifies_journey_receipts_and_adopts_no_claimed_verdict(monkeypatch):
@@ -2091,6 +2107,205 @@ def test_teardown_reverifies_journey_receipts_and_adopts_no_claimed_verdict(monk
             assert empty["status"] == "fail" and empty["why"] == "ingress admission failed"
     finally:
         shutil.rmtree(cj.EVIDENCE / "offline-run", ignore_errors=True)
+
+
+# ---- a journey BLOCKED by tracked limitations is blocked, not FAIL, outside require_real -----------
+SERVERLESS_OFF = "aws-serverless/redis-off"
+
+
+def _blocked_receipt(cell=SERVERLESS_OFF, notices=None):
+    """The build-mode receipt attempt() writes when the cell kind is the tracked #377 gap: every
+    stage blocked by the contract's named issues, the server identity observed on the cell."""
+    cj = run_cloud.cloud_journey
+    driver, _ = cj.drivers()
+    if notices is None:
+        notices = ["Imported adapter protocol: terminal-journey-driver-v1",
+                   cj.UNSUPPORTED_KIND_NOTICE + " and live evidence source; this contract receipt cannot "
+                   "qualify the cell (honua-release#377)."]
+    receipt = driver.build_receipt(manifest=cj.manifest(),
+        journey=driver.load(cj.HERE / "journey.v1.json"), roster={"status": "pass"},
+        evidence_uri="urn:test:cloud#honua-run=offline-run/2", mode="build",
+        target={"id": cell, "kind": "none"}, target_path=None, target_base_url="https://cell.invalid",
+        workspace=driver.pins.ClientWorkspace(status="blocked", root=None, reason="fixture"),
+        stage_results=None, notices=notices)
+    receipt["target"]["composeProject"] = None
+    sha, _ = _manifest_server()
+    receipt["server"] = {"sourceSha": sha, "image": "unobserved"}
+    driver.validate_receipt(receipt, cj.HERE / "receipt.schema.json")
+    assert receipt["status"] == "blocked"
+    return receipt
+
+
+def test_documented_blockers_name_tracked_limitations_and_refuse_everything_else():
+    cj = run_cloud.cloud_journey
+    receipt = _blocked_receipt()
+    blockers = cj.documented_blockers(receipt)
+    assert cj.UNSUPPORTED_KIND_ISSUE in blockers
+    contract = {b for stage in receipt["stages"] for b in stage["blockedBy"]}
+    assert contract and contract <= set(blockers)
+    # A driver that raised is a failure of this run, not a documented limitation.
+    raised = _blocked_receipt(notices=["Imported journey driver raised DiscoveryError"])
+    assert cj.documented_blockers(raised) == []
+    # A blocked stage that names no issue is not documented.
+    unnamed = _blocked_receipt()
+    unnamed["stages"][2]["blockedBy"] = []
+    assert cj.documented_blockers(unnamed) == []
+    failed = _blocked_receipt()
+    failed["stages"][0]["status"] = "fail"
+    assert cj.documented_blockers(failed) == []
+    assert cj.documented_blockers(_ecs_receipt()) == []  # a pass is not blocked
+
+
+def _serverless_state(require_real):
+    sha, _ = _manifest_server()
+    return {"cell": SERVERLESS_OFF, "redis": "redis-off", "requireReal": require_real,
+            "observedServer": {"revision": sha, "source": "commit-sha"}, "runningImage": None,
+            "endpoint": "https://cell.invalid"}
+
+
+def test_teardown_reports_a_documented_journey_block_as_blocked_and_require_real_as_fail(monkeypatch):
+    cj = run_cloud.cloud_journey
+    monkeypatch.setenv("GITHUB_RUN_ID", "offline-run")
+    monkeypatch.setenv("GITHUB_RUN_ATTEMPT", "2")
+    try:
+        with tempfile.TemporaryDirectory() as upload:
+            upload = Path(upload)
+            blocked = _blocked_receipt()
+            # The journey job's own claim (pass, or a forged blocker list) is never adopted.
+            journey = {**_journey_upload(upload, [blocked], cell=SERVERLESS_OFF), "blockedBy": ["forged"]}
+            verified = run_cloud.verify_journey(_serverless_state(False), journey, upload)
+            assert verified["status"] == "blocked"
+            assert cj.UNSUPPORTED_KIND_ISSUE in verified["blockedBy"] and "forged" not in verified["blockedBy"]
+            assert "journey blocked by tracked limitations" in verified["why"]
+            # require_real is the per-RC strict mode: the same receipts are a failure.
+            strict = run_cloud.verify_journey(_serverless_state(True), journey, upload)
+            assert strict["status"] == "fail" and strict["why"].startswith("require_real: journey blocked")
+            # One attempt that is not a documented block keeps the journey a failure.
+            raised = _blocked_receipt(notices=["Imported journey driver raised DiscoveryError"])
+            mixed = run_cloud.verify_journey(_serverless_state(False),
+                                             _journey_upload(upload, [raised, blocked], cell=SERVERLESS_OFF), upload)
+            assert mixed["status"] == "fail" and "did not pass" in mixed["why"]
+            # A journey job that reported its own failure keeps it.
+            failed_job = {**_journey_upload(upload, [blocked], cell=SERVERLESS_OFF), "status": "fail",
+                          "why": "journey evidence rejected: stale cell receipt"}
+            kept = run_cloud.verify_journey(_serverless_state(False), failed_job, upload)
+            assert kept["status"] == "fail" and kept["why"] == "journey evidence rejected: stale cell receipt"
+    finally:
+        shutil.rmtree(cj.EVIDENCE / "offline-run", ignore_errors=True)
+
+
+def test_journey_job_stops_on_a_documented_block_and_reports_it(monkeypatch):
+    cj = run_cloud.cloud_journey
+    _phase_env(monkeypatch, run_id="blocked-j1")
+    calls = []
+
+    def attempt(cell, number, endpoint, admin_key, running_image=None):
+        calls.append(number)
+        path = cj.cell_dir(cell) / f"receipt-{number}.json"
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(json.dumps(_blocked_receipt()))
+        return {"number": number, "receipt": str(path.relative_to(E2E_DIR))}
+
+    monkeypatch.setattr(cj, "attempt", attempt)
+    monkeypatch.setattr(cj, "validate_attempt", lambda *a, **k: False)
+    _patch_seam(monkeypatch, lambda *a, **k: [cc.CheckResult("top-demo", "blocked", "honua-release#450 CSP")])
+    try:
+        for require_real, status in ((False, "blocked"), (True, "fail")):
+            calls.clear()
+            state = {"cell": SERVERLESS_OFF, "redis": "redis-off", "endpoint": "https://cell.invalid",
+                     "report": {}, "runId": "blocked-j1", "runAttempt": "1",
+                     "candidateDigest": cj.candidate_digest(), "requireReal": require_real}
+            journey = run_cloud.journey_phase(state, admin_key="k")
+            # A documented limitation is deterministic: the second attempt is not spent on it.
+            assert calls == [1] and journey["status"] == status
+            assert cj.UNSUPPORTED_KIND_ISSUE in journey["blockedBy"]
+    finally:
+        shutil.rmtree(cj.EVIDENCE / "blocked-j1", ignore_errors=True)
+
+
+def _blocked_cell_teardown(monkeypatch, *, require_real, cost_report, journey_status="blocked", started_at=None):
+    cj = run_cloud.cloud_journey
+    stub = _ServingStub()
+    destroyed = []
+    monkeypatch.setattr(stub, "teardown", lambda **kwargs: destroyed.append(True), raising=False)
+    monkeypatch.setattr(cj, "cleanup", lambda cell: None)
+    passing = [{"name": n, "status": "pass", "why": "ok"} for n in ("health", "capability-manifest")]
+    state = {"cell": SERVERLESS_OFF, "redis": "redis-off", "requireReal": require_real,
+             "provisionAttempted": True, "startedAt": started_at or cj.now(),
+             "report": {"cell": SERVERLESS_OFF, "endpoint": "https://cell.invalid", "checks": passing,
+                        "canaryProbes": [], "readiness": {"ready": True}, "journeyAttempts": []}}
+    journey = {"status": journey_status, "blockedBy": [cj.UNSUPPORTED_KIND_ISSUE],
+               "why": f"journey blocked by tracked limitations {[cj.UNSUPPORTED_KIND_ISSUE]}",
+               "journeyAttempts": [{"number": 1, "receipt": "cloud-evidence/x/receipt-1.json"}],
+               "scenarioCoverage": [
+                   {"name": "mcp-handshake", "status": "pass", "why": "S1 ok"},
+                   {"name": "top-demo", "status": "blocked", "why": "S9-demos-shim-security: honua-release#450 "
+                    "top-demo: CSP does not allow this cell's backend origin"}]}
+    report = run_cloud.teardown_phase(state, journey, stub, reference_endpoint=None, cost_report=cost_report)
+    assert destroyed == [True] and state["destroyed"] is True
+    return report
+
+
+def test_teardown_blocked_cell_names_its_blockers_and_writes_cost_evidence(monkeypatch):
+    cj = run_cloud.cloud_journey
+    with tempfile.TemporaryDirectory() as directory:
+        meter = Path(directory) / "run-cost.json"  # no harness meter reading exists
+        report = _blocked_cell_teardown(monkeypatch, require_real=False, cost_report=meter)
+        assert report["status"] == "blocked", report["why"]
+        assert cj.UNSUPPORTED_KIND_ISSUE in report["why"] and "top-demo (honua-release#450)" in report["why"]
+        assert report["journeyBlockedBy"] == [cj.UNSUPPORTED_KIND_ISSUE]
+        # The cost entry is written, names what is missing, and never passes.
+        assert report["cost"]["status"] == "unavailable" and str(meter) in report["cost"]["why"]
+        assert "run cost meter unavailable" in report["why"] and "FileNotFoundError" not in report["why"]
+
+        # Strict mode: the documented block and the missing meter are failures.
+        strict = _blocked_cell_teardown(monkeypatch, require_real=True, cost_report=meter)
+        assert strict["status"] == "fail"
+        assert "require_real" in strict["why"] and "cost evidence unavailable: FileNotFoundError" in strict["why"]
+
+        # A passing meter reading leaves only the tracked blockers; an over-ceiling one still fails.
+        def write(amount):
+            meter.write_text(json.dumps({"runId": os.environ.get("GITHUB_RUN_ID", "local"),
+                "runAttempt": os.environ.get("GITHUB_RUN_ATTEMPT", "1"), "currency": "USD",
+                "scope": "run", "measuredAt": cj.now(), "amount": amount}))
+        started = cj.now()
+        write("1.50")
+        metered = _blocked_cell_teardown(monkeypatch, require_real=False, cost_report=meter, started_at=started)
+        assert metered["status"] == "blocked" and metered["cost"]["status"] == "pass"
+        assert "run cost meter unavailable" not in metered["why"]
+        write("99")
+        over = _blocked_cell_teardown(monkeypatch, require_real=False, cost_report=meter, started_at=started)
+        assert over["status"] == "fail" and "exceeds ceiling" in over["why"]
+        # A failed journey is never softened by the blocked path.
+        meter.unlink()
+        failed = _blocked_cell_teardown(monkeypatch, require_real=False, cost_report=meter, journey_status="fail")
+        assert failed["status"] == "fail"
+
+
+def test_cloud_report_keeps_a_documented_block_blocked_unless_require_real(monkeypatch):
+    cj = run_cloud.cloud_journey
+    with tempfile.TemporaryDirectory() as directory:
+        directory = Path(directory)
+        receipt = _blocked_receipt()
+        report = {"cell": SERVERLESS_OFF, "status": "blocked", "artifactDirectory": str(directory),
+                  "why": "journey blocked by tracked limitations",
+                  "journeyAttempts": [_artifact(directory, receipt)],
+                  "cost": {"status": "unavailable", "why": "run cost meter unavailable"}}
+        lenient = cj.aggregate([report], directory, require_real=False, full_scope=False,
+                               run_id="offline-run", run_attempt="2")
+        assert lenient["status"] == "blocked" and SERVERLESS_OFF in lenient["why"]
+        assert lenient["certifying"] is False
+        strict = cj.aggregate([report], directory, require_real=True, full_scope=False,
+                              run_id="offline-run", run_attempt="2")
+        assert strict["status"] == "fail"
+        # A real failure behind a blocked label is still a failure.
+        raised = _blocked_receipt(notices=["Imported journey driver raised DiscoveryError"])
+        hidden = {**report, "journeyAttempts": [_artifact(directory, raised)]}
+        assert cj.aggregate([hidden], directory, require_real=False, full_scope=False,
+                            run_id="offline-run", run_attempt="2")["status"] == "fail"
+        over = {**report, "cost": {"status": "fail"}}
+        assert cj.aggregate([over], directory, require_real=False, full_scope=False,
+                            run_id="offline-run", run_attempt="2")["status"] == "fail"
 
 
 def test_journey_job_refuses_a_foreign_handoff_and_an_unadmitted_endpoint(monkeypatch):
@@ -3195,6 +3410,154 @@ def test_ecs_diagnostics_tail_every_stopped_task_and_report_unreadable_streams(m
     assert "ResourceNotFoundException" in unreadable["error"] and "Password=[redacted]" in unreadable["error"]
 
 
+def _lambda_cli(outputs, *, functions, groups, batch_groups=(), failing_streams=(), calls=None):
+    """A fake terraform/aws CLI for lambda_readiness_diagnostics: `groups` maps a log group to
+    {stream: [(timestamp, message), ...]}."""
+    def run(argv, **kwargs):
+        if calls is not None:
+            calls.append(argv)
+        if argv[0] == "terraform":
+            name = argv[-1]
+            return subprocess.CompletedProcess(argv, 0 if name in outputs else 1, outputs.get(name, ""), "")
+        verb = argv[2]
+        if verb == "list-functions":
+            return subprocess.CompletedProcess(argv, 0, json.dumps({"Functions": functions}), "")
+        if verb == "describe-log-groups":
+            prefix = argv[argv.index("--log-group-name-prefix") + 1]
+            return subprocess.CompletedProcess(argv, 0, json.dumps({"logGroups": [
+                {"logGroupName": g} for g in batch_groups if g.startswith(prefix)]}), "")
+        group = argv[argv.index("--log-group-name") + 1]
+        if verb == "describe-log-streams":
+            if group not in groups:
+                return subprocess.CompletedProcess(argv, 254, "", "ResourceNotFoundException: token=abc gone")
+            names = sorted(groups[group], key=lambda n: max(t for t, _ in groups[group][n]), reverse=True)
+            return subprocess.CompletedProcess(argv, 0, json.dumps({"logStreams": [
+                {"logStreamName": n} for n in names[:int(argv[argv.index("--max-items") + 1])]]}), "")
+        assert verb == "get-log-events"
+        stream = argv[argv.index("--log-stream-name") + 1]
+        if stream in failing_streams:
+            return subprocess.CompletedProcess(argv, 254, "", "ThrottlingException: Password=x")
+        limit = int(argv[argv.index("--limit") + 1])
+        events = [{"timestamp": t, "message": m + "\n"} for t, m in groups[group][stream]][-limit:]
+        return subprocess.CompletedProcess(argv, 0, json.dumps({"events": events}), "")
+    return run
+
+
+def test_lambda_readiness_diagnostics_tail_every_cell_function_and_the_batch_log(monkeypatch):
+    target = serverless(run_id="r1")
+    monkeypatch.setattr(target, "_iac_root", lambda: Path("iac"))
+    stem = "honuaoffawsser1-dev"
+    api, reconcile, backstop, tick = (f"{stem}-honua", f"{stem}-cp-reconcile", f"{stem}-cp-backstop",
+                                      f"{stem}-cp-tick")
+    outputs = {"lambda_function_name": api, "control_plane_reconcile_function_name": reconcile,
+               "control_plane_backstop_function_name": backstop, "gp_batch_enabled": "true"}
+    functions = [
+        {"FunctionName": api, "State": "Active", "LastUpdateStatus": "Successful",
+         "Environment": {"Variables": {"ConnectionStrings__Redis": "redis://u:hunter2@cache",
+                                       "ASPNETCORE_ENVIRONMENT": "Production"}},
+         "LoggingConfig": {"LogGroup": f"/aws/lambda/{api}"}},
+        {"FunctionName": reconcile, "State": "Active"},
+        {"FunctionName": tick, "State": "Failed", "StateReason": "token=abc init failed"},
+        # Another cell's function sharing a prefix of the stem is not this cell's.
+        {"FunctionName": f"{stem}x-honua", "State": "Active"},
+        {"FunctionName": "unrelated-honua", "State": "Active"},
+    ]
+    # The API group spans three streams (one per execution environment); its last 300 lines interleave.
+    api_streams = {f"s{n}": [(n + 3 * i, f"s{n} line {i}") for i in range(200)] for n in range(3)}
+    api_streams["s2"].append((10_000, "operations.proposals: dependency-unavailable Password=hunter2"))
+    groups = {f"/aws/lambda/{api}": api_streams,
+              f"/aws/lambda/{reconcile}": {"r": [(1, "reconcile ok")]},
+              f"/aws/lambda/{tick}": {"t": [(1, "tick AKIAABCDEFGHIJKLMNOP")]},
+              f"/aws/batch/{stem}-gp": {"job/default/abc": [(5, "gp job running postgres://h:pw@db/x")]}}
+    calls = []
+    run = _lambda_cli(outputs, functions=functions, groups=groups, calls=calls,
+                      batch_groups=(f"/aws/batch/{stem}-gp", "/aws/batch/other-gp"))
+
+    report = run_cloud.lambda_readiness_diagnostics(target, run=run, redact=run_cloud._redact_log)
+    assert report["nameStem"] == stem and report["gpBatchEnabled"] is True
+    names = [f["functionName"] for f in report["functions"]]
+    # The API function first; the backstop output names a function the listing no longer has.
+    assert names == [api, backstop, reconcile, tick]
+    by_name = {f["functionName"]: f for f in report["functions"]}
+    assert by_name[backstop]["listed"] is False and by_name[api]["listed"] is True
+    assert by_name[tick]["state"] == "Failed" and by_name[tick]["stateReason"] == "token=[redacted] init failed"
+    assert by_name[api]["environmentNames"] == ["ASPNETCORE_ENVIRONMENT", "ConnectionStrings__Redis"]
+    logs = {log["logGroup"]: log for log in report["logs"]}
+    api_log = logs[f"/aws/lambda/{api}"]
+    assert api_log["functionName"] == api and len(api_log["lines"]) == 300
+    assert api_log["lines"][-1] == "operations.proposals: dependency-unavailable Password=[redacted]"
+    # Merged by timestamp across streams, newest last, trailing newline stripped.
+    assert api_log["lines"][-2] == "s2 line 199" and api_log["lines"][-3] == "s1 line 199"
+    assert "error" in logs[f"/aws/lambda/{backstop}"] and "token=[redacted]" in logs[f"/aws/lambda/{backstop}"]["error"]
+    assert logs[f"/aws/lambda/{tick}"]["lines"] == ["tick [redacted-aws-key-id]"]
+    batch = logs[f"/aws/batch/{stem}-gp"]
+    assert batch["batch"] is True and batch["lines"] == ["gp job running postgres://h:[redacted]@db/x"]
+    assert "/aws/batch/other-gp" not in logs and f"/aws/lambda/{stem}x-honua" not in logs
+    get_logs = next(c for c in calls if "get-log-events" in c)
+    assert get_logs[get_logs.index("--limit") + 1] == "300"
+    # Read-only: no AWS verb but list/describe/get, and terraform only reads outputs.
+    for call in calls:
+        if call[0] == "aws":
+            assert call[2].split("-")[0] in ("list", "describe", "get"), call
+        else:
+            assert call[2:4] == ["output", "-raw"], call
+    dumped = json.dumps(report)
+    assert "hunter2" not in dumped and "Production" not in dumped and "AKIA" not in dumped
+
+
+def test_lambda_diagnostics_skip_batch_when_disabled_and_report_unreadable_streams(monkeypatch):
+    target = serverless(run_id="r2")
+    monkeypatch.setattr(target, "_iac_root", lambda: Path("iac"))
+    api = "cell-dev-honua"
+    calls = []
+    run = _lambda_cli({"lambda_function_name": api, "gp_batch_enabled": "false"},
+                      functions=[{"FunctionName": api}], calls=calls, failing_streams=("b",),
+                      groups={f"/aws/lambda/{api}": {"a": [(1, "started")], "b": [(2, "lost")]}})
+    report = run_cloud.lambda_readiness_diagnostics(target, run=run, redact=run_cloud._redact_log)
+    assert report["gpBatchEnabled"] is False
+    assert not any("describe-log-groups" in c for c in calls)
+    log = report["logs"][0]
+    assert log["lines"] == ["started"] and "Password=[redacted]" in log["errors"][0]
+    # No API function output: the cell is not a Lambda cell this collector can read.
+    with pytest.raises(ValueError, match="lambda_function_name"):
+        run_cloud.lambda_readiness_diagnostics(
+            target, run=_lambda_cli({}, functions=[], groups={}), redact=run_cloud._redact_log)
+
+
+def test_diagnose_phase_writes_lambda_diagnostics_for_a_serverless_cell(monkeypatch, capsys):
+    cj = run_cloud.cloud_journey
+    _phase_env(monkeypatch, run_id="diag-l1")
+    directory = cj.cell_dir("aws-serverless/redis-on")
+    seen = []
+    monkeypatch.setattr(run_cloud, "ecs_readiness_diagnostics",
+                        lambda target, **kw: pytest.fail("a serverless cell has no ECS service"))
+    monkeypatch.setattr(run_cloud, "lambda_readiness_diagnostics", lambda target, **kw: seen.append(target.name) or {
+        "functions": [{"functionName": "c-honua", "state": "Active", "lastUpdateStatus": "Successful",
+                       "stateReason": "", "environmentNames": ["ConnectionStrings__Redis"]}],
+        "logs": [{"functionName": "c-honua", "logGroup": "/aws/lambda/c-honua",
+                  "lines": ["operations.proposals: dependency-unavailable"]},
+                 {"batch": True, "logGroup": "/aws/batch/c-gp", "error": "gone"}]})
+    argv = ["--phase", "diagnose", "--target", "aws-serverless", "--redis", "on"]
+    try:
+        capsys.readouterr()
+        assert run_cloud.main(argv) == 0 and seen == ["aws-serverless"]
+        printed = capsys.readouterr().out
+        assert "function c-honua: state=Active" in printed and "environment names ConnectionStrings__Redis" in printed
+        assert "::group::/aws/lambda/c-honua (c-honua)" in printed
+        assert "operations.proposals: dependency-unavailable" in printed
+        assert "::group::/aws/batch/c-gp (batch)" in printed and "log unavailable: gone" in printed
+        written = json.loads((directory / run_cloud.LAMBDA_DIAGNOSTICS_NAME).read_text())
+        assert written["cell"] == "aws-serverless/redis-on"
+        assert not (directory / run_cloud.DIAGNOSTICS_NAME).exists()
+        monkeypatch.setattr(run_cloud, "lambda_readiness_diagnostics",
+                            lambda target, **kw: (_ for _ in ()).throw(RuntimeError("Password=x denied")))
+        assert run_cloud.main(argv) == 0
+        assert "Password=[redacted]" in json.loads(
+            (directory / run_cloud.LAMBDA_DIAGNOSTICS_NAME).read_text())["error"]
+    finally:
+        shutil.rmtree(cj.EVIDENCE / "diag-l1", ignore_errors=True)
+
+
 @pytest.mark.parametrize("line, secret, kept", [
     ("redis://default:s3cr3t@cache:6379", "s3cr3t", "redis://default:[redacted]@cache:6379"),
     ("ConnectionStrings__Redis=cache:6379,password=s3cr3t", "s3cr3t", "ConnectionStrings__Redis=[redacted]"),
@@ -3245,17 +3608,22 @@ def test_diagnose_phase_runs_for_every_cell_and_prints_the_log_tail(monkeypatch,
         shutil.rmtree(cj.EVIDENCE / "diag-c2", ignore_errors=True)
 
 
-def test_cell_teardown_captures_ecs_diagnostics_before_destroy_and_uploads_them():
+def test_cell_teardown_captures_cell_diagnostics_before_destroy_and_uploads_them():
     _, cell = _cloud_workflows()
     steps = cell["jobs"]["teardown"]["steps"]
     names = [step.get("name", "") for step in steps]
-    diagnose = names.index("Capture ECS readiness diagnostics")
+    diagnose = names.index("Capture cell readiness diagnostics")
     destroy = next(i for i, name in enumerate(names) if name.startswith("Tear down"))
     restore = names.index("Restore the Terraform state")
     assert restore < diagnose < destroy
     step = steps[diagnose]
-    assert step["continue-on-error"] is True and "inputs.target == 'aws-ecs'" in step["if"]
+    # Both GA cell kinds: a Lambda cell's log groups are destroyed with it just like an ECS cell's.
+    assert step["continue-on-error"] is True
+    assert "inputs.target == 'aws-ecs'" in step["if"] and "inputs.target == 'aws-serverless'" in step["if"]
     assert "--phase diagnose" in step["run"]
+    # Each kind initialises its own Terraform root before reading outputs.
+    assert "aws-ecs) ROOT=examples/aws ;;" in step["run"]
+    assert "aws-serverless) ROOT=examples/aws-serverless ;;" in step["run"]
     upload = next(s for s in steps if s.get("name") == "Upload cloud gate-report (per cell)")
     assert "e2e/cloud-evidence/**/diagnostics-*.json" in upload["with"]["path"]
 

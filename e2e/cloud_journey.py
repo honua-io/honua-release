@@ -142,6 +142,38 @@ def observed_ecs_image(target, pinned, *, run=subprocess.run):
 
 UNOBSERVED_SHA = "0" * 40
 
+# Notices attempt() writes into a receipt. A driver exception is a failure of this run, never a
+# documented limitation; an unsupported cloud kind is the tracked honua-release#377 gap.
+DRIVER_ERROR_NOTICE = "Imported journey driver raised "
+UNSUPPORTED_KIND_NOTICE = "Owned receipt schema lacks this cloud kind"
+UNSUPPORTED_KIND_ISSUE = "https://github.com/honua-io/honua-release/issues/377"
+
+
+def documented_blockers(receipt):
+    """The tracked limitations a BLOCKED journey receipt names, or [] when it is not one.
+
+    A receipt is blocked by documented limitations only when nothing in it failed, the imported
+    driver did not raise, and every blocked stage names the issue that blocks it (or the cell kind
+    is the tracked #377 gap). Anything else is a failed attempt.
+    """
+    if not isinstance(receipt, dict) or receipt.get("status") != "blocked":
+        return []
+    notices = [str(notice) for notice in receipt.get("notices") or []]
+    if any(notice.startswith(DRIVER_ERROR_NOTICE) for notice in notices):
+        return []
+    blockers = set()
+    if any(notice.startswith(UNSUPPORTED_KIND_NOTICE) for notice in notices):
+        blockers.add(UNSUPPORTED_KIND_ISSUE)
+    for stage in receipt.get("stages") or []:
+        if stage.get("status") == "fail":
+            return []
+        if stage.get("status") == "blocked":
+            named = [str(b) for b in stage.get("blockedBy") or [] if str(b).strip()]
+            if not named:
+                return []
+            blockers.update(named)
+    return sorted(blockers)
+
 
 CAPABILITY_MANIFEST = "/api/v1/capabilities/manifest"
 
@@ -352,9 +384,13 @@ def aggregate(reports, reports_root, *, require_real, full_scope, run_id, run_at
               final_cost=None):
     cells = []
     failures = []
+    blocked = []
     # Per-cell readings predate later cells, teardowns and iac-live. Only a reading taken after
-    # every cloud job finished bounds the whole run.
-    if final_cost is not None and final_cost.get("status") != "pass":
+    # every cloud job finished bounds the whole run. A meter that produced no reading at all blocks
+    # a non-strict run (named, never pass); require_real fails on it.
+    if final_cost is not None and final_cost.get("status") == "unavailable" and not require_real:
+        blocked.append("final run cost: " + final_cost.get("why", "no run cost meter reading"))
+    elif final_cost is not None and final_cost.get("status") != "pass":
         failures.append("final run cost: " + final_cost.get("why", "run cost ceiling exceeded"))
     elif final_cost is None and full_scope:
         failures.append("final run cost evidence missing after all cloud jobs")
@@ -387,6 +423,7 @@ def aggregate(reports, reports_root, *, require_real, full_scope, run_id, run_at
             if not attempts or [a["number"] for a in attempts] != list(range(1, len(attempts) + 1)) or len(attempts) > 2:
                 raise ValueError("missing or invalid attempt history")
             passed = False
+            attempt_blockers = []
             for record in attempts:
                 # Uploaded files are loaded relative to the matching report's artifact directory.
                 relative = Path(record["receipt"])
@@ -400,10 +437,20 @@ def aggregate(reports, reports_root, *, require_real, full_scope, run_id, run_at
                     raise ValueError("receipt digest mismatch")
                 if passed:
                     raise ValueError("attempt recorded after a passing journey")
-                passed = validate_attempt(record, json.loads(data), cell, run_id=run_id, run_attempt=run_attempt)
+                receipt = json.loads(data)
+                passed = validate_attempt(record, receipt, cell, run_id=run_id, run_attempt=run_attempt)
+                attempt_blockers.append(documented_blockers(receipt))
+            cost = report.get("cost", {})
+            # Outside require_real a cell that is BLOCKED only by tracked, documented limitations
+            # (journey receipts, scenarios, a missing run cost meter) is reported blocked, never
+            # pass. A failed attempt, an over-ceiling or unbound cost reading, or require_real
+            # leaves it a failure.
+            if (not require_real and report["status"] == "blocked"
+                    and (passed or all(attempt_blockers)) and cost.get("status") in ("pass", "unavailable")):
+                blocked.append(f"{cell}: {report.get('why') or 'blocked'}")
+                continue
             if not passed or report["status"] != "pass":
                 raise ValueError("full-scope cloud reports did not all pass: journey/cell failed")
-            cost = report.get("cost", {})
             if (cost.get("status") != "pass" or cost.get("scope") != "run"
                     or cost.get("runId") != run_id or cost.get("runAttempt") != run_attempt
                     or cost.get("candidateDigest") != candidate_digest()):
@@ -416,10 +463,11 @@ def aggregate(reports, reports_root, *, require_real, full_scope, run_id, run_at
                 raise ValueError("stale run cost evidence")
         except Exception as error:
             failures.append(f"{cell}: {type(error).__name__}: {error}")
-    status = "fail" if failures else "pass"
+    status = "fail" if failures else "blocked" if blocked else "pass"
     if not full_scope and status == "pass":
         status = "blocked"
     return {"gate": "cloud-parity", "status": status, "why": "; ".join(failures) if failures else
+            ("blocked by tracked limitations: " + "; ".join(blocked)) if blocked else
             ("GA cloud journeys passed" if full_scope else "focused dispatch is diagnostic only"),
             "cells": cells, "canaryProbes": [probe for row in cells for probe in row.get("canaryProbes", [])],
             "certifying": full_scope and require_real and status == "pass",
@@ -443,6 +491,8 @@ def main():
         try:
             after = datetime.fromisoformat(args.final_cost_after.replace("Z", "+00:00"))
             final_cost = check_cost(args.final_cost, args.cost_ceiling_usd, started_at=after)
+        except FileNotFoundError:
+            final_cost = {"status": "unavailable", "why": f"unavailable: no reading at {args.final_cost}"}
         except Exception as error:
             final_cost = {"status": "fail", "why": f"unavailable: {type(error).__name__}"}
     reports = []
