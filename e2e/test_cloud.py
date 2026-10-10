@@ -3174,23 +3174,27 @@ AUDIT_KEY_ARN = "arn:aws:secretsmanager:us-east-1:123456789012:secret:honua/audi
 AUDIT_KEY_KMS = "arn:aws:kms:us-east-1:123456789012:key/2222-3333"
 
 
-def test_serverless_cells_do_not_carry_the_audit_chain_key_while_lambda_is_over_its_env_budget(monkeypatch):
-    # Run 38046060497: the Redis-on Lambda environment measured 4118 bytes against Lambda's 4 KB cap
-    # once the audit-key reference joined the key ring and GP Batch entries, and CreateFunction
-    # refused. Until honua-iac brings the environment under budget the harness never passes the key
-    # to a Lambda cell, even when the repository variable is set and the pinned root declares it.
-    from targets.terraform_target import SERVERLESS_SPEC
-    assert SERVERLESS_SPEC.optional_env_vars == ()
+def test_redis_on_serverless_cells_withhold_the_audit_chain_key_while_lambda_is_over_its_env_budget(monkeypatch):
+    # Run 38046060497: the Redis-off Lambda carried the key and logged no Fatal, but the Redis-on
+    # Lambda environment measured 4118 bytes against Lambda's 4 KB cap once the audit-key reference
+    # joined the key ring and GP Batch entries, and CreateFunction refused. Until honua-iac brings
+    # the environment under budget the harness passes the key to Redis-off Lambda cells only, even
+    # when the repository variable is set and the pinned root declares it.
+    from targets.terraform_target import ECS_SPEC, SERVERLESS_SPEC
+    assert SERVERLESS_SPEC.redis_on_withholds_optional_env_vars is True
+    assert ECS_SPEC.redis_on_withholds_optional_env_vars is False
     _serverless_env(monkeypatch)
     names = ("audit_chain_key_secret_arn", "audit_chain_key_secret_kms_key_arn")
     with tempfile.TemporaryDirectory() as base:
         _iac_root_with(monkeypatch, base, "aws-serverless", *names)
         monkeypatch.setenv("HONUA_AWS_AUDIT_CHAIN_KEY_SECRET_ARN", AUDIT_KEY_ARN)
         monkeypatch.setenv("HONUA_AWS_AUDIT_CHAIN_KEY_SECRET_KMS_KEY_ARN", AUDIT_KEY_KMS)
-        for redis in (False, True):
-            if redis:
-                monkeypatch.setenv("HONUA_AWS_OPERATION_KEY_RING_SECRET_ARN", KEY_RING_ARN)
-            assert not set(names) & set(_tf_vars(serverless(run_id="r1")._vars(redis)))
+        values = _tf_vars(serverless(run_id="r1")._vars(False))
+        assert values["audit_chain_key_secret_arn"] == AUDIT_KEY_ARN
+        assert values["audit_chain_key_secret_kms_key_arn"] == AUDIT_KEY_KMS
+        monkeypatch.setenv("HONUA_AWS_OPERATION_KEY_RING_SECRET_ARN", KEY_RING_ARN)
+        on = _tf_vars(serverless(run_id="r1")._vars(True))
+        assert not set(names) & set(on)
         assert not any("AUDIT_CHAIN" in m for m in serverless(run_id="r1").availability().missing)
 
 

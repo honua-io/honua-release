@@ -89,6 +89,10 @@ class TfTargetSpec:
     # pinned root declares terraform_var, on every cell. Unlike env_vars, an unset env never blocks or
     # refuses; the root plans with its own default (and its own warning).
     optional_env_vars: tuple[tuple[str, str], ...] = ()
+    # Optional vars withheld from Redis-on cells only (the cell keeps them on Redis-off): a Lambda
+    # function environment is capped at 4 KB and the Redis-on serverless cell is over it once the
+    # key ring, GP Batch and the audit-key reference are all present (run 38046060497, 4118 bytes).
+    redis_on_withholds_optional_env_vars: bool = False
     # Opt-in vars: passed only when `opt_in_env` is "true". A root that does not declare one of them
     # is a provisioning failure, not a silent drop: the caller asked for that capability.
     opt_in_env: str = ""
@@ -252,7 +256,8 @@ class TerraformTarget(DeployTarget):
             *(f"-var={variable}={os.environ[env_name]}" for env_name, variable in self.spec.env_vars
               if os.environ.get(env_name) and self._root_declares(variable)),
             *(f"-var={variable}={os.environ[env_name].strip()}" for env_name, variable in self.spec.optional_env_vars
-              if os.environ.get(env_name, "").strip() and self._root_declares(variable)),
+              if os.environ.get(env_name, "").strip() and self._root_declares(variable)
+              and not (redis_enabled and self.spec.redis_on_withholds_optional_env_vars)),
         ]
         if redis_enabled:
             declared = [(env_name, variable) for env_name, variable in self.spec.redis_env_vars
@@ -725,14 +730,16 @@ SERVERLESS_SPEC = TfTargetSpec(
     # serverless root predates these variables declares neither, so nothing is passed or refused.
     redis_env_vars=_OPERATION_KEY_RING_ENV_VARS,
     redis_required_vars=_OPERATION_KEY_RING_REQUIRED_VARS,
-    # The audit-chain key is NOT passed to Lambda cells yet: Lambda caps the function environment at
-    # 4 KB and the Redis-on cell with the key ring, GP Batch and the audit-key reference measured
-    # 4118 bytes (e2e-cloud-aws run 38046060497, CreateFunction InvalidParameterValueException), so
-    # the apply failed before the function existed. honua-iac must bring the environment under budget
-    # (fix unit C8) before this cell can carry the key; until then the Lambda logs the audit-chain
-    # "key is not configured" Fatal and the audit-chain-integrity health check stays Unhealthy, which
-    # the server treats as recommended-not-required. ECS has no such cap and keeps the mapping.
-    optional_env_vars=(),
+    # The audit-chain key reaches Redis-off Lambda cells (run 38046060497: the function carried it
+    # and logged no "key is not configured" Fatal) but NOT Redis-on ones yet: Lambda caps the
+    # function environment at 4 KB and the Redis-on cell with the key ring, GP Batch and the
+    # audit-key reference measured 4118 bytes (same run, CreateFunction
+    # InvalidParameterValueException), so the apply failed before the function existed. honua-iac
+    # must bring the environment under budget (fix unit C8) before the Redis-on cell can carry the
+    # key; until then that Lambda logs the Fatal and its audit-chain-integrity health check stays
+    # Unhealthy, which the server treats as recommended-not-required. ECS has no such cap.
+    optional_env_vars=_AUDIT_CHAIN_KEY_ENV_VARS,
+    redis_on_withholds_optional_env_vars=True,
     migrate_image_env="HONUA_MIGRATE_IMAGE",
 )
 ECS_SPEC = TfTargetSpec(
