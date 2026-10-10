@@ -576,8 +576,9 @@ jobs:
           terraform -chdir="$HONUA_IAC_DIR/infrastructure/terraform/$ROOT" init -input=false -no-color >/dev/null
           python e2e/run_cloud.py --phase diagnose --target "$CELL_TARGET" --redis "${{ inputs.redis }}"
       # FAIL-CLOSED: if the cell provisioned anything and cleanup cannot complete, this step goes red
-      # instead of leaving an orphaned VPC/cluster billing (honua-iac#142). The harness meter must
-      # refresh e2e/cloud-evidence/run-cost.json with cumulative run USD before infrastructure goes.
+      # instead of leaving an orphaned VPC/cluster billing (honua-iac#142). Before destroy, the cell's
+      # live cost estimate (e2e/cost_meter.py: Terraform-state inventory x hours + measured Lambda/API/
+      # Batch usage) is written into the cell gate-report's `cost` (owner decision 9).
       - name: "Tear down ${{ inputs.target }} / redis-${{ inputs.redis }} and decide the cell"
         if: always()
         env:

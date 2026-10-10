@@ -283,6 +283,12 @@ class AwsEksTarget(DeployTarget):
         # exercises the same encryption path at a fixed, one-key cost.
         if self._root_declares(SECRET_ENCRYPTION_VAR):
             values.append(f"-var={SECRET_ENCRYPTION_VAR}=false")
+        # Owner decision 9: the run id (and cell, and ceiling) on every resource, for Cost Explorer.
+        if self._root_declares("tags"):
+            from cost_meter import run_tags
+            tags = run_tags(self.run_id, f"{self.name}/redis-{'on' if redis_enabled else 'off'}",
+                            os.environ.get("HONUA_CLOUD_COST_CEILING_USD"))
+            values.append(f"-var=tags={json.dumps(tags, separators=(',', ':'))}")
         return values
 
     # --- kubernetes fixtures -------------------------------------------------------------------

@@ -32,6 +32,7 @@ from targets import REGISTRY  # noqa: E402
 from targets.base import ProvisionError  # noqa: E402
 
 import cloud_journey  # noqa: E402
+import cost_meter  # noqa: E402
 
 # No aws-mixed entry for 2026.1 rc.3: examples/aws-mixed does not exist in honua-iac, so the cell could
 # only ever report a missing root. Restore it (never as the all-ECS root) when honua-iac#209 lands.
@@ -360,8 +361,24 @@ def teardown_phase(state: dict, journey: dict, target, *, reference_endpoint: st
             meter = cost_report or Path(os.environ.get("HONUA_CLOUD_COST_REPORT",
                                                        "e2e/cloud-evidence/run-cost.json"))
             try:
-                report["cost"] = cloud_journey.check_cost(meter, cost_ceiling_usd, started_at=started_at)
-                if report["cost"]["status"] != "pass":
+                try:
+                    report["cost"] = cloud_journey.check_cost(meter, cost_ceiling_usd, started_at=started_at)
+                except FileNotFoundError:
+                    # No external reading: the harness's own live estimate (owner decision 9), read
+                    # from the cell's Terraform state while the infrastructure still exists.
+                    if not cost_meter.meters(target):
+                        raise
+                    run_id, run_attempt = (os.environ.get("GITHUB_RUN_ID", "local"),
+                                           os.environ.get("GITHUB_RUN_ATTEMPT", "1"))
+                    report["cost"] = {**cost_meter.cell_cost(target, state, cost_ceiling_usd, run_id=run_id,
+                                                             run_attempt=run_attempt),
+                                      "cell": cell, "candidateDigest": cloud_journey.candidate_digest()}
+                if report["cost"]["status"] == "unavailable":
+                    cost_unavailable = report["cost"].get("why", "run cost meter unavailable")
+                    if require_real:
+                        report.update(status="fail", why=report.get("why", "") +
+                                      f"; cost evidence unavailable: {cost_unavailable}")
+                elif report["cost"]["status"] != "pass":
                     report.update(status="fail", why=report.get("why", "") +
                                   "; run cost exceeds ceiling")
             except FileNotFoundError:

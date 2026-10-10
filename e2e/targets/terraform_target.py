@@ -245,6 +245,7 @@ class TerraformTarget(DeployTarget):
             *(f"-var-file={self._resolve_var_file(v)}" for v in self.spec.ephemeral_var_files),
             f"-var=region={self.region}",
             f"-var=name_prefix={prefix}",
+            *self._tag_vars(redis_enabled),
             "-var=environment=it",
             f"-var={self.spec.image_var}={os.environ[self.spec.image_env]}",
             f"-var=honua_admin_password={admin_pw}",
@@ -311,6 +312,16 @@ class TerraformTarget(DeployTarget):
             )
             values.append(f"-var={self.spec.architecture_var}={architecture_value}")
         return values
+
+    def _tag_vars(self, redis_enabled: bool) -> list[str]:
+        # Owner decision 9: every cell resource carries the run id (and cell, and the run's ceiling)
+        # so Cost Explorer can attribute its spend to the run. Passed only when the root declares it.
+        if not self._root_declares("tags"):
+            return []
+        from cost_meter import run_tags
+        tags = run_tags(self.run_id, f"{self.name}/redis-{'on' if redis_enabled else 'off'}",
+                        os.environ.get("HONUA_CLOUD_COST_CEILING_USD"))
+        return [f"-var=tags={json.dumps(tags, separators=(',', ':'))}"]
 
     # --- per-run HTTPS cell hostname (honua-release#450) -----------------------------------------
     def cell_domain_label(self, redis_enabled: bool) -> str:
