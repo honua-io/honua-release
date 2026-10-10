@@ -3345,3 +3345,81 @@ def test_model_canary_binds_each_attempt_to_the_lock_and_reports_the_nightly_row
         assert not list((directory / "model-journey").glob("receipt-*.json"))
     finally:
         shutil.rmtree(run_cloud.cloud_journey.EVIDENCE / "990002", ignore_errors=True)
+
+
+def test_model_canary_without_a_lock_runs_once_unbound_and_records_an_honest_blocked_row(monkeypatch):
+    """A manual dispatch has no nightly lock: the harness's own unbound refusal is the evidence."""
+    sys.path.insert(0, str(run_cloud.E2E_DIR.parent / "tools"))
+    directory = _model_cell(monkeypatch, "990003", deterministic_status="pass")
+    try:
+        calls = []
+
+        def fake_run(argv, *, env, cwd, check):
+            calls.append(argv)
+            receipt = {**_canary_receipt(1, "blocked", "infrastructure"), "lockDigest": None,
+                       "notices": ["live execution requires --lock-digest: an unbound receipt counts for no lock"]}
+            Path(argv[argv.index("--output") + 1]).write_text(json.dumps(receipt))
+            return subprocess.CompletedProcess(argv, 1)
+
+        report = run_cloud.model_canary_phase(
+            {"cell": "aws-ecs/redis-off", "endpoint": "http://cell.example"}, admin_key="cell-key",
+            lock_digest=None, run=fake_run)
+        assert len(calls) == 1, "an unbound run is never retried"
+        assert "--lock-digest" not in calls[0]
+        assert calls[0][calls[0].index("--deterministic-receipt") + 1].endswith("receipt-1.json")
+        assert report["status"] == report["cells"][0]["status"] == "blocked"
+        assert report["lockDigest"] is None and "no platform lock to bind to" in report["why"]
+        assert "manual dispatch" in report["why"] and "--lock-digest" in report["why"]
+        written = json.loads((directory / "model-journey" / "gate-report-journey.json").read_text())
+        assert written["status"] == "blocked"
+        assert (directory / "model-journey" / "model-canary-1.json").is_file()
+    finally:
+        shutil.rmtree(run_cloud.cloud_journey.EVIDENCE / "990003", ignore_errors=True)
+
+
+def test_model_canary_without_a_lock_never_turns_a_claimed_pass_or_a_failure_into_blocked(monkeypatch):
+    sys.path.insert(0, str(run_cloud.E2E_DIR.parent / "tools"))
+    _model_cell(monkeypatch, "990004", deterministic_status="pass")
+    try:
+        for status, attribution, reason in (("pass", None, "claims a pass"),
+                                            ("fail", "infrastructure", "did not stop at the harness")):
+            def fake_run(argv, *, env, cwd, check, status=status, attribution=attribution):
+                receipt = {**_canary_receipt(1, status, attribution), "lockDigest": None}
+                Path(argv[argv.index("--output") + 1]).write_text(json.dumps(receipt))
+                return subprocess.CompletedProcess(argv, 0 if status == "pass" else 1)
+
+            report = run_cloud.model_canary_phase(
+                {"cell": "aws-ecs/redis-off", "endpoint": "http://cell.example"}, admin_key="k",
+                lock_digest=None, run=fake_run)
+            assert report["status"] == "fail" and reason in report["why"], status
+    finally:
+        shutil.rmtree(run_cloud.cloud_journey.EVIDENCE / "990004", ignore_errors=True)
+
+
+def test_model_canary_phase_arguments_bind_the_lock_only_when_given(monkeypatch, tmp_path):
+    seen = []
+    monkeypatch.setattr(run_cloud, "_phase_model_canary", lambda args: seen.append(args.lock_digest) or 0)
+    keys = ["--sealed-key", str(tmp_path / "app-key.sealed"), "--private-key", str(tmp_path / "private.pem")]
+    base = ["--phase", "model-canary", "--target", "aws-ecs", "--redis", "off"]
+    assert run_cloud.main(base + keys) == 0
+    assert run_cloud.main(base + keys + ["--lock-digest", LOCK]) == 0
+    assert seen == [None, LOCK]
+    for bad in (base + ["--lock-digest", LOCK],                    # the cell's key material is required
+                base + keys + ["--lock-digest", ""],               # an empty digest is a wiring error, not unbound
+                base + keys + ["--lock-digest", "sha256:nothex"]):
+        with pytest.raises(SystemExit):
+            run_cloud.main(bad)
+    assert seen == [None, LOCK]
+
+
+@pytest.mark.parametrize("lock, status, code, notice", [
+    (None, "blocked", 0, True), (None, "fail", 1, False), (LOCK, "blocked", 1, False), (LOCK, "pass", 0, False)])
+def test_model_canary_step_is_green_only_on_a_pass_or_an_unbound_blocked_row(monkeypatch, capsys,
+                                                                             lock, status, code, notice):
+    monkeypatch.setattr(run_cloud, "open_key", lambda *_: "k")
+    monkeypatch.setattr(run_cloud, "model_canary_phase",
+                        lambda state, **kwargs: {"status": status, "why": "why", "lockDigest": kwargs["lock_digest"]})
+    args = mock.Mock(target="aws-ecs", redis="off", sealed_key=Path("s"), private_key=Path("p"),
+                     lock_digest=lock, max_attempts=2)
+    assert run_cloud._phase_model_canary(args) == code
+    assert ("::notice::genuine-model canary blocked" in capsys.readouterr().out) is notice

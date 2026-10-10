@@ -119,7 +119,11 @@ the model proxy: a driver that composed a local stack cannot certify a cloud cel
 - **dispatch or call `target=aws-ecs/redis-off`** — calls `e2e-cloud-aws.yml` for the ECS Redis-off
   cell with `genuine_model_bedrock: true`. The cell is provisioned with `enable_bedrock_ai=true` and
   `bedrock_ai_region=us-east-1` (`ECS_SPEC.opt_in_vars`, `HONUA_ENABLE_BEDROCK_AI`), and its credential-free journey job
-  runs `e2e/run_cloud.py --phase model-canary` after the cell journey. A lock digest is required.
+  runs `e2e/run_cloud.py --phase model-canary` after the cell journey. This workflow refuses the
+  dispatch without a lock digest. Dispatching `e2e-cloud-aws.yml` directly with `genuine_model_bedrock`
+  and no `lock_digest` (no nightly lock minted yet) runs the canary once unbound: the harness writes
+  its own `blocked` receipt and `tools/model_journey_report.py` a `blocked` row with a null lock digest,
+  surfaced as a notice. It counts for no lock and is never a pass.
 - **nightly train** — `nightly-certification.yml` passes `genuine_model` to `release-train.yml`, which
   forwards it with the qualification lock digest to its own cloud cells (`gate_cloud_parity`). The
   ECS Redis-off cell uploads `journey-gate-report-nightly-model`, which the train's
