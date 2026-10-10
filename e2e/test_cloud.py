@@ -4073,7 +4073,9 @@ def test_teardown_confirms_the_cells_dns_names_and_certificate_are_gone(monkeypa
     target = ecs(run_id="38038433205")
     target._cell_dns_leftovers(True, run=run)  # nothing of this cell remains: passes
     out = capsys.readouterr().out
-    assert "99-aws-ecs-redis-off.cert.demo.honua.io" in out and "_acme" not in out
+    warning = [line for line in out.splitlines() if line.startswith("::warning title=cell DNS names present")]
+    assert len(warning) == 1 and warning[0].rsplit(": ", 1)[1].split(", ") == [
+        "99-aws-ecs-redis-off.cert.demo.honua.io"]
     zone["ResourceRecordSets"].append({"Name": f"_0123abc.{own}.", "Type": "CNAME"})
     with pytest.raises(ProvisionError, match="1 Route53 record"):
         target._cell_dns_leftovers(True, run=run)
@@ -4081,9 +4083,9 @@ def test_teardown_confirms_the_cells_dns_names_and_certificate_are_gone(monkeypa
     certs["CertificateSummaryList"].append({"DomainName": own, "CertificateArn": "arn:cell"})
     with pytest.raises(ProvisionError, match="1 ACM certificate"):
         target._cell_dns_leftovers(True, run=run)
-    # Listing failures warn (a read-only check); they do not invent a verdict.
-    target._cell_dns_leftovers(True, run=lambda argv, **kw: subprocess.CompletedProcess(argv, 1, "", "denied"))
-    assert "could not list" in capsys.readouterr().out
+    # A listing that cannot be read fails closed: cleanup that was not verified is not certified.
+    with pytest.raises(ProvisionError, match="could not verify"):
+        target._cell_dns_leftovers(True, run=lambda argv, **kw: subprocess.CompletedProcess(argv, 1, "", "denied"))
 
     # Unset variables: no AWS call at all.
     def refuse(*args, **kwargs):

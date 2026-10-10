@@ -249,7 +249,8 @@ the name to its ALB through the zone's alias record and opens 443 (the endpoint'
 journey runner. The provision report records `transport: {scheme, host}`, and each journey receipt
 records the same pair in its `Candidate transport` notice. `terraform destroy` removes the
 certificate, its validation records and the alias. Teardown then lists the zone and ACM read-only:
-any remaining record or certificate for this cell fails the cell closed, and other
+any remaining record or certificate for this cell, or a listing that cannot be read, fails the
+cell closed, and other
 `*.cert.<parent>` names are reported as a warning (they may belong to a concurrent run's live cells).
 
 Every ECS cell also passes `cors_allowed_origins=["http://127.0.0.1:18099"]` when the pinned root

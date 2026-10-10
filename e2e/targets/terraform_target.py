@@ -375,8 +375,9 @@ class TerraformTarget(DeployTarget):
     def _cell_dns_leftovers(self, redis_enabled: bool, *, run=subprocess.run) -> None:
         """After a successful destroy: this cell's certificate and records must be gone.
 
-        Read-only. A record or certificate of THIS cell still present fails teardown closed (a
-        stranded certificate or record is a leftover like any other). Other `*.cert.<parent>` names
+        Read-only. A record or certificate of THIS cell still present, or a listing that cannot be
+        read, fails teardown closed (a stranded certificate or record is a leftover like any other,
+        and an unverified cleanup is not a verified one). Other `*.cert.<parent>` names
         are listed as a warning only: they may belong to cells of a concurrent run.
         """
         try:
@@ -394,9 +395,9 @@ class TerraformTarget(DeployTarget):
         records = aws("route53", "list-resource-record-sets", "--hosted-zone-id", zone)
         certificates = aws("acm", "list-certificates", "--region", self.region)
         if records.returncode or certificates.returncode:
-            print(f"::warning title=cell DNS leftovers::could not list the {parent} records or ACM "
-                  "certificates to confirm this cell's names were destroyed", flush=True)
-            return
+            # Unverified cleanup is not cleanup: the teardown gate must be able to fail.
+            raise ProvisionError(f"{self.name} teardown could not verify {fqdn} was removed: listing the "
+                                 "hosted zone records or ACM certificates failed")
         names = sorted({str(r.get("Name", "")).lower().rstrip(".")
                         for r in json.loads(records.stdout or "{}").get("ResourceRecordSets", [])})
         harness = [n for n in names if n.endswith("." + parent)]
