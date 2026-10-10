@@ -507,10 +507,13 @@ def test_admin_password_is_never_derived_from_the_public_run_id(monkeypatch):
             target.admin_api_key
         with pytest.raises(ProvisionError, match="HONUA_ADMIN_PASSWORD is unset"):
             target._vars(False)
-    # Teardown on a fresh runner has no password: destroy gets a random throwaway, not one from r1.
-    first = _tf_vars(serverless(run_id="r1")._vars(False, destroy=True))["honua_admin_password"]
-    second = _tf_vars(serverless(run_id="r1")._vars(False, destroy=True))["honua_admin_password"]
-    assert first != second and "r1" not in first
+    # Teardown on a fresh runner has no password: destroy gets a random throwaway, not one derived
+    # from the run id. The id is a long token so it cannot appear in a random password by chance
+    # (a two-character "r1" did, on e2e-cloud-aws run 38091910280, and failed the self-test).
+    leak_guard = "run-id-never-in-the-password-6f1c2a9e"
+    first = _tf_vars(serverless(run_id=leak_guard)._vars(False, destroy=True))["honua_admin_password"]
+    second = _tf_vars(serverless(run_id=leak_guard)._vars(False, destroy=True))["honua_admin_password"]
+    assert first != second and leak_guard not in first and "6f1c2a9e" not in first
     for password in (first, TEST_ADMIN_PASSWORD):
         assert len(password) >= 32
         assert any(c.isupper() for c in password)
