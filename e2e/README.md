@@ -190,7 +190,9 @@ includes honua-iac#226 the serverless root declares neither variable, so the har
 and the Redis-on Lambda cell still fails readiness for this reason.
 **Owner step:** create a Secrets Manager secret in us-east-1 holding the certificate (base64 PKCS#12,
 or JSON `{pkcs12,password}`, including the private key; format per the honua-iac aws-ecs module
-README) that the ECS execution role and the Lambda function role can read under their permissions boundary, and set the repository
+README) that the ECS execution role and the Lambda function role can read under their permissions boundary
+(the release-cell boundary admits it only when honua-iac `bootstrap/aws-release-cells` lists it in
+`runtime_operation_key_ring_certificate_secret_arns`), and set the repository
 variable `HONUA_AWS_OPERATION_KEY_RING_SECRET_ARN` (plus `HONUA_AWS_OPERATION_KEY_RING_SECRET_KMS_KEY_ARN`
 for a customer-managed key). The cell workflow exports both to the provision and teardown steps; the
 harness passes them only to Redis-on ECS and Lambda cells whose pinned root declares them, and a declaring root
