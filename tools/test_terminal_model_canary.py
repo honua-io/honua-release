@@ -1277,6 +1277,43 @@ def test_model_journey_report_counts_only_attempts_bound_to_the_lock(tmp_path: P
         assert bad["status"] == bad["cells"][0]["status"] == "fail" and reason in bad["why"], reason
 
 
+def test_model_journey_report_records_an_unbound_run_as_blocked_never_pass(tmp_path: Path):
+    """A manual dispatch has no lock: the harness's real unbound receipt makes a blocked row."""
+    import model_journey_report as report_tool
+
+    endpoint = replace(_endpoint(), base_url="http://127.0.0.1:8137/api", signing_manifest_sha256="a" * 64)
+    builder = canary.build_receipt_builder(manifest_path=MANIFEST, journey_path=JOURNEY, protocol_path=PROTOCOL,
+                                           endpoint=endpoint, driver_command=canary.DEFAULT_DRIVER,
+                                           cell="aws-ecs/redis-off")
+    builder.receipt["linkedEvidence"]["deterministicReceipt"] = {"status": "pass"}
+    canary.unavailable_receipt(builder, endpoint, canary.DEFAULT_DRIVER)
+    builder.receipt["completedAt"] = "2026-10-08T12:01:00Z"
+    unbound = tmp_path / "model-canary-1.json"
+    unbound.write_text(json.dumps(builder.receipt), encoding="utf-8")
+
+    args = dict(cell="aws-ecs/redis-off", lock_digest=None, candidate_digest="e" * 64, run_id="7", run_attempt="1")
+    report = report_tool.build([unbound], **args)
+    assert report["status"] == report["overallStatus"] == report["cells"][0]["status"] == "blocked"
+    assert report["lockDigest"] is None and report["cells"][0]["attempts"][0]["lockDigest"] is None
+    assert "no platform lock to bind to" in report["why"] and "--lock-digest" in report["why"]
+
+    def write(name, **fields):
+        path = tmp_path / name
+        path.write_text(json.dumps({**builder.receipt, **fields}), encoding="utf-8")
+        return path
+
+    for receipts, reason in (
+        ([write("pass.json", status="pass", failureAttribution=None)], "claims a pass"),
+        ([write("fail.json", status="fail")], "did not stop at the harness"),
+        ([write("bound.json", lockDigest=LOCK)], "another lock"),
+    ):
+        bad = report_tool.build(receipts, **args)
+        assert bad["status"] == bad["cells"][0]["status"] == "fail" and reason in bad["why"], reason
+    # A bound run never takes the unbound path: a blocked attempt there is still a fail.
+    assert report_tool.build([write("blocked-bound.json", lockDigest=LOCK)],
+                             **{**args, "lock_digest": LOCK})["status"] == "fail"
+
+
 # ---- owner ruling canary-http-cell-2026-10-08: plain HTTP only to the provisioned cell host ---------
 CELL_HOST = "honuanecsr1-alb-123456.us-east-1.elb.amazonaws.com"
 

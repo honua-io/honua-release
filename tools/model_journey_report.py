@@ -9,6 +9,10 @@ venue) from the canary receipts of one run, in attempt order.
 It fails closed: an attempt bound to another lock digest, another cell, a different mode, out of
 order, or a failed attempt without a model/infrastructure attribution makes the row `fail`. Each
 attempt keeps its own lockDigest so promotion compares the lock the canary actually ran against.
+
+Without a lock digest (a manual dispatch before any nightly lock exists) the canary harness writes its
+own unbound `blocked` receipt, and this tool records the row as `blocked` with a null lockDigest: an
+unbound run counts for no lock, and an unbound attempt that claims a pass or fails is a `fail`.
 """
 from __future__ import annotations
 
@@ -23,9 +27,11 @@ from pathlib import Path
 LOCK_DIGEST = re.compile(r"sha256:[0-9a-f]{64}")
 CELLS = ("local-docker", "aws-ecs/redis-off")
 DRIVER = "genuine-model"
+UNBOUND_WHY = ("no platform lock to bind to (manual dispatch without a lock digest): the canary ran unbound "
+               "and its receipt is blocked; it counts for no lock")
 
 
-def _attempt(path: Path, number: int, cell: str, lock_digest: str) -> dict:
+def _attempt(path: Path, number: int, cell: str, lock_digest: str | None) -> dict:
     data = path.read_bytes()
     receipt = json.loads(data)
     if not isinstance(receipt, dict):
@@ -54,7 +60,7 @@ def _attempt(path: Path, number: int, cell: str, lock_digest: str) -> dict:
             "receipt": path.name, "receiptSha256": hashlib.sha256(data).hexdigest()}
 
 
-def build(receipts: list[Path], *, cell: str, lock_digest: str, candidate_digest: str,
+def build(receipts: list[Path], *, cell: str, lock_digest: str | None, candidate_digest: str,
           run_id: str, run_attempt: str, now: datetime | None = None) -> dict:
     now = now or datetime.now(timezone.utc)
     row = {"cell": cell, "evidenceTier": "GA", "counted": True, "status": "fail",
@@ -62,7 +68,7 @@ def build(receipts: list[Path], *, cell: str, lock_digest: str, candidate_digest
     try:
         if cell not in CELLS:
             raise ValueError(f"unknown genuine-model cell {cell!r}")
-        if not LOCK_DIGEST.fullmatch(lock_digest):
+        if lock_digest is not None and not LOCK_DIGEST.fullmatch(lock_digest):
             raise ValueError("lock digest must be sha256:<64 lowercase hex>")
         if not re.fullmatch(r"[0-9a-f]{64}", candidate_digest):
             raise ValueError("candidate digest must be the manifest's bare SHA-256")
@@ -72,14 +78,25 @@ def build(receipts: list[Path], *, cell: str, lock_digest: str, candidate_digest
             raise ValueError("a cell records one or two attempts")
         attempts = [_attempt(path, number, cell, lock_digest) for number, path in enumerate(receipts, 1)]
         row["attempts"] = attempts
+        if lock_digest is None and any(attempt["status"] == "pass" for attempt in attempts):
+            raise ValueError("an unbound attempt claims a pass; a pass requires the lock digest")
         if any(attempt["status"] == "pass" for attempt in attempts[:-1]):
             raise ValueError("an attempt was recorded after a passing attempt")
         times = [attempt["completedAt"] for attempt in attempts]
         if times != sorted(times):
             raise ValueError("attempts are not in completion order")
-        if attempts[-1]["status"] != "pass":
+        if lock_digest is None:
+            # Only the harness's own unbound refusal is `blocked`; an attempt that failed for another
+            # reason (the deterministic prerequisite, the endpoint) stays a `fail`.
+            raw = [json.loads(path.read_bytes()) for path in receipts]
+            if any(receipt.get("status") != "blocked" for receipt in raw):
+                raise ValueError("the unbound genuine-model canary did not stop at the harness's blocked refusal")
+            notices = [str(notice) for notice in raw[-1].get("notices") or []]
+            row.update(status="blocked", why=UNBOUND_WHY + (f"; harness: {notices[-1]}" if notices else ""))
+        elif attempts[-1]["status"] != "pass":
             raise ValueError("genuine-model journey did not pass within the recorded attempts")
-        row.update(status="pass", why="genuine-model journey passed for the exact lock")
+        else:
+            row.update(status="pass", why="genuine-model journey passed for the exact lock")
     except (ValueError, OSError, KeyError, TypeError, json.JSONDecodeError) as error:
         row["why"] = str(error) if isinstance(error, ValueError) else "missing or malformed canary receipt"
     status = row["status"]
@@ -94,7 +111,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--receipt", type=Path, action="append", required=True,
                         help="canary receipt, once per attempt in attempt order")
     parser.add_argument("--cell", required=True, choices=CELLS)
-    parser.add_argument("--lock-digest", required=True)
+    parser.add_argument("--lock-digest", help="omit only for an unbound run, which records `blocked`")
     parser.add_argument("--candidate-digest", required=True)
     parser.add_argument("--run-id", required=True)
     parser.add_argument("--run-attempt", required=True)

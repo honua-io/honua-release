@@ -31,7 +31,8 @@ on:
       gp_batch_image: { required: false, type: string, default: "" }
       enable_bedrock: { required: false, type: boolean, default: false }
       # Fix unit J3: the genuine-model canary runs after this cell's journey whenever Bedrock is on
-      # (the caller enables it only for aws-ecs / redis off), bound to this lock digest.
+      # (the caller enables it only for aws-ecs / redis off), bound to this lock digest. Empty on a
+      # manual dispatch: the canary then records an unbound `blocked` row.
       lock_digest: { required: false, type: string, default: "" }
     secrets:
       RELEASE_GH_TOKEN:
@@ -350,9 +351,18 @@ jobs:
             echo "::error::the genuine-model canary runs on aws-ecs / redis-off only"; exit 1
           fi
           python -m pip install "cryptography>=45.0"
+          # The nightly train passes its qualification lock digest and every attempt binds to it. A
+          # manual dispatch has no nightly lock: the canary then runs once unbound and records an
+          # honest blocked receipt and row (never a pass) instead of refusing to write any evidence.
+          binding=()
+          if [ -n "$LOCK_DIGEST" ]; then
+            binding=(--lock-digest "$LOCK_DIGEST")
+          else
+            echo "::notice::no lock_digest (manual dispatch): the genuine-model canary runs unbound and records blocked"
+          fi
           python e2e/run_cloud.py --phase model-canary --target "${{ inputs.target }}" --redis "${{ inputs.redis }}" \
             --sealed-key "$RUNNER_TEMP/journey-key/sealed/app-key.sealed" --private-key "$RUNNER_TEMP/journey-key/private.pem" \
-            --lock-digest "$LOCK_DIGEST"
+            "${binding[@]}"
       # Matches the train's journey-gate-report* download, which feeds mint_nightly_lock --declare-evidence.
       - name: Upload the nightly-model-journey row
         if: ${{ always() && inputs.enable_bedrock }}

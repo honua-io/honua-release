@@ -42,7 +42,7 @@ on:
         type: boolean
         default: false
       lock_digest:
-        description: "sha256:<hex> of the platform lock the genuine-model canary binds to (required with genuine_model_bedrock)"
+        description: "sha256:<hex> of the platform lock the genuine-model canary binds to (empty: the canary runs unbound and records blocked)"
         type: string
         default: ""
   workflow_call:

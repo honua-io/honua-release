@@ -829,6 +829,7 @@ def _phase_journey(args) -> int:
 # The nightly genuine-model cell (check_promotion_readiness.JOURNEYS["nightly-model-journey"]).
 MODEL_CANARY_CELL = "aws-ecs/redis-off"
 MODEL_JOURNEY_DIR = "model-journey"
+LOCK_DIGEST = re.compile(r"sha256:[0-9a-f]{64}")
 
 
 def _passing_deterministic_receipt(cell_directory: Path) -> Path | None:
@@ -842,13 +843,15 @@ def _passing_deterministic_receipt(cell_directory: Path) -> Path | None:
     return None
 
 
-def model_canary_phase(state: dict, *, admin_key: str, lock_digest: str, run=subprocess.run,
+def model_canary_phase(state: dict, *, admin_key: str, lock_digest: str | None, run=subprocess.run,
                        max_attempts: int = 2) -> dict:
     """Credential-free: run the genuine-model canary on the cell after its deterministic journey.
 
     Every attempt is bound to the lock digest under certification and chained to this job's passing
-    deterministic receipt. The cell's application key reaches the harness only through the
-    environment of its own process. The result is the journey row the nightly mint retains as
+    deterministic receipt. Without a lock digest (a manual dispatch: no nightly lock to bind to) the
+    harness runs once in its own unbound mode, which writes an honest `blocked` receipt, and the row
+    is `blocked`: never a pass, never retried. The cell's application key reaches the harness only
+    through the environment of its own process. The result is the journey row the nightly mint retains as
     promotion-receipts/nightly-model-journey (tools/model_journey_report.py).
     """
     import model_journey_report  # noqa: PLC0415 (tools/ is added to sys.path by the caller)
@@ -869,7 +872,9 @@ def model_canary_phase(state: dict, *, admin_key: str, lock_digest: str, run=sub
         why = "the cell's deterministic journey did not pass in this job; the canary is refused"
     if why is None:
         env = {**os.environ, "TERMINAL_MODEL_API_KEY": admin_key}
-        for number in range(1, max_attempts + 1):
+        binding = ["--lock-digest", lock_digest] if lock_digest is not None else []
+        attempts = max_attempts if lock_digest is not None else 1
+        for number in range(1, attempts + 1):
             output = out / f"model-canary-{number}.json"
             endpoint = str(state["endpoint"]).rstrip("/")
             argv = [sys.executable, str(E2E_DIR.parent / "tools" / "terminal_model_canary.py"),
@@ -878,7 +883,7 @@ def model_canary_phase(state: dict, *, admin_key: str, lock_digest: str, run=sub
                     # harness-provisioned ALB host, never to any other non-loopback host.
                     "--allow-http-cell", urllib.parse.urlsplit(endpoint).hostname or "",
                     "--require-api-key", "--cell", cell, "--attempt", str(number),
-                    "--lock-digest", lock_digest,
+                    *binding,
                     "--deterministic-receipt", str(deterministic.relative_to(E2E_DIR.parent)),
                     "--output", str(output)]
             completed = run(argv, env=env, cwd=E2E_DIR.parent, check=False)
@@ -910,6 +915,10 @@ def _phase_model_canary(args) -> int:
                                 max_attempts=args.max_attempts)
     print(f"== cloud-model-canary :: {cell} -> {report['status'].upper()} ==")
     print(f"   {report['why']}")
+    if args.lock_digest is None and report["status"] == "blocked":
+        # The honest outcome of an unbound run: recorded, surfaced, and not a red step.
+        print(f"::notice::genuine-model canary blocked: {report['why']}")
+        return 0
     return 0 if report["status"] == "pass" else 1
 
 
@@ -1036,7 +1045,8 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--sealed-key", type=Path,
                     help="the application key sealed to the journey runner (deliver-key writes, journey reads)")
     ap.add_argument("--max-attempts", type=int, choices=(1, 2), default=2)
-    ap.add_argument("--lock-digest", help="sha256:<hex> of the platform lock the genuine-model canary binds to")
+    ap.add_argument("--lock-digest", help="sha256:<hex> of the platform lock the genuine-model canary binds to; "
+                                          "omitted on a manual dispatch, the canary records an unbound `blocked`")
     ap.add_argument("--cost-ceiling-usd", default=os.environ.get("HONUA_CLOUD_COST_CEILING_USD", "20"))
     ap.add_argument("--cost-report", type=Path)
     ap.add_argument("--target", default="aws-serverless", choices=sorted(REGISTRY))
@@ -1060,8 +1070,12 @@ def main(argv: list[str] | None = None) -> int:
             ap.error("--phase deliver-key requires --public-key and --sealed-key")
         if args.phase == "journey" and bool(args.sealed_key) != bool(args.private_key):
             ap.error("--sealed-key and --private-key go together")
-        if args.phase == "model-canary" and not (args.sealed_key and args.private_key and args.lock_digest):
-            ap.error("--phase model-canary requires --sealed-key, --private-key and --lock-digest")
+        if args.phase == "model-canary" and not (args.sealed_key and args.private_key):
+            ap.error("--phase model-canary requires --sealed-key and --private-key")
+        if (args.phase == "model-canary" and args.lock_digest is not None
+                and not LOCK_DIGEST.fullmatch(args.lock_digest)):
+            # Omit the flag for an unbound run; an empty or malformed digest is a wiring error.
+            ap.error("--lock-digest must be sha256:<64 lowercase hex>")
         return phases[args.phase](args)
 
     report = run(args.target, args.require_real, args.reference_endpoint, redis_enabled=(args.redis == "on"),
