@@ -1176,37 +1176,26 @@ def validate_stage(row):
     jsonschema.validate(row, {"$defs": schema["$defs"], "$ref": "#/$defs/stage"})
 
 
-@pytest.mark.parametrize("number, tool, problem, capability, ruling, status", [
-    (3, "honua_publish_service", PUBLISH_REFUSAL, "operations.proposals", "extension-pending-owner-ruling", "blocked"),
-    (5, "honua_validate_plan", GP_REFUSAL, "jobs.runner", "ruled", "pass")])
-def test_redis_off_cell_records_the_typed_refusal_as_the_stage_outcome(number, tool, problem, capability, ruling,
-                                                                       status):
+@pytest.mark.parametrize("number, tool, problem, capability", [
+    (3, "honua_publish_service", PUBLISH_REFUSAL, "operations.proposals"),
+    (5, "honua_validate_plan", GP_REFUSAL, "jobs.runner")])
+def test_redis_off_cell_records_the_typed_refusal_as_the_stage_outcome(number, tool, problem, capability):
     engine = cell_engine()
     error = ExecutionError(tool, executor.describe_tool_error(problem), problem=problem)
     assert engine.record_topology_refusal(number, error)
     result = engine.result(number)
-    assert result.status == status and result.operation_instance_id is None and result.job_id is None
+    assert result.status == "pass" and result.blocked_by == []
+    assert result.operation_instance_id is None and result.job_id is None
     refusal = result.topology_refusal
     assert (refusal["topology"], refusal["missingDependency"], refusal["manifestCapability"],
             refusal["manifestReasonCode"], refusal["rulingStatus"], refusal["tool"]) == (
-        "redis-off", "redis", capability, "dependency-unavailable", ruling, tool)
+        "redis-off", "redis", capability, "dependency-unavailable", "ruled", tool)
     assert refusal["deploymentEnvironment"] == "Production"
     execution = next(c for c in result.checks if c.id == f"{number}.execution")
     assert "topology: redis-off; " in execution.detail and "missingDependency=redis" in execution.detail
-    assert execution.status == status
+    assert execution.status == "pass"
     assert not any(c.id.endswith("canonical-evidence") for c in result.checks)
     validate_stage(stage_row(result))
-    if status == "blocked":
-        # Stage 3 awaits the owner's ruling on extending decision 3: blocked on it, never a pass.
-        assert execution.detail.startswith(executor.PENDING_EXTENSION_REASON + "; ")
-        assert executor.PENDING_EXTENSION_REASON == (
-            "typed Redis-off refusal of service.publish; extending decision 3 to stage 3 awaits the owner "
-            "ruling (pending_extension in the DRR overrides)")
-        assert result.blocked_by == [executor.REDIS_OFF_RULING_AUTHORITY]
-        with pytest.raises(jsonschema.ValidationError):
-            validate_stage({**stage_row(result), "status": "pass", "blockedBy": [],
-                            "checks": [{**c.as_receipt(), "status": "pass"} for c in result.checks]})
-        return
     # Without the refusal record the same stage row may not pass without its canonical identities.
     row = stage_row(result)
     del row["topologyRefusal"]
@@ -1214,14 +1203,33 @@ def test_redis_off_cell_records_the_typed_refusal_as_the_stage_outcome(number, t
         validate_stage(row)
 
 
-def test_ruling_the_stage_3_extension_is_a_one_entry_change(monkeypatch):
-    monkeypatch.setitem(executor.TOPOLOGY_REFUSAL_STAGES, 3,
-                        {**executor.TOPOLOGY_REFUSAL_STAGES[3], "ruling": "ruled"})
+def test_stage_3_passes_on_the_ruled_refusal_with_the_publish_evidence_it_carries():
+    # Owner ruling 2026-10-10 (decision 3 extended to stage 3): the refusal of service.publish on a
+    # Redis-off cell is the stage's pass, recorded with the same evidence as stages 5-8.
+    assert executor.TOPOLOGY_REFUSAL_STAGES[3] == {"capability": "operations.proposals"}
     engine = cell_engine()
-    assert engine.record_topology_refusal(3, ExecutionError("honua_publish_service", "x", problem=PUBLISH_REFUSAL))
+    error = ExecutionError("honua_publish_service", executor.describe_tool_error(PUBLISH_REFUSAL),
+                           problem=PUBLISH_REFUSAL)
+    assert engine.record_topology_refusal(3, error)
     result = engine.result(3)
-    assert result.status == "pass" and result.topology_refusal["rulingStatus"] == "ruled"
-    validate_stage(stage_row(result))
+    assert result.status == "pass"
+    assert {c.id: c.status for c in result.checks} == {
+        "3.datasource": "pass", "3.import-complete": "pass", "3.execution": "pass"}
+    refusal = result.topology_refusal
+    assert {key: refusal[key] for key in ("code", "missingDependency", "kind", "manifestCapability",
+                                          "manifestReasonCode", "rulingStatus", "ruling")} == {
+        "code": "unavailable", "missingDependency": "redis", "kind": "ExecutionFailed",
+        "manifestCapability": "operations.proposals", "manifestReasonCode": "dependency-unavailable",
+        "rulingStatus": "ruled", "ruling": executor.REDIS_OFF_RULING}
+    assert refusal["message"].startswith("The operation proposal and approval control plane requires")
+    detail = next(c for c in result.checks if c.id == "3.execution").detail
+    assert detail.startswith("topology: redis-off; honua_publish_service refused with the typed durable-store refusal")
+    assert "reasonCode=dependency-unavailable" in detail and "retryable=false" in detail
+    # A stage 3 refusal recorded under the former pending status is no longer a valid receipt row.
+    row = stage_row(result)
+    with pytest.raises(jsonschema.ValidationError):
+        validate_stage({**row, "topologyRefusal": {**row["topologyRefusal"],
+                                                   "rulingStatus": "extension-pending-owner-ruling"}})
 
 
 def test_stage_3_refusal_still_requires_the_datasource_and_import_that_ran_before_it():
@@ -1265,11 +1273,13 @@ def test_only_the_governed_stages_may_carry_their_topology_refusal():
     engine.record_topology_refusal(3, ExecutionError("honua_publish_service", "x", problem=PUBLISH_REFUSAL))
     row = stage_row(engine.result(3))
     validate_stage(row)
-    # Stage 4 (style/render) is a Redis-off topology; stage 5 refuses on jobs.runner; 6-8 are ruled.
-    for number in (4, 5, 6):
+    # Stage 4 (style/render) is a Redis-off topology; stage 5 refuses on jobs.runner; 6-8 refuse on
+    # operations.proposals like stage 3.
+    for number in (4, 5):
         with pytest.raises(jsonschema.ValidationError):
             validate_stage({**row, "number": number})
-    validate_stage({**row, "number": 7, "topologyRefusal": {**row["topologyRefusal"], "rulingStatus": "ruled"}})
+    for number in (6, 7, 8):
+        validate_stage({**row, "number": number})
 
 
 def test_a_ruled_stage_6_refusal_is_recorded_like_stage_5():

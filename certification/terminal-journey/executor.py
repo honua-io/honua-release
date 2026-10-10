@@ -59,26 +59,21 @@ SDK_METHODS = {"CreateConnectionAsync", "TestConnectionAsync"}
 # Redis-off cells (owner ruling redis-governed-control-plane-2026-10-08, "decision 3"): Redis is a
 # requirement of the governed control plane, and a stage on a Redis-off cell passes by recording the
 # candidate's typed unavailable refusal with the manifest reasonCode instead of executing. Per stage:
-# the capability whose manifest row must report the dependency unavailable, and whether the owner
-# ruling covers the stage. Decision 3 names stages 5-8. Stage 3 is included because on a Redis-off
-# Production host honua_publish_service (routed through the governed operation runtime) is refused
-# with the same durable-store refusal (reproduced against nightly-798d517); that EXTENDS decision 3
-# and is recorded BLOCKED (refusal evidence kept) until the owner rules. On a Production Redis-off cell stages 6-8 never
-# reach a tool call (they need the layer stage 3 would have published) and stay blocked on it; they
-# are listed so a host that does publish records their typed refusal the same strict way. Stage 8
-# approves through the CLI, whose output is never retained, so it cannot match and keeps its outcome.
+# the capability whose manifest row must report the dependency unavailable. Decision 3 names stages
+# 5-8; the owner extended it to stage 3 on 2026-10-10: on a Redis-off Production host
+# honua_publish_service (routed through the governed operation runtime) is refused with the same
+# durable-store refusal (run 38066103745, aws-serverless/redis-off), and that refusal is the stage's
+# pass. On a Production Redis-off cell stages 6-8 never reach a tool call (they need the layer stage
+# 3 would have published) and stay blocked on it; they are listed so a host that does publish records
+# their typed refusal the same strict way. Stage 8 approves through the CLI, whose output is never
+# retained, so it cannot match and keeps its outcome.
 REDIS_OFF_RULING = "redis-governed-control-plane-2026-10-08"
-REDIS_OFF_RULING_AUTHORITY = "https://github.com/honua-io/honua-release/issues/376"
-# A stage whose entry is "extension-pending-owner-ruling" keeps its topologyRefusal evidence but is
-# recorded blocked on the owner's ruling; changing its entry to "ruled" makes it a pass.
-PENDING_EXTENSION_REASON = ("typed Redis-off refusal of service.publish; extending decision 3 to stage 3 "
-                            "awaits the owner ruling (pending_extension in the DRR overrides)")
 TOPOLOGY_REFUSAL_STAGES = {
-    3: {"capability": "operations.proposals", "ruling": "extension-pending-owner-ruling"},
-    5: {"capability": "jobs.runner", "ruling": "ruled"},
-    6: {"capability": "operations.proposals", "ruling": "ruled"},
-    7: {"capability": "operations.proposals", "ruling": "ruled"},
-    8: {"capability": "operations.proposals", "ruling": "ruled"},
+    3: {"capability": "operations.proposals"},
+    5: {"capability": "jobs.runner"},
+    6: {"capability": "operations.proposals"},
+    7: {"capability": "operations.proposals"},
+    8: {"capability": "operations.proposals"},
 }
 CLOUD_CELL = re.compile(r"(?:aws-ecs|aws-serverless)/(redis-on|redis-off)\Z")
 
@@ -820,7 +815,7 @@ class JourneyExecutor:
                            f"{spec['capability']} dependency-unavailable")
             return False
         server = manifest.get("server") if isinstance(manifest.get("server"), dict) else {}
-        refusal = {"topology": "redis-off", "ruling": REDIS_OFF_RULING, "rulingStatus": spec["ruling"],
+        refusal = {"topology": "redis-off", "ruling": REDIS_OFF_RULING, "rulingStatus": "ruled",
                    "tool": exc.command, "code": problem["code"], "missingDependency": "redis",
                    "manifestCapability": spec["capability"], "manifestReasonCode": "dependency-unavailable",
                    "deploymentEnvironment": _token(server.get("deploymentEnvironment")),
@@ -829,13 +824,7 @@ class JourneyExecutor:
         evidence = (f"topology: redis-off; {exc.command} refused with the typed durable-store refusal "
                     f"({describe_fields(problem)}); manifest {spec['capability']} reasonCode=dependency-unavailable"
                     f" (owner ruling {REDIS_OFF_RULING})")
-        if spec["ruling"] == "ruled":
-            check = probes.Check(f"{number}.execution", "mcp-tool", exc.command, "pass", evidence)
-        else:
-            # The refusal evidence is kept, but a stage the ruling does not yet cover is not a pass:
-            # it stays blocked on the owner's ruling until its table entry reads "ruled".
-            check = probes.Check(f"{number}.execution", "mcp-tool", exc.command, "blocked",
-                                 PENDING_EXTENSION_REASON + "; " + evidence, [REDIS_OFF_RULING_AUTHORITY])
+        check = probes.Check(f"{number}.execution", "mcp-tool", exc.command, "pass", evidence)
         self.evidence["checks"].setdefault(str(number), {})["execution"] = check.as_receipt()
         return True
 

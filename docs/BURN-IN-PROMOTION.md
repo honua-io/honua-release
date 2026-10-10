@@ -53,6 +53,15 @@ GA cells are `aws-ecs/redis-off`, `aws-ecs/redis-on`, `aws-serverless/redis-off`
   rc.3 → rc.N → rc.3 locks, a GP job in flight that finishes exactly once, and the schema rollback
   boundary. Each cell records its own `updateStatus` and `rollbackStatus`, and both must pass.
 
+A Redis-off GA cell (`aws-ecs/redis-off`, `aws-serverless/redis-off`) passes its journey when every
+stage passes, where a stage that needs the governed control plane passes by recording the candidate's
+typed `unavailable` refusal (`missingDependency: redis`) with the manifest `dependency-unavailable`
+reasonCode: stages 5-8 under owner decision 3 (2026-10-08) and stage 3 (publish-service) under its
+2026-10-10 extension. The receipt schema enforces this per stage (`topologyRefusal`, Redis-off targets
+only, stages 3 and 5-8 only), so the checker reads it from the cell's `pass` status. Redis-on cells
+must execute every stage. On a Production Redis-off cell stages 4 and 6-8 still have no published
+layer and stay blocked, so that cell does not yet pass.
+
 Each required journey cell passes within two attempts. A cell records `mode`, `attemptCount` and the
 complete ordered `attempts` array. Every attempt records its consecutive number, completion time,
 status and lock digest. A first-attempt failure must have `failureAttribution: model` or

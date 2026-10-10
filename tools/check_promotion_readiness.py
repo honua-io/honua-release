@@ -85,6 +85,10 @@ MAX_FRESHNESS = {
     **dict.fromkeys(("esri-bundle", "cite"), timedelta(days=14)),
 }
 CANARY_SLOT = timedelta(hours=6, minutes=30)
+# A journey cell counts only with status pass. On a Redis-off GA cell, stages 3 (owner extension of
+# decision 3, 2026-10-10) and 5-8 (decision 3, 2026-10-08) pass by the typed unavailable refusal; the
+# terminal-journey receipt schema enforces that per stage (topologyRefusal on Redis-off targets and
+# those stages only), so a cell status here already reflects it. See docs/BURN-IN-PROMOTION.md.
 JOURNEYS = {
     "deterministic-journey": ("deterministic", GA_CELLS),
     "nightly-model-journey": ("genuine-model", frozenset({"aws-ecs/redis-off"})),
