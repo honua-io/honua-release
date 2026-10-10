@@ -631,11 +631,19 @@ components:
     # (e2e-cloud-aws run 38038435904, S5 FAIL). #227 wires audit_chain_key_secret_arn on both modules
     # (harness maps HONUA_AWS_AUDIT_CHAIN_KEY_SECRET_ARN when set). Still untagged, so pinned by sha and
     # the archive is the sha's own tarball.
+    # 2026-10-10 ADVANCE 57b9417e -> trunk e218d17b (honua-iac#230 merge commit; also carries honua-iac#229).
+    # #230 keeps the serverless Lambda environment under Lambda's 4 KB cap (the Redis-on cell with the
+    # key ring, GP Batch and the audit-key reference measured 4118 bytes and CreateFunction refused it,
+    # e2e-cloud-aws run 38046060497): same-account secrets referenced by name, Batch queue/job-definition
+    # names, default-valued entries dropped, plan-time precondition naming the size (release cell now
+    # 2934 bytes). #229 makes ECS tasks behind a TLS-terminating ALB emit HSTS and honour X-Forwarded-*
+    # (security-headers probe on run 38047168879). Still untagged, so pinned by sha and the archive is
+    # the sha's own tarball.
     version: "pre-release"             # untagged trunk commit; v0.2.0 is the newest tag
-    sha: "57b9417e5641cf6577088923145852b34f8a958f"   # branch: trunk HEAD 2026-10-10 (honua-iac#228 merge commit)
-    artifact: "archive:https://github.com/honua-io/honua-iac/archive/57b9417e5641cf6577088923145852b34f8a958f.tar.gz"
-    artifactSourceRevision: "57b9417e5641cf6577088923145852b34f8a958f"   # the tarball's pax comment
-    artifactSha256: "sha256:07b6eef99805c6a7b8fa6e9d7d6d75c2479c077adf120faf97a25b56f93f4ee9"   # two anonymous downloads, identical bytes
+    sha: "e218d17bac211789ad7c161425206da00b454733"   # branch: trunk HEAD 2026-10-10 (honua-iac#230 merge commit)
+    artifact: "archive:https://github.com/honua-io/honua-iac/archive/e218d17bac211789ad7c161425206da00b454733.tar.gz"
+    artifactSourceRevision: "e218d17bac211789ad7c161425206da00b454733"   # the tarball's pax comment
+    artifactSha256: "sha256:b984c1d672b1318914fc27df8348e79a39f13ed9db542e0d8a97fdc5d5872b74"   # two anonymous downloads, identical bytes
 
   honua-helm:
     repository: "https://github.com/honua-io/honua-helm"
