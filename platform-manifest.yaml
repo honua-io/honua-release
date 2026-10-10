@@ -639,11 +639,22 @@ components:
     # 2934 bytes). #229 makes ECS tasks behind a TLS-terminating ALB emit HSTS and honour X-Forwarded-*
     # (security-headers probe on run 38047168879). Still untagged, so pinned by sha and the archive is
     # the sha's own tarball.
+    # 2026-10-10 ADVANCE e218d17b -> trunk b8fae26e (honua-iac#231 merge commit).
+    # #231: the control-plane event Lambdas (reconcile/backstop/tick) read the same secret set as
+    # the API role, including the connection-encryption master key (every event function crashed
+    # at init on e2e-cloud-aws run 38066103745: 'Failed to resolve Security:ConnectionEncryption:
+    # MasterKey from AWS Secrets Manager ... 400'); the GP Batch job definition takes MasterKey from
+    # the master-key secret instead of the admin-password secret; new operations_policy_rules input
+    # on both modules and both example roots (the harness passes the cell rules from release#517,
+    # without which a Production cell denies every typed operation: journey stage 3 'Operations
+    # require an explicit production policy rule.' on the same run); RDS security-group rules are
+    # standalone resources; examples/aws exposes alb_enable_http_redirect (release#517 turns it on
+    # for HTTPS cells). Still untagged, so pinned by sha and the archive is the sha's own tarball.
     version: "pre-release"             # untagged trunk commit; v0.2.0 is the newest tag
-    sha: "e218d17bac211789ad7c161425206da00b454733"   # branch: trunk HEAD 2026-10-10 (honua-iac#230 merge commit)
-    artifact: "archive:https://github.com/honua-io/honua-iac/archive/e218d17bac211789ad7c161425206da00b454733.tar.gz"
-    artifactSourceRevision: "e218d17bac211789ad7c161425206da00b454733"   # the tarball's pax comment
-    artifactSha256: "sha256:b984c1d672b1318914fc27df8348e79a39f13ed9db542e0d8a97fdc5d5872b74"   # two anonymous downloads, identical bytes
+    sha: "b8fae26e6ba724f97db27c9288efaafd027d114a"   # branch: trunk HEAD 2026-10-10 (honua-iac#231 merge commit)
+    artifact: "archive:https://github.com/honua-io/honua-iac/archive/b8fae26e6ba724f97db27c9288efaafd027d114a.tar.gz"
+    artifactSourceRevision: "b8fae26e6ba724f97db27c9288efaafd027d114a"   # the tarball's pax comment
+    artifactSha256: "sha256:1cb34346a1b50a4f8419a4e8b7c3cff6fa2d93e8af91bf34d238c7e6dbbf4ce3"   # two anonymous downloads, identical bytes
 
   honua-helm:
     repository: "https://github.com/honua-io/honua-helm"
