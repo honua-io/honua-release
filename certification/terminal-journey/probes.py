@@ -8,6 +8,7 @@ identify a broken contract rather than a flaky run (honua-release#123).
 """
 from __future__ import annotations
 
+import ipaddress
 import json
 import os
 import re
@@ -15,11 +16,65 @@ import selectors
 import stat
 import subprocess
 import time
+from contextlib import contextmanager
 import urllib.error
 import urllib.parse
 import urllib.request
 from dataclasses import dataclass, field
 from typing import Any
+
+# Credential transport policy, shared by the credential preflight, setup discovery and the
+# executor transport. HTTPS anywhere and plain HTTP to loopback are always allowed. Plain HTTP to
+# one other host is allowed only while the cloud harness names it: the ephemeral cloud cell's own
+# harness-provisioned load balancer, whose per-run application key dies with the cell (owner
+# ruling canary-http-cell-2026-10-08, which the cell's seam drivers and model canary already use;
+# HTTPS on the cell is 2026.1.x hardening). Every other non-loopback HTTP host is refused.
+_HTTP_CELL_HOST: str | None = None
+
+
+@contextmanager
+def allow_http_cell(host: str | None):
+    """Admit plain HTTP to exactly this cell host for the duration of one cloud journey attempt."""
+    global _HTTP_CELL_HOST
+    previous = _HTTP_CELL_HOST
+    _HTTP_CELL_HOST = (host or "").strip().lower().rstrip(".") or None
+    try:
+        yield
+    finally:
+        _HTTP_CELL_HOST = previous
+
+
+def credential_transport(url: str) -> str | None:
+    """https, http-loopback or http-cell-allowed for a credential-safe URL; None when refused."""
+    parsed = urllib.parse.urlsplit(url)
+    if parsed.username or parsed.password or parsed.query or parsed.fragment:
+        return None
+    host = (parsed.hostname or "").lower().rstrip(".")
+    if not host:
+        return None
+    if parsed.scheme == "https":
+        return "https"
+    if parsed.scheme != "http":
+        return None
+    try:
+        loopback = ipaddress.ip_address(host).is_loopback
+    except ValueError:
+        loopback = host == "localhost"
+    if loopback:
+        return "http-loopback"
+    if _HTTP_CELL_HOST is not None and host == _HTTP_CELL_HOST:
+        return "http-cell-allowed"
+    return None
+
+
+# The pinned honua CLI (sdk-js admin client) and honua-mcp-proxy refuse to send a credential over
+# plain HTTP to any non-loopback host, with this fixed client-authored message. It carries no
+# credential, so it is the one piece of client output a receipt may name. The harness admission
+# above cannot and does not override the clients' own policy.
+CLIENT_HTTPS_REFUSAL = "requires HTTPS except for exact loopback HTTP development endpoints"
+CLIENT_HTTPS_REFUSAL_DETAIL = ("the pinned client refuses credentialed plain HTTP to a non-loopback host "
+                               "(it requires HTTPS) and this target serves plain HTTP")
+
 
 # Fixed, deterministic budgets. No exponential backoff, no jitter.
 HTTP_TIMEOUT_SECONDS = 30
@@ -208,6 +263,12 @@ class McpProxySession:
             self._process.stdin.write((json.dumps(message) + "\n").encode("utf-8"))
             self._process.stdin.flush()
         except (BrokenPipeError, OSError) as exc:
+            try:
+                self._process.wait(timeout=5)
+            except subprocess.TimeoutExpired:
+                pass
+            if self._process.returncode is not None:
+                raise McpError(f"proxy exited during {method}" + self._exit_reason()) from exc
             raise McpError(f"proxy closed the connection during {method}: {exc}") from exc
 
         deadline = time.monotonic() + MCP_TIMEOUT_SECONDS
@@ -229,8 +290,16 @@ class McpProxySession:
                     raise McpError(f"proxy did not answer {method} within {MCP_TIMEOUT_SECONDS}s")
                 chunk = os.read(self._process.stdout.fileno(), min(65536, MCP_MAX_RESPONSE_BYTES + 1 - len(self._stdout_buffer)))
                 if not chunk:
-                    raise McpError(f"proxy exited during {method}")
+                    raise McpError(f"proxy exited during {method}" + self._exit_reason())
                 self._stdout_buffer.extend(chunk)
+
+    def _exit_reason(self) -> str:
+        """Name the clients' fixed HTTPS refusal; any other proxy stderr stays private."""
+        try:
+            stderr = self._process.stderr.read(65536) if self._process and self._process.stderr else b""
+        except (OSError, ValueError):
+            return ""
+        return f": {CLIENT_HTTPS_REFUSAL_DETAIL}" if CLIENT_HTTPS_REFUSAL.encode() in stderr else ""
 
     def notify(self, method: str, params: dict[str, Any] | None = None) -> None:
         if self._process is None or self._process.stdin is None:
@@ -401,10 +470,7 @@ def _admin_target_refusal(base_url: str) -> str | None:
     parsed = urllib.parse.urlparse(base_url)
     if parsed.username or parsed.password or parsed.query or parsed.fragment:
         return "admin base URL must not include credentials, a query, or a fragment"
-    host = (parsed.hostname or "").lower()
-    if parsed.scheme == "https" and host:
-        return None
-    if parsed.scheme == "http" and host in {"127.0.0.1", "localhost", "::1"}:
+    if credential_transport(base_url) is not None:
         return None
     return "admin credential is not sent to a non-loopback HTTP endpoint"
 
@@ -493,7 +559,9 @@ def run_credential_preflight(
         outputs.append(completed.stdout)
         outputs.append(completed.stderr)
         if completed.returncode != 0:
-            problems.append(f"{label} exited {completed.returncode}")
+            refused = CLIENT_HTTPS_REFUSAL in completed.stdout + completed.stderr
+            problems.append(f"{label} exited {completed.returncode}"
+                            + (f": {CLIENT_HTTPS_REFUSAL_DETAIL}" if refused else ""))
             return None
         document, error = _load_json(completed.stdout)
         if error is not None:

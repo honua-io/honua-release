@@ -117,6 +117,31 @@ class TraceTests(unittest.TestCase):
             'last HTTP: GET /api/v1/admin/roles/ -> 403; body: {"error":"forbidden"}'])
 
 
+class TransportPolicyTests(unittest.TestCase):
+    def test_non_loopback_http_needs_the_harness_named_cell_host(self):
+        cell = "http://cell-alb-1.us-east-1.elb.amazonaws.com/mcp"
+        with self.assertRaisesRegex(discovery.DiscoveryError, "loopback or the harness-named cloud cell host"):
+            discovery.HttpSession(cell, "key")
+        with probes.allow_http_cell("cell-alb-1.us-east-1.elb.amazonaws.com"):
+            self.assertEqual(discovery.HttpSession(cell, "key").url, cell)
+            with self.assertRaises(discovery.DiscoveryError):
+                discovery.HttpSession("http://other.example/mcp", "key")
+        with self.assertRaises(discovery.DiscoveryError):
+            discovery.HttpSession(cell, "key")
+
+
+class ProxyHttpsRefusalTests(unittest.TestCase):
+    def test_proxy_https_refusal_is_named_and_other_stderr_stays_private(self):
+        refusal = "Fatal: remoteUrl requires HTTPS except for exact loopback HTTP development endpoints"
+        for stderr, named in ((refusal, True), ("Fatal: secret-bearing diagnostic", False)):
+            code = f"import sys; sys.stderr.write({stderr!r}); sys.exit(1)"
+            with probes.McpProxySession([sys.executable, "-c", code], "http://127.0.0.1:1/mcp") as session:
+                with self.assertRaises(probes.McpError) as caught:
+                    session.request("initialize")
+            self.assertEqual(probes.CLIENT_HTTPS_REFUSAL_DETAIL in str(caught.exception), named)
+            self.assertNotIn("secret-bearing", str(caught.exception))
+
+
 class PaginationTests(unittest.TestCase):
     @staticmethod
     def page(tools, cursor=None):

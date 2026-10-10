@@ -595,6 +595,9 @@ class CredentialPreflightTests(unittest.TestCase):
                 if MODE == "leak" and operation == "createAdminApiKey":
                     sys.stdout.write(ADMIN + "\\n" + ISSUED + "\\n")
 
+            if MODE == "https-refusal":
+                emit({{"error": "Admin client requires HTTPS except for exact loopback HTTP development endpoints."}})
+                raise SystemExit(1)
             if operation == "createAdminApiKey":
                 body = json.loads(flag("--body") or "{{}}")
                 if body.get("name") != NAME or body.get("permissions") != ["admin:read"]:
@@ -718,6 +721,33 @@ class CredentialPreflightTests(unittest.TestCase):
         )
         self.assertEqual(probe.status, "fail")
         self.assertIn("non-loopback", probe.detail)
+
+    def test_only_the_harness_named_cell_host_is_admitted_over_http(self):
+        cell = "http://cell-alb-1.us-east-1.elb.amazonaws.com"
+        self.assertIsNone(probes.credential_transport(cell))
+        self.assertEqual(probes.credential_transport("http://127.0.0.1:8137/mcp"), "http-loopback")
+        self.assertEqual(probes.credential_transport("http://[::1]:8137/"), "http-loopback")
+        self.assertEqual(probes.credential_transport("https://example.com/mcp"), "https")
+        with probes.allow_http_cell("Cell-ALB-1.us-east-1.elb.amazonaws.com."):
+            self.assertEqual(probes.credential_transport(cell + "/mcp"), "http-cell-allowed")
+            self.assertIsNone(probes._admin_target_refusal(cell))
+            # Exactly that host: no other HTTP host, no credentials, query or fragment in the URL.
+            for refused in ("http://other.us-east-1.elb.amazonaws.com/", "http://example.com/",
+                            "http://u:p@cell-alb-1.us-east-1.elb.amazonaws.com/",
+                            cell + "/mcp?key=x", cell + "/#f", "ftp://cell-alb-1.us-east-1.elb.amazonaws.com/"):
+                self.assertIsNone(probes.credential_transport(refused), refused)
+        # The admission ends with the attempt.
+        self.assertIsNone(probes.credential_transport(cell))
+        self.assertIn("non-loopback", probes._admin_target_refusal(cell))
+
+    def test_admitted_http_cell_names_the_clients_own_https_refusal(self):
+        host = "cell-alb-1.us-east-1.elb.amazonaws.com"
+        with probes.allow_http_cell(host):
+            probe, log, _ = self._run("https-refusal", base_url=f"http://{host}")
+        self.assertEqual(probe.status, "fail")
+        self.assertIn("createAdminApiKey exited 1: " + probes.CLIENT_HTTPS_REFUSAL_DETAIL, probe.detail)
+        self.assertNotIn(self.ADMIN_KEY, probe.detail)
+        self.assertEqual(log[0]["argv"][log[0]["argv"].index("--base-url") + 1], f"http://{host}")
 
     def test_passing_preflight_does_not_pass_later_stages_or_the_journey(self):
         probe = probes.CredentialProbe(

@@ -1921,6 +1921,43 @@ def test_driver_exception_receipt_names_type_message_step_and_last_http(monkeypa
         shutil.rmtree(cj.EVIDENCE / "offline-run", ignore_errors=True)
 
 
+def test_attempt_admits_plain_http_only_to_the_provisioned_cell_load_balancer(monkeypatch):
+    """aws-ecs cells serve plain HTTP on their ALB; the imported driver refused it and raised
+    DiscoveryError opening its transport. Only that cell host is admitted, only for the attempt."""
+    cj = run_cloud.cloud_journey
+    driver, _ = cj.drivers()
+    assert cj.http_cell_host("http://Cell-1.us-east-1.elb.amazonaws.com/") == "cell-1.us-east-1.elb.amazonaws.com"
+    for other in ("https://cell-1.us-east-1.elb.amazonaws.com", "http://example.com", "http://.elb.amazonaws.com",
+                  "http://cell.elb.amazonaws.com.evil.example", None):
+        assert cj.http_cell_host(other) is None
+    monkeypatch.setenv("GITHUB_RUN_ID", "offline-run")
+    monkeypatch.setenv("GITHUB_RUN_ATTEMPT", "4")
+    monkeypatch.setattr(cj, "server_identity", lambda endpoint: None)
+    endpoint = "http://cell-1.us-east-1.elb.amazonaws.com"
+    seen = []
+    workspace = driver.pins.ClientWorkspace(status="blocked", root=None, reason="offline")
+
+    def live(target, pinned, contract, workdir, base_url, keep):
+        seen.append((driver.probes.credential_transport(base_url + "/mcp"),
+                     driver.probes.credential_transport("http://other.example/mcp")))
+        return workspace, None, [], None
+
+    monkeypatch.setattr(driver, "run_live", live)
+    try:
+        record = cj.attempt("aws-ecs/redis-off", 1, endpoint, "key", None)
+        notices = json.loads((E2E_DIR / record["receipt"]).read_text())["notices"]
+        assert seen == [("http-cell-allowed", None)]
+        assert "Candidate transport: http-cell-allowed (cell-1.us-east-1.elb.amazonaws.com)" in notices
+        assert not any(n.startswith(cj.DRIVER_ERROR_NOTICE) for n in notices)
+        assert driver.probes.credential_transport(endpoint + "/mcp") is None
+        # A non-ELB HTTP endpoint is not admitted, so the driver refuses it as before.
+        record = cj.attempt("aws-ecs/redis-off", 2, "http://203.0.113.9", "key", None)
+        notices = json.loads((E2E_DIR / record["receipt"]).read_text())["notices"]
+        assert seen[-1] == (None, None) and "Candidate transport: refused (203.0.113.9)" in notices
+    finally:
+        shutil.rmtree(cj.EVIDENCE / "offline-run", ignore_errors=True)
+
+
 def test_server_identity_reads_the_anonymous_capability_manifest():
     cj = run_cloud.cloud_journey
 

@@ -9,6 +9,7 @@ import re
 import shutil
 import subprocess
 import sys
+import urllib.parse
 import urllib.request
 from contextlib import contextmanager
 from datetime import datetime, timezone
@@ -174,6 +175,23 @@ def driver_failure_notices(error, trace_module, secrets):
     return notices
 
 
+CELL_HTTP_HOST_SUFFIX = ".elb.amazonaws.com"
+
+
+def http_cell_host(endpoint):
+    """The cell host the imported driver may reach over plain HTTP, or None.
+
+    Only the harness-provisioned AWS load balancer of the cell under test qualifies (owner ruling
+    canary-http-cell-2026-10-08). HTTPS endpoints need no exemption; any other HTTP host stays
+    refused by the driver's credential transport policy.
+    """
+    parsed = urllib.parse.urlsplit(endpoint or "")
+    host = (parsed.hostname or "").lower().rstrip(".")
+    if parsed.scheme == "http" and host.endswith(CELL_HTTP_HOST_SUFFIX) and len(host) > len(CELL_HTTP_HOST_SUFFIX):
+        return host
+    return None
+
+
 def documented_blockers(receipt):
     """The tracked limitations a BLOCKED journey receipt names, or [] when it is not one.
 
@@ -270,7 +288,11 @@ def attempt(cell, number, endpoint, admin_key, running_image=None):
             # pins.CANDIDATE_ENV_ALLOWLIST is the only environment run_live keeps.
             # That drops AWS_*, ACTIONS_ID_TOKEN_REQUEST_*, HONUA_AWS_*, GITHUB_TOKEN
             # and GH_TOKEN before npm install and the candidate CLIs start.
-            with admin_credential(admin_key), external_image(driver, running_image):
+            cell_host = http_cell_host(endpoint)
+            with (admin_credential(admin_key), external_image(driver, running_image),
+                  driver.probes.allow_http_cell(cell_host)):
+                transport = driver.probes.credential_transport(endpoint.rstrip("/") + "/")
+                notices.append(f"Candidate transport: {transport or 'refused'} ({urllib.parse.urlsplit(endpoint).hostname})")
                 with driver.pins.candidate_sandbox():
                     workspace, results, observed_notices, _ = driver.run_live(
                         target, pinned, contract, workdir, endpoint, True)

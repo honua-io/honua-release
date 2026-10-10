@@ -69,6 +69,16 @@ The root credential and the one-time key never enter the receipt. Service
 mutation, style pixels, GP, composition, publication, and separate-principal
 approval require their own live observations and canonical receipt identities.
 
+Credentials travel only over HTTPS or plain HTTP to loopback (`probes.credential_transport`,
+shared by the stage 2 preflight, setup discovery and the executor transport). A cloud journey
+attempt (`e2e/cloud_journey.py`) additionally admits plain HTTP to exactly one host for its
+duration: the cell's own harness-provisioned `*.elb.amazonaws.com` load balancer, under owner
+ruling `canary-http-cell-2026-10-08` (the cell's per-run application key dies with the cell;
+HTTPS on the cell is 2026.1.x hardening). The receipt records `Candidate transport:
+http-cell-allowed (<host>)`. When the imported driver raises, the receipt and job log name the
+exception type and message, the step it reached and its last HTTP exchange (status, path and a
+redacted, bounded body excerpt).
+
 See the [#120 acceptance audit](../../docs/2026.1-terminal-arc-acceptance.md) for
 pre-cut implementation gaps and separately released exact-candidate reruns.
 

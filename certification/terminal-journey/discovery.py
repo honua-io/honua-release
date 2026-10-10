@@ -6,7 +6,6 @@ a catalog, substitutes package bytes, or qualifies later journey stages.
 from __future__ import annotations
 
 import hashlib
-import ipaddress
 import json
 import re
 import urllib.error
@@ -232,14 +231,10 @@ class _NoRedirect(urllib.request.HTTPRedirectHandler):
 class HttpSession:
     def __init__(self, url: str, credential: str):
         parsed = urllib.parse.urlsplit(url)
-        try:
-            loopback = ipaddress.ip_address(parsed.hostname or "").is_loopback
-        except ValueError:
-            loopback = parsed.hostname == "localhost"
         if parsed.username or parsed.password or parsed.query or parsed.fragment or parsed.scheme not in {"http", "https"}:
             raise DiscoveryError("MCP endpoint is not a credential-safe URL")
-        if parsed.scheme == "http" and not loopback:
-            raise DiscoveryError("credential-bearing HTTP must use loopback")
+        if probes.credential_transport(url) is None:
+            raise DiscoveryError("credential-bearing HTTP must use loopback or the harness-named cloud cell host")
         self.url, self.credential, self.session = url, credential, None
         self.next_id = 0
         self.opener = urllib.request.build_opener(_NoRedirect())
@@ -382,7 +377,12 @@ def capture_setup_view(proxy: Path | None, url: str, credential: str) -> dict[st
     except (DiscoveryError, probes.McpError, OSError, ValueError, TypeError, KeyError) as exc:
         # Only our contract diagnostics are emitted; arbitrary proxy stderr or
         # upstream bodies may contain secrets and are deliberately not copied.
-        receipt["error"] = str(exc) if isinstance(exc, DiscoveryError) else "setup transport or JSON contract could not be observed"
+        if isinstance(exc, DiscoveryError):
+            receipt["error"] = str(exc)
+        elif isinstance(exc, probes.McpError) and probes.CLIENT_HTTPS_REFUSAL_DETAIL in str(exc):
+            receipt["error"] = "installed proxy: " + probes.CLIENT_HTTPS_REFUSAL_DETAIL
+        else:
+            receipt["error"] = "setup transport or JSON contract could not be observed"
     finally:
         if session is not None:
             session.close()
