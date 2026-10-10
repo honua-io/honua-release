@@ -257,7 +257,7 @@ class CloudExecutionTests(unittest.TestCase):
         generic.resources.update(itemId="item", versionId="version", contentHash="hash")
         self.assertEqual(generic.verify_authority()["tenantIsolation"].blocked_by, [stages.JOURNEY_DRIVER])
 
-    def test_cloud_replica_reread_goes_through_the_cell_endpoint_and_names_its_topology(self):
+    def test_cloud_replica_read_is_blocked_as_unprovable_and_keeps_its_topology(self):
         for kind in ("aws-ecs", "aws-serverless"):
             target = cloud(kind, "https://cell.demo.honua.io")
             transport = mock.Mock(base_url="https://cell.demo.honua.io", proxy=None, honua=None,
@@ -265,19 +265,32 @@ class CloudExecutionTests(unittest.TestCase):
             run = engine(target, transport)
             run.fixture = {"mapBody": {}}
             run.resources.update(itemId="item", versionId="version", contentHash="hash")
-            document = {"itemId": "item", "versionId": "version", "contentHash": "hash",
-                        "envelope": {"family": "map", "body": {}}}
-            transport.get_json.return_value = document
+            transport.get_json.return_value = {"itemId": "item", "versionId": "version", "contentHash": "hash",
+                                               "envelope": {"family": "map", "body": {}}}
             with mock.patch.object(executor, "Transport") as replica:
-                replica.return_value.get_json.return_value = document
                 run.check_map()
-            replica.assert_called_once()
-            self.assertEqual(replica.call_args.args[0], "https://cell.demo.honua.io")
+            # A same-endpoint re-read proves nothing about another replica, so none is sent.
+            replica.assert_not_called()
+            self.assertEqual(run.evidence["checks"]["6"]["saved-map"]["status"], "pass")
             row = run.evidence["checks"]["6"]["replica-map"]
-            self.assertEqual(row["status"], "pass")
+            self.assertEqual(row["status"], "blocked")
+            self.assertEqual(row["detail"], local_fixture.REPLICA_UNPROVABLE_REASON)
+            self.assertEqual(row["blockedBy"], [local_fixture.REPLICA_SERVER_NEED])
+            self.assertIn("honua-server", row["blockedBy"][0])
+            self.assertNotIn("issues/", row["blockedBy"][0])
             self.assertIn(cloud_target.TOPOLOGIES[kind]["id"], row["invocation"])
-            self.assertEqual(run.evidence["proofs"]["replica-map"]["replicaTopology"],
-                             cloud_target.TOPOLOGIES[kind]["id"])
+            stage = run.result(6)
+            self.assertEqual(stage.status, "blocked")
+            self.assertIn(local_fixture.REPLICA_SERVER_NEED, stage.blocked_by)
+        # A local target with only one endpoint keeps its generic distinct-replica blocker.
+        local = engine({"replicaBaseUrl": "http://127.0.0.1:8123"},
+                       mock.Mock(base_url="http://127.0.0.1:8123", credentials={}))
+        local.fixture = {"mapBody": {}}
+        local.resources.update(itemId="item", versionId="version", contentHash="hash")
+        local.transport.get_json.return_value = {"itemId": "item", "versionId": "version", "contentHash": "hash",
+                                                 "envelope": {"family": "map", "body": {}}}
+        local.check_map()
+        self.assertEqual(local.evidence["checks"]["6"]["replica-map"]["blockedBy"], [stages.JOURNEY_DRIVER])
 
     def test_cloud_datasource_resolves_references_in_memory_and_blocks_when_missing(self):
         run = engine(cloud(), mock.Mock(credentials={}))

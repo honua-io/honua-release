@@ -104,10 +104,11 @@ the cell. Preview and stub cells keep the documented blocked build receipt.
   application key (`cloud_journey.pack_handoff`). The target names the coordinates only by
   environment reference (`HONUA_JOURNEY_DATASOURCE_{HOST,PORT,DATABASE,USERNAME,PASSWORD}`), so the
   retained target document holds no host, login or password.
-- **Replica.** A cell has one endpoint, so the stage 6 re-read goes through it.
-  `replicaTopology` names what sits behind it and the check's invocation says so: `ecs-alb-tasks`
-  (the ALB spreads requests across ECS tasks; the read is not pinned to another task) or
-  `lambda-function` (one function; any warm or new instance answers).
+- **Replica.** A cell has one endpoint and the server (798d517) returns no per-instance identity,
+  so stage 6's cross-replica read-after-write cannot be proven there. The `replica-map` assertion
+  is `blocked` with that reason, naming the server need (a per-instance identity on responses).
+  `replicaTopology` stays as evidence in the check and a receipt notice: `ecs-alb-tasks` (the ALB
+  spreads requests across ECS tasks) or `lambda-function` (one function).
 - **Candidate image.** ECS reports its running image through DescribeTasks. A serverless cell
   reports it through Lambda GetFunction: the API function must run the manifest's mirrored
   `awsLambdaEcrDigest`, and the receipt then names the Lambda pin (`awsLambdaImage@awsLambdaDigest`).

@@ -490,14 +490,19 @@ class JourneyExecutor:
         self._check(6, "saved-map", "GET saved immutable map version", lambda: self._prove_map(self.transport, self.map_path()))
         import local_fixture
         topology = local_fixture.replica_topology(self.target)
+        command = ("GET saved map on a distinct replica" if topology is None
+                   else f"GET saved map on a distinct replica behind the cell endpoint ({topology['id']}: {topology['description']})")
 
         def replica():
             endpoint = local_fixture.replica_url(self.target)
             same = bool(endpoint) and endpoint.rstrip("/") == self.transport.base_url.rstrip("/")
-            # A cloud cell is reached through one endpoint only. Its target declares that the
-            # re-read goes through that endpoint and which serving topology sits behind it; the
-            # check names it, so the receipt never presents it as a separately addressed replica.
-            if not endpoint or (same and topology is None):
+            if same and topology is not None:
+                # A cloud cell is reached through one endpoint and the candidate names no serving
+                # instance, so a re-read cannot be shown to come from another replica. The
+                # assertion is blocked on that server need; the topology stays as evidence.
+                raise ExecutionError(command, local_fixture.REPLICA_UNPROVABLE_REASON,
+                                     blocked=True, blocked_by=[local_fixture.REPLICA_SERVER_NEED])
+            if not endpoint or same:
                 raise ExecutionError("cross-replica map read", "a distinct replica endpoint is required", blocked=True)
             loopback = {"localhost", "127.0.0.1", "::1"}
             if (urllib.parse.urlsplit(self.transport.base_url).hostname not in loopback
@@ -505,12 +510,7 @@ class JourneyExecutor:
                 raise ExecutionError("cross-replica map read", "remote target must declare its remote replica endpoint", blocked=True)
             other = Transport(endpoint, self.transport.proxy, self.transport.honua,
                               self.transport.workdir, self.transport.credentials)
-            proof = self._prove_map(other, self.map_path())
-            if topology is not None:
-                proof = {**proof, "replicaTopology": topology["id"]}
-            return proof
-        command = ("GET saved map on a distinct replica" if topology is None
-                   else f"GET saved map again through the cell endpoint ({topology['id']}: {topology['description']})")
+            return self._prove_map(other, self.map_path())
         self._check(6, "replica-map", command, replica)
 
     def check_reopened(self):

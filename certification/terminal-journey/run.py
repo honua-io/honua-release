@@ -481,7 +481,8 @@ def run_live(
         if cloud:
             topology = local_fixture.replica_topology(target)
             if topology is not None:
-                notices.append(f"Cross-replica read: {topology['id']}: {topology['description']}")
+                notices.append(f"Cross-replica read: blocked; serving topology {topology['id']}: "
+                               f"{topology['description']}. {local_fixture.REPLICA_UNPROVABLE_REASON}")
             for name, reason in sorted((target.get("unavailablePrincipals") or {}).items()):
                 notices.append(f"Principal {name} unavailable on this target: {reason.get('reason')}")
         credentials.setdefault("proposer", probes.resolve_env_default(

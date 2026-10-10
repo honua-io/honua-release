@@ -85,6 +85,16 @@ def replica_url(target):
     return target.get("replicaBaseUrl")
 
 
+# A cloud cell's cross-replica read-after-write cannot be proven from outside: the cell has one
+# endpoint and honua-server (798d517) returns no per-instance identity on its responses.
+REPLICA_UNPROVABLE_REASON = (
+    "cross-replica read-after-write is unprovable on this cell: it is reached through one endpoint "
+    "and the server returns no per-instance identity, so a re-read cannot be shown to come from "
+    "another replica")
+REPLICA_SERVER_NEED = ("honua-server: a per-instance (replica) identity on responses, so a "
+                       "cross-replica read can be observed through a single cell endpoint")
+
+
 def replica_topology(target):
     """The declared serving topology behind a cloud cell's single endpoint, or None.
 

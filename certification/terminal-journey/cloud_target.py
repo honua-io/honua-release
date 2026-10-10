@@ -16,8 +16,9 @@ What differs from local Docker, and why:
   tenant-independent. The target documents the principal as unavailable, so the tenant-isolation
   assertion is blocked with that reason while the rest of stage 8 runs.
 * The datasource is the cell's own RDS database, reached with TLS (`sslRequired`, `Require`).
-* A cell is reached through one endpoint. The cross-replica re-read goes through that endpoint and
-  the target names the serving topology behind it (ALB across ECS tasks, or one Lambda function).
+* A cell is reached through one endpoint and the server returns no per-instance identity, so the
+  cross-replica read-after-write is blocked as unprovable. The target names the serving topology
+  behind the endpoint (ALB across ECS tasks, or one Lambda function) as evidence.
 """
 from __future__ import annotations
 
@@ -48,12 +49,12 @@ TOPOLOGIES = {
     "aws-ecs": {
         "id": "ecs-alb-tasks",
         "description": "the cell load balancer spreads requests across its ECS tasks; "
-                       "the re-read is a new request that is not pinned to a different task",
+                       "a request cannot be pinned to, or attributed to, a particular task",
     },
     "aws-serverless": {
         "id": "lambda-function",
-        "description": "one Lambda function behind its HTTPS function URL; the re-read is a new "
-                       "request to any warm or new instance, not a separately addressed replica",
+        "description": "one Lambda function behind its HTTPS function URL; any warm or new "
+                       "instance answers and none is separately addressable",
     },
 }
 OTHER_TENANT_BLOCKER = "https://github.com/honua-io/honua-release/issues/377"
