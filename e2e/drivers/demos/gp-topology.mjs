@@ -85,7 +85,9 @@ export function judgeRedisOffGeoprocessing({ topology, jobsRunner, execution, pa
       "(the 503 response carried no CORS allowance for the demo origin)");
   }
   const showsRefusal = /\b503\b/.test(page.pill || "") && /job store|durable/i.test(page.pill + " " + page.summary);
-  const verbatim = (page.out || "").includes(CAPABILITY_UNAVAILABLE) && /"missingDependency":\s*"redis"/.test(page.out || "");
+  // The verbatim problem document the page prints must carry the same typed fields (exact match).
+  const shownField = (name) => new RegExp(`"${name}":\\s*"([^"]*)"`).exec(page.out || "")?.[1];
+  const verbatim = shownField("type") === CAPABILITY_UNAVAILABLE && shownField("missingDependency") === "redis";
   const claimsRun = /successful\. Results:/.test(page.out || "") || /·\s*done/.test(page.pill || "");
   if (claimsRun) {
     return verdict("fail", "the demo claims a completed job although the server refused the execution");

@@ -500,7 +500,7 @@ async function checkGeoprocessingRedisOff(context) {
       return {
         pill: document.querySelector("#gp-exec-pill")?.textContent?.trim() || "",
         summary: summary && summary.style.display !== "none" ? summary.textContent.trim() : "",
-        out: (document.querySelector("#gp-exec-out")?.textContent || "").slice(0, 2000),
+        out: (document.querySelector("#gp-exec-out")?.textContent || "").slice(0, 8000),
       };
     });
     const verdict = judgeRedisOffGeoprocessing({
