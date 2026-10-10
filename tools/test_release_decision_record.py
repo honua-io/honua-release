@@ -334,9 +334,8 @@ def verify(config, responses, record=None):
 
 def test_security_gate_verifies_each_fixed_row_against_its_merged_pr():
     config = sec_rules(OPEN, FIXED)
-    verdict, call = verify(config, [pr()])
-    assert verdict == 'HOLD'
-    call.assert_called_once_with('api', 'repos/honua-io/honua-server/pulls/5082')
+    with pytest.raises(ValueError, match='remain open'):
+        verify(config, [pr()])
     for response, why in [(pr(merged=False), 'not merged'), (pr(body='Hardening.'), 'does not cite SEC-9'),
                           (pr(body='SEC-90 only.'), 'does not cite SEC-9'), (pr(base='release/2026.0'), 'not the default branch')]:
         with pytest.raises(ValueError, match=why):
