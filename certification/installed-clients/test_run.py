@@ -165,7 +165,8 @@ class MatrixExpectationTests(unittest.TestCase):
                 "interop-import-render-buffer": ("active", None),
                 "interop-proposal-approval": ("blocked", [
                     "https://github.com/honua-io/honua-sdk-dotnet/issues/411",
-                    "https://github.com/honua-io/honua-server/issues/5433",
+                    "https://github.com/honua-io/honua-server/issues/5449",
+                    "https://github.com/honua-io/honua-server/issues/5788",
                 ]),
                 "interop-api-key-revocation": ("active", None),
             },
