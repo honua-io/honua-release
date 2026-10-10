@@ -223,6 +223,7 @@ cells, so the cell keeps working while the iac pin moves:
 | `licensing_mode=Disabled`, `cors_allowed_origins=["http://127.0.0.1:18099"]` | as on ECS |
 | `domain_name`, `route53_zone_id` | the per-run `<run id>-aws-eks-redis-<on/off>.cert.<HONUA_AWS_CELL_DNS_PARENT>` in `HONUA_AWS_CELL_DNS_ZONE_ID`, the ECS cells' variables |
 | `cluster_secret_encryption_enabled=false` | no per-cell KMS key (honua-release#127) |
+| `kubernetes_namespace=honua-cert`, `server_service_account_name=honua`, `gp_job_service_account_name=honua-gp-job` | where the root's Pod Identity associations bind the server and GP job roles: the namespace and service accounts the chart is installed with (honua-iac#233) |
 
 The chart install reads these root outputs, each only when the root declares it (`terraform output
 -json`, held in memory):
@@ -231,7 +232,12 @@ The chart install reads these root outputs, each only when the root declares it 
 - `chart_config_env` is a map of plain environment names to non-secret values, for example
   `ControlPlane__Kubernetes__*`, the operation policy rules and Secrets Manager references. It goes
   into the chart's `config.env` through a values file.
-- `server_role_arn` and `gp_job_role_arn` annotate the server and GP job ServiceAccounts (IRSA).
+- `server_service_account_annotations` and `gp_job_service_account_annotations` are the only
+  annotations put on the server and GP job ServiceAccounts. Under `workload_identity_mode=pod_identity`
+  (the root's default) they are empty, and a role-arn annotation there refuses the cell: the AWS SDK
+  would try web identity first, and the role trusts no OIDC provider. Under `irsa` they must carry
+  `eks.amazonaws.com/role-arn` for `server_role_arn` / `gp_job_role_arn`. The root's
+  `kubernetes_namespace` and service account outputs must match what the chart is installed with.
 - `certificate_arn` terminates TLS on the load balancer for the per-run name.
 
 When the pinned chart declares `geoprocessing.kubernetesJobs`, the cell enables it in the cell
@@ -253,7 +259,7 @@ is the honest one. The cell moves forward when the iac and helm pins do:
 Any IAM the root creates must stay inside the release role's guardrail. Roles and policies must be
 named `honuaeks*` (the cell's `name_prefix`). The root must not create an IAM OIDC provider:
 `release-cicd-guardrails` denies that account-wide, and run 38057015781 failed provisioning on it
-(see below). The job and server roles therefore need EKS Pod Identity or an operator-created provider.
+(see below). The root therefore defaults to EKS Pod Identity (honua-iac#233).
 
 **Teardown.** The LoadBalancer Services, the release, the namespace and the cell's DNS record go
 first. Then `terraform destroy` runs, retried once after sweeping the node ENIs that the VPC CNI leaks.
