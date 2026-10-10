@@ -17,6 +17,7 @@
 import { readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { pathToFileURL } from "node:url";
+import { geoprocessingExpectation, judgeRedisOffGeoprocessing } from "./gp-topology.mjs";
 
 // Playwright lives in a cache dir outside the repo (run.sh installs it there and passes the entry
 // point in E2E_PW_MODULE); a normally-installed copy is used when one is on the resolution path.
@@ -40,6 +41,13 @@ const HEADLESS = process.env.E2E_DEMOS_HEADED !== "1";
 const STEP = Number(process.env.E2E_DEMOS_TIMEOUT_MS || 45000);
 
 const manifest = JSON.parse(readFileSync(join(OUT, "seed-manifest.json"), "utf8"));
+// run.sh resolves the cell topology exactly as S3/S5 do (harness/lib/common.sh resolve_topology) and
+// hands it over with the manifest's jobs.runner entry; unparseable input never relaxes an expectation.
+const parseEnvJson = (name) => {
+  try { return process.env[name] ? JSON.parse(process.env[name]) : null; } catch { return { mismatch: `${name} is not JSON` }; }
+};
+const TOPOLOGY = parseEnvJson("E2E_TOPOLOGY_JSON");
+const JOBS_RUNNER = parseEnvJson("E2E_JOBS_RUNNER_JSON");
 const demoLayers = manifest.demo || {};
 
 const results = [];
@@ -406,17 +414,15 @@ async function checkEsriLeaflet(context) {
 /* ── 3. geoprocessing ──────────────────────────────────────────────────────── */
 
 async function checkGeoprocessing(context) {
+  const expectation = geoprocessingExpectation(TOPOLOGY);
+  if (expectation.mode === "mismatch") {
+    record("geoprocessing", "fail", expectation.why, { topology: TOPOLOGY, jobsRunner: JOBS_RUNNER });
+    return;
+  }
+  if (expectation.mode === "refusal") return checkGeoprocessingRedisOff(context);
   const page = await newPage(context);
   try {
-    await page.goto(demoUrl("demo-geoprocessing.html"), { waitUntil: "domcontentloaded", timeout: STEP });
-    await waitForAttr(page, "#gp-status", "data-state", "ok");
-    const catalogText = (await page.locator("#gp-status").innerText()).trim();
-
-    // The page never ships a credential — the operator pastes one. Do exactly that.
-    await page.locator("#gp-key").fill(KEY);
-    await page.locator(`.gp-proc[data-id="generalization.simplify-layer"]`).click();
-    await page.waitForSelector("#gp-run", { state: "visible", timeout: STEP });
-    await page.waitForFunction(() => !document.querySelector("#gp-run")?.disabled, null, { timeout: STEP });
+    const catalogText = await openGeoprocessingRun(page);
     await page.locator("#gp-run").click();
 
     // Submit -> job -> poll -> results, driven entirely by the page.
@@ -451,6 +457,62 @@ async function checkGeoprocessing(context) {
     );
   } catch (error) {
     record("geoprocessing", "fail", `geoprocessing demo did not complete a live execution: ${error.message}`, diag(page));
+  } finally {
+    await page.close();
+  }
+}
+
+/* Redis-off: the same page, the same click — but the server must refuse the async execution with the
+ * typed capability-unavailable receipt (the S5 contract) and the page must show that refusal, not spin.
+ * The execution response is OBSERVED on the network (never intercepted or altered). */
+async function openGeoprocessingRun(page) {
+  await page.goto(demoUrl("demo-geoprocessing.html"), { waitUntil: "domcontentloaded", timeout: STEP });
+  await waitForAttr(page, "#gp-status", "data-state", "ok");
+  const catalogText = (await page.locator("#gp-status").innerText()).trim();
+  // The page never ships a credential — the operator pastes one. Do exactly that.
+  await page.locator("#gp-key").fill(KEY);
+  await page.locator(`.gp-proc[data-id="generalization.simplify-layer"]`).click();
+  await page.waitForSelector("#gp-run", { state: "visible", timeout: STEP });
+  await page.waitForFunction(() => !document.querySelector("#gp-run")?.disabled, null, { timeout: STEP });
+  return catalogText;
+}
+
+async function checkGeoprocessingRedisOff(context) {
+  const page = await newPage(context);
+  try {
+    const catalogText = await openGeoprocessingRun(page);
+    const executed = page.waitForResponse(
+      (r) => r.request().method() === "POST" && /\/ogc\/processes\/processes\/[^/?#]+\/execution(?:[?#]|$)/.test(r.url()),
+      { timeout: STEP }
+    ).catch(() => null);
+    await page.locator("#gp-run").click();
+    const response = await executed;
+    const execution = response
+      ? { status: response.status(), body: await response.text().catch(() => null) }
+      : null;
+    // Settled = the page replaced its in-flight "submitting…" pill with a verdict of its own.
+    const settled = await page.waitForFunction(() => {
+      const pill = document.querySelector("#gp-exec-pill")?.textContent?.trim() || "";
+      return pill !== "" && !/submitting/.test(pill);
+    }, null, { timeout: STEP }).then(() => true, () => false);
+    const rendered = await page.evaluate(() => {
+      const summary = document.querySelector("#gp-result-summary");
+      return {
+        pill: document.querySelector("#gp-exec-pill")?.textContent?.trim() || "",
+        summary: summary && summary.style.display !== "none" ? summary.textContent.trim() : "",
+        out: (document.querySelector("#gp-exec-out")?.textContent || "").slice(0, 2000),
+      };
+    });
+    const verdict = judgeRedisOffGeoprocessing({
+      topology: TOPOLOGY, jobsRunner: JOBS_RUNNER, execution, page: { ...rendered, settled },
+    });
+    const evidence = verdict.status === "pass"
+      ? { ...verdict.evidence, catalogText }
+      : diag(page, { ...verdict.evidence, catalogText });
+    record("geoprocessing", verdict.status, verdict.why, evidence);
+  } catch (error) {
+    record("geoprocessing", "fail", `redis-off: geoprocessing demo did not reach the execution step: ${error.message}`,
+      diag(page, { topology: TOPOLOGY, jobsRunner: JOBS_RUNNER }));
   } finally {
     await page.close();
   }

@@ -121,6 +121,18 @@ if [ -z "$CORS_ORIGIN" ]; then
   exit 0
 fi
 
+# ── topology (Redis-on vs Redis-off) ──────────────────────────────────────────────────────────
+# The same decision S3/S5 make (harness/lib/common.sh resolve_topology: the cell declares E2E_REDIS,
+# the server must confirm it). On a confirmed Redis-off cell geoprocessing is a typed `unavailable`
+# refusal by the 2026.1 owner ruling (release fix plan decision 3), so S9-demos-geoprocessing asserts
+# that the page shows the server's capability-unavailable receipt instead of a completed job
+# (gp-topology.mjs). The manifest's own jobs.runner entry rides along as evidence.
+resolve_topology
+export E2E_TOPOLOGY_JSON; E2E_TOPOLOGY_JSON="$(topology_evidence)"
+api_get "/api/v1/capabilities/manifest"
+export E2E_JOBS_RUNNER_JSON; E2E_JOBS_RUNNER_JSON="$(jget '[.capabilities[]? | select(.id=="jobs.runner")] | first // null' | jq -c . 2>/dev/null || echo null)"
+[ -n "$E2E_JOBS_RUNNER_JSON" ] || E2E_JOBS_RUNNER_JSON=null
+
 # ── drive ──────────────────────────────────────────────────────────────────────────────────────
 rm -f "$E2E_OUT/demos-results.json"
 export E2E_PW_MODULE="$PW_HOME/node_modules/playwright/index.js"
