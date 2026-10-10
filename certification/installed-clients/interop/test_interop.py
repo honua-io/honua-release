@@ -231,6 +231,7 @@ class ContractTests(unittest.TestCase):
         self.assertEqual(set(approval), {"publication-url", "published-content", "published-url"})
         self.assertEqual(approval["published-url"]["blockedBy"], "https://github.com/honua-io/honua-sdk-dotnet/issues/411")
         self.assertEqual(approval["published-content"]["blockedBy"], "https://github.com/honua-io/honua-server/issues/5449")
+        self.assertEqual(approval["publication-url"]["blockedBy"], "https://github.com/honua-io/honua-server/issues/5788")
         self.assertTrue(all("5433" not in entry["blockedBy"] for entry in approval.values()))
 
 
