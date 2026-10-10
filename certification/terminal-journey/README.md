@@ -119,11 +119,14 @@ the cell. Preview and stub cells keep the documented blocked build receipt.
   recording the candidate's typed refusal instead of executing: the tool error must carry
   `code: unavailable` and `missingDependency: redis`, and the capability manifest must report the
   stage's capability `dependency-unavailable`. The stage row then carries `topologyRefusal` (schema:
-  `receipt.schema.json`) and no canonical identity, because nothing ran. Stage 5 (`jobs.runner`) is
-  the ruling as written. Stage 3 (`operations.proposals`: `honua_publish_service` runs through the
-  governed operation runtime) extends it and is recorded `extension-pending-owner-ruling`. Any other
-  refusal, a redis-on cell, or a manifest that reports the capability available keeps the failure.
-  A local target can declare `"redisTopology": "redis-off"` for the same treatment.
+  `receipt.schema.json`) and no canonical identity, because nothing ran, and the receipt target
+  names `redisTopology: redis-off` (the schema refuses a refusal on any other target). Stages 5
+  (`jobs.runner`) and 6-8 (`operations.proposals`) are the ruling as written; on a Production
+  Redis-off cell stages 6-8 stay blocked because stage 3 publishes no layer. Stage 3
+  (`operations.proposals`: `honua_publish_service` runs through the governed operation runtime)
+  extends it and is recorded `extension-pending-owner-ruling`. Any other refusal, a redis-on cell,
+  or a manifest that reports the capability available keeps the failure. A local target can
+  declare `"redisTopology": "redis-off"` for the same treatment.
 
 A failing tool call names what the candidate said: the problem's `type`, `title`, `code`,
 `reasonCode`, `missingDependency`, `capability` and error `kind` as bounded tokens, and its message

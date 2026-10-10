@@ -46,7 +46,8 @@
         "configPath": {"type": ["string", "null"]},
         "configSha256": {"anyOf": [{"$ref": "#/$defs/sha256"}, {"type": "null"}]},
         "baseUrl": {"type": ["string", "null"]},
-        "composeProject": {"type": ["string", "null"]}
+        "composeProject": {"type": ["string", "null"]},
+        "redisTopology": {"description": "The Redis topology the target declares (a cloud cell's id, or a local target's redisTopology). Present only when declared.", "enum": ["redis-on", "redis-off"]}
       }
     },
 
@@ -238,6 +239,19 @@
       ]
     },
     {
+      "description": "A stage may be recorded by a Redis-off topology refusal only on a receipt whose target declares redis-off; a cloud cell's id must name its redis-off cell.",
+      "if": {"properties": {"stages": {"contains": {"required": ["topologyRefusal"]}}}, "required": ["stages"]},
+      "then": {
+        "required": ["target"],
+        "properties": {"target": {
+          "required": ["redisTopology"],
+          "properties": {"redisTopology": {"const": "redis-off"}},
+          "if": {"properties": {"kind": {"enum": ["aws-ecs", "aws-serverless"]}}, "required": ["kind"]},
+          "then": {"properties": {"id": {"pattern": "^(aws-ecs|aws-serverless)/redis-off$"}}}
+        }}
+      }
+    },
+    {
       "description": "Build mode never contacts a target and therefore can never report pass.",
       "if": {"properties": {"mode": {"const": "build"}}, "required": ["mode"]},
       "then": {
@@ -296,7 +310,7 @@
     },
 
     "topologyRefusal": {
-      "description": "A Redis-off stage recorded by the candidate's typed unavailable refusal instead of an execution (owner ruling redis-governed-control-plane-2026-10-08: Redis is a requirement of the governed control plane). Present only on stage 3 (an extension of the ruling pending the owner's decision) and stage 5 (ruled). The cell must declare redis-off and the capability manifest must report the capability dependency-unavailable; the stage then carries no canonical operation or job identity because nothing ran.",
+      "description": "A Redis-off stage recorded by the candidate's typed unavailable refusal instead of an execution (owner ruling redis-governed-control-plane-2026-10-08: Redis is a requirement of the governed control plane). Present only on stage 3 (an extension of the ruling pending the owner's decision) and stages 5-8 (ruled). The cell must declare redis-off and the capability manifest must report the capability dependency-unavailable; the stage then carries no canonical operation or job identity because nothing ran.",
       "type": "object",
       "additionalProperties": false,
       "required": ["topology", "ruling", "rulingStatus", "tool", "code", "missingDependency", "manifestCapability", "manifestReasonCode", "deploymentEnvironment"],
@@ -365,14 +379,16 @@
       },
       "allOf": [
         {
-          "description": "Only stage 3 (operations.proposals, pending ruling) and stage 5 (jobs.runner, ruled) may be recorded by a Redis-off topology refusal.",
+          "description": "Only stages 3 (operations.proposals, an extension pending the owner's ruling), 5 (jobs.runner) and 6-8 (operations.proposals) may be recorded by a Redis-off topology refusal.",
           "if": {"required": ["topologyRefusal"]},
           "then": {
             "oneOf": [
               {"properties": {"number": {"const": 3}, "topologyRefusal": {"properties": {
                 "manifestCapability": {"const": "operations.proposals"}, "rulingStatus": {"const": "extension-pending-owner-ruling"}}}}},
               {"properties": {"number": {"const": 5}, "topologyRefusal": {"properties": {
-                "manifestCapability": {"const": "jobs.runner"}, "rulingStatus": {"const": "ruled"}}}}}
+                "manifestCapability": {"const": "jobs.runner"}, "rulingStatus": {"const": "ruled"}}}}},
+              {"properties": {"number": {"enum": [6, 7, 8]}, "topologyRefusal": {"properties": {
+                "manifestCapability": {"const": "operations.proposals"}, "rulingStatus": {"const": "ruled"}}}}}
             ]
           }
         },
@@ -457,7 +473,8 @@
           "description": "Passing proposal and approval stages must carry the server-emitted durable proposal identity. Approval is keyed on it (plus resolvedBy and the approved replay's auditId), not on a separate approval id.",
           "if": {
             "properties": {"number": {"enum": [7, 8]}, "status": {"const": "pass"}},
-            "required": ["number", "status"]
+            "required": ["number", "status"],
+            "not": {"required": ["topologyRefusal"]}
           },
           "then": {
             "required": ["proposalId"],

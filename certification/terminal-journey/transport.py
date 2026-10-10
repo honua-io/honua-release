@@ -50,21 +50,29 @@ def credential_values(credentials):
     return [value.removeprefix("Bearer ") for value in credentials.values() if isinstance(value, str)]
 
 
+def _scrub(text, secrets):
+    for secret in secrets:
+        if isinstance(secret, str) and len(secret) >= 8:
+            text = text.replace(secret, "[redacted]")
+    return text
+
+
 def masked_fields(values, secrets=()):
-    """Bounded scalar evidence for a receipt: tokens kept verbatim, the message masked and bounded."""
+    """Bounded scalar evidence for a receipt: tokens kept, the message masked and bounded.
+
+    The candidate's error envelope is untrusted, so the run's own credentials are scrubbed from every
+    retained field, not only the message.
+    """
     fields = {}
     for name, value in values.items():
         if name == "message":
             continue
-        token = _bounded_token(value)
+        token = _bounded_token(_scrub(value, secrets) if isinstance(value, str) else value)
         if token is not None:
             fields[name] = token
     message = values.get("message")
     if isinstance(message, str) and message.strip():
-        for secret in secrets:
-            if isinstance(secret, str) and len(secret) >= 8:
-                message = message.replace(secret, "[redacted]")
-        masked = discovery.excerpt(message.encode("utf-8"))
+        masked = discovery.excerpt(_scrub(message, secrets).encode("utf-8"))
         fields["message"] = (masked if len(masked) <= TOOL_ERROR_MESSAGE_CHARS
                              else masked[:TOOL_ERROR_MESSAGE_CHARS] + "...(truncated)")
     return fields

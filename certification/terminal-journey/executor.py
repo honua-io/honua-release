@@ -63,14 +63,29 @@ SDK_METHODS = {"CreateConnectionAsync", "TestConnectionAsync"}
 # ruling covers the stage. Decision 3 names stages 5-8. Stage 3 is included because on a Redis-off
 # Production host honua_publish_service (routed through the governed operation runtime) is refused
 # with the same durable-store refusal (reproduced against nightly-798d517); that EXTENDS decision 3
-# and is recorded as pending the owner's ruling. Stages 6-8 never reach a tool call on such a cell:
-# they need the layer stage 3 would have published, so they stay blocked on it.
+# and is recorded as pending the owner's ruling. On a Production Redis-off cell stages 6-8 never
+# reach a tool call (they need the layer stage 3 would have published) and stay blocked on it; they
+# are listed so a host that does publish records their typed refusal the same strict way. Stage 8
+# approves through the CLI, whose output is never retained, so it cannot match and keeps its outcome.
 REDIS_OFF_RULING = "redis-governed-control-plane-2026-10-08"
 TOPOLOGY_REFUSAL_STAGES = {
     3: {"capability": "operations.proposals", "ruling": "extension-pending-owner-ruling"},
     5: {"capability": "jobs.runner", "ruling": "ruled"},
+    6: {"capability": "operations.proposals", "ruling": "ruled"},
+    7: {"capability": "operations.proposals", "ruling": "ruled"},
+    8: {"capability": "operations.proposals", "ruling": "ruled"},
 }
 CLOUD_CELL = re.compile(r"(?:aws-ecs|aws-serverless)/(redis-on|redis-off)\Z")
+
+
+def declared_redis_topology(target):
+    """The Redis topology a target declares: a cloud cell's id, or a local target's redisTopology."""
+    target = target or {}
+    if target.get("kind") in ("aws-ecs", "aws-serverless"):
+        match = CLOUD_CELL.match(str(target.get("id") or ""))
+        return match.group(1) if match else None
+    declared = target.get("redisTopology")
+    return declared if declared in ("redis-on", "redis-off") else None
 
 
 def _token(value):
@@ -776,12 +791,7 @@ class JourneyExecutor:
         return missing
 
     def declared_redis_topology(self):
-        """The Redis topology the target declares: a cloud cell's id, or a local target's redisTopology."""
-        match = CLOUD_CELL.match(str(self.target.get("id") or ""))
-        if match and self.target.get("kind") in ("aws-ecs", "aws-serverless"):
-            return match.group(1)
-        declared = self.target.get("redisTopology")
-        return declared if declared in ("redis-on", "redis-off") else None
+        return declared_redis_topology(self.target)
 
     def record_topology_refusal(self, number, exc):
         """Record a Redis-off stage by the candidate's typed refusal; False leaves the failure as it is."""

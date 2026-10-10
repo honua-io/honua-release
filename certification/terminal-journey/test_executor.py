@@ -1237,11 +1237,52 @@ def test_a_local_target_may_declare_its_redis_topology():
     assert engine.record_topology_refusal(3, ExecutionError("honua_publish_service", "x", problem=PUBLISH_REFUSAL))
 
 
-def test_only_stages_3_and_5_may_carry_a_topology_refusal():
+def test_only_the_governed_stages_may_carry_their_topology_refusal():
     engine = cell_engine()
     engine.record_topology_refusal(3, ExecutionError("honua_publish_service", "x", problem=PUBLISH_REFUSAL))
     row = stage_row(engine.result(3))
     validate_stage(row)
-    for number in (4, 5):
+    # Stage 4 (style/render) is a Redis-off topology; stage 5 refuses on jobs.runner; 6-8 are ruled.
+    for number in (4, 5, 6):
         with pytest.raises(jsonschema.ValidationError):
             validate_stage({**row, "number": number})
+    validate_stage({**row, "number": 7, "topologyRefusal": {**row["topologyRefusal"], "rulingStatus": "ruled"}})
+
+
+def test_a_ruled_stage_6_refusal_is_recorded_like_stage_5():
+    engine = cell_engine()
+    error = ExecutionError("honua_studio_create_draft", "x", problem={**PUBLISH_REFUSAL, "kind": "PreconditionFailed"})
+    assert engine.record_topology_refusal(6, error)
+    result = engine.result(6)
+    assert result.status == "pass" and result.topology_refusal["rulingStatus"] == "ruled"
+    validate_stage(stage_row(result))
+
+
+def test_a_receipt_may_carry_a_topology_refusal_only_for_a_redis_off_target():
+    engine = cell_engine()
+    engine.record_topology_refusal(3, ExecutionError("honua_publish_service", "x", problem=PUBLISH_REFUSAL))
+    row = stage_row(engine.result(3))
+    schema = json.loads((Path(__file__).parent / "receipt.schema.json").read_text())
+    rule = next(rule for rule in schema["allOf"] if "redis-off" in rule.get("description", ""))
+
+    def check(target):
+        jsonschema.validate({"stages": [row], "target": target}, {"$defs": schema["$defs"], **rule})
+
+    check({"id": "aws-serverless/redis-off", "kind": "aws-serverless", "redisTopology": "redis-off"})
+    check({"id": "local-docker", "kind": "local-docker", "redisTopology": "redis-off"})
+    for target in ({"id": "aws-ecs/redis-on", "kind": "aws-ecs", "redisTopology": "redis-off"},
+                   {"id": "aws-ecs/redis-off", "kind": "aws-ecs"},
+                   {"id": "aws-ecs/redis-on", "kind": "aws-ecs", "redisTopology": "redis-on"}):
+        with pytest.raises(jsonschema.ValidationError):
+            check(target)
+    # The receipt's target names the topology the executor used.
+    assert executor.declared_redis_topology({"id": "aws-ecs/redis-off", "kind": "aws-ecs"}) == "redis-off"
+    assert executor.declared_redis_topology({"id": "local-docker", "kind": "local-docker"}) is None
+    assert executor.declared_redis_topology({"id": "x/redis-off", "kind": "local-docker"}) is None
+
+
+def test_the_run_credentials_are_scrubbed_from_every_retained_error_field():
+    fields = transport_module.tool_error({"structuredContent": {
+        "code": f"bad-{OPERATOR_KEY}", "kind": OPERATOR_KEY, "message": "ok"}}, [OPERATOR_KEY])
+    assert OPERATOR_KEY not in json.dumps(fields)
+    assert fields["code"] == "bad-[redacted]" and fields["kind"] == "[redacted]"
