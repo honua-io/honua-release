@@ -92,16 +92,25 @@ def is_endpoint_unreachable(result: CheckResult) -> bool:
     return bool(result.evidence.get(ENDPOINT_UNREACHABLE_EVIDENCE))
 
 
-def make_fetch(headers: dict[str, str] | None = None, timeout: float = 15.0) -> Fetcher:
+class _NoRedirect(urllib.request.HTTPRedirectHandler):
+    def redirect_request(self, req, fp, code, msg, headers, newurl):
+        return None  # urllib then raises HTTPError carrying the 3xx status and its Location header
+
+
+def make_fetch(headers: dict[str, str] | None = None, timeout: float = 15.0, *,
+               follow_redirects: bool = True) -> Fetcher:
     """A `Fetcher` factory that attaches request headers (e.g. an admin `X-API-Key`) and captures
     response headers (lower-cased). Used for authenticated canonical-check calls and the demo-canary
-    probe set (e2e/canary_probes.py) — kept here so every caller shares one HTTP implementation."""
+    probe set (e2e/canary_probes.py) — kept here so every caller shares one HTTP implementation.
+    follow_redirects=False returns a 3xx as-is (status and Location) instead of following it."""
     hdrs = dict(headers or {})
+    open_url = (urllib.request.urlopen if follow_redirects
+                else urllib.request.build_opener(_NoRedirect).open)
 
     def _fetch(url: str) -> HttpResponse:
         req = urllib.request.Request(url, headers=hdrs)
         try:
-            with urllib.request.urlopen(req, timeout=timeout) as r:
+            with open_url(req, timeout=timeout) as r:
                 return HttpResponse(r.status, r.read().decode("utf-8", "replace"),
                                     {k.lower(): v for k, v in r.getheaders()})
         except urllib.error.HTTPError as e:  # a non-2xx still carries a status + body

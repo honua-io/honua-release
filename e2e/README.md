@@ -265,8 +265,15 @@ harness passes `domain_name` and `route53_zone_id` to `examples/aws`. The aws-ec
 an ACM certificate, writes its DNS validation records in the zone, waits for issuance inside
 `terraform apply` (a few minutes), aliases the name to the ALB, and `honua_url` becomes
 `https://<name>`. The runner's /32 is passed as `allow_https_ingress_cidrs`, not
-`allow_http_ingress_cidrs`. `examples/aws` does not expose `alb_enable_http_redirect`, so the module
-still serves a redirect-only listener on port 80, open to the same /32 only. The admit job resolves
+`allow_http_ingress_cidrs`. On this TLS path only, the harness also passes
+`alb_enable_http_redirect=true` when the pinned `examples/aws` root declares it (owner decision 8 of
+2026-10-10; the module input already defaults to true, the root variable is a parallel honua-iac
+change), so the module serves a redirect-only listener on port 80, open to the same /32 only. A
+plain-HTTP cell never gets it: there is no port 443 to redirect to. The canary's `https-redirect`
+probe asserts it from the provision runner: on an HTTPS cell `http://<host>/healthz/live` must answer
+301 or 308 with `Location: https://<host>/healthz/live` (a missing listener, a 302, or any other
+target fails the cell); every other cell (plain-HTTP ECS, serverless, EKS) records the probe
+`blocked` with the reason. The admit job resolves
 the name to its ALB through the zone's alias record and opens 443 (the endpoint's scheme) to the
 journey runner. The provision report records `transport: {scheme, host}`, and each journey receipt
 records the same pair in its `Candidate transport` notice. `terraform destroy` removes the

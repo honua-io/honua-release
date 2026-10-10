@@ -30,6 +30,7 @@ from __future__ import annotations
 
 import json
 import time
+import urllib.parse
 
 from canonical_checks import CheckResult, Fetcher, unreachable
 
@@ -105,6 +106,51 @@ def check_security_headers(fetch: Fetcher, base: str) -> CheckResult:
         "ignore it — only an https:// endpoint proves HSTS",
         {"hstsAsserted": False},
     )
+
+
+_REDIRECT_STATUSES = (301, 308)
+
+
+def check_http_redirects_to_https(redirect_fetch: Fetcher | None, base: str, expected: bool,
+                                  reason: str = "") -> CheckResult:
+    """Security-headers companion (owner decision 8 of 2026-10-10): on an HTTPS cell, plain HTTP
+    to the same host must answer `http://<host>/healthz/live` with a permanent redirect (301/308) to
+    the https:// URL of the same host and path. `redirect_fetch` must NOT follow redirects.
+
+    Only an HTTPS load-balancer cell has that listener; any other cell records `blocked` with the
+    reason (`expected=False`), never a pass, and a plain-HTTP cell is never asked to redirect to a
+    port 443 that serves nothing.
+    """
+    name = "https-redirect"
+    endpoint = urllib.parse.urlsplit(base)
+    if not expected:
+        return CheckResult(name, "blocked", reason or "not an HTTPS cell; no HTTP->HTTPS redirect to assert")
+    if endpoint.scheme.lower() != "https" or not endpoint.hostname:
+        return CheckResult(name, "fail", f"HTTPS cell expected but its endpoint is {base!r}")
+    if redirect_fetch is None:
+        return CheckResult(name, "blocked", "no non-following fetcher configured to observe the redirect")
+    host = endpoint.hostname.lower()
+    probe = f"http://{host}/healthz/live"
+    r = redirect_fetch(probe)
+    if r.status == 0:
+        # A plain fail, not `unreachable`: the HTTPS endpoint itself may be serving, and the cell
+        # report must not read this as "the deployment never came up".
+        return CheckResult(name, "fail", f"{probe} did not answer (no HTTP redirect listener reachable)",
+                           {"url": probe, "status": 0})
+    location = r.headers.get("location", "")
+    target = urllib.parse.urlsplit(location)
+    try:
+        port = target.port
+    except ValueError:
+        port = -1
+    evidence = {"url": probe, "status": r.status, "location": location}
+    if r.status not in _REDIRECT_STATUSES:
+        return CheckResult(name, "fail", f"{probe} -> {r.status} (want 301/308 to https)", evidence)
+    if (target.scheme.lower() != "https" or (target.hostname or "").lower() != host
+            or port not in (None, 443) or target.path != "/healthz/live"):
+        return CheckResult(name, "fail", f"{probe} -> {r.status} Location {location!r} "
+                           f"(want https://{host}/healthz/live)", evidence)
+    return CheckResult(name, "pass", f"{probe} -> {r.status} {location}", evidence)
 
 
 def check_metrics_gated(fetch: Fetcher, base: str, admin_fetch: Fetcher | None = None) -> CheckResult:
@@ -382,10 +428,15 @@ def check_geocoding_latency(fetch: Fetcher, base: str, budget_ms: float = 3000.0
 
 def run_canary(base: str, fetch: Fetcher, *, admin_fetch: Fetcher | None = None,
               service_id: str | None = None, tile_layer_id: int | None = None,
-              assert_stac_non_empty: bool = False, geocode_budget_ms: float = 3000.0) -> list[CheckResult]:
+              assert_stac_non_empty: bool = False, geocode_budget_ms: float = 3000.0,
+              https_redirect: tuple[bool, str] | None = None,
+              redirect_fetch: Fetcher | None = None) -> list[CheckResult]:
     """Assemble the full canary probe set. Called with no ids/assertions (the generic/cloud-tier mode,
     run_cloud.py against a bare terraform cell) or with the demo defaults (the scheduled demo canary,
-    `.github/workflows/demo-canary.yml`, against https://demo.honua.io)."""
+    `.github/workflows/demo-canary.yml`, against https://demo.honua.io).
+
+    https_redirect is the cell's (expected, reason) from its target; None (the demo canary) leaves
+    the redirect probe out."""
     results = [
         check_health_live_ready(fetch, base),
         check_security_headers(fetch, base),
@@ -403,12 +454,15 @@ def run_canary(base: str, fetch: Fetcher, *, admin_fetch: Fetcher | None = None,
         check_tiles_tilejson(fetch, base, tile_layer_id),
         check_geocoding_latency(fetch, base, geocode_budget_ms),
     ]
+    if https_redirect is not None:
+        results.insert(2, check_http_redirects_to_https(redirect_fetch, base, *https_redirect))
     return results
 
 
 __all__ = [
     "DEMO_SERVICE_ID", "DEMO_TILE_LAYER_ID", "DEMO_ASSERT_STAC_NON_EMPTY",
-    "check_health_live_ready", "check_security_headers", "check_metrics_gated",
+    "check_health_live_ready", "check_security_headers", "check_http_redirects_to_https",
+    "check_metrics_gated",
     "check_admin_metrics_health", "check_render_query_smoke", "check_deploy_preflight",
     "check_stac_collections", "check_ogc_service_capabilities", "check_edr_collections",
     "check_odata_service_document", "check_ogc_features_collections", "check_tiles_tilejson",

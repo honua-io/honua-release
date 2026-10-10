@@ -289,8 +289,8 @@ class TerraformTarget(DeployTarget):
         if self.spec.needs_runner_alb_access:
             raw_cidr = self._runner_cidr("HONUA_AWS_RUNNER_CIDR")
             # With a certificate the runner is admitted to the HTTPS listener; plain-HTTP ingress is
-            # not requested. (The module still serves a redirect-only listener on 80 to the same /32,
-            # because examples/aws does not expose alb_enable_http_redirect.)
+            # not requested. The module serves a redirect-only listener on 80 to the same /32
+            # (alb_enable_http_redirect, passed by _domain_vars when the root declares it).
             ingress = "allow_https_ingress_cidrs" if domain else "allow_http_ingress_cidrs"
             values.append(f"-var={ingress}={json.dumps([raw_cidr], separators=(',', ':'))}")
         if self.spec.cors_allowed_origins and self._root_declares("cors_allowed_origins"):
@@ -375,7 +375,29 @@ class TerraformTarget(DeployTarget):
             raise ProvisionError(f"{self.name}: {CELL_DNS_ZONE_ENV} is set but the pinned root does not "
                                  f"declare {', '.join(undeclared)}")
         fqdn, zone = domain
-        return [f"-var=domain_name={fqdn}", f"-var=route53_zone_id={zone}"]
+        values = [f"-var=domain_name={fqdn}", f"-var=route53_zone_id={zone}"]
+        # Owner decision 8 of 2026-10-10: an HTTPS cell answers plain HTTP on port 80 with a redirect
+        # to its HTTPS listener (the security-headers canary asserts it). Only on this TLS path: a
+        # plain-HTTP cell must not redirect to a port 443 that serves nothing. Passed only when the
+        # pinned examples/aws root declares the variable (same name as the aws-ecs module input).
+        if self._root_declares("alb_enable_http_redirect"):
+            values.append("-var=alb_enable_http_redirect=true")
+        return values
+
+    def https_redirect_expectation(self, redis_enabled: bool) -> tuple[bool, str]:
+        """(expected, reason): whether this cell is an HTTPS load-balancer cell whose plain-HTTP
+        listener must redirect to HTTPS. A cell that is not one says why, for a `blocked` canary row."""
+        if not self.spec.cell_domain:
+            return False, (f"{self.name} has no load-balancer HTTPS listener behind a custom domain, "
+                           "so no HTTP->HTTPS redirect is provisioned")
+        try:
+            domain = self.cell_domain(redis_enabled)
+        except ProvisionError as e:
+            return False, str(e)
+        if domain is None:
+            return False, (f"{self.name} is a plain-HTTP cell ({CELL_DNS_ZONE_ENV}/{CELL_DNS_PARENT_ENV} "
+                           "unset: no TLS listener), so no HTTP->HTTPS redirect is provisioned")
+        return True, f"HTTPS cell {domain[0]}"
 
     def _cell_dns_leftovers(self, redis_enabled: bool, *, run=subprocess.run) -> None:
         """After a successful destroy: this cell's certificate and records must be gone.

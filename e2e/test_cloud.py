@@ -1105,9 +1105,10 @@ def _isolated_journey():
             yield
 
 
-def _run_serving(monkeypatch, *, ready_status, checks, canary, require_real=False, extended=None):
+def _run_serving(monkeypatch, *, ready_status, checks, canary, require_real=False, extended=None,
+                 stub=None, canary_calls=None):
     """Drive run_cloud.run() against a stub that provisions, with canned probe verdicts."""
-    stub = _ServingStub()
+    stub = stub or _ServingStub()
     registry = run_cloud.REGISTRY
     attempts, delay = run_cloud._READY_ATTEMPTS, run_cloud._READY_DELAY_SECONDS
     try:
@@ -1118,7 +1119,9 @@ def _run_serving(monkeypatch, *, ready_status, checks, canary, require_real=Fals
         monkeypatch.setattr(run_cloud, "make_fetch",
                             lambda **kwargs: (lambda _url: cc.HttpResponse(ready_status, "")))
         monkeypatch.setattr(run_cloud, "run_canonical", lambda *a, **k: checks)
-        monkeypatch.setattr(run_cloud.canary_probes, "run_canary", lambda *a, **k: canary)
+        monkeypatch.setattr(run_cloud.canary_probes, "run_canary",
+                            lambda *a, **k: (canary_calls.append((a, k)) if canary_calls is not None
+                                             else None) or canary)
         _patch_seam(monkeypatch, lambda *a, **k: extended if extended is not None else
                     [cc.CheckResult(name, "pass", "driver passed") for name in cloud_driver.DRIVERS])
         with _isolated_journey():
@@ -4206,6 +4209,64 @@ def test_ecs_cell_dns_on_a_root_without_the_domain_inputs_refuses(monkeypatch):
         values = _tf_vars(ecs(run_id="r1")._vars(False, destroy=True))
         # An older root without cors_allowed_origins gets no CORS var (Terraform rejects undeclared vars).
         assert "domain_name" not in values and "cors_allowed_origins" not in values
+
+
+# ---- owner decision 8 of 2026-10-10: the HTTPS ECS cell redirects plain HTTP ----------------------
+def test_ecs_https_cell_requests_the_http_redirect_only_on_the_tls_path_of_a_declaring_root(monkeypatch):
+    _ecs_env(monkeypatch)
+    with tempfile.TemporaryDirectory() as base:
+        _iac_root_with(monkeypatch, base, "aws", *_DOMAIN_ROOT_VARS, "alb_enable_http_redirect")
+        # Plain-HTTP cell: no redirect to a port 443 that serves nothing.
+        target = ecs(run_id="r1")
+        assert "alb_enable_http_redirect" not in _tf_vars(target._vars(False))
+        assert target.https_redirect_expectation(False)[0] is False
+        assert "plain-HTTP cell" in target.https_redirect_expectation(False)[1]
+        _cell_dns(monkeypatch)
+        for redis in (False, True):
+            if redis:
+                monkeypatch.setenv("HONUA_AWS_OPERATION_KEY_RING_SECRET_ARN", KEY_RING_ARN)
+            for destroy in (False, True):
+                values = _tf_vars(ecs(run_id="r1")._vars(redis, destroy=destroy))
+                assert values["alb_enable_http_redirect"] == "true" and "domain_name" in values
+            mode = "on" if redis else "off"
+            assert ecs(run_id="r1").https_redirect_expectation(redis) == (
+                True, f"HTTPS cell r1-aws-ecs-redis-{mode}.cert.demo.honua.io")
+        # An iac pin whose root predates the variable passes nothing (the module default applies).
+        _iac_root_with(monkeypatch, base, "aws", *_DOMAIN_ROOT_VARS)
+        values = _tf_vars(ecs(run_id="r1")._vars(False))
+        assert "alb_enable_http_redirect" not in values and "domain_name" in values
+
+
+def test_serverless_cell_never_requests_or_expects_the_http_redirect(monkeypatch):
+    _serverless_env(monkeypatch)
+    _cell_dns(monkeypatch)
+    with tempfile.TemporaryDirectory() as base:
+        _iac_root_with(monkeypatch, base, "aws-serverless", "alb_enable_http_redirect", "domain_name")
+        target = serverless(run_id="r1")
+        assert "alb_enable_http_redirect" not in _tf_vars(target._vars(False))
+        expected, reason = target.https_redirect_expectation(False)
+        assert expected is False and "no load-balancer HTTPS listener" in reason
+
+
+def test_ecs_dns_misconfiguration_expectation_is_blocked_with_the_refusal(monkeypatch):
+    _ecs_env(monkeypatch)
+    monkeypatch.setenv("HONUA_AWS_CELL_DNS_ZONE_ID", CELL_ZONE)
+    expected, reason = ecs(run_id="r1").https_redirect_expectation(False)
+    assert expected is False and "HONUA_AWS_CELL_DNS_PARENT is unset" in reason
+
+
+def test_run_cloud_hands_the_cell_redirect_expectation_and_a_non_following_fetch_to_the_canary(monkeypatch):
+    class _HttpsStub(_ServingStub):
+        def https_redirect_expectation(self, redis_enabled):
+            return True, f"HTTPS cell redis={redis_enabled}"
+
+    for stub, want in ((_HttpsStub("https://stub.example.invalid"), (True, "HTTPS cell redis=True")),
+                       (_ServingStub(), (False, "stub does not provision an HTTP->HTTPS redirect listener"))):
+        calls = []
+        _run_serving(monkeypatch, ready_status=200, checks=[], canary=[], stub=stub, canary_calls=calls)
+        (args, kwargs), = calls
+        assert kwargs["https_redirect"] == want
+        assert callable(kwargs["redirect_fetch"])
 
 
 def test_serverless_cell_gets_no_custom_domain_or_cors_input(monkeypatch):
