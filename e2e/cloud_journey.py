@@ -649,21 +649,48 @@ def cleanup(cell):
 
 
 def prior_run_failures(prior_runs):
-    """Settled Cost Explorer actuals of earlier runs that exceeded their own ceiling (decision 9:
-    the ceiling is enforceable at the next run). Pending or unreadable actuals enforce nothing."""
+    """Earlier runs whose SETTLED Cost Explorer spend exceeded their own ceiling (decision 9: the
+    ceiling is enforceable at the next run). Settled spend only ever grows, so an over-ceiling
+    settled figure fails even while later days are pending or the history is incomplete. The
+    current run's own row (a rerun's earlier attempts) is judged by prior_run_gate instead."""
     failures = []
     for prior in (prior_runs or {}).get("runs", []):
-        if prior.get("status") != "measured":
+        if prior.get("currentRun"):
             continue
         try:
-            actual, ceiling = Decimal(str(prior["actualUsd"])), Decimal(str(prior["ceilingUsd"]))
+            settled = Decimal(str(prior.get("settledUsd", prior["actualUsd"] if prior.get("status") == "measured"
+                                            else "0")))
+            ceiling = Decimal(str(prior["ceilingUsd"]))
         except Exception:
             failures.append(f"prior run {prior.get('runId')} cost reading is malformed")
             continue
-        if actual > ceiling:
-            failures.append(f"prior run {prior['runId']} cost ${actual} (Cost Explorer, unblended usage "
+        if settled > ceiling:
+            failures.append(f"prior run {prior['runId']} cost ${settled} (Cost Explorer, settled spend "
                             f"through {prior.get('actualAsOf')}) exceeded its ${ceiling} ceiling")
     return failures
+
+
+def prior_run_gate(prior_runs, *, run_id, run_attempt, final_cost):
+    """(failures, gaps) the Cost Explorer reading adds to a full-scope run. A gap (no usable reading,
+    or a rerun whose earlier attempts have not settled) blocks a lenient run and fails a strict one."""
+    failures, gaps = prior_run_failures(prior_runs), []
+    if prior_runs.get("status") != "measured":
+        gaps.append(f"prior-run cost actuals {prior_runs.get('status', 'unavailable')}: "
+                    f"{prior_runs.get('why', 'no Cost Explorer reading')}")
+    elif str(run_attempt) != "1":
+        # A rerun shares its run id with the earlier attempts, whose cells the live estimate does
+        # not cover. Their spend must be settled in Cost Explorer and fit the ceiling with this one.
+        own = next((r for r in prior_runs.get("runs", []) if r.get("runId") == str(run_id)), None)
+        if own is None or own.get("status") != "measured":
+            gaps.append(f"rerun attempt {run_attempt}: earlier attempts' spend is "
+                        f"{'not yet in Cost Explorer' if own is None else own.get('status')}")
+        else:
+            estimate = Decimal(str((final_cost or {}).get("amountUsd") or "0"))
+            total, ceiling = estimate + Decimal(str(own["settledUsd"])), Decimal(str(own["ceilingUsd"]))
+            if total > ceiling:
+                failures.append(f"run {run_id} cost ${total} (this attempt's estimate + earlier attempts' "
+                                f"settled Cost Explorer spend) exceeds its ${ceiling} ceiling")
+    return failures, gaps
 
 
 def aggregate(reports, reports_root, *, require_real, full_scope, run_id, run_attempt,
@@ -671,9 +698,13 @@ def aggregate(reports, reports_root, *, require_real, full_scope, run_id, run_at
     cells = []
     failures = []
     blocked = []
-    # A certifying (full-scope) run fails on an earlier run's settled over-ceiling actual, naming it.
-    if full_scope:
-        failures.extend(prior_run_failures(prior_runs))
+    # A certifying (full-scope) run fails on an earlier run's settled over-ceiling actual, naming it,
+    # and cannot pass without a usable Cost Explorer reading (decision 9).
+    if full_scope and prior_runs is not None:
+        prior_failures, prior_gaps = prior_run_gate(prior_runs, run_id=run_id, run_attempt=run_attempt,
+                                                    final_cost=final_cost)
+        failures.extend(prior_failures)
+        (failures if require_real else blocked).extend(prior_gaps)
     # Per-cell readings predate later cells, teardowns and iac-live. Only a reading taken after
     # every cloud job finished bounds the whole run. A meter that produced no reading at all blocks
     # a non-strict run (named, never pass); require_real fails on it.

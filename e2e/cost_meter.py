@@ -27,6 +27,7 @@ import math
 import os
 import subprocess
 import sys
+import time
 from datetime import date, datetime, timedelta, timezone
 from decimal import ROUND_HALF_UP, Decimal
 from pathlib import Path
@@ -39,6 +40,13 @@ PRICES_PATH = Path(__file__).with_name("cost-prices.json")
 TEARDOWN_ALLOWANCE_HOURS = Decimal("0.5")
 # Cost Explorer finishes a UTC day roughly a day after it ends; until then a run's figure is pending.
 CE_SETTLE_HOURS = 24
+# Lambda/API metrics are published a minute or more after the invocation; an empty reading at
+# teardown is re-read once after this wait before it is accepted as zero (and named as such).
+METRIC_PUBLICATION_WAIT_SECONDS = 120
+# How far back the full billed history of a run is read; a run billed before this is incomplete.
+CE_HISTORY_DAYS = 90
+# Credits and refunds are not spend; every other record type (on-demand, commitment-covered) is.
+CE_SPEND_FILTER = {"Not": {"Dimensions": {"Key": "RECORD_TYPE", "Values": ["Credit", "Refund"]}}}
 CENT = Decimal("0.0001")
 
 
@@ -194,36 +202,63 @@ def inventory(state: dict) -> dict:
 
 
 def _metric_sum(aws, namespace: str, metric: str, dimension: tuple[str, str],
-                start: datetime, end: datetime) -> Decimal:
+                start: datetime, end: datetime) -> Decimal | None:
+    """The metric's Sum over [start, end], or None when CloudWatch returned no datapoints at all."""
     seconds = max(60, (end - start).total_seconds())
     period = max(60, math.ceil(seconds / 1440 / 60) * 60)
     body = aws(["cloudwatch", "get-metric-statistics", "--namespace", namespace, "--metric-name", metric,
                 "--dimensions", f"Name={dimension[0]},Value={dimension[1]}",
                 "--start-time", start.isoformat(), "--end-time", end.isoformat(),
                 "--period", str(period), "--statistics", "Sum"])
-    return sum((Decimal(str(point.get("Sum", 0))) for point in body.get("Datapoints", [])), Decimal(0))
+    points = body.get("Datapoints", [])
+    if not points:
+        return None
+    return sum((Decimal(str(point.get("Sum", 0))) for point in points), Decimal(0))
 
 
-def measure_usage(inv: dict, start: datetime, end: datetime, aws=_aws_cli) -> dict:
+def measure_usage(inv: dict, start: datetime, end: datetime, aws=_aws_cli, *, sleep=time.sleep,
+                  publication_wait: int = METRIC_PUBLICATION_WAIT_SECONDS) -> dict:
     """Request/duration-billed usage over [start, end]. A reading that fails is named, not zeroed."""
-    usage, unmeasured = [], []
+    usage, unmeasured, no_datapoints = [], [], []
+    # (address, namespace, metric, dimension, price class, scale(sum) -> billed units)
+    metrics = []
     for fn in inv["lambdas"]:
-        try:
-            ms = _metric_sum(aws, "AWS/Lambda", "Duration", ("FunctionName", fn["name"]), start, end)
-            calls = _metric_sum(aws, "AWS/Lambda", "Invocations", ("FunctionName", fn["name"]), start, end)
-        except Exception as error:
-            unmeasured.append(f"{fn['address']} Lambda usage: {type(error).__name__}: {error}")
-            continue
-        usage.append((fn["address"], f"lambda-gb-second:{fn['architecture']}",
-                      ms / 1000 * Decimal(fn["memoryMb"]) / 1024))
-        usage.append((fn["address"], "lambda-request", calls))
+        dim = ("FunctionName", fn["name"])
+        gb = Decimal(fn["memoryMb"]) / 1024
+        metrics.append((fn["address"], "AWS/Lambda", "Duration", dim, f"lambda-gb-second:{fn['architecture']}",
+                        lambda ms, gb=gb: ms / 1000 * gb))
+        metrics.append((fn["address"], "AWS/Lambda", "Invocations", dim, "lambda-request", lambda n: n))
     for api in inv["apis"]:
+        metrics.append((api["address"], "AWS/ApiGateway", "Count", ("ApiId", api["id"]),
+                        "apigw-http-request", lambda n: n))
+    empty = []
+    for spec in metrics:
+        address, namespace, metric, dim, price_class, scale = spec
         try:
-            count = _metric_sum(aws, "AWS/ApiGateway", "Count", ("ApiId", api["id"]), start, end)
+            total = _metric_sum(aws, namespace, metric, dim, start, end)
         except Exception as error:
-            unmeasured.append(f"{api['address']} API requests: {type(error).__name__}: {error}")
+            unmeasured.append(f"{address} {metric}: {type(error).__name__}: {error}")
             continue
-        usage.append((api["address"], "apigw-http-request", count))
+        if total is None:
+            empty.append(spec)
+        else:
+            usage.append((address, price_class, scale(total)))
+    if empty and publication_wait > 0:
+        # CloudWatch may not have published the last minute(s) yet: read the empty ones once more.
+        sleep(publication_wait)
+        late = end + timedelta(seconds=publication_wait)
+        for address, namespace, metric, dim, price_class, scale in empty:
+            try:
+                total = _metric_sum(aws, namespace, metric, dim, start, late)
+            except Exception as error:
+                unmeasured.append(f"{address} {metric}: {type(error).__name__}: {error}")
+                continue
+            if total is None:
+                no_datapoints.append(f"{address} {metric}")
+            else:
+                usage.append((address, price_class, scale(total)))
+    else:
+        no_datapoints.extend(f"{spec[0]} {spec[2]}" for spec in empty)
     since = str(int(start.timestamp() * 1000))
     for queue in inv["batchQueues"]:
         try:
@@ -235,19 +270,23 @@ def measure_usage(inv: dict, start: datetime, end: datetime, aws=_aws_cli) -> di
         started_jobs = [job for job in body.get("jobSummaryList", []) if job.get("startedAt")]
         # The server overrides vCPU/memory per job at SubmitJob, so the job's own requirements win
         # over the job definition's defaults whenever DescribeJobs returns them.
-        sized = {}
+        sized, unsized = {}, set()
         for offset in range(0, len(started_jobs), 100):
             ids = [job["jobId"] for job in started_jobs[offset:offset + 100]]
             try:
                 described = aws(["batch", "describe-jobs", "--jobs", *ids])
-            except Exception:
-                described = {}
+            except Exception as error:
+                # Without the job's own (overridden) size the job definition default could underprice.
+                unmeasured.append(f"{queue['address']} Batch job sizing for {len(ids)} job(s): "
+                                  f"{type(error).__name__}: {error}")
+                unsized.update(ids)
+                continue
             for detail in described.get("jobs", []):
                 need = {req.get("type"): req.get("value")
                         for req in (detail.get("container") or {}).get("resourceRequirements", [])}
                 if need.get("VCPU") and need.get("MEMORY"):
                     sized[detail.get("jobId")] = need
-        for job in started_jobs:
+        for job in [job for job in started_jobs if job["jobId"] not in unsized]:
             definition = inv["batchJobDefinitions"].get(job.get("jobDefinition", ""))
             if job.get("jobId") in sized and definition is not None:
                 definition = {**definition, "vcpu": sized[job["jobId"]]["VCPU"],
@@ -262,7 +301,7 @@ def measure_usage(inv: dict, start: datetime, end: datetime, aws=_aws_cli) -> di
             usage.append((queue["address"], f"fargate-vcpu:{arch}", Decimal(definition["vcpu"]) * hours))
             usage.append((queue["address"], f"fargate-gb:{arch}",
                           Decimal(definition["memoryMiB"]) / 1024 * hours))
-    return {"usage": usage, "unmeasured": unmeasured}
+    return {"usage": usage, "unmeasured": unmeasured, "noDatapoints": no_datapoints}
 
 
 def estimate(inv: dict, usage: dict, *, started_at: datetime, measured_at: datetime,
@@ -311,6 +350,7 @@ def estimate(inv: dict, usage: dict, *, started_at: datetime, measured_at: datet
                       "billedTo": measured_at.isoformat(), "hours": str(hours.quantize(CENT)),
                       "teardownAllowanceHours": str(TEARDOWN_ALLOWANCE_HOURS),
                       "lines": lines, "unpriced": unpriced, "unmeasured": list(usage["unmeasured"]),
+                      "noDatapointsAfterRetry": list(usage.get("noDatapoints", [])),
                       "excluded": table["excluded"]}}
 
 
@@ -346,15 +386,18 @@ def evidence(*, status: str, run_id: str, run_attempt: str, ceiling_usd, measure
 
 
 def cell_cost(target, state: dict, ceiling_usd, *, run_id: str, run_attempt: str,
-              read_state=terraform_state, aws=_aws_cli, clock=None) -> dict:
+              read_state=terraform_state, aws=_aws_cli, clock=None, usage_options=None) -> dict:
     """The cell's live estimate, read before destroy. ``unavailable`` names what could not be priced."""
     measured = clock() if clock else datetime.now(timezone.utc)
     measured_at = measured.isoformat().replace("+00:00", "Z")
     ceiling = Decimal(str(ceiling_usd))
     try:
         started = _parse_time(state["startedAt"])
-        inv = inventory(read_state(target))
-        result = estimate(inv, measure_usage(inv, started, measured, aws=aws),
+        deployed = read_state(target)
+        if not deployed.get("values"):
+            raise MeterError("no Terraform state to price (the cell provisioned, but its state is absent)")
+        inv = inventory(deployed)
+        result = estimate(inv, measure_usage(inv, started, measured, aws=aws, **(usage_options or {})),
                           started_at=started, measured_at=measured)
     except Exception as error:
         return evidence(status="unavailable", run_id=run_id, run_attempt=run_attempt, ceiling_usd=ceiling,
@@ -371,15 +414,22 @@ def cell_cost(target, state: dict, ceiling_usd, *, run_id: str, run_attempt: str
                     measured_at=measured_at, estimate_usd=result["estimateUsd"], basis=basis)
 
 
-def run_cost(reports: list[dict], ceiling_usd, *, run_id: str, run_attempt: str) -> dict:
-    """The run's estimate: the sum of every provisioned cell's estimate in this run attempt."""
+def run_cost(reports: list[dict], ceiling_usd, *, run_id: str, run_attempt: str,
+             expected_cells: list[str] | None = None) -> dict:
+    """The run's estimate: the sum of every provisioned cell's estimate in this run attempt. Every
+    expected (dispatched) cell, Preview included, must report: either its estimate or that it never
+    provisioned anything."""
     ceiling = Decimal(str(ceiling_usd))
     cells, missing, total = {}, [], Decimal(0)
+    reported = {report.get("cell") for report in reports}
+    missing.extend(f"{cell} (no cell report)" for cell in expected_cells or [] if cell not in reported)
     for report in reports:
         cost = report.get("cost")
         cell = report.get("cell") or report.get("gate", "unknown")
         if not isinstance(cost, dict):
-            continue  # never provisioned: nothing deployed, nothing billed
+            if report.get("cell") and report.get("provisionAttempted") is not False:
+                missing.append(f"{cell} (no cost evidence and no record that provisioning never ran)")
+            continue  # never provisioned (or not a cell report): nothing deployed, nothing billed
         if (cost.get("runId"), cost.get("runAttempt")) != (run_id, run_attempt):
             missing.append(f"{cell} (cost bound to another run)")
             continue
@@ -389,8 +439,10 @@ def run_cost(reports: list[dict], ceiling_usd, *, run_id: str, run_attempt: str)
         cells[cell] = cost["estimateUsd"]
         total += Decimal(cost["estimateUsd"])
     basis = {"method": "sum of per-cell live estimates (e2e/cost_meter.py cell_cost)", "cells": cells,
-             "notCovered": ["the iac-live honua-iac harness (it meters nothing here)",
-                            "cells of earlier attempts of this run (Cost Explorer covers them by run id)"]}
+             "notCovered": ["the iac-live job's separate honua-iac workflow run (its own deployment, "
+                            "lifecycle and teardown; not tagged with this run id)",
+                            "cells of earlier attempts of this run (aggregate adds their settled Cost "
+                            "Explorer actual before a rerun certifies)"]}
     measured_at = now()
     if missing:
         return evidence(status="unavailable", run_id=run_id, run_attempt=run_attempt, ceiling_usd=ceiling,
@@ -415,12 +467,17 @@ class CostExplorer:
         body = self._aws(["ce", "list-cost-allocation-tags", "--tag-keys", key, "--region", "us-east-1"])
         return next((t.get("Status") for t in body.get("CostAllocationTags", []) if t.get("TagKey") == key), None)
 
-    def daily_usage_cost(self, start: date, end: date, group_keys: list[str]) -> list[dict]:
+    def daily_usage_cost(self, start: date, end: date, group_keys: list[str],
+                         run_id: str | None = None) -> list[dict]:
+        spend = CE_SPEND_FILTER
+        if run_id is not None:
+            spend = {"And": [CE_SPEND_FILTER, {"Tags": {"Key": RUN_ID_TAG, "Values": [str(run_id)],
+                                                       "MatchOptions": ["EQUALS"]}}]}
         args = ["ce", "get-cost-and-usage", "--region", "us-east-1",
                 "--time-period", f"Start={start.isoformat()},End={end.isoformat()}",
-                "--granularity", "DAILY", "--metrics", "UnblendedCost",
-                "--filter", json.dumps({"Dimensions": {"Key": "RECORD_TYPE", "Values": ["Usage"]}}),
-                "--group-by", *[f"Type=TAG,Key={key}" for key in group_keys]]
+                "--granularity", "DAILY", "--metrics", "UnblendedCost", "--filter", json.dumps(spend)]
+        if group_keys:
+            args += ["--group-by", *[f"Type=TAG,Key={key}" for key in group_keys]]
         results, token = [], None
         while True:
             body = self._aws(args + (["--next-page-token", token] if token else []))
@@ -434,15 +491,26 @@ def _tag_value(key: str) -> str:
     return key.split("$", 1)[1] if "$" in key else ""
 
 
-def prior_run_costs(ce: CostExplorer, *, exclude_run: str, default_ceiling_usd, lookback_days: int = 3,
+def _settled_at(day: date) -> datetime:
+    return datetime.combine(day + timedelta(days=1), datetime.min.time(), timezone.utc) \
+        + timedelta(hours=CE_SETTLE_HOURS)
+
+
+def prior_run_costs(ce: CostExplorer, *, current_run: str, default_ceiling_usd, lookback_days: int = 3,
                     clock=None) -> dict:
-    """Cost Explorer actuals for the runs (other than this one) whose tagged resources billed in the
-    lookback window. A run whose last billed day has not settled is ``pending``; it is read again by
-    the next run. An over-ceiling settled actual is what the next certifying run fails on."""
+    """Cost Explorer actuals for the runs whose tagged resources billed in the lookback window.
+
+    Each run found is then read over its whole billed history (CE_HISTORY_DAYS), so a run older than
+    the window, or an orphan still accruing, is judged on everything it has billed. ``settledUsd``
+    counts only days Cost Explorer has had a day to finish; ``actualUsd`` counts every day seen. A
+    run is ``measured`` once all its billed days are settled, ``pending`` before, ``incomplete``
+    when its history reaches past CE_HISTORY_DAYS. The current run's own row (earlier attempts of a
+    rerun) is marked ``currentRun`` and judged by aggregate, not here."""
     current = clock() if clock else datetime.now(timezone.utc)
     measured_at = current.isoformat().replace("+00:00", "Z")
     head = {"scope": "prior-runs", "currency": "USD", "measuredAt": measured_at, "tag": RUN_ID_TAG,
-            "lookbackDays": lookback_days, "excludedRunId": exclude_run, "runs": []}
+            "lookbackDays": lookback_days, "historyDays": CE_HISTORY_DAYS, "currentRunId": str(current_run),
+            "recordTypes": "all but Credit and Refund", "runs": []}
     try:
         status = ce.tag_status(RUN_ID_TAG)
     except Exception as error:
@@ -451,45 +519,53 @@ def prior_run_costs(ce: CostExplorer, *, exclude_run: str, default_ceiling_usd, 
         return {**head, "status": "tag-not-activated",
                 "why": f"{RUN_ID_TAG} is {'not yet seen by Billing' if status is None else status}; the "
                        "owner activates it once under Billing > Cost allocation tags (e2e/README.md)"}
-    start = current.date() - timedelta(days=lookback_days)
     end = current.date() + timedelta(days=1)
     try:
-        rows = ce.daily_usage_cost(start, end, [RUN_ID_TAG, CEILING_TAG])
+        rows = ce.daily_usage_cost(current.date() - timedelta(days=lookback_days), end, [RUN_ID_TAG, CEILING_TAG])
     except Exception as error:
         return {**head, "status": "unavailable", "why": f"ce:GetCostAndUsage failed: {error}"}
-    runs: dict[str, dict] = {}
+    found: dict[str, set] = {}
     for row in rows:
-        day = date.fromisoformat(row["TimePeriod"]["Start"])
         for group in row.get("Groups", []):
             keys = group.get("Keys", [])
             run_id = _tag_value(keys[0]) if keys else ""
-            if not run_id or run_id == str(exclude_run):
-                continue
-            amount = Decimal(str(group["Metrics"]["UnblendedCost"]["Amount"]))
-            entry = runs.setdefault(run_id, {"amount": Decimal(0), "days": {}, "ceilings": set()})
-            entry["amount"] += amount
-            entry["days"][day] = entry["days"].get(day, Decimal(0)) + amount
-            if len(keys) > 1 and _tag_value(keys[1]):
-                entry["ceilings"].add(_tag_value(keys[1]))
+            if run_id and Decimal(str(group["Metrics"]["UnblendedCost"]["Amount"])) > 0:
+                ceilings = found.setdefault(run_id, set())
+                if len(keys) > 1 and _tag_value(keys[1]):
+                    ceilings.add(_tag_value(keys[1]))
+    history_start = current.date() - timedelta(days=CE_HISTORY_DAYS)
     out = []
-    for run_id, entry in sorted(runs.items()):
-        billed = [d for d, amount in entry["days"].items() if amount > 0]
-        if not billed:
+    for run_id in sorted(found):
+        try:
+            history = ce.daily_usage_cost(history_start, end, [], run_id=run_id)
+        except Exception as error:
+            return {**head, "status": "unavailable", "why": f"ce:GetCostAndUsage failed for run {run_id}: {error}"}
+        days, estimated = {}, False
+        for row in history:
+            amount = Decimal(str((row.get("Total", {}).get("UnblendedCost") or {}).get("Amount", "0")))
+            if amount > 0:
+                day = date.fromisoformat(row["TimePeriod"]["Start"])
+                days[day] = days.get(day, Decimal(0)) + amount
+                estimated = estimated or bool(row.get("Estimated"))
+        if not days:
             continue
-        last = max(billed)
-        settled_at = datetime.combine(last + timedelta(days=1), datetime.min.time(), timezone.utc) \
-            + timedelta(hours=CE_SETTLE_HOURS)
-        ceilings = sorted(entry["ceilings"], key=Decimal)
+        actual = sum(days.values(), Decimal(0))
+        settled = sum((amount for day, amount in days.items() if current >= _settled_at(day)), Decimal(0))
+        ceilings = sorted(found[run_id], key=Decimal)
         ceiling, source = ((ceilings[0], "run-tag") if ceilings else (str(default_ceiling_usd), "current-run-input"))
-        actual = _usd(entry["amount"])
-        settled = current >= settled_at
-        out.append({"status": "measured" if settled else "pending", "scope": "run", "runId": run_id,
+        truncated = min(days) <= history_start
+        status = ("incomplete" if truncated else
+                  "measured" if all(current >= _settled_at(day) for day in days) else "pending")
+        out.append({"status": status, "scope": "run", "runId": run_id, "currentRun": run_id == str(current_run),
                     "currency": "USD", "estimateUsd": None, "estimateBasis": None,
-                    "actualUsd": actual, "actualAsOf": (last + timedelta(days=1)).isoformat(),
+                    "actualUsd": _usd(actual), "settledUsd": _usd(settled),
+                    "actualAsOf": (max(days) + timedelta(days=1)).isoformat(),
                     "ceilingUsd": ceiling, "ceilingSource": source, "measuredAt": measured_at,
-                    "firstBilledDay": min(billed).isoformat(), "lastBilledDay": last.isoformat(),
-                    "windowTruncated": min(billed) == start,
-                    "overCeiling": settled and Decimal(actual) > Decimal(ceiling)})
+                    "firstBilledDay": min(days).isoformat(), "lastBilledDay": max(days).isoformat(),
+                    # Cost Explorer flags every day of the open billing month as Estimated until the
+                    # invoice closes; recorded, not waited on (that would defer enforcement a month).
+                    "estimatedByCostExplorer": estimated,
+                    "overCeiling": settled > Decimal(ceiling)})
     return {**head, "status": "measured", "runs": out}
 
 
@@ -512,6 +588,8 @@ def main(argv: list[str] | None = None) -> int:
     run.add_argument("--reports", type=Path, required=True)
     run.add_argument("--output", type=Path, required=True)
     run.add_argument("--ceiling-usd", default=os.environ.get("HONUA_CLOUD_COST_CEILING_USD", "20"))
+    run.add_argument("--expected-cells", default="",
+                     help="comma-separated cells the run dispatched; each must report its cost")
     prior = sub.add_parser("prior-runs", help="Cost Explorer actuals for earlier runs (lagged ~24 h)")
     prior.add_argument("--output", type=Path, required=True)
     prior.add_argument("--ceiling-usd", default=os.environ.get("HONUA_CLOUD_COST_CEILING_USD", "20"))
@@ -520,15 +598,17 @@ def main(argv: list[str] | None = None) -> int:
     run_id = os.environ.get("GITHUB_RUN_ID", "local")
     attempt = os.environ.get("GITHUB_RUN_ATTEMPT", "1")
     if args.command == "run":
-        body = run_cost(_load_reports(args.reports), args.ceiling_usd, run_id=run_id, run_attempt=attempt)
+        body = run_cost(_load_reports(args.reports), args.ceiling_usd, run_id=run_id, run_attempt=attempt,
+                        expected_cells=[c for c in args.expected_cells.split(",") if c])
     else:
-        body = prior_run_costs(CostExplorer(), exclude_run=run_id, default_ceiling_usd=args.ceiling_usd,
+        body = prior_run_costs(CostExplorer(), current_run=run_id, default_ceiling_usd=args.ceiling_usd,
                                lookback_days=args.lookback_days)
     args.output.parent.mkdir(parents=True, exist_ok=True)
     args.output.write_text(json.dumps(body, indent=2) + "\n", encoding="utf-8")
     print(json.dumps({k: v for k, v in body.items() if k not in ("estimateBasis", "runs")}, indent=2))
     for prior_run in body.get("runs", []):
         print(f"run {prior_run['runId']}: {prior_run['status']} ${prior_run['actualUsd']} "
+              f"(settled ${prior_run['settledUsd']}) "
               f"(ceiling ${prior_run['ceilingUsd']}, {prior_run['ceilingSource']})")
     return 0
 

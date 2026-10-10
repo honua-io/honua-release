@@ -127,12 +127,21 @@ def test_run_cost_sums_cells_and_names_a_cell_without_an_estimate():
         return {"cell": name, "cost": cost_meter.evidence(status=status, run_id="42", run_attempt="1",
                                                           ceiling_usd="20", measured_at="x", estimate_usd=usd,
                                                           basis={})}
+    expected = ["aws-ecs/redis-off", "aws-ecs/redis-on", "aws-eks/redis-off"]
     reports = [cell("aws-ecs/redis-off", "1.2500"), cell("aws-ecs/redis-on", "2.0000"),
-               {"cell": "aws-eks/redis-off"}]  # never provisioned: nothing billed
-    run = cost_meter.run_cost(reports, "20", run_id="42", run_attempt="1")
+               {"cell": "aws-eks/redis-off", "provisionAttempted": False},  # nothing deployed
+               {"gate": "cloud-iac-live", "status": "pass"}]                 # not a cell report
+    run = cost_meter.run_cost(reports, "20", run_id="42", run_attempt="1", expected_cells=expected)
     assert run["status"] == "pass" and run["estimateUsd"] == "3.2500" and run["amount"] == "3.2500"
     assert run["estimateBasis"]["cells"] == {"aws-ecs/redis-off": "1.2500", "aws-ecs/redis-on": "2.0000"}
     assert cost_meter.run_cost(reports, "3", run_id="42", run_attempt="1")["status"] == "fail"
+    # A dispatched cell (Preview included) with no report, or a report with no cost and no record
+    # that provisioning never ran, leaves the run's cost incomplete.
+    absent = cost_meter.run_cost(reports, "20", run_id="42", run_attempt="1",
+                                 expected_cells=expected + ["aws-eks/redis-on"])
+    assert absent["status"] == "unavailable" and "aws-eks/redis-on (no cell report)" in absent["why"]
+    silent = cost_meter.run_cost(reports + [{"cell": "aws-eks/redis-on"}], "20", run_id="42", run_attempt="1")
+    assert silent["status"] == "unavailable" and "aws-eks/redis-on" in silent["why"]
     reports.append(cell("aws-serverless/redis-off", None, "unavailable"))
     gap = cost_meter.run_cost(reports, "20", run_id="42", run_attempt="1")
     assert gap["status"] == "unavailable" and "aws-serverless/redis-off" in gap["why"]
@@ -145,15 +154,21 @@ def test_run_tags_carry_run_cell_and_ceiling():
 
 
 class _StubCE:
-    def __init__(self, status, rows=()):
-        self.status, self.rows, self.queries = status, list(rows), []
+    """window: rows grouped by (run id, ceiling); history: {run id: {day: (amount, estimated)}}."""
+
+    def __init__(self, status, window=(), history=None):
+        self.status, self.window, self.history, self.queries = status, list(window), history or {}, []
 
     def tag_status(self, key):
         return self.status
 
-    def daily_usage_cost(self, start, end, keys):
-        self.queries.append((start, end, keys))
-        return self.rows
+    def daily_usage_cost(self, start, end, keys, run_id=None):
+        self.queries.append((start, end, keys, run_id))
+        if run_id is None:
+            return self.window
+        return [{"TimePeriod": {"Start": day}, "Estimated": est,
+                 "Total": {"UnblendedCost": {"Amount": amount, "Unit": "USD"}}}
+                for day, (amount, est) in sorted(self.history.get(run_id, {}).items())]
 
 
 def _row(day, *groups):
@@ -164,43 +179,81 @@ def _row(day, *groups):
 
 def test_cost_explorer_reports_tag_not_activated_honestly():
     for status in (None, "Inactive"):
-        result = cost_meter.prior_run_costs(_StubCE(status), exclude_run="9", default_ceiling_usd="20",
+        result = cost_meter.prior_run_costs(_StubCE(status), current_run="9", default_ceiling_usd="20",
                                             clock=lambda: T0)
         assert result["status"] == "tag-not-activated" and result["runs"] == []
         assert "Cost allocation tags" in result["why"]
 
 
+def _ce():
+    window = [_row("2026-10-08", ("100", "20", "3.10"), ("", "", "50"), ("9", "20", "4")),
+              _row("2026-10-09", ("100", "20", "0.40"), ("101", "", "1.00")),
+              _row("2026-10-10", ("101", "", "0.5"))]
+    history = {"100": {"2026-10-08": ("3.10", True), "2026-10-09": ("0.40", True)},
+               "101": {"2026-10-09": ("1.00", True), "2026-10-10": ("0.5", True)},
+               "9": {"2026-10-08": ("4", True)}}
+    return _StubCE("Active", window, history)
+
+
 def test_cost_explorer_marks_recent_runs_pending_and_settled_runs_measured():
-    rows = [_row("2026-10-08", ("100", "20", "3.10"), ("", "", "50"), ("9", "20", "4")),
-            _row("2026-10-09", ("100", "20", "0.40"), ("101", "", "1.00")),
-            _row("2026-10-10", ("101", "", "0.5"))]
-    ce = _StubCE("Active", rows)
-    result = cost_meter.prior_run_costs(ce, exclude_run="9", default_ceiling_usd="25",
+    ce = _ce()
+    result = cost_meter.prior_run_costs(ce, current_run="9", default_ceiling_usd="25",
                                         clock=lambda: T0)  # 2026-10-10 08:00Z
     assert ce.queries[0][2] == [cost_meter.RUN_ID_TAG, cost_meter.CEILING_TAG]
+    # Each run found in the window is then read over its whole history, filtered by its run id.
+    assert {q[3] for q in ce.queries[1:]} == {"100", "101", "9"}
+    assert all(q[0] == T0.date() - timedelta(days=cost_meter.CE_HISTORY_DAYS) for q in ce.queries[1:])
     runs = {r["runId"]: r for r in result["runs"]}
-    assert set(runs) == {"100", "101"}  # the current run and untagged spend are excluded
-    # Last billed day 10-09 settles at 10-11 00:00Z: still pending at 10-10 08:00Z.
+    assert runs["9"]["currentRun"] is True and runs["100"]["currentRun"] is False  # untagged spend dropped
+    assert set(runs) == {"9", "100", "101"}
+    # 10-08 settled at 10-10 00:00Z; 10-09 settles at 10-11 00:00Z: pending, part settled.
     assert runs["100"]["status"] == "pending" and runs["100"]["actualUsd"] == "3.5000"
+    assert runs["100"]["settledUsd"] == "3.1000" and runs["100"]["estimatedByCostExplorer"] is True
     assert runs["101"]["ceilingUsd"] == "25" and runs["101"]["ceilingSource"] == "current-run-input"
-    later = cost_meter.prior_run_costs(ce, exclude_run="9", default_ceiling_usd="25",
+    later = cost_meter.prior_run_costs(ce, current_run="9", default_ceiling_usd="25",
                                        clock=lambda: T0 + timedelta(days=1, hours=12))
     settled = {r["runId"]: r for r in later["runs"]}
     assert settled["100"]["status"] == "measured" and settled["100"]["ceilingSource"] == "run-tag"
+    assert settled["100"]["settledUsd"] == settled["100"]["actualUsd"]
     assert settled["101"]["status"] == "pending"  # billed on 10-10 too
+
+
+def test_a_run_billed_past_the_history_horizon_is_incomplete_but_still_judged_on_settled_spend():
+    old = (T0.date() - timedelta(days=cost_meter.CE_HISTORY_DAYS)).isoformat()
+    ce = _StubCE("Active", [_row("2026-10-09", ("77", "20", "1"))],
+                 {"77": {old: ("15", False), "2026-10-08": ("6", True), "2026-10-09": ("1", True)}})
+    (run,) = cost_meter.prior_run_costs(ce, current_run="9", default_ceiling_usd="20", clock=lambda: T0)["runs"]
+    assert run["status"] == "incomplete" and run["settledUsd"] == "21.0000" and run["overCeiling"] is True
+    # An orphan still accruing never settles, yet its settled spend alone fails the next run.
+    failures = cloud_journey.prior_run_failures({"status": "measured", "runs": [run]})
+    assert failures and "prior run 77" in failures[0]
 
 
 def test_cost_explorer_failure_is_unavailable_not_zero():
     class Broken(_StubCE):
-        def daily_usage_cost(self, *a):
+        def daily_usage_cost(self, *a, **k):
             raise cost_meter.MeterError("AccessDenied")
-    result = cost_meter.prior_run_costs(Broken("Active"), exclude_run="9", default_ceiling_usd="20", clock=lambda: T0)
+    result = cost_meter.prior_run_costs(Broken("Active"), current_run="9", default_ceiling_usd="20", clock=lambda: T0)
     assert result["status"] == "unavailable" and "AccessDenied" in result["why"]
 
 
-def _prior(status, actual, ceiling="20", run="100"):
+def test_cost_explorer_query_excludes_only_credits_and_refunds():
+    calls = []
+
+    def aws(args):
+        calls.append(args)
+        return {"ResultsByTime": []}
+    cost_meter.CostExplorer(aws).daily_usage_cost(T0.date(), T0.date(), [], run_id="5")
+    spend = json.loads(calls[0][calls[0].index("--filter") + 1])
+    assert {"Not": {"Dimensions": {"Key": "RECORD_TYPE", "Values": ["Credit", "Refund"]}}} in spend["And"]
+    assert {"Tags": {"Key": "honua-release:run-id", "Values": ["5"], "MatchOptions": ["EQUALS"]}} in spend["And"]
+    assert "--group-by" not in calls[0]
+
+
+def _prior(status, actual, ceiling="20", run="100", **extra):
     return {"status": "measured", "runs": [{"status": status, "runId": run, "actualUsd": actual,
-                                             "ceilingUsd": ceiling, "actualAsOf": "2026-10-09"}]}
+                                             "settledUsd": actual if status == "measured" else "0",
+                                             "ceilingUsd": ceiling, "actualAsOf": "2026-10-09", **extra}]}
 
 
 def test_prior_run_actual_over_its_ceiling_fails_the_next_certifying_run_naming_it():
@@ -208,7 +261,6 @@ def test_prior_run_actual_over_its_ceiling_fails_the_next_certifying_run_naming_
     assert failures and "prior run 100" in failures[0] and "$20 ceiling" in failures[0]
     assert cloud_journey.prior_run_failures(_prior("measured", "19.99")) == []
     assert cloud_journey.prior_run_failures(_prior("pending", "99")) == []
-    assert cloud_journey.prior_run_failures({"status": "tag-not-activated", "runs": []}) == []
     report = cloud_journey.aggregate([], E2E_DIR, require_real=True, full_scope=True, run_id="200",
                                      run_attempt="1", final_cost={"status": "pass"},
                                      prior_runs=_prior("measured", "21.50"))
@@ -217,6 +269,72 @@ def test_prior_run_actual_over_its_ceiling_fails_the_next_certifying_run_naming_
     focused = cloud_journey.aggregate([], E2E_DIR, require_real=False, full_scope=False, run_id="200",
                                       run_attempt="1", prior_runs=_prior("measured", "21.50"))
     assert "prior run 100" not in focused["why"]
+
+
+def test_a_full_scope_run_without_a_usable_cost_explorer_reading_is_blocked_or_failed_strict():
+    for status in ("tag-not-activated", "unavailable"):
+        prior = {"status": status, "why": "owner step", "runs": []}
+        gate = cloud_journey.prior_run_gate(prior, run_id="200", run_attempt="1", final_cost=None)
+        assert gate == ([], [f"prior-run cost actuals {status}: owner step"])
+        strict = cloud_journey.aggregate([], E2E_DIR, require_real=True, full_scope=True, run_id="200",
+                                         run_attempt="1", final_cost={"status": "pass"}, prior_runs=prior)
+        assert strict["status"] == "fail" and f"prior-run cost actuals {status}" in strict["why"]
+        lenient = cloud_journey.aggregate([], E2E_DIR, require_real=False, full_scope=True, run_id="200",
+                                          run_attempt="1", final_cost={"status": "pass"}, prior_runs=prior)
+        # Lenient: a named blocker, never a failure (the missing GA cells are this fixture's failures).
+        assert f"prior-run cost actuals {status}" not in lenient["why"]
+
+
+def test_a_rerun_adds_its_earlier_attempts_settled_spend_before_it_can_certify():
+    final = {"status": "pass", "amountUsd": "15"}
+    pending = _prior("pending", "15", run="200", currentRun=True)
+    gate = cloud_journey.prior_run_gate(pending, run_id="200", run_attempt="2", final_cost=final)
+    assert gate[0] == [] and "rerun attempt 2" in gate[1][0] and "pending" in gate[1][0]
+    missing = cloud_journey.prior_run_gate({"status": "measured", "runs": []}, run_id="200", run_attempt="2",
+                                           final_cost=final)
+    assert "not yet in Cost Explorer" in missing[1][0]
+    over = cloud_journey.prior_run_gate(_prior("measured", "15", run="200", currentRun=True), run_id="200",
+                                        run_attempt="2", final_cost=final)
+    assert over[1] == [] and "run 200 cost $30" in over[0][0]
+    under = cloud_journey.prior_run_gate(_prior("measured", "4", run="200", currentRun=True), run_id="200",
+                                         run_attempt="2", final_cost=final)
+    assert under == ([], [])
+    # The current run's own row never fails it as a "prior run".
+    assert cloud_journey.prior_run_failures(_prior("measured", "99", run="200", currentRun=True)) == []
+
+
+def test_empty_metrics_are_reread_once_and_named_when_still_empty():
+    state = _state(("aws_lambda_function", "this", {"function_name": "fn", "memory_size": 1024}))
+    inv = cost_meter.inventory(state)
+    reads, slept = {"n": 0}, []
+
+    def aws(args):
+        reads["n"] += 1
+        late = reads["n"] > 2  # the first two reads (Duration, Invocations) precede publication
+        metric = args[args.index("--metric-name") + 1]
+        if late and metric == "Duration":
+            return {"Datapoints": [{"Sum": 1000.0}]}
+        return {"Datapoints": []}
+    usage = cost_meter.measure_usage(inv, T0, T0 + timedelta(hours=1), aws=aws, sleep=slept.append)
+    assert slept == [cost_meter.METRIC_PUBLICATION_WAIT_SECONDS]
+    assert [u[1] for u in usage["usage"]] == ["lambda-gb-second:x86_64"]
+    assert usage["noDatapoints"] == ["aws_lambda_function.this Invocations"]
+
+
+def test_batch_jobs_whose_size_cannot_be_read_are_unmeasured_not_defaulted():
+    state = _state(
+        ("aws_batch_job_queue", "gp", {"arn": "arn:q"}),
+        ("aws_batch_job_definition", "gp", {"arn": "arn:jd:1", "container_properties": json.dumps(
+            {"resourceRequirements": [{"type": "VCPU", "value": "1"}, {"type": "MEMORY", "value": "2048"}]})}))
+    start = int(T0.timestamp() * 1000)
+
+    def aws(args):
+        if args[1] == "describe-jobs":
+            raise cost_meter.MeterError("AccessDenied")
+        return {"jobSummaryList": [{"jobId": "j", "jobDefinition": "arn:jd:1", "startedAt": start,
+                                    "stoppedAt": start + 60_000}]}
+    usage = cost_meter.measure_usage(cost_meter.inventory(state), T0, T0 + timedelta(hours=1), aws=aws)
+    assert usage["usage"] == [] and "Batch job sizing" in usage["unmeasured"][0]
 
 
 def test_aggregate_accepts_the_estimate_as_the_run_cost_under_and_fails_it_over(tmp_path, monkeypatch):

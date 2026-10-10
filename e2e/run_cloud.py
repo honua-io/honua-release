@@ -345,6 +345,7 @@ def teardown_phase(state: dict, journey: dict, target, *, reference_endpoint: st
     if not state.get("provisionAttempted"):
         # Self-skipped, blocked, or never started: nothing was deployed, so nothing is destroyed.
         state["destroyed"] = False
+        report["provisionAttempted"] = False  # the run cost meter counts this cell as $0, not missing
         return report
 
     started_at = datetime.fromisoformat(state["startedAt"].replace("Z", "+00:00"))

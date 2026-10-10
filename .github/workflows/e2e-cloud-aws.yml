@@ -497,9 +497,17 @@ jobs:
       - name: Meter the run cost (cell estimates + prior-run Cost Explorer actuals)
         env:
           HONUA_CLOUD_COST_CEILING_USD: ${{ inputs.cost_ceiling_usd || '20' }}
+          REQUESTED_TARGET: ${{ inputs.target || 'all' }}
+          REQUESTED_REDIS: ${{ inputs.redis_mode || 'both' }}
         run: |
           set -euo pipefail
-          python e2e/cost_meter.py run --reports reports --output e2e/cloud-evidence/run-cost.json
+          # Every cell the parity matrix dispatched (Preview included) must account for its cost.
+          TARGETS="aws-serverless aws-ecs aws-eks"; [ "$REQUESTED_TARGET" = all ] || TARGETS="$REQUESTED_TARGET"
+          MODES="off on"; [ "$REQUESTED_REDIS" = both ] || MODES="$REQUESTED_REDIS"
+          CELLS=""
+          for t in $TARGETS; do for r in $MODES; do CELLS="${CELLS:+$CELLS,}$t/redis-$r"; done; done
+          python e2e/cost_meter.py run --reports reports --output e2e/cloud-evidence/run-cost.json \
+            --expected-cells "$CELLS"
           python e2e/cost_meter.py prior-runs --output e2e/cloud-evidence/prior-run-costs.json
       - name: Assemble cloud gate-report.json
         id: assemble
