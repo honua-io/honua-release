@@ -9,6 +9,10 @@ on:
       - e2e/harness/compose.candidate.yml
       - certification/terminal-journey/**
       - certification/terminal-model-canary/**
+      - e2e/cloud_journey.py
+      - e2e/run_cloud.py
+      - e2e/runner/cloud.py
+      - e2e/harness/cloud/seed.py
       - artifacts/terminal-journey-*.json
       - artifacts/terminal-journey-*.md
       - .github/workflows/terminal-journey-contract.yml
@@ -117,6 +121,9 @@ jobs:
 
       - name: Test driver stage binding and unarmed fault state
         run: python certification/terminal-journey/test_live_driver.py -v
+
+      - name: Test cloud cell targets, minted principals and cloud receipt kinds
+        run: python certification/terminal-journey/test_cloud_target.py -v
 
       - name: Build blocked receipt without claiming live success
         env:

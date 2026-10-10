@@ -45,6 +45,13 @@ def drivers():
     return sys.modules["run"], sys.modules["live_driver"]
 
 
+def cloud_targets():
+    """The owned cloud target module (certification/terminal-journey/cloud_target.py)."""
+    drivers()
+    import cloud_target  # noqa: PLC0415 (a sibling of the owned driver, on its path once loaded)
+    return cloud_target
+
+
 def manifest():
     return yaml.safe_load((ROOT / "platform-manifest.yaml").read_text())
 
@@ -75,6 +82,59 @@ def admin_credential(value):
             os.environ.pop("HONUA_CLOUD_JOURNEY_ADMIN", None)
         else:
             os.environ["HONUA_CLOUD_JOURNEY_ADMIN"] = previous
+
+
+# The provision job hands the credential-free journey job one sealed value. With a seeded cell it
+# also carries the connection the fixture seed used, so the journey's stage 3 datasource is the
+# cell's own RDS database. The value never reaches a handoff file, a target document or a receipt.
+HANDOFF_SCHEMA = "honua-cloud-journey-handoff-v1"
+DATASOURCE_FIELDS = ("host", "port", "databaseName", "username", "password")
+
+
+def pack_handoff(admin_key, datasource=None):
+    """The sealed journey handoff: the bare application key, or a JSON object with the datasource."""
+    if not datasource:
+        return admin_key
+    fields = {name: datasource[name] for name in DATASOURCE_FIELDS}
+    return json.dumps({"schema": HANDOFF_SCHEMA, "appKey": admin_key, "datasource": fields},
+                      separators=(",", ":"))
+
+
+def unpack_handoff(value):
+    """(application key, datasource or None) from a sealed handoff; a bare key is accepted."""
+    if not value.startswith("{"):
+        return value, None
+    document = json.loads(value)
+    datasource = document.get("datasource") if isinstance(document, dict) else None
+    if (not isinstance(document, dict) or document.get("schema") != HANDOFF_SCHEMA
+            or not isinstance(document.get("appKey"), str) or not isinstance(datasource, dict)
+            or set(datasource) != set(DATASOURCE_FIELDS)
+            or not all(isinstance(datasource[name], str) and datasource[name] for name in DATASOURCE_FIELDS
+                       if name != "port")
+            or type(datasource["port"]) is not int):
+        raise ValueError("malformed cloud journey handoff")
+    return document["appKey"], datasource
+
+
+@contextmanager
+def cell_datasource(datasource):
+    """Expose the cell's datasource to the imported driver as its environment references.
+
+    The cloud target names these variables (cloud_target.DATASOURCE_ENV); pins keeps exactly them
+    in the candidate sandbox. Without a datasource nothing is set and stage 3 is blocked on it.
+    """
+    names = cloud_targets().DATASOURCE_ENV if datasource else {}
+    previous = {env: os.environ.get(env) for env in names.values()}
+    try:
+        for field, env in names.items():
+            os.environ[env] = str(datasource[field])
+        yield
+    finally:
+        for env, value in previous.items():
+            if value is None:
+                os.environ.pop(env, None)
+            else:
+                os.environ[env] = value
 
 
 _RUN_TOKEN = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.-]{0,127}$")
@@ -139,6 +199,39 @@ def observed_ecs_image(target, pinned, *, run=subprocess.run):
                        for c in servers)):
             return None
     return f"{server['image']}@{server['digest']}" if len(tasks) == len(arns) else None
+
+
+def candidate_image(cell, pinned=None):
+    """The server image a cell must be observed running: the Lambda pin on aws-serverless."""
+    server = (pinned or manifest())["components"]["honua-server"]
+    if cell.startswith("aws-serverless/") and server.get("awsLambdaImage") and server.get("awsLambdaDigest"):
+        return f"{server['awsLambdaImage'].split('@', 1)[0]}@{server['awsLambdaDigest']}"
+    return f"{server['image']}@{server['digest']}"
+
+
+def observed_lambda_image(target, pinned, *, run=subprocess.run):
+    """The pinned Lambda image only if the cell's API function runs its mirrored ECR digest.
+
+    Read from Lambda GetFunction (read-only), never inferred from the apply inputs. The function
+    runs the same-region ECR mirror of awsLambdaImage, whose digest the manifest records as
+    awsLambdaEcrDigest (honua-release#99). Anything else is None.
+    """
+    server = pinned["components"]["honua-server"]
+    expected = str(server.get("awsLambdaEcrDigest") or "")
+    root = target._workdir
+    if root is None or not re.fullmatch(r"sha256:[0-9a-f]{64}", expected):
+        return None
+    name = target._tf(root, "output", "-raw", "lambda_function_name").stdout.strip()
+    if not name:
+        return None
+    function = json.loads(run(["aws", "lambda", "get-function", "--function-name", name, "--output", "json"],
+                              text=True, capture_output=True, check=True).stdout)
+    code, configuration = function.get("Code") or {}, function.get("Configuration") or {}
+    resolved = str(code.get("ResolvedImageUri") or "")
+    if (code.get("RepositoryType") != "ECR" or configuration.get("PackageType") != "Image"
+            or "@" not in resolved or resolved.rsplit("@", 1)[1] != expected):
+        return None
+    return candidate_image("aws-serverless/", pinned)
 
 
 UNOBSERVED_SHA = "0" * 40
@@ -270,10 +363,18 @@ def attempt(cell, number, endpoint, admin_key, running_image=None):
     contract = driver.load(HERE / "journey.v1.json")
     policy = driver.load(HERE / "control-plane-roster.v1.json")
     pinned = manifest()
-    target = driver.load(adapter.DEFAULT_TARGET)
-    target.update(id=cell, kind="aws-ecs" if cell.startswith("aws-ecs/") else "none")
-    target["adminPassword"] = {"env": "HONUA_CLOUD_JOURNEY_ADMIN", "default": ""}
-    target["compose"]["notes"] = "Externally provisioned cloud cell; the cloud harness owns teardown."
+    template = driver.load(adapter.DEFAULT_TARGET)
+    targets = cloud_targets()
+    kind = targets.kind_of(cell)
+    if kind is not None and endpoint is not None:
+        # honua-release#377: the cell's own target document. It names references only; the
+        # driver mints the journey principals through the cell admin API and revokes them.
+        target = targets.build(template, cell=cell, endpoint=endpoint)
+    else:
+        target = template
+        target.update(id=cell, kind=kind or "none")
+        target["adminPassword"] = {"env": "HONUA_CLOUD_JOURNEY_ADMIN", "default": ""}
+        target["compose"]["notes"] = "Externally provisioned cloud cell; the cloud harness owns teardown."
     target_path = directory / f"target-{number}.json"
     target_path.write_text(json.dumps(target) + "\n")
     notices = [f"Imported adapter protocol: {adapter.PROTOCOL}"]
@@ -300,11 +401,13 @@ def attempt(cell, number, endpoint, admin_key, running_image=None):
     except Exception as error:
         # Driver exceptions must still produce an attempt receipt, without retaining credentials
         # or raw tool output. The outer finally still checks cost and destroys infrastructure.
-        failure = driver_failure_notices(error, sys.modules.get("discovery"), (admin_key,))
+        failure = driver_failure_notices(error, sys.modules.get("discovery"), (
+            admin_key, *(os.environ.get(env) for field, env in cloud_targets().DATASOURCE_ENV.items()
+                         if field != "port")))
         notices.extend(failure)
         print(f"{cell} journey attempt {number}: " + " | ".join(failure), file=sys.stderr, flush=True)
         attribution = "infrastructure"
-    unsupported = target["kind"] == "none"
+    unsupported = kind is None
     if unsupported:
         notices.append("Owned receipt schema lacks this cloud kind and live evidence source; "
                        "this contract receipt cannot qualify the cell (honua-release#377).")
@@ -319,11 +422,11 @@ def attempt(cell, number, endpoint, admin_key, running_image=None):
         mode="build" if build_only else "live", target=target,
         target_path=target_path, target_base_url=endpoint, workspace=workspace,
         stage_results=None if build_only else results, notices=notices)
-    # build_receipt currently labels every live observation Docker. Bind the ECS observation
-    # to its actual source; unsupported cloud kinds retain a blocked build receipt above.
+    # build_receipt attributes live observations to the target kind (live-aws-ecs or
+    # live-aws-serverless); unsupported cloud kinds retain a blocked build receipt above.
     if not build_only:
         for stage in receipt["stages"]:
-            stage["evidence"]["source"] = "live-aws-ecs"
+            stage["evidence"]["source"] = "live-" + kind
     receipt["target"]["composeProject"] = None
     identity = None
     if endpoint is not None:
@@ -345,6 +448,13 @@ def attempt(cell, number, endpoint, admin_key, running_image=None):
 def validate_attempt(record, receipt, cell, *, run_id, run_attempt, at=None):
     driver, _ = drivers()
     driver.validate_receipt(receipt, HERE / "receipt.schema.json")
+    # A receipt speaks only for its own cell kind: a build receipt ("none"), or live evidence of
+    # exactly this cell's kind. Neither the kind nor any stage source may name another cell kind.
+    cell_kind = cell.split("/")[0]
+    if (receipt["target"]["kind"] not in ("none", cell_kind)
+            or not {stage["evidence"]["source"] for stage in receipt["stages"]}
+            <= {"harness-build", "live-" + cell_kind}):
+        raise ValueError("cell receipt kind or evidence source is not this cell's")
     contract = driver.load(HERE / "journey.v1.json")
     expected_stages = [(stage["number"], stage["id"], stage["command"]) for stage in contract["stages"]]
     actual_stages = [(stage["number"], stage["stage"], stage["command"]) for stage in receipt["stages"]]
@@ -362,9 +472,10 @@ def validate_attempt(record, receipt, cell, *, run_id, run_attempt, at=None):
         raise ValueError("cell receipt is bound to the wrong candidate, run or cell")
     # A cell receipt's server pins are what the cell advertised and its control plane reported
     # (honua-release#381). No attempt, failed or not, may show a server other than the candidate.
-    # Only ECS reports its running image today, so a failed attempt may leave a value visibly
-    # unobserved and is still recorded as that cell's failure; a passing one must show the candidate.
-    candidate = {"sourceSha": server["sha"], "image": f"{server['image']}@{server['digest']}"}
+    # ECS (DescribeTasks) and serverless (Lambda GetFunction, the Lambda pin) report their running
+    # image; a failed attempt may leave a value visibly unobserved and is still recorded as that
+    # cell's failure; a passing one must show the candidate.
+    candidate = {"sourceSha": server["sha"], "image": candidate_image(cell, pinned)}
     if receipt["server"] != candidate:
         if (receipt["server"]["sourceSha"] not in (candidate["sourceSha"], UNOBSERVED_SHA)
                 or receipt["server"]["image"] not in (candidate["image"], "unobserved")):

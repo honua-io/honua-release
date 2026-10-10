@@ -15,8 +15,11 @@ MAX_BYTES = 4 * 1024 * 1024
 
 
 class ExecutionError(RuntimeError):
-    def __init__(self, command, reason, *, blocked=False):
+    def __init__(self, command, reason, *, blocked=False, blocked_by=None):
+        # blocked_by names the tracked dependency of a blocked step when it is more precise than
+        # the journey driver itself (for example a capability the target topology does not offer).
         self.command, self.reason, self.blocked = command, reason, blocked
+        self.blocked_by = list(blocked_by or [])
         super().__init__(f"{command}: {reason}")
 
 
