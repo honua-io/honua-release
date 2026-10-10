@@ -1206,7 +1206,7 @@ def test_redis_off_cell_records_the_typed_refusal_as_the_stage_outcome(number, t
 def test_stage_3_passes_on_the_ruled_refusal_with_the_publish_evidence_it_carries():
     # Owner ruling 2026-10-10 (decision 3 extended to stage 3): the refusal of service.publish on a
     # Redis-off cell is the stage's pass, recorded with the same evidence as stages 5-8.
-    assert executor.TOPOLOGY_REFUSAL_STAGES[3] == {"capability": "operations.proposals"}
+    assert executor.TOPOLOGY_REFUSAL_STAGES[3]["capability"] == "operations.proposals"
     engine = cell_engine()
     error = ExecutionError("honua_publish_service", executor.describe_tool_error(PUBLISH_REFUSAL),
                            problem=PUBLISH_REFUSAL)
@@ -1230,6 +1230,16 @@ def test_stage_3_passes_on_the_ruled_refusal_with_the_publish_evidence_it_carrie
     with pytest.raises(jsonschema.ValidationError):
         validate_stage({**row, "topologyRefusal": {**row["topologyRefusal"],
                                                    "rulingStatus": "extension-pending-owner-ruling"}})
+
+
+@pytest.mark.parametrize("field, value", [("retryable", "true"), ("retryable", None), ("kind", "PreconditionFailed"),
+                                          ("kind", None)])
+def test_stage_3_passes_only_on_the_refusal_the_ruling_names(field, value):
+    # The ruling names kind=ExecutionFailed and retryable=false; any other publish refusal keeps its failure.
+    problem = {key: item for key, item in {**PUBLISH_REFUSAL, field: value}.items() if item is not None}
+    engine = cell_engine()
+    assert not engine.record_topology_refusal(3, ExecutionError("honua_publish_service", "x", problem=problem))
+    assert "topologyRefusals" not in engine.evidence
 
 
 def test_stage_3_refusal_still_requires_the_datasource_and_import_that_ran_before_it():

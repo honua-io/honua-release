@@ -69,7 +69,8 @@ SDK_METHODS = {"CreateConnectionAsync", "TestConnectionAsync"}
 # retained, so it cannot match and keeps its outcome.
 REDIS_OFF_RULING = "redis-governed-control-plane-2026-10-08"
 TOPOLOGY_REFUSAL_STAGES = {
-    3: {"capability": "operations.proposals"},
+    # The ruling names the publish refusal's typed fields, so stage 3 requires them exactly.
+    3: {"capability": "operations.proposals", "problem": {"kind": "ExecutionFailed", "retryable": "false"}},
     5: {"capability": "jobs.runner"},
     6: {"capability": "operations.proposals"},
     7: {"capability": "operations.proposals"},
@@ -799,7 +800,8 @@ class JourneyExecutor:
         problem = exc.problem
         if (spec is None or exc.blocked or self.declared_redis_topology() != "redis-off"
                 or problem.get("missingDependency") != "redis" or problem.get("code") != "unavailable"
-                or problem.get("capability", spec["capability"]) != spec["capability"]):
+                or problem.get("capability", spec["capability"]) != spec["capability"]
+                or any(problem.get(key) != value for key, value in spec.get("problem", {}).items())):
             return False
         try:
             manifest = self.transport.get_json("/api/v1/capabilities/manifest", principal=self.principal(number))

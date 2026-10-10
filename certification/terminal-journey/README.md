@@ -124,7 +124,8 @@ the cell. Preview and stub cells keep the documented blocked build receipt.
   (`jobs.runner`) and 6-8 (`operations.proposals`) are the ruling as written; the owner extended it
   to stage 3 on 2026-10-10 (`operations.proposals`: `honua_publish_service` runs through the
   governed operation runtime, and on a Redis-off Production host it returns the typed durable-store
-  refusal). Stage 3 then passes on its datasource and import checks plus the refusal; nothing that
+  refusal; the ruling names it, so stage 3 also requires `kind: ExecutionFailed` and
+  `retryable: false`). Stage 3 then passes on its datasource and import checks plus the refusal; nothing that
   needs the published layer is required of it. On a Production Redis-off cell stages 4 and 6-8 have
   no published layer and stay blocked on it, so the cell receipt is not a pass until those stages
   can run or are ruled. Any other refusal, a redis-on cell,
