@@ -1,12 +1,12 @@
 {
   "schemaVersion": "honua.expected-ga-manifest.v1",
-  "_comment": "Committed expected-GA capability-manifest snapshot for honua-release#61's live capability-manifest canonical check (e2e/canonical_checks.py:check_capability_manifest). Every `expectedGa` id (minus `excluded`) must be advertised supported=true; when the check runs authenticated (an admin X-API-Key) the same ids must also be available=true, except the `availabilityGated` ids, which the candidate supports but a bare deployment leaves off by configuration or dependency. REFRESH RULE (honua-release#183): refresh only from a deployment actually running the manifest-pinned candidate, and record its deploymentRevision; the check fails closed when that revision differs from components.honua-server.sha. This snapshot was taken on 2026-09-29 from a local-docker boot of the pinned image ghcr.io/honua-io/honua-server@sha256:069f196bfa5c7201223d4d89868934242c4ace8805a6e48c122a88d84fa6eb1a (e2e/local-docker/docker-compose.yml's db + server, run with ASPNETCORE_ENVIRONMENT=Production and Licensing__Mode=Disabled like the aws-ecs cell), unauthenticated and with the admin key; both environments reported identical capabilities. demo.honua.io was not used because it serves f897700, not the pin. Selection rule: every id the previous snapshot asserted (all still supported=true) plus every newly advertised id with lifecycle=implemented and supported=true. Preview and experimental ids (EDR, Coverages, WMTS, ImageServer, SensorThings, 3D/scene, providers, versioning.branch, admin.multi-tenancy) are not GA in 2026.1 and are not added; planned ids report supported=false and are not added.",
+  "_comment": "Committed expected-GA capability-manifest snapshot for honua-release#61's live capability-manifest canonical check (e2e/canonical_checks.py:check_capability_manifest). Every `expectedGa` id (minus `excluded`) must be advertised supported=true; when the check runs authenticated (an admin X-API-Key) the same ids must also be available=true, except the `availabilityGated` ids, which the candidate supports but a bare deployment leaves off by configuration or dependency. REFRESH RULE (honua-release#183): refresh only from a deployment actually running the manifest-pinned candidate, and record its deploymentRevision; the check fails closed when that revision differs from components.honua-server.sha, and tools/validate_platform.py fails `validate` when it lags the manifest pin. This snapshot was taken on 2026-10-10 from a local-docker boot of the pinned image ghcr.io/honua-io/honua-server@sha256:62e312a8210ddf632ec5b903a2759327321966f72cbb9f75c0b2a3d2c1243458 (nightly-3ecd214; e2e/local-docker/docker-compose.yml's db + server, run with ASPNETCORE_ENVIRONMENT=Production, Licensing__Mode=Disabled and no Redis like the redis-off cells, with a unique database password and master key and HostValidation__AllowedHosts=localhost, which Production requires), unauthenticated and with the admin key; both reported the same ids, lifecycles and supported flags (the unauthenticated call reports available=false / insufficient-policy where the admin call reports available=true, which the check never asserts). The deployment advertised deploymentRevision 3ecd214c1ce20e96ad4911b6f8447055dee9089d (commit-sha). demo.honua.io was not used because it does not serve the pin. Selection rule: every id the previous snapshot asserted (all still supported=true) plus every newly advertised id with lifecycle=implemented and supported=true. Preview and experimental ids (EDR, Coverages, WMTS, ImageServer, SensorThings, 3D/scene, providers, versioning.branch, admin.multi-tenancy) are not GA in 2026.1 and are not added; planned ids report supported=false and are not added.",
   "sourceSnapshot": {
-    "target": "local-docker ghcr.io/honua-io/honua-server@sha256:069f196bfa5c7201223d4d89868934242c4ace8805a6e48c122a88d84fa6eb1a /api/v1/capabilities/manifest",
+    "target": "local-docker ghcr.io/honua-io/honua-server@sha256:62e312a8210ddf632ec5b903a2759327321966f72cbb9f75c0b2a3d2c1243458 /api/v1/capabilities/manifest",
     "manifestSchemaVersion": "honua.capability_manifest.v1",
-    "fetchedAt": "2026-09-29T10:03:33Z",
-    "totalCapabilities": 77,
-    "deploymentRevision": "87966c3f7b6c840ffc4d4da0b451714ab717b18a",
+    "fetchedAt": "2026-10-10T02:59:40Z",
+    "totalCapabilities": 78,
+    "deploymentRevision": "3ecd214c1ce20e96ad4911b6f8447055dee9089d",
     "deploymentRevisionSource": "commit-sha"
   },
   "expectedGa": [
@@ -42,6 +42,7 @@
     "operate.status",
     "ops.findings",
     "ops.autonomy",
+    "operations.proposals",
     "deploy.rollback",
     "format.read.geojson",
     "format.read.shapefile",
@@ -84,6 +85,10 @@
     {
       "id": "deploy.rollback",
       "reason": "Implemented, but available=false / disabled-by-configuration until a rollback target is configured."
+    },
+    {
+      "id": "operations.proposals",
+      "reason": "New at this candidate: implemented and supported, but available=false / dependency-unavailable on a deployment without Redis (the durable proposal store; the redis-off cells and local-docker). Redis is required for the governed control plane, so the redis-on cells are where it is available."
     }
   ],
   "excluded": [

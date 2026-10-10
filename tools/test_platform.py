@@ -904,3 +904,53 @@ def test_validator_refuses_a_stamp_when_the_release_names_no_platform_version():
     manifest["platformRelease"] = "snapshot"
     errors = _r22_errors(manifest, matrix)
     assert len(errors) == 2 and all("platformRelease 'snapshot' is not a platform label" in e for e in errors)
+
+
+# ---- expected-GA snapshot pin (honua-release#183) -------------------------------------------------
+def _committed_manifest_and_snapshot():
+    manifest = vp._load_yaml(vp.MANIFEST_PATH)
+    return manifest, vp._load_json(vp.EXPECTED_GA_MANIFEST_PATH)
+
+
+def test_committed_expected_ga_snapshot_is_bound_to_the_pinned_server():
+    manifest, snapshot = _committed_manifest_and_snapshot()
+    f = vp.Findings()
+    vp.check_expected_ga_snapshot_pin(manifest, snapshot, f)
+    assert f.ok, f.errors
+
+
+def test_expected_ga_snapshot_lagging_the_server_pin_fails_validate():
+    manifest, snapshot = _committed_manifest_and_snapshot()
+    advanced = copy.deepcopy(manifest)
+    advanced["components"]["honua-server"]["sha"] = "f" * 40
+    f = vp.Findings()
+    vp.check_expected_ga_snapshot_pin(advanced, snapshot, f)
+    assert any("lags components.honua-server.sha" in e for e in f.errors), f.errors
+
+    stale = copy.deepcopy(snapshot)
+    stale["sourceSnapshot"]["target"] = "local-docker ghcr.io/honua-io/honua-server@sha256:" + "0" * 64
+    f = vp.Findings()
+    vp.check_expected_ga_snapshot_pin(manifest, stale, f)
+    assert any("does not name the pinned honua-server digest" in e for e in f.errors), f.errors
+
+    inferred = copy.deepcopy(snapshot)
+    inferred["sourceSnapshot"]["deploymentRevisionSource"] = "manifest"
+    f = vp.Findings()
+    vp.check_expected_ga_snapshot_pin(manifest, inferred, f)
+    assert any("must be 'commit-sha'" in e for e in f.errors), f.errors
+
+    for missing in (None, {"expectedGa": []}):
+        f = vp.Findings()
+        vp.check_expected_ga_snapshot_pin(manifest, missing, f)
+        assert not f.ok
+
+
+def test_validate_cli_fails_when_the_snapshot_lags(monkeypatch, tmp_path, capsys):
+    manifest, snapshot = _committed_manifest_and_snapshot()
+    lagging = copy.deepcopy(snapshot)
+    lagging["sourceSnapshot"]["deploymentRevision"] = "87966c3f7b6c840ffc4d4da0b451714ab717b18a"
+    path = tmp_path / "expected-ga-manifest.json"
+    path.write_text(json.dumps(lagging), encoding="utf-8")
+    monkeypatch.setattr(vp, "EXPECTED_GA_MANIFEST_PATH", path)
+    assert vp.main([]) != 0
+    assert "lags components.honua-server.sha" in capsys.readouterr().out

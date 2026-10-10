@@ -653,6 +653,38 @@ def check_capability_lifecycle(matrix: dict, f: Findings, expected_ga: dict | No
             f.error(f"matrix: {path}: internal keys {counted} are counted in the expected-GA manifest (ruling R29)")
 
 
+def check_expected_ga_snapshot_pin(manifest: dict, expected_ga: dict | None, f: Findings) -> None:
+    """The committed expected-GA snapshot was captured from the manifest-pinned honua-server.
+
+    The live capability-manifest check already fails closed on a stale snapshot, but only inside a
+    cloud cell, after the cell has been paid for. Refreshing it is a manual step (honua-release#183:
+    boot the pinned image, read /api/v1/capabilities/manifest, record its deploymentRevision), so a
+    server pin can advance without it and every cell then fails `capability-manifest`. This makes
+    the lag a `validate` failure on the commit that introduces it.
+    """
+    server = (manifest.get("components") or {}).get("honua-server") or {}
+    pinned_sha, digest = server.get("sha"), server.get("digest")
+    if not isinstance(pinned_sha, str) or not pinned_sha:
+        return  # structure checks report a missing server sha
+    where = "e2e/expected-ga-manifest.json"
+    if not isinstance(expected_ga, dict):
+        f.error(f"{where}: missing or unreadable; the capability-manifest cell check cannot assert GA coverage")
+        return
+    snapshot = expected_ga.get("sourceSnapshot")
+    snapshot = snapshot if isinstance(snapshot, dict) else {}
+    revision = snapshot.get("deploymentRevision")
+    if revision != pinned_sha:
+        f.error(f"{where}: sourceSnapshot.deploymentRevision={revision!r} lags components.honua-server.sha="
+                f"{pinned_sha!r}; every cloud cell's capability-manifest check fails until the snapshot is "
+                "refreshed from a deployment of the pinned image (procedure: the file's _comment, honua-release#183)")
+    elif snapshot.get("deploymentRevisionSource") != "commit-sha":
+        f.error(f"{where}: sourceSnapshot.deploymentRevisionSource must be 'commit-sha' (the revision the "
+                "pinned deployment advertised), not an inferred value")
+    if isinstance(digest, str) and digest and digest not in str(snapshot.get("target") or ""):
+        f.error(f"{where}: sourceSnapshot.target does not name the pinned honua-server digest {digest}; "
+                "capture the snapshot from the pinned image by digest")
+
+
 def check_coherence(manifest: dict, matrix: dict, f: Findings) -> None:
     components = manifest.get("components") or {}
 
@@ -841,6 +873,9 @@ def main(argv: list[str] | None = None) -> int:
     evidence_path = REPO_ROOT / "certification" / "conformance-evidence.yaml"
     if Path(args.manifest).resolve() == MANIFEST_PATH.resolve() and evidence_path.exists():
         check_legacy_evidence_pin_coherence(manifest, _load_yaml(evidence_path), f)
+    if Path(args.manifest).resolve() == MANIFEST_PATH.resolve():
+        check_expected_ga_snapshot_pin(
+            manifest, _load_json(EXPECTED_GA_MANIFEST_PATH) if EXPECTED_GA_MANIFEST_PATH.is_file() else None, f)
 
     for w in f.warnings:
         print(f"WARN  {w}")
