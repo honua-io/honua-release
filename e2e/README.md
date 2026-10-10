@@ -198,6 +198,23 @@ for a customer-managed key). The cell workflow exports both to the provision and
 harness passes them only to Redis-on ECS and Lambda cells whose pinned root declares them, and a declaring root
 with the ARN unset refuses provisioning with this step named.
 
+### Audit hash-chain key on every AWS cell
+Without `AuditLog:ChainVerification:Key` the server still serves and writes audit rows, but its
+scheduled hash-chain verification never succeeds (`Audit hash-chain integrity FAILED ... audit chain
+key is not configured`) and the `audit-chain-integrity` health check is Unhealthy. honua-iac#227 adds
+`audit_chain_key_secret_arn` (and `audit_chain_key_secret_kms_key_arn`) to `examples/aws` and
+`examples/aws-serverless`: ECS resolves the secret through task secrets; Lambda and the GP Batch jobs
+receive an `aws:secretsmanager:<arn>` reference that the server resolves at startup
+(honua-server#5768). **Owner step:** create a Secrets Manager secret in us-east-1 whose value is a
+base64 key of at least 32 bytes (`openssl rand -base64 32`), keep it for the lifetime of the cells'
+audit data, admit it through the release-cell boundary (honua-iac `bootstrap/aws-release-cells`
+`runtime_audit_chain_key_secret_arns`), and set the repository variable
+`HONUA_AWS_AUDIT_CHAIN_KEY_SECRET_ARN` (plus `HONUA_AWS_AUDIT_CHAIN_KEY_SECRET_KMS_KEY_ARN` for a
+customer-managed key). The cell workflow exports both to the provision and teardown steps; the
+harness passes them to every ECS and Lambda cell whose pinned root declares them
+(`optional_env_vars`). The key is recommended, not required: an unset variable never blocks or
+refuses a cell, and the root plans with a warning.
+
 ### ECS readiness diagnostics
 Before destroying every `aws-ecs` cell, the teardown job runs `run_cloud.py --phase diagnose`. It
 writes `diagnostics-ecs.json` into the cell's evidence (uploaded with the gate report) and prints the

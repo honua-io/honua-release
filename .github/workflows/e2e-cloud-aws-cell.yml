@@ -151,6 +151,9 @@ jobs:
           # (owner step in e2e/README.md). Empty when the repository variables are unset.
           HONUA_AWS_OPERATION_KEY_RING_SECRET_ARN: ${{ vars.HONUA_AWS_OPERATION_KEY_RING_SECRET_ARN }}
           HONUA_AWS_OPERATION_KEY_RING_SECRET_KMS_KEY_ARN: ${{ vars.HONUA_AWS_OPERATION_KEY_RING_SECRET_KMS_KEY_ARN }}
+          # Operator-owned audit hash-chain key secret (recommended; owner step in e2e/README.md).
+          HONUA_AWS_AUDIT_CHAIN_KEY_SECRET_ARN: ${{ vars.HONUA_AWS_AUDIT_CHAIN_KEY_SECRET_ARN }}
+          HONUA_AWS_AUDIT_CHAIN_KEY_SECRET_KMS_KEY_ARN: ${{ vars.HONUA_AWS_AUDIT_CHAIN_KEY_SECRET_KMS_KEY_ARN }}
         run: |
           set -euo pipefail
           [ -d "$HONUA_IAC_DIR/infrastructure/terraform" ] || unset HONUA_IAC_DIR
@@ -555,6 +558,9 @@ jobs:
           # (owner step in e2e/README.md). Empty when the repository variables are unset.
           HONUA_AWS_OPERATION_KEY_RING_SECRET_ARN: ${{ vars.HONUA_AWS_OPERATION_KEY_RING_SECRET_ARN }}
           HONUA_AWS_OPERATION_KEY_RING_SECRET_KMS_KEY_ARN: ${{ vars.HONUA_AWS_OPERATION_KEY_RING_SECRET_KMS_KEY_ARN }}
+          # Operator-owned audit hash-chain key secret (recommended; owner step in e2e/README.md).
+          HONUA_AWS_AUDIT_CHAIN_KEY_SECRET_ARN: ${{ vars.HONUA_AWS_AUDIT_CHAIN_KEY_SECRET_ARN }}
+          HONUA_AWS_AUDIT_CHAIN_KEY_SECRET_KMS_KEY_ARN: ${{ vars.HONUA_AWS_AUDIT_CHAIN_KEY_SECRET_KMS_KEY_ARN }}
         run: |
           set -euo pipefail
           [ -d "$HONUA_IAC_DIR/infrastructure/terraform" ] || unset HONUA_IAC_DIR
