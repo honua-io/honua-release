@@ -505,8 +505,9 @@ class TerraformTarget(DeployTarget):
             domain = self.cell_domain(redis_enabled)
             if domain is None:
                 print(f"{self.name}: {CELL_DNS_ZONE_ENV}/{CELL_DNS_PARENT_ENV} unset, or the pinned root "
-                      "has no domain inputs; the cell keeps its default endpoint (no per-run HTTPS "
-                      "hostname, honua-release#450)", flush=True)
+                      "has no domain inputs; the cell keeps its default endpoint (the plain-HTTP load "
+                      "balancer, or the execute-api URL; no per-run HTTPS hostname, honua-release#450)",
+                      flush=True)
             else:
                 print(f"{self.name}: HTTPS cell hostname {domain[0]} (ACM DNS validation in the hosted "
                       "zone; the apply waits for issuance)", flush=True)

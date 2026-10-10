@@ -4481,8 +4481,8 @@ def test_serverless_cell_reads_its_https_endpoint_from_honua_url(monkeypatch, ca
         assert target.provision(redis_enabled=False) == \
             "https://38038433205-aws-serverless-redis-off.cert.demo.honua.io"
         assert ("output", "-raw", "honua_url") in calls
-        assert "HTTPS cell hostname 38038433205-aws-serverless-redis-off.cert.demo.honua.io" in \
-            capsys.readouterr().out
+        words = capsys.readouterr().out.split()
+        assert words[words.index("hostname") + 1] == "38038433205-aws-serverless-redis-off.cert.demo.honua.io"
 
 
 def test_serverless_dns_misconfiguration_refuses_provision_but_never_destroy(monkeypatch):
@@ -4515,7 +4515,10 @@ def test_serverless_teardown_confirms_its_dns_names_and_certificate_are_gone(mon
         _iac_root_with(monkeypatch, base, "aws-serverless", "domain_name", "route53_zone_id")
         target = serverless(run_id="38038433205")
         target._cell_dns_leftovers(True, run=run)   # the concurrent ECS name is a warning only
-        assert "38038433205-aws-ecs-redis-on.cert.demo.honua.io" in capsys.readouterr().out
+        warning = [line for line in capsys.readouterr().out.splitlines()
+                   if line.startswith("::warning title=cell DNS names present")]
+        assert len(warning) == 1 and warning[0].rsplit(": ", 1)[1].split(", ") == [
+            "38038433205-aws-ecs-redis-on.cert.demo.honua.io"]
         zone["ResourceRecordSets"].append({"Name": f"{own}.", "Type": "A"})
         with pytest.raises(ProvisionError, match="1 Route53 record"):
             target._cell_dns_leftovers(True, run=run)
