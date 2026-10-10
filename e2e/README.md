@@ -222,9 +222,13 @@ audit data, admit it through the release-cell boundary (honua-iac `bootstrap/aws
 `runtime_audit_chain_key_secret_arns`), and set the repository variable
 `HONUA_AWS_AUDIT_CHAIN_KEY_SECRET_ARN` (plus `HONUA_AWS_AUDIT_CHAIN_KEY_SECRET_KMS_KEY_ARN` for a
 customer-managed key). The cell workflow exports both to the provision and teardown steps; the
-harness passes them to every ECS and Lambda cell whose pinned root declares them
-(`optional_env_vars`). The key is recommended, not required: an unset variable never blocks or
-refuses a cell, and the root plans with a warning.
+harness passes them to every ECS cell whose pinned root declares them (`optional_env_vars`). The
+key is recommended, not required: an unset variable never blocks or refuses a cell, and the root
+plans with a warning. **Lambda cells do not carry the key yet:** Lambda caps the function
+environment at 4 KB and the Redis-on cell with the key ring, GP Batch and the audit-key reference
+measured 4118 bytes, so `CreateFunction` refused the cell (run 38046060497). honua-iac must bring the
+Lambda environment under budget before the serverless spec can map the variable again; until then
+the Lambda logs the audit-chain Fatal above and the health check stays Unhealthy.
 
 ### Per-run HTTPS hostname and the demo CORS origin on the ECS cells (honua-release#450)
 The pinned `honua` CLI and `honua-mcp-proxy` refuse to send a credential over plain HTTP to any

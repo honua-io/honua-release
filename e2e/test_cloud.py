@@ -3174,11 +3174,30 @@ AUDIT_KEY_ARN = "arn:aws:secretsmanager:us-east-1:123456789012:secret:honua/audi
 AUDIT_KEY_KMS = "arn:aws:kms:us-east-1:123456789012:key/2222-3333"
 
 
-@pytest.mark.parametrize("kind", ["serverless", "ecs"])
-def test_both_cell_kinds_map_the_audit_chain_key_when_declared_and_never_block(monkeypatch, kind):
-    from targets.terraform_target import ECS_SPEC, SERVERLESS_SPEC
+def test_serverless_cells_do_not_carry_the_audit_chain_key_while_lambda_is_over_its_env_budget(monkeypatch):
+    # Run 38046060497: the Redis-on Lambda environment measured 4118 bytes against Lambda's 4 KB cap
+    # once the audit-key reference joined the key ring and GP Batch entries, and CreateFunction
+    # refused. Until honua-iac brings the environment under budget the harness never passes the key
+    # to a Lambda cell, even when the repository variable is set and the pinned root declares it.
+    from targets.terraform_target import SERVERLESS_SPEC
+    assert SERVERLESS_SPEC.optional_env_vars == ()
+    _serverless_env(monkeypatch)
+    names = ("audit_chain_key_secret_arn", "audit_chain_key_secret_kms_key_arn")
+    with tempfile.TemporaryDirectory() as base:
+        _iac_root_with(monkeypatch, base, "aws-serverless", *names)
+        monkeypatch.setenv("HONUA_AWS_AUDIT_CHAIN_KEY_SECRET_ARN", AUDIT_KEY_ARN)
+        monkeypatch.setenv("HONUA_AWS_AUDIT_CHAIN_KEY_SECRET_KMS_KEY_ARN", AUDIT_KEY_KMS)
+        for redis in (False, True):
+            if redis:
+                monkeypatch.setenv("HONUA_AWS_OPERATION_KEY_RING_SECRET_ARN", KEY_RING_ARN)
+            assert not set(names) & set(_tf_vars(serverless(run_id="r1")._vars(redis)))
+        assert not any("AUDIT_CHAIN" in m for m in serverless(run_id="r1").availability().missing)
+
+
+@pytest.mark.parametrize("kind", ["ecs"])
+def test_ecs_cells_map_the_audit_chain_key_when_declared_and_never_block(monkeypatch, kind):
+    from targets.terraform_target import ECS_SPEC
     spec, example, factory, env = {
-        "serverless": (SERVERLESS_SPEC, "aws-serverless", serverless, _serverless_env),
         "ecs": (ECS_SPEC, "aws", ecs, _ecs_env),
     }[kind]
     assert spec.optional_env_vars == (

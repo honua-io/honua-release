@@ -725,7 +725,14 @@ SERVERLESS_SPEC = TfTargetSpec(
     # serverless root predates these variables declares neither, so nothing is passed or refused.
     redis_env_vars=_OPERATION_KEY_RING_ENV_VARS,
     redis_required_vars=_OPERATION_KEY_RING_REQUIRED_VARS,
-    optional_env_vars=_AUDIT_CHAIN_KEY_ENV_VARS,
+    # The audit-chain key is NOT passed to Lambda cells yet: Lambda caps the function environment at
+    # 4 KB and the Redis-on cell with the key ring, GP Batch and the audit-key reference measured
+    # 4118 bytes (e2e-cloud-aws run 38046060497, CreateFunction InvalidParameterValueException), so
+    # the apply failed before the function existed. honua-iac must bring the environment under budget
+    # (fix unit C8) before this cell can carry the key; until then the Lambda logs the audit-chain
+    # "key is not configured" Fatal and the audit-chain-integrity health check stays Unhealthy, which
+    # the server treats as recommended-not-required. ECS has no such cap and keeps the mapping.
+    optional_env_vars=(),
     migrate_image_env="HONUA_MIGRATE_IMAGE",
 )
 ECS_SPEC = TfTargetSpec(
