@@ -55,6 +55,7 @@ class Transport:
         if data is not None:
             headers["Content-Type"] = "application/json"
         label = f"{method} {urllib.parse.urlsplit(url).path}"
+        discovery.record_http(method, url, None, None)
         try:
             with self.opener.open(urllib.request.Request(url, data=data, headers=headers, method=method), timeout=30) as response:
                 raw, status = response.read(MAX_BYTES + 1), response.status
@@ -62,6 +63,7 @@ class Transport:
             raw, status = exc.read(MAX_BYTES + 1), exc.code
         except (OSError, urllib.error.URLError) as exc:
             raise ExecutionError(label, "candidate request failed") from exc
+        discovery.record_http(method, url, status, raw)
         if status not in expected:
             raise ExecutionError(label, f"HTTP {status}")
         if len(raw) > MAX_BYTES:

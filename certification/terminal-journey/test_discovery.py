@@ -91,6 +91,32 @@ class WireContractTests(unittest.TestCase):
         self.assertEqual(measured["metadata"]["toolCount"], 1)
 
 
+class TraceTests(unittest.TestCase):
+    def setUp(self):
+        discovery.reset_trace()
+
+    def test_excerpt_masks_credential_members_and_bounds_length(self):
+        body = json.dumps({"data": {"key": "hk_secret", "items": [{"apiKey": "s2", "name": "ok"}],
+                                    "Authorization": "Bearer s3"}}).encode()
+        text = discovery.excerpt(body)
+        self.assertEqual(text, '{"data":{"key":"[redacted]","items":[{"apiKey":"[redacted]","name":"ok"}],'
+                               '"Authorization":"[redacted]"}}')
+        plain = discovery.excerpt(b"<p>api_key=s1 password: 's2' Authorization: Bearer s3</p>")
+        self.assertNotIn("s1", plain); self.assertNotIn("s2", plain); self.assertNotIn("s3", plain)
+        self.assertTrue(discovery.excerpt(b"x" * 1000).endswith("...(truncated)"))
+        self.assertLessEqual(len(discovery.excerpt(b"x" * 1000)), discovery.EXCERPT_CHARS + 20)
+
+    def test_describe_trace_names_step_and_last_exchange(self):
+        self.assertEqual(discovery.describe_trace(), ["step: before the first instrumented step",
+                                                      "last HTTP: none recorded"])
+        discovery.mark_step("observe: setup discovery")
+        discovery.record_http("POST", "http://127.0.0.1:1/mcp?x=1", None, None, "tools/list")
+        self.assertEqual(discovery.describe_trace()[1], "last HTTP: POST /mcp (tools/list) -> no response; body: (empty)")
+        discovery.record_http("GET", "http://127.0.0.1:1/api/v1/admin/roles/", 403, b'{"error":"forbidden"}')
+        self.assertEqual(discovery.describe_trace(), ["step: observe: setup discovery",
+            'last HTTP: GET /api/v1/admin/roles/ -> 403; body: {"error":"forbidden"}'])
+
+
 class PaginationTests(unittest.TestCase):
     @staticmethod
     def page(tools, cursor=None):
@@ -190,6 +216,10 @@ class HttpSessionTests(unittest.TestCase):
     def test_wrong_credential_is_not_session_authority(self):
         with self.assertRaisesRegex(discovery.DiscoveryError, "401"):
             discovery.HttpSession(self.url, "wrong").initialize()
+        # The refusal leaves a redacted summary of the exchange for a raising driver's receipt.
+        http = discovery.TRACE["http"]
+        self.assertEqual((http["method"], http["path"], http["rpc"], http["status"]), ("POST", "/mcp", "initialize", 401))
+        self.assertNotIn("wrong", json.dumps(discovery.TRACE))
 
     def test_partial_http_receipt_does_not_promote_a_missing_installed_proxy(self):
         receipt = discovery.capture_setup_view(None, self.url, "ephemeral-test-key")

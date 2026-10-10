@@ -126,6 +126,9 @@ def observe(
     expected_revision: str,
 ) -> stagelib.Observation:
     """Run every live probe exactly once and share the result across stages."""
+    import discovery
+
+    discovery.mark_step("observe: readiness and licensing")
     endpoints = target["endpoints"]
     observation = stagelib.Observation(
         base_url=base_url, image_ref=image_ref, expected_revision=expected_revision
@@ -148,6 +151,7 @@ def observe(
     except Exception as exc:
         observation.licensing_detail = str(exc)
 
+    discovery.mark_step("observe: anonymous capability and admin probes")
     manifest_response = probes.http_get(base_url + endpoints["capabilityManifest"])
     if manifest_response.status == 200:
         try:
@@ -161,6 +165,7 @@ def observe(
     api_keys_response = probes.http_get(base_url + endpoints["adminApiKeys"])
     observation.anonymous_api_keys_status = api_keys_response.status
 
+    discovery.mark_step("observe: credential preflight")
     honua = bindir / "honua" if bindir else None
     admin_password = target.get("adminPassword") or {}
     if honua is None or not honua.exists():
@@ -185,8 +190,7 @@ def observe(
             )
         finally:
             shutil.rmtree(probe_dir, ignore_errors=True)
-    import discovery
-
+    discovery.mark_step("observe: setup discovery")
     proxy = bindir / "honua-mcp-proxy" if bindir else None
     observation.proxy_available = proxy is not None and proxy.is_file()
     observation.setup_discovery = discovery.capture_setup_view(proxy, base_url + endpoints["mcp"],
@@ -377,6 +381,9 @@ def run_live(
     keep_stack: bool,
 ) -> tuple[pins.ClientWorkspace, list[stagelib.StageResult], list[str], str | None]:
     notices: list[str] = []
+    import discovery
+
+    discovery.mark_step("resolve pinned client workspace")
     workdir = workdir.resolve()
     compose_cfg = target["compose"]
     notices.append(compose_cfg["notes"])
@@ -415,6 +422,7 @@ def run_live(
     )
 
     running_image: str | None = None
+    discovery.mark_step("start or reach the candidate stack")
     try:
         if base_url_override is None:
             result = compose.up()
@@ -437,11 +445,13 @@ def run_live(
             notices.append(f"Setup discovery sidecar: {discovery_path}; SHA-256: {_sha256_file(discovery_path)}")
         if observation.proxy_note:
             notices.append(observation.proxy_note)
+        discovery.mark_step("evaluate observed stages")
         results = stagelib.run_stages(journey, observation, workspace_blockers)
         import executor
         import sdk
         from transport import ExecutionError, Transport
 
+        discovery.mark_step("resolve journey principals")
         try:
             credentials = local_fixture.credentials(target, workdir, base_url,
                 mint=base_url_override is None and observation.ready)
@@ -452,10 +462,12 @@ def run_live(
             target["adminPassword"]["env"], target["adminPassword"]["default"]))
         state = {"workspaceId": workdir.name, "workdir": str(workdir)}
         if observation.setup_view_present and workspace.status == "pass":
+            discovery.mark_step("prepare published SDK")
             try:
                 state["sdkBinding"] = sdk.prepare(manifest, workdir)
             except ExecutionError as exc:
                 notices.append(f"Published SDK preparation: {exc.command}: {exc.reason}")
+        discovery.mark_step("open candidate transport")
         transport = Transport(base_url, bindir / "honua-mcp-proxy" if bindir else None,
                               bindir / "honua" if bindir else None, workdir, credentials)
         execution = executor.JourneyExecutor(state, target, observation, transport, manifest=manifest)

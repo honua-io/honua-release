@@ -783,6 +783,7 @@ class JourneyExecutor:
                     self.verify_authority()
 
         for number, invoke in ((3, service), (4, style), (5, buffer), (6, composition), (7, publication), (8, approval)):
+            discovery.mark_step(f"stage {number} execution ({invoke.__name__})")
             try:
                 if not self.fixture:
                     raise ExecutionError("journey fixture", "target has no independently authored execution fixture", blocked=True)

@@ -30,6 +30,63 @@ class DiscoveryError(ValueError):
     pass
 
 
+# Last-failure diagnostics for a driver that raises. Only a harness-owned step label, the
+# request method/path, the HTTP status and a redacted, bounded body excerpt are kept; request
+# headers (where every credential travels) are never recorded.
+TRACE: dict[str, Any] = {"step": None, "http": None}
+EXCERPT_CHARS = 240
+_SENSITIVE = re.compile(r"key|token|secret|password|passwd|authorization|credential|cookie|session|signature",
+                        re.IGNORECASE)
+
+
+def reset_trace() -> None:
+    TRACE.update(step=None, http=None)
+
+
+def mark_step(step: str) -> None:
+    TRACE["step"] = step
+
+
+def _redact(value: Any) -> Any:
+    if isinstance(value, dict):
+        return {key: "[redacted]" if _SENSITIVE.search(str(key)) else _redact(item) for key, item in value.items()}
+    if isinstance(value, list):
+        return [_redact(item) for item in value]
+    return value
+
+
+def excerpt(raw: bytes | None) -> str:
+    """A bounded body excerpt with every credential-like JSON member value masked."""
+    if not raw:
+        return ""
+    try:
+        text = json.dumps(_redact(json.loads(raw[:MAX_PAGE_BYTES].decode("utf-8"))), ensure_ascii=True,
+                          separators=(",", ":"))
+    except (UnicodeError, ValueError, RecursionError):
+        # Not JSON: keep printable ASCII only; any credential-shaped token is masked.
+        text = re.sub(r"[^ -~]", "?", raw[:4096].decode("utf-8", "replace"))
+        text = re.sub(r"(?i)((?:" + _SENSITIVE.pattern + r")[\"']?\s*[:=]\s*(?:bearer\s+|basic\s+)?[\"']?)[^\s\"',;&<]+", r"\1[redacted]", text)
+    return text if len(text) <= EXCERPT_CHARS else text[:EXCERPT_CHARS] + "...(truncated)"
+
+
+def record_http(method: str, url: str, status: int | None, raw: bytes | None, rpc: str | None = None) -> None:
+    TRACE["http"] = {"method": method, "path": urllib.parse.urlsplit(url).path or "/", "rpc": rpc,
+                     "status": status, "body": excerpt(raw)}
+
+
+def describe_trace() -> list[str]:
+    """Receipt/log lines for the last step and HTTP exchange the driver reached."""
+    lines = [f"step: {TRACE['step'] or 'before the first instrumented step'}"]
+    http = TRACE["http"]
+    if http is None:
+        lines.append("last HTTP: none recorded")
+    else:
+        rpc = f" ({http['rpc']})" if http.get("rpc") else ""
+        status = http["status"] if http["status"] is not None else "no response"
+        lines.append(f"last HTTP: {http['method']} {http['path']}{rpc} -> {status}; body: {http['body'] or '(empty)'}")
+    return lines
+
+
 def digest(raw: bytes) -> str:
     return "sha256:" + hashlib.sha256(raw).hexdigest()
 
@@ -197,9 +254,11 @@ class HttpSession:
         if self.session:
             headers["Mcp-Session-Id"] = self.session
         request = urllib.request.Request(self.url, data=json.dumps(body).encode(), headers=headers, method="POST")
+        record_http("POST", self.url, None, None, method)
         try:
             with self.opener.open(request, timeout=30) as response:
                 raw = response.read(MAX_PAGE_BYTES + 1)
+                record_http("POST", self.url, response.status, raw, method)
                 if response.status != 200 or "application/json" not in response.headers.get("Content-Type", ""):
                     raise DiscoveryError("MCP HTTP response is not successful JSON")
                 issued = response.headers.get("Mcp-Session-Id")
@@ -210,6 +269,10 @@ class HttpSession:
                 elif issued and issued != self.session:
                     raise DiscoveryError("HTTP response changed the bound session")
         except urllib.error.HTTPError as exc:
+            try:
+                record_http("POST", self.url, exc.code, exc.read(MAX_PAGE_BYTES + 1), method)
+            except OSError:
+                record_http("POST", self.url, exc.code, None, method)
             raise DiscoveryError(f"MCP HTTP request refused with status {exc.code}") from exc
         document = parse(raw)
         if not isinstance(document, dict) or type(document.get("id")) is not int or document["id"] != self.next_id or document.get("jsonrpc") != "2.0" or "error" in document or not isinstance(document.get("result"), dict):
@@ -228,7 +291,9 @@ class HttpSession:
             data=b'{"jsonrpc":"2.0","method":"notifications/initialized"}',
             headers={"Content-Type": "application/json", "Accept": "application/json", "X-API-Key": self.credential,
                      "Mcp-Session-Id": self.session, "MCP-Protocol-Version": "2025-06-18"})
+        record_http("POST", self.url, None, None, "notifications/initialized")
         with self.opener.open(request, timeout=30) as response:
+            record_http("POST", self.url, response.status, None, "notifications/initialized")
             if response.status not in {200, 202, 204}:
                 raise DiscoveryError("initialized notification was refused")
         return document["result"]
