@@ -10,6 +10,9 @@ on:
       - certification/terminal-journey/**
       - certification/terminal-model-canary/**
       - e2e/cloud_journey.py
+      - e2e/run_cloud.py
+      - e2e/runner/cloud.py
+      - e2e/harness/cloud/seed.py
       - artifacts/terminal-journey-*.json
       - artifacts/terminal-journey-*.md
       - .github/workflows/terminal-journey-contract.yml

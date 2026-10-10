@@ -227,6 +227,17 @@
       "then": {"required": ["failure"], "properties": {"failure": {"type": "object"}}}
     },
     {
+      "description": "Live evidence is attributed to the receipt's own target kind; a receipt for a target cannot carry another target's live source (the cloud harness also binds the kind to its cell).",
+      "allOf": [
+        {"if": {"properties": {"target": {"properties": {"kind": {"const": "local-docker"}}, "required": ["kind"]}}, "required": ["target"]},
+         "then": {"properties": {"stages": {"items": {"properties": {"evidence": {"properties": {"source": {"enum": ["harness-build", "live-local-docker"]}}}}}}}}},
+        {"if": {"properties": {"target": {"properties": {"kind": {"const": "aws-ecs"}}, "required": ["kind"]}}, "required": ["target"]},
+         "then": {"properties": {"stages": {"items": {"properties": {"evidence": {"properties": {"source": {"enum": ["harness-build", "live-aws-ecs"]}}}}}}}}},
+        {"if": {"properties": {"target": {"properties": {"kind": {"const": "aws-serverless"}}, "required": ["kind"]}}, "required": ["target"]},
+         "then": {"properties": {"stages": {"items": {"properties": {"evidence": {"properties": {"source": {"enum": ["harness-build", "live-aws-serverless"]}}}}}}}}}
+      ]
+    },
+    {
       "description": "Build mode never contacts a target and therefore can never report pass.",
       "if": {"properties": {"mode": {"const": "build"}}, "required": ["mode"]},
       "then": {

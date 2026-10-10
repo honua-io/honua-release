@@ -299,23 +299,28 @@ class CloudExecutionTests(unittest.TestCase):
             self.assertEqual(local.datasource_arguments()["host"], "db")
 
 
+def live_receipt(kind, stage_results=None):
+    """A live receipt build_receipt emits for a cloud target (stages blocked unless given)."""
+    target = cloud(kind)
+    manifest = __import__("yaml").safe_load((ROOT / "platform-manifest.yaml").read_text())
+    journey = json.loads((HERE / "journey.v1.json").read_text())
+    workspace = driver.pins.ClientWorkspace(status="blocked", root=None, reason="offline")
+    return driver.build_receipt(
+        manifest=manifest, journey=journey,
+        roster=driver.roster_verdict(json.loads((HERE / "control-plane-roster.v1.json").read_text()), None, None),
+        evidence_uri="urn:test:cloud#honua-run=1/1", mode="live", target=target, target_path=None,
+        target_base_url=target["replicaBaseUrl"], workspace=workspace,
+        stage_results=stage_results or [stages.StageResult(n, s["id"], s["command"], "blocked",
+                                                           blocked_by=[stages.JOURNEY_DRIVER])
+                                        for n, s in enumerate(journey["stages"], 1)],
+        notices=["cloud"])
+
+
 class CloudReceiptSchemaTests(unittest.TestCase):
     schema = HERE / "receipt.schema.json"
 
-    def receipt(self, kind, stage_results=None):
-        target = cloud(kind)
-        manifest = __import__("yaml").safe_load((ROOT / "platform-manifest.yaml").read_text())
-        journey = json.loads((HERE / "journey.v1.json").read_text())
-        workspace = driver.pins.ClientWorkspace(status="blocked", root=None, reason="offline")
-        return driver.build_receipt(
-            manifest=manifest, journey=journey,
-            roster=driver.roster_verdict(json.loads((HERE / "control-plane-roster.v1.json").read_text()), None, None),
-            evidence_uri="urn:test:cloud#honua-run=1/1", mode="live", target=target, target_path=None,
-            target_base_url=target["replicaBaseUrl"], workspace=workspace,
-            stage_results=stage_results or [stages.StageResult(n, s["id"], s["command"], "blocked",
-                                                               blocked_by=[stages.JOURNEY_DRIVER])
-                                            for n, s in enumerate(journey["stages"], 1)],
-            notices=["cloud"])
+    def receipt(self, kind):
+        return live_receipt(kind)
 
     def test_cloud_kinds_and_live_sources_are_admitted(self):
         for kind in ("aws-ecs", "aws-serverless"):
@@ -336,6 +341,17 @@ class CloudReceiptSchemaTests(unittest.TestCase):
         with self.assertRaises(jsonschema.ValidationError):
             driver.validate_receipt(receipt, self.schema)
         receipt["target"]["kind"] = "aws-lambda"
+        with self.assertRaises(jsonschema.ValidationError):
+            driver.validate_receipt(receipt, self.schema)
+
+    def test_a_receipt_cannot_carry_another_target_kinds_live_source(self):
+        import jsonschema
+        receipt = self.receipt("aws-serverless")
+        receipt["stages"][2]["evidence"]["source"] = "live-aws-ecs"
+        with self.assertRaises(jsonschema.ValidationError):
+            driver.validate_receipt(receipt, self.schema)
+        receipt = self.receipt("aws-ecs")
+        receipt["target"]["kind"] = "local-docker"
         with self.assertRaises(jsonschema.ValidationError):
             driver.validate_receipt(receipt, self.schema)
 
@@ -416,6 +432,53 @@ class CloudJourneyHandoffTests(unittest.TestCase):
                 self.assertNotIn(secret, receipt_path.read_text())
         finally:
             shutil.rmtree(cj.EVIDENCE / "cloudtarget-offline", ignore_errors=True)
+
+
+class CloudCellBindingTests(unittest.TestCase):
+    def setUp(self):
+        import cloud_journey
+        self.cj = cloud_journey
+        self.pinned = self.cj.manifest()
+        self.server = self.pinned["components"]["honua-server"]
+
+    def test_validate_attempt_refuses_a_receipt_for_another_cell_kind(self):
+        receipt = live_receipt("aws-ecs")
+        record = {"cell": "aws-serverless/redis-off"}
+        with self.assertRaisesRegex(ValueError, "kind or evidence source"):
+            self.cj.validate_attempt(record, receipt, "aws-serverless/redis-off", run_id="1", run_attempt="1")
+
+    def test_serverless_candidate_image_is_the_lambda_pin_read_back_from_lambda(self):
+        lambda_image = self.cj.candidate_image("aws-serverless/redis-on", self.pinned)
+        self.assertEqual(lambda_image, self.server["awsLambdaImage"] + "@" + self.server["awsLambdaDigest"])
+        self.assertEqual(self.cj.candidate_image("aws-ecs/redis-on", self.pinned),
+                         f"{self.server['image']}@{self.server['digest']}")
+
+        class Cell:
+            _workdir = Path("/tmp")
+
+            def _tf(self, root, *args):
+                return subprocess.CompletedProcess(args, 0, "honua-cell-honua\n", "")
+
+        def lambda_api(resolved, repository="ECR", package="Image"):
+            calls = []
+
+            def run(argv, **kwargs):
+                calls.append(argv)
+                return subprocess.CompletedProcess(argv, 0, json.dumps({
+                    "Configuration": {"PackageType": package},
+                    "Code": {"RepositoryType": repository, "ResolvedImageUri": resolved}}), "")
+            return run, calls
+
+        ecr = "123456789012.dkr.ecr.us-east-1.amazonaws.com/honua-server@"
+        run, calls = lambda_api(ecr + self.server["awsLambdaEcrDigest"])
+        self.assertEqual(self.cj.observed_lambda_image(Cell(), self.pinned, run=run), lambda_image)
+        self.assertEqual(calls[0][:5], ["aws", "lambda", "get-function", "--function-name", "honua-cell-honua"])
+        for resolved, repository, package in ((ecr + "sha256:" + "9" * 64, "ECR", "Image"),
+                                              (ecr + self.server["awsLambdaEcrDigest"], "S3", "Image"),
+                                              (ecr + self.server["awsLambdaEcrDigest"], "ECR", "Zip"),
+                                              ("", "ECR", "Image")):
+            run, _ = lambda_api(resolved, repository, package)
+            self.assertIsNone(self.cj.observed_lambda_image(Cell(), self.pinned, run=run))
 
 
 @unittest.skipUnless(shutil.which("openssl"), "openssl is required")

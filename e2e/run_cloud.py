@@ -198,9 +198,11 @@ def provision_phase(target, target_name: str, *, require_real: bool, redis_enabl
         state["seedError"] = seed_cell(endpoint, target=target,
                                        out=cloud_journey.cell_dir(cell) / "extended", **seed_kwargs)
         # The owned 1.1-candidate-image check needs the image ECS reports running.
-        if target_name == "aws-ecs":
+        if target_name in ("aws-ecs", "aws-serverless"):
+            observe = (cloud_journey.observed_ecs_image if target_name == "aws-ecs"
+                       else cloud_journey.observed_lambda_image)
             try:
-                state["runningImage"] = cloud_journey.observed_ecs_image(target, cloud_journey.manifest())
+                state["runningImage"] = observe(target, cloud_journey.manifest())
             except Exception:
                 state["runningImage"] = None
         state.update(endpoint=endpoint, ready=ready)

@@ -85,8 +85,9 @@ redacted, bounded body excerpt).
 `e2e/cloud_journey.py` runs this driver against an `aws-ecs` or `aws-serverless` cell with a target
 document `cloud_target.build` generates for each attempt (`target-<n>.json` next to the receipt).
 The receipt's target kind is the cell's, and its live evidence is `live-aws-ecs` or
-`live-aws-serverless`, so a cloud receipt can qualify its cell (#377). Preview and stub cells keep
-the documented blocked build receipt.
+`live-aws-serverless`, so a cloud receipt can qualify its cell (#377). The schema and
+`cloud_journey.validate_attempt` bind every live source to the receipt's own kind and that kind to
+the cell. Preview and stub cells keep the documented blocked build receipt.
 
 - **Principals.** `local_fixture.credentials` mints the operator, proposer, approver and viewer keys
   through the cell's admin REST API with the cell's bootstrap credential
@@ -107,6 +108,9 @@ the documented blocked build receipt.
   `replicaTopology` names what sits behind it and the check's invocation says so: `ecs-alb-tasks`
   (the ALB spreads requests across ECS tasks; the read is not pinned to another task) or
   `lambda-function` (one function; any warm or new instance answers).
+- **Candidate image.** ECS reports its running image through DescribeTasks. A serverless cell
+  reports it through Lambda GetFunction: the API function must run the manifest's mirrored
+  `awsLambdaEcrDigest`, and the receipt then names the Lambda pin (`awsLambdaImage@awsLambdaDigest`).
 - **Transport.** Unchanged: the shared `probes.credential_transport` rule (HTTPS, loopback, or the
   cell's own load balancer for one attempt).
 

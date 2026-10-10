@@ -201,6 +201,39 @@ def observed_ecs_image(target, pinned, *, run=subprocess.run):
     return f"{server['image']}@{server['digest']}" if len(tasks) == len(arns) else None
 
 
+def candidate_image(cell, pinned=None):
+    """The server image a cell must be observed running: the Lambda pin on aws-serverless."""
+    server = (pinned or manifest())["components"]["honua-server"]
+    if cell.startswith("aws-serverless/") and server.get("awsLambdaImage") and server.get("awsLambdaDigest"):
+        return f"{server['awsLambdaImage'].split('@', 1)[0]}@{server['awsLambdaDigest']}"
+    return f"{server['image']}@{server['digest']}"
+
+
+def observed_lambda_image(target, pinned, *, run=subprocess.run):
+    """The pinned Lambda image only if the cell's API function runs its mirrored ECR digest.
+
+    Read from Lambda GetFunction (read-only), never inferred from the apply inputs. The function
+    runs the same-region ECR mirror of awsLambdaImage, whose digest the manifest records as
+    awsLambdaEcrDigest (honua-release#99). Anything else is None.
+    """
+    server = pinned["components"]["honua-server"]
+    expected = str(server.get("awsLambdaEcrDigest") or "")
+    root = target._workdir
+    if root is None or not re.fullmatch(r"sha256:[0-9a-f]{64}", expected):
+        return None
+    name = target._tf(root, "output", "-raw", "lambda_function_name").stdout.strip()
+    if not name:
+        return None
+    function = json.loads(run(["aws", "lambda", "get-function", "--function-name", name, "--output", "json"],
+                              text=True, capture_output=True, check=True).stdout)
+    code, configuration = function.get("Code") or {}, function.get("Configuration") or {}
+    resolved = str(code.get("ResolvedImageUri") or "")
+    if (code.get("RepositoryType") != "ECR" or configuration.get("PackageType") != "Image"
+            or "@" not in resolved or resolved.rsplit("@", 1)[1] != expected):
+        return None
+    return candidate_image("aws-serverless/", pinned)
+
+
 UNOBSERVED_SHA = "0" * 40
 
 # Notices attempt() writes into a receipt. A driver exception is a failure of this run, never a
@@ -415,6 +448,13 @@ def attempt(cell, number, endpoint, admin_key, running_image=None):
 def validate_attempt(record, receipt, cell, *, run_id, run_attempt, at=None):
     driver, _ = drivers()
     driver.validate_receipt(receipt, HERE / "receipt.schema.json")
+    # A receipt speaks only for its own cell kind: a build receipt ("none"), or live evidence of
+    # exactly this cell's kind. Neither the kind nor any stage source may name another cell kind.
+    cell_kind = cell.split("/")[0]
+    if (receipt["target"]["kind"] not in ("none", cell_kind)
+            or not {stage["evidence"]["source"] for stage in receipt["stages"]}
+            <= {"harness-build", "live-" + cell_kind}):
+        raise ValueError("cell receipt kind or evidence source is not this cell's")
     contract = driver.load(HERE / "journey.v1.json")
     expected_stages = [(stage["number"], stage["id"], stage["command"]) for stage in contract["stages"]]
     actual_stages = [(stage["number"], stage["stage"], stage["command"]) for stage in receipt["stages"]]
@@ -432,9 +472,10 @@ def validate_attempt(record, receipt, cell, *, run_id, run_attempt, at=None):
         raise ValueError("cell receipt is bound to the wrong candidate, run or cell")
     # A cell receipt's server pins are what the cell advertised and its control plane reported
     # (honua-release#381). No attempt, failed or not, may show a server other than the candidate.
-    # Only ECS reports its running image today, so a failed attempt may leave a value visibly
-    # unobserved and is still recorded as that cell's failure; a passing one must show the candidate.
-    candidate = {"sourceSha": server["sha"], "image": f"{server['image']}@{server['digest']}"}
+    # ECS (DescribeTasks) and serverless (Lambda GetFunction, the Lambda pin) report their running
+    # image; a failed attempt may leave a value visibly unobserved and is still recorded as that
+    # cell's failure; a passing one must show the candidate.
+    candidate = {"sourceSha": server["sha"], "image": candidate_image(cell, pinned)}
     if receipt["server"] != candidate:
         if (receipt["server"]["sourceSha"] not in (candidate["sourceSha"], UNOBSERVED_SHA)
                 or receipt["server"]["image"] not in (candidate["image"], "unobserved")):
