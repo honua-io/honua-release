@@ -105,9 +105,18 @@ the cell. Preview and stub cells keep the documented blocked build receipt.
   application key (`cloud_journey.pack_handoff`). The target names the coordinates only by
   environment reference (`HONUA_JOURNEY_DATASOURCE_{HOST,PORT,DATABASE,USERNAME,PASSWORD}`), so the
   retained target document holds no host, login or password.
-- **Replica.** A cell has one endpoint and the server (798d517) returns no per-instance identity,
-  so stage 6's cross-replica read-after-write cannot be proven there. The `replica-map` assertion
-  is `blocked` with that reason, naming the server need (a per-instance identity on responses).
+- **Replica.** A cell has one endpoint. honua-server#5790 stamps every response with a stable
+  `Honua-Instance` id, so stage 6's `replica-map` check re-reads the saved map through that endpoint
+  up to 8 times, half a second apart. Each read must match the write, and the check collects the
+  instance ids that answered:
+  - two or more distinct instances: `pass`, with the ids (and each id's source from
+    `GET /api/v1/admin/version` when the operator key can read it) in the check detail;
+  - one instance only (one ECS task, a warm Lambda): `blocked` with `topology served one instance:
+    <id>`, which is a topology limit, not a server gap;
+  - no header on any read: `blocked` on the server need (honua-server#5790), naming the pinned
+    candidate sha;
+  - a header on some reads but not others: `fail`.
+
   `replicaTopology` stays as evidence in the check and a receipt notice: `ecs-alb-tasks` (the ALB
   spreads requests across ECS tasks) or `lambda-function` (one function).
 - **Candidate image.** ECS reports its running image through DescribeTasks. A serverless cell

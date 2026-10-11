@@ -238,6 +238,46 @@ class CloudPrincipalTests(unittest.TestCase):
                 local_fixture.credentials(cloud(), self.workdir, "https://cell.invalid", mint=True)
 
 
+class _CellReads:
+    """A fake cell endpoint: each saved-map read is answered by the next instance in `instances`
+    (cycling; None means no Honua-Instance header), with the saved body unless `bodies` overrides a
+    read. Admin version reads answer from `versions` in order, then refuse."""
+
+    SAVED = {"itemId": "item", "versionId": "version", "contentHash": "hash",
+             "envelope": {"family": "map", "body": {}}}
+
+    def __init__(self, instances, *, bodies=None, versions=()):
+        self.base_url, self.proxy, self.honua, self.workdir = "https://cell.demo.honua.io", None, None, Path("/tmp")
+        self.credentials = {"proposer": "hk", "operator": "hk_operator"}
+        self.instances, self.bodies, self.versions = list(instances), list(bodies or []), list(versions)
+        self.map_reads, self.version_principals, self.last, self.saved_read = 0, [], None, False
+
+    def get_json(self, path, principal="proposer"):
+        if path == "/api/v1/admin/version":
+            self.version_principals.append(principal)
+            if not self.versions:
+                raise ExecutionError("GET " + path, "HTTP 403")
+            document = self.versions.pop(0)
+            inner = document.get("data", document)
+            self.last = inner["instance"]["id"]
+            return document
+        if path != "/api/v1/studio/content-items/item/versions/version":
+            raise AssertionError(path)
+        if not self.saved_read:
+            # check_map's own saved-map proof comes first; the re-reads follow.
+            self.saved_read, self.last = True, None
+            return copy.deepcopy(self.SAVED)
+        index = self.map_reads
+        self.map_reads += 1
+        self.last = self.instances[index % len(self.instances)]
+        body = self.bodies[index] if index < len(self.bodies) else None
+        return copy.deepcopy(body or self.SAVED)
+
+    def response_header(self, name):
+        assert name == "Honua-Instance"
+        return self.last
+
+
 def engine(target, transport):
     observation = stages.Observation(setup_view_present=True, setup_discovery={"tools": [], "metadata": {}})
     return executor.JourneyExecutor({"workspaceId": "workspace"}, target, observation, transport)
@@ -271,7 +311,9 @@ class CloudExecutionTests(unittest.TestCase):
             run.resources.update(itemId="item", versionId="version", contentHash="hash")
             transport.get_json.return_value = {"itemId": "item", "versionId": "version", "contentHash": "hash",
                                                "envelope": {"family": "map", "body": {}}}
-            with mock.patch.object(executor, "Transport") as replica:
+            # A candidate without honua-server#5790 stamps no Honua-Instance header on any read.
+            with mock.patch.object(executor, "Transport") as replica, \
+                    mock.patch.object(executor, "REPLICA_READ_DELAY_SECONDS", 0):
                 run.check_map()
             # A same-endpoint re-read proves nothing about another replica, so none is sent.
             replica.assert_not_called()
@@ -295,6 +337,67 @@ class CloudExecutionTests(unittest.TestCase):
                                                  "envelope": {"family": "map", "body": {}}}
         local.check_map()
         self.assertEqual(local.evidence["checks"]["6"]["replica-map"]["blockedBy"], [stages.JOURNEY_DRIVER])
+
+    def _replica_run(self, instances, *, manifest=None, bodies=None, versions=()):
+        transport = _CellReads(instances, bodies=bodies, versions=versions)
+        observation = stages.Observation(setup_view_present=True, setup_discovery={"tools": [], "metadata": {}})
+        run = executor.JourneyExecutor({"workspaceId": "workspace"}, cloud("aws-ecs", transport.base_url),
+                                       observation, transport, manifest=manifest)
+        run.fixture = {"mapBody": {}}
+        run.resources.update(itemId="item", versionId="version", contentHash="hash")
+        with mock.patch.object(executor, "Transport") as replica, \
+                mock.patch.object(executor, "REPLICA_READ_DELAY_SECONDS", 0):
+            run.check_map()
+        replica.assert_not_called()
+        self.assertEqual(run.evidence["checks"]["6"]["saved-map"]["status"], "pass")
+        return run.evidence["checks"]["6"]["replica-map"], transport, run
+
+    def test_cloud_replica_read_passes_when_two_instances_answer_and_agree_with_the_write(self):
+        versions = [{"instance": {"id": "task-b", "source": "aws-ecs-task"}},
+                    {"data": {"instance": {"id": "task-a", "source": "aws-ecs-task"}}}]
+        row, transport, run = self._replica_run(["task-a", "task-a", "task-b"], versions=versions)
+        self.assertEqual(row["status"], "pass")
+        self.assertEqual(transport.map_reads, 3)   # stops once a second instance has answered
+        self.assertIn("answered by 2 instances: task-a (aws-ecs-task), task-b (aws-ecs-task)", row["detail"])
+        self.assertIn("3 re-reads", row["detail"])
+        self.assertEqual(run.evidence["proofs"]["replica-map"]["instances"], [
+            {"id": "task-a", "source": "aws-ecs-task"}, {"id": "task-b", "source": "aws-ecs-task"}])
+        self.assertEqual(transport.version_principals, ["operator", "operator"])
+        # Without a readable admin version the ids still prove the read; the source is unobserved.
+        row, _, _ = self._replica_run(["lambda-1", "lambda-2"])
+        self.assertEqual(row["status"], "pass")
+        self.assertIn("lambda-1 (unobserved), lambda-2 (unobserved)", row["detail"])
+
+    def test_cloud_replica_read_with_one_instance_is_blocked_on_the_topology(self):
+        row, transport, run = self._replica_run(["task-a"])
+        self.assertEqual(row["status"], "blocked")
+        self.assertEqual(transport.map_reads, executor.REPLICA_READS)
+        self.assertTrue(row["detail"].startswith("topology served one instance: task-a (8 re-reads"))
+        self.assertEqual(row["blockedBy"], [local_fixture.REPLICA_SINGLE_INSTANCE])
+        self.assertNotIn("honua-server", row["blockedBy"][0])
+        self.assertEqual(run.result(6).status, "blocked")
+
+    def test_cloud_replica_read_without_the_header_is_blocked_on_the_server_naming_the_pin(self):
+        sha = "93cad86ec" + "0" * 31
+        row, transport, _ = self._replica_run([None], manifest={"components": {"honua-server": {"sha": sha}}})
+        self.assertEqual(row["status"], "blocked")
+        self.assertEqual(transport.map_reads, executor.REPLICA_READS)
+        self.assertTrue(row["detail"].startswith(local_fixture.REPLICA_UNPROVABLE_REASON))
+        self.assertIn(f"honua-server#5790 is not in the pinned candidate {sha}", row["detail"])
+        self.assertEqual(row["blockedBy"], [local_fixture.REPLICA_SERVER_NEED])
+        self.assertIn("honua-server#5790", row["blockedBy"][0])
+
+    def test_cloud_replica_read_fails_on_a_stale_read_a_partial_header_or_a_malformed_id(self):
+        stale = {"itemId": "item", "versionId": "version", "contentHash": "other",
+                 "envelope": {"family": "map", "body": {}}}
+        row, _, _ = self._replica_run(["task-a", "task-b"], bodies=[None, stale])
+        self.assertEqual(row["status"], "fail")
+        row, _, _ = self._replica_run(["task-a", None])
+        self.assertEqual(row["status"], "fail")
+        self.assertIn("carried no Honua-Instance header while others did", row["detail"])
+        row, _, _ = self._replica_run(["task a"])
+        self.assertEqual(row["status"], "fail")
+        self.assertIn("not a bounded instance id", row["detail"])
 
     def test_cloud_datasource_resolves_references_in_memory_and_blocks_when_missing(self):
         run = engine(cloud(), mock.Mock(credentials={}))
