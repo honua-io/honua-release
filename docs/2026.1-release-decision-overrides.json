@@ -248,7 +248,207 @@
       "ruling": "The Helm chart on Amazon EKS (x86_64) is a 2026.1 GA target, qualification pending: owner decisions 12 (EKS in rc.3 scope) and 18 (GP on Kubernetes job runners; full EKS cell after the ECS/Lambda final run). The aws-eks x Redis off/on cells are required cells of the cloud matrix and the journey receipt gate. This supersedes R31's 'Helm/EKS remain Preview' for EKS only; Helm on other Kubernetes distributions stays Preview.",
       "effect": "honua-release#203 moves to release/2026.1 and the first bucket. The platform manifest, compatibility matrix (deploy.honua-helm.awsEks) and operating envelope record the GA target. Promotion readiness still requires only the four ECS/Lambda cells until the owner decides whether it also requires the EKS cells and EKS update/rollback evidence.",
       "moved": [],
-      "basis": "Owner decisions recorded 2026-10-10 (round 2), quoted on honua-release#203"
+      "basis": "Owner decisions recorded 2026-10-10 (round 2), quoted on honua-release#203",
+      "progress": {
+        "date": "2026-10-11",
+        "evidence": "GP on Kubernetes job runners: honua-helm#98 merged (geoprocessing.kubernetesJobs.* values, job service account and RBAC; a kind smoke dispatched geometry.buffer as a batch/v1 Job) and honua-helm#99 merged (envFrom the runtime Secret and config ConfigMap); honua-server#5796 merged (Kubernetes Job envFrom/secretKeyRef/configMapKeyRef, ControlPlane:Kubernetes:DefaultEnvFromSecrets). honua-release#522 and #529 run the aws-eks cells with Pod Identity wiring. Root cause of the earlier EKS reds (run 38057015781): the release guardrail denies iam:CreateOpenIDConnectProvider and roles outside honuaeks*; honua-iac#233 (Pod Identity, honuaeks* names, RDS+PostGIS, ElastiCache, outputs) is green and not merged.",
+        "open": "honua-iac#233 lands after the ECS/Lambda final run; GP Job completion in the chart needs a pinned server with honua-server#5780 and #5796; no aws-eks run has passed on the current pins; whether promotion readiness requires the EKS cells is still an owner question."
+      }
+    },
+    "instance-identity-2026-10-10": {
+      "date": "2026-10-10",
+      "authority": "https://github.com/honua-io/honua-release/issues/376",
+      "owner": "Mike McDougall (release owner)",
+      "ruling": "honua-server exposes a per-instance identity so the journey can prove a cross-replica read; the harness consumes it.",
+      "effect": "Recorded during the rc.3 certification cycle; it places no issue in a different bucket.",
+      "moved": [],
+      "basis": "Owner decision 2 recorded 2026-10-10 (~18:30Z, round 1) during the rc.3 certification cycle",
+      "evidence": "honua-server#5790 merged (Honua-Instance response header; instance{id,source,startedAt} on /api/v1/admin/version and admin.server.status); honua-release#530 reads the header in check 6.replica-map; honua-release#535 runs the Redis-on ECS cell on two tasks. Run 38110106995 (server 93cad86ec, one ECS task) recorded 6.replica-map blocked \"topology served one instance\"; Lambda run 38107383082 recorded the same.",
+      "open": "No run has yet observed two distinct instance ids; the first ECS run with honua-release#535 is pending."
+    },
+    "site-gp-demo-refusal-wording-2026-10-10": {
+      "date": "2026-10-10",
+      "authority": "https://github.com/honua-io/honua-release/issues/376",
+      "owner": "Mike McDougall (release owner)",
+      "ruling": "The honua-site geoprocessing demo headline reflects the typed Redis-off refusal instead of claiming a live execution, and the release manifest re-pins honua-site.",
+      "effect": "Recorded during the rc.3 certification cycle; it places no issue in a different bucket.",
+      "moved": [],
+      "basis": "Owner decision 3 recorded 2026-10-10 (~18:30Z, round 1) during the rc.3 certification cycle",
+      "evidence": "honua-site#295 (SDK versions regenerated, site validate green) and honua-site#294 merged (site trunk b024902e2: headline and pill \"execution refused \u00b7 503 job store\"); honua-release#514 makes S9-demos-geoprocessing on a confirmed Redis-off cell pass only on the server typed 503.",
+      "open": "The honua-site pin in platform-manifest.yaml has not been advanced to b024902e2 yet."
+    },
+    "leftover-rds-deleted-2026-10-10": {
+      "date": "2026-10-10",
+      "authority": "https://github.com/honua-io/honua-release/issues/376",
+      "owner": "Mike McDougall (release owner)",
+      "ruling": "The leftover e2e RDS instance honuanawsec365606-it-postgres (created 2026-09-29 by a cell whose teardown failed) is deleted.",
+      "effect": "Recorded during the rc.3 certification cycle; it places no issue in a different bucket.",
+      "moved": [],
+      "basis": "Owner decision 4 recorded 2026-10-10 (~18:30Z, round 1) during the rc.3 certification cycle",
+      "evidence": "Deletion protection was on, which is why its teardown failed; it was disabled and the instance deleted with --skip-final-snapshot --delete-automated-backups. A read-only inventory at ~18:45Z on 2026-10-10 showed only the standing honua-cert-cert-postgres."
+    },
+    "rds-security-group-standalone-rules-2026-10-10": {
+      "date": "2026-10-10",
+      "authority": "https://github.com/honua-io/honua-release/issues/376",
+      "owner": "Mike McDougall (release owner)",
+      "ruling": "The RDS security group in the serverless module uses standalone rules only, with no inline plus standalone mix that can flap on re-apply.",
+      "effect": "Recorded during the rc.3 certification cycle; it places no issue in a different bucket.",
+      "moved": [],
+      "basis": "Owner decision 5 recorded 2026-10-10 (~18:30Z, round 1) during the rc.3 certification cycle",
+      "evidence": "honua-iac#231 merged (b8fae26); its module README carries the upgrade note that existing deployments import the two rule sets. Pinned by honua-release#523 and later pins.",
+      "open": "Existing deployments must import the rule sets before applying (operator step, documented in the module README)."
+    },
+    "settings-document-2026-10-10": {
+      "date": "2026-10-10",
+      "authority": "https://github.com/honua-io/honua-release/issues/376",
+      "owner": "Mike McDougall (release owner)",
+      "ruling": "honua-server reads one JSON settings document from Secrets Manager so Lambda settings leave the 4 KB environment; honua-iac follows.",
+      "effect": "Recorded during the rc.3 certification cycle; it places no issue in a different bucket.",
+      "moved": [],
+      "basis": "Owner decision 6 recorded 2026-10-10 (~18:30Z, round 1) during the rc.3 certification cycle",
+      "evidence": "honua-server#5789 merged (ca8f711a1): HONUA_SETTINGS_DOCUMENT=aws:secretsmanager:<id>, precedence appsettings < document < environment < command line, fail-closed. Meanwhile honua-iac#230 measures the Lambda environment and keeps it under 4096 bytes (all-features case 3981 bytes, 4030 after honua-iac#237).",
+      "open": "Not yet in a pinned server image (pin 93cad86ec); the honua-iac change that moves Lambda settings into the document has not started."
+    },
+    "https-redirect-2026-10-10": {
+      "date": "2026-10-10",
+      "authority": "https://github.com/honua-io/honua-release/issues/376",
+      "owner": "Mike McDougall (release owner)",
+      "ruling": "examples/aws exposes alb_enable_http_redirect, the harness turns it on for HTTPS ECS cells, and a canary probe asserts the 80 to 443 redirect.",
+      "effect": "Recorded during the rc.3 certification cycle; it places no issue in a different bucket.",
+      "moved": [],
+      "basis": "Owner decision 7 recorded 2026-10-10 (~18:30Z, round 1) during the rc.3 certification cycle",
+      "evidence": "honua-iac#231 (examples/aws passthrough) and honua-release#517 (alb_enable_http_redirect=true on HTTPS ECS cells; https-redirect canary probe expecting 301/308, blocked on non-ALB cells). ECS runs 38102577854 and 38110106995 on pins carrying both completed with every job green, cloud-report included."
+    },
+    "idempotent-journey-attempts-2026-10-10": {
+      "date": "2026-10-10",
+      "authority": "https://github.com/honua-io/honua-release/issues/376",
+      "owner": "Mike McDougall (release owner)",
+      "ruling": "Cloud journey attempts are idempotent: attempt N removes or recreates the connection and style that attempt N-1 created.",
+      "effect": "Recorded during the rc.3 certification cycle; it places no issue in a different bucket.",
+      "moved": [],
+      "basis": "Owner decision 8 recorded 2026-10-10 (~18:30Z, round 1) during the rc.3 certification cycle",
+      "evidence": "honua-release#517 deletes and recreates the journey_source connection and the journey-solid-red style before a retry.",
+      "open": "Known gap: a retry after a stage-3 pass meets the published journey service and the connection delete returns 409 (run 38091905679). On Lambda the second attempt also blocks at check 1.5 on the proxy session (runs 38096878211, 38107383082), which the MCP shared-session fix (honua-server#5629) addresses."
+    },
+    "cost-meter-2026-10-10": {
+      "date": "2026-10-10",
+      "authority": "https://github.com/honua-io/honua-release/issues/376",
+      "owner": "Mike McDougall (release owner)",
+      "ruling": "Cloud runs carry a real cost meter: cell resources are tagged by run id, Cost Explorer actuals (lagging) and a live resource-hour estimate are recorded, and the per-run ceiling is enforced at the next run.",
+      "effect": "Recorded during the rc.3 certification cycle; it places no issue in a different bucket.",
+      "moved": [],
+      "basis": "Owner decision 9 recorded 2026-10-10 (~18:30Z, round 1) during the rc.3 certification cycle",
+      "evidence": "honua-release#519 merged (run-id, cell and ceiling tags through root tags; e2e/cost_meter.py with cost-prices.json; a Cost Explorer settled-spend gate for earlier runs). Before it, teardown recorded cost.status=unavailable (honua-release#506) because no harness meter existed.",
+      "open": "Owner step: activate the cost-allocation tag honua-release:run-id in Billing after the first tagged run bills. honua-iac gap: the ECS service and the Batch job definition do not propagate tags."
+    },
+    "production-policy-built-in-rules-2026-10-10": {
+      "date": "2026-10-10",
+      "authority": "https://github.com/honua-io/honua-release/issues/376",
+      "owner": "Mike McDougall (release owner)",
+      "ruling": "The Production operation-policy default changes: built-in explicit rules allow admin-role callers and deny everyone else, so a Production install works without operator rules; the startup validator keeps its fail-closed semantics.",
+      "effect": "Recorded during the rc.3 certification cycle; it places no issue in a different bucket.",
+      "moved": [],
+      "basis": "Owner decision 10 recorded 2026-10-10 (~19:00Z, round 2) during the rc.3 certification cycle",
+      "evidence": "Root cause from run 38066103745: cells run ASPNETCORE_ENVIRONMENT=Production, whose appsettings enable Operations:Policy with DefaultDecision Deny and no rules, so service.publish returned Denied (\"Operations require an explicit production policy rule.\"). honua-server#5793 merged (596974d36): operator rules, then admin, then scoped-admin-key, then the Deny default; opt-out Operations:Policy:BuiltInProductionRules=false. Until it is pinned the cells pass explicit rules (honua-release#517 with honua-iac#231 operations_policy_rules); with them stage 3 passed on ECS Redis-on (run 38091905679) and on Lambda Redis-on (run 38096878211).",
+      "open": "Not yet in a pinned server image (pin 93cad86ec)."
+    },
+    "serverless-custom-domains-2026-10-10": {
+      "date": "2026-10-10",
+      "authority": "https://github.com/honua-io/honua-release/issues/376",
+      "owner": "Mike McDougall (release owner)",
+      "ruling": "The serverless root gets custom domains (API Gateway domain, managed ACM certificate and Route53 alias, with the same inputs as the ECS root); the harness passes the per-run hostname and S9 runs on all four cells.",
+      "effect": "Recorded during the rc.3 certification cycle; it places no issue in a different bucket.",
+      "moved": [],
+      "basis": "Owner decision 11 recorded 2026-10-10 (~19:00Z, round 2) during the rc.3 certification cycle",
+      "evidence": "honua-iac#232 merged (custom-domain.tf) and honua-iac#235 merged (the server is the single CORS source); honua-release#524 passes the per-run domain; honua-release#528 and #536 pin them. Run 38099175519 provisioned both Lambda cells on <run>-aws-serverless-redis-<mode>.cert.demo.honua.io. Run 38107383082, before honua-iac#235 was pinned, still failed S9 on the geoprocessing and editing lanes.",
+      "open": "Owner item at lane-role activation: bootstrap/aws-release-cells grants no ACM or Route53 to the cell lanes (ECS and Lambda domains)."
+    },
+    "release-bootstraps-applied-2026-10-10": {
+      "date": "2026-10-10",
+      "authority": "https://github.com/honua-io/honua-release/issues/376",
+      "owner": "Mike McDougall (release owner)",
+      "ruling": "Both release bootstraps are applied (bootstrap/aws-release-cells, and bootstrap/aws-exec-identity for env=release) and the GitHub environment terraform-live-approval exists; activation is a separate step.",
+      "effect": "Recorded during the rc.3 certification cycle; it places no issue in a different bucket.",
+      "moved": [],
+      "basis": "Owner decision 13 recorded 2026-10-10 (~19:00Z, round 2) during the rc.3 certification cycle",
+      "evidence": "aws-release-cells applied 14 added, 0 changed, 0 destroyed (roles honua-release-cell-{provision,reaper,mirror} and honua-release-approver, guardrail and workload-boundary policies). aws-exec-identity applied 9 added (role honua-release-deploy, KMS HMAC key alias/honua-release-approval-mac, generate and verify policies). Environment terraform-live-approval has a required reviewer and prevents self-review. Repo variables HONUA_DEVOPS_PROVISION_APPROVAL_ISSUER_KEY_ARNS and HONUA_DEVOPS_PROVISION_APPROVAL_SIGNING_MODE=kms-mac are set. Each apply followed a saved plan and every resource is recorded; state is kept locally.",
+      "open": "Not activated: workflows still use honua-release-cicd; environments aws-cell-provision, aws-cell-reaper, aws-cell-mirror and aws-release-deploy do not exist; the cell policy needs EKS, ACM and Route53 grants and the file-storage bucket before activation; the live GenerateMac/VerifyMac proof (honua-devops#175) is pending."
+    },
+    "release-secrets-and-variables-2026-10-10": {
+      "date": "2026-10-10",
+      "authority": "https://github.com/honua-io/honua-release/issues/376",
+      "owner": "Mike McDougall (release owner)",
+      "ruling": "The remaining release secrets and variables are created by the orchestrator; names are recorded, never values.",
+      "effect": "Recorded during the rc.3 certification cycle; it places no issue in a different bucket.",
+      "moved": [],
+      "basis": "Owner decision 14 recorded 2026-10-10 (~19:00Z, round 2) during the rc.3 certification cycle",
+      "evidence": "Kept as set on 2026-10-09: secret TERMINAL_MODEL_TRANSCRIPT_SIGNING_SEED and variable TERMINAL_MODEL_SIGNING_MANIFEST_SHA256. Created: Secrets Manager secrets honua-release/cert/operation-key-ring and honua-release/cert/audit-chain-key with repo variables HONUA_AWS_OPERATION_KEY_RING_SECRET_ARN and HONUA_AWS_AUDIT_CHAIN_KEY_SECRET_ARN; HONUA_AWS_CELL_DNS_ZONE_ID and HONUA_AWS_CELL_DNS_PARENT; HONUA_AWS_CELL_FILE_STORAGE_BUCKET (bucket honua-release-cell-file-storage-585192672263).",
+      "open": "Not recorded as created: the Bedrock role variable for the canary and the honua-sdk-js scheduled-certification inputs (K2). Owner item: the CI role guardrail CertificationRegionOnly denies the Sonnet 4.5 foundation-model ARNs in us-east-2 and us-west-2 that the us. inference profile can route to."
+    },
+    "installed-clients-interop-fix-unit-2026-10-10": {
+      "date": "2026-10-10",
+      "authority": "https://github.com/honua-io/honua-release/issues/376",
+      "owner": "Mike McDougall (release owner)",
+      "ruling": "The gate-installed-clients cell interop-proposal-approval becomes a fix unit: the server returns the governed-path publication request id and a recomputable content hash, and the harness follows.",
+      "effect": "Recorded during the rc.3 certification cycle; it places no issue in a different bucket.",
+      "moved": [],
+      "basis": "Owner decision 15 recorded 2026-10-10 (~19:00Z, round 2) during the rc.3 certification cycle",
+      "evidence": "honua-release#521 merged (request id from the 202 handle resourceIds.requestId; the content check needs agreement and a recomputable hash; gate run 38083603497 = 27 pass, 8 blocked, the cell blocked rather than red). honua-server#5788 was opened for the missing publicationUrl. honua-server#5794 merged (publicationUrl on the publish-request read, contentHashInput, migration 126). honua-sdk-dotnet#425 merged (ContentHashInput, PublicationUrl).",
+      "open": "Blocked until a server image with honua-server#5794 and an sdk-dotnet build with #425 are pinned; published-url also waits on honua-sdk-dotnet#411; honua-server#5449 stays open until the pinned server proves it."
+    },
+    "gate-exceptions-2026-10-10": {
+      "date": "2026-10-10",
+      "authority": "https://github.com/honua-io/honua-release/issues/376",
+      "owner": "Mike McDougall (release owner)",
+      "ruling": "Gate exceptions: fix the sdk-dotnet SSH.NET advisory behind #102 and the docs floor behind #100 now; the upgrade exception (#226) stays until the update/rollback proof runs in the burn window.",
+      "effect": "Recorded during the rc.3 certification cycle; it places no issue in a different bucket.",
+      "moved": [],
+      "basis": "Owner decision 16 recorded 2026-10-10 (~19:00Z, round 2) during the rc.3 certification cycle",
+      "evidence": "The contract exception was removed by honua-release#518 (the OpenAPI breaking-change window was already closed: OPENAPI_ALLOW_BREAKING_CHANGES=false, honua-release#71 closed). The docs exception (#100) was removed by honua-release#533 after check_ga_surface passed on the live evidence matrix; honua-server#5805 adds the GaSurfaceProvingTestFloorTests guard. For #102 no PR was needed: honua-sdk-dotnet trunk 6815834 already carries SSH.NET 2026.0.0 (GHSA-q939-rpr3-3284 fixed since honua-sdk-dotnet#299).",
+      "open": "#102 clears when the resolver selects honua-sdk-dotnet 6815834 or later (honua-release#482); the cloud-parity (#103) and upgrade (#226) exceptions remain."
+    },
+    "release-candidate-channel-tag-2026-10-10": {
+      "date": "2026-10-10",
+      "authority": "https://github.com/honua-io/honua-release/issues/376",
+      "owner": "Mike McDougall (release owner)",
+      "ruling": "The release-candidate channel tag is ghcr.io/honua-io/honua-server:2026.1-rc now and :2026.1 at GA; each mint publishes or moves 2026.1-rc to the certified lock.",
+      "effect": "Amends the continuous-certification channel rule (honua-release#386) for the release-candidate channel only: the mint moves 2026.1-rc, and promotion alone still moves :2026.1, :stable and the other public channels. Locks never contain channel tags.",
+      "moved": [],
+      "basis": "Owner decision 17 recorded 2026-10-10 (~19:00Z, round 2) during the rc.3 certification cycle",
+      "open": "Not implemented: no mint step publishes 2026.1-rc yet (honua-release#57, #386)."
+    },
+    "install-manifest-rebinds-at-mint-2026-10-10": {
+      "date": "2026-10-10",
+      "authority": "https://github.com/honua-io/honua-release/issues/376",
+      "owner": "Mike McDougall (release owner)",
+      "ruling": "customer-install-manifest.json is rebound only when rc.3 mints; it is never hand-edited to follow a hand re-pin.",
+      "effect": "Recorded during the rc.3 certification cycle; it places no issue in a different bucket.",
+      "moved": [],
+      "basis": "Owner decision 19 recorded 2026-10-10 (~19:00Z, round 2) during the rc.3 certification cycle",
+      "evidence": "The file stayed on its #416 rehearsal binding through the hand re-pins honua-release#498, #508 and #520.",
+      "open": "Rebinding happens with the first certified lock (honua-release#57)."
+    },
+    "redis-off-direct-admin-publish-2026-10-10": {
+      "date": "2026-10-10",
+      "authority": "https://github.com/honua-io/honua-release/issues/376",
+      "owner": "Mike McDougall (release owner)",
+      "ruling": "On Redis-off, a direct service.publish by an admin-role caller executes without the proposal store; governed and proposal publication keep the typed refusal.",
+      "effect": "Narrows the Redis-off topology ruling (2026-10-08) and its stage-3 extension: once the pinned server carries it, stage 3 on a Redis-off cell executes for the admin operator, so stages 4 and 6-8 get a published layer. Stages that need the governed control plane keep the typed-refusal pass rule. It places no issue in a different bucket.",
+      "moved": [],
+      "basis": "Owner decision 20 recorded 2026-10-10 (~20:40Z) during the rc.3 certification cycle",
+      "evidence": "Redis-off cells could not finish the journey with stage 3 ruled (runs 38091905679 and 38091910280: stages 4 and 6-8 blocked on the unpublished layer). honua-server#5792 merged (455ac48e3): service.publish only is recorded in memory for the request and policy decides (Allow executes with durable:false; Deny returns a Denied handle; RequireApproval returns the typed Redis refusal); Studio publication requests, honua_admin_* and apply-style keep the refusal.",
+      "open": "Not yet in a pinned server image (pin 93cad86ec); the combination with the built-in Production rules (honua-server#5793) is untested."
+    },
+    "customer-domains-2026-10-11": {
+      "date": "2026-10-11",
+      "authority": "https://github.com/honua-io/honua-release/issues/376",
+      "owner": "Mike McDougall (release owner)",
+      "ruling": "The product works on any customer FQDN: when a domain is configured the modules set Public__BaseUrl=https://<domain_name> (overridable with public_base_url) and the server builds absolute links from Public:BaseUrl, never from a honua.io assumption; *.cert.demo.honua.io names belong to the certification cells only.",
+      "effect": "Recorded during the rc.3 certification cycle; it places no issue in a different bucket.",
+      "moved": [],
+      "basis": "Owner instruction recorded 2026-10-11 (~03:00Z): many customers will have different URLs; never assume honua.io",
+      "evidence": "honua-iac#236 merged (6e186d6c0: Public__BaseUrl on ECS main and canary tasks, Lambda and the EKS chart_config_env; public_base_url with scheme validation; xn-- TLDs; Azure roots gain public_base_url and additional_allowed_hosts; example READMEs use gis.example.com), pinned by honua-release#536 (honua-iac e0dabe7). honua-server#5806 merged (dfd13977d: the WFS 1.0 OnlineResource is the deployment URL; \"Serve Honua on your own domain\" doc). The audit classed problem-type URIs, XML namespaces and schema ids as fine, and cert.demo fixtures, demo smoke and the site CSP as certification-only.",
+      "open": "Run 38116311885, the first on honua-iac e0dabe7, was in progress when this was recorded. A customer-domain smoke needs a second, non-honua.io hosted zone. The provider site/contact https://honua.io in WCS/WFS capability metadata should become configurable. The server silently ignores a Public:BaseUrl without a scheme."
     }
   },
   "security_findings": [

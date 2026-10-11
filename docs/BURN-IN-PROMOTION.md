@@ -60,7 +60,10 @@ reasonCode: stages 5-8 under owner decision 3 (2026-10-08) and stage 3 (publish-
 2026-10-10 extension. The receipt schema enforces this per stage (`topologyRefusal`, Redis-off targets
 only, stages 3 and 5-8 only), so the checker reads it from the cell's `pass` status. Redis-on cells
 must execute every stage. On a Production Redis-off cell stages 4 and 6-8 still have no published
-layer and stay blocked, so that cell does not yet pass.
+layer and stay blocked, so that cell does not yet pass. Owner decision 20 (2026-10-10) lets an
+admin-role caller's direct `service.publish` execute on Redis-off (honua-server#5792); once a lock
+carries it, stage 3 on a Redis-off cell must execute for the admin operator, stage 4 must execute,
+and only the stages that need the governed control plane keep the typed-refusal rule.
 
 Each required journey cell passes within two attempts. A cell records `mode`, `attemptCount` and the
 complete ordered `attempts` array. Every attempt records its consecutive number, completion time,
@@ -72,6 +75,19 @@ honua-release#203), but this promotion contract still counts only the four ECS/L
 also requires the EKS cells and EKS update/rollback evidence is an open owner question. Until then an
 EKS pass cannot replace ECS/Lambda evidence, and promotion says nothing about EKS. The journey producers enforce
 the per-run cost ceiling before teardown; a run over the ceiling fails and tears down.
+
+The cost reading is cell evidence, not a promotion class (owner decision 9, honua-release#519). Each
+cell's gate report carries `cost`, the run carries `finalCost`, and earlier runs appear under
+`priorRunCosts`: a live resource-hour estimate from the cell's Terraform state priced by
+`e2e/cost-prices.json`, and the Cost Explorer actual for earlier runs grouped by the
+`honua-release:run-id` tag once it is settled. A missing, stale, wrong-run or over-ceiling reading
+fails the run. The Cost Explorer half reports `tag-not-activated` until the owner activates the
+cost-allocation tags; see [Cost evidence](../e2e/README.md#cost-evidence-owner-decision-9-2026-10-10).
+
+Every cell is reached on its own HTTPS name. Certification cells use per-run names under
+`*.cert.demo.honua.io`; that is a certification artefact. The product must work on any customer
+FQDN, with `Public__BaseUrl` derived from the module's `domain_name` (ruling
+`customer-domains-2026-10-11`), so no journey check may assume a honua.io host.
 
 ## Canary coverage and promotion time
 
