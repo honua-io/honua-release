@@ -103,11 +103,21 @@ class TfTargetSpec:
     migrate_image_env: str = ""
     # honua-release#450: give the cell a per-run HTTPS hostname under the account's public hosted
     # zone (domain_name + route53_zone_id: the module issues an ACM certificate, validates it in that
-    # zone and aliases the name to the ALB), so the pinned honua CLI/MCP proxy accept the endpoint
-    # (HTTPS-only for credentials) and the reviewed demo CSP admits it (https://*.honua.io). Only when
-    # both CELL_DNS_ZONE_ENV and CELL_DNS_PARENT_ENV are set; otherwise the cell keeps its plain-HTTP
-    # ALB endpoint, unchanged.
+    # zone and aliases the name to the ALB, or to the API Gateway regional custom domain on the
+    # serverless root), so the pinned honua CLI/MCP proxy accept the endpoint (HTTPS-only for
+    # credentials) and the reviewed demo CSP admits it (https://*.honua.io). Only when both
+    # CELL_DNS_ZONE_ENV and CELL_DNS_PARENT_ENV are set; otherwise the cell keeps its default
+    # endpoint (the plain-HTTP ALB, or the execute-api URL), unchanged.
     cell_domain: bool = False
+    # The root inputs the domain path sets. A root that lacks any of them refuses provisioning when
+    # the DNS variables are set, unless cell_domain_optional_on_root: then an older iac pin whose
+    # root predates the inputs simply keeps its default endpoint (the serverless root gained them in
+    # honua-iac#232, after the release account's DNS variables were already set).
+    cell_domain_inputs: tuple[str, ...] = ("domain_name", "route53_zone_id", "allow_https_ingress_cidrs")
+    cell_domain_optional_on_root: bool = False
+    # The HTTPS cell serves an ALB redirect-only listener on port 80 (owner decision 8 of 2026-10-10).
+    # Load-balancer cells only: the serverless root has no ALB and no alb_enable_http_redirect.
+    alb_http_redirect: bool = False
     # Browser origins the cell must answer CORS for, passed as cors_allowed_origins when the pinned
     # root declares it (honua-iac fix unit C4 renders them as Cors__AllowedOrigins__<n>).
     cors_allowed_origins: tuple[str, ...] = ()
@@ -354,6 +364,9 @@ class TerraformTarget(DeployTarget):
         """
         if not self.spec.cell_domain:
             return None
+        if self.spec.cell_domain_optional_on_root and not all(
+                self._root_declares(v) for v in self.spec.cell_domain_inputs):
+            return None
         zone = os.environ.get(CELL_DNS_ZONE_ENV, "").strip()
         parent = os.environ.get(CELL_DNS_PARENT_ENV, "").strip().lower().rstrip(".")
         if not zone and not parent:
@@ -378,8 +391,7 @@ class TerraformTarget(DeployTarget):
             raise
         if domain is None:
             return []
-        undeclared = [v for v in ("domain_name", "route53_zone_id", "allow_https_ingress_cidrs")
-                      if not self._root_declares(v)]
+        undeclared = [v for v in self.spec.cell_domain_inputs if not self._root_declares(v)]
         if undeclared:
             if destroy:
                 return []
@@ -391,16 +403,17 @@ class TerraformTarget(DeployTarget):
         # to its HTTPS listener (the security-headers canary asserts it). Only on this TLS path: a
         # plain-HTTP cell must not redirect to a port 443 that serves nothing. Passed only when the
         # pinned examples/aws root declares the variable (same name as the aws-ecs module input).
-        if self._root_declares("alb_enable_http_redirect"):
+        if self.spec.alb_http_redirect and self._root_declares("alb_enable_http_redirect"):
             values.append("-var=alb_enable_http_redirect=true")
         return values
 
     def https_redirect_expectation(self, redis_enabled: bool) -> tuple[bool, str]:
         """(expected, reason): whether this cell is an HTTPS load-balancer cell whose plain-HTTP
         listener must redirect to HTTPS. A cell that is not one says why, for a `blocked` canary row."""
-        if not self.spec.cell_domain:
-            return False, (f"{self.name} has no load-balancer HTTPS listener behind a custom domain, "
-                           "so no HTTP->HTTPS redirect is provisioned")
+        if not self.spec.cell_domain or not self.spec.alb_http_redirect:
+            return False, (f"{self.name} has no load-balancer HTTPS listener behind a custom domain "
+                           "(an API Gateway endpoint serves HTTPS only), so no HTTP->HTTPS redirect "
+                           "is provisioned")
         try:
             domain = self.cell_domain(redis_enabled)
         except ProvisionError as e:
@@ -491,8 +504,9 @@ class TerraformTarget(DeployTarget):
         if self.spec.cell_domain:
             domain = self.cell_domain(redis_enabled)
             if domain is None:
-                print(f"{self.name}: {CELL_DNS_ZONE_ENV}/{CELL_DNS_PARENT_ENV} unset; the cell keeps its "
-                      "plain-HTTP load balancer endpoint (no per-run HTTPS hostname, honua-release#450)",
+                print(f"{self.name}: {CELL_DNS_ZONE_ENV}/{CELL_DNS_PARENT_ENV} unset, or the pinned root "
+                      "has no domain inputs; the cell keeps its default endpoint (the plain-HTTP load "
+                      "balancer, or the execute-api URL; no per-run HTTPS hostname, honua-release#450)",
                       flush=True)
             else:
                 print(f"{self.name}: HTTPS cell hostname {domain[0]} (ACM DNS validation in the hosted "
@@ -836,6 +850,16 @@ SERVERLESS_SPEC = TfTargetSpec(
     # whenever a root would exceed the cap, so the key is no longer withheld on Redis-on cells.
     optional_env_vars=_AUDIT_CHAIN_KEY_ENV_VARS,
     migrate_image_env="HONUA_MIGRATE_IMAGE",
+    # honua-release#450 / honua-iac#232: the same per-run <label>.cert.<parent> HTTPS name as the
+    # ECS cells, served by an API Gateway regional custom domain (DNS-validated ACM certificate,
+    # $default stage mapping, Route53 alias; the module adds the name to HostValidation AllowedHosts)
+    # and returned by honua_url. Only when the pinned root declares domain_name and route53_zone_id:
+    # an older pin keeps its execute-api URL rather than refusing. No ALB, so no runner ingress
+    # input and no HTTP redirect.
+    cell_domain=True,
+    cell_domain_inputs=("domain_name", "route53_zone_id"),
+    cell_domain_optional_on_root=True,
+    cors_allowed_origins=(DEMO_SITE_ORIGIN,),
 )
 ECS_SPEC = TfTargetSpec(
     name="aws-ecs",
@@ -865,6 +889,7 @@ ECS_SPEC = TfTargetSpec(
     architecture_var="task_cpu_architecture",
     # honua-release#450: per-run HTTPS hostname and the demo pages' origin (top-demo, S9).
     cell_domain=True,
+    alb_http_redirect=True,
     cors_allowed_origins=(DEMO_SITE_ORIGIN,),
 )
 

@@ -341,7 +341,7 @@ and `CreateFunction` refused it (run 38046060497); honua-iac#230 (pinned from e2
 environment near 2.9 KB and fails the plan with the measured size whenever a root would exceed the
 cap, so the key is passed on both Redis modes.
 
-### Per-run HTTPS hostname and the demo CORS origin on the ECS cells (honua-release#450)
+### Per-run HTTPS hostname and the demo CORS origin on the ECS and Lambda cells (honua-release#450)
 The pinned `honua` CLI and `honua-mcp-proxy` refuse to send a credential over plain HTTP to any
 non-loopback host, so a journey against the ALB's `http://*.elb.amazonaws.com` endpoint stopped at
 stage 2 on every aws-ecs attempt (e2e-cloud-aws run 38038433205). The reviewed demo pages' CSP
@@ -387,7 +387,22 @@ to the provision and teardown steps, and the zone id to the admit step. The OIDC
 and Route53 write in that zone (`honua-release-cicd` has PowerUserAccess). With both variables unset
 (forks, other accounts) the cell keeps its plain-HTTP ALB endpoint and says so in the provision log.
 If only one is set, or a value is malformed, provisioning refuses. Destroy never refuses.
-aws-serverless has no custom-domain wiring yet; aws-eks uses the same variables (see the EKS cell section).
+aws-eks uses the same variables (see the EKS cell section).
+
+The aws-serverless cells use the same path (honua-iac#232). When the pinned `examples/aws-serverless`
+root declares both `domain_name` and `route53_zone_id`, `SERVERLESS_SPEC` passes the per-run name
+`<GITHUB_RUN_ID>-aws-serverless-redis-<on|off>.cert.<HONUA_AWS_CELL_DNS_PARENT>` and the zone id. The
+module issues a DNS-validated ACM certificate, creates a regional API Gateway custom domain mapped to
+the `$default` stage, writes the Route53 alias, and adds the name to `HostValidation__AllowedHosts`.
+The cell endpoint is read from `honua_url`, which is `https://<name>` in that case. A pin whose root
+predates those inputs keeps the execute-api URL rather than refusing, because the release account's
+DNS variables are already set. The demo CORS origin is passed whenever the root declares
+`cors_allowed_origins`. There is no ALB, so there is no runner ingress input, no admit step and never
+`alb_enable_http_redirect`, and the canary's `https-redirect` probe is `blocked` with that reason.
+Teardown runs the same read-only leftover check as the ECS cells: this cell's records and certificate
+must be gone. With an HTTPS honua.io endpoint the pinned demo CSP admits the backend, so `top-demo` (S9)
+runs on the Lambda cells too. The Redis-off geoprocessing demo still passes only on its typed refusal
+(#514).
 
 ### Cell readiness diagnostics (ECS, Lambda and EKS)
 Before destroying every `aws-ecs`, `aws-serverless` and `aws-eks` cell, the teardown job runs
