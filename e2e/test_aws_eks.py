@@ -214,19 +214,19 @@ def test_half_configured_cell_dns_refuses_provision_but_never_destroy(cell, monk
 
 # ---- chart values rendered from the root's outputs ---------------------------------------------------
 def test_chart_values_carry_the_root_rendered_server_environment(cell):
-    cell.root(outputs=(aws_eks.CHART_ENV_OUTPUT, aws_eks.SERVER_ROLE_OUTPUT))
+    cell.root(outputs=(aws_eks.CHART_ENV_OUTPUT,))
     _outputs(cell, chart_config_env={
         "ControlPlane__Kubernetes__DefaultNamespace": "honua-cert",
         "ControlPlane__Kubernetes__InClusterAutoDetect": True,
         "Operations__Policy__Rules__0__Role": "admin",
-    }, server_role_arn="arn:aws:iam::111111111111:role/honuaeksr-server")
+    })
     values = cell.chart_values(False)
     env = values["config"]["env"]
     assert env["ControlPlane__Kubernetes__DefaultNamespace"] == "honua-cert"
     assert env["ControlPlane__Kubernetes__InClusterAutoDetect"] == "true"
     assert env["Operations__Policy__Rules__0__Role"] == "admin"
     assert env["Cors__AllowedOrigins__0"] == tt.DEMO_SITE_ORIGIN
-    assert values["serviceAccount"]["annotations"][aws_eks.IRSA_ANNOTATION].endswith("honuaeksr-server")
+    assert "serviceAccount" not in values
     assert "geoprocessing" not in values and "service" not in values
 
 
@@ -245,15 +245,13 @@ def test_chart_values_refuse_anything_but_plain_environment_entries(cell, bad):
 
 
 def test_gp_runs_as_kubernetes_jobs_only_when_the_pinned_chart_declares_it(cell, monkeypatch):
-    cell.root(outputs=(aws_eks.GP_JOB_ROLE_OUTPUT,))
-    _outputs(cell, gp_job_role_arn="arn:aws:iam::111111111111:role/honuaeksr-gp-job")
     monkeypatch.setenv("HONUA_GP_BATCH_IMAGE", GP_IMAGE)
     assert "geoprocessing" not in cell.chart_values(False)
     cell.chart("geoprocessing:\n  kubernetesJobs:\n    enabled: false\n")
     jobs = cell.chart_values(False)["geoprocessing"]["kubernetesJobs"]
     assert jobs["enabled"] is True and jobs["namespace"] == aws_eks.NAMESPACE
     assert jobs["image"] == {"repository": "ghcr.io/honua-io/honua-server", "tag": "", "digest": "sha256:" + "b" * 64}
-    assert jobs["serviceAccount"]["annotations"][aws_eks.IRSA_ANNOTATION].endswith("gp-job")
+    assert "serviceAccount" not in jobs
 
 
 def test_a_chart_with_kubernetes_jobs_is_blocked_without_the_pinned_gp_image(cell):
@@ -487,3 +485,107 @@ def test_eks_diagnostics_admit_the_runner_and_redact(cell, monkeypatch):
     assert granted == [{"redis_enabled": True}]
     assert [s["title"] for s in report["sections"]] == ["pods", "events", "honua log tail", "jobs"]
     assert all(cell._db_password not in line for s in report["sections"] for line in s["lines"])
+
+
+# ---- workload identity (honua-iac#233): Pod Identity by default, IRSA only from the root's outputs ----
+SERVER_ROLE = "arn:aws:iam::111111111111:role/honuaeksr-server"
+JOB_ROLE = "arn:aws:iam::111111111111:role/honuaeksr-gp-job"
+IDENTITY_OUTPUTS = (aws_eks.WORKLOAD_IDENTITY_OUTPUT, aws_eks.NAMESPACE_OUTPUT, aws_eks.SERVER_SA_OUTPUT,
+                    aws_eks.GP_JOB_SA_OUTPUT, aws_eks.SERVER_ROLE_OUTPUT, aws_eks.GP_JOB_ROLE_OUTPUT,
+                    aws_eks.SERVER_SA_ANNOTATIONS_OUTPUT, aws_eks.GP_JOB_SA_ANNOTATIONS_OUTPUT)
+
+
+def _identity(cell, monkeypatch, mode, server_annotations, job_annotations, **overrides):
+    cell.root(outputs=IDENTITY_OUTPUTS)
+    cell.chart("geoprocessing:\n  kubernetesJobs:\n    enabled: false\n")
+    monkeypatch.setenv("HONUA_GP_BATCH_IMAGE", GP_IMAGE)
+    outputs = {
+        "workload_identity_mode": mode, "kubernetes_namespace": "honua-cert",
+        "server_service_account_name": "honua", "gp_job_service_account_name": "honua-gp-job",
+        "server_role_arn": SERVER_ROLE, "gp_job_role_arn": JOB_ROLE,
+        "server_service_account_annotations": server_annotations,
+        "gp_job_service_account_annotations": job_annotations,
+    }
+    outputs.update(overrides)
+    _outputs(cell, **outputs)
+
+
+def test_the_root_binds_its_workload_roles_to_the_charts_namespace_and_accounts(cell):
+    assert not {"kubernetes_namespace", "server_service_account_name",
+                "gp_job_service_account_name"} & set(_vars(cell._tf_vars(False)))
+    cell.root("kubernetes_namespace", "server_service_account_name", "gp_job_service_account_name")
+    values = _vars(cell._tf_vars(False))
+    assert values["kubernetes_namespace"] == aws_eks.NAMESPACE == "honua-cert"
+    assert values["server_service_account_name"] == "honua"
+    assert values["gp_job_service_account_name"] == "honua-gp-job"
+    # The destroy plans the same root, so it gets the same bindings.
+    assert _vars(cell._tf_vars(False, destroy=True))["kubernetes_namespace"] == "honua-cert"
+
+
+def test_pod_identity_puts_no_role_arn_annotation_on_either_service_account(cell, monkeypatch):
+    _identity(cell, monkeypatch, "pod_identity", {}, {})
+    values = cell.chart_values(False)
+    assert values["serviceAccount"] == {"name": "honua"}
+    assert values["geoprocessing"]["kubernetesJobs"]["serviceAccount"] == {"name": "honua-gp-job"}
+    assert aws_eks.IRSA_ANNOTATION not in json.dumps(values)
+    assert SERVER_ROLE not in json.dumps(values) and JOB_ROLE not in json.dumps(values)
+
+
+@pytest.mark.parametrize("which", ["server", "job"])
+def test_pod_identity_refuses_a_role_arn_annotation_from_the_root(cell, monkeypatch, which):
+    annotation = {aws_eks.IRSA_ANNOTATION: SERVER_ROLE if which == "server" else JOB_ROLE}
+    _identity(cell, monkeypatch, "pod_identity", annotation if which == "server" else {},
+              annotation if which == "job" else {})
+    with pytest.raises(ProvisionError, match="trusts no OIDC provider"):
+        cell.chart_values(False)
+
+
+def test_pod_identity_keeps_other_root_annotations(cell, monkeypatch):
+    _identity(cell, monkeypatch, "pod_identity", {"example.com/owner": "cert"}, {})
+    assert cell.chart_values(False)["serviceAccount"] == {
+        "name": "honua", "annotations": {"example.com/owner": "cert"}}
+
+
+def test_irsa_annotates_each_account_from_the_roots_outputs(cell, monkeypatch):
+    _identity(cell, monkeypatch, "irsa", {aws_eks.IRSA_ANNOTATION: SERVER_ROLE},
+              {aws_eks.IRSA_ANNOTATION: JOB_ROLE})
+    values = cell.chart_values(False)
+    assert values["serviceAccount"] == {"name": "honua", "annotations": {aws_eks.IRSA_ANNOTATION: SERVER_ROLE}}
+    assert values["geoprocessing"]["kubernetesJobs"]["serviceAccount"] == {
+        "name": "honua-gp-job", "annotations": {aws_eks.IRSA_ANNOTATION: JOB_ROLE}}
+
+
+@pytest.mark.parametrize("server_annotations", [{}, {aws_eks.IRSA_ANNOTATION: JOB_ROLE}])
+def test_irsa_refuses_a_missing_or_wrong_role_annotation(cell, monkeypatch, server_annotations):
+    _identity(cell, monkeypatch, "irsa", server_annotations, {aws_eks.IRSA_ANNOTATION: JOB_ROLE})
+    with pytest.raises(ProvisionError, match="under irsa"):
+        cell.chart_values(False)
+
+
+@pytest.mark.parametrize("override", [
+    {"kubernetes_namespace": "honua"},
+    {"server_service_account_name": "honua-server"},
+    {"gp_job_service_account_name": "gp"},
+])
+def test_a_binding_to_another_namespace_or_account_refuses_provisioning(cell, monkeypatch, override):
+    _identity(cell, monkeypatch, "pod_identity", {}, {}, **override)
+    with pytest.raises(ProvisionError, match="binds its workload role"):
+        cell.chart_values(False)
+
+
+@pytest.mark.parametrize("bad", [{"mode": "web"}, {"annotations": ["x"]}, {"annotations": {"a": 1}}])
+def test_malformed_identity_outputs_are_refused(cell, monkeypatch, bad):
+    _identity(cell, monkeypatch, bad.get("mode", "pod_identity"), bad.get("annotations", {}), {})
+    with pytest.raises(ProvisionError, match="workload_identity_mode|map of strings"):
+        cell.chart_values(False)
+
+
+def test_a_root_without_annotation_outputs_gets_no_service_account_values(cell, monkeypatch):
+    # Even with the role outputs declared, the harness never builds a role-arn annotation itself.
+    cell.root(outputs=(aws_eks.SERVER_ROLE_OUTPUT, aws_eks.GP_JOB_ROLE_OUTPUT))
+    cell.chart("geoprocessing:\n  kubernetesJobs:\n    enabled: false\n")
+    monkeypatch.setenv("HONUA_GP_BATCH_IMAGE", GP_IMAGE)
+    _outputs(cell, server_role_arn=SERVER_ROLE, gp_job_role_arn=JOB_ROLE)
+    values = cell.chart_values(False)
+    assert "serviceAccount" not in values
+    assert "serviceAccount" not in values["geoprocessing"]["kubernetesJobs"]

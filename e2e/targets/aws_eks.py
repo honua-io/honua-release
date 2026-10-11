@@ -28,7 +28,8 @@ Shape of one cell:
   3. helm upgrade --install of the manifest-pinned chart with the exact manifest-pinned image (by
      digest), `service.type=LoadBalancer`, and a values file rendered from the root's outputs: the
      server environment the root computed (`chart_config_env`: ControlPlane__Kubernetes__*, the
-     operation policy rules, secret references), the server and GP job IRSA roles, the Kubernetes Job
+     operation policy rules, secret references), the server and GP job service accounts the root's
+     workload identity binds (Pod Identity by default, so no role-arn annotation), the Kubernetes Job
      geoprocessing backend (when the pinned chart declares `geoprocessing.kubernetesJobs`), and TLS on
      the load balancer with the root's ACM `certificate_arn` when the cell has an HTTPS name.
   4. Wait for the load balancer, restrict it to the runner /32, point the per-run name at it (a
@@ -82,8 +83,20 @@ DB_OUTPUT = "db_connection_string"            # sensitive; RDS PostGIS, TLS requ
 REDIS_OUTPUT = "redis_connection_string"      # sensitive; ElastiCache, Redis-on cells only
 CERTIFICATE_OUTPUT = "certificate_arn"        # the per-run name's ACM certificate
 CHART_ENV_OUTPUT = "chart_config_env"         # map(string): non-secret server environment
-SERVER_ROLE_OUTPUT = "server_role_arn"        # IRSA role for the server's ServiceAccount
-GP_JOB_ROLE_OUTPUT = "gp_job_role_arn"        # IRSA role for the geoprocessing Job ServiceAccount
+SERVER_ROLE_OUTPUT = "server_role_arn"        # IAM role the server pods assume
+GP_JOB_ROLE_OUTPUT = "gp_job_role_arn"        # IAM role the geoprocessing Job pods assume
+# How those roles reach the pods (honua-iac#233). Under `pod_identity` (the root's default) an EKS Pod
+# Identity association binds each role to <kubernetes_namespace>/<service account>, and the service
+# accounts must carry NO eks.amazonaws.com/role-arn annotation: the AWS SDK tries the web-identity
+# token first, and the role trusts no OIDC provider. Under `irsa` the annotation is required. Either
+# way the harness annotates only from the root's *_service_account_annotations outputs, which are
+# empty under pod_identity, and never builds a role-arn annotation itself.
+WORKLOAD_IDENTITY_OUTPUT = "workload_identity_mode"
+SERVER_SA_ANNOTATIONS_OUTPUT = "server_service_account_annotations"
+GP_JOB_SA_ANNOTATIONS_OUTPUT = "gp_job_service_account_annotations"
+SERVER_SA_OUTPUT = "server_service_account_name"
+GP_JOB_SA_OUTPUT = "gp_job_service_account_name"
+NAMESPACE_OUTPUT = "kubernetes_namespace"
 # Environment names from chart_config_env land in the chart's config.env map. Anything that is not a
 # plain environment name is refused rather than rendered.
 _ENV_NAME = re.compile(r"[A-Za-z_][A-Za-z0-9_]{0,254}\Z")
@@ -96,6 +109,18 @@ NAMESPACE = "honua-cert"
 RELEASE = "honua"
 SECRET_NAME = "honua-runtime"
 REDIS_RELEASE = "honua-redis"
+# The service accounts the chart renders with fullnameOverride=RELEASE: serviceAccount.name defaults to
+# the fullname, and geoprocessing.kubernetesJobs.serviceAccount.name to "<fullname>-gp-job".
+SERVER_SERVICE_ACCOUNT = RELEASE
+GP_JOB_SERVICE_ACCOUNT = f"{RELEASE}-gp-job"
+# The root's Pod Identity associations bind to these, so each is passed when the root declares it.
+# Without kubernetes_namespace the root binds the roles in `honua` and the pods in honua-cert get no
+# AWS credentials.
+WORKLOAD_IDENTITY_VARS = (
+    ("kubernetes_namespace", NAMESPACE),
+    ("server_service_account_name", SERVER_SERVICE_ACCOUNT),
+    ("gp_job_service_account_name", GP_JOB_SERVICE_ACCOUNT),
+)
 # In-tree AWS cloud provider annotations for a TLS listener on the Service's load balancer.
 _LB_ANNOTATION = "service.beta.kubernetes.io/aws-load-balancer-"
 DNS_RECORD_TTL = 60
@@ -414,6 +439,8 @@ class AwsEksTarget(DeployTarget):
             values.append("-var=licensing_mode=Disabled")
         values.extend(f"-var={v}" for v in DECLARED_EPHEMERAL_VARS
                       if self._root_declares(v.split("=", 1)[0]))
+        values.extend(f"-var={variable}={value}" for variable, value in WORKLOAD_IDENTITY_VARS
+                      if self._root_declares(variable))
         policy = _operation_policy_var()
         if self._root_declares(policy.split("=", 1)[0]):
             values.append(f"-var={policy}")
@@ -718,16 +745,19 @@ class AwsEksTarget(DeployTarget):
                                          f"that is not a plain environment entry ({str(key)[:64]!r})")
                 env[str(key)] = str(value).lower() if isinstance(value, bool) else str(value)
         values: dict = {"config": {"env": env}}
-        server_role = self._output(SERVER_ROLE_OUTPUT)
-        if server_role:
-            values["serviceAccount"] = {"annotations": {IRSA_ANNOTATION: str(server_role)}}
+        self._check_identity_binding()
+        server_account = self._service_account_values(
+            SERVER_SERVICE_ACCOUNT, SERVER_SA_ANNOTATIONS_OUTPUT, SERVER_ROLE_OUTPUT)
+        if server_account:
+            values["serviceAccount"] = server_account
         if self._chart_declares("geoprocessing.kubernetesJobs"):
             repository, tag, digest = self._image_values(os.environ.get(GP_IMAGE_ENV, ""))
             jobs: dict = {"enabled": True, "namespace": NAMESPACE,
                           "image": {"repository": repository, "tag": tag, "digest": digest}}
-            job_role = self._output(GP_JOB_ROLE_OUTPUT)
-            if job_role:
-                jobs["serviceAccount"] = {"annotations": {IRSA_ANNOTATION: str(job_role)}}
+            job_account = self._service_account_values(
+                GP_JOB_SERVICE_ACCOUNT, GP_JOB_SA_ANNOTATIONS_OUTPUT, GP_JOB_ROLE_OUTPUT)
+            if job_account:
+                jobs["serviceAccount"] = job_account
             values["geoprocessing"] = {"kubernetesJobs": jobs}
         domain = self.cell_domain(redis_enabled)
         if domain is not None:
@@ -742,6 +772,56 @@ class AwsEksTarget(DeployTarget):
                 _LB_ANNOTATION + "backend-protocol": "http",
             }}
             env["Public__BaseUrl"] = f"https://{fqdn}"
+        return values
+
+    def _workload_identity_mode(self) -> str | None:
+        mode = self._output(WORKLOAD_IDENTITY_OUTPUT)
+        if mode is None:
+            return None
+        if mode not in ("pod_identity", "irsa"):
+            raise ProvisionError(f"{self.name}: root output {WORKLOAD_IDENTITY_OUTPUT} must be "
+                                 f"pod_identity or irsa, not {str(mode)[:32]!r}")
+        return mode
+
+    def _check_identity_binding(self) -> None:
+        """The root bound its roles to the namespace and accounts the chart is installed with.
+
+        A Pod Identity association names one namespace/account pair, so a mismatch would leave the
+        pods without AWS credentials. It refuses provisioning instead of failing later in the journey.
+        """
+        expected = ((NAMESPACE_OUTPUT, NAMESPACE), (SERVER_SA_OUTPUT, SERVER_SERVICE_ACCOUNT),
+                    (GP_JOB_SA_OUTPUT, GP_JOB_SERVICE_ACCOUNT))
+        for output, value in expected:
+            bound = self._output(output)
+            if bound is not None and bound != value:
+                raise ProvisionError(f"{self.name}: the root binds its workload role to {output}="
+                                     f"{str(bound)[:64]!r}, but the chart is installed with {value!r}")
+
+    def _service_account_values(self, name: str, annotations_output: str, role_output: str) -> dict:
+        """The chart's serviceAccount values for one account: its name and the root's annotations.
+
+        Only the root's annotations output is rendered. Under pod_identity it must not carry the IRSA
+        role-arn annotation; under irsa it must, for the root's role.
+        """
+        if not self._root_outputs_declared(annotations_output):
+            return {}
+        annotations = self._output(annotations_output) or {}
+        if not isinstance(annotations, dict) or not all(
+                isinstance(k, str) and isinstance(v, str) for k, v in annotations.items()):
+            raise ProvisionError(f"{self.name}: root output {annotations_output} must be a map of strings")
+        mode = self._workload_identity_mode()
+        if mode == "pod_identity" and IRSA_ANNOTATION in annotations:
+            raise ProvisionError(f"{self.name}: {annotations_output} carries {IRSA_ANNOTATION} under "
+                                 "pod_identity; the SDK would try web identity against a role that "
+                                 "trusts no OIDC provider")
+        if mode == "irsa":
+            role = self._output(role_output)
+            if not annotations.get(IRSA_ANNOTATION) or (role and annotations[IRSA_ANNOTATION] != role):
+                raise ProvisionError(f"{self.name}: under irsa {annotations_output} must carry "
+                                     f"{IRSA_ANNOTATION} for the root's {role_output}")
+        values: dict = {"name": name}
+        if annotations:
+            values["annotations"] = dict(annotations)
         return values
 
     def _helm_command(self, redis_enabled: bool, chart: Path, values_file: Path | None = None) -> list[str]:
