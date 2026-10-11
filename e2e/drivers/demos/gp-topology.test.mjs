@@ -132,3 +132,16 @@ test("redis-off is BLOCKED on site behaviour when the page calls the refused exe
   assert.equal(v.status, "blocked");
   assert.match(v.why, /claimed the refused execution was accepted/);
 });
+
+test("redis-off still passes when the page negates acceptance", () => {
+  for (const [pill, summary] of [
+    ["execution not accepted · 503 job store", "Plan validated · the execution was not accepted: job store unavailable. ..."],
+    ["execution refused · 503 job store", "Plan validated · the job was never accepted: job store unavailable. ..."],
+  ]) {
+    const v = judgeRedisOffGeoprocessing({
+      topology: off, jobsRunner: jobsRunner(true), execution: { status: 503, body: REFUSAL },
+      page: { ...honestPage(), pill, summary },
+    });
+    assert.equal(v.status, "pass", v.why);
+  }
+});

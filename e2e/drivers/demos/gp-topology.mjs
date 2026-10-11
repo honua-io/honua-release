@@ -94,8 +94,9 @@ export function judgeRedisOffGeoprocessing({ topology, jobsRunner, execution, pa
   }
   // honua-site#294 (owner decision 3): nothing was accepted, so the pill and the headline (the
   // summary's first sentence; the server's own detail is quoted later and is not judged) must not say so.
+  // A negated mention ("not accepted", "never accepted") is the honest wording, not a claim.
   const headline = (page.summary || "").split(/(?<=\.)\s/)[0];
-  if (/\baccepted\b/i.test(`${page.pill || ""} ${headline}`)) {
+  if (/(?<!\b(?:not|never)\s+)\baccepted\b/i.test(`${page.pill || ""} ${headline}`)) {
     return verdict("blocked",
       `the pinned honua-site demo-geoprocessing page claimed the refused execution was accepted ` +
       `(pill="${page.pill}") (site behaviour, not a server defect)`);
