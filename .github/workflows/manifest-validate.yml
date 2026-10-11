@@ -103,6 +103,12 @@ jobs:
       - name: Check anonymous first-publication preflight
         run: python3 tools/first_publication_preflight.py --check
 
+      - name: Verify every declared required npm client artifact
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GITHUB_TOKEN: ${{ github.token }}
+        run: python3 tools/verify_client_artifacts.py --ecosystem npm
+
       # The signing trust policy must cover exactly the tag namespaces policy.json protects.
       # `release_controls audit` also reports drift, but it is an operator command no workflow
       # runs; a drifted policy authorizing tags outside the immutable namespaces has to fail a

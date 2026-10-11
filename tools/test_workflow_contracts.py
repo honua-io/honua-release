@@ -1321,3 +1321,21 @@ def test_cloud_matrix_is_the_ga_set_including_eks_and_threads_the_batch_image():
     teardown = [step.get("name") for step in cell["jobs"]["teardown"]["steps"]]
     assert teardown.index("Capture cell readiness diagnostics") < next(
         i for i, name in enumerate(teardown) if (name or "").startswith("Tear down"))
+
+
+def test_manifest_validate_verifies_all_required_npm_artifacts_after_anonymous_preflight():
+    job = _workflow("manifest-validate.yml")["jobs"]["validate"]
+    steps = job["steps"]
+    preflight = next(index for index, step in enumerate(steps)
+                     if step.get("name") == "Check anonymous first-publication preflight")
+    verifier = next(index for index, step in enumerate(steps)
+                    if step.get("name") == "Verify every declared required npm client artifact")
+    assert steps[preflight]["run"] == "python3 tools/first_publication_preflight.py --check"
+    assert "env" not in steps[preflight]
+    step = steps[verifier]
+    assert step["run"] == "python3 tools/verify_client_artifacts.py --ecosystem npm"
+    assert step["env"] == {"GH_TOKEN": "${{ github.token }}", "GITHUB_TOKEN": "${{ github.token }}"}
+    assert "if" not in step
+    assert preflight < verifier
+    assert not _neutralised(job)
+    assert not _neutralised(step)
