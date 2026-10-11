@@ -338,6 +338,11 @@ way (#512). The ECS cell deploys `repository@digest` with no tag. The match is t
 repository, and the reported digest must be the manifest's index digest or its child for the cell
 architecture (`platformDigests.amd64` for `x86_64`). Matching the manifest's tagged `image` found no
 server container on run 38110106995, so the check stayed blocked.
+With two tasks, a task still starting is waited for, up to 12 reads 10 s apart. After that, only
+RUNNING tasks count, and every one of them must report the candidate. If one does not, the check's
+detail names the task, container and digest that disagree, or names the task states when no task is
+RUNNING. On run 38119871941 the two-task Redis-on cell showed only "the pinned candidate stack was
+not brought up".
 
 The Redis-on ECS cell runs two tasks, so stage 6's `6.replica-map` can observe two `Honua-Instance`
 ids; on one task, run 38110106995 recorded "topology served one instance". honua-iac allows more than

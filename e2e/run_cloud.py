@@ -212,11 +212,17 @@ def provision_phase(target, target_name: str, *, require_real: bool, redis_enabl
         state["seedError"] = seed_cell(endpoint, target=target,
                                        out=cloud_journey.cell_dir(cell) / "extended", **seed_kwargs)
         # The owned 1.1-candidate-image check needs the image ECS reports running.
-        if target_name in ("aws-ecs", "aws-serverless"):
-            observe = (cloud_journey.observed_ecs_image if target_name == "aws-ecs"
-                       else cloud_journey.observed_lambda_image)
+        if target_name == "aws-ecs":
+            # Every RUNNING task must report the candidate; the detail names any that disagrees.
             try:
-                state["runningImage"] = observe(target, cloud_journey.manifest())
+                state["runningImage"], state["runningImageDetail"] = cloud_journey.observe_ecs_image(
+                    target, cloud_journey.manifest())
+            except Exception as e:
+                state["runningImage"] = None
+                state["runningImageDetail"] = f"reading the ECS tasks failed: {type(e).__name__}"
+        elif target_name == "aws-serverless":
+            try:
+                state["runningImage"] = cloud_journey.observed_lambda_image(target, cloud_journey.manifest())
             except Exception:
                 state["runningImage"] = None
         elif hasattr(target, "observed_image"):
@@ -274,7 +280,8 @@ def journey_phase(state: dict, *, admin_key: str, max_attempts: int = 2) -> dict
         journey["scenarioCoverage"] = _check_dicts(extended)
         blockers: list[list[str]] = []
         for number in range(1, max_attempts + 1):
-            record = cloud_journey.attempt(cell, number, endpoint, admin_key, state.get("runningImage"))
+            record = cloud_journey.attempt(cell, number, endpoint, admin_key, state.get("runningImage"),
+                                           image_detail=state.get("runningImageDetail"))
             journey["journeyAttempts"].append(record)
             receipt = json.loads((E2E_DIR / record["receipt"]).read_text())
             try:

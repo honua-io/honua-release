@@ -241,6 +241,13 @@ gets the profile's default view and no error. On a Lambda cell, a proxy request
 that lands on a different warm instance therefore returns a different view than
 the HTTP session saw. The instance list and the named differences show whether
 that happened.
+When a stage 1 discovery check fails and the direct HTTP requests were answered
+by more than one instance, the check detail says so. It names the instance that
+answered `initialize` and the instances that answered the later requests, and it
+cites the session-affinity defect (honua-server#5629). It never claims affinity
+for a single instance or a response with no header. On run 38119871941, the
+Redis-on ECS cell on two tasks failed with only "requested server-authored view
+identity is missing". The check itself is unchanged.
 
 Both transports reject duplicate JSON keys, invalid/nonstandard JSON, oversized
 responses and incomplete catalog pagination. The stdio consumer reads bounded

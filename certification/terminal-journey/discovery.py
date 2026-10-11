@@ -184,7 +184,10 @@ def validate_view(raw: bytes, expected_view: str = "setup") -> dict[str, Any]:
     names = _names(result.get("tools"))
     meta = result.get("_meta")
     if not isinstance(meta, dict) or meta.get("view") != expected_view:
-        raise DiscoveryError("requested server-authored view identity is missing")
+        answered = meta.get("view") if isinstance(meta, dict) else None
+        raise DiscoveryError("requested server-authored view identity is missing (requested "
+                             f"{expected_view!r}, the server answered "
+                             f"{_brief(answered) if answered is not None else 'no view'})")
     for field in ("revisionDigest", "membershipDigest", "descriptorDigest"):
         if not isinstance(meta.get(field), str) or not re.fullmatch(r"sha256:[a-f0-9]{64}", meta[field]):
             raise DiscoveryError(f"missing or malformed server {field}")
@@ -392,6 +395,37 @@ def describe_difference(expected: Any, actual: Any, *, left: str, right: str) ->
     return text if len(text) <= MAX_DIFFERENCE_CHARS else text[:MAX_DIFFERENCE_CHARS] + "...(truncated)"
 
 
+SESSION_AFFINITY_ISSUE = "honua-server#5629"
+
+
+def session_affinity_note(instances: list[dict[str, Any]]) -> str:
+    """Which server instance answered initialize and which answered the requests after it.
+
+    honua-server holds an MCP session, and the view negotiated at initialize, in the memory of
+    the instance that served initialize. A request carrying an Mcp-Session-Id that another
+    instance answers is served statelessly with the profile's default view, with no error. Behind
+    a load balancer over two or more instances (two ECS tasks, warm Lambda instances), that
+    surfaces here as a missing or different view.
+    """
+    named = [row.get("instance") for row in instances]
+    if not any(named):
+        return ("no request named its answering instance (no Honua-Instance header), so MCP "
+                "session affinity cannot be checked")
+    first = instances[0]
+    issuer = first.get("instance") if first.get("rpc") == "initialize" else None
+    distinct = list(dict.fromkeys(value for value in named if value))
+    if len(distinct) < 2:
+        return f"every direct HTTP request was answered by instance {distinct[0]}"
+    moved = [f"{row.get('rpc')} by {row.get('instance') or 'an unnamed instance'}"
+             for row in instances[1:] if row.get("instance") != issuer]
+    return (f"MCP session affinity: initialize, which issued the Mcp-Session-Id, was answered by "
+            f"instance {issuer or 'an unnamed instance'}, but {', '.join(moved[:6])}"
+            + (f" (+{len(moved) - 6} more)" if len(moved) > 6 else "")
+            + "; the server keeps an MCP session and its negotiated view only in the memory of the "
+              "instance that served initialize and answers a session id it does not hold "
+              f"statelessly with the default view ({SESSION_AFFINITY_ISSUE})")
+
+
 def capture_setup_view(proxy: Path | None, url: str, credential: str) -> dict[str, Any]:
     receipt: dict[str, Any] = {"scope": "setup-discovery-only", "status": "fail", "qualification": False,
         "http": {"status": "blocked"}, "proxy": {"status": "blocked"}, "tools": []}
@@ -459,6 +493,11 @@ def capture_setup_view(proxy: Path | None, url: str, credential: str) -> dict[st
         # upstream bodies may contain secrets and are deliberately not copied.
         if isinstance(exc, DiscoveryError):
             receipt["error"] = str(exc)
+            if session is not None and session.instances:
+                # Name which instance answered what, so a session-affinity failure is diagnosable.
+                if isinstance(receipt.get("http"), dict):
+                    receipt["http"]["answeringInstances"] = session.instances
+                receipt["error"] += "; " + session_affinity_note(session.instances)
         elif isinstance(exc, probes.McpError) and probes.CLIENT_HTTPS_REFUSAL_DETAIL in str(exc):
             receipt["error"] = "installed proxy: " + probes.CLIENT_HTTPS_REFUSAL_DETAIL
         else:
