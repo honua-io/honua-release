@@ -2,7 +2,9 @@
 // The fake capability manifest / topology mirror what harness/lib/common.sh reports for each cell.
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { CAPABILITY_UNAVAILABLE, geoprocessingExpectation, judgeRedisOffGeoprocessing } from "./gp-topology.mjs";
+import {
+  CAPABILITY_UNAVAILABLE, geoprocessingExpectation, judgeRedisOffGeoprocessing, processDetailFailure,
+} from "./gp-topology.mjs";
 
 const manifest = (off) => ({
   capabilities: [
@@ -144,4 +146,15 @@ test("redis-off still passes when the page negates acceptance", () => {
     });
     assert.equal(v.status, "pass", v.why);
   }
+});
+
+test("a process description the page could not load is named, not waited out", () => {
+  assert.equal(processDetailFailure("GET /ogc/processes/processes/generalization.simplify-layer"), null);
+  assert.equal(processDetailFailure("Loading…"), null);
+  assert.equal(processDetailFailure(""), null);
+  assert.equal(processDetailFailure(undefined), null);
+  assert.equal(
+    processDetailFailure("Could not load schema: Failed to fetch"),
+    'the page could not load the process description: "Could not load schema: Failed to fetch"');
+  assert.match(processDetailFailure("Could not load schema: process detail 500"), /process detail 500/);
 });

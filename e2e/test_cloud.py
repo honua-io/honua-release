@@ -13,6 +13,7 @@ import io
 import json
 import atexit
 import os
+import re
 import shutil
 import subprocess
 import sys
@@ -4214,9 +4215,25 @@ def test_ecs_diagnostics_tail_every_stopped_task_and_report_unreadable_streams(m
     assert "ResourceNotFoundException" in unreadable["error"] and "Password=[redacted]" in unreadable["error"]
 
 
-def _lambda_cli(outputs, *, functions, groups, batch_groups=(), failing_streams=(), calls=None):
+def _filter_matches(pattern, message):
+    """The two filter-pattern shapes the collector sends: `?"a" ?"b"` phrases, or the access-log
+    JSON status pattern."""
+    if pattern.startswith("{"):
+        try:
+            status = str(json.loads(message).get("status", ""))
+        except ValueError:
+            return False
+        return status[:1] in ("4", "5")
+    phrases = re.findall(r'\?"([^"]+)"', pattern)
+    assert phrases, pattern
+    return any(phrase in message for phrase in phrases)
+
+
+def _lambda_cli(outputs, *, functions, groups, batch_groups=(), failing_streams=(), calls=None,
+                stream_order=None):
     """A fake terraform/aws CLI for lambda_readiness_diagnostics: `groups` maps a log group to
-    {stream: [(timestamp, message), ...]}."""
+    {stream: [(timestamp, message), ...]}. `stream_order` overrides describe-log-streams' order for
+    a group (CloudWatch's LastEventTime order is eventually consistent, so it can be stale)."""
     def run(argv, **kwargs):
         if calls is not None:
             calls.append(argv)
@@ -4234,9 +4251,19 @@ def _lambda_cli(outputs, *, functions, groups, batch_groups=(), failing_streams=
         if verb == "describe-log-streams":
             if group not in groups:
                 return subprocess.CompletedProcess(argv, 254, "", "ResourceNotFoundException: token=abc gone")
-            names = sorted(groups[group], key=lambda n: max(t for t, _ in groups[group][n]), reverse=True)
+            names = (stream_order or {}).get(group) or sorted(
+                groups[group], key=lambda n: max(t for t, _ in groups[group][n]), reverse=True)
             return subprocess.CompletedProcess(argv, 0, json.dumps({"logStreams": [
                 {"logStreamName": n} for n in names[:int(argv[argv.index("--max-items") + 1])]]}), "")
+        if verb == "filter-log-events":
+            if group not in groups:
+                return subprocess.CompletedProcess(argv, 254, "", "ResourceNotFoundException: token=abc gone")
+            pattern = argv[argv.index("--filter-pattern") + 1]
+            events = sorted(({"timestamp": t, "logStreamName": n, "message": m + "\n"}
+                             for n, rows in groups[group].items() for t, m in rows
+                             if _filter_matches(pattern, m)), key=lambda e: e["timestamp"])
+            return subprocess.CompletedProcess(argv, 0, json.dumps(
+                {"events": events[:int(argv[argv.index("--max-items") + 1])]}), "")
         assert verb == "get-log-events"
         stream = argv[argv.index("--log-stream-name") + 1]
         if stream in failing_streams:
@@ -4302,7 +4329,7 @@ def test_lambda_readiness_diagnostics_tail_every_cell_function_and_the_batch_log
     # Read-only: no AWS verb but list/describe/get, and terraform only reads outputs.
     for call in calls:
         if call[0] == "aws":
-            assert call[2].split("-")[0] in ("list", "describe", "get"), call
+            assert call[2].split("-")[0] in ("list", "describe", "get", "filter"), call
         else:
             assert call[2:4] == ["output", "-raw"], call
     dumped = json.dumps(report)
@@ -4326,6 +4353,75 @@ def test_lambda_diagnostics_skip_batch_when_disabled_and_report_unreadable_strea
     with pytest.raises(ValueError, match="lambda_function_name"):
         run_cloud.lambda_readiness_diagnostics(
             target, run=_lambda_cli({}, functions=[], groups={}), redact=run_cloud._redact_log)
+
+
+def test_lambda_diagnostics_read_every_stream_sweep_failure_signatures_and_the_access_log(monkeypatch):
+    """Run 38133126673: the API tail ended at a cold start minutes before the journey's failure
+    because describe-log-streams' LastEventTime order was stale, and the access log that tells an
+    API Gateway refusal from a server response was never read."""
+    target = serverless(run_id="r3")
+    monkeypatch.setattr(target, "_iac_root", lambda: Path("iac"))
+    api, reconcile = "cell-it-honua", "cell-it-cp-reconcile"
+    t0 = 1_791_000_000_000
+    cold = [(t0 + i, f"cold start line {i}") for i in range(400)]
+    cold.append((t0 + 500, "Npgsql.PostgresException (0x80004005): 53300: remaining connection slots "
+                           "are reserved Password=hunter2"))
+    serving = [(t0 + 180_000 + i, f"request line {i}") for i in range(50)]
+    serving.append((t0 + 180_100, "warn: Honua.Ai.Protocols.Mcp.McpDataAccessSurface[8163] MCP tool "
+                                  "invocation failed unexpectedly: ToolName=honua_get_style"))
+    access = [(t0 + 60_000, json.dumps({"status": "200", "httpMethod": "GET", "path": "/odata/Layers"})),
+              (t0 + 61_000, json.dumps({"status": "500", "httpMethod": "GET", "path": "/odata/Layers"})),
+              (t0 + 61_500, json.dumps({"status": "500", "httpMethod": "GET", "path": "/odata/Layers"})),
+              (t0 + 62_000, json.dumps({"status": "429", "httpMethod": "GET",
+                                        "path": "/rest/services/maui-hillshade/ImageServer/tile/13/1/2"}))]
+    groups = {f"/aws/lambda/{api}": {"2026/10/11/[1]cold": cold, "2026/10/11/[1]serving": serving},
+              f"/aws/lambda/{reconcile}": {"r": [
+                  (t0 + 9, "INIT_REPORT Init Duration: 768.74 ms Phase: invoke Status: error "
+                           "Error Type: Runtime.ExitError"),
+                  (t0 + 8, "Unhandled exception. System.InvalidOperationException: PostGIS preflight check "
+                           "failed: Database compatibility check failed.")]},
+              f"/aws/apigateway/{api}": {"access": access}}
+    # LastEventTime has not caught up: the stream that served last is listed after the cold one.
+    order = {f"/aws/lambda/{api}": ["2026/10/11/[1]cold", "2026/10/11/[1]serving"]}
+    calls = []
+    run = _lambda_cli({"lambda_function_name": api, "control_plane_reconcile_function_name": reconcile,
+                       "gp_batch_enabled": "false"},
+                      functions=[{"FunctionName": api}, {"FunctionName": reconcile}],
+                      groups=groups, stream_order=order, calls=calls)
+    report = run_cloud.lambda_readiness_diagnostics(target, run=run, redact=run_cloud._redact_log)
+    logs = {log["logGroup"]: log for log in report["logs"]}
+    api_log = logs[f"/aws/lambda/{api}"]
+    # Every stream is read, so the tail ends with the serving environment's last line.
+    assert api_log["lines"][-1].endswith("ToolName=honua_get_style")
+    describe = next(c for c in calls if "describe-log-streams" in c)
+    assert describe[describe.index("--max-items") + 1] == str(run_cloud._LOG_STREAMS)
+    signatures = api_log["failureSignatures"]["signatures"]
+    assert signatures["db-connection-slots"] == {
+        "lines": 1, "streams": 1, "first": "2026-10-03T04:00:00.500Z", "last": "2026-10-03T04:00:00.500Z"}
+    assert signatures["mcp-tool-unexpected"]["lines"] == 1
+    assert "2026/10/11/[1]serving" in api_log["failureSignatures"]["samples"][-1]
+    assert "hunter2" not in json.dumps(api_log)
+    crash = logs[f"/aws/lambda/{reconcile}"]["failureSignatures"]["signatures"]
+    assert set(crash) == {"runtime-exit", "unhandled-exception", "preflight-failed"}
+    access_log = logs[f"/aws/apigateway/{api}"]
+    assert access_log["accessLog"] is True and len(access_log["lines"]) == 4
+    assert access_log["accessErrors"]["byStatus"] == {"429": 1, "500": 2}
+    assert access_log["accessErrors"]["byRoute"]["500 GET /odata/Layers"] == 2
+    assert len(access_log["accessErrors"]["samples"]) == 3
+
+
+def test_lambda_diagnostics_record_unreadable_signature_and_access_sweeps(monkeypatch):
+    target = serverless(run_id="r4")
+    monkeypatch.setattr(target, "_iac_root", lambda: Path("iac"))
+    api = "cell-dev-honua"
+    run = _lambda_cli({"lambda_function_name": api, "gp_batch_enabled": "false"},
+                      functions=[{"FunctionName": api}], groups={f"/aws/lambda/{api}": {"a": [(1, "ok")]}})
+    report = run_cloud.lambda_readiness_diagnostics(target, run=run, redact=run_cloud._redact_log)
+    logs = {log["logGroup"]: log for log in report["logs"]}
+    assert logs[f"/aws/lambda/{api}"]["failureSignatures"] == {"signatures": {}, "truncated": False, "samples": []}
+    # The cell's access log group is missing: recorded, never fatal.
+    access_log = logs[f"/aws/apigateway/{api}"]
+    assert "token=[redacted]" in access_log["error"] and "token=[redacted]" in access_log["accessErrors"]["error"]
 
 
 def test_diagnose_phase_writes_lambda_diagnostics_for_a_serverless_cell(monkeypatch, capsys):
