@@ -882,6 +882,9 @@ SERVERLESS_SPEC = TfTargetSpec(
     # which mirror the in-process timers; JobReconciliation is already rate(1 minute), the
     # EventBridge Scheduler floor, so no faster schedule is possible for the 120 s stage 5 budget.
     declared_ephemeral_vars=("enable_gp_batch=true", "use_batch_service_linked_role=true",
+                             # honua-iac#240: RDS Proxy caps the db.t3.micro connection budget
+                             # regardless of Lambda scale-out (run 38133126673: 53300 on the API host).
+                             "enable_rds_proxy=true",
                              "image_repository_policy_mode=reuse", "enable_control_plane_events=true",
                              OPERATIONS_POLICY_RULES_VAR, STUDIO_END_USER_AUTHORIZATION_VAR),
     # The manifest's generic server image, amd64 child by digest (resolved by e2e-cloud-aws.yml).
