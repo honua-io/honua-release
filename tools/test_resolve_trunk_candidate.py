@@ -12,6 +12,7 @@ import yaml
 import verify_client_artifacts as verifier
 
 import resolve_trunk_candidate as resolver
+from platform_version import stamp_errors
 
 NEW, OLD = 'a' * 40, 'b' * 40
 
@@ -799,6 +800,75 @@ def test_resolve_drops_a_carried_forward_platform_version_for_tonights_stamp(mon
     server = candidate['components']['honua-server']
     assert 'artifactVersion' not in server and 'releaseVersion' not in server
     assert server['version'] == 'pre-release'
+
+
+BOUND_SERVER = {'image': 'ghcr.io/honua-io/honua-server@sha256:' + 'e' * 64, 'digest': 'sha256:' + 'e' * 64,
+                'platformDigests': {'amd64': 'sha256:' + 'd' * 64}, 'artifactSourceRevision': NEW,
+                'version': 'pre-release'}
+
+
+def _r22_qualification_errors(candidate):
+    findings = resolver.validate_platform.Findings()
+    resolver.validate_platform.check_exact_candidate(candidate, findings)
+    return [error for error in findings.errors if '(R22)' in error]
+
+
+def test_a_resolved_candidate_passes_r22_qualification_with_the_prestamp(monkeypatch, capsys):
+    """Decision 22: the resolver stamps the manifest's platformRelease before qualification."""
+    candidate, _ = resolve_fixture(monkeypatch, MigrationSource(), 'sha256:' + 'f' * 64,
+                                   extra={'platformRelease': '2026.1-rc.2'}, **BOUND_SERVER)
+    server = candidate['components']['honua-server']
+    assert server['artifactVersion'] == server['releaseVersion'] == '2026.1.0-rc.2'
+    assert _r22_qualification_errors(candidate) == []
+    assert stamp_errors(candidate) == []
+    assert ("R22 pre-stamp: 2026.1-rc.2 \u2192 2026.1.0-rc.2 (mint re-stamps tonight's label)"
+            in capsys.readouterr().out)
+
+
+def test_without_the_prestamp_the_same_candidate_is_refused_by_r22():
+    """R22 stays strict: a bound image with no platform version is an exact-candidate refusal."""
+    candidate = {'platformRelease': '2026.1-rc.2', 'components': {'honua-server': {'sha': NEW, **BOUND_SERVER}}}
+    assert _r22_qualification_errors(candidate) == [
+        "exact-candidate: honua-server.artifactVersion None must be the platform version '2026.1.0-rc.2' "
+        "of platformRelease '2026.1-rc.2' (R22)"]
+
+
+def test_an_unbound_server_image_is_left_unstamped(monkeypatch):
+    unbound = {key: value for key, value in BOUND_SERVER.items() if key != 'platformDigests'}
+    candidate, _ = resolve_fixture(monkeypatch, MigrationSource(), 'sha256:' + 'f' * 64,
+                                   extra={'platformRelease': '2026.1-rc.2'}, artifactVersion='2026.1.0-rc.2',
+                                   releaseVersion='2026.1.0-rc.2', **unbound)
+    server = candidate['components']['honua-server']
+    assert 'artifactVersion' not in server and 'releaseVersion' not in server
+
+
+def test_the_prestamp_uses_the_manifests_label_not_a_carried_version(monkeypatch):
+    candidate, _ = resolve_fixture(monkeypatch, MigrationSource(), 'sha256:' + 'f' * 64,
+                                   extra={'platformRelease': '2026.1-rc.2'}, artifactVersion='2026.1.0-rc.1',
+                                   releaseVersion='2026.1.0-rc.1', **BOUND_SERVER)
+    server = candidate['components']['honua-server']
+    assert server['artifactVersion'] == server['releaseVersion'] == '2026.1.0-rc.2'
+
+
+def test_the_prestamp_never_touches_an_sdk_row_or_an_unbound_chart():
+    candidate = {'platformRelease': '2026.1-rc.2', 'components': {
+        'honua-server': {'sha': NEW, **BOUND_SERVER},
+        'honua-helm': {'artifact': 'oci-chart:honua', 'sha': NEW, 'version': 'pre-release'},
+        'honua-sdk-js': {'sha': NEW, 'version': '0.1.12', 'artifactVersion': '0.1.12'}}}
+    resolver.release_carried_platform_identity(candidate['components'])
+    assert resolver.prestamp_platform_version(candidate, '2026.1-rc.2') == {'honua-server': '2026.1.0-rc.2'}
+    assert 'artifactVersion' not in candidate['components']['honua-helm']
+    assert candidate['components']['honua-sdk-js'] == {'sha': NEW, 'version': '0.1.12', 'artifactVersion': '0.1.12'}
+
+
+def test_a_manifest_without_a_platform_label_is_left_for_validate_to_refuse(capsys):
+    candidate = {'components': {'honua-server': {'sha': NEW, **BOUND_SERVER}}}
+    assert resolver.prestamp_platform_version(candidate, None) == {}
+    assert 'artifactVersion' not in candidate['components']['honua-server']
+    assert 'R22 pre-stamp: skipped' in capsys.readouterr().out
+    findings = resolver.validate_platform.Findings()
+    resolver.validate_platform.check_exact_candidate(candidate, findings)
+    assert any('exact-candidate: platformRelease' in error for error in findings.errors), findings.errors
 
 
 def test_resolve_refuses_when_the_migration_tree_cannot_be_read(monkeypatch):

@@ -30,7 +30,7 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / 'certification'))
 import check_build_test as ci
 from component_versions import version_map
-from platform_version import IMAGED_COMPONENTS, PRERELEASE, PUBLISHER
+from platform_version import IMAGED_COMPONENTS, PRERELEASE, PUBLISHER, artifact_version, stamp_platform_version
 import sdk_baselines
 from semver import parse as parse_semver
 import upgrade_lock_binding
@@ -871,6 +871,27 @@ def release_carried_platform_identity(components):
                 selected.pop(key, None)
 
 
+def prestamp_platform_version(candidate, label):
+    """Stamp the manifest's own platformRelease version on the bound imaged rows (decision 22).
+
+    Exact-candidate qualification checks R22 on the candidate this resolver hands to mint, so the
+    candidate carries the platform version of the label the manifest already names. Only rows whose
+    identity is bound to tonight's selection take it (stamp_platform_version honours
+    unbound_identity); SDK, gRPC and MCP rows are never touched. Mint re-stamps tonight's label,
+    which replaces every field set here. A manifest without a platform label is left unstamped and
+    validate_platform refuses its platformRelease.
+    """
+    try:
+        version = artifact_version(label)
+    except ValueError as exc:
+        print(f'R22 pre-stamp: skipped, platformRelease {exc}')
+        return {}
+    stamped = stamp_platform_version(candidate, label)
+    print(f"R22 pre-stamp: {label} → {version} (mint re-stamps tonight's label)"
+          + (f"; stamped {', '.join(sorted(stamped))}" if stamped else '; no bound imaged row'))
+    return stamped
+
+
 def resolve(manifest, matrix, github, registry, limit=100, protocol_ledger='require', skips=None,
             skip_limit=SKIP_REPORT_LIMIT, stale_days=STALE_DAYS):
     """`protocol_ledger='produce'` is the nightly: its protocol-ledger job produces and binds the
@@ -920,9 +941,12 @@ def resolve(manifest, matrix, github, registry, limit=100, protocol_ledger='requ
                 if skips is not None:
                     skips[name] = report
         declare(name, selected)
-    # R22: mint stamps tonight's platform version beside the identity selected here. A version, or
-    # a chart digest, carried forward from another night never survives selection.
+    # R22: a version, or a chart digest, carried forward from another night never survives
+    # selection. The selected bound images then take the platform version of the manifest's own
+    # label so exact-candidate qualification can check them (decision 22); mint re-stamps the
+    # night's label beside the same identity.
     release_carried_platform_identity(candidate['components'])
+    prestamp_platform_version(candidate, manifest.get('platformRelease'))
     # Experimental rows are not selected from trunk; they declare at the sha the manifest pins.
     for name, selected in (candidate.get('experimental') or {}).items():
         declare(name, selected)
