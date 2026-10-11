@@ -449,6 +449,30 @@
       "basis": "Owner instruction recorded 2026-10-11 (~03:00Z): many customers will have different URLs; never assume honua.io",
       "evidence": "honua-iac#236 merged (6e186d6c0: Public__BaseUrl on ECS main and canary tasks, Lambda and the EKS chart_config_env; public_base_url with scheme validation; xn-- TLDs; Azure roots gain public_base_url and additional_allowed_hosts; example READMEs use gis.example.com), pinned by honua-release#536 (honua-iac e0dabe7). honua-server#5806 merged (dfd13977d: the WFS 1.0 OnlineResource is the deployment URL; \"Serve Honua on your own domain\" doc). The audit classed problem-type URIs, XML namespaces and schema ids as fine, and cert.demo fixtures, demo smoke and the site CSP as certification-only.",
       "open": "Run 38116311885, the first on honua-iac e0dabe7, completed with failed journey jobs whose receipts had not been read when this was recorded. A customer-domain smoke needs a second, non-honua.io hosted zone. The provider site/contact https://honua.io in WCS/WFS capability metadata should become configurable. The server silently ignores a Public:BaseUrl without a scheme."
+    },
+    "resolver-prestamps-r22-2026-10-11": {
+      "date": "2026-10-11",
+      "authority": "https://github.com/honua-io/honua-release/issues/376",
+      "owner": "Mike McDougall (release owner)",
+      "ruling": "Decision 22: nightly candidates receive the R22 platform-version stamp from the resolver, using the manifest's platformRelease label, before qualification; mint re-stamps the night's label; R22 remains strict in validate_platform",
+      "effect": "Recorded during the rc.3 certification cycle; it places no issue in a different bucket.",
+      "moved": [],
+      "basis": "Owner decision 22 recorded 2026-10-11 during the rc.3 certification cycle",
+      "evidence": "Every nightly resolve refused on R22 because release_carried_platform_identity drops artifactVersion from every imaged row and only mint stamped it (nightly run 38066789790: \"exact-candidate: honua-server.artifactVersion None must be the platform version '2026.1.0-rc.2' of platformRelease '2026.1-rc.2' (R22)\", and the same for honua-console). tools/resolve_trunk_candidate.py now applies stamp_platform_version with the manifest's platformRelease to bound imaged rows before exact-candidate qualification; unbound rows, SDK, gRPC and MCP rows stay unstamped.",
+      "open": "Proven by unit tests and a local dry run; no nightly has resolved on it yet (honua-release#482)."
+    },
+    "server-5615-post-cut-hardening-2026-10-11": {
+      "date": "2026-10-11",
+      "authority": "https://github.com/honua-io/honua-release/issues/376",
+      "owner": "Mike McDougall (release owner)",
+      "ruling": "Decision 23 (2026-10-11): honua-server#5615 (unbounded anonymous compute and memory on query, geometry, OData, routing and MCP paths) is re-bucketed from must-fix-before-cut to post-cut-hardening. PR #5652 fixed SRV-DB-003, SRV-GS-002 and SRV-GS-003; the nine findings recorded as not attempted in docs/audit/platform-20261006/issue-5615.md (SRV-GS-001, SRV-INF-005, SRV-OGC-006, SRV-INF-008, SRV-OGC-010, SRV-OGC-011, SRV-AI-002, SRV-AI-001, SRV-OGC-009) stay open for 2026.1.x. Rationale: anonymous resource-exhaustion hardening behind the Operations:Policy Deny default, host validation, the limits middleware and authenticated MCP; none blocks a journey stage or a certification gate.",
+      "effect": "Moves honua-server#5615 from must-fix-before-cut to post-cut-hardening; the nine unattempted findings stay open for 2026.1.x.",
+      "moved": [
+        "honua-server#5615"
+      ],
+      "basis": "Owner decision 23 recorded 2026-10-11 during the rc.3 certification cycle",
+      "evidence": "honua-server#5652 fixed SRV-DB-003, SRV-GS-002 and SRV-GS-003. The bucket label swap and the issue comment on honua-server#5615 were made by the owner.",
+      "open": "SRV-GS-001, SRV-INF-005, SRV-OGC-006, SRV-INF-008, SRV-OGC-010, SRV-OGC-011, SRV-AI-002, SRV-AI-001 and SRV-OGC-009 remain open for 2026.1.x."
     }
   },
   "security_findings": [
