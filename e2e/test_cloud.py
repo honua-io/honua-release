@@ -2938,6 +2938,21 @@ def test_seed_failure_on_a_non_json_body_is_bounded_and_unnamed_instances_are_sa
     assert error.endswith("; 1 earlier publication call(s) were answered by no named instance")
 
 
+def test_seed_failure_never_keeps_part_of_a_secret_cut_by_the_excerpt_bound():
+    # Review on #540: a secret straddling the 300-character cut must be replaced before the cut.
+    from harness.cloud.seed import MAX_BODY_CHARS, body_excerpt
+    secret = "pg-password-" + "s" * 40
+    for raw in (json.dumps({"message": "x" * (MAX_BODY_CHARS - 30) + secret}).encode(),
+                ("<html>" + "y" * (MAX_BODY_CHARS - 20) + secret + "</html>").encode()):
+        excerpt = body_excerpt(raw, (secret, None, 5432))
+        assert "pg-password-" not in excerpt and "s" * 10 not in excerpt
+        assert len(excerpt) <= MAX_BODY_CHARS + len("...(truncated)")
+    # A secret JSON escaping would alter is replaced in the parsed value, before serialization.
+    quoted = 'pa"ss/wörd-value'
+    excerpt = body_excerpt(json.dumps({"detail": f"auth failed: {quoted}"}).encode(), (quoted,))
+    assert excerpt == '{"detail":"auth failed: [redacted]"}'
+
+
 def test_seed_failure_that_is_not_http_keeps_only_the_error_type():
     class Cell:
         admin_api_key = "k"

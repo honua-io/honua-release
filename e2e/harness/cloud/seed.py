@@ -44,24 +44,36 @@ class SeedHttpError(Exception):
         return text
 
 
-def _redact(value):
+def _scrub(text, secrets):
+    for secret in secrets:
+        text = text.replace(secret, "[redacted]")
+    return text
+
+
+def _redact(value, secrets=()):
     if isinstance(value, dict):
-        return {k: "[redacted]" if _SENSITIVE.search(str(k)) else _redact(v) for k, v in value.items()}
+        return {k: "[redacted]" if _SENSITIVE.search(str(k)) else _redact(v, secrets) for k, v in value.items()}
     if isinstance(value, list):
-        return [_redact(v) for v in value]
+        return [_redact(v, secrets) for v in value]
+    if isinstance(value, str):
+        return _scrub(value, secrets)
     return value
 
 
-def body_excerpt(raw):
-    """A bounded excerpt of an error body with credential-named JSON members masked."""
+def body_excerpt(raw, secrets=()):
+    """A bounded excerpt of an error body: credential-named JSON members masked and every known
+    secret value replaced, both before the excerpt is cut, so a cut never keeps part of a secret."""
     if not raw:
         return ""
+    secrets = sorted({s for s in secrets if isinstance(s, str) and len(s) >= 4}, key=len, reverse=True)
     try:
-        text = json.dumps(_redact(json.loads(raw.decode("utf-8"))), ensure_ascii=True, separators=(",", ":"))
+        text = json.dumps(_redact(json.loads(raw.decode("utf-8")), secrets), ensure_ascii=True,
+                          separators=(",", ":"))
     except (UnicodeError, ValueError, RecursionError):
         # Not JSON (a load balancer page, say): printable ASCII only, never a credential-like token.
-        text = re.sub(r"[^ -~]", "?", raw[:2048].decode("utf-8", "replace"))
+        text = re.sub(r"[^ -~]", "?", _scrub(raw[:4096].decode("utf-8", "replace"), secrets))
         text = re.sub(r"(?i)(" + _SENSITIVE_WORDS + r")([\"']?\s*[:=]\s*)[^\s\"',;&<]+", r"\1\2[redacted]", text)
+    text = _scrub(text, secrets)
     return text if len(text) <= MAX_BODY_CHARS else text[:MAX_BODY_CHARS] + "...(truncated)"
 
 
@@ -86,11 +98,8 @@ def seed(endpoint, key, target, out):
                 return json.load(response)
         except urllib.error.HTTPError as error:
             raw = error.read(64 * 1024) if error.fp else b""
-            excerpt = body_excerpt(raw)
-            # An echoed database coordinate or the key never reaches the scenario line.
-            for value in sorted({str(v) for v in (*connection.values(), key) if isinstance(v, str) and len(v) >= 4},
-                                key=len, reverse=True):
-                excerpt = excerpt.replace(value, "[redacted]")
+            # An echoed database coordinate or the key never reaches the scenario line, whole or cut.
+            excerpt = body_excerpt(raw, (*connection.values(), key))
             raise SeedHttpError(method, path, error.code, _instance(error.headers),
                                 excerpt, list(answered)) from None
 
