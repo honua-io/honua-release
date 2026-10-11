@@ -1,0 +1,82 @@
+{
+  "schemaVersion": 1,
+  "sourceRepository": "honua-io/honua-release",
+  "sourceRevision": "457dd382546c894cfa443dafed020ae98c3f768d",
+  "customerManifestPath": "customer-install-manifest.json",
+  "customerManifestSha256": "3180fc3e9cd5dc4d7b2cfdca495a2207cc78c9029c68293c6da49c3e8f8e9613",
+  "customerCanonicalSha256": "47fc261e40912c550f38170e859392c858bbb93d466424a0c7ddfa03d5337853",
+  "platformManifestPath": "platform-manifest.yaml",
+  "platformManifestSha256": "8ff576aba5a075616987bf21b192873b28f6f1b517ea039da5b91734463fdf06",
+  "clientArtifacts": {
+    "honua-admin-python-wheel": {
+      "ecosystem": "pypi",
+      "package": "honua-admin",
+      "version": "0.1.10",
+      "filename": "honua_admin-0.1.10-py3-none-any.whl",
+      "digest": "sha256:74c067b4e175c91907e27284d84612bf93e51d2620f2b601a70e46b2380b5b9a",
+      "repository": "honua-io/honua-sdk-python",
+      "sourceSha": "a9cd320a1d330e758e1dd6c186f62a922d259cef",
+      "publicationState": "published",
+      "targets": [
+        "python3"
+      ]
+    },
+    "honua-sdk-python-wheel": {
+      "ecosystem": "pypi",
+      "package": "honua-sdk",
+      "version": "0.1.13",
+      "filename": "honua_sdk-0.1.13-py3-none-any.whl",
+      "digest": "sha256:c6cae3674d255b77f82a1ba2a6f52c52e0cb6b16820596ef7d861914233884b6",
+      "repository": "honua-io/honua-sdk-python",
+      "sourceSha": "a9cd320a1d330e758e1dd6c186f62a922d259cef",
+      "publicationState": "published",
+      "targets": [
+        "python3"
+      ]
+    },
+    "honua-sdk-js": {
+      "ecosystem": "npm",
+      "package": "@honua/sdk-js",
+      "version": "0.1.14",
+      "integrity": "sha512-4AZPZ/505HVTnk7hdEK8820BevUf6qtAHPK2DFASmdsCrYjJxELUMIZgoy4KxkqOwh/440zf8tdirSoLsM9jfg==",
+      "repository": "honua-io/honua-sdk-js",
+      "sourceSha": "984425f9d88b3c699cbd4766538ba311b48790aa",
+      "publicationState": "published",
+      "targets": [
+        "node",
+        "browser",
+        "honua-cli",
+        "honua-admin"
+      ],
+      "filename": "sdk-js-0.1.14.tgz"
+    },
+    "honua-mcp-server": {
+      "ecosystem": "npm",
+      "package": "@honua/mcp-server",
+      "version": "0.1.14",
+      "integrity": "sha512-dxwoQoysTJkf3iyNDOlyrM31J4x6k8wTJZRXTAk7qy5sXnnOshqjVJqETFL1acKKvKF6owHwABPZoWZOAhHTTw==",
+      "repository": "honua-io/honua-sdk-js",
+      "sourceSha": "704eb9573eec7320cad19edc588486986c5a4046",
+      "publicationState": "published",
+      "targets": [
+        "node",
+        "honua-mcp-proxy"
+      ],
+      "filename": "mcp-server-0.1.14.tgz"
+    },
+    "honua-sdk-dotnet": {
+      "ecosystem": "nuget",
+      "package": "Honua.Sdk",
+      "version": "1.10.4",
+      "digest": "sha256:60253476b6a1be98e1cbd989c3fbcdcf3c148b11c16e57e4336c90160ba0b2b3",
+      "repository": "honua-io/honua-sdk-dotnet",
+      "sourceSha": "66413fe30f09533a008cf1552def8a2d05cc4fde",
+      "publicationState": "published",
+      "registry": "nuget.org",
+      "targets": [
+        "net10.0"
+      ],
+      "filename": "honua.sdk.1.10.4.nupkg"
+    }
+  }
+}
