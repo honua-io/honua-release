@@ -316,6 +316,7 @@ jobs:
             --train-run-attempt "${{ steps.train.outputs.run_attempt }}" \
             --train-run-url "${{ steps.train.outputs.run_url }}" \
             --certification-mode live \
+            --certification-time "${{ steps.train.outputs.updated_at }}" \
             --released-at "$STAMP" \
             --out-manifest finalized-manifest.yaml \
             --out-notes release-notes.md

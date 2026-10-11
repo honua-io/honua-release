@@ -90,6 +90,24 @@ jobs:
         run: |
           set -uo pipefail
           fixture=tools/fixtures/customer-install-manifest-drifted-pin.json
+          # The negative fixture is the committed manifest plus one wrong digest.
+          # A pin advance has to refresh every other field (release#458, release#474)
+          # and leave this digest different from the current manifest pin.
+          python3 - <<'PY'
+          import json
+          from pathlib import Path
+          manifest = json.loads(Path("customer-install-manifest.json").read_text())
+          fixture = json.loads(Path("tools/fixtures/customer-install-manifest-drifted-pin.json").read_text())
+          live = manifest["clients"]["honua-sdk"]["digest"]
+          if fixture["clients"]["honua-sdk"]["digest"] == live:
+              raise SystemExit("drifted customer install pin equals the current manifest pin")
+          restored = json.loads(json.dumps(fixture))
+          restored["clients"]["honua-sdk"]["digest"] = live
+          if restored != manifest:
+              raise SystemExit(
+                  "drifted fixture is not the current customer install manifest plus the one digest drift"
+              )
+          PY
           if python3 tools/validate_customer_install_manifest.py "$fixture" 2> "$RUNNER_TEMP/customer-drift.err"; then
             echo "::error::validator accepted the drifted customer install pin in $fixture"
             exit 1

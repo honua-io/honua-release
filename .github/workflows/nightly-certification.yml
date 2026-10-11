@@ -321,6 +321,7 @@ jobs:
     # release-train's own top-level scopes; a called workflow cannot exceed its caller job.
     permissions:
       contents: read
+      pull-requests: read
       id-token: write
       packages: read
       checks: read

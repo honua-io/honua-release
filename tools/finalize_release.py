@@ -37,6 +37,7 @@ import argparse
 import copy
 import json
 import sys
+from datetime import datetime
 from pathlib import Path
 
 from candidate_binding import CERTIFICATION_MODES, verify_candidate_binding
@@ -233,6 +234,8 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--train-run-attempt", required=True, type=int, help="certifying run attempt")
     ap.add_argument("--train-run-url", required=True, help="certifying release-train Actions run URL")
     ap.add_argument("--certification-mode", required=True, choices=sorted(CERTIFICATION_MODES))
+    ap.add_argument("--certification-time", required=True,
+                    help="timezone-aware completion time of the certifying train")
     ap.add_argument("--out-manifest", required=True)
     ap.add_argument("--out-notes", required=True)
     args = ap.parse_args(argv)
@@ -250,6 +253,7 @@ def main(argv: list[str] | None = None) -> int:
         train_run_attempt=args.train_run_attempt,
         train_run_url=args.train_run_url,
         certification_mode=args.certification_mode,
+        certification_time=datetime.fromisoformat(args.certification_time.replace("Z", "+00:00")),
     )
     if not candidate_ok:
         print(f"REFUSED: {candidate_why}", file=sys.stderr)
