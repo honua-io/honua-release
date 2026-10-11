@@ -117,8 +117,19 @@ if args.mode in ('docs', 'all'):
     consumer = public / 'my-map'
     lock = json.loads((consumer / 'package-lock.json').read_text())
     installed = lock['packages']['node_modules/@honua/sdk-js']
-    if installed['version'] != sdk['version'] or installed['integrity'] != sdk['integrity']:
-        raise SystemExit('Public scaffold resolved SDK bytes different from the manifest')
+    same_candidate = installed['version'] == sdk['version'] and installed['integrity'] == sdk['integrity']
+    # The scaffold follows the promoted channel, not npm latest. Preserve this
+    # binding mismatch without suppressing the independent query/docs trials.
+    (output / 'public-scaffold-resolution.json').write_text(json.dumps({
+        'installed': installed,
+        'expectedCandidate': {'version': sdk['version'], 'integrity': sdk['integrity']},
+        'sameCandidate': same_candidate,
+        'scope': 'default scaffold follows release-2026.1 or its certified fallback; no promotion performed',
+    }, indent=2) + '\n')
+    results['public-sdk-candidate-binding'] = 0 if same_candidate else 1
+    (output / 'gate-exit-status.json').write_text(json.dumps(results, indent=2) + '\n')
+    if not same_candidate:
+        print('Public scaffold builds, but selects different SDK bytes; candidate binding remains failed.', flush=True)
     # Use the documented unmodified dev command and fail if its port is occupied.
     with socket.socket() as probe:
         probe.bind(('127.0.0.1', 5173))
