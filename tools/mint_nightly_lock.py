@@ -225,8 +225,8 @@ def verify_publisher_bundle(raw: bytes | str, bundle: dict, artifact: dict, repo
             target = raw  # A pinned OCI manifest can be verified without pulling runnable layers.
         document.write_text(json.dumps(bundle))
         constraints = []
-        if artifact.get('integrity'):
-            constraints += ['--digest-alg', 'sha512']
+        if artifact.get('digestAlgorithm'):
+            constraints += ['--digest-alg', artifact['digestAlgorithm']]
         if artifact.get('sourceRef'):
             constraints += ['--source-ref', artifact['sourceRef']]
         if artifact.get('denySelfHosted'):

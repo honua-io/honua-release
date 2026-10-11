@@ -304,7 +304,7 @@ def test_missing_npm_githead_requires_publisher_verification_of_exact_bytes(monk
     assert vca._sha512_sri(call[0]) == pin['integrity']
     assert call[2] == {'coordinate': '@honua/sdk', 'sourceRevision': 'a' * 40,
         'signerWorkflow': 'honua-io/honua-sdk-js/.github/workflows/publish-js-sdk.yml',
-        'sourceRef': 'refs/tags/js-sdk-v0.1.14', 'integrity': pin['integrity'], 'denySelfHosted': True}
+        'sourceRef': 'refs/tags/js-sdk-v0.1.14', 'digestAlgorithm': 'sha512', 'denySelfHosted': True}
     assert call[3:] == ('honua-io/honua-sdk-js', 'https://slsa.dev/provenance/v1')
 
 

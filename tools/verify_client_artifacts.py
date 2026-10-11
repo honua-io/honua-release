@@ -198,7 +198,7 @@ def _verify_npm_provenance(name: str, artifact: dict, data: bytes) -> None:
         if statement['predicate']['runDetails']['builder']['id'] != 'https://github.com/actions/runner/github-hosted':
             raise ValueError('publisher runner mismatch')
         verify_publisher_bundle(data, bundle, {'coordinate': package, 'sourceRevision': artifact['sourceSha'],
-            'signerWorkflow': workflow, 'sourceRef': ref, 'integrity': artifact['integrity'],
+            'signerWorkflow': workflow, 'sourceRef': ref, 'digestAlgorithm': 'sha512',
             'denySelfHosted': True}, repository, predicate_type)
     except (KeyError, TypeError, ValueError, subprocess.CalledProcessError) as exc:
         raise VerificationError(f'{name}: npm publisher provenance verification failed: {exc}') from exc

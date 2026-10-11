@@ -1295,7 +1295,7 @@ def test_stamp_gives_bound_imaged_components_the_platform_version_and_never_an_s
 def test_npm_publisher_verification_selects_subject_algorithm_and_exact_ref(monkeypatch):
     artifact = {'coordinate': '@honua/sdk', 'sourceRevision': 'a' * 40,
         'integrity': 'sha512-' + base64.b64encode(b'x' * 64).decode(),
-        'sourceRef': 'refs/tags/js-sdk-v0.1.14', 'denySelfHosted': True}
+        'sourceRef': 'refs/tags/js-sdk-v0.1.14', 'denySelfHosted': True, 'digestAlgorithm': 'sha512'}
     artifact['signerWorkflow'] = nightly.signer_workflow({}, artifact, 'honua-io/honua-sdk-js')
     calls = []
     monkeypatch.setattr(nightly.subprocess, 'run', lambda command, **kwargs:
@@ -1315,3 +1315,14 @@ def test_non_npm_publisher_verification_preserves_default_algorithm(monkeypatch)
         calls.append(command) or subprocess.CompletedProcess(command, 0, stdout='[]'))
     nightly.verify_publisher_bundle(b'package', {}, artifact, 'honua-io/honua-sdk-dotnet', 'https://slsa.dev/provenance/v1')
     assert '--digest-alg' not in calls[0] and '--source-ref' not in calls[0]
+
+
+def test_npm_post_gate_integrity_does_not_change_github_subject_algorithm(monkeypatch):
+    artifact = {'coordinate': '@honua/sdk', 'sourceRevision': 'a' * 40,
+        'integrity': 'sha512-' + base64.b64encode(b'x' * 64).decode(),
+        'signerWorkflow': 'honua-io/honua-sdk-js/.github/workflows/publish-js-sdk.yml'}
+    calls = []
+    monkeypatch.setattr(nightly.subprocess, 'run', lambda command, **kwargs:
+        calls.append(command) or subprocess.CompletedProcess(command, 0, stdout='[]'))
+    nightly.verify_publisher_bundle(b'package', {}, artifact, 'honua-io/honua-sdk-js', 'https://slsa.dev/provenance/v1')
+    assert '--digest-alg' not in calls[0]
