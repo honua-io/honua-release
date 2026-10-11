@@ -393,6 +393,7 @@ jobs:
             ${{ env.CELL_DIR }}/journey.json
             ${{ env.CELL_DIR }}/receipt-*.json
             ${{ env.CELL_DIR }}/target-*.json
+            ${{ env.CELL_DIR }}/setup-discovery-*.json
             ${{ env.CELL_DIR }}/extended/gate-report.json
           if-no-files-found: warn
           retention-days: 1

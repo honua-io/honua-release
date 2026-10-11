@@ -249,6 +249,10 @@ class HttpSessionTests(unittest.TestCase):
     def test_partial_http_receipt_does_not_promote_a_missing_installed_proxy(self):
         receipt = discovery.capture_setup_view(None, self.url, "ephemeral-test-key")
         self.assertEqual(receipt["http"]["status"], "pass")
+        # Each direct request records the answering instance; this fixture stamps none.
+        instances = receipt["http"]["answeringInstances"]
+        self.assertEqual(instances[0], {"rpc": "initialize", "instance": None})
+        self.assertEqual({row["rpc"] for row in instances}, {"initialize", "tools/list"})
         self.assertEqual(receipt["status"], "fail")
         self.assertEqual(receipt["tools"], [])
         self.assertNotIn("ephemeral-test-key", json.dumps(receipt))
@@ -266,6 +270,59 @@ class HttpSessionTests(unittest.TestCase):
                 receipt = discovery.capture_setup_view(Path("installed-proxy"), self.url, "ephemeral-test-key")
             self.assertEqual(receipt["status"], "fail")
             self.assertEqual(receipt["tools"], [])
+
+    def _proxy_receipt(self, responses):
+        fake = mock.MagicMock()
+        fake.__enter__.return_value = fake
+        fake.initialize.return_value = {"result": {"protocolVersion": "2025-06-18", "serverInfo": {"name": "fixture", "version": "1"}}}
+        fake.request.side_effect = responses
+        with mock.patch.object(Path, "is_file", return_value=True), mock.patch.object(discovery.probes, "McpProxySession", return_value=fake):
+            return discovery.capture_setup_view(Path("installed-proxy"), self.url, "ephemeral-test-key")
+
+    def test_proxy_view_mismatch_names_the_tool_field_and_metadata_and_keeps_the_proxy_responses(self):
+        # Run 38099175519 (redis-off Lambda cell) said only "differ from HTTP"; the detail must
+        # name what differs so the next run is diagnosable.
+        proxied = json.loads(wire(patch={"revision": "setup.v3"}))
+        proxied["result"]["tools"][0]["description"] = "changed"
+        receipt = self._proxy_receipt([proxied])
+        self.assertEqual(receipt["status"], "fail")
+        error = receipt["error"]
+        self.assertTrue(error.startswith("installed proxy session descriptors or metadata differ from HTTP: "))
+        self.assertIn('_meta.revision HTTP "setup.v2" vs proxy "setup.v3"', error)
+        self.assertIn("tool one fields differ: description", error)
+        self.assertEqual(receipt["proxy"]["toolsListResponse"]["result"]["_meta"]["revision"], "setup.v3")
+        self.assertEqual(receipt["proxy"]["initializeResponse"]["result"]["serverInfo"]["name"], "fixture")
+        self.assertNotIn("ephemeral-test-key", json.dumps(receipt))
+
+    def test_proxy_session_change_after_full_pagination_names_what_changed(self):
+        # Run 38099175519 (redis-on Lambda cell): the plain tools/list after the full catalog differed.
+        selected = json.loads(wire())
+        full = {"result": {"tools": [tool(), tool("two")]}}
+        after = {"result": {"tools": [tool(), tool("two")], "_meta": {"view": "full"}}}
+        receipt = self._proxy_receipt([selected, full, after])
+        self.assertEqual(receipt["status"], "fail")
+        error = receipt["error"]
+        self.assertTrue(error.startswith("proxy request override changed its negotiated session: "))
+        self.assertIn("tools only in after: two", error)
+        self.assertIn('_meta.view before "setup" vs after "full"', error)
+        self.assertIn("_meta.membershipDigest before", error)
+        self.assertEqual(receipt["proxy"]["restoredToolsListResponse"], after)
+
+    def test_describe_difference_names_order_missing_and_non_object_results(self):
+        one, two = tool(), tool("two")
+        self.assertEqual(discovery.describe_difference({"tools": [one, two]}, {"tools": [two, one]}, left="a", right="b"),
+                         "tools in a different order")
+        self.assertEqual(discovery.describe_difference({"tools": [one]}, {"tools": [two]}, left="a", right="b"),
+                         "tools only in a: one; tools only in b: two")
+        self.assertIn("a result <dict of 1", discovery.describe_difference({"x": 1}, None, left="a", right="b"))
+        # A credential-named value is masked in the detail.
+        detail = discovery.describe_difference({"_meta": {"x": 1}}, {"_meta": {"x": {"apiKey": "hk_secret"}}},
+                                               left="a", right="b")
+        self.assertNotIn("hk_secret", detail)
+        long = discovery.describe_difference({"tools": [tool(f"t{i}") for i in range(200)]},
+                                             {"tools": [tool(f"t{i}", "x") for i in range(200)]}, left="a", right="b")
+        self.assertTrue(long.endswith("...(truncated)"))
+        self.assertLessEqual(len(long), discovery.MAX_DIFFERENCE_CHARS + len("...(truncated)"))
 
     def test_full_canonical_extras_are_retained_without_expanding_setup(self):
         selected = json.loads(wire())

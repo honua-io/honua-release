@@ -219,6 +219,29 @@ wire order. The revision digest is server-authored and compared across transport
 not reconstructed from incomplete stage metadata. Full-catalog comparison hashes
 use a separately named normalized serialization and are not server wire digests.
 
+A failed HTTP/proxy parity check names what differs rather than saying only that
+something differs:
+- which `_meta` fields, with both values;
+- which tools are present on one side only, and which fields of a shared tool differ;
+- whether only the order changed.
+
+The sidecar also keeps the installed proxy's own initialize and tools/list
+responses, credential-masked. It records which server instance (`Honua-Instance`,
+honua-server#5790) answered each direct HTTP request. On a cloud cell,
+`e2e/cloud_journey.py` copies the sidecar next to the receipt as
+`setup-discovery-<attempt>.json`, replacing the cell admin key, the datasource
+secrets and the minted journey keys, and the cell workflow uploads it with the
+receipts.
+
+Why this matters on Lambda: the server keeps an MCP session, including its
+negotiated view, only in the memory of the process that served `initialize`.
+When a request arrives with an `Mcp-Session-Id` that process does not hold,
+`StatelessSessionFallback` (on by default) serves it without a session, so it
+gets the profile's default view and no error. On a Lambda cell, a proxy request
+that lands on a different warm instance therefore returns a different view than
+the HTTP session saw. The instance list and the named differences show whether
+that happened.
+
 Both transports reject duplicate JSON keys, invalid/nonstandard JSON, oversized
 responses and incomplete catalog pagination. The stdio consumer reads bounded
 binary chunks before parsing. It invokes only the verified installed executable;
