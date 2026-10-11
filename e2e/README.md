@@ -320,6 +320,11 @@ proposal and approval path) does not ride on these rules. The variable is passed
 honua-iac root declares it, so the rules take effect once the iac pin carries `operations_policy_rules`;
 until then nothing is passed and the receipt keeps recording the Deny.
 
+Both cells also pass `studio_end_user_authorization=true` when the pinned root declares it. The server
+admits non-admin principals to the Studio lifecycle API only with `Studio:EndUserAuthorization:Enabled`.
+The local journey compose sets it, but the cells did not, so stage 6 on run 38091905679
+(aws-ecs/redis-on) failed with a 403 for the proposer on `GET /api/v1/studio/package-families`.
+
 ### Audit hash-chain key on every AWS cell
 Without `AuditLog:ChainVerification:Key` the server still serves and writes audit rows, but its
 scheduled hash-chain verification never succeeds (`Audit hash-chain integrity FAILED ... audit chain
