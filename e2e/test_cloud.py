@@ -1875,6 +1875,25 @@ def test_two_task_ecs_cell_names_the_task_and_digest_that_disagree():
     assert image is None and detail == "service s1 has no RUNNING task (aaa STOPPED)"
 
 
+def test_ecs_image_is_never_observed_from_a_partial_describe_tasks_answer():
+    # Every listed task must be described: a DescribeTasks failure or a missing record is no pass.
+    cj = run_cloud.cloud_journey
+    pinned = cj.manifest()
+    good = {"taskArn": "arn:aws:ecs:us-east-1:1:task/c1/aaa", "lastStatus": "RUNNING", "containers": [
+        {"name": "honua", "image": _TAGLESS, "imageDigest": _SERVER["digest"], "lastStatus": "RUNNING"}]}
+    for described in ({"tasks": [good], "failures": [{"arn": "arn:aws:ecs:us-east-1:1:task/c1/bbb",
+                                                      "reason": "MISSING"}]},
+                      {"tasks": [good], "failures": []}):
+        def run(argv, **kwargs):
+            body = ({"taskArns": [good["taskArn"], "arn:aws:ecs:us-east-1:1:task/c1/bbb"]}
+                    if argv[2] == "list-tasks" else described)
+            return subprocess.CompletedProcess(argv, 0, json.dumps(body), "")
+        image, detail = cj.observe_ecs_image(_EcsOutputs(), pinned, run=run, sleep=lambda _s: None)
+        assert image is None
+        assert detail.startswith("DescribeTasks described 1 of 2 listed tasks of s1")
+        assert ("bbb (MISSING)" in detail) == bool(described["failures"])
+
+
 def test_ecs_image_detail_reaches_the_candidate_image_check(monkeypatch):
     cj = run_cloud.cloud_journey
     driver, _ = cj.drivers()

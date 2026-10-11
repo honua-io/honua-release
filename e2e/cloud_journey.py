@@ -231,12 +231,18 @@ def observe_ecs_image(target, pinned, *, run=subprocess.run, sleep=None):
     for poll in range(ECS_IMAGE_POLLS):
         arns = aws("list-tasks", "--cluster", cluster, "--service-name", service,
                    "--desired-status", "RUNNING")["taskArns"]
-        tasks = aws("describe-tasks", "--cluster", cluster, "--tasks", *arns)["tasks"] if arns else []
+        described = aws("describe-tasks", "--cluster", cluster, "--tasks", *arns) if arns else {}
+        tasks, failures = described.get("tasks") or [], described.get("failures") or []
         starting = [t for t in tasks if t.get("lastStatus") in ECS_STARTING]
         if not starting or poll == ECS_IMAGE_POLLS - 1:
             break
         sleep(ECS_IMAGE_POLL_SECONDS)
     task_id = lambda task: str(task.get("taskArn", "")).rsplit("/", 1)[-1] or "unknown"
+    # Every listed task must be observed: a DescribeTasks failure or a missing record is never a pass.
+    if failures or len(tasks) != len(arns):
+        missing = [str(f.get("arn", "")).rsplit("/", 1)[-1] + f" ({f.get('reason')})" for f in failures]
+        return None, (f"DescribeTasks described {len(tasks)} of {len(arns)} listed tasks of {service}"
+                      + (f"; failures: {', '.join(missing)}" if missing else ""))
     running = [t for t in tasks if t.get("lastStatus") == "RUNNING"]
     others = [f"{task_id(t)} {t.get('lastStatus')}" for t in tasks if t.get("lastStatus") != "RUNNING"]
     if not running:

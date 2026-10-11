@@ -397,6 +397,12 @@ class SessionAffinityTests(unittest.TestCase):
             "every direct HTTP request was answered by instance task-a")
         self.assertIn("no Honua-Instance header", discovery.session_affinity_note(
             [{"rpc": "initialize", "instance": None}, {"rpc": "tools/list", "instance": None}]))
+        # One unnamed response (here initialize) makes the trail unverifiable, never "one instance".
+        partial = discovery.session_affinity_note(
+            [{"rpc": "initialize", "instance": None}, {"rpc": "tools/list", "instance": "task-a"}])
+        self.assertTrue(partial.startswith("1 of 2 requests (initialize) named no answering instance"))
+        self.assertIn("cannot be established; named instances: task-a", partial)
+        self.assertNotIn("every direct HTTP request", partial)
         many = [{"rpc": "initialize", "instance": "a"}] + [{"rpc": "tools/list", "instance": f"b{i}"} for i in range(9)]
         self.assertIn("(+3 more)", discovery.session_affinity_note(many))
 

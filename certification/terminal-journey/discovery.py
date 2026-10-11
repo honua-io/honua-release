@@ -411,6 +411,13 @@ def session_affinity_note(instances: list[dict[str, Any]]) -> str:
     if not any(named):
         return ("no request named its answering instance (no Honua-Instance header), so MCP "
                 "session affinity cannot be checked")
+    unnamed = [row.get("rpc") for row in instances if not row.get("instance")]
+    if unnamed:
+        # One unnamed response is enough to make the instance trail unverifiable.
+        seen = ", ".join(dict.fromkeys(value for value in named if value))
+        return (f"{len(unnamed)} of {len(instances)} requests ({', '.join(unnamed[:6])}) named no "
+                f"answering instance (missing or malformed Honua-Instance header), so MCP session "
+                f"affinity cannot be established; named instances: {seen}")
     first = instances[0]
     issuer = first.get("instance") if first.get("rpc") == "initialize" else None
     distinct = list(dict.fromkeys(value for value in named if value))
