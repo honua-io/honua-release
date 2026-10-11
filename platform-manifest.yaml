@@ -808,6 +808,66 @@ clientArtifacts:
     publicationState: published
     targets: [node, honua-mcp-proxy]
     filename: mcp-server-0.1.14.tgz
+  honua-sdk:
+    ecosystem: "npm"
+    package: "@honua/sdk"
+    version: "0.1.14"
+    integrity: "sha512-N+BapdEfUTZhxRNnQoZRFWLDze3nz6QLD++JOPgkhIRHPkwU+D/YCshdcG8fGqhfZh/Ry8+fopk/Q7Hc1BZoOw=="
+    repository: "honua-io/honua-sdk-js"
+    sourceSha: "984425f9d88b3c699cbd4766538ba311b48790aa"
+    publicationState: "published"
+    targets: [node, browser]
+    filename: "sdk-0.1.14.tgz"
+  honua-sdk-esri-compat:
+    ecosystem: "npm"
+    package: "@honua/sdk-esri-compat"
+    version: "0.1.14"
+    integrity: "sha512-FfiDTfMwnRobRy+mT8zPQpFKv4xdtBVNBNdsHXEUOsFXh25Ry0/PW6ZosmpeyQEoRQMwNGXjtEf5AL1he3THyg=="
+    repository: "honua-io/honua-sdk-js"
+    sourceSha: "984425f9d88b3c699cbd4766538ba311b48790aa"
+    publicationState: "published"
+    targets: [node, browser]
+    filename: "sdk-esri-compat-0.1.14.tgz"
+  honua-react:
+    ecosystem: "npm"
+    package: "@honua/react"
+    version: "0.1.14"
+    integrity: "sha512-dQPr2uX2/jzpyqTNIaUlWBtJyq6jiTuY4lHqhZYhVTOmO8hSfKE9ezB89dWNicoFDDUF/rylKWobSHV+o4PUuA=="
+    repository: "honua-io/honua-sdk-js"
+    sourceSha: "984425f9d88b3c699cbd4766538ba311b48790aa"
+    publicationState: "published"
+    targets: [node, browser]
+    filename: "react-0.1.14.tgz"
+  honua-geometry:
+    ecosystem: "npm"
+    package: "@honua/geometry"
+    version: "0.1.14"
+    integrity: "sha512-rZNiLRTC7ffKXlRJROewa9kJBzrFDw4M8UM0d3m5kgFBodL/kFQ+ij93/RFyppxmXOZp1FYlkHmWXADFqaTPNg=="
+    repository: "honua-io/honua-sdk-js"
+    sourceSha: "984425f9d88b3c699cbd4766538ba311b48790aa"
+    publicationState: "published"
+    targets: [node, browser]
+    filename: "geometry-0.1.14.tgz"
+  honua-app-platform:
+    ecosystem: "npm"
+    package: "@honua/app-platform"
+    version: "0.1.14"
+    integrity: "sha512-0gd7frKmjnJi4XwBR7mVegnEt3ClHMilFU8y8l4hKFqbOxqgbGjnMTMQIysRKmN6HJsCz79OrA+oQuJYhpytCQ=="
+    repository: "honua-io/honua-sdk-js"
+    sourceSha: "984425f9d88b3c699cbd4766538ba311b48790aa"
+    publicationState: "published"
+    targets: [node, browser]
+    filename: "app-platform-0.1.14.tgz"
+  create-honua-app:
+    ecosystem: "npm"
+    package: "create-honua-app"
+    version: "0.1.7"
+    integrity: "sha512-4aNnvj5CrLJFs/S6TPiljvvL6IJ/b3dEmic5aXfax3rQW37jgVVfdzZSOUEJIB2+FbaBkOVUfLruU3a57yFKLA=="
+    repository: "honua-io/honua-sdk-js"
+    sourceSha: "704eb9573eec7320cad19edc588486986c5a4046"
+    publicationState: "published"
+    targets: [node]
+    filename: "create-honua-app-0.1.7.tgz"
   honua-sdk-python-wheel:
     ecosystem: pypi
     package: "honua-sdk"
