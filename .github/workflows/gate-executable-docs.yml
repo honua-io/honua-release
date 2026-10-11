@@ -216,8 +216,10 @@ jobs:
           name: sdk-publication-diagnostic
           path: |
             ${{ runner.temp }}/sdk-publication-candidate/*.json
+            ${{ runner.temp }}/sdk-publication-candidate/platform-manifest.yaml
             ${{ runner.temp }}/sdk-publication-replay/public-registry-observations.json
             ${{ runner.temp }}/sdk-publication-replay/public-scaffold-resolution.json
+            ${{ runner.temp }}/sdk-publication-replay/public-consumer/my-map/package-lock.json
             ${{ runner.temp }}/sdk-publication-replay/public-dev-readiness.json
             ${{ runner.temp }}/sdk-publication-replay/gate-exit-status.json
             ${{ runner.temp }}/sdk-publication-replay/installed-clients.json

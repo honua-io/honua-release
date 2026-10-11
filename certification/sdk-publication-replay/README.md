@@ -17,7 +17,9 @@ getting-started documents at the published source revision. Existing blocked
 cells remain blocked and every failing gate retains its failure. The separately
 installed MCP certifier version does not imply that the SDK generates that pin.
 
-Only curated receipts are uploaded. Raw logs and consumer workspaces remain on
+Curated receipts, the temporary manifest, and the public consumer lock are uploaded.
+An installed-client exit code of zero can include declared blocked cells; its
+JSON report, not the process exit code alone, determines each cell outcome. Raw logs and consumer workspaces remain on
 the ephemeral runner. Each stack has its own Compose project and volumes, with
 cleanup in both canonical runners and an always-run workflow step. Results are
 diagnostic evidence, not a certified release lock or installer qualification.
