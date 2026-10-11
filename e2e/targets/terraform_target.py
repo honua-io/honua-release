@@ -97,6 +97,10 @@ class TfTargetSpec:
     # is a provisioning failure, not a silent drop: the caller asked for that capability.
     opt_in_env: str = ""
     opt_in_vars: tuple[str, ...] = ()
+    # Redis-on only: the env var naming an operator-owned S3 bucket for shared file storage. When
+    # it is set and the pinned root declares every input in REDIS_ON_SCALE_INPUTS, the Redis-on
+    # cell runs REDIS_ON_TASKS tasks in the MultiNode topology (see the constants below).
+    redis_on_scale_bucket_env: str = ""
     # Run the generic server image on the runner against the cell's database before the cell is
     # probed. The serverless root keeps skip_migrations=true (a Lambda cold start must not race a
     # schema migration), so without this step the Lambda serves an unmigrated database.
@@ -122,6 +126,19 @@ class TfTargetSpec:
     # root declares it (honua-iac fix unit C4 renders them as Cors__AllowedOrigins__<n>).
     cors_allowed_origins: tuple[str, ...] = ()
 
+
+# The Redis-on ECS cell runs two tasks (honua-release#377 stage 6). The journey's cross-replica
+# read (6.replica-map) re-reads the saved map through the cell endpoint and needs two distinct
+# Honua-Instance ids (honua-server#5790); on one task, run 38110106995 recorded "topology served one
+# instance (8 re-reads agreeing)". honua-iac's aws-ecs module allows more than one task only in the
+# MultiNode topology: deployment_mode=MultiNode, Redis, and AwsS3 file storage in an existing bucket
+# (modules/aws-ecs main.tf preconditions). The bucket is operator-owned (HONUA_AWS_CELL_FILE_STORAGE_
+# BUCKET, owner step in e2e/README.md); each cell writes under its own name-prefix key prefix.
+# Redis-off stays one task: it is the serving-only topology, and MultiNode requires Redis.
+REDIS_ON_TASKS = 2
+REDIS_ON_SCALE_INPUTS = ("desired_count", "max_capacity", "deployment_mode", "file_storage_provider",
+                         "file_storage_aws_s3_bucket_name", "file_storage_aws_s3_key_prefix")
+_S3_BUCKET = re.compile(r"[a-z0-9][a-z0-9.-]{1,61}[a-z0-9]")
 
 # Repository variables (not secrets) naming the public hosted zone that carries per-run cell names.
 CELL_DNS_ZONE_ENV = "HONUA_AWS_CELL_DNS_ZONE_ID"
@@ -289,6 +306,8 @@ class TerraformTarget(DeployTarget):
                 raise ProvisionError(f"{self.name}: {self.spec.opt_in_env}=true but the pinned root does "
                                      f"not declare {', '.join(undeclared)}")
             values.extend(f"-var={v}" for v in self.spec.opt_in_vars)
+        if redis_enabled:
+            values.extend(self._redis_on_scale_vars(prefix))
         if self.spec.needs_runner_db_access:
             raw_cidr = self._runner_cidr("HONUA_AWS_DB_INGRESS_CIDR")
             values.extend([
@@ -332,6 +351,24 @@ class TerraformTarget(DeployTarget):
         tags = run_tags(self.run_id, f"{self.name}/redis-{'on' if redis_enabled else 'off'}",
                         os.environ.get("HONUA_CLOUD_COST_CEILING_USD"))
         return [f"-var=tags={json.dumps(tags, separators=(',', ':'))}"]
+
+    def _redis_on_scale_vars(self, name_prefix: str) -> list[str]:
+        """The MultiNode inputs that run the Redis-on cell on REDIS_ON_TASKS tasks, or [].
+
+        Passed only with an operator-owned bucket and a root that declares every input; anything
+        else keeps the single-task topology (the replica check then stays blocked on it) rather
+        than refusing the cell.
+        """
+        env = self.spec.redis_on_scale_bucket_env
+        bucket = os.environ.get(env, "").strip() if env else ""
+        if not bucket or not all(self._root_declares(v) for v in REDIS_ON_SCALE_INPUTS):
+            return []
+        if not _S3_BUCKET.fullmatch(bucket):
+            raise ProvisionError(f"{self.name}: {env} is not an S3 bucket name")
+        return [f"-var=desired_count={REDIS_ON_TASKS}", f"-var=max_capacity={REDIS_ON_TASKS}",
+                "-var=deployment_mode=MultiNode", "-var=file_storage_provider=AwsS3",
+                f"-var=file_storage_aws_s3_bucket_name={bucket}",
+                f"-var=file_storage_aws_s3_key_prefix=release-cells/{name_prefix}"]
 
     # --- per-run HTTPS cell hostname (honua-release#450) -----------------------------------------
     def cell_domain_label(self, redis_enabled: bool) -> str:
@@ -900,6 +937,7 @@ ECS_SPEC = TfTargetSpec(
     # honua-release#450: per-run HTTPS hostname and the demo pages' origin (top-demo, S9).
     cell_domain=True,
     alb_http_redirect=True,
+    redis_on_scale_bucket_env="HONUA_AWS_CELL_FILE_STORAGE_BUCKET",
     cors_allowed_origins=(DEMO_SITE_ORIGIN,),
 )
 

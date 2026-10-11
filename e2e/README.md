@@ -331,6 +331,38 @@ admits non-admin principals to the Studio lifecycle API only with `Studio:EndUse
 The local journey compose sets it, but the cells did not, so stage 6 on run 38091905679
 (aws-ecs/redis-on) failed with a 403 for the proposer on `GET /api/v1/studio/package-families`.
 
+### Candidate image and two tasks on the Redis-on ECS cell
+Stage 1's `1.1-candidate-image` on an ECS cell is satisfied by the image ECS reports running, read in
+the provision phase through `cloud_journey.observed_ecs_image`. The Lambda cells already worked this
+way (#512). The ECS cell deploys `repository@digest` with no tag. The match is therefore by
+repository, and the reported digest must be the manifest's index digest or its child for the cell
+architecture (`platformDigests.amd64` for `x86_64`). Matching the manifest's tagged `image` found no
+server container on run 38110106995, so the check stayed blocked.
+
+The Redis-on ECS cell runs two tasks, so stage 6's `6.replica-map` can observe two `Honua-Instance`
+ids; on one task, run 38110106995 recorded "topology served one instance". honua-iac allows more than
+one task only in the MultiNode topology (Redis, plus AwsS3 file storage in an existing bucket). With
+the repository variable `HONUA_AWS_CELL_FILE_STORAGE_BUCKET` set, and a pinned `examples/aws` root
+that declares the inputs, the harness passes:
+- `desired_count=2` and `max_capacity=2`;
+- `deployment_mode=MultiNode` and `file_storage_provider=AwsS3`;
+- the bucket name, with a per-cell key prefix `release-cells/<name prefix>`.
+
+The Redis-off ECS cell stays one task. It is the serving-only topology, and MultiNode requires Redis.
+Without the variable, or on an older root, the Redis-on cell also stays one task and `6.replica-map`
+stays blocked on the topology. **Cost:** the live estimate prices Fargate vCPU and GB per task from
+the state's `desired_count`, so the Redis-on ECS cell's Fargate line roughly doubles. Objects in the
+bucket are not counted, like other S3 usage.
+
+**Owner step:**
+1. Create an S3 bucket in us-east-1 for cell file storage, with a lifecycle rule that expires objects
+   under `release-cells/` after a day. `terraform destroy` does not empty a bucket the cell does not
+   own.
+2. Admit it in the release-cell permissions boundary. The aws-ecs module grants the task role
+   `s3:ListBucket` on the bucket and object access on `bucket/*`.
+3. Set the repository variable `HONUA_AWS_CELL_FILE_STORAGE_BUCKET`. The cell workflow exports it to
+   the provision and teardown steps.
+
 ### Audit hash-chain key on every AWS cell
 Without `AuditLog:ChainVerification:Key` the server still serves and writes audit rows, but its
 scheduled hash-chain verification never succeeds (`Audit hash-chain integrity FAILED ... audit chain

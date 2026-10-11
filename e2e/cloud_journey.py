@@ -170,12 +170,29 @@ def external_image(driver, image_ref):
         driver.observe = original
 
 
+def _image_repository(reference):
+    """`registry/name` of an image reference, without its tag or digest."""
+    name = reference.split("@", 1)[0]
+    head, _, tail = name.rpartition("/")
+    return (f"{head}/{tail.split(':', 1)[0]}" if head else tail.split(":", 1)[0]).lower()
+
+
 def observed_ecs_image(target, pinned, *, run=subprocess.run):
     """The pinned server image only if every RUNNING task of the deployed ECS service runs it.
 
     Read from ECS DescribeTasks, never inferred from the apply inputs. Anything else is None.
+
+    The cell deploys `repository@digest` with no tag (e2e-cloud-aws.yml: honua-iac refuses a tag
+    next to the digest), so a container is matched by repository, never by the manifest's tagged
+    `image`. Matching the tag made every ECS cell report no running image, so stage 1's
+    1.1-candidate-image stayed blocked (run 38110106995). The digest ECS reports must be the
+    manifest's index digest or its child for the cell architecture (platformDigests, amd64 for
+    x86_64); the value returned is the manifest candidate (`candidate_image`), as on Lambda.
     """
     server = pinned["components"]["honua-server"]
+    repository = _image_repository(server["image"])
+    arch = {"x86_64": "amd64", "arm64": "arm64"}.get(str(server.get("awsEcsArchitecture") or "x86_64"))
+    accepted = {server["digest"], str((server.get("platformDigests") or {}).get(arch) or "")} - {""}
     root = target._workdir
     if root is None:
         return None
@@ -195,9 +212,9 @@ def observed_ecs_image(target, pinned, *, run=subprocess.run):
     tasks = aws("describe-tasks", "--cluster", cluster, "--tasks", *arns)["tasks"]
     for task in tasks:
         servers = [c for c in task.get("containers", [])
-                   if str(c.get("image", "")).split("@", 1)[0] == server["image"]]
+                   if _image_repository(str(c.get("image", ""))) == repository]
         if (task.get("lastStatus") != "RUNNING" or not servers
-                or any(c.get("imageDigest") != server["digest"] or c.get("lastStatus") != "RUNNING"
+                or any(c.get("imageDigest") not in accepted or c.get("lastStatus") != "RUNNING"
                        for c in servers)):
             return None
     return f"{server['image']}@{server['digest']}" if len(tasks) == len(arns) else None
