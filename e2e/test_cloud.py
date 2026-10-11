@@ -2118,6 +2118,61 @@ def test_attempt_two_resets_attempt_ones_objects_and_names_the_strategy_in_its_r
         shutil.rmtree(cj.EVIDENCE / "retry-run", ignore_errors=True)
 
 
+# ---- run 38099175519: the setup discovery sidecar travels with the journey receipts --------------
+def test_discovery_sidecar_is_retained_per_attempt_with_every_known_credential_scrubbed(tmp_path):
+    cj = run_cloud.cloud_journey
+    workdir = tmp_path / "work-2"
+    workdir.mkdir()
+    (workdir / "private-principals.json").write_text(json.dumps(
+        {"keys": {"operator": "hk_operator_value", "proposer": "hk_proposer_value"}, "keyIds": {}}))
+    sidecar = {"http": {"rawResponse": "{\"tools\":[]}", "echo": "cell-admin-key"},
+               "proxy": {"toolsListResponse": {"result": {"note": "hk_proposer_value"}}},
+               "error": "proxy request override changed its negotiated session: _meta.view before \"setup\""}
+    (workdir / "setup-discovery.json").write_text(json.dumps(sidecar))
+    retained = cj.retain_discovery_sidecar(tmp_path, workdir, 2, ("cell-admin-key", "db-password", None))
+    assert retained == tmp_path / "setup-discovery-2.json"
+    text = retained.read_text()
+    for secret in ("cell-admin-key", "hk_proposer_value"):
+        assert secret not in text
+    kept = json.loads(text)
+    assert kept["error"].startswith("proxy request override changed its negotiated session: _meta.view")
+    assert kept["proxy"]["toolsListResponse"]["result"]["note"] == "[redacted]"
+    # No sidecar (the driver stopped before discovery), or a symlink, retains nothing.
+    assert cj.retain_discovery_sidecar(tmp_path, tmp_path / "work-9", 9, ()) is None
+    linked = tmp_path / "work-3"
+    linked.mkdir()
+    try:
+        (linked / "setup-discovery.json").symlink_to(workdir / "setup-discovery.json")
+    except OSError:
+        return  # symlinks unavailable on this host
+    assert cj.retain_discovery_sidecar(tmp_path, linked, 3, ()) is None
+
+
+def test_attempt_retains_the_sidecar_the_driver_wrote_and_names_it(monkeypatch):
+    cj = run_cloud.cloud_journey
+    driver, _ = cj.drivers()
+    monkeypatch.setenv("GITHUB_RUN_ID", "sidecar-run")
+    monkeypatch.setenv("GITHUB_RUN_ATTEMPT", "1")
+    monkeypatch.setattr(cj, "server_identity", lambda endpoint: None)
+    workspace = driver.pins.ClientWorkspace(status="blocked", root=None, reason="offline")
+
+    def live(target, pinned, contract, workdir, base_url, keep):
+        Path(workdir).mkdir(parents=True, exist_ok=True)
+        (Path(workdir) / "setup-discovery.json").write_text(json.dumps({"status": "fail", "key": "cell-admin-key"}))
+        raise RuntimeError("stage 1 stopped")
+
+    monkeypatch.setattr(driver, "run_live", live)
+    try:
+        record = cj.attempt("aws-serverless/redis-on", 1, "https://cell.example", "cell-admin-key", None)
+        notices = json.loads((E2E_DIR / record["receipt"]).read_text())["notices"]
+        assert "Setup discovery sidecar retained as setup-discovery-1.json" in notices
+        retained = cj.cell_dir("aws-serverless/redis-on") / "setup-discovery-1.json"
+        assert json.loads(retained.read_text()) == {"status": "fail", "key": "[redacted]"}
+    finally:
+        shutil.rmtree(cj.EVIDENCE / "sidecar-run", ignore_errors=True)
+        shutil.rmtree(cj.cell_dir("aws-serverless/redis-on"), ignore_errors=True)
+
+
 def test_server_identity_reads_the_anonymous_capability_manifest():
     cj = run_cloud.cloud_journey
 

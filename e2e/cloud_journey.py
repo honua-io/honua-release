@@ -437,6 +437,38 @@ def reset_prior_attempt(endpoint, admin_key, execution, number, *, request=None)
             "the journey's own SDK and CLI calls: " + ("; ".join(steps) or "nothing to remove") + "."]
 
 
+DISCOVERY_SIDECAR = "setup-discovery.json"
+MAX_SIDECAR_BYTES = 4 * 1024 * 1024
+
+
+def retain_discovery_sidecar(directory, workdir, number, secrets):
+    """Copy the attempt's setup-discovery sidecar next to its receipt, credential-scrubbed.
+
+    The sidecar holds the HTTP and installed-proxy tools/list results the stage 1 parity checks
+    compared (run 38099175519 failed them with no evidence retained). The work directory is
+    deleted at cleanup and never uploaded, because it can hold the application key, so the copy
+    has every known credential value replaced and the minted journey keys scrubbed as well.
+    Returns the retained path, or None when there is no sidecar.
+    """
+    source = Path(workdir) / DISCOVERY_SIDECAR
+    if not source.is_file() or source.is_symlink() or source.stat().st_size > MAX_SIDECAR_BYTES:
+        return None
+    text = source.read_text(encoding="utf-8", errors="replace")
+    values = [s for s in secrets if s]
+    try:
+        minted = json.loads((Path(workdir) / "private-principals.json").read_text(encoding="utf-8"))
+        values.extend(v for v in (minted.get("keys") or {}).values() if isinstance(v, str) and v)
+        if isinstance(minted.get("signingKey"), str):
+            values.append(minted["signingKey"])
+    except (OSError, ValueError, AttributeError):
+        pass
+    for value in sorted(set(values), key=len, reverse=True):
+        text = text.replace(value, "[redacted]")
+    target = Path(directory) / f"setup-discovery-{number}.json"
+    target.write_text(text, encoding="utf-8")
+    return target
+
+
 def attempt(cell, number, endpoint, admin_key, running_image=None):
     driver, adapter = drivers()
     run_id = os.environ.get("GITHUB_RUN_ID", "local")
@@ -504,6 +536,11 @@ def attempt(cell, number, endpoint, admin_key, running_image=None):
         notices.extend(failure)
         print(f"{cell} journey attempt {number}: " + " | ".join(failure), file=sys.stderr, flush=True)
         attribution = "infrastructure"
+    sidecar = retain_discovery_sidecar(directory, workdir, number, (
+        admin_key, *(os.environ.get(env) for field, env in cloud_targets().DATASOURCE_ENV.items()
+                     if field != "port")))
+    if sidecar is not None:
+        notices.append(f"Setup discovery sidecar retained as {sidecar.name}")
     unsupported = kind is None
     if unsupported:
         notices.append("Owned receipt schema lacks this cloud kind and live evidence source; "
