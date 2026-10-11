@@ -182,7 +182,7 @@ jobs:
       - uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68 # v6.0.0
         with:
           dotnet-version: "10.0.x"
-      - run: python -m pip install -r e2e/requirements.txt
+      - run: python -m pip install -r e2e/requirements.txt cryptography
       - name: Verify public bytes and prepare a temporary candidate
         env:
           GH_TOKEN: ${{ github.token }}
@@ -204,10 +204,12 @@ jobs:
         env:
           SDKREG_SIGNING_KEY: cleanup-placeholder-never-used-for-startup
         run: |
-          for project in sdk-publication-diagnostic-queries sdk-publication-diagnostic-docs; do
-            docker compose --project-name "$project" -f e2e/harness/compose.candidate.yml \
-              -f certification/installed-clients/compose.sdk-regression.yml down -v
-          done
+          docker compose --project-name sdk-publication-diagnostic-queries \
+            -f e2e/harness/compose.candidate.yml \
+            -f certification/installed-clients/compose.sdk-regression.yml down -v
+          docker compose --project-name sdk-publication-diagnostic-docs \
+            -f e2e/harness/compose.candidate.yml \
+            -f certification/executable-docs/compose.readiness.yml down -v
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         if: always()
         with:

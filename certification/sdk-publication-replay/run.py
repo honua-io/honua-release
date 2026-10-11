@@ -77,11 +77,15 @@ env = dict(os.environ)
 env.update(E2E_SERVER_PORT=str(args.port), HONUA_SERVER_URL=f'http://localhost:{args.port}',
            E2E_BASE=f'http://localhost:{args.port}', HONUA_PUBLIC_BASE_URL=f'http://localhost:{args.port}')
 
+results = {}
+
 def run(command, label, extra_env=None, cwd=None):
     with (output / f'{label}.log').open('w') as log:
         result = subprocess.run(command, cwd=cwd or root, env={**env, **(extra_env or {})},
                                 stdout=log, stderr=subprocess.STDOUT)
     print(f'{label}: exit {result.returncode}; {output / (label + ".log")}', flush=True)
+    results[label] = result.returncode
+    (output / 'gate-exit-status.json').write_text(json.dumps(results, indent=2) + '\n')
     return result.returncode
 
 # This mandatory verifier downloads the bytes and verifies signed publisher
@@ -90,7 +94,6 @@ code = run([sys.executable, 'tools/verify_client_artifacts.py', '--manifest', st
             '--ecosystem', 'npm'], 'published-client-bytes')
 if code:
     raise SystemExit(code)
-results = {}
 if args.mode in ('docs', 'all'):
     # Independent public-registry/default-peer proof, outside the replay guard.
     # The canonical guard below adds exact-candidate confinement, not a substitute
@@ -172,6 +175,7 @@ if args.mode in ('docs', 'all'):
                          'honua-sdk-js-mcp-readme', 'honua-sdk-js-packages-create-honua-app-readme'):
             docs_command.extend(['--only', document])
         results['executable-docs'] = run(docs_command, 'executable-docs',
-                                          {'COMPOSE_PROJECT_NAME': args.project + '-docs'})
+                                          {'COMPOSE_PROJECT_NAME': args.project + '-docs',
+                                           'HONUA_PUBLIC_BASE_URL': 'http://localhost:8080'})
 (output / 'gate-exit-status.json').write_text(json.dumps(results, indent=2) + '\n')
 raise SystemExit(1 if any(results.values()) else 0)
