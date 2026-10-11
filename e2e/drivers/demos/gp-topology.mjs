@@ -92,6 +92,14 @@ export function judgeRedisOffGeoprocessing({ topology, jobsRunner, execution, pa
   if (claimsRun) {
     return verdict("fail", "the demo claims a completed job although the server refused the execution");
   }
+  // honua-site#294 (owner decision 3): nothing was accepted, so the pill and the headline (the
+  // summary's first sentence; the server's own detail is quoted later and is not judged) must not say so.
+  const headline = (page.summary || "").split(/(?<=\.)\s/)[0];
+  if (/\baccepted\b/i.test(`${page.pill || ""} ${headline}`)) {
+    return verdict("blocked",
+      `the pinned honua-site demo-geoprocessing page claimed the refused execution was accepted ` +
+      `(pill="${page.pill}") (site behaviour, not a server defect)`);
+  }
   if (!showsRefusal || !verbatim) {
     return verdict("blocked",
       `the pinned honua-site demo-geoprocessing page did not render the typed refusal as its job-store-unavailable state ` +
