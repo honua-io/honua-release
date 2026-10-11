@@ -7,7 +7,7 @@ import subprocess
 from pathlib import Path
 
 from canonical_checks import CheckResult
-from harness.cloud.seed import seed
+from harness.cloud.seed import SeedHttpError, seed
 
 E2E = Path(__file__).resolve().parents[1]
 DRIVERS = {
@@ -40,8 +40,12 @@ def seed_cell(endpoint, *, target, out, datasource=None):
         if datasource is not None and isinstance(connection, dict):
             datasource.update({name: connection[name] for name in
                                ("host", "port", "databaseName", "username", "password")})
+    except SeedHttpError as error:
+        # Which publication call failed, its status, the answering instance and a masked body
+        # excerpt (run 38128300695 recorded only "HTTPError" on a two-task cell).
+        return "HTTPError " + error.describe((target.admin_api_key,))
     except Exception as error:
-        # HTTP responses and database errors can contain credentials; preserve only the type.
+        # Database errors can contain credentials; preserve only the type.
         return type(error).__name__
     return None
 
