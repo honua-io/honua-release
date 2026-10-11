@@ -50,16 +50,23 @@ wait_ready() { # the first boot can race the PostGIS image's init restart; resta
   return 1
 }
 
+FIXTURES="$(python3 "$HERE/fixtures.py" --list)"
+if [ -z "$FIXTURES" ]; then
+  echo "status=fail"
+  echo "why=the entitlement fixture list could not be read"
+  exit 1
+fi
 BOOT_FAILURES=()
-for FIXTURE in $(python3 -c "import json;print(' '.join(f['id'] for f in json.load(open('$HERE/fixtures.v1.json'))['fixtures']))"); do
+# fd 3 carries the list so docker compose and the seeder cannot drain it from stdin.
+while read -r -u 3 FIXTURE EDITION; do
+  EDITION="${EDITION%$'\r'}"
   echo "::group::entitlement fixture: $FIXTURE"
-  EDITION="$(python3 -c "import json;print(next(f['edition'] for f in json.load(open('$HERE/fixtures.v1.json'))['fixtures'] if f['id']=='$FIXTURE'))")"
   export COMPOSE_PROJECT_NAME="honua-entitlements-$FIXTURE" HONUA_ENTITLEMENT_EDITION="$EDITION"
   HONUA_ENTITLEMENT_LICENSE="$(cat "$LICENSES/$FIXTURE.honua-license.json")"
   HONUA_ENTITLEMENT_TRUSTED_KEY="$(cat "$LICENSES/trusted-key")"
   export HONUA_ENTITLEMENT_LICENSE HONUA_ENTITLEMENT_TRUSTED_KEY
   mkdir -p "$OUT/$FIXTURE"
-  if"${COMPOSE[@]}" up -d && wait_ready \
+  if "${COMPOSE[@]}" up -d && wait_ready \
      && E2E_BASE="$BASE" E2E_API_KEY="$API_KEY" E2E_OUT="$OUT/$FIXTURE" \
         E2E_COMPOSE_FILE="$REPO_ROOT/e2e/harness/compose.candidate.yml" bash "$REPO_ROOT/e2e/harness/seed/seed.sh" >"$OUT/$FIXTURE-seed.log" 2>&1; then
     HONUA_ADMIN_PASSWORD="$API_KEY" python3 "$HERE/run.py" observe --fixture "$FIXTURE" --base-url "$BASE" \
@@ -72,7 +79,7 @@ for FIXTURE in $(python3 -c "import json;print(' '.join(f['id'] for f in json.lo
   "${COMPOSE[@]}" down -v >/dev/null 2>&1 || true
   unset HONUA_ENTITLEMENT_LICENSE
   echo "::endgroup::"
-done
+done 3<<< "$FIXTURES"
 
 python3 "$HERE/run.py" verdict --observations "$OUT/observations" --out "$OUT/report.json" > "$OUT/verdict.txt"
 RC=$?

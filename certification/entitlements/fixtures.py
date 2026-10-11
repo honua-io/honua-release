@@ -114,11 +114,18 @@ def mint_all(source: str, fixtures: dict | None = None, probes: dict | None = No
 
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--corpus-source", type=Path, required=True,
+    parser.add_argument("--list", action="store_true", help="print '<fixture id> <edition>' lines and exit")
+    parser.add_argument("--corpus-source", type=Path,
                         help=f"{CORPUS_SOURCE} from the candidate's exact honua-server commit")
-    parser.add_argument("--out", type=Path, required=True,
+    parser.add_argument("--out", type=Path,
                         help="runtime directory (never inside the repository) for the minted envelopes")
     args = parser.parse_args()
+    if args.list:
+        for spec in json.loads(FIXTURES_PATH.read_text(encoding="utf-8"))["fixtures"]:
+            print(spec["id"], spec["edition"])
+        return 0
+    if args.corpus_source is None or args.out is None:
+        parser.error("--corpus-source and --out are required to mint")
     try:
         minted = mint_all(args.corpus_source.read_text(encoding="utf-8"))
     except (OSError, FixtureError) as exc:

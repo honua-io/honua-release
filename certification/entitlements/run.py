@@ -466,7 +466,8 @@ def verdict(probes: dict, fixtures: dict, records: dict[str, dict]) -> dict:
         why = "; ".join(problems[:3] + [f"{len(failing)} capability assertion(s) failed: {', '.join(failing[:8])}"] * bool(failing))
     elif blocked or pending:
         status = "blocked"
-        why = "; ".join(blocked[:3] + [f"positive proof blocked for {', '.join(pending)}"] * bool(pending))
+        why = "; ".join(blocked[:3] + [f"positive proof blocked for {len(pending)} capability(ies): "
+                                        f"{', '.join(pending[:8])}{', ...' if len(pending) > 8 else ''}"] * bool(pending))
     else:
         status = "pass"
         why = f"{sum(row['status'] == 'pass' for row in keys)} gated capabilities proven positive and negative"

@@ -22,6 +22,7 @@ result into a verdict that can FAIL — and refuses to manufacture a green (AGEN
 | `conformance-mcp` | **real** | clones `geospatial-mcp` **trunk** (the maintained suite that carries the `geospatial-mcp#25` resource-coverage fix — the Phase 0 manifest still pins a pre-fix sha, recorded for traceability), runs its `conformance/check_manifest.py` (`--strict`, with a coverage-only fallback), and parses the verdict with `parse_conformance.py`. **Fails** on any manifest `FAIL`, on a reference impl that is not `FULL` (the exact `geospatial-mcp#25` overstatement), or on **no verdict at all** (vacuous / no evidence). The parser is self-tested in-job before it is trusted. |
 | `conformance-esri-geoservices` | blocked | evidence identifier `honua-esri-compat:conformance-esri-geoservices` has no candidate-bound result. |
 | `conformance-ogc-stac` | blocked | OGC API (CITE TEAM Engine) + STAC conformance run against a deployed candidate (Phase B). |
+| `conformance-entitlements` | **real** | boots the pinned candidate once per fixture license and proves every gated capability both ways: the documented success when entitled, exactly the documented 402 when not ([entitlements/README.md](entitlements/README.md), release#64). |
 
 **enforcement** (same contract as `gate-artifact-consume`): `bootstrap` (default) tolerates a
 no-candidate-server `blocked` so the train is runnable before staging infra exists, but a real
@@ -35,6 +36,7 @@ run without cross-reading fragments). The train consumes the report; it never sc
 ### Run / test
 ```bash
 python -m pytest certification/test_conformance.py     # self-test the verdict parser (proves it fails)
+python -m pytest certification/entitlements/            # self-test the entitlement verdict (404/500 never pass)
 # the workflow: Actions ▸ certification ▸ Run workflow   (or per-PR on certification/** changes)
 ```
 

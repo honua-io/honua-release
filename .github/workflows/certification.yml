@@ -41,6 +41,7 @@ on:
     paths:
       - "certification/parse_conformance.py"
       - "certification/test_conformance.py"
+      - "certification/entitlements/**"
       - "platform-manifest.yaml"
       - ".github/workflows/certification.yml"
   schedule:
@@ -130,9 +131,11 @@ jobs:
         with:
           python-version: "3.12"
       - name: Install deps
-        run: python -m pip install "pyyaml>=6.0" pytest
+        run: python -m pip install "pyyaml>=6.0" "cryptography>=42" pytest
       - name: Self-test the conformance parser
         run: python -m pytest certification/test_conformance.py -q
+      - name: Self-test the entitlement verdict logic
+        run: python -m pytest certification/entitlements/test_entitlements.py -q
 
   # ───────────────────────────────────────────────────────────────────────────
   # mcp — REAL: run geospatial-mcp's conformance checker against the pinned candidate.
@@ -540,11 +543,88 @@ jobs:
           prefix: cert-
 
   # ───────────────────────────────────────────────────────────────────────────
+  # entitlements — exact positive AND negative proof per gated capability (release#64). The pinned
+  # candidate boots once per fixture license minted from honua-server's own test-only corpus key:
+  # an entitled license must get each capability's documented success (status + body shape; a 404
+  # or 500 is a failure, never "allowed"), and a license without the key must get exactly the
+  # documented 402 naming that key and its edition. Every gated catalog key needs a probe or a
+  # documented no-HTTP-surface row; catalog drift fails. A positive the lane cannot provision
+  # (no DEM, no HTTPS import source, no h3 extension) reports blocked, never pass. Only license
+  # fingerprints leave the job (certification/entitlements/README.md).
+  # ───────────────────────────────────────────────────────────────────────────
+  conformance-entitlements:
+    needs: [scope]
+    if: ${{ needs.scope.outputs.full == 'true' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Use the immutable candidate inputs
+        if: ${{ inputs.candidate_ref }}
+        uses: ./.github/actions/candidate-input
+        with:
+          candidate_ref: ${{ inputs.candidate_ref }}
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.12"
+
+      - name: Install deps
+        run: python -m pip install "pyyaml>=6.0" "cryptography>=42" pytest
+
+      - name: Self-test the entitlement verdict logic
+        run: python -m pytest certification/entitlements/test_entitlements.py -q
+
+      # The fixture signing key is the server's own test-only corpus key at the candidate's exact
+      # commit; fixtures.py refuses it unless it matches the committed trust-anchor fingerprint.
+      - name: Run the entitlement certification lane
+        run: |
+          set -uo pipefail
+          SHA="$(python -c "import yaml;print((yaml.safe_load(open('platform-manifest.yaml'))['components']['honua-server'] or {}).get('sha',''))")"
+          SOURCE="honua-io/honua-server@${SHA:-unpinned}#entitlement-fixtures"
+          OUT="$RUNNER_TEMP/entitlements"; mkdir -p "$OUT"
+          CORPUS="$RUNNER_TEMP/LicenseTestSupport.cs"
+          URL="https://raw.githubusercontent.com/honua-io/honua-server/${SHA}/tests/dotnet/Honua.TestKit/Helpers/LicenseTestSupport.cs"
+          if [ -z "$SHA" ] || ! curl -fsSL "$URL" -o "$CORPUS"; then
+            STATUS=blocked; WHY="the candidate's licensing test corpus could not be fetched at ${SHA:-<no pin>}"
+          else
+            bash certification/entitlements/lane.sh "$CORPUS" "$OUT" | tee "$OUT/lane.log"
+            STATUS="$(sed -n 's/^status=//p' "$OUT/lane.log" | tail -1)"
+            WHY="$(sed -n 's/^why=//p' "$OUT/lane.log" | tail -1)"
+            [ -n "$STATUS" ] || { STATUS=fail; WHY="the entitlement lane produced no verdict"; }
+          fi
+          {
+            echo "status=$STATUS"
+            echo "source=$SOURCE"
+            echo "why=$WHY"
+          } >> "$GITHUB_ENV"
+
+      - name: Upload the entitlement report (fingerprints only)
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: certification-entitlements-report
+          path: |
+            ${{ runner.temp }}/entitlements/report.json
+            ${{ runner.temp }}/entitlements/observations/
+          if-no-files-found: warn
+
+      - name: Emit fragment
+        if: always()
+        uses: ./.github/actions/gate-fragment
+        with:
+          gate: conformance-entitlements
+          status: ${{ env.status || 'fail' }}
+          source: ${{ env.source || 'blocked' }}
+          why: ${{ env.why || 'job crashed before recording a result' }}
+          enforcement: ${{ inputs.enforcement }}
+          prefix: cert-
+
+  # ───────────────────────────────────────────────────────────────────────────
   # report — assemble gate-report.json from every fragment; fail per enforcement.
   # (Identical decision logic to gate-artifact-consume so the train sees one report schema.)
   # ───────────────────────────────────────────────────────────────────────────
   report:
-    needs: [scope, conformance-mcp, conformance-esri-geoservices, conformance-ogc-stac]
+    needs: [scope, conformance-mcp, conformance-esri-geoservices, conformance-ogc-stac, conformance-entitlements]
     if: ${{ always() && needs.scope.outputs.full == 'true' }}
     runs-on: ubuntu-latest
     outputs:
