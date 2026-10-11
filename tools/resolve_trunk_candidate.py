@@ -1006,11 +1006,14 @@ def resolve(manifest, matrix, github, registry, limit=100, protocol_ledger='requ
         # Local qualification still runs so the refusal names every exact-candidate error.
         # Reachability and registry client probes are not a passing claim on this path.
         findings = validate_platform.validate(candidate, candidate_matrix, None, exact_candidate=True,
-            ledger_produced_later=protocol_ledger == 'produce')
+            ledger_produced_later=protocol_ledger == 'produce', version_stamped_later=True)
         failures.extend(findings.errors)
         raise ResolutionError('candidate qualification refused:\n' + '\n'.join(failures))
+    # release_carried_platform_identity removed every platform version above; mint stamps tonight's
+    # label after this step, and the bind step re-checks the stamped candidate in full (R22).
     findings = validate_platform.validate(candidate, candidate_matrix, None,
-        exact_candidate=True, reachability_client=github, ledger_produced_later=protocol_ledger == 'produce')
+        exact_candidate=True, reachability_client=github, ledger_produced_later=protocol_ledger == 'produce',
+        version_stamped_later=True)
     evidence_path = ROOT / 'certification' / 'conformance-evidence.yaml'
     if evidence_path.exists():
         validate_platform.check_legacy_evidence_pin_coherence(

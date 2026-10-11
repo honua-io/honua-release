@@ -801,6 +801,37 @@ def test_resolve_drops_a_carried_forward_platform_version_for_tonights_stamp(mon
     assert server['version'] == 'pre-release'
 
 
+@pytest.mark.parametrize('ledger', ['produce', 'require'])
+def test_the_resolver_does_not_refuse_its_own_unstamped_image(monkeypatch, ledger):
+    # Nightly 38066789790 refused "honua-server.artifactVersion None must be the platform version":
+    # the resolver drops the stamp, mint stamps it in the next step. The real R22 check runs here.
+    server = {'digest': 'sha256:' + 'a' * 64, 'artifactSourceRevision': NEW,
+              'platformDigests': {'linux/amd64': 'sha256:' + 'b' * 64},
+              'version': 'pre-release', 'artifactVersion': '2026.1.0-rc.1'}
+    seen = []
+
+    def exact_r22(candidate, matrix, baseline, exact_candidate=False, reachability_client=None,
+                  ledger_produced_later=False, version_stamped_later=False, **kwargs):
+        assert exact_candidate
+        findings = resolver.validate_platform.Findings()
+        resolver.validate_platform.check_exact_candidate(
+            candidate, findings, None, ledger_produced_later, version_stamped_later)
+        seen.append(candidate['components']['honua-server'])
+        return type('Findings', (), {'errors': [e for e in findings.errors if '(R22)' in e]})()
+
+    manifest = {'platformRelease': '2026.1-rc.2', 'components': {'honua-server': {
+                    'repository': 'https://github.com/honua-io/honua-server', 'sha': NEW, 'dbSchema': '1', **server}},
+                'protocolCertification': {'ledger': {'status': 'bound'}}}
+    monkeypatch.setattr(resolver, 'select_component', lambda name, component, *a, **k: copy.deepcopy(component))
+    monkeypatch.setattr(resolver, 'verify_manifest', lambda *a, **k: None)
+    monkeypatch.setattr(resolver.validate_platform, 'validate', exact_r22)
+    monkeypatch.setattr(resolver.validate_platform, 'check_legacy_evidence_pin_coherence', lambda *a: None)
+    candidate, _ = resolver.resolve(manifest, {'data': {'honua-server': {}}}, MigrationSource(), None,
+                                    protocol_ledger=ledger)
+    assert seen and 'artifactVersion' not in seen[-1]
+    assert 'artifactVersion' not in candidate['components']['honua-server']
+
+
 def test_resolve_refuses_when_the_migration_tree_cannot_be_read(monkeypatch):
     with pytest.raises(resolver.ResolutionError, match='honua-server migrations: .*truncated'):
         resolve_fixture(monkeypatch, MigrationSource(truncated=True), 'sha256:' + 'f' * 64)

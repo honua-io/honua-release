@@ -580,6 +580,25 @@ def test_exact_candidate_rejects_a_bound_image_with_no_platform_stamp():
         in error for error in f.errors), f.errors
 
 
+def test_the_resolver_may_leave_a_bound_image_unstamped_for_mint():
+    # The resolver runs before mint picks the night's label; the bind step re-checks the stamp.
+    manifest, _, _ = _bound_sdk_fixture()
+    del manifest["components"]["honua-console"]["artifactVersion"]
+    f = vp.Findings()
+    vp.check_exact_candidate(manifest, f, version_stamped_later=True)
+    assert not [error for error in f.errors if "(R22)" in error], f.errors
+
+
+def test_a_wrong_platform_stamp_refuses_even_when_mint_stamps_later():
+    manifest, _, _ = _bound_sdk_fixture()
+    manifest["components"]["honua-console"]["artifactVersion"] = "2026.1.0-rc.1"
+    f = vp.Findings()
+    vp.check_exact_candidate(manifest, f, version_stamped_later=True)
+    assert any(
+        "exact-candidate: honua-console.artifactVersion '2026.1.0-rc.1' must be the platform version "
+        "'2026.1.0-rc.2'" in error for error in f.errors), f.errors
+
+
 def test_legacy_evidence_pin_cannot_drift_from_manifest():
     manifest, _ = _real_files()
     config = {"esri": {"evidenceRef": "f" * 40}}

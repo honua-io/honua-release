@@ -450,12 +450,15 @@ def check_legacy_evidence_pin_coherence(manifest: dict, evidence_config: dict | 
 
 def check_exact_candidate(
     manifest: dict, f: Findings, reachability_client: tr.APIClient | None = None,
-    ledger_produced_later: bool = False,
+    ledger_produced_later: bool = False, version_stamped_later: bool = False,
 ) -> None:
     """Reject placeholders/fallbacks that cannot certify exact published release bytes.
 
     `ledger_produced_later` is only for the nightly resolver: its protocol-ledger job produces and
     binds the ledger for this candidate and re-runs the full check before the candidate exists.
+    `version_stamped_later` is also only for the resolver: it selects bytes before mint picks the
+    night's label, so a bound image has no platform version yet. mint stamps it, and the bind step
+    re-runs the full check on the stamped manifest. A stamp that is present must still be right.
     """
     ledger = (manifest.get("protocolCertification") or {}).get("ledger") or {}
     if ledger.get("status") != "bound" and not ledger_produced_later:
@@ -518,6 +521,8 @@ def check_exact_candidate(
     for name in platform_version.IMAGED_COMPONENTS:
         comp = components.get(name)
         if not isinstance(comp, dict) or platform_version.unbound_identity(comp):
+            continue
+        if comp.get("artifactVersion") is None and version_stamped_later:
             continue
         if expected_version is not None and comp.get("artifactVersion") != expected_version:
             f.error(
@@ -802,6 +807,7 @@ def validate(
     reachability_client: tr.APIClient | None = None,
     requirements: dict | None = None,
     ledger_produced_later: bool = False,
+    version_stamped_later: bool = False,
 ) -> Findings:
     f = Findings()
     check_structure(manifest, matrix, f)
@@ -820,7 +826,7 @@ def validate(
     if baseline_matrix is not None:
         check_drift(matrix, baseline_matrix, f)
     if exact_candidate:
-        check_exact_candidate(manifest, f, reachability_client, ledger_produced_later)
+        check_exact_candidate(manifest, f, reachability_client, ledger_produced_later, version_stamped_later)
     return f
 
 
