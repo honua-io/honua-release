@@ -8,6 +8,7 @@ from __future__ import annotations
 import copy
 import json
 import os
+import re
 import shutil
 import subprocess
 import sys
@@ -477,6 +478,20 @@ class CloudCellBindingTests(unittest.TestCase):
             self.cj.validate_attempt(record, receipt, "aws-serverless/redis-off", run_id="1", run_attempt="1")
 
     def test_serverless_candidate_image_is_the_lambda_pin_read_back_from_lambda(self):
+        # The live manifest may carry awsLambdaEcrDigest "pending-ecr-mirror" between a Lambda re-pin
+        # and its first mirror (#520). That value never matches: the cell's image is unobserved.
+        if not re.fullmatch(r"sha256:[0-9a-f]{64}", str(self.server.get("awsLambdaEcrDigest") or "")):
+            class Pending:
+                _workdir = Path("/tmp")
+
+                def _tf(self, root, *args):
+                    raise AssertionError("a pending mirror digest needs no Lambda read")
+            self.assertIsNone(self.cj.observed_lambda_image(Pending(), self.pinned,
+                                                            run=lambda *a, **k: self.fail("no AWS call")))
+            # The read-back contract below is proven on a concrete mirror digest.
+            self.pinned = copy.deepcopy(self.pinned)
+            self.server = self.pinned["components"]["honua-server"]
+            self.server["awsLambdaEcrDigest"] = "sha256:" + "e" * 64
         lambda_image = self.cj.candidate_image("aws-serverless/redis-on", self.pinned)
         self.assertEqual(lambda_image, self.server["awsLambdaImage"] + "@" + self.server["awsLambdaDigest"])
         self.assertEqual(self.cj.candidate_image("aws-ecs/redis-on", self.pinned),
