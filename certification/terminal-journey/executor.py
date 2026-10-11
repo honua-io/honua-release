@@ -56,6 +56,12 @@ STAGE_TOOLS = {
 # no operator credential fall back to the proposer for every stage.
 STAGE_PRINCIPALS = {3: "operator", 4: "operator", 5: "operator", 6: "proposer", 7: "proposer", 8: "operator"}
 SDK_METHODS = {"CreateConnectionAsync", "TestConnectionAsync"}
+# Cross-replica read through a cloud cell's single endpoint (honua-server#5790): how many times the
+# saved map is re-read, the pause between reads, and the bound on an instance id the server stamps
+# (printable ASCII, at most 128 characters, as ServerInstanceIdentity sanitizes it).
+REPLICA_READS = 8
+REPLICA_READ_DELAY_SECONDS = 0.5
+INSTANCE_ID = re.compile(r"[\x21-\x7e]{1,128}\Z")
 # Redis-off cells (owner ruling redis-governed-control-plane-2026-10-08, "decision 3"): Redis is a
 # requirement of the governed control plane, and a stage on a Redis-off cell passes by recording the
 # candidate's typed unavailable refusal with the manifest reasonCode instead of executing. Per stage:
@@ -167,7 +173,10 @@ class JourneyExecutor:
         self.evidence.setdefault("proofs", {}).pop(check, None)
         try:
             proof = fn()
-            row = probes.Check(f"{number}.{check}", "artifact", command, "pass", "independent live assertion passed")
+            # A proof may name what it observed (e.g. the instances a cross-replica read saw).
+            detail = proof.pop("detail", None) if isinstance(proof, dict) else None
+            row = probes.Check(f"{number}.{check}", "artifact", command, "pass",
+                               detail if isinstance(detail, str) and detail else "independent live assertion passed")
             self.evidence.setdefault("proofs", {})[check] = proof
         except ExecutionError as exc:
             row = probes.Check(f"{number}.{check}", "http", exc.command,
@@ -540,11 +549,7 @@ class JourneyExecutor:
             endpoint = local_fixture.replica_url(self.target)
             same = bool(endpoint) and endpoint.rstrip("/") == self.transport.base_url.rstrip("/")
             if same and topology is not None:
-                # A cloud cell is reached through one endpoint and the candidate names no serving
-                # instance, so a re-read cannot be shown to come from another replica. The
-                # assertion is blocked on that server need; the topology stays as evidence.
-                raise ExecutionError(command, local_fixture.REPLICA_UNPROVABLE_REASON,
-                                     blocked=True, blocked_by=[local_fixture.REPLICA_SERVER_NEED])
+                return self.reread_through_cell_endpoint(command)
             if not endpoint or same:
                 raise ExecutionError("cross-replica map read", "a distinct replica endpoint is required", blocked=True)
             loopback = {"localhost", "127.0.0.1", "::1"}
@@ -555,6 +560,80 @@ class JourneyExecutor:
                               self.transport.workdir, self.transport.credentials)
             return self._prove_map(other, self.map_path())
         self._check(6, "replica-map", command, replica)
+
+    def _instance(self, transport):
+        """The answering instance's `Honua-Instance` id, or None when the response carried none."""
+        import local_fixture
+        read = getattr(transport, "response_header", None)
+        value = read(local_fixture.INSTANCE_HEADER) if callable(read) else None
+        if not isinstance(value, str):
+            return None
+        if not INSTANCE_ID.match(value):
+            raise oracles.ProofError(f"{local_fixture.INSTANCE_HEADER} header is not a bounded instance id")
+        return value
+
+    def _server_sha(self):
+        try:
+            sha = self.manifest["components"]["honua-server"]["sha"]
+        except (TypeError, KeyError):
+            return None
+        return sha if isinstance(sha, str) else None
+
+    def _instance_sources(self, ids):
+        """Best effort: each observed instance's identity source from GET /api/v1/admin/version,
+        whose `instance.id` equals the header of the instance that answered it."""
+        principal = next((name for name in ("operator", "approver") if self.transport.credentials.get(name)), None)
+        sources = {}
+        if principal is None:
+            return sources
+        for _ in range(REPLICA_READS):
+            try:
+                document = self.transport.get_json("/api/v1/admin/version", principal=principal)
+            except ExecutionError:
+                return sources
+            document = document.get("data", document) if isinstance(document, dict) else {}
+            instance = document.get("instance") if isinstance(document, dict) else None
+            if isinstance(instance, dict) and instance.get("id") in ids and isinstance(instance.get("source"), str):
+                sources[instance["id"]] = instance["source"][:64]
+            if set(sources) >= set(ids):
+                break
+        return sources
+
+    def reread_through_cell_endpoint(self, command):
+        """Cross-replica read-after-write through a cloud cell's single endpoint.
+
+        Re-reads the saved map up to REPLICA_READS times, each read proven against the authored
+        body, and collects the `Honua-Instance` id that answered (honua-server#5790). Two or more
+        distinct instances agreeing with the write pass. One instance only is blocked on the
+        topology. No header at all is blocked on the server need, naming the pinned candidate.
+        """
+        import local_fixture
+        observed = []
+        for number in range(REPLICA_READS):
+            if number:
+                time.sleep(REPLICA_READ_DELAY_SECONDS)
+            self._prove_map(self.transport, self.map_path())
+            observed.append(self._instance(self.transport))
+            if len({value for value in observed if value}) >= 2:
+                break
+        ids = list(dict.fromkeys(value for value in observed if value))
+        if not ids:
+            raise ExecutionError(command, local_fixture.replica_unprovable_reason(self._server_sha()),
+                                 blocked=True, blocked_by=[local_fixture.REPLICA_SERVER_NEED])
+        missing = sum(1 for value in observed if not value)
+        if missing:
+            raise oracles.ProofError(f"{missing} of {len(observed)} re-reads carried no "
+                                     f"{local_fixture.INSTANCE_HEADER} header while others did")
+        if len(ids) < 2:
+            raise ExecutionError(command, f"topology served one instance: {ids[0]} ({len(observed)} "
+                                 "re-reads through the cell endpoint, each agreeing with the write)",
+                                 blocked=True, blocked_by=[local_fixture.REPLICA_SINGLE_INSTANCE])
+        sources = self._instance_sources(set(ids))
+        instances = [{"id": value, "source": sources.get(value, "unobserved")} for value in ids]
+        described = ", ".join(f"{item['id']} ({item['source']})" for item in instances)
+        return {"detail": f"{len(observed)} re-reads through the cell endpoint agreed with the write "
+                          f"and were answered by {len(ids)} instances: {described}",
+                "instances": instances, "reads": len(observed)}
 
     def check_reopened(self):
         def prove():
