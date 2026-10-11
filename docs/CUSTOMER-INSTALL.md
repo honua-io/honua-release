@@ -90,14 +90,30 @@ docker compose exec -T honua sh -c \
   | grep -Eq '"mode"[[:space:]]*:[[:space:]]*"disabled"'
 ```
 
-When updating this profile, verify registry bytes and run
+Owner decision 19 preserves the current pre-cut rehearsal until the first certified
+rc.3 mint. R25 separately permits advancing published platform client pins after
+registry verification. The preserved customer file is not edited to follow those
+advances. Its complete content and original client pins are bound by
+[`rehearsal-binding.v1.json`](../certification/customer-install/rehearsal-binding.v1.json)
+to immutable source `457dd382546c894cfa443dafed020ae98c3f768d`; the validator pins
+that record's SHA-256 and source revision. The record was extracted from
+`customer-install-manifest.json` and `platform-manifest.yaml` at that commit and
+retains both source file digests. It grants no candidate or Windows qualification.
+
+At mint, verify registry bytes and run
 `python3 tools/validate_customer_install_manifest.py`. The required `validate` check
 runs the same command: it validates the file against
 `schemas/customer-install-manifest.v1.schema.json`, rejects qualification flags a
 pre-cut rehearsal cannot claim, binds the rehearsal server image to its registry
 manifest and never lets it half-match `components.honua-server`, and fails when
 any Honua client version, wheel/package digest, filename, repository or source
-commit differs from `clientArtifacts`. Only a passing commit may be copied
+commit differs from the applicable `clientArtifacts` binding. Only the exact
+preserved pre-cut customer content may use the historical record. A missing,
+altered, or wrongly sourced record fails closed; changed customer content and all
+release-candidate profiles require current platform client pins. The CLI reports
+when it used the preserved rehearsal rather than claiming current-candidate
+equality. Published package verification and candidate qualification remain
+independent release gates. Only a passing commit may be copied
 unchanged into the site `data/` directory.
 Record this repository's immutable commit and the file SHA-256 in the site's
 publication record. Update the literal guide pins in the same delivery.

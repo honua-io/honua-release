@@ -10,7 +10,9 @@ This repo is the platform release-engineering home. Core invariants:
 - **The platform manifest + compatibility matrix are the source of truth** for what versions ship together.
 - **`customer-install-manifest.json` is published, not internal.** Its consumer is the public site
   (`honua-io/honua-site` copies it byte-for-byte to `https://honua.io/data/customer-install-manifest.json`)
-  and the customer install guides. Its copied pins must match `platform-manifest.yaml`; the required
+  and the customer install guides. Its copied pins must match `platform-manifest.yaml`, except the
+  exact preserved pre-cut rehearsal uses its integrity-bound historical record under owner decision 19.
+  Release-candidate profiles always require current platform pins. The required
   `validate` check runs `tools/validate_customer_install_manifest.py` against
   `schemas/customer-install-manifest.v1.schema.json`.
 - **Do not grant AI release autonomy until the gates can't lie** (real gates + real telemetry — Phase 1).
