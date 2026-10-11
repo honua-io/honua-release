@@ -58,6 +58,7 @@ def main() -> int:
         "HONUA_PARITY_CONSUMER": str(run / "consumer"),
     })
     private = list(passwords.values()) + [v for k, v in env.items() if k.startswith("S4_") and any(x in k for x in ["PASSWORD", "SECRET", "KEY"])]
+    # codeql[py/clear-text-storage-sensitive-data]: per-run random fixture secrets, mode 0600 inside a new 0700 directory; excluded from uploaded receipts.
     (run / "credentials.json").write_text(json.dumps(passwords))
     (run / "run.env").write_text("".join(f"{k}={v}\n" for k, v in env.items() if k.startswith("S4_") or k == "HONUA_SERVER_IMAGE"))
     (run / "ownership.json").write_text(json.dumps({"project": PROJECT, "runDirectory": str(run), "bucket": env["HONUA_PARITY_BUCKET"]}))
@@ -96,6 +97,7 @@ def main() -> int:
         mapper["config"].pop("claim.value")
         mapper["config"]["user.attribute"] = "tenant_id"
         realm["clients"][0]["protocolMappers"].append({"name": "sdk1424-per-user-oauth-ceiling", "protocol": "openid-connect", "protocolMapper": "oidc-usermodel-attribute-mapper", "consentRequired": False, "config": {"user.attribute": "honua_scopes", "claim.name": "scp", "jsonType.label": "String", "id.token.claim": "true", "access.token.claim": "true", "userinfo.token.claim": "true"}})
+        # codeql[py/clear-text-storage-sensitive-data]: canonical throwaway IdP import needs these run-generated secrets; its 0700 parent is private and the import is never uploaded.
         realm_path.write_text(json.dumps(realm))
         call(["openssl", "req", "-x509", "-newkey", "rsa:2048", "-nodes", "-keyout", "keyring.key", "-out", "keyring.crt", "-days", "2", "-subj", "/CN=honua-sdk1424-keyring"])
         call(["openssl", "pkcs12", "-export", "-inkey", "keyring.key", "-in", "keyring.crt", "-out", "keyring.pfx", "-passout", "env:S4_KEYRING_PASSWORD"])
