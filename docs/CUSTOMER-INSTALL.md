@@ -9,9 +9,9 @@ represent the site copy as available.
 This is an explicitly **pre-cut rehearsal** profile, not a signed release lock
 or a change to `components.honua-server` / the certification ledger. The server
 image is the one `platform-manifest.yaml` pins as `components.honua-server`
-(`nightly-87966c3`, by digest), which contains the licensing-disabled mode
+(`nightly-93cad86`, by digest), which contains the licensing-disabled mode
 ([release issue #416](https://github.com/honua-io/honua-release/issues/416)). Its
-anonymous OCI index digest and amd64 source label were rechecked on 2026-10-05.
+anonymous OCI index digest and amd64 source label were rechecked on 2026-10-11.
 The licensing-disabled runtime assertion has not been run against this profile,
 so it does not claim candidate or clean-Windows qualification. Both Honua Python clients are pinned in `platform-manifest.yaml`; their wheel identities
 and the MCP transport wheel come from the linked version-specific PyPI JSON.
@@ -49,7 +49,7 @@ services:
       retries: 30
 
   honua:
-    image: ${HONUA_SERVER_IMAGE:-ghcr.io/honua-io/honua-server@sha256:069f196bfa5c7201223d4d89868934242c4ace8805a6e48c122a88d84fa6eb1a}
+    image: ${HONUA_SERVER_IMAGE:-ghcr.io/honua-io/honua-server@sha256:785de2ae7f72e6277ce62aa1ece4f08ee0425970b71c47f9f4843c0baae2c8db}
     depends_on:
       db:
         condition: service_healthy
