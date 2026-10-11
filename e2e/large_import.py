@@ -276,6 +276,13 @@ def server_messages(document) -> list[str]:
             if isinstance(value := source.get(name), str) and value.strip()]
 
 
+def unwrap(document):
+    """The payload of an admin response: its `data` object when enveloped, else the document."""
+    if isinstance(document, dict) and isinstance(document.get("data"), dict):
+        return document["data"]
+    return document
+
+
 def _status(document) -> str:
     value = (document or {}).get("status") if isinstance(document, dict) else None
     if isinstance(value, int) and not isinstance(value, bool):
@@ -357,6 +364,7 @@ def run_scenario(state: dict, endpoint: str, admin_key: str, *, source_url: str 
     # Preflight: the cell's limits and the staging cap max(threshold, MaxMemoryBytes) both upload
     # paths enforce (ImportEndpoints.cs:326,532).
     status, limits = call("GET", LIMITS_PATH)
+    limits = unwrap(limits)
     threshold = _int((limits or {}).get("backgroundJobThresholdBytes")) if isinstance(limits, dict) else None
     memory = _int((limits or {}).get("maxMemoryBytes")) if isinstance(limits, dict) else None
     if status != 200 or threshold is None or memory is None:
@@ -415,6 +423,7 @@ def run_scenario(state: dict, endpoint: str, admin_key: str, *, source_url: str 
     deadline = started + job_timeout
     while True:
         status, progress = call("GET", JOB_PATH.format(job=urllib.parse.quote(job, safe="")))
+        progress = unwrap(progress)
         state_name = _status(progress) if status == 200 else f"http-{status or 'none'}"
         if state_name != last:
             transitions.append({"status": state_name, "at": now()})
@@ -457,6 +466,7 @@ def run_scenario(state: dict, endpoint: str, admin_key: str, *, source_url: str 
                             + (f": {detail}" if detail else ""), fields)
     fields.update(layerId=layer, service=SERVICE)
     status, counted = call("GET", COUNT_PATH.format(service=SERVICE, layer=layer))
+    counted = unwrap(counted)
     rows = _int((counted or {}).get("count")) if isinstance(counted, dict) else None
     fields["rowCount"] = rows
     if status != 200 or rows is None:

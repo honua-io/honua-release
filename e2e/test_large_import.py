@@ -210,14 +210,21 @@ class _Cell:
     """A loopback honua admin API for the S10 routes. `script` shapes each answer."""
 
     def __init__(self, *, threshold=64 * MIB, memory=100 * MIB, upload=None, job_states=("Queued", "Processing",
-                 "Completed"), job_error=None, features=None, layer=7, count=None, publish_status=201):
+                 "Completed"), job_error=None, features=None, layer=7, count=None, publish_status=201,
+                 envelope=False):
         self.threshold, self.memory = threshold, memory
         self.upload = upload
         self.job_states, self.job_error = list(job_states), job_error
         self.features, self.layer, self.count, self.publish_status = features, layer, count, publish_status
-        self.requests, self.reads = [], 0
+        self.requests, self.reads, self.envelope = [], 0, envelope
 
     def answer(self, method, path, body, key):
+        status, document = self._answer(method, path, body, key)
+        if self.envelope and status == 200 and "data" not in document:
+            document = {"success": True, "data": document}
+        return status, document
+
+    def _answer(self, method, path, body, key):
         self.requests.append((method, path, body))
         if key != ADMIN_KEY:
             return 401, {"title": "Unauthorized"}
@@ -320,6 +327,13 @@ def test_a_redis_on_cell_follows_the_background_job_to_success_and_counts_the_pi
     assert upload["fileName"] == fx.LARGE.name and upload["targetSchema"] == "honua_data"
     publish = next(body for method, path, body in cell.requests if path.endswith("/layers"))
     assert publish["table"] == "imported_s10_large_import" and publish["geometryColumn"] == "geometry"
+
+
+def test_enveloped_admin_responses_are_unwrapped():
+    # Review on #554: the job read may answer {"data": {...}}, as stage 3's executor already handles.
+    row, receipt = _scenario(_Cell(envelope=True))
+    assert row.status == "pass", row.why
+    assert receipt["jobStatus"] == "completed" and receipt["thresholdBytes"] == 64 * MIB
 
 
 def test_a_failed_job_surfaces_the_servers_error_and_fails():
