@@ -42,7 +42,7 @@ STAGES = [
 def receipt(cell):
     return {"schemaVersion": 1, "receiptSchema": "terminal-journey-receipt-v1",
             "evidenceKey": "release.e2e.terminal-zero-to-map", "generatedAt": STAMP,
-            "mode": "live", "target": {"id": cell, "kind": "aws-ecs",
+            "mode": "live", "target": {"id": cell, "kind": cell.split("/")[0],
                 "configPath": "target.json", "configSha256": "d" * 64},
             "status": "pass", "release": "2026.1-rc.3", "clientArtifacts": CLIENTS,
             "clientWorkspace": {"status": "pass", "source": "published-registry-bytes",
@@ -62,7 +62,7 @@ def receipt(cell):
                 "auditId": "audit", "proposalId": "proposal", "jobId": "job", "resourceUri": "honua://jobs/job",
                 "jobStatus": "accepted", "jobCreatedAt": STAMP, "policyDecisionId": None, "approvalId": None,
                 "actuatorId": None, "verificationId": None,
-                "evidence": {"uri": "urn:hand-built:observation", "source": "live-aws-ecs",
+                "evidence": {"uri": "urn:hand-built:observation", "source": f"live-{cell.split('/')[0]}",
                              "freshness": "verified-current", "completeness": "complete",
                              "observedAt": STAMP}} for number, stage, command in STAGES],
             "notices": [], "linkedEvidence": {"awsProvisioning": "honua-release#129",
@@ -455,3 +455,26 @@ def test_workflow_refuses_untrusted_producer_run(tmp_path, override):
     refused = subprocess.run(["jq", "-e", "--arg", "id", RUN, "--arg", "attempt", RUN_ATTEMPT,
                               query], input=json.dumps(run), text=True, capture_output=True)
     assert refused.returncode != 0
+
+
+@pytest.mark.parametrize("cell", [c for c in checker.GA_CELLS if not c.startswith("aws-ecs/")])
+def test_each_cell_passes_on_its_own_targets_evidence_and_not_on_ecs_evidence(intake, cell):
+    # honua-release#203: a valid aws-eks (or aws-serverless) receipt carries live-<target> evidence.
+    assert intake.evaluate()["status"] == "pass"
+    data = receipt(cell)
+    assert {s["evidence"]["source"] for s in data["stages"]} == {f"live-{cell.split('/')[0]}"}
+    for stage in data["stages"]:
+        stage["evidence"]["source"] = "live-aws-ecs"
+    data["target"]["kind"] = "aws-ecs"
+    intake.write(cell, [data])
+    assert_red(intake, "wrong candidate or receipt cell pins")
+
+
+def test_the_verdict_names_the_number_of_cells_it_certified(intake):
+    assert intake.evaluate()["why"] == "all 6 GA journeys passed for the exact candidate"
+
+
+def test_promotion_still_requires_only_the_four_ecs_and_lambda_cells():
+    # Open owner question (honua-release#203): the receipt gate requires the EKS cells, promotion not yet.
+    import check_promotion_readiness as promotion
+    assert promotion.GA_CELLS == frozenset(c for c in checker.GA_CELLS if not c.startswith("aws-eks/"))

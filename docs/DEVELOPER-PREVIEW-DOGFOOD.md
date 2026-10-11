@@ -2,7 +2,7 @@
 
 **developer preview; certification in progress**. This is a feasibility recording on
 real AWS ECS, not a certification receipt. The Console is display-and-approve;
-no dashboards are claimed. Studio, mixed topology and EKS are **Preview**.
+no dashboards are claimed. Studio and mixed topology are **Preview**; EKS is a GA target, qualification pending ([release#203](https://github.com/honua-io/honua-release/issues/203)).
 `customer-install-manifest.json` stays `pre-cut-rehearsal`.
 
 The program is [honua-release#376](https://github.com/honua-io/honua-release/issues/376),
@@ -328,7 +328,7 @@ against the ledger; final spend <=$25 is a separate recorded criterion.
 > spend, teardown inventory reconciliation and settled final cost. Mark every
 > unexecuted step and why. Audit site/blog/release notes/support claims against
 > these observations: developer preview; certification in progress; Console
-> display-and-approve; no dashboards; Studio/mixed topology/EKS Preview;
+> display-and-approve; no dashboards; Studio/mixed topology Preview; EKS GA target, qualification pending;
 > best-effort preview support; install manifest pre-cut-rehearsal. Record the
 > audit URLs/revisions and verdict. Do not close #378 until every criterion passes.
 

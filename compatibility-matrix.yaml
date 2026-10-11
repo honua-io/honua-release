@@ -111,6 +111,16 @@ deploy:
     # Chart.yaml appVersion is "0.0.0" (placeholder); chart version is 0.4.0 (un-released).
     # Same coupling as honua-iac above; advanced with the 2026-10-10 hand server re-pin.
     appVersion: "sha:798d517b864d9dcac4b1fc8f2b76f145e1b61d19"
+    awsEks:
+      target: aws-eks
+      architectures:
+        x86_64:
+          status: ga-target
+          releaseScope: ga-target
+          qualification: pending
+          evidenceGate: "https://github.com/honua-io/honua-release/issues/203"
+          reason: "2026-10-10 owner decisions 12/18: the chart on Amazon EKS is in 2026.1 rc.3 scope, carrying the ECS bill (live deploy, serving smoke, journey, teardown) on the aws-eks cells. Other Kubernetes distributions stay Preview."
+          operatingEnvelope: docs/2026.1-operating-envelope.md
 
 data:
   honua-server:

@@ -454,7 +454,7 @@ it cannot read these.
   - **Rerun.** A rerun (`GITHUB_RUN_ATTEMPT` > 1) shares its run id with the earlier attempts,
     which the live estimate does not cover. It certifies only when those attempts are `measured`
     and this attempt's estimate plus their settled spend fits the ceiling.
-  - **Scope.** Every dispatched cell, Preview (EKS) included, must report its estimate, or report
+  - **Scope.** Every dispatched cell, EKS included, must report its estimate, or report
     that it never provisioned. Otherwise the run's estimate is `unavailable`. The `iac-live` job
     is outside this ceiling: it dispatches a separate honua-iac workflow run with its own
     deployment, lifecycle and teardown, and that run is not tagged with this run id. The basis

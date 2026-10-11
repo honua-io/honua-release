@@ -23,7 +23,10 @@ import yaml
 from jsonschema import Draft202012Validator, FormatChecker
 
 ROOT = Path(__file__).resolve().parents[1]
-# aws-eks is GA for 2026.1 (honua-release#203; owner decisions 12/18 of 2026-10-10).
+# aws-eks is a GA target for 2026.1 (honua-release#203; owner decisions 12/18 of 2026-10-10), so this
+# receipt gate requires all six cells. tools/check_promotion_readiness.py still requires only the four
+# ECS/Lambda cells: whether promotion also requires the EKS cells (and EKS update/rollback evidence) is
+# an open owner question, so an EKS receipt here never stands in for the promotion contract.
 GA_CELLS = tuple(f"{target}/redis-{redis}" for target in ("aws-ecs", "aws-serverless", "aws-eks")
                  for redis in ("off", "on"))
 # aws-mixed is out for 2026.1 rc.3 (no examples/aws-mixed root); restore it when honua-iac#209 lands.
@@ -120,7 +123,8 @@ def validate_cell(report, directory, cell, manifest, digest, run_id, run_attempt
         receipt = load_json(path)
         if not isinstance(receipt, dict) or not validator.is_valid(receipt):
             raise ValueError("invalid or skipped terminal journey receipt")
-        if (receipt["target"]["id"] != cell or receipt["release"] != manifest["platformRelease"]
+        if (receipt["target"]["id"] != cell or receipt["target"]["kind"] != cell.split("/")[0]
+                or receipt["release"] != manifest["platformRelease"]
                 or receipt["server"] != expected_server or receipt["clientArtifacts"] != expected_clients):
             raise ValueError("wrong candidate or receipt cell pins")
         require_current(receipt["generatedAt"], at)
@@ -136,7 +140,9 @@ def validate_cell(report, directory, cell, manifest, digest, run_id, run_attempt
                 raise ValueError("passing receipt lacks live journey or roster evidence")
             for stage in receipt["stages"]:
                 evidence = stage["evidence"]
-                if evidence["source"] != "live-aws-ecs":
+                # Each target observes its own substrate: live-aws-ecs, live-aws-serverless or
+                # live-aws-eks (receipt.schema.json binds the source to the target kind).
+                if evidence["source"] != f"live-{cell.split('/')[0]}":
                     raise ValueError("passing receipt lacks cloud evidence")
                 require_current(evidence.get("observedAt"), at)
                 if timestamp(evidence["observedAt"]) > timestamp(receipt["generatedAt"]):
@@ -218,7 +224,7 @@ def evaluate(receipts: Path, candidate: Path, candidate_digest: str, run_id: str
         rows.append(row)
     status = "fail" if errors else "pass"
     url = f"https://github.com/honua-io/honua-release/actions/runs/{run_id}"
-    why = "; ".join(errors) if errors else "all GA journeys passed for the exact candidate"
+    why = "; ".join(errors) if errors else f"all {len(GA_CELLS)} GA journeys passed for the exact candidate"
     return {"gate": "journey", "status": status, "overallStatus": status,
             "source": "cloud-cell-receipts", "why": why, "evidence_url": url,
             "candidateDigest": candidate_digest, "runId": run_id, "runAttempt": run_attempt,
