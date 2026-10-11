@@ -2858,6 +2858,96 @@ def test_eks_admission_grants_this_runner_then_adds_the_journey_source_range(mon
     assert json.loads(patch[-1])["spec"]["loadBalancerSourceRanges"] == ["192.0.2.10/32", "198.51.100.7/32"]
 
 
+# ---- run 38128300695: a failed fixture publication names its call, status and answering task ------
+def _seed_cell_against(handler_answers):
+    """Run the real seed against a loopback admin API answering `handler_answers(method, path)`
+    with (status, body bytes, instance)."""
+    import http.server
+    import threading
+
+    calls = []
+
+    class Handler(http.server.BaseHTTPRequestHandler):
+        def _answer(self):
+            length = int(self.headers.get("Content-Length") or 0)
+            calls.append((self.command, self.path, json.loads(self.rfile.read(length) or b"{}"),
+                          self.headers.get("X-API-Key")))
+            status, body, instance = handler_answers(self.command, self.path)
+            self.send_response(status)
+            self.send_header("Content-Type", "application/json")
+            if instance:
+                self.send_header("Honua-Instance", instance)
+            self.send_header("Content-Length", str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
+
+        do_POST = do_PUT = _answer
+
+        def log_message(self, *args):
+            pass
+
+    server = http.server.HTTPServer(("127.0.0.1", 0), Handler)
+    threading.Thread(target=server.serve_forever, daemon=True).start()
+
+    class Cell:
+        admin_api_key = "cell-admin-key-value"
+
+        def seed_database(self, sql):
+            return {"host": "db.internal.example", "port": 5432, "databaseName": "honua",
+                    "username": "honua_admin", "password": "pg-password-value", "provider": "PostGIS",
+                    "sslRequired": True, "sslMode": "Require"}
+    try:
+        with tempfile.TemporaryDirectory() as out:
+            error = cloud_driver.seed_cell(f"http://127.0.0.1:{server.server_address[1]}", target=Cell(), out=out)
+            wrote = (Path(out) / "seed-manifest.json").exists()
+    finally:
+        server.shutdown()
+        server.server_close()
+    return error, calls, wrote
+
+
+def test_seed_failure_names_the_call_status_instance_and_a_masked_body():
+    cid = "3f2b8c1e-5d4a-4e7b-9c0d-1a2b3c4d5e6f"
+
+    def answers(method, path):
+        if path == "/api/v1/admin/connections/":
+            return 201, json.dumps({"data": {"connectionId": cid}}).encode(), "task-a"
+        return 404, json.dumps({"success": False, "message": "Connection not found",
+                                "detail": "pg-password-value at db.internal.example",
+                                "password": "pg-password-value"}).encode(), "task-b"
+    error, calls, wrote = _seed_cell_against(answers)
+    assert not wrote
+    assert error.startswith(f"HTTPError HTTP 404 on POST /api/v1/admin/connections/{cid}/layers "
+                            "(answered by instance task-b): ")
+    assert '"message":"Connection not found"' in error
+    assert error.endswith("; 1 earlier publication call(s) were answered by task-a")
+    for secret in ("pg-password-value", "db.internal.example", "honua_admin", "cell-admin-key-value"):
+        assert secret not in error
+    assert [c[:2] for c in calls] == [("POST", "/api/v1/admin/connections/"),
+                                      ("POST", f"/api/v1/admin/connections/{cid}/layers")]
+
+
+def test_seed_failure_on_a_non_json_body_is_bounded_and_unnamed_instances_are_said():
+    def answers(method, path):
+        if path == "/api/v1/admin/connections/":
+            return 200, json.dumps({"data": {"connectionId": "c1"}}).encode(), None
+        return 502, b"<html>Bad Gateway token=abc123 " + b"x" * 1000 + b"</html>", None
+    error, _, _ = _seed_cell_against(answers)
+    assert error.startswith("HTTPError HTTP 502 on POST /api/v1/admin/connections/c1/layers: <html>Bad Gateway")
+    assert "abc123" not in error and "...(truncated)" in error
+    assert error.endswith("; 1 earlier publication call(s) were answered by no named instance")
+
+
+def test_seed_failure_that_is_not_http_keeps_only_the_error_type():
+    class Cell:
+        admin_api_key = "k"
+
+        def seed_database(self, sql):
+            raise RuntimeError("psql: password authentication failed for user honua_admin")
+    with tempfile.TemporaryDirectory() as out:
+        assert cloud_driver.seed_cell("http://127.0.0.1:9", target=Cell(), out=out) == "RuntimeError"
+
+
 def _driver_contract_fixture(monkeypatch, directory, *, blocked=False, missing=False, crash=False, ready=True):
     """Exercise the real shell report assembler with controlled subprocess verdicts."""
     def seed(endpoint, key, target, out):
