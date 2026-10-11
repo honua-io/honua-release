@@ -67,14 +67,16 @@ def trusted_public_key(seed: bytes) -> str:
 
 
 def granted_keys(spec: dict, probes: dict) -> list[str]:
-    """Entitlement keys a fixture grants: every catalog key, or every key except the gated ones."""
-    gated = sorted(probes["gated_keys"])
-    community = sorted(probes["community_keys"])
+    """Entitlement keys a fixture grants, resolved against the committed catalog snapshot."""
+    gated = probes["catalog"]["gated"]
+    community = set(probes["catalog"]["community"])
     grant = spec["grants"]
     if grant == "all-catalog-keys":
-        return sorted(set(gated) | set(community))
+        return sorted(set(gated) | community)
+    if grant == "pro-and-community-keys":
+        return sorted({key for key, edition in gated.items() if edition == "Pro"} | community)
     if grant == "community-keys-only":
-        return community
+        return sorted(community)
     raise FixtureError(f"fixture {spec['id']} has unknown grant {grant!r}")
 
 

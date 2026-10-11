@@ -8,6 +8,10 @@
 # repository or a receipt (fingerprints only).
 services:
   server:
+    # Scene ingest writes generated tilesets here; the image ships it unwritable for its
+    # non-root user, so an entitled ingest would fail on the filesystem, not the license.
+    tmpfs:
+      - /app/scenes-generated:mode=1777
     environment:
       Licensing__Mode: "Enabled"
       Licensing__Edition: "${HONUA_ENTITLEMENT_EDITION:?fixture edition required}"
@@ -26,5 +30,19 @@ services:
       Saml__EntityId: "https://entitlement-certification.honua.invalid/saml"
       Saml__AssertionConsumerServiceUrl: "http://localhost:8080/saml/acs"
       Saml__IdpEntityId: "https://idp.entitlement-certification.honua.invalid"
+      # Delivery-channel configuration so an entitled alert rule can be created at all. Probe
+      # rules are created inactive and the IANA-reserved example.com endpoints never receive a delivery.
+      Alerts__Dispatch__DefaultWebhookUrl: "https://example.com/honua-entitlement-certification/webhook"
+      Alerts__Dispatch__DefaultWebhookSecret: "entitlement-certification-webhook"
+      Alerts__Dispatch__Digest__WebhookUrl: "https://example.com/honua-entitlement-certification/digest"
+      Alerts__Dispatch__Digest__WebhookSecret: "entitlement-certification-digest"
+      Alerts__Dispatch__Email__SmtpHost: "example.com"
+      Alerts__Dispatch__Email__FromAddress: "alerts@example.com"
+      Alerts__Dispatch__Email__DefaultRecipient: "operator@example.com"
+      Alerts__Dispatch__Slack__WebhookUrl: "https://example.com/honua-entitlement-certification/slack"
+      Alerts__Dispatch__Teams__WebhookUrl: "https://example.com/honua-entitlement-certification/teams"
+      Alerts__Dispatch__AwsSns__TopicArn: "arn:aws:sns:us-east-1:000000000000:entitlement-certification"
+      Alerts__Dispatch__AwsSns__Region: "us-east-1"
+      Alerts__Dispatch__AzureEventGrid__TopicEndpoint: "https://example.com/honua-entitlement-certification/eventgrid"
       Scim__BearerToken: "${HONUA_ENTITLEMENT_SCIM_TOKEN:-entitlement-certification-scim}"
       Scim__OidcIssuer: "https://issuer.example.com"

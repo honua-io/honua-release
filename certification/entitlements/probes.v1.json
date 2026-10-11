@@ -1,0 +1,1630 @@
+{
+  "schema": "honua-release/entitlement-probes/v1",
+  "source": {
+    "repository": "honua-io/honua-server",
+    "sha": "798d517b864d9dcac4b1fc8f2b76f145e1b61d19",
+    "catalog": "src/Honua.Core/Features/Licensing/Domain/FeatureCatalog.cs",
+    "documented_denial": "docs/concepts/editions-and-licensing.md#how-gating-responds",
+    "no_surface_evidence": "honua-server tests/dotnet/Honua.Server.Tests/Features/Licensing/EntitlementSweep/EntitlementProbeRegistry.cs"
+  },
+  "catalog": {
+    "gated": {
+      "admin.multi-tenancy": "Enterprise",
+      "ai.agent-operations": "Pro",
+      "ai.approval-workflows": "Enterprise",
+      "ai.grounding": "Pro",
+      "ai.spec-apply": "Pro",
+      "alerts.dwell": "Enterprise",
+      "alerts.enter-exit": "Pro",
+      "alerts.evaluation": "Pro",
+      "alerts.threshold": "Enterprise",
+      "analytics.buffer-aggregate": "Pro",
+      "analytics.clustering": "Pro",
+      "analytics.density": "Pro",
+      "analytics.h3": "Pro",
+      "analytics.line-of-sight": "Pro",
+      "analytics.slice": "Pro",
+      "analytics.spatial-join": "Pro",
+      "analytics.sun-shadow": "Pro",
+      "analytics.viewshed": "Pro",
+      "caching.output-cache": "Pro",
+      "caching.redis": "Pro",
+      "channels.aws-sns": "Enterprise",
+      "channels.azure-eventgrid": "Enterprise",
+      "channels.digest": "Enterprise",
+      "channels.email": "Enterprise",
+      "channels.slack": "Enterprise",
+      "channels.teams": "Enterprise",
+      "channels.webhook": "Pro",
+      "dr.backup-automation": "Enterprise",
+      "dr.cache-backup": "Enterprise",
+      "dr.failover": "Enterprise",
+      "dr.rto-rpo-reporting": "Enterprise",
+      "editing.branch-versioning": "Pro",
+      "editing.featureserver-edits": "Pro",
+      "fieldops.offline-sync": "Pro",
+      "geocoding.batch": "Enterprise",
+      "geocoding.failover": "Pro",
+      "identity.claims-mapping": "Enterprise",
+      "identity.mtls-client-certificate": "Enterprise",
+      "identity.oidc": "Pro",
+      "identity.oidc-multi-provider": "Enterprise",
+      "identity.saml": "Enterprise",
+      "identity.scim": "Enterprise",
+      "import.geoserver": "Enterprise",
+      "import.geoservices": "Enterprise",
+      "plugin.sdk": "Enterprise",
+      "printing.layout-templates": "Pro",
+      "printing.pdf-output": "Pro",
+      "raster.cloud-cog-serving": "Pro",
+      "raster.cloud-storage-config": "Pro",
+      "raster.multidim-coverage": "Pro",
+      "raster.temporal-mosaic": "Pro",
+      "routing.solve": "Pro",
+      "scene.bim-ingest": "Enterprise",
+      "scene.pointcloud-ingest": "Enterprise",
+      "staticmap.high-dpi": "Pro",
+      "staticmap.large-dimensions": "Pro",
+      "staticmap.rich-overlays": "Pro",
+      "streaming.feature-subscriptions": "Pro",
+      "styling.auto-suggest": "Pro",
+      "temporal.animation-api": "Pro",
+      "temporal.histogram": "Pro",
+      "temporal.time-series-tiles": "Pro"
+    },
+    "community": [
+      "ai.mcp-discovery",
+      "identity.portal-sharing",
+      "identity.portal-token",
+      "import.file",
+      "styling.defaults",
+      "temporal.extent-discovery",
+      "temporal.filtering"
+    ]
+  },
+  "negative_fixture": {
+    "Pro": "keyless",
+    "Enterprise": "pro-tier"
+  },
+  "denials": {
+    "problem": "HTTP 402 application/problem+json; status 402, title 'Payment Required', detail naming 'entitlement: <key>' and 'requires an active <edition> entitlement'.",
+    "geoservices": "GeoServices wire convention: HTTP 200 application/json with error.code 402, message 'Payment Required', details naming 'entitlement: <key>' and the required edition."
+  },
+  "probes": [
+    {
+      "key": "admin.multi-tenancy",
+      "request": {
+        "method": "GET",
+        "path": "/api/v1/admin/tenants"
+      },
+      "positive": {
+        "status": 200,
+        "content_type": "application/json",
+        "checks": [
+          {
+            "path": "success",
+            "equals": true
+          },
+          {
+            "path": "data",
+            "type": "array"
+          }
+        ]
+      },
+      "denial": "problem"
+    },
+    {
+      "key": "ai.grounding",
+      "request": {
+        "method": "POST",
+        "path": "/v1/grounding/spec/mutate",
+        "json": {
+          "turn": "use maui-zoning",
+          "spec": {}
+        }
+      },
+      "positive": {
+        "status": 200,
+        "content_type": "application/json",
+        "checks": [
+          {
+            "path": "mutation.mutations",
+            "type": "array",
+            "min_items": 1
+          },
+          {
+            "path": "mutation.next_spec.sources",
+            "type": "array",
+            "min_items": 1
+          },
+          {
+            "path": "error",
+            "absent": true
+          }
+        ]
+      },
+      "denial": "problem"
+    },
+    {
+      "key": "ai.spec-apply",
+      "request": {
+        "method": "POST",
+        "path": "/v1/spec/apply",
+        "headers": {
+          "Accept": "text/event-stream"
+        },
+        "json": {
+          "grammarVersion": "grammar/1.0",
+          "processFamilyVersion": "family/1.0",
+          "nodes": [
+            {
+              "id": "a",
+              "kind": "Compute",
+              "op": "compute.noop",
+              "inputs": {}
+            }
+          ]
+        }
+      },
+      "positive": {
+        "status": 200,
+        "content_type": "text/event-stream",
+        "text_contains": [
+          "event: ApplyStarted"
+        ]
+      },
+      "denial": "problem"
+    },
+    {
+      "key": "alerts.dwell",
+      "setup": [
+        {
+          "name": "geofence zone",
+          "method": "POST",
+          "path": "/api/v1/admin/alerts/zones",
+          "json": {
+            "serviceId": "maui-inspections",
+            "zoneName": "entitlement certification zone",
+            "wkt": "POLYGON((-156.49 20.88,-156.49 20.91,-156.46 20.91,-156.46 20.88,-156.49 20.88))",
+            "srid": 4326,
+            "isActive": true
+          },
+          "expect_status": 200,
+          "capture": {
+            "zoneId": "data.zoneId"
+          }
+        }
+      ],
+      "request": {
+        "method": "POST",
+        "path": "/api/v1/admin/alerts/rules",
+        "json": {
+          "serviceId": "maui-inspections",
+          "layerId": "{layer:maui-inspections}",
+          "ruleName": "entitlement certification dwell webhook",
+          "triggerType": "dwell",
+          "conditionsJson": "{\"dwellSeconds\":60}",
+          "cooldownSeconds": 30,
+          "severity": "warning",
+          "editionRequired": "pro",
+          "channels": [
+            "webhook"
+          ],
+          "isActive": false,
+          "zoneId": "{zoneId}"
+        }
+      },
+      "positive": {
+        "status": 200,
+        "content_type": "application/json",
+        "checks": [
+          {
+            "path": "success",
+            "equals": true
+          },
+          {
+            "path": "data.ruleId",
+            "type": "number"
+          },
+          {
+            "path": "data.triggerType",
+            "equals": "dwell"
+          },
+          {
+            "path": "data.channels",
+            "equals": [
+              "webhook"
+            ]
+          }
+        ]
+      },
+      "denial": "problem"
+    },
+    {
+      "key": "alerts.enter-exit",
+      "setup": [
+        {
+          "name": "geofence zone",
+          "method": "POST",
+          "path": "/api/v1/admin/alerts/zones",
+          "json": {
+            "serviceId": "maui-inspections",
+            "zoneName": "entitlement certification zone",
+            "wkt": "POLYGON((-156.49 20.88,-156.49 20.91,-156.46 20.91,-156.46 20.88,-156.49 20.88))",
+            "srid": 4326,
+            "isActive": true
+          },
+          "expect_status": 200,
+          "capture": {
+            "zoneId": "data.zoneId"
+          }
+        }
+      ],
+      "request": {
+        "method": "POST",
+        "path": "/api/v1/admin/alerts/rules",
+        "json": {
+          "serviceId": "maui-inspections",
+          "layerId": "{layer:maui-inspections}",
+          "ruleName": "entitlement certification enter webhook",
+          "triggerType": "enter",
+          "conditionsJson": "{}",
+          "cooldownSeconds": 30,
+          "severity": "warning",
+          "editionRequired": "pro",
+          "channels": [
+            "webhook"
+          ],
+          "isActive": false,
+          "zoneId": "{zoneId}"
+        }
+      },
+      "positive": {
+        "status": 200,
+        "content_type": "application/json",
+        "checks": [
+          {
+            "path": "success",
+            "equals": true
+          },
+          {
+            "path": "data.ruleId",
+            "type": "number"
+          },
+          {
+            "path": "data.triggerType",
+            "equals": "enter"
+          },
+          {
+            "path": "data.channels",
+            "equals": [
+              "webhook"
+            ]
+          }
+        ]
+      },
+      "denial": "problem"
+    },
+    {
+      "key": "alerts.evaluation",
+      "request": {
+        "method": "POST",
+        "path": "/api/v1/admin/alerts/rules/test",
+        "json": {
+          "rule": {
+            "serviceId": "maui-inspections",
+            "layerId": "{layer:maui-inspections}",
+            "ruleName": "entitlement certification enter webhook",
+            "triggerType": "enter",
+            "conditionsJson": "{}",
+            "cooldownSeconds": 30,
+            "severity": "warning",
+            "editionRequired": "pro",
+            "channels": [
+              "webhook"
+            ],
+            "isActive": false
+          },
+          "zone": {
+            "serviceId": "maui-inspections",
+            "zoneName": "entitlement certification draft zone",
+            "wkt": "POLYGON((-156.49 20.88,-156.49 20.91,-156.46 20.91,-156.46 20.88,-156.49 20.88))",
+            "srid": 4326,
+            "isActive": true
+          }
+        }
+      },
+      "positive": {
+        "status": 200,
+        "content_type": "application/json",
+        "checks": [
+          {
+            "path": "success",
+            "equals": true
+          },
+          {
+            "path": "data.isValid",
+            "equals": true
+          },
+          {
+            "path": "data.deliveryChannels[0].isAllowed",
+            "equals": true
+          }
+        ]
+      },
+      "denial": "problem"
+    },
+    {
+      "key": "alerts.threshold",
+      "setup": [],
+      "request": {
+        "method": "POST",
+        "path": "/api/v1/admin/alerts/rules",
+        "json": {
+          "serviceId": "maui-inspections",
+          "layerId": "{layer:maui-inspections}",
+          "ruleName": "entitlement certification threshold webhook",
+          "triggerType": "threshold",
+          "conditionsJson": "{\"field\":\"id\",\"operator\":\">\",\"value\":0}",
+          "cooldownSeconds": 30,
+          "severity": "warning",
+          "editionRequired": "pro",
+          "channels": [
+            "webhook"
+          ],
+          "isActive": false
+        }
+      },
+      "positive": {
+        "status": 200,
+        "content_type": "application/json",
+        "checks": [
+          {
+            "path": "success",
+            "equals": true
+          },
+          {
+            "path": "data.ruleId",
+            "type": "number"
+          },
+          {
+            "path": "data.triggerType",
+            "equals": "threshold"
+          },
+          {
+            "path": "data.channels",
+            "equals": [
+              "webhook"
+            ]
+          }
+        ]
+      },
+      "denial": "problem"
+    },
+    {
+      "key": "analytics.buffer-aggregate",
+      "request": {
+        "method": "POST",
+        "path": "/rest/services/maui-place-names/FeatureServer/{layer:maui-place-names}/queryBufferAggregate",
+        "form": {
+          "f": "json",
+          "distance": "500"
+        }
+      },
+      "positive": {
+        "status": 200,
+        "content_type": "application/geo+json",
+        "checks": [
+          {
+            "path": "type",
+            "equals": "FeatureCollection"
+          },
+          {
+            "path": "features",
+            "type": "array",
+            "min_items": 1
+          }
+        ]
+      },
+      "denial": "geoservices"
+    },
+    {
+      "key": "analytics.clustering",
+      "request": {
+        "method": "POST",
+        "path": "/rest/services/maui-place-names/FeatureServer/{layer:maui-place-names}/queryClusters",
+        "form": {
+          "f": "json",
+          "eps": "2000",
+          "minPoints": "2"
+        }
+      },
+      "positive": {
+        "status": 200,
+        "content_type": "application/geo+json",
+        "checks": [
+          {
+            "path": "type",
+            "equals": "FeatureCollection"
+          },
+          {
+            "path": "features",
+            "type": "array",
+            "min_items": 1
+          }
+        ]
+      },
+      "denial": "geoservices"
+    },
+    {
+      "key": "analytics.density",
+      "request": {
+        "method": "POST",
+        "path": "/rest/services/maui-place-names/FeatureServer/{layer:maui-place-names}/queryDensity",
+        "form": {
+          "f": "json",
+          "cellSize": "1000"
+        }
+      },
+      "positive": {
+        "status": 200,
+        "content_type": "application/geo+json",
+        "checks": [
+          {
+            "path": "type",
+            "equals": "FeatureCollection"
+          },
+          {
+            "path": "features",
+            "type": "array",
+            "min_items": 1
+          }
+        ]
+      },
+      "denial": "geoservices"
+    },
+    {
+      "key": "analytics.h3",
+      "request": {
+        "method": "GET",
+        "path": "/rest/services/maui-zoning/FeatureServer/{layer:maui-zoning}/queryH3?resolution=5&f=json"
+      },
+      "positive_blocked": "H3 aggregation needs the h3 PostgreSQL extension; the harness postgis/postgis image does not ship it, so an entitled request reports 501 from the provider.",
+      "denial": "geoservices"
+    },
+    {
+      "key": "analytics.line-of-sight",
+      "request": {
+        "method": "POST",
+        "path": "/elevation/0/line-of-sight",
+        "json": {
+          "observerLon": -156.48,
+          "observerLat": 20.87,
+          "targetLon": -156.47,
+          "targetLat": 20.88
+        }
+      },
+      "positive_blocked": "Requires a published elevation (DEM) raster; the candidate harness publish API is vector-only, so no elevation surface exists to analyse.",
+      "denial": "problem"
+    },
+    {
+      "key": "analytics.slice",
+      "request": {
+        "method": "POST",
+        "path": "/elevation/0/slice",
+        "json": {}
+      },
+      "positive_blocked": "Requires a published elevation (DEM) raster; the candidate harness publish API is vector-only, so no elevation surface exists to analyse.",
+      "denial": "problem"
+    },
+    {
+      "key": "analytics.spatial-join",
+      "request": {
+        "method": "POST",
+        "path": "/rest/services/maui-zoning/FeatureServer/{layer:maui-zoning}/spatialJoin",
+        "form": {
+          "f": "json",
+          "joinLayerId": "{layer:maui-place-names}"
+        }
+      },
+      "positive": {
+        "status": 200,
+        "content_type": "application/geo+json",
+        "checks": [
+          {
+            "path": "type",
+            "equals": "FeatureCollection"
+          },
+          {
+            "path": "features",
+            "type": "array",
+            "min_items": 1
+          }
+        ]
+      },
+      "denial": "geoservices"
+    },
+    {
+      "key": "analytics.sun-shadow",
+      "request": {
+        "method": "POST",
+        "path": "/elevation/0/sun-shadow",
+        "json": {}
+      },
+      "positive_blocked": "Requires a published elevation (DEM) raster; the candidate harness publish API is vector-only, so no elevation surface exists to analyse.",
+      "denial": "problem"
+    },
+    {
+      "key": "analytics.viewshed",
+      "request": {
+        "method": "POST",
+        "path": "/elevation/0/viewshed",
+        "json": {}
+      },
+      "positive_blocked": "Requires a published elevation (DEM) raster; the candidate harness publish API is vector-only, so no elevation surface exists to analyse.",
+      "denial": "problem"
+    },
+    {
+      "key": "channels.aws-sns",
+      "setup": [
+        {
+          "name": "geofence zone",
+          "method": "POST",
+          "path": "/api/v1/admin/alerts/zones",
+          "json": {
+            "serviceId": "maui-inspections",
+            "zoneName": "entitlement certification zone",
+            "wkt": "POLYGON((-156.49 20.88,-156.49 20.91,-156.46 20.91,-156.46 20.88,-156.49 20.88))",
+            "srid": 4326,
+            "isActive": true
+          },
+          "expect_status": 200,
+          "capture": {
+            "zoneId": "data.zoneId"
+          }
+        }
+      ],
+      "request": {
+        "method": "POST",
+        "path": "/api/v1/admin/alerts/rules",
+        "json": {
+          "serviceId": "maui-inspections",
+          "layerId": "{layer:maui-inspections}",
+          "ruleName": "entitlement certification enter aws_sns",
+          "triggerType": "enter",
+          "conditionsJson": "{}",
+          "cooldownSeconds": 30,
+          "severity": "warning",
+          "editionRequired": "pro",
+          "channels": [
+            "aws_sns"
+          ],
+          "isActive": false,
+          "zoneId": "{zoneId}"
+        }
+      },
+      "positive": {
+        "status": 200,
+        "content_type": "application/json",
+        "checks": [
+          {
+            "path": "success",
+            "equals": true
+          },
+          {
+            "path": "data.ruleId",
+            "type": "number"
+          },
+          {
+            "path": "data.triggerType",
+            "equals": "enter"
+          },
+          {
+            "path": "data.channels",
+            "equals": [
+              "aws_sns"
+            ]
+          }
+        ]
+      },
+      "denial": "problem"
+    },
+    {
+      "key": "channels.azure-eventgrid",
+      "setup": [
+        {
+          "name": "geofence zone",
+          "method": "POST",
+          "path": "/api/v1/admin/alerts/zones",
+          "json": {
+            "serviceId": "maui-inspections",
+            "zoneName": "entitlement certification zone",
+            "wkt": "POLYGON((-156.49 20.88,-156.49 20.91,-156.46 20.91,-156.46 20.88,-156.49 20.88))",
+            "srid": 4326,
+            "isActive": true
+          },
+          "expect_status": 200,
+          "capture": {
+            "zoneId": "data.zoneId"
+          }
+        }
+      ],
+      "request": {
+        "method": "POST",
+        "path": "/api/v1/admin/alerts/rules",
+        "json": {
+          "serviceId": "maui-inspections",
+          "layerId": "{layer:maui-inspections}",
+          "ruleName": "entitlement certification enter azure_eventgrid",
+          "triggerType": "enter",
+          "conditionsJson": "{}",
+          "cooldownSeconds": 30,
+          "severity": "warning",
+          "editionRequired": "pro",
+          "channels": [
+            "azure_eventgrid"
+          ],
+          "isActive": false,
+          "zoneId": "{zoneId}"
+        }
+      },
+      "positive": {
+        "status": 200,
+        "content_type": "application/json",
+        "checks": [
+          {
+            "path": "success",
+            "equals": true
+          },
+          {
+            "path": "data.ruleId",
+            "type": "number"
+          },
+          {
+            "path": "data.triggerType",
+            "equals": "enter"
+          },
+          {
+            "path": "data.channels",
+            "equals": [
+              "azure_eventgrid"
+            ]
+          }
+        ]
+      },
+      "denial": "problem"
+    },
+    {
+      "key": "channels.digest",
+      "setup": [
+        {
+          "name": "geofence zone",
+          "method": "POST",
+          "path": "/api/v1/admin/alerts/zones",
+          "json": {
+            "serviceId": "maui-inspections",
+            "zoneName": "entitlement certification zone",
+            "wkt": "POLYGON((-156.49 20.88,-156.49 20.91,-156.46 20.91,-156.46 20.88,-156.49 20.88))",
+            "srid": 4326,
+            "isActive": true
+          },
+          "expect_status": 200,
+          "capture": {
+            "zoneId": "data.zoneId"
+          }
+        }
+      ],
+      "request": {
+        "method": "POST",
+        "path": "/api/v1/admin/alerts/rules",
+        "json": {
+          "serviceId": "maui-inspections",
+          "layerId": "{layer:maui-inspections}",
+          "ruleName": "entitlement certification enter digest",
+          "triggerType": "enter",
+          "conditionsJson": "{}",
+          "cooldownSeconds": 30,
+          "severity": "warning",
+          "editionRequired": "pro",
+          "channels": [
+            "digest"
+          ],
+          "isActive": false,
+          "zoneId": "{zoneId}"
+        }
+      },
+      "positive": {
+        "status": 200,
+        "content_type": "application/json",
+        "checks": [
+          {
+            "path": "success",
+            "equals": true
+          },
+          {
+            "path": "data.ruleId",
+            "type": "number"
+          },
+          {
+            "path": "data.triggerType",
+            "equals": "enter"
+          },
+          {
+            "path": "data.channels",
+            "equals": [
+              "digest"
+            ]
+          }
+        ]
+      },
+      "denial": "problem"
+    },
+    {
+      "key": "channels.email",
+      "setup": [
+        {
+          "name": "geofence zone",
+          "method": "POST",
+          "path": "/api/v1/admin/alerts/zones",
+          "json": {
+            "serviceId": "maui-inspections",
+            "zoneName": "entitlement certification zone",
+            "wkt": "POLYGON((-156.49 20.88,-156.49 20.91,-156.46 20.91,-156.46 20.88,-156.49 20.88))",
+            "srid": 4326,
+            "isActive": true
+          },
+          "expect_status": 200,
+          "capture": {
+            "zoneId": "data.zoneId"
+          }
+        }
+      ],
+      "request": {
+        "method": "POST",
+        "path": "/api/v1/admin/alerts/rules",
+        "json": {
+          "serviceId": "maui-inspections",
+          "layerId": "{layer:maui-inspections}",
+          "ruleName": "entitlement certification enter email",
+          "triggerType": "enter",
+          "conditionsJson": "{}",
+          "cooldownSeconds": 30,
+          "severity": "warning",
+          "editionRequired": "pro",
+          "channels": [
+            "email"
+          ],
+          "isActive": false,
+          "zoneId": "{zoneId}"
+        }
+      },
+      "positive": {
+        "status": 200,
+        "content_type": "application/json",
+        "checks": [
+          {
+            "path": "success",
+            "equals": true
+          },
+          {
+            "path": "data.ruleId",
+            "type": "number"
+          },
+          {
+            "path": "data.triggerType",
+            "equals": "enter"
+          },
+          {
+            "path": "data.channels",
+            "equals": [
+              "email"
+            ]
+          }
+        ]
+      },
+      "denial": "problem"
+    },
+    {
+      "key": "channels.slack",
+      "setup": [
+        {
+          "name": "geofence zone",
+          "method": "POST",
+          "path": "/api/v1/admin/alerts/zones",
+          "json": {
+            "serviceId": "maui-inspections",
+            "zoneName": "entitlement certification zone",
+            "wkt": "POLYGON((-156.49 20.88,-156.49 20.91,-156.46 20.91,-156.46 20.88,-156.49 20.88))",
+            "srid": 4326,
+            "isActive": true
+          },
+          "expect_status": 200,
+          "capture": {
+            "zoneId": "data.zoneId"
+          }
+        }
+      ],
+      "request": {
+        "method": "POST",
+        "path": "/api/v1/admin/alerts/rules",
+        "json": {
+          "serviceId": "maui-inspections",
+          "layerId": "{layer:maui-inspections}",
+          "ruleName": "entitlement certification enter slack",
+          "triggerType": "enter",
+          "conditionsJson": "{}",
+          "cooldownSeconds": 30,
+          "severity": "warning",
+          "editionRequired": "pro",
+          "channels": [
+            "slack"
+          ],
+          "isActive": false,
+          "zoneId": "{zoneId}"
+        }
+      },
+      "positive": {
+        "status": 200,
+        "content_type": "application/json",
+        "checks": [
+          {
+            "path": "success",
+            "equals": true
+          },
+          {
+            "path": "data.ruleId",
+            "type": "number"
+          },
+          {
+            "path": "data.triggerType",
+            "equals": "enter"
+          },
+          {
+            "path": "data.channels",
+            "equals": [
+              "slack"
+            ]
+          }
+        ]
+      },
+      "denial": "problem"
+    },
+    {
+      "key": "channels.teams",
+      "setup": [
+        {
+          "name": "geofence zone",
+          "method": "POST",
+          "path": "/api/v1/admin/alerts/zones",
+          "json": {
+            "serviceId": "maui-inspections",
+            "zoneName": "entitlement certification zone",
+            "wkt": "POLYGON((-156.49 20.88,-156.49 20.91,-156.46 20.91,-156.46 20.88,-156.49 20.88))",
+            "srid": 4326,
+            "isActive": true
+          },
+          "expect_status": 200,
+          "capture": {
+            "zoneId": "data.zoneId"
+          }
+        }
+      ],
+      "request": {
+        "method": "POST",
+        "path": "/api/v1/admin/alerts/rules",
+        "json": {
+          "serviceId": "maui-inspections",
+          "layerId": "{layer:maui-inspections}",
+          "ruleName": "entitlement certification enter microsoft_teams",
+          "triggerType": "enter",
+          "conditionsJson": "{}",
+          "cooldownSeconds": 30,
+          "severity": "warning",
+          "editionRequired": "pro",
+          "channels": [
+            "microsoft_teams"
+          ],
+          "isActive": false,
+          "zoneId": "{zoneId}"
+        }
+      },
+      "positive": {
+        "status": 200,
+        "content_type": "application/json",
+        "checks": [
+          {
+            "path": "success",
+            "equals": true
+          },
+          {
+            "path": "data.ruleId",
+            "type": "number"
+          },
+          {
+            "path": "data.triggerType",
+            "equals": "enter"
+          },
+          {
+            "path": "data.channels",
+            "equals": [
+              "microsoft_teams"
+            ]
+          }
+        ]
+      },
+      "denial": "problem"
+    },
+    {
+      "key": "channels.webhook",
+      "setup": [
+        {
+          "name": "geofence zone",
+          "method": "POST",
+          "path": "/api/v1/admin/alerts/zones",
+          "json": {
+            "serviceId": "maui-inspections",
+            "zoneName": "entitlement certification zone",
+            "wkt": "POLYGON((-156.49 20.88,-156.49 20.91,-156.46 20.91,-156.46 20.88,-156.49 20.88))",
+            "srid": 4326,
+            "isActive": true
+          },
+          "expect_status": 200,
+          "capture": {
+            "zoneId": "data.zoneId"
+          }
+        }
+      ],
+      "request": {
+        "method": "POST",
+        "path": "/api/v1/admin/alerts/rules",
+        "json": {
+          "serviceId": "maui-inspections",
+          "layerId": "{layer:maui-inspections}",
+          "ruleName": "entitlement certification exit webhook",
+          "triggerType": "exit",
+          "conditionsJson": "{}",
+          "cooldownSeconds": 30,
+          "severity": "warning",
+          "editionRequired": "pro",
+          "channels": [
+            "webhook"
+          ],
+          "isActive": false,
+          "zoneId": "{zoneId}"
+        }
+      },
+      "positive": {
+        "status": 200,
+        "content_type": "application/json",
+        "checks": [
+          {
+            "path": "success",
+            "equals": true
+          },
+          {
+            "path": "data.ruleId",
+            "type": "number"
+          },
+          {
+            "path": "data.triggerType",
+            "equals": "exit"
+          },
+          {
+            "path": "data.channels",
+            "equals": [
+              "webhook"
+            ]
+          }
+        ]
+      },
+      "denial": "problem"
+    },
+    {
+      "key": "editing.branch-versioning",
+      "request": {
+        "method": "GET",
+        "path": "/rest/services/maui-inspections/VersionManagementServer/versions?f=json"
+      },
+      "positive": {
+        "status": 200,
+        "content_type": "application/json",
+        "checks": [
+          {
+            "path": "versions",
+            "type": "array"
+          },
+          {
+            "path": "error",
+            "absent": true
+          }
+        ]
+      },
+      "denial": "geoservices"
+    },
+    {
+      "key": "editing.featureserver-edits",
+      "request": {
+        "method": "POST",
+        "path": "/rest/services/maui-inspections/FeatureServer/{layer:maui-inspections}/applyEdits",
+        "form": {
+          "f": "json",
+          "adds": "[]"
+        }
+      },
+      "positive": {
+        "status": 200,
+        "content_type": "application/json",
+        "checks": [
+          {
+            "path": "success",
+            "equals": true
+          },
+          {
+            "path": "addResults",
+            "type": "array"
+          },
+          {
+            "path": "updateResults",
+            "type": "array"
+          },
+          {
+            "path": "deleteResults",
+            "type": "array"
+          }
+        ]
+      },
+      "denial": "geoservices"
+    },
+    {
+      "key": "fieldops.offline-sync",
+      "request": {
+        "method": "GET",
+        "path": "/api/v1/admin/services/maui-inspections/replicas"
+      },
+      "positive": {
+        "status": 200,
+        "content_type": "application/json",
+        "checks": [
+          {
+            "path": "success",
+            "equals": true
+          },
+          {
+            "path": "data.serviceId",
+            "equals": "maui-inspections"
+          },
+          {
+            "path": "data.replicas",
+            "type": "array"
+          }
+        ]
+      },
+      "denial": "problem"
+    },
+    {
+      "key": "geocoding.batch",
+      "request": {
+        "method": "GET",
+        "path": "/rest/services/World/GeocodeServer/geocodeAddresses?f=json&addresses=%7B%22records%22%3A+%5B%7B%22attributes%22%3A+%7B%22OBJECTID%22%3A+1%2C+%22SingleLine%22%3A+%22Kahului%2C+Maui%2C+Hawaii%22%7D%7D%5D%7D"
+      },
+      "positive": {
+        "status": 200,
+        "content_type": "application/json",
+        "checks": [
+          {
+            "path": "spatialReference.wkid",
+            "type": "number"
+          },
+          {
+            "path": "locations",
+            "type": "array"
+          },
+          {
+            "path": "error",
+            "absent": true
+          }
+        ]
+      },
+      "external_dependency": "The server's default geocoding provider (public Nominatim) answers the batch.",
+      "denial": "geoservices"
+    },
+    {
+      "key": "identity.mtls-client-certificate",
+      "request": {
+        "method": "GET",
+        "path": "/api/v1/admin/security/client-certificates/profiles"
+      },
+      "positive": {
+        "status": 200,
+        "content_type": "application/json",
+        "checks": [
+          {
+            "path": "success",
+            "equals": true
+          },
+          {
+            "path": "data",
+            "type": "array"
+          }
+        ]
+      },
+      "denial": "problem"
+    },
+    {
+      "key": "identity.oidc",
+      "request": {
+        "method": "GET",
+        "path": "/api/v1/admin/oidc/providers"
+      },
+      "positive": {
+        "status": 200,
+        "content_type": "application/json",
+        "checks": [
+          {
+            "path": "success",
+            "equals": true
+          },
+          {
+            "path": "data",
+            "type": "array"
+          }
+        ]
+      },
+      "denial": "problem"
+    },
+    {
+      "key": "identity.oidc-multi-provider",
+      "setup": [
+        {
+          "name": "first provider",
+          "method": "POST",
+          "path": "/api/v1/admin/oidc/providers",
+          "json": {
+            "name": "entitlement-certification-first",
+            "providerType": "Generic",
+            "authority": "https://idp.example.com",
+            "clientId": "entitlement-certification-1"
+          },
+          "expect_status": 201
+        }
+      ],
+      "request": {
+        "method": "POST",
+        "path": "/api/v1/admin/oidc/providers",
+        "json": {
+          "name": "entitlement-certification-second",
+          "providerType": "Generic",
+          "authority": "https://idp2.example.com",
+          "clientId": "entitlement-certification-2"
+        }
+      },
+      "positive": {
+        "status": 201,
+        "content_type": "application/json",
+        "checks": [
+          {
+            "path": "success",
+            "equals": true
+          },
+          {
+            "path": "data.providerId",
+            "type": "string"
+          },
+          {
+            "path": "data.name",
+            "equals": "entitlement-certification-second"
+          }
+        ]
+      },
+      "denial": "problem"
+    },
+    {
+      "key": "identity.saml",
+      "request": {
+        "method": "GET",
+        "path": "/saml/metadata"
+      },
+      "positive": {
+        "status": 200,
+        "content_type": "application/samlmetadata+xml",
+        "text_contains": [
+          "<EntityDescriptor",
+          "<SPSSODescriptor",
+          "AssertionConsumerService"
+        ]
+      },
+      "denial": "problem"
+    },
+    {
+      "key": "identity.scim",
+      "request": {
+        "method": "GET",
+        "path": "/scim/v2/Users",
+        "headers": {
+          "Authorization": "Bearer {scim_token}"
+        }
+      },
+      "positive": {
+        "status": 200,
+        "content_type": "application/scim+json",
+        "checks": [
+          {
+            "path": "schemas",
+            "contains": "urn:ietf:params:scim:api:messages:2.0:ListResponse"
+          },
+          {
+            "path": "totalResults",
+            "type": "number"
+          }
+        ]
+      },
+      "denial": "problem"
+    },
+    {
+      "key": "import.geoserver",
+      "request": {
+        "method": "POST",
+        "path": "/api/v1/admin/import/geoserver/discover",
+        "json": {
+          "geoServerRestUrl": "https://example.com/geoserver/rest"
+        }
+      },
+      "positive_blocked": "Discovery requires a reachable HTTPS GeoServer REST endpoint; the candidate lane provisions none.",
+      "denial": "problem"
+    },
+    {
+      "key": "import.geoservices",
+      "request": {
+        "method": "POST",
+        "path": "/api/v1/admin/import/geoservices/discover",
+        "json": {
+          "serviceUrl": "https://example.com/arcgis/rest/services/Source/FeatureServer"
+        }
+      },
+      "positive_blocked": "Discovery requires a reachable HTTPS GeoServices source; the candidate lane provisions none and does not depend on a third-party server.",
+      "denial": "problem"
+    },
+    {
+      "key": "printing.layout-templates",
+      "request": {
+        "method": "GET",
+        "path": "/rest/services/Utilities/PrintingTools/GPServer/Export%20Web%20Map%20Task/execute?f=json&Format=PNG32&Layout_Template=Letter+ANSI+A+Portrait&Web_Map_as_JSON=%7B%22mapOptions%22%3A+%7B%22extent%22%3A+%7B%22xmin%22%3A+-156.5%2C+%22ymin%22%3A+20.8%2C+%22xmax%22%3A+-156.4%2C+%22ymax%22%3A+20.9%2C+%22spatialReference%22%3A+%7B%22wkid%22%3A+4326%7D%7D%7D%2C+%22operationalLayers%22%3A+%5B%5D%2C+%22exportOptions%22%3A+%7B%22dpi%22%3A+96%2C+%22outputSize%22%3A+%5B800%2C+600%5D%7D%7D"
+      },
+      "positive": {
+        "status": 200,
+        "content_type": "application/json",
+        "checks": [
+          {
+            "path": "results[0].paramName",
+            "equals": "Output_File"
+          },
+          {
+            "path": "results[0].value.url",
+            "endswith": ".png"
+          }
+        ]
+      },
+      "denial": "geoservices"
+    },
+    {
+      "key": "printing.pdf-output",
+      "request": {
+        "method": "GET",
+        "path": "/rest/services/Utilities/PrintingTools/GPServer/Export%20Web%20Map%20Task/execute?f=json&Format=PDF&Layout_Template=MAP_ONLY&Web_Map_as_JSON=%7B%22mapOptions%22%3A+%7B%22extent%22%3A+%7B%22xmin%22%3A+-156.5%2C+%22ymin%22%3A+20.8%2C+%22xmax%22%3A+-156.4%2C+%22ymax%22%3A+20.9%2C+%22spatialReference%22%3A+%7B%22wkid%22%3A+4326%7D%7D%7D%2C+%22operationalLayers%22%3A+%5B%5D%2C+%22exportOptions%22%3A+%7B%22dpi%22%3A+96%2C+%22outputSize%22%3A+%5B800%2C+600%5D%7D%7D"
+      },
+      "positive": {
+        "status": 200,
+        "content_type": "application/json",
+        "checks": [
+          {
+            "path": "results[0].paramName",
+            "equals": "Output_File"
+          },
+          {
+            "path": "results[0].value.url",
+            "endswith": ".pdf"
+          }
+        ]
+      },
+      "denial": "geoservices"
+    },
+    {
+      "key": "raster.multidim-coverage",
+      "setup": [
+        {
+          "name": "register coverage",
+          "method": "POST",
+          "path": "/api/v1/admin/multidim-coverages",
+          "json": {
+            "layerId": "{layer:maui-zoning}",
+            "name": "entitlement-certification",
+            "format": 1,
+            "provider": 1,
+            "bucket": "honua-entitlement-certification",
+            "objectKey": "entitlement-certification.h5",
+            "variables": [
+              "t"
+            ]
+          },
+          "expect_status": 201,
+          "capture": {
+            "coverageId": "id"
+          }
+        }
+      ],
+      "request": {
+        "method": "POST",
+        "path": "/api/v1/admin/multidim-coverages/{coverageId}/refresh"
+      },
+      "positive": {
+        "status": 202,
+        "content_type": "application/json",
+        "checks": [
+          {
+            "path": "jobId",
+            "type": "string"
+          },
+          {
+            "path": "status",
+            "equals": "queued"
+          },
+          {
+            "path": "statusUrl",
+            "type": "string"
+          }
+        ]
+      },
+      "denial": "problem"
+    },
+    {
+      "key": "scene.bim-ingest",
+      "request": {
+        "method": "POST",
+        "path": "/api/v1/admin/scenes/ingest/citygml",
+        "multipart": {
+          "file": {
+            "generator": "citygml-building",
+            "filename": "building.gml",
+            "content_type": "application/gml+xml"
+          },
+          "fields": {
+            "sceneId": "entitlement-certification-bim",
+            "editionGate": "enterprise"
+          }
+        }
+      },
+      "positive": {
+        "status": 201,
+        "content_type": "application/json",
+        "checks": [
+          {
+            "path": "sceneId",
+            "equals": "entitlement-certification-bim"
+          },
+          {
+            "path": "buildingCount",
+            "equals": 1
+          },
+          {
+            "path": "tilesetUrl",
+            "endswith": "/tileset.json"
+          }
+        ]
+      },
+      "denial": "problem"
+    },
+    {
+      "key": "scene.pointcloud-ingest",
+      "request": {
+        "method": "POST",
+        "path": "/api/v1/admin/scenes/ingest/pointcloud",
+        "multipart": {
+          "file": {
+            "generator": "las-grid",
+            "filename": "cloud.las",
+            "content_type": "application/octet-stream"
+          },
+          "fields": {
+            "sceneId": "entitlement-certification-pointcloud"
+          }
+        }
+      },
+      "positive": {
+        "status": 201,
+        "content_type": "application/json",
+        "checks": [
+          {
+            "path": "sceneId",
+            "equals": "entitlement-certification-pointcloud"
+          },
+          {
+            "path": "pointCount",
+            "equals": 16
+          },
+          {
+            "path": "tilesetUrl",
+            "endswith": "/tileset.json"
+          }
+        ]
+      },
+      "denial": "problem"
+    },
+    {
+      "key": "staticmap.high-dpi",
+      "request": {
+        "method": "GET",
+        "path": "/static/maui-zoning/-156.48,20.87,12/400x300.png?dpi=150"
+      },
+      "positive": {
+        "status": 200,
+        "content_type": "image/png",
+        "magic": "89504e47"
+      },
+      "denial": "problem"
+    },
+    {
+      "key": "staticmap.large-dimensions",
+      "request": {
+        "method": "GET",
+        "path": "/static/maui-zoning/-156.48,20.87,12/2000x2000.png"
+      },
+      "positive": {
+        "status": 200,
+        "content_type": "image/png",
+        "magic": "89504e47"
+      },
+      "denial": "problem"
+    },
+    {
+      "key": "staticmap.rich-overlays",
+      "request": {
+        "method": "GET",
+        "path": "/static/maui-zoning/-156.48,20.87,12/400x300.png?markers=-156.400,20.870,red|-156.401,20.871,red|-156.402,20.872,red|-156.403,20.873,red|-156.404,20.874,red|-156.405,20.875,red|-156.406,20.876,red|-156.407,20.877,red|-156.408,20.878,red|-156.409,20.879,red|-156.410,20.880,red|-156.411,20.881,red|-156.412,20.882,red|-156.413,20.883,red|-156.414,20.884,red"
+      },
+      "positive": {
+        "status": 200,
+        "content_type": "image/png",
+        "magic": "89504e47"
+      },
+      "denial": "problem"
+    },
+    {
+      "key": "streaming.feature-subscriptions",
+      "request": {
+        "method": "GET",
+        "path": "/api/v1/streaming/features",
+        "headers": {
+          "Accept": "text/event-stream"
+        }
+      },
+      "positive": {
+        "status": 200,
+        "content_type": "text/event-stream",
+        "text_contains": [
+          "event: status",
+          "\"status\":\"connected\""
+        ]
+      },
+      "denial": "problem"
+    },
+    {
+      "key": "temporal.histogram",
+      "request": {
+        "method": "GET",
+        "path": "/rest/services/maui-inspections/FeatureServer/{layer:maui-inspections}/queryDateBins?f=json&binField=reported_at&bin=%7B%22calendarBin%22%3A+%7B%22unit%22%3A+%22month%22%7D%7D"
+      },
+      "positive": {
+        "status": 200,
+        "content_type": "application/json",
+        "checks": [
+          {
+            "path": "features",
+            "type": "array",
+            "min_items": 1
+          },
+          {
+            "path": "features[0].attributes.count",
+            "type": "number"
+          }
+        ]
+      },
+      "denial": "geoservices"
+    },
+    {
+      "key": "temporal.time-series-tiles",
+      "setup": [
+        {
+          "name": "declare layer time",
+          "method": "PUT",
+          "path": "/api/v1/admin/services/maui-inspections/layers/{layer:maui-inspections}/metadata",
+          "json": {
+            "timeInfo": {
+              "startTimeField": "reported_at"
+            }
+          },
+          "expect_status": 200
+        }
+      ],
+      "request": {
+        "method": "GET",
+        "path": "/tiles/{layer:maui-inspections}/0/0/0.mvt?time=2026-05-05T18:00:00Z"
+      },
+      "positive": {
+        "status": 200,
+        "content_type": "application/vnd.mapbox-vector-tile",
+        "min_bytes": 1
+      },
+      "denial": "geoservices"
+    }
+  ],
+  "no_http_surface": [
+    {
+      "key": "ai.agent-operations",
+      "reason": "Guardrail level derived from the license edition (IAgentGuardrailPolicy); its observable 402 is the ai.spec-apply probe."
+    },
+    {
+      "key": "ai.approval-workflows",
+      "reason": "Same edition-derived guardrail ladder as ai.agent-operations; no route of its own."
+    },
+    {
+      "key": "caching.output-cache",
+      "reason": "A pipeline branch keyed on the live license; an unentitled host serves identical, uncached responses."
+    },
+    {
+      "key": "caching.redis",
+      "reason": "Gated at process boot (whether the Redis distributed cache is wired at all); no single request reflects it."
+    },
+    {
+      "key": "dr.backup-automation",
+      "reason": "Dormant scaffolding: domain records only, no route, worker or gate yet."
+    },
+    {
+      "key": "dr.cache-backup",
+      "reason": "Dormant scaffolding, as dr.backup-automation."
+    },
+    {
+      "key": "dr.failover",
+      "reason": "Dormant scaffolding, as dr.backup-automation."
+    },
+    {
+      "key": "dr.rto-rpo-reporting",
+      "reason": "Dormant scaffolding, as dr.backup-automation."
+    },
+    {
+      "key": "geocoding.failover",
+      "reason": "Automatic behaviour inside forward/reverse/batch geocoding; an unentitled request uses its primary provider instead of returning 402."
+    },
+    {
+      "key": "identity.claims-mapping",
+      "reason": "Configuration-driven soft degrade at authentication time; custom mappings are skipped, never a 402."
+    },
+    {
+      "key": "plugin.sdk",
+      "reason": "Plugin routes exist only when a plugin is registered, and the gate answers 404 by design rather than 402."
+    },
+    {
+      "key": "raster.cloud-cog-serving",
+      "reason": "Enforced in CogTileResolver only once a COG is registered for an ImageServer layer; the harness cannot publish rasters."
+    },
+    {
+      "key": "raster.cloud-storage-config",
+      "reason": "Cloud storage connections are configured only through CloudStorageOptions (configuration); no runtime route mutates them."
+    },
+    {
+      "key": "raster.temporal-mosaic",
+      "reason": "Enforced inside ImageServer mosaic handlers that need a registered, time-aware raster mosaic absent from the harness."
+    },
+    {
+      "key": "routing.solve",
+      "reason": "MCP-tool-only surface; a denial is a JSON-RPC failed_precondition tool error, not an HTTP 402."
+    },
+    {
+      "key": "styling.auto-suggest",
+      "reason": "Degrades rather than denies: the style-suggestion route always returns 200 (richer analysis when entitled)."
+    },
+    {
+      "key": "temporal.animation-api",
+      "reason": "Capability-advertisement flag only; no backend route."
+    }
+  ]
+}

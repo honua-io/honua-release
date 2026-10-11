@@ -14,16 +14,28 @@
       "licensed_to": "Honua release entitlement certification fixture",
       "edition": "Enterprise",
       "issued_at": "2026-01-01T00:00:00+00:00",
-      "grants": "all-catalog-keys"
+      "grants": "all-catalog-keys",
+      "purpose": "Every catalog key: each gated capability must deliver its documented success."
     },
     {
-      "id": "unentitled",
+      "id": "pro-tier",
       "role": "negative",
-      "license_id": "honua-release-entitlement-cert-unentitled",
+      "license_id": "honua-release-entitlement-cert-pro-tier",
+      "licensed_to": "Honua release entitlement certification fixture",
+      "edition": "Pro",
+      "issued_at": "2026-01-01T00:00:00+00:00",
+      "grants": "pro-and-community-keys",
+      "purpose": "Every Pro and Community key, no Enterprise key: each Enterprise capability must deny with its own key even where its Pro prerequisite is active."
+    },
+    {
+      "id": "keyless",
+      "role": "negative",
+      "license_id": "honua-release-entitlement-cert-keyless",
       "licensed_to": "Honua release entitlement certification fixture",
       "edition": "Enterprise",
       "issued_at": "2026-01-01T00:00:00+00:00",
-      "grants": "community-keys-only"
+      "grants": "community-keys-only",
+      "purpose": "An Enterprise-labelled license carrying only Community keys: each Pro capability must deny, proving the key (not the edition label) activates it."
     }
   ]
 }
