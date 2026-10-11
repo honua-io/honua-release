@@ -8,6 +8,7 @@ This diagnostic is not a release pin change or a promotion receipt.
 import argparse
 import json
 import os
+import re
 import signal
 import socket
 import time
@@ -138,18 +139,23 @@ if args.mode in ('docs', 'all'):
                                    env={**env, **public_env}, stdout=log, stderr=subprocess.STDOUT,
                                    start_new_session=True)
         ready = False
+        last_http_status = None
+        last_http_error = None
         try:
             deadline = time.monotonic() + 60
             while time.monotonic() < deadline and process.poll() is None:
                 try:
                     with urllib.request.urlopen('http://localhost:5173/', timeout=2) as response:
+                        last_http_status = response.status
+                        clean_log = re.sub(r'\x1b\[[0-?]*[ -/]*[@-~]', '',
+                                           (output / 'public-dev-readiness.log').read_text())
                         ready = (response.status == 200 and bool(response.read())
-                                 and 'http://localhost:5173/' in (output / 'public-dev-readiness.log').read_text()
+                                 and 'http://localhost:5173/' in clean_log
                                  and process.poll() is None)
                     if ready:
                         break
-                except OSError:
-                    pass
+                except OSError as error:
+                    last_http_error = str(error)
                 time.sleep(0.25)
         finally:
             try:
@@ -157,13 +163,19 @@ if args.mode in ('docs', 'all'):
             except ProcessLookupError:
                 pass
             process.wait(timeout=15)
+    public_log = re.sub(r'\x1b\[[0-?]*[ -/]*[@-~]', '',
+                        (output / 'public-dev-readiness.log').read_text())[-4000:]
+    for key, value in env.items():
+        if value and any(marker in key.upper() for marker in ('TOKEN', 'PASSWORD', 'SECRET', 'API_KEY')):
+            public_log = public_log.replace(value, '[redacted]')
     (output / 'public-dev-readiness.json').write_text(json.dumps({
         'command': ['npm', 'run', 'dev'], 'url': 'http://localhost:5173/',
-        'ready': ready, 'sdk': installed,
+        'ready': ready, 'sdk': installed, 'lastHttpStatus': last_http_status,
+        'lastHttpError': last_http_error, 'publicDevLogTail': public_log,
     }, indent=2) + '\n')
     results['public-dev-readiness'] = 0 if ready else 1
     if not ready:
-        raise SystemExit('Published documented dev command did not become ready')
+        print('Published documented dev command did not become ready; retaining failure and continuing independent probes.', flush=True)
 if args.mode in ('query', 'all'):
     # Preserve the complete installed-client denominator. Existing unrelated
     # failures remain visible and do not invalidate a narrower raw query result.
