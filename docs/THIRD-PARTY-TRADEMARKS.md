@@ -254,6 +254,12 @@ alone, such as `**` or `**/*`. `tokens` narrows the entry to specific tokens. Ex
 allowlist entry never applies to a `confidential` hit. An exception is reviewed like any other
 release-control change and is removed when its reason no longer holds.
 
+Optional `identifiers` narrows an exception further to exact, case-sensitive enclosing lexical
+identifiers, using letters, digits, `@`, `.`, `_`, `/` and `-`. Use this for published package
+coordinates and exact tarball filenames that cannot change without selecting different registry
+bytes. It does not cover substrings, prose marks, other paths, endorsement claims or confidential
+hits. Versioned filenames must be reviewed again when their version changes.
+
 ### The `/arcgis` site-root alias (R35)
 
 honua-server keeps `/arcgis` as a documented site-root alias for client compatibility, because some
