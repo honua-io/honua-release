@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import copy
+import hashlib
 import json
 import sys
 from pathlib import Path
@@ -16,10 +17,15 @@ DRIFTED_FIXTURE = Path(__file__).resolve().parent / "fixtures" / "customer-insta
 
 @pytest.fixture(scope="module")
 def committed():
+    # Mutation controls use the customer's original client binding, so advancing
+    # today's platform pins cannot add unrelated errors to a one-field control.
+    # Separate CLI tests below exercise the real moving platform manifest.
+    platform = vcim._load_yaml(vcim.PLATFORM_MANIFEST_PATH)
+    platform["clientArtifacts"] = vcim.load_rehearsal_binding()["clientArtifacts"]
     return (
         vcim.load_customer_manifest(vcim.CUSTOMER_MANIFEST_PATH),
         json.loads(vcim.SCHEMA_PATH.read_text(encoding="utf-8")),
-        vcim._load_yaml(vcim.PLATFORM_MANIFEST_PATH),
+        platform,
         vcim._load_yaml(vcim.LEDGER_PATH),
     )
 
@@ -193,11 +199,12 @@ def test_every_copied_honua_identity_field_is_compared(committed, section, key, 
                for error in _errors(committed, drift))
 
 
-def test_platform_manifest_pin_moving_without_the_customer_copy_fails(committed):
+def test_unrecognized_rehearsal_still_requires_current_platform_client_pins(committed):
     def bump(p):
         p["clientArtifacts"]["honua-admin-python-wheel"]["version"] = "99.0.0"
 
-    assert any(error.startswith("$.clients.honua-admin.version: '0.1.10' drifted") for error in _errors(committed, platform_mutate=bump))
+    assert any(error.startswith("$.clients.honua-admin.version: '0.1.10' drifted")
+               for error in _errors(committed, _rehearsal, platform_mutate=bump))
 
 
 def test_honua_client_must_carry_its_source_identity(committed):
@@ -250,3 +257,97 @@ def test_duplicate_json_keys_are_refused(tmp_path):
     with pytest.raises(vcim.ManifestLoadError, match="duplicate JSON key 'schemaVersion'"):
         vcim.load_customer_manifest(path)
     assert vcim.main([str(path)]) == 2
+
+
+def _advance_published_js(platform):
+    platform["clientArtifacts"]["honua-sdk-js"].update(
+        version="0.1.15", sourceSha="c6484209dda9b1533fefcae1b0e47d87b56414c2",
+        filename="sdk-js-0.1.15.tgz",
+        integrity="sha512-RCiqqRz7sG9qP1xLsLyGroRMhGEi1Nde5YRqYbfkSEbwTSjf1IfciVXgAZdEXz6HDZ/XrzofiK7LIHokgg5j+A==")
+    platform["clientArtifacts"]["honua-mcp-server"].update(
+        version="0.1.16", sourceSha="46ecd25a32ee2bfb7741ccc14ee5842c8824dd19",
+        filename="mcp-server-0.1.16.tgz",
+        integrity="sha512-7yeZUReqE0x6Rdb6Kh7/+3o0CXjCVP/ObPtG5Ay78XkqZgUb9mmguvQ1y4xjNm7YfSp4mW308Ol6ecdRZP3MBg==")
+
+
+def test_preserved_rehearsal_matches_its_original_source_bytes(committed):
+    binding = vcim.load_rehearsal_binding()
+    assert binding["customerManifestSha256"] == hashlib.sha256(vcim.CUSTOMER_MANIFEST_PATH.read_bytes()).hexdigest()
+    assert binding["customerManifestPath"] == "customer-install-manifest.json"
+    assert binding["platformManifestPath"] == "platform-manifest.yaml"
+    assert vcim.check_clients(committed[0], binding) == []
+
+
+def test_preserved_rehearsal_survives_published_sdk_and_mcp_advance(committed):
+    before = vcim.CUSTOMER_MANIFEST_PATH.read_bytes()
+    assert _errors(committed, platform_mutate=_advance_published_js) == []
+    assert vcim.CUSTOMER_MANIFEST_PATH.read_bytes() == before
+
+
+def test_cli_reports_historical_binding_without_claiming_current_candidate(tmp_path, capsys):
+    platform = vcim._load_yaml(vcim.PLATFORM_MANIFEST_PATH)
+    _advance_published_js(platform)
+    path = tmp_path / "advanced-platform.yaml"
+    path.write_text(vcim.yaml.safe_dump(platform))
+    assert vcim.main(["--platform-manifest", str(path)]) == 0
+    output = capsys.readouterr().out
+    assert "preserves the pre-cut client binding" in output
+    assert vcim.REHEARSAL_SOURCE_REVISION in output
+    assert "release qualification remain separate checks" in output
+
+
+@pytest.mark.parametrize(("field", "value"), [
+    ("version", "0.1.13"), ("sourceSha", "1" * 40), ("integrity", "sha512-AAAA"),
+])
+def test_altered_customer_identity_cannot_use_historical_binding(committed, field, value):
+    errors = _errors(committed, lambda d: d["alternativeClients"]["honua-sdk-js"].update({field: value}),
+                     platform_mutate=_advance_published_js)
+    assert any(f"$.alternativeClients.honua-sdk-js.{field}:" in error for error in errors)
+
+
+def test_customer_metadata_change_cannot_claim_preserved_rehearsal(committed):
+    errors = _errors(committed, lambda d: d.update(verifiedAt="2026-10-11"),
+                     platform_mutate=_advance_published_js)
+    assert any("$.alternativeClients.honua-sdk-js.version:" in error for error in errors)
+
+
+def test_release_candidate_never_falls_back_to_historical_client_pins(committed):
+    errors = _errors(committed, lambda d: d.update(status="release-candidate", exactCandidateQualification=True),
+                     platform_mutate=_advance_published_js)
+    assert any("$.alternativeClients.honua-sdk-js.version:" in error for error in errors)
+    assert any("$.alternativeClients.honua-mcp-server.version:" in error for error in errors)
+
+
+@pytest.mark.parametrize("kind", ["missing", "tampered"])
+def test_unavailable_or_altered_historical_record_fails_closed(committed, tmp_path, monkeypatch, kind):
+    path = tmp_path / "binding.json"
+    if kind == "tampered":
+        binding = json.loads(vcim.REHEARSAL_BINDING_PATH.read_text())
+        binding["clientArtifacts"]["honua-sdk-js"]["version"] = "99.0.0"
+        path.write_text(json.dumps(binding))
+    monkeypatch.setattr(vcim, "REHEARSAL_BINDING_PATH", path)
+    errors = _errors(committed, platform_mutate=_advance_published_js)
+    assert any("preserved rehearsal binding" in error for error in errors)
+    assert any("$.alternativeClients.honua-sdk-js.version:" in error for error in errors)
+
+
+def test_wrong_historical_source_is_refused_even_with_matching_record_hash(committed, tmp_path, monkeypatch):
+    binding = json.loads(vcim.REHEARSAL_BINDING_PATH.read_text())
+    binding["sourceRevision"] = "0" * 40
+    path = tmp_path / "binding.json"
+    path.write_text(json.dumps(binding))
+    monkeypatch.setattr(vcim, "REHEARSAL_BINDING_PATH", path)
+    monkeypatch.setattr(vcim, "REHEARSAL_BINDING_SHA256", hashlib.sha256(path.read_bytes()).hexdigest())
+    assert "preserved rehearsal binding has the wrong immutable source" in _errors(
+        committed, platform_mutate=_advance_published_js)
+
+
+@pytest.mark.parametrize("release", ["2026.1-rc.3", "2026.1-rc.4", "2026.1", "2027.1-rc.1", None])
+@pytest.mark.parametrize("advance_clients", [False, True])
+def test_preserved_rehearsal_expires_at_platform_mint(committed, release, advance_clients):
+    def mint(platform):
+        platform["platformRelease"] = release
+        if advance_clients:
+            _advance_published_js(platform)
+    errors = _errors(committed, platform_mutate=mint)
+    assert any("rebind the customer manifest" in error for error in errors)
