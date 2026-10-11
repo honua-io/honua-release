@@ -105,12 +105,12 @@ deploy:
     # TODO: encode against a released server version once honua-server cuts a tag; today server is
     # pinned by sha and immutable GHCR digest, so the deploy range is sha-pinned, not semver-ranged.
     # Tracks components.honua-server.sha by construction — validate_platform.check_coherence hard-fails
-    # if it drifts. Advanced with the 2026-10-10 hand server re-pin (3ecd214 -> 798d517).
-    deploysServerImage: "sha:798d517b864d9dcac4b1fc8f2b76f145e1b61d19"
+    # if it drifts. Advanced with the 2026-10-11 hand server re-pin (798d517 -> 93cad86).
+    deploysServerImage: "sha:93cad86ec4fb28fba3ff0b9358059d86aa55dde5"
   honua-helm:
     # Chart.yaml appVersion is "0.0.0" (placeholder); chart version is 0.4.0 (un-released).
-    # Same coupling as honua-iac above; advanced with the 2026-10-10 hand server re-pin.
-    appVersion: "sha:798d517b864d9dcac4b1fc8f2b76f145e1b61d19"
+    # Same coupling as honua-iac above; advanced with the 2026-10-11 hand server re-pin (93cad86).
+    appVersion: "sha:93cad86ec4fb28fba3ff0b9358059d86aa55dde5"
     awsEks:
       target: aws-eks
       architectures:
@@ -146,6 +146,7 @@ data:
     # 2026-10-09 hand re-pin to 3ecd214 moves manifest honua-server.dbSchema to 125
     # (125_AddImportedAttachmentIdentity.sql); the client-compatibility floor stays >=115.
     # 2026-10-10 hand re-pin to 798d517 adds no migration (dbSchema stays 125).
+    # 2026-10-11 hand re-pin to 93cad86 adds no migration (dbSchema stays 125).
     requiresDbSchema: ">=115"
 
 # Capability lifecycle vocabulary. Every row under `capabilities:` takes exactly one of these values
