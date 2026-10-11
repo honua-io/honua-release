@@ -73,6 +73,10 @@ EVIDENCE_CLASSES = {
                      "deterministic-journey", "nightly-model-journey", "executable-docs", "installed-clients"), "nightly"),
     **dict.fromkeys(("genuine-model-journey", "update-rollback", "esri-bundle", "cite"), "qualifying"),
 }
+# The promotion contract's journey cells. The cloud matrix and the journey receipt gate also require
+# the two aws-eks cells (honua-release#203, owner decisions 12/18 of 2026-10-10); promotion does not
+# yet. Requiring them here, with EKS update/rollback evidence, is an open owner question, so a
+# promotion decision says nothing about EKS until it is answered.
 GA_CELLS = frozenset({"aws-ecs/redis-off", "aws-ecs/redis-on", "aws-serverless/redis-off", "aws-serverless/redis-on"})
 # Policy maximum between a receipt's completion and its freshUntil. A producer may set a
 # shorter bound but never a longer one, so the promotion window always closes. A declared

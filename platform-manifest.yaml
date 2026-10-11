@@ -671,7 +671,12 @@ components:
     # supersedes the Excluded decision applied by release#251; best-effort/no SLA,
     # with the security floor retained.
     # https://github.com/honua-io/honua-release/issues/210#issuecomment-5503276774
-    lifecycleStatus: Preview
+    # 2026-10-10 owner decisions 12 ("EKS in rc.3 scope") and 18 ("GP on K8s job runners YES, full
+    # EKS cell after the ECS/Lambda final run") supersede R31's "Helm/EKS remain Preview" for the chart
+    # on Amazon EKS x86_64, which is now a GA target, qualification pending (honua-release#203;
+    # compatibility-matrix deploy.honua-helm.awsEks; ruling eks-ga-target-2026-10-10). Helm on any
+    # other Kubernetes distribution stays Preview (docs/2026.1-operating-envelope.md section 1).
+    lifecycleStatus: GA
     version: "pre-release"             # no releases/tags; Chart.yaml chart 0.4.0 / appVersion "0.0.0" (un-released)
     # PIN SELECTION POLICY (honua-release#102, applied by #109/#110/#115): newest trunk commit whose
     # own CI is green. 9dd42621b was correct when taken, but honua-helm#61 landed after it and is the

@@ -1,8 +1,9 @@
 #!/usr/bin/env python3
 """Provision a cloud cell, run the imported pinned journey, meter cost and always tear down.
 
-GA: {aws-ecs, aws-serverless} x Redis off/on; aws-serverless is Lambda + AWS Batch geoprocessing.
-EKS is informational Preview. The mixed ECS + Batch cell is out of the 2026.1 rc.3 matrix: its IaC
+GA: {aws-ecs, aws-serverless, aws-eks} x Redis off/on; aws-serverless is Lambda + AWS Batch
+geoprocessing, and aws-eks is the bring-your-own Kubernetes cell (Helm on EKS, honua-release#203, owner
+decisions 12/18 of 2026-10-10). The mixed ECS + Batch cell is out of the 2026.1 rc.3 matrix: its IaC
 root does not exist yet (restore it when honua-iac#209 lands).
 Missing, blocked or invalid journey evidence cannot certify a GA cloud cell.
 """
@@ -216,6 +217,12 @@ def provision_phase(target, target_name: str, *, require_real: bool, redis_enabl
                        else cloud_journey.observed_lambda_image)
             try:
                 state["runningImage"] = observe(target, cloud_journey.manifest())
+            except Exception:
+                state["runningImage"] = None
+        elif hasattr(target, "observed_image"):
+            # EKS: the digest every server pod of the release is running, read from the cluster.
+            try:
+                state["runningImage"] = target.observed_image(cloud_journey.manifest())
             except Exception:
                 state["runningImage"] = None
         state.update(endpoint=endpoint, ready=ready)
@@ -738,6 +745,7 @@ def verify_journey(state: dict, journey: dict, journey_dir: Path) -> dict:
 
 DIAGNOSTICS_NAME = "diagnostics-ecs.json"
 LAMBDA_DIAGNOSTICS_NAME = "diagnostics-lambda.json"
+EKS_DIAGNOSTICS_NAME = "diagnostics-eks.json"
 _LOG_LINES = 300
 # Newest log streams merged per Lambda/Batch log group. A Lambda log group holds one stream per
 # execution environment, so the last lines of the group span several streams.
@@ -843,6 +851,19 @@ def lambda_readiness_diagnostics(target, *, run=subprocess.run, redact=None) -> 
     return report
 
 
+def eks_readiness_diagnostics(target, *, redis_enabled: bool, redact=None) -> dict:
+    """The EKS cell's pods, events, jobs and server log tail, read while the cluster still exists.
+
+    The teardown runner is admitted to the cluster API first (its own /32, as for the destroy). Every
+    section is redacted by the target (its generated credentials and the root's connection strings)
+    and again by the shared log redaction.
+    """
+    redact = redact or (lambda text: text)
+    target.grant_operator(redis_enabled=redis_enabled)
+    return {"sections": [{"title": title, "lines": [redact(line) for line in body.splitlines()[-300:]]}
+                         for title, body in target.diagnostic_sections()]}
+
+
 def ecs_readiness_diagnostics(target, *, run=subprocess.run, redact=None) -> dict:
     """Why an ECS cell's tasks stopped: stop reasons, each stopped task's container log tail, and the
     environment variable NAMES each task definition sets.
@@ -935,13 +956,18 @@ def _phase_diagnose(args) -> int:
     cell = _cell(args.target, args.redis)
     directory = cloud_journey.cell_dir(cell)
     serverless = args.target == "aws-serverless"
-    name = LAMBDA_DIAGNOSTICS_NAME if serverless else DIAGNOSTICS_NAME
+    eks = args.target == "aws-eks"
+    name = (LAMBDA_DIAGNOSTICS_NAME if serverless else EKS_DIAGNOSTICS_NAME if eks else DIAGNOSTICS_NAME)
     # Runs for a ready cell too: a task that served and later exited (EssentialContainerExited), or a
     # Lambda that refused a dependency, is only explainable from its log, and the log group goes
     # with the cell.
     try:
-        collect = lambda_readiness_diagnostics if serverless else ecs_readiness_diagnostics
-        diagnostics = collect(_target(args.target), redact=_redact_log)
+        if eks:
+            diagnostics = eks_readiness_diagnostics(_target(args.target), redis_enabled=args.redis == "on",
+                                                    redact=_redact_log)
+        else:
+            collect = lambda_readiness_diagnostics if serverless else ecs_readiness_diagnostics
+            diagnostics = collect(_target(args.target), redact=_redact_log)
     except Exception as error:
         diagnostics = {"error": f"{type(error).__name__}: {_redact_log(str(error))}"}
     diagnostics["cell"] = cell
@@ -964,6 +990,11 @@ def _phase_diagnose(args) -> int:
               f"lastUpdateStatus={function.get('lastUpdateStatus')} "
               f"stateReason={function.get('stateReason')!r}; environment names "
               f"{', '.join(function.get('environmentNames') or []) or '(none)'}")
+    for section in diagnostics.get("sections", []):
+        print(f"::group::{section['title']}")
+        for line in section["lines"]:
+            print(f"   {line}")
+        print("::endgroup::")
     for log in diagnostics.get("logs", []):
         owner = log.get("taskArn") or log.get("functionName") or ("batch" if log.get("batch") else "")
         print(f"::group::{log.get('logStream') or log.get('logGroup')} ({owner})")

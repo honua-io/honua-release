@@ -22,10 +22,11 @@ import yaml
 ROOT = Path(__file__).resolve().parents[1]
 HERE = ROOT / "certification/terminal-journey"
 EVIDENCE = ROOT / "e2e/cloud-evidence"
-GA_CELLS = tuple(f"{target}/redis-{redis}" for target in ("aws-ecs", "aws-serverless")
+# aws-eks is GA for 2026.1 (honua-release#203; owner decisions 12/18 of 2026-10-10).
+GA_CELLS = tuple(f"{target}/redis-{redis}" for target in ("aws-ecs", "aws-serverless", "aws-eks")
                  for redis in ("off", "on"))
 # aws-mixed is out for 2026.1 rc.3 (no examples/aws-mixed root); restore it when honua-iac#209 lands.
-PREVIEW_TARGETS = ("aws-eks",)
+PREVIEW_TARGETS: tuple[str, ...] = ()
 
 
 def drivers():
@@ -67,7 +68,7 @@ def now():
 
 def cell_dir(cell):
     target, redis = cell.split("/")
-    if target not in (*PREVIEW_TARGETS, "aws-ecs", "aws-serverless", "stub") or redis not in ("redis-on", "redis-off"):
+    if target not in (*PREVIEW_TARGETS, "aws-ecs", "aws-serverless", "aws-eks", "stub") or redis not in ("redis-on", "redis-off"):
         raise ValueError("invalid cloud cell")
     return EVIDENCE / os.environ.get("GITHUB_RUN_ID", "local") / os.environ.get("GITHUB_RUN_ATTEMPT", "1") / target / redis
 

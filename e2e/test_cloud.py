@@ -865,6 +865,8 @@ def test_eks_teardown_deletes_load_balancers_before_terraform_destroys_the_vpc(m
     monkeypatch.setattr(target, "_kubectl", _kubectl)
     monkeypatch.setattr(target, "_tf", lambda root, *a, **k: order.append(["terraform", a[0]])
                         or subprocess.CompletedProcess(a, 0, "", ""))
+    # The post-destroy leftover check has its own tests (test_aws_eks.py).
+    monkeypatch.setattr(target, "_verify_teardown", lambda *a, **k: None)
 
     target.teardown(redis_enabled=True)
 
@@ -911,6 +913,7 @@ def test_eks_teardown_sweeps_the_leaked_node_enis_and_retries_the_destroy(monkey
 
     monkeypatch.setattr(target, "_run", _run)
     monkeypatch.setattr(target, "_tf", _tf)
+    monkeypatch.setattr(target, "_verify_teardown", lambda *a, **k: None)
     target.teardown(redis_enabled=False)
 
     assert len(destroys) == 2, "the destroy must be retried once the leaked ENIs are gone"
@@ -1545,16 +1548,18 @@ def _cloud_workflows():
             yaml.safe_load((workflows / "e2e-cloud-aws-cell.yml").read_text()))
 
 
-def test_cloud_workflow_requires_only_four_ga_cells_and_runs_preview():
+def test_cloud_workflow_requires_the_six_ga_cells_including_eks():
+    # honua-release#203 (owner decisions 12/18 of 2026-10-10): aws-eks is GA in 2026.1.
     cj = run_cloud.cloud_journey
     workflow, cell = _cloud_workflows()
     job = workflow["jobs"]["parity"]
-    assert len(cj.GA_CELLS) == 4 and all("eks" not in c and "mixed" not in c for c in cj.GA_CELLS)
+    assert len(cj.GA_CELLS) == 6 and all("mixed" not in c for c in cj.GA_CELLS)
+    assert {"aws-eks/redis-off", "aws-eks/redis-on"} <= set(cj.GA_CELLS) and cj.PREVIEW_TARGETS == ()
     assert "aws-eks" in job["strategy"]["matrix"]["target"]
     # rc.3: examples/aws-mixed does not exist; the cell is out of the matrix until honua-iac#209.
     assert "aws-mixed" not in job["strategy"]["matrix"]["target"]
     assert "aws-mixed" not in workflow[True]["workflow_dispatch"]["inputs"]["target"]["options"]
-    assert job["with"]["preview"] == "${{ matrix.target == 'aws-eks' }}"
+    assert job["with"]["preview"] is False
     assert job["strategy"]["fail-fast"] is False and job["strategy"]["max-parallel"] == 2
     # Preview tolerance lives on the called cell's jobs; a reusable-workflow call cannot carry it.
     assert all(cell_job["continue-on-error"] == "${{ inputs.preview }}" for cell_job in cell["jobs"].values())
@@ -1602,8 +1607,10 @@ def test_cloud_full_scope_preview_failure_cannot_redden_a_passing_ga_run():
             subdir = root / cell.replace("/", "-")
             subdir.mkdir()
             reports.append(_cell_report(subdir, _ecs_receipt(cell)))
+        # No AWS target is Preview since honua-release#203 made aws-eks GA; any cell outside
+        # GA_CELLS is still informational, so a stand-in keeps the policy covered.
         previews = [{"cell": f"{target}/redis-{redis}", "status": "fail"}
-                    for target in cj.PREVIEW_TARGETS for redis in ("off", "on")]
+                    for target in (cj.PREVIEW_TARGETS or ("stub",)) for redis in ("off", "on")]
         with mock.patch.object(cj, "validate_attempt", return_value=True):
             result = _aggregate_fixture([*reports, *previews], root, full_scope=True)
             assert result["status"] == "pass" and result["certifying"] is True
@@ -3818,7 +3825,7 @@ def test_ecs_readiness_diagnostics_capture_stop_reasons_and_the_server_log_tail(
         return subprocess.CompletedProcess(argv, 0, json.dumps(payload), "")
 
     report = run_cloud.ecs_readiness_diagnostics(target, run=run, redact=run_cloud._redact_log)
-    assert run_cloud.cloud_journey.PREVIEW_TARGETS == ("aws-eks",)
+    assert run_cloud.cloud_journey.PREVIEW_TARGETS == ()
     assert report["cluster"] == "c1" and report["service"] == "s1"
     task = report["tasks"][0]
     assert task["stoppedReason"] == "Essential container in task exited"

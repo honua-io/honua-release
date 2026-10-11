@@ -48,7 +48,8 @@ def cloud(kind="aws-serverless", endpoint="https://abc123.lambda-url.us-east-1.o
 
 class CloudTargetDocumentTests(unittest.TestCase):
     def test_each_cloud_kind_gets_its_own_target_and_topology(self):
-        for kind, topology in (("aws-ecs", "ecs-alb-tasks"), ("aws-serverless", "lambda-function")):
+        for kind, topology in (("aws-ecs", "ecs-alb-tasks"), ("aws-serverless", "lambda-function"),
+                               ("aws-eks", "eks-service-lb-pods")):
             target = cloud(kind, "https://cell.demo.honua.io/")
             self.assertEqual(target["kind"], kind)
             self.assertEqual(target["replicaBaseUrl"], "https://cell.demo.honua.io")
@@ -57,10 +58,12 @@ class CloudTargetDocumentTests(unittest.TestCase):
             self.assertEqual(set(target["principals"]), {"operator", "proposer", "approver", "viewer"})
             self.assertNotIn("compose", target)
             self.assertEqual(local_fixture.replica_topology(target)["id"], topology)
-        self.assertIsNone(cloud_target.kind_of("aws-eks/redis-off"))
+        # honua-release#203: aws-eks is a cloud kind; a stub or unknown cell still has none.
+        self.assertEqual(cloud_target.kind_of("aws-eks/redis-off"), "aws-eks")
         self.assertIsNone(cloud_target.kind_of("stub/redis-on"))
+        self.assertIsNone(cloud_target.kind_of("aws-aks/redis-on"))
         with self.assertRaises(cloud_target.TargetError):
-            cloud_target.build(copy.deepcopy(TEMPLATE), cell="aws-eks/redis-off", endpoint="https://x.example")
+            cloud_target.build(copy.deepcopy(TEMPLATE), cell="stub/redis-off", endpoint="https://x.example")
 
     def test_rds_datasource_requires_tls_and_is_named_by_reference_only(self):
         target = cloud()
@@ -258,7 +261,7 @@ class CloudExecutionTests(unittest.TestCase):
         self.assertEqual(generic.verify_authority()["tenantIsolation"].blocked_by, [stages.JOURNEY_DRIVER])
 
     def test_cloud_replica_read_is_blocked_as_unprovable_and_keeps_its_topology(self):
-        for kind in ("aws-ecs", "aws-serverless"):
+        for kind in ("aws-ecs", "aws-serverless", "aws-eks"):
             target = cloud(kind, "https://cell.demo.honua.io")
             transport = mock.Mock(base_url="https://cell.demo.honua.io", proxy=None, honua=None,
                                   workdir=Path("/tmp"), credentials={"proposer": "hk"})
@@ -336,7 +339,7 @@ class CloudReceiptSchemaTests(unittest.TestCase):
         return live_receipt(kind)
 
     def test_cloud_kinds_and_live_sources_are_admitted(self):
-        for kind in ("aws-ecs", "aws-serverless"):
+        for kind in ("aws-ecs", "aws-serverless", "aws-eks"):
             receipt = self.receipt(kind)
             driver.validate_receipt(receipt, self.schema)
             self.assertEqual(receipt["target"]["kind"], kind)
@@ -365,6 +368,19 @@ class CloudReceiptSchemaTests(unittest.TestCase):
             driver.validate_receipt(receipt, self.schema)
         receipt = self.receipt("aws-ecs")
         receipt["target"]["kind"] = "local-docker"
+        with self.assertRaises(jsonschema.ValidationError):
+            driver.validate_receipt(receipt, self.schema)
+
+    def test_an_eks_receipt_is_bound_to_its_own_kind(self):
+        # honua-release#203: an aws-eks receipt carries live-aws-eks evidence only, and no other
+        # cloud kind may carry it.
+        import jsonschema
+        receipt = self.receipt("aws-eks")
+        receipt["stages"][1]["evidence"]["source"] = "live-aws-ecs"
+        with self.assertRaises(jsonschema.ValidationError):
+            driver.validate_receipt(receipt, self.schema)
+        receipt = self.receipt("aws-ecs")
+        receipt["stages"][1]["evidence"]["source"] = "live-aws-eks"
         with self.assertRaises(jsonschema.ValidationError):
             driver.validate_receipt(receipt, self.schema)
 
