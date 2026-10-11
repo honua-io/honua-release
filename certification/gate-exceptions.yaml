@@ -46,6 +46,10 @@ gates:
       at once across four repos to clear a gate is the green-washing this file exists to prevent.
       #102 owns them, and also raises the underlying policy question: whether pins should be
       "newest trunk HEAD" or "newest trunk commit whose CI is green".
+      Pins moved (2026-10-11): the manifest no longer pins honua-sdk-dotnet f6c98c5cb or
+      honua-sdk-js 9d20f0cb4 (it pins 66413fe30 and 984425f9d), honua-sdk-dotnet trunk 6815834
+      already carries the SSH.NET fix, and this entry awaits the next train result on the pins the
+      resolver selects (ruling gate-exceptions-2026-10-10).
 
   artifact-consume:
     issue: https://github.com/honua-io/honua-release/issues/102
@@ -54,7 +58,9 @@ gates:
       NU1903: SSH.NET 2025.1.0 carries a known high-severity advisory (GHSA-q939-rpr3-3284) and the
       solution treats audit warnings as errors. Same root cause as the Security Audit (NuGet) lane
       in build-test. This is a real dependency problem in the pinned SDK, not a registry gap, so the
-      gate's tolerant path deliberately does not excuse it.
+      gate's tolerant path deliberately does not excuse it. Pins moved (2026-10-11): the manifest
+      pins honua-sdk-dotnet 66413fe30, not f6c98c5cb, and trunk 6815834 carries SSH.NET 2026.0.0, so
+      this entry awaits the next train result on the pin the resolver selects.
 
   cloud-parity:
     issue: https://github.com/honua-io/honua-release/issues/103
@@ -80,7 +86,10 @@ gates:
       origin (honua-release#450). Keep this entry until a real e2e-cloud-aws run is green. aws-ecs
       also reports `blocked` under a dry run because a canonical check blocks there, and its
       security-headers canary has never actually reached the endpoint (`endpoint unreachable` in
-      every run inspected) — a separate, pre-existing ECS gap.
+      every run inspected) — a separate, pre-existing ECS gap. Update 2026-10-11: on HTTPS cells
+      top-demo passes on both ECS cells (run 38110106995, every job green including cloud-report)
+      while the Lambda cells still fail S9 (run 38107383082); no real e2e-cloud-aws run on all
+      cells is green yet, so the entry stays.
   upgrade:
     issue: https://github.com/honua-io/honua-release/issues/226
     why: >-
