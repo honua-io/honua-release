@@ -251,8 +251,8 @@
       "basis": "Owner decisions recorded 2026-10-10 (round 2), quoted on honua-release#203",
       "progress": {
         "date": "2026-10-11",
-        "evidence": "GP on Kubernetes job runners: honua-helm#98 merged (geoprocessing.kubernetesJobs.* values, job service account and RBAC; a kind smoke dispatched geometry.buffer as a batch/v1 Job) and honua-helm#99 merged (envFrom the runtime Secret and config ConfigMap); honua-server#5796 merged (Kubernetes Job envFrom/secretKeyRef/configMapKeyRef, ControlPlane:Kubernetes:DefaultEnvFromSecrets). honua-release#522 and #529 run the aws-eks cells with Pod Identity wiring. Root cause of the earlier EKS reds (run 38057015781): the release guardrail denies iam:CreateOpenIDConnectProvider and roles outside honuaeks*; honua-iac#233 (Pod Identity, honuaeks* names, RDS+PostGIS, ElastiCache, outputs) is green and not merged.",
-        "open": "honua-iac#233 lands after the ECS/Lambda final run; GP Job completion in the chart needs a pinned server with honua-server#5780 and #5796; no aws-eks run has passed on the current pins; whether promotion readiness requires the EKS cells is still an owner question."
+        "evidence": "GP on Kubernetes job runners: honua-helm#98 merged (geoprocessing.kubernetesJobs.* values, job service account and RBAC; a kind smoke dispatched geometry.buffer as a batch/v1 Job) and honua-helm#99 merged (envFrom the runtime Secret and config ConfigMap); honua-server#5796 merged (Kubernetes Job envFrom/secretKeyRef/configMapKeyRef, ControlPlane:Kubernetes:DefaultEnvFromSecrets). honua-release#522 and #529 run the aws-eks cells with Pod Identity wiring. Root cause of the earlier EKS reds (run 38057015781): the release guardrail denies iam:CreateOpenIDConnectProvider and roles outside honuaeks*; honua-iac#233 (Pod Identity, honuaeks* names, RDS+PostGIS, ElastiCache, outputs) merged on 2026-10-11 (e6378d14) and is inside the pinned honua-iac e0dabe7.",
+        "open": "No aws-eks run has used honua-iac#233 yet (planned after the ECS/Lambda final run); GP Job completion in the chart needs a pinned server with honua-server#5780 and #5796 and a honua-helm pin at 5069bffb2 or later; whether promotion readiness requires the EKS cells is still an owner question."
       }
     },
     "instance-identity-2026-10-10": {
@@ -372,7 +372,7 @@
       "moved": [],
       "basis": "Owner decision 13 recorded 2026-10-10 (~19:00Z, round 2) during the rc.3 certification cycle",
       "evidence": "aws-release-cells applied 14 added, 0 changed, 0 destroyed (roles honua-release-cell-{provision,reaper,mirror} and honua-release-approver, guardrail and workload-boundary policies). aws-exec-identity applied 9 added (role honua-release-deploy, KMS HMAC key alias/honua-release-approval-mac, generate and verify policies). Environment terraform-live-approval has a required reviewer and prevents self-review. Repo variables HONUA_DEVOPS_PROVISION_APPROVAL_ISSUER_KEY_ARNS and HONUA_DEVOPS_PROVISION_APPROVAL_SIGNING_MODE=kms-mac are set. Each apply followed a saved plan and every resource is recorded; state is kept locally.",
-      "open": "Not activated: workflows still use honua-release-cicd; environments aws-cell-provision, aws-cell-reaper, aws-cell-mirror and aws-release-deploy do not exist; the cell policy needs EKS, ACM and Route53 grants and the file-storage bucket before activation; the live GenerateMac/VerifyMac proof (honua-devops#175) is pending."
+      "open": "Not activated: workflows still use honua-release-cicd; environments aws-cell-provision, aws-cell-reaper, aws-cell-mirror and aws-release-deploy do not exist; the cell policy needs EKS, ACM and Route53 grants and the file-storage bucket before activation; the live GenerateMac/VerifyMac proof (fix unit C1; honua-devops#175 is closed) is pending for the burn window."
     },
     "release-secrets-and-variables-2026-10-10": {
       "date": "2026-10-10",
@@ -448,7 +448,7 @@
       "moved": [],
       "basis": "Owner instruction recorded 2026-10-11 (~03:00Z): many customers will have different URLs; never assume honua.io",
       "evidence": "honua-iac#236 merged (6e186d6c0: Public__BaseUrl on ECS main and canary tasks, Lambda and the EKS chart_config_env; public_base_url with scheme validation; xn-- TLDs; Azure roots gain public_base_url and additional_allowed_hosts; example READMEs use gis.example.com), pinned by honua-release#536 (honua-iac e0dabe7). honua-server#5806 merged (dfd13977d: the WFS 1.0 OnlineResource is the deployment URL; \"Serve Honua on your own domain\" doc). The audit classed problem-type URIs, XML namespaces and schema ids as fine, and cert.demo fixtures, demo smoke and the site CSP as certification-only.",
-      "open": "Run 38116311885, the first on honua-iac e0dabe7, was in progress when this was recorded. A customer-domain smoke needs a second, non-honua.io hosted zone. The provider site/contact https://honua.io in WCS/WFS capability metadata should become configurable. The server silently ignores a Public:BaseUrl without a scheme."
+      "open": "Run 38116311885, the first on honua-iac e0dabe7, completed with failed journey jobs whose receipts had not been read when this was recorded. A customer-domain smoke needs a second, non-honua.io hosted zone. The provider site/contact https://honua.io in WCS/WFS capability metadata should become configurable. The server silently ignores a Public:BaseUrl without a scheme."
     }
   },
   "security_findings": [
