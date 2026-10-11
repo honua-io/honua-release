@@ -68,6 +68,9 @@ Redis-off expectation:
   every other name stays exact. The evidence records `topology` and which state was observed.
 - **S3** on Redis-off asserts the typed refusal at `create-draft` for every family (query, analysis, map)
   and passes with `topology: redis-off`; Redis-on drives the full lifecycle for the same families.
+- **S10** (`large-import`) on Redis-off asserts the typed 503 for a `forceBackground` `upload-url`
+  import and passes with `topology: redis-off`; Redis-on follows a real background import job to
+  completion (see "S10 large-import" below).
 - **S9** (`top-demo`) `S9-demos-geoprocessing` on Redis-off drives the demo's execution and passes with `topology: redis-off` only when the server returns S5's typed 503 capability-unavailable (`missingDependency=redis`) and the page renders it as its job-store-unavailable state (a page that spins on the refusal is `blocked`, naming the site); Redis-on still requires a completed live job.
 - A topology the server contradicts (a Redis-on cell with no durable control plane, or a Redis-off cell
   the server does not confirm) fails both scenarios.
@@ -356,8 +359,9 @@ that declares the inputs, the harness passes:
 The Redis-off ECS cell stays one task. It is the serving-only topology, and MultiNode requires Redis.
 Without the variable, or on an older root, the Redis-on cell also stays one task and `6.replica-map`
 stays blocked on the topology. **Cost:** the live estimate prices Fargate vCPU and GB per task from
-the state's `desired_count`, so the Redis-on ECS cell's Fargate line roughly doubles. Objects in the
-bucket are not counted, like other S3 usage.
+the state's `desired_count`, so the Redis-on ECS cell's Fargate line roughly doubles. Objects the
+server writes to the bucket are not counted, like other S3 usage; the S10 fixture the harness stages
+there is counted (see "Cost evidence").
 
 The cloud fixture seed (`harness/cloud/seed.py`) publishes the demo and Studio fixtures through the
 admin API from the provision runner. If a call fails, the `studio-authoring-seed` and `top-demo-seed`
@@ -381,6 +385,73 @@ retry around it.
    `s3:ListBucket` on the bucket and object access on `bucket/*`.
 3. Set the repository variable `HONUA_AWS_CELL_FILE_STORAGE_BUCKET`. The cell workflow exports it to
    the provision and teardown steps.
+
+### S10 large-import: a background import from the cell's S3 bucket (honua-release#548)
+Owner decision 24 (2026-10-11), fix unit J19. The journey's stage 3 proves only the small synchronous
+multipart upload; every committed cloud receipt records `jobId: null`. S10 proves the other path on
+every GA cell, as the `large-import` row of `scenarioCoverage` (`e2e/large_import.py`):
+
+| cell | fixture | request | passes when |
+|---|---|---|---|
+| Redis-on | `s10-large-import.geojson`, 330,000 points, 85,688,964 bytes, sha256 `b1795475…c4d79ca9`, generated (never committed) | `upload-url` from a presigned GET URL | the job reaches `Completed`, the table publishes, and the layer's count is 330,000 |
+| Redis-off | `e2e/fixtures/s10-redis-off.geojson`, 8 points, 2,109 bytes, committed | `upload-url` with `forceBackground: true` | the typed 503 `Background import service not available. File is too large for synchronous import.` (`topology: redis-off`, decision 3) |
+
+`e2e/fixtures/large_import.py` generates both fixtures byte for byte from integer arithmetic and pins
+their feature count, size and SHA-256; the harness refuses a file whose digest differs. The work
+follows the cell's job split (honua-release#381):
+
+- **provision** (AWS credentials) generates and verifies the fixture, then puts it at
+  `s3://$HONUA_AWS_CELL_FILE_STORAGE_BUCKET/release-cells/<target>-redis-<on|off>/s10/<run id>-<attempt>/`.
+  The handoff records the bucket and the key's SHA-256 only; the key is recomputed from the cell and run.
+- **admit** (AWS credentials) mints a presigned GET URL valid for 1,800 s and seals it to the journey
+  runner together with the application key. The URL is a bearer credential: it never reaches a job
+  output, an artifact in the clear, a receipt or a log line.
+- **journey** (no AWS credential) runs S10 before the seam drivers. It reads
+  `GET /api/v1/admin/import/limits` first. If `max(BackgroundJobThresholdBytes, MaxMemoryBytes)` (the
+  staging cap both upload paths enforce) does not exceed the threshold, the row fails
+  `no-background-window` and names both limits; a fixture outside the window fails
+  `fixture-outside-window`. It never falls back to `forceBackground` or a smaller file. Then it calls
+  `POST /api/v1/admin/import/upload-url` and follows `GET /api/v1/admin/import/jobs/{jobId}` for up to
+  1,200 s, recording each state change. It publishes `honua_data.imported_s10_large_import` through
+  the seed's connection (`POST /api/v1/admin/connections/{id}/layers`) and counts it through
+  `FeatureServer/{layer}/query?returnCountOnly=true`.
+- **teardown** (AWS credentials) deletes the object (`s10Cleanup` in the cell report). A failed delete
+  fails the cell. The bucket's one-day lifecycle on `release-cells/` is only the backstop.
+
+A 200 (imported synchronously), a 202 without a `jobId`, a failed or cancelled job, a job still
+running at the deadline, or a wrong row count is `fail`, never `blocked`. An unstaged fixture (no
+bucket variable, a digest mismatch, an S3 refusal) or a missing presigned URL is `blocked` and names
+honua-release#548; `require_real` fails it. The row's evidence keeps only the allowlisted fields
+`jobId`, `fixtureSha256`, `bytes`, `thresholdBytes`, `maxMemoryBytes`, `stagingCapBytes`, `queuedAt`,
+`completedAt`, `durationSeconds`, `durationMs`, `transitions`, `rowCount`, `executor`, `topology`,
+`source` (`s3://<bucket>/sha256:<key digest>`), `sourceUrlHost` and the answering `instances`. The job
+document's `sourceUrl` (the presigned URL) is dropped, and server messages are scrubbed of the URL and
+every `X-Amz-*` parameter.
+
+**Cell inputs.** Under the server defaults (100 MiB each), the staging cap equals the threshold, so a
+default cell has no background window. The Redis-on cells lower `Import__Limits__BackgroundJobThresholdBytes`
+to 64 MiB (67,108,864) under the default 100 MiB `MaxMemoryBytes`, which leaves the window
+(64 MiB, 100 MiB] that the fixture sits in:
+
+- `aws-eks/redis-on` sets it directly in the chart's `config.env`.
+- `aws-ecs/redis-on` and `aws-serverless/redis-on` pass `import_background_job_threshold_bytes=67108864`
+  (`TfTargetSpec.redis_on_declared_vars`), only when the pinned root declares it. Neither
+  `examples/aws` nor `examples/aws-serverless` declares it yet, because both roots fix their
+  `additional_env` inline. Until honua-iac adds the input and renders it as
+  `Import__Limits__BackgroundJobThresholdBytes`, those two cells fail S10 with `no-background-window`.
+
+**What the server code says S10 will meet** (read, not yet run). honua-server queues file imports in
+`UniversalImportJobService`, which runs the job inside the host that accepted the upload on every
+topology. The job document has no executor field, so the receipt records `executor: in-process` with
+that basis. On `aws-serverless` that host is the Lambda invocation, which returns 202 and may be
+frozen before the job finishes. The job service is registered whether or not Redis is, and file
+storage defaults to local disk, so a Redis-off cell may queue the forced job (202) instead of the
+typed 503. S10 fails in both cases and names what it saw.
+
+**Owner step (Cloud lane, honua-iac):** declare `import_background_job_threshold_bytes` on
+`examples/aws` and `examples/aws-serverless`. The harness role also needs `s3:PutObject`,
+`s3:GetObject` (presign) and `s3:DeleteObject` on `release-cells/*/s10/*` in the cell file-storage
+bucket.
 
 ### Audit hash-chain key on every AWS cell
 Without `AuditLog:ChainVerification:Key` the server still serves and writes audit rows, but its
@@ -508,7 +579,9 @@ it cannot read these.
   `e2e/cost-prices.json`, a committed table of public us-east-1 on-demand list prices with a
   `pricesAsOf` date (read from the AWS Price List API). Classes billed "per hour or partial hour"
   are billed whole hours. Data transfer, NAT data processing, ALB capacity beyond one LCU-hour per
-  hour, CloudWatch, S3/ECR, Route 53/ACM, Bedrock tokens and Lambda INIT time are **not** counted;
+  hour, CloudWatch, S3/ECR (except the S10 fixture the harness stages: S3 Standard storage for the
+  run's hours, one PUT and one GET, attributed to the run by its key prefix), Route 53/ACM, Bedrock
+  tokens and Lambda INIT time are **not** counted;
   Fargate Spot is priced at the on-demand rate. The table's `excluded` list says so in every
   reading. A resource the table cannot price, or a usage reading that fails, makes the estimate
   `unavailable` (named, never `pass`). A metric with no datapoints yet is read again once after

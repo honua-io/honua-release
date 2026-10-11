@@ -51,6 +51,9 @@ class TfTargetSpec:
     #     to the runner's /32 (needs_runner_db_access), which is exactly the reachability the
     #     local-exec PostGIS bootstrap requires, as on v0.1.0 where it defaulted true.
     declared_ephemeral_vars: tuple[str, ...] = ()
+    # `name=value` vars like declared_ephemeral_vars, passed on Redis-on cells only and only when the
+    # pinned root declares `name`: the S10 large-import background window (honua-release#548).
+    redis_on_declared_vars: tuple[str, ...] = ()
     # JSON var files preserve typed values that cannot be represented faithfully
     # by Terraform's string-constrained `-var=name=value` coercion (notably null).
     # Paths are relative to the honua-release repository root.
@@ -308,6 +311,8 @@ class TerraformTarget(DeployTarget):
             values.extend(f"-var={v}" for v in self.spec.opt_in_vars)
         if redis_enabled:
             values.extend(self._redis_on_scale_vars(prefix))
+            values.extend(f"-var={v}" for v in self.spec.redis_on_declared_vars
+                          if self._root_declares(v.split("=", 1)[0]))
         if self.spec.needs_runner_db_access:
             raw_cidr = self._runner_cidr("HONUA_AWS_DB_INGRESS_CIDR")
             values.extend([
@@ -852,6 +857,13 @@ OPERATIONS_POLICY_RULES_VAR = "operations_policy_rules=" + hcl_object_list(CELL_
 # input studio_end_user_authorization (bool, examples/aws and examples/aws-serverless) renders the
 # setting; it is passed only when the pinned root declares it, so an older pin passes nothing.
 STUDIO_END_USER_AUTHORIZATION_VAR = "studio_end_user_authorization=true"
+# S10 large-import (honua-release#548, owner decision 24): both upload paths cap a staged file at
+# max(BackgroundJobThresholdBytes, MaxMemoryBytes), 100 MiB each by default, so a default cell has no
+# file that can queue as a background import. The Redis-on cells lower the threshold to 64 MiB under
+# the default 100 MiB MaxMemoryBytes, leaving the window (64 MiB, 100 MiB] the S10 fixture sits in.
+# The roots render it as Import__Limits__BackgroundJobThresholdBytes; neither aws root declares the
+# input yet (their additional_env is fixed in the root), so nothing is passed until honua-iac does.
+IMPORT_BACKGROUND_THRESHOLD_VAR = "import_background_job_threshold_bytes=67108864"
 
 # The two terraform-output cells. EKS is a separate, heavier target (cluster + Helm + LB).
 SERVERLESS_SPEC = TfTargetSpec(
@@ -910,6 +922,7 @@ SERVERLESS_SPEC = TfTargetSpec(
     cell_domain_inputs=("domain_name", "route53_zone_id"),
     cell_domain_optional_on_root=True,
     cors_allowed_origins=(DEMO_SITE_ORIGIN,),
+    redis_on_declared_vars=(IMPORT_BACKGROUND_THRESHOLD_VAR,),
 )
 ECS_SPEC = TfTargetSpec(
     name="aws-ecs",
@@ -942,6 +955,7 @@ ECS_SPEC = TfTargetSpec(
     alb_http_redirect=True,
     redis_on_scale_bucket_env="HONUA_AWS_CELL_FILE_STORAGE_BUCKET",
     cors_allowed_origins=(DEMO_SITE_ORIGIN,),
+    redis_on_declared_vars=(IMPORT_BACKGROUND_THRESHOLD_VAR,),
 )
 
 
