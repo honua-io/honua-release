@@ -26,7 +26,10 @@ in tools/test_validate_customer_install_manifest.py prove each rule below redden
   CLIENTS     — every Honua client (and any client whose package is pinned in clientArtifacts)
                 matches exactly one clientArtifacts entry: version, wheel/package digest or npm
                 integrity, filename, repository and source commit. PyPI download and metadata URLs
-                name the pinned file and version.
+                name the pinned file and version. Owner decision 19 preserves one pre-cut rehearsal
+                while R25 advances published platform clients: only that exact customer content may
+                use its integrity-bound historical client pins. Release candidates always use the
+                current platform manifest.
 
 Usage:
   python tools/validate_customer_install_manifest.py
@@ -36,6 +39,7 @@ Usage:
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import sys
 from datetime import date
@@ -54,6 +58,9 @@ CUSTOMER_MANIFEST_PATH = REPO_ROOT / "customer-install-manifest.json"
 SCHEMA_PATH = REPO_ROOT / "schemas" / "customer-install-manifest.v1.schema.json"
 PLATFORM_MANIFEST_PATH = REPO_ROOT / "platform-manifest.yaml"
 LEDGER_PATH = REPO_ROOT / "compatibility-ledger.v1.yaml"
+REHEARSAL_BINDING_PATH = REPO_ROOT / "certification/customer-install/rehearsal-binding.v1.json"
+REHEARSAL_SOURCE_REVISION = "457dd382546c894cfa443dafed020ae98c3f768d"
+REHEARSAL_BINDING_SHA256 = "f90c6636b502e2501d06ddd0d3a8e12951d417a57d9d3d1f9ced52e7fd718ea1"
 
 SERVER_COMPONENT = "honua-server"
 # Identity fields copied from clientArtifacts. A copied field must equal its pin exactly.
@@ -289,12 +296,47 @@ def check_clients(document: dict[str, Any], platform: dict[str, Any]) -> list[st
     return errors
 
 
+def load_rehearsal_binding() -> dict[str, Any]:
+    """Read the reviewed historical record; never derive a replacement from moving pins."""
+    try:
+        data = REHEARSAL_BINDING_PATH.read_bytes()
+    except OSError as exc:
+        raise ManifestLoadError(f"preserved rehearsal binding is unavailable: {exc}") from exc
+    if hashlib.sha256(data).hexdigest() != REHEARSAL_BINDING_SHA256:
+        raise ManifestLoadError("preserved rehearsal binding integrity mismatch")
+    try:
+        binding = json.loads(data, object_pairs_hook=_reject_duplicate_keys)
+    except (ValueError, UnicodeError) as exc:
+        raise ManifestLoadError(f"preserved rehearsal binding is invalid: {exc}") from exc
+    if (not isinstance(binding, dict) or binding.get("schemaVersion") != 1
+            or binding.get("sourceRepository") != "honua-io/honua-release"
+            or binding.get("sourceRevision") != REHEARSAL_SOURCE_REVISION):
+        raise ManifestLoadError("preserved rehearsal binding has the wrong immutable source")
+    return binding
+
+
+def check_client_binding(document: dict[str, Any], platform: dict[str, Any]) -> list[str]:
+    errors = check_clients(document, platform)
+    if not errors or document.get("status") != "pre-cut-rehearsal":
+        return errors
+    try:
+        binding = load_rehearsal_binding()
+    except ManifestLoadError as exc:
+        return [*errors, str(exc)]
+    canonical = json.dumps(document, sort_keys=True, separators=(",", ":"), ensure_ascii=False).encode()
+    if hashlib.sha256(canonical).hexdigest() != binding.get("customerCanonicalSha256"):
+        return errors
+    # Preserve all copied-field, URL, and duplicate-client checks at the original
+    # binding. No mutable customer field or qualification claim gets this exception.
+    return [f"preserved rehearsal: {error}" for error in check_clients(document, binding)]
+
+
 def validate(document: dict[str, Any], schema: dict[str, Any], platform: dict[str, Any],
              ledger: dict[str, Any] | None) -> list[str]:
     errors = check_schema(document, schema)
     errors += check_qualification(document)
     errors += check_server(document, platform, ledger)
-    errors += check_clients(document, platform)
+    errors += check_client_binding(document, platform)
     return list(dict.fromkeys(errors))
 
 
@@ -319,7 +361,11 @@ def main(argv: list[str] | None = None) -> int:
         for error in errors:
             print(f"- {error}", file=sys.stderr)
         return 1
-    print(f"PASS: {args.manifest} is well-formed and every copied Honua identity matches {args.platform_manifest}")
+    if check_clients(document, platform):
+        print(f"PASS: {args.manifest} preserves the pre-cut client binding at {REHEARSAL_SOURCE_REVISION}; "
+              "current platform client publication and release qualification remain separate checks")
+    else:
+        print(f"PASS: {args.manifest} is well-formed and every copied Honua client identity matches {args.platform_manifest}")
     return 0
 
 
