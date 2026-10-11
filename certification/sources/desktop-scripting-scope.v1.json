@@ -1,0 +1,118 @@
+{
+  "schema": "honua.desktop-scripting-scope/v1",
+  "revision": "2026-10-11.1",
+  "release": "2026.1",
+  "purpose": "Versioned execution scope; does not override the protocol certification gate",
+  "policy_issue": "https://github.com/honua-io/honua-release/issues/376",
+  "preview_decision": "Retain SensorThings as preview, targeted for 2026.2; preserve every raw outcome",
+  "client_limitations": [],
+  "sources": {
+    "licensed-scripting": {
+      "baseline_commit": "235ec425f767d14481b6d51f41d805f2e34cd2b6",
+      "baseline_path": "coverage/2026.1/coverage-grid.json",
+      "baseline_sha256": "8a184cefb7436a33ab79f0f95c4d625aaa87ce6c45b75aeb622569dee2fed0ca",
+      "total_count": 1121,
+      "total_identity_sha256": "febcf889edd6285323abc5766dcdb9a3fe5fd38d02cd35cfc62d394e9ebe4325",
+      "applicable_count": 477,
+      "applicable_identity_sha256": "a0eaf23edc36c229f3c4a333cde329dd4f046c77e14169b9669dda9de1221af4",
+      "required_count": 477,
+      "deferred_preview_cells": []
+    },
+    "qgis-scripting": {
+      "baseline_commit": "e53d4ba369b594d622681693a2f4f16f767d2f95",
+      "baseline_path": "coverage/2026.1/coverage-grid.json",
+      "baseline_sha256": "062a52aed8dd3f3e0a34581e0d85c38c8d965c3dc688a359a457f26516007ad6",
+      "total_count": 944,
+      "total_identity_sha256": "f7414e72c36218dd67a8f9afbe79bb1b75e41a79a4cf7b855e37d44727602986",
+      "applicable_count": 487,
+      "applicable_identity_sha256": "7f146981a381248dd3e18499f6d8c73c4f8385d7bf8de110c040aaf153f65780",
+      "required_count": 473,
+      "deferred_preview_cells": [
+        {
+          "row": "sensorthings",
+          "column": "auth_anonymous",
+          "target_release": "2026.2",
+          "reason": "Preview protocol deferred by release scope"
+        },
+        {
+          "row": "sensorthings",
+          "column": "auth_api_key",
+          "target_release": "2026.2",
+          "reason": "Preview protocol deferred by release scope"
+        },
+        {
+          "row": "sensorthings",
+          "column": "auth_oauth_portal",
+          "target_release": "2026.2",
+          "reason": "Preview protocol deferred by release scope"
+        },
+        {
+          "row": "sensorthings",
+          "column": "auth_pki",
+          "target_release": "2026.2",
+          "reason": "Preview protocol deferred by release scope"
+        },
+        {
+          "row": "sensorthings",
+          "column": "auth_token",
+          "target_release": "2026.2",
+          "reason": "Preview protocol deferred by release scope"
+        },
+        {
+          "row": "sensorthings",
+          "column": "browse_add_layer",
+          "target_release": "2026.2",
+          "reason": "Preview protocol deferred by release scope"
+        },
+        {
+          "row": "sensorthings",
+          "column": "connect_discover",
+          "target_release": "2026.2",
+          "reason": "Preview protocol deferred by release scope"
+        },
+        {
+          "row": "sensorthings",
+          "column": "identify_legend",
+          "target_release": "2026.2",
+          "reason": "Preview protocol deferred by release scope"
+        },
+        {
+          "row": "sensorthings",
+          "column": "query_filter",
+          "target_release": "2026.2",
+          "reason": "Preview protocol deferred by release scope"
+        },
+        {
+          "row": "sensorthings",
+          "column": "render",
+          "target_release": "2026.2",
+          "reason": "Preview protocol deferred by release scope"
+        },
+        {
+          "row": "sensorthings",
+          "column": "reopen_cold",
+          "target_release": "2026.2",
+          "reason": "Preview protocol deferred by release scope"
+        },
+        {
+          "row": "sensorthings",
+          "column": "save_layer_file",
+          "target_release": "2026.2",
+          "reason": "Preview protocol deferred by release scope"
+        },
+        {
+          "row": "sensorthings",
+          "column": "save_package",
+          "target_release": "2026.2",
+          "reason": "Preview protocol deferred by release scope"
+        },
+        {
+          "row": "sensorthings",
+          "column": "save_project",
+          "target_release": "2026.2",
+          "reason": "Preview protocol deferred by release scope"
+        }
+      ]
+    }
+  }
+}
