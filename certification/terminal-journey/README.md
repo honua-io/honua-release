@@ -13,7 +13,7 @@ this roster.
 | `journey.v1.json` | The eight numbered stages: id, command, the pinned client commands each needs, and its upstream contracts. Imported by #161; never duplicated there. |
 | `receipt.schema.json` | `terminal-journey-receipt-v1`. Binds package integrities, source SHAs, and the server/fixture/config/auth-policy tuple to a per-stage outcome. |
 | `targets/local-docker.json` | Local Docker target. Extends the owned Docker fixture with a second candidate replica, Redis and an authored GeoServices source; the server digest remains manifest-bound. Stage 3 uploads `fixtures/journey-source.geojson` instead of importing from that source. |
-| `cloud_target.py` | Cloud cell targets (`aws-ecs`, `aws-serverless`), generated per attempt by `e2e/cloud_journey.py` from the local fixture. See [Cloud cells](#cloud-cells). |
+| `cloud_target.py` | Cloud cell targets (`aws-ecs`, `aws-serverless`, `aws-eks`), generated per attempt by `e2e/cloud_journey.py` from the local fixture. See [Cloud cells](#cloud-cells). |
 | `pins.py` | Consumes the exact #136 `clientArtifacts` from published registry bytes and proves which terminal commands they actually ship. |
 | `probes.py` | Deterministic probe primitives: HTTP, compose lifecycle, and MCP JSON-RPC through the pinned `honua-mcp-proxy`. |
 | `stages.py` | Contract prerequisites and the outcome discipline. |
@@ -82,10 +82,11 @@ redacted, bounded body excerpt).
 
 ## Cloud cells
 
-`e2e/cloud_journey.py` runs this driver against an `aws-ecs` or `aws-serverless` cell with a target
+`e2e/cloud_journey.py` runs this driver against an `aws-ecs`, `aws-serverless` or `aws-eks` cell with a target
 document `cloud_target.build` generates for each attempt (`target-<n>.json` next to the receipt).
-The receipt's target kind is the cell's, and its live evidence is `live-aws-ecs` or
-`live-aws-serverless`, so a cloud receipt can qualify its cell (#377). The schema and
+The receipt's target kind is the cell's, and its live evidence is `live-aws-ecs`,
+`live-aws-serverless` or `live-aws-eks` (the Helm chart on EKS, #203), so a cloud receipt can qualify
+its cell (#377). The schema and
 `cloud_journey.validate_attempt` bind every live source to the receipt's own kind and that kind to
 the cell. Preview and stub cells keep the documented blocked build receipt.
 
@@ -104,9 +105,18 @@ the cell. Preview and stub cells keep the documented blocked build receipt.
   application key (`cloud_journey.pack_handoff`). The target names the coordinates only by
   environment reference (`HONUA_JOURNEY_DATASOURCE_{HOST,PORT,DATABASE,USERNAME,PASSWORD}`), so the
   retained target document holds no host, login or password.
-- **Replica.** A cell has one endpoint and the server (798d517) returns no per-instance identity,
-  so stage 6's cross-replica read-after-write cannot be proven there. The `replica-map` assertion
-  is `blocked` with that reason, naming the server need (a per-instance identity on responses).
+- **Replica.** A cell has one endpoint. honua-server#5790 stamps every response with a stable
+  `Honua-Instance` id, so stage 6's `replica-map` check re-reads the saved map through that endpoint
+  up to 8 times, half a second apart. Each read must match the write, and the check collects the
+  instance ids that answered:
+  - two or more distinct instances: `pass`, with the ids (and each id's source from
+    `GET /api/v1/admin/version` when the operator key can read it) in the check detail;
+  - one instance only (one ECS task, a warm Lambda): `blocked` with `topology served one instance:
+    <id>`, which is a topology limit, not a server gap;
+  - no header on any read: `blocked` on the server need (honua-server#5790), naming the pinned
+    candidate sha;
+  - a header on some reads but not others: `fail`.
+
   `replicaTopology` stays as evidence in the check and a receipt notice: `ecs-alb-tasks` (the ALB
   spreads requests across ECS tasks) or `lambda-function` (one function).
 - **Candidate image.** ECS reports its running image through DescribeTasks. A serverless cell
@@ -208,6 +218,29 @@ four, rounded down. The membership digest follows each tool's stage in original
 wire order. The revision digest is server-authored and compared across transports,
 not reconstructed from incomplete stage metadata. Full-catalog comparison hashes
 use a separately named normalized serialization and are not server wire digests.
+
+A failed HTTP/proxy parity check names what differs rather than saying only that
+something differs:
+- which `_meta` fields, with both values;
+- which tools are present on one side only, and which fields of a shared tool differ;
+- whether only the order changed.
+
+The sidecar also keeps the installed proxy's own initialize and tools/list
+responses, credential-masked. It records which server instance (`Honua-Instance`,
+honua-server#5790) answered each direct HTTP request. On a cloud cell,
+`e2e/cloud_journey.py` copies the sidecar next to the receipt as
+`setup-discovery-<attempt>.json`, replacing the cell admin key, the datasource
+secrets and the minted journey keys, and the cell workflow uploads it with the
+receipts.
+
+Why this matters on Lambda: the server keeps an MCP session, including its
+negotiated view, only in the memory of the process that served `initialize`.
+When a request arrives with an `Mcp-Session-Id` that process does not hold,
+`StatelessSessionFallback` (on by default) serves it without a session, so it
+gets the profile's default view and no error. On a Lambda cell, a proxy request
+that lands on a different warm instance therefore returns a different view than
+the HTTP session saw. The instance list and the named differences show whether
+that happened.
 
 Both transports reject duplicate JSON keys, invalid/nonstandard JSON, oversized
 responses and incomplete catalog pagination. The stdio consumer reads bounded

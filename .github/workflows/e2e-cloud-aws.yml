@@ -1,5 +1,6 @@
-# AWS promise journeys: four required GA cells, {aws-ecs, aws-serverless} x Redis off/on, where
-# aws-serverless is Lambda + AWS Batch geoprocessing; EKS is informational Preview evidence. The mixed
+# AWS promise journeys: six required GA cells, {aws-ecs, aws-serverless, aws-eks} x Redis off/on, where
+# aws-serverless is Lambda + AWS Batch geoprocessing and aws-eks is the Helm chart on EKS (bring-your-own
+# Kubernetes, honua-release#203; owner decisions 12/18 of 2026-10-10 made it GA for 2026.1). The mixed
 # ECS + Batch cell is out of the 2026.1 rc.3 matrix: its IaC root does not exist yet (restore it when
 # honua-iac#209 lands).
 # Every cell retains attempts, records its live cost estimate before teardown, and always runs its teardown job.
@@ -76,7 +77,7 @@ on:
         required: false
     outputs:
       overall_status:
-        description: "pass | fail | blocked | skipped — aggregate of exactly the four GA journey cells"
+        description: "pass | fail | blocked | skipped — aggregate of exactly the six GA journey cells"
         value: ${{ jobs.cloud-report.outputs.overall_status }}
 
 permissions:
@@ -325,7 +326,7 @@ jobs:
 
   parity:
     needs: candidate
-    # Four GA cells plus two informational Preview (EKS) cells; failures never hide other attempts.
+    # Six GA cells (ECS, Lambda + Batch and EKS, each Redis off/on); failures never hide other attempts.
     # Each cell is its own provision -> journey -> teardown chain (e2e-cloud-aws-cell.yml): the
     # pinned clients run in a job that holds no AWS credential and no OIDC token (honua-release#381).
     strategy:
@@ -357,8 +358,9 @@ jobs:
     with:
       target: ${{ matrix.target }}
       redis: ${{ matrix.redis }}
-      # A reusable-workflow call cannot carry continue-on-error; the cell's own jobs do, for Preview.
-      preview: ${{ matrix.target == 'aws-eks' }}
+      # A reusable-workflow call cannot carry continue-on-error; the cell's own jobs would, for a
+      # Preview cell. Every cell in this matrix is GA (aws-eks since honua-release#203), so none is.
+      preview: false
       candidate_ref: ${{ inputs.candidate_ref }}
       require_real: ${{ inputs.require_real || false }}
       cost_ceiling_usd: ${{ inputs.cost_ceiling_usd || '20' }}
@@ -378,7 +380,7 @@ jobs:
 
   # ── iac-live: WRAP honua-iac's real cloud harness (terraform-manual-validation.yml, run_live) ────────
   iac-live:
-    # Supplemental Preview infrastructure evidence; GA certification is the four journey cells.
+    # Supplemental Preview infrastructure evidence; GA certification is the six journey cells.
     continue-on-error: true
     name: "iac-live (terraform-manual-validation, run_live=aws)"
     needs: candidate
@@ -544,7 +546,7 @@ jobs:
                     requestedScope:{target:$target,redis:$redis,runIacLive:($iac == "true")}}
               | if .status == "pass" and $full != "true" then
                   .status = "blocked"
-                  | .why = "focused dispatch is diagnostic only; all four GA target x Redis cells are required for certification"
+                  | .why = "focused dispatch is diagnostic only; all six GA target x Redis cells are required for certification"
                 else . end' \
              merged.json > out/gate-report-cloud.json
 

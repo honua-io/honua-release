@@ -486,8 +486,11 @@ def run_live(
         if cloud:
             topology = local_fixture.replica_topology(target)
             if topology is not None:
-                notices.append(f"Cross-replica read: blocked; serving topology {topology['id']}: "
-                               f"{topology['description']}. {local_fixture.REPLICA_UNPROVABLE_REASON}")
+                notices.append(f"Cross-replica read: serving topology {topology['id']}: "
+                               f"{topology['description']}. The replica-map check re-reads the saved "
+                               f"map through the cell endpoint and records each answering instance's "
+                               f"{local_fixture.INSTANCE_HEADER} header (honua-server#5790); its "
+                               "verdict and the instances it observed are in that check's detail.")
             for name, reason in sorted((target.get("unavailablePrincipals") or {}).items()):
                 notices.append(f"Principal {name} unavailable on this target: {reason.get('reason')}")
         credentials.setdefault("proposer", probes.resolve_env_default(

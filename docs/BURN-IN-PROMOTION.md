@@ -66,8 +66,11 @@ Each required journey cell passes within two attempts. A cell records `mode`, `a
 complete ordered `attempts` array. Every attempt records its consecutive number, completion time,
 status and lock digest. A first-attempt failure must have `failureAttribution: model` or
 `failureAttribution: infrastructure`; the last attempt must pass. Skipped, missing, out-of-period or
-wrong-lock attempts fail. Mixed ECS + Batch and EKS remain informational Preview cells: their failures
-cannot block the GA cells, and their passes cannot replace GA evidence. The journey producers enforce
+wrong-lock attempts fail. The mixed ECS + Batch cell is out of the rc.3 matrix. The two aws-eks cells
+are required by the cloud matrix and the journey receipt gate (owner decisions 12/18 of 2026-10-10,
+honua-release#203), but this promotion contract still counts only the four ECS/Lambda cells: whether it
+also requires the EKS cells and EKS update/rollback evidence is an open owner question. Until then an
+EKS pass cannot replace ECS/Lambda evidence, and promotion says nothing about EKS. The journey producers enforce
 the per-run cost ceiling before teardown; a run over the ceiling fails and tears down.
 
 ## Canary coverage and promotion time

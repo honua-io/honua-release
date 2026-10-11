@@ -865,6 +865,8 @@ def test_eks_teardown_deletes_load_balancers_before_terraform_destroys_the_vpc(m
     monkeypatch.setattr(target, "_kubectl", _kubectl)
     monkeypatch.setattr(target, "_tf", lambda root, *a, **k: order.append(["terraform", a[0]])
                         or subprocess.CompletedProcess(a, 0, "", ""))
+    # The post-destroy leftover check has its own tests (test_aws_eks.py).
+    monkeypatch.setattr(target, "_verify_teardown", lambda *a, **k: None)
 
     target.teardown(redis_enabled=True)
 
@@ -911,6 +913,7 @@ def test_eks_teardown_sweeps_the_leaked_node_enis_and_retries_the_destroy(monkey
 
     monkeypatch.setattr(target, "_run", _run)
     monkeypatch.setattr(target, "_tf", _tf)
+    monkeypatch.setattr(target, "_verify_teardown", lambda *a, **k: None)
     target.teardown(redis_enabled=False)
 
     assert len(destroys) == 2, "the destroy must be retried once the leaked ENIs are gone"
@@ -1545,16 +1548,18 @@ def _cloud_workflows():
             yaml.safe_load((workflows / "e2e-cloud-aws-cell.yml").read_text()))
 
 
-def test_cloud_workflow_requires_only_four_ga_cells_and_runs_preview():
+def test_cloud_workflow_requires_the_six_ga_cells_including_eks():
+    # honua-release#203 (owner decisions 12/18 of 2026-10-10): aws-eks is GA in 2026.1.
     cj = run_cloud.cloud_journey
     workflow, cell = _cloud_workflows()
     job = workflow["jobs"]["parity"]
-    assert len(cj.GA_CELLS) == 4 and all("eks" not in c and "mixed" not in c for c in cj.GA_CELLS)
+    assert len(cj.GA_CELLS) == 6 and all("mixed" not in c for c in cj.GA_CELLS)
+    assert {"aws-eks/redis-off", "aws-eks/redis-on"} <= set(cj.GA_CELLS) and cj.PREVIEW_TARGETS == ()
     assert "aws-eks" in job["strategy"]["matrix"]["target"]
     # rc.3: examples/aws-mixed does not exist; the cell is out of the matrix until honua-iac#209.
     assert "aws-mixed" not in job["strategy"]["matrix"]["target"]
     assert "aws-mixed" not in workflow[True]["workflow_dispatch"]["inputs"]["target"]["options"]
-    assert job["with"]["preview"] == "${{ matrix.target == 'aws-eks' }}"
+    assert job["with"]["preview"] is False
     assert job["strategy"]["fail-fast"] is False and job["strategy"]["max-parallel"] == 2
     # Preview tolerance lives on the called cell's jobs; a reusable-workflow call cannot carry it.
     assert all(cell_job["continue-on-error"] == "${{ inputs.preview }}" for cell_job in cell["jobs"].values())
@@ -1602,8 +1607,10 @@ def test_cloud_full_scope_preview_failure_cannot_redden_a_passing_ga_run():
             subdir = root / cell.replace("/", "-")
             subdir.mkdir()
             reports.append(_cell_report(subdir, _ecs_receipt(cell)))
+        # No AWS target is Preview since honua-release#203 made aws-eks GA; any cell outside
+        # GA_CELLS is still informational, so a stand-in keeps the policy covered.
         previews = [{"cell": f"{target}/redis-{redis}", "status": "fail"}
-                    for target in cj.PREVIEW_TARGETS for redis in ("off", "on")]
+                    for target in (cj.PREVIEW_TARGETS or ("stub",)) for redis in ("off", "on")]
         with mock.patch.object(cj, "validate_attempt", return_value=True):
             result = _aggregate_fixture([*reports, *previews], root, full_scope=True)
             assert result["status"] == "pass" and result["certifying"] is True
@@ -1736,6 +1743,76 @@ def test_ecs_running_image_is_read_back_from_every_running_task():
                           ([{"taskArn": "t3", "containers": good["containers"][1:]}], "RUNNING")):
         run, _ = _ecs_aws(tasks, task_status=status)
         assert cj.observed_ecs_image(_EcsOutputs(), pinned, run=run) is None
+
+
+def test_ecs_running_image_matches_the_tagless_reference_the_cell_deploys():
+    # Run 38110106995: the cell deploys repository@digest (honua-iac refuses a tag), so matching the
+    # manifest's tagged image found no server container and 1.1-candidate-image stayed blocked.
+    cj = run_cloud.cloud_journey
+    pinned = cj.manifest()
+    server = pinned["components"]["honua-server"]
+    repository = server["image"].rsplit(":", 1)[0]
+    candidate = f"{server['image']}@{server['digest']}"
+    assert candidate == cj.candidate_image("aws-ecs/redis-on", pinned)
+    amd64 = server["platformDigests"]["amd64"]
+    for reported in (server["digest"], amd64):
+        task = {"taskArn": "t1", "containers": [
+            {"image": f"{repository}@{server['digest']}", "imageDigest": reported, "lastStatus": "RUNNING"}]}
+        run, _ = _ecs_aws([task, {**task, "taskArn": "t2"}])
+        assert cj.observed_ecs_image(_EcsOutputs(), pinned, run=run) == candidate, reported
+    # The other architecture's child, a foreign digest, or another repository is not the candidate.
+    for image, digest in ((f"{repository}@{server['digest']}", server["platformDigests"]["arm64"]),
+                          (f"{repository}@{server['digest']}", "sha256:" + "2" * 64),
+                          ("ghcr.io/honua-io/other@" + server["digest"], server["digest"])):
+        run, _ = _ecs_aws([{"taskArn": "t1", "containers": [
+            {"image": image, "imageDigest": digest, "lastStatus": "RUNNING"}]}])
+        assert cj.observed_ecs_image(_EcsOutputs(), pinned, run=run) is None, (image, digest)
+
+
+_SCALE_ROOT = ("desired_count", "max_capacity", "deployment_mode", "file_storage_provider",
+               "file_storage_aws_s3_bucket_name", "file_storage_aws_s3_key_prefix")
+
+
+def test_redis_on_ecs_cell_runs_two_multinode_tasks_with_the_operator_bucket(monkeypatch):
+    # Run 38110106995: one task, so 6.replica-map saw a single Honua-Instance.
+    from targets.terraform_target import REDIS_ON_TASKS
+    assert REDIS_ON_TASKS == 2
+    _ecs_env(monkeypatch)
+    monkeypatch.setenv("HONUA_AWS_OPERATION_KEY_RING_SECRET_ARN", KEY_RING_ARN)
+    monkeypatch.setenv("HONUA_AWS_CELL_FILE_STORAGE_BUCKET", "honua-release-cell-files")
+    with tempfile.TemporaryDirectory() as base:
+        _iac_root_with(monkeypatch, base, "aws", *_SCALE_ROOT)
+        target = ecs(run_id="38110106995")
+        values = _tf_vars(target._vars(True))
+        assert {k: values[k] for k in _SCALE_ROOT} == {
+            "desired_count": "2", "max_capacity": "2", "deployment_mode": "MultiNode",
+            "file_storage_provider": "AwsS3", "file_storage_aws_s3_bucket_name": "honua-release-cell-files",
+            "file_storage_aws_s3_key_prefix": "release-cells/" + values["name_prefix"]}
+        # Destroy plans with the same inputs.
+        assert _tf_vars(target._vars(True, destroy=True))["desired_count"] == "2"
+        # Redis-off stays the single-task serving topology.
+        assert not set(_SCALE_ROOT) & set(_tf_vars(target._vars(False)))
+        # A malformed bucket name refuses rather than reaching terraform.
+        monkeypatch.setenv("HONUA_AWS_CELL_FILE_STORAGE_BUCKET", "Not_A_Bucket")
+        with pytest.raises(ProvisionError, match="not an S3 bucket name"):
+            target._vars(True)
+
+
+def test_redis_on_ecs_cell_stays_single_task_without_the_bucket_or_on_an_older_root(monkeypatch):
+    _ecs_env(monkeypatch)
+    monkeypatch.setenv("HONUA_AWS_OPERATION_KEY_RING_SECRET_ARN", KEY_RING_ARN)
+    monkeypatch.delenv("HONUA_AWS_CELL_FILE_STORAGE_BUCKET", raising=False)
+    with tempfile.TemporaryDirectory() as base:
+        _iac_root_with(monkeypatch, base, "aws", *_SCALE_ROOT)
+        assert not set(_SCALE_ROOT) & set(_tf_vars(ecs(run_id="r1")._vars(True)))
+        monkeypatch.setenv("HONUA_AWS_CELL_FILE_STORAGE_BUCKET", "honua-release-cell-files")
+        _iac_root_with(monkeypatch, base, "aws", *_SCALE_ROOT[:-1])   # no key-prefix input
+        assert not set(_SCALE_ROOT) & set(_tf_vars(ecs(run_id="r1")._vars(True)))
+    # The serverless cell never scales this way.
+    _serverless_env(monkeypatch)
+    with tempfile.TemporaryDirectory() as base:
+        _iac_root_with(monkeypatch, base, "aws-serverless", *_SCALE_ROOT)
+        assert not set(_SCALE_ROOT) & set(_tf_vars(serverless(run_id="r1")._vars(True)))
 
 
 def test_external_ecs_image_reaches_the_owned_candidate_image_check(monkeypatch):
@@ -2109,6 +2186,61 @@ def test_attempt_two_resets_attempt_ones_objects_and_names_the_strategy_in_its_r
         assert any(n.startswith(cj.RETRY_STRATEGY_NOTICE + "Not applied before attempt 2") for n in notices)
     finally:
         shutil.rmtree(cj.EVIDENCE / "retry-run", ignore_errors=True)
+
+
+# ---- run 38099175519: the setup discovery sidecar travels with the journey receipts --------------
+def test_discovery_sidecar_is_retained_per_attempt_with_every_known_credential_scrubbed(tmp_path):
+    cj = run_cloud.cloud_journey
+    workdir = tmp_path / "work-2"
+    workdir.mkdir()
+    (workdir / "private-principals.json").write_text(json.dumps(
+        {"keys": {"operator": "hk_operator_value", "proposer": "hk_proposer_value"}, "keyIds": {}}))
+    sidecar = {"http": {"rawResponse": "{\"tools\":[]}", "echo": "cell-admin-key"},
+               "proxy": {"toolsListResponse": {"result": {"note": "hk_proposer_value"}}},
+               "error": "proxy request override changed its negotiated session: _meta.view before \"setup\""}
+    (workdir / "setup-discovery.json").write_text(json.dumps(sidecar))
+    retained = cj.retain_discovery_sidecar(tmp_path, workdir, 2, ("cell-admin-key", "db-password", None))
+    assert retained == tmp_path / "setup-discovery-2.json"
+    text = retained.read_text()
+    for secret in ("cell-admin-key", "hk_proposer_value"):
+        assert secret not in text
+    kept = json.loads(text)
+    assert kept["error"].startswith("proxy request override changed its negotiated session: _meta.view")
+    assert kept["proxy"]["toolsListResponse"]["result"]["note"] == "[redacted]"
+    # No sidecar (the driver stopped before discovery), or a symlink, retains nothing.
+    assert cj.retain_discovery_sidecar(tmp_path, tmp_path / "work-9", 9, ()) is None
+    linked = tmp_path / "work-3"
+    linked.mkdir()
+    try:
+        (linked / "setup-discovery.json").symlink_to(workdir / "setup-discovery.json")
+    except OSError:
+        return  # symlinks unavailable on this host
+    assert cj.retain_discovery_sidecar(tmp_path, linked, 3, ()) is None
+
+
+def test_attempt_retains_the_sidecar_the_driver_wrote_and_names_it(monkeypatch):
+    cj = run_cloud.cloud_journey
+    driver, _ = cj.drivers()
+    monkeypatch.setenv("GITHUB_RUN_ID", "sidecar-run")
+    monkeypatch.setenv("GITHUB_RUN_ATTEMPT", "1")
+    monkeypatch.setattr(cj, "server_identity", lambda endpoint: None)
+    workspace = driver.pins.ClientWorkspace(status="blocked", root=None, reason="offline")
+
+    def live(target, pinned, contract, workdir, base_url, keep):
+        Path(workdir).mkdir(parents=True, exist_ok=True)
+        (Path(workdir) / "setup-discovery.json").write_text(json.dumps({"status": "fail", "key": "cell-admin-key"}))
+        raise RuntimeError("stage 1 stopped")
+
+    monkeypatch.setattr(driver, "run_live", live)
+    try:
+        record = cj.attempt("aws-serverless/redis-on", 1, "https://cell.example", "cell-admin-key", None)
+        notices = json.loads((E2E_DIR / record["receipt"]).read_text())["notices"]
+        assert "Setup discovery sidecar retained as setup-discovery-1.json" in notices
+        retained = cj.cell_dir("aws-serverless/redis-on") / "setup-discovery-1.json"
+        assert json.loads(retained.read_text()) == {"status": "fail", "key": "[redacted]"}
+    finally:
+        shutil.rmtree(cj.EVIDENCE / "sidecar-run", ignore_errors=True)
+        shutil.rmtree(cj.cell_dir("aws-serverless/redis-on"), ignore_errors=True)
 
 
 def test_server_identity_reads_the_anonymous_capability_manifest():
@@ -3818,7 +3950,7 @@ def test_ecs_readiness_diagnostics_capture_stop_reasons_and_the_server_log_tail(
         return subprocess.CompletedProcess(argv, 0, json.dumps(payload), "")
 
     report = run_cloud.ecs_readiness_diagnostics(target, run=run, redact=run_cloud._redact_log)
-    assert run_cloud.cloud_journey.PREVIEW_TARGETS == ("aws-eks",)
+    assert run_cloud.cloud_journey.PREVIEW_TARGETS == ()
     assert report["cluster"] == "c1" and report["service"] == "s1"
     task = report["tasks"][0]
     assert task["stoppedReason"] == "Essential container in task exited"

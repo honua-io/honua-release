@@ -39,7 +39,7 @@ Follow [the developer-preview dogfood runbook](../../docs/DEVELOPER-PREVIEW-DOGF
 for prerequisite verification, the $25 per-run ceiling, exact operator prompts,
 receipts, rollback and tagged teardown. Claims are **developer preview;
 certification in progress**. The Console is display-and-approve; no dashboards
-are claimed. Studio, mixed topology and EKS are Preview, and
+are claimed. Studio and mixed topology are Preview, EKS is a GA target, qualification pending ([release#203](https://github.com/honua-io/honua-release/issues/203)), and
 `customer-install-manifest.json` stays `pre-cut-rehearsal`.
 
 This harness calls Bedrock directly and renders hardcoded public-demo sources.

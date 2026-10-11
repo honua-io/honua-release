@@ -1,7 +1,7 @@
 """Short-lived journey principals; private material never enters evidence.
 
 Local Docker mints them against the isolated compose stack, which also injects an ephemeral
-JWT signing key for the second-tenant bearer. A cloud cell (`aws-ecs`, `aws-serverless`) mints
+JWT signing key for the second-tenant bearer. A cloud cell (`aws-ecs`, `aws-serverless`, `aws-eks`) mints
 the same four API keys through the cell's admin REST API with the cell's bootstrap credential and
 revokes them when the run ends. A cell has no harness-held signing key, so no second-tenant
 bearer is fabricated there; the target documents that principal as unavailable.
@@ -40,7 +40,7 @@ AUTHOR_ROLE = "layer-write-key"
 AUTHOR_GRANTS = [{"service": "StudioDraft", "layer": "*", "operation": operation}
                  for operation in ("Create", "Read", "Update", "Publish")]
 # Targets whose principals are minted through the candidate's own admin API.
-CLOUD_KINDS = ("aws-ecs", "aws-serverless")
+CLOUD_KINDS = ("aws-ecs", "aws-serverless", "aws-eks")
 MINTED_KINDS = ("local-docker", *CLOUD_KINDS)
 KEY_ID = re.compile(r"[A-Za-z0-9][A-Za-z0-9-]{0,63}\Z")
 
@@ -85,14 +85,28 @@ def replica_url(target):
     return target.get("replicaBaseUrl")
 
 
-# A cloud cell's cross-replica read-after-write cannot be proven from outside: the cell has one
-# endpoint and honua-server (798d517) returns no per-instance identity on its responses.
+# A cloud cell is reached through one endpoint. honua-server#5790 stamps every response with a
+# stable per-instance `Honua-Instance` header, so re-reads through that endpoint show which
+# instances answered. A candidate without the header leaves the cross-replica read unprovable.
+INSTANCE_HEADER = "Honua-Instance"
 REPLICA_UNPROVABLE_REASON = (
     "cross-replica read-after-write is unprovable on this cell: it is reached through one endpoint "
     "and the server returns no per-instance identity, so a re-read cannot be shown to come from "
     "another replica")
-REPLICA_SERVER_NEED = ("honua-server: a per-instance (replica) identity on responses, so a "
+REPLICA_SERVER_NEED = ("honua-server#5790: the Honua-Instance per-instance response header, so a "
                        "cross-replica read can be observed through a single cell endpoint")
+# Every re-read answered from one instance (one ECS task, one warm Lambda instance): the topology,
+# not the server, kept the assertion from observing a second replica.
+REPLICA_SINGLE_INSTANCE = ("cell topology: one serving instance answered every re-read; a "
+                           "cross-replica read needs at least two")
+
+
+def replica_unprovable_reason(server_sha=None):
+    """The header-absent reason, naming the pinned candidate when it is known."""
+    if isinstance(server_sha, str) and server_sha:
+        return (f"{REPLICA_UNPROVABLE_REASON} (no {INSTANCE_HEADER} header on any re-read; "
+                f"honua-server#5790 is not in the pinned candidate {server_sha})")
+    return REPLICA_UNPROVABLE_REASON
 
 
 def replica_topology(target):

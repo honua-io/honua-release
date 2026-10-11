@@ -22,10 +22,11 @@ import yaml
 ROOT = Path(__file__).resolve().parents[1]
 HERE = ROOT / "certification/terminal-journey"
 EVIDENCE = ROOT / "e2e/cloud-evidence"
-GA_CELLS = tuple(f"{target}/redis-{redis}" for target in ("aws-ecs", "aws-serverless")
+# aws-eks is GA for 2026.1 (honua-release#203; owner decisions 12/18 of 2026-10-10).
+GA_CELLS = tuple(f"{target}/redis-{redis}" for target in ("aws-ecs", "aws-serverless", "aws-eks")
                  for redis in ("off", "on"))
 # aws-mixed is out for 2026.1 rc.3 (no examples/aws-mixed root); restore it when honua-iac#209 lands.
-PREVIEW_TARGETS = ("aws-eks",)
+PREVIEW_TARGETS: tuple[str, ...] = ()
 
 
 def drivers():
@@ -67,7 +68,7 @@ def now():
 
 def cell_dir(cell):
     target, redis = cell.split("/")
-    if target not in (*PREVIEW_TARGETS, "aws-ecs", "aws-serverless", "stub") or redis not in ("redis-on", "redis-off"):
+    if target not in (*PREVIEW_TARGETS, "aws-ecs", "aws-serverless", "aws-eks", "stub") or redis not in ("redis-on", "redis-off"):
         raise ValueError("invalid cloud cell")
     return EVIDENCE / os.environ.get("GITHUB_RUN_ID", "local") / os.environ.get("GITHUB_RUN_ATTEMPT", "1") / target / redis
 
@@ -169,12 +170,29 @@ def external_image(driver, image_ref):
         driver.observe = original
 
 
+def _image_repository(reference):
+    """`registry/name` of an image reference, without its tag or digest."""
+    name = reference.split("@", 1)[0]
+    head, _, tail = name.rpartition("/")
+    return (f"{head}/{tail.split(':', 1)[0]}" if head else tail.split(":", 1)[0]).lower()
+
+
 def observed_ecs_image(target, pinned, *, run=subprocess.run):
     """The pinned server image only if every RUNNING task of the deployed ECS service runs it.
 
     Read from ECS DescribeTasks, never inferred from the apply inputs. Anything else is None.
+
+    The cell deploys `repository@digest` with no tag (e2e-cloud-aws.yml: honua-iac refuses a tag
+    next to the digest), so a container is matched by repository, never by the manifest's tagged
+    `image`. Matching the tag made every ECS cell report no running image, so stage 1's
+    1.1-candidate-image stayed blocked (run 38110106995). The digest ECS reports must be the
+    manifest's index digest or its child for the cell architecture (platformDigests, amd64 for
+    x86_64); the value returned is the manifest candidate (`candidate_image`), as on Lambda.
     """
     server = pinned["components"]["honua-server"]
+    repository = _image_repository(server["image"])
+    arch = {"x86_64": "amd64", "arm64": "arm64"}.get(str(server.get("awsEcsArchitecture") or "x86_64"))
+    accepted = {server["digest"], str((server.get("platformDigests") or {}).get(arch) or "")} - {""}
     root = target._workdir
     if root is None:
         return None
@@ -194,9 +212,9 @@ def observed_ecs_image(target, pinned, *, run=subprocess.run):
     tasks = aws("describe-tasks", "--cluster", cluster, "--tasks", *arns)["tasks"]
     for task in tasks:
         servers = [c for c in task.get("containers", [])
-                   if str(c.get("image", "")).split("@", 1)[0] == server["image"]]
+                   if _image_repository(str(c.get("image", ""))) == repository]
         if (task.get("lastStatus") != "RUNNING" or not servers
-                or any(c.get("imageDigest") != server["digest"] or c.get("lastStatus") != "RUNNING"
+                or any(c.get("imageDigest") not in accepted or c.get("lastStatus") != "RUNNING"
                        for c in servers)):
             return None
     return f"{server['image']}@{server['digest']}" if len(tasks) == len(arns) else None
@@ -436,6 +454,38 @@ def reset_prior_attempt(endpoint, admin_key, execution, number, *, request=None)
             "the journey's own SDK and CLI calls: " + ("; ".join(steps) or "nothing to remove") + "."]
 
 
+DISCOVERY_SIDECAR = "setup-discovery.json"
+MAX_SIDECAR_BYTES = 4 * 1024 * 1024
+
+
+def retain_discovery_sidecar(directory, workdir, number, secrets):
+    """Copy the attempt's setup-discovery sidecar next to its receipt, credential-scrubbed.
+
+    The sidecar holds the HTTP and installed-proxy tools/list results the stage 1 parity checks
+    compared (run 38099175519 failed them with no evidence retained). The work directory is
+    deleted at cleanup and never uploaded, because it can hold the application key, so the copy
+    has every known credential value replaced and the minted journey keys scrubbed as well.
+    Returns the retained path, or None when there is no sidecar.
+    """
+    source = Path(workdir) / DISCOVERY_SIDECAR
+    if not source.is_file() or source.is_symlink() or source.stat().st_size > MAX_SIDECAR_BYTES:
+        return None
+    text = source.read_text(encoding="utf-8", errors="replace")
+    values = [s for s in secrets if s]
+    try:
+        minted = json.loads((Path(workdir) / "private-principals.json").read_text(encoding="utf-8"))
+        values.extend(v for v in (minted.get("keys") or {}).values() if isinstance(v, str) and v)
+        if isinstance(minted.get("signingKey"), str):
+            values.append(minted["signingKey"])
+    except (OSError, ValueError, AttributeError):
+        pass
+    for value in sorted(set(values), key=len, reverse=True):
+        text = text.replace(value, "[redacted]")
+    target = Path(directory) / f"setup-discovery-{number}.json"
+    target.write_text(text, encoding="utf-8")
+    return target
+
+
 def attempt(cell, number, endpoint, admin_key, running_image=None):
     driver, adapter = drivers()
     run_id = os.environ.get("GITHUB_RUN_ID", "local")
@@ -503,6 +553,11 @@ def attempt(cell, number, endpoint, admin_key, running_image=None):
         notices.extend(failure)
         print(f"{cell} journey attempt {number}: " + " | ".join(failure), file=sys.stderr, flush=True)
         attribution = "infrastructure"
+    sidecar = retain_discovery_sidecar(directory, workdir, number, (
+        admin_key, *(os.environ.get(env) for field, env in cloud_targets().DATASOURCE_ENV.items()
+                     if field != "port")))
+    if sidecar is not None:
+        notices.append(f"Setup discovery sidecar retained as {sidecar.name}")
     unsupported = kind is None
     if unsupported:
         notices.append("Owned receipt schema lacks this cloud kind and live evidence source; "

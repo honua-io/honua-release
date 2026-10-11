@@ -16,9 +16,10 @@ What differs from local Docker, and why:
   tenant-independent. The target documents the principal as unavailable, so the tenant-isolation
   assertion is blocked with that reason while the rest of stage 8 runs.
 * The datasource is the cell's own RDS database, reached with TLS (`sslRequired`, `Require`).
-* A cell is reached through one endpoint and the server returns no per-instance identity, so the
-  cross-replica read-after-write is blocked as unprovable. The target names the serving topology
-  behind the endpoint (ALB across ECS tasks, or one Lambda function) as evidence.
+* A cell is reached through one endpoint, so the cross-replica read-after-write re-reads through it
+  and tells replicas apart by the server's `Honua-Instance` response header (honua-server#5790);
+  without the header it is blocked as unprovable. The target names the serving topology behind the
+  endpoint (ALB across ECS tasks, or one Lambda function) as evidence.
 """
 from __future__ import annotations
 
@@ -32,7 +33,7 @@ import local_fixture
 
 HERE = Path(__file__).resolve().parent
 CLOUD_KINDS = local_fixture.CLOUD_KINDS
-CELL_ID = re.compile(r"(aws-ecs|aws-serverless)/redis-(on|off)\Z")
+CELL_ID = re.compile(r"(aws-ecs|aws-serverless|aws-eks)/redis-(on|off)\Z")
 ENV_NAME = re.compile(r"[A-Z][A-Z0-9_]{0,127}\Z")
 ADMIN_ENV = "HONUA_CLOUD_JOURNEY_ADMIN"
 # The bootstrap credential, the cell datasource and nothing else cross into the candidate
@@ -55,6 +56,12 @@ TOPOLOGIES = {
         "id": "lambda-function",
         "description": "one Lambda function behind its HTTPS function URL; any warm or new "
                        "instance answers and none is separately addressable",
+    },
+    # honua-release#203: the Helm chart on EKS, reached through its Service's load balancer.
+    "aws-eks": {
+        "id": "eks-service-lb-pods",
+        "description": "the chart Service's load balancer spreads requests across the server pods; "
+                       "a request cannot be pinned to, or attributed to, a particular pod",
     },
 }
 OTHER_TENANT_BLOCKER = "https://github.com/honua-io/honua-release/issues/377"
@@ -131,7 +138,7 @@ def validate(target, *, template=None):
     """Fail closed on a cloud target that could leak, weaken or misdescribe the run."""
     kind = target.get("kind")
     if kind not in CLOUD_KINDS or kind_of(target.get("id")) != kind:
-        raise TargetError("cloud target kind must match its aws-ecs/aws-serverless cell id")
+        raise TargetError("cloud target kind must match its aws-ecs/aws-serverless/aws-eks cell id")
     if target.get("adminPassword") != {"env": ADMIN_ENV, "default": ""}:
         raise TargetError("the bootstrap credential must be the cell's per-run reference with no default")
     if "compose" in target:

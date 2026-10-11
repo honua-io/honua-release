@@ -95,7 +95,7 @@ deploy shapes and with/without its cache:
 |---|---|---|---|
 | `aws-serverless` | Lambda + API GW + AWS Batch geoprocessing (`examples/aws-serverless`, ECR Lambda-AOT image; Batch runs the generic server image) | `honua_url` output | `redis_enabled` |
 | `aws-ecs` | Fargate + ALB (`examples/aws`, container image) | `honua_url` output | `redis_enabled` |
-| `aws-eks` | k8s + Helm + LoadBalancer (`examples/aws-eks`) — heaviest, run least often | LB hostname (Helm) | Helm value |
+| `aws-eks` | EKS + the Helm chart + Service LoadBalancer (`examples/aws-eks`; RDS PostGIS, ElastiCache and GP as Kubernetes Jobs once the pins carry them) | per-run HTTPS name, else LB hostname | `enable_redis` (ElastiCache), else the chart's Redis |
 
 ```
 e2e/
@@ -165,8 +165,10 @@ reported there, never hidden.
 `python e2e/run_cloud.py --phase <provision|journey|admit|teardown> ...` runs one phase; without
 `--phase` all three run in one process.
 
-GA cells for 2026.1 are `{aws-ecs, aws-serverless} × {redis-off, redis-on}`; `aws-eks` runs as
-informational Preview. The mixed ECS + Batch cell is not in the rc.3 matrix: honua-iac has no
+GA cells for 2026.1 are `{aws-ecs, aws-serverless, aws-eks} × {redis-off, redis-on}`: owner decisions
+12 and 18 of 2026-10-10 pulled honua-release#203 (bring-your-own Kubernetes) into 2026.1, so the EKS
+cells are no longer informational Preview and a red EKS cell reddens the full-scope cloud report. The
+mixed ECS + Batch cell is not in the rc.3 matrix: honua-iac has no
 `examples/aws-mixed` root yet, so the cell could only report a missing root. Restore it in
 `run_cloud.py` and `e2e-cloud-aws.yml` when honua-iac#209 lands.
 
@@ -195,6 +197,90 @@ container that fails to start, exits, or never reports Ready fails the cell with
 <reason>` (log tail redacted) and teardown still destroys the cell. The provision report records the
 step under `migration`. A server-side `HONUA_MIGRATE_ONLY` exit mode would replace the poll; it is
 tracked for 2026.1.x.
+
+### The EKS cell (bring-your-own Kubernetes, honua-release#203)
+`aws-eks` is the 2026.1 Kubernetes GA cell (owner decisions 12/18 of 2026-10-10; GP on Kubernetes is
+honua-server#4719 and honua-helm#77). It runs the same provision → admit → journey → teardown chain as
+the ECS and Lambda cells. Provision applies `examples/aws-eks`, installs the manifest-pinned honua-helm
+chart with the manifest-pinned image by digest, and probes the Service's load balancer. Admit adds the
+journey runner's /32 to the cluster API and to the Service's `loadBalancerSourceRanges`. The journey
+job runs the seam drivers (S1/S2 MCP, S3 Studio, S5 GP, S9 demos) and the imported terminal journey
+with target kind `aws-eks` (receipt evidence `live-aws-eks`, topology `eks-service-lb-pods`). The
+teardown job decides the cell's verdict. Stage 1's candidate-image check reads the digest every server
+pod of the release is running (`AwsEksTarget.observed_image`).
+
+`AwsEksTarget` passes each root input only when the pinned root declares it, like the TfTargetSpec
+cells, so the cell keeps working while the iac pin moves:
+
+| input (when declared) | value |
+|---|---|
+| `enable_redis` (or `redis_enabled`) | the cell's Redis dimension; ElastiCache replaces the chart's Redis |
+| `operation_key_ring_certificate_secret_arn` (+ `_kms_key_arn`) | Redis-on only, from `HONUA_AWS_OPERATION_KEY_RING_SECRET_ARN`; a declaring root with it unset refuses the cell (never the destroy) |
+| `audit_chain_key_secret_arn` (+ `_kms_key_arn`) | every cell, from `HONUA_AWS_AUDIT_CHAIN_KEY_SECRET_ARN`; never refused when unset |
+| `enable_postgis=true`, `rds_deletion_protection=false` | RDS PostgreSQL with PostGIS instead of the in-cluster fixture |
+| `db_publicly_accessible=true`, `db_additional_ingress_cidrs=[runner /32]` | only with RDS: the PostGIS bootstrap and the fixture seed reach it from the runner, as on ECS |
+| `operations_policy_rules` | the cells' shared policy (`OPERATIONS_POLICY_RULES_VAR`, honua-release#517) |
+| `licensing_mode=Disabled`, `cors_allowed_origins=["http://127.0.0.1:18099"]` | as on ECS |
+| `domain_name`, `route53_zone_id` | the per-run `<run id>-aws-eks-redis-<on/off>.cert.<HONUA_AWS_CELL_DNS_PARENT>` in `HONUA_AWS_CELL_DNS_ZONE_ID`, the ECS cells' variables |
+| `cluster_secret_encryption_enabled=false` | no per-cell KMS key (honua-release#127) |
+| `kubernetes_namespace=honua-cert`, `server_service_account_name=honua`, `gp_job_service_account_name=honua-gp-job` | where the root's Pod Identity associations bind the server and GP job roles: the namespace and service accounts the chart is installed with (honua-iac#233) |
+
+The chart install reads these root outputs, each only when the root declares it (`terraform output
+-json`, held in memory):
+
+- `db_connection_string` and `redis_connection_string` (sensitive) go into the cell's runtime Secret.
+- `chart_config_env` is a map of plain environment names to non-secret values, for example
+  `ControlPlane__Kubernetes__*`, the operation policy rules and Secrets Manager references. It goes
+  into the chart's `config.env` through a values file.
+- `server_service_account_annotations` and `gp_job_service_account_annotations` are the only
+  annotations put on the server and GP job ServiceAccounts. Under `workload_identity_mode=pod_identity`
+  (the root's default) they are empty, and a role-arn annotation there refuses the cell: the AWS SDK
+  would try web identity first, and the role trusts no OIDC provider. Under `irsa` they must carry
+  `eks.amazonaws.com/role-arn` for `server_role_arn` / `gp_job_role_arn`. The root's
+  `kubernetes_namespace` and service account outputs must match what the chart is installed with.
+- `certificate_arn` terminates TLS on the load balancer for the per-run name.
+
+When the pinned chart declares `geoprocessing.kubernetesJobs`, the cell enables it in the cell
+namespace with `HONUA_GP_BATCH_IMAGE`, the manifest's generic server image (the same image the Lambda
+cell's Batch jobs run). A chart that declares it while that variable is unset is BLOCKED. The cluster,
+not terraform, creates the load balancer, so the harness points the per-run name at it with its own
+Route53 CNAME and deletes that record before the destroy. The certificate and its validation records
+belong to the root. A root that does not declare `domain_name` keeps the plain-HTTP load balancer
+endpoint, and the provision log says so. Setting one DNS variable without the other refuses, as on ECS.
+
+A root without RDS keeps the legacy shape (in-cluster PostGIS without TLS, the chart's Redis), and the
+provision log names it. That shape cannot pass the journey's TLS datasource stage, and the red verdict
+is the honest one. The cell moves forward when the iac and helm pins do:
+
+- `examples/aws-eks` with `enable_redis` + ElastiCache, the key-ring and audit-chain secrets, RDS with
+  `enable_postgis`, `operations_policy_rules`, `domain_name`/`route53_zone_id` and the outputs above;
+- a chart with `geoprocessing.kubernetesJobs.*`, its Job ServiceAccount/RBAC and the Redis wiring.
+
+Any IAM the root creates must stay inside the release role's guardrail. Roles and policies must be
+named `honuaeks*` (the cell's `name_prefix`). The root must not create an IAM OIDC provider:
+`release-cicd-guardrails` denies that account-wide, and run 38057015781 failed provisioning on it
+(see below). The root therefore defaults to EKS Pod Identity (honua-iac#233).
+
+**Teardown.** The LoadBalancer Services, the release, the namespace and the cell's DNS record go
+first. Then `terraform destroy` runs, retried once after sweeping the node ENIs that the VPC CNI leaks.
+A completed destroy is then verified read-only, and any leftover or unreadable listing fails the cell:
+
+- the cluster must answer `ResourceNotFoundException`;
+- no VPC may carry the cell's Name tag;
+- no ENI may carry the cluster's `cluster.k8s.amazonaws.com/name` tag or sit in the cell's VPC;
+- no classic or v2 load balancer may sit in the cell's VPC;
+- the cell's certificate and records must be gone. This is the ECS cells' check, and other
+  `*.cert.<parent>` names are only a warning.
+
+**Run 38057015781** (2026-10-10): both EKS provision jobs were green, but provisioning had failed.
+`terraform apply` of `examples/aws-eks` was refused `iam:CreateOpenIDConnectProvider` (an explicit
+deny, `DenyAccountControls` in `release-cicd-guardrails`) and `iam:CreateRole` for
+`default-eks-node-group-*` (outside the `honuaeks*` IAM namespace). The provision handoff carried no
+endpoint, so admit and the journey were skipped. Each teardown job destroyed what had been created and
+then reported the recorded provision failure, which is what made teardown red. Nothing was stranded:
+afterwards no EKS cluster, `honuaeks*` VPC or `default-eks-node-group-*` role remained. Both refusals
+need fixes in the iac root (a node group role name under the cell prefix, and no OIDC provider), not
+in this harness.
 
 ### Bedrock on the genuine-model cell
 `e2e-cloud-aws.yml` input `genuine_model_bedrock` (default off, so scheduled and ordinary runs stay
@@ -244,6 +330,38 @@ Both cells also pass `studio_end_user_authorization=true` when the pinned root d
 admits non-admin principals to the Studio lifecycle API only with `Studio:EndUserAuthorization:Enabled`.
 The local journey compose sets it, but the cells did not, so stage 6 on run 38091905679
 (aws-ecs/redis-on) failed with a 403 for the proposer on `GET /api/v1/studio/package-families`.
+
+### Candidate image and two tasks on the Redis-on ECS cell
+Stage 1's `1.1-candidate-image` on an ECS cell is satisfied by the image ECS reports running, read in
+the provision phase through `cloud_journey.observed_ecs_image`. The Lambda cells already worked this
+way (#512). The ECS cell deploys `repository@digest` with no tag. The match is therefore by
+repository, and the reported digest must be the manifest's index digest or its child for the cell
+architecture (`platformDigests.amd64` for `x86_64`). Matching the manifest's tagged `image` found no
+server container on run 38110106995, so the check stayed blocked.
+
+The Redis-on ECS cell runs two tasks, so stage 6's `6.replica-map` can observe two `Honua-Instance`
+ids; on one task, run 38110106995 recorded "topology served one instance". honua-iac allows more than
+one task only in the MultiNode topology (Redis, plus AwsS3 file storage in an existing bucket). With
+the repository variable `HONUA_AWS_CELL_FILE_STORAGE_BUCKET` set, and a pinned `examples/aws` root
+that declares the inputs, the harness passes:
+- `desired_count=2` and `max_capacity=2`;
+- `deployment_mode=MultiNode` and `file_storage_provider=AwsS3`;
+- the bucket name, with a per-cell key prefix `release-cells/<name prefix>`.
+
+The Redis-off ECS cell stays one task. It is the serving-only topology, and MultiNode requires Redis.
+Without the variable, or on an older root, the Redis-on cell also stays one task and `6.replica-map`
+stays blocked on the topology. **Cost:** the live estimate prices Fargate vCPU and GB per task from
+the state's `desired_count`, so the Redis-on ECS cell's Fargate line roughly doubles. Objects in the
+bucket are not counted, like other S3 usage.
+
+**Owner step:**
+1. Create an S3 bucket in us-east-1 for cell file storage, with a lifecycle rule that expires objects
+   under `release-cells/` after a day. `terraform destroy` does not empty a bucket the cell does not
+   own.
+2. Admit it in the release-cell permissions boundary. The aws-ecs module grants the task role
+   `s3:ListBucket` on the bucket and object access on `bucket/*`.
+3. Set the repository variable `HONUA_AWS_CELL_FILE_STORAGE_BUCKET`. The cell workflow exports it to
+   the provision and teardown steps.
 
 ### Audit hash-chain key on every AWS cell
 Without `AuditLog:ChainVerification:Key` the server still serves and writes audit rows, but its
@@ -312,7 +430,7 @@ to the provision and teardown steps, and the zone id to the admit step. The OIDC
 and Route53 write in that zone (`honua-release-cicd` has PowerUserAccess). With both variables unset
 (forks, other accounts) the cell keeps its plain-HTTP ALB endpoint and says so in the provision log.
 If only one is set, or a value is malformed, provisioning refuses. Destroy never refuses.
-aws-eks has no custom-domain wiring yet.
+aws-eks uses the same variables (see the EKS cell section).
 
 The aws-serverless cells use the same path (honua-iac#232). When the pinned `examples/aws-serverless`
 root declares both `domain_name` and `route53_zone_id`, `SERVERLESS_SPEC` passes the per-run name
@@ -329,8 +447,8 @@ must be gone. With an HTTPS honua.io endpoint the pinned demo CSP admits the bac
 runs on the Lambda cells too. The Redis-off geoprocessing demo still passes only on its typed refusal
 (#514).
 
-### Cell readiness diagnostics (ECS and Lambda)
-Before destroying every `aws-ecs` and `aws-serverless` cell, the teardown job runs
+### Cell readiness diagnostics (ECS, Lambda and EKS)
+Before destroying every `aws-ecs`, `aws-serverless` and `aws-eks` cell, the teardown job runs
 `run_cloud.py --phase diagnose`. For an ECS cell it writes `diagnostics-ecs.json` into the cell's
 evidence (uploaded with the gate report) and prints the same to the job log: every service task's
 `stopCode`, `stoppedReason` and container exit reasons from `aws ecs describe-tasks`; the last 300
@@ -394,7 +512,7 @@ it cannot read these.
   - **Rerun.** A rerun (`GITHUB_RUN_ATTEMPT` > 1) shares its run id with the earlier attempts,
     which the live estimate does not cover. It certifies only when those attempts are `measured`
     and this attempt's estimate plus their settled spend fits the ceiling.
-  - **Scope.** Every dispatched cell, Preview (EKS) included, must report its estimate, or report
+  - **Scope.** Every dispatched cell, EKS included, must report its estimate, or report
     that it never provisioned. Otherwise the run's estimate is `unavailable`. The `iac-live` job
     is outside this ceiling: it dispatches a separate honua-iac workflow run with its own
     deployment, lifecycle and teardown, and that run is not tagged with this run id. The basis

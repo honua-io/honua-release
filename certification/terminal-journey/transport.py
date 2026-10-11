@@ -138,11 +138,14 @@ class Transport:
             headers["Content-Type"] = "application/json"
         label = f"{method} {urllib.parse.urlsplit(url).path}"
         discovery.record_http(method, url, None, None)
+        self.last_response_headers = {}
         try:
             with self.opener.open(urllib.request.Request(url, data=data, headers=headers, method=method), timeout=30) as response:
                 raw, status = response.read(MAX_BYTES + 1), response.status
+                self.last_response_headers = {k.lower(): v for k, v in response.headers.items()}
         except urllib.error.HTTPError as exc:
             raw, status = exc.read(MAX_BYTES + 1), exc.code
+            self.last_response_headers = {k.lower(): v for k, v in (exc.headers or {}).items()}
         except (OSError, urllib.error.URLError) as exc:
             raise ExecutionError(label, "candidate request failed") from exc
         discovery.record_http(method, url, status, raw)
@@ -151,6 +154,12 @@ class Transport:
         if len(raw) > MAX_BYTES:
             raise ExecutionError(label, "response exceeds byte bound")
         return raw, status
+
+    def response_header(self, name):
+        """A header of the last response this transport received, or None. Used for the
+        server's per-instance identity (`Honua-Instance`, honua-server#5790)."""
+        value = (getattr(self, "last_response_headers", None) or {}).get(name.lower())
+        return value if isinstance(value, str) else None
 
     def get_json(self, path, **kwargs):
         raw, _ = self.http("GET", path, **kwargs)

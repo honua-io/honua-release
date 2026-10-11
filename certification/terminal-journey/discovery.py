@@ -236,6 +236,10 @@ class HttpSession:
         if probes.credential_transport(url) is None:
             raise DiscoveryError("credential-bearing HTTP must use loopback or the harness-named cloud cell host")
         self.url, self.credential, self.session = url, credential, None
+        # Which server instance answered each request (`Honua-Instance`, honua-server#5790). The
+        # server keeps an MCP session in the memory of the instance that initialized it, so a
+        # request served by another instance is answered statelessly; this makes that visible.
+        self.instances: list[dict[str, Any]] = []
         self.next_id = 0
         self.opener = urllib.request.build_opener(_NoRedirect())
 
@@ -257,6 +261,9 @@ class HttpSession:
                 if response.status != 200 or "application/json" not in response.headers.get("Content-Type", ""):
                     raise DiscoveryError("MCP HTTP response is not successful JSON")
                 issued = response.headers.get("Mcp-Session-Id")
+                instance = response.headers.get("Honua-Instance")
+                self.instances.append({"rpc": method, "instance": instance if isinstance(instance, str)
+                                       and INSTANCE_ID.match(instance) else None})
                 if method == "initialize":
                     if not issued or len(issued) > 256:
                         raise DiscoveryError("HTTP initialize did not issue a session")
@@ -329,6 +336,62 @@ def full_catalog(request) -> tuple[list[dict], int]:
     raise DiscoveryError("full catalog page bound exceeded")
 
 
+MAX_DIFFERENCE_CHARS = 900
+INSTANCE_ID = re.compile(r"[\x21-\x7e]{1,128}\Z")
+
+
+def _brief(value: Any) -> str:
+    """A short, credential-masked rendering of one differing value for a check detail."""
+    if isinstance(value, (dict, list)):
+        canonical = json.dumps(value, sort_keys=True, ensure_ascii=True, separators=(",", ":"))
+        return f"<{type(value).__name__} of {len(value)}, sha256 {digest(canonical.encode('utf-8'))[:12]}>"
+    text = json.dumps(_redact(value), ensure_ascii=True)
+    return text if len(text) <= 48 else text[:45] + "..."
+
+
+def describe_difference(expected: Any, actual: Any, *, left: str, right: str) -> str:
+    """Name what differs between two tools/list results: which metadata fields, which tools and
+    which descriptor fields, so a failed parity check says where to look (`left` vs `right`)."""
+    if not isinstance(expected, dict) or not isinstance(actual, dict):
+        return f"{left} result {_brief(expected)} vs {right} result {_brief(actual)}"
+    parts = []
+    for key in sorted(set(expected) | set(actual)):
+        if key in ("tools", "_meta") or expected.get(key) == actual.get(key):
+            continue
+        parts.append(f"result.{key} {left} {_brief(expected.get(key))} vs {right} {_brief(actual.get(key))}")
+    meta_e, meta_a = expected.get("_meta"), actual.get("_meta")
+    if meta_e != meta_a:
+        if isinstance(meta_e, dict) and isinstance(meta_a, dict):
+            for key in sorted(set(meta_e) | set(meta_a)):
+                if meta_e.get(key) != meta_a.get(key):
+                    parts.append(f"_meta.{key} {left} {_brief(meta_e.get(key))} vs {right} {_brief(meta_a.get(key))}")
+        else:
+            parts.append(f"_meta {left} {_brief(meta_e)} vs {right} {_brief(meta_a)}")
+    tools_e, tools_a = expected.get("tools"), actual.get("tools")
+    if tools_e != tools_a:
+        if isinstance(tools_e, list) and isinstance(tools_a, list):
+            by_e = {t.get("name"): t for t in tools_e if isinstance(t, dict)}
+            by_a = {t.get("name"): t for t in tools_a if isinstance(t, dict)}
+            only_e = sorted(str(n) for n in set(by_e) - set(by_a))
+            only_a = sorted(str(n) for n in set(by_a) - set(by_e))
+            if only_e:
+                parts.append(f"tools only in {left}: {', '.join(only_e[:8])}")
+            if only_a:
+                parts.append(f"tools only in {right}: {', '.join(only_a[:8])}")
+            for name in sorted(str(n) for n in set(by_e) & set(by_a)):
+                if by_e[name] != by_a[name]:
+                    fields = sorted(k for k in set(by_e[name]) | set(by_a[name])
+                                    if by_e[name].get(k) != by_a[name].get(k))
+                    parts.append(f"tool {name} fields differ: {', '.join(fields)}")
+            if not (only_e or only_a) and [t.get("name") for t in tools_e if isinstance(t, dict)] != \
+                    [t.get("name") for t in tools_a if isinstance(t, dict)]:
+                parts.append("tools in a different order")
+        else:
+            parts.append(f"tools {left} {_brief(tools_e)} vs {right} {_brief(tools_a)}")
+    text = "; ".join(parts) or "results are equal in content but not in JSON form"
+    return text if len(text) <= MAX_DIFFERENCE_CHARS else text[:MAX_DIFFERENCE_CHARS] + "...(truncated)"
+
+
 def capture_setup_view(proxy: Path | None, url: str, credential: str) -> dict[str, Any]:
     receipt: dict[str, Any] = {"scope": "setup-discovery-only", "status": "fail", "qualification": False,
         "http": {"status": "blocked"}, "proxy": {"status": "blocked"}, "tools": []}
@@ -340,17 +403,21 @@ def capture_setup_view(proxy: Path | None, url: str, credential: str) -> dict[st
         view = validate_view(raw)
         # Preserve original bytes as UTF-8 text; digest is checked again on readback.
         receipt["http"] = {**view, "status": "fail", "wireValidation": "pass", "serverInfo": identity.get("serverInfo"), "rawResponse": raw.decode("utf-8"),
-                           "selection": "initialize-bound-session", "sessionIssued": True}
+                           "selection": "initialize-bound-session", "sessionIssued": True,
+                           "answeringInstances": session.instances}
         complete, pages = full_catalog(session.request)
         canonical = {tool["name"]: tool for tool in complete}
         if any(canonical.get(tool["name"]) != tool for tool in view["tools"]):
             raise DiscoveryError("bounded descriptors differ from the complete canonical catalog")
         # The explicit full request must not mutate the negotiated session view.
-        _, restored_raw = session.request("tools/list")
+        restored_document, restored_raw = session.request("tools/list")
         restored = validate_view(restored_raw)
         if restored != view:
-            raise DiscoveryError("request override changed the initialized session view")
+            receipt["http"]["restoredRawResponse"] = restored_raw.decode("utf-8")
+            raise DiscoveryError("request override changed the initialized session view: " + describe_difference(
+                parse(raw)["result"], restored_document["result"], left="before", right="after"))
         comparison_hash = digest(json.dumps(complete, sort_keys=True, ensure_ascii=False, separators=(",", ":")).encode("utf-8"))
+        receipt["http"]["answeringInstances"] = session.instances
         receipt["http"].update({"status": "pass", "fullCatalogTools": len(complete), "fullCatalogPages": pages,
             "fullCatalogDescriptors": complete, "fullCatalogComparisonSha256": comparison_hash, "overrideRestored": True})
         if proxy is None or not proxy.is_file():
@@ -359,17 +426,30 @@ def capture_setup_view(proxy: Path | None, url: str, credential: str) -> dict[st
         with probes.McpProxySession([str(proxy)], url, env={"HONUA_API_KEY": credential,
                 "HONUA_ADMIN_KEY": "", "HONUA_MCP_AUTH_TOKEN": ""}) as stdio:
             initialized = stdio.initialize(workflow_view="setup")
+            # The proxy's own responses are kept (credential-masked) so a failed parity check can be
+            # diagnosed from the sidecar; a passing run replaces this record below.
+            receipt["proxy"]["initializeResponse"] = _redact(initialized)
             listed = stdio.request("tools/list")
+            receipt["proxy"]["toolsListResponse"] = _redact(listed)
             result = listed.get("result")
             if "error" in initialized or initialized.get("result", {}).get("protocolVersion") != identity.get("protocolVersion") or initialized.get("result", {}).get("serverInfo") != identity.get("serverInfo"):
-                raise DiscoveryError("installed proxy initialized a different server identity")
+                raise DiscoveryError("installed proxy initialized a different server identity: " + describe_difference(
+                    {"protocolVersion": identity.get("protocolVersion"), "serverInfo": identity.get("serverInfo")},
+                    {"protocolVersion": initialized.get("result", {}).get("protocolVersion"),
+                     "serverInfo": initialized.get("result", {}).get("serverInfo"), "error": initialized.get("error")},
+                    left="HTTP", right="proxy"))
             if result != parse(raw)["result"]:
-                raise DiscoveryError("installed proxy session descriptors or metadata differ from HTTP")
+                raise DiscoveryError("installed proxy session descriptors or metadata differ from HTTP: "
+                                     + describe_difference(parse(raw)["result"], result, left="HTTP", right="proxy"))
             proxied_full, proxy_pages = full_catalog(lambda method, params: _proxy_request(stdio, method, params))
             if proxied_full != complete:
-                raise DiscoveryError("installed proxy complete catalog differs from HTTP")
-            if stdio.request("tools/list").get("result") != result:
-                raise DiscoveryError("proxy request override changed its negotiated session")
+                raise DiscoveryError("installed proxy complete catalog differs from HTTP: " + describe_difference(
+                    {"tools": complete}, {"tools": proxied_full}, left="HTTP", right="proxy"))
+            restored_listed = stdio.request("tools/list")
+            if restored_listed.get("result") != result:
+                receipt["proxy"]["restoredToolsListResponse"] = _redact(restored_listed)
+                raise DiscoveryError("proxy request override changed its negotiated session: " + describe_difference(
+                    result, restored_listed.get("result"), left="before", right="after"))
         receipt["proxy"] = {"status": "pass", "selection": "initialize-bound-session", "installedExecutable": True,
                             "fullCatalogPages": proxy_pages, "overrideRestored": True, "fullCatalogComparisonSha256": comparison_hash}
         receipt.update({"status": "pass", "tools": view["tools"], "metadata": view["metadata"],

@@ -241,6 +241,14 @@
       "effect": "Unblocks the nightly ECS Redis-off genuine-model cell (fix unit J3). It places no issue in a different bucket.",
       "moved": [],
       "basis": "Owner ruling 2026-10-08 (option b) on honua-release#489"
+    },
+    "eks-ga-target-2026-10-10": {
+      "date": "2026-10-10",
+      "authority": "https://github.com/honua-io/honua-release/issues/203#issuecomment-6102013416",
+      "ruling": "The Helm chart on Amazon EKS (x86_64) is a 2026.1 GA target, qualification pending: owner decisions 12 (EKS in rc.3 scope) and 18 (GP on Kubernetes job runners; full EKS cell after the ECS/Lambda final run). The aws-eks x Redis off/on cells are required cells of the cloud matrix and the journey receipt gate. This supersedes R31's 'Helm/EKS remain Preview' for EKS only; Helm on other Kubernetes distributions stays Preview.",
+      "effect": "honua-release#203 moves to release/2026.1 and the first bucket. The platform manifest, compatibility matrix (deploy.honua-helm.awsEks) and operating envelope record the GA target. Promotion readiness still requires only the four ECS/Lambda cells until the owner decides whether it also requires the EKS cells and EKS update/rollback evidence.",
+      "moved": [],
+      "basis": "Owner decisions recorded 2026-10-10 (round 2), quoted on honua-release#203"
     }
   },
   "security_findings": [
