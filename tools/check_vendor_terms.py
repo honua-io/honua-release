@@ -246,11 +246,14 @@ class Exception_:
     tokens: tuple[str, ...]
     reason: str
     owner: str
+    identifiers: tuple[str, ...] = ()
 
-    def covers(self, repo: str, path: str, token: str) -> bool:
+    def covers(self, repo: str, path: str, token: str, identifier: str | None = None, category: str = "") -> bool:
         if self.repo != repo:
             return False
         if not any(glob_match(pattern, path) for pattern in self.paths):
+            return False
+        if self.identifiers and (identifier not in self.identifiers or category == "endorsement-claim"):
             return False
         return not self.tokens or token.lower() in {t.lower() for t in self.tokens}
 
@@ -272,8 +275,11 @@ def load_allowlist(path: Path | None) -> list[Exception_]:
                                      for pattern in raw["paths"]):
             raise SystemExit(f"{path}: entry {index} is a wildcard (repo {raw['repo']!r}, paths {raw['paths']}); "
                              "an exception names one repository and the paths it covers")
+        identifiers = raw.get("identifiers", [])
+        if not isinstance(identifiers, list) or any(not isinstance(value, str) or not re.fullmatch(r"[A-Za-z0-9@._/-]+", value) for value in identifiers):
+            raise SystemExit(f"{path}: entry {index} identifiers must be exact nonempty lexical identifiers")
         entries.append(Exception_(index, raw["repo"], tuple(raw["paths"]), tuple(raw.get("tokens", ())),
-                                  raw["reason"], raw["owner"]))
+                                  raw["reason"], raw["owner"], tuple(identifiers)))
     return entries
 
 
@@ -637,9 +643,9 @@ class Classifier:
         self.allowlist = allowlist
         self.skipped: Counter[str] = Counter()
 
-    def _exception(self, path: str, token: str) -> int | None:
+    def _exception(self, path: str, token: str, identifier: str | None = None, category: str = "") -> int | None:
         for entry in self.allowlist:
-            if entry.covers(self.repo, path, token):
+            if entry.covers(self.repo, path, token, identifier, category):
                 return entry.index
         return None
 
@@ -697,7 +703,12 @@ class Classifier:
                 heading = _heading_leads_with_mark(context, line, lines[number] if number < len(lines) else "")
                 cls, category = self._classify(context, number, line, start, end, token, detail, in_fence,
                                                block_open, comment_at, heading)
-                exception = self._exception(path, token) if cls == "avoidable" else None
+                left, right = start, end
+                while left > 0 and re.fullmatch(r"[A-Za-z0-9@._/-]", line[left - 1]):
+                    left -= 1
+                while right < len(line) and re.fullmatch(r"[A-Za-z0-9@._/-]", line[right]):
+                    right += 1
+                exception = self._exception(path, token, line[left:right], category) if cls == "avoidable" else None
                 hits.append(Hit(path, number, token, term, cls, category, exception))
         return hits
 

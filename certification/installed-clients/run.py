@@ -26,7 +26,7 @@ ROOT = Path(__file__).resolve().parents[2]
 HERE = Path(__file__).resolve().parent
 DEFAULT_MATRIX = Path(__file__).with_name("matrix.json")
 FLOATING = re.compile(r"(?:^|[-.])(latest|next|local|snapshot)(?:$|[-.])|[*^~<>]", re.I)
-DRIVERS = {"npm", "npm-mcp", "npm-mcp-setup-view", "pypi", "pypi-admin", "nuget", "nuget-import-fidelity"}
+DRIVERS = {"npm-companion", "npm", "npm-mcp", "npm-mcp-setup-view", "pypi", "pypi-admin", "nuget", "nuget-import-fidelity"}
 # Regression drivers: a published SDK, command-line client or the MCP proxy drives the candidate
 # through a scenario contract (scenarios/*.json) with fixture-computed oracles (regression.py,
 # oracles.py).
@@ -83,6 +83,8 @@ def validate_release_inputs(manifest: dict[str, Any], matrix: dict[str, Any]) ->
         artifact = artifacts.get(cell.get("artifact"))
         if not artifact:
             raise CertificationError(f"{cell_id}: artifact pin is missing")
+        if cell["driver"] == "npm-companion" and artifact.get("package") != COMPANION_PROBES[cell["artifact"]][0]:
+            raise CertificationError(f"{cell_id}: companion package differs from its fixed runtime contract")
         version = str(artifact.get("version", ""))
         if not version or FLOATING.search(version) or artifact.get("source") == "local":
             raise CertificationError(f"{cell_id}: release mode rejects local/floating version {version!r}")
@@ -133,6 +135,9 @@ def validate_cell(cell: dict[str, Any]) -> None:
             raise CertificationError(f"{cell_id}: a blocked cell must name its blocking issue URL(s)")
     else:
         raise CertificationError(f"{cell_id}: status must be active or blocked, not {status!r}")
+    if cell["driver"] == "npm-companion":
+        if cell.get("artifact") not in COMPANION_PROBES or cell.get("scenario") != "installed-companion-runtime":
+            raise CertificationError(f"{cell_id}: unknown companion runtime contract")
     if cell["driver"] == "npm-mcp":
         executables = cell.get("executables")
         if (
@@ -216,6 +221,9 @@ def install_npm(
     executables: dict[str, str] | None = None,
     companion_pin: dict[str, Any] | None = None,
     sdk_probe: bool = True,
+    strict_peers: bool = False,
+    runtime_peers: tuple[str, ...] = (),
+    help_identity: str | None = None,
 ) -> tuple[bool, str]:
     if not shutil.which("npm"):
         return False, "npm is unavailable"
@@ -231,7 +239,7 @@ def install_npm(
             return False, companion_archive
         archives.append(companion_archive)
     proc = _run(
-        ["npm", "install", "--ignore-scripts", "--legacy-peer-deps", "--save-exact", *archives],
+        ["npm", "install", "--ignore-scripts", *([] if strict_peers else ["--legacy-peer-deps"]), "--save-exact", *archives, *runtime_peers],
         cwd=work,
     )
     if proc.returncode:
@@ -260,6 +268,8 @@ def install_npm(
                 probe = _run([str(shim), "--help"], cwd=work)
                 if probe.returncode:
                     return False, f"installed executable {command} --help failed: {(probe.stdout + probe.stderr)[-1000:]}"
+                if help_identity and help_identity not in probe.stdout + probe.stderr:
+                    return False, f"installed executable {command} --help did not identify {help_identity}"
             elif server:
                 ok, detail = mcp_tools_list(shim, contract, server)
                 if not ok:
@@ -274,9 +284,40 @@ def install_npm(
     suffix = ""
     if executables is not None:
         suffix = ", package executables verified"
-        if server:
-            suffix += ", every MCP executable answered a live tools/list"
+        if server and any(contract in {"mcp-stdio", "mcp-proxy"} for contract in executables.values()):
+            suffix += ", MCP stdio/proxy executables answered a live tools/list"
     return True, f"exact npm archive sha512 and installed lock integrity matched{suffix}"
+
+
+# Fixed product contracts, not caller-supplied executable code. Each probe runs only after
+# the selected published archive and installed lock match the manifest identity.
+COMPANION_PROBES = {
+    "honua-sdk": ("@honua/sdk", "assert.equal(typeof api.createHonua, 'function'); const client = api.createHonua(); await client.dispose();"),
+    "honua-sdk-esri-compat": ("@honua/sdk-esri-compat", "const graphic = new api.GraphicCompat({attributes: {id: 17}}); assert.equal(graphic.attributes.id, 17);"),
+    "honua-react": ("@honua/react", "const React = await import('react'); const {renderToString} = await import('react-dom/server'); assert.equal(typeof api.useQuery, 'function'); assert.equal(renderToString(React.createElement(api.HonuaProvider, {client:{}}, React.createElement('span', null, 'installed-react'))), '<span>installed-react</span>');"),
+    "honua-geometry": ("@honua/geometry", "assert.deepEqual(api.bbox({type:'Point', coordinates:[12,34]}), [12,34,12,34]);"),
+    "honua-app-platform": ("@honua/app-platform", "const workspace = api.createHonuaAppWorkspace(); assert.ok(workspace.state); workspace.dispose();"),
+    "create-honua-app": ("create-honua-app", None),
+}
+
+
+def probe_npm_companion(pin: dict[str, Any], work: Path) -> tuple[bool, str]:
+    contract = next((value for value in COMPANION_PROBES.values() if value[0] == pin.get("package")), None)
+    if contract is None:
+        return False, "unknown companion package contract"
+    coordinate, expression = contract
+    ok, detail = install_npm(pin, work, sdk_probe=False, strict_peers=True,
+                            executables={"create-honua-app": "help"} if expression is None else None,
+                            runtime_peers=("react@19.2.0", "react-dom@19.2.0") if coordinate == "@honua/react" else (),
+                            help_identity="create-honua-app" if expression is None else None)
+    if not ok:
+        return False, detail
+    if expression is not None:
+        script = "import assert from 'node:assert/strict'; import * as api from " + json.dumps(coordinate) + "; " + expression
+        probe = _run(["node", "--input-type=module", "-e", script], cwd=work)
+        if probe.returncode:
+            return False, f"installed {coordinate} runtime contract failed: {(probe.stdout + probe.stderr)[-2000:]}"
+    return True, f"{detail}; installed {coordinate} runtime contract passed"
 
 
 def _terminal_probes():
@@ -826,7 +867,9 @@ def run_cell(
     pins = manifest["clientArtifacts"]
     pin = pins[cell["artifact"]]
     driver = cell["driver"]
-    if driver == "npm":
+    if driver == "npm-companion":
+        ok, detail = probe_npm_companion(pin, work)
+    elif driver == "npm":
         ok, detail = install_npm(pin, work)
     elif driver == "npm-mcp":
         ok, detail = install_npm(

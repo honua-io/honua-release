@@ -257,3 +257,134 @@ def test_pypi_refuses_missing_or_invalid_provenance(monkeypatch, mutation):
                         json.dumps(provenance).encode() if url.endswith('/provenance') else request(url, **kw))
     with pytest.raises(vca.VerificationError, match='PyPI provenance'):
         vca.verify_manifest({'clientArtifacts': {'python': RECORDED_PINS['python']}}, include_identities=True)
+
+
+def _npm_split_publisher(monkeypatch):
+    import mint_nightly_lock as nightly
+    package, version, source = '@honua/sdk', '0.1.14', 'a' * 40
+    data = _npm_tarball(package, version)
+    pin = {'ecosystem': 'npm', 'package': package, 'version': version,
+           'repository': 'honua-io/honua-sdk-js', 'sourceSha': source,
+           'integrity': vca._sha512_sri(data), 'publicationState': 'published'}
+    repository = 'https://github.com/honua-io/honua-sdk-js'
+    ref = 'refs/tags/js-sdk-v0.1.14'
+    statement = {'_type': 'https://in-toto.io/Statement/v1',
+        'predicateType': 'https://slsa.dev/provenance/v1',
+        'subject': [{'name': 'pkg:npm/%40honua/sdk@0.1.14',
+                     'digest': {'sha512': hashlib.sha512(data).hexdigest()}}],
+        'predicate': {'buildDefinition': {
+            'buildType': 'https://slsa-framework.github.io/github-actions-buildtypes/workflow/v1',
+            'externalParameters': {'workflow': {'ref': ref, 'repository': repository,
+                'path': '.github/workflows/publish-js-sdk.yml'}},
+            'internalParameters': {'github': {'event_name': 'workflow_dispatch'}},
+            'resolvedDependencies': [{'uri': f'git+{repository}@{ref}', 'digest': {'gitCommit': source}}]},
+            'runDetails': {'builder': {'id': 'https://github.com/actions/runner/github-hosted'}}}}
+    metadata = {'dist': {'integrity': pin['integrity'], 'tarball': 'https://registry.npmjs.org/package.tgz'}}
+    bundles = []
+    calls = []
+    def request_json(url, **kwargs):
+        assert not kwargs.get('token')
+        if '/-/npm/v1/attestations/' not in url:
+            return metadata
+        envelope = {'dsseEnvelope': {'payload': base64.b64encode(json.dumps(statement).encode()).decode()}}
+        return {'attestations': [{'predicateType': statement['predicateType'], 'bundle': envelope}, *bundles]}
+    monkeypatch.setattr(vca, '_request_json', request_json)
+    monkeypatch.setattr(vca, '_request', lambda url: data)
+    monkeypatch.setattr(nightly, 'verify_publisher_bundle', lambda *args: calls.append(args))
+    return pin, metadata, statement, bundles, calls
+
+
+def test_missing_npm_githead_requires_publisher_verification_of_exact_bytes(monkeypatch):
+    pin, _, _, _, calls = _npm_split_publisher(monkeypatch)
+    identity, digest = vca._verify_npm('split-sdk', pin)
+    assert identity == 'npm:@honua/sdk@0.1.14'
+    assert digest.startswith('sha256:')
+    [call] = calls
+    assert vca._sha256_pin(call[0]) == digest
+    assert vca._sha512_sri(call[0]) == pin['integrity']
+    assert call[2] == {'coordinate': '@honua/sdk', 'sourceRevision': 'a' * 40,
+        'signerWorkflow': 'honua-io/honua-sdk-js/.github/workflows/publish-js-sdk.yml',
+        'sourceRef': 'refs/tags/js-sdk-v0.1.14', 'digestAlgorithm': 'sha512', 'denySelfHosted': True}
+    assert call[3:] == ('honua-io/honua-sdk-js', 'https://slsa.dev/provenance/v1')
+
+
+def test_present_conflicting_npm_githead_cannot_use_provenance_fallback(monkeypatch):
+    pin, metadata, _, _, calls = _npm_split_publisher(monkeypatch)
+    metadata['gitHead'] = 'b' * 40
+    with pytest.raises(vca.VerificationError, match='gitHead does not match'):
+        vca._verify_npm('split-sdk', pin)
+    assert calls == []
+
+
+def test_matching_npm_githead_preserves_existing_verification(monkeypatch):
+    pin, metadata, _, _, calls = _npm_split_publisher(monkeypatch)
+    metadata['gitHead'] = pin['sourceSha']
+    vca._verify_npm('split-sdk', pin)
+    assert calls == []
+
+
+@pytest.mark.parametrize('drift', ['subject-name', 'subject-digest', 'workflow', 'ref', 'source', 'event', 'runner', 'repository', 'duplicate'])
+def test_missing_githead_provenance_rejects_unbound_claims_before_crypto(monkeypatch, drift):
+    pin, _, statement, bundles, calls = _npm_split_publisher(monkeypatch)
+    build = statement['predicate']['buildDefinition']
+    if drift == 'subject-name': statement['subject'][0]['name'] = 'pkg:npm/other@0.1.14'
+    elif drift == 'subject-digest': statement['subject'][0]['digest']['sha512'] = '0' * 128
+    elif drift == 'workflow': build['externalParameters']['workflow']['path'] = '.github/workflows/unrelated.yml'
+    elif drift == 'ref': build['externalParameters']['workflow']['ref'] = 'refs/heads/trunk'
+    elif drift == 'source': build['resolvedDependencies'][0]['digest']['gitCommit'] = 'b' * 40
+    elif drift == 'event': build['internalParameters']['github']['event_name'] = 'pull_request'
+    elif drift == 'runner': statement['predicate']['runDetails']['builder']['id'] = 'self-hosted'
+    elif drift == 'repository': pin['repository'] = 'honua-io/other'
+    elif drift == 'duplicate': bundles.append({'predicateType': statement['predicateType'], 'bundle': {}})
+    with pytest.raises(vca.VerificationError):
+        vca._verify_npm('split-sdk', pin)
+    assert calls == []
+
+
+def test_missing_githead_rejects_unsigned_bundle_even_when_claims_match(monkeypatch):
+    import mint_nightly_lock as nightly
+    import subprocess
+    pin, _, _, _, _ = _npm_split_publisher(monkeypatch)
+    def refuse(*args):
+        raise subprocess.CalledProcessError(1, ['gh', 'attestation', 'verify'], stderr='signature invalid')
+    monkeypatch.setattr(nightly, 'verify_publisher_bundle', refuse)
+    with pytest.raises(vca.VerificationError, match='provenance verification failed'):
+        vca._verify_npm('split-sdk', pin)
+
+
+def test_ecosystem_scope_selects_only_requested_required_artifacts(monkeypatch):
+    common = {'version': '1.0.0', 'sourceSha': 'a' * 40, 'publicationState': 'published'}
+    manifest = {'clientArtifacts': {
+        'npm': {**common, 'ecosystem': 'npm', 'package': '@honua/sdk', 'integrity': 'unused'},
+        'nuget': {**common, 'ecosystem': 'nuget', 'package': 'Honua.Sdk', 'digest': 'unused'},
+    }}
+    calls = []
+    monkeypatch.setattr(vca, '_verify_npm', lambda name, artifact: calls.append(name) or ('npm:@honua/sdk@1.0.0', 'sha256:one'))
+    monkeypatch.setattr(vca, '_verify_nuget_package', lambda name, artifact, token: calls.append(name) or 'nuget:Honua.Sdk@1.0.0')
+    assert vca.verify_manifest(manifest, ecosystem='npm') == ['npm:@honua/sdk@1.0.0']
+    assert calls == ['npm']
+    calls.clear()
+    assert len(vca.verify_manifest(manifest)) == 2
+    assert calls == ['npm', 'nuget']
+    with pytest.raises(vca.VerificationError, match='no client artifacts selected'):
+        vca.verify_manifest(manifest, ecosystem='pypi')
+    with pytest.raises(vca.VerificationError, match='unsupported ecosystem scope'):
+        vca.verify_manifest(manifest, ecosystem='unknown')
+    manifest['clientArtifacts']['npm']['required'] = False
+    with pytest.raises(vca.VerificationError, match='no client artifacts selected'):
+        vca.verify_manifest(manifest, ecosystem='npm')
+
+
+def test_scoped_cli_reports_exact_selected_artifacts_without_full_platform_claim(monkeypatch, tmp_path, capsys):
+    manifest = tmp_path / 'manifest.yaml'
+    manifest.write_text('clientArtifacts: {}\n')
+    calls = []
+    monkeypatch.setattr(vca, 'verify_manifest', lambda value, **kwargs:
+        calls.append(kwargs) or ['npm:@honua/sdk@0.1.14', 'npm:create-honua-app@0.1.7'])
+    assert vca.main(['--manifest', str(manifest), '--ecosystem', 'npm']) == 0
+    output = capsys.readouterr().out
+    assert 'OK    npm:@honua/sdk@0.1.14' in output
+    assert 'OK    npm:create-honua-app@0.1.7' in output
+    assert 'SCOPE npm-only; full platform package verification was not requested' in output
+    assert 'verified 2 required published npm client artifact(s)' in output
+    assert calls[0]['ecosystem'] == 'npm'
