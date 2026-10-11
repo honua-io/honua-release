@@ -280,8 +280,9 @@ def journey_phase(state: dict, *, admin_key: str, max_attempts: int = 2) -> dict
         journey["scenarioCoverage"] = _check_dicts(extended)
         blockers: list[list[str]] = []
         for number in range(1, max_attempts + 1):
+            detail = state.get("runningImageDetail")
             record = cloud_journey.attempt(cell, number, endpoint, admin_key, state.get("runningImage"),
-                                           image_detail=state.get("runningImageDetail"))
+                                           **({"image_detail": detail} if detail else {}))
             journey["journeyAttempts"].append(record)
             receipt = json.loads((E2E_DIR / record["receipt"]).read_text())
             try:
