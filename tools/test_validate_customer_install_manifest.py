@@ -340,3 +340,14 @@ def test_wrong_historical_source_is_refused_even_with_matching_record_hash(commi
     monkeypatch.setattr(vcim, "REHEARSAL_BINDING_SHA256", hashlib.sha256(path.read_bytes()).hexdigest())
     assert "preserved rehearsal binding has the wrong immutable source" in _errors(
         committed, platform_mutate=_advance_published_js)
+
+
+@pytest.mark.parametrize("release", ["2026.1-rc.3", "2026.1-rc.4", "2026.1", "2027.1-rc.1", None])
+@pytest.mark.parametrize("advance_clients", [False, True])
+def test_preserved_rehearsal_expires_at_platform_mint(committed, release, advance_clients):
+    def mint(platform):
+        platform["platformRelease"] = release
+        if advance_clients:
+            _advance_published_js(platform)
+    errors = _errors(committed, platform_mutate=mint)
+    assert any("rebind the customer manifest" in error for error in errors)

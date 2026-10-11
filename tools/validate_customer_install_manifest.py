@@ -317,6 +317,8 @@ def load_rehearsal_binding() -> dict[str, Any]:
 
 def check_client_binding(document: dict[str, Any], platform: dict[str, Any]) -> list[str]:
     errors = check_clients(document, platform)
+    if document.get("status") == "pre-cut-rehearsal" and platform.get("platformRelease") != "2026.1-rc.2":
+        return [*errors, "$.status: preserved pre-cut rehearsal is only valid before the rc.3 mint at platformRelease 2026.1-rc.2; rebind the customer manifest"]
     if not errors or document.get("status") != "pre-cut-rehearsal":
         return errors
     try:
