@@ -155,13 +155,17 @@ def bound_evidence_uri(cell, run_id, run_attempt):
 
 
 @contextmanager
-def external_image(driver, image_ref):
+def external_image(driver, image_ref, image_detail=None):
     # run_live reports no image for an external URL; it cannot see a cloud deployment. Supply
-    # the image read back from the cloud control plane to the owned observe(), unchanged otherwise.
+    # the image read back from the cloud control plane to the owned observe(), unchanged otherwise,
+    # and the control plane's account of it (which task or digest disagreed) for 1.1's detail.
     original = driver.observe
 
     def observe(target, base_url, workspace, bindir, _image_ref, expected_revision):
-        return original(target, base_url, workspace, bindir, image_ref, expected_revision)
+        observation = original(target, base_url, workspace, bindir, image_ref, expected_revision)
+        if image_detail and hasattr(observation, "image_detail"):
+            observation.image_detail = str(image_detail)[:600]
+        return observation
 
     driver.observe = observe
     try:
@@ -177,10 +181,23 @@ def _image_repository(reference):
     return (f"{head}/{tail.split(':', 1)[0]}" if head else tail.split(":", 1)[0]).lower()
 
 
-def observed_ecs_image(target, pinned, *, run=subprocess.run):
-    """The pinned server image only if every RUNNING task of the deployed ECS service runs it.
+# A task listed with desired status RUNNING that has not reached RUNNING yet (a second MultiNode
+# task still starting) is waited for, up to ECS_IMAGE_POLLS reads ECS_IMAGE_POLL_SECONDS apart.
+ECS_STARTING = {"PROVISIONING", "PENDING", "ACTIVATING"}
+ECS_IMAGE_POLLS = 12
+ECS_IMAGE_POLL_SECONDS = 10.0
 
-    Read from ECS DescribeTasks, never inferred from the apply inputs. Anything else is None.
+
+def _short(value, keep=19):
+    value = str(value or "")
+    return value if len(value) <= keep else value[:keep] + "..."
+
+
+def observe_ecs_image(target, pinned, *, run=subprocess.run, sleep=None):
+    """(image, detail): the pinned server image if every RUNNING task of the deployed ECS service
+    runs it, else None, with a detail naming the task, container and digest that disagree.
+
+    Read from ECS DescribeTasks, never inferred from the apply inputs.
 
     The cell deploys `repository@digest` with no tag (e2e-cloud-aws.yml: honua-iac refuses a tag
     next to the digest), so a container is matched by repository, never by the manifest's tagged
@@ -188,36 +205,76 @@ def observed_ecs_image(target, pinned, *, run=subprocess.run):
     1.1-candidate-image stayed blocked (run 38110106995). The digest ECS reports must be the
     manifest's index digest or its child for the cell architecture (platformDigests, amd64 for
     x86_64); the value returned is the manifest candidate (`candidate_image`), as on Lambda.
+
+    The Redis-on cell runs two MultiNode tasks (#535). A task that is still starting is waited
+    for, and once the wait is over only RUNNING tasks count; on run 38119871941 the Redis-on
+    cell reported no running image while the single-task Redis-off cell matched.
     """
+    import time
+    sleep = sleep or time.sleep
     server = pinned["components"]["honua-server"]
     repository = _image_repository(server["image"])
     arch = {"x86_64": "amd64", "arm64": "arm64"}.get(str(server.get("awsEcsArchitecture") or "x86_64"))
     accepted = {server["digest"], str((server.get("platformDigests") or {}).get(arch) or "")} - {""}
     root = target._workdir
     if root is None:
-        return None
+        return None, "the ECS cell's Terraform working directory is unavailable"
     cluster, service = (target._tf(root, "output", "-raw", name).stdout.strip()
                         for name in ("ecs_cluster_name", "ecs_service_name"))
     if not cluster or not service:
-        return None
+        return None, "the root reported no ecs_cluster_name or ecs_service_name"
 
     def aws(*args):
         return json.loads(run(["aws", "ecs", *args, "--output", "json"], text=True,
                               capture_output=True, check=True).stdout)
 
-    arns = aws("list-tasks", "--cluster", cluster, "--service-name", service,
-               "--desired-status", "RUNNING")["taskArns"]
-    if not arns:
-        return None
-    tasks = aws("describe-tasks", "--cluster", cluster, "--tasks", *arns)["tasks"]
-    for task in tasks:
+    for poll in range(ECS_IMAGE_POLLS):
+        arns = aws("list-tasks", "--cluster", cluster, "--service-name", service,
+                   "--desired-status", "RUNNING")["taskArns"]
+        described = aws("describe-tasks", "--cluster", cluster, "--tasks", *arns) if arns else {}
+        tasks, failures = described.get("tasks") or [], described.get("failures") or []
+        starting = [t for t in tasks if t.get("lastStatus") in ECS_STARTING]
+        if not starting or poll == ECS_IMAGE_POLLS - 1:
+            break
+        sleep(ECS_IMAGE_POLL_SECONDS)
+    task_id = lambda task: str(task.get("taskArn", "")).rsplit("/", 1)[-1] or "unknown"
+    # Every listed task must be observed: a DescribeTasks failure or a missing record is never a pass.
+    if failures or len(tasks) != len(arns):
+        missing = [str(f.get("arn", "")).rsplit("/", 1)[-1] + f" ({f.get('reason')})" for f in failures]
+        return None, (f"DescribeTasks described {len(tasks)} of {len(arns)} listed tasks of {service}"
+                      + (f"; failures: {', '.join(missing)}" if missing else ""))
+    running = [t for t in tasks if t.get("lastStatus") == "RUNNING"]
+    others = [f"{task_id(t)} {t.get('lastStatus')}" for t in tasks if t.get("lastStatus") != "RUNNING"]
+    if not running:
+        return None, (f"service {service} has no RUNNING task"
+                      + (f" ({', '.join(others)})" if others else ""))
+    disagreements = []
+    for task in running:
         servers = [c for c in task.get("containers", [])
                    if _image_repository(str(c.get("image", ""))) == repository]
-        if (task.get("lastStatus") != "RUNNING" or not servers
-                or any(c.get("imageDigest") not in accepted or c.get("lastStatus") != "RUNNING"
-                       for c in servers)):
-            return None
-    return f"{server['image']}@{server['digest']}" if len(tasks) == len(arns) else None
+        if not servers:
+            names = ", ".join(f"{c.get('name')}={c.get('image')}" for c in task.get("containers", []))
+            disagreements.append(f"task {task_id(task)} runs no {repository} container ({names or 'none'})")
+        for container in servers:
+            if container.get("imageDigest") not in accepted:
+                disagreements.append(f"task {task_id(task)} container {container.get('name')} reports "
+                                     f"{container.get('imageDigest') or 'no digest'}")
+            elif container.get("lastStatus") != "RUNNING":
+                disagreements.append(f"task {task_id(task)} container {container.get('name')} is "
+                                     f"{container.get('lastStatus')}")
+    if disagreements:
+        return None, ("; ".join(disagreements) + f" (candidate {server['digest']}"
+                      + (f" or its {arch} child {(server.get('platformDigests') or {}).get(arch)}"
+                         if (server.get("platformDigests") or {}).get(arch) else "") + ")")
+    detail = f"{len(running)} RUNNING task(s) of {service} report the candidate digest"
+    if others:
+        detail += f"; not counted: {', '.join(others)}"
+    return f"{server['image']}@{server['digest']}", detail
+
+
+def observed_ecs_image(target, pinned, *, run=subprocess.run, sleep=None):
+    """The pinned server image only if every RUNNING task of the ECS service runs it, else None."""
+    return observe_ecs_image(target, pinned, run=run, sleep=sleep)[0]
 
 
 def candidate_image(cell, pinned=None):
@@ -486,7 +543,7 @@ def retain_discovery_sidecar(directory, workdir, number, secrets):
     return target
 
 
-def attempt(cell, number, endpoint, admin_key, running_image=None):
+def attempt(cell, number, endpoint, admin_key, running_image=None, *, image_detail=None):
     driver, adapter = drivers()
     run_id = os.environ.get("GITHUB_RUN_ID", "local")
     run_attempt = os.environ.get("GITHUB_RUN_ATTEMPT", "1")
@@ -536,7 +593,7 @@ def attempt(cell, number, endpoint, admin_key, running_image=None):
             # That drops AWS_*, ACTIONS_ID_TOKEN_REQUEST_*, HONUA_AWS_*, GITHUB_TOKEN
             # and GH_TOKEN before npm install and the candidate CLIs start.
             cell_host = http_cell_host(endpoint)
-            with (admin_credential(admin_key), external_image(driver, running_image),
+            with (admin_credential(admin_key), external_image(driver, running_image, image_detail),
                   driver.probes.allow_http_cell(cell_host)):
                 transport = driver.probes.credential_transport(endpoint.rstrip("/") + "/")
                 notices.append(f"Candidate transport: {transport or 'refused'} ({urllib.parse.urlsplit(endpoint).hostname})")

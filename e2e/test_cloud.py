@@ -1475,7 +1475,7 @@ def test_imported_journey_runs_inside_provision_teardown_and_records_each_attemp
     # The cell reports the exact candidate, so each failed attempt is an attributed failure.
     sha, image = _manifest_server()
     monkeypatch.setattr(cj, "server_identity", lambda endpoint: {"revision": sha, "source": "commit-sha"})
-    monkeypatch.setattr(cj, "observed_ecs_image", lambda *a, **k: image)
+    monkeypatch.setattr(cj, "observe_ecs_image", lambda *a, **k: (image, "1 RUNNING task(s) of s1"))
     def cost(*args, **kwargs):
         events.append("cost")
         return {"status": "pass"}
@@ -1742,7 +1742,7 @@ def test_ecs_running_image_is_read_back_from_every_running_task():
     for tasks, status in (([good, stale], "RUNNING"), ([], "RUNNING"), ([good], "PENDING"),
                           ([{"taskArn": "t3", "containers": good["containers"][1:]}], "RUNNING")):
         run, _ = _ecs_aws(tasks, task_status=status)
-        assert cj.observed_ecs_image(_EcsOutputs(), pinned, run=run) is None
+        assert cj.observed_ecs_image(_EcsOutputs(), pinned, run=run, sleep=lambda _s: None) is None
 
 
 def test_ecs_running_image_matches_the_tagless_reference_the_cell_deploys():
@@ -1813,6 +1813,111 @@ def test_redis_on_ecs_cell_stays_single_task_without_the_bucket_or_on_an_older_r
     with tempfile.TemporaryDirectory() as base:
         _iac_root_with(monkeypatch, base, "aws-serverless", *_SCALE_ROOT)
         assert not set(_SCALE_ROOT) & set(_tf_vars(serverless(run_id="r1")._vars(True)))
+
+
+def _ecs_polls(polls):
+    """An ECS API whose DescribeTasks answers `polls[i]` (a list of (arn, status, digest)) on the
+    i-th read, repeating the last; ListTasks lists the same arns."""
+    reads = {"n": 0}
+
+    def run(argv, **kwargs):
+        rows = polls[min(reads["n"], len(polls) - 1)]
+        if argv[2] == "list-tasks":
+            body = {"taskArns": [f"arn:aws:ecs:us-east-1:1:task/c1/{arn}" for arn, _, _ in rows]}
+        else:
+            reads["n"] += 1
+            body = {"tasks": [{"taskArn": f"arn:aws:ecs:us-east-1:1:task/c1/{arn}", "lastStatus": status,
+                               "containers": [{"name": "honua", "image": _TAGLESS, "imageDigest": digest,
+                                               "lastStatus": "RUNNING"}]} for arn, status, digest in rows]}
+        return subprocess.CompletedProcess(argv, 0, json.dumps(body), "")
+    return run, reads
+
+
+_SERVER = run_cloud.cloud_journey.manifest()["components"]["honua-server"]
+_TAGLESS = _SERVER["image"].rsplit(":", 1)[0] + "@" + _SERVER["digest"]
+
+
+def test_two_task_ecs_cell_passes_when_every_running_task_reports_the_candidate():
+    # Run 38119871941: the Redis-on cell on two MultiNode tasks reported no running image.
+    cj = run_cloud.cloud_journey
+    pinned = cj.manifest()
+    candidate = cj.candidate_image("aws-ecs/redis-on", pinned)
+    child = _SERVER["platformDigests"]["amd64"]
+    sleeps = []
+    # Both tasks running, one reporting the index digest and one the amd64 child.
+    run, _ = _ecs_polls([[("aaa", "RUNNING", _SERVER["digest"]), ("bbb", "RUNNING", child)]])
+    image, detail = cj.observe_ecs_image(_EcsOutputs(), pinned, run=run, sleep=sleeps.append)
+    assert image == candidate and detail.startswith("2 RUNNING task(s) of s1") and sleeps == []
+    # The second task is still starting: wait for it, then count both.
+    run, reads = _ecs_polls([[("aaa", "RUNNING", _SERVER["digest"]), ("bbb", "PENDING", "")],
+                             [("aaa", "RUNNING", _SERVER["digest"]), ("bbb", "RUNNING", _SERVER["digest"])]])
+    image, detail = cj.observe_ecs_image(_EcsOutputs(), pinned, run=run, sleep=sleeps.append)
+    assert image == candidate and reads["n"] == 2 and sleeps == [cj.ECS_IMAGE_POLL_SECONDS]
+    # A task that never starts within the wait is not counted, and is named.
+    sleeps.clear()
+    run, _ = _ecs_polls([[("aaa", "RUNNING", _SERVER["digest"]), ("bbb", "PENDING", "")]])
+    image, detail = cj.observe_ecs_image(_EcsOutputs(), pinned, run=run, sleep=sleeps.append)
+    assert image == candidate and "not counted: bbb PENDING" in detail
+    assert len(sleeps) == cj.ECS_IMAGE_POLLS - 1
+
+
+def test_two_task_ecs_cell_names_the_task_and_digest_that_disagree():
+    cj = run_cloud.cloud_journey
+    pinned = cj.manifest()
+    foreign = "sha256:" + "3" * 64
+    run, _ = _ecs_polls([[("aaa", "RUNNING", _SERVER["digest"]), ("bbb", "RUNNING", foreign)]])
+    image, detail = cj.observe_ecs_image(_EcsOutputs(), pinned, run=run, sleep=lambda _s: None)
+    assert image is None
+    assert detail.startswith(f"task bbb container honua reports {foreign} (candidate {_SERVER['digest']}")
+    assert "aaa" not in detail
+    run, _ = _ecs_polls([[("aaa", "STOPPED", _SERVER["digest"])]])
+    image, detail = cj.observe_ecs_image(_EcsOutputs(), pinned, run=run, sleep=lambda _s: None)
+    assert image is None and detail == "service s1 has no RUNNING task (aaa STOPPED)"
+
+
+def test_ecs_image_is_never_observed_from_a_partial_describe_tasks_answer():
+    # Every listed task must be described: a DescribeTasks failure or a missing record is no pass.
+    cj = run_cloud.cloud_journey
+    pinned = cj.manifest()
+    good = {"taskArn": "arn:aws:ecs:us-east-1:1:task/c1/aaa", "lastStatus": "RUNNING", "containers": [
+        {"name": "honua", "image": _TAGLESS, "imageDigest": _SERVER["digest"], "lastStatus": "RUNNING"}]}
+    for described in ({"tasks": [good], "failures": [{"arn": "arn:aws:ecs:us-east-1:1:task/c1/bbb",
+                                                      "reason": "MISSING"}]},
+                      {"tasks": [good], "failures": []}):
+        def run(argv, **kwargs):
+            body = ({"taskArns": [good["taskArn"], "arn:aws:ecs:us-east-1:1:task/c1/bbb"]}
+                    if argv[2] == "list-tasks" else described)
+            return subprocess.CompletedProcess(argv, 0, json.dumps(body), "")
+        image, detail = cj.observe_ecs_image(_EcsOutputs(), pinned, run=run, sleep=lambda _s: None)
+        assert image is None
+        assert detail.startswith("DescribeTasks described 1 of 2 listed tasks of s1")
+        assert ("bbb (MISSING)" in detail) == bool(described["failures"])
+
+
+def test_ecs_image_detail_reaches_the_candidate_image_check(monkeypatch):
+    cj = run_cloud.cloud_journey
+    driver, _ = cj.drivers()
+    stages = sys.modules["stages"]
+    seen = []
+    monkeypatch.setattr(driver, "observe", lambda target, base_url, workspace, bindir, image_ref, revision:
+                        stages.Observation(image_ref=image_ref))
+
+    def live(target, pinned, contract, workdir, base_url, keep):
+        seen.append(driver.observe(target, base_url, None, None, None, None))
+        raise RuntimeError("stop after observation")
+    monkeypatch.setattr(driver, "run_live", live)
+    try:
+        cj.attempt("aws-ecs/redis-on", 1, "https://cell.invalid", "key", None,
+                   image_detail="task bbb container honua reports sha256:33")
+    finally:
+        cj.cleanup("aws-ecs/redis-on")
+    (observation,) = seen
+    assert observation.image_ref is None
+    assert observation.image_detail == "task bbb container honua reports sha256:33"
+    (row,) = [c for c in stages.stage_1(observation, lambda _n: []) if c.id == "1.1-candidate-image"]
+    assert row.status == "blocked"
+    assert row.detail == ("the pinned candidate stack was not brought up: "
+                          "task bbb container honua reports sha256:33")
 
 
 def test_external_ecs_image_reaches_the_owned_candidate_image_check(monkeypatch):

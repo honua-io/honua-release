@@ -1,4 +1,5 @@
 """Credential-free contract tests; loopback cases exercise real HTTP sessions."""
+import io
 import json
 import sys
 import threading
@@ -342,6 +343,95 @@ class HttpSessionTests(unittest.TestCase):
         view = live_driver._tool_view(observation)
         self.assertEqual(view["catalogToolCount"], 2)
         self.assertEqual(view["tools"], [tool()])
+
+
+class _AffinitySession:
+    """A direct HTTP session whose requests after initialize land on `instances[i]` in turn; a
+    request on an instance other than the initializer's gets the default view (as the server's
+    stateless session fallback answers it)."""
+
+    def __init__(self, instances):
+        self.order, self.instances, self.closed = list(instances), [], False
+
+    def initialize(self):
+        self.instances.append({"rpc": "initialize", "instance": self.order[0]})
+        return {"protocolVersion": "2025-06-18", "serverInfo": {"name": "fixture", "version": "1"}}
+
+    def request(self, method, params=None):
+        instance = self.order[len(self.instances) % len(self.order)]
+        self.instances.append({"rpc": method, "instance": instance})
+        view = "setup" if instance == self.order[0] else "default"
+        raw = wire(patch={"view": view})
+        return json.loads(raw), raw
+
+    def close(self):
+        self.closed = True
+
+
+class SessionAffinityTests(unittest.TestCase):
+    """Run 38119871941 (aws-ecs/redis-on on two tasks): stage 1 said only "requested
+    server-authored view identity is missing". The detail now names the instances."""
+
+    def capture(self, instances):
+        session = _AffinitySession(instances)
+        with mock.patch.object(discovery, "HttpSession", return_value=session):
+            return discovery.capture_setup_view(None, "https://cell.example/mcp", "ephemeral-test-key"), session
+
+    def test_a_request_answered_by_another_task_names_the_session_affinity_defect(self):
+        receipt, session = self.capture(["task-a", "task-b"])
+        self.assertTrue(session.closed)
+        self.assertEqual(receipt["status"], "fail")
+        error = receipt["error"]
+        self.assertTrue(error.startswith("requested server-authored view identity is missing "
+                                         "(requested 'setup', the server answered \"default\")"))
+        self.assertIn("MCP session affinity: initialize, which issued the Mcp-Session-Id, was answered by "
+                      "instance task-a, but tools/list by task-b", error)
+        self.assertIn("honua-server#5629", error)
+        self.assertEqual(receipt["http"]["answeringInstances"],
+                         [{"rpc": "initialize", "instance": "task-a"}, {"rpc": "tools/list", "instance": "task-b"}])
+        self.assertNotIn("ephemeral-test-key", json.dumps(receipt))
+
+    def test_one_instance_or_no_instance_header_is_named_without_claiming_affinity(self):
+        self.assertEqual(discovery.session_affinity_note(
+            [{"rpc": "initialize", "instance": "task-a"}, {"rpc": "tools/list", "instance": "task-a"}]),
+            "every direct HTTP request was answered by instance task-a")
+        self.assertIn("no Honua-Instance header", discovery.session_affinity_note(
+            [{"rpc": "initialize", "instance": None}, {"rpc": "tools/list", "instance": None}]))
+        # One unnamed response (here initialize) makes the trail unverifiable, never "one instance".
+        partial = discovery.session_affinity_note(
+            [{"rpc": "initialize", "instance": None}, {"rpc": "tools/list", "instance": "task-a"}])
+        self.assertTrue(partial.startswith("1 of 2 requests (initialize) named no answering instance"))
+        self.assertIn("cannot be established; named instances: task-a", partial)
+        self.assertNotIn("every direct HTTP request", partial)
+        many = [{"rpc": "initialize", "instance": "a"}] + [{"rpc": "tools/list", "instance": f"b{i}"} for i in range(9)]
+        self.assertIn("(+3 more)", discovery.session_affinity_note(many))
+
+    def test_http_session_records_the_answering_instance_header_and_drops_a_malformed_one(self):
+        session = discovery.HttpSession.__new__(discovery.HttpSession)
+        session.url, session.credential, session.session, session.next_id = "https://cell.example/mcp", "k", None, 0
+        session.instances = []
+
+        class Response(io.BytesIO):
+            status = 200
+
+            def __init__(self, instance, sid=None):
+                super().__init__(json.dumps({"jsonrpc": "2.0", "id": 1, "result": {}}).encode())
+                self.headers = {"Content-Type": "application/json", "Honua-Instance": instance,
+                                **({"Mcp-Session-Id": sid} if sid else {})}
+
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *exc):
+                return False
+
+        session.opener = mock.Mock()
+        session.opener.open.side_effect = [Response("task-a", "s1"), Response("bad id")]
+        session.request("initialize", {})
+        session.next_id = 0
+        session.request("tools/list")
+        self.assertEqual(session.instances, [{"rpc": "initialize", "instance": "task-a"},
+                                             {"rpc": "tools/list", "instance": None}])
 
 
 class ProxyWireTests(unittest.TestCase):
