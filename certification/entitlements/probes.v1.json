@@ -2,7 +2,7 @@
   "schema": "honua-release/entitlement-probes/v1",
   "source": {
     "repository": "honua-io/honua-server",
-    "sha": "798d517b864d9dcac4b1fc8f2b76f145e1b61d19",
+    "sha": "93cad86ec4fb28fba3ff0b9358059d86aa55dde5",
     "catalog": "src/Honua.Core/Features/Licensing/Domain/FeatureCatalog.cs",
     "documented_denial": "docs/concepts/editions-and-licensing.md#how-gating-responds",
     "no_surface_evidence": "honua-server tests/dotnet/Honua.Server.Tests/Features/Licensing/EntitlementSweep/EntitlementProbeRegistry.cs"
