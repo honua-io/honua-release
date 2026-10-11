@@ -1,0 +1,29 @@
+{
+  "schema": "honua-release/entitlement-fixtures/v1",
+  "trust_anchor": {
+    "source": "honua-server tests/dotnet/Honua.TestKit/Helpers/LicenseTestSupport.cs (SigningSeed, KeyId)",
+    "key_id": "test-key",
+    "public_key_fingerprint": "sha256:63cb55fe29081ecaa2d38f89803ca42ded28c89135614b94b9835b1da8f4afcd",
+    "scope": "Publicly committed, test-only signing key from the server licensing test corpus; trusted only by the isolated certification stacks this lane boots. No customer, publisher or production signing key."
+  },
+  "fixtures": [
+    {
+      "id": "entitled",
+      "role": "positive",
+      "license_id": "honua-release-entitlement-cert-entitled",
+      "licensed_to": "Honua release entitlement certification fixture",
+      "edition": "Enterprise",
+      "issued_at": "2026-01-01T00:00:00+00:00",
+      "grants": "all-catalog-keys"
+    },
+    {
+      "id": "unentitled",
+      "role": "negative",
+      "license_id": "honua-release-entitlement-cert-unentitled",
+      "licensed_to": "Honua release entitlement certification fixture",
+      "edition": "Enterprise",
+      "issued_at": "2026-01-01T00:00:00+00:00",
+      "grants": "community-keys-only"
+    }
+  ]
+}

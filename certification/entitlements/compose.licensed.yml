@@ -1,0 +1,30 @@
+# Entitlement-certification overlay for e2e/harness/compose.candidate.yml. It changes ONLY the
+# licensing posture of the candidate (plus the opt-ins that put a gated route behind its
+# entitlement check) so the same pinned image, database and Redis answer the probes.
+#
+# The license is a fixture minted by certification/entitlements/fixtures.py from the server's
+# test-only corpus key; boot one stack per fixture (entitled, unentitled). The envelope and trusted
+# key arrive through the environment of the job that boots the stack and are never written to the
+# repository or a receipt (fingerprints only).
+services:
+  server:
+    environment:
+      Licensing__Mode: "Enabled"
+      Licensing__Edition: "${HONUA_ENTITLEMENT_EDITION:?fixture edition required}"
+      Licensing__LicenseContent: "${HONUA_ENTITLEMENT_LICENSE:?fixture license envelope required}"
+      Licensing__TrustedKeys__test-key: "${HONUA_ENTITLEMENT_TRUSTED_KEY:?fixture trust anchor required}"
+      # Routes whose entitlement check sits behind a Preview/Experimental opt-in or configuration.
+      Capabilities__Experimental__security.mtls__Enabled: "true"
+      Capabilities__Experimental__versioning.branch__Enabled: "true"
+      Capabilities__Experimental__realtime.feature-streams__Enabled: "true"
+      Capabilities__Experimental__alerts.geofence__Enabled: "true"
+      Capabilities__Experimental__sync.offline__Enabled: "true"
+      Capabilities__Experimental__scene.catalog__Enabled: "true"
+      Capabilities__Experimental__scene.bim-ingest__Enabled: "true"
+      Capabilities__Experimental__scene.pointcloud-ingest__Enabled: "true"
+      Saml__Enabled: "true"
+      Saml__EntityId: "https://entitlement-certification.honua.invalid/saml"
+      Saml__AssertionConsumerServiceUrl: "http://localhost:8080/saml/acs"
+      Saml__IdpEntityId: "https://idp.entitlement-certification.honua.invalid"
+      Scim__BearerToken: "${HONUA_ENTITLEMENT_SCIM_TOKEN:-entitlement-certification-scim}"
+      Scim__OidcIssuer: "https://issuer.example.com"
