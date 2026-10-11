@@ -1,4 +1,7 @@
 import copy
+import hashlib
+import json
+from pathlib import Path
 
 import pytest
 
@@ -116,3 +119,46 @@ def test_committed_scope_reconciles_the_approved_wave():
     assert sum(c["required_count"] for c in scope["sources"].values()) == 950
     assert sum(len(c["deferred_preview_cells"]) for c in scope["sources"].values()) == 14
     assert all(len(c["baseline_commit"]) == 40 and len(c["baseline_sha256"]) == 64 for c in scope["sources"].values())
+
+
+def test_cli_hashes_captured_bytes_when_input_is_replaced(inputs, tmp_path, monkeypatch, capsys):
+    scope, grids = inputs
+    paths = {name: tmp_path / (name + ".json") for name in ("scope", *q.DRIVERS)}
+    values = {"scope": scope, **grids}
+    original = {}
+    for name, path in paths.items():
+        original[name] = json.dumps(values[name]).encode()
+        path.write_bytes(original[name])
+    calls = []
+    real_read = Path.read_bytes
+
+    def replace_after_read(path):
+        raw = real_read(path)
+        if path in paths.values():
+            calls.append(path)
+            path.write_bytes(b'{"concurrently_replaced": true}')
+        return raw
+
+    monkeypatch.setattr(Path, "read_bytes", replace_after_read)
+    output = tmp_path / "report.json"
+    monkeypatch.setattr("sys.argv", ["desktop_qualification.py", "--scope", str(paths["scope"]),
+        "--licensed-grid", str(paths["licensed-scripting"]),
+        "--qgis-grid", str(paths["qgis-scripting"]), "--candidate-digest", DIGEST,
+        "--out", str(output)])
+    q.main()
+    result = json.loads(real_read(output))
+    assert calls == list(paths.values())
+    assert result["required_count"] == 2 and result["outstanding_count"] == 0
+    assert result["input_file_sha256"] == {
+        name: hashlib.sha256(raw).hexdigest() for name, raw in original.items()}
+    assert all(real_read(path) != original[name] for name, path in paths.items())
+    capsys.readouterr()
+
+
+@pytest.mark.parametrize("payload", [b'{"duplicate":1,"duplicate":2}', b'{"value":NaN}',
+    b'{"value":Infinity}', b'{"value":-Infinity}', b'[]', b'\xff'])
+def test_captured_inputs_retain_strict_json_validation(tmp_path, payload):
+    path = tmp_path / "input.json"
+    path.write_bytes(payload)
+    with pytest.raises(ValueError):
+        q.read_input(path)

@@ -14,7 +14,9 @@ import hashlib
 import json
 from pathlib import Path
 
-from check_protocol_certification import DIGEST_RE, SCRIPTING_DRIVER, load_ledger
+from check_protocol_certification import (
+    DIGEST_RE, SCRIPTING_DRIVER, _reject_json_constant, _unique_json_object,
+)
 
 ROOT = Path(__file__).resolve().parents[1]
 SCOPE = ROOT / "certification/sources/desktop-scripting-scope.v1.json"
@@ -23,10 +25,17 @@ OUTCOMES = {"certified", "certified-prior", "failing", "blocked", "not-probed", 
 
 
 def read_json(path: Path) -> dict:
-    value, error = load_ledger(path)
-    if error:
-        raise ValueError(error)
-    return value
+    return read_input(path)[0]
+
+
+def read_input(path: Path) -> tuple[dict, str]:
+    """Parse and hash the same captured bytes, including concurrently replaced grids."""
+    raw = path.read_bytes()
+    value = json.loads(raw.decode("utf-8"), object_pairs_hook=_unique_json_object,
+                       parse_constant=_reject_json_constant)
+    if not isinstance(value, dict):
+        raise ValueError("Input root must be an object")
+    return value, hashlib.sha256(raw).hexdigest()
 
 
 def identity_digest(cells: dict) -> str:
@@ -113,15 +122,13 @@ def main() -> None:
     parser.add_argument("--candidate-digest", required=True)
     parser.add_argument("--out", type=Path, required=True)
     args = parser.parse_args()
-    result = report(read_json(args.scope), {
-        "licensed-scripting": read_json(args.licensed_grid),
-        "qgis-scripting": read_json(args.qgis_grid),
+    inputs = {name: read_input(path) for name, path in (
+        ("scope", args.scope), ("licensed-scripting", args.licensed_grid),
+        ("qgis-scripting", args.qgis_grid))}
+    result = report(inputs["scope"][0], {
+        name: inputs[name][0] for name in DRIVERS
     }, args.candidate_digest)
-    result["input_file_sha256"] = {
-        "scope": hashlib.sha256(args.scope.read_bytes()).hexdigest(),
-        "licensed-scripting": hashlib.sha256(args.licensed_grid.read_bytes()).hexdigest(),
-        "qgis-scripting": hashlib.sha256(args.qgis_grid.read_bytes()).hexdigest(),
-    }
+    result["input_file_sha256"] = {name: value[1] for name, value in inputs.items()}
     with args.out.open("x", encoding="utf-8") as stream:
         json.dump(result, stream, indent=2)
         stream.write("\n")

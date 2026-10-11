@@ -1,6 +1,6 @@
 # Desktop scripting qualification
 
-The 2026.1 execution scope contains 950 applicable cells: 477 for the licensed
+The 2026.1 execution wave requires 950 cells: 477 for the licensed
 scripting client and 473 for PyQGIS. The original grids retain all 964 applicable
 cells, including 14 SensorThings preview cells targeted for 2026.2. Deferral is a
 scope decision, not a passing result or a claim that the client cannot address a
