@@ -81,15 +81,6 @@ gates:
       also reports `blocked` under a dry run because a canonical check blocks there, and its
       security-headers canary has never actually reached the endpoint (`endpoint unreachable` in
       every run inspected) — a separate, pre-existing ECS gap.
-  docs:
-    issue: https://github.com/honua-io/honua-release/issues/100
-    why: >-
-      check_ga_surface reports FAIL: six capability keys are advertised as GA while carrying fewer
-      than the floor of 5 proving tests (ai.workflow-generation, analytics.viewshed, demo.showcase,
-      scene.catalog, serve.wms, serve.wmts). This is independent of the platform manifest — the gate
-      reads honua-evidence's matrix, whose server producer tracks honua-server trunk rather than the
-      pinned SHA — so a re-pin cannot fix it. scene.catalog overlaps honua-release#86.
-
   upgrade:
     issue: https://github.com/honua-io/honua-release/issues/226
     why: >-
