@@ -294,7 +294,9 @@ class ImportFidelityGateTests(unittest.TestCase):
             installed, "install_npm", return_value=(True, "ok")
         ), mock.patch.object(installed, "install_pypi", return_value=(True, "ok")), mock.patch.object(
             installed, "install_nuget", return_value=(True, "ok")
-        ), mock.patch.object(installed, "probe_setup_view", return_value=(True, "25 tools")):
+        ), mock.patch.object(installed, "probe_setup_view", return_value=(True, "25 tools")), mock.patch.object(
+            installed, "probe_npm_companion", return_value=(True, "companion runtime passed")
+        ):
             result = installed.execute(manifest, matrix, EVIDENCE, import_fidelity_receipt=receipt)
         row = next(item for item in result["results"] if item["cell"] == "nuget-service-layer-import-fidelity")
         return result, row
