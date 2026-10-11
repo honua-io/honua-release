@@ -806,6 +806,16 @@ def hcl_object_list(rows) -> str:
 
 OPERATIONS_POLICY_RULES_VAR = "operations_policy_rules=" + hcl_object_list(CELL_OPERATION_POLICY_RULES)
 
+# Studio end-user authorization on every ECS and Lambda cell. honua-server admits non-admin
+# principals to the Studio lifecycle API only when Studio:EndUserAuthorization:Enabled is true.
+# The local journey compose sets Studio__EndUserAuthorization__Enabled=true
+# (certification/terminal-journey/targets/build-compose.yml); the cloud cells did not, so on
+# e2e-cloud-aws run 38091905679 (aws-ecs, redis-on) journey stage 6 failed with HTTP 403 on
+# GET /api/v1/studio/package-families for the proposer (role layer-write-key). honua-iac's root
+# input studio_end_user_authorization (bool, examples/aws and examples/aws-serverless) renders the
+# setting; it is passed only when the pinned root declares it, so an older pin passes nothing.
+STUDIO_END_USER_AUTHORIZATION_VAR = "studio_end_user_authorization=true"
+
 # The two terraform-output cells. EKS is a separate, heavier target (cluster + Helm + LB).
 SERVERLESS_SPEC = TfTargetSpec(
     name="aws-serverless",
@@ -836,7 +846,7 @@ SERVERLESS_SPEC = TfTargetSpec(
     # EventBridge Scheduler floor, so no faster schedule is possible for the 120 s stage 5 budget.
     declared_ephemeral_vars=("enable_gp_batch=true", "use_batch_service_linked_role=true",
                              "image_repository_policy_mode=reuse", "enable_control_plane_events=true",
-                             OPERATIONS_POLICY_RULES_VAR),
+                             OPERATIONS_POLICY_RULES_VAR, STUDIO_END_USER_AUTHORIZATION_VAR),
     # The manifest's generic server image, amd64 child by digest (resolved by e2e-cloud-aws.yml).
     env_vars=(("HONUA_GP_BATCH_IMAGE", "gp_batch_image"),),
     # Redis-on Lambda cells: the operation key-ring certificate secret (see above). An iac pin whose
@@ -873,7 +883,7 @@ ECS_SPEC = TfTargetSpec(
     # The manifest explicitly selects the proven architecture and excludes the broken ARM64 child.
     ephemeral_vars=("alb_deletion_protection=false",),
     declared_ephemeral_vars=("rds_deletion_protection=false", "enable_postgis=true",
-                             OPERATIONS_POLICY_RULES_VAR),
+                             OPERATIONS_POLICY_RULES_VAR, STUDIO_END_USER_AUTHORIZATION_VAR),
     # Genuine-model cell only (rc.3 fix unit C6): the workflow sets HONUA_ENABLE_BEDROCK_AI=true for
     # aws-ecs/redis-off when its genuine_model_bedrock input is on; every other run stays cost-free.
     opt_in_env="HONUA_ENABLE_BEDROCK_AI",

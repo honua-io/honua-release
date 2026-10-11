@@ -3318,6 +3318,31 @@ def test_hcl_object_list_refuses_anything_but_plain_string_literals():
             hcl_object_list([(("reason", bad),)])
 
 
+def test_cells_enable_studio_end_user_authorization_only_when_the_root_declares_it(monkeypatch):
+    # Run 38091905679 (aws-ecs/redis-on): stage 6 got 403 on GET /api/v1/studio/package-families for
+    # the proposer (role layer-write-key) because the cell left Studio:EndUserAuthorization disabled.
+    from targets.terraform_target import ECS_SPEC, SERVERLESS_SPEC, STUDIO_END_USER_AUTHORIZATION_VAR
+    assert STUDIO_END_USER_AUTHORIZATION_VAR == "studio_end_user_authorization=true"
+    assert STUDIO_END_USER_AUTHORIZATION_VAR in SERVERLESS_SPEC.declared_ephemeral_vars
+    assert STUDIO_END_USER_AUTHORIZATION_VAR in ECS_SPEC.declared_ephemeral_vars
+    monkeypatch.setenv("HONUA_AWS_OPERATION_KEY_RING_SECRET_ARN",
+                       "arn:aws:secretsmanager:us-east-1:111111111111:secret:keyring")
+    cells = ((serverless, "aws-serverless", _serverless_env, "enable_gp_batch"),
+             (ecs, "aws", _ecs_env, "enable_postgis"))
+    for factory, example, env, sibling in cells:
+        env(monkeypatch)
+        for redis in (True, False):
+            for destroy in (False, True):
+                with tempfile.TemporaryDirectory() as base:
+                    # An older iac pin whose root predates the input passes nothing.
+                    _iac_root_with(monkeypatch, base, example, sibling)
+                    values = _tf_vars(factory(run_id="r1")._vars(redis, destroy=destroy))
+                    assert "studio_end_user_authorization" not in values and sibling in values
+                    _iac_root_with(monkeypatch, base, example, sibling, "studio_end_user_authorization")
+                    values = _tf_vars(factory(run_id="r1")._vars(redis, destroy=destroy))
+                    assert values["studio_end_user_authorization"] == "true"
+
+
 def test_cell_operation_policy_passes_on_both_specs_and_redis_modes_only_when_declared(monkeypatch):
     from targets.terraform_target import ECS_SPEC, OPERATIONS_POLICY_RULES_VAR, SERVERLESS_SPEC
     assert OPERATIONS_POLICY_RULES_VAR in SERVERLESS_SPEC.declared_ephemeral_vars
