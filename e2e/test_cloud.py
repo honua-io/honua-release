@@ -1745,6 +1745,76 @@ def test_ecs_running_image_is_read_back_from_every_running_task():
         assert cj.observed_ecs_image(_EcsOutputs(), pinned, run=run) is None
 
 
+def test_ecs_running_image_matches_the_tagless_reference_the_cell_deploys():
+    # Run 38110106995: the cell deploys repository@digest (honua-iac refuses a tag), so matching the
+    # manifest's tagged image found no server container and 1.1-candidate-image stayed blocked.
+    cj = run_cloud.cloud_journey
+    pinned = cj.manifest()
+    server = pinned["components"]["honua-server"]
+    repository = server["image"].rsplit(":", 1)[0]
+    candidate = f"{server['image']}@{server['digest']}"
+    assert candidate == cj.candidate_image("aws-ecs/redis-on", pinned)
+    amd64 = server["platformDigests"]["amd64"]
+    for reported in (server["digest"], amd64):
+        task = {"taskArn": "t1", "containers": [
+            {"image": f"{repository}@{server['digest']}", "imageDigest": reported, "lastStatus": "RUNNING"}]}
+        run, _ = _ecs_aws([task, {**task, "taskArn": "t2"}])
+        assert cj.observed_ecs_image(_EcsOutputs(), pinned, run=run) == candidate, reported
+    # The other architecture's child, a foreign digest, or another repository is not the candidate.
+    for image, digest in ((f"{repository}@{server['digest']}", server["platformDigests"]["arm64"]),
+                          (f"{repository}@{server['digest']}", "sha256:" + "2" * 64),
+                          ("ghcr.io/honua-io/other@" + server["digest"], server["digest"])):
+        run, _ = _ecs_aws([{"taskArn": "t1", "containers": [
+            {"image": image, "imageDigest": digest, "lastStatus": "RUNNING"}]}])
+        assert cj.observed_ecs_image(_EcsOutputs(), pinned, run=run) is None, (image, digest)
+
+
+_SCALE_ROOT = ("desired_count", "max_capacity", "deployment_mode", "file_storage_provider",
+               "file_storage_aws_s3_bucket_name", "file_storage_aws_s3_key_prefix")
+
+
+def test_redis_on_ecs_cell_runs_two_multinode_tasks_with_the_operator_bucket(monkeypatch):
+    # Run 38110106995: one task, so 6.replica-map saw a single Honua-Instance.
+    from targets.terraform_target import REDIS_ON_TASKS
+    assert REDIS_ON_TASKS == 2
+    _ecs_env(monkeypatch)
+    monkeypatch.setenv("HONUA_AWS_OPERATION_KEY_RING_SECRET_ARN", KEY_RING_ARN)
+    monkeypatch.setenv("HONUA_AWS_CELL_FILE_STORAGE_BUCKET", "honua-release-cell-files")
+    with tempfile.TemporaryDirectory() as base:
+        _iac_root_with(monkeypatch, base, "aws", *_SCALE_ROOT)
+        target = ecs(run_id="38110106995")
+        values = _tf_vars(target._vars(True))
+        assert {k: values[k] for k in _SCALE_ROOT} == {
+            "desired_count": "2", "max_capacity": "2", "deployment_mode": "MultiNode",
+            "file_storage_provider": "AwsS3", "file_storage_aws_s3_bucket_name": "honua-release-cell-files",
+            "file_storage_aws_s3_key_prefix": "release-cells/" + values["name_prefix"]}
+        # Destroy plans with the same inputs.
+        assert _tf_vars(target._vars(True, destroy=True))["desired_count"] == "2"
+        # Redis-off stays the single-task serving topology.
+        assert not set(_SCALE_ROOT) & set(_tf_vars(target._vars(False)))
+        # A malformed bucket name refuses rather than reaching terraform.
+        monkeypatch.setenv("HONUA_AWS_CELL_FILE_STORAGE_BUCKET", "Not_A_Bucket")
+        with pytest.raises(ProvisionError, match="not an S3 bucket name"):
+            target._vars(True)
+
+
+def test_redis_on_ecs_cell_stays_single_task_without_the_bucket_or_on_an_older_root(monkeypatch):
+    _ecs_env(monkeypatch)
+    monkeypatch.setenv("HONUA_AWS_OPERATION_KEY_RING_SECRET_ARN", KEY_RING_ARN)
+    monkeypatch.delenv("HONUA_AWS_CELL_FILE_STORAGE_BUCKET", raising=False)
+    with tempfile.TemporaryDirectory() as base:
+        _iac_root_with(monkeypatch, base, "aws", *_SCALE_ROOT)
+        assert not set(_SCALE_ROOT) & set(_tf_vars(ecs(run_id="r1")._vars(True)))
+        monkeypatch.setenv("HONUA_AWS_CELL_FILE_STORAGE_BUCKET", "honua-release-cell-files")
+        _iac_root_with(monkeypatch, base, "aws", *_SCALE_ROOT[:-1])   # no key-prefix input
+        assert not set(_SCALE_ROOT) & set(_tf_vars(ecs(run_id="r1")._vars(True)))
+    # The serverless cell never scales this way.
+    _serverless_env(monkeypatch)
+    with tempfile.TemporaryDirectory() as base:
+        _iac_root_with(monkeypatch, base, "aws-serverless", *_SCALE_ROOT)
+        assert not set(_SCALE_ROOT) & set(_tf_vars(serverless(run_id="r1")._vars(True)))
+
+
 def test_external_ecs_image_reaches_the_owned_candidate_image_check(monkeypatch):
     cj = run_cloud.cloud_journey
     driver, _ = cj.drivers()

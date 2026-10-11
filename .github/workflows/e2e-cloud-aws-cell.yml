@@ -161,6 +161,9 @@ jobs:
           # e2e/README.md). Not secrets. Unset (forks, other accounts) => the default endpoint, as before.
           HONUA_AWS_CELL_DNS_ZONE_ID: ${{ vars.HONUA_AWS_CELL_DNS_ZONE_ID }}
           HONUA_AWS_CELL_DNS_PARENT: ${{ vars.HONUA_AWS_CELL_DNS_PARENT }}
+          # honua-release#377 stage 6: the Redis-on ECS cell runs two tasks (MultiNode) with shared
+          # file storage in this operator-owned bucket (owner step in e2e/README.md). Unset => one task.
+          HONUA_AWS_CELL_FILE_STORAGE_BUCKET: ${{ vars.HONUA_AWS_CELL_FILE_STORAGE_BUCKET }}
         run: |
           set -euo pipefail
           [ -d "$HONUA_IAC_DIR/infrastructure/terraform" ] || unset HONUA_IAC_DIR
@@ -603,6 +606,9 @@ jobs:
           # e2e/README.md). Not secrets. Teardown recomputes the same name and confirms its records and certificate are gone.
           HONUA_AWS_CELL_DNS_ZONE_ID: ${{ vars.HONUA_AWS_CELL_DNS_ZONE_ID }}
           HONUA_AWS_CELL_DNS_PARENT: ${{ vars.HONUA_AWS_CELL_DNS_PARENT }}
+          # honua-release#377 stage 6: the Redis-on ECS cell runs two tasks (MultiNode) with shared
+          # file storage in this operator-owned bucket (owner step in e2e/README.md). Unset => one task.
+          HONUA_AWS_CELL_FILE_STORAGE_BUCKET: ${{ vars.HONUA_AWS_CELL_FILE_STORAGE_BUCKET }}
         run: |
           set -euo pipefail
           [ -d "$HONUA_IAC_DIR/infrastructure/terraform" ] || unset HONUA_IAC_DIR
