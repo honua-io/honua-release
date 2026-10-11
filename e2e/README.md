@@ -359,6 +359,20 @@ stays blocked on the topology. **Cost:** the live estimate prices Fargate vCPU a
 the state's `desired_count`, so the Redis-on ECS cell's Fargate line roughly doubles. Objects in the
 bucket are not counted, like other S3 usage.
 
+The cloud fixture seed (`harness/cloud/seed.py`) publishes the demo and Studio fixtures through the
+admin API from the provision runner. If a call fails, the `studio-authoring-seed` and `top-demo-seed`
+rows say which call failed, its status, which `Honua-Instance` answered it, a bounded
+credential-masked excerpt of the body, and which instances answered the earlier calls. Before this,
+run 38128300695 recorded only `HTTPError` on the two-task cell.
+
+The likely cause, from reading the server code (not yet observed on a run): honua-server caches the
+metadata graph per process with a 10 s TTL (`MetadataV2GraphSnapshotCache`), and a write invalidates
+it only on the node that wrote. The cache's own comments say other nodes see the write only when
+their TTL expires. A `PUT /api/v1/admin/services/{service}/access-policy` that lands on the other
+task within 10 s of the layer publish therefore answers `404 "Service '<name>' not found."`. That is
+a server MultiNode defect: it needs cross-node invalidation of the snapshot. The harness does not
+retry around it.
+
 **Owner step:**
 1. Create an S3 bucket in us-east-1 for cell file storage, with a lifecycle rule that expires objects
    under `release-cells/` after a day. `terraform destroy` does not empty a bucket the cell does not
