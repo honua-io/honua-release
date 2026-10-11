@@ -240,3 +240,25 @@ def test_real_http_guard_accepts_npm_encoded_scoped_requests(tmp_path, monkeypat
             assert response.read() == TARBALL
     finally:
         guard.stop()
+
+
+def test_source_registry_never_reads_caller_paths_or_symlinked_admissions(tmp_path, monkeypatch):
+    raw = sb.canonical(binding())
+    identity = sb.digest(raw)
+    root = tmp_path / "guard"
+    root.mkdir()
+    outside = tmp_path / "outside.json"
+    outside.write_bytes(raw)
+    (root / f"source-{identity}.json").symlink_to(outside)
+    guard = Guard({"npm": {}, "pypi": {}, "nuget": {}}, source_dir=root)
+    monkeypatch.setattr(guard, "_fetch", lambda *_: pytest.fail("unadmitted request reached registry"))
+    try:
+        handler = Handler(f"/source/{identity}/npm/@honua/sdk")
+        guard.handle(handler)
+        assert handler.code == 404
+        for untrusted in ["../../outside", "/outside", "../" + identity, "%2e%2e/outside"]:
+            handler = Handler("unused")
+            guard._source_npm(handler, untrusted, "@honua/sdk", False)
+            assert handler.code == 404
+    finally:
+        guard.server.server_close()

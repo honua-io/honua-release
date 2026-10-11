@@ -268,7 +268,14 @@ class Guard:
         try:
             if self.source_dir is None:
                 raise ValueError("source admission unavailable")
-            raw = (self.source_dir / f"source-{identity}.json").read_bytes()
+            # Select from trusted directory entries; never construct an opened path
+            # from the HTTP request. Symlinks cannot redirect admission reads.
+            admission = next((path for path in self.source_dir.glob("source-*.json")
+                              if path.name == f"source-{identity}.json" and not path.is_symlink()
+                              and path.is_file()), None)
+            if admission is None:
+                raise ValueError("unknown source admission")
+            raw = admission.read_bytes()
             if hashlib.sha256(raw).hexdigest() != identity:
                 raise ValueError("source admission integrity mismatch")
             binding = json.loads(raw)
