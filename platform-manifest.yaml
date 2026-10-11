@@ -699,11 +699,17 @@ components:
     # hosts). #237: per-process PostgreSQL pool caps on the serverless module (API 8, control-plane 2,
     # Batch 4) after run 38107383082 exhausted the cell RDS's connection slots. Still untagged, so pinned
     # by sha and the archive is the sha's own tarball.
+    # 2026-10-11 ADVANCE e0dabe74 -> trunk 64a5da0f (honua-iac#238 merge commit).
+    # #238: every serverless process also sets Limits__Connections__MaxConcurrentQueries to its pool cap;
+    # with #237's caps alone every Lambda failed at startup on run 38116311885 ('Invalid limits
+    # configuration: Connections.MaxConcurrentQueries must be less than or equal to
+    # Connections.MaxConnectionPoolSize', the server's LimitsOptionsValidator). Still untagged, so pinned
+    # by sha and the archive is the sha's own tarball.
     version: "pre-release"             # untagged trunk commit; v0.2.0 is the newest tag
-    sha: "e0dabe74e8558e34cf1cb9f1618c531ab88814b8"   # branch: trunk HEAD 2026-10-11 (honua-iac#237 merge commit)
-    artifact: "archive:https://github.com/honua-io/honua-iac/archive/e0dabe74e8558e34cf1cb9f1618c531ab88814b8.tar.gz"
-    artifactSourceRevision: "e0dabe74e8558e34cf1cb9f1618c531ab88814b8"   # the tarball's pax comment
-    artifactSha256: "sha256:0cb22d1a2185594ba66b1b21daf93d5a0cd016a61d98d0ea019fd489b6237a15"   # two anonymous downloads, identical bytes
+    sha: "64a5da0f5d3030e156eb600103ec617bb84d4eca"   # branch: trunk HEAD 2026-10-11 (honua-iac#238 merge commit)
+    artifact: "archive:https://github.com/honua-io/honua-iac/archive/64a5da0f5d3030e156eb600103ec617bb84d4eca.tar.gz"
+    artifactSourceRevision: "64a5da0f5d3030e156eb600103ec617bb84d4eca"   # the tarball's pax comment
+    artifactSha256: "sha256:ed1bc5c152c49a6f80aceb13aa2e87b72c6d7dd7aa6f6b19b47d0641e7018e0f"   # two anonymous downloads, identical bytes
 
   honua-helm:
     repository: "https://github.com/honua-io/honua-helm"
