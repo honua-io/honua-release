@@ -16,9 +16,10 @@ What differs from local Docker, and why:
   tenant-independent. The target documents the principal as unavailable, so the tenant-isolation
   assertion is blocked with that reason while the rest of stage 8 runs.
 * The datasource is the cell's own RDS database, reached with TLS (`sslRequired`, `Require`).
-* A cell is reached through one endpoint and the server returns no per-instance identity, so the
-  cross-replica read-after-write is blocked as unprovable. The target names the serving topology
-  behind the endpoint (ALB across ECS tasks, or one Lambda function) as evidence.
+* A cell is reached through one endpoint, so the cross-replica read-after-write re-reads through it
+  and tells replicas apart by the server's `Honua-Instance` response header (honua-server#5790);
+  without the header it is blocked as unprovable. The target names the serving topology behind the
+  endpoint (ALB across ECS tasks, or one Lambda function) as evidence.
 """
 from __future__ import annotations
 
