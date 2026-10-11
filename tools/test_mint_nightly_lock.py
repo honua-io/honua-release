@@ -1292,6 +1292,30 @@ def test_stamp_gives_bound_imaged_components_the_platform_version_and_never_an_s
         'released artifact version']
 
 
+def test_mint_restamp_overrides_the_resolver_prestamp(tmp_path):
+    """Decision 22: the resolver pre-stamps the manifest's label; mint's label replaces it everywhere."""
+    import resolve_trunk_candidate as resolver
+    revision = 'a' * 40
+    image = {'sha': revision, 'version': 'pre-release', 'digest': 'sha256:' + 'b' * 64,
+             'artifactSourceRevision': revision, 'platformDigests': {'amd64': 'sha256:' + 'c' * 64}}
+    manifest = {'platformRelease': '2026.1-rc.2', 'status': 'rc', 'components': {
+        'honua-server': {**image, 'image': 'ghcr.io/honua-io/honua-server:nightly-aaaaaaa'},
+        'honua-console': {**image, 'image': 'ghcr.io/honua-io/honua-console:candidate-aaaaaaaaaaaa-1-1'},
+        'honua-sdk-js': {'sha': revision, 'version': '0.1.12', 'artifactVersion': '0.1.12'}}}
+    resolver.prestamp_platform_version(manifest, manifest['platformRelease'])
+    assert manifest['components']['honua-server']['artifactVersion'] == '2026.1.0-rc.2'
+    path = tmp_path / 'platform-manifest.yaml'
+    path.write_text(yaml.safe_dump(manifest, sort_keys=False))
+    nightly.stamp_release_label(path, '2026.1-rc.3')
+    minted = yaml.safe_load(path.read_text())
+    components = minted['components']
+    assert minted['platformRelease'] == '2026.1-rc.3'
+    assert components['honua-server']['artifactVersion'] == components['honua-server']['releaseVersion'] \
+        == components['honua-console']['artifactVersion'] == '2026.1.0-rc.3'
+    assert 'rc.2' not in repr(components)
+    assert components['honua-sdk-js'] == {'sha': revision, 'version': '0.1.12', 'artifactVersion': '0.1.12'}
+
+
 def test_npm_publisher_verification_selects_subject_algorithm_and_exact_ref(monkeypatch):
     artifact = {'coordinate': '@honua/sdk', 'sourceRevision': 'a' * 40,
         'integrity': 'sha512-' + base64.b64encode(b'x' * 64).decode(),

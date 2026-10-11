@@ -187,3 +187,20 @@ def test_sdk_versions_are_never_stamp_errors():
     stamp_platform_version(data, "2026.1-rc.3")
     data["components"]["honua-sdk-js"]["version"] = "9.9.9"
     assert stamp_errors(data) == []
+
+
+def test_a_second_stamp_with_another_label_leaves_no_trace_of_the_first():
+    """Decision 22: the resolver pre-stamps the manifest's label; mint re-stamps tonight's."""
+    data = manifest()
+    stamp_platform_version(data, "2026.1-rc.2")
+    before = copy.deepcopy(data)
+    assert stamp_platform_version(data, "2026.1-rc.3") == dict.fromkeys(IMAGED_COMPONENTS, "2026.1.0-rc.3")
+    for name in IMAGED_COMPONENTS:
+        assert data["components"][name]["artifactVersion"] == "2026.1.0-rc.3"
+    assert data["components"]["honua-server"]["releaseVersion"] == "2026.1.0-rc.3"
+    assert "2026.1.0-rc.2" not in repr(data["components"])
+    # Only the stamped fields moved.
+    for name, row in data["components"].items():
+        changed = {key for key in row if row[key] != before["components"][name].get(key)}
+        assert changed <= {"artifactVersion", "releaseVersion"}
+    assert stamp_errors(data) == []
