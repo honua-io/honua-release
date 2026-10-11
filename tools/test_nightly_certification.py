@@ -755,11 +755,17 @@ def lineage(tmp_path):
                        check=True, capture_output=True)
         git(checkout, 'fetch', '-q', '--depth', '1', 'origin', run_sha)
         git(checkout, 'checkout', '-q', '--detach', run_sha)
+        canonical = 'https://github.com/honua-io/honua-release'
+        git(checkout, 'remote', 'set-url', 'origin', canonical)
+        # Preserve the canonical identity while redirecting real Git transport to this fixture.
+        git(checkout, 'config', f'url.file://{origin}.insteadOf', canonical)
         temp = tmp_path / f'temp-{checkout.name}'
         temp.mkdir()
         result = subprocess.run(['bash', '-c', script], cwd=checkout, capture_output=True, text=True, env={
             **os.environ, 'CANDIDATE_REF': candidate, 'RUN_SHA': run_sha, 'RUN_REF': run_ref,
-            'RUNNER_TEMP': str(temp)})
+            'RUNNER_TEMP': str(temp), 'GITHUB_ACTION_PATH': str(ROOT / '.github/actions/candidate-input'),
+            'RUN_REPOSITORY': 'honua-io/honua-release', 'CHECKOUT_DIRECTORY': str(checkout),
+            'REVIEWED_RELEASE_SHA': '', 'GITHUB_OUTPUT': str(temp / 'outputs')})
         return result, checkout
 
     return {'reviewed': reviewed, 'moved': moved, 'good': good, 'sneaky': sneaky, 'staged': staged,
