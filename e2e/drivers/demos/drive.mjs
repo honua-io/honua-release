@@ -17,7 +17,7 @@
 import { readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { pathToFileURL } from "node:url";
-import { geoprocessingExpectation, judgeRedisOffGeoprocessing } from "./gp-topology.mjs";
+import { geoprocessingExpectation, judgeRedisOffGeoprocessing, processDetailFailure } from "./gp-topology.mjs";
 
 // Playwright lives in a cache dir outside the repo (run.sh installs it there and passes the entry
 // point in E2E_PW_MODULE); a normally-installed copy is used when one is on the resolution path.
@@ -472,7 +472,15 @@ async function openGeoprocessingRun(page) {
   // The page never ships a credential — the operator pastes one. Do exactly that.
   await page.locator("#gp-key").fill(KEY);
   await page.locator(`.gp-proc[data-id="generalization.simplify-layer"]`).click();
-  await page.waitForSelector("#gp-run", { state: "visible", timeout: STEP });
+  // The page shows Execute only once the process description loaded; on a failed load it says so
+  // in #gp-detail-desc and never shows the button. Settle on whichever happens first.
+  await page.waitForFunction(() => {
+    const run = document.querySelector("#gp-run");
+    const desc = document.querySelector("#gp-detail-desc")?.textContent || "";
+    return (run && run.offsetParent !== null) || /^\s*Could not load schema:/.test(desc);
+  }, null, { timeout: STEP });
+  const failure = processDetailFailure(await page.locator("#gp-detail-desc").innerText().catch(() => ""));
+  if (failure) throw new Error(failure);
   await page.waitForFunction(() => !document.querySelector("#gp-run")?.disabled, null, { timeout: STEP });
   return catalogText;
 }

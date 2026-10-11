@@ -755,9 +755,30 @@ DIAGNOSTICS_NAME = "diagnostics-ecs.json"
 LAMBDA_DIAGNOSTICS_NAME = "diagnostics-lambda.json"
 EKS_DIAGNOSTICS_NAME = "diagnostics-eks.json"
 _LOG_LINES = 300
-# Newest log streams merged per Lambda/Batch log group. A Lambda log group holds one stream per
-# execution environment, so the last lines of the group span several streams.
-_LOG_STREAMS = 5
+# Log streams merged per Lambda/Batch log group. A Lambda log group holds one stream per execution
+# environment, so the last lines of the group span several streams. CloudWatch updates a stream's
+# lastEventTimestamp lazily, so "the N newest by LastEventTime" can miss the environment that served
+# last (run 38133126673 redis-on: the tail ended at an 11:04:15 cold start while the journey ran to
+# 11:07, and the serving stream the replica check named was not among the five read). A short-lived
+# cell has few streams, so every one up to this bound is read and the merge picks the true tail.
+_LOG_STREAMS = 40
+# Failure signatures counted over the WHOLE log group (filter-log-events), not just the tail: the
+# tail of a busy API function covers about a second, so a refusal minutes earlier never shows in it.
+_SIGNATURES = (
+    ("db-connection-slots", "53300"),
+    ("runtime-exit", "Runtime.ExitError"),
+    ("unhandled-exception", "Unhandled exception"),
+    ("task-timeout", "Task timed out"),
+    ("db-timeout", "The operation has timed out"),
+    ("preflight-failed", "preflight check failed"),
+    ("mcp-tool-unexpected", "MCP tool invocation failed unexpectedly"),
+)
+_SIGNATURE_EVENTS = 5000
+_SIGNATURE_SAMPLES = 60
+# API Gateway access-log lines whose status is a 4xx/5xx. A response API Gateway produced itself
+# (throttle, Lambda init or invoke failure) carries no CORS header, so a browser reports it as a CORS
+# refusal; only the access log tells it apart from a response the server sent.
+_ACCESS_ERROR_PATTERN = '{ ($.status = "4*") || ($.status = "5*") }'
 
 
 def _cell_readers(target, run, redact):
@@ -808,6 +829,78 @@ def _log_group_tail(aws, group: str, redact) -> dict:
     return entry
 
 
+def _iso_ms(timestamp: int) -> str:
+    return datetime.fromtimestamp(timestamp / 1000, tz=timezone.utc).strftime("%Y-%m-%dT%H:%M:%S.%f")[:-3] + "Z"
+
+
+def _filter_events(aws, group: str, pattern: str) -> list[tuple[int, str, str]]:
+    """Every event of the whole log group matching `pattern`, oldest first (bounded)."""
+    page = aws("logs", "filter-log-events", "--log-group-name", group, "--filter-pattern", pattern,
+               "--max-items", str(_SIGNATURE_EVENTS))
+    events = [(int(e.get("timestamp") or 0), str(e.get("logStreamName", "")), str(e.get("message", "")))
+              for e in page.get("events", [])]
+    events.sort(key=lambda event: (event[0], event[1]))
+    return events
+
+
+def _log_group_signatures(aws, group: str, redact) -> dict:
+    """Failure signatures over the whole log group: per signature the matching lines, the streams
+    (execution environments) they came from and the first/last time, plus a bounded sample.
+
+    A .NET Lambda writes most entries twice (console text and its JSON twin), so `lines` counts
+    log lines, not distinct failures; `streams` and the times are what line up with a request."""
+    pattern = " ".join(f'?"{phrase}"' for _, phrase in _SIGNATURES)
+    try:
+        events = _filter_events(aws, group, pattern)
+    except RuntimeError as error:
+        return {"error": str(error)}
+    summary: dict = {}
+    samples = []
+    for timestamp, stream, message in events:
+        names = [name for name, phrase in _SIGNATURES if phrase in message]
+        for name in names:
+            row = summary.setdefault(name, {"lines": 0, "streams": set(), "first": timestamp, "last": timestamp})
+            row["lines"] += 1
+            row["streams"].add(stream)
+            row["first"], row["last"] = min(row["first"], timestamp), max(row["last"], timestamp)
+        if names and len(samples) < _SIGNATURE_SAMPLES:
+            samples.append(f"{_iso_ms(timestamp)} [{stream}] {redact(message.rstrip(chr(10)))[:600]}")
+    return {
+        "signatures": {name: {"lines": row["lines"], "streams": len(row["streams"]),
+                              "first": _iso_ms(row["first"]), "last": _iso_ms(row["last"])}
+                       for name, row in summary.items()},
+        "truncated": len(events) >= _SIGNATURE_EVENTS,
+        "samples": samples,
+    }
+
+
+def _access_log_errors(aws, group: str, redact) -> dict:
+    """API Gateway access-log 4xx/5xx lines of the whole group: counts by status and by
+    status+method+path, and a bounded sample of the lines themselves."""
+    try:
+        events = _filter_events(aws, group, _ACCESS_ERROR_PATTERN)
+    except RuntimeError as error:
+        return {"error": str(error)}
+    by_status: dict[str, int] = {}
+    by_route: dict[str, int] = {}
+    samples = []
+    for timestamp, _, message in events:
+        try:
+            record = json.loads(message)
+        except ValueError:
+            record = {}
+        record = record if isinstance(record, dict) else {}
+        status = str(record.get("status", "?"))
+        route = f"{status} {record.get('httpMethod', '?')} {str(record.get('path', '?')).split('?')[0]}"
+        by_status[status] = by_status.get(status, 0) + 1
+        by_route[route] = by_route.get(route, 0) + 1
+        if len(samples) < _SIGNATURE_SAMPLES:
+            samples.append(f"{_iso_ms(timestamp)} {redact(message.rstrip(chr(10)))[:600]}")
+    top = sorted(by_route.items(), key=lambda item: (-item[1], item[0]))[:40]
+    return {"byStatus": dict(sorted(by_status.items())), "byRoute": dict(top),
+            "truncated": len(events) >= _SIGNATURE_EVENTS, "samples": samples}
+
+
 def lambda_readiness_diagnostics(target, *, run=subprocess.run, redact=None) -> dict:
     """The serverless counterpart of ecs_readiness_diagnostics: what the cell's Lambda functions and
     Batch jobs logged about their own startup, dependency refusals and job execution.
@@ -845,7 +938,13 @@ def lambda_readiness_diagnostics(target, *, run=subprocess.run, redact=None) -> 
             "environmentNames": sorted(str(key) for key in
                                        (function.get("Environment") or {}).get("Variables") or {}),
             "logGroup": group})
-        report["logs"].append({"functionName": name, **_log_group_tail(aws, group, redact)})
+        report["logs"].append({"functionName": name, **_log_group_tail(aws, group, redact),
+                               "failureSignatures": _log_group_signatures(aws, group, redact)})
+    # The module names the HTTP API after the API function and writes its access log to
+    # /aws/apigateway/<api name>: the only record of a response API Gateway produced itself.
+    access_group = f"/aws/apigateway/{api}"
+    report["logs"].append({"accessLog": True, **_log_group_tail(aws, access_group, redact),
+                           "accessErrors": _access_log_errors(aws, access_group, redact)})
     report["gpBatchEnabled"] = out("gp_batch_enabled").lower() == "true"
     if report["gpBatchEnabled"]:
         try:
@@ -855,7 +954,8 @@ def lambda_readiness_diagnostics(target, *, run=subprocess.run, redact=None) -> 
             report["logs"].append({"batch": True, "logGroup": f"/aws/batch/{stem}-*", "error": str(error)})
             groups = []
         for group in sorted(str(g["logGroupName"]) for g in groups if g.get("logGroupName")):
-            report["logs"].append({"batch": True, **_log_group_tail(aws, group, redact)})
+            report["logs"].append({"batch": True, **_log_group_tail(aws, group, redact),
+                                   "failureSignatures": _log_group_signatures(aws, group, redact)})
     return report
 
 
@@ -1004,10 +1104,29 @@ def _phase_diagnose(args) -> int:
             print(f"   {line}")
         print("::endgroup::")
     for log in diagnostics.get("logs", []):
-        owner = log.get("taskArn") or log.get("functionName") or ("batch" if log.get("batch") else "")
+        owner = (log.get("taskArn") or log.get("functionName") or ("batch" if log.get("batch") else "")
+                 or ("access log" if log.get("accessLog") else ""))
         print(f"::group::{log.get('logStream') or log.get('logGroup')} ({owner})")
         if "error" in log:
             print(f"   log unavailable: {log['error']}")
+        if log.get("logStreams") is not None:
+            print(f"   streams read: {len(log['logStreams'])}"
+                  + (" (bound reached; more exist)" if len(log["logStreams"]) >= _LOG_STREAMS else ""))
+        signatures = log.get("failureSignatures") or {}
+        if "error" in signatures:
+            print(f"   failure signatures unavailable: {signatures['error']}")
+        for signature, row in (signatures.get("signatures") or {}).items():
+            print(f"   signature {signature}: {row['lines']} lines from {row['streams']} stream(s), "
+                  f"{row['first']} .. {row['last']}")
+        for line in signatures.get("samples", []):
+            print(f"   ! {line}")
+        access = log.get("accessErrors") or {}
+        if "error" in access:
+            print(f"   access-log errors unavailable: {access['error']}")
+        if access.get("byStatus"):
+            print(f"   access-log 4xx/5xx by status: {access['byStatus']}")
+            for route, count in access.get("byRoute", {}).items():
+                print(f"   access-log {route}: {count}")
         for error in log.get("errors", []):
             print(f"   stream unavailable: {error}")
         for line in log.get("lines", []):

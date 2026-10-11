@@ -112,3 +112,19 @@ export function judgeRedisOffGeoprocessing({ topology, jobsRunner, execution, pa
     `capability-unavailable receipt (missingDependency=redis) and the demo rendered its honest ` +
     `job-store-unavailable state ("${page.pill}") with the verbatim server refusal` };
 }
+
+/**
+ * The page's own verdict when it could not load the selected process's description.
+ *
+ * The pinned honua-site demo (assets/demos/geoprocessing/app.js selectProcess) keeps the Execute
+ * button hidden until GET /ogc/processes/processes/{id} answers, and on a failed fetch writes
+ * "Could not load schema: <reason>" into #gp-detail-desc. Run 38133126673 (aws-serverless/redis-off)
+ * waited 45 s for a button the page had already decided never to show; this names that decision.
+ *   detailDesc — #gp-detail-desc text after the process was selected
+ * -> the reason string, or null while the page has not reported a load failure
+ */
+export function processDetailFailure(detailDesc) {
+  const text = String(detailDesc ?? "").trim();
+  const match = /^Could not load schema:\s*(.*)$/s.exec(text);
+  return match ? `the page could not load the process description: "${text.slice(0, 300)}"` : null;
+}

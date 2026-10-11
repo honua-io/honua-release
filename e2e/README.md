@@ -479,8 +479,17 @@ For a serverless cell it writes `diagnostics-lambda.json`: every Lambda function
 name stem (the stem of the `lambda_function_name` output, matched against `aws lambda
 list-functions`, plus the API and control-plane function-name outputs), each with its state, last
 update status and environment variable NAMES (never values), and the last 300 lines of its log group
-merged from the group's newest streams. When `gp_batch_enabled` is true it also tails every
-`/aws/batch/<stem>-*` job log group. This is where a Lambda server's own startup and refusal reasons
+merged from every stream (one per execution environment, up to 40; CloudWatch's LastEventTime order
+is updated lazily, so "the newest few" can miss the environment that served last). Each group also
+gets `failureSignatures`: a whole-group `filter-log-events` sweep counting lines, streams and
+first/last time for `53300` connection exhaustion, `Runtime.ExitError`, unhandled exceptions, Lambda
+and database timeouts, a failed startup preflight and unexpected MCP tool failures (the server logs
+the exception class there; the tool envelope does not carry it), with a bounded sample. The API
+Gateway access log (`/aws/apigateway/<api function name>`) is tailed and its 4xx/5xx lines counted
+by status and by route (`accessErrors`): a response API Gateway produced itself carries no CORS
+header, so a demo page reports it as a CORS refusal and only this log tells it from a server
+response. When `gp_batch_enabled` is true it also tails and sweeps every `/aws/batch/<stem>-*` job
+log group. This is where a Lambda server's own startup and refusal reasons
 (a `dependency-unavailable` capability, a GP job that never left `running`) survive the cell.
 
 The log groups are destroyed with the cell, so this is the only record of an exit or refusal cause.
