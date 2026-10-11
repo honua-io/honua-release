@@ -9,6 +9,11 @@ is not the candidate, and a receipt produced from it must not exist. This check 
 verification output unless every verified statement's subject is the manifest digest and the
 attested source commit (certificate and SLSA resolved dependency) is the manifest sha.
 
+The attested source ref must be one of exactly two: refs/heads/trunk, or the candidate tag the
+nightly creates at the certified sha and re-dispatches from (honua-server#5791),
+refs/tags/nightly-candidate-<first 7 characters of the manifest sha>. The build signer must have
+run at that same ref.
+
 Usage: python3 tools/check_image_attestation.py --manifest platform-manifest.yaml \
            --attestation image-attestation.json
 """
@@ -37,6 +42,10 @@ def manifest_pin(path: Path) -> tuple[str, str]:
     return sha, digest
 
 
+def allowed_source_refs(sha: str) -> tuple[str, str]:
+    return ("refs/heads/trunk", f"refs/tags/nightly-candidate-{sha[:7]}")
+
+
 def check(verified, sha: str, digest: str) -> int:
     """Return the number of verified attestations, all bound to (sha, digest); raise otherwise."""
     if not isinstance(verified, list) or not verified:
@@ -55,6 +64,15 @@ def check(verified, sha: str, digest: str) -> int:
             raise AttestationMismatch(
                 f"attestation {index} was built from source {source}, not the manifest server sha {sha}; "
                 "the manifest digest and sha name different builds")
+        source_ref = certificate.get("sourceRepositoryRef")
+        allowed = allowed_source_refs(sha)
+        if source_ref not in allowed:
+            raise AttestationMismatch(
+                f"attestation {index} was built from ref {source_ref!r}, not one of {list(allowed)}")
+        signer = str(certificate.get("buildSignerURI") or "")
+        if not signer.endswith(f"@{source_ref}"):
+            raise AttestationMismatch(
+                f"attestation {index} signer {signer!r} did not run at the attested source ref {source_ref}")
         build = (statement.get("predicate") or {}).get("buildDefinition") or {}
         commits = {(dependency.get("digest") or {}).get("gitCommit")
                    for dependency in build.get("resolvedDependencies") or []} - {None}
