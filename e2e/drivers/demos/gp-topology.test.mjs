@@ -19,13 +19,14 @@ const REFUSAL = {
   type: CAPABILITY_UNAVAILABLE, status: 503, code: "dependency-unavailable",
   capability: "jobs.runner", missingDependency: "redis",
 };
-// What the pinned honua-site (0db19d7e) demo-geoprocessing page renders for a 503 naming the job store.
+// What the pinned honua-site (b024902e, honua-site#294) demo-geoprocessing page renders for a 503 naming the job store.
 const honestPage = (body = REFUSAL) => ({
   settled: true,
-  pill: "plan accepted · 503 job store",
-  summary: "Plan validated & accepted live. ... The public demo does not provision durable async job storage ...",
-  out: "POST .../generalization.simplify-layer/execution\n\n-> HTTP 503\n\nJob persistence is unavailable on the public demo " +
-    "(no Redis-backed durable store),\nso the accepted plan cannot be enqueued. Verbatim server response:\n\n" +
+  pill: "execution refused · 503 job store",
+  summary: "Plan validated · execution refused: job store unavailable. The server refused to start the job with a typed " +
+    "503 capability-unavailable response (missing dependency: redis). Durable geoprocessing jobs need a Redis-backed job store, ...",
+  out: "POST .../generalization.simplify-layer/execution\n\n-> HTTP 503\n\nExecution refused: the durable job store is unavailable " +
+    "on this deployment\n(no Redis-backed job store), so no job was created or enqueued. Verbatim server response:\n\n" +
     JSON.stringify(body, null, 2),
 });
 const off = topology("off", "redis-off");
@@ -57,7 +58,7 @@ test("redis-off passes on the typed refusal rendered honestly, in S5's evidence 
   assert.equal(v.evidence.capability, "jobs.runner");
   assert.equal(v.evidence.topology.topology, "redis-off");
   assert.equal(v.evidence.jobsRunner.available, false);
-  assert.equal(v.evidence.page.pill, "plan accepted · 503 job store");
+  assert.equal(v.evidence.page.pill, "execution refused · 503 job store");
 });
 
 test("redis-off fails when the server accepts a job or refuses untyped", () => {
@@ -120,4 +121,27 @@ test("redis-off fails when the page claims a completed job the server refused", 
     page: { ...honestPage(), pill: "job j1 · done", out: "Job j1 successful. Results:\n{}" },
   });
   assert.equal(v.status, "fail");
+});
+
+test("redis-off is BLOCKED on site behaviour when the page calls the refused execution accepted", () => {
+  // The pre-#294 honua-site wording: right refusal underneath, but the pill and headline claimed acceptance.
+  const v = judgeRedisOffGeoprocessing({
+    topology: off, jobsRunner: jobsRunner(true), execution: { status: 503, body: REFUSAL },
+    page: { ...honestPage(), pill: "plan accepted · 503 job store", summary: "Plan validated & accepted live. ..." },
+  });
+  assert.equal(v.status, "blocked");
+  assert.match(v.why, /claimed the refused execution was accepted/);
+});
+
+test("redis-off still passes when the page negates acceptance", () => {
+  for (const [pill, summary] of [
+    ["execution not accepted · 503 job store", "Plan validated · the execution was not accepted: job store unavailable. ..."],
+    ["execution refused · 503 job store", "Plan validated · the job was never accepted: job store unavailable. ..."],
+  ]) {
+    const v = judgeRedisOffGeoprocessing({
+      topology: off, jobsRunner: jobsRunner(true), execution: { status: 503, body: REFUSAL },
+      page: { ...honestPage(), pill, summary },
+    });
+    assert.equal(v.status, "pass", v.why);
+  }
 });

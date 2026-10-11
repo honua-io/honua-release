@@ -984,7 +984,18 @@ evidenceSources:
     # trunk HEAD (honua-site#245, 2026-08-20T06:24:49Z). Nothing has landed since, so "advance to
     # trunk HEAD" is a no-op here. certification/conformance-evidence.yaml demos.sourceRef already
     # matches, so the coherence check stays satisfied.
-    producerSha: "0db19d7e6e5826fd885fb8f9c21c1798077c9b71"
+    # 2026-10-11 ADVANCE 0db19d7e -> trunk b024902e (14 commits ahead; honua-site#294 merge commit,
+    # also carries #295). #294: the demo-geoprocessing page reports the Redis-off typed 503
+    # capability-unavailable refusal (missingDependency=redis) as REFUSED, not accepted -- pill
+    # `execution refused · 503 job store` (amber gate style), headline "Plan validated · execution
+    # refused: job store unavailable.", output "no job was created or enqueued" + the verbatim
+    # refusal (owner decision 3, Redis-off honesty). #295: SDK version claims reconciled with the
+    # registries (unblocked site `validate`). pages.yml push run at b024902e: success (38087948414).
+    # Archive provenance: https://github.com/honua-io/honua-site/archive/b024902e2c4bc41bf7a5ce39d159bf65e35c9675.tar.gz
+    # pax comment b024902e2c4bc41bf7a5ce39d159bf65e35c9675, sha256:b36abc30dec9683d89e6812e8c81a7fb0a4c814b4bde10be0ce4f8520a7e9fc9
+    # (two anonymous downloads, identical bytes). Moved together with
+    # certification/conformance-evidence.yaml demos.sourceRef.
+    producerSha: "b024902e2c4bc41bf7a5ce39d159bf65e35c9675"
     trustedEvents: [push]
     trustedBranch: trunk
     artifactIdentity: demos-source

@@ -294,7 +294,7 @@ jobs:
       - name: Resolve the pinned honua-site revision
         run: |
           set -euo pipefail
-          TRUSTED_SHA="0db19d7e6e5826fd885fb8f9c21c1798077c9b71"
+          TRUSTED_SHA="b024902e2c4bc41bf7a5ce39d159bf65e35c9675"
           # awk, not PyYAML: this job installs no python packages, and the console/server pins are
           # already read exactly this way. One idiom, no new dependency.
           SHA="$(awk '
@@ -318,7 +318,7 @@ jobs:
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           repository: honua-io/honua-site
-          ref: 0db19d7e6e5826fd885fb8f9c21c1798077c9b71
+          ref: b024902e2c4bc41bf7a5ce39d159bf65e35c9675
           path: _site
 
       # release#231 WI-8: record the fixture revision git reports for each checkout, for the lock's
@@ -385,7 +385,7 @@ jobs:
           E2E_SITE_DIR: ${{ steps.site.outcome == 'success' && format('{0}/_site', github.workspace) || '' }}
           # Quoted back in the driver's BLOCKED message so a failure never cites a different
           # revision than the one under test.
-          E2E_SITE_SHA: 0db19d7e6e5826fd885fb8f9c21c1798077c9b71
+          E2E_SITE_SHA: b024902e2c4bc41bf7a5ce39d159bf65e35c9675
         run: bash e2e/harness/run_all.sh run
 
       - name: Format + protocol coverage summary
