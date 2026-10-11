@@ -26,6 +26,18 @@ on:
       - ".github/workflows/e2e-local-docker.yml"
   workflow_dispatch:
     inputs:
+      control_plane_parity:
+        description: "Run independent Production SDK control-plane engineering replay"
+        type: boolean
+        default: false
+      parity_server_image:
+        description: "Supported immutable ghcr.io/honua-io/honua-server digest for independent replay"
+        type: string
+        default: ""
+      parity_server_source:
+        description: "Exact 40-character source of that supported server image"
+        type: string
+        default: ""
       require_real:
         description: "Promote BLOCKED/SKIPPED to FAIL (run only when images+metrics are real)"
         type: boolean
@@ -490,4 +502,57 @@ jobs:
         with:
           name: e2e-slice1-redis-off-gate-report
           path: e2e/gate-report.json
+          if-no-files-found: warn
+
+  control-plane-parity:
+    if: ${{ github.event_name == 'workflow_dispatch' && inputs.control_plane_parity }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    permissions:
+      contents: read
+      packages: read
+      id-token: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.12"
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: "20.19.0"
+      - name: Install replay prerequisites
+        run: python -m pip install requests pyyaml boto3 pytest
+      - name: Replay identity and redaction controls
+        run: python -m pytest certification/control-plane-parity/test_run.py -q
+      - name: Authenticate image pull
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: printf '%s' "$GH_TOKEN" | docker login ghcr.io -u "$GITHUB_ACTOR" --password-stdin
+      - uses: aws-actions/configure-aws-credentials@e1253824e5c10ff9df46874f81ed3ec929e19cfd # v6.3.0
+        with:
+          role-to-assume: ${{ vars.HONUA_AWS_ROLE_ARN }}
+          aws-region: us-east-1
+      - name: Genuine Production command replay
+        timeout-minutes: 25
+        env:
+          HONUA_SERVER_IMAGE: ${{ inputs.parity_server_image }}
+          HONUA_SERVER_SOURCE: ${{ inputs.parity_server_source }}
+          HONUA_PARITY_BUCKET: ${{ vars.HONUA_AWS_CELL_FILE_STORAGE_BUCKET }}
+          HONUA_PARITY_RUN: ${{ runner.temp }}/control-plane-parity-private
+          HONUA_PARITY_OUT: ${{ runner.temp }}/control-plane-parity-public
+        run: python certification/control-plane-parity/run.py
+      - name: Always stop owned stack and remove exact fixture object
+        if: ${{ always() }}
+        timeout-minutes: 4
+        env:
+          HONUA_PARITY_BUCKET: ${{ vars.HONUA_AWS_CELL_FILE_STORAGE_BUCKET }}
+          HONUA_PARITY_RUN: ${{ runner.temp }}/control-plane-parity-private
+          HONUA_PARITY_OUT: ${{ runner.temp }}/control-plane-parity-public
+        run: python certification/control-plane-parity/cleanup.py
+      - name: Retain sanitized engineering receipts
+        if: ${{ always() }}
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: control-plane-parity
+          path: ${{ runner.temp }}/control-plane-parity-public
           if-no-files-found: warn
