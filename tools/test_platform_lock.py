@@ -314,7 +314,7 @@ def test_generator_reports_all_current_unresolved_release_work():
     assert "$.notes: immutable release-notes content/reference is not declared" in joined
     assert "notes" not in draft.lock
     assert "[DECISION]" not in joined
-    # honua-iac is pinned to untagged trunk e0dabe74: the cut needs it published as a tag.
+    # honua-iac is pinned to untagged trunk 64a5da0f: the cut needs it published as a tag.
     assert "[PUBLISH] $.components.honua-iac.artifacts[0].version" in joined
     assert "sourceRevision" in joined
     assert "TBD" not in str(draft.lock)
@@ -322,7 +322,7 @@ def test_generator_reports_all_current_unresolved_release_work():
         "sha256:595f0ac8e1e129d4b78e1c4c40abfb71fc87d2d4bf5566a6bede311ed81583c5"
     )
     assert draft.lock["components"]["honua-iac"]["artifacts"][0]["sha256"] == (
-        "sha256:0cb22d1a2185594ba66b1b21daf93d5a0cd016a61d98d0ea019fd489b6237a15"
+        "sha256:ed1bc5c152c49a6f80aceb13aa2e87b72c6d7dd7aa6f6b19b47d0641e7018e0f"
     )
     assert draft.lock["components"]["honua-console"]["artifacts"][0]["architectures"] == ["amd64", "arm64"]
     assert "honua-server.artifacts[0].platformDigests" not in joined
