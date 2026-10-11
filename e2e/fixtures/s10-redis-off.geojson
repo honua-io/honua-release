@@ -1,0 +1,10 @@
+{"type":"FeatureCollection","name":"s10_large_import","features":[
+{"type":"Feature","properties":{"s10_id":1,"band":"b00","note":"honua s10 large import fixture row 0000000 ............................................................................."},"geometry":{"type":"Point","coordinates":[-160.000000,18.900000]}},
+{"type":"Feature","properties":{"s10_id":2,"band":"b01","note":"honua s10 large import fixture row 0000001 ............................................................................."},"geometry":{"type":"Point","coordinates":[-159.994000,18.900000]}},
+{"type":"Feature","properties":{"s10_id":3,"band":"b02","note":"honua s10 large import fixture row 0000002 ............................................................................."},"geometry":{"type":"Point","coordinates":[-159.988000,18.900000]}},
+{"type":"Feature","properties":{"s10_id":4,"band":"b03","note":"honua s10 large import fixture row 0000003 ............................................................................."},"geometry":{"type":"Point","coordinates":[-159.982000,18.900000]}},
+{"type":"Feature","properties":{"s10_id":5,"band":"b04","note":"honua s10 large import fixture row 0000004 ............................................................................."},"geometry":{"type":"Point","coordinates":[-159.976000,18.900000]}},
+{"type":"Feature","properties":{"s10_id":6,"band":"b05","note":"honua s10 large import fixture row 0000005 ............................................................................."},"geometry":{"type":"Point","coordinates":[-159.970000,18.900000]}},
+{"type":"Feature","properties":{"s10_id":7,"band":"b06","note":"honua s10 large import fixture row 0000006 ............................................................................."},"geometry":{"type":"Point","coordinates":[-159.964000,18.900000]}},
+{"type":"Feature","properties":{"s10_id":8,"band":"b07","note":"honua s10 large import fixture row 0000007 ............................................................................."},"geometry":{"type":"Point","coordinates":[-159.958000,18.900000]}}
+]}

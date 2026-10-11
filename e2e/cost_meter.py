@@ -397,8 +397,13 @@ def cell_cost(target, state: dict, ceiling_usd, *, run_id: str, run_attempt: str
         if not deployed.get("values"):
             raise MeterError("no Terraform state to price (the cell provisioned, but its state is absent)")
         inv = inventory(deployed)
-        result = estimate(inv, measure_usage(inv, started, measured, aws=aws, **(usage_options or {})),
-                          started_at=started, measured_at=measured)
+        usage = measure_usage(inv, started, measured, aws=aws, **(usage_options or {}))
+        # S10 large-import (honua-release#548): the fixture the harness staged in S3 for this run.
+        import large_import  # noqa: PLC0415 (a sibling module; cost_meter also runs standalone)
+        staged_monthly, staged_usage = large_import.cost_lines(state.get("s10"))
+        inv = {**inv, "monthly": [*inv["monthly"], *staged_monthly]}
+        usage = {**usage, "usage": [*usage["usage"], *staged_usage]}
+        result = estimate(inv, usage, started_at=started, measured_at=measured)
     except Exception as error:
         return evidence(status="unavailable", run_id=run_id, run_attempt=run_attempt, ceiling_usd=ceiling,
                         measured_at=measured_at, estimate_usd=None, basis=None,
