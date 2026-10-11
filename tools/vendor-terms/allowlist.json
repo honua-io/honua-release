@@ -86,6 +86,28 @@
       "reason": "R35 /arcgis site-root alias, kept for client compatibility: clients that hard-code the vendor path convention; canonical root is /rest. Scoped to the two route tables that register it.",
       "owner": "@mikemcdougall",
       "issue": "honua-io/honua-release#425"
+    },
+    {
+      "repo": "honua-release",
+      "paths": [
+        "platform-manifest.yaml",
+        "certification/installed-clients/matrix.json",
+        "certification/installed-clients/run.py",
+        "tools/mint_nightly_lock.py",
+        "tools/verify_client_artifacts.py"
+      ],
+      "tokens": [
+        "esri"
+      ],
+      "identifiers": [
+        "@honua/sdk-esri-compat",
+        "honua-sdk-esri-compat",
+        "sdk-esri-compat-0.1.14.tgz",
+        "npm-honua-sdk-esri-compat-installed-runtime"
+      ],
+      "reason": "Exact published npm coordinate, tarball filename and manifest/matrix keys identify the required SDK compatibility artifact. Renaming them would select different registry bytes or lose the installed-runtime binding; revisit when the publisher renames the package. Unrelated prose and identifiers are not covered.",
+      "owner": "@mikemcdougall",
+      "issue": "honua-io/honua-sdk-js#1994"
     }
   ]
 }
