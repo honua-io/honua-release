@@ -157,7 +157,6 @@ class MatrixExpectationTests(unittest.TestCase):
                    for scenario in ("auth", "admin-lifecycle", "ogc-features", "ogc-processes", "stac")},
                 "npm-sdk-ogc-tiles": ("active", None),
                 "npm-sdk-geoservices": ("blocked", [
-                    "https://github.com/honua-io/honua-sdk-js/issues/1894",
                     "https://github.com/honua-io/honua-server/issues/5407",
                 ]),
                 "pypi-sdk-geoservices": ("blocked", [
