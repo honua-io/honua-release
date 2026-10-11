@@ -66,6 +66,13 @@ def trusted_public_key(seed: bytes) -> str:
     return "base64url:" + b64url(raw)
 
 
+def negative_prerequisites(fixture_id: str, probes: dict) -> set[str]:
+    """Keys a negative fixture keeps active so each denial it observes isolates the probed key."""
+    gated = probes["catalog"]["gated"]
+    return {key for probe in probes["probes"] if probes["negative_fixture"][gated[probe["key"]]] == fixture_id
+            for key in probe.get("negative_prerequisites", [])}
+
+
 def granted_keys(spec: dict, probes: dict) -> list[str]:
     """Entitlement keys a fixture grants, resolved against the committed catalog snapshot."""
     gated = probes["catalog"]["gated"]
@@ -74,10 +81,12 @@ def granted_keys(spec: dict, probes: dict) -> list[str]:
     if grant == "all-catalog-keys":
         return sorted(set(gated) | community)
     if grant == "pro-and-community-keys":
-        return sorted({key for key, edition in gated.items() if edition == "Pro"} | community)
-    if grant == "community-keys-only":
-        return sorted(community)
-    raise FixtureError(f"fixture {spec['id']} has unknown grant {grant!r}")
+        keys = {key for key, edition in gated.items() if edition == "Pro"} | community
+    elif grant == "community-keys-only":
+        keys = set(community)
+    else:
+        raise FixtureError(f"fixture {spec['id']} has unknown grant {grant!r}")
+    return sorted(keys | negative_prerequisites(spec["id"], probes))
 
 
 def mint(spec: dict, probes: dict, seed: bytes, key_id: str) -> dict:

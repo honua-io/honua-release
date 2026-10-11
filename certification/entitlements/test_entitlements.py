@@ -71,7 +71,9 @@ def test_each_edition_is_denied_by_a_fixture_that_lacks_only_that_tier():
     enterprise = {k for k, e in GATED.items() if e == "Enterprise"}
     assert grants["entitled"] >= pro | enterprise
     assert pro <= grants["pro-tier"] and not enterprise & grants["pro-tier"]
-    assert not (pro | enterprise) & grants["keyless"]
+    # Only declared prerequisites stay active on the keyless stack, and none is a key denied there.
+    assert (pro | enterprise) & grants["keyless"] == fx.negative_prerequisites("keyless", catalog) == {"ai.agent-operations", "ai.approval-workflows"}
+    assert not {p["key"] for p in PROBES["probes"] if GATED[p["key"]] == "Pro"} & grants["keyless"]
     # The keyless fixture is Enterprise-labelled: a denial there proves the key, not the label, gates.
     assert next(f for f in FIXTURES["fixtures"] if f["id"] == "keyless")["edition"] == "Enterprise"
 
@@ -313,6 +315,27 @@ def test_a_missing_fixture_stack_is_blocked_never_pass():
     report = run.verdict(PROBES, FIXTURES, records)
     assert report["status"] == "blocked"
     assert "no observations for the pro-tier fixture stack" in report["why"]
+
+
+def test_a_broken_setup_or_transport_fails_that_probe_without_aborting_the_stack():
+    fixture = next(f for f in FIXTURES["fixtures"] if f["id"] == "entitled")
+    healthy = FakeCandidate("entitled")
+
+    def flaky(method, url, headers, body, markers=()):
+        if url.endswith("/api/v1/admin/alerts/zones"):
+            return run.Response(200, "text/html", b"<html>proxy</html>")
+        if url.endswith("/api/v1/admin/tenants"):
+            raise ConnectionResetError("reset by peer")
+        return healthy(method, url, headers, body, markers)
+
+    stack = run.Stack("http://localhost", "admin-key", flaky, dict(SEEDED))
+    record = run.observe(stack, PROBES, fixture, set(fx.granted_keys(fixture, PROBES)), "sha256:" + "0" * 64)
+    by_key = {o["key"]: o for o in record["observations"]}
+    assert by_key["alerts.enter-exit"]["status"] == "fail"
+    assert "setup 'geofence zone' did not return data.zoneId" in by_key["alerts.enter-exit"]["reasons"]
+    assert by_key["admin.multi-tenancy"]["status"] == "fail"
+    assert by_key["admin.multi-tenancy"]["reasons"] == ["request failed: reset by peer"]
+    assert by_key["identity.saml"]["status"] == "pass"
 
 
 def test_every_request_carries_the_admin_credential_and_substitutes_placeholders():

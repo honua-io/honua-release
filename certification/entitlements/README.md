@@ -30,7 +30,13 @@ duration of the job and are never committed or uploaded: the report records `sha
 |---|---|---|---|
 | `entitled` | Enterprise | every catalog key | each capability's documented success |
 | `pro-tier` | Pro | Pro + Community keys | each Enterprise capability denies with its own key, even where its Pro prerequisite (for example `identity.oidc` under `identity.oidc-multi-provider`) is active |
-| `keyless` | Enterprise | Community keys only | each Pro capability denies; the Enterprise label alone activates nothing |
+| `keyless` | Enterprise | Community keys, plus declared prerequisites | each Pro capability denies; the Enterprise label alone activates nothing |
+
+A probe may declare `negative_prerequisites`: keys its negative stack keeps active so the denial it
+observes is the probed key's own. `ai.spec-apply` declares the edition-derived guardrail keys
+`ai.agent-operations` and `ai.approval-workflows` (both no-HTTP-surface); without them an
+Enterprise-labelled license is refused by the guardrail before the spec-apply gate is reached.
+A prerequisite can never be a key that the same stack must deny.
 
 Each stack is checked before probing: licensing `enabled`, `validationState: Valid`, the fixture's
 license id and edition, and exactly the fixture's grant active.

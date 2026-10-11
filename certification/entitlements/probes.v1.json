@@ -173,7 +173,11 @@
           "event: ApplyStarted"
         ]
       },
-      "denial": "problem"
+      "denial": "problem",
+      "negative_prerequisites": [
+        "ai.agent-operations",
+        "ai.approval-workflows"
+      ]
     },
     {
       "key": "alerts.dwell",

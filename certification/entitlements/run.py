@@ -19,6 +19,7 @@ from __future__ import annotations
 
 import argparse
 import hashlib
+import http.client
 import json
 import os
 import re
@@ -55,6 +56,7 @@ class Response:
 
 
 Transport = Callable[[str, str, dict, bytes | None, tuple[str, ...]], Response]
+TRANSPORT_ERRORS = (OSError, urllib.error.URLError, http.client.HTTPException)
 
 
 class _NoRedirect(urllib.request.HTTPRedirectHandler):
@@ -375,13 +377,23 @@ def observe(stack: Stack, probes: dict, fixture: dict, granted: set[str], licens
         context = dict(stack.context)
         setup_problems = []
         for step in probe.get("setup", []):
-            response = Stack(stack.base_url, stack.api_key, stack.transport, context).send(step)
+            try:
+                response = Stack(stack.base_url, stack.api_key, stack.transport, context).send(step)
+            except TRANSPORT_ERRORS as error:
+                setup_problems.append(f"setup '{step['name']}' failed: {error}")
+                continue
             if response.status != step["expect_status"]:
                 setup_problems.append(f"setup '{step['name']}' returned HTTP {response.status}: {excerpt(response)}")
                 continue
+            try:
+                document = response.json() if step.get("capture") else None
+            except ValueError:
+                document = None
             for name, path in (step.get("capture") or {}).items():
-                value = resolve(response.json(), path)
-                if value is not _MISSING:
+                value = resolve(document, path)
+                if value is _MISSING:
+                    setup_problems.append(f"setup '{step['name']}' did not return {path}")
+                else:
                     context[name] = value
         if role == "positive" and setup_problems and "status" not in observation:
             observation.update(status="fail", reasons=setup_problems)
@@ -393,7 +405,7 @@ def observe(stack: Stack, probes: dict, fixture: dict, granted: set[str], licens
         markers = tuple(expect.get("text_contains", ())) if role == "positive" else ()
         try:
             response = Stack(stack.base_url, stack.api_key, stack.transport, context).send(probe["request"], markers)
-        except (OSError, urllib.error.URLError) as error:
+        except TRANSPORT_ERRORS as error:
             observation.setdefault("status", "fail")
             observation.setdefault("reasons", [f"request failed: {error}"])
             continue
@@ -424,6 +436,13 @@ def coverage_problems(probes: dict) -> list[str]:
             problems.append(f"probe {probe['key']} must declare exactly one of positive / positive_blocked")
         if probe["denial"] not in ("problem", "geoservices"):
             problems.append(f"probe {probe['key']} has unknown denial wire {probe['denial']!r}")
+    for probe in probes["probes"]:
+        fixture = probes["negative_fixture"][probes["catalog"]["gated"][probe["key"]]]
+        for key in probe.get("negative_prerequisites", []):
+            denied_there = [p["key"] for p in probes["probes"]
+                            if probes["negative_fixture"][probes["catalog"]["gated"][p["key"]]] == fixture]
+            if key not in probes["catalog"]["gated"] or key in denied_there:
+                problems.append(f"probe {probe['key']} prerequisite {key} must be a gated key not denied on {fixture}")
     editions = set(probes["catalog"]["gated"].values())
     problems += [f"no negative fixture for {edition} keys" for edition in sorted(editions - set(probes["negative_fixture"]))]
     return problems

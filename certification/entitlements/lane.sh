@@ -40,11 +40,15 @@ export HONUA_SERVER_IMAGE HONUA_PUBLIC_BASE_URL="$BASE" E2E_SERVER_PORT="$PORT"
 COMPOSE=(docker compose -f "$REPO_ROOT/e2e/harness/compose.candidate.yml" -f "$HERE/compose.licensed.yml")
 
 wait_ready() { # the first boot can race the PostGIS image's init restart; restart the server once
-  local i code
-  for i in $(seq 1 60); do
+  local start restarted="" code
+  start="$(date +%s)"
+  while [ $(( $(date +%s) - start )) -lt 600 ]; do
     code="$(curl -s -o /dev/null -m 5 -w '%{http_code}' "$BASE/healthz/ready" || echo 000)"
     [ "$code" = 200 ] && return 0
-    [ "$i" = 30 ] && "${COMPOSE[@]}" restart server >/dev/null 2>&1
+    if [ -z "$restarted" ] && [ $(( $(date +%s) - start )) -ge 120 ]; then
+      "${COMPOSE[@]}" restart server >/dev/null 2>&1
+      restarted=yes
+    fi
     sleep 5
   done
   return 1
@@ -60,6 +64,8 @@ BOOT_FAILURES=()
 # fd 3 carries the list so docker compose and the seeder cannot drain it from stdin.
 while read -r -u 3 FIXTURE EDITION; do
   EDITION="${EDITION%$'\r'}"
+  # ENTITLEMENT_FIXTURES narrows a local re-run to some stacks; CI always runs every fixture.
+  case " ${ENTITLEMENT_FIXTURES:-$FIXTURE} " in *" $FIXTURE "*) ;; *) continue ;; esac
   echo "::group::entitlement fixture: $FIXTURE"
   export COMPOSE_PROJECT_NAME="honua-entitlements-$FIXTURE" HONUA_ENTITLEMENT_EDITION="$EDITION"
   HONUA_ENTITLEMENT_LICENSE="$(cat "$LICENSES/$FIXTURE.honua-license.json")"
