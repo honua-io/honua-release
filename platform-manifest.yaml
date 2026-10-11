@@ -705,11 +705,18 @@ components:
     # configuration: Connections.MaxConcurrentQueries must be less than or equal to
     # Connections.MaxConnectionPoolSize', the server's LimitsOptionsValidator). Still untagged, so pinned
     # by sha and the archive is the sha's own tarball.
+    # 2026-10-11 ADVANCE 64a5da0f -> trunk 4368e3ea (honua-iac#239 merge commit).
+    # #239: reserved concurrency on the control-plane event Lambdas (reconcile 2, backstop 1, tick 1) with
+    # async-invoke retention and scheduler retry policies so throttled ticks queue instead of fanning out
+    # cold starts; on run 38125145738 the per-kind scheduled ticks still exhausted the cell RDS because
+    # frozen Lambda instances never release their pooled connections (the server half releases the pool
+    # at invocation end, next image). Still untagged, so pinned by sha and the archive is the sha's own
+    # tarball.
     version: "pre-release"             # untagged trunk commit; v0.2.0 is the newest tag
-    sha: "64a5da0f5d3030e156eb600103ec617bb84d4eca"   # branch: trunk HEAD 2026-10-11 (honua-iac#238 merge commit)
-    artifact: "archive:https://github.com/honua-io/honua-iac/archive/64a5da0f5d3030e156eb600103ec617bb84d4eca.tar.gz"
-    artifactSourceRevision: "64a5da0f5d3030e156eb600103ec617bb84d4eca"   # the tarball's pax comment
-    artifactSha256: "sha256:ed1bc5c152c49a6f80aceb13aa2e87b72c6d7dd7aa6f6b19b47d0641e7018e0f"   # two anonymous downloads, identical bytes
+    sha: "4368e3ea22a602a26e73af76c9e0cd2fce44ba54"   # branch: trunk HEAD 2026-10-11 (honua-iac#239 merge commit)
+    artifact: "archive:https://github.com/honua-io/honua-iac/archive/4368e3ea22a602a26e73af76c9e0cd2fce44ba54.tar.gz"
+    artifactSourceRevision: "4368e3ea22a602a26e73af76c9e0cd2fce44ba54"   # the tarball's pax comment
+    artifactSha256: "sha256:c15617d34ad7047e89b07f48cfbcb38c4799dacf2c9605e431f3e22d4a719aad"   # two anonymous downloads, identical bytes
 
   honua-helm:
     repository: "https://github.com/honua-io/honua-helm"
