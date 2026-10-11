@@ -885,6 +885,10 @@ SERVERLESS_SPEC = TfTargetSpec(
                              # honua-iac#240: RDS Proxy caps the db.t3.micro connection budget
                              # regardless of Lambda scale-out (run 38133126673: 53300 on the API host).
                              "enable_rds_proxy=true",
+                             # honua-iac#241: leave direct-session headroom on db.t3.micro (runner
+                             # migrate/seed, PostGIS + role-defaults psql): 70% of ~87 max_connections
+                             # = ~60 multiplexed proxy connections; ~21 of ~82 usable slots stay direct.
+                             "rds_proxy_max_connections_percent=70",
                              "image_repository_policy_mode=reuse", "enable_control_plane_events=true",
                              OPERATIONS_POLICY_RULES_VAR, STUDIO_END_USER_AUTHORIZATION_VAR),
     # The manifest's generic server image, amd64 child by digest (resolved by e2e-cloud-aws.yml).
