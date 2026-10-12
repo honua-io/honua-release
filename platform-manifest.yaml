@@ -762,7 +762,25 @@ components:
     # only inside comments, which the contract check permits. Verified green:
     #   gh api --paginate repos/honua-io/honua-helm/commits/4c0a5d2.../check-runs
     #   -> 9 success, 0 failure
-    sha: "4c0a5d2d4da17bc2c132e8aa7c5ba9fe8a66709c"   # branch: trunk, newest green
+    # 2026-10-11 ADVANCE 4c0a5d2d -> trunk 5069bffb (honua-helm#99 merge commit; 24 commits ahead, 0
+    # behind; carries #98 at fa3bbf9d). The aws-eks cells install the chart from this source sha
+    # (e2e-cloud-aws-cell.yml checks out honua-helm at helm_ref = this sha; e2e/targets/aws_eks.py
+    # helm-installs the checkout), not from an OCI digest. At 4c0a5d2 the chart declares no
+    # geoprocessing.kubernetesJobs, so e2e-cloud-aws run 38145777594 installed the EKS cells without
+    # GP on Kubernetes Jobs. This sha adds: #98 (the Kubernetes Job GP backend: values, Job RBAC,
+    # job service account, kind smoke), #99 (GP Job workers take the server's runtime Secret and
+    # ConfigMap through envFrom, honua-server#5796), #65 (Redis-free Production installs), #92 (the
+    # application Service selects only server pods), #80 (licensing disabled by default). Push CI at
+    # this sha: lint-chart, install-upgrade-rollback-smoke, GP on Kubernetes Jobs kind smoke, Trivy
+    # fs, Checkov, Scorecard, CodeQL (python, actions), OKF bundle, no-ai-attribution all success.
+    # The one failure is the scheduled Nightly Chart Publication (run 38163965362, "Publish chart by
+    # digest"): "no honua-release nightly candidate is stamped (refs/nightly-candidates/*); nothing
+    # to publish" -- the honua-release#482 chicken-and-egg, so `artifact` stays the unpublished
+    # oci-chart coordinate with no digest. Source-tarball evidence (not an artifact claim):
+    # https://github.com/honua-io/honua-helm/archive/5069bffb27a1fe48485bf48c798804821a59e61a.tar.gz,
+    # two anonymous downloads, identical bytes, sha256
+    # 6d2f3355d3b84c810d1b07ad283c1191049bc4011b0b2ffcfafd26f0a08d4e35, pax comment = this sha.
+    sha: "5069bffb27a1fe48485bf48c798804821a59e61a"   # branch: trunk HEAD 2026-10-11 (honua-helm#99 merge commit)
     artifact: "oci-chart:honua"
 
 # Customer-installable certification inputs. These are package bytes, not deployable platform
