@@ -275,9 +275,9 @@ def test_gp_job_env_from_is_not_rendered_for_a_chart_that_does_not_declare_it(ce
     assert "envFromServer" not in cell.chart_values(False)["geoprocessing"]["kubernetesJobs"]
 
 
-def test_the_pinned_server_predates_gp_job_env_from():
-    """honua-server 93cad86 (the manifest pin) carries #5780 but not #5796 (bebaada00); the re-pin to
-    a build that contains bebaada00 flips SERVER_PIN_HONOURS_GP_JOB_ENV_FROM and this assertion."""
+def test_the_gp_job_env_from_flag_follows_the_server_pin():
+    """honua-server 93cad86 carried #5780 but not #5796 (bebaada00); the 2026-10-12 re-pin to 0e03bdd06
+    contains bebaada00, so SERVER_PIN_HONOURS_GP_JOB_ENV_FROM is True for any later pin."""
     manifest = yaml.safe_load((Path(__file__).resolve().parents[1] / "platform-manifest.yaml")
                               .read_text(encoding="utf-8"))
     server = manifest["components"]["honua-server"]["sha"]

@@ -227,12 +227,12 @@ class ContractTests(unittest.TestCase):
         self.assertEqual(CELLS["interop-api-key-revocation"]["status"], "active")
         self.assertNotIn("blockedSteps", CELLS["interop-api-key-revocation"])
         # honua-server#5433 is in the 798d517 pin: the proposal, both approvals and the published pointer pass.
+        # honua-server#5794 is in the 0e03bdd pin and Honua.Sdk 1.11.0 carries honua-sdk-dotnet#425, so
+        # publication-url and published-content pass too; only the .NET published-route reader is missing.
         approval = CELLS["interop-proposal-approval"]["blockedSteps"]
-        self.assertEqual(set(approval), {"publication-url", "published-content", "published-url"})
+        self.assertEqual(set(approval), {"published-url"})
         self.assertEqual(approval["published-url"]["blockedBy"], "https://github.com/honua-io/honua-sdk-dotnet/issues/411")
-        self.assertEqual(approval["published-content"]["blockedBy"], "https://github.com/honua-io/honua-server/issues/5449")
-        self.assertEqual(approval["publication-url"]["blockedBy"], "https://github.com/honua-io/honua-server/issues/5788")
-        self.assertTrue(all("5433" not in entry["blockedBy"] for entry in approval.values()))
+        self.assertTrue(all(issue not in entry["blockedBy"] for entry in approval.values() for issue in ("5433", "5449", "5788")))
 
 
 class OracleTests(unittest.TestCase):
@@ -468,10 +468,15 @@ class SeamTests(unittest.TestCase):
         self.assertIn("contract names", detail)
 
     def test_the_declared_signatures_match_the_recorded_summaries(self):
-        """The 798d517 run: everything through the published pointer passes; three steps are blocked as declared."""
+        """The 0e03bdd shape: honua-server#5794 serves publicationUrl and contentHashInput and Honua.Sdk 1.11.0
+        reports the input, so everything through published-content passes; only published-url is blocked."""
         sid, p = "interop-proposal-approval", plan()
         steps = [step["id"] for step in SCENARIOS[sid]["steps"]]
-        body, digest = p["proposal"]["envelope"]["body"], "a" * 64
+        body = p["proposal"]["envelope"]["body"]
+        canonical = json.dumps({"family": "map", "body": body}).encode()
+        digest = hashlib.sha256(canonical).hexdigest()
+        encoded = base64.b64encode(canonical).decode()
+        url = "http://c" + p["proposal"]["route"]
         version = {"itemId": "i", "versionId": "v", "contentHash": digest}
         observations = {
             (sid, "create-draft"): obs(sid, "create-draft", observed={"draftId": "d", "itemId": "i", "family": "map", "validation": "valid"}),
@@ -484,23 +489,31 @@ class SeamTests(unittest.TestCase):
             (sid, "proposal-resolved"): obs(sid, "proposal-resolved", observed={
                 "status": "Succeeded", "kind": "StudioDraftMutation", "requestedBy": "x:p-id", "resolvedBy": "x:a-id"}),
             (sid, "publication-url"): obs(sid, "publication-url", observed={
-                "requestId": "r", "state": "Active", "active": True, "publicationUrl": None, "status": "accepted"}),
+                "requestId": "r", "state": "Active", "active": True, "publicationUrl": url, "status": "accepted"}),
             (sid, "published-pointer"): obs(sid, "published-pointer", observed={"publishedVersionId": "v"}),
-            (sid, "published-content"): obs(sid, "published-content", observed={"family": "Map", "contentHash": digest, "body": body}),
+            (sid, "published-content"): obs(sid, "published-content", observed={
+                "family": "Map", "contentHash": digest, "body": body, "contentHashInput": encoded}),
             (sid, "published-url"): obs(sid, "published-url", unsupported=(
                 "Honua.Sdk has no reader for a published Studio route (no published-content API in any Honua.Sdk.* package)")),
         }
         status, detail, rows = evaluate(sid, observations, p)
         self.assertEqual(status, "blocked", detail)
         self.assertEqual([row["step"] for row in rows], steps)
-        self.assertEqual({row["step"] for row in rows if row["status"] == "blocked"},
-                         {"publication-url", "published-content", "published-url"})
-        # A content hash the .NET read does not share with the JS save is a difference, not the #5449 blocker.
+        self.assertEqual({row["step"] for row in rows if row["status"] == "blocked"}, {"published-url"})
+        # The pre-#5794 shapes are no longer declared blockers: a read without the final URL or without the
+        # canonical hash input is red.
         drift = dict(observations)
-        drift[(sid, "published-content")] = obs(sid, "published-content", observed={"family": "Map", "contentHash": "b" * 64, "body": body})
-        status, detail, _ = evaluate(sid, drift, p)
-        self.assertEqual(status, "fail")
-        self.assertIn("was not observed", detail)
+        drift[(sid, "publication-url")] = obs(sid, "publication-url", observed={
+            "requestId": "r", "state": "Active", "active": True, "publicationUrl": None, "status": "accepted"})
+        self.assertEqual(evaluate(sid, drift, p)[0], "fail")
+        drift = dict(observations)
+        drift[(sid, "published-content")] = obs(sid, "published-content", observed={"family": "Map", "contentHash": digest, "body": body})
+        self.assertEqual(evaluate(sid, drift, p)[0], "fail")
+        # A content hash the .NET read does not share with the JS save is a difference.
+        drift = dict(observations)
+        drift[(sid, "published-content")] = obs(sid, "published-content", observed={
+            "family": "Map", "contentHash": "b" * 64, "body": body, "contentHashInput": encoded})
+        self.assertEqual(evaluate(sid, drift, p)[0], "fail")
         # A publication that never reaches Active is not the missing-URL blocker either.
         drift = dict(observations)
         drift[(sid, "publication-url")] = obs(sid, "publication-url", observed={

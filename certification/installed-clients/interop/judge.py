@@ -391,7 +391,8 @@ def content_hash_derived(observed: dict[str, Any], body: Any) -> tuple[bool, str
     Two clients reporting the same digest prove only that they read the same server value. The server
     hashes its source-generated serialization of the whole stored envelope, so the digest cannot be
     rebuilt from the fixture without copying that contract; the reader hands over the canonical input
-    bytes (base64 `contentHashInput`) instead. No published client exposes them yet: honua-server#5449.
+    bytes (base64 `contentHashInput`) instead (honua-server#5449): honua-server#5794 serves them and Honua.Sdk
+    1.11.0 exposes them (honua-sdk-dotnet#425).
     """
     encoded, digest = observed.get("contentHashInput"), observed.get("contentHash")
     if not isinstance(encoded, str) or not encoded:

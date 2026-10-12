@@ -114,11 +114,11 @@ GP_IMAGE_ENV = "HONUA_GP_BATCH_IMAGE"
 # ControlPlane:Kubernetes:DefaultEnvFromSecrets/DefaultEnvFromConfigMaps). The chart's
 # geoprocessing.kubernetesJobs.envFromServer (honua-helm#99) depends on it: an older server ignores the
 # setting and its GP workers start without the database, Redis and master key that this cell keeps in
-# its external runtime Secret. The pinned server 93cad86 carries #5780 (the worker-only profile) but
-# predates #5796, so the cell renders envFromServer=false and says so instead of claiming a wiring the
-# server cannot honour. The re-pin that moves components.honua-server.sha to a build containing
-# bebaada00 flips this to True in the same pull request.
-SERVER_PIN_HONOURS_GP_JOB_ENV_FROM = False
+# its external runtime Secret. The previous pin 93cad86 carried #5780 (the worker-only profile) but
+# predated #5796, so the cell rendered envFromServer=false. The 2026-10-12 re-pin to 0e03bdd06 carries
+# bebaada00 (`git merge-base --is-ancestor bebaada00 0e03bdd06`), so the cell now renders
+# envFromServer=true.
+SERVER_PIN_HONOURS_GP_JOB_ENV_FROM = True
 
 NAMESPACE = "honua-cert"
 RELEASE = "honua"
