@@ -14,7 +14,7 @@
         "npm:create-honua-app"
       ],
       "kind": "blocked-on-republish",
-      "publication": "npm create-honua-app@0.1.8 template pins"
+      "publication": "npm create-honua-app@0.1.9 template pins"
     },
     {
       "boundary": "Anonymous GHCR token for repository:honua-io/charts/honua:pull was denied, so oci://ghcr.io/honua-io/charts/honua has no public tag list. honua-helm .github/workflows/release.yml refuses appVersion 0.0.0 and requires a published ghcr.io/honua-io/honua-server:v<semver>-aot image before it will push a chart. This repo does not invent that server SemVer or an appVersion.",
@@ -128,10 +128,10 @@
       "evidence_class": "downloaded-bytes",
       "files": [
         {
-          "filename": "create-honua-app-0.1.8.tgz",
-          "registry_shasum": "8901cb94d9f232f292342b25e2adbb570475c8dc",
-          "sha256": "2aa9728137bab0fbebc432e1a6c2b3ca2793d98459eb5545cbd976c7e4ade0b1",
-          "url": "https://registry.npmjs.org/create-honua-app/-/create-honua-app-0.1.8.tgz"
+          "filename": "create-honua-app-0.1.9.tgz",
+          "registry_shasum": "c675ac4c44c32b0de395cb258fb1b1d93120f288",
+          "sha256": "b53c50879d6eab716196c5b8d16941c714f2d1e21a43abbbcbe14a68e9193da5",
+          "url": "https://registry.npmjs.org/create-honua-app/-/create-honua-app-0.1.9.tgz"
         }
       ],
       "http_status": 200,
@@ -140,7 +140,7 @@
       "maplibre_pins": [
         "6.4.1"
       ],
-      "publication": "npm create-honua-app@0.1.8",
+      "publication": "npm create-honua-app@0.1.9",
       "sdk_pin_statuses": {
         "0.1.14": 200
       },
@@ -162,9 +162,9 @@
       ],
       "urls": [
         "https://registry.npmjs.org/create-honua-app",
-        "https://registry.npmjs.org/create-honua-app/-/create-honua-app-0.1.8.tgz"
+        "https://registry.npmjs.org/create-honua-app/-/create-honua-app-0.1.9.tgz"
       ],
-      "version": "0.1.8"
+      "version": "0.1.9"
     },
     {
       "disposition": "published",
@@ -715,6 +715,6 @@
   },
   "issue": "honua-io/honua-release#57",
   "method": "Anonymous HTTPS with no Authorization header. published rows are sha256 of bytes this probe downloaded. listed rows are registry indexes only. Blocked rows name the publication and the operator boundary and do not carry package bytes. deferred-experimental rows are channels of a component the platform manifest lists under experimental:; they are not GA evidence and not release blockers.",
-  "observed_at": "2026-10-12T03:35:56Z",
+  "observed_at": "2026-10-12T04:23:14Z",
   "schema": "honua.first-publication-preflight/v1"
 }

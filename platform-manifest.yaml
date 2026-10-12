@@ -879,13 +879,13 @@ clientArtifacts:
   create-honua-app:
     ecosystem: "npm"
     package: "create-honua-app"
-    version: "0.1.8"
-    integrity: "sha512-ejttm+VP6NKJDAdnsQUPML4/DFHcupzlZ9MeKsWj9HASBFONYhxI+mMkBD3L5uu9WMRQh98KnKwpHGR65sbbXw=="
+    version: "0.1.9"
+    integrity: "sha512-rsAIuboBuqoWuqFvzSpV7l4RV60HXpQOdaQTItp3+tu6fXfXIPBf1mFtNGxw8co1wDwgmy1aSUjVGYD/EwkoMw=="
     repository: "honua-io/honua-sdk-js"
-    sourceSha: "db2fcdebb1446ef636361027e67ecd2971108a3e"
+    sourceSha: "4ded33a5ee77cc3b289f85740f315d5f4a122fae"
     publicationState: "published"
     targets: [node]
-    filename: "create-honua-app-0.1.8.tgz"
+    filename: "create-honua-app-0.1.9.tgz"
   honua-sdk-python-wheel:
     ecosystem: pypi
     package: "honua-sdk"
