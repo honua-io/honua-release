@@ -3185,6 +3185,17 @@ def test_demos_geoprocessing_topology_verdicts_hold_for_both_topologies():
     assert completed.returncode == 0, completed.stdout + completed.stderr
 
 
+# ---- S9 demo call log (run 38192851328, aws-serverless): a gateway 5xx without CORS headers is a call
+# the sample made, not a shim failure; the editing/workbench verdicts name who answered.
+def test_demos_call_log_attributes_gateway_answers_and_cors_blocked_calls():
+    node = shutil.which("node")
+    if not node:
+        pytest.skip("node is not installed")
+    completed = subprocess.run([node, "--test", str(E2E_DIR / "drivers/demos/backend-calls.test.mjs")],
+                               capture_output=True, text=True, timeout=120)
+    assert completed.returncode == 0, completed.stdout + completed.stderr
+
+
 def _demos_topology_plumbing(declared, topology):
     """Run run.sh's own topology block against a stub candidate; return what drive.mjs would receive."""
     script = (E2E_DIR / "drivers/demos/run.sh").read_text(encoding="utf-8")
