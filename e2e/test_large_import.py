@@ -211,8 +211,11 @@ class _Cell:
 
     def __init__(self, *, threshold=64 * MIB, memory=100 * MIB, upload=None, job_states=("Queued", "Processing",
                  "Completed"), job_error=None, features=None, layer=7, count=None, publish_status=201,
-                 envelope=False, runner=None, jobs_runner=True):
+                 envelope=False, runner=None, jobs_runner=True, appears_after=None, list_status=200):
         self.threshold, self.memory = threshold, memory
+        # appears_after: the layer-list read (1-based) from which the publish has committed (None: never);
+        # list_status: what the layer list answers.
+        self.appears_after, self.list_status, self.list_reads = appears_after, list_status, 0
         self.upload = upload
         self.job_states, self.job_error = list(job_states), job_error
         self.features, self.layer, self.count, self.publish_status = features, layer, count, publish_status
@@ -253,7 +256,18 @@ class _Cell:
                 doc["errorMessage"] = self.job_error
             return 200, doc
         if path.endswith("/layers") and method == "POST":
+            if self.publish_status == 504:  # the ALB's own answer: an HTML page, no JSON
+                return 504, None
             return self.publish_status, {"data": {"layerId": self.layer}}
+        if "/layers?serviceName=" in path and method == "GET":
+            self.list_reads += 1
+            if self.list_status != 200:
+                return self.list_status, {"title": "Service Unavailable"}
+            other = {"layerId": 3, "layerName": "other", "schema": "honua_data", "table": "imported_other"}
+            mine = {"layerId": self.layer, "layerName": "s10-large-import", "schema": "honua_data",
+                    "table": "imported_s10_large_import", "serviceName": "s10-large-import"}
+            committed = self.appears_after is not None and self.list_reads >= self.appears_after
+            return 200, {"success": True, "data": [other] + ([mine] if committed else [])}
         if path == s10.MANIFEST_PATH:
             entries = [{"id": "operations.proposals", "available": True}]
             if self.jobs_runner is not None:
@@ -272,7 +286,8 @@ def _serve(cell):
             length = int(self.headers.get("Content-Length") or 0)
             body = json.loads(self.rfile.read(length)) if length else None
             status, document = cell.answer(self.command, self.path, body, self.headers.get("X-API-Key"))
-            raw = json.dumps(document).encode()
+            raw = (b"<html><body><h1>504 Gateway Time-out</h1></body></html>" if document is None
+                   else json.dumps(document).encode())
             self.send_response(status)
             self.send_header("Content-Type", "application/json")
             self.send_header("Honua-Instance", "task-a" if cell.reads % 2 == 0 else "task-b")
@@ -290,7 +305,8 @@ def _serve(cell):
     return server
 
 
-def _scenario(cell, *, redis="redis-on", staged=True, source_url=URL, timeout=60.0, seed=True):
+def _scenario(cell, *, redis="redis-on", staged=True, source_url=URL, timeout=60.0, seed=True,
+              publish_converge=s10.PUBLISH_CONVERGE_SECONDS):
     pin = fx.LARGE if redis == "redis-on" else fx.SMALL
     record = {"scenario": s10.SCENARIO, "variant": "positive" if redis == "redis-on" else "redis-off",
               "fixture": pin.name, "features": pin.features, "bytes": pin.bytes, "fixtureSha256": pin.sha256,
@@ -307,7 +323,7 @@ def _scenario(cell, *, redis="redis-on", staged=True, source_url=URL, timeout=60
                 {"redis": redis, "s10": record}, f"http://127.0.0.1:{server.server_address[1]}", ADMIN_KEY,
                 source_url=source_url, seed_manifest=manifest, clock=lambda: clock["t"],
                 sleep=lambda seconds: clock.__setitem__("t", clock["t"] + seconds), job_timeout=timeout,
-                poll_seconds=5.0)
+                poll_seconds=5.0, publish_converge=publish_converge)
     finally:
         server.shutdown()
         server.server_close()
@@ -334,6 +350,9 @@ def test_a_redis_on_cell_follows_the_background_job_to_success_and_counts_the_pi
     assert receipt["source"] == f"s3://{BUCKET}/sha256:{'ab' * 32}"
     assert set(receipt["instances"]) <= {"task-a", "task-b"} and receipt["layerId"] == 7
     assert set(receipt) <= set(s10.RECEIPT_FIELDS)
+    assert (receipt["publishPath"], receipt["publishAnswered"]) == ("admin-layers", 201)
+    assert "publishConvergedSeconds" not in receipt and "converged" not in row.why
+    assert not any("/layers?serviceName=" in path for _, path, _ in cell.requests)
     upload = next(body for method, path, body in cell.requests if path == s10.UPLOAD_URL_PATH)
     assert upload["sourceUrl"] == URL and upload["forceBackground"] is False
     assert upload["fileName"] == fx.LARGE.name and upload["targetSchema"] == "honua_data"
@@ -548,3 +567,78 @@ def test_redis_on_cells_pass_the_background_threshold_only_when_the_root_declare
     assert values((name,), True)[name] == "67108864"
     assert name not in values((name,), False)
     assert tt.IMPORT_BACKGROUND_THRESHOLD_VAR in tt.ECS_SPEC.redis_on_declared_vars
+
+
+# ---- publishing a large table: the 504 from the ALB idle timeout (fix unit J22, run 38249563601) ---------
+def test_a_publish_that_answers_504_converges_on_the_layer_list_and_still_counts():
+    cell = _Cell(publish_status=504, appears_after=4)
+    row, receipt = _scenario(cell)
+    assert row.status == "pass", row.why
+    assert row.why.endswith("holds the pinned 330000 rows; publish answered 504, converged after 15s")
+    assert (receipt["publishAnswered"], receipt["publishReads"], receipt["publishConvergedSeconds"]) == (504, 4, 15)
+    assert receipt["layerId"] == 7 and receipt["rowCount"] == fx.LARGE.features
+    paths = [(method, path) for method, path, _ in cell.requests]
+    assert sum(1 for method, path in paths if method == "POST" and path.endswith("/layers")) == 1  # never re-POSTed
+    assert ("GET", "/api/v1/admin/connections/3f2b8c1e-5d4a-4e7b-9c0d-1a2b3c4d5e6f/layers?serviceName="
+                   "s10-large-import") in paths
+    assert any("/rest/services/s10-large-import/FeatureServer/7/query" in path for _, path in paths)
+
+
+@pytest.mark.parametrize("list_status,last", [
+    (200, "last read answered 200 with 1 layers in s10-large-import"),
+    (503, "last read answered 503"),
+])
+def test_a_publish_that_answers_504_and_never_appears_fails_naming_the_wait(list_status, last):
+    assert s10.PUBLISH_CONVERGE_SECONDS == 360  # the live wait; the test shortens it to 30s
+    cell = _Cell(publish_status=504, list_status=list_status)
+    row, receipt = _scenario(cell, publish_converge=30)
+    assert row.status == "fail"
+    assert (f"{s10.SCENARIO}: publish-not-converged: publishing honua_data.imported_s10_large_import answered 504 "
+            f"after 0.0s and no layer for that table appeared in 7 layer-list reads over 30s ({last}); ") in row.why
+    assert "abort token" in row.why and row.why.endswith(f"({s10.PUBLISH_FOLLOW_UP})")
+    assert receipt["publishAnswered"] == 504 and receipt["publishReads"] == 7
+    assert "layerId" not in receipt and "rowCount" not in receipt and "publishConvergedSeconds" not in receipt
+    assert not any("/FeatureServer/" in path for _, path, _ in cell.requests)
+
+
+def test_a_publish_refused_by_the_server_fails_on_its_answer_without_reading_the_list():
+    cell = _Cell(publish_status=409)
+    row, receipt = _scenario(cell)
+    assert row.status == "fail"
+    assert "publishing honua_data.imported_s10_large_import answered 409" in row.why
+    assert receipt["publishAnswered"] == 409 and "publishReads" not in receipt
+    assert not any("/layers?serviceName=" in path for _, path, _ in cell.requests)
+
+
+def test_no_publish_answer_is_treated_like_a_gateway_timeout():
+    def request(method, url, key, body=None):
+        if method == "POST" and url.endswith("/layers"):
+            return 0, None, None
+        status, document = cell.answer(method, "/" + url.split("/", 3)[3], body, key)
+        return status, document, "task-a"
+
+    cell = _Cell(appears_after=1)
+    record = {"scenario": s10.SCENARIO, "variant": "positive", "fixture": fx.LARGE.name,
+              "features": fx.LARGE.features, "bytes": fx.LARGE.bytes, "fixtureSha256": fx.LARGE.sha256,
+              "staged": True, "bucket": BUCKET, "region": REGION, "keySha256": "ab" * 32}
+    clock = {"t": 0.0}
+    with tempfile.TemporaryDirectory() as scratch:
+        manifest = Path(scratch) / "seed-manifest.json"
+        manifest.write_text(json.dumps({"connectionId": "c1"}))
+        row = s10.run_scenario({"redis": "redis-on", "s10": record}, "http://cell.invalid", ADMIN_KEY,
+                               source_url=URL, seed_manifest=manifest, request=request,
+                               clock=lambda: clock["t"],
+                               sleep=lambda seconds: clock.__setitem__("t", clock["t"] + seconds))
+    assert row.status == "pass", row.why
+    receipt = row.evidence["scenarios"][0]["evidence"]
+    assert receipt["publishAnswered"] == 0 and receipt["publishReads"] == 1
+    assert row.why.endswith("publish answered nothing, converged after 0s")
+
+
+def test_find_layer_matches_schema_and_table_only():
+    listing = {"data": [{"layerId": 1, "schema": "honua_data", "table": "imported_x"},
+                        {"layerId": "2", "schema": "honua_data", "table": "imported_s10_large_import"},
+                        {"layerId": 9, "schema": "HONUA_DATA", "table": "Imported_S10_Large_Import"}]}
+    assert s10.find_layer(listing, "honua_data", "imported_s10_large_import") == 9
+    assert s10.find_layer({"data": []}, "honua_data", "imported_x") is None
+    assert s10.find_layer(None, "honua_data", "imported_x") is None

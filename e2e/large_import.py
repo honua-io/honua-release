@@ -28,6 +28,19 @@ available...` (ImportEndpoints.cs:643-647 at honua-server 93cad86ec); that refus
 
 A job that stops changing state fails `job-stalled` on either topology, naming the last transition,
 the time since it and the instances that answered the status reads.
+
+Publishing the imported table (fix unit J22). honua-server has no asynchronous publish: `service.publish`
+(the operation behind stage 3's `honua_publish_service`) is ExecutionKind Synchronous and its executor
+calls the same `ILayerPublishingService.PublishLayerAsync` inline (ServicePublishOperation.cs:39,
+ServicePublishExecutor.cs:120,168 at 0e03bdd06), so routing S10 through it would add an operation
+handle but not remove the wait. On the 330,000-row table the publish transaction (geometry-health scan,
+extent scan, a one-time copy of every row into the canonical `features` snapshot, extent refresh) outlives
+the ECS ALB's 60 s idle timeout and the cell answers 504 (run 38249563601). S10 therefore keeps the admin
+publish and, when it answers 504 or nothing, reads the connection's layer list until the layer for the
+imported table appears (PUBLISH_CONVERGE_SECONDS), recording `publishAnswered` and how long convergence
+took. It never re-POSTs. The admin publish runs on the request's abort token
+(LayerPublishingEndpoints.cs:228-231), so a gateway that drops the connection may roll the publish back;
+a layer that never appears fails `publish-not-converged`, naming the answer, the wait and the last read.
 """
 from __future__ import annotations
 
@@ -64,6 +77,15 @@ JOB_TIMEOUT_SECONDS = 1200
 POLL_SECONDS = 5.0
 REQUEST_TIMEOUT_SECONDS = 120
 TERMINAL = {"completed", "failed", "cancelled"}
+# The publish answers that leave its outcome unknown: a gateway timeout (the ECS ALB's 60 s idle timeout
+# answers 504) or no answer within REQUEST_TIMEOUT_SECONDS. Anything else is the publish's own verdict.
+PUBLISH_UNKNOWN = {0, 504}
+# How long S10 reads the layer list after such an answer: the server's snapshot materialization budget
+# (LayerPublishing:MaterializationTimeoutSeconds, default 300, LayerPublishingOptions.cs:13) plus a minute.
+PUBLISH_CONVERGE_SECONDS = 360
+PUBLISH_PATH = "admin-layers"
+# The server change that would let a large publish answer inside a gateway's idle timeout.
+PUBLISH_FOLLOW_UP = "server follow-up: asynchronous service.publish"
 # ImportStatus serializes as its name or its ordinal, depending on the serializer options.
 _STATUS_ORDINALS = {0: "queued", 1: "processing", 2: "completed", 3: "failed", 4: "cancelled"}
 
@@ -89,6 +111,7 @@ LIMITS_PATH = "/api/v1/admin/import/limits"
 UPLOAD_URL_PATH = "/api/v1/admin/import/upload-url"
 JOB_PATH = "/api/v1/admin/import/jobs/{job}"
 LAYERS_PATH = "/api/v1/admin/connections/{connection}/layers"
+LIST_LAYERS_PATH = LAYERS_PATH + "?serviceName={service}"
 COUNT_PATH = "/rest/services/{service}/FeatureServer/{layer}/query?where=1%3D1&returnCountOnly=true&f=json"
 INSTANCE_HEADER = "Honua-Instance"
 
@@ -99,7 +122,8 @@ RECEIPT_FIELDS = ("scenario", "topology", "variant", "fixture", "fixtureSha256",
                   "uploadStatus", "jobId", "queuedAt", "completedAt", "durationSeconds", "durationMs",
                   "transitions", "jobStatus", "featuresProcessed", "layerId", "service", "rowCount",
                   "executor", "executorBasis", "jobRunner", "jobsRunnerCapability", "instances",
-                  "statusInstances", "stall", "refusal")
+                  "statusInstances", "stall", "refusal", "publishPath", "publishAnswered", "publishMs",
+                  "publishConvergedSeconds", "publishReads")
 
 _BUCKET = re.compile(r"[a-z0-9][a-z0-9.-]{1,61}[a-z0-9]\Z")
 _CELL = re.compile(r"(aws-ecs|aws-serverless|aws-eks|stub)/redis-(on|off)\Z")
@@ -384,6 +408,37 @@ def executor_basis(capability: dict | None) -> str:
             "UniversalImportJobService inside the host that accepted the upload")
 
 
+def layer_list(document) -> list:
+    """The layers a layer-list answer carries: its `data` array when enveloped, else the array itself."""
+    if isinstance(document, dict):
+        document = document.get("data")
+    return document if isinstance(document, list) else []
+
+
+def find_layer(listing, schema: str, table: str) -> int | None:
+    """The id of the published layer whose source is schema.table in a layer-list answer, or None."""
+    for entry in layer_list(listing):
+        if (isinstance(entry, dict) and str(entry.get("schema") or "").lower() == schema.lower()
+                and str(entry.get("table") or "").lower() == table.lower()
+                and _int(entry.get("layerId")) is not None):
+            return entry["layerId"]
+    return None
+
+
+def status_text(status) -> str:
+    return str(status) if status else "nothing"
+
+
+def publish_not_converged(target: str, answered: int, publish_ms: int, *, wait: float, reads: int,
+                          last: str) -> str:
+    """The `publish-not-converged` failure: the answer, how long it took, the wait and the last read."""
+    return (f"publish-not-converged: publishing {target} answered {status_text(answered)} after "
+            f"{publish_ms / 1000:.1f}s and no layer for that table appeared in {reads} layer-list reads over "
+            f"{int(wait)}s (last read {last}); service.publish has no asynchronous mode and the admin publish "
+            "runs on the request's abort token, so a gateway timeout can roll the publish transaction back "
+            f"({PUBLISH_FOLLOW_UP})")
+
+
 def stall_detail(job: str, transitions: list, *, timeout: float, since: float, instances: list) -> str:
     """The `job-stalled` failure: last transition, time since it, who answered, the server item."""
     last = transitions[-1] if transitions else {"status": "missing", "at": "never"}
@@ -399,7 +454,8 @@ def stall_detail(job: str, transitions: list, *, timeout: float, since: float, i
 def run_scenario(state: dict, endpoint: str, admin_key: str, *, source_url: str | None,
                  seed_manifest: Path | None = None, request=admin_request, clock=time.monotonic,
                  sleep=time.sleep, job_timeout: float = JOB_TIMEOUT_SECONDS,
-                 poll_seconds: float = POLL_SECONDS) -> CheckResult | None:
+                 poll_seconds: float = POLL_SECONDS,
+                 publish_converge: float = PUBLISH_CONVERGE_SECONDS) -> CheckResult | None:
     """S10 on a live cell, from the journey job. None when provision recorded no S10 staging."""
     record = state.get("s10")
     if not isinstance(record, dict):
@@ -534,14 +590,38 @@ def run_scenario(state: dict, endpoint: str, admin_key: str, *, source_url: str 
     if not connection:
         return _row("fail", label + "the job completed but the seed recorded no connection to publish the imported "
                             "table through", fields)
-    status, published = call("POST", LAYERS_PATH.format(connection=urllib.parse.quote(connection, safe="")), {
+    quoted, target = urllib.parse.quote(connection, safe=""), f"{SCHEMA}.imported_{table}"
+    publish_started = clock()
+    status, published = call("POST", LAYERS_PATH.format(connection=quoted), {
         "schema": SCHEMA, "table": "imported_" + table, "layerName": service, "serviceName": service,
         "geometryColumn": "geometry", "geometryType": "Point", "primaryKey": "id", "srid": 4326,
         "enabled": True})
+    publish_ms = int((clock() - publish_started) * 1000)
+    fields.update(publishPath=PUBLISH_PATH, publishAnswered=status, publishMs=publish_ms)
     layer = ((published or {}).get("data") or {}).get("layerId") if isinstance(published, dict) else None
-    if status not in (200, 201) or _int(layer) is None:
+    converged = None
+    if status in PUBLISH_UNKNOWN:
+        # The publish may still be running (or have committed) behind the gateway: read, never re-POST.
+        reads, last_read, deadline = 0, "none", clock() + publish_converge
+        while True:
+            list_status, listing = call("GET", LIST_LAYERS_PATH.format(
+                connection=quoted, service=urllib.parse.quote(service, safe="")))
+            reads += 1
+            layer = find_layer(listing, SCHEMA, "imported_" + table) if list_status == 200 else None
+            last_read = (f"answered 200 with {len(layer_list(listing))} layers in {service}"
+                         if list_status == 200 else f"answered {status_text(list_status)}")
+            if layer is not None or clock() >= deadline:
+                break
+            sleep(poll_seconds)
+        fields["publishReads"] = reads
+        if layer is None:
+            return _row("fail", label + publish_not_converged(target, status, publish_ms, wait=publish_converge,
+                                                              reads=reads, last=last_read), fields)
+        converged = int(clock() - publish_started)
+        fields["publishConvergedSeconds"] = converged
+    elif status not in (200, 201) or _int(layer) is None:
         detail = scrub(server_message(published), secrets)
-        return _row("fail", label + f"publishing {SCHEMA}.imported_{table} answered {status or 'nothing'}"
+        return _row("fail", label + f"publishing {target} answered {status_text(status)}"
                             + (f": {detail}" if detail else ""), fields)
     fields.update(layerId=layer, service=service)
     status, counted = call("GET", COUNT_PATH.format(service=service, layer=layer))
@@ -553,7 +633,9 @@ def run_scenario(state: dict, endpoint: str, admin_key: str, *, source_url: str 
                     fields)
     if rows != int(record["features"]):
         return _row("fail", label + f"the published layer holds {rows} rows, not the pinned {record['features']}", fields)
+    publish_note = (f"; publish answered {status_text(fields['publishAnswered'])}, converged after {converged}s"
+                    if converged is not None else "")
     return _row("pass", label + f"background job {job} ran {fields['executor']} and imported {record['bytes']} "
                         f"bytes from {fields.get('sourceUrlHost')} ({last} in "
-                        f"{fields.get('durationSeconds', 'unknown')}s); {service}/{layer} holds the pinned {rows} rows",
-                fields)
+                        f"{fields.get('durationSeconds', 'unknown')}s); {service}/{layer} holds the pinned {rows} rows"
+                        + publish_note, fields)
