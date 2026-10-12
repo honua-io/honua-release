@@ -104,6 +104,16 @@ class OwnershipAndResolverTests(unittest.TestCase):
             self.assertNotEqual(env['npm_config_userconfig'], env['npm_config_globalconfig'])
             self.assertEqual(Path(env['npm_config_userconfig']).read_text(), '')
 
+    def test_published_module_inspection_also_uses_candidate_environment(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            with patch.dict(os.environ, {'AWS_SECRET_ACCESS_KEY':'private-cloud', 'GH_TOKEN':'private-token'}):
+                with patch.object(replay.subprocess, 'check_output', return_value='{"image":"immutable","mcp":"exact"}') as call:
+                    self.assertEqual(replay.published_installer_pins(root/'published.js', root)['mcp'], 'exact')
+                    self.assertNotIn('AWS_SECRET_ACCESS_KEY', call.call_args.kwargs['env'])
+                    self.assertNotIn('GH_TOKEN', call.call_args.kwargs['env'])
+                    self.assertEqual(call.call_args.args[0][-1], (root/'published.js').as_uri())
+
     def test_compose_cleanup_only_random_owned_project(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)

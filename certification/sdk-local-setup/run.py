@@ -64,6 +64,13 @@ def isolated_env(root, inherited=None):
     return env
 
 
+def published_installer_pins(source, root):
+    code = 'const m=await import(process.argv[1]);console.log(JSON.stringify({image:m.LOCAL_INSTALL_SERVER_IMAGE,mcp:m.LOCAL_INSTALL_MCP_PACKAGE}));'
+    return json.loads(subprocess.check_output(
+        ['node', '--input-type=module', '-e', code, source.as_uri()],
+        text=True, env=isolated_env(root)))
+
+
 def compose_args(root):
     """Only an installer-created random project inside this private run is owned."""
     stack = root/'stack'
@@ -222,8 +229,7 @@ def main():
             if pkg['name'] != expected['name'] or pkg['version'] != expected['version']:
                 raise RuntimeError('installed package identity mismatch')
         source = sdk/'dist/src/local-install.js'
-        code = 'const m=await import(process.argv[1]);console.log(JSON.stringify({image:m.LOCAL_INSTALL_SERVER_IMAGE,mcp:m.LOCAL_INSTALL_MCP_PACKAGE}));'
-        installed = json.loads(subprocess.check_output(['node','--input-type=module','-e',code,source.as_uri()], text=True))
+        installed = published_installer_pins(source, root)
         if image_identity(installed['image']) != image_identity(setup['serverImage']):
             raise RuntimeError('published installer pin differs from reviewed candidate; no image override allowed')
         if installed['image'] != setup['serverImage']:
