@@ -19,7 +19,12 @@ whose IdP claim limits it to read scope. There are no fabricated tenant headers
 in command calls. The authentication probe separately checks that an attempted
 tenant-header override cannot replace the authenticated identity.
 
-Public SDK 0.1.15 and MCP 0.1.16 are installed with npm's default peer resolution.
+The exact published SDK and independent MCP rows in this checkout's reviewed
+`platform-manifest.yaml` are installed with npm's default peer resolution. The
+canonical artifact verifier checks registry bytes, SRI and publisher provenance
+before runtime startup; installation then checks the same versions, sources and
+integrities plus one shared SDK module identity. No override or latest resolution
+is accepted. The selected identities and installed lock are retained in receipts.
 The real terminal executable, an MCP client/server protocol roundtrip, the Studio
 command adapter and the shared SDK execute connection testing, one idempotent
 background import, and package publication awaiting approval. SQL readback links

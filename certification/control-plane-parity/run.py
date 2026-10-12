@@ -16,6 +16,7 @@ import sys
 
 from cleanup import cleanup
 import requests
+import yaml
 
 HERE = Path(__file__).resolve().parent
 ROOT = HERE.parents[1]
@@ -28,6 +29,27 @@ def check_identity(image: str, source: str) -> None:
         raise ValueError("An immutable Honua server registry digest is required")
     if not re.fullmatch(r"[a-f0-9]{40}", source):
         raise ValueError("An exact server source commit is required")
+
+
+def selected_clients(manifest: dict) -> dict:
+    """Select only the independently reviewed published pair; never resolve latest."""
+    expected = {"honua-sdk-js": "@honua/sdk-js", "honua-mcp-server": "@honua/mcp-server"}
+    selected = {}
+    for key, name in expected.items():
+        pin = manifest["clientArtifacts"][key]
+        if (pin["package"] != name or pin["ecosystem"] != "npm"
+                or pin["repository"] != "honua-io/honua-sdk-js"
+                or pin["publicationState"] != "published"
+                or not re.fullmatch(r"(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)", pin["version"])
+                or not re.fullmatch(r"[a-f0-9]{40}", pin["sourceSha"])
+                or not re.fullmatch(r"sha512-[A-Za-z0-9+/]{86}==", pin["integrity"])):
+            raise ValueError(f"{key}: an exact published reviewed identity is required")
+        selected[name] = {field: pin[field] for field in ("version", "sourceSha", "integrity", "filename")}
+    sdk = selected["@honua/sdk-js"]
+    component = manifest["components"]["honua-sdk-js"]
+    if component["version"] != sdk["version"] or component["sha"] != sdk["sourceSha"]:
+        raise ValueError("SDK component and artifact identities differ")
+    return selected
 
 
 def sanitize(text: str, private_values: list[str]) -> str:
@@ -43,11 +65,13 @@ def main() -> int:
     os.umask(0o077)
     image, source = os.environ["HONUA_SERVER_IMAGE"], os.environ["HONUA_SERVER_SOURCE"]
     check_identity(image, source)
+    clients = selected_clients(yaml.safe_load((ROOT / "platform-manifest.yaml").read_text()))
     run = Path(os.environ["HONUA_PARITY_RUN"]).resolve()
     run.mkdir(mode=0o700, parents=True, exist_ok=False)
     out = Path(os.environ["HONUA_PARITY_OUT"]).resolve()
     out.mkdir(mode=0o700, parents=True, exist_ok=False)
-    env = dict(os.environ)
+    artifact_credentials = {key: os.environ[key] for key in ("GH_TOKEN", "GITHUB_TOKEN", "RELEASE_GH_TOKEN") if key in os.environ}
+    env = {key: value for key, value in os.environ.items() if key not in artifact_credentials}
     passwords = {user: secrets.token_hex(24) for user in ["admin-a", "viewer-a", "admin-b", "admin-read-a"]}
     env.update({
         "S4_RUN_DIR": str(run), "S4_IDP_HOSTNAME": "host.docker.internal", "S4_IDP_PORT": "19808",
@@ -63,6 +87,7 @@ def main() -> int:
     (run / "run.env").write_text("".join(f"{k}={v}\n" for k, v in env.items() if k.startswith("S4_") or k == "HONUA_SERVER_IMAGE"))
     (run / "ownership.json").write_text(json.dumps({"project": PROJECT, "runDirectory": str(run), "bucket": env["HONUA_PARITY_BUCKET"]}))
     report = {"kind": "production-control-plane-engineering-replay", "status": "failed", "serverImage": image, "serverSource": source,
+              "selectedClients": clients,
               "releaseSource": subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=ROOT, text=True).strip(),
               "scope": "Bounded actual SDK/CLI/MCP/Studio command stages; pending approval is not approved publication. No release certification or manifest promotion.", "stages": []}
     log = (run / "execution.log").open("w")
@@ -79,6 +104,7 @@ def main() -> int:
         print(f"PASS: {name}", flush=True)
 
     try:
+        stage("verify reviewed public artifact bytes and provenance", lambda: call([sys.executable, str(ROOT / "tools/verify_client_artifacts.py"), "--manifest", str(ROOT / "platform-manifest.yaml"), "--ecosystem", "npm"], cwd=ROOT, timeout=300, extra=artifact_credentials))
         call(["bash", str(ROOT / "e2e/harness/keycloak/render.sh"), str(run)])
         realm_path = run / "import/honua-realm.json"
         realm = json.loads(realm_path.read_text())
@@ -120,8 +146,10 @@ def main() -> int:
         stage("start Production server", lambda: call([*compose, "up", "-d", "--wait", "--wait-timeout", "300", "server"], timeout=600))
         consumer = run / "consumer"
         consumer.mkdir()
-        (consumer / "package.json").write_text(json.dumps({"private": True, "type": "module", "dependencies": {"@honua/sdk-js": "0.1.15", "@honua/mcp-server": "0.1.16"}}))
-        shutil.copy(HERE / "verify-client.mjs", consumer / "verify-client.mjs")
+        (consumer / "package.json").write_text(json.dumps({"private": True, "type": "module", "dependencies": {name: pin["version"] for name, pin in clients.items()}}))
+        (consumer / "expected-clients.json").write_text(json.dumps(clients, indent=2))
+        for name in ("verify-client.mjs", "client-identity.mjs"):
+            shutil.copy(HERE / name, consumer / name)
         stage("install public clients with default peer resolution", lambda: call(["npm", "install", "--ignore-scripts", "--no-audit", "--no-fund", "--registry=https://registry.npmjs.org"], cwd=consumer, timeout=300))
         stage("verify actual package and shared module identity", lambda: call(["node", "verify-client.mjs"], cwd=consumer))
         stage("real OIDC principals", lambda: call([sys.executable, "authenticate.py"]))
@@ -167,7 +195,7 @@ def main() -> int:
             private.append(json.loads(path.read_text())["accessToken"])
         if (run / "owned-import-url.txt").exists():
             private.append((run / "owned-import-url.txt").read_text().strip())
-        allowed = ["principal-proof.json", "runtime-proof.json", "audit-integrity-final.json", "connection-setup.json", "owned-import-object.json", "owned-import-cleanup.json", "imported-feature-provenance.json", "import-controls.json", "consumer/provenance.json", "consumer/package-lock.json", "execution.log", "published-map-envelope-provenance.json"]
+        allowed = ["principal-proof.json", "runtime-proof.json", "audit-integrity-final.json", "connection-setup.json", "owned-import-object.json", "owned-import-cleanup.json", "imported-feature-provenance.json", "import-controls.json", "consumer/expected-clients.json", "consumer/provenance.json", "consumer/package-lock.json", "execution.log", "published-map-envelope-provenance.json"]
         paths = [run / name for name in allowed] + list(run.glob("parity-*/*.json")) + list(run.glob("studio-tenants-*/*.json"))
         inventory = []
         for path in paths:

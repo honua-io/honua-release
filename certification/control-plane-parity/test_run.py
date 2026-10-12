@@ -1,10 +1,13 @@
 import hashlib
 import importlib.util
 import json
+import subprocess
 import sys
 from pathlib import Path
 
 import pytest
+import copy
+import yaml
 
 HERE = Path(__file__).resolve().parent
 sys.path.insert(0, str(HERE))
@@ -27,6 +30,76 @@ def test_mutable_or_foreign_image_refused(image, source):
 
 def test_immutable_source_and_digest_accepted():
     replay.check_identity("ghcr.io/honua-io/honua-server:nightly-a916167@sha256:" + "b" * 64, "a" * 40)
+
+
+def test_pair_uses_reviewed_independent_versions_and_full_identities():
+    manifest = yaml.safe_load((replay.ROOT / "platform-manifest.yaml").read_text())
+    pins = replay.selected_clients(manifest)
+    assert set(pins) == {"@honua/sdk-js", "@honua/mcp-server"}
+    for key in ("honua-sdk-js", "honua-mcp-server"):
+        row = manifest["clientArtifacts"][key]
+        assert pins[row["package"]] == {field: row[field] for field in ("version", "sourceSha", "integrity", "filename")}
+    # MCP is independently reviewed, never advanced to SDK's version implicitly.
+    manifest["clientArtifacts"]["honua-mcp-server"]["version"] = "0.1.999"
+    assert replay.selected_clients(manifest)["@honua/mcp-server"]["version"] == "0.1.999"
+
+
+@pytest.mark.parametrize("field,value", [
+    ("version", "latest"), ("version", "^0.1.16"), ("sourceSha", "trunk"),
+    ("publicationState", "unpublished"), ("package", "@foreign/sdk-js"),
+    ("repository", "foreign/repository"), ("integrity", "sha512-missing"),
+])
+def test_pair_rejects_unpublished_mutable_or_foreign_identity(field, value):
+    manifest = yaml.safe_load((replay.ROOT / "platform-manifest.yaml").read_text())
+    for key in ("honua-sdk-js", "honua-mcp-server"):
+        changed = copy.deepcopy(manifest)
+        changed["clientArtifacts"][key][field] = value
+        with pytest.raises(ValueError):
+            replay.selected_clients(changed)
+
+
+def test_pair_refuses_component_source_mismatch():
+    manifest = yaml.safe_load((replay.ROOT / "platform-manifest.yaml").read_text())
+    manifest["components"]["honua-sdk-js"]["sha"] = "a" * 40
+    with pytest.raises(ValueError, match="component"):
+        replay.selected_clients(manifest)
+
+
+@pytest.mark.parametrize("verification_passes", [False, True])
+def test_artifact_verification_precedes_runtime_and_only_it_receives_github_token(tmp_path, monkeypatch, verification_passes):
+    run = tmp_path / "private"
+    out = tmp_path / "public"
+    for key, value in {
+        "HONUA_SERVER_IMAGE": "ghcr.io/honua-io/honua-server@sha256:" + "b" * 64,
+        "HONUA_SERVER_SOURCE": "a" * 40, "HONUA_PARITY_RUN": str(run),
+        "HONUA_PARITY_OUT": str(out), "HONUA_PARITY_BUCKET": "owned",
+        "GH_TOKEN": "test-only-verifier-credential",
+    }.items():
+        monkeypatch.setenv(key, value)
+    monkeypatch.setattr(replay.subprocess, "check_output", lambda *args, **kwargs: "a" * 40)
+    monkeypatch.setattr(replay, "cleanup", lambda *args: {"status": "passed"})
+    calls = []
+
+    def execute(args, **kwargs):
+        calls.append(args)
+        if len(calls) == 1:
+            assert args[1] == str(replay.ROOT / "tools/verify_client_artifacts.py")
+            assert kwargs["env"]["GH_TOKEN"] == "test-only-verifier-credential"
+            assert kwargs["check"]
+            if verification_passes:
+                return subprocess.CompletedProcess(args, 0)
+        else:
+            assert args[0] == "bash"  # fixture rendering is only reached after verification
+            assert all(key not in kwargs["env"] for key in ("GH_TOKEN", "GITHUB_TOKEN", "RELEASE_GH_TOKEN"))
+        raise subprocess.CalledProcessError(1, args)
+
+    monkeypatch.setattr(replay.subprocess, "run", execute)
+    assert replay.main() == 1
+    assert len(calls) == (2 if verification_passes else 1)
+    report = json.loads((out / "report.json").read_text())
+    assert report["status"] == "failed"
+    assert report["stages"][0]["status"] == ("passed" if verification_passes else "failed")
+    assert "test-only-verifier-credential" not in (run / "run.env").read_text()
 
 
 def test_private_bearers_and_signed_urls_removed_from_retained_output():

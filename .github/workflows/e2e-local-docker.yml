@@ -523,7 +523,9 @@ jobs:
       - name: Install replay prerequisites
         run: python -m pip install requests pyyaml boto3 pytest
       - name: Replay identity and redaction controls
-        run: python -m pytest certification/control-plane-parity/test_run.py -q
+        run: |
+          python -m pytest certification/control-plane-parity/test_run.py -q
+          node --test certification/control-plane-parity/client-identity.test.mjs
       - name: Authenticate image pull
         env:
           GH_TOKEN: ${{ github.token }}
@@ -535,6 +537,7 @@ jobs:
       - name: Genuine Production command replay
         timeout-minutes: 25
         env:
+          GH_TOKEN: ${{ github.token }}
           HONUA_SERVER_IMAGE: ${{ inputs.parity_server_image }}
           HONUA_SERVER_SOURCE: ${{ inputs.parity_server_source }}
           HONUA_PARITY_BUCKET: ${{ vars.HONUA_AWS_CELL_FILE_STORAGE_BUCKET }}
