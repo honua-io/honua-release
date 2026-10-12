@@ -15,10 +15,10 @@
     "checkout": "this repository's own checkout: the release docs that ship with the candidate"
   },
   "documents": [
-    {"repo": "honua-io/honua-sdk-js", "path": "README.md", "revision": {"clientArtifact": "honua-sdk-js"}, "runtime": "node"},
+    {"repo": "honua-io/honua-sdk-js", "path": "README.md", "sourceBuild": true, "revision": {"clientArtifact": "honua-sdk-js"}, "runtime": "node"},
     {"repo": "honua-io/honua-sdk-js", "path": "INSTALL.md", "revision": {"clientArtifact": "honua-sdk-js"}, "runtime": "node"},
-    {"repo": "honua-io/honua-sdk-js", "path": "docs/quickstart.md", "revision": {"clientArtifact": "honua-sdk-js"}, "runtime": "node"},
-    {"repo": "honua-io/honua-sdk-js", "path": "mcp/README.md", "revision": {"clientArtifact": "honua-mcp-server"}, "runtime": "node"},
+    {"repo": "honua-io/honua-sdk-js", "path": "docs/quickstart.md", "sourceBuild": true, "revision": {"clientArtifact": "honua-sdk-js"}, "runtime": "node"},
+    {"repo": "honua-io/honua-sdk-js", "path": "mcp/README.md", "sourceBuild": true, "revision": {"clientArtifact": "honua-mcp-server"}, "runtime": "node"},
     {"repo": "honua-io/honua-sdk-js", "path": "packages/create-honua-app/README.md", "revision": {"npmPublished": "create-honua-app"}, "runtime": "node"},
     {"repo": "honua-io/honua-sdk-python", "path": "README.md", "revision": {"clientArtifact": "honua-sdk-python-wheel"}, "runtime": "python"},
     {"repo": "honua-io/honua-sdk-python", "path": "INSTALL.md", "revision": {"clientArtifact": "honua-sdk-python-wheel"}, "runtime": "python"},
