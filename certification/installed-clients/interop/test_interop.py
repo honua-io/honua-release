@@ -118,7 +118,7 @@ def handoff_observations():
                                                         "enabled": True, "layerId": 12}),
         (sid, "query"): obs(sid, "query", observed={"features": rows}),
         (sid, "ids"): obs(sid, "ids", observed={"ids": [1, 2, 3]}),
-        (sid, "count"): obs(sid, "count", observed={"count": None}),
+        (sid, "count"): obs(sid, "count", observed={"count": len(rows)}),
         (sid, "edit"): obs(sid, "edit", error={"type": "HonuaHttpError", "status": 400}),
         (sid, "read-back"): obs(sid, "read-back", observed={"features": rows}),
     }, edited
@@ -222,7 +222,7 @@ class ContractTests(unittest.TestCase):
 
     def test_matrix_blocks_only_the_observed_seams(self):
         self.assertEqual(CELLS["interop-import-render-buffer"]["status"], "active")
-        self.assertEqual(set(CELLS["interop-publish-query-edit"]["blockedSteps"]), {"count", "edit", "read-back"})
+        self.assertEqual(set(CELLS["interop-publish-query-edit"]["blockedSteps"]), {"edit", "read-back"})
         # honua-server#5435 is in the 3ecd214 pin: a revoked session is refused, so the cell is active.
         self.assertEqual(CELLS["interop-api-key-revocation"]["status"], "active")
         self.assertNotIn("blockedSteps", CELLS["interop-api-key-revocation"])

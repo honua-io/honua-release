@@ -195,7 +195,7 @@ class ContractTests(unittest.TestCase):
             (lambda c: c["blockedSteps"].update(nope={"blockedBy": c["blockedBy"][0], "signature": "x"}), "blocked steps of its scenario"),
             (lambda c: c["blockedSteps"]["apply-edits-update"].update(signature=""), "observed signature"),
             (lambda c: c["blockedSteps"]["apply-edits-update"].update(blockedBy="#5407"), "issue URL"),
-            (lambda c: c.update(blockedBy=c["blockedBy"][:1]), "exactly the blocked steps' issues"),
+            (lambda c: c.update(blockedBy=[*c["blockedBy"], "https://github.com/honua-io/honua-sdk-python/issues/236"]), "exactly the blocked steps' issues"),
             (lambda c: c.update(status="active"), "cannot carry blockedSteps"),
         ]
         for change, message in cases:
