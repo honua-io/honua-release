@@ -211,12 +211,15 @@ class _Cell:
 
     def __init__(self, *, threshold=64 * MIB, memory=100 * MIB, upload=None, job_states=("Queued", "Processing",
                  "Completed"), job_error=None, features=None, layer=7, count=None, publish_status=201,
-                 envelope=False):
+                 envelope=False, runner=None, jobs_runner=True):
         self.threshold, self.memory = threshold, memory
         self.upload = upload
         self.job_states, self.job_error = list(job_states), job_error
         self.features, self.layer, self.count, self.publish_status = features, layer, count, publish_status
         self.requests, self.reads, self.envelope = [], 0, envelope
+        # runner: a runner field on the job document (no server sends one yet); jobs_runner: the
+        # manifest's jobs.runner availability (None leaves the entry out of the manifest).
+        self.runner, self.jobs_runner = runner, jobs_runner
 
     def answer(self, method, path, body, key):
         status, document = self._answer(method, path, body, key)
@@ -244,11 +247,20 @@ class _Cell:
             if state in ("Completed", "Failed"):
                 doc.update(completedAt="2026-10-11T00:02:30.5+00:00",
                            featuresProcessed=self.features if self.features is not None else fx.LARGE.features)
+            if self.runner:
+                doc["jobRunner"] = self.runner
             if self.job_error:
                 doc["errorMessage"] = self.job_error
             return 200, doc
         if path.endswith("/layers") and method == "POST":
             return self.publish_status, {"data": {"layerId": self.layer}}
+        if path == s10.MANIFEST_PATH:
+            entries = [{"id": "operations.proposals", "available": True}]
+            if self.jobs_runner is not None:
+                entries.append({"id": "jobs.runner", "category": "jobs", "lifecycle": "implemented",
+                                "available": self.jobs_runner,
+                                "reasonCode": None if self.jobs_runner else "dependency-unavailable"})
+            return 200, {"schemaVersion": "1", "capabilities": entries}
         if "/FeatureServer/" in path:
             return 200, {"count": self.count if self.count is not None else fx.LARGE.features}
         return 404, {"title": "Not Found"}
@@ -343,11 +355,29 @@ def test_a_failed_job_surfaces_the_servers_error_and_fails():
     assert receipt["jobStatus"] == "failed"
 
 
-def test_a_job_that_never_ends_fails_with_its_transitions_never_blocks():
-    row, receipt = _scenario(_Cell(job_states=("Queued", "Processing")), timeout=30.0)
+@pytest.mark.parametrize("redis", ["redis-on", "redis-off"])
+def test_a_stalled_job_fails_naming_the_pattern_on_either_topology(redis):
+    # Run 38192851328: redis-on went processing -> queued -> processing and never completed; the
+    # accepting host stopped advancing it. Both topologies fail (the server accepted the work).
+    row, receipt = _scenario(_Cell(job_states=("Queued", "Processing")), redis=redis, timeout=30.0)
     assert row.status == "fail"
-    assert row.why.endswith("job-timeout: job job-123 was still processing after 30s "
-                            "(transitions: queued -> processing)")
+    prefix = "" if redis == "redis-on" else "redis-off: "
+    assert f"{s10.SCENARIO}: {prefix}job-stalled: job job-123 was still processing after 30s; " in row.why
+    assert "last transition queued -> processing at " in row.why and "25s with no change since" in row.why
+    assert "status reads answered by task-a, task-b" in row.why or "status reads answered by task-b, task-a" in row.why
+    assert "(transitions: queued -> processing)" in row.why and row.why.endswith("(server follow-up S33)")
+    assert receipt["stall"]["lastStatus"] == "processing" and receipt["stall"]["secondsSinceLastTransition"] == 25
+    assert receipt["stall"]["followUp"] == "server follow-up S33"
+    assert set(receipt["statusInstances"]) == {"task-a", "task-b"} and receipt["executor"] == "in-process"
+    assert receipt["topology"] == redis and "rowCount" not in receipt
+
+
+def test_a_stall_without_an_instance_header_says_so():
+    detail = s10.stall_detail("j", [{"status": "processing", "at": "2026-10-12T02:04:48Z"}], timeout=1200,
+                              since=1197.4, instances=[])
+    assert detail.startswith("job-stalled: job j was still processing after 1200s; last transition first read "
+                             "processing at 2026-10-12T02:04:48Z, 1197s with no change since; status reads "
+                             "answered by no Honua-Instance header")
 
 
 @pytest.mark.parametrize("upload,expected", [
@@ -382,6 +412,48 @@ def test_a_published_layer_with_the_wrong_row_count_fails():
     assert row.status == "fail" and receipt["rowCount"] == fx.LARGE.features - 1
 
 
+def test_redis_off_follows_the_in_process_background_job_to_success():
+    # Run 38192851328: the Redis-off cell queued the forced job (202) instead of the typed 503.
+    cell = _Cell(features=fx.SMALL.features, count=fx.SMALL.features, jobs_runner=False)
+    row, receipt = _scenario(cell, redis="redis-off")
+    assert row.status == "pass", row.why
+    assert row.why.startswith(f"{s10.SCENARIO}: redis-off: background job job-123 ran in-process and imported "
+                              f"{fx.SMALL.bytes} bytes")
+    assert receipt["topology"] == "redis-off" and receipt["executor"] == "in-process"
+    assert receipt["rowCount"] == fx.SMALL.features and receipt["fixtureSha256"] == fx.SMALL.sha256
+    assert receipt["jobsRunnerCapability"] == {"available": False, "reasonCode": "dependency-unavailable"}
+    assert receipt["executorBasis"].startswith("derived: the job document names no runner; the manifest's "
+                                               "jobs.runner is unavailable (dependency-unavailable)")
+    assert "jobRunner" not in receipt and "refusal" not in receipt
+    upload = next(body for method, path, body in cell.requests if path == s10.UPLOAD_URL_PATH)
+    assert upload["forceBackground"] is True and upload["fileName"] == fx.SMALL.name
+    assert upload["tableName"] == "s10_redis_off"
+    publish = next(body for method, path, body in cell.requests if path.endswith("/layers"))
+    assert publish["table"] == "imported_s10_redis_off" and publish["serviceName"] == "s10-redis-off"
+    assert any("/rest/services/s10-redis-off/FeatureServer/7/query" in path for _, path, _ in cell.requests)
+
+
+def test_the_receipt_records_the_job_runner_when_the_job_document_names_it():
+    cell = _Cell(runner="Batch")
+    row, receipt = _scenario(cell)
+    assert row.status == "pass", row.why
+    assert receipt["jobRunner"] == "batch" and receipt["executor"] == "batch"
+    assert receipt["executorBasis"] == "the job document names its runner" and "jobsRunnerCapability" not in receipt
+    assert not any(path == s10.MANIFEST_PATH for _, path, _ in cell.requests)
+
+
+@pytest.mark.parametrize("jobs_runner,expected", [
+    (True, "the manifest's jobs.runner (the Redis-backed geoprocessing runner) is available, but file imports "
+           "do not run on it"),
+    (None, "the capability manifest reported no jobs.runner entry"),
+])
+def test_without_a_job_runner_the_executor_is_derived_from_the_manifest(jobs_runner, expected):
+    row, receipt = _scenario(_Cell(jobs_runner=jobs_runner))
+    assert row.status == "pass", row.why
+    assert receipt["executor"] == "in-process" and expected in receipt["executorBasis"]
+    assert "jobRunner" not in receipt
+
+
 def test_redis_off_passes_on_the_typed_503_with_force_background():
     cell = _Cell(upload=(503, {"type": "https://tools.ietf.org/html/rfc9110#section-15.6.4",
                                "title": "Service Unavailable", "status": 503, "detail": s10.REDIS_OFF_REFUSAL}))
@@ -393,12 +465,15 @@ def test_redis_off_passes_on_the_typed_503_with_force_background():
 
 
 @pytest.mark.parametrize("upload,expected", [
-    ((202, {"jobId": "job-9", "message": "File queued for background processing"}), "queued background import job job-9"),
-    ((503, {"detail": "Background import requires shared file storage."}), "upload-url answered 503"),
+    ((503, {"detail": "Background import requires shared file storage."}),
+     "redis-off: upload-url answered 503: Background import requires shared file storage.; expected 202 with a "
+     "background job or the typed 503"),
+    ((200, {"success": True, "featureCount": 8}), "redis-off: upload-url imported synchronously"),
+    ((202, {"jobId": None}), "redis-off: upload-url answered 202 without a usable jobId"),
     ((400, {"detail": "SourceUrl must point to a supported public S3, Azure Blob, or Azure File host."}),
      "upload-url answered 400"),
 ])
-def test_redis_off_fails_on_anything_but_the_typed_refusal(upload, expected):
+def test_redis_off_fails_on_anything_but_a_job_or_the_typed_refusal(upload, expected):
     row, _ = _scenario(_Cell(upload=upload), redis="redis-off")
     assert row.status == "fail" and expected in row.why
 
