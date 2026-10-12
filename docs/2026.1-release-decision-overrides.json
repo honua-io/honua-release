@@ -1181,6 +1181,58 @@
       "bucket": "prove-against-candidate",
       "reason": "Operator ruling R9 (2026-09-29, https://github.com/honua-io/honua-support/issues/60#issuecomment-5883909928) approved support policy 2026.1-r2, which completes the pre-cut work; the issue stays open until the signed 2026.1 lock cites r2 by commit and digest. That lock is minted by the cut, so the citation is proven against the candidate before GA and cannot be a pre-cut blocker.",
       "ruling": "R9"
+    },
+    "honua-server#5364": {
+      "bucket": "must-fix-before-cut",
+      "reason": "2026-10-12 completed intake review: Required evidence-producer repair, not optional technical debt. Current review-first-evidence-ledger.yml still downloads every indexed receipt and refuses when the count exceeds the policy maximum_receipt_downloads=300. #5365 repaired the catalog budget, not this download budget. Finish a bounded, honest collection design and obtain the required successful ledger receipt; retain incomplete/failed evidence. Existing release#386 / R18 dependency remains."
+    },
+    "honua-server#5394": {
+      "bucket": "must-fix-before-cut",
+      "reason": "2026-10-12 completed intake review: Import replacement can destroy an existing table that the importer does not own. #5379 limits destination schemas but does not establish table ownership inside them. This is an existing data-integrity/security boundary, not a new import feature. Before cut, enforce ownership across overwrite paths and define safe treatment of legacy imported tables; prove refusal leaves unrelated tables unchanged."
+    },
+    "honua-server#5422": {
+      "bucket": "prove-against-candidate",
+      "reason": "2026-10-12 completed intake review: Implementation merged in #5758; WCS 1.0 uses the requested-envelope raster framing path, with HTTP/GeoTIFF grid, sample and NoData regressions. The full source matrix at 0e03bdd06 passed. Keep this issue open for the explicitly outstanding stock native WCS replay against the selected immutable candidate (padded and sub-cell cases). This is candidate qualification, not a request to reimplement the grid fix."
+    },
+    "honua-server#5439": {
+      "bucket": "post-cut-hardening",
+      "reason": "2026-10-12 completed intake review: Post-cut deployment hardening: the issue explicitly says quickstart is not blocked, and the PKCS#12 is encrypted with an export password. Implement a documented UID/GID-aware 0640 mount or another supported secret delivery mechanism and test a non-root Production boot. This classification does not approve exposing an unencrypted private key or weakening the existing key-ring requirement."
+    },
+    "honua-server#5449": {
+      "bucket": "prove-against-candidate",
+      "reason": "2026-10-12 completed intake review: Server option 2 is implemented by #5794 (eeb375d3bd): persisted contentHashInput bytes on save/version/published reads, with migration 126 and hash regressions. SDK .NET #425 supplies the read/verification surface and its release is bound by release#566. Keep this issue open for selected-candidate interop proof: decode the actual bytes and recompute SHA-256 across installed clients. Do not rewrite the hashing implementation or substitute cross-client agreement for recomputation."
+    },
+    "honua-server#5729": {
+      "bucket": "must-fix-before-cut",
+      "reason": "2026-10-12 completed intake review: Security disposition remains required before cut. Remediation code and the October disposition document are on trunk; Dependabot currently has zero open alerts and Security Nightly 38222658360 passed. However, the live code-scanning API still reports 25 open alerts (19 Trivy, 6 CodeQL), including three HIGH fixed-version findings in aws-lambda-rie (#3731-#3733) and SQL connection findings. Verify the affected shipping artifact/source, remediate applicable findings or document a supported non-applicability/false-positive disposition with evidence, and rescan. Do not equate a green nightly with cleared alerts. Previously recorded no-fix OS findings remain visible; the generic 260-item quality cleanup is not a newly added RC acceptance requirement."
+    },
+    "honua-server#5788": {
+      "bucket": "prove-against-candidate",
+      "reason": "2026-10-12 completed intake review: Implemented by #5794 (eeb375d3bd): accepted publish-request reads return publicationUrl, with tests for accepted, pending and rejected requests. Keep the issue open for its explicit remaining condition: the pinned installed-clients interop publication-url cell must pass. This is candidate qualification, not another missing server field."
+    },
+    "honua-server#5872": {
+      "bucket": "must-fix-before-cut",
+      "reason": "2026-10-12 completed intake review: Implementation merged in #5879 (a916167ee7); do not duplicate it. Its final PR explicitly leaves corrected background-job replay and supported Production-build qualification pending. Complete that bounded data-integrity proof before cut: same-key sequential/concurrent cross-adapter retries persist one feature/job, conflicting payloads and foreign actors/tenants cannot replay, denied calls cannot mutate, and failed/cancelled jobs cannot cause duplicate actuation. Existing SDK qualification ownership remains; this is verification-first work."
+    },
+    "honua-console#413": {
+      "bucket": "must-fix-before-cut",
+      "reason": "2026-10-12 completed intake review: Current trunk HttpConsoleOperateObservabilityClient.GetRulesAsync still calls AlertRules without a serviceId. Repair the client to enumerate only services in the caller scope and use the documented per-service contract; retain denied/error states. This repairs an existing Operate workflow, not new alerts scope. #418 tracks the real nightly receipt, not a second implementation."
+    },
+    "honua-console#418": {
+      "bucket": "must-fix-before-cut",
+      "reason": "2026-10-12 completed intake review: Keep as the automated live-integration evidence tracker. Actual latest run 38279507905 failed its Native.Core live-server/Testcontainers step and skipped the later Console suite. Do not claim that latest failure is solely #413 without its TRX/logs. Diagnose current failures, repair the existing workflow/client contract, and obtain an actual complete nightly pass; #413 remains the known serviceId implementation gap. Do not create a duplicate repair ticket or count this monitor as another feature."
+    },
+    "honua-migrate#191": {
+      "bucket": "must-fix-before-cut",
+      "reason": "2026-10-12 completed intake review: Current GitHub Actions workflow permissions still report default_workflow_permissions=read and can_approve_pull_request_reviews=false. The reported release-PR creation constraint remains. Classify as release automation repair under the existing pre-cut CI policy; resolve the narrowly scoped repository permission or approved bot mechanism and verify an actual release PR creation. A run with no release to create or a green package publication does not prove this path. No repository permission was changed during triage."
+    },
+    "honua-sdk-js#1954": {
+      "bucket": "must-fix-before-cut",
+      "reason": "2026-10-12 completed intake review: Bounded certification-fixture repair: retain the alerts test and enable the existing experimental alerts.geofence capability only on its dedicated single-tenant Pro alerts fixture; label that surface Preview/experimental in the support evidence. Current trunk integration.yml still lacks that explicit capability setting. Verify the actual selected candidate and keep negative capability-off behavior covered. Do not drop the row, broaden the Community fixture, or claim GA alerts support. This selects the issue's fixture-alignment option without expanding release scope."
+    },
+    "honua-studio#77": {
+      "bucket": "must-fix-before-cut",
+      "reason": "2026-10-12 completed intake review: The exact Smoke suite remains failed on main: run 36512731958 at 8a658c7f75887df8842fabb50cd2585be64ce48d. Later Live AWS Studio browser smoke successes are a different workflow and do not close this issue. Repair/revert the bounded dependency regression and preserve the existing browser/accessibility assertions, then obtain a real Smoke suite pass. This is an existing CI repair, not new Studio functionality or GA scope."
     }
   },
   "admission_reviews": {
@@ -2933,6 +2985,71 @@
       "body_sha256": "998a9301f2ef7626e2095bcd938ce33a68396314492a66d8b9ee29af5854473a",
       "named_promise": true,
       "reason": "Reviewed 2026-10-03: executable-docs gate finding (release#421): runnable getting-started blocks fail against the booted 2026.1 candidate. Broken documented supported workflow; ruling R28 makes every executable-docs finding a release defect and a failing block a red night that mints nothing."
+    },
+    "honua-server#5364": {
+      "body_sha256": "aebaf4a3d630bb3102def4d33a9647db4b97d8519a9b0b0776578098cd06830b",
+      "named_promise": true,
+      "reason": "2026-10-12 completed intake review: Required evidence-producer repair, not optional technical debt. Current review-first-evidence-ledger.yml still downloads every indexed receipt and refuses when the count exceeds the policy maximum_receipt_downloads=300. #5365 repaired the catalog budget, not this download budget. Finish a bounded, honest collection design and obtain the required successful ledger receipt; retain incomplete/failed evidence. Existing release#386 / R18 dependency remains."
+    },
+    "honua-server#5394": {
+      "body_sha256": "4fe1ce3e5d3c40461f85ba69f1d6c48ffb8dae30accc6a31d1e8d294b6ba4605",
+      "named_promise": true,
+      "reason": "2026-10-12 completed intake review: Import replacement can destroy an existing table that the importer does not own. #5379 limits destination schemas but does not establish table ownership inside them. This is an existing data-integrity/security boundary, not a new import feature. Before cut, enforce ownership across overwrite paths and define safe treatment of legacy imported tables; prove refusal leaves unrelated tables unchanged."
+    },
+    "honua-server#5422": {
+      "body_sha256": "57e2c8f6ea9d17c8faf2c9d206f6ec80ca2e7fa82ed2e685e302de1ce49e1793",
+      "named_promise": true,
+      "reason": "2026-10-12 completed intake review: Implementation merged in #5758; WCS 1.0 uses the requested-envelope raster framing path, with HTTP/GeoTIFF grid, sample and NoData regressions. The full source matrix at 0e03bdd06 passed. Keep this issue open for the explicitly outstanding stock native WCS replay against the selected immutable candidate (padded and sub-cell cases). This is candidate qualification, not a request to reimplement the grid fix."
+    },
+    "honua-server#5439": {
+      "body_sha256": "925176cdd6f57dbf5c10edc2f3a0ad5aa02fefd4932b684bd863e3e4f4fb6f15",
+      "named_promise": false,
+      "reason": "2026-10-12 completed intake review: Post-cut deployment hardening: the issue explicitly says quickstart is not blocked, and the PKCS#12 is encrypted with an export password. Implement a documented UID/GID-aware 0640 mount or another supported secret delivery mechanism and test a non-root Production boot. This classification does not approve exposing an unencrypted private key or weakening the existing key-ring requirement."
+    },
+    "honua-server#5449": {
+      "body_sha256": "47fd5a5048ce8dfd8736ec3c8296bc8b27094039ee918c6e1bb5ad13279de05c",
+      "named_promise": true,
+      "reason": "2026-10-12 completed intake review: Server option 2 is implemented by #5794 (eeb375d3bd): persisted contentHashInput bytes on save/version/published reads, with migration 126 and hash regressions. SDK .NET #425 supplies the read/verification surface and its release is bound by release#566. Keep this issue open for selected-candidate interop proof: decode the actual bytes and recompute SHA-256 across installed clients. Do not rewrite the hashing implementation or substitute cross-client agreement for recomputation."
+    },
+    "honua-server#5729": {
+      "body_sha256": "bdd28327c008fa102ca27f8f7a808c37aac5bc6c1506a9db45ea1c4535e3bc3a",
+      "named_promise": true,
+      "reason": "2026-10-12 completed intake review: Security disposition remains required before cut. Remediation code and the October disposition document are on trunk; Dependabot currently has zero open alerts and Security Nightly 38222658360 passed. However, the live code-scanning API still reports 25 open alerts (19 Trivy, 6 CodeQL), including three HIGH fixed-version findings in aws-lambda-rie (#3731-#3733) and SQL connection findings. Verify the affected shipping artifact/source, remediate applicable findings or document a supported non-applicability/false-positive disposition with evidence, and rescan. Do not equate a green nightly with cleared alerts. Previously recorded no-fix OS findings remain visible; the generic 260-item quality cleanup is not a newly added RC acceptance requirement."
+    },
+    "honua-server#5788": {
+      "body_sha256": "dda07696fd7bedb5af5b00c9dadc24c16c4bdb934ecbfb6454fa626724d37647",
+      "named_promise": true,
+      "reason": "2026-10-12 completed intake review: Implemented by #5794 (eeb375d3bd): accepted publish-request reads return publicationUrl, with tests for accepted, pending and rejected requests. Keep the issue open for its explicit remaining condition: the pinned installed-clients interop publication-url cell must pass. This is candidate qualification, not another missing server field."
+    },
+    "honua-server#5872": {
+      "body_sha256": "3fc156db46e0f144949527d6bde611457f7da9bec0c1955a9242a42695f1bf1f",
+      "named_promise": true,
+      "reason": "2026-10-12 completed intake review: Implementation merged in #5879 (a916167ee7); do not duplicate it. Its final PR explicitly leaves corrected background-job replay and supported Production-build qualification pending. Complete that bounded data-integrity proof before cut: same-key sequential/concurrent cross-adapter retries persist one feature/job, conflicting payloads and foreign actors/tenants cannot replay, denied calls cannot mutate, and failed/cancelled jobs cannot cause duplicate actuation. Existing SDK qualification ownership remains; this is verification-first work."
+    },
+    "honua-console#413": {
+      "body_sha256": "2aa42786ba55e9100a2a0d434acd8f0ee0fcc9ce469d72a470c296ec1155ab36",
+      "named_promise": true,
+      "reason": "2026-10-12 completed intake review: Current trunk HttpConsoleOperateObservabilityClient.GetRulesAsync still calls AlertRules without a serviceId. Repair the client to enumerate only services in the caller scope and use the documented per-service contract; retain denied/error states. This repairs an existing Operate workflow, not new alerts scope. #418 tracks the real nightly receipt, not a second implementation."
+    },
+    "honua-console#418": {
+      "body_sha256": "45f3fcc31453c9a40aaec3d3f264f2f31a488516baf0f2a27574e09e0ecb6969",
+      "named_promise": true,
+      "reason": "2026-10-12 completed intake review: Keep as the automated live-integration evidence tracker. Actual latest run 38279507905 failed its Native.Core live-server/Testcontainers step and skipped the later Console suite. Do not claim that latest failure is solely #413 without its TRX/logs. Diagnose current failures, repair the existing workflow/client contract, and obtain an actual complete nightly pass; #413 remains the known serviceId implementation gap. Do not create a duplicate repair ticket or count this monitor as another feature."
+    },
+    "honua-migrate#191": {
+      "body_sha256": "1845fd824783c287427ded1b474ea518a995063d8cf15fe550f6a212a616c66c",
+      "named_promise": true,
+      "reason": "2026-10-12 completed intake review: Current GitHub Actions workflow permissions still report default_workflow_permissions=read and can_approve_pull_request_reviews=false. The reported release-PR creation constraint remains. Classify as release automation repair under the existing pre-cut CI policy; resolve the narrowly scoped repository permission or approved bot mechanism and verify an actual release PR creation. A run with no release to create or a green package publication does not prove this path. No repository permission was changed during triage."
+    },
+    "honua-sdk-js#1954": {
+      "body_sha256": "b0feb08290ba05d0f8c0f77d710630e9b1ac8d37a8bad7355154fbbca98d5de6",
+      "named_promise": true,
+      "reason": "2026-10-12 completed intake review: Bounded certification-fixture repair: retain the alerts test and enable the existing experimental alerts.geofence capability only on its dedicated single-tenant Pro alerts fixture; label that surface Preview/experimental in the support evidence. Current trunk integration.yml still lacks that explicit capability setting. Verify the actual selected candidate and keep negative capability-off behavior covered. Do not drop the row, broaden the Community fixture, or claim GA alerts support. This selects the issue's fixture-alignment option without expanding release scope."
+    },
+    "honua-studio#77": {
+      "body_sha256": "124488a566334d68a0fe165972f3d2bd808c6f4ff684a7695ca4297db90dd485",
+      "named_promise": true,
+      "reason": "2026-10-12 completed intake review: The exact Smoke suite remains failed on main: run 36512731958 at 8a658c7f75887df8842fabb50cd2585be64ce48d. Later Live AWS Studio browser smoke successes are a different workflow and do not close this issue. Repair/revert the bounded dependency regression and preserve the existing browser/accessibility assertions, then obtain a real Smoke suite pass. This is an existing CI repair, not new Studio functionality or GA scope."
     }
   }
 }
