@@ -230,6 +230,12 @@ def test_chart_values_carry_the_root_rendered_server_environment(cell):
     assert "geoprocessing" not in values and "service" not in values
 
 
+def test_redis_on_chart_values_open_the_s10_background_import_window(cell):
+    # honua-release#548: the same threshold the ECS and serverless roots take as a cell input.
+    assert cell.chart_values(True)["config"]["env"][aws_eks.IMPORT_THRESHOLD_ENV] == "67108864"
+    assert aws_eks.IMPORT_THRESHOLD_ENV not in cell.chart_values(False)["config"]["env"]
+
+
 def test_chart_values_ignore_outputs_the_root_does_not_declare(cell):
     _outputs(cell, chart_config_env={"Leak": "x"}, server_role_arn="arn:x")
     values = cell.chart_values(False)

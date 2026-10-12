@@ -835,7 +835,7 @@ def test_python_audit_uses_metadata_without_requiring_pip(tmp_path, monkeypatch)
     session = run.Session("metadata", tmp_path, {"python": "python-pinned"}, "http://guard", tmp_path,
                           False, "host", "metadata", "5.9.3")
     session.containers["python"] = "python-container"
-    assert session.installed_honua("python") == {"honua-sdk": "0.1.11"}
+    assert session.installed_honua("python") == [{"name": "honua-sdk", "version": "0.1.11", "ecosystem": "pypi"}]
     assert "importlib.metadata" in calls[0][0][-1]
     assert calls[0][1]["check"] is True
 

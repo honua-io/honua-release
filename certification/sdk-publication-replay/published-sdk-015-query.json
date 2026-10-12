@@ -1,0 +1,92 @@
+{
+  "kind": "published-client-query-evidence",
+  "run": "https://github.com/honua-io/honua-release/actions/runs/38179251112",
+  "head": "2b014ba2",
+  "sourceReportSha256": "bd29732805e5deaf676c3975360a68f7af71c1592b0a86dc55e56a1373e4ed85",
+  "server": {
+    "sourceSha": "93cad86ec4fb28fba3ff0b9358059d86aa55dde5",
+    "image": "ghcr.io/honua-io/honua-server:nightly-93cad86@sha256:785de2ae7f72e6277ce62aa1ece4f08ee0425970b71c47f9f4843c0baae2c8db"
+  },
+  "generatedAt": "2026-10-11T22:13:04.311743Z",
+  "fullMatrixStatus": "blocked",
+  "queryCell": {
+    "cell": "npm-sdk-geoservices",
+    "operationId": "sdk-geoservices",
+    "target": "npm-sdk",
+    "package": "@honua/sdk-js",
+    "version": "0.1.15",
+    "integrity": "sha512-RCiqqRz7sG9qP1xLsLyGroRMhGEi1Nde5YRqYbfkSEbwTSjf1IfciVXgAZdEXz6HDZ/XrzofiK7LIHokgg5j+A==",
+    "sourceSha": "c6484209dda9b1533fefcae1b0e47d87b56414c2",
+    "matrixStatus": "blocked",
+    "status": "blocked",
+    "detail": "8 steps pass; blocked as declared: apply-edits-update (https://github.com/honua-io/honua-server/issues/5407), edits-state (https://github.com/honua-io/honua-server/issues/5407)",
+    "steps": [
+      {
+        "step": "query",
+        "api": "HonuaFeatureLayer.queryFeatures",
+        "status": "pass",
+        "oracle": "filtered query: 4 features equal the fixture (gids [3, 4, 5, 6]) with exact ordinates"
+      },
+      {
+        "step": "ids",
+        "api": "HonuaFeatureLayer.queryObjectIds",
+        "status": "pass",
+        "oracle": "ids [3, 4, 5, 6], fixture expects [3, 4, 5, 6]"
+      },
+      {
+        "step": "count",
+        "api": "HonuaFeatureLayer.queryFeatureCount",
+        "status": "pass",
+        "oracle": "count 4, fixture expects 4"
+      },
+      {
+        "step": "resolve-edit-ids",
+        "api": "HonuaFeatureLayer.queryFeatures",
+        "status": "pass",
+        "oracle": "3 managed features resolved to unique object ids for fixture gids [1, 2, 3]"
+      },
+      {
+        "step": "apply-edits-add",
+        "api": "HonuaFeatureLayer.applyEdits(adds)",
+        "status": "pass",
+        "oracle": "1 edit result(s), all successful"
+      },
+      {
+        "step": "apply-edits-update",
+        "api": "HonuaFeatureLayer.applyEdits(updates)",
+        "status": "blocked",
+        "blockedBy": "https://github.com/honua-io/honua-server/issues/5407",
+        "oracle": "raised HonuaHttpError (status 500)"
+      },
+      {
+        "step": "apply-edits-delete",
+        "api": "HonuaFeatureLayer.applyEdits(deletes)",
+        "status": "pass",
+        "oracle": "1 edit result(s), all successful"
+      },
+      {
+        "step": "edits-state",
+        "api": "HonuaFeatureLayer.queryFeatures",
+        "status": "blocked",
+        "blockedBy": "https://github.com/honua-io/honua-server/issues/5407",
+        "oracle": "edits layer: attributes {'gid': 2, 'name': 'south', 'rank': 2} differ from fixture {'gid': 2, 'name': 'south', 'rank': 20}"
+      },
+      {
+        "step": "add-attachment",
+        "api": "HonuaFeatureLayer.addAttachment",
+        "status": "pass",
+        "oracle": "1 edit result(s), all successful"
+      },
+      {
+        "step": "query-attachments",
+        "api": "HonuaFeatureLayer.queryAttachments",
+        "status": "pass",
+        "oracle": "attachments [('sdk-regression.txt', 'text/plain', 32)], fixture expects [('sdk-regression.txt', 'text/plain', 32)]"
+      }
+    ],
+    "blockedBy": [
+      "https://github.com/honua-io/honua-server/issues/5407"
+    ]
+  },
+  "qualification": "IDs/count fixed in published SDK; existing editing blockers remain. Not full release or executable-docs qualification."
+}

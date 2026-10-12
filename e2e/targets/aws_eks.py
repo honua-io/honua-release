@@ -63,6 +63,11 @@ from .base import Availability, DeployTarget, ProvisionError
 
 EKS_ROOT = "infrastructure/terraform/examples/aws-eks"
 
+# S10 large-import (honua-release#548): the Redis-on background-import window, from the same cell
+# input the ECS and serverless roots take (terraform_target.IMPORT_BACKGROUND_THRESHOLD_VAR).
+IMPORT_THRESHOLD_ENV = "Import__Limits__BackgroundJobThresholdBytes"
+IMPORT_THRESHOLD_BYTES = int(_tt.IMPORT_BACKGROUND_THRESHOLD_VAR.split("=", 1)[1])
+
 # honua-iac's aws-eks root variable that switches the cluster's secret-encryption CMK on/off. Named
 # once here because BOTH the declared-variable probe and the `-var` flag have to agree on the spelling
 # — a typo in either would silently stop disabling the key (honua-release#127).
@@ -744,6 +749,11 @@ class AwsEksTarget(DeployTarget):
                     raise ProvisionError(f"{self.name}: root output {CHART_ENV_OUTPUT} holds a value "
                                          f"that is not a plain environment entry ({str(key)[:64]!r})")
                 env[str(key)] = str(value).lower() if isinstance(value, bool) else str(value)
+        if redis_enabled:
+            # S10 large-import (honua-release#548): the same background window as the Redis-on
+            # ECS and serverless cells (terraform_target.IMPORT_BACKGROUND_THRESHOLD_VAR). The chart
+            # takes server environment directly, so this cell needs no root input for it.
+            env[IMPORT_THRESHOLD_ENV] = str(IMPORT_THRESHOLD_BYTES)
         values: dict = {"config": {"env": env}}
         self._check_identity_binding()
         server_account = self._service_account_values(
