@@ -240,7 +240,8 @@
         "1.10.1",
         "1.10.2",
         "1.10.3",
-        "1.10.4"
+        "1.10.4",
+        "1.11.0"
       ]
     },
     {
@@ -248,25 +249,25 @@
       "evidence_class": "downloaded-bytes",
       "files": [
         {
-          "filename": "honua.sdk.1.10.4.nupkg",
-          "sha256": "60253476b6a1be98e1cbd989c3fbcdcf3c148b11c16e57e4336c90160ba0b2b3",
-          "url": "https://api.nuget.org/v3-flatcontainer/honua.sdk/1.10.4/honua.sdk.1.10.4.nupkg"
+          "filename": "honua.sdk.1.11.0.nupkg",
+          "sha256": "89a1001f1a9c922413b88cc262c7f21ec2d64b95d7c49a07386b3eded1cc62bb",
+          "url": "https://api.nuget.org/v3-flatcontainer/honua.sdk/1.11.0/honua.sdk.1.11.0.nupkg"
         },
         {
-          "filename": "honua.sdk.1.10.4.snupkg",
-          "sha256": "459b211c26fdf3404a2b562ac193b5b6bc3701485f0aef9c3cf1ece350d995fb",
-          "url": "https://globalcdn.nuget.org/symbol-packages/honua.sdk.1.10.4.snupkg"
+          "filename": "honua.sdk.1.11.0.snupkg",
+          "sha256": "961e12a16d1821ffbf140c562d81b8a847354adefac80b01053391e3edb7a513",
+          "url": "https://globalcdn.nuget.org/symbol-packages/honua.sdk.1.11.0.snupkg"
         }
       ],
       "flat_container_snupkg_status": 404,
       "http_status": 200,
       "id": "nuget:Honua.Sdk-newest",
-      "publication": "nuget.org Honua.Sdk 1.10.4",
+      "publication": "nuget.org Honua.Sdk 1.11.0",
       "urls": [
-        "https://api.nuget.org/v3-flatcontainer/honua.sdk/1.10.4/honua.sdk.1.10.4.nupkg",
-        "https://globalcdn.nuget.org/symbol-packages/honua.sdk.1.10.4.snupkg"
+        "https://api.nuget.org/v3-flatcontainer/honua.sdk/1.11.0/honua.sdk.1.11.0.nupkg",
+        "https://globalcdn.nuget.org/symbol-packages/honua.sdk.1.11.0.snupkg"
       ],
-      "version": "1.10.4"
+      "version": "1.11.0"
     },
     {
       "disposition": "listed",
@@ -286,7 +287,8 @@
         "1.10.1",
         "1.10.2",
         "1.10.3",
-        "1.10.4"
+        "1.10.4",
+        "1.11.0"
       ]
     },
     {
@@ -307,7 +309,8 @@
         "1.10.1",
         "1.10.2",
         "1.10.3",
-        "1.10.4"
+        "1.10.4",
+        "1.11.0"
       ]
     },
     {
@@ -328,7 +331,8 @@
         "1.10.1",
         "1.10.2",
         "1.10.3",
-        "1.10.4"
+        "1.10.4",
+        "1.11.0"
       ]
     },
     {
@@ -349,7 +353,8 @@
         "1.10.1",
         "1.10.2",
         "1.10.3",
-        "1.10.4"
+        "1.10.4",
+        "1.11.0"
       ]
     },
     {
@@ -370,7 +375,8 @@
         "1.10.1",
         "1.10.2",
         "1.10.3",
-        "1.10.4"
+        "1.10.4",
+        "1.11.0"
       ]
     },
     {
@@ -391,7 +397,8 @@
         "1.10.1",
         "1.10.2",
         "1.10.3",
-        "1.10.4"
+        "1.10.4",
+        "1.11.0"
       ]
     },
     {
@@ -412,7 +419,8 @@
         "1.10.1",
         "1.10.2",
         "1.10.3",
-        "1.10.4"
+        "1.10.4",
+        "1.11.0"
       ]
     },
     {
@@ -433,7 +441,8 @@
         "1.10.1",
         "1.10.2",
         "1.10.3",
-        "1.10.4"
+        "1.10.4",
+        "1.11.0"
       ]
     },
     {
@@ -454,7 +463,8 @@
         "1.10.1",
         "1.10.2",
         "1.10.3",
-        "1.10.4"
+        "1.10.4",
+        "1.11.0"
       ]
     },
     {
@@ -475,7 +485,8 @@
         "1.10.1",
         "1.10.2",
         "1.10.3",
-        "1.10.4"
+        "1.10.4",
+        "1.11.0"
       ]
     },
     {
@@ -496,7 +507,8 @@
         "1.10.1",
         "1.10.2",
         "1.10.3",
-        "1.10.4"
+        "1.10.4",
+        "1.11.0"
       ]
     },
     {
@@ -517,7 +529,8 @@
         "1.10.1",
         "1.10.2",
         "1.10.3",
-        "1.10.4"
+        "1.10.4",
+        "1.11.0"
       ]
     },
     {
@@ -538,7 +551,8 @@
         "1.10.1",
         "1.10.2",
         "1.10.3",
-        "1.10.4"
+        "1.10.4",
+        "1.11.0"
       ]
     },
     {
@@ -559,7 +573,8 @@
         "1.10.1",
         "1.10.2",
         "1.10.3",
-        "1.10.4"
+        "1.10.4",
+        "1.11.0"
       ]
     },
     {
@@ -580,7 +595,8 @@
         "1.10.1",
         "1.10.2",
         "1.10.3",
-        "1.10.4"
+        "1.10.4",
+        "1.11.0"
       ]
     },
     {
@@ -588,25 +604,25 @@
       "evidence_class": "downloaded-bytes",
       "files": [
         {
-          "filename": "honua_admin-0.1.10-py3-none-any.whl",
-          "registry_sha256": "74c067b4e175c91907e27284d84612bf93e51d2620f2b601a70e46b2380b5b9a",
-          "sha256": "74c067b4e175c91907e27284d84612bf93e51d2620f2b601a70e46b2380b5b9a",
-          "url": "https://files.pythonhosted.org/packages/e0/aa/eafcec2fd08815b60764c171d23853c32b8eb2836d0b8f35a8dabcc484a8/honua_admin-0.1.10-py3-none-any.whl"
+          "filename": "honua_admin-0.1.12-py3-none-any.whl",
+          "registry_sha256": "359e7e5a3426a79c11c4ce5d8412351187e86b0a5b9bf4766c5a644987c2c759",
+          "sha256": "359e7e5a3426a79c11c4ce5d8412351187e86b0a5b9bf4766c5a644987c2c759",
+          "url": "https://files.pythonhosted.org/packages/b6/37/fb02fbdf3114f9f59f885bcff0b3a7e628d93b55f60aa02dd13aa19c06cf/honua_admin-0.1.12-py3-none-any.whl"
         },
         {
-          "filename": "honua_admin-0.1.10.tar.gz",
-          "registry_sha256": "0ea5150782ded5086942440e880bc88d697b36bd3758e9b3c54663bbbc3da97e",
-          "sha256": "0ea5150782ded5086942440e880bc88d697b36bd3758e9b3c54663bbbc3da97e",
-          "url": "https://files.pythonhosted.org/packages/8c/f3/ebb21bd5eac74b45a551514cae63942e35b7cc538806502b3d5bd8576ed8/honua_admin-0.1.10.tar.gz"
+          "filename": "honua_admin-0.1.12.tar.gz",
+          "registry_sha256": "a1d7652dbc9b092da55a893760285c7d5da353091f35d9aa62ea8fe6e849a05e",
+          "sha256": "a1d7652dbc9b092da55a893760285c7d5da353091f35d9aa62ea8fe6e849a05e",
+          "url": "https://files.pythonhosted.org/packages/d5/54/d68f289a574074e43861894f3d147c1d88947f6477cb995b59b015ba12c9/honua_admin-0.1.12.tar.gz"
         }
       ],
       "http_status": 200,
       "id": "pypi:honua-admin",
-      "publication": "PyPI honua-admin 0.1.10",
+      "publication": "PyPI honua-admin 0.1.12",
       "urls": [
         "https://pypi.org/pypi/honua-admin/json"
       ],
-      "version": "0.1.10"
+      "version": "0.1.12"
     },
     {
       "disposition": "absent-retired",
@@ -647,25 +663,25 @@
       "evidence_class": "downloaded-bytes",
       "files": [
         {
-          "filename": "honua_sdk-0.1.13-py3-none-any.whl",
-          "registry_sha256": "c6cae3674d255b77f82a1ba2a6f52c52e0cb6b16820596ef7d861914233884b6",
-          "sha256": "c6cae3674d255b77f82a1ba2a6f52c52e0cb6b16820596ef7d861914233884b6",
-          "url": "https://files.pythonhosted.org/packages/7a/ce/2a21985a6eb4dc0ce19899702bfd37dc2621b16f4e1667a12b3d339ee7e4/honua_sdk-0.1.13-py3-none-any.whl"
+          "filename": "honua_sdk-0.1.15-py3-none-any.whl",
+          "registry_sha256": "c058087d8bd93d6ce44f5e64150d2d31376a49bade61a933b1ff0fcb8de7dc00",
+          "sha256": "c058087d8bd93d6ce44f5e64150d2d31376a49bade61a933b1ff0fcb8de7dc00",
+          "url": "https://files.pythonhosted.org/packages/4c/be/f44e1e114cc54e00098a549d9361ff736d7718d3bb8e2e9d0118375e81ed/honua_sdk-0.1.15-py3-none-any.whl"
         },
         {
-          "filename": "honua_sdk-0.1.13.tar.gz",
-          "registry_sha256": "433f934fd5fb3b97bab5f26c1d7badc852a3ececa1617605c5a13a97808b2eb4",
-          "sha256": "433f934fd5fb3b97bab5f26c1d7badc852a3ececa1617605c5a13a97808b2eb4",
-          "url": "https://files.pythonhosted.org/packages/37/2b/a3cb8efc9a90dd84d01a70d421c66944fa8f3e282f79935005fd40796fd9/honua_sdk-0.1.13.tar.gz"
+          "filename": "honua_sdk-0.1.15.tar.gz",
+          "registry_sha256": "a96515a5d28d583f591af390e86cb645a35b93dba25e88da2bd3d434ac8e4aeb",
+          "sha256": "a96515a5d28d583f591af390e86cb645a35b93dba25e88da2bd3d434ac8e4aeb",
+          "url": "https://files.pythonhosted.org/packages/db/46/12276dfbde6ede5d7b98668ca6499761f31acb5c236d450a85ea097eeef9/honua_sdk-0.1.15.tar.gz"
         }
       ],
       "http_status": 200,
       "id": "pypi:honua-sdk",
-      "publication": "PyPI honua-sdk 0.1.13",
+      "publication": "PyPI honua-sdk 0.1.15",
       "urls": [
         "https://pypi.org/pypi/honua-sdk/json"
       ],
-      "version": "0.1.13"
+      "version": "0.1.15"
     },
     {
       "disposition": "blocked-on-operator",
@@ -680,20 +696,20 @@
     },
     {
       "client_artifact_registry": "nuget.org",
-      "client_artifact_version": "1.10.4",
-      "component_version": "1.10.4",
+      "client_artifact_version": "1.11.0",
+      "component_version": "1.11.0",
       "disposition": "published",
       "evidence_class": "downloaded-bytes",
       "files": [
         {
-          "filename": "honua.sdk.1.10.4.nupkg",
-          "sha256": "60253476b6a1be98e1cbd989c3fbcdcf3c148b11c16e57e4336c90160ba0b2b3",
-          "url": "https://api.nuget.org/v3-flatcontainer/honua.sdk/1.10.4/honua.sdk.1.10.4.nupkg"
+          "filename": "honua.sdk.1.11.0.nupkg",
+          "sha256": "89a1001f1a9c922413b88cc262c7f21ec2d64b95d7c49a07386b3eded1cc62bb",
+          "url": "https://api.nuget.org/v3-flatcontainer/honua.sdk/1.11.0/honua.sdk.1.11.0.nupkg"
         },
         {
-          "filename": "honua.sdk.studio.1.10.4.nupkg",
-          "sha256": "fa717fe56b2b50cb0000a5a3a18b60d02df34573f4a4fb15ac9b0e4d22dc54da",
-          "url": "https://api.nuget.org/v3-flatcontainer/honua.sdk.studio/1.10.4/honua.sdk.studio.1.10.4.nupkg"
+          "filename": "honua.sdk.studio.1.11.0.nupkg",
+          "sha256": "8c221f7d1f75bdbdf3704acfac0394e8d81e8960c4dc41dc505648496e504a7d",
+          "url": "https://api.nuget.org/v3-flatcontainer/honua.sdk.studio/1.11.0/honua.sdk.studio.1.11.0.nupkg"
         }
       ],
       "http_status": 200,
@@ -702,10 +718,10 @@
         "Honua.Sdk": 200,
         "Honua.Sdk.Studio": 200
       },
-      "publication": "nuget.org Honua.Sdk 1.10.4",
+      "publication": "nuget.org Honua.Sdk 1.11.0",
       "urls": [
-        "https://api.nuget.org/v3-flatcontainer/honua.sdk/1.10.4/honua.sdk.1.10.4.nupkg",
-        "https://api.nuget.org/v3-flatcontainer/honua.sdk.studio/1.10.4/honua.sdk.studio.1.10.4.nupkg"
+        "https://api.nuget.org/v3-flatcontainer/honua.sdk/1.11.0/honua.sdk.1.11.0.nupkg",
+        "https://api.nuget.org/v3-flatcontainer/honua.sdk.studio/1.11.0/honua.sdk.studio.1.11.0.nupkg"
       ]
     }
   ],
@@ -715,6 +731,6 @@
   },
   "issue": "honua-io/honua-release#57",
   "method": "Anonymous HTTPS with no Authorization header. published rows are sha256 of bytes this probe downloaded. listed rows are registry indexes only. Blocked rows name the publication and the operator boundary and do not carry package bytes. deferred-experimental rows are channels of a component the platform manifest lists under experimental:; they are not GA evidence and not release blockers.",
-  "observed_at": "2026-10-12T04:23:14Z",
+  "observed_at": "2026-10-12T06:28:40Z",
   "schema": "honua.first-publication-preflight/v1"
 }
