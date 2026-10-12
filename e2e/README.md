@@ -449,6 +449,30 @@ to 64 MiB (67,108,864) under the default 100 MiB `MaxMemoryBytes`, which leaves 
   `additional_env` inline. Until honua-iac adds the input and renders it as
   `Import__Limits__BackgroundJobThresholdBytes`, those two cells fail S10 with `no-background-window`.
 
+A background import that the Redis-on Lambda accepts runs on AWS Batch only when the API function and
+the Batch workers share S3 file storage (honua-server#5916). Otherwise the Lambda refuses it with the
+typed 503 (`import.background` reports `reasonCode: shared-file-storage-required`). honua-iac#243 adds
+the inputs to `examples/aws-serverless`. The cells pass:
+
+| cell | input (only when the pinned root declares all three) | value |
+|---|---|---|
+| `aws-serverless/redis-on` | `file_storage_provider` | `AwsS3` |
+| | `file_storage_aws_s3_bucket_name` | `$HONUA_AWS_CELL_FILE_STORAGE_BUCKET` |
+| | `file_storage_aws_s3_key_prefix` | `release-cells/<name prefix>` (the cell's object grant is `<prefix>/*`) |
+| | `file_storage_aws_s3_region` | not passed; the module renders the root region (us-east-1, the bucket's region) |
+| `aws-serverless/redis-off` | none | without Redis the Lambda has no durable runner and answers the typed 503 whatever its storage, which is what the cell records |
+| `aws-ecs/redis-on` | unchanged: the same three inputs as part of the MultiNode set (`REDIS_ON_SCALE_INPUTS`) | |
+
+`TfTargetSpec.file_storage_inputs` and `file_storage_bucket_env` drive the serverless set. An older pin
+that lacks any of the three inputs gets none of them and keeps `Local` storage. If the root declares
+them but `HONUA_AWS_CELL_FILE_STORAGE_BUCKET` is unset, the Redis-on serverless cell refuses to
+provision with an error naming the variable (destroy still plans). The S10 fixture is staged next to
+the cell's prefix, not inside it: `release-cells/<target>-redis-<on|off>/s10/...` versus
+`release-cells/<name prefix>/...`. The server reads it only through the harness-minted presigned URL,
+never with its own role, and both sit under the bucket's one-day `release-cells/` lifecycle. The
+release-cell permissions boundary must admit the module's grant on the bucket for the Lambda,
+control-plane event and GP Batch job roles.
+
 **Where the import job runs (`executor`, `jobRunner`).** honua-server queues file imports in
 `UniversalImportJobService`, which runs the job inside the host that accepted the upload on every
 topology, and registers it whether or not Redis is. Cloud run 38192851328 (server 93cad86ec) showed

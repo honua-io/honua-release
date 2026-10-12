@@ -104,6 +104,15 @@ class TfTargetSpec:
     # it is set and the pinned root declares every input in REDIS_ON_SCALE_INPUTS, the Redis-on
     # cell runs REDIS_ON_TASKS tasks in the MultiNode topology (see the constants below).
     redis_on_scale_bucket_env: str = ""
+    # Redis-on only, for roots that do not scale through REDIS_ON_SCALE_INPUTS (the Lambda cell):
+    # the file-storage inputs (provider, bucket, key prefix) that make the API host and the GP Batch
+    # workers share one S3 bucket, which a background import accepted by the Lambda needs to run on
+    # Batch (honua-server#5916, honua-iac#243). Passed only when the pinned root declares every one;
+    # the region input is left to the module (it renders its own region). A declaring root with
+    # file_storage_bucket_env unset refuses the Redis-on cell (S10 would otherwise record the typed
+    # 503 instead of the background import); destroy never refuses.
+    file_storage_inputs: tuple[str, ...] = ()
+    file_storage_bucket_env: str = ""
     # Run the generic server image on the runner against the cell's database before the cell is
     # probed. The serverless root keeps skip_migrations=true (a Lambda cold start must not race a
     # schema migration), so without this step the Lambda serves an unmigrated database.
@@ -141,6 +150,21 @@ class TfTargetSpec:
 REDIS_ON_TASKS = 2
 REDIS_ON_SCALE_INPUTS = ("desired_count", "max_capacity", "deployment_mode", "file_storage_provider",
                          "file_storage_aws_s3_bucket_name", "file_storage_aws_s3_key_prefix")
+# Every cell's server objects live under `release-cells/<name prefix>` in the operator-owned bucket;
+# the module scopes the cell roles' object grants to `<prefix>/*` (honua-iac#243). The S10 fixture the
+# harness stages sits beside it under `release-cells/<cell>/s10/` (large_import.object_key): the server
+# never reads it with its own role, only through the harness-minted presigned URL, and both sit under
+# the bucket's one-day `release-cells/` lifecycle backstop (CELL_FILE_STORAGE_ROOT).
+CELL_FILE_STORAGE_ROOT = "release-cells/"
+FILE_STORAGE_INPUTS = ("file_storage_provider", "file_storage_aws_s3_bucket_name", "file_storage_aws_s3_key_prefix")
+FILE_STORAGE_KEY_PREFIX_VAR = "file_storage_aws_s3_key_prefix"
+
+
+def cell_file_storage_prefix(name_prefix: str) -> str:
+    """The FileStorage key prefix a cell passes: `release-cells/<name prefix>`."""
+    return CELL_FILE_STORAGE_ROOT + name_prefix
+
+
 _S3_BUCKET = re.compile(r"[a-z0-9][a-z0-9.-]{1,61}[a-z0-9]")
 
 # Repository variables (not secrets) naming the public hosted zone that carries per-run cell names.
@@ -311,6 +335,7 @@ class TerraformTarget(DeployTarget):
             values.extend(f"-var={v}" for v in self.spec.opt_in_vars)
         if redis_enabled:
             values.extend(self._redis_on_scale_vars(prefix))
+            values.extend(self._file_storage_vars(prefix, destroy=destroy))
             values.extend(f"-var={v}" for v in self.spec.redis_on_declared_vars
                           if self._root_declares(v.split("=", 1)[0]))
         if self.spec.needs_runner_db_access:
@@ -368,12 +393,34 @@ class TerraformTarget(DeployTarget):
         bucket = os.environ.get(env, "").strip() if env else ""
         if not bucket or not all(self._root_declares(v) for v in REDIS_ON_SCALE_INPUTS):
             return []
+        return [f"-var=desired_count={REDIS_ON_TASKS}", f"-var=max_capacity={REDIS_ON_TASKS}",
+                "-var=deployment_mode=MultiNode", *self._shared_file_storage(env, bucket, name_prefix)]
+
+    def _file_storage_vars(self, name_prefix: str, *, destroy: bool = False) -> list[str]:
+        """The shared-file-storage inputs of a Redis-on cell that does not scale (the Lambda cell), or [].
+
+        Nothing on a root that lacks any of spec.file_storage_inputs (an older iac pin keeps the
+        module's Local storage). A declaring root with the bucket variable unset refuses provisioning:
+        without shared storage the Lambda refuses S10's background import with the typed 503.
+        """
+        inputs, env = self.spec.file_storage_inputs, self.spec.file_storage_bucket_env
+        if not inputs or not env or not all(self._root_declares(v) for v in inputs):
+            return []
+        bucket = os.environ.get(env, "").strip()
+        if not bucket:
+            if destroy:
+                return []
+            raise ProvisionError(
+                f"{self.name}: the pinned root declares shared file storage ({', '.join(inputs)}) but {env} is "
+                "unset; the Redis-on cell needs the operator-owned bucket so S10's background import can run "
+                "on AWS Batch (honua-release#548, owner step in e2e/README.md)")
+        return self._shared_file_storage(env, bucket, name_prefix)
+
+    def _shared_file_storage(self, env: str, bucket: str, name_prefix: str) -> list[str]:
         if not _S3_BUCKET.fullmatch(bucket):
             raise ProvisionError(f"{self.name}: {env} is not an S3 bucket name")
-        return [f"-var=desired_count={REDIS_ON_TASKS}", f"-var=max_capacity={REDIS_ON_TASKS}",
-                "-var=deployment_mode=MultiNode", "-var=file_storage_provider=AwsS3",
-                f"-var=file_storage_aws_s3_bucket_name={bucket}",
-                f"-var=file_storage_aws_s3_key_prefix=release-cells/{name_prefix}"]
+        return ["-var=file_storage_provider=AwsS3", f"-var=file_storage_aws_s3_bucket_name={bucket}",
+                f"-var={FILE_STORAGE_KEY_PREFIX_VAR}={cell_file_storage_prefix(name_prefix)}"]
 
     # --- per-run HTTPS cell hostname (honua-release#450) -----------------------------------------
     def cell_domain_label(self, redis_enabled: bool) -> str:
@@ -927,6 +974,13 @@ SERVERLESS_SPEC = TfTargetSpec(
     cell_domain_optional_on_root=True,
     cors_allowed_origins=(DEMO_SITE_ORIGIN,),
     redis_on_declared_vars=(IMPORT_BACKGROUND_THRESHOLD_VAR,),
+    # honua-server#5916 / honua-iac#243: a background import the Redis-on Lambda accepts runs on AWS
+    # Batch only when the API function and the Batch workers share S3 file storage (else the Lambda
+    # answers S10 with the typed 503, reasonCode shared-file-storage-required). Redis-off is not
+    # given it: a Lambda without Redis has no durable runner and refuses with the same 503 whatever
+    # its storage, which is what that cell records.
+    file_storage_inputs=FILE_STORAGE_INPUTS,
+    file_storage_bucket_env="HONUA_AWS_CELL_FILE_STORAGE_BUCKET",
 )
 ECS_SPEC = TfTargetSpec(
     name="aws-ecs",
