@@ -16,6 +16,7 @@ import sys
 from pathlib import Path
 
 import pytest
+import yaml
 
 E2E_DIR = Path(__file__).resolve().parent
 sys.path.insert(0, str(E2E_DIR))
@@ -258,6 +259,34 @@ def test_gp_runs_as_kubernetes_jobs_only_when_the_pinned_chart_declares_it(cell,
     assert jobs["enabled"] is True and jobs["namespace"] == aws_eks.NAMESPACE
     assert jobs["image"] == {"repository": "ghcr.io/honua-io/honua-server", "tag": "", "digest": "sha256:" + "b" * 64}
     assert "serviceAccount" not in jobs
+
+
+@pytest.mark.parametrize("honoured", [False, True])
+def test_gp_job_env_from_follows_the_server_pin_constant(cell, monkeypatch, honoured):
+    monkeypatch.setenv("HONUA_GP_BATCH_IMAGE", GP_IMAGE)
+    monkeypatch.setattr(aws_eks, "SERVER_PIN_HONOURS_GP_JOB_ENV_FROM", honoured)
+    cell.chart("geoprocessing:\n  kubernetesJobs:\n    enabled: false\n    envFromServer: true\n")
+    assert cell.chart_values(False)["geoprocessing"]["kubernetesJobs"]["envFromServer"] is honoured
+
+
+def test_gp_job_env_from_is_not_rendered_for_a_chart_that_does_not_declare_it(cell, monkeypatch):
+    monkeypatch.setenv("HONUA_GP_BATCH_IMAGE", GP_IMAGE)
+    cell.chart("geoprocessing:\n  kubernetesJobs:\n    enabled: false\n")
+    assert "envFromServer" not in cell.chart_values(False)["geoprocessing"]["kubernetesJobs"]
+
+
+def test_the_pinned_server_predates_gp_job_env_from():
+    """honua-server 93cad86 (the manifest pin) carries #5780 but not #5796 (bebaada00); the re-pin to
+    a build that contains bebaada00 flips SERVER_PIN_HONOURS_GP_JOB_ENV_FROM and this assertion."""
+    manifest = yaml.safe_load((Path(__file__).resolve().parents[1] / "platform-manifest.yaml")
+                              .read_text(encoding="utf-8"))
+    server = manifest["components"]["honua-server"]["sha"]
+    if server == "93cad86ec4fb28fba3ff0b9358059d86aa55dde5":
+        assert aws_eks.SERVER_PIN_HONOURS_GP_JOB_ENV_FROM is False
+    else:
+        assert aws_eks.SERVER_PIN_HONOURS_GP_JOB_ENV_FROM is True, (
+            "the honua-server pin moved: confirm it contains honua-server#5796 (bebaada00) and set "
+            "e2e/targets/aws_eks.py SERVER_PIN_HONOURS_GP_JOB_ENV_FROM = True")
 
 
 def test_a_chart_with_kubernetes_jobs_is_blocked_without_the_pinned_gp_image(cell):
