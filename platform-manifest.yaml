@@ -732,11 +732,18 @@ components:
     # #242: import_background_job_threshold_bytes on the aws and aws-serverless roots, rendered as
     # Import__Limits__BackgroundJobThresholdBytes on every server process, for the S10 large-import
     # scenario (release#554, #548).
+    # 2026-10-12 ADVANCE 0ab4c5b0 -> trunk 378b2de6 (honua-iac#244 merge commit; carries #243).
+    # #243: shared S3 file storage on the serverless module/root (file_storage_provider/bucket/region/key_prefix)
+    # rendered on the API Lambda, control-plane functions and Batch tiers with one S3 grant on their roles, so
+    # background imports can run on the Batch worker (server #5916). #244: the control-plane event functions
+    # drop the HTTP-only keys and the import threshold to stay under the 4096-byte Lambda environment cap
+    # (3790/3787/3793 B; the API function sits at 4077 B on the full Redis-on cell). The serverless cell
+    # passes the file-storage inputs once this root declares them (release#569).
     version: "pre-release"             # untagged trunk commit; v0.2.0 is the newest tag
-    sha: "0ab4c5b064bc0769f566bed56a1cb08be812766f"   # branch: trunk HEAD 2026-10-11 (honua-iac#242 merge commit)
-    artifact: "archive:https://github.com/honua-io/honua-iac/archive/0ab4c5b064bc0769f566bed56a1cb08be812766f.tar.gz"
-    artifactSourceRevision: "0ab4c5b064bc0769f566bed56a1cb08be812766f"   # the tarball's pax comment
-    artifactSha256: "sha256:b5c79ba53126d1fb9d0dc7a9eb1493ef2e6ecce0b2f6ec365814f2b263027cba"   # two anonymous downloads, identical bytes
+    sha: "378b2de6519a360672605ec515d07608770101bd"   # branch: trunk HEAD 2026-10-12 (honua-iac#244 merge commit)
+    artifact: "archive:https://github.com/honua-io/honua-iac/archive/378b2de6519a360672605ec515d07608770101bd.tar.gz"
+    artifactSourceRevision: "378b2de6519a360672605ec515d07608770101bd"   # the tarball's pax comment
+    artifactSha256: "sha256:b022dcd5e51825166476db8da796a19e429fc63d7e4617cd5c928a1c4400b6b3"   # two anonymous downloads, identical bytes
 
   honua-helm:
     repository: "https://github.com/honua-io/honua-helm"
