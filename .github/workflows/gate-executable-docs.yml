@@ -30,6 +30,12 @@ on:
   schedule:
     - cron: "40 9 * * *"
   workflow_dispatch:
+    inputs:
+      sdk_publication_replay:
+        description: "Diagnostic only: published SDK 0.1.15 / MCP 0.1.16; never rebinds release inputs"
+        required: false
+        type: boolean
+        default: false
   pull_request:
     paths:
       - "certification/executable-docs/**"
@@ -157,4 +163,66 @@ jobs:
           path: |
             artifacts/executable-docs/
             e2e/out/boot.json
+          if-no-files-found: warn
+
+  sdk-publication-diagnostic:
+    if: ${{ github.event_name == 'workflow_dispatch' && inputs.sdk_publication_replay }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: "20.19.0"
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.12"
+      - uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68 # v6.0.0
+        with:
+          dotnet-version: "10.0.x"
+      - run: python -m pip install -r e2e/requirements.txt cryptography
+      - name: Verify public bytes and prepare a temporary candidate
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: python certification/sdk-publication-replay/prepare.py --output "$RUNNER_TEMP/sdk-publication-candidate"
+      - name: Exercise published consumers and exact-source documentation
+        env:
+          GH_TOKEN: ${{ github.token }}
+          EVIDENCE_URI: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          python certification/sdk-publication-replay/run.py \
+            --manifest "$RUNNER_TEMP/sdk-publication-candidate/platform-manifest.yaml" \
+            --output "$RUNNER_TEMP/sdk-publication-replay" --mode all \
+            --project sdk-publication-diagnostic --evidence-uri "$EVIDENCE_URI"
+      - name: Keep canonical release inputs unchanged
+        if: always()
+        run: git diff --exit-code -- platform-manifest.yaml customer-install-manifest.json
+      - name: Remove only the diagnostic stacks
+        if: always()
+        env:
+          SDKREG_SIGNING_KEY: cleanup-placeholder-never-used-for-startup
+        run: |
+          docker compose --project-name sdk-publication-diagnostic-queries \
+            -f e2e/harness/compose.candidate.yml \
+            -f certification/installed-clients/compose.sdk-regression.yml down -v
+          docker compose --project-name sdk-publication-diagnostic-docs \
+            -f e2e/harness/compose.candidate.yml \
+            -f certification/executable-docs/compose.readiness.yml down -v
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        if: always()
+        with:
+          name: sdk-publication-diagnostic
+          path: |
+            ${{ runner.temp }}/sdk-publication-candidate/*.json
+            ${{ runner.temp }}/sdk-publication-candidate/platform-manifest.yaml
+            ${{ runner.temp }}/sdk-publication-replay/public-registry-observations.json
+            ${{ runner.temp }}/sdk-publication-replay/public-scaffold-resolution.json
+            ${{ runner.temp }}/sdk-publication-replay/public-consumer/my-map/package-lock.json
+            ${{ runner.temp }}/sdk-publication-replay/public-dev-readiness.json
+            ${{ runner.temp }}/sdk-publication-replay/gate-exit-status.json
+            ${{ runner.temp }}/sdk-publication-replay/installed-clients.json
+            ${{ runner.temp }}/sdk-publication-replay/executable-docs.json
+            ${{ runner.temp }}/sdk-publication-replay/executable-docs-summary.md
           if-no-files-found: warn
