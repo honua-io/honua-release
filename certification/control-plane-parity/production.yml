@@ -1,0 +1,31 @@
+services:
+  db:
+    environment:
+      POSTGRES_PASSWORD: "${S4_DB_PASSWORD:?minted per run}"
+    volumes:
+      - parity-postgres:/var/lib/postgresql/data
+  redis:
+    volumes:
+      - parity-redis:/data
+  keycloak:
+    mem_limit: 768m
+    cpus: 1.0
+    environment:
+      JAVA_OPTS_KC_HEAP: -Xms128m -Xmx512m
+  server:
+    environment:
+      ASPNETCORE_ENVIRONMENT: Production
+      DOTNET_ENVIRONMENT: Production
+      AuditLog__ChainVerification__Key: "${S4_AUDIT_CHAIN_KEY:?minted per run}"
+      ConnectionStrings__DefaultConnection: "Host=db;Port=5432;Database=honua;Username=honua;Password=${S4_DB_PASSWORD}"
+      HONUA_TEST_DB_DSN: "Host=db;Port=5432;Database=honua;Username=honua;Password=${S4_DB_PASSWORD}"
+      Operations__SecretChannel__KeyRingCertificatePath: /keyring/keyring.pfx
+      Operations__SecretChannel__KeyRingCertificatePassword: "${S4_KEYRING_PASSWORD:?minted per run}"
+      FileStorage__LocalStorage__BasePath: /var/lib/honua/storage
+    volumes:
+      - "${S4_RUN_DIR}/keyring.pfx:/keyring/keyring.pfx:ro"
+      - parity-files:/var/lib/honua/storage
+volumes:
+  parity-postgres: {}
+  parity-redis: {}
+  parity-files: {}
