@@ -720,11 +720,20 @@ components:
     # the excess for up to 120 s; the server's per-connection SETs pin, so it caps rather than shares
     # until the session settings move to role defaults. The serverless cell enables it (SERVERLESS_SPEC).
     # Also: API Gateway access log carries integrationStatus/integrationErrorMessage/error.message.
+    # 2026-10-11 ADVANCE 5d577263 -> trunk 0ab4c5b0 (honua-iac#242 merge commit; carries #241).
+    # #241: behind the RDS Proxy the module sets Database__SessionSettings__Mode=role-defaults on the
+    # API Lambda, control-plane functions and Batch jobs (server #5874 then issues no per-connection
+    # SETs, so proxy sessions multiplex instead of pinning), applies the matching ALTER ROLE defaults
+    # next to enable_postgis, and exposes the proxy percentages on the example root; the cell declares
+    # rds_proxy_max_connections_percent=70 (run 38163689854: 90% left ~4 direct slots of ~82).
+    # #242: import_background_job_threshold_bytes on the aws and aws-serverless roots, rendered as
+    # Import__Limits__BackgroundJobThresholdBytes on every server process, for the S10 large-import
+    # scenario (release#554, #548).
     version: "pre-release"             # untagged trunk commit; v0.2.0 is the newest tag
-    sha: "5d5772634e1659841eb0ae9958f5198a333f5a42"   # branch: trunk HEAD 2026-10-11 (honua-iac#240 merge commit)
-    artifact: "archive:https://github.com/honua-io/honua-iac/archive/5d5772634e1659841eb0ae9958f5198a333f5a42.tar.gz"
-    artifactSourceRevision: "5d5772634e1659841eb0ae9958f5198a333f5a42"   # the tarball's pax comment
-    artifactSha256: "sha256:aa30a65d76a8a29f5c29b6c3894425ea38082faf21ce0fc140142b55788a0f1a"   # two anonymous downloads, identical bytes
+    sha: "0ab4c5b064bc0769f566bed56a1cb08be812766f"   # branch: trunk HEAD 2026-10-11 (honua-iac#242 merge commit)
+    artifact: "archive:https://github.com/honua-io/honua-iac/archive/0ab4c5b064bc0769f566bed56a1cb08be812766f.tar.gz"
+    artifactSourceRevision: "0ab4c5b064bc0769f566bed56a1cb08be812766f"   # the tarball's pax comment
+    artifactSha256: "sha256:b5c79ba53126d1fb9d0dc7a9eb1493ef2e6ecce0b2f6ec365814f2b263027cba"   # two anonymous downloads, identical bytes
 
   honua-helm:
     repository: "https://github.com/honua-io/honua-helm"
