@@ -51,14 +51,14 @@
 
 platformRelease: "2026.1-rc.2"         # calendar label; -rc.N until promoted
 status: rc                             # draft | rc | released
-snapshotDate: "2026-10-11"             # honua-server hand re-pin 798d517 -> certified trunk build 93cad86 (Native AOT key-ring decryptor, GP Batch worker-only profile, instance identity); other components unchanged
+snapshotDate: "2026-10-12"             # honua-server hand re-pin 93cad86 -> certified trunk build 0e03bdd (shared MCP sessions, control-plane Lambda dispatch, degraded start, role-default session settings); other components unchanged
 snapshotKind: candidate-manifest-snapshot  # hand snapshot of trunk; replaced by train-generated manifest in Phase 2
 
 # Producer-recorded dispatch identity. Release intake accepts candidates dispatched only from
 # honua-server's protected default branch; tools/validate_platform.py --exact-candidate fails closed
 # and names this ref when it is anything other than the literal `trunk`.
 candidate:
-  ref: "93cad86ec4fb28fba3ff0b9358059d86aa55dde5"
+  ref: "0e03bdd06b3ca3fb1b82388110bb5dfa19b9f8fa"
   refSource: "trunk"
 
 # Pipeline-owned certification boundary. Dispatchers cannot replace the cut or ledger. `pending`
@@ -71,11 +71,12 @@ protocolCertification:
   # 2026-10-09 hand re-pin to certified trunk build 3ecd214: UTC time this working candidate was refreshed.
   # 2026-10-10 hand re-pin to certified trunk build 798d517: UTC time this working candidate was refreshed.
   # 2026-10-11 hand re-pin to certified trunk build 93cad86: UTC time this working candidate was refreshed.
-  candidateCutAt: "2026-10-11T02:00:00Z"
+  # 2026-10-12 hand re-pin to certified trunk build 0e03bdd: UTC time this working candidate was refreshed.
+  candidateCutAt: "2026-10-12T09:45:00Z"
   # The source-test-host harness must certify the exact frozen honua-server candidate.
   # validate_platform.check_structure enforces byte-equality with components.honua-server.sha, so this
   # moves in lockstep with the server re-pin below and is not independently selectable.
-  serverCertificationProducerSha: "93cad86ec4fb28fba3ff0b9358059d86aa55dde5"
+  serverCertificationProducerSha: "0e03bdd06b3ca3fb1b82388110bb5dfa19b9f8fa"
   # #181: the historical ledger certifies e3ab87ce, not this working snapshot.
   # The published Python 0.1.11 artifact also predates its certification contract;
   # advancing the working component pin does not change that package's provenance.
@@ -230,6 +231,33 @@ components:
     # FORWARD-MIGRATION REFRESH 2026-08-31: this immutable nightly is the newest published
     # multi-architecture AOT image and contains 107_AddRbacRoleTombstones.sql. The prior promoted
     # honua-2026.1 image is schema 106, so gate-upgrade must observe this exact 106 -> 107 edge.
+    # ====================== 2026-10-12 SERVER RE-PIN (hand, certified trunk build) ===============
+    # 93cad86 -> 0e03bdd06b3ca3fb1b82388110bb5dfa19b9f8fa (75 commits ahead, trunk head at the
+    # nightly dispatch). Carries honua-server#5809 (MCP sessions are shared across instances through
+    # the session store, and an unknown session id is refused with 404), #5840 (each control-plane
+    # event-handler Lambda invocation releases its pooled DB connections), #5843 (the metadata graph
+    # snapshot is invalidated on every node in MultiNode), #5863 (control-plane Lambda events are
+    # dispatched in-process, plus the scheduled-tick bootstrap handler), #5866 (a transient database
+    # preflight failure degrades startup instead of exiting), #5874
+    # (Database:SessionSettings:Mode=role-defaults, so RDS Proxy can multiplex), #5794 (publicationUrl
+    # on the Studio publish-request read and contentHashInput on version reads, with
+    # 126_AddStudioContentHashInput.sql), #5796 (GP Job workers take Kubernetes Secret/ConfigMap
+    # envFrom references), #5806 (WFS 1.0 OnlineResource names the deployment's own URL), #5808 (the
+    # execution worker's exit code is resolved before the host is disposed), #5909 (GPServer/NAServer
+    # capacity partition) and the CI repairs #5887, #5903 and #5908, plus #5759 (SensorThings preview
+    # core, 127_CompleteSensorThingsSensing.sql), #5828 (coordinated releases, admission and topology
+    # recovery, 128_AddNetworkTopologyPromotionRequestHash.sql), #5789, #5792, #5793 and the audit
+    # fixes (#5816-#5860 and the rest of #5795-#5918). NOT in this image: honua-server#5928, #5931
+    # (0f663b066) or any later change. Full ci.yml matrix green at this sha: run 38213562156
+    # (workflow_dispatch). Trunk Nightly Container Build run 38221839914, dispatched on tag
+    # nightly-candidate-0e03bdd, logged "Selected 0e03bdd06b3ca3fb1b82388110bb5dfa19b9f8fa
+    # (nightly-0e03bdd), certified by .github/workflows/ci.yml run 38213562156" and published the
+    # multi-architecture index and the Lambda AOT leg below. The index annotation, both child config
+    # labels and the build provenance (sourceRepositoryDigest, source ref
+    # refs/tags/nightly-candidate-0e03bdd, signer nightly-container-build.yml at that tag ref, run
+    # 38221839914) all name this sha. contractVersions are unchanged in
+    # release/component-versions.json at this sha; three migrations were added (dbSchema 125 -> 128);
+    # the MCP tool roster (docs/gis/data/mcp-tool-roster.v1.json) is unchanged.
     # ====================== 2026-10-11 SERVER RE-PIN (hand, certified trunk build) ===============
     # 798d517 -> 93cad86ec4fb28fba3ff0b9358059d86aa55dde5 (17 commits ahead, trunk head at the
     # nightly dispatch). Carries honua-server#5773 (the Native AOT host roots the operation key-ring
@@ -313,25 +341,25 @@ components:
     # dated nightly tags backwards, so they were not taken. 679f637 is an ancestor; 19 commits
     # separate this pin from trunk HEAD at re-pin time.
     # contractVersions below are CARRIED FORWARD and remain UNVERIFIED (release#282 item 4).
-    sha: "93cad86ec4fb28fba3ff0b9358059d86aa55dde5"
-    image: "ghcr.io/honua-io/honua-server:nightly-93cad86"   # immutable per-sha tag (NOT a floating tag)
-    # Multi-arch index. Child manifests re-read from GHCR on 2026-10-11
+    sha: "0e03bdd06b3ca3fb1b82388110bb5dfa19b9f8fa"
+    image: "ghcr.io/honua-io/honua-server:nightly-0e03bdd"   # immutable per-sha tag (NOT a floating tag)
+    # Multi-arch index. Child manifests re-read from GHCR on 2026-10-12
     # (docker buildx imagetools inspect --raw); the index digest matched. Each child config is linux
-    # and labels org.opencontainers.image.revision=93cad86ec4fb28fba3ff0b9358059d86aa55dde5.
-    #   linux/amd64 sha256:3670ba408d88c760c7a33427e666c1832696613cc271ccd044e4ae86217cc95c
-    #   linux/arm64 sha256:6ad07dc3d1bac56ea6dd5dec1c2512cbb9f10b62128c64cf812f11115d05e5d7
-    # (:nightly-aot-93cad86 resolves to the same index digest.)
+    # and labels org.opencontainers.image.revision=0e03bdd06b3ca3fb1b82388110bb5dfa19b9f8fa.
+    #   linux/amd64 sha256:8a211f46bbc92fe6907b72fb8bcdc36a808924f3ca001a090591c0752360d2bd
+    #   linux/arm64 sha256:0d18c33537636d13c0c64c2a824295a19418e8f28344fb50207bf4dd61168dff
+    # (:nightly-aot-0e03bdd resolves to the same index digest.)
     # Rollback certification dereferences platformDigests.amd64, not this index.
-    digest: "sha256:785de2ae7f72e6277ce62aa1ece4f08ee0425970b71c47f9f4843c0baae2c8db"
+    digest: "sha256:dcf3296f17a456a876c23133fae50b5b32628d4ec710e8bdab58f57d2394d750"
     architectures: [amd64, arm64]
     platformDigests:
-      amd64: "sha256:3670ba408d88c760c7a33427e666c1832696613cc271ccd044e4ae86217cc95c"
-      arm64: "sha256:6ad07dc3d1bac56ea6dd5dec1c2512cbb9f10b62128c64cf812f11115d05e5d7"
+      amd64: "sha256:8a211f46bbc92fe6907b72fb8bcdc36a808924f3ca001a090591c0752360d2bd"
+      arm64: "sha256:0d18c33537636d13c0c64c2a824295a19418e8f28344fb50207bf4dd61168dff"
     # ARM64-ON-FARGATE EXCLUSION — CARRIED FORWARD, NOT RE-VERIFIED (honua-release#98).
     # The exclusion was established against the OLD pin (5cad074, index
     # sha256:7b3cffafebf481ca77d9576f7ee2d6d1a6e8e29a1752761763c4887e655467cd), whose ARM64 child
     # exited 139 before readiness on native Fargate. That finding has NOT been re-established against
-    # this index's ARM64 child (sha256:6ad07dc3d1bac56ea6dd5dec1c2512cbb9f10b62128c64cf812f11115d05e5d7):
+    # this index's ARM64 child (sha256:0d18c33537636d13c0c64c2a824295a19418e8f28344fb50207bf4dd61168dff):
     # re-testing needs a live Fargate task, i.e. the cloud-parity tier, which cannot run today
     # (honua-release#79 / missing IAM OIDC-provider actions on the CI role). x86_64 is therefore
     # retained as the SAFE default — it is the architecture that was proven healthy — and the ARM64
@@ -371,8 +399,13 @@ components:
     # manifest plus an attestation descriptor; awsLambdaDigest pins the linux/amd64 child, whose
     # config is architecture amd64, os linux,
     # org.opencontainers.image.revision=93cad86ec4fb28fba3ff0b9358059d86aa55dde5, Entrypoint ["/var/task/Honua.Server"].
-    awsLambdaImage: "ghcr.io/honua-io/honua-server:nightly-lambda-aot-93cad86-amd64"
-    awsLambdaDigest: "sha256:12afffef909685727f94bb2b13a575920e2edf401dda0bd8b490753500236b7b"
+    # 2026-10-12 re-pin to 0e03bdd: same shape. nightly-lambda-aot-0e03bdd-amd64 is an index
+    # (sha256:3bb129eff157183ab030e70ddd58e92e65f9b854c54ef9560610891f86e5b4d4) of one linux/amd64
+    # manifest plus an attestation descriptor; awsLambdaDigest pins the linux/amd64 child, whose
+    # config is architecture amd64, os linux,
+    # org.opencontainers.image.revision=0e03bdd06b3ca3fb1b82388110bb5dfa19b9f8fa, Entrypoint ["/var/task/Honua.Server"].
+    awsLambdaImage: "ghcr.io/honua-io/honua-server:nightly-lambda-aot-0e03bdd-amd64"
+    awsLambdaDigest: "sha256:3d6a38e38f3fcef66a571be1dddf7855d64bbe60d252221ae3e67404079991ab"
     # ECR may convert an OCI manifest to Docker schema 2 while preserving the exact config/rootfs; when it
     # does, this digest is NOT derivable from GHCR and NOT reproducible with a stock registry (checked:
     # pushing the same image through registry:2 preserves sha256:7182e8b7…, whereas ECR turned that
@@ -394,7 +427,12 @@ components:
     # 2026-10-11 re-pin to 93cad86: reset to the sentinel. The 798d517 mirror digest
     # (sha256:acae8755...) belongs to the previous pin; the first e2e-cloud-aws run on this pin
     # mirrors the new Lambda manifest and fails with the ECR digest to record here.
-    awsLambdaEcrDigest: "sha256:12afffef909685727f94bb2b13a575920e2edf401dda0bd8b490753500236b7b"   # e2e-cloud-aws run 38105910671 mirrored nightly-lambda-aot-93cad86-amd64 into ECR (#99); ECR preserved the manifest, so it equals awsLambdaDigest
+    # The first cloud run on 93cad86 (e2e-cloud-aws run 38105910671) mirrored the Lambda manifest
+    # into us-east-1 ECR, and ECR returned sha256:12afffef... (unchanged from awsLambdaDigest, as observed).
+    # 2026-10-12 re-pin to 0e03bdd: reset to the sentinel. The 93cad86 mirror digest
+    # (sha256:12afffef...) belongs to the previous pin; the first e2e-cloud-aws run on this pin
+    # mirrors the new Lambda manifest and fails with the ECR digest to record here.
+    awsLambdaEcrDigest: "pending-ecr-mirror"
     awsLambdaArchitecture: "x86_64"
     # release#282 item 4: all contract versions remain UNVERIFIED until re-read from the booted candidate.
     contractVersions:
@@ -469,6 +507,9 @@ components:
       # 2026-10-11 re-pin to 93cad86: release/component-versions.json is unchanged, and the booted
       # 93cad86 image (local-docker, Production) advertised geoservices-rest 2.0.0, ogc-http 1.0.0, stac 1.0.0
       # with server.deploymentRevision = 93cad86ec4fb28fba3ff0b9358059d86aa55dde5.
+      # 2026-10-12 re-pin to 0e03bdd: release/component-versions.json is unchanged, and the booted
+      # 0e03bdd image (local-docker, Production) advertised geoservices-rest 2.0.0, ogc-http 1.0.0, stac 1.0.0
+      # with server.deploymentRevision = 0e03bdd06b3ca3fb1b82388110bb5dfa19b9f8fa.
       geoservices: "2.0.0"   # transports[].id=geoservices-rest contractVersion
       ogc: "1.0.0"           # transports[].id=ogc-http contractVersion
       stac: "1.0.0"          # transports[].id=stac contractVersion
@@ -521,7 +562,16 @@ components:
     # highest is still src/Honua.Server/Migrations/125_AddImportedAttachmentIdentity.sql.
     # RE-CHECKED AT 93cad86 (2026-10-11 hand re-pin): no migration arrived after 798d517; the tree's
     # highest is still src/Honua.Server/Migrations/125_AddImportedAttachmentIdentity.sql.
-    dbSchema: "125"
+    # RE-CHECKED AT 0e03bdd (2026-10-12 hand re-pin); 126..128 arrived after 93cad86:
+    # 126_AddStudioContentHashInput.sql (honua-server#5794), 127_CompleteSensorThingsSensing.sql
+    # (#5759) and 128_AddNetworkTopologyPromotionRequestHash.sql (#5828). Filename floor:
+    #   $ git ls-tree --name-only 0e03bdd06b... src/Honua.Server/Migrations/ | sort -V | tail -1
+    #   src/Honua.Server/Migrations/128_AddNetworkTopologyPromotionRequestHash.sql
+    # DbUp journal read back from the booted 0e03bdd image (local-docker, Production, fresh database):
+    #   $ docker exec <db> psql -U honua -d honua -Atc \
+    #       "select scriptname from public.schema_versions order by scriptname desc limit 1;"
+    #   Honua.Server.Migrations.128_AddNetworkTopologyPromotionRequestHash.sql
+    dbSchema: "128"
 
   honua-console:
     repository: "https://github.com/honua-io/honua-console"
@@ -560,6 +610,8 @@ components:
     # and release/sdk-capability-baseline.json and descends from 68158344 (SSH.NET fix, #102).
     # All 14 Honua.Sdk.* dependency packages are also listed at 1.11.0. 1.11.0 carries
     # honua-sdk-dotnet#425; no installed-client matrix cell flips (the pinned server lacks #5794).
+    # The 2026-10-12 server re-pin to 0e03bdd carries #5794, so interop-proposal-approval's
+    # publication-url and published-content steps flip to active there.
     version: "1.11.0"
     sha: "5f09e4fca08a4cc6b9877c81e549fc5bc8648dba"
     artifact: "nuget:Honua.Sdk"

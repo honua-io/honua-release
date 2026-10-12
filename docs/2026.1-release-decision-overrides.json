@@ -252,7 +252,7 @@
       "progress": {
         "date": "2026-10-11",
         "evidence": "GP on Kubernetes job runners: honua-helm#98 merged (geoprocessing.kubernetesJobs.* values, job service account and RBAC; a kind smoke dispatched geometry.buffer as a batch/v1 Job) and honua-helm#99 merged (envFrom the runtime Secret and config ConfigMap); honua-server#5796 merged (Kubernetes Job envFrom/secretKeyRef/configMapKeyRef, ControlPlane:Kubernetes:DefaultEnvFromSecrets). honua-release#522 and #529 run the aws-eks cells with Pod Identity wiring. Root cause of the earlier EKS reds (run 38057015781): the release guardrail denies iam:CreateOpenIDConnectProvider and roles outside honuaeks*; honua-iac#233 (Pod Identity, honuaeks* names, RDS+PostGIS, ElastiCache, outputs) merged on 2026-10-11 (e6378d14) and is inside the pinned honua-iac e0dabe7.",
-        "open": "No aws-eks run has used honua-iac#233 yet (planned after the ECS/Lambda final run); GP Job completion in the chart needs a pinned server with honua-server#5780 and #5796 and a honua-helm pin at 5069bffb2 or later; whether promotion readiness requires the EKS cells is still an owner question."
+        "open": "No aws-eks run has used honua-iac#233 yet (planned after the ECS/Lambda final run); the pinned server carries honua-server#5780 and #5796 since the 2026-10-12 re-pin to 0e03bdd and the honua-helm pin is 5069bffb2, so GP Job completion in the chart awaits an aws-eks run; whether promotion readiness requires the EKS cells is still an owner question."
       }
     },
     "instance-identity-2026-10-10": {
@@ -307,7 +307,7 @@
       "moved": [],
       "basis": "Owner decision 6 recorded 2026-10-10 (~18:30Z, round 1) during the rc.3 certification cycle",
       "evidence": "honua-server#5789 merged (ca8f711a1): HONUA_SETTINGS_DOCUMENT=aws:secretsmanager:<id>, precedence appsettings < document < environment < command line, fail-closed. Meanwhile honua-iac#230 measures the Lambda environment and keeps it under 4096 bytes (all-features case 3981 bytes, 4030 after honua-iac#237).",
-      "open": "Not yet in a pinned server image (pin 93cad86ec); the honua-iac change that moves Lambda settings into the document has not started."
+      "open": "In the pinned server image since the 2026-10-12 re-pin to 0e03bdd (honua-server#5789, ca8f711a1); no cloud run has exercised it on that pin yet, and the honua-iac change that moves Lambda settings into the document has not started."
     },
     "https-redirect-2026-10-10": {
       "date": "2026-10-10",
@@ -350,7 +350,7 @@
       "moved": [],
       "basis": "Owner decision 10 recorded 2026-10-10 (~19:00Z, round 2) during the rc.3 certification cycle",
       "evidence": "Root cause from run 38066103745: cells run ASPNETCORE_ENVIRONMENT=Production, whose appsettings enable Operations:Policy with DefaultDecision Deny and no rules, so service.publish returned Denied (\"Operations require an explicit production policy rule.\"). honua-server#5793 merged (596974d36): operator rules, then admin, then scoped-admin-key, then the Deny default; opt-out Operations:Policy:BuiltInProductionRules=false. Until it is pinned the cells pass explicit rules (honua-release#517 with honua-iac#231 operations_policy_rules); with them stage 3 passed on ECS Redis-on (run 38091905679) and on Lambda Redis-on (run 38096878211).",
-      "open": "Not yet in a pinned server image (pin 93cad86ec)."
+      "open": "In the pinned server image since the 2026-10-12 re-pin to 0e03bdd (honua-server#5793, 596974d36); no cloud run has exercised it on that pin yet."
     },
     "serverless-custom-domains-2026-10-10": {
       "date": "2026-10-10",
@@ -394,7 +394,7 @@
       "moved": [],
       "basis": "Owner decision 15 recorded 2026-10-10 (~19:00Z, round 2) during the rc.3 certification cycle",
       "evidence": "honua-release#521 merged (request id from the 202 handle resourceIds.requestId; the content check needs agreement and a recomputable hash; gate run 38083603497 = 27 pass, 8 blocked, the cell blocked rather than red). honua-server#5788 was opened for the missing publicationUrl. honua-server#5794 merged (publicationUrl on the publish-request read, contentHashInput, migration 126). honua-sdk-dotnet#425 merged (ContentHashInput, PublicationUrl).",
-      "open": "Blocked until a server image with honua-server#5794 and an sdk-dotnet build with #425 are pinned; published-url also waits on honua-sdk-dotnet#411; honua-server#5449 stays open until the pinned server proves it."
+      "open": "The pinned server carries honua-server#5794 since the 2026-10-12 re-pin to 0e03bdd and Honua.Sdk 1.11.0 (#425) is bound (honua-release#566), so publication-url and published-content are active in the installed-client matrix; published-url still waits on honua-sdk-dotnet#411; honua-server#5449 stays open until the pinned server proves it."
     },
     "gate-exceptions-2026-10-10": {
       "date": "2026-10-10",
@@ -437,7 +437,7 @@
       "moved": [],
       "basis": "Owner decision 20 recorded 2026-10-10 (~20:40Z) during the rc.3 certification cycle",
       "evidence": "Redis-off cells could not finish the journey with stage 3 ruled (runs 38091905679 and 38091910280: stages 4 and 6-8 blocked on the unpublished layer). honua-server#5792 merged (455ac48e3): service.publish only is recorded in memory for the request and policy decides (Allow executes with durable:false; Deny returns a Denied handle; RequireApproval returns the typed Redis refusal); Studio publication requests, honua_admin_* and apply-style keep the refusal.",
-      "open": "Not yet in a pinned server image (pin 93cad86ec); the combination with the built-in Production rules (honua-server#5793) is untested."
+      "open": "In the pinned server image since the 2026-10-12 re-pin to 0e03bdd (honua-server#5792, 455ac48e3); no cloud run has exercised it on that pin yet, and the combination with the built-in Production rules (honua-server#5793) is untested."
     },
     "customer-domains-2026-10-11": {
       "date": "2026-10-11",
@@ -516,7 +516,7 @@
       "moved": [],
       "basis": "Owner decision 26 recorded 2026-10-12 during the rc.3 certification cycle",
       "evidence": "e2e-cloud-aws run 38192851328 (aws-serverless, release trunk a450e5e26, honua-iac 0ab4c5b06, server image 93cad86ec): on the Redis-on cell S10 staged the fixture, upload-url answered 202 and the import job went processing -> queued -> processing and never completed within 1200 s, because UniversalImportJobService runs ProcessJobAsync inside the accepting Lambda host, which freezes after the 202. cp-tick and cp-backstop cold-started before the migrate step and exited with DatabaseSchemaFloorException (also seen on run 38163689854). The API Lambda exited on 'PostGIS preflight check failed ... Startup aborted' during the S9/S10 fan-out windows while sessions were still pinned on this image. Ticketed through Specifica (agent-delivery-spec#72).",
-      "open": "Not implemented. honua-server#5866 (transient preflight degrades) and #5874 (role-default session settings) are merged but not yet in a pinned image; the import-job placement, the pre-migration degraded start and the cause classes are #5916's scope."
+      "open": "Not implemented. honua-server#5866 (transient preflight degrades) and #5874 (role-default session settings) are in the pinned image since the 2026-10-12 re-pin to 0e03bdd; the import-job placement, the pre-migration degraded start and the cause classes are #5916's scope."
     },
     "redis-off-background-import-follows-job-2026-10-12": {
       "date": "2026-10-12",
