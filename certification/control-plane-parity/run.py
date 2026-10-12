@@ -72,7 +72,7 @@ def main() -> int:
     out.mkdir(mode=0o700, parents=True, exist_ok=False)
     artifact_credentials = {key: os.environ[key] for key in ("GH_TOKEN", "GITHUB_TOKEN", "RELEASE_GH_TOKEN") if key in os.environ}
     env = {key: value for key, value in os.environ.items() if key not in artifact_credentials}
-    passwords = {user: secrets.token_hex(24) for user in ["admin-a", "viewer-a", "admin-b", "admin-read-a"]}
+    passwords = {user: secrets.token_hex(24) for user in ["admin-a", "viewer-a", "admin-b", "admin-read-a", "approver-a"]}
     env.update({
         "S4_RUN_DIR": str(run), "S4_IDP_HOSTNAME": "host.docker.internal", "S4_IDP_PORT": "19808",
         "S4_SERVER_PORT": "19816", "S4_CONSOLE_ORIGIN": BASE, "S4_OPERATOR_USER": "admin-a",
@@ -89,7 +89,7 @@ def main() -> int:
     report = {"kind": "production-control-plane-engineering-replay", "status": "failed", "serverImage": image, "serverSource": source,
               "selectedClients": clients,
               "releaseSource": subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=ROOT, text=True).strip(),
-              "scope": "Bounded actual SDK/CLI/MCP/Studio command stages; pending approval is not approved publication. No release certification or manifest promotion.", "stages": []}
+              "scope": "Bounded actual SDK/CLI/MCP/Studio command stages, followed by automated distinct-principal terminal approval. Not human approval acceptance, full release certification or manifest promotion.", "stages": []}
     log = (run / "execution.log").open("w")
     compose = ["docker", "compose", "-p", PROJECT, "--env-file", str(run / "run.env"), "-f", str(ROOT / "e2e/harness/compose.console-s4.yml"), "-f", str(run / "production.yml")]
 
@@ -173,6 +173,7 @@ def main() -> int:
         stage("map-package.publish four adapters", lambda: call(["node", "parity-published.mjs"], extra={"PARITY_MODE": "publish", "PARITY_OUTPUT_DIR": str(run / "parity-publish")}))
         stage("tenant-owned object refusal three adapters", lambda: call(["node", "studio-tenants-published.mjs"]))
         stage("concurrent background imports and principal isolation", lambda: call([sys.executable, "import-controls.py"], timeout=360))
+        stage("terminal proposal polling and distinct authenticated approver", lambda: call(["node", "publication-lifecycle.mjs"], timeout=240))
         final_integrity = requests.get(BASE + "/api/v1/admin/observability/audit/verify", headers={"Authorization": "Bearer " + token}, timeout=30)
         final_integrity.raise_for_status()
         (run / "audit-integrity-final.json").write_text(json.dumps(final_integrity.json(), indent=2))

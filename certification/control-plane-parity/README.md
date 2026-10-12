@@ -3,7 +3,7 @@
 This opt-in job exercises the bounded SDK issue 1424 journey against a supported
 immutable server image. It is independent of canonical release gates and never
 edits platform or customer manifests. A passing result is engineering evidence,
-not a certified release or an approved map publication.
+not a certified release or a human approval acceptance receipt.
 
 Dispatch `e2e-local-docker.yml` with `control_plane_parity=true`, an exact
 `parity_server_image` including its registry digest, and `parity_server_source`.
@@ -33,9 +33,35 @@ layer workflow. A separate three-adapter tenant-owned Studio draft control does
 not claim a terminal draft verb. Direct HTTP controls cover concurrent imports,
 completed retries, changed payloads, role/scope denial and principal isolation.
 
+The publication continuation polls the actual proposal through the terminal and
+generated SDK Admin client, rejects self-approval, viewer, read-scope and foreign
+tenant attempts, then uses a distinct same-tenant IdP principal for exactly one
+terminal approval. It checks terminal success against the persisted operation,
+Studio publication request, immutable version/content hash and one hashed
+`operation.applied` audit bearing the separate approver. This is an automated
+separation-of-duties control, not a real human approval or four-adapter approval
+equivalence claim. No REST mutation substitutes for the terminal.
+
 The rate limiter remains disabled as in the canonical S4 fixture, so this replay
-does not supply live rate-limit accounting evidence. It also does not approve the
-pending publication or substitute for the release-scoped acceptance inventory.
+does not supply live rate-limit accounting evidence or substitute for the
+release-scoped acceptance inventory below.
+
+| Release step | This producer exercises | Still required |
+| --- | --- | --- |
+| 1. Install | Owned Production fixture | Actual published installer or IaC handoff |
+| 2. Handoff | Image identity, real authentication and durable stores | Enabled workflow catalog and proxy handoff |
+| 3. Datasource/import/service | Fixture connection, four-adapter test/import | Shared connection create, published layer and access configuration |
+| 4. Style/render | None | Canonical published-layer style and returned image/resource |
+| 5. GP | None | Discover/run buffer, canonical wait/cancel/results and audit joins |
+| 6. Map lifecycle | Package endpoint's saved immutable version and tenant draft refusal | Explicit server draft composition, validate/save/reopen through required adapters |
+| 7. Propose/poll | Four-adapter proposal and real terminal/SDK poll | Complete exact-candidate transport contract drift proof |
+| 8. Approve/URL | Separate authenticated fixture approver and durable completion joins | Human acceptance, published typed route intent and verified final URL |
+
+The reviewed SDK 0.1.16 shared `map-package.publish` command does not expose the
+server's `intent` field. This producer never injects it through a different
+mutation endpoint; a version saved without a route cannot prove the final URL.
+The typed adapter must carry that field in a later published client before this
+remaining criterion can pass. Live candidate execution is still pending.
 
 One unique `sdk1424/<date>/<uuid>/fixture.geojson` object is written to the
 configured release fixture bucket, read through a short-lived presigned URL, and

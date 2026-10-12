@@ -526,6 +526,7 @@ jobs:
         run: |
           python -m pytest certification/control-plane-parity/test_run.py -q
           node --test certification/control-plane-parity/client-identity.test.mjs
+          node --test certification/control-plane-parity/publication-contract.test.mjs
       - name: Authenticate image pull
         env:
           GH_TOKEN: ${{ github.token }}
