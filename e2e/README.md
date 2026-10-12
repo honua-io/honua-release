@@ -424,7 +424,7 @@ A 200 (imported synchronously), a 202 without a `jobId`, a failed or cancelled j
 wrong row count, or (on Redis-off) any answer other than a 202 job or the typed 503 is `fail`, never
 `blocked`, on both topologies: the server accepted the work. A job still not terminal at the 1,200 s
 deadline fails `job-stalled`, naming the last transition, its time, the seconds since it, the
-`Honua-Instance` values that answered the status reads, and the server item (`server follow-up S33`:
+`Honua-Instance` values that answered the status reads, and the server item (`honua-server#5916`:
 the job runs in the host that accepted the upload, which stops advancing it, e.g. a Lambda invocation
 frozen after its 202; cloud run 38192851328, `processing -> queued -> processing`). An unstaged fixture (no
 bucket variable, a digest mismatch, an S3 refusal) or a missing presigned URL is `blocked` and names

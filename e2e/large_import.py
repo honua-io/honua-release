@@ -82,9 +82,8 @@ MANIFEST_PATH = "/api/v1/capabilities/manifest"
 JOBS_RUNNER_CAPABILITY = "jobs.runner"
 
 # A job that stops changing state is a server-side stall (an import left in the host that accepted it
-# stops advancing, e.g. a Lambda invocation frozen after its 202). The server item is S33 on the 2026.1
-# fix plan, tracked from honua-release#548; this text names it until it has a honua-server number.
-STALL_FOLLOW_UP = "server follow-up S33"
+# stops advancing, e.g. a Lambda invocation frozen after its 202). The server fix is honua-server#5916.
+STALL_FOLLOW_UP = "honua-server#5916"
 
 LIMITS_PATH = "/api/v1/admin/import/limits"
 UPLOAD_URL_PATH = "/api/v1/admin/import/upload-url"

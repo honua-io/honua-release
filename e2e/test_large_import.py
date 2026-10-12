@@ -365,9 +365,9 @@ def test_a_stalled_job_fails_naming_the_pattern_on_either_topology(redis):
     assert f"{s10.SCENARIO}: {prefix}job-stalled: job job-123 was still processing after 30s; " in row.why
     assert "last transition queued -> processing at " in row.why and "25s with no change since" in row.why
     assert "status reads answered by task-a, task-b" in row.why or "status reads answered by task-b, task-a" in row.why
-    assert "(transitions: queued -> processing)" in row.why and row.why.endswith("(server follow-up S33)")
+    assert "(transitions: queued -> processing)" in row.why and row.why.endswith("(honua-server#5916)")
     assert receipt["stall"]["lastStatus"] == "processing" and receipt["stall"]["secondsSinceLastTransition"] == 25
-    assert receipt["stall"]["followUp"] == "server follow-up S33"
+    assert receipt["stall"]["followUp"] == "honua-server#5916"
     assert set(receipt["statusInstances"]) == {"task-a", "task-b"} and receipt["executor"] == "in-process"
     assert receipt["topology"] == redis and "rowCount" not in receipt
 
