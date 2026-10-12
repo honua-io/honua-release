@@ -754,27 +754,45 @@ def run_document(doc: dict[str, Any], text: str, session: Session, context: dict
                                   "bindingOperation": ("documented clone followed by explicit fetch/checkout of document revision before npm ci"
                                                        if any(b["sha256"] == block.sha256 and b["index"] == block.index and b["clone"] for b in active_source["blocks"])
                                                        else "verify existing checkout revision and immutable locks before and after build")}
+        if source_dependency_audit:
+            row["sourceDependencyAudit"] = source_dependency_audit
         row.update(extra or {})
         rows.append(row)
 
     active_source = None
+    retained_source = None
+    source_dependency_audit = None
     source_root = session.workdir / "app" / "honua-sdk-js"
     block_inventory = []
 
+    def verify_retained_source() -> None:
+        if retained_source:
+            binding, root = retained_source
+            verified = session._exec(session.container("node"), ["bash", "-e", "-c", source_build.verification_script(binding, root)], DEFAULT_TIMEOUT)
+            if verified.status != "pass":
+                raise RunError("previously admitted source checkout or immutable lock changed")
+
     def audit(outcome: Outcome, runtime: str) -> Outcome:
-        nonlocal block_inventory
-        installed = (session.installed_honua(runtime, (source_root / "node_modules", source_root / "mcp/node_modules"))
-                     if active_source else session.installed_honua(runtime))
+        nonlocal block_inventory, source_dependency_audit
+        source = (active_source, source_root) if active_source else retained_source
+        installed = (session.installed_honua(runtime, (source[1] / "node_modules", source[1] / "mcp/node_modules"))
+                     if source else session.installed_honua(runtime))
         # Older test doubles use mappings; actual observations always preserve paths.
         if isinstance(installed, dict):
             installed = [{"name": name, "version": version, "path": ""} for name, version in installed.items()]
         block_inventory = installed
-        if active_source:
-            errors = source_build.audit_source(active_source, source_root, installed)
+        if source:
+            binding, root = source
+            if not active_source:
+                verify_retained_source()
+                source_dependency_audit = {"identity": source_build.digest(source_build.canonical(binding)),
+                                           "sourceSha": binding["sourceSha"], "checkoutPath": str(root),
+                                           "scope": "existing exact source dependencies; candidate registry unchanged"}
+            errors = source_build.audit_source(binding, root, installed)
             if errors:
                 outcome.status, outcome.command_failed = "fail", False
                 outcome.detail += "; " + "; ".join(errors)
-            installed = [row for row in installed if not Path(row["path"]).is_relative_to(source_root)]
+            installed = [row for row in installed if not Path(row["path"]).is_relative_to(root)]
         allowed = {**context.get("_closure", lambda: {})(), **pinned_versions}
         # The registry guard already admits Honua.Sdk.* at the root SDK's exact release version.
         for row in installed:
@@ -811,7 +829,9 @@ def run_document(doc: dict[str, Any], text: str, session: Session, context: dict
         return Outcome("fail", f"no executor for {lang}")
 
     def execute(block: Block, code: str) -> Outcome:
+        nonlocal retained_source
         if not active_source:
+            verify_retained_source()
             return dispatch(block, code)
         original = {key: session.env.get(key) for key in ["npm_config_registry", "YARN_NPM_REGISTRY_SERVER"]}
         registry = context["_source_registry"]
@@ -822,6 +842,8 @@ def run_document(doc: dict[str, Any], text: str, session: Session, context: dict
             if verified.status != "pass":
                 outcome.status, outcome.command_failed = "fail", False
                 outcome.detail += "; source checkout or lock changed during build"
+            else:
+                retained_source = (active_source, source_root)
             outcome.mode = "immutable-source-build"
             return outcome
         finally:
@@ -836,6 +858,7 @@ def run_document(doc: dict[str, Any], text: str, session: Session, context: dict
         binding = context.get("_source_build")
         active_source = binding if binding and any(row["sha256"] == block.sha256 and row["index"] == block.index for row in binding["blocks"]) else None
         block_inventory = []
+        source_dependency_audit = None
         try:
             if ((block.marker_error or "").startswith("doc-run: run on a language") and block.intent == "run"
                     or (block.marker_error or "").startswith("doc-run: blocked on a language")):
@@ -916,7 +939,10 @@ def run_document(doc: dict[str, Any], text: str, session: Session, context: dict
             record(block, outcome, outcome.status, outcome.detail)
     active_source = None
     for block in deferred:
+        block_inventory = []
+        source_dependency_audit = None
         try:
+            verify_retained_source()
             outcome = session.run_compile(substitute(block.code, subst), int(doc.get("timeout", DEFAULT_TIMEOUT)))
             outcome = audit(outcome, "node")
         except Exception:
