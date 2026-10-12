@@ -24,6 +24,19 @@ entire candidate manifest to equal the reviewed manifest, including exact source
 integrity, independent client pins, and server identity. Customer history remains
 reserved for the supported mint path.
 
+An SDK release updates the scaffold README's SDK-version markers in the source
+checkout, but does not automatically release the independent scaffold package.
+The executable-docs inventory reads that README from the scaffold's own published
+`sourceSha`. If those instructions name the previous SDK cut, first complete the
+SDK seal/publication, then release the reviewed scaffold-only documentation patch
+through Release Please and verify its actual public bytes before advancing its
+platform pin. Do not read the scaffold README from the newer SDK source instead.
+For SDK 0.1.16, scaffold 0.1.8's published instructions still explicitly select SDK
+0.1.15, so a managed scaffold patch is a separate prerequisite for the fresh
+five-document replay. This explicit documented override is distinct from the
+scaffold's promoted channel and certified 0.1.14 fallback; a documentation release
+does not certify or advance that fallback.
+
 `run.py` checks public default peer resolution, the exact documented scaffold
 and dev commands, the full installed-client matrix, and the five SDK-owned
 getting-started documents at the published source revision. Existing blocked
