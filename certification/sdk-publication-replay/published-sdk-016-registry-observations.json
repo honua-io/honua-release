@@ -1,0 +1,58 @@
+[
+  {
+    "client": "honua-sdk-js",
+    "metadataUrl": "https://registry.npmjs.org/%40honua%2Fsdk-js/0.1.16",
+    "sourceSha": "a86b222878939a4c85abd1fe574303b60d81a3b5",
+    "registryGitHead": "a86b222878939a4c85abd1fe574303b60d81a3b5",
+    "integrity": "sha512-nAbF80YV+z/W+zj9xg+z9Ja9dGFdsp84FRF5X1+kKEyZMj4UTAIcQoj7pkl314Lhxhi38oBNoQ4pRfQRjWvZ8g=="
+  },
+  {
+    "client": "honua-sdk",
+    "metadataUrl": "https://registry.npmjs.org/%40honua%2Fsdk/0.1.16",
+    "sourceSha": "a86b222878939a4c85abd1fe574303b60d81a3b5",
+    "registryGitHead": null,
+    "integrity": "sha512-sV+XpwhO6ajwArp3n3mwM5wtZ4uxHLUHRBrMBlExluIKVKxZ/ABc3uUAyMkCWkc8J/vTfzSUPsqn5egoszzU+Q=="
+  },
+  {
+    "client": "honua-sdk-esri-compat",
+    "metadataUrl": "https://registry.npmjs.org/%40honua%2Fsdk-esri-compat/0.1.16",
+    "sourceSha": "a86b222878939a4c85abd1fe574303b60d81a3b5",
+    "registryGitHead": null,
+    "integrity": "sha512-26X/sGEhyDq8qZ6/eS01VBfdAXj2iHjWZ5dJ3OD/iny0CdYQmohaGkLQGD7CVAJQbJSBnF/xBoh085Ne4nQ9BQ=="
+  },
+  {
+    "client": "honua-react",
+    "metadataUrl": "https://registry.npmjs.org/%40honua%2Freact/0.1.16",
+    "sourceSha": "a86b222878939a4c85abd1fe574303b60d81a3b5",
+    "registryGitHead": null,
+    "integrity": "sha512-wNuU95vKD+le38lBYyhyCi14aKR7RWRpEYaL5XXfaww31rD5rCKM40Ze5mew4Y0yS0JQ4AlV66TbWIW5MVPnFA=="
+  },
+  {
+    "client": "honua-geometry",
+    "metadataUrl": "https://registry.npmjs.org/%40honua%2Fgeometry/0.1.16",
+    "sourceSha": "a86b222878939a4c85abd1fe574303b60d81a3b5",
+    "registryGitHead": null,
+    "integrity": "sha512-gBrEIfQ9afIvCaUkOoP2sMWejZef8fE6B3mR+a3kjWd8vUD+R3oTfFDyZYVnWBHm4dLApvGoTEaXKGweWGp+1w=="
+  },
+  {
+    "client": "honua-app-platform",
+    "metadataUrl": "https://registry.npmjs.org/%40honua%2Fapp-platform/0.1.16",
+    "sourceSha": "a86b222878939a4c85abd1fe574303b60d81a3b5",
+    "registryGitHead": null,
+    "integrity": "sha512-2zO9qSyG2m0QDUygIxSBRD4T49TJiWKvHeHs03G/2xN7A4wlE4mqZCgDFPoXovPOrJ+emSKae89garsQL9NL2A=="
+  },
+  {
+    "client": "honua-mcp-server",
+    "metadataUrl": "https://registry.npmjs.org/%40honua%2Fmcp-server/0.1.16",
+    "sourceSha": "46ecd25a32ee2bfb7741ccc14ee5842c8824dd19",
+    "registryGitHead": "46ecd25a32ee2bfb7741ccc14ee5842c8824dd19",
+    "integrity": "sha512-7yeZUReqE0x6Rdb6Kh7/+3o0CXjCVP/ObPtG5Ay78XkqZgUb9mmguvQ1y4xjNm7YfSp4mW308Ol6ecdRZP3MBg=="
+  },
+  {
+    "client": "create-honua-app",
+    "metadataUrl": "https://registry.npmjs.org/create-honua-app/0.1.8",
+    "sourceSha": "db2fcdebb1446ef636361027e67ecd2971108a3e",
+    "registryGitHead": "db2fcdebb1446ef636361027e67ecd2971108a3e",
+    "integrity": "sha512-ejttm+VP6NKJDAdnsQUPML4/DFHcupzlZ9MeKsWj9HASBFONYhxI+mMkBD3L5uu9WMRQh98KnKwpHGR65sbbXw=="
+  }
+]

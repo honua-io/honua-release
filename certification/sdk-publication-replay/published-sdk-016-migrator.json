@@ -1,0 +1,61 @@
+{
+  "schema": "honua.published-sdk-migrator-consumer/v1",
+  "observedAt": "2026-10-12T03:38:07.544Z",
+  "scope": "Public registry package compatibility and forwarding; not complete application migration or server qualification",
+  "sdkPublishedSourceSha": "a86b222878939a4c85abd1fe574303b60d81a3b5",
+  "sdkSourceBinding": "Externally verified against exact published tag and registry provenance; this probe independently checks installed bytes via npm integrity",
+  "registryObservationsSha256": "a6136281f7d49e9071db5d92aaf23daaa67b8ae6b61834e426520c383293ea0e",
+  "migratorPublishedSourceSha": "6fec271367e29df9b98cdb04b7a606c0d064f6c6",
+  "provenanceVerifiedIntegritiesMatch": true,
+  "nodeVersion": "v20.19.0",
+  "install": {
+    "command": "npm install --prefer-online --no-fund",
+    "defaultPeerResolution": true,
+    "force": false,
+    "legacyPeerDeps": false,
+    "overrides": false,
+    "verifiedNpmConfig": {
+      "legacy-peer-deps": "false",
+      "force": "false",
+      "registry": "https://registry.npmjs.org/"
+    }
+  },
+  "packages": {
+    "@honua/sdk-js": {
+      "version": "0.1.16",
+      "integrity": "sha512-nAbF80YV+z/W+zj9xg+z9Ja9dGFdsp84FRF5X1+kKEyZMj4UTAIcQoj7pkl314Lhxhi38oBNoQ4pRfQRjWvZ8g==",
+      "tarball": "https://registry.npmjs.org/@honua/sdk-js/-/sdk-js-0.1.16.tgz",
+      "installedCopies": 1
+    },
+    "@honua/sdk": {
+      "version": "0.1.16",
+      "integrity": "sha512-sV+XpwhO6ajwArp3n3mwM5wtZ4uxHLUHRBrMBlExluIKVKxZ/ABc3uUAyMkCWkc8J/vTfzSUPsqn5egoszzU+Q==",
+      "tarball": "https://registry.npmjs.org/@honua/sdk/-/sdk-0.1.16.tgz",
+      "installedCopies": 1
+    },
+    "@honua/sdk-esri-compat": {
+      "version": "0.1.16",
+      "integrity": "sha512-26X/sGEhyDq8qZ6/eS01VBfdAXj2iHjWZ5dJ3OD/iny0CdYQmohaGkLQGD7CVAJQbJSBnF/xBoh085Ne4nQ9BQ==",
+      "tarball": "https://registry.npmjs.org/@honua/sdk-esri-compat/-/sdk-esri-compat-0.1.16.tgz",
+      "installedCopies": 1
+    },
+    "@honua/honua-migrate": {
+      "version": "0.2.0-beta.0",
+      "integrity": "sha512-UT23Y6kzMwCs2eKf2Y2eXJAjVFIjRX4fZ+oMiGQox+BiHZ3tTIS+YTwQ3cNni5+dd5VM1K7obsn2ouGqStyCqA==",
+      "tarball": "https://registry.npmjs.org/@honua/honua-migrate/-/honua-migrate-0.2.0-beta.0.tgz",
+      "installedCopies": 1
+    }
+  },
+  "api": {
+    "forwarder": "ok",
+    "exportCount": 68
+  },
+  "cli": {
+    "canonicalExitCode": 0,
+    "legacyExitCode": 0,
+    "stdoutEqual": true,
+    "stdoutSha256": "b1d5679f2ab2dc31868abc6d43e78026c22b63d5f086f26a831c638e0a86b57c",
+    "deprecationWarningPreserved": true
+  },
+  "lockfileSha256": "522e9857d4b9f554ca40b58c27c0877334bf04666b830ed1ab5fd172e9b63db8"
+}

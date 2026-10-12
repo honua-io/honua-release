@@ -97,7 +97,9 @@
         "tools/verify_client_artifacts.py",
         "certification/sdk-publication-replay/selection.py",
         "certification/sdk-publication-replay/run.py",
-        "certification/sdk-publication-replay/published-registry-observations.json"
+        "certification/sdk-publication-replay/published-registry-observations.json",
+        "certification/sdk-publication-replay/published-sdk-016-registry-observations.json",
+        "certification/sdk-publication-replay/published-sdk-016-migrator.json"
       ],
       "tokens": [
         "esri"
@@ -108,9 +110,11 @@
         "sdk-esri-compat-0.1.14.tgz",
         "npm-honua-sdk-esri-compat-installed-runtime",
         "sdk-esri-compat-0.1.15.tgz",
-        "2Fsdk-esri-compat/0.1.15"
+        "2Fsdk-esri-compat/0.1.15",
+        "sdk-esri-compat-0.1.16.tgz",
+        "2Fsdk-esri-compat/0.1.16"
       ],
-      "reason": "Exact published npm coordinate, tarball filename and manifest/matrix keys identify the required SDK compatibility artifact. Renaming them would select different registry bytes or lose the installed-runtime binding; revisit when the publisher renames the package. Unrelated prose and identifiers are not covered. The frozen 0.1.15 publication replay records the same exact coordinate, encoded registry URL and served filename; historical observations remain unchanged.",
+      "reason": "Exact published npm coordinate, tarball filename and manifest/matrix keys identify the required SDK compatibility artifact. Renaming them would select different registry bytes or lose the installed-runtime binding; revisit when the publisher renames the package. Unrelated prose and identifiers are not covered. The frozen 0.1.15 publication replay records the same exact coordinate, encoded registry URL and served filename; historical observations remain unchanged. The separately recorded 0.1.16 publication and migrator consumer receipts retain those exact verified artifact identities.",
       "owner": "@mikemcdougall",
       "issue": "honua-io/honua-sdk-js#1994"
     },

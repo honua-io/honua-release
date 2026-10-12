@@ -9,7 +9,7 @@
       "publication": "QGIS plugin honua"
     },
     {
-      "boundary": "The published tarball was downloaded, but its templates pin package/templates/react-ts/package.json @honua/sdk-js@0.1.14 maplibre-gl@6.4.1, package/templates/vanilla-ts/package.json @honua/sdk-js@0.1.14 maplibre-gl@6.4.1. npm version status for those @honua/sdk-js pins is {'0.1.14': 200}; the platform manifest pins @honua/sdk-js 0.1.15. maplibre-gl 6.1.0 is the GHSA-jrc7-96c5-q579 pin named by honua-release#57 (fixed in 6.9.0). A replacement create-honua-app release has to come from honua-sdk-js. This repo cannot publish that tarball.",
+      "boundary": "The published tarball was downloaded, but its templates pin package/templates/react-ts/package.json @honua/sdk-js@0.1.14 maplibre-gl@6.4.1, package/templates/vanilla-ts/package.json @honua/sdk-js@0.1.14 maplibre-gl@6.4.1. npm version status for those @honua/sdk-js pins is {'0.1.14': 200}; the platform manifest pins @honua/sdk-js 0.1.16. maplibre-gl 6.1.0 is the GHSA-jrc7-96c5-q579 pin named by honua-release#57 (fixed in 6.9.0). A replacement create-honua-app release has to come from honua-sdk-js. This repo cannot publish that tarball.",
       "channels": [
         "npm:create-honua-app"
       ],
@@ -107,21 +107,21 @@
       "evidence_class": "downloaded-bytes",
       "files": [
         {
-          "filename": "sdk-js-0.1.15.tgz",
-          "registry_integrity": "sha512-RCiqqRz7sG9qP1xLsLyGroRMhGEi1Nde5YRqYbfkSEbwTSjf1IfciVXgAZdEXz6HDZ/XrzofiK7LIHokgg5j+A==",
-          "sha256": "c017f18c3ee03cbeaea23545db4f5596c0fbfba1ae5e278303b32f9911aaccf1",
-          "url": "https://registry.npmjs.org/@honua/sdk-js/-/sdk-js-0.1.15.tgz"
+          "filename": "sdk-js-0.1.16.tgz",
+          "registry_integrity": "sha512-nAbF80YV+z/W+zj9xg+z9Ja9dGFdsp84FRF5X1+kKEyZMj4UTAIcQoj7pkl314Lhxhi38oBNoQ4pRfQRjWvZ8g==",
+          "sha256": "70aaa1ff3d79e83ac8f7a1dad477c02385062f306e762f44bdae231c40c4b176",
+          "url": "https://registry.npmjs.org/@honua/sdk-js/-/sdk-js-0.1.16.tgz"
         }
       ],
       "http_status": 200,
       "id": "npm:@honua/sdk-js",
-      "publication": "npm @honua/sdk-js@0.1.15",
-      "source_sha": "c6484209dda9b1533fefcae1b0e47d87b56414c2",
+      "publication": "npm @honua/sdk-js@0.1.16",
+      "source_sha": "a86b222878939a4c85abd1fe574303b60d81a3b5",
       "urls": [
-        "https://registry.npmjs.org/@honua%2Fsdk-js/0.1.15",
-        "https://registry.npmjs.org/@honua/sdk-js/-/sdk-js-0.1.15.tgz"
+        "https://registry.npmjs.org/@honua%2Fsdk-js/0.1.16",
+        "https://registry.npmjs.org/@honua/sdk-js/-/sdk-js-0.1.16.tgz"
       ],
-      "version": "0.1.15"
+      "version": "0.1.16"
     },
     {
       "disposition": "blocked-on-republish",
@@ -136,7 +136,7 @@
       ],
       "http_status": 200,
       "id": "npm:create-honua-app",
-      "manifest_sdk_pin": "0.1.15",
+      "manifest_sdk_pin": "0.1.16",
       "maplibre_pins": [
         "6.4.1"
       ],
@@ -715,6 +715,6 @@
   },
   "issue": "honua-io/honua-release#57",
   "method": "Anonymous HTTPS with no Authorization header. published rows are sha256 of bytes this probe downloaded. listed rows are registry indexes only. Blocked rows name the publication and the operator boundary and do not carry package bytes. deferred-experimental rows are channels of a component the platform manifest lists under experimental:; they are not GA evidence and not release blockers.",
-  "observed_at": "2026-10-12T01:19:15Z",
+  "observed_at": "2026-10-12T03:35:56Z",
   "schema": "honua.first-publication-preflight/v1"
 }
