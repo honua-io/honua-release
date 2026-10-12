@@ -198,7 +198,7 @@ def test_source_environment_is_restored_before_following_runtime_block(tmp_path,
     from run import Outcome, run_document
     calls = []
     state = {"done": False}
-    session = SimpleNamespace(workdir=tmp_path, env={}, passed={}, container=lambda runtime: "node",
+    session = SimpleNamespace(workdir=tmp_path, cwd=str(tmp_path / "app"), env={}, passed={}, container=lambda runtime: "node",
                               installed_honua=lambda runtime, extra=(): [])
     def shell(code, *args):
         calls.append((code, dict(session.env)))
@@ -262,3 +262,33 @@ def test_source_registry_never_reads_caller_paths_or_symlinked_admissions(tmp_pa
             assert handler.code == 404
     finally:
         guard.server.server_close()
+
+
+def test_documented_clone_uses_reader_cwd_after_scaffold_and_retains_it(tmp_path):
+    from types import SimpleNamespace
+    from run import Outcome, run_document
+    text = "```bash\ncd my-map\n```\n\n" + TEXT
+    bound = sb.derive({"repo": sb.SDK_REPO, "path": "docs/quickstart.md", "sourceBuild": True}, SHA, text, inputs().__getitem__)
+    session = SimpleNamespace(workdir=tmp_path, cwd=str(tmp_path / "app"), env={}, passed={},
+                              container=lambda _: "node", installed_honua=lambda runtime, extra=(): [])
+    calls = []
+    def shell(code, *args):
+        calls.append(code)
+        if code.strip() == "cd my-map":
+            session.cwd = str(Path(session.cwd) / "my-map")
+        elif code.startswith(sb.CLONE):
+            session.cwd = str(Path(session.cwd) / "honua-sdk-js")
+        elif "demo:quickstart:mock" in code:
+            session.cwd = str(Path(session.cwd).parent)
+        return Outcome("pass", "exit0", exit_code=0)
+    session.run_shell = shell
+    session._exec = lambda *args: Outcome("pass", "lock verification")
+    result, _ = run_document({"runtime": "node"}, text, session,
+        {"_pins": {}, "_source_build": bound, "_source_registry": "http://guard/source/exact/npm/"},
+        {"env": {}, "substitute": {}}, "sha256:test", [], set())
+    checkout = tmp_path / "app/my-map/honua-sdk-js"
+    assert all(row["status"] == "pass" for row in result["blocks"])
+    assert f"git -C {checkout} fetch" in calls[1]
+    assert f"git -C {checkout} rev-parse HEAD" in calls[2]
+    assert [row["sourceBuild"]["checkoutPath"] for row in result["blocks"] if "sourceBuild" in row] == [str(checkout), str(checkout)]
+    assert session.cwd == str(tmp_path / "app/my-map")

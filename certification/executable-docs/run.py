@@ -750,7 +750,7 @@ def run_document(doc: dict[str, Any], text: str, session: Session, context: dict
             row["installedPackages"] = block_inventory
         if active_source:
             row["sourceBuild"] = {"identity": source_build.digest(source_build.canonical(active_source)),
-                                  "sourceSha": active_source["sourceSha"], "locks": active_source["locks"],
+                                  "sourceSha": active_source["sourceSha"], "checkoutPath": str(source_root), "locks": active_source["locks"],
                                   "bindingOperation": ("documented clone followed by explicit fetch/checkout of document revision before npm ci"
                                                        if any(b["sha256"] == block.sha256 and b["index"] == block.index and b["clone"] for b in active_source["blocks"])
                                                        else "verify existing checkout revision and immutable locks before and after build")}
@@ -867,6 +867,11 @@ def run_document(doc: dict[str, Any], text: str, session: Session, context: dict
             code = substitute(block.code, subst)
             if block.marker and "checkout" in block.marker:
                 checkout_context({**doc, "checkout": {"cwd": block.marker.get("checkout", "")}}, revision, session, token)
+            if active_source and any(row["sha256"] == block.sha256 and row["index"] == block.index and row["clone"] for row in active_source["blocks"]):
+                # git clone uses the reader's current directory, which a previous
+                # scaffold block may have changed. Keep this exact location for
+                # the following fixture block instead of resetting the reader.
+                source_root = Path(session.cwd) / "honua-sdk-js"
             if block.intent == "file":
                 target = Path(session.cwd) / block.file if not block.file.startswith("/") else Path(block.file)
                 session.put(doc["runtime"], target, code)
