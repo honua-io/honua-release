@@ -51,9 +51,9 @@ jobs:
     needs: contract
     runs-on: ubuntu-24.04
     timeout-minutes: 50
-    env:
-      PROOF_ROOT: ${{ runner.temp }}/sdk-local-setup
     steps:
+      - name: Reserve the private proof path
+        run: printf 'PROOF_ROOT=%s/sdk-local-setup\n' "$RUNNER_TEMP" >> "$GITHUB_ENV"
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 0
@@ -80,7 +80,7 @@ jobs:
           SETUP_MANIFEST_PATH: ${{ inputs.setup_manifest_path }}
           SETUP_MANIFEST_SHA256: ${{ inputs.setup_manifest_sha256 }}
         run: |
-          python certification/sdk-local-setup/run.py --stage prepare --root "$PROOF_ROOT" \
+          python certification/sdk-local-setup/run.py --stage prepare --root "${PROOF_ROOT:?private proof path was not initialized}" \
             --platform-manifest platform-manifest.yaml --platform-sha256 "$PLATFORM_SHA256" \
             --setup-manifest "$SETUP_MANIFEST_PATH" --setup-sha256 "$SETUP_MANIFEST_SHA256" \
             --release-checkout "$GITHUB_WORKSPACE" --release-commit "$GITHUB_SHA"
@@ -89,22 +89,22 @@ jobs:
         run: |
           set -euo pipefail
           for stage in install restart image fixture; do
-            python certification/sdk-local-setup/run.py --stage "$stage" --root "$PROOF_ROOT"
+            python certification/sdk-local-setup/run.py --stage "$stage" --root "${PROOF_ROOT:?private proof path was not initialized}"
           done
       - name: Actual HTTP and installed stdio parity, canonical style render and PNG capture
         timeout-minutes: 5
         run: |
           set -euo pipefail
           for stage in parity qualify capture; do
-            python certification/sdk-local-setup/run.py --stage "$stage" --root "$PROOF_ROOT"
+            python certification/sdk-local-setup/run.py --stage "$stage" --root "${PROOF_ROOT:?private proof path was not initialized}"
           done
       - name: Always remove only this installer's owned project
         timeout-minutes: 4
         if: always()
-        run: python certification/sdk-local-setup/run.py --stage cleanup --root "$PROOF_ROOT"
+        run: python certification/sdk-local-setup/run.py --stage cleanup --root "${PROOF_ROOT:?private proof path was not initialized}"
       - name: Enforce complete proof and cleanup
         if: always()
-        run: python certification/sdk-local-setup/run.py --stage report --root "$PROOF_ROOT"
+        run: python certification/sdk-local-setup/run.py --stage report --root "${PROOF_ROOT:?private proof path was not initialized}"
       - name: Retain only bounded public evidence
         if: always()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
