@@ -63,7 +63,11 @@ must execute every stage. On a Production Redis-off cell stages 4 and 6-8 still 
 layer and stay blocked, so that cell does not yet pass. Owner decision 20 (2026-10-10) lets an
 admin-role caller's direct `service.publish` execute on Redis-off (honua-server#5792); once a lock
 carries it, stage 3 on a Redis-off cell must execute for the admin operator, stage 4 must execute,
-and only the stages that need the governed control plane keep the typed-refusal rule.
+and only the stages that need the governed control plane keep the typed-refusal rule. Background file
+imports are not a governed-control-plane capability (ruling `redis-off-background-import-follows-job-2026-10-12`,
+learned on run 38192851328): the import job service runs in-process without Redis, so the S10
+large-import scenario on a Redis-off cell follows the job like a Redis-on cell, and the typed 503
+counts only from a host without the import job service.
 
 Each required journey cell passes within two attempts. A cell records `mode`, `attemptCount` and the
 complete ordered `attempts` array. Every attempt records its consecutive number, completion time,
