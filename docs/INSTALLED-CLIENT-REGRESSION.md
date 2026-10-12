@@ -210,7 +210,7 @@ same PR, or the gate turns red.
 
 ## Running it locally
 
-You need Docker, Node 20, Python 3.12 with pip, and the .NET 10 SDK. The run downloads the pinned
+You need Docker, Node 22.23.3, Python 3.12 with pip, and the .NET 10 SDK. The run downloads the pinned
 packages from npm, PyPI and nuget.org, and pulls the pinned server image from GHCR.
 
 ```sh
