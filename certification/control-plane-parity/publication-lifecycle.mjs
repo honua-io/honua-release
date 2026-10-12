@@ -5,6 +5,7 @@ import { createRequire } from 'node:module';
 import { pathToFileURL } from 'node:url';
 import { spawnSync } from 'node:child_process';
 import { principal, assertProposal, assertCompletedPublication, assertAppliedAudit } from './publication-contract.mjs';
+import { routeUrl, assertRouteIdentity, assertRouteArtifact, readRoute } from './publication-route.mjs';
 
 const run = process.env.HONUA_PARITY_RUN;
 const consumer = process.env.HONUA_PARITY_CONSUMER;
@@ -29,6 +30,12 @@ const tokens = Object.fromEntries(await Promise.all(['admin-a', 'approver-a', 'a
 const clients = Object.fromEntries(Object.entries(tokens).map(([user, token]) => [user, new HonuaAdminClient({ baseUrl, headers: { Authorization: `Bearer ${token}` } })]));
 const studio = new HonuaStudioLifecycleClient({ client: new HonuaClient({ baseUrl, bearerToken: tokens['admin-a'] }) });
 const receipt = { status: 'failed', publishedClients: await read('consumer/provenance.json'), join, owner, approver, observations: [], scope: 'Separate authenticated fixture principal, not a human approval acceptance or four-surface workflow claim', remaining: ['Published typed map intent and final route readback', 'Full release journey and four-adapter operation coverage'] };
+const routeAdmission = process.env.HONUA_PARITY_FINAL_ROUTE === 'true' ? await read('publication-route-admission.json') : null;
+if (routeAdmission) {
+  assert.equal(routeAdmission.kind, 'verified-published-intent-admission');
+  assert.deepEqual(routeAdmission.publishedClients, receipt.publishedClients);
+  receipt.requestedIntent = routeAdmission.intent;
+}
 const save = async () => {
   const text = JSON.stringify(receipt, null, 2);
   for (const token of Object.values(tokens)) assert(!text.includes(token), 'Bearer in retained evidence');
@@ -52,6 +59,10 @@ try {
   assert.equal(before.exitCode, 0);
   assertProposal(before.output, join, owner, 'AwaitingApproval');
   assertProposal(await get(), join, owner, 'AwaitingApproval');
+  if (routeAdmission) {
+    receipt.routeBeforeApproval = await readRoute(routeUrl(baseUrl, routeAdmission.intent), baseUrl, tokens['admin-a'], 404);
+    await save();
+  }
   // All negative attempts use the real terminal; SDK confirms exact HTTP refusal.
   for (const [user, status] of [['admin-a', 403], ['viewer-a', 403], ['admin-read-a', 403], ['admin-b', 404]]) {
     const denied = terminal(user, 'approveOperationProposal');
@@ -85,6 +96,18 @@ try {
   const publication = await studio.publicationRequests.get(join.itemId, join.versionId, handle.resourceIds.publicationId);
   const version = await studio.contentVersions.get(join.itemId, join.versionId);
   assertCompletedPublication(handle, join, publication, version);
+  if (routeAdmission) {
+    const url = assertRouteIdentity(handle, publication, version, join, routeAdmission.intent, baseUrl);
+    const resolved = await readRoute(url, baseUrl, tokens['admin-a'], 200);
+    assertRouteArtifact(resolved.body.data, publication, version, join, routeAdmission.intent);
+    receipt.finalRoute = resolved;
+    receipt.routeRefusals = [
+      { principal: 'anonymous', ...await readRoute(url, baseUrl, null, 401) },
+      { principal: 'tenant-b-admin', ...await readRoute(url, baseUrl, tokens['admin-b'], 403) },
+    ];
+    receipt.remaining = ['Human approval acceptance', 'Full release journey and four-adapter operation coverage'];
+    await save();
+  }
   const correlation = join.correlationId.replaceAll("'", "''");
   const sql = `select coalesce(json_agg(t),'[]'::json) from (select audit_id,actor,action,outcome,correlation_id,resource_type,resource_id,details,entry_hash from honua.audit_log where correlation_id='${correlation}' order by audit_id)t`;
   const auditProcess = spawnSync('docker', ['exec', 'honua-sdk1424-fixed-db-1', 'psql', '-U', 'honua', '-d', 'honua', '-Atc', sql], { encoding: 'utf8', timeout: 30000, maxBuffer: 2 * 1024 * 1024 });

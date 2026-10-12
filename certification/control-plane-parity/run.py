@@ -66,6 +66,7 @@ def main() -> int:
     image, source = os.environ["HONUA_SERVER_IMAGE"], os.environ["HONUA_SERVER_SOURCE"]
     check_identity(image, source)
     clients = selected_clients(yaml.safe_load((ROOT / "platform-manifest.yaml").read_text()))
+    final_route = os.environ.get("HONUA_PARITY_FINAL_ROUTE", "false") == "true"
     run = Path(os.environ["HONUA_PARITY_RUN"]).resolve()
     run.mkdir(mode=0o700, parents=True, exist_ok=False)
     out = Path(os.environ["HONUA_PARITY_OUT"]).resolve()
@@ -88,6 +89,7 @@ def main() -> int:
     (run / "ownership.json").write_text(json.dumps({"project": PROJECT, "runDirectory": str(run), "bucket": env["HONUA_PARITY_BUCKET"]}))
     report = {"kind": "production-control-plane-engineering-replay", "status": "failed", "serverImage": image, "serverSource": source,
               "selectedClients": clients,
+              "finalRouteRequested": final_route,
               "releaseSource": subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=ROOT, text=True).strip(),
               "scope": "Bounded actual SDK/CLI/MCP/Studio command stages, followed by automated distinct-principal terminal approval. Not human approval acceptance, full release certification or manifest promotion.", "stages": []}
     log = (run / "execution.log").open("w")
@@ -152,6 +154,8 @@ def main() -> int:
             shutil.copy(HERE / name, consumer / name)
         stage("install public clients with default peer resolution", lambda: call(["npm", "install", "--ignore-scripts", "--no-audit", "--no-fund", "--registry=https://registry.npmjs.org"], cwd=consumer, timeout=300))
         stage("verify actual package and shared module identity", lambda: call(["node", "verify-client.mjs"], cwd=consumer))
+        if final_route:
+            stage("admit published SDK and MCP typed intent without server calls", lambda: call(["node", "admit-publication-route.mjs"]))
         stage("real OIDC principals", lambda: call([sys.executable, "authenticate.py"]))
         token = json.loads((run / "admin-a-bearer.json").read_text())["accessToken"]
         integrity = requests.get(BASE + "/api/v1/admin/observability/audit/verify", headers={"Authorization": "Bearer " + token}, timeout=30)
@@ -196,7 +200,7 @@ def main() -> int:
             private.append(json.loads(path.read_text())["accessToken"])
         if (run / "owned-import-url.txt").exists():
             private.append((run / "owned-import-url.txt").read_text().strip())
-        allowed = ["principal-proof.json", "runtime-proof.json", "audit-integrity-final.json", "connection-setup.json", "owned-import-object.json", "owned-import-cleanup.json", "imported-feature-provenance.json", "import-controls.json", "consumer/expected-clients.json", "consumer/provenance.json", "consumer/package-lock.json", "execution.log", "published-map-envelope-provenance.json"]
+        allowed = ["principal-proof.json", "runtime-proof.json", "audit-integrity-final.json", "connection-setup.json", "owned-import-object.json", "owned-import-cleanup.json", "imported-feature-provenance.json", "import-controls.json", "consumer/expected-clients.json", "consumer/provenance.json", "consumer/package-lock.json", "execution.log", "published-map-envelope-provenance.json", "publication-route-admission.json"]
         paths = [run / name for name in allowed] + list(run.glob("parity-*/*.json")) + list(run.glob("studio-tenants-*/*.json"))
         inventory = []
         for path in paths:

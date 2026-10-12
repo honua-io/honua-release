@@ -24,6 +24,8 @@ const baseUrl='http://127.0.0.1:19816';
 const publish=process.env.PARITY_MODE==='publish';
 const importing=process.env.PARITY_MODE==='import';
 const successfulConnection=process.env.PARITY_MODE==='connection';
+const routeAdmission=publish && process.env.HONUA_PARITY_FINAL_ROUTE==='true'?JSON.parse(await readFile(`${run}/publication-route-admission.json`,'utf8')):null;
+if(routeAdmission){assert.equal(routeAdmission.kind,'verified-published-intent-admission');assert.deepEqual(routeAdmission.publishedClients,publishedClients);}
 const command=publish?mapPackagePublishCommand:importing?importCreateCommand:connectionTestCommand;
 const proof=JSON.parse(await readFile(`${run}/principal-proof.json`,'utf8'));
 const bearer=async(user)=>JSON.parse(await readFile(`${run}/${user}-bearer.json`,'utf8')).accessToken;
@@ -46,9 +48,11 @@ async function invokeAll(user,connectionId){
   const ownedMap={version:8,sources:{fixture:{type:'geojson',data:fixture}},layers:[{id:'fixture-points',type:'circle',source:'fixture'}]};
   const pkg={...envelope.body,sourceBindings:[],mapSpec:ownedMap,mapPackageId:`sdk1424-${connectionId}`,createdAt:new Date().toISOString()};
   input={mapId:`sdk1424-${connectionId}`,package:pkg};
+  if(routeAdmission)input.intent=routeAdmission.intent;
   summary.packageInputs??={};summary.packageInputs[user]={mapId:input.mapId,requestPackageSha256:createHash('sha256').update(JSON.stringify(pkg)).digest('hex'),readbackRecordSha256:importProvenance.readbackRecordSha256};
   const packagePath=`${out}/${user}-map-package.json`;await writeFile(packagePath,JSON.stringify(pkg),{mode:0o600});
   cliArgs=['map','publish',input.mapId,'--package',`@${packagePath}`];
+  if(routeAdmission)cliArgs.push('--intent',JSON.stringify(input.intent));
  }
  if(importing){
   const sourceUrl=importUrl;

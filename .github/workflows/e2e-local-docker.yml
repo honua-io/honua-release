@@ -38,6 +38,10 @@ on:
         description: "Exact 40-character source of that supported server image"
         type: string
         default: ""
+      parity_final_route:
+        description: "Require published SDK/MCP intent support and bounded approved private-route readback"
+        type: boolean
+        default: false
       require_real:
         description: "Promote BLOCKED/SKIPPED to FAIL (run only when images+metrics are real)"
         type: boolean
@@ -527,6 +531,7 @@ jobs:
           python -m pytest certification/control-plane-parity/test_run.py -q
           node --test certification/control-plane-parity/client-identity.test.mjs
           node --test certification/control-plane-parity/publication-contract.test.mjs
+          node --test certification/control-plane-parity/publication-route.test.mjs
       - name: Authenticate image pull
         env:
           GH_TOKEN: ${{ github.token }}
@@ -541,6 +546,7 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           HONUA_SERVER_IMAGE: ${{ inputs.parity_server_image }}
           HONUA_SERVER_SOURCE: ${{ inputs.parity_server_source }}
+          HONUA_PARITY_FINAL_ROUTE: ${{ inputs.parity_final_route }}
           HONUA_PARITY_BUCKET: ${{ vars.HONUA_AWS_CELL_FILE_STORAGE_BUCKET }}
           HONUA_PARITY_RUN: ${{ runner.temp }}/control-plane-parity-private
           HONUA_PARITY_OUT: ${{ runner.temp }}/control-plane-parity-public

@@ -70,3 +70,22 @@ credentials, certificates, cookies, environment files, and unsanitized logs are
 never uploaded; the artifact index records original and retained content hashes.
 The JSON report's bounded status and each stage verdict are authoritative. A
 failed stage makes the job fail and keeps its diagnostics.
+
+An additional `parity_final_route=true` input requests bounded private-route proof.
+Its default is false, preserving the current 0.1.16 replay and its historical
+receipts. Enabling it does not override package versions: the same manifest rows,
+public artifact verifier and installed identity checks remain mandatory. Before
+any command mutation, actual installed SDK and MCP schemas must expose the typed
+route/audience subset, and a real MCP dry run must accept the intent and refuse
+unknown authority, audience and relative-route inputs without any server call.
+Unsupported published clients fail admission; no future-version stand-in runs.
+
+The unique personal route then passes through all four publication adapters. It
+must be absent before approval. After the separate fixture principal approves,
+the server's returned active URL and publication URL must name the expected
+same-origin resolver and return the approved item, version, publication, content
+hash and exact immutable envelope. Anonymous and foreign-tenant reads must be
+refused. Redirects and foreign origins are rejected before bearer forwarding.
+This optional continuation addresses only the final route/readback portion of
+step 8. It does not supply human approval acceptance or the missing installer,
+catalog, layer/access, style, GP and full map-adapter stages listed above.
