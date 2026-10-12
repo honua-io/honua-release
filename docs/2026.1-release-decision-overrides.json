@@ -473,6 +473,61 @@
       "basis": "Owner decision 23 recorded 2026-10-11 during the rc.3 certification cycle",
       "evidence": "honua-server#5652 fixed SRV-DB-003, SRV-GS-002 and SRV-GS-003. The bucket label swap and the issue comment on honua-server#5615 were made by the owner.",
       "open": "SRV-GS-001, SRV-INF-005, SRV-OGC-006, SRV-INF-008, SRV-OGC-010, SRV-OGC-011, SRV-AI-002, SRV-AI-001 and SRV-OGC-009 remain open for 2026.1.x."
+    },
+    "sdk-capability-baselines-2026-10-11": {
+      "date": "2026-10-11",
+      "authority": "https://github.com/honua-io/honua-release/issues/376",
+      "owner": "Mike McDougall (release owner)",
+      "ruling": "Decision 21: the SDK capability baselines are committed as release/sdk-capability-baseline.json to all four SDK repositories (honua-sdk-dotnet, honua-sdk-js, honua-sdk-python, geospatial-mcp) as conventional feat(release) commits, so release-please cuts releases that the owner merges; the honua-sdk-dotnet release also carries honua-sdk-dotnet#425.",
+      "effect": "Recorded during the rc.3 certification cycle; it places no issue in a different bucket.",
+      "moved": [],
+      "basis": "Owner decision 21 recorded 2026-10-11 during the rc.3 certification cycle",
+      "evidence": "The nightly resolve (run 38066789790) refused qualification because release/sdk-capability-baseline.json was absent at the published revisions of all four SDK repositories. Merged: honua-sdk-dotnet#427 (8d530e1c3), honua-sdk-js#2016 (e8882570d), honua-sdk-python#290 (27ac93da5) and #291, geospatial-mcp#99 (cc3940826); each file is byte-identical to tools/fixtures/sdk-capability-baselines/.",
+      "open": "honua-sdk-js is released (honua-sdk-js#1973 and later) and honua-release#560 binds the published sdk-js 0.1.16 at a86b22287, which contains the baseline commit. The honua-sdk-dotnet#426 and honua-sdk-python#286 release PRs await the owner; after they merge, the Honua.Sdk and Python wheel clientArtifacts rows move to the new versions and source shas, and until then the resolver reads the old revisions. geospatial-mcp needs no release (honua-release#482)."
+    },
+    "large-file-cloud-import-2026-10-11": {
+      "date": "2026-10-11",
+      "authority": "https://github.com/honua-io/honua-release/issues/376",
+      "owner": "Mike McDougall (release owner)",
+      "ruling": "Decision 24: the large-file / cloud-location layer import is split. J19 (S10 large-import) is in rc.3: a large fixture above the background-job threshold is imported from the cell's S3 bucket through the presigned POST /api/v1/admin/import/upload-url route on Redis-on cells (the Batch worker on Lambda), with the typed refusal on Redis-off cells. S32 (a server IAM-backed s3://bucket/key import source plus the honua-iac import_source_bucket_arns grant) is a 2026.1.x feature and an owner item.",
+      "effect": "Places honua-release#548 (large-file-import-journey-proof, J19) in prove-against-candidate for rc.3 and honua-server#5888 (cloud-location-layer-import-source, S32) in post-cut-hardening for 2026.1.x. Both issues were created in those buckets; no existing issue moves.",
+      "moved": [],
+      "basis": "Owner decision 24 recorded 2026-10-11 during the rc.3 certification cycle",
+      "evidence": "Every journey receipt recorded stage 3 as a synchronous multipart import (honua admin import uploadImportFile -> POST /api/v1/admin/import/upload) with jobId null, so no background import had ever been proven on a cell. Ticketed through Specifica (agent-delivery-spec#66): honua-release#548 and honua-server#5888. Facts learned while ticketing: the upload-url host allow-list is S3 and Azure only (no GCS); both upload paths cap the staged file at max(BackgroundJobThresholdBytes, MaxMemoryBytes) = 100 MB by default, so cells must lower the background threshold for a window; on aws-serverless upload-url downloads inside the API request. The S10 harness merged as honua-release#554 and #561; honua-iac#242 adds import_background_job_threshold_bytes.",
+      "open": "No background import has completed on a cell yet: run 38192851328 (S10 FAIL on both serverless cells; see serverless-import-jobs-durable-runner-2026-10-12). S32 is not started."
+    },
+    "s10-staging-bucket-2026-10-11": {
+      "date": "2026-10-11",
+      "authority": "https://github.com/honua-io/honua-release/issues/376",
+      "owner": "Mike McDougall (release owner)",
+      "ruling": "Decision 25: the S10 staging bucket is a new non-honua bucket release-cells-file-storage-585192672263 (1-day lifecycle on release-cells/, bucket-owner-enforced, public access blocked), the repository variable HONUA_AWS_CELL_FILE_STORAGE_BUCKET points at it, and the old honua-release-cell-file-storage bucket is deleted once empty. The release CI guardrail DenyStandingBuckets (s3:* on honua-*) is left untouched.",
+      "effect": "Infrastructure ruling for the S10 harness; it places no issue in a different bucket.",
+      "moved": [],
+      "basis": "Owner decision 25 recorded 2026-10-11 during the rc.3 certification cycle",
+      "evidence": "The release CI role cannot PUT, GET or DELETE the S10 fixture in a honua-* bucket because the guardrail denies s3:* there; the cells' own roles were never affected. The bucket was created in us-east-1 (BucketOwnerEnforced, public access blocked, SSE-S3 with bucket key, lifecycle expiring release-cells/ after 1 day and aborting multipart uploads after 1 day, tagged Decision=25); the repository variable was repointed and the old bucket (0 objects) deleted. Run 38192851328 staged the 85,688,964-byte S10 fixture into the new bucket under the CI role and left it empty after teardown.",
+      "open": "None for the bucket itself."
+    },
+    "serverless-import-jobs-durable-runner-2026-10-12": {
+      "date": "2026-10-12",
+      "authority": "https://github.com/honua-io/honua-release/issues/376",
+      "owner": "Mike McDougall (release owner)",
+      "ruling": "Decision 26: honua-server#5916 (S33) is must-fix-before-cut. File-import jobs run on the durable job runner (Batch on Lambda; the in-process runner only where no runner is configured and the host is long-lived); pre-migration cold starts of the event Lambdas and the API start degraded (503) instead of exiting on the schema floor; the database preflight failure detail names its cause class (connection-borrow timeout, connection refused, authentication, incompatible database).",
+      "effect": "Places honua-server#5916 in must-fix-before-cut; the issue was created in that bucket, so no existing issue moves.",
+      "moved": [],
+      "basis": "Owner decision 26 recorded 2026-10-12 during the rc.3 certification cycle",
+      "evidence": "e2e-cloud-aws run 38192851328 (aws-serverless, release trunk a450e5e26, honua-iac 0ab4c5b06, server image 93cad86ec): on the Redis-on cell S10 staged the fixture, upload-url answered 202 and the import job went processing -> queued -> processing and never completed within 1200 s, because UniversalImportJobService runs ProcessJobAsync inside the accepting Lambda host, which freezes after the 202. cp-tick and cp-backstop cold-started before the migrate step and exited with DatabaseSchemaFloorException (also seen on run 38163689854). The API Lambda exited on 'PostGIS preflight check failed ... Startup aborted' during the S9/S10 fan-out windows while sessions were still pinned on this image. Ticketed through Specifica (agent-delivery-spec#72).",
+      "open": "Not implemented. honua-server#5866 (transient preflight degrades) and #5874 (role-default session settings) are merged but not yet in a pinned image; the import-job placement, the pre-migration degraded start and the cause classes are #5916's scope."
+    },
+    "redis-off-background-import-follows-job-2026-10-12": {
+      "date": "2026-10-12",
+      "authority": "https://github.com/honua-io/honua-release/issues/376",
+      "owner": "Mike McDougall (release owner)",
+      "ruling": "Correction to the Redis-off topology ruling (decision 3, redis-governed-control-plane-2026-10-08) for background file imports: they are not a Redis-gated capability. The import job service runs in-process without Redis, and the typed 503 applies only where the import job service is absent. On Redis-off cells S10 follows the job exactly as on Redis-on cells (202 plus job, publish, row count) and records the executor; a typed 503 remains an accepted outcome.",
+      "effect": "Narrows the Redis-off topology ruling for S10 large-import; the proposal, approval, GP and durable-composition stages keep the typed-refusal pass rule. It places no issue in a different bucket.",
+      "moved": [],
+      "basis": "Correction recorded 2026-10-12 from e2e-cloud-aws run 38192851328 during the rc.3 certification cycle",
+      "evidence": "Run 38192851328, aws-serverless redis-off: the server queued the forced background import (HTTP 202, job 061103fa...) instead of returning the typed 503 the harness expected. honua-release#561 (J19b, merged 93325e639) makes Redis-off S10 follow the job like Redis-on (pass with executor in-process; typed 503 still passes) and reports a job-stalled detail (last transition, seconds since, answering Honua-Instance) on both topologies.",
+      "open": "No Redis-off background import has completed on a cell yet; on aws-serverless the in-process job is subject to the same stall as Redis-on until honua-server#5916 lands."
     }
   },
   "security_findings": [
