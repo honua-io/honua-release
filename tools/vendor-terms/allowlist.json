@@ -112,7 +112,8 @@
         "sdk-esri-compat-0.1.15.tgz",
         "2Fsdk-esri-compat/0.1.15",
         "sdk-esri-compat-0.1.16.tgz",
-        "2Fsdk-esri-compat/0.1.16"
+        "2Fsdk-esri-compat/0.1.16",
+        "//registry.npmjs.org/@honua/sdk-esri-compat/-/sdk-esri-compat-0.1.16.tgz"
       ],
       "reason": "Exact published npm coordinate, tarball filename and manifest/matrix keys identify the required SDK compatibility artifact. Renaming them would select different registry bytes or lose the installed-runtime binding; revisit when the publisher renames the package. Unrelated prose and identifiers are not covered. The frozen 0.1.15 publication replay records the same exact coordinate, encoded registry URL and served filename; historical observations remain unchanged. The separately recorded 0.1.16 publication and migrator consumer receipts retain those exact verified artifact identities.",
       "owner": "@mikemcdougall",
