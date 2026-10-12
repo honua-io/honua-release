@@ -195,10 +195,8 @@ Current blockers (candidate `nightly-87966c3`, pins JS 0.1.14 / MCP 0.1.14 / Pyt
 |---|---|---|
 | all three `*-sdk-geoservices` | `apply-edits-update`, `edits-state` | [honua-server#5407](https://github.com/honua-io/honua-server/issues/5407): attribute-only update on a managed layer returns 500 |
 | `npm-sdk-geoservices` | `ids`, `count` | [honua-sdk-js#1894](https://github.com/honua-io/honua-sdk-js/issues/1894): `outFields=OBJECTID` is rejected on layers whose object-id field is not `OBJECTID` |
-| `pypi-sdk-geoservices` | `count` | [honua-sdk-python#236](https://github.com/honua-io/honua-sdk-python/issues/236): `return_count_only` returns no count |
 | `pypi-sdk-ogc-tiles` | `raster-tile` | [honua-sdk-python#255](https://github.com/honua-io/honua-sdk-python/issues/255): `OgcTilesClient.tile` cannot request PNG |
 | `nuget-sdk-ogc-tiles` | all | [honua-sdk-dotnet#405](https://github.com/honua-io/honua-sdk-dotnet/issues/405): `Honua.Sdk` has no OGC API Tiles client |
-| `interop-publish-query-edit` | `count` | [honua-sdk-python#236](https://github.com/honua-io/honua-sdk-python/issues/236): `return_count_only` returns no count |
 | `interop-publish-query-edit` | `edit`, `read-back` | [honua-sdk-dotnet#410](https://github.com/honua-io/honua-sdk-dotnet/issues/410): `PublishLayerRequest` cannot declare a storage mode or edit capabilities, so the JS SDK's edit of the layer the .NET SDK published is refused (400) and the .NET read-back sees the unedited row |
 | `interop-proposal-approval` | `publication-url` | [honua-server#5788](https://github.com/honua-io/honua-server/issues/5788): the governed request polls to `Active` (server status `accepted`), but the publish-request read has no `publicationUrl`. The final URL exists only as `resourceIds.activeUrl` on the operation handle |
 | `interop-proposal-approval` | `published-content` | [honua-server#5449](https://github.com/honua-io/honua-server/issues/5449): the JS save and the .NET read agree on family, content hash and fixture map body, but no client can recompute the digest, because the content hash has no client-verifiable canonical form |
