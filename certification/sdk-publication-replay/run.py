@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Diagnose published SDK 0.1.15 and MCP 0.1.16 against a temporary candidate.
+"""Diagnose the exact reviewed published client family against a temporary candidate.
 
 This driver does not edit pins, expected matrix outcomes, or release locks. A gate
 failure is retained as failure; it never creates a certification claim itself.
@@ -18,6 +18,7 @@ import sys
 import urllib.parse
 import urllib.request
 import yaml
+from selection import selected_versions, validate_candidate
 
 parser = argparse.ArgumentParser(description=__doc__)
 parser.add_argument('--release-root', type=Path, default=Path(__file__).resolve().parents[2])
@@ -26,18 +27,17 @@ parser.add_argument('--output', type=Path, required=True)
 parser.add_argument('--evidence-uri', required=True)
 parser.add_argument('--mode', choices=['preflight', 'query', 'docs', 'all'], default='preflight')
 parser.add_argument('--port', type=int, default=19812)
-parser.add_argument('--project', default='honua-sdk-015-replay')
+parser.add_argument('--project', default='honua-sdk-publication-replay')
 args = parser.parse_args()
 root = args.release_root.resolve()
 manifest_path = args.manifest.resolve()
 output = args.output.resolve()
 manifest = yaml.safe_load(manifest_path.read_text())
-expected = {
-    'honua-sdk-js': '0.1.15', 'honua-mcp-server': '0.1.16',
-    'honua-sdk': '0.1.15', 'honua-sdk-esri-compat': '0.1.15',
-    'honua-react': '0.1.15', 'honua-geometry': '0.1.15',
-    'honua-app-platform': '0.1.15', 'create-honua-app': '0.1.8',
-}
+reviewed = yaml.safe_load((root / 'platform-manifest.yaml').read_text())
+# Pre-pin overrides are preparation evidence only. Replay requires the exact
+# reviewed manifest, including every independent client and server identity.
+validate_candidate(manifest, reviewed)
+expected = selected_versions(reviewed)
 observations = []
 provenance_only_clients = {'honua-sdk', 'honua-sdk-esri-compat', 'honua-react',
                            'honua-geometry', 'honua-app-platform'}

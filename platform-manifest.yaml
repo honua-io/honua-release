@@ -568,10 +568,10 @@ components:
   honua-sdk-js:
     repository: "https://github.com/honua-io/honua-sdk-js"
     lifecycleStatus: GA
-    # R25 manual advance 2026-10-11: verified published SDK 0.1.15 bytes and source.
-    # Downloaded SRI, registry/provenance and js-sdk-v0.1.15 bind these inputs.
-    version: "0.1.15"
-    sha: "c6484209dda9b1533fefcae1b0e47d87b56414c2"
+    # R25 manual advance 2026-10-12: verified published SDK 0.1.16 bytes and source.
+    # Downloaded SRI, registry/provenance and js-sdk-v0.1.16 bind these inputs.
+    version: "0.1.16"
+    sha: "a86b222878939a4c85abd1fe574303b60d81a3b5"
     artifact: "npm:@honua/sdk-js"
     contractVersions:
       connect-parity: "1.0"
@@ -809,13 +809,13 @@ clientArtifacts:
   honua-sdk-js:
     ecosystem: npm
     package: "@honua/sdk-js"
-    version: "0.1.15"
-    integrity: "sha512-RCiqqRz7sG9qP1xLsLyGroRMhGEi1Nde5YRqYbfkSEbwTSjf1IfciVXgAZdEXz6HDZ/XrzofiK7LIHokgg5j+A=="
+    version: "0.1.16"
+    integrity: "sha512-nAbF80YV+z/W+zj9xg+z9Ja9dGFdsp84FRF5X1+kKEyZMj4UTAIcQoj7pkl314Lhxhi38oBNoQ4pRfQRjWvZ8g=="
     repository: honua-io/honua-sdk-js
-    sourceSha: "c6484209dda9b1533fefcae1b0e47d87b56414c2"
+    sourceSha: "a86b222878939a4c85abd1fe574303b60d81a3b5"
     publicationState: "published"
     targets: [node, browser, honua-cli, honua-admin]
-    filename: "sdk-js-0.1.15.tgz"
+    filename: "sdk-js-0.1.16.tgz"
   honua-mcp-server:
     ecosystem: npm
     package: "@honua/mcp-server"
@@ -829,53 +829,53 @@ clientArtifacts:
   honua-sdk:
     ecosystem: "npm"
     package: "@honua/sdk"
-    version: "0.1.15"
-    integrity: "sha512-MRhcA5tr2wkQ8vhJHJxMrXXXFeQ0Ld8lJon4NTPO5yESWyrwbumHfAkNSC6JFs/9C92D3gtLWz1SVOLm256HqQ=="
+    version: "0.1.16"
+    integrity: "sha512-sV+XpwhO6ajwArp3n3mwM5wtZ4uxHLUHRBrMBlExluIKVKxZ/ABc3uUAyMkCWkc8J/vTfzSUPsqn5egoszzU+Q=="
     repository: "honua-io/honua-sdk-js"
-    sourceSha: "c6484209dda9b1533fefcae1b0e47d87b56414c2"
+    sourceSha: "a86b222878939a4c85abd1fe574303b60d81a3b5"
     publicationState: "published"
     targets: [node, browser]
-    filename: "sdk-0.1.15.tgz"
+    filename: "sdk-0.1.16.tgz"
   honua-sdk-esri-compat:
     ecosystem: "npm"
     package: "@honua/sdk-esri-compat"
-    version: "0.1.15"
-    integrity: "sha512-qoBelg215zEnzdY9Gpe5u87TbdFljHYFKY8xj9ws53c/PW+GTrtD66TmG4Svp68XB9+Uiq2uacqiiPxAk6xmaw=="
+    version: "0.1.16"
+    integrity: "sha512-26X/sGEhyDq8qZ6/eS01VBfdAXj2iHjWZ5dJ3OD/iny0CdYQmohaGkLQGD7CVAJQbJSBnF/xBoh085Ne4nQ9BQ=="
     repository: "honua-io/honua-sdk-js"
-    sourceSha: "c6484209dda9b1533fefcae1b0e47d87b56414c2"
+    sourceSha: "a86b222878939a4c85abd1fe574303b60d81a3b5"
     publicationState: "published"
     targets: [node, browser]
-    filename: "sdk-esri-compat-0.1.15.tgz"
+    filename: "sdk-esri-compat-0.1.16.tgz"
   honua-react:
     ecosystem: "npm"
     package: "@honua/react"
-    version: "0.1.15"
-    integrity: "sha512-cAfikGVlBv7yNaEeRxvJKSUBNF0jsOHiOkD6HbRmT81aalLhA+soZuO8k3t/bokSwM5ZDL9SF0+YEvrsXq0inA=="
+    version: "0.1.16"
+    integrity: "sha512-wNuU95vKD+le38lBYyhyCi14aKR7RWRpEYaL5XXfaww31rD5rCKM40Ze5mew4Y0yS0JQ4AlV66TbWIW5MVPnFA=="
     repository: "honua-io/honua-sdk-js"
-    sourceSha: "c6484209dda9b1533fefcae1b0e47d87b56414c2"
+    sourceSha: "a86b222878939a4c85abd1fe574303b60d81a3b5"
     publicationState: "published"
     targets: [node, browser]
-    filename: "react-0.1.15.tgz"
+    filename: "react-0.1.16.tgz"
   honua-geometry:
     ecosystem: "npm"
     package: "@honua/geometry"
-    version: "0.1.15"
-    integrity: "sha512-hGu1aSqztnnBlWQQVEe7WV17K5usQ1+Cj49eDKn6r1zZje8UH0qdj/4ryblL9ibr1it0QYe+NnLD64ydHFGTdg=="
+    version: "0.1.16"
+    integrity: "sha512-gBrEIfQ9afIvCaUkOoP2sMWejZef8fE6B3mR+a3kjWd8vUD+R3oTfFDyZYVnWBHm4dLApvGoTEaXKGweWGp+1w=="
     repository: "honua-io/honua-sdk-js"
-    sourceSha: "c6484209dda9b1533fefcae1b0e47d87b56414c2"
+    sourceSha: "a86b222878939a4c85abd1fe574303b60d81a3b5"
     publicationState: "published"
     targets: [node, browser]
-    filename: "geometry-0.1.15.tgz"
+    filename: "geometry-0.1.16.tgz"
   honua-app-platform:
     ecosystem: "npm"
     package: "@honua/app-platform"
-    version: "0.1.15"
-    integrity: "sha512-H3DaTHd2J3P6R/31T2Zs9NZoBEiqJTNlSJCvzYE4a6WYYqseFW+s5HoDsg4EvXQj6zeU7D7ig52Dat3ejbsNkg=="
+    version: "0.1.16"
+    integrity: "sha512-2zO9qSyG2m0QDUygIxSBRD4T49TJiWKvHeHs03G/2xN7A4wlE4mqZCgDFPoXovPOrJ+emSKae89garsQL9NL2A=="
     repository: "honua-io/honua-sdk-js"
-    sourceSha: "c6484209dda9b1533fefcae1b0e47d87b56414c2"
+    sourceSha: "a86b222878939a4c85abd1fe574303b60d81a3b5"
     publicationState: "published"
     targets: [node, browser]
-    filename: "app-platform-0.1.15.tgz"
+    filename: "app-platform-0.1.16.tgz"
   create-honua-app:
     ecosystem: "npm"
     package: "create-honua-app"
@@ -978,7 +978,8 @@ evidenceSources:
     # 2026-09-11: advanced to d7cec2d5 with components.honua-sdk-js.sha (same invariant);
     # live-conformance.yml exists at d7cec2d5 and compare/d7cec2d5...trunk is `ahead`.
     # 2026-10-11: advanced to c6484209 with components.honua-sdk-js.sha (R25 0.1.15; same invariant).
-    producerSha: "c6484209dda9b1533fefcae1b0e47d87b56414c2"
+    # 2026-10-12: advanced to a86b2228 after verified SDK 0.1.16 publication (same invariant).
+    producerSha: "a86b222878939a4c85abd1fe574303b60d81a3b5"
     trustedEvents: [schedule, workflow_dispatch]
     trustedBranch: trunk
     artifactIdentity: sdk-conformance

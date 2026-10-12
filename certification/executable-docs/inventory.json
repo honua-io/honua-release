@@ -6,11 +6,11 @@
       "id": "honua-sdk-js-readme",
       "repo": "honua-io/honua-sdk-js",
       "path": "README.md",
-      "revision": "c6484209dda9b1533fefcae1b0e47d87b56414c2",
+      "revision": "a86b222878939a4c85abd1fe574303b60d81a3b5",
       "revisionRule": {
         "clientArtifact": "honua-sdk-js"
       },
-      "url": "https://github.com/honua-io/honua-sdk-js/blob/c6484209dda9b1533fefcae1b0e47d87b56414c2/README.md",
+      "url": "https://github.com/honua-io/honua-sdk-js/blob/a86b222878939a4c85abd1fe574303b60d81a3b5/README.md",
       "runtime": "node",
       "docker": false,
       "session": null,
@@ -133,11 +133,11 @@
       "id": "honua-sdk-js-install",
       "repo": "honua-io/honua-sdk-js",
       "path": "INSTALL.md",
-      "revision": "c6484209dda9b1533fefcae1b0e47d87b56414c2",
+      "revision": "a86b222878939a4c85abd1fe574303b60d81a3b5",
       "revisionRule": {
         "clientArtifact": "honua-sdk-js"
       },
-      "url": "https://github.com/honua-io/honua-sdk-js/blob/c6484209dda9b1533fefcae1b0e47d87b56414c2/INSTALL.md",
+      "url": "https://github.com/honua-io/honua-sdk-js/blob/a86b222878939a4c85abd1fe574303b60d81a3b5/INSTALL.md",
       "runtime": "node",
       "docker": false,
       "session": null,
@@ -181,11 +181,11 @@
       "id": "honua-sdk-js-docs-quickstart",
       "repo": "honua-io/honua-sdk-js",
       "path": "docs/quickstart.md",
-      "revision": "c6484209dda9b1533fefcae1b0e47d87b56414c2",
+      "revision": "a86b222878939a4c85abd1fe574303b60d81a3b5",
       "revisionRule": {
         "clientArtifact": "honua-sdk-js"
       },
-      "url": "https://github.com/honua-io/honua-sdk-js/blob/c6484209dda9b1533fefcae1b0e47d87b56414c2/docs/quickstart.md",
+      "url": "https://github.com/honua-io/honua-sdk-js/blob/a86b222878939a4c85abd1fe574303b60d81a3b5/docs/quickstart.md",
       "runtime": "node",
       "docker": false,
       "session": null,
@@ -226,7 +226,7 @@
           "infoString": "bash",
           "intent": "run",
           "intentSource": "marker",
-          "sha256": "62db1df8334050268a2e4904acd01f816d4cb7b5dcee6036b3c52e7fa5bccb25"
+          "sha256": "9654d43538cbb97cdf34ea7add35384e984b0259995be954de75a2a54663e6be"
         },
         {
           "index": 4,
