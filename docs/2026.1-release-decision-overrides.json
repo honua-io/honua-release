@@ -474,6 +474,17 @@
       "evidence": "honua-server#5652 fixed SRV-DB-003, SRV-GS-002 and SRV-GS-003. The bucket label swap and the issue comment on honua-server#5615 were made by the owner.",
       "open": "SRV-GS-001, SRV-INF-005, SRV-OGC-006, SRV-INF-008, SRV-OGC-010, SRV-OGC-011, SRV-AI-002, SRV-AI-001 and SRV-OGC-009 remain open for 2026.1.x."
     },
+    "sdk-capability-baselines-2026-10-11": {
+      "date": "2026-10-11",
+      "authority": "https://github.com/honua-io/honua-release/issues/376",
+      "owner": "Mike McDougall (release owner)",
+      "ruling": "Decision 21: the SDK capability baselines are committed as release/sdk-capability-baseline.json to all four SDK repositories (honua-sdk-dotnet, honua-sdk-js, honua-sdk-python, geospatial-mcp) as conventional feat(release) commits, so release-please cuts releases that the owner merges; the honua-sdk-dotnet release also carries honua-sdk-dotnet#425.",
+      "effect": "Recorded during the rc.3 certification cycle; it places no issue in a different bucket.",
+      "moved": [],
+      "basis": "Owner decision 21 recorded 2026-10-11 during the rc.3 certification cycle",
+      "evidence": "The nightly resolve (run 38066789790) refused qualification because release/sdk-capability-baseline.json was absent at the published revisions of all four SDK repositories. Merged: honua-sdk-dotnet#427 (8d530e1c3), honua-sdk-js#2016 (e8882570d), honua-sdk-python#290 (27ac93da5) and #291, geospatial-mcp#99 (cc3940826); each file is byte-identical to tools/fixtures/sdk-capability-baselines/.",
+      "open": "honua-sdk-js#1973 is merged and honua-release#549 binds the published sdk-js 0.1.15 at c6484209d, which contains the baseline commit. The honua-sdk-dotnet#426 and honua-sdk-python#286 release PRs await the owner; after they merge, the Honua.Sdk and Python wheel clientArtifacts rows move to the new versions and source shas, and until then the resolver reads the old revisions. geospatial-mcp needs no release (honua-release#482)."
+    },
     "large-file-cloud-import-2026-10-11": {
       "date": "2026-10-11",
       "authority": "https://github.com/honua-io/honua-release/issues/376",
