@@ -1,0 +1,123 @@
+name: SDK local setup qualification
+
+on:
+  pull_request:
+    paths:
+      - certification/sdk-local-setup/**
+      - .github/workflows/sdk-local-setup.yml
+  workflow_dispatch:
+    inputs:
+      execute:
+        description: Run the bounded installed-client proof; package and installer image pins must already agree
+        type: boolean
+        default: false
+      candidate_ref:
+        description: Immutable 40-hex reviewed nightly candidate snapshot
+        type: string
+        default: ''
+      setup_manifest_path:
+        description: Reviewed tracked file under certification/sdk-local-setup/manifests
+        type: string
+        default: ''
+      setup_manifest_sha256:
+        description: Independently reviewed SHA256 of that setup catalog manifest
+        type: string
+        default: ''
+
+permissions:
+  contents: read
+  packages: read
+
+concurrency:
+  group: sdk-local-setup-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  contract:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: '3.12'
+      - run: python -m pip install -r tools/requirements-nightly.txt
+      - run: python -m unittest discover -s certification/sdk-local-setup -p 'test_*.py' -v
+      - run: node --check certification/sdk-local-setup/fixture.mjs
+      - run: node --test certification/sdk-local-setup/request.test.mjs
+
+  installed:
+    if: github.event_name == 'workflow_dispatch' && inputs.execute
+    needs: contract
+    runs-on: ubuntu-24.04
+    timeout-minutes: 50
+    steps:
+      - name: Reserve the private proof path
+        run: printf 'PROOF_ROOT=%s/sdk-local-setup\n' "$RUNNER_TEMP" >> "$GITHUB_ENV"
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+      - name: Adopt only reviewed immutable candidate inputs
+        id: candidate
+        uses: ./.github/actions/candidate-input
+        with:
+          candidate_ref: ${{ inputs.candidate_ref }}
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: '3.12'
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: '20.19.0'
+      - run: python -m pip install -r tools/requirements-nightly.txt
+      - name: Authenticate candidate registry pull
+        env:
+          REGISTRY_TOKEN: ${{ github.token }}
+        run: printf '%s' "$REGISTRY_TOKEN" | docker login ghcr.io -u "$GITHUB_ACTOR" --password-stdin
+      - name: Verify exact public pair and shipped installer pins
+        timeout-minutes: 12
+        env:
+          PLATFORM_SHA256: ${{ steps.candidate.outputs.manifest_sha256 }}
+          SETUP_MANIFEST_PATH: ${{ inputs.setup_manifest_path }}
+          SETUP_MANIFEST_SHA256: ${{ inputs.setup_manifest_sha256 }}
+        run: |
+          python certification/sdk-local-setup/run.py --stage prepare --root "${PROOF_ROOT:?private proof path was not initialized}" \
+            --platform-manifest platform-manifest.yaml --platform-sha256 "$PLATFORM_SHA256" \
+            --setup-manifest "$SETUP_MANIFEST_PATH" --setup-sha256 "$SETUP_MANIFEST_SHA256" \
+            --release-checkout "$GITHUB_WORKSPACE" --release-commit "$GITHUB_SHA"
+      - name: Clean install, idempotent restart, image identity and owned fixture
+        timeout-minutes: 22
+        run: |
+          set -euo pipefail
+          for stage in install restart image fixture; do
+            python certification/sdk-local-setup/run.py --stage "$stage" --root "${PROOF_ROOT:?private proof path was not initialized}"
+          done
+      - name: Actual HTTP and installed stdio parity, canonical style render and PNG capture
+        timeout-minutes: 5
+        run: |
+          set -euo pipefail
+          for stage in parity qualify capture; do
+            python certification/sdk-local-setup/run.py --stage "$stage" --root "${PROOF_ROOT:?private proof path was not initialized}"
+          done
+      - name: Always remove only this installer's owned project
+        timeout-minutes: 4
+        if: always()
+        run: python certification/sdk-local-setup/run.py --stage cleanup --root "${PROOF_ROOT:?private proof path was not initialized}"
+      - name: Enforce complete proof and cleanup
+        if: always()
+        run: python certification/sdk-local-setup/run.py --stage report --root "${PROOF_ROOT:?private proof path was not initialized}"
+      - name: Retain only bounded public evidence
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: sdk-local-setup-${{ github.run_id }}
+          if-no-files-found: error
+          path: |
+            ${{ env.PROOF_ROOT }}/report.json
+            ${{ env.PROOF_ROOT }}/bounded-evidence-index.json
+            ${{ env.PROOF_ROOT }}/setup-catalog-receipt.json
+            ${{ env.PROOF_ROOT }}/qualification.json
+            ${{ env.PROOF_ROOT }}/image.json
+            ${{ env.PROOF_ROOT }}/fixture.json
+            ${{ env.PROOF_ROOT }}/restart.json
+            ${{ env.PROOF_ROOT }}/cleanup.json
+            ${{ env.PROOF_ROOT }}/rendered.png
