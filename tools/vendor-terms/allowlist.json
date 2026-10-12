@@ -95,7 +95,7 @@
         "certification/installed-clients/run.py",
         "tools/mint_nightly_lock.py",
         "tools/verify_client_artifacts.py",
-        "certification/sdk-publication-replay/prepare.py",
+        "certification/sdk-publication-replay/selection.py",
         "certification/sdk-publication-replay/run.py",
         "certification/sdk-publication-replay/published-registry-observations.json"
       ],
