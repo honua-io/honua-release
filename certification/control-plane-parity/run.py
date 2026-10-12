@@ -67,6 +67,7 @@ def main() -> int:
     check_identity(image, source)
     clients = selected_clients(yaml.safe_load((ROOT / "platform-manifest.yaml").read_text()))
     final_route = os.environ.get("HONUA_PARITY_FINAL_ROUTE", "false") == "true"
+    terminal_draft = os.environ.get("HONUA_PARITY_TERMINAL_DRAFT", "false") == "true"
     run = Path(os.environ["HONUA_PARITY_RUN"]).resolve()
     run.mkdir(mode=0o700, parents=True, exist_ok=False)
     out = Path(os.environ["HONUA_PARITY_OUT"]).resolve()
@@ -90,6 +91,7 @@ def main() -> int:
     report = {"kind": "production-control-plane-engineering-replay", "status": "failed", "serverImage": image, "serverSource": source,
               "selectedClients": clients,
               "finalRouteRequested": final_route,
+              "terminalDraftRequested": terminal_draft,
               "releaseSource": subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=ROOT, text=True).strip(),
               "scope": "Bounded actual SDK/CLI/MCP/Studio command stages, followed by automated distinct-principal terminal approval. Not human approval acceptance, full release certification or manifest promotion.", "stages": []}
     log = (run / "execution.log").open("w")
@@ -156,6 +158,8 @@ def main() -> int:
         stage("verify actual package and shared module identity", lambda: call(["node", "verify-client.mjs"], cwd=consumer))
         if final_route:
             stage("admit published SDK and MCP typed intent without server calls", lambda: call(["node", "admit-publication-route.mjs"]))
+        if terminal_draft:
+            stage("admit published terminal draft command by dry run", lambda: call(["node", "admit-terminal-draft.mjs"]))
         stage("real OIDC principals", lambda: call([sys.executable, "authenticate.py"]))
         token = json.loads((run / "admin-a-bearer.json").read_text())["accessToken"]
         integrity = requests.get(BASE + "/api/v1/admin/observability/audit/verify", headers={"Authorization": "Bearer " + token}, timeout=30)
@@ -175,7 +179,7 @@ def main() -> int:
         stage("import.create four adapters", lambda: call(["node", "parity-published.mjs"], extra={"PARITY_MODE": "import", "PARITY_OUTPUT_DIR": str(imported)}))
         stage("owned imported row lineage", lambda: call([sys.executable, "import-readback.py", str(imported)]))
         stage("map-package.publish four adapters", lambda: call(["node", "parity-published.mjs"], extra={"PARITY_MODE": "publish", "PARITY_OUTPUT_DIR": str(run / "parity-publish")}))
-        stage("tenant-owned object refusal three adapters", lambda: call(["node", "studio-tenants-published.mjs"]))
+        stage("tenant-owned object refusal " + ("four adapters" if terminal_draft else "three adapters"), lambda: call(["node", "studio-tenants-published.mjs"]))
         stage("concurrent background imports and principal isolation", lambda: call([sys.executable, "import-controls.py"], timeout=360))
         stage("terminal proposal polling and distinct authenticated approver", lambda: call(["node", "publication-lifecycle.mjs"], timeout=240))
         final_integrity = requests.get(BASE + "/api/v1/admin/observability/audit/verify", headers={"Authorization": "Bearer " + token}, timeout=30)
@@ -200,7 +204,7 @@ def main() -> int:
             private.append(json.loads(path.read_text())["accessToken"])
         if (run / "owned-import-url.txt").exists():
             private.append((run / "owned-import-url.txt").read_text().strip())
-        allowed = ["principal-proof.json", "runtime-proof.json", "audit-integrity-final.json", "connection-setup.json", "owned-import-object.json", "owned-import-cleanup.json", "imported-feature-provenance.json", "import-controls.json", "consumer/expected-clients.json", "consumer/provenance.json", "consumer/package-lock.json", "execution.log", "published-map-envelope-provenance.json", "publication-route-admission.json"]
+        allowed = ["principal-proof.json", "runtime-proof.json", "audit-integrity-final.json", "connection-setup.json", "owned-import-object.json", "owned-import-cleanup.json", "imported-feature-provenance.json", "import-controls.json", "consumer/expected-clients.json", "consumer/provenance.json", "consumer/package-lock.json", "execution.log", "published-map-envelope-provenance.json", "publication-route-admission.json", "terminal-draft-admission.json"]
         paths = [run / name for name in allowed] + list(run.glob("parity-*/*.json")) + list(run.glob("studio-tenants-*/*.json"))
         inventory = []
         for path in paths:

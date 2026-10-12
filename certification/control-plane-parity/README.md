@@ -89,3 +89,23 @@ refused. Redirects and foreign origins are rejected before bearer forwarding.
 This optional continuation addresses only the final route/readback portion of
 step 8. It does not supply human approval acceptance or the missing installer,
 catalog, layer/access, style, GP and full map-adapter stages listed above.
+
+`parity_terminal_draft=true` separately admits the actual published terminal's
+`studio draft save-version` dry run before any owned command mutation. It uses
+the same verified manifest pair with no package override. A client without that
+verb fails admission; the default retains the older three-adapter control and
+cannot be counted as four-adapter tenant proof.
+
+When admitted, CLI, SDK, Studio and MCP receive the identical owned draft ID,
+generation and authenticated foreign-tenant principal. All four must return the
+same typed status, correlation and idempotency identity. Because the existing
+shared command checks the generation first, this is specifically a refusal of
+its authorized draft pre-read: four persisted, hashed `studio.read_draft` denial
+rows must identify the same foreign actor, owned draft and cross-tenant policy.
+No accepted mutation handle is invented for those refusals. The legitimate owner
+must still read the original generation, envelope and nonempty public owner ID afterward.
+The four-adapter mode also reads the actual PostgreSQL draft row before and after
+the refusals and requires its owner and tenant binding to match the authenticated
+owner. The wire draft intentionally does not expose `tenantId`. The
+operator-bearer audit actor oracle follows the canonical S4 issuer and server
+scheme/subject normalization; token decoding alone never authenticates a caller.

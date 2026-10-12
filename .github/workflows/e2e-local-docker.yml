@@ -42,6 +42,10 @@ on:
         description: "Require published SDK/MCP intent support and bounded approved private-route readback"
         type: boolean
         default: false
+      parity_terminal_draft:
+        description: "Require published terminal draft adapter and same-object four-surface denial proof"
+        type: boolean
+        default: false
       require_real:
         description: "Promote BLOCKED/SKIPPED to FAIL (run only when images+metrics are real)"
         type: boolean
@@ -532,6 +536,7 @@ jobs:
           node --test certification/control-plane-parity/client-identity.test.mjs
           node --test certification/control-plane-parity/publication-contract.test.mjs
           node --test certification/control-plane-parity/publication-route.test.mjs
+          node --test certification/control-plane-parity/terminal-draft.test.mjs
       - name: Authenticate image pull
         env:
           GH_TOKEN: ${{ github.token }}
@@ -547,6 +552,7 @@ jobs:
           HONUA_SERVER_IMAGE: ${{ inputs.parity_server_image }}
           HONUA_SERVER_SOURCE: ${{ inputs.parity_server_source }}
           HONUA_PARITY_FINAL_ROUTE: ${{ inputs.parity_final_route }}
+          HONUA_PARITY_TERMINAL_DRAFT: ${{ inputs.parity_terminal_draft }}
           HONUA_PARITY_BUCKET: ${{ vars.HONUA_AWS_CELL_FILE_STORAGE_BUCKET }}
           HONUA_PARITY_RUN: ${{ runner.temp }}/control-plane-parity-private
           HONUA_PARITY_OUT: ${{ runner.temp }}/control-plane-parity-public
