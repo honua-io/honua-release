@@ -554,13 +554,14 @@ components:
   honua-sdk-dotnet:
     repository: "https://github.com/honua-io/honua-sdk-dotnet"
     lifecycleStatus: GA
-    # R25 manual advance 2026-10-07: Honua.Sdk 1.10.4 is listed on nuget.org; its nuspec
-    # <repository commit> and the dotnet-sdk-v1.10.4 tag are both 66413fe3, which carries
-    # release/component-versions.json. The companion Abstractions, GeoServices and Admin
-    # packages are also 1.10.4. Check-runs were 34 success / 1 skipped / 1 in progress (the
-    # publish workflow itself) at verification time; no installed-client matrix cell flips.
-    version: "1.10.4"
-    sha: "66413fe30f09533a008cf1552def8a2d05cc4fde"
+    # R25 manual advance 2026-10-12: Honua.Sdk 1.11.0 is listed on nuget.org (publish run
+    # 38207282456); its catalog repository.commit, nuspec <repository commit> and the
+    # dotnet-sdk-v1.11.0 tag are all 5f09e4fc, which carries release/component-versions.json
+    # and release/sdk-capability-baseline.json and descends from 68158344 (SSH.NET fix, #102).
+    # All 14 Honua.Sdk.* dependency packages are also listed at 1.11.0. 1.11.0 carries
+    # honua-sdk-dotnet#425; no installed-client matrix cell flips (the pinned server lacks #5794).
+    version: "1.11.0"
+    sha: "5f09e4fca08a4cc6b9877c81e549fc5bc8648dba"
     artifact: "nuget:Honua.Sdk"
     contractVersions:
       sdk-certification: "v1"
@@ -580,10 +581,12 @@ components:
   honua-sdk-python:
     repository: "https://github.com/honua-io/honua-sdk-python"
     lifecycleStatus: GA
-    # R25 manual advance: PyPI wheel bytes and publish attestations verified 2026-10-04.
-    # SDK 0.1.13 and admin 0.1.10 share this published source, which carries the declaration.
-    version: "0.1.13"
-    sha: "a9cd320a1d330e758e1dd6c186f62a922d259cef"
+    # R25 manual advance 2026-10-12: PyPI wheel bytes (downloaded twice) and PEP 740 publish
+    # attestations (run 38207317004) verified. SDK 0.1.15 and admin 0.1.12 share this published
+    # source (tags python-sdk-v0.1.15 / python-admin-v0.1.12), which carries
+    # release/component-versions.json and release/sdk-capability-baseline.json.
+    version: "0.1.15"
+    sha: "a2729be7b2fa0e363319043e9d084b2204d30a08"
     artifact: "pypi:honua-sdk"
     contractVersions:
       protocol-factories: "1"
@@ -778,12 +781,12 @@ components:
 # the npm pair again after the 0.1.14 publications reached the registry on 2026-10-06:
 #   honua-sdk-js         984425f9 = npm registry gitHead for @honua/sdk-js 0.1.14           MATCHES
 #   honua-mcp-server     704eb957 = npm registry gitHead for @honua/mcp-server 0.1.14       MATCHES
-#   honua-sdk-python-wheel a9cd320a = PyPI publication certificate GitHub SHA (OID
-#                        1.3.6.1.4.1.57264.1.3) for honua_sdk-0.1.13-py3-none-any.whl       MATCHES
-#   honua-admin-python-wheel a9cd320a = same certificate extension for
-#                        honua_admin-0.1.10-py3-none-any.whl                                 MATCHES
-#   honua-sdk-dotnet     66413fe3 = nuspec <repository commit> for Honua.Sdk 1.10.4 and
-#                        dotnet-sdk-v1.10.4 tag (anonymous nuget.org)                     MATCHES
+#   honua-sdk-python-wheel a2729be7 = PyPI publication certificate GitHub SHA (OID
+#                        1.3.6.1.4.1.57264.1.3) for honua_sdk-0.1.15-py3-none-any.whl       MATCHES
+#   honua-admin-python-wheel a2729be7 = same certificate extension for
+#                        honua_admin-0.1.12-py3-none-any.whl                                 MATCHES
+#   honua-sdk-dotnet     5f09e4fc = nuget.org catalog repository.commit and nuspec <repository
+#                        commit> for Honua.Sdk 1.11.0 and dotnet-sdk-v1.11.0 tag           MATCHES
 # tools/verify_client_artifacts.py re-checks registry digests and, for nuget.org, the catalog
 # SHA-512, listing, and catalog + nuspec repository commit against `sourceSha`.
 # Superseded selection (verified 2026-09-01/09-08): JS 0.1.9-beta.0 c99e7119, MCP 0.1.4-beta.0
@@ -799,11 +802,11 @@ clientArtifacts:
   honua-admin-python-wheel:
     ecosystem: pypi
     package: "honua-admin"
-    version: "0.1.10"
-    filename: "honua_admin-0.1.10-py3-none-any.whl"
-    digest: "sha256:74c067b4e175c91907e27284d84612bf93e51d2620f2b601a70e46b2380b5b9a"
+    version: "0.1.12"
+    filename: "honua_admin-0.1.12-py3-none-any.whl"
+    digest: "sha256:359e7e5a3426a79c11c4ce5d8412351187e86b0a5b9bf4766c5a644987c2c759"
     repository: honua-io/honua-sdk-python
-    sourceSha: "a9cd320a1d330e758e1dd6c186f62a922d259cef"
+    sourceSha: "a2729be7b2fa0e363319043e9d084b2204d30a08"
     publicationState: published
     targets: [python3]
   honua-sdk-js:
@@ -889,24 +892,24 @@ clientArtifacts:
   honua-sdk-python-wheel:
     ecosystem: pypi
     package: "honua-sdk"
-    version: "0.1.13"
-    filename: "honua_sdk-0.1.13-py3-none-any.whl"
-    digest: "sha256:c6cae3674d255b77f82a1ba2a6f52c52e0cb6b16820596ef7d861914233884b6"
+    version: "0.1.15"
+    filename: "honua_sdk-0.1.15-py3-none-any.whl"
+    digest: "sha256:c058087d8bd93d6ce44f5e64150d2d31376a49bade61a933b1ff0fcb8de7dc00"
     repository: honua-io/honua-sdk-python
-    sourceSha: "a9cd320a1d330e758e1dd6c186f62a922d259cef"
+    sourceSha: "a2729be7b2fa0e363319043e9d084b2204d30a08"
     publicationState: published
     targets: [python3]
   honua-sdk-dotnet:
     ecosystem: nuget
     package: "Honua.Sdk"
-    version: "1.10.4"
-    digest: "sha256:60253476b6a1be98e1cbd989c3fbcdcf3c148b11c16e57e4336c90160ba0b2b3"
+    version: "1.11.0"
+    digest: "sha256:89a1001f1a9c922413b88cc262c7f21ec2d64b95d7c49a07386b3eded1cc62bb"
     repository: honua-io/honua-sdk-dotnet
-    sourceSha: "66413fe30f09533a008cf1552def8a2d05cc4fde"
+    sourceSha: "5f09e4fca08a4cc6b9877c81e549fc5bc8648dba"
     publicationState: published
     registry: nuget.org
     targets: [net10.0]
-    filename: honua.sdk.1.10.4.nupkg
+    filename: honua.sdk.1.11.0.nupkg
 
 # Non-shipping workflows whose observations can affect promotion. A full producer commit is the
 # trust root; workflow/event/branch identity prevents evidence from an unreviewed execution path.
