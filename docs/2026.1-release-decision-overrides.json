@@ -483,7 +483,7 @@
       "moved": [],
       "basis": "Owner decision 21 recorded 2026-10-11 during the rc.3 certification cycle",
       "evidence": "The nightly resolve (run 38066789790) refused qualification because release/sdk-capability-baseline.json was absent at the published revisions of all four SDK repositories. Merged: honua-sdk-dotnet#427 (8d530e1c3), honua-sdk-js#2016 (e8882570d), honua-sdk-python#290 (27ac93da5) and #291, geospatial-mcp#99 (cc3940826); each file is byte-identical to tools/fixtures/sdk-capability-baselines/.",
-      "open": "honua-sdk-js#1973 is merged and honua-release#549 binds the published sdk-js 0.1.15 at c6484209d, which contains the baseline commit. The honua-sdk-dotnet#426 and honua-sdk-python#286 release PRs await the owner; after they merge, the Honua.Sdk and Python wheel clientArtifacts rows move to the new versions and source shas, and until then the resolver reads the old revisions. geospatial-mcp needs no release (honua-release#482)."
+      "open": "honua-sdk-js is released (honua-sdk-js#1973 and later) and honua-release#560 binds the published sdk-js 0.1.16 at a86b22287, which contains the baseline commit. The honua-sdk-dotnet#426 and honua-sdk-python#286 release PRs await the owner; after they merge, the Honua.Sdk and Python wheel clientArtifacts rows move to the new versions and source shas, and until then the resolver reads the old revisions. geospatial-mcp needs no release (honua-release#482)."
     },
     "large-file-cloud-import-2026-10-11": {
       "date": "2026-10-11",
