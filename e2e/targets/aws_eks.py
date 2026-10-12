@@ -109,6 +109,16 @@ IRSA_ANNOTATION = "eks.amazonaws.com/role-arn"
 # The Kubernetes Job geoprocessing backend (honua-helm#77, honua-server#4719): run the manifest's
 # generic server image, the same image the Lambda cell's Batch jobs run.
 GP_IMAGE_ENV = "HONUA_GP_BATCH_IMAGE"
+# Whether the manifest-pinned honua-server lets a Kubernetes Job worker take the server's runtime
+# Secret and ConfigMap through envFrom/secretKeyRef (honua-server#5796, bebaada00:
+# ControlPlane:Kubernetes:DefaultEnvFromSecrets/DefaultEnvFromConfigMaps). The chart's
+# geoprocessing.kubernetesJobs.envFromServer (honua-helm#99) depends on it: an older server ignores the
+# setting and its GP workers start without the database, Redis and master key that this cell keeps in
+# its external runtime Secret. The pinned server 93cad86 carries #5780 (the worker-only profile) but
+# predates #5796, so the cell renders envFromServer=false and says so instead of claiming a wiring the
+# server cannot honour. The re-pin that moves components.honua-server.sha to a build containing
+# bebaada00 flips this to True in the same pull request.
+SERVER_PIN_HONOURS_GP_JOB_ENV_FROM = False
 
 NAMESPACE = "honua-cert"
 RELEASE = "honua"
@@ -768,6 +778,9 @@ class AwsEksTarget(DeployTarget):
                 GP_JOB_SERVICE_ACCOUNT, GP_JOB_SA_ANNOTATIONS_OUTPUT, GP_JOB_ROLE_OUTPUT)
             if job_account:
                 jobs["serviceAccount"] = job_account
+            if self._chart_declares("geoprocessing.kubernetesJobs.envFromServer"):
+                # Explicit either way: the chart defaults it on, which an older server would ignore.
+                jobs["envFromServer"] = SERVER_PIN_HONOURS_GP_JOB_ENV_FROM
             values["geoprocessing"] = {"kubernetesJobs": jobs}
         domain = self.cell_domain(redis_enabled)
         if domain is not None:
