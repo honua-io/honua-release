@@ -29,6 +29,20 @@ http://127.0.0.1:$E2E_SITE_PORT/demo-two-protocols.html?apiBase=$E2E_BASE
 (loopback + `*.honua.io`), re-emits the page CSP widened by exactly that origin, and repoints the demo
 config. Everything after that is the demo's own code talking to the candidate.
 
+**What the page asked, and who answered** (`backend-calls.mjs`). Each page's calls to the candidate
+are logged from the browser's *requests*, with the status Chromium saw on the wire (CDP
+`Network.responseReceivedExtraInfo`) even when CORS hid the response from the page. A 5xx without the
+server's `Honua-Instance` header is reported as `(API Gateway, no server body)`: API Gateway's own
+500/503 carries no CORS header, so the page and Playwright see only `net::ERR_FAILED`. Cloud run
+38192851328 showed both on `aws-serverless` (a Lambda runtime abort, and throttling). So:
+
+* `S9-demos-editing`, when the data lane falls back to the fixture, names each failed probe
+  (`/odata/Layers`, the capability manifest) and features read with its status and who answered, e.g.
+  `features GET /odata/Layers(7)/Features?$top=500 → 503 (API Gateway, no server body)`.
+* `S9-demos-analyst-workbench` distinguishes "the workbench never requested the candidate" (the shim
+  did not reach the sample's `baseUrl`) from "the workbench requested the candidate and got <status>".
+* Every failing row keeps `consoleErrors`, `failedRequests` (with the wire status) and `backendCalls`.
+
 ## Prerequisites
 
 * a honua-site checkout carrying the shim — `E2E_SITE_DIR`, else a sibling `../honua-site`, else a

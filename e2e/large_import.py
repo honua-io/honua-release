@@ -18,9 +18,29 @@ The work is split across the cell workflow's jobs, as everything else in it is (
 * teardown (AWS credentials): `delete_staged` removes the object; the bucket lifecycle expiring
   `release-cells/` after a day is only the backstop.
 
-Redis-off cells run the negative variant: the small committed fixture with `forceBackground: true`
-must be refused with the typed 503 `Background import service not available...`
-(ImportEndpoints.cs:680), recorded `pass` with `topology: redis-off` (owner ruling R3(a), decision 3).
+Redis-off cells run the same path on the small committed fixture with `forceBackground: true`.
+honua-server registers its file-import job service without Redis and runs the job in-process, so the
+cell may answer 202 with a job (cloud run 38192851328): S10 then follows that job to completion,
+publishes and counts, exactly as on Redis-on (`executor: in-process`, `topology: redis-off`). Only a
+host without the import job service answers the typed 503 `Background import service not
+available...` (ImportEndpoints.cs:643-647 at honua-server 93cad86ec); that refusal still passes with
+`refusal` recorded (decision 3). Anything else fails with the server's scrubbed message.
+
+A job that stops changing state fails `job-stalled` on either topology, naming the last transition,
+the time since it and the instances that answered the status reads.
+
+Publishing the imported table (fix unit J22). honua-server has no asynchronous publish: `service.publish`
+(the operation behind stage 3's `honua_publish_service`) is ExecutionKind Synchronous and its executor
+calls the same `ILayerPublishingService.PublishLayerAsync` inline (ServicePublishOperation.cs:39,
+ServicePublishExecutor.cs:120,168 at 0e03bdd06), so routing S10 through it would add an operation
+handle but not remove the wait. On the 330,000-row table the publish transaction (geometry-health scan,
+extent scan, a one-time copy of every row into the canonical `features` snapshot, extent refresh) outlives
+the ECS ALB's 60 s idle timeout and the cell answers 504 (run 38249563601). S10 therefore keeps the admin
+publish and, when it answers 504 or nothing, reads the connection's layer list until the layer for the
+imported table appears (PUBLISH_CONVERGE_SECONDS), recording `publishAnswered` and how long convergence
+took. It never re-POSTs. The admin publish runs on the request's abort token
+(LayerPublishingEndpoints.cs:228-231), so a gateway that drops the connection may roll the publish back;
+a layer that never appears fails `publish-not-converged`, naming the answer, the wait and the last read.
 """
 from __future__ import annotations
 
@@ -50,28 +70,48 @@ TABLE, REDIS_OFF_TABLE = "s10_large_import", "s10_redis_off"
 SCHEMA = "honua_data"
 # ImportEndpoints.ResolvePhysicalImportedTableName: "imported_" + the sanitized lower-case name.
 PHYSICAL_TABLE = "imported_" + TABLE
-SERVICE = "s10-large-import"
+SERVICE, REDIS_OFF_SERVICE = "s10-large-import", "s10-redis-off"
 
 PRESIGN_TTL_SECONDS = 1800
 JOB_TIMEOUT_SECONDS = 1200
 POLL_SECONDS = 5.0
 REQUEST_TIMEOUT_SECONDS = 120
 TERMINAL = {"completed", "failed", "cancelled"}
+# The publish answers that leave its outcome unknown: a gateway timeout (the ECS ALB's 60 s idle timeout
+# answers 504) or no answer within REQUEST_TIMEOUT_SECONDS. Anything else is the publish's own verdict.
+PUBLISH_UNKNOWN = {0, 504}
+# How long S10 reads the layer list after such an answer: the server's snapshot materialization budget
+# (LayerPublishing:MaterializationTimeoutSeconds, default 300, LayerPublishingOptions.cs:13) plus a minute.
+PUBLISH_CONVERGE_SECONDS = 360
+PUBLISH_PATH = "admin-layers"
+# The server change that would let a large publish answer inside a gateway's idle timeout.
+PUBLISH_FOLLOW_UP = "server follow-up: asynchronous service.publish"
 # ImportStatus serializes as its name or its ordinal, depending on the serializer options.
 _STATUS_ORDINALS = {0: "queued", 1: "processing", 2: "completed", 3: "failed", 4: "cancelled"}
 
 REDIS_OFF_REFUSAL = "Background import service not available. File is too large for synchronous import."
 # honua-server registers UniversalImportJobService for file-import background jobs on every host
 # (src/Honua.Db/Postgres/ServiceCollectionExtensions.cs, IImportJobService): the job runs in the
-# process that accepted the upload. ImportProgress carries no executor field, so this is the basis.
+# process that accepted the upload. ImportProgress (src/Honua.Core/Features/Import/Domain/
+# ImportProgress.cs at 93cad86ec) carries no runner field; when a later server adds one under any of
+# JOB_RUNNER_FIELDS the receipt records it as `jobRunner`. Until then `executor` is derived (below).
 EXECUTOR = "in-process"
-EXECUTOR_BASIS = ("honua-server runs file-import background jobs in UniversalImportJobService inside "
-                  "the API host; the job document names no executor")
+JOB_RUNNER_FIELDS = ("jobRunner", "runner", "executor")
+MANIFEST_PATH = "/api/v1/capabilities/manifest"
+# The manifest's `jobs.runner` is the Redis-backed durable job runner (geoprocessing jobs and
+# workflows). File imports do not run on it: run 38192851328's Redis-off cell reported it
+# `dependency-unavailable` and still queued the import (202).
+JOBS_RUNNER_CAPABILITY = "jobs.runner"
+
+# A job that stops changing state is a server-side stall (an import left in the host that accepted it
+# stops advancing, e.g. a Lambda invocation frozen after its 202). The server fix is honua-server#5916.
+STALL_FOLLOW_UP = "honua-server#5916"
 
 LIMITS_PATH = "/api/v1/admin/import/limits"
 UPLOAD_URL_PATH = "/api/v1/admin/import/upload-url"
 JOB_PATH = "/api/v1/admin/import/jobs/{job}"
 LAYERS_PATH = "/api/v1/admin/connections/{connection}/layers"
+LIST_LAYERS_PATH = LAYERS_PATH + "?serviceName={service}"
 COUNT_PATH = "/rest/services/{service}/FeatureServer/{layer}/query?where=1%3D1&returnCountOnly=true&f=json"
 INSTANCE_HEADER = "Honua-Instance"
 
@@ -81,13 +121,16 @@ RECEIPT_FIELDS = ("scenario", "topology", "variant", "fixture", "fixtureSha256",
                   "thresholdBytes", "maxMemoryBytes", "stagingCapBytes", "source", "sourceUrlHost",
                   "uploadStatus", "jobId", "queuedAt", "completedAt", "durationSeconds", "durationMs",
                   "transitions", "jobStatus", "featuresProcessed", "layerId", "service", "rowCount",
-                  "executor", "executorBasis", "instances", "refusal")
+                  "executor", "executorBasis", "jobRunner", "jobsRunnerCapability", "instances",
+                  "statusInstances", "stall", "refusal", "publishPath", "publishAnswered", "publishMs",
+                  "publishConvergedSeconds", "publishReads")
 
 _BUCKET = re.compile(r"[a-z0-9][a-z0-9.-]{1,61}[a-z0-9]\Z")
 _CELL = re.compile(r"(aws-ecs|aws-serverless|aws-eks|stub)/redis-(on|off)\Z")
 _RUN = re.compile(r"[A-Za-z0-9][A-Za-z0-9_.-]{0,63}\Z")
 _JOB_ID = re.compile(r"[A-Za-z0-9][A-Za-z0-9_.:-]{0,127}\Z")
 _INSTANCE = re.compile(r"[\x21-\x7e]{1,128}\Z")
+_RUNNER = re.compile(r"[A-Za-z0-9][A-Za-z0-9_.:-]{0,63}\Z")
 _AWS_ERROR = re.compile(r"\(([A-Za-z][A-Za-z0-9.]{2,63})\)")
 _SIGNATURE = re.compile(r"(?i)x-amz-[a-z-]+=[^&\s\"']*")
 MAX_DETAIL_CHARS = 300
@@ -329,10 +372,90 @@ def _seed_connection(seed_manifest: Path | None) -> str | None:
     return str(connection) if isinstance(connection, (str, int)) and str(connection) else None
 
 
+def job_runner(progress) -> str | None:
+    """Where the server says the job runs, when the job document names it (JOB_RUNNER_FIELDS)."""
+    if not isinstance(progress, dict):
+        return None
+    for name in JOB_RUNNER_FIELDS:
+        value = progress.get(name)
+        if isinstance(value, str) and _RUNNER.fullmatch(value.strip()):
+            return value.strip().lower()
+    return None
+
+
+def jobs_runner_capability(manifest) -> dict | None:
+    """The manifest's `jobs.runner` entry reduced to {available, reasonCode}, or None."""
+    capabilities = manifest.get("capabilities") if isinstance(manifest, dict) else None
+    for entry in capabilities if isinstance(capabilities, list) else []:
+        if isinstance(entry, dict) and entry.get("id") == JOBS_RUNNER_CAPABILITY:
+            reason = entry.get("reasonCode")
+            return {"available": entry.get("available") is True,
+                    "reasonCode": reason[:64] if isinstance(reason, str) else None}
+    return None
+
+
+def executor_basis(capability: dict | None) -> str:
+    """Why the receipt says `executor: in-process` when the job document names no runner."""
+    if capability is None:
+        manifest = "the capability manifest reported no jobs.runner entry"
+    elif capability["available"]:
+        manifest = ("the manifest's jobs.runner (the Redis-backed geoprocessing runner) is available, but "
+                    "file imports do not run on it")
+    else:
+        manifest = (f"the manifest's jobs.runner is unavailable ({capability.get('reasonCode') or 'no reason'}), "
+                    "so the accepted import can only run in the API host")
+    return (f"derived: the job document names no runner; {manifest}; honua-server runs file-import jobs in "
+            "UniversalImportJobService inside the host that accepted the upload")
+
+
+def layer_list(document) -> list:
+    """The layers a layer-list answer carries: its `data` array when enveloped, else the array itself."""
+    if isinstance(document, dict):
+        document = document.get("data")
+    return document if isinstance(document, list) else []
+
+
+def find_layer(listing, schema: str, table: str) -> int | None:
+    """The id of the published layer whose source is schema.table in a layer-list answer, or None."""
+    for entry in layer_list(listing):
+        if (isinstance(entry, dict) and str(entry.get("schema") or "").lower() == schema.lower()
+                and str(entry.get("table") or "").lower() == table.lower()
+                and _int(entry.get("layerId")) is not None):
+            return entry["layerId"]
+    return None
+
+
+def status_text(status) -> str:
+    return str(status) if status else "nothing"
+
+
+def publish_not_converged(target: str, answered: int, publish_ms: int, *, wait: float, reads: int,
+                          last: str) -> str:
+    """The `publish-not-converged` failure: the answer, how long it took, the wait and the last read."""
+    return (f"publish-not-converged: publishing {target} answered {status_text(answered)} after "
+            f"{publish_ms / 1000:.1f}s and no layer for that table appeared in {reads} layer-list reads over "
+            f"{int(wait)}s (last read {last}); service.publish has no asynchronous mode and the admin publish "
+            "runs on the request's abort token, so a gateway timeout can roll the publish transaction back "
+            f"({PUBLISH_FOLLOW_UP})")
+
+
+def stall_detail(job: str, transitions: list, *, timeout: float, since: float, instances: list) -> str:
+    """The `job-stalled` failure: last transition, time since it, who answered, the server item."""
+    last = transitions[-1] if transitions else {"status": "missing", "at": "never"}
+    previous = transitions[-2]["status"] if len(transitions) > 1 else None
+    change = f"{previous} -> {last['status']}" if previous else f"first read {last['status']}"
+    answered = ", ".join(instances) if instances else f"no {INSTANCE_HEADER} header"
+    return (f"job-stalled: job {job} was still {last['status']} after {int(timeout)}s; last transition "
+            f"{change} at {last['at']}, {int(since)}s with no change since; status reads answered by "
+            f"{answered} (transitions: {' -> '.join(t['status'] for t in transitions)}); the job runs in the "
+            f"host that accepted the upload, which stopped advancing it ({STALL_FOLLOW_UP})")
+
+
 def run_scenario(state: dict, endpoint: str, admin_key: str, *, source_url: str | None,
                  seed_manifest: Path | None = None, request=admin_request, clock=time.monotonic,
                  sleep=time.sleep, job_timeout: float = JOB_TIMEOUT_SECONDS,
-                 poll_seconds: float = POLL_SECONDS) -> CheckResult | None:
+                 poll_seconds: float = POLL_SECONDS,
+                 publish_converge: float = PUBLISH_CONVERGE_SECONDS) -> CheckResult | None:
     """S10 on a live cell, from the journey job. None when provision recorded no S10 staging."""
     record = state.get("s10")
     if not isinstance(record, dict):
@@ -355,10 +478,11 @@ def run_scenario(state: dict, endpoint: str, admin_key: str, *, source_url: str 
         return _row("blocked", "the admit job delivered no presigned source URL for the staged fixture "
                                f"(presign failed or was not attempted; see the admit job log) ({ISSUE})", fields)
 
-    def call(method, path, body=None):
+    def call(method, path, body=None, *, seen=None):
         status, document, instance = request(method, base + path, admin_key, body)
-        if instance and instance not in fields["instances"]:
-            fields["instances"].append(instance)
+        for into in (fields["instances"], seen if seen is not None else []):
+            if instance and instance not in into:
+                into.append(instance)
         return status, document
 
     # Preflight: the cell's limits and the staging cap max(threshold, MaxMemoryBytes) both upload
@@ -384,9 +508,11 @@ def run_scenario(state: dict, endpoint: str, admin_key: str, *, source_url: str 
                             f"window {window} (BackgroundJobThresholdBytes={threshold}, "
                             f"MaxMemoryBytes={memory})", fields)
 
-    body = {"sourceUrl": source_url, "fileName": record["fixture"],
-            "tableName": TABLE if redis_on else REDIS_OFF_TABLE, "targetSchema": SCHEMA, "targetSrid": 4326,
-            "overwriteExisting": True, "forceBackground": not redis_on, "trackProgress": True}
+    table, service = (TABLE, SERVICE) if redis_on else (REDIS_OFF_TABLE, REDIS_OFF_SERVICE)
+    label = "" if redis_on else "redis-off: "
+    body = {"sourceUrl": source_url, "fileName": record["fixture"], "tableName": table, "targetSchema": SCHEMA,
+            "targetSrid": 4326, "overwriteExisting": True, "forceBackground": not redis_on,
+            "trackProgress": True}
     started, queued_at = clock(), now()
     status, document = call("POST", UPLOAD_URL_PATH, body)
     fields["uploadStatus"] = status
@@ -395,47 +521,57 @@ def run_scenario(state: dict, endpoint: str, admin_key: str, *, source_url: str 
     data = data if isinstance(data, dict) else {}
     job = data.get("jobId")
 
-    if not redis_on:
-        if status == 503 and REDIS_OFF_REFUSAL in server_messages(document):
-            fields["refusal"] = REDIS_OFF_REFUSAL
-            return _row("pass", f"redis-off: forceBackground upload-url refused with the typed 503 "
-                                f"'{REDIS_OFF_REFUSAL}' (topology redis-off, decision 3)", fields)
-        if status == 202 and isinstance(job, str) and _JOB_ID.match(job):
-            fields["jobId"] = job
-            return _row("fail", f"redis-off: the cell queued background import job {job} instead of the typed "
-                                f"503 '{REDIS_OFF_REFUSAL}'", fields)
-        return _row("fail", f"redis-off: upload-url answered {status or 'nothing'}"
-                            + (f" ({message})" if message else "")
-                            + f", not the typed 503 '{REDIS_OFF_REFUSAL}'", fields)
-
+    if not redis_on and status == 503 and REDIS_OFF_REFUSAL in server_messages(document):
+        fields["refusal"] = REDIS_OFF_REFUSAL
+        return _row("pass", f"redis-off: forceBackground upload-url refused with the typed 503 "
+                            f"'{REDIS_OFF_REFUSAL}': this host runs no import job service (topology redis-off, "
+                            f"decision 3)", fields)
     if status != 202:
         hint = (" (an expired or refused presigned URL reads as the cell's 502 'Failed to fetch source "
                 "object: 403')" if status == 502 else "")
         why = f"upload-url answered {status or 'nothing'}" + (f": {message}" if message else "") + hint
         if status == 200:
             why = "upload-url imported synchronously (jobId null): the fixture never reached the background path"
-        return _row("fail", why, fields)
+        if not redis_on:
+            why += f"; expected 202 with a background job or the typed 503 '{REDIS_OFF_REFUSAL}'"
+        return _row("fail", label + why, fields)
     if not isinstance(job, str) or not _JOB_ID.match(job):
-        return _row("fail", "upload-url answered 202 without a usable jobId", fields)
+        return _row("fail", label + "upload-url answered 202 without a usable jobId", fields)
     fields.update(jobId=job, queuedAt=queued_at)
 
-    transitions, last, progress = [], None, {}
+    transitions, last, progress, status_instances, changed = [], None, {}, [], clock()
     deadline = started + job_timeout
     while True:
-        status, progress = call("GET", JOB_PATH.format(job=urllib.parse.quote(job, safe="")))
+        status, progress = call("GET", JOB_PATH.format(job=urllib.parse.quote(job, safe="")),
+                                seen=status_instances)
         progress = unwrap(progress)
         state_name = _status(progress) if status == 200 else f"http-{status or 'none'}"
         if state_name != last:
             transitions.append({"status": state_name, "at": now()})
-            last = state_name
+            last, changed = state_name, clock()
         if state_name in TERMINAL or clock() >= deadline:
             break
         sleep(poll_seconds)
-    fields.update(transitions=transitions, jobStatus=last, durationMs=int((clock() - started) * 1000))
+    fields.update(transitions=transitions, jobStatus=last, durationMs=int((clock() - started) * 1000),
+                  statusInstances=status_instances)
     progress = progress if isinstance(progress, dict) else {}
+
+    runner = job_runner(progress)
+    if runner:
+        fields.update(jobRunner=runner, executor=runner, executorBasis="the job document names its runner")
+    else:
+        _, manifest = call("GET", MANIFEST_PATH)
+        capability = jobs_runner_capability(unwrap(manifest))
+        if capability is not None:
+            fields["jobsRunnerCapability"] = capability
+        fields.update(executor=EXECUTOR, executorBasis=executor_basis(capability))
+
     if last not in TERMINAL:
-        return _row("fail", f"job-timeout: job {job} was still {last} after {int(job_timeout)}s "
-                            f"(transitions: {' -> '.join(t['status'] for t in transitions)})", fields)
+        since = clock() - changed
+        fields["stall"] = {"lastStatus": last, "lastTransitionAt": transitions[-1]["at"] if transitions else None,
+                           "secondsSinceLastTransition": int(since), "followUp": STALL_FOLLOW_UP}
+        return _row("fail", label + stall_detail(job, transitions, timeout=job_timeout, since=since,
+                                                 instances=status_instances), fields)
     server_started, completed = _iso(progress.get("startedAt")), _iso(progress.get("completedAt"))
     if server_started:
         fields["queuedAt"] = server_started
@@ -445,35 +581,61 @@ def run_scenario(state: dict, endpoint: str, admin_key: str, *, source_url: str 
         fields["durationSeconds"] = round((datetime.fromisoformat(completed.replace("Z", "+00:00"))
                                            - datetime.fromisoformat(server_started.replace("Z", "+00:00"))
                                            ).total_seconds(), 3)
-    fields.update(executor=EXECUTOR, executorBasis=EXECUTOR_BASIS,
-                  featuresProcessed=_int(progress.get("featuresProcessed")))
+    fields["featuresProcessed"] = _int(progress.get("featuresProcessed"))
     if last != "completed":
         error = scrub(progress.get("errorMessage") or "", secrets)
-        return _row("fail", f"job {job} ended {last}" + (f": {error}" if error else ""), fields)
+        return _row("fail", label + f"job {job} ended {last}" + (f": {error}" if error else ""), fields)
 
     connection = _seed_connection(seed_manifest)
     if not connection:
-        return _row("fail", "the job completed but the seed recorded no connection to publish the imported "
+        return _row("fail", label + "the job completed but the seed recorded no connection to publish the imported "
                             "table through", fields)
-    status, published = call("POST", LAYERS_PATH.format(connection=urllib.parse.quote(connection, safe="")), {
-        "schema": SCHEMA, "table": PHYSICAL_TABLE, "layerName": SERVICE, "serviceName": SERVICE,
+    quoted, target = urllib.parse.quote(connection, safe=""), f"{SCHEMA}.imported_{table}"
+    publish_started = clock()
+    status, published = call("POST", LAYERS_PATH.format(connection=quoted), {
+        "schema": SCHEMA, "table": "imported_" + table, "layerName": service, "serviceName": service,
         "geometryColumn": "geometry", "geometryType": "Point", "primaryKey": "id", "srid": 4326,
         "enabled": True})
+    publish_ms = int((clock() - publish_started) * 1000)
+    fields.update(publishPath=PUBLISH_PATH, publishAnswered=status, publishMs=publish_ms)
     layer = ((published or {}).get("data") or {}).get("layerId") if isinstance(published, dict) else None
-    if status not in (200, 201) or _int(layer) is None:
+    converged = None
+    if status in PUBLISH_UNKNOWN:
+        # The publish may still be running (or have committed) behind the gateway: read, never re-POST.
+        reads, last_read, deadline = 0, "none", clock() + publish_converge
+        while True:
+            list_status, listing = call("GET", LIST_LAYERS_PATH.format(
+                connection=quoted, service=urllib.parse.quote(service, safe="")))
+            reads += 1
+            layer = find_layer(listing, SCHEMA, "imported_" + table) if list_status == 200 else None
+            last_read = (f"answered 200 with {len(layer_list(listing))} layers in {service}"
+                         if list_status == 200 else f"answered {status_text(list_status)}")
+            if layer is not None or clock() >= deadline:
+                break
+            sleep(poll_seconds)
+        fields["publishReads"] = reads
+        if layer is None:
+            return _row("fail", label + publish_not_converged(target, status, publish_ms, wait=publish_converge,
+                                                              reads=reads, last=last_read), fields)
+        converged = int(clock() - publish_started)
+        fields["publishConvergedSeconds"] = converged
+    elif status not in (200, 201) or _int(layer) is None:
         detail = scrub(server_message(published), secrets)
-        return _row("fail", f"publishing {SCHEMA}.{PHYSICAL_TABLE} answered {status or 'nothing'}"
+        return _row("fail", label + f"publishing {target} answered {status_text(status)}"
                             + (f": {detail}" if detail else ""), fields)
-    fields.update(layerId=layer, service=SERVICE)
-    status, counted = call("GET", COUNT_PATH.format(service=SERVICE, layer=layer))
+    fields.update(layerId=layer, service=service)
+    status, counted = call("GET", COUNT_PATH.format(service=service, layer=layer))
     counted = unwrap(counted)
     rows = _int((counted or {}).get("count")) if isinstance(counted, dict) else None
     fields["rowCount"] = rows
     if status != 200 or rows is None:
-        return _row("fail", f"the count query on {SERVICE}/{layer} answered {status or 'nothing'} without a count",
+        return _row("fail", label + f"the count query on {service}/{layer} answered {status or 'nothing'} without a count",
                     fields)
     if rows != int(record["features"]):
-        return _row("fail", f"the published layer holds {rows} rows, not the pinned {record['features']}", fields)
-    return _row("pass", f"background job {job} imported {record['bytes']} bytes from {fields.get('sourceUrlHost')} "
-                        f"({last} in {fields.get('durationSeconds', 'unknown')}s); {SERVICE}/{layer} holds the "
-                        f"pinned {rows} rows", fields)
+        return _row("fail", label + f"the published layer holds {rows} rows, not the pinned {record['features']}", fields)
+    publish_note = (f"; publish answered {status_text(fields['publishAnswered'])}, converged after {converged}s"
+                    if converged is not None else "")
+    return _row("pass", label + f"background job {job} ran {fields['executor']} and imported {record['bytes']} "
+                        f"bytes from {fields.get('sourceUrlHost')} ({last} in "
+                        f"{fields.get('durationSeconds', 'unknown')}s); {service}/{layer} holds the pinned {rows} rows"
+                        + publish_note, fields)

@@ -57,3 +57,10 @@ restored after each block, including failures. The candidate namespace and runti
 stay strict. Installed inventories retain every package path and nested version; copies cannot
 hide behind a name-only dictionary. The retained document admission and block inventories make
 source build dependencies distinguishable from packages actually installed by a runtime reader.
+
+After a source checkout has passed verification, later shell commands and deferred snippets may
+still observe its installed dependencies. Those observations receive a separate
+`sourceDependencyAudit`: the same source SHA and locks are verified before and after execution,
+and every package inside that checkout must match the exact admitted path and link inventory.
+This does not grant those blocks access to the source registry or change their documented
+commands. Packages outside the checkout remain subject to the candidate version audit.

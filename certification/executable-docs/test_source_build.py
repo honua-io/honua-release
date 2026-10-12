@@ -292,3 +292,82 @@ def test_documented_clone_uses_reader_cwd_after_scaffold_and_retains_it(tmp_path
     assert f"git -C {checkout} rev-parse HEAD" in calls[2]
     assert [row["sourceBuild"]["checkoutPath"] for row in result["blocks"] if "sourceBuild" in row] == [str(checkout), str(checkout)]
     assert session.cwd == str(tmp_path / "app/my-map")
+
+
+@pytest.mark.parametrize("failure", [None, "external-version", "unknown-source-path", "link-target", "lock-after", "lock-before"])
+def test_later_shell_and_deferred_compile_keep_exact_source_inventory_without_registry_widening(tmp_path, failure):
+    from types import SimpleNamespace
+    from run import Outcome, run_document
+    text = f"```bash\n{sb.CLONE}\ncd honua-sdk-js/mcp\nnpm ci\n```\n\n```bash\nnpm run eval:offline\n```\n\n```ts doc-test=compile\nexport const value = 1;\n```\n"
+    root = tmp_path / "app/honua-sdk-js"
+    root.mkdir(parents=True)
+    for name, raw in inputs().items():
+        path = root / name
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_bytes(raw)
+    subprocess.run(["git", "init", "-q", str(root)], check=True)
+    subprocess.run(["git", "-C", str(root), "add", "."], check=True)
+    subprocess.run(["git", "-C", str(root), "-c", "user.name=Fixture", "-c", "user.email=fixture@example.test", "commit", "-qm", "fixture"], check=True)
+    revision = subprocess.check_output(["git", "-C", str(root), "rev-parse", "HEAD"], text=True).strip()
+    bound = sb.derive({"repo": sb.SDK_REPO, "path": "mcp/README.md", "sourceBuild": True}, revision, text, inputs().__getitem__)
+    inventory = Session("retained", tmp_path, {"node": "node-pinned"}, "http://guard", tmp_path, False, "host", "retained", "5")
+    inventory.containers["node"] = "unused"
+    inventory.cwd = str(root / "mcp")
+    source_package = root / "node_modules/@honua/sdk/package.json"
+    source_package.parent.mkdir(parents=True)
+    source_package.write_text(json.dumps({"name": NAME, "version": "0.1.2-beta.0"}))
+    (root / "node_modules/.package-lock.json").write_text(json.dumps({"packages": {"node_modules/@honua/sdk": {"integrity": SRI}}}))
+    link = root / "mcp/node_modules/@honua/sdk-js"
+    link.parent.mkdir(parents=True)
+    link.symlink_to(root, target_is_directory=True)
+    external = tmp_path / "app/node_modules/@honua/sdk-js/package.json"
+    external.parent.mkdir(parents=True)
+    external.write_text(json.dumps({"name": "@honua/sdk-js", "version": "0.1.14" if failure == "external-version" else "0.1.16"}))
+    calls = []
+    session = SimpleNamespace(workdir=tmp_path, cwd=str(tmp_path / "app"), env={"npm_config_registry": "http://guard/npm/"}, passed={}, container=lambda _: "node")
+    session.installed_honua = lambda runtime, extra=(): inventory.installed_honua(runtime, (*extra, tmp_path / "app/node_modules"))
+    def shell(code, *args):
+        calls.append((code, dict(session.env)))
+        if code.startswith(sb.CLONE):
+            session.cwd = str(root / "mcp")
+        else:
+            if failure == "lock-after":
+                (root / "package-lock.json").write_text('{}')
+            if failure == "unknown-source-path":
+                unexpected = root / "mcp/node_modules/@honua/unreviewed/package.json"
+                unexpected.parent.mkdir()
+                unexpected.write_text('{"name":"@honua/unreviewed","version":"0.1.16"}')
+            if failure == "link-target":
+                link.unlink()
+                link.symlink_to(external.parent, target_is_directory=True)
+        return Outcome("pass", "exit0", exit_code=0)
+    checks = []
+    def verify(_container, command, _timeout):
+        result = subprocess.run(command, capture_output=True)
+        checks.append(result.returncode)
+        if failure == "lock-before" and len(checks) == 1:
+            (root / "package-lock.json").write_text('{}')
+        return Outcome("pass" if result.returncode == 0 else "fail", "actual git/lock verification")
+    session.run_shell = shell
+    session._exec = verify
+    session.run_compile = lambda *args: Outcome("pass", "compiled", exit_code=0, mode="typecheck")
+    result, _ = run_document({"runtime": "node"}, text, session,
+        {"_pins": {"@honua/sdk-js": "0.1.16"}, "_source_build": bound, "_source_registry": "http://guard/source/exact/npm/"},
+        {"env": {}, "substitute": {}}, "sha256:test", [], set())
+    rows = {row["index"]: row for row in result["blocks"]}
+    assert calls[0][1]["npm_config_registry"].endswith('/source/exact/npm/')
+    assert session.env["npm_config_registry"] == 'http://guard/npm/'
+    assert rows[1].get("sourceBuild") is None and rows[2].get("sourceBuild") is None
+    if failure:
+        assert rows[1]["status"] == 'fail' and rows[2]["status"] == 'fail'
+        if failure == 'lock-before':
+            assert len(calls) == 1, 'Changed checkout must fail before the later command'
+    else:
+        assert all(row['status'] == 'pass' for row in rows.values())
+        assert len(checks) == 5, 'Build postcheck plus before/after each later shell and compile'
+        assert calls[1][1]["npm_config_registry"] == 'http://guard/npm/'
+        for index in [1, 2]:
+            assert rows[index]['sourceDependencyAudit']['sourceSha'] == revision
+            observed = rows[index]['installedPackages']
+            assert any(row['path'] == str(link) and row['version'] == '0.1.15' for row in observed)
+            assert any(row['path'] == str(external.parent) and row['version'] == '0.1.16' for row in observed)

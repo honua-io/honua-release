@@ -1,0 +1,32 @@
+{
+  "schemaVersion": "honua.sdk-publication-client-pair/v1",
+  "status": "passed",
+  "workflowUrl": "https://github.com/honua-io/honua-sdk-js/actions/runs/38200308700",
+  "workflowSourceSha": "a86b222878939a4c85abd1fe574303b60d81a3b5",
+  "workflowRef": "refs/tags/js-sdk-v0.1.16",
+  "sdk": {
+    "package": "@honua/sdk-js",
+    "version": "0.1.16",
+    "sourceSha": "a86b222878939a4c85abd1fe574303b60d81a3b5",
+    "integrity": "sha512-nAbF80YV+z/W+zj9xg+z9Ja9dGFdsp84FRF5X1+kKEyZMj4UTAIcQoj7pkl314Lhxhi38oBNoQ4pRfQRjWvZ8g=="
+  },
+  "mcp": {
+    "package": "@honua/mcp-server",
+    "version": "0.1.16",
+    "sourceSha": "46ecd25a32ee2bfb7741ccc14ee5842c8824dd19",
+    "integrity": "sha512-7yeZUReqE0x6Rdb6Kh7/+3o0CXjCVP/ObPtG5Ay78XkqZgUb9mmguvQ1y4xjNm7YfSp4mW308Ol6ecdRZP3MBg=="
+  },
+  "sdkSource": "registry",
+  "mcpSource": "registry",
+  "mcpSdkPeer": "^0.1.15",
+  "defaultPeerResolution": true,
+  "relaxingFlags": [],
+  "generatedConfigPinCount": 3,
+  "commands": [
+    "HONUA_MCP_PIN_LIVE_ENABLED=true npm run verify:mcp-pin:live",
+    "npm run verify:client-pair:registry"
+  ],
+  "actualResult": "clientPair=ok sdkSource=registry mcpSource=registry @honua/sdk-js@0.1.16 + @honua/mcp-server@0.1.16 peer=\"^0.1.15\" defaultPeerResolution=true relaxingFlags=none",
+  "retainedLogSha256": "4debf7fe4e88671c384da12fc53f2ed1d782cbebd9bfd2544b02e07f42f0b6aa",
+  "scope": "Published registry pair and generated config pin admission only; no server, installer or certified release-lock qualification."
+}

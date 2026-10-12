@@ -163,6 +163,8 @@ jobs:
           HONUA_AWS_CELL_DNS_PARENT: ${{ vars.HONUA_AWS_CELL_DNS_PARENT }}
           # honua-release#377 stage 6: the Redis-on ECS cell runs two tasks (MultiNode) with shared
           # file storage in this operator-owned bucket (owner step in e2e/README.md). Unset => one task.
+          # The Redis-on Lambda cell shares it with its Batch workers once its root declares the inputs
+          # (honua-iac#243); then an unset bucket refuses that cell (S10 background import, #548).
           HONUA_AWS_CELL_FILE_STORAGE_BUCKET: ${{ vars.HONUA_AWS_CELL_FILE_STORAGE_BUCKET }}
         run: |
           set -euo pipefail
@@ -608,6 +610,8 @@ jobs:
           HONUA_AWS_CELL_DNS_PARENT: ${{ vars.HONUA_AWS_CELL_DNS_PARENT }}
           # honua-release#377 stage 6: the Redis-on ECS cell runs two tasks (MultiNode) with shared
           # file storage in this operator-owned bucket (owner step in e2e/README.md). Unset => one task.
+          # The Redis-on Lambda cell shares it with its Batch workers once its root declares the inputs
+          # (honua-iac#243); then an unset bucket refuses that cell (S10 background import, #548).
           HONUA_AWS_CELL_FILE_STORAGE_BUCKET: ${{ vars.HONUA_AWS_CELL_FILE_STORAGE_BUCKET }}
         run: |
           set -euo pipefail

@@ -10,17 +10,21 @@ ROOT = Path(__file__).resolve().parents[1]
 def test_python_pins_share_the_verified_published_source():
     manifest = yaml.safe_load((ROOT / 'platform-manifest.yaml').read_text())
     sdk = manifest['components']['honua-sdk-python']
-    assert sdk['version'] == '0.1.13'
-    assert sdk['sha'] == 'a9cd320a1d330e758e1dd6c186f62a922d259cef'
+    assert sdk['version'] == '0.1.15'
+    assert sdk['sha'] == 'a2729be7b2fa0e363319043e9d084b2204d30a08'
+    # The customer install profile stays on its preserved pre-cut rehearsal (owner decision 19)
+    # until the rc.3 mint rebinds it; it must equal that binding, not the advanced platform pin.
     install = json.loads((ROOT / 'customer-install-manifest.json').read_text())
-    for name, client, version in [('honua-sdk-python-wheel', 'honua-sdk', '0.1.13'),
-                                  ('honua-admin-python-wheel', 'honua-admin', '0.1.10')]:
+    rehearsal = json.loads((ROOT / 'certification/customer-install/rehearsal-binding.v1.json')
+                           .read_text())['clientArtifacts']
+    for name, client, version in [('honua-sdk-python-wheel', 'honua-sdk', '0.1.15'),
+                                  ('honua-admin-python-wheel', 'honua-admin', '0.1.12')]:
         artifact = manifest['clientArtifacts'][name]
         assert artifact['publicationState'] == 'published'
         assert artifact['version'] == version
         assert artifact['sourceSha'] == sdk['sha']
         for field in ('sourceSha', 'version', 'filename', 'digest'):
-            assert install['clients'][client][field] == artifact[field]
+            assert install['clients'][client][field] == rehearsal[name][field]
 
 
 def test_r39_previews_keep_their_source_pins():

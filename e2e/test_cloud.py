@@ -1809,11 +1809,113 @@ def test_redis_on_ecs_cell_stays_single_task_without_the_bucket_or_on_an_older_r
         monkeypatch.setenv("HONUA_AWS_CELL_FILE_STORAGE_BUCKET", "honua-release-cell-files")
         _iac_root_with(monkeypatch, base, "aws", *_SCALE_ROOT[:-1])   # no key-prefix input
         assert not set(_SCALE_ROOT) & set(_tf_vars(ecs(run_id="r1")._vars(True)))
-    # The serverless cell never scales this way.
+    # The serverless cell never scales this way (it gets only the shared file storage, below).
     _serverless_env(monkeypatch)
     with tempfile.TemporaryDirectory() as base:
         _iac_root_with(monkeypatch, base, "aws-serverless", *_SCALE_ROOT)
-        assert not set(_SCALE_ROOT) & set(_tf_vars(serverless(run_id="r1")._vars(True)))
+        assert not {"desired_count", "max_capacity", "deployment_mode"} & set(
+            _tf_vars(serverless(run_id="r1")._vars(True)))
+
+
+_FILE_STORAGE_ROOT = ("file_storage_provider", "file_storage_aws_s3_bucket_name",
+                      "file_storage_aws_s3_region", "file_storage_aws_s3_key_prefix")
+_FILE_STORAGE_PASSED = ("file_storage_provider", "file_storage_aws_s3_bucket_name", "file_storage_aws_s3_key_prefix")
+
+
+def test_redis_on_serverless_cell_shares_file_storage_with_the_batch_workers(monkeypatch):
+    # honua-server#5916 (S33): a background import the Lambda accepts runs on Batch only with shared
+    # S3 file storage; honua-iac#243 adds the inputs to examples/aws-serverless.
+    from targets.terraform_target import SERVERLESS_SPEC, FILE_STORAGE_INPUTS
+    assert SERVERLESS_SPEC.file_storage_inputs == FILE_STORAGE_INPUTS == _FILE_STORAGE_PASSED
+    assert SERVERLESS_SPEC.file_storage_bucket_env == "HONUA_AWS_CELL_FILE_STORAGE_BUCKET"
+    _serverless_env(monkeypatch)
+    monkeypatch.setenv("HONUA_AWS_CELL_FILE_STORAGE_BUCKET", "release-cells-file-storage-585192672263")
+    with tempfile.TemporaryDirectory() as base:
+        _iac_root_with(monkeypatch, base, "aws-serverless", *_FILE_STORAGE_ROOT)
+        target = serverless(run_id="38046060497")
+        argv = target._vars(True)
+        values = _tf_vars(argv)
+        # honua-iac#243's passthrough test pins exactly this prefix for the serverless Redis-on cell.
+        assert values["name_prefix"] == "honuarawsse380460"
+        assert [a for a in argv if a.startswith("-var=file_storage_")] == [
+            "-var=file_storage_provider=AwsS3",
+            "-var=file_storage_aws_s3_bucket_name=release-cells-file-storage-585192672263",
+            "-var=file_storage_aws_s3_key_prefix=release-cells/honuarawsse380460"]
+        # The region is left to the module (it renders the root region); no scaling inputs.
+        assert "file_storage_aws_s3_region" not in values
+        assert not {"desired_count", "max_capacity", "deployment_mode"} & set(values)
+        # Destroy plans with the same inputs.
+        assert {k: v for k, v in _tf_vars(target._vars(True, destroy=True)).items()
+                if k.startswith("file_storage_")} == {k: values[k] for k in _FILE_STORAGE_PASSED}
+        # Redis-off is not given shared storage: without Redis the Lambda refuses with the typed 503.
+        assert not set(_FILE_STORAGE_ROOT) & set(_tf_vars(target._vars(False)))
+        # A malformed bucket refuses rather than reaching terraform.
+        monkeypatch.setenv("HONUA_AWS_CELL_FILE_STORAGE_BUCKET", "Not_A_Bucket")
+        with pytest.raises(ProvisionError, match="HONUA_AWS_CELL_FILE_STORAGE_BUCKET is not an S3 bucket name"):
+            target._vars(True)
+        # A declaring root with the bucket unset refuses the Redis-on cell, naming the variable;
+        # Redis-off and destroy still plan.
+        monkeypatch.delenv("HONUA_AWS_CELL_FILE_STORAGE_BUCKET")
+        with pytest.raises(ProvisionError, match="HONUA_AWS_CELL_FILE_STORAGE_BUCKET is unset"):
+            target._vars(True)
+        assert not set(_FILE_STORAGE_ROOT) & set(_tf_vars(target._vars(True, destroy=True)))
+        assert not set(_FILE_STORAGE_ROOT) & set(_tf_vars(target._vars(False)))
+
+
+def test_serverless_file_storage_stays_off_on_an_older_root(monkeypatch):
+    _serverless_env(monkeypatch)
+    for env in ("release-cells-file-storage-585192672263", None):
+        if env:
+            monkeypatch.setenv("HONUA_AWS_CELL_FILE_STORAGE_BUCKET", env)
+        else:
+            monkeypatch.delenv("HONUA_AWS_CELL_FILE_STORAGE_BUCKET", raising=False)
+        with tempfile.TemporaryDirectory() as base:
+            # Today's pins declare none of them; a partial root (no key prefix) passes none either.
+            for declared in ((), _FILE_STORAGE_ROOT[:2]):
+                _iac_root_with(monkeypatch, base, "aws-serverless", *declared)
+                assert not set(_FILE_STORAGE_ROOT) & set(_tf_vars(serverless(run_id="r1")._vars(True)))
+
+
+def test_ecs_cell_file_storage_is_unchanged_by_the_serverless_passthrough(monkeypatch):
+    from targets.terraform_target import ECS_SPEC
+    assert ECS_SPEC.file_storage_inputs == () and ECS_SPEC.file_storage_bucket_env == ""
+    _ecs_env(monkeypatch)
+    monkeypatch.setenv("HONUA_AWS_OPERATION_KEY_RING_SECRET_ARN", KEY_RING_ARN)
+    monkeypatch.setenv("HONUA_AWS_CELL_FILE_STORAGE_BUCKET", "honua-release-cell-files")
+    with tempfile.TemporaryDirectory() as base:
+        _iac_root_with(monkeypatch, base, "aws", *_SCALE_ROOT, "file_storage_aws_s3_region")
+        argv = ecs(run_id="38110106995")._vars(True)
+        prefix = _tf_vars(argv)["name_prefix"]
+        watched = set(_SCALE_ROOT) | {"file_storage_aws_s3_region"}
+        assert [a for a in argv if a.startswith("-var=") and a[5:].split("=", 1)[0] in watched] == [
+            "-var=desired_count=2", "-var=max_capacity=2", "-var=deployment_mode=MultiNode",
+            "-var=file_storage_provider=AwsS3", "-var=file_storage_aws_s3_bucket_name=honua-release-cell-files",
+            f"-var=file_storage_aws_s3_key_prefix=release-cells/{prefix}"]
+        # Without the bucket the ECS cell still stays one task rather than refusing.
+        monkeypatch.delenv("HONUA_AWS_CELL_FILE_STORAGE_BUCKET")
+        assert not set(_SCALE_ROOT) & set(_tf_vars(ecs(run_id="38110106995")._vars(True)))
+
+
+def test_s10_fixture_and_cell_file_storage_prefixes_agree(monkeypatch):
+    # The cell's FileStorage prefix (`release-cells/<name prefix>`, the roles' object grant per
+    # honua-iac#243) and the S10 staging key (`release-cells/<cell>/s10/...`) share the bucket's
+    # `release-cells/` lifecycle root. The S10 object is read only through the harness-minted
+    # presigned URL, never with the cell role, so it sits beside the cell's prefix, not inside it:
+    # the server's FileStorage namespace stays server-owned and the S10 delete cannot touch it.
+    import large_import
+    from targets.terraform_target import CELL_FILE_STORAGE_ROOT, cell_file_storage_prefix
+    _serverless_env(monkeypatch)
+    _ecs_env(monkeypatch)
+    for factory, target_name in ((serverless, "aws-serverless"), (ecs, "aws-ecs")):
+        for redis in (True, False):
+            mode = "on" if redis else "off"
+            key = large_import.object_key(f"{target_name}/redis-{mode}", "38046060497", "1")
+            name_prefix = _tf_vars(factory(run_id="38046060497")._vars(redis, destroy=True))["name_prefix"]
+            cell_prefix = cell_file_storage_prefix(name_prefix)
+            assert cell_prefix == f"release-cells/{name_prefix}"
+            assert key.startswith(CELL_FILE_STORAGE_ROOT) and cell_prefix.startswith(CELL_FILE_STORAGE_ROOT)
+            assert key.startswith(f"release-cells/{target_name}-redis-{mode}/s10/")
+            assert not key.startswith(cell_prefix + "/"), (key, cell_prefix)
 
 
 def _ecs_polls(polls):
@@ -3181,6 +3283,17 @@ def test_demos_geoprocessing_topology_verdicts_hold_for_both_topologies():
     if not node:
         pytest.skip("node is not installed")
     completed = subprocess.run([node, "--test", str(E2E_DIR / "drivers/demos/gp-topology.test.mjs")],
+                               capture_output=True, text=True, timeout=120)
+    assert completed.returncode == 0, completed.stdout + completed.stderr
+
+
+# ---- S9 demo call log (run 38192851328, aws-serverless): a gateway 5xx without CORS headers is a call
+# the sample made, not a shim failure; the editing/workbench verdicts name who answered.
+def test_demos_call_log_attributes_gateway_answers_and_cors_blocked_calls():
+    node = shutil.which("node")
+    if not node:
+        pytest.skip("node is not installed")
+    completed = subprocess.run([node, "--test", str(E2E_DIR / "drivers/demos/backend-calls.test.mjs")],
                                capture_output=True, text=True, timeout=120)
     assert completed.returncode == 0, completed.stdout + completed.stderr
 

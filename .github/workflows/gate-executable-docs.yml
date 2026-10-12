@@ -32,13 +32,14 @@ on:
   workflow_dispatch:
     inputs:
       sdk_publication_replay:
-        description: "Diagnostic only: published SDK 0.1.15 / MCP 0.1.16; never rebinds release inputs"
+        description: "Diagnostic only: reviewed published SDK / MCP; never rebinds release inputs"
         required: false
         type: boolean
         default: false
   pull_request:
     paths:
       - "certification/executable-docs/**"
+      - "certification/sdk-publication-replay/**"
       - ".github/workflows/gate-executable-docs.yml"
       - "e2e/harness/boot.sh"
       - "e2e/harness/compose.candidate.yml"
@@ -73,6 +74,8 @@ jobs:
       # detection, the output oracle and the registry guard's pin filters are unit-tested offline.
       - name: Self-test the executable-docs runner
         run: python -m pytest certification/executable-docs -q
+      - name: Self-test exact published-client selection
+        run: python -m unittest discover -s certification/sdk-publication-replay -p 'test_*.py' -v
       # Inventory drift fails closed: review and commit the current published documents first.
       - name: Inventory drift against the documents' release revisions
         env:
