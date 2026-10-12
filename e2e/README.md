@@ -68,9 +68,11 @@ Redis-off expectation:
   every other name stays exact. The evidence records `topology` and which state was observed.
 - **S3** on Redis-off asserts the typed refusal at `create-draft` for every family (query, analysis, map)
   and passes with `topology: redis-off`; Redis-on drives the full lifecycle for the same families.
-- **S10** (`large-import`) on Redis-off asserts the typed 503 for a `forceBackground` `upload-url`
-  import and passes with `topology: redis-off`; Redis-on follows a real background import job to
-  completion (see "S10 large-import" below).
+- **S10** (`large-import`) on Redis-off sends a `forceBackground` `upload-url` import of the small
+  fixture. The server runs file imports in-process without Redis, so a 202 job is followed to
+  completion, published and counted (`executor: in-process`, `topology: redis-off`); the typed 503
+  passes only from a host without the import job service. Redis-on follows the large fixture's
+  background job the same way (see "S10 large-import" below).
 - **S9** (`top-demo`) `S9-demos-geoprocessing` on Redis-off drives the demo's execution and passes with `topology: redis-off` only when the server returns S5's typed 503 capability-unavailable (`missingDependency=redis`) and the page renders it as its job-store-unavailable state (a page that spins on the refusal is `blocked`, naming the site); Redis-on still requires a completed live job.
 - A topology the server contradicts (a Redis-on cell with no durable control plane, or a Redis-off cell
   the server does not confirm) fails both scenarios.
@@ -394,7 +396,7 @@ every GA cell, as the `large-import` row of `scenarioCoverage` (`e2e/large_impor
 | cell | fixture | request | passes when |
 |---|---|---|---|
 | Redis-on | `s10-large-import.geojson`, 330,000 points, 85,688,964 bytes, sha256 `b1795475…c4d79ca9`, generated (never committed) | `upload-url` from a presigned GET URL | the job reaches `Completed`, the table publishes, and the layer's count is 330,000 |
-| Redis-off | `e2e/fixtures/s10-redis-off.geojson`, 8 points, 2,109 bytes, committed | `upload-url` with `forceBackground: true` | the typed 503 `Background import service not available. File is too large for synchronous import.` (`topology: redis-off`, decision 3) |
+| Redis-off | `e2e/fixtures/s10-redis-off.geojson`, 8 points, 2,109 bytes, committed | `upload-url` with `forceBackground: true` | either the 202 job (an in-process background import) reaches `Completed`, `honua_data.imported_s10_redis_off` publishes as `s10-redis-off`, and its count is 8 (`executor: in-process`, `topology: redis-off`); or the typed 503 `Background import service not available. File is too large for synchronous import.`, which the server sends only when the import job service is absent (`refusal` recorded, decision 3) |
 
 `e2e/fixtures/large_import.py` generates both fixtures byte for byte from integer arithmetic and pins
 their feature count, size and SHA-256; the harness refuses a file whose digest differs. The work
@@ -418,13 +420,20 @@ follows the cell's job split (honua-release#381):
 - **teardown** (AWS credentials) deletes the object (`s10Cleanup` in the cell report). A failed delete
   fails the cell. The bucket's one-day lifecycle on `release-cells/` is only the backstop.
 
-A 200 (imported synchronously), a 202 without a `jobId`, a failed or cancelled job, a job still
-running at the deadline, or a wrong row count is `fail`, never `blocked`. An unstaged fixture (no
+A 200 (imported synchronously), a 202 without a `jobId`, a failed or cancelled job, a stalled job, a
+wrong row count, or (on Redis-off) any answer other than a 202 job or the typed 503 is `fail`, never
+`blocked`, on both topologies: the server accepted the work. A job still not terminal at the 1,200 s
+deadline fails `job-stalled`, naming the last transition, its time, the seconds since it, the
+`Honua-Instance` values that answered the status reads, and the server item (`honua-server#5916`:
+the job runs in the host that accepted the upload, which stops advancing it, e.g. a Lambda invocation
+frozen after its 202; cloud run 38192851328, `processing -> queued -> processing`). An unstaged fixture (no
 bucket variable, a digest mismatch, an S3 refusal) or a missing presigned URL is `blocked` and names
 honua-release#548; `require_real` fails it. The row's evidence keeps only the allowlisted fields
 `jobId`, `fixtureSha256`, `bytes`, `thresholdBytes`, `maxMemoryBytes`, `stagingCapBytes`, `queuedAt`,
-`completedAt`, `durationSeconds`, `durationMs`, `transitions`, `rowCount`, `executor`, `topology`,
-`source` (`s3://<bucket>/sha256:<key digest>`), `sourceUrlHost` and the answering `instances`. The job
+`completedAt`, `durationSeconds`, `durationMs`, `transitions`, `rowCount`, `executor`,
+`executorBasis`, `jobRunner`, `jobsRunnerCapability`, `stall`, `refusal`, `topology`, `source`
+(`s3://<bucket>/sha256:<key digest>`), `sourceUrlHost`, the answering `instances` and the
+`statusInstances` that answered the job reads. The job
 document's `sourceUrl` (the presigned URL) is dropped, and server messages are scrubbed of the URL and
 every `X-Amz-*` parameter.
 
@@ -440,13 +449,17 @@ to 64 MiB (67,108,864) under the default 100 MiB `MaxMemoryBytes`, which leaves 
   `additional_env` inline. Until honua-iac adds the input and renders it as
   `Import__Limits__BackgroundJobThresholdBytes`, those two cells fail S10 with `no-background-window`.
 
-**What the server code says S10 will meet** (read, not yet run). honua-server queues file imports in
+**Where the import job runs (`executor`, `jobRunner`).** honua-server queues file imports in
 `UniversalImportJobService`, which runs the job inside the host that accepted the upload on every
-topology. The job document has no executor field, so the receipt records `executor: in-process` with
-that basis. On `aws-serverless` that host is the Lambda invocation, which returns 202 and may be
-frozen before the job finishes. The job service is registered whether or not Redis is, and file
-storage defaults to local disk, so a Redis-off cell may queue the forced job (202) instead of the
-typed 503. S10 fails in both cases and names what it saw.
+topology, and registers it whether or not Redis is. Cloud run 38192851328 (server 93cad86ec) showed
+both consequences: the Redis-off cell queued the forced job (202) instead of the typed 503, and on
+`aws-serverless/redis-on` the job stalled after the Lambda invocation returned its 202. When the job
+document names its runner (`jobRunner`, `runner` or `executor`; `ImportProgress` at 93cad86ec has none),
+the receipt records it as `jobRunner` and `executor`. Otherwise the receipt **derives**
+`executor: in-process` and says so in `executorBasis`, quoting the capability manifest's `jobs.runner`
+entry (`jobsRunnerCapability`: `available`, `reasonCode`). That entry describes the Redis-backed
+geoprocessing job runner, not file imports: on Redis-off it is `dependency-unavailable` while the import
+still runs, which is why an accepted Redis-off import can only be in-process.
 
 **Owner step (Cloud lane, honua-iac):** declare `import_background_job_threshold_bytes` on
 `examples/aws` and `examples/aws-serverless`. The harness role also needs `s3:PutObject`,
