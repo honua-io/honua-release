@@ -367,6 +367,24 @@ def marker_of(attributes) -> str | None:
     return nested.get("name") if isinstance(nested, dict) else None
 
 
+def esri_marker_of(attributes) -> str | None:
+    """The drill's `name` marker from a FeatureServer row, where the JSON column arrives as text.
+
+    GeoServices attributes are scalars: since honua-server#5147 (closes #5131) the server
+    advertises a JSON/JSONB column as `esriFieldTypeString`/`sqlTypeNVarchar` and writes an
+    object value as JSON text, so the import's `properties` column reads back as
+    '{"name": "..."}' on FeatureServer while OGC API Features keeps it a JSON object. Only
+    JSON text that decodes to an object is accepted; anything else carries no marker.
+    """
+    nested = (attributes or {}).get("properties")
+    if isinstance(nested, str):
+        try:
+            nested = json.loads(nested)
+        except ValueError:
+            return None
+    return nested.get("name") if isinstance(nested, dict) else None
+
+
 def assert_inserted_feature_served(stack: Stack, layer_id: int, object_id: int) -> None:
     """The OGC insert reads back by id through OGC API Features and FeatureServer, values intact."""
     item = stack.request("GET", f"/ogc/features/collections/{layer_id}/items/{object_id}?f=json")
@@ -381,7 +399,7 @@ def assert_inserted_feature_served(stack: Stack, layer_id: int, object_id: int) 
     if "error" in query:
         raise RuntimeError(f"FeatureServer query refused: {query['error']}")
     rows = [feature for feature in query.get("features", [])
-            if marker_of(feature.get("attributes")) == INSERTED_MARKER]
+            if esri_marker_of(feature.get("attributes")) == INSERTED_MARKER]
     if len(rows) != 1:
         raise RuntimeError(f"FeatureServer served {len(rows)} rows for the inserted feature: {query}")
     attributes, geometry = rows[0]["attributes"], rows[0].get("geometry") or {}
