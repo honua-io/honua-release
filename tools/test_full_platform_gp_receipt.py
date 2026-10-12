@@ -80,3 +80,35 @@ def test_signed_receipt_embeds_the_receipt_loaded_before_the_drill():
     assert 'os.environ["HONUA_GP_DR_RECEIPT"]' not in text
     assert text.index("load_gp_receipt(args.gp_receipt)") < text.index("stack = Stack(args.output)")
     assert 'receipt["geoprocessingOutputs"] = geoprocessing_outputs' in text
+
+
+class ServedStack:
+    """The two read-back responses the drill sees, in the shapes the pinned server answers."""
+
+    def __init__(self, served_properties):
+        self.served_properties = served_properties
+
+    def request(self, method, path, *args, **kwargs):
+        if path.startswith("/ogc/features/"):
+            return {"type": "Feature", "id": 3,
+                    "geometry": {"type": "Point", "coordinates": [-156.5, 20.9]},
+                    "properties": {"properties": {"name": "dr-inserted-charlie"}}}
+        return {"objectIdFieldName": "objectid", "features": [
+            {"attributes": {"objectid": 1, "properties": '{"name": "dr-imported-alpha"}'},
+             "geometry": {"x": -156.33, "y": 20.75}},
+            {"attributes": {"objectid": 3, "properties": self.served_properties},
+             "geometry": {"x": -156.5, "y": 20.9}}]}
+
+
+@pytest.mark.parametrize("served_properties", [
+    '{"name": "dr-inserted-charlie"}',  # JSON column as text (honua-server#5147)
+    {"name": "dr-inserted-charlie"},    # JSON column as an object (servers before #5147)
+])
+def test_inserted_feature_reads_back_through_featureserver_json_text(drill, served_properties):
+    drill.assert_inserted_feature_served(ServedStack(served_properties), 0, 3)
+
+
+@pytest.mark.parametrize("served_properties", ['{"name": "other"}', "not json", '["dr-inserted-charlie"]', None])
+def test_featureserver_row_without_the_inserted_marker_is_refused(drill, served_properties):
+    with pytest.raises(RuntimeError, match="served 0 rows"):
+        drill.assert_inserted_feature_served(ServedStack(served_properties), 0, 3)
