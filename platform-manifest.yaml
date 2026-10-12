@@ -430,9 +430,10 @@ components:
     # The first cloud run on 93cad86 (e2e-cloud-aws run 38105910671) mirrored the Lambda manifest
     # into us-east-1 ECR, and ECR returned sha256:12afffef... (unchanged from awsLambdaDigest, as observed).
     # 2026-10-12 re-pin to 0e03bdd: reset to the sentinel. The 93cad86 mirror digest
-    # (sha256:12afffef...) belongs to the previous pin; the first e2e-cloud-aws run on this pin
-    # mirrors the new Lambda manifest and fails with the ECR digest to record here.
-    awsLambdaEcrDigest: "pending-ecr-mirror"
+    # (sha256:12afffef...) belonged to the previous pin. The first e2e-cloud-aws run on this pin
+    # (run 38239455958) mirrored nightly-lambda-aot-0e03bdd-amd64 into us-east-1 ECR and ECR
+    # returned sha256:3d6a38e3... (unchanged from awsLambdaDigest, as observed), recorded here.
+    awsLambdaEcrDigest: "sha256:3d6a38e38f3fcef66a571be1dddf7855d64bbe60d252221ae3e67404079991ab"   # e2e-cloud-aws run 38239455958 mirrored nightly-lambda-aot-0e03bdd-amd64 into ECR (#99); ECR preserved the manifest, so it equals awsLambdaDigest
     awsLambdaArchitecture: "x86_64"
     # release#282 item 4: all contract versions remain UNVERIFIED until re-read from the booted candidate.
     contractVersions:
