@@ -1,0 +1,11 @@
+{
+  "workflowRun": "https://github.com/honua-io/honua-release/actions/runs/38187391744",
+  "sourceSha": "9ee5f61db67159b7eeb695adedd20bbd0f12779f",
+  "artifactId": 11719848560,
+  "filesSha256": {
+    "public-scaffold-resolution.json": "785fa4b3d8122fd8eebba03687cdee201922daebc29bfb80af4be6ea59617272",
+    "gate-exit-status.json": "be95787a5600ed8fc66dcb11510c130b14603ee7783ea15ec87b9e39865303f1",
+    "executable-docs-summary.md": "65d03695db59fb8e06a189349f8e3fbc4219da9db4ad8e36ee8e9945d7936e03",
+    "executable-docs.json": "cbc424ae81c5b289586ec4f53e4acad75330785793cf15086b816113edba5ddb"
+  }
+}
