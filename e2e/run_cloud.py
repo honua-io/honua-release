@@ -34,6 +34,7 @@ from targets.base import ProvisionError  # noqa: E402
 
 import cloud_journey  # noqa: E402
 import cost_meter  # noqa: E402
+import large_import  # noqa: E402
 
 # No aws-mixed entry for 2026.1 rc.3: examples/aws-mixed does not exist in honua-iac, so the cell could
 # only ever report a missing root. Restore it (never as the all-ECS root) when honua-iac#209 lands.
@@ -211,6 +212,17 @@ def provision_phase(target, target_name: str, *, require_real: bool, redis_enabl
         seed_kwargs = {} if journey_datasource is None else {"datasource": journey_datasource}
         state["seedError"] = seed_cell(endpoint, target=target,
                                        out=cloud_journey.cell_dir(cell) / "extended", **seed_kwargs)
+        # S10 large-import (honua-release#548): stage the cell's pinned fixture in S3 while this job
+        # holds the AWS credentials. Only a target that names an AWS region can stage.
+        if getattr(target, "region", None):
+            try:
+                state["s10"] = large_import.stage(
+                    cell, run_id=run_id, run_attempt=run_attempt,
+                    bucket=os.environ.get("HONUA_AWS_CELL_FILE_STORAGE_BUCKET"), region=target.region,
+                    workdir=cloud_journey.cell_dir(cell) / "s10")
+            except Exception as e:
+                state["s10"] = {"scenario": large_import.SCENARIO, "staged": False,
+                                "why": f"staging the S10 fixture raised {type(e).__name__} ({large_import.ISSUE})"}
         # The owned 1.1-candidate-image check needs the image ECS reports running.
         if target_name == "aws-ecs":
             # Every RUNNING task must report the candidate; the detail names any that disagrees.
@@ -241,7 +253,8 @@ def provision_phase(target, target_name: str, *, require_real: bool, redis_enabl
     return state
 
 
-def journey_phase(state: dict, *, admin_key: str, max_attempts: int = 2) -> dict:
+def journey_phase(state: dict, *, admin_key: str, max_attempts: int = 2,
+                  s10_source_url: str | None = None) -> dict:
     """Credential-free half: the npm/browser seam drivers and the manifest-pinned journey.
 
     The workflow runs this in a job with no id-token permission and no AWS credential, so nothing a
@@ -273,10 +286,20 @@ def journey_phase(state: dict, *, admin_key: str, max_attempts: int = 2) -> dict
                 journey["why"] = (f"{cell}: {endpoint} served the provisioning runner but never the "
                                   "credential-free journey runner (ingress admission failed)")
                 return journey
+        # S10 first: its presigned source URL is short-lived (large_import.PRESIGN_TTL_SECONDS).
+        try:
+            s10 = large_import.run_scenario(
+                state, endpoint, admin_key, source_url=s10_source_url,
+                seed_manifest=cloud_journey.cell_dir(cell) / "extended" / "seed-manifest.json")
+        except Exception as e:
+            s10 = CheckResult(large_import.ROW, "fail",
+                              f"{large_import.SCENARIO}: the harness raised {type(e).__name__}")
         extended = run_drivers(endpoint, admin_key=admin_key,
             out=cloud_journey.cell_dir(cell) / "extended", ready=state.get("ready", False),
             require_real=state.get("requireReal", False),
             redis_enabled=state.get("redis") == "redis-on", seed_error=state.get("seedError"))
+        if s10 is not None:
+            extended = [*extended, s10]
         journey["scenarioCoverage"] = _check_dicts(extended)
         blockers: list[list[str]] = []
         for number in range(1, max_attempts + 1):
@@ -418,6 +441,13 @@ def teardown_phase(state: dict, journey: dict, target, *, reference_endpoint: st
             report.update(status="fail", why=report.get("why", "") +
                           f"; journey cleanup failed: {type(e).__name__}")
         finally:
+            if "s10" in state:
+                # The staged S10 fixture lives in the operator-owned bucket, not in the cell: delete
+                # it whatever the verdict (the bucket lifecycle on release-cells/ is the backstop).
+                report["s10Cleanup"] = large_import.delete_staged(state.get("s10"), cell)
+                if report["s10Cleanup"]["status"] == "failed":
+                    report.update(status="fail", why=(report.get("why") + "; " if report.get("why") else "")
+                                  + f"S10 staged fixture not deleted: {report['s10Cleanup']['why']}")
             state["destroyed"] = False
             if destroy:
                 try:
@@ -528,9 +558,16 @@ def run(target_name: str, require_real: bool, reference_endpoint: str | None,
                             journey_datasource=datasource)
     if not state["provisionAttempted"]:
         return state["report"]
+    s10_url = None
+    if (state.get("s10") or {}).get("staged"):
+        try:
+            s10_url = large_import.presign(state["s10"], state["cell"])
+        except Exception:
+            s10_url = None  # the S10 row then reports the missing URL as a blocked precondition
     try:
         with cloud_journey.cell_datasource(datasource or None):
-            journey = journey_phase(state, admin_key=target.admin_api_key, max_attempts=max_attempts)
+            journey = journey_phase(state, admin_key=target.admin_api_key, max_attempts=max_attempts,
+                                    s10_source_url=s10_url)
     except Exception as e:
         journey = {"status": "fail", "why": f"cloud checks/journey failed: {type(e).__name__}"}
     return teardown_phase(state, journey, target, reference_endpoint=reference_endpoint,
@@ -658,13 +695,17 @@ def _modulus_bytes(private_key: Path, *, run=subprocess.run) -> int:
     return int(bits.group(1)) // 8
 
 
-def seal_key(secret_name: str, public_key: Path, sealed: Path, *, run=subprocess.run) -> None:
+def seal_key(secret_name: str, public_key: Path, sealed: Path, *, run=subprocess.run, extend=None) -> None:
     """Encrypt the cell's journey handoff to the journey runner's own public key.
 
     Job outputs and step env are printed in the public job log, so the key reaches the
-    credential-free journey job only as RSA-OAEP ciphertext in an artifact.
+    credential-free journey job only as RSA-OAEP ciphertext in an artifact. `extend` adds what the
+    admit job minted itself (the S10 presigned source URL) to the plaintext before it is sealed.
     """
-    plaintext = read_secret(secret_name, run=run).encode("utf-8")
+    plaintext = read_secret(secret_name, run=run)
+    if extend is not None:
+        plaintext = extend(plaintext)
+    plaintext = plaintext.encode("utf-8")
     ciphertext = b"".join(
         run(["openssl", "pkeyutl", "-encrypt", "-pubin", "-inkey", str(public_key),
              "-pkeyopt", "rsa_padding_mode:oaep", "-pkeyopt", "rsa_oaep_md:sha256"],
@@ -1196,13 +1237,15 @@ def _phase_journey(args) -> int:
         journey = {"cell": cell, "status": "fail", "why": "provision handoff missing or for another cell"}
     else:
         try:
-            admin_key, datasource = cloud_journey.unpack_handoff(
-                open_key(args.sealed_key, args.private_key) if args.sealed_key
-                else os.environ.get("HONUA_CLOUD_ADMIN_KEY", ""))
+            handoff = (open_key(args.sealed_key, args.private_key) if args.sealed_key
+                       else os.environ.get("HONUA_CLOUD_ADMIN_KEY", ""))
+            admin_key, datasource = cloud_journey.unpack_handoff(handoff)
+            s10_url = cloud_journey.handoff_source_url(handoff)
         except Exception:
-            admin_key, datasource = "", None
+            admin_key, datasource, s10_url = "", None, None
         with cloud_journey.cell_datasource(datasource):
-            journey = journey_phase(state, admin_key=admin_key, max_attempts=args.max_attempts)
+            journey = journey_phase(state, admin_key=admin_key, max_attempts=args.max_attempts,
+                                    s10_source_url=s10_url)
     _write_json(cloud_journey.cell_dir(cell) / JOURNEY_NAME, journey)
     print(f"== cloud-journey :: {cell} -> {journey.get('status', 'recorded').upper()} ==")
     for c in journey.get("scenarioCoverage", []):
@@ -1318,10 +1361,31 @@ def _phase_admit(args) -> int:
     return 0
 
 
+def s10_handoff_extension(state: dict | None, cell: str, *, run=subprocess.run):
+    """(extend, note): the sealed-handoff extension carrying the S10 presigned source URL, or None.
+
+    Minted here, in the admit job, so its lifetime starts as late as the credentialed jobs allow. A
+    presign failure never stops the key delivery: the journey's S10 row then reports the missing URL.
+    """
+    record = (state or {}).get("s10")
+    if not isinstance(record, dict) or not record.get("staged"):
+        return None, f"{cell}: no S10 fixture was staged; no source URL to seal"
+    try:
+        url = large_import.presign(record, cell, run=run)
+    except subprocess.CalledProcessError as error:
+        return None, f"{cell}: S10 presign failed: {large_import.aws_error(error)}"
+    except Exception as error:
+        return None, f"{cell}: S10 presign failed: {type(error).__name__}"
+    return ((lambda plaintext: cloud_journey.attach_source_url(plaintext, url)),
+            f"{cell}: sealed the S10 presigned source URL (valid {large_import.PRESIGN_TTL_SECONDS}s) with the key")
+
+
 def _phase_deliver_key(args) -> int:
     cell = _cell(args.target, args.redis)
-    seal_key(app_key_secret_name(cell), args.public_key, args.sealed_key)
+    extend, note = s10_handoff_extension(_read_json(cloud_journey.cell_dir(cell) / HANDOFF_NAME), cell)
+    seal_key(app_key_secret_name(cell), args.public_key, args.sealed_key, extend=extend)
     print(f"sealed the {cell} application key to the journey runner's public key")
+    print(note if extend else f"::warning title=S10 large-import::{note}")
     return 0
 
 

@@ -94,7 +94,10 @@
         "certification/installed-clients/matrix.json",
         "certification/installed-clients/run.py",
         "tools/mint_nightly_lock.py",
-        "tools/verify_client_artifacts.py"
+        "tools/verify_client_artifacts.py",
+        "certification/sdk-publication-replay/prepare.py",
+        "certification/sdk-publication-replay/run.py",
+        "certification/sdk-publication-replay/published-registry-observations.json"
       ],
       "tokens": [
         "esri"
@@ -103,9 +106,11 @@
         "@honua/sdk-esri-compat",
         "honua-sdk-esri-compat",
         "sdk-esri-compat-0.1.14.tgz",
-        "npm-honua-sdk-esri-compat-installed-runtime"
+        "npm-honua-sdk-esri-compat-installed-runtime",
+        "sdk-esri-compat-0.1.15.tgz",
+        "2Fsdk-esri-compat/0.1.15"
       ],
-      "reason": "Exact published npm coordinate, tarball filename and manifest/matrix keys identify the required SDK compatibility artifact. Renaming them would select different registry bytes or lose the installed-runtime binding; revisit when the publisher renames the package. Unrelated prose and identifiers are not covered.",
+      "reason": "Exact published npm coordinate, tarball filename and manifest/matrix keys identify the required SDK compatibility artifact. Renaming them would select different registry bytes or lose the installed-runtime binding; revisit when the publisher renames the package. Unrelated prose and identifiers are not covered. The frozen 0.1.15 publication replay records the same exact coordinate, encoded registry URL and served filename; historical observations remain unchanged.",
       "owner": "@mikemcdougall",
       "issue": "honua-io/honua-sdk-js#1994"
     }

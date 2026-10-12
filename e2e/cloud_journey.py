@@ -102,12 +102,50 @@ def pack_handoff(admin_key, datasource=None):
                       separators=(",", ":"))
 
 
+# S10 large-import (honua-release#548): the admit job adds the presigned GET URL of the staged
+# fixture. It is a bearer credential for that object, so it travels only inside the sealed handoff.
+SOURCE_URL_FIELD = "s10SourceUrl"
+MAX_SOURCE_URL_CHARS = 8192
+
+
+def _source_url_ok(value):
+    return (isinstance(value, str) and value.startswith("https://") and len(value) <= MAX_SOURCE_URL_CHARS
+            and not any(c.isspace() for c in value))
+
+
+def attach_source_url(value, url):
+    """The sealed-handoff plaintext `value` with the S10 presigned source URL added."""
+    if not _source_url_ok(url):
+        raise ValueError("S10 source URL must be one https URL")
+    document = json.loads(value) if value.startswith("{") else {"schema": HANDOFF_SCHEMA, "appKey": value}
+    document[SOURCE_URL_FIELD] = url
+    return json.dumps(document, separators=(",", ":"))
+
+
+def handoff_source_url(value):
+    """The S10 presigned source URL a sealed handoff carries, or None."""
+    if not value or not value.startswith("{"):
+        return None
+    try:
+        url = json.loads(value).get(SOURCE_URL_FIELD)
+    except (ValueError, AttributeError):
+        return None
+    return url if _source_url_ok(url) else None
+
+
 def unpack_handoff(value):
-    """(application key, datasource or None) from a sealed handoff; a bare key is accepted."""
+    """(application key, datasource or None) from a sealed handoff; a bare key is accepted.
+
+    A JSON handoff carries the datasource, the S10 source URL, or both."""
     if not value.startswith("{"):
         return value, None
     document = json.loads(value)
     datasource = document.get("datasource") if isinstance(document, dict) else None
+    if isinstance(document, dict) and datasource is None and SOURCE_URL_FIELD in document:
+        if (document.get("schema") != HANDOFF_SCHEMA or not isinstance(document.get("appKey"), str)
+                or not _source_url_ok(document[SOURCE_URL_FIELD])):
+            raise ValueError("malformed cloud journey handoff")
+        return document["appKey"], None
     if (not isinstance(document, dict) or document.get("schema") != HANDOFF_SCHEMA
             or not isinstance(document.get("appKey"), str) or not isinstance(datasource, dict)
             or set(datasource) != set(DATASOURCE_FIELDS)
