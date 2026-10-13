@@ -769,6 +769,60 @@ def test_ready_url_observed_once_survives_the_shutdown_at_the_window_end(tmp_pat
     assert result.status == "pass", result.detail
 
 
+@pytest.mark.parametrize("budget,ready_at,early_exit,status", [
+    (180, 90, None, "pass"),  # cold install takes longer than the former 60-second cap
+    (45, 90, None, "fail"),   # an explicit shorter document budget remains binding
+    (180, None, None, "fail"),  # elapsed time is never readiness evidence
+    (180, 0, 0, "fail"),     # even witnessed readiness cannot excuse early termination
+    (180, 0, 17, "fail"),
+])
+def test_serve_honors_whole_document_budget_and_strict_readiness(
+        tmp_path, monkeypatch, budget, ready_at, early_exit, status):
+    import subprocess
+    import run
+    session = run.Session("serve-budget", tmp_path, {}, "http://guard", tmp_path,
+                          False, "host", "serve-budget", "5.9.3")
+    monkeypatch.setattr(session, "container", lambda runtime: "serve-container")
+    clock = [0.0]
+    calls = []
+
+    class Process:
+        returncode = None
+        waited = False
+        def poll(self):
+            if early_exit is not None and clock[0] >= 30:
+                self.returncode = early_exit
+            elif clock[0] >= budget:
+                self.returncode = 124
+            return self.returncode
+        def wait(self):
+            self.waited = True
+            return self.returncode
+
+    process = Process()
+    def popen(args, **kwargs):
+        calls.append(args)
+        return process
+    def probe(*args, **kwargs):
+        assert args == ("exec", "serve-container", "curl", "-fsS", "--max-time", "2",
+                        "http://localhost:3000/ready")
+        ready = ready_at is not None and clock[0] >= ready_at
+        return subprocess.CompletedProcess(args, 0 if ready else 22, "", "")
+
+    monkeypatch.setattr(subprocess, "Popen", popen)
+    monkeypatch.setattr(run, "docker", probe)
+    monkeypatch.setattr(run.time, "monotonic", lambda: clock[0])
+    monkeypatch.setattr(run.time, "sleep", lambda seconds: clock.__setitem__(0, clock[0] + 30))
+    code = "npm create honua-app@latest my-map\ncd my-map\nnpm install\nnpm run dev\n"
+    outcome = session.run_shell(code, "node", budget, True, {"url": "http://localhost:3000/ready"})
+
+    assert outcome.status == status, outcome.detail
+    assert outcome.exit_code == (124 if early_exit is None else early_exit)
+    assert calls[0][calls[0].index("timeout"):][:4] == ["timeout", "-k", "5", str(budget)]
+    assert next(session.workdir.rglob("*.sh")).read_text() == code
+    assert process.waited
+
+
 def test_container_runs_as_host_user_with_writable_home(tmp_path, monkeypatch):
     import os
     import subprocess
