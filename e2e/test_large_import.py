@@ -642,3 +642,111 @@ def test_find_layer_matches_schema_and_table_only():
     assert s10.find_layer(listing, "honua_data", "imported_s10_large_import") == 9
     assert s10.find_layer({"data": []}, "honua_data", "imported_x") is None
     assert s10.find_layer(None, "honua_data", "imported_x") is None
+
+
+class _AsyncPublishCell(_Cell):
+    """The server #5948 admin DTOs, with hostile/failed responses injectable independently."""
+
+    def __init__(self, *, handle=None, progress=None, **kwargs):
+        super().__init__(**kwargs)
+        self.handle, self.progress = handle, progress
+        self.publish_reads = 0
+
+    def _answer(self, method, path, body, key):
+        if method == "POST" and path.endswith("/layers"):
+            self.requests.append((method, path, body))
+            return 202, {"data": self.handle if self.handle is not None else {
+                "jobId": "publish-123", "statusUrl": path + "/jobs/publish-123",
+                "rowsTotal": fx.LARGE.features, "status": "Queued"}}
+        if "/layers/jobs/" in path:
+            self.requests.append((method, path, body))
+            states = self.progress or [(200, {"jobId": "publish-123", "status": state,
+                        "rowsMaterialized": rows, "rowsTotal": fx.LARGE.features,
+                        "layerId": 7 if state == "Completed" else None}) for state, rows in (
+                            ("Queued", 0), ("Processing", 5000), ("Processing", 10000),
+                            ("Completed", fx.LARGE.features))]
+            response = states[min(self.publish_reads, len(states) - 1)]
+            self.publish_reads += 1
+            return response
+        return super()._answer(method, path, body, key)
+
+
+def test_async_publish_follows_progress_to_commit_then_counts_without_resubmitting():
+    cell = _AsyncPublishCell(envelope=True)
+    row, receipt = _scenario(cell)
+    assert row.status == "pass", row.why
+    assert receipt["publishAnswered"] == 202 and receipt["publishJobStatus"] == "completed"
+    assert receipt["publishJobId"] == "publish-123" and receipt["publishReads"] == 4
+    assert receipt["publishRowsTotal"] == receipt["publishRowsMaterialized"] == receipt["rowCount"] == 330000
+    assert [(t["status"], t["rowsMaterialized"]) for t in receipt["publishJobTransitions"]] == [
+        ("queued", 0), ("processing", 5000), ("processing", 10000), ("completed", 330000)]
+    assert receipt["publishJobDurationMs"] == 15000 and receipt["publishStatusInstances"]
+    assert sum(method == "POST" and path.endswith("/layers") for method, path, _ in cell.requests) == 1
+    assert not any("/layers?serviceName=" in path for _, path, _ in cell.requests)
+    assert "/FeatureServer/7/query" in cell.requests[-1][1]
+
+
+@pytest.mark.parametrize("overrides", [
+    {"jobId": None}, {"jobId": "../other"}, {"rowsTotal": 329999}, {"rowsTotal": True},
+    {"statusUrl": "https://foreign.invalid/capture"},
+    {"statusUrl": "//foreign.invalid/capture"},
+    {"statusUrl": "/api/v1/admin/connections/other/layers/jobs/publish-123"},
+    {"statusUrl": "/api/v1/admin/connections/c1/layers/jobs/publish-123?token=secret"},
+])
+def test_async_publish_refuses_invalid_or_foreign_handles_without_polling(overrides):
+    handle = {"jobId": "publish-123", "rowsTotal": 330000,
+              "statusUrl": "/api/v1/admin/connections/3f2b8c1e-5d4a-4e7b-9c0d-1a2b3c4d5e6f/layers/jobs/publish-123"}
+    cell = _AsyncPublishCell(handle={**handle, **overrides})
+    row, receipt = _scenario(cell)
+    assert row.status == "fail" and "publish-job-invalid" in row.why
+    assert cell.publish_reads == 0
+    assert not any("/FeatureServer/" in path for _, path, _ in cell.requests)
+    assert "foreign.invalid" not in json.dumps(receipt)
+
+
+@pytest.mark.parametrize("overrides", [
+    {"jobId": "other"}, {"status": "unknown"}, {"rowsMaterialized": -1},
+    {"rowsMaterialized": True}, {"rowsTotal": 330001}, {"layerId": None},
+    {"layerId": True}, {"layerId": -1}, {"rowsMaterialized": 329999},
+])
+def test_async_publish_requires_valid_completion_before_count_query(overrides):
+    progress = {"jobId": "publish-123", "status": "Completed", "rowsTotal": 330000,
+                "rowsMaterialized": 330000, "layerId": 7}
+    cell = _AsyncPublishCell(progress=[(200, {**progress, **overrides})])
+    row, _ = _scenario(cell)
+    assert row.status == "fail" and "publish-job-invalid" in row.why
+    assert not any("/FeatureServer/" in path for _, path, _ in cell.requests)
+
+
+@pytest.mark.parametrize("state", ["Failed", "Cancelled"])
+def test_async_publish_terminal_failure_retains_safe_progress_only(state):
+    cell = _AsyncPublishCell(progress=[(200, {
+        "jobId": "publish-123", "status": state, "rowsTotal": 330000, "rowsMaterialized": 5000,
+        "errorMessage": "failed fetching " + URL + " key " + ADMIN_KEY, "sourceUrl": URL})])
+    row, receipt = _scenario(cell)
+    assert row.status == "fail" and f"publish-job-{state.lower()}" in row.why
+    assert receipt["publishRowsMaterialized"] == 5000
+    assert not _url_leaked(json.dumps({"why": row.why, "receipt": receipt}))
+    assert not any("/FeatureServer/" in path for _, path, _ in cell.requests)
+
+
+def test_async_publish_stall_is_bounded_and_never_counts_an_uncommitted_layer():
+    cell = _AsyncPublishCell(progress=[(200, {
+        "jobId": "publish-123", "status": "Processing", "rowsTotal": 330000, "rowsMaterialized": 5000})])
+    row, receipt = _scenario(cell, timeout=30)
+    assert row.status == "fail" and "publish-job-stalled" in row.why
+    assert receipt["publishJobDurationMs"] == 30000 and receipt["publishReads"] == 7
+    assert not any("/FeatureServer/" in path for _, path, _ in cell.requests)
+
+
+def test_async_publish_poll_denial_fails_without_masking_it_as_a_stall():
+    cell = _AsyncPublishCell(progress=[(403, {"errorMessage": ADMIN_KEY})])
+    row, receipt = _scenario(cell)
+    assert row.status == "fail" and "status read answered 403" in row.why
+    assert receipt["publishReads"] == 1 and not _url_leaked(row.why)
+
+
+def test_async_publish_completion_still_requires_actual_published_row_count():
+    row, receipt = _scenario(_AsyncPublishCell(count=329999))
+    assert row.status == "fail" and "329999 rows, not the pinned 330000" in row.why
+    assert receipt["publishJobStatus"] == "completed"
