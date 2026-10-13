@@ -1,4 +1,5 @@
 from pathlib import Path
+from response_receipt import response_body
 from concurrent.futures import ThreadPoolExecutor
 import requests,json,uuid,time,os,atexit,subprocess,re
 os.umask(0o077)
@@ -18,7 +19,7 @@ def tables():return set(sql("select table_name from information_schema.tables wh
 before=tables()
 def send(user,payload=body,path='/api/v1/admin/import/upload-url'):
  r=requests.post(base+path,headers={'Authorization':'Bearer '+tokens[user],'Idempotency-Key':key,'X-Correlation-ID':key},json=payload,timeout=90)
- result={'user':user,'path':path,'httpStatus':r.status_code,'body':r.json(),'operationInstanceId':r.headers.get('X-Honua-Operation-Instance-Id'),'auditId':r.headers.get('X-Honua-Audit-Id')}
+ result={'user':user,'path':path,'httpStatus':r.status_code,'body':response_body(r),'operationInstanceId':r.headers.get('X-Honua-Operation-Instance-Id'),'auditId':r.headers.get('X-Honua-Audit-Id')}
  proof['requests'].append(result);return result
 with ThreadPoolExecutor(max_workers=4) as pool: initial=list(pool.map(lambda _:send('admin-a'),range(4)))
 assert all(x['httpStatus'] in [202,409] for x in initial), 'Concurrent request returned unexpected status'
@@ -31,7 +32,7 @@ for user in ['viewer-a','admin-read-a']:
 other=send('admin-b',{**body,'tableName':table+'_tenant_b'});assert other['httpStatus']==202 and other['body']['jobId']!=job
 assert other['operationInstanceId']!=retry['operationInstanceId'],'Tenant/actor reused another principal operation'
 foreign=requests.get(base+'/api/v1/operations/handles/'+retry['operationInstanceId'],headers={'Authorization':'Bearer '+tokens['admin-b']},timeout=20)
-proof['crossTenantOperationRead']={'status':foreign.status_code,'body':foreign.json()};assert foreign.status_code==404,'Other tenant could read original operation'
+proof['crossTenantOperationRead']={'status':foreign.status_code,'body':response_body(foreign)};assert foreign.status_code==404,'Other tenant could read original operation'
 for user,jobId in [('admin-a',job),('admin-b',other['body']['jobId'])]:
  for _ in range(90):
   r=requests.get(base+'/api/v1/admin/import/jobs/'+jobId,headers={'Authorization':'Bearer '+tokens[user]},timeout=20);assert r.status_code==200

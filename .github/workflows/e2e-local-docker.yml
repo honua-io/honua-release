@@ -539,6 +539,7 @@ jobs:
           python -m pytest certification/control-plane-parity/test_run.py -q
           node --test certification/control-plane-parity/client-identity.test.mjs
           node --test certification/control-plane-parity/import-audit.test.mjs
+          node --test certification/control-plane-parity/package-refusal.test.mjs
           node --test certification/control-plane-parity/publication-contract.test.mjs
           node --test certification/control-plane-parity/publication-route.test.mjs
           node --test certification/control-plane-parity/terminal-draft.test.mjs
