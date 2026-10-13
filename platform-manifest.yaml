@@ -586,29 +586,23 @@ components:
     repository: "https://github.com/honua-io/honua-console"
     lifecycleStatus: GA
     version: "pre-release"             # no releases/tags; package.json declares 0.1.0 (un-released)
-    # 2026-10-08 ADVANCE (2026.1 rc.3 plan J5): dcb9eb2b -> c652ef22, the revision the candidate
-    # resolver selects (R18). dcb9eb2b predates the governed operator session (honua-console#405,
-    # merge b3e2cba5, 2026-10-02), so S4-console-studio failed every nightly e2e-local-docker run
-    # (runs 37633158367, 37789842510). c652ef22 contains #405
-    # (e2e/playwright/live/operator-session.setup.ts) and is the newest trunk commit that is CI-green
-    # and has a published SHA-bound image; the two newer commits have none. Resolver evidence,
-    # nightly-certification run 37819830412, job resolve:
-    #   RESOLVED honua-console c652ef22612d83277f8d39384be61411915dda1d
-    #     ghcr.io/honua-io/honua-console@sha256:686b104fc3f106df694782c243423c1c7110d568779abf5829514ab97349a908
-    #   skipped 720dd90: no published SHA-bound image
-    #   skipped 631594c: no published SHA-bound image
-    # The index and per-architecture digests below were re-read from GHCR with the resolver's own
-    # Registry.image() (tag candidate-c652ef22612d-37509939284-1) and match that run.
-    sha: "c652ef22612d83277f8d39384be61411915dda1d"   # resolver-selected trunk commit (2026-10-06)
-    # Public multi-architecture candidate built from this SHA by Console Container run 37509939284.
-    image: "ghcr.io/honua-io/honua-console:candidate-c652ef22612d-37509939284-1"
-    digest: "sha256:686b104fc3f106df694782c243423c1c7110d568779abf5829514ab97349a908"
-    artifactSourceRevision: "c652ef22612d83277f8d39384be61411915dda1d"
+    # 2026-10-13: Console #425 merged as 148fcc after normal exact-head CI.
+    # Push CI 38448210182 succeeded; Console Container 38448607449 published
+    # this immutable multi-architecture image and verified /version.json source identity.
+    # Anonymous GHCR reads rehashed the index and child/config bytes; both OCI
+    # revision labels match this source. GitHub provenance verified container-publish.yml,
+    # source digest 148fcc, refs/heads/trunk and producer run 38448607449/attempts/1.
+    # Includes the full-secret port omission and bounded live-test corrections.
+    # Full candidate Console replay remains pending a server image with #6054;
+    # publication evidence does not qualify this mixed working snapshot.
+    sha: "148fcc9675e24f33f5c48dc29ea860fc817653a3"
+    image: "ghcr.io/honua-io/honua-console:nightly-148fcc9675e2"
+    digest: "sha256:c70816e2f964fc88bcd4f10bc6cb5b05a41e20b0f0f8af7aa96dd164b2068e0d"
+    artifactSourceRevision: "148fcc9675e24f33f5c48dc29ea860fc817653a3"
     architectures: [amd64, arm64]
-    # Read from this pinned index by the resolver's Registry.image() on 2026-10-08.
     platformDigests:
-      amd64: sha256:02442e11801af8c741a7ee868e7ec8b782e49372d0dc93bd246cf3f9b464b252
-      arm64: sha256:ac43db0c0963972f27724dbc7b7091d5de5019b43eff1e7071bd93d2322aa7f9
+      amd64: sha256:61b993b948a7e263e03b9a820ed320eae017538dc7863a985a3c8227ffbde8f7
+      arm64: sha256:cf8e0f0ed919c1512b4dd4dd2d1919e2bb72412eab516227c1b11f49116f2f69
 
   honua-sdk-dotnet:
     repository: "https://github.com/honua-io/honua-sdk-dotnet"
