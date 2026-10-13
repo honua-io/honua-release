@@ -453,11 +453,11 @@
       "id": "honua-sdk-js-packages-create-honua-app-readme",
       "repo": "honua-io/honua-sdk-js",
       "path": "packages/create-honua-app/README.md",
-      "revision": "609455826e35eea144b573e86f37580d75272561",
+      "revision": "4ded33a5ee77cc3b289f85740f315d5f4a122fae",
       "revisionRule": {
-        "npmPublished": "create-honua-app"
+        "clientArtifact": "create-honua-app"
       },
-      "url": "https://github.com/honua-io/honua-sdk-js/blob/609455826e35eea144b573e86f37580d75272561/packages/create-honua-app/README.md",
+      "url": "https://github.com/honua-io/honua-sdk-js/blob/4ded33a5ee77cc3b289f85740f315d5f4a122fae/packages/create-honua-app/README.md",
       "runtime": "node",
       "docker": false,
       "session": null,
@@ -470,11 +470,11 @@
           "infoString": "bash",
           "intent": "run",
           "intentSource": "marker",
-          "sha256": "1d3ffd30f4be74ab277d3ebad80b3b17d10051e1747ac1011be4cf3803dabc27"
+          "sha256": "9654d43538cbb97cdf34ea7add35384e984b0259995be954de75a2a54663e6be"
         },
         {
           "index": 1,
-          "line": 20,
+          "line": 17,
           "language": "text",
           "infoString": "text",
           "intent": "illustrative",
@@ -484,21 +484,21 @@
         },
         {
           "index": 2,
-          "line": 34,
+          "line": 31,
           "language": "shell",
           "infoString": "bash",
           "intent": "run",
           "intentSource": "heuristic",
-          "sha256": "55e2cce97f49f66373dad150807c3615c38d5ced5a358ccf65aa55a141bb47c0"
+          "sha256": "349233f6564a3a360df19dc6ddbd5f55097391dbcacac61f587d6a03870558e4"
         },
         {
           "index": 3,
-          "line": 55,
+          "line": 52,
           "language": "shell",
           "infoString": "bash",
           "intent": "run",
           "intentSource": "heuristic",
-          "sha256": "43f2ed59e72502fff856fdf720d064b62569b00b5dbde88e6f25f61bf9274665"
+          "sha256": "77b0f11e8303d5dd033a5aff06683774185f168899db4bad1513f9fe7875fd30"
         }
       ]
     },
