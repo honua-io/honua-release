@@ -329,3 +329,98 @@ def test_wps_cite_disposition_must_be_exactly_once(candidate, mutation, count):
     refused = run(candidate, "generate-protocol-requirements.py")
     assert refused.returncode != 0
     assert f"client lane 'cite-wps-2-0' (local-docker) has {count} production dispositions" in refused.stderr
+
+
+def add_reviewed_h3_contract(candidate, *, implemented=True, assignments=True):
+    """Reviewed adapter source data; never an executed or image-qualified receipt."""
+    fixture = read(ROOT / "tools/fixtures/h3-contract-source-2026-10-13.json")
+    matrix_path = candidate / "sources/server/capability-matrix.v1.json"
+    matrix = read(matrix_path)
+    assert not any(row["key"] == "analytics.h3" for row in matrix["capabilities"])
+    capability = copy.deepcopy(fixture["capability"])
+    if not implemented:
+        capability["maturity"] = {"preview": 1}
+    matrix["capabilities"].append(capability)
+    write(matrix_path, matrix)
+    if assignments:
+        harness = read(candidate / HARNESS)
+        harness["assignments"].extend(fixture["assignments"])
+        write(candidate / HARNESS, harness)
+
+
+@pytest.mark.parametrize("state", ["absent", "preview", "implemented"])
+def test_h3_applicability_is_explicit_conditional_and_idempotent(candidate, state):
+    policy_path = candidate / "sources/canonical-client-applicability.v1.json"
+    original = policy_path.read_bytes()
+    if state != "absent":
+        add_reviewed_h3_contract(candidate, implemented=state == "implemented")
+    path, data = REBIND.project_canonical_client_applicability(candidate.parent)
+    assert candidate.parent / path == policy_path
+    assert policy_path.read_bytes() == original
+    if state == "implemented":
+        old, new = json.loads(original), json.loads(data)
+        h3 = {"capability_key": "analytics.h3", "classification": "official-sdk-required"}
+        assert new["decisions"].count(h3) == 1
+        new["decisions"].remove(h3)
+        assert new == old
+    else:
+        assert data == original
+    policy_path.write_bytes(data)
+    assert REBIND.project_canonical_client_applicability(candidate.parent) == (path, data)
+    generate(candidate)
+    result = validate(candidate)
+    assert result.returncode == 0, result.stderr
+    rows = [r for r in read(candidate / CATALOG)["requirements"] if r["capability_key"] == "analytics.h3"]
+    assert len(rows) == (4 if state == "implemented" else 0)
+    for row in rows:
+        assert row["client_lane"] == "server-protocol-harness"
+        assert row["scenario_facets"] == ["positive", "negative"]
+        assert len(row["test_ids"]) == 2
+
+
+@pytest.mark.parametrize("mutation", ["classification", "duplicate", "extra-fields"])
+def test_h3_projection_refuses_conflicting_existing_decisions(candidate, mutation):
+    add_reviewed_h3_contract(candidate)
+    path = candidate / "sources/canonical-client-applicability.v1.json"
+    policy = read(path)
+    decision = {"capability_key": "analytics.h3", "classification": "official-sdk-required"}
+    if mutation == "classification":
+        decision["classification"] = "not-addressable"
+    elif mutation == "extra-fields":
+        decision["reason"] = "An unreviewed exception"
+    policy["decisions"].append(decision)
+    if mutation == "duplicate":
+        policy["decisions"].append(copy.deepcopy(decision))
+    write(path, policy)
+    original = path.read_bytes()
+    with pytest.raises(REBIND.Finding, match="analytics.h3 applicability conflicts"):
+        REBIND.project_canonical_client_applicability(candidate.parent)
+    assert path.read_bytes() == original
+
+
+def test_h3_classification_cannot_substitute_for_missing_operation_contract(candidate):
+    add_reviewed_h3_contract(candidate, assignments=False)
+    path, data = REBIND.project_canonical_client_applicability(candidate.parent)
+    (candidate.parent / path).write_bytes(data)
+    original_catalog = (candidate / CATALOG).read_bytes()
+    result = run(candidate, "generate-protocol-requirements.py")
+    assert result.returncode != 0
+    assert "client lane 'protocol-harness-gap-analytics-h3' (local-docker) has 0 production dispositions" in result.stderr
+    assert (candidate / CATALOG).read_bytes() == original_catalog
+
+
+def test_h3_projection_does_not_classify_unreviewed_capabilities(candidate):
+    add_reviewed_h3_contract(candidate)
+    path = candidate / "sources/server/capability-matrix.v1.json"
+    matrix = read(path)
+    other = copy.deepcopy(next(r for r in matrix["capabilities"] if r["key"] == "analytics.h3"))
+    other["key"] = "analytics.unreviewed"
+    matrix["capabilities"].append(other)
+    write(path, matrix)
+    path, data = REBIND.project_canonical_client_applicability(candidate.parent)
+    (candidate.parent / path).write_bytes(data)
+    assert not any(r["capability_key"] == "analytics.unreviewed" for r in json.loads(data)["decisions"])
+    generate(candidate)
+    result = validate(candidate)
+    assert result.returncode != 0
+    assert "unclassified=['analytics.unreviewed']" in result.stderr
