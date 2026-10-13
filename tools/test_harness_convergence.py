@@ -111,6 +111,8 @@ def test_projection_tracks_implemented_surface_without_altering_other_policy(can
     policy_path = candidate / "sources/official-sdk-protocol-assignments.v1.json"
     old = read(policy_path)
     old_bytes = policy_path.read_bytes()
+    applicability_path = candidate / "sources/canonical-client-applicability.v1.json"
+    original_applicability = applicability_path.read_bytes()
     path, data = REBIND.project_official_protocol_assignments(candidate.parent)
     assert data == old_bytes
     matrix_path = candidate / "sources/server/capability-matrix.v1.json"
@@ -127,6 +129,32 @@ def test_projection_tracks_implemented_surface_without_altering_other_policy(can
     assert {k: v for k, v in old.items() if k != "capabilities"} == {k: v for k, v in new.items() if k != "capabilities"}
     assert policy_path.read_bytes() == old_bytes
     (candidate.parent / path).write_bytes(data)
+    assert applicability_path.read_bytes() == original_applicability
     generate(candidate)
     result = validate(candidate)
     assert result.returncode == 0, result.stderr
+    catalog = read(candidate / CATALOG)
+    stale = copy.deepcopy(catalog["requirements"][0])
+    stale.update(capability_key="alerts.evaluation", surface="stale-preview",
+                 operation="stale-preview", contract_revision="canonical-client-applicability@" + read(applicability_path)["revision"])
+    catalog["requirements"].append(stale)
+    write(candidate / CATALOG, catalog)
+    result = validate(candidate)
+    assert result.returncode != 0
+    assert "generated row for a nonimplemented decision" in result.stderr
+
+
+@pytest.mark.parametrize("mutation", ["unknown", "missing"])
+def test_applicability_cannot_invent_or_omit_implemented_decisions(candidate, mutation):
+    path = candidate / "sources/canonical-client-applicability.v1.json"
+    policy = read(path)
+    if mutation == "unknown":
+        policy["decisions"].append({"capability_key": "synthetic.unknown", "classification": "official-sdk-required"})
+    else:
+        policy["decisions"] = [row for row in policy["decisions"] if row["capability_key"] != "ai.grounding"]
+    write(path, policy)
+    generate(candidate)
+    result = validate(candidate)
+    assert result.returncode != 0
+    expected = "names unknown capabilities" if mutation == "unknown" else "unclassified=['ai.grounding']"
+    assert expected in result.stderr

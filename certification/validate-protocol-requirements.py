@@ -458,7 +458,17 @@ def main() -> None:
             "Capabilities cannot be both protocol-assigned and separately classified: "
             f"{sorted(overlap)}"
         )
-    classified_capabilities = declared_protocols | decision_capabilities
+    unknown_decisions = decision_capabilities - known_capabilities
+    if unknown_decisions:
+        raise ValueError(f"Canonical-client applicability names unknown capabilities: {sorted(unknown_decisions)}")
+    implemented_decisions = decision_capabilities & implemented_capabilities
+    if any(
+        row["contract_revision"] == f"canonical-client-applicability@{applicability['revision']}"
+        and row["capability_key"] not in implemented_decisions
+        for row in catalog["requirements"]
+    ):
+        raise ValueError("Canonical-client applicability has a generated row for a nonimplemented decision.")
+    classified_capabilities = declared_protocols | implemented_decisions
     if implemented_capabilities != classified_capabilities:
         raise ValueError(
             "Canonical-client applicability differs from the implemented capability surface "
@@ -494,6 +504,8 @@ def main() -> None:
     expected_decision_rows: list[dict] = []
     for decision in decisions:
         capability_key = decision["capability_key"]
+        if capability_key not in implemented_decisions:
+            continue
         classification = decision["classification"]
         if classification == "official-sdk-required":
             capability_row_count = 0
@@ -631,7 +643,7 @@ def main() -> None:
     present_decision_rows = [
         row
         for row in catalog["requirements"]
-        if row["capability_key"] in decision_capabilities
+        if row["capability_key"] in implemented_decisions
         and (
             row["contract_revision"]
             == f"canonical-client-applicability@{applicability['revision']}"
