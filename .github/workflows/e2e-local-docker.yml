@@ -26,6 +26,10 @@ on:
       - ".github/workflows/e2e-local-docker.yml"
   workflow_dispatch:
     inputs:
+      operate_joined:
+        description: "Run isolated finding-to-CLI-approved protected deployment proof"
+        type: boolean
+        default: false
       control_plane_parity:
         description: "Run independent Production SDK control-plane engineering replay"
         type: boolean
@@ -572,3 +576,52 @@ jobs:
           name: control-plane-parity
           path: ${{ runner.temp }}/control-plane-parity-public
           if-no-files-found: warn
+
+  operate-joined:
+    if: ${{ github.event_name == 'workflow_dispatch' && inputs.operate_joined }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.12"
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: "22.23.3"
+      - name: Install proof prerequisites
+        run: python -m pip install -r tools/requirements-nightly.txt requests boto3 pytest
+      - name: Check out reviewed protected deployment fixture
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: honua-io/honua-devops
+          ref: 28a6419fcc9bbce6ef9503ff2b7ba37f47fbf7ee
+          path: _operate-devops
+          token: ${{ secrets.RELEASE_GH_TOKEN || github.token }}
+      - name: Authenticate immutable image pull
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: printf '%s' "$GH_TOKEN" | docker login ghcr.io -u "$GITHUB_ACTOR" --password-stdin
+      - name: Test fail-closed proof controls
+        run: python -m pytest certification/operate-joined/test_run.py -q
+      - name: Run actual finding, separate CLI approval, and protected deployment
+        env:
+          GH_TOKEN: ${{ github.token }}
+          HONUA_SERVER_IMAGE: ${{ inputs.parity_server_image }}
+          HONUA_SERVER_SOURCE: ${{ inputs.parity_server_source }}
+          HONUA_OPERATE_RUN: ${{ runner.temp }}/operate-joined-private
+          HONUA_OPERATE_OUT: ${{ runner.temp }}/operate-joined-public
+        run: python certification/operate-joined/run.py
+      - name: Always clean owned deployment fixture
+        if: ${{ always() }}
+        env:
+          HONUA_OPERATE_RUN: ${{ runner.temp }}/operate-joined-private
+          HONUA_OPERATE_OUT: ${{ runner.temp }}/operate-joined-public
+        run: python certification/operate-joined/run.py --cleanup
+      - name: Retain sanitized joined proof
+        if: ${{ always() }}
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: operate-joined
+          path: ${{ runner.temp }}/operate-joined-public
+          if-no-files-found: error
