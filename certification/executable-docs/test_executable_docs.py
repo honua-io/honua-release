@@ -330,6 +330,23 @@ def test_committed_inventory_matches_sources_and_records_every_block():
                                        "teardown"}
             if block["intent"] == "excluded":
                 assert block["reason"].strip()
+
+
+def test_scaffold_docs_follow_the_installed_artifact_not_npm_latest():
+    from inventory import InventoryError
+    sources = json.loads((HERE / "sources.json").read_text())
+    document = next(d for d in sources["documents"] if d["path"] == "packages/create-honua-app/README.md")
+    assert document["revision"] == {"clientArtifact": "create-honua-app"}
+    calls = []
+    def fetch(url, **_kwargs):
+        calls.append(url)
+        return json.dumps({"gitHead": "f" * 40}).encode()
+    for selected in ("a" * 40, "b" * 40):
+        resolver = Resolver({"clientArtifacts": {"create-honua-app": {"sourceSha": selected}}}, fetch=fetch)
+        assert resolver.revision(document) == selected
+    with pytest.raises(InventoryError, match="clientArtifacts.create-honua-app.sourceSha is unset"):
+        Resolver({}, fetch=fetch).revision(document)
+    assert calls == []  # A missing selected package cannot silently fall back to the latest public cut.
     for runtime, image in sources["runtimes"].items():
         assert "@sha256:" in image, runtime
 
