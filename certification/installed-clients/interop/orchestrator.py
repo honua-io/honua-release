@@ -104,7 +104,8 @@ def published_route(url: Any, base_url: str) -> str:
     if parsed.username is not None or parsed.password is not None:
         raise ValueError("Publication URL must not contain user information")
     if parsed.scheme or parsed.netloc:
-        origin = lambda value: (value.scheme.lower(), value.hostname, value.port or (443 if value.scheme == "https" else 80))
+        origin = lambda value: (value.scheme.lower(), value.hostname,
+                                value.port if value.port is not None else (443 if value.scheme == "https" else 80))
         if parsed.scheme not in {"http", "https"} or origin(parsed) != origin(base):
             raise ValueError("Publication URL must have the candidate's origin")
     elif not url.startswith("/") or url.startswith("//"):

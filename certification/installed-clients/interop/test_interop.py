@@ -731,6 +731,7 @@ class RunnerTests(unittest.TestCase):
             self.assertEqual(convert(url, base), "/maps/approved map")
         for url in (None, "", "relative" + path, "//candidate.example" + path,
                     "https://foreign.example" + path, "http://candidate.example" + path,
+                    "https://candidate.example:0" + path,
                     "https://candidate.example:444" + path, "https://user@candidate.example" + path,
                     base + path + "?query", base + path + "#fragment", base + path + "\\evil",
                     "\n" + base + path, base + "/wrong" + path,
