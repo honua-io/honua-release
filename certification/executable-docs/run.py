@@ -38,6 +38,7 @@ ROOT = HERE.parents[1]
 sys.path.insert(0, str(HERE))
 
 from blocks import Block, extract  # noqa: E402
+import grpc_tls  # noqa: E402
 from inputs import assigned_names, doc_id, load_vars, needs, render  # noqa: E402
 from inventory import InventoryError, Resolver, document_record, drift  # noqa: E402
 from registry_guard import pins_from_manifest, NPM_HONUA, pypi_normalize  # noqa: E402
@@ -1216,6 +1217,7 @@ def main() -> int:
     report_docs: list[dict[str, Any]] = []
     live_docs: list[tuple[dict[str, Any], str, str]] = []
     sessions: dict[str, Session] = {}
+    tls_fixture: grpc_tls.GrpcTlsFixture | None = None
 
     def add_exception(row: dict[str, Any], check: str) -> None:
         outcome = exception_outcome()
@@ -1229,6 +1231,7 @@ def main() -> int:
         cleanup_containers({c for c in snapshot_containers() if started_from(c, session.workdir)})
 
     def run_phase(documents: list[dict[str, Any]], network: str, tools: Path) -> None:
+        nonlocal tls_fixture
         last_of_session = {(d.get("session") or doc_id(d["repo"], d["path"])): doc_id(d["repo"], d["path"])
                            for d in documents}
         defined: dict[str, set[str]] = {}
@@ -1253,6 +1256,14 @@ def main() -> int:
                                             prerequisites={p for d in members for p in d.get("prerequisites", {})})
                 session = sessions[key]
                 variables = load_vars(args.vars_dir, ident)
+                if grpc_tls.required(variables):
+                    if tls_fixture is None:
+                        tls_fixture = grpc_tls.GrpcTlsFixture(docker, work / "grpc-tls", network,
+                                                              sources["runtimes"]["python"], run_id)
+                        tls_fixture.start()
+                    session.env.update(tls_fixture.session_env(session.state))
+                    context["candidate.grpcTlsAddress"] = grpc_tls.ADDRESS
+                    row["grpcTlsFixture"] = dict(tls_fixture.evidence)
                 print(f"== {ident} @ {revision[:12]}", flush=True)
                 checkout_context(document, revision, session, token)
                 binding = source_build.derive(document, revision, text,
@@ -1299,6 +1310,11 @@ def main() -> int:
                             "url": args.evidence_uri, "status": "fail", "counts": {"fail": 1}, "blocks": [],
                             "checks": [{"check": "candidate", "status": "fail", "detail": str(exc)}]})
     finally:
+        if tls_fixture is not None:
+            try:
+                tls_fixture.close()
+            except Exception:
+                add_exception(report_docs[-1], "grpc-tls-cleanup")
         for session in sessions.values():
             try:
                 close_session(session)
