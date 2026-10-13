@@ -134,15 +134,57 @@ def _journey(receipt: dict[str, Any], required: frozenset[str], mode: str,
     return True
 
 
+UPDATE_ROLLBACK_ACTUATORS = {
+    "aws-ecs/redis-off": "terraform-exact-apply",
+    "aws-ecs/redis-on": "honua-aws-ecs-alb",
+    "aws-serverless/redis-off": "honua-gitops-aws-lambda",
+    "aws-serverless/redis-on": "honua-gitops-aws-lambda",
+}
+
+
+def _is_digest(value: Any) -> bool:
+    return isinstance(value, str) and SHA256_RE.fullmatch(value) is not None
+
+
 def _update_rollback(receipt: dict[str, Any]) -> bool:
-    """Each GA cell appears once and passes both its update and its rollback."""
+    """Refuse status-only/self-rollback proof; every GA cell binds its real actuator.
+
+    Lock signatures and retained workflow artifact integrity are checked by the
+    existing fetch/publication gates, not inferred from these claimed fields.
+    """
     cells = receipt.get("cells")
+    from_lock, to_lock = receipt.get("fromLockDigest"), receipt.get("toLockDigest")
     if (not isinstance(cells, list) or any(not isinstance(cell, dict) for cell in cells)
-            or receipt.get("updateStatus") != "pass" or receipt.get("rollbackStatus") != "pass"):
+            or receipt.get("updateStatus") != "pass" or receipt.get("rollbackStatus") != "pass"
+            or not _is_digest(from_lock) or not _is_digest(to_lock)
+            or from_lock == to_lock or to_lock != receipt.get("lockDigest")):
         return False
     names = [cell.get("cell") for cell in cells]
-    return (len(names) == len(set(names)) == len(GA_CELLS) and set(names) == GA_CELLS
-            and all(cell.get("updateStatus") == cell.get("rollbackStatus") == "pass" for cell in cells))
+    if (any(not isinstance(name, str) for name in names)
+            or len(names) != len(set(names)) or set(names) != GA_CELLS):
+        return False
+    for cell in cells:
+        before, after = cell.get("fromDigest"), cell.get("toDigest")
+        job, boundary = cell.get("inFlightJob"), cell.get("schemaBoundary")
+        if (cell.get("updateStatus") != "pass" or cell.get("rollbackStatus") != "pass"
+                or cell.get("actuator") != UPDATE_ROLLBACK_ACTUATORS[cell["cell"]]
+                or not _is_digest(before) or not _is_digest(after) or before == after
+                or not isinstance(job, dict) or not isinstance(boundary, dict)):
+            return False
+        states = job.get("terminalStates")
+        if (not isinstance(job.get("jobId"), str) or not job["jobId"].strip()
+                or job.get("initialState") != "running"
+                or not isinstance(states, list) or len(states) != 1
+                or any(state not in ("succeeded", "failed", "cancelled") for state in states)
+                or boundary.get("status") != "pass"
+                or boundary.get("outcome") not in ("serving", "refused-cleanly")
+                or not isinstance(boundary.get("schemaVersion"), str) or not boundary["schemaVersion"].strip()
+                or boundary.get("imageDigest") != before):
+            return False
+        if boundary["outcome"] == "refused-cleanly" and (
+                not isinstance(boundary.get("reasonCode"), str) or not boundary["reasonCode"].strip()):
+            return False
+    return True
 
 
 def _canary_key(run: dict[str, Any], field: str) -> tuple[str, datetime, Any, Any]:

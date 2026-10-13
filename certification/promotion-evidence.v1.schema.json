@@ -216,6 +216,231 @@
           "$ref": "#/$defs/digest"
         }
       }
+    },
+    "updateRollbackCell": {
+      "type": "object",
+      "required": [
+        "cell",
+        "updateStatus",
+        "rollbackStatus",
+        "actuator",
+        "fromDigest",
+        "toDigest",
+        "inFlightJob",
+        "schemaBoundary"
+      ],
+      "properties": {
+        "cell": {
+          "enum": [
+            "aws-ecs/redis-off",
+            "aws-ecs/redis-on",
+            "aws-serverless/redis-off",
+            "aws-serverless/redis-on"
+          ]
+        },
+        "updateStatus": {
+          "const": "pass"
+        },
+        "rollbackStatus": {
+          "const": "pass"
+        },
+        "actuator": {
+          "enum": [
+            "terraform-exact-apply",
+            "honua-aws-ecs-alb",
+            "honua-gitops-aws-lambda"
+          ]
+        },
+        "fromDigest": {
+          "$ref": "#/$defs/digest"
+        },
+        "toDigest": {
+          "$ref": "#/$defs/digest"
+        },
+        "inFlightJob": {
+          "type": "object",
+          "required": [
+            "jobId",
+            "initialState",
+            "terminalStates"
+          ],
+          "properties": {
+            "jobId": {
+              "type": "string",
+              "pattern": "\\S"
+            },
+            "initialState": {
+              "const": "running"
+            },
+            "terminalStates": {
+              "type": "array",
+              "minItems": 1,
+              "items": {
+                "enum": [
+                  "succeeded",
+                  "failed",
+                  "cancelled"
+                ]
+              },
+              "maxItems": 1
+            }
+          }
+        },
+        "schemaBoundary": {
+          "type": "object",
+          "required": [
+            "status",
+            "outcome",
+            "schemaVersion",
+            "imageDigest"
+          ],
+          "properties": {
+            "status": {
+              "const": "pass"
+            },
+            "outcome": {
+              "enum": [
+                "serving",
+                "refused-cleanly"
+              ]
+            },
+            "schemaVersion": {
+              "type": "string",
+              "pattern": "\\S"
+            },
+            "imageDigest": {
+              "$ref": "#/$defs/digest"
+            },
+            "reasonCode": {
+              "type": "string",
+              "pattern": "\\S"
+            }
+          },
+          "allOf": [
+            {
+              "if": {
+                "properties": {
+                  "outcome": {
+                    "const": "refused-cleanly"
+                  }
+                }
+              },
+              "then": {
+                "required": [
+                  "reasonCode"
+                ]
+              }
+            }
+          ]
+        }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "cell": {
+                "const": "aws-ecs/redis-off"
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "actuator": {
+                "const": "terraform-exact-apply"
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "cell": {
+                "const": "aws-ecs/redis-on"
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "actuator": {
+                "const": "honua-aws-ecs-alb"
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "cell": {
+                "const": "aws-serverless/redis-off"
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "actuator": {
+                "const": "honua-gitops-aws-lambda"
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "cell": {
+                "const": "aws-serverless/redis-on"
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "actuator": {
+                "const": "honua-gitops-aws-lambda"
+              }
+            }
+          }
+        }
+      ]
+    },
+    "updateRollbackReceipt": {
+      "description": "Retained update-rollback class receipt, separate from the promotion record references. The checker also requires different from/to locks and image digests, toLockDigest == lockDigest, one of each GA cell, and schemaBoundary.imageDigest == fromDigest. Standard JSON Schema cannot compare arbitrary sibling values. Exactly-once remains a separate runtime proof, not inferred from a terminal state.",
+      "type": "object",
+      "required": [
+        "class",
+        "lockDigest",
+        "fromLockDigest",
+        "toLockDigest",
+        "updateStatus",
+        "rollbackStatus",
+        "cells"
+      ],
+      "properties": {
+        "class": {
+          "const": "update-rollback"
+        },
+        "lockDigest": {
+          "$ref": "#/$defs/digest"
+        },
+        "fromLockDigest": {
+          "$ref": "#/$defs/digest"
+        },
+        "toLockDigest": {
+          "$ref": "#/$defs/digest"
+        },
+        "updateStatus": {
+          "const": "pass"
+        },
+        "rollbackStatus": {
+          "const": "pass"
+        },
+        "cells": {
+          "type": "array",
+          "minItems": 4,
+          "maxItems": 4,
+          "items": {
+            "$ref": "#/$defs/updateRollbackCell"
+          }
+        }
+      }
     }
   }
 }

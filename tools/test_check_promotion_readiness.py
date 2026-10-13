@@ -42,6 +42,16 @@ def _write(path, value):
     path.write_text(json.dumps(value), encoding="utf-8")
 
 
+def _update_cell(cell):
+    actuator = {"aws-ecs/redis-off": "terraform-exact-apply", "aws-ecs/redis-on": "honua-aws-ecs-alb",
+                "aws-serverless/redis-off": "honua-gitops-aws-lambda", "aws-serverless/redis-on": "honua-gitops-aws-lambda"}[cell]
+    return {"cell": cell, "updateStatus": "pass", "rollbackStatus": "pass", "actuator": actuator,
+            "fromDigest": "sha256:" + "a" * 64, "toDigest": "sha256:" + "b" * 64,
+            "inFlightJob": {"jobId": "gp-flight-1", "initialState": "running", "terminalStates": ["succeeded"]},
+            "schemaBoundary": {"status": "pass", "outcome": "serving", "schemaVersion": "128",
+                               "imageDigest": "sha256:" + "a" * 64}}
+
+
 def _fixture(tmp_path, *, age=54, minted=None):
     """A complete record: minted `minted` hours ago, burning for `age` hours, canaries every
     six hours from the first slot after burn start through now."""
@@ -86,7 +96,8 @@ def _fixture(tmp_path, *, age=54, minted=None):
                                  "attempts": [{"attempt": 1, "status": "pass", "lockDigest": digest,
                                                "completedAt": row["completedAt"]}]} for cell in cells]
         if name == "update-rollback":
-            receipt.update(cells=[{"cell": cell, "updateStatus": "pass", "rollbackStatus": "pass"} for cell in GA_CELLS],
+            receipt.update(cells=[_update_cell(cell) for cell in GA_CELLS],
+                           fromLockDigest=OTHER_LOCK, toLockDigest=digest,
                            updateStatus="pass", rollbackStatus="pass")
         root = evidence / "evidence" / name / run_id
         _write(root / "receipt.json", receipt)
@@ -587,3 +598,68 @@ def test_nightly_receipt_production_must_fall_within_the_minting_run(position, t
     _edit(receipt.with_name('run.json'), lambda value: value.update(created_at=_stamp(start), updated_at=_stamp(end)))
     decision = _decision(fixture)
     assert decision['checks']['evidence:contract']['status'] == ('pass' if position == 'inside' else 'fail')
+
+
+@pytest.mark.parametrize("cell_name", GA_CELLS)
+@pytest.mark.parametrize("mutation", ["missing-actuator", "wrong-actuator", "same-image", "invalid-image",
+                                     "missing-job", "empty-job", "not-in-flight", "nonterminal", "empty-terminal", "multiple-terminal",
+                                     "missing-boundary", "wrong-boundary-image", "missing-schema", "unproved-refusal"])
+def test_update_rollback_requires_actuator_transition_job_and_schema_proof(tmp_path, cell_name, mutation):
+    fixture = _fixture(tmp_path)
+    def mutate(receipt):
+        cell = next(row for row in receipt["cells"] if row["cell"] == cell_name)
+        if mutation == "missing-actuator": del cell["actuator"]
+        elif mutation == "wrong-actuator": cell["actuator"] = "fake-deploy"
+        elif mutation == "same-image": cell["toDigest"] = cell["fromDigest"]
+        elif mutation == "invalid-image": cell["fromDigest"] = "latest"
+        elif mutation == "missing-job": del cell["inFlightJob"]
+        elif mutation == "empty-job": cell["inFlightJob"]["jobId"] = " "
+        elif mutation == "not-in-flight": cell["inFlightJob"]["initialState"] = "succeeded"
+        elif mutation == "nonterminal": cell["inFlightJob"]["terminalStates"] = ["running"]
+        elif mutation == "empty-terminal": cell["inFlightJob"]["terminalStates"] = []
+        elif mutation == "multiple-terminal": cell["inFlightJob"]["terminalStates"] = ["succeeded", "succeeded"]
+        elif mutation == "missing-boundary": del cell["schemaBoundary"]
+        elif mutation == "wrong-boundary-image": cell["schemaBoundary"]["imageDigest"] = cell["toDigest"]
+        elif mutation == "missing-schema": del cell["schemaBoundary"]["schemaVersion"]
+        elif mutation == "unproved-refusal": cell["schemaBoundary"]["outcome"] = "refused-cleanly"
+    _edit(_receipt(fixture, "update-rollback"), mutate)
+    _failed(fixture, "evidence:update-rollback")
+
+
+@pytest.mark.parametrize("mutation", ["missing-from", "self-lock", "wrong-candidate", "invalid-from"])
+def test_update_rollback_requires_two_distinct_candidate_bound_locks(tmp_path, mutation):
+    fixture = _fixture(tmp_path)
+    def mutate(receipt):
+        if mutation == "missing-from": del receipt["fromLockDigest"]
+        elif mutation == "self-lock": receipt["fromLockDigest"] = receipt["toLockDigest"]
+        elif mutation == "wrong-candidate": receipt["toLockDigest"] = "sha256:" + "e" * 64
+        else: receipt["fromLockDigest"] = "unattested-tag"
+    _edit(_receipt(fixture, "update-rollback"), mutate)
+    _failed(fixture, "evidence:update-rollback")
+
+
+def test_update_rollback_clean_schema_refusal_is_explicit(tmp_path):
+    fixture = _fixture(tmp_path)
+    def mutate(receipt):
+        receipt["cells"][0]["schemaBoundary"].update(outcome="refused-cleanly", reasonCode="schema-newer-than-runtime")
+    _edit(_receipt(fixture, "update-rollback"), mutate)
+    assert _decision(fixture)["status"] == "pass"
+
+
+def test_update_rollback_receipt_schema_requires_every_structural_proof_field(tmp_path):
+    fixture = _fixture(tmp_path)
+    receipt = json.loads(_receipt(fixture, "update-rollback").read_text())
+    schema = json.loads((Path(__file__).resolve().parents[1] / "certification/promotion-evidence.v1.schema.json").read_text())
+    validator = Draft202012Validator({"$ref": "#/$defs/updateRollbackReceipt", "$defs": schema["$defs"]})
+    Draft202012Validator.check_schema(schema)
+    assert validator.is_valid(receipt)
+    for field in ("actuator", "fromDigest", "toDigest", "inFlightJob", "schemaBoundary"):
+        bad = copy.deepcopy(receipt)
+        del bad["cells"][0][field]
+        assert not validator.is_valid(bad), field
+    bad = copy.deepcopy(receipt)
+    bad["cells"][0]["actuator"] = "honua-gitops-aws-lambda"
+    assert not validator.is_valid(bad)
+    # Sibling inequality and cell uniqueness are semantic checks, not JSON Schema $data extensions.
+    receipt["cells"][0]["toDigest"] = receipt["cells"][0]["fromDigest"]
+    assert not readiness._update_rollback(receipt)

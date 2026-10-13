@@ -143,8 +143,29 @@ The checker reads these paths under `--evidence-dir`:
 
 A class receipt repeats the record reference fields and adds `kind` and `freshUntil`. Journey receipts
 add `cells` with the attempt ledger above. The update/rollback receipt adds top-level `updateStatus` and
-`rollbackStatus`, and `cells`: one `{"cell", "updateStatus", "rollbackStatus"}` object for each of the
-four GA cells, with no other cells. Successful Actions metadata must match each recorded qualifying
+`rollbackStatus`, `fromLockDigest` (retained lock), `toLockDigest` (selected candidate lock),
+and `cells`, exactly one for each of the four GA cells. The two lock digests must differ and
+`toLockDigest` must equal the receipt's `lockDigest`. A first-release self-rollback does not qualify.
+Each cell requires:
+
+- `updateStatus` and `rollbackStatus`, both `pass`.
+- `actuator`: `terraform-exact-apply` for ECS Redis-off, `honua-aws-ecs-alb` for the retained
+  controller on ECS Redis-on, or `honua-gitops-aws-lambda` for either Lambda cell.
+- Different immutable image `fromDigest` and `toDigest` values.
+- `inFlightJob`: a nonempty `jobId`, `initialState: running`, and `terminalStates`
+  containing exactly one of `succeeded`, `failed`, or `cancelled`. This records terminal observations;
+  it does not alone prove exactly-once effects.
+- `schemaBoundary`: `status: pass`, the observed candidate `schemaVersion`, and
+  `imageDigest` equal to the rollback image `fromDigest`. `outcome` is `serving` or
+  `refused-cleanly`; a clean refusal also requires its `reasonCode`.
+
+The receipt shape is `#/$defs/updateRollbackReceipt` in
+`certification/promotion-evidence.v1.schema.json`; promotion record entries remain artifact
+references. The checker enforces cross-field equality/inequality and the four distinct cells,
+which standard JSON Schema cannot express by comparing arbitrary sibling values.
+These requirements do not create evidence: release#483 still needs the actual controller,
+Terraform update/rollback phase, in-flight GP observations, and two certified-lock cloud runs.
+ Successful Actions metadata must match each recorded qualifying
 completion time; nightly receipt production must fall within the minting run lifetime. These are retained workflow artifacts, never hand-minted summaries. The fetcher must
 verify producer workflow identity, successful run metadata, artifact integrity and complete sequence
 coverage before invoking the checker. Lock signature verification remains a separate mandatory gate.
