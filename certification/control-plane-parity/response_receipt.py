@@ -1,11 +1,11 @@
 """Retain wire responses before applying stage-specific status assertions."""
-import json
+from requests.exceptions import JSONDecodeError
 
 
 def response_body(response):
     try:
         return response.json()
-    except json.JSONDecodeError:
+    except JSONDecodeError:
         # Framework authorization responses may have an empty body. Keep the
         # actual text; callers must still assert status and accepted-job shape.
         return {"rawBody": response.text}

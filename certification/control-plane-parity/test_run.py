@@ -180,3 +180,23 @@ def test_import_receipt_retains_wire_body_without_changing_status(status, body, 
     response._content = body.encode()
     assert response_body(response) == expected
     assert response.status_code == status
+
+
+@pytest.mark.parametrize("decoder_error", [True, False])
+def test_import_receipt_catches_requests_decoder_only(decoder_error):
+    from requests.exceptions import JSONDecodeError
+    from response_receipt import response_body
+
+    class Response:
+        text = "not-json"
+
+        def json(self):
+            if decoder_error:
+                raise JSONDecodeError("Invalid JSON", self.text, 0)
+            raise ValueError("unrelated failure")
+
+    if decoder_error:
+        assert response_body(Response()) == {"rawBody": "not-json"}
+    else:
+        with pytest.raises(ValueError, match="unrelated failure"):
+            response_body(Response())
