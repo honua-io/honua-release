@@ -281,7 +281,8 @@ def test_main_writes_skips_json_and_summary_even_on_refusal(monkeypatch, tmp_pat
               'selectedAgeDays': 18.0, 'commitsBehind': 40, 'daysBehind': 17.5, 'staleAfterDays': 3,
               'stale': True, 'skippedTotal': 40, 'skipped': [{'sha': NEW, 'reason': 'CI a | b'}], 'aborted': None}
 
-    def refuse(manifest, matrix, github, registry, limit, ledger, skips, *rest):
+    def refuse(manifest, matrix, github, registry, limit, ledger, skips, *rest, prepare_deployments=False):
+        assert prepare_deployments is False
         skips['honua-server'] = report
         raise resolver.ResolutionError('honua-server: release/component-versions.json is missing')
 

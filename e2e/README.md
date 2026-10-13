@@ -804,3 +804,40 @@ returned) · `2` = SKIP (SDK/toolchain unavailable).
   real SDK call surfaces in each probe (constructor / query method).
 - **Server config:** confirm honua-server health path, metrics port, DB env keys in `docker-compose.yml`.
 - **`sync_no_duplicates`:** implement via the honua-collect sync client once it is installable from staging.
+
+### Run-owned tenant isolation fixture
+
+The optional `HONUA_CLOUD_TENANT_FIXTURE=true` profile provisions an ephemeral static
+OIDC issuer for the owned cell. The ECS and Lambda roots must expose the reviewed
+`oidc_static_jwt` input; the Lambda image must include the early signing-secret
+resolution from honua-server#5980. EKS injects the key through its existing external
+Kubernetes Secret, never Helm values. Existing deployments and legacy runs keep
+their current configuration when this flag is absent.
+
+The bootstrap API credential still creates the narrow operator, approver and viewer
+keys and role grants. The author and second tenant use fresh five-minute signed
+JWTs with identical subject and role, differing only in tenant and token timing/
+nonce. Stage 8 first reads the exact private map as its author, proves that the
+other tenant can reach the general Studio surface, then requires denial for that
+same private resource. A missing issuer, invalid bearer or blanket route denial
+cannot count as tenant-isolation evidence.
+
+The provision job creates the signing secret outside Terraform and passes only
+its ARN to the typed ECS/Lambda configuration. The key travels to the isolated
+journey job through the existing encrypted handoff and remains in Python memory;
+it is not passed to npm or retained in a principal file, target document, receipt
+or public artifact. Teardown deletes the run-owned secret. Public configuration
+capture resolves immutable secret version identities using metadata-only DescribeSecret
+requests. Runtime secret values use field-bound HMAC-SHA256 commitments with a fresh
+256-bit key that exists only in producer memory and is never published or persisted.
+Public validation verifies the captured configuration binding, not secret values or
+offline guesses against a public password hash.
+
+For prepared EKS qualification, `deployment-terraform-inputs.json` records exact
+Terraform arguments before apply. `deployment-helm-inputs.json` chains that digest
+and records the resolved values and exact command before Helm installation. Both
+are bound by `deployment-execution-inputs.json`; `deployment-actuation.json` records
+the actual consumption boundaries. `executed-manifest.yaml` preserves the original
+manifest bytes. The teardown producer verifies the chain and actual journey and
+cleanup results before emitting `deployment-cell-receipt.json`. A source change
+or local control pass alone does not qualify a cloud target.

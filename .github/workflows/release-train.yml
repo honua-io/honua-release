@@ -156,6 +156,7 @@ jobs:
         id: candidate
         env:
           DRY_RUN: ${{ inputs.dry_run }}
+          NIGHTLY: ${{ inputs.nightly }}
           PLATFORM_LABEL: ${{ inputs.platform_label }}
           GITHUB_TOKEN: ${{ secrets.RELEASE_GH_TOKEN || github.token }}
         run: |
@@ -163,6 +164,9 @@ jobs:
           ARGS=()
           if [ "$DRY_RUN" = "false" ]; then
             ARGS+=(--exact-candidate)
+            if [ "$NIGHTLY" = "true" ]; then
+              ARGS+=(--deployment-phase candidate-precut --deployment-qualification certification/deployment-qualification.json)
+            fi
           fi
           python tools/validate_platform.py "${ARGS[@]}"
           if [ "$DRY_RUN" = "false" ]; then
@@ -247,6 +251,8 @@ jobs:
     uses: ./.github/workflows/manifest-validate.yml
     with:
       candidate_ref: ${{ inputs.candidate_ref }}
+      candidate_precut: ${{ inputs.nightly && inputs.dry_run == false }}
+    secrets: inherit
     # A train cut is a fresh full snapshot, not a diff, so no drift baseline is passed here
     # (structure + coherence still run, and fail on an incoherent pinned set).
 

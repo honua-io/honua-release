@@ -93,13 +93,34 @@ HANDOFF_SCHEMA = "honua-cloud-journey-handoff-v1"
 DATASOURCE_FIELDS = ("host", "port", "databaseName", "username", "password")
 
 
-def pack_handoff(admin_key, datasource=None):
+def pack_handoff(admin_key, datasource=None, *, tenant_signing_key=None):
     """The sealed journey handoff: the bare application key, or a JSON object with the datasource."""
-    if not datasource:
+    if not datasource and tenant_signing_key is None:
         return admin_key
-    fields = {name: datasource[name] for name in DATASOURCE_FIELDS}
-    return json.dumps({"schema": HANDOFF_SCHEMA, "appKey": admin_key, "datasource": fields},
-                      separators=(",", ":"))
+    document = {"schema": HANDOFF_SCHEMA, "appKey": admin_key}
+    if datasource:
+        document["datasource"] = {name: datasource[name] for name in DATASOURCE_FIELDS}
+    if tenant_signing_key is not None:
+        _validate_tenant_signing_key(tenant_signing_key)
+        document["tenantSigningKey"] = tenant_signing_key
+    return json.dumps(document, separators=(",", ":"))
+
+
+def _validate_tenant_signing_key(value):
+    if not isinstance(value, str) or not re.fullmatch(r"[0-9a-f]{64}", value):
+        raise ValueError("invalid sealed tenant fixture key")
+    return value
+
+
+def handoff_tenant_signing_key(value):
+    if not value.startswith("{"):
+        return None
+    document = json.loads(value)
+    if "tenantSigningKey" not in document:
+        return None
+    if document.get("schema") != HANDOFF_SCHEMA:
+        raise ValueError("invalid sealed tenant fixture schema")
+    return _validate_tenant_signing_key(document["tenantSigningKey"])
 
 
 # S10 large-import (honua-release#548): the admit job adds the presigned GET URL of the staged
@@ -141,10 +162,11 @@ def unpack_handoff(value):
         return value, None
     document = json.loads(value)
     datasource = document.get("datasource") if isinstance(document, dict) else None
-    if isinstance(document, dict) and datasource is None and SOURCE_URL_FIELD in document:
+    if isinstance(document, dict) and datasource is None and (SOURCE_URL_FIELD in document or "tenantSigningKey" in document):
         if (document.get("schema") != HANDOFF_SCHEMA or not isinstance(document.get("appKey"), str)
-                or not _source_url_ok(document[SOURCE_URL_FIELD])):
+                or (SOURCE_URL_FIELD in document and not _source_url_ok(document[SOURCE_URL_FIELD]))):
             raise ValueError("malformed cloud journey handoff")
+        handoff_tenant_signing_key(value)
         return document["appKey"], None
     if (not isinstance(document, dict) or document.get("schema") != HANDOFF_SCHEMA
             or not isinstance(document.get("appKey"), str) or not isinstance(datasource, dict)
@@ -153,6 +175,7 @@ def unpack_handoff(value):
                        if name != "port")
             or type(datasource["port"]) is not int):
         raise ValueError("malformed cloud journey handoff")
+    handoff_tenant_signing_key(value)
     return document["appKey"], datasource
 
 
@@ -581,7 +604,7 @@ def retain_discovery_sidecar(directory, workdir, number, secrets):
     return target
 
 
-def attempt(cell, number, endpoint, admin_key, running_image=None, *, image_detail=None):
+def attempt(cell, number, endpoint, admin_key, running_image=None, *, image_detail=None, tenant_signing_key=None):
     driver, adapter = drivers()
     run_id = os.environ.get("GITHUB_RUN_ID", "local")
     run_attempt = os.environ.get("GITHUB_RUN_ATTEMPT", "1")
@@ -598,7 +621,7 @@ def attempt(cell, number, endpoint, admin_key, running_image=None, *, image_deta
     if kind is not None and endpoint is not None:
         # honua-release#377: the cell's own target document. It names references only; the
         # driver mints the journey principals through the cell admin API and revokes them.
-        target = targets.build(template, cell=cell, endpoint=endpoint)
+        target = targets.build(template, cell=cell, endpoint=endpoint, tenant_fixture=tenant_signing_key is not None)
     else:
         target = template
         target.update(id=cell, kind=kind or "none")
@@ -637,19 +660,20 @@ def attempt(cell, number, endpoint, admin_key, running_image=None, *, image_deta
                 notices.append(f"Candidate transport: {transport or 'refused'} ({urllib.parse.urlsplit(endpoint).hostname})")
                 with driver.pins.candidate_sandbox():
                     workspace, results, observed_notices, _ = driver.run_live(
-                        target, pinned, contract, workdir, endpoint, True)
+                        target, pinned, contract, workdir, endpoint, True,
+                        **({"tenant_signing_key": tenant_signing_key} if tenant_signing_key is not None else {}))
             notices.extend(observed_notices)
     except Exception as error:
         # Driver exceptions must still produce an attempt receipt, without retaining credentials
         # or raw tool output. The outer finally still checks cost and destroys infrastructure.
         failure = driver_failure_notices(error, sys.modules.get("discovery"), (
-            admin_key, *(os.environ.get(env) for field, env in cloud_targets().DATASOURCE_ENV.items()
+            admin_key, tenant_signing_key, *(os.environ.get(env) for field, env in cloud_targets().DATASOURCE_ENV.items()
                          if field != "port")))
         notices.extend(failure)
         print(f"{cell} journey attempt {number}: " + " | ".join(failure), file=sys.stderr, flush=True)
         attribution = "infrastructure"
     sidecar = retain_discovery_sidecar(directory, workdir, number, (
-        admin_key, *(os.environ.get(env) for field, env in cloud_targets().DATASOURCE_ENV.items()
+        admin_key, tenant_signing_key, *(os.environ.get(env) for field, env in cloud_targets().DATASOURCE_ENV.items()
                      if field != "port")))
     if sidecar is not None:
         notices.append(f"Setup discovery sidecar retained as {sidecar.name}")
@@ -691,7 +715,12 @@ def attempt(cell, number, endpoint, admin_key, running_image=None, *, image_deta
             "observedServer": identity}
 
 
-def validate_attempt(record, receipt, cell, *, run_id, run_attempt, at=None):
+def validate_attempt(record, receipt, cell, *, run_id, run_attempt, at=None,
+                     pinned_manifest=None, pinned_manifest_digest=None):
+    if (pinned_manifest is None) != (pinned_manifest_digest is None):
+        raise ValueError("captured manifest and digest must be supplied together")
+    if pinned_manifest_digest is not None and not re.fullmatch(r"[0-9a-f]{64}", pinned_manifest_digest):
+        raise ValueError("captured manifest digest must be SHA256")
     driver, _ = drivers()
     driver.validate_receipt(receipt, HERE / "receipt.schema.json")
     # A receipt speaks only for its own cell kind: a build receipt ("none"), or live evidence of
@@ -708,11 +737,12 @@ def validate_attempt(record, receipt, cell, *, run_id, run_attempt, at=None):
         raise ValueError("cell receipt does not cover the pinned journey contract")
     if receipt["status"] == "pass" and receipt["roster"]["status"] != "pass":
         raise ValueError("passing receipt lacks authoritative candidate roster evidence")
-    pinned = manifest()
+    pinned = manifest() if pinned_manifest is None else pinned_manifest
+    pinned_digest = candidate_digest() if pinned_manifest_digest is None else pinned_manifest_digest
     server = pinned["components"]["honua-server"]
     if (record.get("cell") != cell or receipt["target"]["id"] != cell
             or record.get("runId") != run_id or record.get("runAttempt") != run_attempt
-            or record.get("candidateDigest") != candidate_digest()
+            or record.get("candidateDigest") != pinned_digest
             or receipt["release"] != pinned["platformRelease"]
             or receipt["clientArtifacts"] != driver.pins.receipt_pins(pinned)):
         raise ValueError("cell receipt is bound to the wrong candidate, run or cell")

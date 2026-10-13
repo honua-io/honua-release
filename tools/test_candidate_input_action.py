@@ -180,3 +180,36 @@ def test_default_non_trunk_run_preserves_mismatched_parent_refusal(history):
     result = adopt(history, sha, run_sha='f' * 40, run_ref='refs/tags/honua-2026.1')
     assert result.returncode != 0
     assert "not this run's commit" in result.stdout
+
+
+def test_versioned_deployment_bundle_is_copied_byte_for_byte(history):
+    repo, _, _ = history
+    (repo / 'certification').mkdir()
+    bundle = b'{"schema":"honua.deployment-qualification-bundle/v1","records":{}}\n'
+    (repo / 'certification/deployment-qualification.json').write_bytes(bundle)
+    candidate = snapshot(history)
+    result = adopt(history, candidate)
+    assert result.returncode == 0, result.stderr
+    assert (repo / 'certification/deployment-qualification.json').read_bytes() == bundle
+    # Adoption does not treat an empty bundle as qualification; the validator owns admission.
+
+
+def test_snapshot_without_deployment_bundle_removes_stale_local_proof(history):
+    candidate = snapshot(history)
+    repo, _, _ = history
+    (repo / 'certification').mkdir()
+    proof = repo / 'certification/deployment-qualification.json'
+    proof.write_text('{"stale":true}\n')
+    result = adopt(history, candidate)
+    assert result.returncode == 0, result.stderr
+    assert not proof.exists()
+
+
+def test_symlinked_deployment_bundle_refused_before_any_adoption(history):
+    repo, _, _ = history
+    (repo / 'certification').mkdir()
+    (repo / 'certification/deployment-qualification.json').symlink_to('../platform-manifest.yaml')
+    candidate = snapshot(history)
+    result = adopt(history, candidate)
+    assert result.returncode != 0
+    assert (repo / 'platform-manifest.yaml').read_text() == 'original: true\n'

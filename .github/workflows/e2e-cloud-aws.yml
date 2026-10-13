@@ -16,6 +16,11 @@ on:
     - cron: "17 7 * * *"          # nightly; the train consumes the latest green (Phase 2)
   workflow_dispatch:
     inputs:
+      prepared_ref:
+        description: Unadmitted data-only snapshot at refs/prepared-deployments/<sha>; never a candidate ref
+        required: false
+        type: string
+        default: ""
       require_real:
         description: "Promote BLOCKED/parity-divergence/not-certified scenarios to FAIL (per-RC, with creds wired)"
         type: boolean
@@ -49,6 +54,7 @@ on:
   workflow_call:
     inputs:
       candidate_ref: { required: false, type: string, default: "" }
+      prepared_ref: { required: false, type: string, default: "" }
       require_real:
         type: boolean
         default: false
@@ -108,6 +114,12 @@ jobs:
         if: ${{ inputs.candidate_ref }}
         uses: ./.github/actions/candidate-input
         with:
+          candidate_ref: ${{ inputs.candidate_ref }}
+      - name: Use the unadmitted prepared deployment inputs
+        if: ${{ inputs.prepared_ref }}
+        uses: ./.github/actions/prepared-deployment-input
+        with:
+          prepared_ref: ${{ inputs.prepared_ref }}
           candidate_ref: ${{ inputs.candidate_ref }}
       - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
         with:
@@ -362,6 +374,7 @@ jobs:
       # Preview cell. Every cell in this matrix is GA (aws-eks since honua-release#203), so none is.
       preview: false
       candidate_ref: ${{ inputs.candidate_ref }}
+      prepared_ref: ${{ inputs.prepared_ref }}
       require_real: ${{ inputs.require_real || false }}
       cost_ceiling_usd: ${{ inputs.cost_ceiling_usd || '20' }}
       # Both deployable artifacts are resolved from the frozen platform manifest by the candidate job.
@@ -473,6 +486,12 @@ jobs:
         if: ${{ inputs.candidate_ref }}
         uses: ./.github/actions/candidate-input
         with:
+          candidate_ref: ${{ inputs.candidate_ref }}
+      - name: Use the unadmitted prepared deployment inputs
+        if: ${{ inputs.prepared_ref }}
+        uses: ./.github/actions/prepared-deployment-input
+        with:
+          prepared_ref: ${{ inputs.prepared_ref }}
           candidate_ref: ${{ inputs.candidate_ref }}
       - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
         with:

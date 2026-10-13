@@ -121,14 +121,20 @@ class Transport:
         self.workdir, self.credentials = Path(workdir), credentials
         self.opener = urllib.request.build_opener(discovery._NoRedirect())
 
+    def credential(self, principal):
+        value = self.credentials[principal]
+        value = value() if callable(value) else value
+        if not isinstance(value, str) or not value:
+            raise ExecutionError("principal", "configured credential is unavailable")
+        self._issued_credentials = [*(getattr(self, "_issued_credentials", [])), value]
+        return value
+
     def http(self, method, path, *, principal="proposer", body=None, expected=(200,), extra_headers=None):
         url = safe_url(self.base_url, path)
         headers = {"Accept": "application/json", "Cache-Control": "no-cache"}
         headers.update(extra_headers or {})
         if principal is not None:
-            credential = self.credentials[principal]
-            if callable(credential):
-                credential = credential()
+            credential = self.credential(principal)
             if credential.startswith("Bearer "):
                 headers["Authorization"] = credential
             else:
@@ -174,9 +180,12 @@ class Transport:
 
         if not self.proxy or not self.proxy.is_file():
             raise ExecutionError(name, "verified installed proxy is unavailable", blocked=True)
+        credential = self.credential(principal)
+        bearer = credential.startswith("Bearer ")
         with probes.McpProxySession(str(self.proxy), self.base_url + "/mcp",
-                                    {"HONUA_API_KEY": self.credentials[principal],
-                                     "HONUA_ADMIN_KEY": "", "HONUA_MCP_AUTH_TOKEN": ""}) as session:
+                                    {"HONUA_API_KEY": "" if bearer else credential,
+                                     "HONUA_ADMIN_KEY": "",
+                                     "HONUA_MCP_AUTH_TOKEN": credential[7:] if bearer else ""}) as session:
             initialized = session.initialize(workflow_view="setup")
             if "error" in initialized:
                 raise ExecutionError(name, "proxy initialize refused")
@@ -199,7 +208,8 @@ class Transport:
             return result
 
     def secret_values(self):
-        return credential_values(self.credentials)
+        return credential_values(self.credentials) + [v.removeprefix("Bearer ")
+            for v in getattr(self, "_issued_credentials", [])]
 
     def cli_approve(self, proposal_id, principal):
         return self.cli_admin("operate", "approveOperationProposal", principal,
@@ -233,7 +243,10 @@ class Transport:
         config.chmod(0o600)
         config.write_text(json.dumps({"profiles": {name: {"baseUrl": self.base_url}
                                                   for name in ("operator", "proposer", "approver")}}))
-        env = {"PATH": os.environ.get("PATH", ""), "HONUA_ADMIN_KEY": self.credentials[principal],
+        credential = self.credential(principal)
+        bearer = credential.startswith("Bearer ")
+        env = {"PATH": os.environ.get("PATH", ""),
+               "HONUA_BEARER_TOKEN" if bearer else "HONUA_ADMIN_KEY": credential[7:] if bearer else credential,
                "HONUA_CONFIG_HOME": str(self.workdir / "profiles")}
         try:
             result = subprocess.run(args, env=env, capture_output=True, text=True, timeout=120, check=False)
