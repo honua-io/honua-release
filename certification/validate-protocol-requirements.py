@@ -301,7 +301,10 @@ def main() -> None:
         "scenario_facets",
     }
     required_assignment_fields = allowed_assignment_fields - {"catalog_capability_key"}
+    known_capabilities = {capability["key"] for capability in server["capabilities"]}
     for assignment in harness_assignments:
+        if assignment.get("capability_key") not in known_capabilities:
+            raise ValueError("Server protocol harness assignment names an unknown capability.")
         if not required_assignment_fields.issubset(assignment) or not set(assignment).issubset(allowed_assignment_fields):
             raise ValueError("Server protocol harness assignment has unknown or missing fields.")
         if not re.fullmatch(r"(?:GET|POST|PUT|PATCH|DELETE) /\S(?:.*\S)?", assignment["operation"]):
@@ -349,17 +352,19 @@ def main() -> None:
     expected_harness_capabilities = {
         capability
         for capability in governed_official_capabilities
-        if not sdk_has_entrypoints(capability)
+        if capability in implemented_keys and not sdk_has_entrypoints(capability)
     }
     actual_harness_capabilities = {
         assignment["capability_key"] for assignment in harness_assignments
         if assignment["capability_key"] in implemented_keys
     }
-    if actual_harness_capabilities != expected_harness_capabilities:
+    # Governed write operations supplement SDK-covered capabilities; they are not gaps.
+    # The exact operation/test/facet denominator below still requires every implemented
+    # assignment and refuses extra, omitted or altered generated rows.
+    if not expected_harness_capabilities.issubset(actual_harness_capabilities):
         raise ValueError(
-            "Server protocol harness assignments differ from the operation-contract gaps "
-            f"(missing={sorted(expected_harness_capabilities - actual_harness_capabilities)}, "
-            f"unexpected={sorted(actual_harness_capabilities - expected_harness_capabilities)})"
+            "Server protocol harness assignments omit operation-contract gaps "
+            f"(missing={sorted(expected_harness_capabilities - actual_harness_capabilities)})"
         )
     expected_harness_rows = {
         (

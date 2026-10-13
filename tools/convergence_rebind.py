@@ -256,6 +256,27 @@ def fetch_snapshots(root: Path, gh: GitHub, revisions: dict[str, Any], pins: dic
     return fetched
 
 
+def project_official_protocol_assignments(root: Path) -> tuple[str, bytes]:
+    """Follow the exact vendored implemented protocol surface; never edit snapshots.
+
+    This is the existing validator's equality rule, applied to release-owned policy
+    during PLAN/APPLY. The plan exposes additions/demotions for normal review.
+    Historical catalog and policy files stay unchanged until that apply.
+    """
+    path = "certification/sources/official-sdk-protocol-assignments.v1.json"
+    assignments = load_json(root, Path(path))
+    matrix = load_json(root, Path("certification/sources/server/capability-matrix.v1.json"))
+    prefixes = ("serve.", "process.", "editing.", "routing.", "geocoding.", "styling.")
+    implemented = sorted(row["key"] for row in matrix["capabilities"]
+                         if row["key"].startswith(prefixes) and row.get("maturity", {}).get("implemented"))
+    if len(implemented) != len(set(implemented)):
+        raise Finding("candidate matrix repeats an implemented protocol capability")
+    if assignments["capabilities"] == implemented:
+        return path, (root / path).read_bytes()
+    assignments["capabilities"] = implemented
+    return path, (json.dumps(assignments, indent=2) + "\n").encode()
+
+
 def run_catalog(root: Path, receipt_min: str) -> None:
     generator = root / "certification/generate-protocol-requirements.py"
     text = generator.read_text(encoding="utf-8")
@@ -287,6 +308,8 @@ def prepare(root: Path, gh: GitHub, receipt_min_arg: str) -> tuple[dict[str, Any
         (trial / REVISIONS).write_text(json.dumps(revised, indent=2) + "\n", encoding="utf-8")
         for path, data in snapshots.items():
             (trial / path).write_bytes(data)
+        assignments_path, assignments_bytes = project_official_protocol_assignments(trial)
+        (trial / assignments_path).write_bytes(assignments_bytes)
         run_catalog(trial, receipt_min)
         new_catalog_bytes = (trial / CATALOG).read_bytes()
         new_generator_bytes = (trial / "certification/generate-protocol-requirements.py").read_bytes()
@@ -316,7 +339,13 @@ def prepare(root: Path, gh: GitHub, receipt_min_arg: str) -> tuple[dict[str, Any
         },
         "gate_workflow_pins": [{"path": str(path), "current": PIN_RE.search((root / path).read_text()).group(0), "proposed_comment": REBIND_COMMENT} for path in CALLERS],
     }
+    plan["official_protocol_assignments"] = {
+        "path": assignments_path,
+        "added": sorted(set(json.loads(assignments_bytes)["capabilities"]) - set(load_json(root, Path(assignments_path))["capabilities"])),
+        "removed": sorted(set(load_json(root, Path(assignments_path))["capabilities"]) - set(json.loads(assignments_bytes)["capabilities"])),
+    }
     payloads = dict(snapshots)
+    payloads[assignments_path] = assignments_bytes
     revised = copy.deepcopy(source_doc)
     for name, pin in pins.items(): revised["sources"][name]["commit"] = pin
     payloads[str(REVISIONS)] = (json.dumps(revised, indent=2) + "\n").encode()
@@ -334,6 +363,11 @@ def human(plan: dict[str, Any], root: Path = ROOT) -> str:
     for name, values in plan["bindings"].items(): lines.append(f"  {name}: {values['current']} -> {values['proposed']}")
     lines += ["", "Gate workflow pins:"]
     for pin in plan["gate_workflow_pins"]: lines.append(f"  {pin['path']}: {pin['current']} -> {pin['proposed_comment']}")
+    policy = plan.get("official_protocol_assignments")
+    if policy:
+        lines += ["", f"Official protocol assignments: {policy['path']}",
+                  f"  added: {', '.join(policy['added']) or 'none'}",
+                  f"  removed: {', '.join(policy['removed']) or 'none'}"]
     lines += ["", "Apply mode stages the catalog; the workflow then aggregates, verifies, and finalizes one review PR. Repository variables activate automatically only after merge."]
     return "\n".join(lines)
 
