@@ -164,3 +164,19 @@ def test_wrong_authenticated_identity_or_scope_refused(kind, value):
     next(item for item in claims if item['type'] == kind)['value'] = value
     with pytest.raises(AssertionError):
         check_principal('admin-read-a', claims, 200, 403)
+
+
+@pytest.mark.parametrize("status,body,expected", [
+    (403, "", {"rawBody": ""}),
+    (502, "upstream unavailable", {"rawBody": "upstream unavailable"}),
+    (202, '{"jobId":"real-job"}', {"jobId": "real-job"}),
+    (409, '{"status":409}', {"status": 409}),
+])
+def test_import_receipt_retains_wire_body_without_changing_status(status, body, expected):
+    import requests
+    from response_receipt import response_body
+    response = requests.Response()
+    response.status_code = status
+    response._content = body.encode()
+    assert response_body(response) == expected
+    assert response.status_code == status
