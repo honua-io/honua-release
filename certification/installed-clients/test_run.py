@@ -162,7 +162,7 @@ class MatrixExpectationTests(unittest.TestCase):
                 "pypi-sdk-geoservices": ("blocked", [
                     "https://github.com/honua-io/honua-server/issues/5407",
                 ]),
-                "pypi-sdk-ogc-tiles": ("blocked", ["https://github.com/honua-io/honua-sdk-python/issues/255"]),
+                "pypi-sdk-ogc-tiles": ("active", None),
                 "nuget-sdk-geoservices": ("blocked", ["https://github.com/honua-io/honua-server/issues/5407"]),
                 "nuget-sdk-ogc-tiles": ("blocked", ["https://github.com/honua-io/honua-sdk-dotnet/issues/405"]),
                 "npm-cli-workflow": ("active", None),
