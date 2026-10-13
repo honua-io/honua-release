@@ -112,6 +112,7 @@ jobs:
       - name: Run every getting-started block against the candidate
         env:
           GH_TOKEN: ${{ github.token }}
+          E2E_OUT: ${{ github.workspace }}/e2e/out
           EVIDENCE_URI: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
         run: |
           python certification/executable-docs/docker_regressions.py
