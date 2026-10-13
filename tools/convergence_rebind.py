@@ -67,7 +67,7 @@ VENDORED: dict[str, tuple[tuple[str, str], ...]] = {
     "server-certification": (("docs/gis/data/protocol-harness-assignments.v1.json", "certification/sources/server/protocol-harness-assignments.v1.json"),),
     "sdk-js": (("config/protocol-certification.v1.json", "certification/sources/sdk-js/protocol-certification.v1.json"), ("config/sdk-coverage.v1.json", "certification/sources/sdk-js/sdk-coverage.v1.json")),
     "sdk-python": (("conformance/protocol-certification.v1.json", "certification/sources/sdk-python/protocol-certification.v1.json"), ("compatibility/sdk-coverage.v1.json", "certification/sources/sdk-python/sdk-coverage.v1.json")),
-    "sdk-dotnet": (("contracts/sdk-certification.v1.json", "certification/sources/sdk-dotnet/sdk-certification.v1.json"), ("contracts/sdk-coverage.v1.json", "certification/sources/sdk-dotnet/sdk-coverage.v1.json")),
+    "sdk-dotnet": (("contracts/sdk-certification.v1.json", "certification/sources/sdk-dotnet/sdk-certification.v1.json"), ("contracts/sdk-coverage.v1.json", "certification/sources/sdk-dotnet/sdk-coverage.v1.json"), (".release-please-manifest.json", "certification/sources/sdk-dotnet/release-please-manifest.json")),
 }
 
 
