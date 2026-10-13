@@ -51,6 +51,10 @@ def align_components_to_published(root: Path) -> None:
     manifest = yaml.safe_load(text)
     policy = MODULE.load_json(root, Path("certification/sources/official-sdk-protocol-assignments.v1.json"))
     historical = {row["source"]: row["version"] for row in policy["clients"]}
+    # StubGitHub serves the retained server declaration too. Bind this synthetic
+    # test to that declaration's source, not an independently advancing image pin.
+    retained = MODULE.load_json(root, MODULE.REVISIONS)["sources"]
+    manifest["protocolCertification"]["serverCertificationProducerSha"] = retained["server-certification"]["commit"]
     for source, component, artifact in MODULE.SDK_PRODUCERS:
         manifest["components"][component]["version"] = historical[source]
         manifest["clientArtifacts"][artifact]["version"] = historical[source]
@@ -115,7 +119,8 @@ def test_plan_targets_published_sdk_pins_when_components_match(tmp_path):
         published = manifest["clientArtifacts"][artifact]["sourceSha"]
         assert pins[source] == (published, "manifest/frozen")
         assert manifest["components"][component]["sha"] == published
-    assert pins["server-certification"] == ("0e03bdd06b3ca3fb1b82388110bb5dfa19b9f8fa", "manifest/frozen")
+    retained = MODULE.load_json(root, MODULE.REVISIONS)["sources"]["server-certification"]["commit"]
+    assert pins["server-certification"] == (retained, "manifest/frozen")
     assert plan["receipt_schema_min"] == {"current": "v2", "proposed": "v2"}
     assert plan["bindings"]["PROTOCOL_CERTIFICATION_MATRIX_COMMIT"]["current"] == "pending"
     assert manifest["protocolCertification"]["ledger"]["status"] == "pending"

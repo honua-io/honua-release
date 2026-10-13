@@ -18,7 +18,11 @@ ARTIFACT = {"id": 1234, "sha256": "sha256:" + "c" * 64,
 
 @pytest.fixture
 def manifest():
-    return yaml.safe_load(MANIFEST_PATH.read_text())
+    candidate = yaml.safe_load(MANIFEST_PATH.read_text())
+    # A real candidate intentionally stays pending until its ECR mirror is
+    # observed. These synthetic positive controls need an immutable test digest.
+    candidate["components"]["honua-server"]["awsLambdaEcrDigest"] = "sha256:" + "e" * 64
+    return candidate
 
 
 @pytest.fixture
@@ -152,6 +156,14 @@ def test_actual_precut_fact_shape_is_scoped_not_ga(manifest, deployment, bound_r
     assert receipt["scope"]["fullGaQualified"] is False
     assert receipt["scope"]["completedBillItems"] == [1, 2]
     assert receipt["phase"] == "candidate-precut"
+
+
+@pytest.mark.parametrize("ecr_digest", ["pending-ecr-mirror", "", None])
+def test_unobserved_ecr_mirror_cannot_qualify(manifest, deployment, raw_lambda, ecr_digest):
+    manifest["components"]["honua-server"]["awsLambdaEcrDigest"] = ecr_digest
+    raw_lambda["artifact"]["ecrDigest"] = ecr_digest
+    with pytest.raises(dq.QualificationError, match="immutable source and image pins"):
+        dq.lambda_precut(raw_lambda, manifest, deployment)
 
 
 def test_historical_receipt_cannot_be_rewrapped(manifest, deployment, raw_lambda, producer_run):
