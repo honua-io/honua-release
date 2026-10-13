@@ -141,6 +141,34 @@ def check_server_source(checkout, expected):
         fail('canonical source projection project missing')
 
 
+def producer_snapshot(paths):
+    revision = git(RELEASE, 'rev-parse', 'HEAD')
+    captured = {}
+    for path in paths:
+        committed = subprocess.check_output(['git', '-C', str(RELEASE), 'show',
+                                             revision + ':' + path.relative_to(RELEASE).as_posix()])
+        if committed != path.read_bytes():
+            fail('exporter code differs from its reviewed commit')
+        captured[path] = committed
+    return revision, captured
+
+
+def verify_producer_snapshot(revision, captured):
+    if git(RELEASE, 'rev-parse', 'HEAD') != revision or any(path.read_bytes() != value for path, value in captured.items()):
+        fail('exporter source changed during preparation')
+
+
+def source_build_env(env, inherited):
+    result = {**env, **{k: v for k, v in inherited.items()
+                        if k.startswith('NuGetPackageSourceCredentials_')}}
+    # The supported build-slot wrapper sets this only after acquiring its lock.
+    # Preserve that ownership marker across credential isolation for the dotnet
+    # shim's documented reentrancy; never invent it for an unlocked invocation.
+    if inherited.get('HONUA_BUILD_SLOT_HELD') == '1':
+        result['HONUA_BUILD_SLOT_HELD'] = '1'
+    return result
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--server-checkout', type=Path, required=True)
@@ -155,11 +183,7 @@ def main():
     check_server_source(source, args.server_source)
     producer_files = [HERE/'export_catalog.py', HERE/'run.py', HERE/'catalog-export/Program.cs',
                       HERE/'catalog-export/CatalogExport.csproj', RELEASE/'tools/verify_client_artifacts.py']
-    for path in producer_files:
-        committed = subprocess.check_output(['git', '-C', str(RELEASE), 'show',
-                                             'HEAD:' + path.relative_to(RELEASE).as_posix()])
-        if committed != path.read_bytes():
-            fail('exporter code differs from its reviewed commit')
+    producer_source, producer_bytes = producer_snapshot(producer_files)
     manifest_bytes = args.platform_manifest.read_bytes()
     if digest(manifest_bytes) != args.platform_sha256:
         fail('platform manifest SHA256 mismatch')
@@ -180,12 +204,16 @@ def main():
         env = replay.isolated_env(root)
         # The server build needs its ordinary authenticated NuGet configuration;
         # secrets stay only in this subprocess environment and private logs.
-        build_env = {**env, **{k: v for k, v in os.environ.items()
-                              if k.startswith('NuGetPackageSourceCredentials_')}}
+        build_env = source_build_env(env, os.environ)
+        adapter_source = root/'adapter-source'
+        adapter_source.mkdir()
+        for path, contents in producer_bytes.items():
+            if path.parent.name == 'catalog-export':
+                (adapter_source/path.name).write_bytes(contents)
         commands = [
             ['dotnet', 'build', str(source/PROJECT), '--configuration', 'Release',
              '--no-incremental', '--artifacts-path', str(root/'server')],
-            ['dotnet', 'build', str(HERE/'catalog-export/CatalogExport.csproj'),
+            ['dotnet', 'build', str(adapter_source/'CatalogExport.csproj'),
              '--configuration', 'Release', '--artifacts-path', str(root/'adapter')],
         ]
         for index, command in enumerate(commands):
@@ -209,6 +237,7 @@ def main():
         if outputs[0] != outputs[1]:
             fail('source projection is not deterministic')
         check_server_source(source, args.server_source)
+        verify_producer_snapshot(producer_source, producer_bytes)
         projection = json.loads(outputs[0])
         result = compose_manifest(projection, platform, args.platform_sha256,
                                   args.server_source, args.server_image)
@@ -216,8 +245,8 @@ def main():
         receipt = {'schemaVersion': 'honua.setup-source-export/v1',
                    'scope': 'offline expected catalog preparation; not runtime parity or qualification',
                    'serverSource': args.server_source, 'serverTree': git(source, 'rev-parse', 'HEAD^{tree}'),
-                   'producerSource': git(RELEASE, 'rev-parse', 'HEAD'),
-                   'producerFilesSha256': {p.relative_to(RELEASE).as_posix(): digest(p.read_bytes()) for p in producer_files},
+                   'producerSource': producer_source,
+                   'producerFilesSha256': {p.relative_to(RELEASE).as_posix(): digest(value) for p, value in producer_bytes.items()},
                    'platformManifestSha256': args.platform_sha256,
                    'expectedManifestSha256': digest(encoded), 'projectionSha256': digest(outputs[0]),
                    'assemblySha256': {p.name: digest(p.read_bytes()) for p in tests.parent.glob('*.dll')},

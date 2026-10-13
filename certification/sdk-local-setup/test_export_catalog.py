@@ -110,6 +110,26 @@ class ProjectionTests(unittest.TestCase):
 
 
 class SourceAndCandidateTests(unittest.TestCase):
+    def test_changed_producer_commit_or_bytes_refuse_before_receipt(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory)/'producer.py'
+            path.write_bytes(b'reviewed')
+            with patch.object(export, 'git', return_value='a'*40):
+                export.verify_producer_snapshot('a'*40, {path:b'reviewed'})
+                path.write_bytes(b'changed')
+                with self.assertRaisesRegex(ValueError, 'source changed'):
+                    export.verify_producer_snapshot('a'*40, {path:b'reviewed'})
+            path.write_bytes(b'reviewed')
+            with patch.object(export, 'git', return_value='b'*40):
+                with self.assertRaisesRegex(ValueError, 'source changed'):
+                    export.verify_producer_snapshot('a'*40, {path:b'reviewed'})
+
+    def test_build_lock_marker_is_preserved_only_when_inherited(self):
+        for inherited in [{}, {'HONUA_BUILD_SLOT_HELD':'0'}]:
+            self.assertNotIn('HONUA_BUILD_SLOT_HELD', export.source_build_env({'PATH':'/bin'}, inherited))
+        actual = export.source_build_env({'PATH':'/bin'}, {'HONUA_BUILD_SLOT_HELD':'1', 'GITHUB_TOKEN':'private'})
+        self.assertEqual(actual, {'PATH':'/bin', 'HONUA_BUILD_SLOT_HELD':'1'})
+
     def test_candidate_package_identity_and_exact_shipped_tag_are_bound(self):
         image = 'ghcr.io/honua-io/honua-server:reviewed@sha256:' + 'b'*64
         result = export.compose_manifest(projection(), platform(), 'd'*64, 'a'*40, image)

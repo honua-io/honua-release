@@ -30,6 +30,14 @@ code hashes, candidate digest, and actual public package verification. Private
 build logs are not proof artifacts and must not be uploaded. The new output
 directory is never reused or overwritten.
 
+Use a clean hosted worker for the full source build. In a shared local environment,
+acquire the supported build lock exactly once: its acquired-lock
+`HONUA_BUILD_SLOT_HELD=1` marker is preserved for the dotnet shim's reentrancy.
+Do not set that marker without acquiring the lock or nest a wrapper that loses
+the marker around another locking shim. The adapter is compiled from captured
+reviewed source bytes, and the exporter rechecks its original commit and files
+after the build before writing provenance.
+
 ```bash
 python certification/sdk-local-setup/export_catalog.py \
   --server-checkout "$SERVER_CHECKOUT" --server-source "$SERVER_SOURCE" \
