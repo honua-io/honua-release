@@ -26,6 +26,26 @@ on:
       - ".github/workflows/e2e-local-docker.yml"
   workflow_dispatch:
     inputs:
+      control_plane_parity:
+        description: "Run independent Production SDK control-plane engineering replay"
+        type: boolean
+        default: false
+      parity_server_image:
+        description: "Supported immutable ghcr.io/honua-io/honua-server digest for independent replay"
+        type: string
+        default: ""
+      parity_server_source:
+        description: "Exact 40-character source of that supported server image"
+        type: string
+        default: ""
+      parity_final_route:
+        description: "Require published SDK/MCP intent support and bounded approved private-route readback"
+        type: boolean
+        default: false
+      parity_terminal_draft:
+        description: "Require published terminal draft adapter and same-object four-surface denial proof"
+        type: boolean
+        default: false
       require_real:
         description: "Promote BLOCKED/SKIPPED to FAIL (run only when images+metrics are real)"
         type: boolean
@@ -71,7 +91,7 @@ jobs:
       # probes actually install + run; while pins are placeholders the probes self-report SKIP.
       - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
-          node-version: "20"
+          node-version: "22.23.3"
       - uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68 # v6.0.0
         with:
           dotnet-version: "10.0.x"
@@ -260,7 +280,7 @@ jobs:
       - name: Resolve the pinned honua-console revision
         run: |
           set -euo pipefail
-          TRUSTED_SHA="dcb9eb2b39ed4d0626462ce1bcd762e4717e0071"
+          TRUSTED_SHA="c652ef22612d83277f8d39384be61411915dda1d"
           # awk, not PyYAML: this job installs no python packages, and boot.sh already reads the
           # manifest exactly this way for the server image. Keeping one idiom avoids adding a
           # dependency to a job whose whole purpose is to boot a container.
@@ -282,7 +302,7 @@ jobs:
         with:
           repository: honua-io/honua-console
           # Static by design: host-executed code must be review-visible; resolver above enforces manifest equality.
-          ref: dcb9eb2b39ed4d0626462ce1bcd762e4717e0071
+          ref: c652ef22612d83277f8d39384be61411915dda1d
           path: _console
 
       # S9-demos drives the five honua-site demos against the seeded candidate. The demos ARE the
@@ -294,7 +314,7 @@ jobs:
       - name: Resolve the pinned honua-site revision
         run: |
           set -euo pipefail
-          TRUSTED_SHA="0db19d7e6e5826fd885fb8f9c21c1798077c9b71"
+          TRUSTED_SHA="b024902e2c4bc41bf7a5ce39d159bf65e35c9675"
           # awk, not PyYAML: this job installs no python packages, and the console/server pins are
           # already read exactly this way. One idiom, no new dependency.
           SHA="$(awk '
@@ -318,7 +338,7 @@ jobs:
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           repository: honua-io/honua-site
-          ref: 0db19d7e6e5826fd885fb8f9c21c1798077c9b71
+          ref: b024902e2c4bc41bf7a5ce39d159bf65e35c9675
           path: _site
 
       # release#231 WI-8: record the fixture revision git reports for each checkout, for the lock's
@@ -351,12 +371,18 @@ jobs:
           RELEASE_GH_TOKEN: ${{ secrets.RELEASE_GH_TOKEN || github.token }}
         run: |
           set -euo pipefail
-          dotnet nuget update source github-honua \
-            --username "${GITHUB_ACTOR}" \
-            --password "${RELEASE_GH_TOKEN}" \
-            --store-password-in-clear-text \
-            --valid-authentication-types basic \
-            --configfile _console/NuGet.config
+          # Authenticate the GitHub Packages feed only when the pinned Console declares it. From
+          # c652ef22 the Console restores Honua.Sdk from nuget.org alone, and `update source` on an
+          # undeclared source crashes ("Object reference not set to an instance of an object").
+          # The restore below still runs either way and fails on any unresolvable package.
+          if grep -q 'key="github-honua"' _console/NuGet.config; then
+            dotnet nuget update source github-honua \
+              --username "${GITHUB_ACTOR}" \
+              --password "${RELEASE_GH_TOKEN}" \
+              --store-password-in-clear-text \
+              --valid-authentication-types basic \
+              --configfile _console/NuGet.config
+          fi
           dotnet restore _console/src/Honua.Console.Web/Honua.Console.Web.csproj \
             --configfile _console/NuGet.config \
             --nologo
@@ -374,12 +400,12 @@ jobs:
           E2E_CONSOLE_DIR: ${{ steps.console.outcome == 'success' && format('{0}/_console', github.workspace) || '' }}
           # Pin the driver's console-sha note to what we actually checked out, so a failure message
           # never cites a different revision than the one under test.
-          E2E_CONSOLE_SHA: dcb9eb2b39ed4d0626462ce1bcd762e4717e0071
+          E2E_CONSOLE_SHA: c652ef22612d83277f8d39384be61411915dda1d
           # Left EMPTY when the checkout failed, so the demos driver reports its own honest BLOCKED.
           E2E_SITE_DIR: ${{ steps.site.outcome == 'success' && format('{0}/_site', github.workspace) || '' }}
           # Quoted back in the driver's BLOCKED message so a failure never cites a different
           # revision than the one under test.
-          E2E_SITE_SHA: 0db19d7e6e5826fd885fb8f9c21c1798077c9b71
+          E2E_SITE_SHA: b024902e2c4bc41bf7a5ce39d159bf65e35c9675
         run: bash e2e/harness/run_all.sh run
 
       - name: Format + protocol coverage summary
@@ -427,3 +453,122 @@ jobs:
             e2e/out/console-playwright/**
           if-no-files-found: ignore
           retention-days: 14
+
+  # Slice 1, Redis-off topology. The same candidate image and drivers as slice1, booted with
+  # e2e/harness/compose.no-redis.yml (the harness copy of honua-server's docker-compose.no-redis.yml):
+  # no redis service and no ConnectionStrings__Redis. Under the 2026.1 topology ruling a Redis-off
+  # server serves, configures and styles/renders, and refuses durable jobs, Studio drafts, proposals
+  # and approvals with typed `unavailable` errors. Drivers assert those refusals when E2E_REDIS=off;
+  # any other failure, and a stack that never boots, fails this job on every trigger exactly as in
+  # slice1. require_real has the same meaning here. This is the local cell for the Redis-off GA cells
+  # of the cloud journey, so a topology regression is caught before an AWS run.
+  slice1-redis-off:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Use the immutable candidate inputs
+        if: ${{ inputs.candidate_ref }}
+        uses: ./.github/actions/candidate-input
+        with:
+          candidate_ref: ${{ inputs.candidate_ref }}
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.12"
+
+      - name: Static checks
+        run: bash e2e/harness/run_all.sh check
+
+      - name: Log in to ghcr
+        uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4.6.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+        continue-on-error: true
+
+      - name: Run Slice-1 harness on the Redis-off topology
+        env:
+          E2E_REDIS: "off"
+          E2E_REQUIRE_REAL: ${{ (inputs.require_real || github.event.inputs.require_real || github.event_name == 'schedule') && '1' || '' }}
+        run: bash e2e/harness/run_all.sh run
+
+      - name: Redis-off scenario summary
+        if: always()
+        run: |
+          set -e
+          f=e2e/gate-report.json
+          [ -f "$f" ] || { echo "no gate-report"; exit 0; }
+          {
+            echo "## e2e Slice-1 Redis-off ($(jq -r '.topology // "unknown"' "$f")) - $(jq -r .status "$f")";
+            echo ""; echo "| scenario | status | why |"; echo "|---|---|---|";
+            jq -r '.scenarios[] | "| \(.scenario) | \(.status) | \((.why // "") | gsub("\\|"; "/") | .[0:200]) |"' "$f";
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload Slice-1 Redis-off gate-report.json
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: e2e-slice1-redis-off-gate-report
+          path: e2e/gate-report.json
+          if-no-files-found: warn
+
+  control-plane-parity:
+    if: ${{ github.event_name == 'workflow_dispatch' && inputs.control_plane_parity }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    permissions:
+      contents: read
+      packages: read
+      id-token: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.12"
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: "22.23.3"
+      - name: Install replay prerequisites
+        run: python -m pip install -r tools/requirements-nightly.txt requests boto3 pytest
+      - name: Replay identity and redaction controls
+        run: |
+          python -m pytest certification/control-plane-parity/test_run.py -q
+          node --test certification/control-plane-parity/client-identity.test.mjs
+          node --test certification/control-plane-parity/publication-contract.test.mjs
+          node --test certification/control-plane-parity/publication-route.test.mjs
+          node --test certification/control-plane-parity/terminal-draft.test.mjs
+      - name: Authenticate image pull
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: printf '%s' "$GH_TOKEN" | docker login ghcr.io -u "$GITHUB_ACTOR" --password-stdin
+      - uses: aws-actions/configure-aws-credentials@e1253824e5c10ff9df46874f81ed3ec929e19cfd # v6.3.0
+        with:
+          role-to-assume: ${{ vars.HONUA_AWS_ROLE_ARN }}
+          aws-region: us-east-1
+      - name: Genuine Production command replay
+        timeout-minutes: 25
+        env:
+          GH_TOKEN: ${{ github.token }}
+          HONUA_SERVER_IMAGE: ${{ inputs.parity_server_image }}
+          HONUA_SERVER_SOURCE: ${{ inputs.parity_server_source }}
+          HONUA_PARITY_FINAL_ROUTE: ${{ inputs.parity_final_route }}
+          HONUA_PARITY_TERMINAL_DRAFT: ${{ inputs.parity_terminal_draft }}
+          HONUA_PARITY_BUCKET: ${{ vars.HONUA_AWS_CELL_FILE_STORAGE_BUCKET }}
+          HONUA_PARITY_RUN: ${{ runner.temp }}/control-plane-parity-private
+          HONUA_PARITY_OUT: ${{ runner.temp }}/control-plane-parity-public
+        run: python certification/control-plane-parity/run.py
+      - name: Always stop owned stack and remove exact fixture object
+        if: ${{ always() }}
+        timeout-minutes: 4
+        env:
+          HONUA_PARITY_BUCKET: ${{ vars.HONUA_AWS_CELL_FILE_STORAGE_BUCKET }}
+          HONUA_PARITY_RUN: ${{ runner.temp }}/control-plane-parity-private
+          HONUA_PARITY_OUT: ${{ runner.temp }}/control-plane-parity-public
+        run: python certification/control-plane-parity/cleanup.py
+      - name: Retain sanitized engineering receipts
+        if: ${{ always() }}
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: control-plane-parity
+          path: ${{ runner.temp }}/control-plane-parity-public
+          if-no-files-found: warn

@@ -332,6 +332,101 @@ def test_run_canary_demo_mode_with_ids_configured():
     assert by_name["stac-collections"].status == "pass"
 
 
+# ---- owner decision 8 of 2026-10-10: HTTPS cells redirect plain HTTP ------------------------------
+_HOST = "r1-aws-ecs-redis-off.cert.demo.honua.io"
+
+
+def _redirect(status, location):
+    calls = []
+
+    def fetch(url):
+        calls.append(url)
+        return cc.HttpResponse(status, "", {"location": location} if location is not None else {})
+    return fetch, calls
+
+
+def test_https_redirect_passes_on_a_permanent_redirect_to_the_same_https_url():
+    for status, location in ((301, f"https://{_HOST}:443/healthz/live"), (308, f"https://{_HOST}/healthz/live")):
+        fetch, calls = _redirect(status, location)
+        r = canary.check_http_redirects_to_https(fetch, f"https://{_HOST}", True, "")
+        assert r.status == "pass", (status, r.why)
+        assert calls == [f"http://{_HOST}/healthz/live"]
+        assert r.evidence["status"] == status and r.evidence["location"] == location
+
+
+def test_https_redirect_fails_on_no_redirect_wrong_target_or_silence():
+    base = f"https://{_HOST}/"
+    cases = [
+        (200, None, "want 301/308"),
+        (302, f"https://{_HOST}/healthz/live", "want 301/308"),   # temporary is not the contract
+        (301, f"http://{_HOST}/healthz/live", "want https://"),   # redirect loop to plain HTTP
+        (301, "https://evil.example/healthz/live", "want https://"),
+        (301, f"https://{_HOST}:8443/healthz/live", "want https://"),
+        (301, f"https://{_HOST}/", "want https://"),
+        (308, None, "want https://"),
+    ]
+    for status, location, why in cases:
+        fetch, _ = _redirect(status, location)
+        r = canary.check_http_redirects_to_https(fetch, base, True, "")
+        assert r.status == "fail" and why in r.why, (status, location, r.why)
+    silent = canary.check_http_redirects_to_https(_fetcher([]), base, True, "")
+    assert silent.status == "fail" and not cc.is_endpoint_unreachable(silent)
+    # An HTTPS expectation on a plain-HTTP endpoint is a contradiction, not a skip.
+    fetch, calls = _redirect(301, f"https://{_HOST}/healthz/live")
+    assert canary.check_http_redirects_to_https(fetch, f"http://{_HOST}", True, "").status == "fail"
+    assert calls == []
+
+
+def test_https_redirect_is_blocked_with_the_reason_on_cells_that_are_not_https():
+    fetch, calls = _redirect(301, f"https://{_HOST}/healthz/live")
+    r = canary.check_http_redirects_to_https(fetch, "http://cell.elb.amazonaws.com", False,
+                                             "aws-ecs is a plain-HTTP cell")
+    assert r.status == "blocked" and r.why == "aws-ecs is a plain-HTTP cell" and calls == []
+
+
+def test_run_canary_adds_the_redirect_probe_only_when_the_cell_states_an_expectation():
+    fetch = _fetcher([])
+    assert "https-redirect" not in [r.name for r in canary.run_canary("https://x", fetch)]
+    redirect, _ = _redirect(301, "https://x/healthz/live")
+    rows = {r.name: r for r in canary.run_canary("https://x", fetch, https_redirect=(True, "HTTPS cell x"),
+                                                 redirect_fetch=redirect)}
+    assert rows["https-redirect"].status == "pass"
+    rows = {r.name: r for r in canary.run_canary("http://x", fetch, https_redirect=(False, "plain"))}
+    assert rows["https-redirect"].status == "blocked" and rows["https-redirect"].why == "plain"
+
+
+def test_make_fetch_can_return_a_redirect_without_following_it():
+    import http.server
+    import threading
+
+    class Handler(http.server.BaseHTTPRequestHandler):
+        def do_GET(self):
+            if self.path == "/healthz/live":
+                self.send_response(301)
+                self.send_header("Location", "/followed")
+                self.end_headers()
+            else:
+                self.send_response(200)
+                self.end_headers()
+                self.wfile.write(b"followed")
+
+        def log_message(self, *args):
+            pass
+
+    server = http.server.HTTPServer(("127.0.0.1", 0), Handler)
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    try:
+        url = f"http://127.0.0.1:{server.server_address[1]}/healthz/live"
+        held = cc.make_fetch(timeout=5.0, follow_redirects=False)(url)
+        assert held.status == 301 and held.headers["location"] == "/followed"
+        followed = cc.make_fetch(timeout=5.0)(url)
+        assert followed.status == 200 and followed.body == "followed"
+    finally:
+        server.shutdown()
+        server.server_close()
+
+
 if __name__ == "__main__":
     import traceback
 

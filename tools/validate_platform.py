@@ -54,6 +54,7 @@ import semver  # noqa: E402  (local module, sibling file)
 import trunk_reachability as tr  # noqa: E402
 from component_versions import version_map  # noqa: E402
 import platform_version  # noqa: E402
+import deployment_qualification as dq  # noqa: E402
 from image_platforms import image_platform_digests, verify_image_platform_digests  # noqa: E402
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
@@ -558,8 +559,14 @@ def check_lambda_operating_envelope(text: str, f: Findings) -> None:
         f.error("lambda-ga: operating envelope must not declare a Lambda qualification receipt")
 
 
-def check_deploy_qualification(manifest: dict, matrix: dict, f: Findings, *, exact_candidate: bool) -> None:
+def check_deploy_qualification(manifest: dict, matrix: dict, f: Findings, *, exact_candidate: bool,
+                               deployment_phase: str = "ga",
+                               deployment_qualification: dict | None = None) -> None:
     """A GA scope ruling is not qualification (quality contract §4.2)."""
+    if deployment_phase not in {"ga", "candidate-precut"}:
+        f.error("deployment qualification phase must be ga or candidate-precut")
+        return
+    proofs = deployment_qualification or {}
     for component, deployments in (matrix.get("deploy") or {}).items():
         for target, deployment in (deployments or {}).items():
             if not isinstance(deployment, dict):
@@ -586,7 +593,20 @@ def check_deploy_qualification(manifest: dict, matrix: dict, f: Findings, *, exa
                         f"matrix: {path}: pending Lambda GA target must not carry a qualificationReceipt"
                     )
                 if exact_candidate and (status == "ga-target" or row.get("releaseScope") == "ga-target") and status != "supported":
-                    f.error(f"exact-candidate: {path}: GA target, qualification pending; requires supported + passed + candidate-bound qualificationReceipt")
+                    if (deployment_phase == "candidate-precut" and component == "honua-server"
+                            and target == "awsLambda" and architecture == "x86_64"
+                            and status == "ga-target" and qualification == "pending"):
+                        proof = proofs.get(target)
+                        try:
+                            if not isinstance(proof, dq.VerifiedQualification):
+                                raise dq.QualificationError("verified before-execution Lambda proof is missing")
+                            proof.require_current(manifest, LAMBDA_ENVELOPE_PATH.read_bytes())
+                            if proof.receipt.get("phase") != "candidate-precut":
+                                raise dq.QualificationError("Lambda proof has the wrong qualification phase")
+                        except (OSError, ValueError) as exc:
+                            f.error(f"exact-candidate: {path}: candidate-precut refused: {exc}")
+                    else:
+                        f.error(f"exact-candidate: {path}: GA target, qualification pending; requires supported + passed + candidate-bound qualificationReceipt")
                 if status != "supported":
                     continue
                 if qualification != "passed":
@@ -594,6 +614,21 @@ def check_deploy_qualification(manifest: dict, matrix: dict, f: Findings, *, exa
                 receipt = row.get("qualificationReceipt")
                 if not isinstance(receipt, dict):
                     f.error(f"matrix: {path}: supported requires a candidate-bound qualificationReceipt reference")
+                    continue
+                if receipt.get("schema") == dq.RECEIPT_SCHEMA:
+                    proof = proofs.get(target)
+                    try:
+                        if (target != "awsEks" or component != "honua-helm" or architecture != "x86_64"
+                                or not isinstance(proof, dq.VerifiedEksQualification)):
+                            raise dq.QualificationError("versioned supported proof requires the full EKS bill")
+                        proof.require_current(manifest, LAMBDA_ENVELOPE_PATH.read_bytes())
+                        if receipt != proof.reference():
+                            raise dq.QualificationError("supported reference differs from verified EKS input binding")
+                    except (OSError, ValueError) as exc:
+                        f.error(f"matrix: {path}.qualificationReceipt: {exc}")
+                    continue
+                if "schema" in receipt:
+                    f.error(f"matrix: {path}.qualificationReceipt has an unknown binding schema")
                     continue
                 url = receipt.get("url")
                 try:
@@ -651,6 +686,38 @@ def check_capability_lifecycle(matrix: dict, f: Findings, expected_ga: dict | No
         counted = sorted(ga_keys & set(keys))
         if counted:
             f.error(f"matrix: {path}: internal keys {counted} are counted in the expected-GA manifest (ruling R29)")
+
+
+def check_expected_ga_snapshot_pin(manifest: dict, expected_ga: dict | None, f: Findings) -> None:
+    """The committed expected-GA snapshot was captured from the manifest-pinned honua-server.
+
+    The live capability-manifest check already fails closed on a stale snapshot, but only inside a
+    cloud cell, after the cell has been paid for. Refreshing it is a manual step (honua-release#183:
+    boot the pinned image, read /api/v1/capabilities/manifest, record its deploymentRevision), so a
+    server pin can advance without it and every cell then fails `capability-manifest`. This makes
+    the lag a `validate` failure on the commit that introduces it.
+    """
+    server = (manifest.get("components") or {}).get("honua-server") or {}
+    pinned_sha, digest = server.get("sha"), server.get("digest")
+    if not isinstance(pinned_sha, str) or not pinned_sha:
+        return  # structure checks report a missing server sha
+    where = "e2e/expected-ga-manifest.json"
+    if not isinstance(expected_ga, dict):
+        f.error(f"{where}: missing or unreadable; the capability-manifest cell check cannot assert GA coverage")
+        return
+    snapshot = expected_ga.get("sourceSnapshot")
+    snapshot = snapshot if isinstance(snapshot, dict) else {}
+    revision = snapshot.get("deploymentRevision")
+    if revision != pinned_sha:
+        f.error(f"{where}: sourceSnapshot.deploymentRevision={revision!r} lags components.honua-server.sha="
+                f"{pinned_sha!r}; every cloud cell's capability-manifest check fails until the snapshot is "
+                "refreshed from a deployment of the pinned image (procedure: the file's _comment, honua-release#183)")
+    elif snapshot.get("deploymentRevisionSource") != "commit-sha":
+        f.error(f"{where}: sourceSnapshot.deploymentRevisionSource must be 'commit-sha' (the revision the "
+                "pinned deployment advertised), not an inferred value")
+    if isinstance(digest, str) and digest and digest not in str(snapshot.get("target") or ""):
+        f.error(f"{where}: sourceSnapshot.target does not name the pinned honua-server digest {digest}; "
+                "capture the snapshot from the pinned image by digest")
 
 
 def check_coherence(manifest: dict, matrix: dict, f: Findings) -> None:
@@ -770,12 +837,16 @@ def validate(
     reachability_client: tr.APIClient | None = None,
     requirements: dict | None = None,
     ledger_produced_later: bool = False,
+    deployment_phase: str = "ga",
+    deployment_qualification: dict | None = None,
 ) -> Findings:
     f = Findings()
     check_structure(manifest, matrix, f)
     # Coherence/drift assume structure held well enough to read; they no-op on missing pieces.
     check_coherence(manifest, matrix, f)
-    check_deploy_qualification(manifest, matrix, f, exact_candidate=exact_candidate)
+    check_deploy_qualification(manifest, matrix, f, exact_candidate=exact_candidate,
+                              deployment_phase=deployment_phase,
+                              deployment_qualification=deployment_qualification)
     check_capability_lifecycle(
         matrix, f, _load_json(EXPECTED_GA_MANIFEST_PATH) if EXPECTED_GA_MANIFEST_PATH.is_file() else None)
     if LAMBDA_ENVELOPE_PATH.is_file():
@@ -802,6 +873,10 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--requirements", default=str(REQUIREMENTS_PATH))
     ap.add_argument("--exact-candidate", action="store_true",
                     help="reject unpublished/floating/local pins; use for release certification")
+    ap.add_argument("--deployment-phase", choices=("ga", "candidate-precut"), default="ga",
+                    help="GA remains strict; candidate-precut requires verified Lambda bill 1/2/5 proof")
+    ap.add_argument("--deployment-qualification", type=Path,
+                    help="producer-bound deployment qualification bundle; never a skipped gate")
     args = ap.parse_args(argv)
 
     manifest = _load_yaml(Path(args.manifest))
@@ -823,6 +898,14 @@ def main(argv: list[str] | None = None) -> int:
                 "SKIP  trunk-reachability checks unavailable offline "
                 "(not running in CI and GITHUB_TOKEN is unset)"
             )
+    deployment_proof = None
+    if args.deployment_qualification:
+        try:
+            deployment_proof = dq.verify_bundle(dq.read_json(args.deployment_qualification), manifest,
+                                               LAMBDA_ENVELOPE_PATH.read_bytes())
+        except (OSError, ValueError, subprocess.SubprocessError) as exc:
+            print(f"ERROR deployment qualification bundle refused: {exc}")
+            return 1
     f = validate(
         manifest,
         matrix,
@@ -830,6 +913,8 @@ def main(argv: list[str] | None = None) -> int:
         exact_candidate=args.exact_candidate,
         reachability_client=reachability_client,
         requirements=requirements,
+        deployment_phase=args.deployment_phase,
+        deployment_qualification=deployment_proof,
     )
     if args.exact_candidate:
         for name, component in (manifest.get("components") or {}).items():
@@ -841,6 +926,9 @@ def main(argv: list[str] | None = None) -> int:
     evidence_path = REPO_ROOT / "certification" / "conformance-evidence.yaml"
     if Path(args.manifest).resolve() == MANIFEST_PATH.resolve() and evidence_path.exists():
         check_legacy_evidence_pin_coherence(manifest, _load_yaml(evidence_path), f)
+    if Path(args.manifest).resolve() == MANIFEST_PATH.resolve():
+        check_expected_ga_snapshot_pin(
+            manifest, _load_json(EXPECTED_GA_MANIFEST_PATH) if EXPECTED_GA_MANIFEST_PATH.is_file() else None, f)
 
     for w in f.warnings:
         print(f"WARN  {w}")

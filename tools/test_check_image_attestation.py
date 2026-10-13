@@ -14,16 +14,19 @@ OTHER_SHA = "ff1a463c0b5a1d6e2f4a9c8b7d6e5f4a3b2c1d0e"
 OTHER_DIGEST = "sha256:" + "ab" * 32
 
 
-def verified(sha=SHA, digest=DIGEST, dependency_sha=None):
+TAG_REF = "refs/tags/nightly-candidate-" + SHA[:7]
+
+
+def verified(sha=SHA, digest=DIGEST, dependency_sha=None, ref="refs/heads/trunk", signer_ref=None):
     """The shape `gh attestation verify --format json` emits for a nightly-container-build image."""
     return [{
         "verificationResult": {
             "signature": {"certificate": {
                 "sourceRepositoryURI": "https://github.com/honua-io/honua-server",
                 "sourceRepositoryDigest": sha,
-                "sourceRepositoryRef": "refs/heads/trunk",
+                "sourceRepositoryRef": ref,
                 "buildSignerURI": "https://github.com/honua-io/honua-server/.github/workflows/"
-                                  "nightly-container-build.yml@refs/heads/trunk",
+                                  "nightly-container-build.yml@" + str(signer_ref or ref),
             }},
             "statement": {
                 "subject": [{"name": "ghcr.io/honua-io/honua-server",
@@ -47,6 +50,31 @@ def manifest(tmp_path, sha=SHA, digest=DIGEST):
 
 def test_attestation_from_the_manifest_source_is_accepted():
     assert check(verified(), SHA, DIGEST) == 1
+
+
+def test_attestation_signed_at_the_candidate_tag_for_the_manifest_sha_is_accepted():
+    # honua-server#5791: the nightly tags the certified sha and re-dispatches from that tag.
+    assert check(verified(ref=TAG_REF), SHA, DIGEST) == 1
+
+
+@pytest.mark.parametrize("ref", [
+    "refs/tags/nightly-candidate-" + OTHER_SHA[:7],   # the tag of a different candidate
+    "refs/tags/nightly-candidate-" + SHA[:8],         # not exactly the first 7 characters
+    "refs/tags/nightly-candidate-" + SHA,             # the full sha is not the tag shape
+    "refs/tags/" + SHA[:7],
+    "refs/heads/feature",
+    "refs/heads/trunk-evil",
+    "",
+    None,
+])
+def test_attestation_from_any_other_ref_is_refused(ref):
+    with pytest.raises(AttestationMismatch, match="was built from ref"):
+        check(verified(ref=ref), SHA, DIGEST)
+
+
+def test_signer_must_run_at_the_attested_source_ref():
+    with pytest.raises(AttestationMismatch, match="did not run at the attested source ref"):
+        check(verified(ref=TAG_REF, signer_ref="refs/heads/feature"), SHA, DIGEST)
 
 
 def test_image_built_from_a_different_trunk_commit_is_refused():
@@ -103,7 +131,14 @@ def test_gp_outputs_job_binds_provenance_to_the_candidate_source_with_read_only_
     command = " ".join(verify["run"].replace("\\\n", " ").split())
     assert '"oci://$SERVER_IMAGE"' in command
     assert "--signer-workflow honua-io/honua-server/.github/workflows/nightly-container-build.yml" in command
-    assert "--source-ref refs/heads/trunk" in command
+    # Exactly two refs are tried, each pinned exactly: trunk, then the candidate tag for the
+    # manifest sha's first 7 characters (honua-server#5791). No regex, no unpinned attempt.
+    assert 'candidate_tag_ref="refs/tags/nightly-candidate-${SOURCE_SHA:0:7}"' in command
+    assert 'for source_ref in refs/heads/trunk "$candidate_tag_ref"; do' in command
+    assert '--source-ref "$source_ref" --source-digest "$SOURCE_SHA"' in command
+    assert command.count("gh attestation verify") == 1
+    assert "--cert-identity-regex" not in command
+    assert 'if [ -z "$verified_ref" ]; then' in command and "exit 1" in command
     assert '--source-digest "$SOURCE_SHA"' in command
     assert verify["env"]["SOURCE_SHA"] == "${{ steps.candidate.outputs.source_sha }}"
     assert verify["env"]["SERVER_IMAGE"] == "${{ steps.candidate.outputs.server_image }}"

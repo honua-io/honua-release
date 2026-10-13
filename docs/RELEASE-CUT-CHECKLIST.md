@@ -38,10 +38,11 @@ can override a gate.
   or qualifying. No hand-supplied receipt URL or pin is part of the scheduled train.
 - [ ] Bind protocol requirements, producer revisions and ledger digest to this train's candidate through
   the producer workflow; do not hand re-pin the ledger after a cut.
-- [ ] Run the deterministic journey on {All-ECS, Lambda + Batch} × {Redis off, on}, plus the genuine model
-  on ECS with Redis off. Each required cell passes within two recorded attempts; every failure is
-  attributed to model or infrastructure. Preview mixed/EKS cells report informationally and cannot
-  substitute for a GA cell. Enforce the cost ceiling before teardown; overruns fail and tear down.
+- [ ] Run the deterministic journey on {All-ECS, Lambda + Batch, EKS} × {Redis off, on}, plus the genuine
+  model on ECS with Redis off. Each required cell passes within two recorded attempts; every failure is
+  attributed to model or infrastructure. The EKS cells are required by the cloud matrix and the receipt
+  gate (honua-release#203); promotion readiness does not yet count them (open owner question), and an
+  EKS pass cannot substitute for an ECS/Lambda cell. Enforce the cost ceiling before teardown; overruns fail and tear down.
 - [ ] Run all strict automated gates. A green night mints and signs `2026.1-rc.N`; a red night mints
   nothing. Retain the exact lock, manifest, matrix, full gate report and workflow provenance.
 

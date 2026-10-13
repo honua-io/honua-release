@@ -7,7 +7,7 @@ import subprocess
 from pathlib import Path
 
 from canonical_checks import CheckResult
-from harness.cloud.seed import seed
+from harness.cloud.seed import SeedHttpError, seed
 
 E2E = Path(__file__).resolve().parents[1]
 DRIVERS = {
@@ -26,17 +26,26 @@ def run_extended(endpoint, *, target, out, ready, require_real=False, redis_enab
                        require_real=require_real, redis_enabled=redis_enabled, seed_error=seed_error)
 
 
-def seed_cell(endpoint, *, target, out):
+def seed_cell(endpoint, *, target, out, datasource=None):
     """Publish the fixtures through the cell's database secret. Runs where the cloud credentials are.
 
-    Returns the error type name, or None. The seed manifest it writes holds identifiers only.
+    Returns the error type name, or None. The seed manifest it writes holds identifiers only. A
+    `datasource` dict receives the connection the seed used (in memory) so the provision job can
+    seal it to the terminal journey, whose stage 3 datasource is the cell's own database.
     """
     out = Path(out).resolve()
     out.mkdir(parents=True, exist_ok=True)
     try:
-        seed(endpoint, target.admin_api_key, target, out)
+        connection = seed(endpoint, target.admin_api_key, target, out)
+        if datasource is not None and isinstance(connection, dict):
+            datasource.update({name: connection[name] for name in
+                               ("host", "port", "databaseName", "username", "password")})
+    except SeedHttpError as error:
+        # Which publication call failed, its status, the answering instance and a masked body
+        # excerpt (run 38128300695 recorded only "HTTPError" on a two-task cell).
+        return "HTTPError " + error.describe((target.admin_api_key,))
     except Exception as error:
-        # HTTP responses and database errors can contain credentials; preserve only the type.
+        # Database errors can contain credentials; preserve only the type.
         return type(error).__name__
     return None
 

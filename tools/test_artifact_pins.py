@@ -82,7 +82,9 @@ def test_iac_live_receives_exact_manifest_server_candidate():
     cell = CLOUD_CELL_WORKFLOW.read_text(encoding="utf-8")
 
     assert '"server_ref": str(server.get("sha", ""))' in workflow
-    assert 'pins["server_image"] = f"{image}@{digest}"' in workflow
+    # The module refuses `repo:tag@digest` (a mutable reference): the tag is stripped first.
+    assert 'repository = re.sub(r":[^/@]+$", "", image.split("@", 1)[0])' in workflow
+    assert 'pins["server_image"] = f"{repository}@{digest}"' in workflow
     assert 'pins["lambda_source"] = f"{lambda_image}@{lambda_digest}"' in workflow
     assert "ECR Lambda digest $RESOLVED does not match manifest ECR digest $EXPECTED_ECR_DIGEST" in workflow
     assert "ECR Lambda config $ECR_CONFIG does not match source config $SOURCE_CONFIG" in workflow

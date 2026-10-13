@@ -10,7 +10,6 @@ import json
 import os
 import subprocess
 import sys
-from decimal import Decimal
 from pathlib import Path
 
 import pytest
@@ -76,8 +75,7 @@ def test_seed_script_parses():
 
 def test_publication_order_and_scratch_only_edit_capability():
     services = [row.service_name for row in plan.publications()]
-    assert services[:9] == list(plan.STABLE_SERVICES)
-    assert services[9:] == ["maui-buildings"]
+    assert services == list(plan.STABLE_SERVICES)
     bodies = plan.publish_bodies()
     editable = [body for body in bodies if "storageMode" in body or "capabilities" in body]
     assert [body["serviceName"] for body in editable] == ["maui-inspections"]
@@ -86,11 +84,7 @@ def test_publication_order_and_scratch_only_edit_capability():
     assert "Extract" not in editable[0]["capabilities"]
     writes = [row for row in plan.access_plan() if row["allowAnonymousWrite"]]
     assert [row["serviceName"] for row in writes] == ["maui-inspections"]
-    buildings = next(body for body in bodies if body["serviceName"] == "maui-buildings")
-    assert buildings["geometryType"] == "Polygon"
-    assert buildings["primaryKey"] == "id"
-    assert "storageMode" not in buildings
-    assert "capabilities" not in buildings
+    assert "e2e" not in [row["serviceName"] for row in plan.access_plan()]
 
 
 def test_edit_capability_is_refused_on_any_other_service():
@@ -99,37 +93,6 @@ def test_edit_capability_is_refused_on_any_other_service():
         plan.publish_body(zoning)
 
 
-def test_buildings_rows_match_the_documented_filters_and_extents():
-    rows = plan.buildings_rows()
-    assert len(rows) >= 3
-    assert [row["id"] for row in rows] == [1, 2, 3, 4]
-    for row in rows:
-        assert set(plan.BUILDING_FIELDS) <= set(row)
-        assert row["min_lon"] < row["max_lon"]
-        assert row["min_lat"] < row["max_lat"]
-    active = [row for row in rows if row["status"] == "active"]
-    tall = [row for row in rows if row["height"] is not None and row["height"] > 10]
-    assert active and len(active) < len(rows)
-    assert tall and len(tall) < len(rows)
-    by_id = {row["id"]: row for row in rows}
-    assert by_id[1]["height"] == Decimal("18.0")
-    assert by_id[1]["render_height"] == Decimal("18.0")
-    assert by_id[3]["height"] is None
-    assert by_id[3]["num_floors"] == 2
-    assert by_id[3]["render_height"] == Decimal("6.0")
-    assert by_id[4]["status"] == "inactive"
-    extents = {(row["min_lon"], row["min_lat"], row["max_lon"], row["max_lat"]) for row in rows}
-    assert len(extents) == len(rows)
-    assert by_id[1]["min_lon"] == Decimal("-156.470")
-    assert by_id[2]["min_lon"] != by_id[1]["min_lon"]
-
-
-def test_buildings_sql_refuses_a_row_missing_a_documented_field():
-    rows = plan.buildings_rows()
-    del rows[0]["status"]
-    with pytest.raises(ValueError, match="missing"):
-        plan.buildings_sql(rows)
-
 
 def test_require_http_and_manifest_fail_closed():
     plan.require_http("publish maui-parcels", 201, "{}")
@@ -137,15 +100,15 @@ def test_require_http_and_manifest_fail_closed():
         plan.require_http("publish maui-parcels", 500, '{"error":"publish refused"}')
     ids = {row.service_name: index + 1 for index, row in enumerate(plan.publications())}
     missing = dict(ids)
-    del missing["maui-buildings"]
+    del missing["maui-inspections"]
     with pytest.raises(plan.SeedStepError, match="missing layer ids"):
         plan.render_manifest("dry-run-connection", missing)
     rejected = dict(ids)
-    rejected["maui-buildings"] = True
+    rejected["maui-inspections"] = True
     with pytest.raises(plan.SeedStepError, match="not a positive integer"):
         plan.render_manifest("dry-run-connection", rejected)
     proc = subprocess.run(
-        [os.environ.get("PYTHON", "python3"), str(PLAN_PATH), "require-http",
+        [sys.executable, str(PLAN_PATH), "require-http",
          "--step", "access-policy maui-inspections", "--status", "403"],
         input='{"error":"permission refused"}',
         capture_output=True,
@@ -157,7 +120,7 @@ def test_require_http_and_manifest_fail_closed():
     assert "permission refused" in proc.stderr
 
 
-def test_dry_run_publishes_stable_ids_and_the_synthetic_rows(tmp_path: Path):
+def test_dry_run_publishes_stable_ids_and_scratch_edit_contract(tmp_path: Path):
     proc = run_seed(tmp_path)
     assert proc.returncode == 0, proc.stderr
     bodies = request_bodies(tmp_path)
@@ -181,12 +144,9 @@ def test_dry_run_publishes_stable_ids_and_the_synthetic_rows(tmp_path: Path):
         "maui-parcels", "maui-zoning", "maui-place-names", "maui-inspections")] == [1, 2, 6, 7]
     assert manifest["demo"]["workbench-assets"] == {"service": "honua-workbench", "layerId": 8}
     assert manifest["slice1"]["e2e_src_fs"] == {"service": "e2e", "layerId": 9}
-    assert manifest["demo"]["maui-buildings"] == {"service": "maui-buildings", "layerId": 10}
-    assert manifest["demo"]["maui-buildings"]["layerId"] != 13
     assert not (tmp_path / "out" / "seed-layer-ids.txt").exists()
 
     applied = (tmp_path / "out" / "applied.sql").read_text(encoding="utf-8")
-    assert plan.buildings_sql().strip() in applied
     assert "generate_series(0, 13) AS i, generate_series(0, 22) AS j;" in applied
     assert "(1 + ((i * 3 + j) % 6))::text" in applied
     assert "tmk_txt" not in applied
@@ -195,8 +155,6 @@ def test_dry_run_publishes_stable_ids_and_the_synthetic_rows(tmp_path: Path):
     zones = [str(1 + ((i * 3 + j) % 6)) for i in range(14) for j in range(23)]
     assert len(zones) == 14 * 23
     assert "1" in zones and len(set(zones)) == 6
-    for lon in ("-156.47", "-156.466", "-156.462", "-156.458"):
-        assert lon in applied
 
 
 @pytest.mark.parametrize("mode,needle", [("publish", "publish maui-parcels failed (HTTP 500)"),

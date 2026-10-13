@@ -1,6 +1,7 @@
 import base64
 import copy
 import hashlib
+import itertools
 import json
 import re
 import subprocess
@@ -11,6 +12,7 @@ import yaml
 import verify_client_artifacts as verifier
 
 import resolve_trunk_candidate as resolver
+from platform_version import stamp_errors
 
 NEW, OLD = 'a' * 40, 'b' * 40
 
@@ -261,7 +263,7 @@ def test_resolve_prints_the_skip_report_for_a_selected_component_then_still_refu
 
     original = resolver.select_component
     monkeypatch.setattr(resolver, 'select_component',
-                        lambda name, comp, gh, registry, limit, walk: original(
+                        lambda name, comp, gh, registry, limit, walk, **_: original(
                             name, comp, github, Published(set(github.shas)), limit, walk))
     monkeypatch.setattr(resolver, 'verify_manifest', lambda *a, **k: None)
     monkeypatch.setattr(resolver, 'component_versions', lambda *a: (_ for _ in ()).throw(
@@ -279,7 +281,8 @@ def test_main_writes_skips_json_and_summary_even_on_refusal(monkeypatch, tmp_pat
               'selectedAgeDays': 18.0, 'commitsBehind': 40, 'daysBehind': 17.5, 'staleAfterDays': 3,
               'stale': True, 'skippedTotal': 40, 'skipped': [{'sha': NEW, 'reason': 'CI a | b'}], 'aborted': None}
 
-    def refuse(manifest, matrix, github, registry, limit, ledger, skips, *rest):
+    def refuse(manifest, matrix, github, registry, limit, ledger, skips, *rest, prepare_deployments=False):
+        assert prepare_deployments is False
         skips['honua-server'] = report
         raise resolver.ResolutionError('honua-server: release/component-versions.json is missing')
 
@@ -550,7 +553,9 @@ def test_an_exhausted_rate_limit_retries_then_refuses(monkeypatch, tmp_path, cap
     [['not', 'a', 'page']],
 ])
 def test_a_truncated_check_run_page_refuses_before_ci_is_judged(monkeypatch, pages):
-    served = iter(pages)
+    # A moved count is re-read PAGING_ATTEMPTS times; serving the same movement again still refuses.
+    served = itertools.cycle(pages)
+    monkeypatch.setattr(resolver.time, 'sleep', lambda _: None)
     gh = FakeGh({f'repos/honua-io/server/commits/{NEW}/check-runs': lambda _: next(served),
                  f'repos/honua-io/server/actions/runs': {'total_count': 0, 'workflow_runs': []}})
     monkeypatch.setattr(resolver.subprocess, 'run', gh)
@@ -568,6 +573,50 @@ def test_a_complete_multi_page_listing_is_read_in_full(monkeypatch):
     rows = list(resolver.GitHub().pages('repos/honua-io/server/commits/x/check-runs', 'check_runs'))
     assert [row['id'] for row in rows] == list(range(101))
     assert gh.calls[1].endswith('page=2')
+
+
+def test_a_count_that_moves_once_is_re_read_from_page_one_and_then_served_in_full(monkeypatch):
+    moved_first = {'total_count': 101, 'check_runs': [{'id': n} for n in range(100)]}
+    moved_second = {'total_count': 102, 'check_runs': [{'id': 100}, {'id': 101}]}
+    settled_first = {'total_count': 102, 'check_runs': [{'id': n} for n in range(100)]}
+    settled_second = {'total_count': 102, 'check_runs': [{'id': 100}, {'id': 101}]}
+    served = iter([moved_first, moved_second, settled_first, settled_second])
+    gh = FakeGh({'repos/honua-io/server/commits': lambda _: next(served)})
+    monkeypatch.setattr(resolver.subprocess, 'run', gh)
+    monkeypatch.setattr(resolver.time, 'sleep', lambda _: None)
+    rows = list(resolver.GitHub().pages('repos/honua-io/server/commits/x/check-runs', 'check_runs'))
+    assert [row['id'] for row in rows] == list(range(102))
+    # Page 1 was read twice: the first pass stopped at the movement and nothing from it was served.
+    assert [call[-6:] for call in gh.calls] == ['page=1', 'page=2', 'page=1', 'page=2']
+
+
+def test_a_count_that_keeps_moving_refuses_after_the_attempt_budget(monkeypatch):
+    calls = itertools.count()
+    gh = FakeGh({'repos/honua-io/server/commits': lambda path: (
+        {'total_count': 100 + next(calls), 'check_runs': [{'id': n} for n in range(100)]})})
+    monkeypatch.setattr(resolver.subprocess, 'run', gh)
+    monkeypatch.setattr(resolver.time, 'sleep', lambda _: None)
+    with pytest.raises(resolver.ResolutionError, match=r'total_count moved .* \(3 attempts\)'):
+        list(resolver.GitHub().pages('repos/honua-io/server/commits/x/check-runs', 'check_runs'))
+    assert len(gh.calls) == 2 * resolver.PAGING_ATTEMPTS
+
+
+def test_a_spec_artifact_missing_at_a_newer_commit_is_skipped_and_the_walk_takes_the_next_one():
+    class Predates(GitHub):
+        def file(self, repository, sha, path):
+            if sha == NEW:
+                raise resolver.ResolutionError(f'gh api repos/{repository}/contents/{path}?ref={sha} failed: '
+                                               'gh: Not Found (HTTP 404)', status=404)
+            return b'{"schemas": []}'
+
+    spec = {'repository': 'https://github.com/honua-io/geospatial-mcp',
+            'artifact': f'spec:https://github.com/honua-io/geospatial-mcp/blob/{OLD}/spec/schemas/index.json'}
+    walk = {}
+    selected = resolver.select_component('geospatial-mcp', spec, Predates(), None, 2, walk)
+    assert selected['sha'] == OLD
+    assert selected['artifactSourceRevision'] == OLD
+    assert walk['skipped'] == [{'sha': NEW, 'reason': 'no spec/schemas/index.json at this commit'}]
+    assert walk.get('aborted') is None
 
 
 def test_non_json_answer_refuses(monkeypatch):
@@ -680,7 +729,7 @@ def resolve_fixture(monkeypatch, source, stale_journal, extra=None, **server_fie
                 'protocolCertification': {'ledger': {'status': 'bound'}}}
     manifest.update(extra or {})
     matrix = {'data': {'honua-server': {'requiresDbSchema': '1'}}}
-    monkeypatch.setattr(resolver, 'select_component', lambda name, component, *a: copy.deepcopy(component))
+    monkeypatch.setattr(resolver, 'select_component', lambda name, component, *a, **k: copy.deepcopy(component))
     monkeypatch.setattr(resolver, 'verify_manifest', lambda *a, **k: None)
     monkeypatch.setattr(resolver.validate_platform, 'validate',
                         lambda *a, **k: type('Findings', (), {'errors': []})())
@@ -754,6 +803,75 @@ def test_resolve_drops_a_carried_forward_platform_version_for_tonights_stamp(mon
     assert server['version'] == 'pre-release'
 
 
+BOUND_SERVER = {'image': 'ghcr.io/honua-io/honua-server@sha256:' + 'e' * 64, 'digest': 'sha256:' + 'e' * 64,
+                'platformDigests': {'amd64': 'sha256:' + 'd' * 64}, 'artifactSourceRevision': NEW,
+                'version': 'pre-release'}
+
+
+def _r22_qualification_errors(candidate):
+    findings = resolver.validate_platform.Findings()
+    resolver.validate_platform.check_exact_candidate(candidate, findings)
+    return [error for error in findings.errors if '(R22)' in error]
+
+
+def test_a_resolved_candidate_passes_r22_qualification_with_the_prestamp(monkeypatch, capsys):
+    """Decision 22: the resolver stamps the manifest's platformRelease before qualification."""
+    candidate, _ = resolve_fixture(monkeypatch, MigrationSource(), 'sha256:' + 'f' * 64,
+                                   extra={'platformRelease': '2026.1-rc.2'}, **BOUND_SERVER)
+    server = candidate['components']['honua-server']
+    assert server['artifactVersion'] == server['releaseVersion'] == '2026.1.0-rc.2'
+    assert _r22_qualification_errors(candidate) == []
+    assert stamp_errors(candidate) == []
+    assert ("R22 pre-stamp: 2026.1-rc.2 \u2192 2026.1.0-rc.2 (mint re-stamps tonight's label)"
+            in capsys.readouterr().out)
+
+
+def test_without_the_prestamp_the_same_candidate_is_refused_by_r22():
+    """R22 stays strict: a bound image with no platform version is an exact-candidate refusal."""
+    candidate = {'platformRelease': '2026.1-rc.2', 'components': {'honua-server': {'sha': NEW, **BOUND_SERVER}}}
+    assert _r22_qualification_errors(candidate) == [
+        "exact-candidate: honua-server.artifactVersion None must be the platform version '2026.1.0-rc.2' "
+        "of platformRelease '2026.1-rc.2' (R22)"]
+
+
+def test_an_unbound_server_image_is_left_unstamped(monkeypatch):
+    unbound = {key: value for key, value in BOUND_SERVER.items() if key != 'platformDigests'}
+    candidate, _ = resolve_fixture(monkeypatch, MigrationSource(), 'sha256:' + 'f' * 64,
+                                   extra={'platformRelease': '2026.1-rc.2'}, artifactVersion='2026.1.0-rc.2',
+                                   releaseVersion='2026.1.0-rc.2', **unbound)
+    server = candidate['components']['honua-server']
+    assert 'artifactVersion' not in server and 'releaseVersion' not in server
+
+
+def test_the_prestamp_uses_the_manifests_label_not_a_carried_version(monkeypatch):
+    candidate, _ = resolve_fixture(monkeypatch, MigrationSource(), 'sha256:' + 'f' * 64,
+                                   extra={'platformRelease': '2026.1-rc.2'}, artifactVersion='2026.1.0-rc.1',
+                                   releaseVersion='2026.1.0-rc.1', **BOUND_SERVER)
+    server = candidate['components']['honua-server']
+    assert server['artifactVersion'] == server['releaseVersion'] == '2026.1.0-rc.2'
+
+
+def test_the_prestamp_never_touches_an_sdk_row_or_an_unbound_chart():
+    candidate = {'platformRelease': '2026.1-rc.2', 'components': {
+        'honua-server': {'sha': NEW, **BOUND_SERVER},
+        'honua-helm': {'artifact': 'oci-chart:honua', 'sha': NEW, 'version': 'pre-release'},
+        'honua-sdk-js': {'sha': NEW, 'version': '0.1.12', 'artifactVersion': '0.1.12'}}}
+    resolver.release_carried_platform_identity(candidate['components'])
+    assert resolver.prestamp_platform_version(candidate, '2026.1-rc.2') == {'honua-server': '2026.1.0-rc.2'}
+    assert 'artifactVersion' not in candidate['components']['honua-helm']
+    assert candidate['components']['honua-sdk-js'] == {'sha': NEW, 'version': '0.1.12', 'artifactVersion': '0.1.12'}
+
+
+def test_a_manifest_without_a_platform_label_is_left_for_validate_to_refuse(capsys):
+    candidate = {'components': {'honua-server': {'sha': NEW, **BOUND_SERVER}}}
+    assert resolver.prestamp_platform_version(candidate, None) == {}
+    assert 'artifactVersion' not in candidate['components']['honua-server']
+    assert 'R22 pre-stamp: skipped' in capsys.readouterr().out
+    findings = resolver.validate_platform.Findings()
+    resolver.validate_platform.check_exact_candidate(candidate, findings)
+    assert any('exact-candidate: platformRelease' in error for error in findings.errors), findings.errors
+
+
 def test_resolve_refuses_when_the_migration_tree_cannot_be_read(monkeypatch):
     with pytest.raises(resolver.ResolutionError, match='honua-server migrations: .*truncated'):
         resolve_fixture(monkeypatch, MigrationSource(truncated=True), 'sha256:' + 'f' * 64)
@@ -802,7 +920,7 @@ def test_a_missing_content_file_refuses_and_keeps_no_hand_declaration(monkeypatc
         seen['digests'] = candidate['platformLockEvidence']['contentDigests']
         return type('Findings', (), {'errors': []})()
 
-    monkeypatch.setattr(resolver, 'select_component', lambda n, c, *a: copy.deepcopy(c))
+    monkeypatch.setattr(resolver, 'select_component', lambda n, c, *a, **k: copy.deepcopy(c))
     monkeypatch.setattr(resolver, 'verify_manifest', lambda *a, **k: None)
     monkeypatch.setattr(resolver.validate_platform, 'validate', capture)
     with pytest.raises(resolver.ResolutionError, match=rf'contentDigests\.{name}: .*HTTP 404') as refused:
@@ -946,7 +1064,7 @@ def test_the_real_generator_clears_exactly_the_okf_and_catalog_rows(monkeypatch,
 
     # Everything except the content-digest step carries the manifest through unchanged.
     monkeypatch.setattr(resolver, 'verify_manifest', lambda *a, **k: None)
-    monkeypatch.setattr(resolver, 'select_component', lambda name, component, *a: copy.deepcopy(component))
+    monkeypatch.setattr(resolver, 'select_component', lambda name, component, *a, **k: copy.deepcopy(component))
     monkeypatch.setattr(resolver, 'select_sdk', lambda name, component, *a: copy.deepcopy(component))
     def versions(github, name, selected):
         # The server's own declaration always carries schemaVersions; resolve adds the derived floor.
@@ -1246,6 +1364,104 @@ def test_resolve_names_every_component_without_a_declaration_and_keeps_no_hand_m
         assert any(line.startswith(f'{name}: ') and 'release/component-versions.json is missing' in line
                    for line in lines), (name, lines)
     assert not any(line.startswith(('honua-server: ', 'honua-collect: ')) for line in lines)
+
+
+# --- a trunk commit without a declaration is skipped, not refused (honua-release#471) ---
+
+class DeclaredTrunk(Declarations):
+    """A green, published trunk of NEW (newest) then OLD, with declarations only where given."""
+
+    def commits(self, repository, limit):
+        return iter([NEW, OLD][:limit])
+
+    def green(self, name, repository, sha):
+        return True, 'full CI green'
+
+
+def walk_declared(files, limit=2):
+    source = DeclaredTrunk(files)
+    walk = {}
+    selected = resolver.select_component(
+        'geospatial-mcp', {'repository': 'https://github.com/honua-io/geospatial-mcp', 'sha': OLD},
+        source, None, limit, walk,
+        declare=lambda row: resolver.component_versions(source, 'geospatial-mcp', row))
+    return selected, walk, source
+
+
+def test_a_commit_without_a_declaration_is_skipped_and_the_walk_takes_the_next_one():
+    path = resolver.COMPONENT_VERSIONS_PATH
+    selected, walk, source = walk_declared(
+        {('honua-io/geospatial-mcp', OLD, path): declaration_bytes('geospatial-mcp')})
+    assert selected['sha'] == OLD
+    assert walk['skipped'] == [{'sha': NEW, 'reason': f'no {path} at this commit'}]
+    assert walk.get('aborted') is None
+    assert ('honua-io/geospatial-mcp', NEW, path) in source.reads
+
+
+def test_a_trunk_with_no_declared_commit_still_refuses_and_names_each_skip():
+    with pytest.raises(resolver.ResolutionError,
+                       match=r'geospatial-mcp: no qualifying trunk commit in newest 2 commits; '
+                             rf'{NEW}: no release/component-versions.json at this commit; '
+                             rf'{OLD}: no release/component-versions.json at this commit'):
+        walk_declared({})
+
+
+def test_an_invalid_declaration_stops_the_walk_instead_of_being_skipped():
+    path = resolver.COMPONENT_VERSIONS_PATH
+    with pytest.raises(resolver.ResolutionError, match='is not a JSON document'):
+        walk_declared({('honua-io/geospatial-mcp', NEW, path): b'{',
+                       ('honua-io/geospatial-mcp', OLD, path): declaration_bytes('geospatial-mcp')})
+
+
+@pytest.mark.parametrize('detail,status', [('HTTP 403', 403), ('HTTP 500', 500), ('connection reset', None)])
+def test_a_declaration_read_error_that_is_not_a_404_stops_the_walk(detail, status):
+    class Unreadable(DeclaredTrunk):
+        def file(self, *args):
+            raise resolver.ResolutionError(detail, status=status)
+    walk = {}
+    with pytest.raises(resolver.ResolutionError, match='missing or unreadable') as refused:
+        source = Unreadable({})
+        resolver.select_component(
+            'geospatial-mcp', {'repository': 'https://github.com/honua-io/geospatial-mcp', 'sha': OLD},
+            source, None, 2, walk,
+            declare=lambda row: resolver.component_versions(source, 'geospatial-mcp', row))
+    assert not isinstance(refused.value, resolver.MissingDeclaration)
+    assert walk['aborted']['sha'] == NEW and walk['skipped'] == []
+
+
+def test_a_missing_declaration_at_the_pinned_sha_is_still_a_refusal():
+    with pytest.raises(resolver.MissingDeclaration, match='is missing or unreadable'):
+        resolver.component_versions(Declarations({}), 'geospatial-mcp', {
+            'repository': 'https://github.com/honua-io/geospatial-mcp', 'sha': NEW})
+    assert issubclass(resolver.MissingDeclaration, resolver.ResolutionError)
+
+
+def test_without_a_declare_hook_the_walk_never_reads_a_declaration():
+    selected, walk, source = DeclaredTrunk({}), {}, None
+    selected = resolver.select_component(
+        'geospatial-mcp', {'repository': 'https://github.com/honua-io/geospatial-mcp', 'sha': OLD},
+        DeclaredTrunk({}), None, 2, walk)
+    assert selected['sha'] == NEW and walk['skipped'] == []
+
+
+def test_resolve_walks_trunk_components_with_the_declaration_hook(monkeypatch):
+    seen = {}
+
+    def capture(name, component, github, registry, limit, walk, declare=None):
+        seen[name] = declare
+        raise resolver.ResolutionError(f'{name}: stop after capture')
+
+    monkeypatch.setattr(resolver, 'select_component', capture)
+    monkeypatch.setattr(resolver, 'verify_manifest', lambda *a, **k: None)
+    reads = []
+    monkeypatch.setattr(resolver, 'component_versions',
+                        lambda github, name, row: reads.append((name, row['sha'])) or {})
+    with pytest.raises(resolver.ResolutionError, match='geospatial-mcp: stop after capture'):
+        resolver.resolve({'components': {'geospatial-mcp': {
+            'repository': 'https://github.com/honua-io/geospatial-mcp', 'sha': OLD}}}, {}, None, None)
+    assert callable(seen['geospatial-mcp'])
+    seen['geospatial-mcp']({'sha': NEW})
+    assert reads == [('geospatial-mcp', NEW)]
 
 
 def test_the_documented_example_is_a_valid_declaration():

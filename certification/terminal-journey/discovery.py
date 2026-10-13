@@ -6,7 +6,6 @@ a catalog, substitutes package bytes, or qualifies later journey stages.
 from __future__ import annotations
 
 import hashlib
-import ipaddress
 import json
 import re
 import urllib.error
@@ -28,6 +27,63 @@ MAX_CATALOG_PAGES = 256
 
 class DiscoveryError(ValueError):
     pass
+
+
+# Last-failure diagnostics for a driver that raises. Only a harness-owned step label, the
+# request method/path, the HTTP status and a redacted, bounded body excerpt are kept; request
+# headers (where every credential travels) are never recorded.
+TRACE: dict[str, Any] = {"step": None, "http": None}
+EXCERPT_CHARS = 240
+_SENSITIVE = re.compile(r"key|token|secret|password|passwd|authorization|credential|cookie|session|signature",
+                        re.IGNORECASE)
+
+
+def reset_trace() -> None:
+    TRACE.update(step=None, http=None)
+
+
+def mark_step(step: str) -> None:
+    TRACE["step"] = step
+
+
+def _redact(value: Any) -> Any:
+    if isinstance(value, dict):
+        return {key: "[redacted]" if _SENSITIVE.search(str(key)) else _redact(item) for key, item in value.items()}
+    if isinstance(value, list):
+        return [_redact(item) for item in value]
+    return value
+
+
+def excerpt(raw: bytes | None) -> str:
+    """A bounded body excerpt with every credential-like JSON member value masked."""
+    if not raw:
+        return ""
+    try:
+        text = json.dumps(_redact(json.loads(raw[:MAX_PAGE_BYTES].decode("utf-8"))), ensure_ascii=True,
+                          separators=(",", ":"))
+    except (UnicodeError, ValueError, RecursionError):
+        # Not JSON: keep printable ASCII only; any credential-shaped token is masked.
+        text = re.sub(r"[^ -~]", "?", raw[:4096].decode("utf-8", "replace"))
+        text = re.sub(r"(?i)((?:" + _SENSITIVE.pattern + r")[\"']?\s*[:=]\s*(?:bearer\s+|basic\s+)?[\"']?)[^\s\"',;&<]+", r"\1[redacted]", text)
+    return text if len(text) <= EXCERPT_CHARS else text[:EXCERPT_CHARS] + "...(truncated)"
+
+
+def record_http(method: str, url: str, status: int | None, raw: bytes | None, rpc: str | None = None) -> None:
+    TRACE["http"] = {"method": method, "path": urllib.parse.urlsplit(url).path or "/", "rpc": rpc,
+                     "status": status, "body": excerpt(raw)}
+
+
+def describe_trace() -> list[str]:
+    """Receipt/log lines for the last step and HTTP exchange the driver reached."""
+    lines = [f"step: {TRACE['step'] or 'before the first instrumented step'}"]
+    http = TRACE["http"]
+    if http is None:
+        lines.append("last HTTP: none recorded")
+    else:
+        rpc = f" ({http['rpc']})" if http.get("rpc") else ""
+        status = http["status"] if http["status"] is not None else "no response"
+        lines.append(f"last HTTP: {http['method']} {http['path']}{rpc} -> {status}; body: {http['body'] or '(empty)'}")
+    return lines
 
 
 def digest(raw: bytes) -> str:
@@ -128,7 +184,10 @@ def validate_view(raw: bytes, expected_view: str = "setup") -> dict[str, Any]:
     names = _names(result.get("tools"))
     meta = result.get("_meta")
     if not isinstance(meta, dict) or meta.get("view") != expected_view:
-        raise DiscoveryError("requested server-authored view identity is missing")
+        answered = meta.get("view") if isinstance(meta, dict) else None
+        raise DiscoveryError("requested server-authored view identity is missing (requested "
+                             f"{expected_view!r}, the server answered "
+                             f"{_brief(answered) if answered is not None else 'no view'})")
     for field in ("revisionDigest", "membershipDigest", "descriptorDigest"):
         if not isinstance(meta.get(field), str) or not re.fullmatch(r"sha256:[a-f0-9]{64}", meta[field]):
             raise DiscoveryError(f"missing or malformed server {field}")
@@ -175,15 +234,15 @@ class _NoRedirect(urllib.request.HTTPRedirectHandler):
 class HttpSession:
     def __init__(self, url: str, credential: str):
         parsed = urllib.parse.urlsplit(url)
-        try:
-            loopback = ipaddress.ip_address(parsed.hostname or "").is_loopback
-        except ValueError:
-            loopback = parsed.hostname == "localhost"
         if parsed.username or parsed.password or parsed.query or parsed.fragment or parsed.scheme not in {"http", "https"}:
             raise DiscoveryError("MCP endpoint is not a credential-safe URL")
-        if parsed.scheme == "http" and not loopback:
-            raise DiscoveryError("credential-bearing HTTP must use loopback")
+        if probes.credential_transport(url) is None:
+            raise DiscoveryError("credential-bearing HTTP must use loopback or the harness-named cloud cell host")
         self.url, self.credential, self.session = url, credential, None
+        # Which server instance answered each request (`Honua-Instance`, honua-server#5790). The
+        # server keeps an MCP session in the memory of the instance that initialized it, so a
+        # request served by another instance is answered statelessly; this makes that visible.
+        self.instances: list[dict[str, Any]] = []
         self.next_id = 0
         self.opener = urllib.request.build_opener(_NoRedirect())
 
@@ -197,12 +256,17 @@ class HttpSession:
         if self.session:
             headers["Mcp-Session-Id"] = self.session
         request = urllib.request.Request(self.url, data=json.dumps(body).encode(), headers=headers, method="POST")
+        record_http("POST", self.url, None, None, method)
         try:
             with self.opener.open(request, timeout=30) as response:
                 raw = response.read(MAX_PAGE_BYTES + 1)
+                record_http("POST", self.url, response.status, raw, method)
                 if response.status != 200 or "application/json" not in response.headers.get("Content-Type", ""):
                     raise DiscoveryError("MCP HTTP response is not successful JSON")
                 issued = response.headers.get("Mcp-Session-Id")
+                instance = response.headers.get("Honua-Instance")
+                self.instances.append({"rpc": method, "instance": instance if isinstance(instance, str)
+                                       and INSTANCE_ID.match(instance) else None})
                 if method == "initialize":
                     if not issued or len(issued) > 256:
                         raise DiscoveryError("HTTP initialize did not issue a session")
@@ -210,6 +274,10 @@ class HttpSession:
                 elif issued and issued != self.session:
                     raise DiscoveryError("HTTP response changed the bound session")
         except urllib.error.HTTPError as exc:
+            try:
+                record_http("POST", self.url, exc.code, exc.read(MAX_PAGE_BYTES + 1), method)
+            except OSError:
+                record_http("POST", self.url, exc.code, None, method)
             raise DiscoveryError(f"MCP HTTP request refused with status {exc.code}") from exc
         document = parse(raw)
         if not isinstance(document, dict) or type(document.get("id")) is not int or document["id"] != self.next_id or document.get("jsonrpc") != "2.0" or "error" in document or not isinstance(document.get("result"), dict):
@@ -228,7 +296,9 @@ class HttpSession:
             data=b'{"jsonrpc":"2.0","method":"notifications/initialized"}',
             headers={"Content-Type": "application/json", "Accept": "application/json", "X-API-Key": self.credential,
                      "Mcp-Session-Id": self.session, "MCP-Protocol-Version": "2025-06-18"})
+        record_http("POST", self.url, None, None, "notifications/initialized")
         with self.opener.open(request, timeout=30) as response:
+            record_http("POST", self.url, response.status, None, "notifications/initialized")
             if response.status not in {200, 202, 204}:
                 raise DiscoveryError("initialized notification was refused")
         return document["result"]
@@ -269,6 +339,100 @@ def full_catalog(request) -> tuple[list[dict], int]:
     raise DiscoveryError("full catalog page bound exceeded")
 
 
+MAX_DIFFERENCE_CHARS = 900
+INSTANCE_ID = re.compile(r"[\x21-\x7e]{1,128}\Z")
+
+
+def _brief(value: Any) -> str:
+    """A short, credential-masked rendering of one differing value for a check detail."""
+    if isinstance(value, (dict, list)):
+        canonical = json.dumps(value, sort_keys=True, ensure_ascii=True, separators=(",", ":"))
+        return f"<{type(value).__name__} of {len(value)}, sha256 {digest(canonical.encode('utf-8'))[:12]}>"
+    text = json.dumps(_redact(value), ensure_ascii=True)
+    return text if len(text) <= 48 else text[:45] + "..."
+
+
+def describe_difference(expected: Any, actual: Any, *, left: str, right: str) -> str:
+    """Name what differs between two tools/list results: which metadata fields, which tools and
+    which descriptor fields, so a failed parity check says where to look (`left` vs `right`)."""
+    if not isinstance(expected, dict) or not isinstance(actual, dict):
+        return f"{left} result {_brief(expected)} vs {right} result {_brief(actual)}"
+    parts = []
+    for key in sorted(set(expected) | set(actual)):
+        if key in ("tools", "_meta") or expected.get(key) == actual.get(key):
+            continue
+        parts.append(f"result.{key} {left} {_brief(expected.get(key))} vs {right} {_brief(actual.get(key))}")
+    meta_e, meta_a = expected.get("_meta"), actual.get("_meta")
+    if meta_e != meta_a:
+        if isinstance(meta_e, dict) and isinstance(meta_a, dict):
+            for key in sorted(set(meta_e) | set(meta_a)):
+                if meta_e.get(key) != meta_a.get(key):
+                    parts.append(f"_meta.{key} {left} {_brief(meta_e.get(key))} vs {right} {_brief(meta_a.get(key))}")
+        else:
+            parts.append(f"_meta {left} {_brief(meta_e)} vs {right} {_brief(meta_a)}")
+    tools_e, tools_a = expected.get("tools"), actual.get("tools")
+    if tools_e != tools_a:
+        if isinstance(tools_e, list) and isinstance(tools_a, list):
+            by_e = {t.get("name"): t for t in tools_e if isinstance(t, dict)}
+            by_a = {t.get("name"): t for t in tools_a if isinstance(t, dict)}
+            only_e = sorted(str(n) for n in set(by_e) - set(by_a))
+            only_a = sorted(str(n) for n in set(by_a) - set(by_e))
+            if only_e:
+                parts.append(f"tools only in {left}: {', '.join(only_e[:8])}")
+            if only_a:
+                parts.append(f"tools only in {right}: {', '.join(only_a[:8])}")
+            for name in sorted(str(n) for n in set(by_e) & set(by_a)):
+                if by_e[name] != by_a[name]:
+                    fields = sorted(k for k in set(by_e[name]) | set(by_a[name])
+                                    if by_e[name].get(k) != by_a[name].get(k))
+                    parts.append(f"tool {name} fields differ: {', '.join(fields)}")
+            if not (only_e or only_a) and [t.get("name") for t in tools_e if isinstance(t, dict)] != \
+                    [t.get("name") for t in tools_a if isinstance(t, dict)]:
+                parts.append("tools in a different order")
+        else:
+            parts.append(f"tools {left} {_brief(tools_e)} vs {right} {_brief(tools_a)}")
+    text = "; ".join(parts) or "results are equal in content but not in JSON form"
+    return text if len(text) <= MAX_DIFFERENCE_CHARS else text[:MAX_DIFFERENCE_CHARS] + "...(truncated)"
+
+
+SESSION_AFFINITY_ISSUE = "honua-server#5629"
+
+
+def session_affinity_note(instances: list[dict[str, Any]]) -> str:
+    """Which server instance answered initialize and which answered the requests after it.
+
+    honua-server holds an MCP session, and the view negotiated at initialize, in the memory of
+    the instance that served initialize. A request carrying an Mcp-Session-Id that another
+    instance answers is served statelessly with the profile's default view, with no error. Behind
+    a load balancer over two or more instances (two ECS tasks, warm Lambda instances), that
+    surfaces here as a missing or different view.
+    """
+    named = [row.get("instance") for row in instances]
+    if not any(named):
+        return ("no request named its answering instance (no Honua-Instance header), so MCP "
+                "session affinity cannot be checked")
+    unnamed = [row.get("rpc") for row in instances if not row.get("instance")]
+    if unnamed:
+        # One unnamed response is enough to make the instance trail unverifiable.
+        seen = ", ".join(dict.fromkeys(value for value in named if value))
+        return (f"{len(unnamed)} of {len(instances)} requests ({', '.join(unnamed[:6])}) named no "
+                f"answering instance (missing or malformed Honua-Instance header), so MCP session "
+                f"affinity cannot be established; named instances: {seen}")
+    first = instances[0]
+    issuer = first.get("instance") if first.get("rpc") == "initialize" else None
+    distinct = list(dict.fromkeys(value for value in named if value))
+    if len(distinct) < 2:
+        return f"every direct HTTP request was answered by instance {distinct[0]}"
+    moved = [f"{row.get('rpc')} by {row.get('instance') or 'an unnamed instance'}"
+             for row in instances[1:] if row.get("instance") != issuer]
+    return (f"MCP session affinity: initialize, which issued the Mcp-Session-Id, was answered by "
+            f"instance {issuer or 'an unnamed instance'}, but {', '.join(moved[:6])}"
+            + (f" (+{len(moved) - 6} more)" if len(moved) > 6 else "")
+            + "; the server keeps an MCP session and its negotiated view only in the memory of the "
+              "instance that served initialize and answers a session id it does not hold "
+              f"statelessly with the default view ({SESSION_AFFINITY_ISSUE})")
+
+
 def capture_setup_view(proxy: Path | None, url: str, credential: str) -> dict[str, Any]:
     receipt: dict[str, Any] = {"scope": "setup-discovery-only", "status": "fail", "qualification": False,
         "http": {"status": "blocked"}, "proxy": {"status": "blocked"}, "tools": []}
@@ -280,17 +444,21 @@ def capture_setup_view(proxy: Path | None, url: str, credential: str) -> dict[st
         view = validate_view(raw)
         # Preserve original bytes as UTF-8 text; digest is checked again on readback.
         receipt["http"] = {**view, "status": "fail", "wireValidation": "pass", "serverInfo": identity.get("serverInfo"), "rawResponse": raw.decode("utf-8"),
-                           "selection": "initialize-bound-session", "sessionIssued": True}
+                           "selection": "initialize-bound-session", "sessionIssued": True,
+                           "answeringInstances": session.instances}
         complete, pages = full_catalog(session.request)
         canonical = {tool["name"]: tool for tool in complete}
         if any(canonical.get(tool["name"]) != tool for tool in view["tools"]):
             raise DiscoveryError("bounded descriptors differ from the complete canonical catalog")
         # The explicit full request must not mutate the negotiated session view.
-        _, restored_raw = session.request("tools/list")
+        restored_document, restored_raw = session.request("tools/list")
         restored = validate_view(restored_raw)
         if restored != view:
-            raise DiscoveryError("request override changed the initialized session view")
+            receipt["http"]["restoredRawResponse"] = restored_raw.decode("utf-8")
+            raise DiscoveryError("request override changed the initialized session view: " + describe_difference(
+                parse(raw)["result"], restored_document["result"], left="before", right="after"))
         comparison_hash = digest(json.dumps(complete, sort_keys=True, ensure_ascii=False, separators=(",", ":")).encode("utf-8"))
+        receipt["http"]["answeringInstances"] = session.instances
         receipt["http"].update({"status": "pass", "fullCatalogTools": len(complete), "fullCatalogPages": pages,
             "fullCatalogDescriptors": complete, "fullCatalogComparisonSha256": comparison_hash, "overrideRestored": True})
         if proxy is None or not proxy.is_file():
@@ -299,17 +467,30 @@ def capture_setup_view(proxy: Path | None, url: str, credential: str) -> dict[st
         with probes.McpProxySession([str(proxy)], url, env={"HONUA_API_KEY": credential,
                 "HONUA_ADMIN_KEY": "", "HONUA_MCP_AUTH_TOKEN": ""}) as stdio:
             initialized = stdio.initialize(workflow_view="setup")
+            # The proxy's own responses are kept (credential-masked) so a failed parity check can be
+            # diagnosed from the sidecar; a passing run replaces this record below.
+            receipt["proxy"]["initializeResponse"] = _redact(initialized)
             listed = stdio.request("tools/list")
+            receipt["proxy"]["toolsListResponse"] = _redact(listed)
             result = listed.get("result")
             if "error" in initialized or initialized.get("result", {}).get("protocolVersion") != identity.get("protocolVersion") or initialized.get("result", {}).get("serverInfo") != identity.get("serverInfo"):
-                raise DiscoveryError("installed proxy initialized a different server identity")
+                raise DiscoveryError("installed proxy initialized a different server identity: " + describe_difference(
+                    {"protocolVersion": identity.get("protocolVersion"), "serverInfo": identity.get("serverInfo")},
+                    {"protocolVersion": initialized.get("result", {}).get("protocolVersion"),
+                     "serverInfo": initialized.get("result", {}).get("serverInfo"), "error": initialized.get("error")},
+                    left="HTTP", right="proxy"))
             if result != parse(raw)["result"]:
-                raise DiscoveryError("installed proxy session descriptors or metadata differ from HTTP")
+                raise DiscoveryError("installed proxy session descriptors or metadata differ from HTTP: "
+                                     + describe_difference(parse(raw)["result"], result, left="HTTP", right="proxy"))
             proxied_full, proxy_pages = full_catalog(lambda method, params: _proxy_request(stdio, method, params))
             if proxied_full != complete:
-                raise DiscoveryError("installed proxy complete catalog differs from HTTP")
-            if stdio.request("tools/list").get("result") != result:
-                raise DiscoveryError("proxy request override changed its negotiated session")
+                raise DiscoveryError("installed proxy complete catalog differs from HTTP: " + describe_difference(
+                    {"tools": complete}, {"tools": proxied_full}, left="HTTP", right="proxy"))
+            restored_listed = stdio.request("tools/list")
+            if restored_listed.get("result") != result:
+                receipt["proxy"]["restoredToolsListResponse"] = _redact(restored_listed)
+                raise DiscoveryError("proxy request override changed its negotiated session: " + describe_difference(
+                    result, restored_listed.get("result"), left="before", right="after"))
         receipt["proxy"] = {"status": "pass", "selection": "initialize-bound-session", "installedExecutable": True,
                             "fullCatalogPages": proxy_pages, "overrideRestored": True, "fullCatalogComparisonSha256": comparison_hash}
         receipt.update({"status": "pass", "tools": view["tools"], "metadata": view["metadata"],
@@ -317,7 +498,17 @@ def capture_setup_view(proxy: Path | None, url: str, credential: str) -> dict[st
     except (DiscoveryError, probes.McpError, OSError, ValueError, TypeError, KeyError) as exc:
         # Only our contract diagnostics are emitted; arbitrary proxy stderr or
         # upstream bodies may contain secrets and are deliberately not copied.
-        receipt["error"] = str(exc) if isinstance(exc, DiscoveryError) else "setup transport or JSON contract could not be observed"
+        if isinstance(exc, DiscoveryError):
+            receipt["error"] = str(exc)
+            if session is not None and session.instances:
+                # Name which instance answered what, so a session-affinity failure is diagnosable.
+                if isinstance(receipt.get("http"), dict):
+                    receipt["http"]["answeringInstances"] = session.instances
+                receipt["error"] += "; " + session_affinity_note(session.instances)
+        elif isinstance(exc, probes.McpError) and probes.CLIENT_HTTPS_REFUSAL_DETAIL in str(exc):
+            receipt["error"] = "installed proxy: " + probes.CLIENT_HTTPS_REFUSAL_DETAIL
+        else:
+            receipt["error"] = "setup transport or JSON contract could not be observed"
     finally:
         if session is not None:
             session.close()

@@ -69,7 +69,9 @@ Licensing__Mode: Disabled
 ```
 
 The release repository's local Docker and DR compose files already set it.
-AWS ECS/Lambda parity passes it through Terraform `additional_env`. A host shell
+On AWS ECS and Lambda, set the typed Terraform input `licensing_mode = "Disabled"`
+on the honua-iac example root (the release parity cells pass `-var=licensing_mode=Disabled`);
+the example roots do not expose `additional_env`. A host shell
 variable alone does not configure a container. Do not set `Licensing__DevGrantEdition`;
 the supported disabled mode works in Production and needs no development grant.
 Retain the template's required authentication, database and encryption secrets.

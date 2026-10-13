@@ -1,0 +1,24 @@
+{
+  "family": "map",
+  "schemaVersion": "1.0",
+  "format": "studio_map_package.v1",
+  "bindings": [
+    { "key": "flood-zones", "kind": "content", "ref": "content.flood-zones", "crs": "EPSG:4326", "srid": 4326 }
+  ],
+  "validation": { "status": "valid", "diagnostics": [], "generatedAt": "2026-07-01T00:00:00Z" },
+  "publicationIntent": { "route": "/studio/flood-zones", "visibility": "public" },
+  "provenance": [{ "kind": "prompt", "ref": "prompt-map-1", "rel": "generated-by" }],
+  "body": {
+    "mapPackageId": "pkg-map-1",
+    "format": "honua_map_package.v1",
+    "status": "Ready",
+    "sourceBindings": [
+      { "sourceId": "flood-zones", "protocol": "ogc_features", "locator": { "url": "https://example.test/collections/flood-zones" } }
+    ],
+    "mapSpec": {
+      "version": 8,
+      "sources": { "flood-zones": { "type": "geojson", "data": { "type": "FeatureCollection", "features": [] } } },
+      "layers": [{ "id": "flood-fill", "type": "fill", "source": "flood-zones" }]
+    }
+  }
+}

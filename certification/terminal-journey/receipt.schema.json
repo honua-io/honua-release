@@ -42,11 +42,12 @@
       "required": ["id", "kind", "configPath", "configSha256"],
       "properties": {
         "id": {"type": "string", "minLength": 1},
-        "kind": {"enum": ["none", "local-docker", "aws-ecs"]},
+        "kind": {"description": "The target that produced the observations. aws-ecs, aws-serverless and aws-eks are cloud cells driven by e2e/cloud_journey.py (honua-release#377, #203).", "enum": ["none", "local-docker", "aws-ecs", "aws-serverless", "aws-eks"]},
         "configPath": {"type": ["string", "null"]},
         "configSha256": {"anyOf": [{"$ref": "#/$defs/sha256"}, {"type": "null"}]},
         "baseUrl": {"type": ["string", "null"]},
-        "composeProject": {"type": ["string", "null"]}
+        "composeProject": {"type": ["string", "null"]},
+        "redisTopology": {"description": "The Redis topology the target declares (a cloud cell's id, or a local target's redisTopology). Present only when declared.", "enum": ["redis-on", "redis-off"]}
       }
     },
 
@@ -227,6 +228,32 @@
       "then": {"required": ["failure"], "properties": {"failure": {"type": "object"}}}
     },
     {
+      "description": "Live evidence is attributed to the receipt's own target kind; a receipt for a target cannot carry another target's live source (the cloud harness also binds the kind to its cell).",
+      "allOf": [
+        {"if": {"properties": {"target": {"properties": {"kind": {"const": "local-docker"}}, "required": ["kind"]}}, "required": ["target"]},
+         "then": {"properties": {"stages": {"items": {"properties": {"evidence": {"properties": {"source": {"enum": ["harness-build", "live-local-docker"]}}}}}}}}},
+        {"if": {"properties": {"target": {"properties": {"kind": {"const": "aws-ecs"}}, "required": ["kind"]}}, "required": ["target"]},
+         "then": {"properties": {"stages": {"items": {"properties": {"evidence": {"properties": {"source": {"enum": ["harness-build", "live-aws-ecs"]}}}}}}}}},
+        {"if": {"properties": {"target": {"properties": {"kind": {"const": "aws-serverless"}}, "required": ["kind"]}}, "required": ["target"]},
+         "then": {"properties": {"stages": {"items": {"properties": {"evidence": {"properties": {"source": {"enum": ["harness-build", "live-aws-serverless"]}}}}}}}}},
+        {"if": {"properties": {"target": {"properties": {"kind": {"const": "aws-eks"}}, "required": ["kind"]}}, "required": ["target"]},
+         "then": {"properties": {"stages": {"items": {"properties": {"evidence": {"properties": {"source": {"enum": ["harness-build", "live-aws-eks"]}}}}}}}}}
+      ]
+    },
+    {
+      "description": "A stage may be recorded by a Redis-off topology refusal only on a receipt whose target declares redis-off; a cloud cell's id must name its redis-off cell.",
+      "if": {"properties": {"stages": {"contains": {"required": ["topologyRefusal"]}}}, "required": ["stages"]},
+      "then": {
+        "required": ["target"],
+        "properties": {"target": {
+          "required": ["redisTopology"],
+          "properties": {"redisTopology": {"const": "redis-off"}},
+          "if": {"properties": {"kind": {"enum": ["aws-ecs", "aws-serverless", "aws-eks"]}}, "required": ["kind"]},
+          "then": {"properties": {"id": {"pattern": "^(aws-ecs|aws-serverless|aws-eks)/redis-off$"}}}
+        }}
+      }
+    },
+    {
       "description": "Build mode never contacts a target and therefore can never report pass.",
       "if": {"properties": {"mode": {"const": "build"}}, "required": ["mode"]},
       "then": {
@@ -250,7 +277,7 @@
         "uri": {"type": "string", "minLength": 1},
         "source": {
           "description": "'harness-build' is a contract materialization, not an observation. Live observations are attributed to the target that produced them.",
-          "enum": ["harness-build", "live-local-docker", "live-aws-ecs"]
+          "enum": ["harness-build", "live-local-docker", "live-aws-ecs", "live-aws-serverless", "live-aws-eks"]
         },
         "freshness": {"enum": ["unverified", "stale", "verified-current"]},
         "completeness": {"enum": ["incomplete", "partial", "complete"]},
@@ -284,6 +311,27 @@
       ]
     },
 
+    "topologyRefusal": {
+      "description": "A Redis-off stage recorded by the candidate's typed unavailable refusal instead of an execution (owner ruling redis-governed-control-plane-2026-10-08: Redis is a requirement of the governed control plane). Present only on stages 3 and 5-8 (decision 3 names stages 5-8; the owner extended it to stage 3 on 2026-10-10). The cell must declare redis-off and the capability manifest must report the capability dependency-unavailable; the stage then carries no canonical operation or job identity because nothing ran.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["topology", "ruling", "rulingStatus", "tool", "code", "missingDependency", "manifestCapability", "manifestReasonCode", "deploymentEnvironment"],
+      "properties": {
+        "topology": {"const": "redis-off"},
+        "ruling": {"const": "redis-governed-control-plane-2026-10-08"},
+        "rulingStatus": {"const": "ruled"},
+        "tool": {"type": "string", "minLength": 1},
+        "code": {"const": "unavailable"},
+        "missingDependency": {"const": "redis"},
+        "manifestCapability": {"enum": ["operations.proposals", "jobs.runner"]},
+        "manifestReasonCode": {"const": "dependency-unavailable"},
+        "deploymentEnvironment": {"type": ["string", "null"]},
+        "kind": {"type": "string"},
+        "capability": {"type": "string"},
+        "message": {"type": "string", "maxLength": 256}
+      }
+    },
+
     "stage": {
       "type": "object",
       "additionalProperties": false,
@@ -295,10 +343,10 @@
         "blockedBy",
         "checks",
         "operationId",
-        "policyDecisionId",
-        "approvalId",
-        "actuatorId",
-        "verificationId",
+        "operationInstanceId",
+        "correlationId",
+        "auditId",
+        "proposalId",
         "evidence"
       ],
       "properties": {
@@ -315,14 +363,35 @@
           "uniqueItems": true
         },
         "checks": {"type": "array", "items": {"$ref": "#/$defs/check"}},
-        "operationId": {"type": ["string", "null"]},
-        "policyDecisionId": {"type": ["string", "null"]},
-        "approvalId": {"type": ["string", "null"]},
-        "actuatorId": {"type": ["string", "null"]},
-        "verificationId": {"type": ["string", "null"]},
+        "operationId": {"type": ["string", "null"], "description": "Server-emitted operation descriptor id of the stage's canonical invocation."},
+        "operationInstanceId": {"type": ["string", "null"], "description": "Server-emitted canonical invocation identity (OperationHandle.OperationInstanceId)."},
+        "correlationId": {"type": ["string", "null"], "description": "Server-emitted correlation identity (OperationHandle.CorrelationId)."},
+        "auditId": {"type": ["string", "null"], "description": "Server-emitted durable acceptance-audit identity (OperationHandle.AuditId)."},
+        "proposalId": {"type": ["string", "null"], "description": "Server-emitted durable proposal identity (OperationHandle.ProposalId)."},
+        "jobId": {"type": ["string", "null"], "description": "Stage 5 only: server-emitted job identity from honua_execute_plan (the job runtime is not the operation gateway)."},
+        "resourceUri": {"type": ["string", "null"], "description": "Stage 5 only: server-emitted job resource URI from honua_execute_plan."},
+        "jobStatus": {"type": ["string", "null"], "description": "Stage 5 only: job status the candidate reported at submission."},
+        "jobCreatedAt": {"type": ["string", "null"], "description": "Stage 5 only: job creation time the candidate reported at submission."},
+        "policyDecisionId": {"type": ["string", "null"], "description": "Optional legacy field. No Honua candidate emits a policy-decision id; it stays null unless one is actually returned."},
+        "approvalId": {"type": ["string", "null"], "description": "Optional legacy field. The candidate reports approval as proposalId + resolvedBy + the approved replay's auditId, not a separate approval id."},
+        "actuatorId": {"type": ["string", "null"], "description": "Optional legacy field. No Honua candidate emits an actuator id."},
+        "verificationId": {"type": ["string", "null"], "description": "Optional legacy field. No Honua candidate emits a verification id."},
+        "topologyRefusal": {"$ref": "#/$defs/topologyRefusal"},
         "evidence": {"$ref": "#/$defs/evidence"}
       },
       "allOf": [
+        {
+          "description": "Only stages 3 (operations.proposals), 5 (jobs.runner) and 6-8 (operations.proposals) may be recorded by a Redis-off topology refusal (decision 3, extended to stage 3 by the owner ruling of 2026-10-10).",
+          "if": {"required": ["topologyRefusal"]},
+          "then": {
+            "oneOf": [
+              {"properties": {"number": {"enum": [3, 6, 7, 8]}, "topologyRefusal": {"properties": {
+                "manifestCapability": {"const": "operations.proposals"}}}}},
+              {"properties": {"number": {"const": 5}, "topologyRefusal": {"properties": {
+                "manifestCapability": {"const": "jobs.runner"}}}}}
+            ]
+          }
+        },
         {
           "description": "A blocked stage must name at least one missing upstream dependency.",
           "if": {"properties": {"status": {"const": "blocked"}}, "required": ["status"]},
@@ -337,7 +406,7 @@
               "checks": {"minItems": 1, "items": {"properties": {"status": {"const": "pass"}}}},
               "evidence": {
                 "properties": {
-                  "source": {"enum": ["live-local-docker", "live-aws-ecs"]},
+                  "source": {"enum": ["live-local-docker", "live-aws-ecs", "live-aws-serverless", "live-aws-eks"]},
                   "freshness": {"const": "verified-current"},
                   "completeness": {"const": "complete"}
                 }
@@ -364,31 +433,52 @@
           }
         },
         {
-          "description": "Passing mutation stages must carry the canonical operation evidence identities.",
+          "description": "Passing operation-gateway stages (3, 4, 6, 7, 8) must carry the canonical identities the candidate emits for the stage's invocation (honua-server OperationExecutionModels: operationInstanceId, correlationId, auditId). Policy-decision, actuator and verification ids are not part of the server contract and are not required.",
           "if": {
             "properties": {
-              "number": {"enum": [3, 4, 5, 6, 7, 8]},
+              "number": {"enum": [3, 4, 6, 7, 8]},
               "status": {"const": "pass"}
             },
-            "required": ["number", "status"]
+            "required": ["number", "status"],
+            "not": {"required": ["topologyRefusal"]}
           },
           "then": {
+            "required": ["operationInstanceId", "correlationId", "auditId"],
             "properties": {
               "operationId": {"type": "string", "minLength": 1},
-              "policyDecisionId": {"type": "string", "minLength": 1},
-              "actuatorId": {"type": "string", "minLength": 1},
-              "verificationId": {"type": "string", "minLength": 1}
+              "operationInstanceId": {"type": "string", "minLength": 1},
+              "correlationId": {"type": "string", "minLength": 1},
+              "auditId": {"type": "string", "minLength": 1}
             }
           }
         },
         {
-          "description": "A passing approval stage must carry its approval identity.",
+          "description": "A passing bounded-GP stage is keyed on the job runtime's identities, not operation ids: honua_execute_plan returns jobId, resourceUri, status and createdAt.",
           "if": {
-            "properties": {"number": {"const": 8}, "status": {"const": "pass"}},
-            "required": ["number", "status"]
+            "properties": {"number": {"const": 5}, "status": {"const": "pass"}},
+            "required": ["number", "status"],
+            "not": {"required": ["topologyRefusal"]}
           },
           "then": {
-            "properties": {"approvalId": {"type": "string", "minLength": 1}}
+            "required": ["jobId", "resourceUri", "jobStatus", "jobCreatedAt"],
+            "properties": {
+              "jobId": {"type": "string", "minLength": 1},
+              "resourceUri": {"type": "string", "minLength": 1},
+              "jobStatus": {"type": "string", "minLength": 1},
+              "jobCreatedAt": {"type": "string", "minLength": 1}
+            }
+          }
+        },
+        {
+          "description": "Passing proposal and approval stages must carry the server-emitted durable proposal identity. Approval is keyed on it (plus resolvedBy and the approved replay's auditId), not on a separate approval id.",
+          "if": {
+            "properties": {"number": {"enum": [7, 8]}, "status": {"const": "pass"}},
+            "required": ["number", "status"],
+            "not": {"required": ["topologyRefusal"]}
+          },
+          "then": {
+            "required": ["proposalId"],
+            "properties": {"proposalId": {"type": "string", "minLength": 1}}
           }
         }
       ]

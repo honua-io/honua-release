@@ -8,13 +8,18 @@ image + the honua-iac tree are all present.
 """
 from __future__ import annotations
 
+import hashlib
 import ipaddress
 import json
 import os
 import re
 import shutil
+import secrets
 import subprocess
+import time
+import urllib.error
 import urllib.parse
+import urllib.request
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -46,6 +51,9 @@ class TfTargetSpec:
     #     to the runner's /32 (needs_runner_db_access), which is exactly the reachability the
     #     local-exec PostGIS bootstrap requires, as on v0.1.0 where it defaulted true.
     declared_ephemeral_vars: tuple[str, ...] = ()
+    # `name=value` vars like declared_ephemeral_vars, passed on Redis-on cells only and only when the
+    # pinned root declares `name`: the S10 large-import background window (honua-release#548).
+    redis_on_declared_vars: tuple[str, ...] = ()
     # JSON var files preserve typed values that cannot be represented faithfully
     # by Terraform's string-constrained `-var=name=value` coercion (notably null).
     # Paths are relative to the honua-release repository root.
@@ -70,6 +78,108 @@ class TfTargetSpec:
     architecture_env: str = ""
     architecture_var: str = ""
     architecture_is_list: bool = False
+    # (ENV_NAME, terraform_var) pairs. The env value is passed as `-var=terraform_var=<value>` when
+    # the pinned root declares terraform_var; a declaring root with the env unset is BLOCKED rather
+    # than applied with the module's fallback (the Lambda+Batch cell must run the pinned Batch image).
+    env_vars: tuple[tuple[str, str], ...] = ()
+    # (ENV_NAME, terraform_var) pairs for redis-on cells only, passed when the env is set and the
+    # pinned root declares terraform_var. A var named in redis_required_vars that the root declares
+    # but whose env is unset refuses provisioning with the owner step, rather than letting the plan
+    # refuse later with a module error; destroy never refuses (a cell that could not plan built nothing).
+    redis_env_vars: tuple[tuple[str, str], ...] = ()
+    redis_required_vars: tuple[str, ...] = ()
+    # (ENV_NAME, terraform_var) pairs for recommended inputs: passed when the env is set and the
+    # pinned root declares terraform_var, on every cell. Unlike env_vars, an unset env never blocks or
+    # refuses; the root plans with its own default (and its own warning).
+    optional_env_vars: tuple[tuple[str, str], ...] = ()
+    # Optional vars withheld from Redis-on cells only (the cell keeps them on Redis-off): a Lambda
+    # function environment is capped at 4 KB and the Redis-on serverless cell is over it once the
+    # key ring, GP Batch and the audit-key reference are all present (run 38046060497, 4118 bytes).
+    redis_on_withholds_optional_env_vars: bool = False
+    # Opt-in vars: passed only when `opt_in_env` is "true". A root that does not declare one of them
+    # is a provisioning failure, not a silent drop: the caller asked for that capability.
+    opt_in_env: str = ""
+    opt_in_vars: tuple[str, ...] = ()
+    # Redis-on only: the env var naming an operator-owned S3 bucket for shared file storage. When
+    # it is set and the pinned root declares every input in REDIS_ON_SCALE_INPUTS, the Redis-on
+    # cell runs REDIS_ON_TASKS tasks in the MultiNode topology (see the constants below).
+    redis_on_scale_bucket_env: str = ""
+    # Redis-on only, for roots that do not scale through REDIS_ON_SCALE_INPUTS (the Lambda cell):
+    # the file-storage inputs (provider, bucket, key prefix) that make the API host and the GP Batch
+    # workers share one S3 bucket, which a background import accepted by the Lambda needs to run on
+    # Batch (honua-server#5916, honua-iac#243). Passed only when the pinned root declares every one;
+    # the region input is left to the module (it renders its own region). A declaring root with
+    # file_storage_bucket_env unset refuses the Redis-on cell (S10 would otherwise record the typed
+    # 503 instead of the background import); destroy never refuses.
+    file_storage_inputs: tuple[str, ...] = ()
+    file_storage_bucket_env: str = ""
+    # Run the generic server image on the runner against the cell's database before the cell is
+    # probed. The serverless root keeps skip_migrations=true (a Lambda cold start must not race a
+    # schema migration), so without this step the Lambda serves an unmigrated database.
+    migrate_image_env: str = ""
+    # honua-release#450: give the cell a per-run HTTPS hostname under the account's public hosted
+    # zone (domain_name + route53_zone_id: the module issues an ACM certificate, validates it in that
+    # zone and aliases the name to the ALB, or to the API Gateway regional custom domain on the
+    # serverless root), so the pinned honua CLI/MCP proxy accept the endpoint (HTTPS-only for
+    # credentials) and the reviewed demo CSP admits it (https://*.honua.io). Only when both
+    # CELL_DNS_ZONE_ENV and CELL_DNS_PARENT_ENV are set; otherwise the cell keeps its default
+    # endpoint (the plain-HTTP ALB, or the execute-api URL), unchanged.
+    cell_domain: bool = False
+    # The root inputs the domain path sets. A root that lacks any of them refuses provisioning when
+    # the DNS variables are set, unless cell_domain_optional_on_root: then an older iac pin whose
+    # root predates the inputs simply keeps its default endpoint (the serverless root gained them in
+    # honua-iac#232, after the release account's DNS variables were already set).
+    cell_domain_inputs: tuple[str, ...] = ("domain_name", "route53_zone_id", "allow_https_ingress_cidrs")
+    cell_domain_optional_on_root: bool = False
+    # The HTTPS cell serves an ALB redirect-only listener on port 80 (owner decision 8 of 2026-10-10).
+    # Load-balancer cells only: the serverless root has no ALB and no alb_enable_http_redirect.
+    alb_http_redirect: bool = False
+    # Browser origins the cell must answer CORS for, passed as cors_allowed_origins when the pinned
+    # root declares it (honua-iac fix unit C4 renders them as Cors__AllowedOrigins__<n>).
+    cors_allowed_origins: tuple[str, ...] = ()
+
+
+# The Redis-on ECS cell runs two tasks (honua-release#377 stage 6). The journey's cross-replica
+# read (6.replica-map) re-reads the saved map through the cell endpoint and needs two distinct
+# Honua-Instance ids (honua-server#5790); on one task, run 38110106995 recorded "topology served one
+# instance (8 re-reads agreeing)". honua-iac's aws-ecs module allows more than one task only in the
+# MultiNode topology: deployment_mode=MultiNode, Redis, and AwsS3 file storage in an existing bucket
+# (modules/aws-ecs main.tf preconditions). The bucket is operator-owned (HONUA_AWS_CELL_FILE_STORAGE_
+# BUCKET, owner step in e2e/README.md); each cell writes under its own name-prefix key prefix.
+# Redis-off stays one task: it is the serving-only topology, and MultiNode requires Redis.
+REDIS_ON_TASKS = 2
+REDIS_ON_SCALE_INPUTS = ("desired_count", "max_capacity", "deployment_mode", "file_storage_provider",
+                         "file_storage_aws_s3_bucket_name", "file_storage_aws_s3_key_prefix")
+# Every cell's server objects live under `release-cells/<name prefix>` in the operator-owned bucket;
+# the module scopes the cell roles' object grants to `<prefix>/*` (honua-iac#243). The S10 fixture the
+# harness stages sits beside it under `release-cells/<cell>/s10/` (large_import.object_key): the server
+# never reads it with its own role, only through the harness-minted presigned URL, and both sit under
+# the bucket's one-day `release-cells/` lifecycle backstop (CELL_FILE_STORAGE_ROOT).
+CELL_FILE_STORAGE_ROOT = "release-cells/"
+FILE_STORAGE_INPUTS = ("file_storage_provider", "file_storage_aws_s3_bucket_name", "file_storage_aws_s3_key_prefix")
+FILE_STORAGE_KEY_PREFIX_VAR = "file_storage_aws_s3_key_prefix"
+
+
+def cell_file_storage_prefix(name_prefix: str) -> str:
+    """The FileStorage key prefix a cell passes: `release-cells/<name prefix>`."""
+    return CELL_FILE_STORAGE_ROOT + name_prefix
+
+
+_S3_BUCKET = re.compile(r"[a-z0-9][a-z0-9.-]{1,61}[a-z0-9]")
+
+# Repository variables (not secrets) naming the public hosted zone that carries per-run cell names.
+CELL_DNS_ZONE_ENV = "HONUA_AWS_CELL_DNS_ZONE_ID"
+CELL_DNS_PARENT_ENV = "HONUA_AWS_CELL_DNS_PARENT"
+# Cell names live one level below the parent (`<label>.cert.<parent>`), apart from anything else the
+# zone serves, so the teardown check can tell the harness's records from the rest of the zone.
+CELL_DNS_SUBDOMAIN = "cert"
+# The demo pages are served from this loopback origin by e2e/drivers/demos/run.sh (E2E_SITE_PORT).
+DEMO_SITE_ORIGIN = "http://127.0.0.1:18099"
+# ACM limits the certificate's first domain name to 64 octets; one DNS label is at most 63.
+_ACM_DOMAIN_MAX = 64
+_DNS_LABEL_MAX = 63
+_ZONE_ID = re.compile(r"^Z[A-Z0-9]{1,31}$")
+_DNS_NAME = re.compile(r"^(?=.{1,253}$)(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,63}$")
 
 
 class TerraformTarget(DeployTarget):
@@ -86,7 +196,17 @@ class TerraformTarget(DeployTarget):
 
     @property
     def admin_api_key(self) -> str:
-        return os.environ.get("HONUA_ADMIN_PASSWORD", f"Honua-Gate-Aa1!CloudParity-00000000-{self.run_id}")
+        # Never derived: the Actions run id is public, so a password computed from it is a published
+        # credential for a public endpoint. The provision phase mints one per cell.
+        value = os.environ.get("HONUA_ADMIN_PASSWORD", "")
+        if not value:
+            raise ProvisionError(f"{self.name}: HONUA_ADMIN_PASSWORD is unset; refusing to derive an "
+                                 "admin password from the public run id")
+        return value
+
+    @property
+    def migrates_before_serving(self) -> bool:
+        return bool(self.spec.migrate_image_env)
 
     # --- prerequisites -------------------------------------------------------------------------
     def _iac_root(self) -> Path | None:
@@ -142,6 +262,13 @@ class TerraformTarget(DeployTarget):
             missing.append("HONUA_AWS_RUNNER_CIDR (ephemeral runner /32 for ALB ingress)")
         if self.spec.architecture_env and not os.environ.get(self.spec.architecture_env):
             missing.append(f"{self.spec.architecture_env} (manifest-pinned runtime architecture)")
+        for env_name, variable in self.spec.env_vars:
+            if not os.environ.get(env_name) and self._root_declares(variable):
+                missing.append(f"{env_name} (pinned value for terraform var {variable})")
+        if self.spec.migrate_image_env and not os.environ.get(self.spec.migrate_image_env):
+            missing.append(f"{self.spec.migrate_image_env} (generic server image for the pre-serving migration)")
+        if self.spec.migrate_image_env and not shutil.which("docker"):
+            missing.append("docker CLI (pre-serving migration)")
         if missing:
             return Availability(False, f"{self.name} not runnable: " + "; ".join(missing), missing)
         return Availability(True, f"{self.name} prerequisites present")
@@ -150,7 +277,7 @@ class TerraformTarget(DeployTarget):
     def _tf(self, root: Path, *args: str, check: bool = True) -> subprocess.CompletedProcess:
         return subprocess.run(["terraform", f"-chdir={root}", *args], text=True, capture_output=True, check=check)
 
-    def _vars(self, redis_enabled: bool) -> list[str]:
+    def _vars(self, redis_enabled: bool, *, destroy: bool = False) -> list[str]:
         # The Redis mode MUST be part of the prefix. The cert harness runs the redis-on and redis-off
         # cells for the same target with the SAME run_id (one GITHUB_RUN_ID across the whole matrix) IN
         # PARALLEL against one AWS account; an identical name_prefix collides on named resources (RDS
@@ -160,15 +287,19 @@ class TerraformTarget(DeployTarget):
         # to 18 chars to stay well inside RDS(63)/Lambda(64) identifier budgets once the module suffixes.
         redis_tag = "r" if redis_enabled else "n"
         prefix = f"honua{redis_tag}{self.name.replace('-', '')[:5]}{self.run_id[:6]}".lower()[:18]
-        # honua-iac requires at least 32 characters plus mixed-case, digit and special
-        # characters. Keep the ephemeral fallback deterministic so the same value is
-        # available to destroy after a partial apply.
-        admin_pw = self.admin_api_key
+        # honua-iac requires at least 32 characters plus mixed-case, digit and special characters.
+        # The teardown job is a fresh runner without the provision job's password; destroy evaluates
+        # but never applies the value, so a throwaway one satisfies the input contract there.
+        if destroy and not os.environ.get("HONUA_ADMIN_PASSWORD"):
+            admin_pw = f"Honua-Destroy-Aa1!{secrets.token_urlsafe(32)}"
+        else:
+            admin_pw = self.admin_api_key
         values = [
             "-input=false", "-no-color",
             *(f"-var-file={self._resolve_var_file(v)}" for v in self.spec.ephemeral_var_files),
             f"-var=region={self.region}",
             f"-var=name_prefix={prefix}",
+            *self._tag_vars(redis_enabled),
             "-var=environment=it",
             f"-var={self.spec.image_var}={os.environ[self.spec.image_env]}",
             f"-var=honua_admin_password={admin_pw}",
@@ -177,17 +308,54 @@ class TerraformTarget(DeployTarget):
             *(f"-var={v}" for v in self.spec.ephemeral_vars),
             *(f"-var={v}" for v in self.spec.declared_ephemeral_vars
               if self._root_declares(v.split("=", 1)[0])),
+            *(f"-var={variable}={os.environ[env_name]}" for env_name, variable in self.spec.env_vars
+              if os.environ.get(env_name) and self._root_declares(variable)),
+            *(f"-var={variable}={os.environ[env_name].strip()}" for env_name, variable in self.spec.optional_env_vars
+              if os.environ.get(env_name, "").strip() and self._root_declares(variable)
+              and not (redis_enabled and self.spec.redis_on_withholds_optional_env_vars)),
         ]
+        if redis_enabled:
+            declared = [(env_name, variable) for env_name, variable in self.spec.redis_env_vars
+                        if self._root_declares(variable)]
+            values.extend(f"-var={variable}={os.environ[env_name].strip()}" for env_name, variable in declared
+                          if os.environ.get(env_name, "").strip())
+            unset = [env_name for env_name, variable in declared
+                     if variable in self.spec.redis_required_vars and not os.environ.get(env_name, "").strip()]
+            if unset and not destroy:
+                raise ProvisionError(
+                    f"{self.name}: the pinned root requires {', '.join(unset)} on a Redis-on cell (an "
+                    "operator-owned Secrets Manager secret holding the operation key-ring certificate; "
+                    "owner step in e2e/README.md)")
+        if self.spec.opt_in_env and os.environ.get(self.spec.opt_in_env, "").strip().lower() == "true":
+            undeclared = [v.split("=", 1)[0] for v in self.spec.opt_in_vars
+                          if not self._root_declares(v.split("=", 1)[0])]
+            if undeclared:
+                raise ProvisionError(f"{self.name}: {self.spec.opt_in_env}=true but the pinned root does "
+                                     f"not declare {', '.join(undeclared)}")
+            values.extend(f"-var={v}" for v in self.spec.opt_in_vars)
+        if redis_enabled:
+            values.extend(self._redis_on_scale_vars(prefix))
+            values.extend(self._file_storage_vars(prefix, destroy=destroy))
+            values.extend(f"-var={v}" for v in self.spec.redis_on_declared_vars
+                          if self._root_declares(v.split("=", 1)[0]))
         if self.spec.needs_runner_db_access:
             raw_cidr = self._runner_cidr("HONUA_AWS_DB_INGRESS_CIDR")
             values.extend([
                 "-var=db_publicly_accessible=true",
                 f"-var=db_additional_ingress_cidrs={json.dumps([raw_cidr], separators=(',', ':'))}",
             ])
+        domain = self._domain_vars(redis_enabled, destroy=destroy)
+        values.extend(domain)
         if self.spec.needs_runner_alb_access:
             raw_cidr = self._runner_cidr("HONUA_AWS_RUNNER_CIDR")
-            values.append(
-                f"-var=allow_http_ingress_cidrs={json.dumps([raw_cidr], separators=(',', ':'))}")
+            # With a certificate the runner is admitted to the HTTPS listener; plain-HTTP ingress is
+            # not requested. The module serves a redirect-only listener on 80 to the same /32
+            # (alb_enable_http_redirect, passed by _domain_vars when the root declares it).
+            ingress = "allow_https_ingress_cidrs" if domain else "allow_http_ingress_cidrs"
+            values.append(f"-var={ingress}={json.dumps([raw_cidr], separators=(',', ':'))}")
+        if self.spec.cors_allowed_origins and self._root_declares("cors_allowed_origins"):
+            values.append("-var=cors_allowed_origins="
+                          + json.dumps(list(self.spec.cors_allowed_origins), separators=(",", ":")))
         if self.spec.architecture_env:
             architecture = os.environ.get(self.spec.architecture_env, "").strip()
             if architecture not in {"arm64", "x86_64"}:
@@ -202,7 +370,196 @@ class TerraformTarget(DeployTarget):
                 else architecture.upper()
             )
             values.append(f"-var={self.spec.architecture_var}={architecture_value}")
+        fixture_secret = getattr(self, "journey_signing_secret", None)
+        if fixture_secret is not None and not destroy:
+            if not self._root_declares("oidc_static_jwt"):
+                raise ProvisionError("pinned root does not declare the typed cloud tenant issuer")
+            values.append("-var=oidc_static_jwt=" + json.dumps({
+                "issuer": "https://terminal-journey.invalid", "audience": "terminal-journey",
+                "signing_key_secret_arn": fixture_secret["arn"],
+                "signing_key_secret_version_id": fixture_secret["versionId"]}, separators=(",", ":")))
         return values
+
+    def _tag_vars(self, redis_enabled: bool) -> list[str]:
+        # Owner decision 9: every cell resource carries the run id (and cell, and the run's ceiling)
+        # so Cost Explorer can attribute its spend to the run. Passed only when the root declares it.
+        if not self._root_declares("tags"):
+            return []
+        from cost_meter import run_tags
+        tags = run_tags(self.run_id, f"{self.name}/redis-{'on' if redis_enabled else 'off'}",
+                        os.environ.get("HONUA_CLOUD_COST_CEILING_USD"))
+        return [f"-var=tags={json.dumps(tags, separators=(',', ':'))}"]
+
+    def _redis_on_scale_vars(self, name_prefix: str) -> list[str]:
+        """The MultiNode inputs that run the Redis-on cell on REDIS_ON_TASKS tasks, or [].
+
+        Passed only with an operator-owned bucket and a root that declares every input; anything
+        else keeps the single-task topology (the replica check then stays blocked on it) rather
+        than refusing the cell.
+        """
+        env = self.spec.redis_on_scale_bucket_env
+        bucket = os.environ.get(env, "").strip() if env else ""
+        if not bucket or not all(self._root_declares(v) for v in REDIS_ON_SCALE_INPUTS):
+            return []
+        return [f"-var=desired_count={REDIS_ON_TASKS}", f"-var=max_capacity={REDIS_ON_TASKS}",
+                "-var=deployment_mode=MultiNode", *self._shared_file_storage(env, bucket, name_prefix)]
+
+    def _file_storage_vars(self, name_prefix: str, *, destroy: bool = False) -> list[str]:
+        """The shared-file-storage inputs of a Redis-on cell that does not scale (the Lambda cell), or [].
+
+        Nothing on a root that lacks any of spec.file_storage_inputs (an older iac pin keeps the
+        module's Local storage). A declaring root with the bucket variable unset refuses provisioning:
+        without shared storage the Lambda refuses S10's background import with the typed 503.
+        """
+        inputs, env = self.spec.file_storage_inputs, self.spec.file_storage_bucket_env
+        if not inputs or not env or not all(self._root_declares(v) for v in inputs):
+            return []
+        bucket = os.environ.get(env, "").strip()
+        if not bucket:
+            if destroy:
+                return []
+            raise ProvisionError(
+                f"{self.name}: the pinned root declares shared file storage ({', '.join(inputs)}) but {env} is "
+                "unset; the Redis-on cell needs the operator-owned bucket so S10's background import can run "
+                "on AWS Batch (honua-release#548, owner step in e2e/README.md)")
+        return self._shared_file_storage(env, bucket, name_prefix)
+
+    def _shared_file_storage(self, env: str, bucket: str, name_prefix: str) -> list[str]:
+        if not _S3_BUCKET.fullmatch(bucket):
+            raise ProvisionError(f"{self.name}: {env} is not an S3 bucket name")
+        return ["-var=file_storage_provider=AwsS3", f"-var=file_storage_aws_s3_bucket_name={bucket}",
+                f"-var={FILE_STORAGE_KEY_PREFIX_VAR}={cell_file_storage_prefix(name_prefix)}"]
+
+    # --- per-run HTTPS cell hostname (honua-release#450) -----------------------------------------
+    def cell_domain_label(self, redis_enabled: bool) -> str:
+        """The DNS label naming this cell in this run: `<run id>-<target>-redis-<on|off>`.
+
+        Unique per run (the full Actions run id, never truncated) and per cell (target and Redis
+        mode), so concurrent cells and concurrent runs never share a certificate or alias record.
+        Deterministic, so the teardown job (a fresh runner) recomputes the name the apply used.
+        Lowercase LDH, at most 63 octets and short enough that `<label>.cert.<parent>` fits ACM's
+        64-octet limit; an over-long value keeps a hash suffix rather than being cut to a prefix
+        another run could share.
+        """
+        raw = f"{self.run_id}-{self.name}-redis-{'on' if redis_enabled else 'off'}".lower()
+        label = re.sub(r"-{2,}", "-", re.sub(r"[^a-z0-9-]", "-", raw)).strip("-")
+        parent = os.environ.get(CELL_DNS_PARENT_ENV, "").strip().lower().rstrip(".")
+        budget = min(_DNS_LABEL_MAX, _ACM_DOMAIN_MAX - len(f".{CELL_DNS_SUBDOMAIN}.{parent}"))
+        if budget < 16:
+            raise ProvisionError(f"{self.name}: {CELL_DNS_PARENT_ENV}={parent!r} leaves no room for a "
+                                 "cell label under ACM's 64-octet domain limit")
+        if len(label) > budget:
+            digest = hashlib.sha256(raw.encode()).hexdigest()[:10]
+            label = f"{label[:budget - 11].rstrip('-')}-{digest}"
+        return label
+
+    def cell_domain(self, redis_enabled: bool) -> tuple[str, str] | None:
+        """(fqdn, hosted zone id) for this cell, or None when the repository variables are unset.
+
+        Both variables or neither: one without the other is an owner misconfiguration and refuses
+        rather than silently provisioning plain HTTP.
+        """
+        if not self.spec.cell_domain:
+            return None
+        if self.spec.cell_domain_optional_on_root and not all(
+                self._root_declares(v) for v in self.spec.cell_domain_inputs):
+            return None
+        zone = os.environ.get(CELL_DNS_ZONE_ENV, "").strip()
+        parent = os.environ.get(CELL_DNS_PARENT_ENV, "").strip().lower().rstrip(".")
+        if not zone and not parent:
+            return None
+        if not zone or not parent:
+            missing = CELL_DNS_ZONE_ENV if not zone else CELL_DNS_PARENT_ENV
+            raise ProvisionError(f"{self.name}: {missing} is unset while the other cell DNS variable is "
+                                 "set; set both (owner step in e2e/README.md) or neither")
+        if not _ZONE_ID.fullmatch(zone):
+            raise ProvisionError(f"{self.name}: {CELL_DNS_ZONE_ENV} is not a Route53 hosted zone id")
+        if not _DNS_NAME.fullmatch(parent):
+            raise ProvisionError(f"{self.name}: {CELL_DNS_PARENT_ENV} is not a DNS name")
+        return f"{self.cell_domain_label(redis_enabled)}.{CELL_DNS_SUBDOMAIN}.{parent}", zone
+
+    def _domain_vars(self, redis_enabled: bool, *, destroy: bool) -> list[str]:
+        try:
+            domain = self.cell_domain(redis_enabled)
+        except ProvisionError:
+            if destroy:
+                # Destroy removes what the state holds whatever the inputs; it never refuses.
+                return []
+            raise
+        if domain is None:
+            return []
+        undeclared = [v for v in self.spec.cell_domain_inputs if not self._root_declares(v)]
+        if undeclared:
+            if destroy:
+                return []
+            raise ProvisionError(f"{self.name}: {CELL_DNS_ZONE_ENV} is set but the pinned root does not "
+                                 f"declare {', '.join(undeclared)}")
+        fqdn, zone = domain
+        values = [f"-var=domain_name={fqdn}", f"-var=route53_zone_id={zone}"]
+        # Owner decision 8 of 2026-10-10: an HTTPS cell answers plain HTTP on port 80 with a redirect
+        # to its HTTPS listener (the security-headers canary asserts it). Only on this TLS path: a
+        # plain-HTTP cell must not redirect to a port 443 that serves nothing. Passed only when the
+        # pinned examples/aws root declares the variable (same name as the aws-ecs module input).
+        if self.spec.alb_http_redirect and self._root_declares("alb_enable_http_redirect"):
+            values.append("-var=alb_enable_http_redirect=true")
+        return values
+
+    def https_redirect_expectation(self, redis_enabled: bool) -> tuple[bool, str]:
+        """(expected, reason): whether this cell is an HTTPS load-balancer cell whose plain-HTTP
+        listener must redirect to HTTPS. A cell that is not one says why, for a `blocked` canary row."""
+        if not self.spec.cell_domain or not self.spec.alb_http_redirect:
+            return False, (f"{self.name} has no load-balancer HTTPS listener behind a custom domain "
+                           "(an API Gateway endpoint serves HTTPS only), so no HTTP->HTTPS redirect "
+                           "is provisioned")
+        try:
+            domain = self.cell_domain(redis_enabled)
+        except ProvisionError as e:
+            return False, str(e)
+        if domain is None:
+            return False, (f"{self.name} is a plain-HTTP cell ({CELL_DNS_ZONE_ENV}/{CELL_DNS_PARENT_ENV} "
+                           "unset: no TLS listener), so no HTTP->HTTPS redirect is provisioned")
+        return True, f"HTTPS cell {domain[0]}"
+
+    def _cell_dns_leftovers(self, redis_enabled: bool, *, run=subprocess.run) -> None:
+        """After a successful destroy: this cell's certificate and records must be gone.
+
+        Read-only. A record or certificate of THIS cell still present, or a listing that cannot be
+        read, fails teardown closed (a stranded certificate or record is a leftover like any other,
+        and an unverified cleanup is not a verified one). Other `*.cert.<parent>` names
+        are listed as a warning only: they may belong to cells of a concurrent run.
+        """
+        try:
+            domain = self.cell_domain(redis_enabled)
+        except ProvisionError:
+            return
+        if domain is None:
+            return
+        fqdn, zone = domain
+        parent = fqdn.split(".", 1)[1]  # cert.<parent>
+
+        def aws(*args: str):
+            return run(["aws", *args, "--output", "json"], text=True, capture_output=True, check=False)
+
+        records = aws("route53", "list-resource-record-sets", "--hosted-zone-id", zone)
+        certificates = aws("acm", "list-certificates", "--region", self.region)
+        if records.returncode or certificates.returncode:
+            # Unverified cleanup is not cleanup: the teardown gate must be able to fail.
+            raise ProvisionError(f"{self.name} teardown could not verify {fqdn} was removed: listing the "
+                                 "hosted zone records or ACM certificates failed")
+        names = sorted({str(r.get("Name", "")).lower().rstrip(".")
+                        for r in json.loads(records.stdout or "{}").get("ResourceRecordSets", [])})
+        harness = [n for n in names if n.endswith("." + parent)]
+        own = [n for n in harness if n == fqdn or n.endswith("." + fqdn)]
+        own_certs = [c for c in json.loads(certificates.stdout or "{}").get("CertificateSummaryList", [])
+                     if str(c.get("DomainName", "")).lower().rstrip(".") == fqdn]
+        others = [n for n in harness if n not in own]
+        if others:
+            print(f"::warning title=cell DNS names present::{len(others)} other *.{parent} record(s) "
+                  f"remain (live cells of a concurrent run, or strands): {', '.join(others[:20])}",
+                  flush=True)
+        if own or own_certs:
+            raise ProvisionError(f"{self.name} teardown left {fqdn} behind: "
+                                 f"{len(own)} Route53 record(s), {len(own_certs)} ACM certificate(s)")
 
     def _runner_cidr(self, env_name: str) -> str:
         """The ephemeral runner's own address, validated as a single IPv4 /32.
@@ -241,6 +598,16 @@ class TerraformTarget(DeployTarget):
             raise ProvisionError(f"{self.name}: honua-iac root not found (set HONUA_IAC_DIR)")
         self._workdir = root
         self._last_vars = self._vars(redis_enabled)
+        if self.spec.cell_domain:
+            domain = self.cell_domain(redis_enabled)
+            if domain is None:
+                print(f"{self.name}: {CELL_DNS_ZONE_ENV}/{CELL_DNS_PARENT_ENV} unset, or the pinned root "
+                      "has no domain inputs; the cell keeps its default endpoint (the plain-HTTP load "
+                      "balancer, or the execute-api URL; no per-run HTTPS hostname, honua-release#450)",
+                      flush=True)
+            else:
+                print(f"{self.name}: HTTPS cell hostname {domain[0]} (ACM DNS validation in the hosted "
+                      "zone; the apply waits for issuance)", flush=True)
         try:
             self._tf(root, "init", "-input=false", "-no-color")
             self._tf(root, "apply", "-auto-approve", *self._last_vars)
@@ -263,12 +630,13 @@ class TerraformTarget(DeployTarget):
         mode = False if redis_enabled is None else redis_enabled
         try:
             destroy = self._tf(root, "destroy", "-auto-approve",
-                               *(self._last_vars or self._vars(mode)), check=False)
+                               *(self._last_vars or self._vars(mode, destroy=True)), check=False)
         except OSError as error:
             raise ProvisionError(f"{self.name} teardown failed: {error}") from error
         if destroy.returncode != 0:
             detail = (destroy.stderr or destroy.stdout or "terraform destroy returned nonzero").strip()
             raise ProvisionError(f"{self.name} teardown failed: {detail}")
+        self._cell_dns_leftovers(mode)
 
     def admit(self, endpoint: str, cidr: str, *, redis_enabled: bool = False, run=subprocess.run) -> None:
         """Add one runner /32 to the security groups of the load balancer that serves `endpoint`.
@@ -290,7 +658,11 @@ class TerraformTarget(DeployTarget):
         listing = aws("elbv2", "describe-load-balancers")
         if listing.returncode:
             raise ProvisionError(f"{self.name}: could not list load balancers to admit the journey runner")
-        groups = [group for balancer in json.loads(listing.stdout).get("LoadBalancers", [])
+        balancers = json.loads(listing.stdout).get("LoadBalancers", [])
+        if not any(str(b.get("DNSName", "")).lower() == host for b in balancers):
+            # A per-run HTTPS hostname (honua-release#450) is a Route53 alias of the cell's ALB.
+            host = self._alias_target(host, aws) or host
+        groups = [group for balancer in balancers
                   if str(balancer.get("DNSName", "")).lower() == host
                   for group in balancer.get("SecurityGroups", [])]
         if not groups:
@@ -303,24 +675,48 @@ class TerraformTarget(DeployTarget):
             if result.returncode and "InvalidPermission.Duplicate" not in (result.stderr or ""):
                 raise ProvisionError(f"{self.name}: could not admit the journey runner to {group}")
 
-    def seed_database(self, sql: str) -> dict:
-        """Use this cell's existing connection secret in memory; never persist or log it."""
+    @staticmethod
+    def _alias_target(host: str, aws) -> str | None:
+        """The load balancer DNS name the cell hosted zone aliases `host` to, or None."""
+        zone = os.environ.get(CELL_DNS_ZONE_ENV, "").strip()
+        if not zone or not _ZONE_ID.fullmatch(zone):
+            return None
+        listing = aws("route53", "list-resource-record-sets", "--hosted-zone-id", zone,
+                      "--start-record-name", host, "--start-record-type", "A", "--max-items", "1")
+        if listing.returncode:
+            return None
+        for record in json.loads(listing.stdout or "{}").get("ResourceRecordSets", []):
+            if (str(record.get("Name", "")).lower().rstrip(".") == host and record.get("Type") == "A"
+                    and record.get("AliasTarget")):
+                target = str(record["AliasTarget"].get("DNSName", "")).lower().rstrip(".")
+                return target.removeprefix("dualstack.")
+        return None
+
+    def _state_secrets(self, names: tuple[str, ...]) -> list[str]:
+        """The cell's Secrets Manager values named `names`, read from Terraform state in memory."""
         if self._workdir is None:
             raise ProvisionError("cloud database is not provisioned")
         state = json.loads(self._tf(self._workdir, "show", "-json").stdout)
 
-        def connections(module):
+        def walk(module):
             for resource in module.get("resources", []):
                 if resource.get("type") == "aws_secretsmanager_secret_version" and resource.get(
-                        "name") in ("db_connection", "connection_string"):
+                        "name") in names:
                     yield resource["values"]["secret_string"]
             for child in module.get("child_modules", []):
-                yield from connections(child)
+                yield from walk(child)
 
-        values = list(connections(state["values"]["root_module"]))
+        return list(walk(state["values"]["root_module"]))
+
+    def _connection_string(self) -> str:
+        values = self._state_secrets(("db_connection", "connection_string"))
         if len(values) != 1:
             raise ProvisionError("cell must have exactly one database connection secret")
-        parts = dict(part.split("=", 1) for part in values[0].split(";") if "=" in part)
+        return values[0]
+
+    def seed_database(self, sql: str) -> dict:
+        """Use this cell's existing connection secret in memory; never persist or log it."""
+        parts = dict(part.split("=", 1) for part in self._connection_string().split(";") if "=" in part)
         parts = {k.strip().lower(): v for k, v in parts.items()}
         connection = {"host": parts["host"], "port": int(parts.get("port", "5432")),
             "databaseName": parts["database"], "username": parts["username"],
@@ -337,6 +733,193 @@ class TerraformTarget(DeployTarget):
         return connection
 
 
+    # --- pre-serving migration (serverless) ------------------------------------------------------
+    MIGRATE_PORT = 18080
+    MIGRATE_ATTEMPTS = 60
+    MIGRATE_DELAY_SECONDS = 5.0
+    _PASSTHROUGH_ENV = ("PATH", "HOME", "LANG", "DOCKER_HOST", "DOCKER_CONFIG")
+
+    def migrate(self, redis_enabled: bool = False, *, run=subprocess.run, probe=None,
+                sleep=time.sleep) -> dict:
+        """Migrate the cell's database with the generic server image, then stop it.
+
+        The image runs on this runner (the cell's RDS admits the runner's /32) with migrations
+        enabled and the cell's own connection string, admin password and master key, until
+        /healthz/ready answers 200. Secrets reach docker through the process environment
+        (`-e NAME` with no value), never argv. Raises ProvisionError with the reason; the container
+        is always removed.
+        """
+        image = os.environ.get(self.spec.migrate_image_env, "").strip()
+        if not image:
+            raise ProvisionError(f"{self.name}: {self.spec.migrate_image_env} is unset; cannot migrate")
+        connection = self._connection_string()
+        master_keys = self._state_secrets(("master_key",))
+        admin = self.admin_api_key
+        name = f"honua-migrate-{self.name}-{'r' if redis_enabled else 'n'}-{self.run_id}"[:63]
+        env = {k: os.environ[k] for k in self._PASSTHROUGH_ENV if k in os.environ}
+        server_env = {
+            "HONUA_SKIP_MIGRATIONS": "false",
+            "ConnectionStrings__DefaultConnection": connection,
+            "HONUA_ADMIN_PASSWORD": admin,
+            "Licensing__Mode": "Disabled",
+            "HostValidation__AllowedHosts": "*",
+            "AllowedHosts": "*",
+        }
+        if len(master_keys) == 1:
+            server_env["Security__ConnectionEncryption__MasterKey"] = master_keys[0]
+        env.update(server_env)
+        hidden = [v for v in (connection, admin, *master_keys) if v]
+        probe = probe or self._probe_ready
+        url = f"http://127.0.0.1:{self.MIGRATE_PORT}/healthz/ready"
+        result: dict = {"image": image, "path": "/healthz/ready", "ready": False, "attempts": 0}
+        started = run(["docker", "run", "-d", "--name", name,
+                       "-p", f"127.0.0.1:{self.MIGRATE_PORT}:8080",
+                       *(arg for key in server_env for arg in ("-e", key)), image],
+                      text=True, capture_output=True, env=env, check=False)
+        try:
+            if started.returncode:
+                raise ProvisionError(f"{self.name}: migration container did not start: "
+                                     + self._redact(started.stderr or started.stdout, hidden))
+            last = None
+            for attempt in range(1, self.MIGRATE_ATTEMPTS + 1):
+                result["attempts"] = attempt
+                last = probe(url)
+                if last == 200:
+                    result.update(ready=True, status=200)
+                    return result
+                state = run(["docker", "inspect", "-f", "{{.State.Running}} {{.State.ExitCode}}", name],
+                            text=True, capture_output=True, check=False)
+                running, _, code = (state.stdout or "").strip().partition(" ")
+                if state.returncode == 0 and running == "false":
+                    raise ProvisionError(f"{self.name}: migration container exited {code or '?'} before "
+                                         "Ready: " + self._container_tail(name, run, hidden))
+                if attempt < self.MIGRATE_ATTEMPTS:
+                    sleep(self.MIGRATE_DELAY_SECONDS)
+            raise ProvisionError(f"{self.name}: migration never reported Ready at /healthz/ready "
+                                 f"(last status {last}) after {self.MIGRATE_ATTEMPTS} probes: "
+                                 + self._container_tail(name, run, hidden))
+        finally:
+            run(["docker", "rm", "-f", name], text=True, capture_output=True, check=False)
+
+    @staticmethod
+    def _probe_ready(url: str) -> int:
+        try:
+            with urllib.request.urlopen(url, timeout=10) as response:  # noqa: S310 - loopback only
+                return response.status
+        except urllib.error.HTTPError as error:
+            return error.code
+        except OSError:
+            return 0
+
+    @staticmethod
+    def _redact(text: str, hidden: list[str]) -> str:
+        text = (text or "").strip()
+        for value in hidden:
+            text = text.replace(value, "[redacted]")
+        text = re.sub(r"(?i)(password|pwd|masterkey|api[-_]?key)(\s*[=:]\s*)[^;\s\"']+",
+                      r"\1\2[redacted]", text)
+        return text[-2000:]
+
+    def _container_tail(self, name: str, run, hidden: list[str]) -> str:
+        logs = run(["docker", "logs", "--tail", "20", name], text=True, capture_output=True, check=False)
+        return self._redact((logs.stdout or "") + (logs.stderr or ""), hidden) or "no container output"
+
+
+# With Redis connected outside Development/Test the server enables the durable operation secret
+# channel and exits at startup unless Operations:SecretChannel:KeyRingCertificatePath names a
+# certificate. Both AWS roots take it from an operator-owned Secrets Manager secret and refuse a Redis
+# plan without the ARN: examples/aws injects it through ECS task secrets (honua-iac#216), and
+# examples/aws-serverless hands the Lambda an aws:secretsmanager: reference the server resolves with
+# the function role. Only the ARN crosses into Terraform; the KMS key is needed only for a
+# customer-managed key. Passed on Redis-on cells only, and only when the pinned root declares them.
+_OPERATION_KEY_RING_ENV_VARS = (
+    ("HONUA_AWS_OPERATION_KEY_RING_SECRET_ARN", "operation_key_ring_certificate_secret_arn"),
+    ("HONUA_AWS_OPERATION_KEY_RING_SECRET_KMS_KEY_ARN", "operation_key_ring_certificate_secret_kms_key_arn"),
+)
+_OPERATION_KEY_RING_REQUIRED_VARS = ("operation_key_ring_certificate_secret_arn",)
+
+# Without AuditLog:ChainVerification:Key the server still serves and writes audit rows, but scheduled
+# hash-chain verification never succeeds and its audit-chain-integrity health check is Unhealthy. The
+# roots take an operator-owned Secrets Manager secret (ECS task secrets; a Lambda/Batch
+# aws:secretsmanager: reference). Recommended, not required: passed on every cell when set and
+# declared, never refused when unset.
+_AUDIT_CHAIN_KEY_ENV_VARS = (
+    ("HONUA_AWS_AUDIT_CHAIN_KEY_SECRET_ARN", "audit_chain_key_secret_arn"),
+    ("HONUA_AWS_AUDIT_CHAIN_KEY_SECRET_KMS_KEY_ARN", "audit_chain_key_secret_kms_key_arn"),
+)
+
+# The typed-operation policy every ECS and Lambda cell runs with.
+#
+# The cells run the server image's default environment, Production: neither iac module sets
+# ASPNETCORE_ENVIRONMENT. honua-server's src/Honua.Server/appsettings.Production.json enables
+# Operations:Policy with DefaultDecision Deny ("Operations require an explicit production policy
+# rule."), and src/Honua.Server/Features/Operations/OperationRuntimeStartupValidator.cs refuses to
+# boot in Production unless that policy is enabled with a fail-closed default. Every local journey
+# and e2e stack runs ASPNETCORE_ENVIRONMENT=Development, where the policy is inert, so the Production
+# policy was first exercised by e2e-cloud-aws run 38066103745 (aws-serverless, redis-on), whose
+# journey stage 3 recorded:
+#   3.execution fail | service.publish did not complete for the operator (status=Denied;
+#   requiresApproval=false; policyOutcome=Deny; authorizationOutcome=authorized;
+#   message="Operations require an explicit production policy rule.")
+# No cell can pass stage 3, or run any typed operation, without explicit rules.
+#
+# Rules are Operations:Policy:Rules:{i}:{OperationId,Tier,Role,Decision,Reason,ApprovalLane},
+# first match wins, OperationId "*" is a wildcard and Role is matched case-insensitively against the
+# caller's role claims (src/Honua.Core/Features/Operations/Policy/OperationPolicyOptions.cs,
+# .../Policy/Services/ConfigurableOperationPolicyDecisionPoint.cs). The roles an API key receives
+# (src/Honua.Hosting/Features/Authentication/ApiKeyAuthenticationHandler.cs, AdminApiKeyPermission.cs):
+#   * scoped-admin-key: the journey operator (admin:write) and approver (admin:approve) keys
+#     (certification/terminal-journey/local_fixture.py GRANTS) and any narrowly granted admin key;
+#   * admin: the bootstrap password admin and admin / * / admin:* keys;
+#   * layer-write-key (the proposer, write:journey) and scoped-api-key (the viewer) get no rule.
+# The proposer's publication goes through the Studio proposal path (journey stages 7-8), which does
+# not ride on these rules, and the default stays Deny so the cell is still an honest Production
+# topology. honua-iac's operations_policy_rules variable (examples/aws and examples/aws-serverless)
+# flattens the list into Operations__Policy__Rules__{i}__* environment entries; the harness passes it
+# only when the pinned root declares it, so an older iac pin passes nothing and the receipt keeps
+# recording the Deny. Reasons stay short: they land in the Lambda environment, which is capped at 4 KB.
+CELL_OPERATION_POLICY_RULES: tuple[tuple[tuple[str, str], ...], ...] = (
+    (("operation_id", "*"), ("role", "scoped-admin-key"), ("decision", "Allow"),
+     ("reason", "Release cell: scoped admin keys run typed operations")),
+    (("operation_id", "*"), ("role", "admin"), ("decision", "Allow"),
+     ("reason", "Release cell: bootstrap and full admins run typed operations")),
+)
+
+
+def _hcl_string(value: str) -> str:
+    # Only plain literals: a quote, backslash or template sequence would change what terraform parses.
+    if any(token in value for token in ('"', "\\", "${", "%{")) or not value.isprintable():
+        raise ValueError(f"not a plain HCL string literal: {value!r}")
+    return f'"{value}"'
+
+
+def hcl_object_list(rows) -> str:
+    """An HCL list-of-objects literal for a complex-typed `-var=name=<literal>` argument. Terraform
+    parses a -var value for a list(object) variable as an HCL expression; the harness passes argv
+    without a shell, so the literal needs no extra quoting."""
+    return "[" + ",".join("{" + ",".join(f"{key}={_hcl_string(value)}" for key, value in row) + "}"
+                          for row in rows) + "]"
+
+
+OPERATIONS_POLICY_RULES_VAR = "operations_policy_rules=" + hcl_object_list(CELL_OPERATION_POLICY_RULES)
+
+# Studio end-user authorization on every ECS and Lambda cell. honua-server admits non-admin
+# principals to the Studio lifecycle API only when Studio:EndUserAuthorization:Enabled is true.
+# The local journey compose sets Studio__EndUserAuthorization__Enabled=true
+# (certification/terminal-journey/targets/build-compose.yml); the cloud cells did not, so on
+# e2e-cloud-aws run 38091905679 (aws-ecs, redis-on) journey stage 6 failed with HTTP 403 on
+# GET /api/v1/studio/package-families for the proposer (role layer-write-key). honua-iac's root
+# input studio_end_user_authorization (bool, examples/aws and examples/aws-serverless) renders the
+# setting; it is passed only when the pinned root declares it, so an older pin passes nothing.
+STUDIO_END_USER_AUTHORIZATION_VAR = "studio_end_user_authorization=true"
+# S10 large-import (honua-release#548, owner decision 24): both upload paths cap a staged file at
+# max(BackgroundJobThresholdBytes, MaxMemoryBytes), 100 MiB each by default, so a default cell has no
+# file that can queue as a background import. The Redis-on cells lower the threshold to 64 MiB under
+# the default 100 MiB MaxMemoryBytes, leaving the window (64 MiB, 100 MiB] the S10 fixture sits in.
+# The roots render it as Import__Limits__BackgroundJobThresholdBytes; neither aws root declares the
+# input yet (their additional_env is fixed in the root), so nothing is passed until honua-iac does.
+IMPORT_BACKGROUND_THRESHOLD_VAR = "import_background_job_threshold_bytes=67108864"
+
 # The two terraform-output cells. EKS is a separate, heavier target (cluster + Helm + LB).
 SERVERLESS_SPEC = TfTargetSpec(
     name="aws-serverless",
@@ -348,6 +931,64 @@ SERVERLESS_SPEC = TfTargetSpec(
     architecture_env="HONUA_LAMBDA_ARCHITECTURE",
     architecture_var="lambda_architectures",
     architecture_is_list=True,
+    # The 2026.1 GA serverless cell is Lambda + AWS Batch geoprocessing (rc.3 fix unit C2). Passed
+    # only when the pinned root declares them (honua-iac feat/lambda-batch-ga-cell exposes them on
+    # examples/aws-serverless); the release account pre-creates AWSServiceRoleForBatch.
+    # image_repository_policy_mode=reuse: the cell role's guardrail (ProtectMirrorRepo) denies
+    # ecr:SetRepositoryPolicy on the shared honua-server mirror, whose owner-installed policy already
+    # authorizes Lambda retrieval; "owned" mode (the module default) fails provisioning with
+    # AccessDenied, which is what every nightly aws-serverless cell has recorded.
+    # enable_control_plane_events=true: Lambda has no always-on host for the server's in-process
+    # control-plane timers (job reconciliation, workflow schedules, sweeps), which only run while an
+    # invocation is executing; on the first serverless journey run (38052304982) the stage 5 buffer
+    # job stayed Queued past its budget. The pinned module's TriggerMode=Event path
+    # (modules/aws-serverless/control-plane-events.tf) sets ControlPlane__TriggerMode=Event on the
+    # API function and drives the same work from EventBridge: a reconcile Lambda on every Batch job
+    # state change, a ~2-minute backstop and per-kind scheduled ticks. The event functions reuse the
+    # API image (control_plane_events_image left empty) and the module's default tick cadences,
+    # which mirror the in-process timers; JobReconciliation is already rate(1 minute), the
+    # EventBridge Scheduler floor, so no faster schedule is possible for the 120 s stage 5 budget.
+    declared_ephemeral_vars=("enable_gp_batch=true", "use_batch_service_linked_role=true",
+                             # honua-iac#240: RDS Proxy caps the db.t3.micro connection budget
+                             # regardless of Lambda scale-out (run 38133126673: 53300 on the API host).
+                             "enable_rds_proxy=true",
+                             # honua-iac#241: leave direct-session headroom on db.t3.micro (runner
+                             # migrate/seed, PostGIS + role-defaults psql): 70% of ~87 max_connections
+                             # = ~60 multiplexed proxy connections; ~21 of ~82 usable slots stay direct.
+                             "rds_proxy_max_connections_percent=70",
+                             "image_repository_policy_mode=reuse", "enable_control_plane_events=true",
+                             OPERATIONS_POLICY_RULES_VAR, STUDIO_END_USER_AUTHORIZATION_VAR),
+    # The manifest's generic server image, amd64 child by digest (resolved by e2e-cloud-aws.yml).
+    env_vars=(("HONUA_GP_BATCH_IMAGE", "gp_batch_image"),),
+    # Redis-on Lambda cells: the operation key-ring certificate secret (see above). An iac pin whose
+    # serverless root predates these variables declares neither, so nothing is passed or refused.
+    redis_env_vars=_OPERATION_KEY_RING_ENV_VARS,
+    redis_required_vars=_OPERATION_KEY_RING_REQUIRED_VARS,
+    # The audit-chain key reaches every Lambda cell. Lambda caps the function environment at 4 KB
+    # and the Redis-on cell with the key ring, GP Batch and the audit-key reference once measured
+    # 4118 bytes (run 38046060497, CreateFunction InvalidParameterValueException); honua-iac#230
+    # (pinned from e218d17b) keeps that environment at ~2934 bytes and fails the plan with the size
+    # whenever a root would exceed the cap, so the key is no longer withheld on Redis-on cells.
+    optional_env_vars=_AUDIT_CHAIN_KEY_ENV_VARS,
+    migrate_image_env="HONUA_MIGRATE_IMAGE",
+    # honua-release#450 / honua-iac#232: the same per-run <label>.cert.<parent> HTTPS name as the
+    # ECS cells, served by an API Gateway regional custom domain (DNS-validated ACM certificate,
+    # $default stage mapping, Route53 alias; the module adds the name to HostValidation AllowedHosts)
+    # and returned by honua_url. Only when the pinned root declares domain_name and route53_zone_id:
+    # an older pin keeps its execute-api URL rather than refusing. No ALB, so no runner ingress
+    # input and no HTTP redirect.
+    cell_domain=True,
+    cell_domain_inputs=("domain_name", "route53_zone_id"),
+    cell_domain_optional_on_root=True,
+    cors_allowed_origins=(DEMO_SITE_ORIGIN,),
+    redis_on_declared_vars=(IMPORT_BACKGROUND_THRESHOLD_VAR,),
+    # honua-server#5916 / honua-iac#243: a background import the Redis-on Lambda accepts runs on AWS
+    # Batch only when the API function and the Batch workers share S3 file storage (else the Lambda
+    # answers S10 with the typed 503, reasonCode shared-file-storage-required). Redis-off is not
+    # given it: a Lambda without Redis has no durable runner and refuses with the same 503 whatever
+    # its storage, which is what that cell records.
+    file_storage_inputs=FILE_STORAGE_INPUTS,
+    file_storage_bucket_env="HONUA_AWS_CELL_FILE_STORAGE_BUCKET",
 )
 ECS_SPEC = TfTargetSpec(
     name="aws-ecs",
@@ -360,12 +1001,27 @@ ECS_SPEC = TfTargetSpec(
     # key instead, but the release harness never adopts an existing ECS database.
     # The manifest explicitly selects the proven architecture and excludes the broken ARM64 child.
     ephemeral_vars=("alb_deletion_protection=false",),
-    declared_ephemeral_vars=("rds_deletion_protection=false", "enable_postgis=true"),
+    declared_ephemeral_vars=("rds_deletion_protection=false", "enable_postgis=true",
+                             OPERATIONS_POLICY_RULES_VAR, STUDIO_END_USER_AUTHORIZATION_VAR),
+    # Genuine-model cell only (rc.3 fix unit C6): the workflow sets HONUA_ENABLE_BEDROCK_AI=true for
+    # aws-ecs/redis-off when its genuine_model_bedrock input is on; every other run stays cost-free.
+    opt_in_env="HONUA_ENABLE_BEDROCK_AI",
+    opt_in_vars=("enable_bedrock_ai=true", "bedrock_ai_region=us-east-1"),
+    # honua-iac#216: the operation key-ring certificate secret for Redis-on cells (see above).
+    redis_env_vars=_OPERATION_KEY_RING_ENV_VARS,
+    redis_required_vars=_OPERATION_KEY_RING_REQUIRED_VARS,
+    optional_env_vars=_AUDIT_CHAIN_KEY_ENV_VARS,
     ephemeral_var_files=("e2e/terraform/aws-ecs-new-deployment.tfvars.json",),
     needs_runner_db_access=True,
     needs_runner_alb_access=True,
     architecture_env="HONUA_ECS_ARCHITECTURE",
     architecture_var="task_cpu_architecture",
+    # honua-release#450: per-run HTTPS hostname and the demo pages' origin (top-demo, S9).
+    cell_domain=True,
+    alb_http_redirect=True,
+    redis_on_scale_bucket_env="HONUA_AWS_CELL_FILE_STORAGE_BUCKET",
+    cors_allowed_origins=(DEMO_SITE_ORIGIN,),
+    redis_on_declared_vars=(IMPORT_BACKGROUND_THRESHOLD_VAR,),
 )
 
 

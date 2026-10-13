@@ -18,3 +18,9 @@ certification/first-publication/**/SHA256SUMS text eol=lf
 platform-manifest.yaml text eol=lf
 platform-lock.json text eol=lf
 certification/capacity-envelope.v1.json text eol=lf
+
+# Digest-pinned terminal-journey upload fixture (targets/local-docker.json upload.sha256).
+certification/terminal-journey/fixtures/journey-source.geojson -text
+
+# Digest-pinned S10 large-import Redis-off fixture (e2e/fixtures/large_import.py SMALL).
+e2e/fixtures/s10-redis-off.geojson -text

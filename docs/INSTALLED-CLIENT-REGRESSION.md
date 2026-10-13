@@ -107,13 +107,20 @@ All steps run against the one booted candidate, in contract order. The scenarios
   - `honua admin operate approveOperationProposal --profile proposer` must fail with the server's 403.
   - The separate approver approves; `getOperationProposal` must show it requested by the proposer and
     resolved by the approver.
-  - The JS SDK polls the request to `Active` and its final URL.
+  - The JS SDK polls the request to `Active` and its final URL. On the governed path the 202 operation
+    handle names the pending request in `resourceIds.requestId`
+    ([honua-server#5434](https://github.com/honua-io/honua-server/issues/5434)), and the driver polls that id.
   - `Honua.Sdk` verifies the published pointer, the published version's content hash and map body, and
-    the final publication. Agreeing digests are not enough: the judge recomputes the content hash as
-    SHA-256 of the canonical hash input the reader returns (base64 `contentHashInput`) and requires
-    that input to carry the fixture map body. No published client returns that input yet
-    ([honua-server#5449](https://github.com/honua-io/honua-server/issues/5449)), so `published-content`
-    cannot pass until it does.
+    the final publication. The judge checks agreement first: the family, the content hash the JS SDK saved,
+    and the fixture map body. A disagreement is a red. Agreeing digests are still not a pass: the judge also
+    recomputes the content hash as SHA-256 of the canonical hash input the reader returns (base64
+    `contentHashInput`) and requires that input to carry the fixture map body. No published client returns
+    that input yet ([honua-server#5449](https://github.com/honua-io/honua-server/issues/5449)). Until one
+    does, `published-content` reports the agreement it verified and is blocked on the missing derivation.
+    honua-server#5794 (in the server pinned since the 2026-10-12 re-pin to 0e03bdd) returns
+    `contentHashInput` on the version read and `publicationUrl` on the publish-request read, and
+    `Honua.Sdk` 1.11.0 (honua-sdk-dotnet#425) exposes `StudioContentVersion.ContentHashInput`, which the
+    .NET runner reports. So `publication-url` and `published-content` are active.
 - **`interop-api-key-revocation`.** `honua admin secure createAdminApiKey --secret-output` mints one key.
   The secret goes to a private file, never to output or a log. Each of `honua-sdk`, `@honua/sdk-js`,
   `Honua.Sdk` and `honua-mcp-proxy` reads the sites layer with it on a client instance (one proxy
@@ -192,12 +199,9 @@ Current blockers (candidate `nightly-87966c3`, pins JS 0.1.14 / MCP 0.1.14 / Pyt
 |---|---|---|
 | all three `*-sdk-geoservices` | `apply-edits-update`, `edits-state` | [honua-server#5407](https://github.com/honua-io/honua-server/issues/5407): attribute-only update on a managed layer returns 500 |
 | `npm-sdk-geoservices` | `ids`, `count` | [honua-sdk-js#1894](https://github.com/honua-io/honua-sdk-js/issues/1894): `outFields=OBJECTID` is rejected on layers whose object-id field is not `OBJECTID` |
-| `pypi-sdk-geoservices` | `count` | [honua-sdk-python#236](https://github.com/honua-io/honua-sdk-python/issues/236): `return_count_only` returns no count |
 | `pypi-sdk-ogc-tiles` | `raster-tile` | [honua-sdk-python#255](https://github.com/honua-io/honua-sdk-python/issues/255): `OgcTilesClient.tile` cannot request PNG |
 | `nuget-sdk-ogc-tiles` | all | [honua-sdk-dotnet#405](https://github.com/honua-io/honua-sdk-dotnet/issues/405): `Honua.Sdk` has no OGC API Tiles client |
-| `interop-publish-query-edit` | `count` | [honua-sdk-python#236](https://github.com/honua-io/honua-sdk-python/issues/236): `return_count_only` returns no count |
 | `interop-publish-query-edit` | `edit`, `read-back` | [honua-sdk-dotnet#410](https://github.com/honua-io/honua-sdk-dotnet/issues/410): `PublishLayerRequest` cannot declare a storage mode or edit capabilities, so the JS SDK's edit of the layer the .NET SDK published is refused (400) and the .NET read-back sees the unedited row |
-| `interop-proposal-approval` | `save-version` and every later step except `published-url` | [honua-server#5433](https://github.com/honua-io/honua-server/issues/5433): the candidate refuses the JS SDK's bodiless `content-versions` POST (400) although its OpenAPI makes the body optional; nothing can be proposed. The next seam on this path, the governed publish request returning no pollable request id, is [honua-server#5434](https://github.com/honua-io/honua-server/issues/5434). After that, `published-content` fails until the reader returns the canonical content-hash input: [honua-server#5449](https://github.com/honua-io/honua-server/issues/5449) |
 | `interop-proposal-approval` | `published-url` | [honua-sdk-dotnet#411](https://github.com/honua-io/honua-sdk-dotnet/issues/411): `Honua.Sdk` has no reader for a published Studio route |
 | `interop-api-key-revocation` | `mcp-revoked` | [honua-server#5435](https://github.com/honua-io/honua-server/issues/5435): the candidate answers the revoked key's MCP session with a JSON-RPC error whose `id` is `null` (HTTP 200), so the proxy's call never returns. The three SDKs are refused on their first call |
 
@@ -206,7 +210,7 @@ same PR, or the gate turns red.
 
 ## Running it locally
 
-You need Docker, Node 20, Python 3.12 with pip, and the .NET 10 SDK. The run downloads the pinned
+You need Docker, Node 22.23.3, Python 3.12 with pip, and the .NET 10 SDK. The run downloads the pinned
 packages from npm, PyPI and nuget.org, and pulls the pinned server image from GHCR.
 
 ```sh

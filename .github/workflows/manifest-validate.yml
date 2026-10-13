@@ -21,11 +21,15 @@ on:
   workflow_call:
     inputs:
       candidate_ref: { required: false, type: string, default: "" }
+      # Call-only: an authenticated nightly candidate may carry the documented Lambda precut phase.
+      candidate_precut: { required: false, type: boolean, default: false }
       baseline_ref:
         description: "git ref to enforce drift against (empty = skip drift)"
         required: false
         type: string
         default: ""
+    secrets:
+      RELEASE_GH_TOKEN: { required: false }
 
 permissions:
   contents: read
@@ -63,7 +67,7 @@ jobs:
         run: python3 tools/release_decision_record.py --check
 
       - name: Self-test the tools gates
-        run: python -m pytest tools/ e2e/test_licensing.py e2e/test_upgrade_chaos.py e2e/test_cloud.py -q
+        run: python -m pytest tools/ e2e/test_licensing.py e2e/test_upgrade_chaos.py e2e/test_cloud.py e2e/test_cost_meter.py e2e/test_aws_eks.py e2e/test_large_import.py -q
 
       # honua-release#425 (docs/THIRD-PARTY-TRADEMARKS.md): no new avoidable vendor-term use in this
       # repository's own files, and no committed per-repo baseline may grow.
@@ -102,6 +106,12 @@ jobs:
       # from the committed receipt fails. This does not publish, rebind, or invent a digest.
       - name: Check anonymous first-publication preflight
         run: python3 tools/first_publication_preflight.py --check
+
+      - name: Verify every declared required npm client artifact
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GITHUB_TOKEN: ${{ github.token }}
+        run: python3 tools/verify_client_artifacts.py --ecosystem npm
 
       # The signing trust policy must cover exactly the tag namespaces policy.json protects.
       # `release_controls audit` also reports drift, but it is an operator command no workflow
@@ -246,12 +256,22 @@ jobs:
       - name: Validate manifest + matrix
         env:
           CANDIDATE_REF: ${{ inputs.candidate_ref }}
+          CANDIDATE_PRECUT: ${{ inputs.candidate_precut }}
+          BASELINE_REF: ${{ steps.baseline.outputs.ref }}
+          GITHUB_TOKEN: ${{ secrets.RELEASE_GH_TOKEN || github.token }}
         run: |
           set -euo pipefail
-          REF='${{ steps.baseline.outputs.ref }}'
+          REF="$BASELINE_REF"
           ARGS=()
           if [ -n "$CANDIDATE_REF" ]; then
             ARGS+=(--exact-candidate)
+          fi
+          if [ "$CANDIDATE_PRECUT" = "true" ]; then
+            if [ -z "$CANDIDATE_REF" ]; then
+              echo "::error::candidate-precut requires adopted immutable candidate inputs"
+              exit 1
+            fi
+            ARGS+=(--deployment-phase candidate-precut --deployment-qualification certification/deployment-qualification.json)
           fi
           if [ -n "$REF" ]; then
             python tools/validate_platform.py --baseline "$REF" "${ARGS[@]}"

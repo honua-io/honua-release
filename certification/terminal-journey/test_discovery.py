@@ -1,4 +1,5 @@
 """Credential-free contract tests; loopback cases exercise real HTTP sessions."""
+import io
 import json
 import sys
 import threading
@@ -89,6 +90,57 @@ class WireContractTests(unittest.TestCase):
     def test_member_spans_ignore_tools_text_inside_descriptions(self):
         measured = discovery.validate_view(wire([tool(description='fake \\"tools\\": [123], <μ>')]))
         self.assertEqual(measured["metadata"]["toolCount"], 1)
+
+
+class TraceTests(unittest.TestCase):
+    def setUp(self):
+        discovery.reset_trace()
+
+    def test_excerpt_masks_credential_members_and_bounds_length(self):
+        body = json.dumps({"data": {"key": "hk_secret", "items": [{"apiKey": "s2", "name": "ok"}],
+                                    "Authorization": "Bearer s3"}}).encode()
+        text = discovery.excerpt(body)
+        self.assertEqual(text, '{"data":{"key":"[redacted]","items":[{"apiKey":"[redacted]","name":"ok"}],'
+                               '"Authorization":"[redacted]"}}')
+        plain = discovery.excerpt(b"<p>api_key=s1 password: 's2' Authorization: Bearer s3</p>")
+        self.assertNotIn("s1", plain); self.assertNotIn("s2", plain); self.assertNotIn("s3", plain)
+        self.assertTrue(discovery.excerpt(b"x" * 1000).endswith("...(truncated)"))
+        self.assertLessEqual(len(discovery.excerpt(b"x" * 1000)), discovery.EXCERPT_CHARS + 20)
+
+    def test_describe_trace_names_step_and_last_exchange(self):
+        self.assertEqual(discovery.describe_trace(), ["step: before the first instrumented step",
+                                                      "last HTTP: none recorded"])
+        discovery.mark_step("observe: setup discovery")
+        discovery.record_http("POST", "http://127.0.0.1:1/mcp?x=1", None, None, "tools/list")
+        self.assertEqual(discovery.describe_trace()[1], "last HTTP: POST /mcp (tools/list) -> no response; body: (empty)")
+        discovery.record_http("GET", "http://127.0.0.1:1/api/v1/admin/roles/", 403, b'{"error":"forbidden"}')
+        self.assertEqual(discovery.describe_trace(), ["step: observe: setup discovery",
+            'last HTTP: GET /api/v1/admin/roles/ -> 403; body: {"error":"forbidden"}'])
+
+
+class TransportPolicyTests(unittest.TestCase):
+    def test_non_loopback_http_needs_the_harness_named_cell_host(self):
+        cell = "http://cell-alb-1.us-east-1.elb.amazonaws.com/mcp"
+        with self.assertRaisesRegex(discovery.DiscoveryError, "loopback or the harness-named cloud cell host"):
+            discovery.HttpSession(cell, "key")
+        with probes.allow_http_cell("cell-alb-1.us-east-1.elb.amazonaws.com"):
+            self.assertEqual(discovery.HttpSession(cell, "key").url, cell)
+            with self.assertRaises(discovery.DiscoveryError):
+                discovery.HttpSession("http://other.example/mcp", "key")
+        with self.assertRaises(discovery.DiscoveryError):
+            discovery.HttpSession(cell, "key")
+
+
+class ProxyHttpsRefusalTests(unittest.TestCase):
+    def test_proxy_https_refusal_is_named_and_other_stderr_stays_private(self):
+        refusal = "Fatal: remoteUrl requires HTTPS except for exact loopback HTTP development endpoints"
+        for stderr, named in ((refusal, True), ("Fatal: secret-bearing diagnostic", False)):
+            code = f"import sys; sys.stderr.write({stderr!r}); sys.exit(1)"
+            with probes.McpProxySession([sys.executable, "-c", code], "http://127.0.0.1:1/mcp") as session:
+                with self.assertRaises(probes.McpError) as caught:
+                    session.request("initialize")
+            self.assertEqual(probes.CLIENT_HTTPS_REFUSAL_DETAIL in str(caught.exception), named)
+            self.assertNotIn("secret-bearing", str(caught.exception))
 
 
 class PaginationTests(unittest.TestCase):
@@ -190,10 +242,18 @@ class HttpSessionTests(unittest.TestCase):
     def test_wrong_credential_is_not_session_authority(self):
         with self.assertRaisesRegex(discovery.DiscoveryError, "401"):
             discovery.HttpSession(self.url, "wrong").initialize()
+        # The refusal leaves a redacted summary of the exchange for a raising driver's receipt.
+        http = discovery.TRACE["http"]
+        self.assertEqual((http["method"], http["path"], http["rpc"], http["status"]), ("POST", "/mcp", "initialize", 401))
+        self.assertNotIn("wrong", json.dumps(discovery.TRACE))
 
     def test_partial_http_receipt_does_not_promote_a_missing_installed_proxy(self):
         receipt = discovery.capture_setup_view(None, self.url, "ephemeral-test-key")
         self.assertEqual(receipt["http"]["status"], "pass")
+        # Each direct request records the answering instance; this fixture stamps none.
+        instances = receipt["http"]["answeringInstances"]
+        self.assertEqual(instances[0], {"rpc": "initialize", "instance": None})
+        self.assertEqual({row["rpc"] for row in instances}, {"initialize", "tools/list"})
         self.assertEqual(receipt["status"], "fail")
         self.assertEqual(receipt["tools"], [])
         self.assertNotIn("ephemeral-test-key", json.dumps(receipt))
@@ -211,6 +271,59 @@ class HttpSessionTests(unittest.TestCase):
                 receipt = discovery.capture_setup_view(Path("installed-proxy"), self.url, "ephemeral-test-key")
             self.assertEqual(receipt["status"], "fail")
             self.assertEqual(receipt["tools"], [])
+
+    def _proxy_receipt(self, responses):
+        fake = mock.MagicMock()
+        fake.__enter__.return_value = fake
+        fake.initialize.return_value = {"result": {"protocolVersion": "2025-06-18", "serverInfo": {"name": "fixture", "version": "1"}}}
+        fake.request.side_effect = responses
+        with mock.patch.object(Path, "is_file", return_value=True), mock.patch.object(discovery.probes, "McpProxySession", return_value=fake):
+            return discovery.capture_setup_view(Path("installed-proxy"), self.url, "ephemeral-test-key")
+
+    def test_proxy_view_mismatch_names_the_tool_field_and_metadata_and_keeps_the_proxy_responses(self):
+        # Run 38099175519 (redis-off Lambda cell) said only "differ from HTTP"; the detail must
+        # name what differs so the next run is diagnosable.
+        proxied = json.loads(wire(patch={"revision": "setup.v3"}))
+        proxied["result"]["tools"][0]["description"] = "changed"
+        receipt = self._proxy_receipt([proxied])
+        self.assertEqual(receipt["status"], "fail")
+        error = receipt["error"]
+        self.assertTrue(error.startswith("installed proxy session descriptors or metadata differ from HTTP: "))
+        self.assertIn('_meta.revision HTTP "setup.v2" vs proxy "setup.v3"', error)
+        self.assertIn("tool one fields differ: description", error)
+        self.assertEqual(receipt["proxy"]["toolsListResponse"]["result"]["_meta"]["revision"], "setup.v3")
+        self.assertEqual(receipt["proxy"]["initializeResponse"]["result"]["serverInfo"]["name"], "fixture")
+        self.assertNotIn("ephemeral-test-key", json.dumps(receipt))
+
+    def test_proxy_session_change_after_full_pagination_names_what_changed(self):
+        # Run 38099175519 (redis-on Lambda cell): the plain tools/list after the full catalog differed.
+        selected = json.loads(wire())
+        full = {"result": {"tools": [tool(), tool("two")]}}
+        after = {"result": {"tools": [tool(), tool("two")], "_meta": {"view": "full"}}}
+        receipt = self._proxy_receipt([selected, full, after])
+        self.assertEqual(receipt["status"], "fail")
+        error = receipt["error"]
+        self.assertTrue(error.startswith("proxy request override changed its negotiated session: "))
+        self.assertIn("tools only in after: two", error)
+        self.assertIn('_meta.view before "setup" vs after "full"', error)
+        self.assertIn("_meta.membershipDigest before", error)
+        self.assertEqual(receipt["proxy"]["restoredToolsListResponse"], after)
+
+    def test_describe_difference_names_order_missing_and_non_object_results(self):
+        one, two = tool(), tool("two")
+        self.assertEqual(discovery.describe_difference({"tools": [one, two]}, {"tools": [two, one]}, left="a", right="b"),
+                         "tools in a different order")
+        self.assertEqual(discovery.describe_difference({"tools": [one]}, {"tools": [two]}, left="a", right="b"),
+                         "tools only in a: one; tools only in b: two")
+        self.assertIn("a result <dict of 1", discovery.describe_difference({"x": 1}, None, left="a", right="b"))
+        # A credential-named value is masked in the detail.
+        detail = discovery.describe_difference({"_meta": {"x": 1}}, {"_meta": {"x": {"apiKey": "hk_secret"}}},
+                                               left="a", right="b")
+        self.assertNotIn("hk_secret", detail)
+        long = discovery.describe_difference({"tools": [tool(f"t{i}") for i in range(200)]},
+                                             {"tools": [tool(f"t{i}", "x") for i in range(200)]}, left="a", right="b")
+        self.assertTrue(long.endswith("...(truncated)"))
+        self.assertLessEqual(len(long), discovery.MAX_DIFFERENCE_CHARS + len("...(truncated)"))
 
     def test_full_canonical_extras_are_retained_without_expanding_setup(self):
         selected = json.loads(wire())
@@ -230,6 +343,95 @@ class HttpSessionTests(unittest.TestCase):
         view = live_driver._tool_view(observation)
         self.assertEqual(view["catalogToolCount"], 2)
         self.assertEqual(view["tools"], [tool()])
+
+
+class _AffinitySession:
+    """A direct HTTP session whose requests after initialize land on `instances[i]` in turn; a
+    request on an instance other than the initializer's gets the default view (as the server's
+    stateless session fallback answers it)."""
+
+    def __init__(self, instances):
+        self.order, self.instances, self.closed = list(instances), [], False
+
+    def initialize(self):
+        self.instances.append({"rpc": "initialize", "instance": self.order[0]})
+        return {"protocolVersion": "2025-06-18", "serverInfo": {"name": "fixture", "version": "1"}}
+
+    def request(self, method, params=None):
+        instance = self.order[len(self.instances) % len(self.order)]
+        self.instances.append({"rpc": method, "instance": instance})
+        view = "setup" if instance == self.order[0] else "default"
+        raw = wire(patch={"view": view})
+        return json.loads(raw), raw
+
+    def close(self):
+        self.closed = True
+
+
+class SessionAffinityTests(unittest.TestCase):
+    """Run 38119871941 (aws-ecs/redis-on on two tasks): stage 1 said only "requested
+    server-authored view identity is missing". The detail now names the instances."""
+
+    def capture(self, instances):
+        session = _AffinitySession(instances)
+        with mock.patch.object(discovery, "HttpSession", return_value=session):
+            return discovery.capture_setup_view(None, "https://cell.example/mcp", "ephemeral-test-key"), session
+
+    def test_a_request_answered_by_another_task_names_the_session_affinity_defect(self):
+        receipt, session = self.capture(["task-a", "task-b"])
+        self.assertTrue(session.closed)
+        self.assertEqual(receipt["status"], "fail")
+        error = receipt["error"]
+        self.assertTrue(error.startswith("requested server-authored view identity is missing "
+                                         "(requested 'setup', the server answered \"default\")"))
+        self.assertIn("MCP session affinity: initialize, which issued the Mcp-Session-Id, was answered by "
+                      "instance task-a, but tools/list by task-b", error)
+        self.assertIn("honua-server#5629", error)
+        self.assertEqual(receipt["http"]["answeringInstances"],
+                         [{"rpc": "initialize", "instance": "task-a"}, {"rpc": "tools/list", "instance": "task-b"}])
+        self.assertNotIn("ephemeral-test-key", json.dumps(receipt))
+
+    def test_one_instance_or_no_instance_header_is_named_without_claiming_affinity(self):
+        self.assertEqual(discovery.session_affinity_note(
+            [{"rpc": "initialize", "instance": "task-a"}, {"rpc": "tools/list", "instance": "task-a"}]),
+            "every direct HTTP request was answered by instance task-a")
+        self.assertIn("no Honua-Instance header", discovery.session_affinity_note(
+            [{"rpc": "initialize", "instance": None}, {"rpc": "tools/list", "instance": None}]))
+        # One unnamed response (here initialize) makes the trail unverifiable, never "one instance".
+        partial = discovery.session_affinity_note(
+            [{"rpc": "initialize", "instance": None}, {"rpc": "tools/list", "instance": "task-a"}])
+        self.assertTrue(partial.startswith("1 of 2 requests (initialize) named no answering instance"))
+        self.assertIn("cannot be established; named instances: task-a", partial)
+        self.assertNotIn("every direct HTTP request", partial)
+        many = [{"rpc": "initialize", "instance": "a"}] + [{"rpc": "tools/list", "instance": f"b{i}"} for i in range(9)]
+        self.assertIn("(+3 more)", discovery.session_affinity_note(many))
+
+    def test_http_session_records_the_answering_instance_header_and_drops_a_malformed_one(self):
+        session = discovery.HttpSession.__new__(discovery.HttpSession)
+        session.url, session.credential, session.session, session.next_id = "https://cell.example/mcp", "k", None, 0
+        session.instances = []
+
+        class Response(io.BytesIO):
+            status = 200
+
+            def __init__(self, instance, sid=None):
+                super().__init__(json.dumps({"jsonrpc": "2.0", "id": 1, "result": {}}).encode())
+                self.headers = {"Content-Type": "application/json", "Honua-Instance": instance,
+                                **({"Mcp-Session-Id": sid} if sid else {})}
+
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *exc):
+                return False
+
+        session.opener = mock.Mock()
+        session.opener.open.side_effect = [Response("task-a", "s1"), Response("bad id")]
+        session.request("initialize", {})
+        session.next_id = 0
+        session.request("tools/list")
+        self.assertEqual(session.instances, [{"rpc": "initialize", "instance": "task-a"},
+                                             {"rpc": "tools/list", "instance": None}])
 
 
 class ProxyWireTests(unittest.TestCase):

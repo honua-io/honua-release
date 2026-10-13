@@ -38,6 +38,7 @@
     "authPolicyRevision": "terminal-separate-principals-v1"
   },
   "principals": {
+    "operator": "HONUA_JOURNEY_OPERATOR_KEY",
     "proposer": "HONUA_JOURNEY_PROPOSER_KEY",
     "approver": "HONUA_JOURNEY_APPROVER_KEY",
     "viewer": "HONUA_JOURNEY_VIEWER_KEY",
@@ -53,22 +54,20 @@
       "sslRequired": false,
       "sslMode": "Disable"
     },
-    "importRequest": {
-      "serviceUrl": "http://source:8080/arcgis/rest/services/journey/FeatureServer",
-      "layerId": 0,
+    "upload": {
+      "path": "fixtures/journey-source.geojson",
+      "sha256": "0b16843475363f699ff6918e7eb027a2ba733a2d5c0e5226a025f9b9d51e93a4",
       "tableName": "journey_source",
       "targetSchema": "public",
-      "targetSrid": 4326,
-      "autoPublish": false
+      "targetSrid": 4326
     },
     "publishRequest": {
       "schema": "public",
-      "table": "journey_source",
       "layerName": "journey_source",
-      "geometryColumn": "geom",
+      "geometryColumn": "geometry",
       "geometryType": "Point",
       "srid": 4326,
-      "primaryKey": "objectid",
+      "primaryKey": "id",
       "serviceName": "journey"
     },
     "serviceId": "journey",
@@ -190,7 +189,7 @@
         ]
       }
     },
-    "route": "journey-map",
+    "route": "/journey-map",
     "publishedPath": "/api/v1/studio/published/journey-map"
   }
 }

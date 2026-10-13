@@ -16,6 +16,7 @@ import base64
 import gzip
 import hashlib
 import json
+from pathlib import Path
 import re
 import threading
 import urllib.error
@@ -162,8 +163,9 @@ def filter_nuget_registration(index: dict[str, Any], version: str) -> dict[str, 
 
 class Guard:
     def __init__(self, pins: dict[str, dict[str, str]], host: str = "127.0.0.1", port: int = 0,
-                 refusals_path: str | None = None):
+                 refusals_path: str | None = None, source_dir: Path | None = None):
         self.pins = pins
+        self.source_dir = source_dir
         self.digests: dict[str, dict[str, str]] = pins.get("digests") or {"npm": {}, "pypi": {}, "nuget": {}}
         self.npm_closure: dict[str, str] = {}     # exact Honua dependencies of pinned npm packages
         self.nuget_pins = dict(self.pins["nuget"], **nuget_family_pins(self.pins))
@@ -239,7 +241,9 @@ class Guard:
     def handle(self, handler: BaseHTTPRequestHandler, head: bool = False) -> None:
         path = urllib.parse.urlsplit(handler.path).path
         try:
-            if path.startswith("/npm/"):
+            if match := re.fullmatch(r"/source/([a-f0-9]{64})/npm/(.+)", path):
+                self._source_npm(handler, match[1], match[2], head)
+            elif path.startswith("/npm/"):
                 self._npm(handler, path[len("/npm/"):], head)
             elif path.startswith("/pypi/simple/"):
                 self._pypi(handler, path[len("/pypi/simple/"):], head)
@@ -258,6 +262,82 @@ class Guard:
                 self._send(handler, 404, b"unknown registry path", "text/plain", head)
         except (BrokenPipeError, ConnectionResetError):
             pass
+
+    def _source_npm(self, handler: BaseHTTPRequestHandler, identity: str, rest: str, head: bool) -> None:
+        """No mutable dependency expansion: only exact tarballs from one immutable lock closure."""
+        try:
+            if self.source_dir is None:
+                raise ValueError("source admission unavailable")
+            # Select from trusted directory entries; never construct an opened path
+            # from the HTTP request. Symlinks cannot redirect admission reads.
+            admission = next((path for path in self.source_dir.glob("source-*.json")
+                              if path.name == f"source-{identity}.json" and not path.is_symlink()
+                              and path.is_file()), None)
+            if admission is None:
+                raise ValueError("unknown source admission")
+            raw = admission.read_bytes()
+            if hashlib.sha256(raw).hexdigest() != identity:
+                raise ValueError("source admission integrity mismatch")
+            binding = json.loads(raw)
+            if not isinstance(binding, dict) or not isinstance(binding.get("locks"), list):
+                raise ValueError("invalid source admission")
+            packages = []
+            for lock in binding["locks"]:
+                if not isinstance(lock, dict) or not isinstance(lock.get("packages"), list):
+                    raise ValueError("invalid source lock")
+                for row in lock["packages"]:
+                    if not isinstance(row, dict):
+                        raise ValueError("invalid source package")
+                    if row.get("link"):
+                        continue
+                    if not all(isinstance(row.get(key), str) for key in ["name", "version", "integrity", "resolved"]):
+                        raise ValueError("invalid source package identity")
+                    if (not NPM_HONUA.match(row["name"])
+                            or not EXACT.fullmatch(row["version"])
+                            or not re.fullmatch(r"sha512-[A-Za-z0-9+/]+={0,2}", row["integrity"])
+                            or row["resolved"] != f"{NPM_UPSTREAM}/{row['name']}/-/{row['name'].rsplit('/', 1)[-1]}-{row['version']}.tgz"):
+                        raise ValueError("source package is not an exact public artifact")
+                    packages.append(row)
+        except (OSError, ValueError, KeyError, TypeError):
+            self.refuse(handler, "source-npm", "unknown or altered source admission")
+            return
+        rest = urllib.parse.unquote(rest)
+        name = rest.split("/-/", 1)[0] if "/-/" in rest else rest.rstrip("/")
+        if "%" in rest or any(part in {"", ".", ".."} for part in rest.rstrip("/").split("/")):
+            self.refuse(handler, "source-npm", "noncanonical registry path")
+            return
+        if not NPM_HONUA.match(name):
+            code, data, ctype = self._fetch(f"{NPM_UPSTREAM}/{rest}", handler.headers.get("Accept"))
+            self._send(handler, code, data, ctype, head)
+            return
+        admitted = {row["version"]: row for row in packages if row["name"] == name}
+        if "/-/" in rest:
+            url = f"{NPM_UPSTREAM}/{rest}"
+            row = next((row for row in admitted.values() if row["resolved"] == url), None)
+            if row is None:
+                self.refuse(handler, "source-npm", f"{name}: tarball outside source lock")
+                return
+            code, data, ctype = self._fetch(url)
+            if code != 200 or not digest_matches(data, row["integrity"]):
+                self.refuse(handler, "source-npm", f"{name}: source-lock integrity mismatch")
+                return
+            self._send(handler, code, data, ctype, head)
+            return
+        code, data, ctype = self._fetch(f"{NPM_UPSTREAM}/{urllib.parse.quote(name, safe='@')}", handler.headers.get("Accept"))
+        if code != 200 or not admitted:
+            self.refuse(handler, "source-npm", f"{name}: package outside source lock")
+            return
+        body = json.loads(data)
+        kept = {}
+        for version, row in admitted.items():
+            entry = (body.get("versions") or {}).get(version)
+            if not entry or (entry.get("dist") or {}).get("integrity") != row["integrity"]:
+                self.refuse(handler, "source-npm", f"{name}@{version}: registry integrity differs from source lock")
+                return
+            entry = {**entry, "dist": {**entry["dist"], "tarball": f"{self.base}/source/{identity}/npm/" + row["resolved"].removeprefix(NPM_UPSTREAM + "/")}}
+            kept[version] = entry
+        body = {**body, "versions": kept, "dist-tags": {}}
+        self._send(handler, 200, json.dumps(body).encode(), ctype, head)
 
     def _npm(self, handler: BaseHTTPRequestHandler, rest: str, head: bool) -> None:
         rest = urllib.parse.unquote(rest)
@@ -394,7 +474,7 @@ def main() -> int:
     args = parser.parse_args()
     with open(args.pins, encoding="utf-8") as handle:
         pins = json.load(handle)
-    guard = Guard(pins, port=args.port, refusals_path=args.refusals)
+    guard = Guard(pins, port=args.port, refusals_path=args.refusals, source_dir=Path(args.pins).parent)
     print(f"registry guard on {guard.base}", flush=True)
     guard.server.serve_forever()
     return 0

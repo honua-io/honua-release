@@ -41,6 +41,7 @@ from blocks import Block, extract  # noqa: E402
 from inputs import assigned_names, doc_id, load_vars, needs, render  # noqa: E402
 from inventory import InventoryError, Resolver, document_record, drift  # noqa: E402
 from registry_guard import pins_from_manifest, NPM_HONUA, pypi_normalize  # noqa: E402
+import source_build  # noqa: E402
 
 TAIL = 2000
 SERVE = re.compile(
@@ -505,32 +506,43 @@ class Session:
             cmd += ["--data-binary", body]
         return self._exec(self.container(runtime), cmd, timeout)
 
-    def installed_honua(self, runtime: str) -> dict[str, str]:
-        """Honua packages the reader's environment now has: pip site-packages and ./node_modules."""
+    def installed_honua(self, runtime: str, extra_roots: tuple[Path, ...] = ()) -> list[dict[str, str]]:
+        """Retain every installed package path, including simultaneous nested versions."""
         if runtime not in self.containers:
-            return {}
+            return []
         name = self.containers[runtime]
-        found: dict[str, str] = {}
+        found = []
         if runtime == "python" or "python" in self.runtimes.get(runtime, ""):
-            metadata = "import importlib.metadata as m,json; print(json.dumps([{\"name\":d.metadata[\"Name\"],\"version\":d.version} for d in m.distributions()]))"
+            metadata = "import importlib.metadata as m,json; print(json.dumps([{\"name\":d.metadata[\"Name\"],\"version\":d.version,\"path\":str(d.locate_file(''))} for d in m.distributions()]))"
             out = docker("exec", *self.exec_env(runtime), name, "python3", "-c", metadata, check=True).stdout
             for row in json.loads(out):
                 if row["name"].lower().startswith("honua"):
-                    found[pypi_normalize(row["name"])] = row["version"]
-        modules = [Path(self.cwd) / "node_modules", self.home / ".local/lib/node_modules"]
-        for package_json in (p for root in modules for p in root.rglob("package.json")):
-            try:
-                meta = json.loads(package_json.read_text())
-                if NPM_HONUA.match(meta["name"]):
-                    found[meta["name"]] = meta["version"]
-            except (OSError, json.JSONDecodeError, KeyError):
-                pass
+                    found.append({**row, "name": pypi_normalize(row["name"]), "ecosystem": "pypi"})
+        modules = [Path(self.cwd) / "node_modules", self.home / ".local/lib/node_modules", *extra_roots]
+        seen = set()
+        for root in modules:
+            hidden = root / ".package-lock.json"
+            locked = json.loads(hidden.read_text()).get("packages", {}) if hidden.exists() else {}
+            paths = set(root.rglob("package.json")) | set(root.glob("@honua/*/package.json"))
+            for package_json in sorted(paths):
+                if package_json in seen:
+                    continue
+                seen.add(package_json)
+                try:
+                    meta = json.loads(package_json.read_text())
+                    if NPM_HONUA.match(meta["name"]):
+                        key = "node_modules/" + str(package_json.parent.relative_to(root))
+                        found.append({"name": meta["name"], "version": meta["version"], "ecosystem": "npm",
+                                      "path": str(package_json.parent), "integrity": locked.get(key, {}).get("integrity", "")})
+                except (OSError, json.JSONDecodeError, KeyError):
+                    pass
         if runtime == "dotnet":
             for assets in self.workdir.rglob("project.assets.json"):
                 for library, meta in json.loads(assets.read_text()).get("libraries", {}).items():
                     package, version = library.rsplit("/", 1)
                     if meta.get("type") == "package" and package.lower().startswith("honua."):
-                        found[package.lower()] = version
+                        found.append({"name": package.lower(), "version": version, "path": str(assets) + "#" + library,
+                                      "ecosystem": "nuget"})
         return found
 
     def _exec(self, name: str, cmd: list[str], timeout: int) -> Outcome:
@@ -560,7 +572,14 @@ def _read(path: Path, suffix: str) -> str:
 DOTNET_ADD = re.compile(r"dotnet\s+add\s+(?:\S+\s+)?package\s+([\w.]+)(?:\s+(?:--version|-v)\s+([\w.\-+*]+))?")
 
 
+UNRESOLVED = re.compile(r"\{[a-zA-Z]+\.[A-Za-z0-9_]+\}")
+
+
 def substitute(code: str, table: dict[str, str]) -> str:
+    """Replace each literal in the executed code, longest first (so `...:2026.1-rc` wins over `...:2026.1`).
+
+    Only the code a block runs is substituted; the report's `command` and the published page keep the
+    document's own text (e.g. the release-channel tag the reader sees)."""
     for literal, value in sorted(table.items(), key=lambda kv: -len(kv[0])):
         code = code.replace(literal, value)
     return code
@@ -638,6 +657,9 @@ def checkout_context(doc: dict[str, Any], revision: str, session: Session, token
         outcome = session._exec(session.container(doc["runtime"]), ["bash", "-c", script], DEFAULT_TIMEOUT)
         if outcome.status != "pass":
             raise RunError(f"could not check out {doc['repo']}@{revision[:12]}: {outcome.stderr.strip()[-300:]}")
+    actual = session._exec(session.container(doc["runtime"]), ["git", "-C", str(target), "rev-parse", "HEAD"], DEFAULT_TIMEOUT)
+    if actual.status != "pass" or actual.stdout.strip() != revision:
+        raise RunError("existing source checkout does not match the immutable document revision")
     session.cwd = str(target / spec.get("cwd", ""))
 
 
@@ -679,6 +701,12 @@ def run_document(doc: dict[str, Any], text: str, session: Session, context: dict
         session.ensure_dotnet_project()
     env_values = {k: render(str(v["value"]), context) for k, v in variables["env"].items()}
     subst = {k: render(str(v["value"]), context) for k, v in variables["substitute"].items()}
+    unresolved = sorted({f"{section}.{k} -> {v}" for section, table in (("env", env_values), ("substitute", subst))
+                         for k, v in table.items() if UNRESOLVED.search(v)})
+    if unresolved:
+        # Fail closed: a block must never run with a literal `{candidate.image}` (or fall back to the
+        # document's own text, e.g. a floating release-channel tag) because the run has no value for it.
+        raise RunError("variables reference values this run does not have: " + "; ".join(unresolved))
     session.env.update(env_values)
     packages = [(m.group(1), m.group(2)) for b in blocks if b.language == "shell"
                 for m in DOTNET_ADD.finditer(b.code)]
@@ -718,18 +746,61 @@ def run_document(doc: dict[str, Any], text: str, session: Session, context: dict
             if status != "pass":
                 row["stdoutTail"] = scrub(tail(outcome.stdout), secrets)
                 row["stderrTail"] = scrub(tail(outcome.stderr), secrets)
+        if block_inventory:
+            row["installedPackages"] = block_inventory
+        if active_source:
+            row["sourceBuild"] = {"identity": source_build.digest(source_build.canonical(active_source)),
+                                  "sourceSha": active_source["sourceSha"], "checkoutPath": str(source_root), "locks": active_source["locks"],
+                                  "bindingOperation": ("documented clone followed by explicit fetch/checkout of document revision before npm ci"
+                                                       if any(b["sha256"] == block.sha256 and b["index"] == block.index and b["clone"] for b in active_source["blocks"])
+                                                       else "verify existing checkout revision and immutable locks before and after build")}
+        if source_dependency_audit:
+            row["sourceDependencyAudit"] = source_dependency_audit
         row.update(extra or {})
         rows.append(row)
 
+    active_source = None
+    retained_source = None
+    source_dependency_audit = None
+    source_root = session.workdir / "app" / "honua-sdk-js"
+    block_inventory = []
+
+    def verify_retained_source() -> None:
+        if retained_source:
+            binding, root = retained_source
+            verified = session._exec(session.container("node"), ["bash", "-e", "-c", source_build.verification_script(binding, root)], DEFAULT_TIMEOUT)
+            if verified.status != "pass":
+                raise RunError("previously admitted source checkout or immutable lock changed")
+
     def audit(outcome: Outcome, runtime: str) -> Outcome:
-        installed = session.installed_honua(runtime)
+        nonlocal block_inventory, source_dependency_audit
+        source = (active_source, source_root) if active_source else retained_source
+        installed = (session.installed_honua(runtime, (source[1] / "node_modules", source[1] / "mcp/node_modules"))
+                     if source else session.installed_honua(runtime))
+        # Older test doubles use mappings; actual observations always preserve paths.
+        if isinstance(installed, dict):
+            installed = [{"name": name, "version": version, "path": ""} for name, version in installed.items()]
+        block_inventory = installed
+        if source:
+            binding, root = source
+            if not active_source:
+                verify_retained_source()
+                source_dependency_audit = {"identity": source_build.digest(source_build.canonical(binding)),
+                                           "sourceSha": binding["sourceSha"], "checkoutPath": str(root),
+                                           "scope": "existing exact source dependencies; candidate registry unchanged"}
+            errors = source_build.audit_source(binding, root, installed)
+            if errors:
+                outcome.status, outcome.command_failed = "fail", False
+                outcome.detail += "; " + "; ".join(errors)
+            installed = [row for row in installed if not Path(row["path"]).is_relative_to(root)]
         allowed = {**context.get("_closure", lambda: {})(), **pinned_versions}
         # The registry guard already admits Honua.Sdk.* at the root SDK's exact release version.
-        for name in installed:
+        for row in installed:
+            name = row["name"]
             if name.startswith("honua.sdk.") and "honua.sdk" in allowed:
                 allowed.setdefault(name, allowed["honua.sdk"])
-        wrong = sorted(f"{name} {version} (admitted version: {allowed.get(name, 'none')})"
-                       for name, version in installed.items() if allowed.get(name) not in {version, "*"})
+        wrong = sorted(f"{row['path']}: {row['name']} {row['version']} (admitted version: {allowed.get(row['name'], 'none')})"
+                       for row in installed if allowed.get(row["name"]) not in {row["version"], "*"})
         if wrong:
             outcome.status = "fail"
             outcome.command_failed = False
@@ -758,10 +829,36 @@ def run_document(doc: dict[str, Any], text: str, session: Session, context: dict
         return Outcome("fail", f"no executor for {lang}")
 
     def execute(block: Block, code: str) -> Outcome:
-        return dispatch(block, code)
+        nonlocal retained_source
+        if not active_source:
+            verify_retained_source()
+            return dispatch(block, code)
+        original = {key: session.env.get(key) for key in ["npm_config_registry", "YARN_NPM_REGISTRY_SERVER"]}
+        registry = context["_source_registry"]
+        session.env.update({key: registry for key in original})
+        try:
+            outcome = dispatch(block, source_build.bind_code(active_source, block, code, source_root))
+            verified = session._exec(session.container("node"), ["bash", "-e", "-c", source_build.verification_script(active_source, source_root)], DEFAULT_TIMEOUT)
+            if verified.status != "pass":
+                outcome.status, outcome.command_failed = "fail", False
+                outcome.detail += "; source checkout or lock changed during build"
+            else:
+                retained_source = (active_source, source_root)
+            outcome.mode = "immutable-source-build"
+            return outcome
+        finally:
+            for key, value in original.items():
+                if value is None:
+                    session.env.pop(key, None)
+                else:
+                    session.env[key] = value
 
     pending_teardowns: list[tuple[Block, str]] = []
     for block in blocks:
+        binding = context.get("_source_build")
+        active_source = binding if binding and any(row["sha256"] == block.sha256 and row["index"] == block.index for row in binding["blocks"]) else None
+        block_inventory = []
+        source_dependency_audit = None
         try:
             if ((block.marker_error or "").startswith("doc-run: run on a language") and block.intent == "run"
                     or (block.marker_error or "").startswith("doc-run: blocked on a language")):
@@ -793,6 +890,11 @@ def run_document(doc: dict[str, Any], text: str, session: Session, context: dict
             code = substitute(block.code, subst)
             if block.marker and "checkout" in block.marker:
                 checkout_context({**doc, "checkout": {"cwd": block.marker.get("checkout", "")}}, revision, session, token)
+            if active_source and any(row["sha256"] == block.sha256 and row["index"] == block.index and row["clone"] for row in active_source["blocks"]):
+                # git clone uses the reader's current directory, which a previous
+                # scaffold block may have changed. Keep this exact location for
+                # the following fixture block instead of resetting the reader.
+                source_root = Path(session.cwd) / "honua-sdk-js"
             if block.intent == "file":
                 target = Path(session.cwd) / block.file if not block.file.startswith("/") else Path(block.file)
                 session.put(doc["runtime"], target, code)
@@ -835,8 +937,12 @@ def run_document(doc: dict[str, Any], text: str, session: Session, context: dict
         except Exception:
             outcome = exception_outcome()
             record(block, outcome, outcome.status, outcome.detail)
+    active_source = None
     for block in deferred:
+        block_inventory = []
+        source_dependency_audit = None
         try:
+            verify_retained_source()
             outcome = session.run_compile(substitute(block.code, subst), int(doc.get("timeout", DEFAULT_TIMEOUT)))
             outcome = audit(outcome, "node")
         except Exception:
@@ -960,6 +1066,13 @@ class Guards:
             self.running[network] = name
         return f"http://127.0.0.1:{self.port}"
 
+    def source_registry(self, binding: dict, network: str) -> str:
+        raw = source_build.canonical(binding)
+        identity = source_build.digest(raw)
+        path = self.dir / f"source-{identity}.json"
+        path.write_bytes(raw)
+        return f"{self.base(network)}/source/{identity}/npm/"
+
     def closure(self) -> dict[str, str]:
         admitted: dict[str, str] = {}
         for path in sorted(self.dir.glob("closure-*.json")):
@@ -991,29 +1104,6 @@ def candidate_container() -> str:
     if not cid:
         raise RunError("the booted candidate server container was not found")
     return cid[0]
-
-
-def refresh_seed_bindings(context: dict[str, Any]) -> None:
-    """Bind fixture layer ids from the manifest the seed wrote, when that file exists.
-
-    ``fixture.mauiBuildingsLayerId`` is the id the admin API returned for the
-    synthetic buildings service. It is not the public demo's layer 13. An older
-    manifest that has no buildings entry leaves the key unset.
-    """
-    manifest_path = Path(os.environ.get("E2E_OUT", str(ROOT / "out"))) / "seed-manifest.json"
-    if not manifest_path.is_file():
-        return
-    import importlib.util
-    path = ROOT / "e2e/harness/seed/plan.py"
-    spec = importlib.util.spec_from_file_location("honua_release_seed_plan", path)
-    if spec is None or spec.loader is None:
-        raise RunError(f"could not load the seed plan at {path}")
-    module = importlib.util.module_from_spec(spec)
-    # dataclass looks the class's module up in sys.modules while the class body runs.
-    sys.modules[spec.name] = module
-    spec.loader.exec_module(module)
-    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
-    context.update(module.bind_fixture_context(manifest))
 
 
 def boot_candidate() -> None:
@@ -1061,11 +1151,8 @@ def main() -> int:
     context: dict[str, Any] = {"candidate.baseUrl": base_url, "candidate.apiKey": api_key,
                                "candidate.adminPassword": api_key, "candidate.image": image,
                                "candidate.mcpUrl": base_url + "/mcp", "candidate.grpcAddress": "localhost:8081",
-                               # a published layer of e2e/harness/seed (the seed asserts maui-zoning -> layer 2).
-                               # maui-buildings is filled from the seed manifest when the seed has run:
-                               # the returned id, not the public demo's layer 13.
+                               # a published layer of e2e/harness/seed (the seed asserts maui-zoning -> layer 2)
                                "fixture.featureService": "maui-zoning", "fixture.featureLayerId": "2"}
-    refresh_seed_bindings(context)
     context["_pins"] = {str(v["package"]): str(v["version"]) for v in manifest.get("clientArtifacts", {}).values()
                         if v.get("package") and v.get("version")}
     token = os.environ.get("GH_TOKEN") or os.environ.get("GITHUB_TOKEN")
@@ -1124,7 +1211,13 @@ def main() -> int:
                 variables = load_vars(args.vars_dir, ident)
                 print(f"== {ident} @ {revision[:12]}", flush=True)
                 checkout_context(document, revision, session, token)
-                result, defined[key] = run_document(document, text, session, context, variables, digest,
+                binding = source_build.derive(document, revision, text,
+                    lambda path: resolver.read({**document, "path": path}, revision).encode())
+                document_context = dict(context)
+                if binding:
+                    document_context.update(_source_build=binding, _source_registry=guards.source_registry(binding, network))
+                    row["sourceBuildAdmission"] = binding
+                result, defined[key] = run_document(document, text, session, document_context, variables, digest,
                                                     [api_key], defined.get(key, set()), revision, token, row)
                 row.update(result)
                 row["variablesFile"] = f"vars/{ident}.json" if (args.vars_dir / f"{ident}.json").exists() else None
@@ -1154,7 +1247,6 @@ def main() -> int:
                 os.environ["HONUA_SERVER_IMAGE"] = image
                 booted = True   # tear down whatever `up` started, even when it never became ready
                 boot_candidate()
-                refresh_seed_bindings(context)
             network = "host" if args.network == "host" else f"container:{candidate_container()}"
             run_phase(client_docs, network, tools)
     except Exception:

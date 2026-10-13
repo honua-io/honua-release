@@ -14,6 +14,8 @@ from jsonschema import Draft202012Validator
 
 NOW = datetime(2026, 10, 2, 12, tzinfo=timezone.utc)
 OTHER_LOCK = "sha256:" + "f" * 64
+ECS_IMAGE = "sha256:" + "b" * 64
+LAMBDA_IMAGE = "sha256:" + "c" * 64
 
 # Expectations are written out here rather than read from the module under test, so
 # dropping a class, journey or cell from the checker fails these tests.
@@ -42,12 +44,27 @@ def _write(path, value):
     path.write_text(json.dumps(value), encoding="utf-8")
 
 
+def _update_cell(cell):
+    actuator = {"aws-ecs/redis-off": "terraform-exact-apply", "aws-ecs/redis-on": "honua-aws-ecs-alb",
+                "aws-serverless/redis-off": "honua-gitops-aws-lambda", "aws-serverless/redis-on": "honua-gitops-aws-lambda"}[cell]
+    return {"cell": cell, "updateStatus": "pass", "rollbackStatus": "pass", "actuator": actuator,
+            "fromDigest": "sha256:" + "a" * 64, "toDigest": LAMBDA_IMAGE if cell.startswith("aws-serverless/") else ECS_IMAGE,
+            "inFlightJob": {"jobId": "gp-flight-1", "initialState": "running", "terminalStates": ["succeeded"]},
+            "schemaBoundary": {"status": "pass", "outcome": "serving", "schemaVersion": "128",
+                               "imageDigest": "sha256:" + "a" * 64}}
+
+
 def _fixture(tmp_path, *, age=54, minted=None):
     """A complete record: minted `minted` hours ago, burning for `age` hours, canaries every
     six hours from the first slot after burn start through now."""
     tmp_path.mkdir(parents=True, exist_ok=True)
     lock = tmp_path / "platform-lock.json"
-    lock.write_text('{"lockVersion":"platform-lock.v1"}\n', encoding="utf-8")
+    manifest = {"components": {"honua-server": {"digest": ECS_IMAGE, "awsLambdaEcrDigest": LAMBDA_IMAGE,
+                                              "awsLambdaDigest": "sha256:" + "d" * 64}}}
+    manifest_bytes = yaml.safe_dump(manifest).encode("utf-8")
+    _write(lock, {"lockVersion": "platform-lock.v1",
+                  "sourceInputs": {"platformManifest": {"sha256": "sha256:" + hashlib.sha256(manifest_bytes).hexdigest()}},
+                  "components": {"honua-server": {"artifacts": [{"kind": "image", "digest": ECS_IMAGE}]}}})
     digest = "sha256:" + hashlib.sha256(lock.read_bytes()).hexdigest()
     burn = NOW - timedelta(hours=age)
     mint = NOW - timedelta(hours=age if minted is None else minted)
@@ -58,6 +75,8 @@ def _fixture(tmp_path, *, age=54, minted=None):
               "gates": [{"gate": gate, "status": "pass"} for gate in REQUIRED_RELEASE_GATES],
               "evidenceClasses": list(NIGHTLY_CLASSES)}
     root = evidence / "trains" / "101"
+    root.mkdir(parents=True, exist_ok=True)
+    (root / "platform-manifest.yaml").write_bytes(manifest_bytes)
     _write(root / "gate-report.json", report)
     _write(root / "run.json", {"updated_at": train["completedAt"], "status": "completed", "conclusion": "success"})
     (root / "platform-lock.json").write_bytes(lock.read_bytes())
@@ -86,7 +105,8 @@ def _fixture(tmp_path, *, age=54, minted=None):
                                  "attempts": [{"attempt": 1, "status": "pass", "lockDigest": digest,
                                                "completedAt": row["completedAt"]}]} for cell in cells]
         if name == "update-rollback":
-            receipt.update(cells=[{"cell": cell, "updateStatus": "pass", "rollbackStatus": "pass"} for cell in GA_CELLS],
+            receipt.update(cells=[_update_cell(cell) for cell in GA_CELLS],
+                           fromLockDigest=OTHER_LOCK, toLockDigest=digest,
                            updateStatus="pass", rollbackStatus="pass")
         root = evidence / "evidence" / name / run_id
         _write(root / "receipt.json", receipt)
@@ -269,6 +289,23 @@ def test_journey_pass_rule_has_a_negative_per_rule_and_tier(tmp_path, name, muta
         elif mutation == "gap": attempt["attempt"] = 2
     _edit(_receipt(fixture, name), change)
     _failed(fixture, f"evidence:{name}")
+
+
+@pytest.mark.parametrize("bound", ["first", "second", "both"])
+def test_nightly_model_canary_attempt_bound_to_another_lock_does_not_count(tmp_path, bound):
+    # Fix unit J3: each genuine-model canary attempt records the lock digest it ran against. A
+    # receipt whose own lockDigest is right still fails when any attempt in its ledger ran
+    # against another lock, including an attributed failure that a passing retry follows.
+    fixture = _fixture(tmp_path)
+    def change(receipt):
+        cell = receipt["cells"][0]
+        attempt = cell["attempts"][0]
+        cell["attemptCount"] = 2
+        cell["attempts"] = [{**attempt, "status": "fail", "failureAttribution": "model"}, {**attempt, "attempt": 2}]
+        for index in {"first": (0,), "second": (1,), "both": (0, 1)}[bound]:
+            cell["attempts"][index]["lockDigest"] = OTHER_LOCK
+    _edit(_receipt(fixture, "nightly-model-journey"), change)
+    _failed(fixture, "evidence:nightly-model-journey")
 
 
 @pytest.mark.parametrize("attribution", ["model", "infrastructure"])
@@ -570,3 +607,123 @@ def test_nightly_receipt_production_must_fall_within_the_minting_run(position, t
     _edit(receipt.with_name('run.json'), lambda value: value.update(created_at=_stamp(start), updated_at=_stamp(end)))
     decision = _decision(fixture)
     assert decision['checks']['evidence:contract']['status'] == ('pass' if position == 'inside' else 'fail')
+
+
+@pytest.mark.parametrize("cell_name", GA_CELLS)
+@pytest.mark.parametrize("mutation", ["missing-actuator", "wrong-actuator", "same-image", "invalid-image",
+                                     "missing-job", "empty-job", "not-in-flight", "nonterminal", "empty-terminal", "multiple-terminal",
+                                     "missing-boundary", "wrong-boundary-image", "missing-schema", "unproved-refusal"])
+def test_update_rollback_requires_actuator_transition_job_and_schema_proof(tmp_path, cell_name, mutation):
+    fixture = _fixture(tmp_path)
+    def mutate(receipt):
+        cell = next(row for row in receipt["cells"] if row["cell"] == cell_name)
+        if mutation == "missing-actuator": del cell["actuator"]
+        elif mutation == "wrong-actuator": cell["actuator"] = "fake-deploy"
+        elif mutation == "same-image": cell["toDigest"] = cell["fromDigest"]
+        elif mutation == "invalid-image": cell["fromDigest"] = "latest"
+        elif mutation == "missing-job": del cell["inFlightJob"]
+        elif mutation == "empty-job": cell["inFlightJob"]["jobId"] = " "
+        elif mutation == "not-in-flight": cell["inFlightJob"]["initialState"] = "succeeded"
+        elif mutation == "nonterminal": cell["inFlightJob"]["terminalStates"] = ["running"]
+        elif mutation == "empty-terminal": cell["inFlightJob"]["terminalStates"] = []
+        elif mutation == "multiple-terminal": cell["inFlightJob"]["terminalStates"] = ["succeeded", "succeeded"]
+        elif mutation == "missing-boundary": del cell["schemaBoundary"]
+        elif mutation == "wrong-boundary-image": cell["schemaBoundary"]["imageDigest"] = cell["toDigest"]
+        elif mutation == "missing-schema": del cell["schemaBoundary"]["schemaVersion"]
+        elif mutation == "unproved-refusal": cell["schemaBoundary"]["outcome"] = "refused-cleanly"
+    _edit(_receipt(fixture, "update-rollback"), mutate)
+    _failed(fixture, "evidence:update-rollback")
+
+
+@pytest.mark.parametrize("mutation", ["missing-from", "self-lock", "wrong-candidate", "invalid-from"])
+def test_update_rollback_requires_two_distinct_candidate_bound_locks(tmp_path, mutation):
+    fixture = _fixture(tmp_path)
+    def mutate(receipt):
+        if mutation == "missing-from": del receipt["fromLockDigest"]
+        elif mutation == "self-lock": receipt["fromLockDigest"] = receipt["toLockDigest"]
+        elif mutation == "wrong-candidate": receipt["toLockDigest"] = "sha256:" + "e" * 64
+        else: receipt["fromLockDigest"] = "unattested-tag"
+    _edit(_receipt(fixture, "update-rollback"), mutate)
+    _failed(fixture, "evidence:update-rollback")
+
+
+def test_update_rollback_clean_schema_refusal_is_explicit(tmp_path):
+    fixture = _fixture(tmp_path)
+    def mutate(receipt):
+        receipt["cells"][0]["schemaBoundary"].update(outcome="refused-cleanly", reasonCode="schema-newer-than-runtime")
+    _edit(_receipt(fixture, "update-rollback"), mutate)
+    assert _decision(fixture)["status"] == "pass"
+
+
+def test_update_rollback_receipt_schema_requires_every_structural_proof_field(tmp_path):
+    fixture = _fixture(tmp_path)
+    receipt = json.loads(_receipt(fixture, "update-rollback").read_text())
+    schema = json.loads((Path(__file__).resolve().parents[1] / "certification/promotion-evidence.v1.schema.json").read_text())
+    validator = Draft202012Validator({"$ref": "#/$defs/updateRollbackReceipt", "$defs": schema["$defs"]})
+    Draft202012Validator.check_schema(schema)
+    assert validator.is_valid(receipt)
+    for field in ("actuator", "fromDigest", "toDigest", "inFlightJob", "schemaBoundary"):
+        bad = copy.deepcopy(receipt)
+        del bad["cells"][0][field]
+        assert not validator.is_valid(bad), field
+    bad = copy.deepcopy(receipt)
+    bad["cells"][0]["actuator"] = "honua-gitops-aws-lambda"
+    assert not validator.is_valid(bad)
+    # Sibling inequality and cell uniqueness are semantic checks, not JSON Schema $data extensions.
+    receipt["cells"][0]["toDigest"] = receipt["cells"][0]["fromDigest"]
+    assert not readiness._update_rollback(receipt, {cell: _update_cell(cell)["toDigest"] for cell in GA_CELLS})
+
+
+@pytest.mark.parametrize("cell_name", GA_CELLS)
+@pytest.mark.parametrize("digest", ["sha256:" + "e" * 64, "sha256:" + "d" * 64])
+def test_update_rollback_rejects_valid_but_unbound_target_images(tmp_path, cell_name, digest):
+    fixture = _fixture(tmp_path)
+    def change(receipt):
+        cell = next(cell for cell in receipt["cells"] if cell["cell"] == cell_name)
+        cell["toDigest"] = digest
+    _edit(_receipt(fixture, "update-rollback"), change)
+    _failed(fixture, "evidence:update-rollback")
+
+
+def test_update_rollback_rejects_arbitrary_valid_pairs_on_all_cells(tmp_path):
+    fixture = _fixture(tmp_path)
+    def change(receipt):
+        for cell in receipt["cells"]:
+            cell.update(fromDigest="sha256:" + "e" * 64, toDigest="sha256:" + "f" * 64)
+            cell["schemaBoundary"]["imageDigest"] = cell["fromDigest"]
+    _edit(_receipt(fixture, "update-rollback"), change)
+    _failed(fixture, "evidence:update-rollback")
+
+
+@pytest.mark.parametrize("mutation", ["missing-manifest", "tampered-manifest", "missing-binding", "missing-mirror", "pending-mirror", "missing-server", "wrong-lock-image"])
+def test_update_rollback_requires_retained_candidate_image_inputs(tmp_path, mutation):
+    fixture = _fixture(tmp_path)
+    manifest = fixture[2] / "trains/101/platform-manifest.yaml"
+    if mutation == "missing-manifest":
+        manifest.unlink()
+    elif mutation == "tampered-manifest":
+        manifest.write_text("components: {}\n")
+    else:
+        lock = json.loads(fixture[1].read_text())
+        data = yaml.safe_load(manifest.read_text())
+        if mutation == "missing-binding": del lock["sourceInputs"]
+        elif mutation == "wrong-lock-image": lock["components"]["honua-server"]["artifacts"][0]["digest"] = OTHER_LOCK
+        elif mutation == "missing-server": del data["components"]["honua-server"]
+        elif mutation == "missing-mirror": del data["components"]["honua-server"]["awsLambdaEcrDigest"]
+        elif mutation == "pending-mirror": data["components"]["honua-server"]["awsLambdaEcrDigest"] = "pending-ecr-mirror"
+        manifest.write_text(yaml.safe_dump(data), encoding="utf-8")
+        if "sourceInputs" in lock:
+            lock["sourceInputs"]["platformManifest"]["sha256"] = "sha256:" + hashlib.sha256(manifest.read_bytes()).hexdigest()
+        _write(fixture[1], lock)
+    _failed(fixture, "evidence:update-rollback")
+
+
+@pytest.mark.parametrize("field", ["runId", "completedAt", "status", "kind", "freshUntil"])
+def test_update_rollback_schema_requires_shared_receipt_envelope(tmp_path, field):
+    fixture = _fixture(tmp_path)
+    receipt = json.loads(_receipt(fixture, "update-rollback").read_text())
+    schema = json.loads((Path(__file__).resolve().parents[1] / "certification/promotion-evidence.v1.schema.json").read_text())
+    validator = Draft202012Validator({"$ref": "#/$defs/updateRollbackReceipt", "$defs": schema["$defs"]})
+    assert validator.is_valid(receipt)
+    del receipt[field]
+    assert not validator.is_valid(receipt)

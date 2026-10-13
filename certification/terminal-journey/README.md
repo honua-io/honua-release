@@ -12,7 +12,8 @@ this roster.
 | --- | --- |
 | `journey.v1.json` | The eight numbered stages: id, command, the pinned client commands each needs, and its upstream contracts. Imported by #161; never duplicated there. |
 | `receipt.schema.json` | `terminal-journey-receipt-v1`. Binds package integrities, source SHAs, and the server/fixture/config/auth-policy tuple to a per-stage outcome. |
-| `targets/local-docker.json` | Local Docker target. Extends the owned Docker fixture with a second candidate replica, Redis and an authored GeoServices source; the server digest remains manifest-bound. |
+| `targets/local-docker.json` | Local Docker target. Extends the owned Docker fixture with a second candidate replica, Redis and an authored GeoServices source; the server digest remains manifest-bound. Stage 3 uploads `fixtures/journey-source.geojson` instead of importing from that source. |
+| `cloud_target.py` | Cloud cell targets (`aws-ecs`, `aws-serverless`, `aws-eks`), generated per attempt by `e2e/cloud_journey.py` from the local fixture. See [Cloud cells](#cloud-cells). |
 | `pins.py` | Consumes the exact #136 `clientArtifacts` from published registry bytes and proves which terminal commands they actually ship. |
 | `probes.py` | Deterministic probe primitives: HTTP, compose lifecycle, and MCP JSON-RPC through the pinned `honua-mcp-proxy`. |
 | `stages.py` | Contract prerequisites and the outcome discipline. |
@@ -68,6 +69,92 @@ permissions, list it without key material, revoke it, and delete the sink.
 The root credential and the one-time key never enter the receipt. Service
 mutation, style pixels, GP, composition, publication, and separate-principal
 approval require their own live observations and canonical receipt identities.
+
+Credentials travel only over HTTPS or plain HTTP to loopback (`probes.credential_transport`,
+shared by the stage 2 preflight, setup discovery and the executor transport). A cloud journey
+attempt (`e2e/cloud_journey.py`) additionally admits plain HTTP to exactly one host for its
+duration: the cell's own harness-provisioned `*.elb.amazonaws.com` load balancer, under owner
+ruling `canary-http-cell-2026-10-08` (the cell's per-run application key dies with the cell;
+HTTPS on the cell is 2026.1.x hardening). The receipt records `Candidate transport:
+http-cell-allowed (<host>)`. When the imported driver raises, the receipt and job log name the
+exception type and message, the step it reached and its last HTTP exchange (status, path and a
+redacted, bounded body excerpt).
+
+## Cloud cells
+
+`e2e/cloud_journey.py` runs this driver against an `aws-ecs`, `aws-serverless` or `aws-eks` cell with a target
+document `cloud_target.build` generates for each attempt (`target-<n>.json` next to the receipt).
+The receipt's target kind is the cell's, and its live evidence is `live-aws-ecs`,
+`live-aws-serverless` or `live-aws-eks` (the Helm chart on EKS, #203), so a cloud receipt can qualify
+its cell (#377). The schema and
+`cloud_journey.validate_attempt` bind every live source to the receipt's own kind and that kind to
+the cell. Preview and stub cells keep the documented blocked build receipt.
+
+- **Principals.** `local_fixture.credentials` mints the operator, proposer, approver and viewer keys
+  through the cell's admin REST API with the cell's bootstrap credential
+  (`HONUA_CLOUD_JOURNEY_ADMIN`), with the same grants and `layer-write-key` StudioDraft author grants
+  as local Docker. They expire after an hour and the run revokes them when it ends, best effort
+  (`local_fixture.revoke`; the receipt notes how many were revoked). Key material stays in the 0600
+  private state file and memory; the last-exchange trace masks it.
+- **Second tenant.** A cell trusts no issuer the harness holds a signing key for, and admin API keys
+  are tenant-independent, so no second-tenant principal is fabricated. The target documents it as
+  unavailable (`unavailablePrincipals`), and stage 8's tenant-isolation assertion is `blocked` on
+  #377 with that reason while the rest of stage 8 runs.
+- **Datasource.** The cell's own RDS database, with `sslRequired: true` and `sslMode: Require`. The
+  provision job seals the connection its fixture seed used to the journey runner together with the
+  application key (`cloud_journey.pack_handoff`). The target names the coordinates only by
+  environment reference (`HONUA_JOURNEY_DATASOURCE_{HOST,PORT,DATABASE,USERNAME,PASSWORD}`), so the
+  retained target document holds no host, login or password.
+- **Replica.** A cell has one endpoint. honua-server#5790 stamps every response with a stable
+  `Honua-Instance` id, so stage 6's `replica-map` check re-reads the saved map through that endpoint
+  up to 8 times. Once the saved-map response has an instance id, Lambda sends its eight
+  reads concurrently, with a separate HTTP transport per read, so sequential reuse of one
+  warm environment does not prevent the probe from exercising scale-out. Each request retains
+  the existing 30-second HTTP timeout; launching the bounded batch has a 10-second deadline.
+  Other topologies, or candidates without an observed header, keep sequential reads half a
+  second apart. Each read must match the write, and the check collects the instance ids that answered:
+  - two or more distinct instances: `pass`, with the ids (and each id's source from
+    `GET /api/v1/admin/version` when the operator key can read it) in the check detail;
+  - one instance only (one ECS task, a warm Lambda): `blocked` with `topology served one instance:
+    <id>`, which is a topology limit, not a server gap;
+  - no header on any read: `blocked` on the server need (honua-server#5790), naming the pinned
+    candidate sha;
+  - a header on some reads but not others: `fail`.
+
+  Concurrency alone never proves scale-out. Every concurrent response is validated, including
+  late stale or malformed responses after two ids have been observed. If Lambda still serves
+  all eight reads from one instance, the result remains blocked.
+
+  `replicaTopology` stays as evidence in the check and a receipt notice: `ecs-alb-tasks` (the ALB
+  spreads requests across ECS tasks) or `lambda-function` (one function).
+- **Candidate image.** ECS reports its running image through DescribeTasks. A serverless cell
+  reports it through Lambda GetFunction: the API function must run the manifest's mirrored
+  `awsLambdaEcrDigest`, and the receipt then names the Lambda pin (`awsLambdaImage@awsLambdaDigest`).
+- **Transport.** Unchanged: the shared `probes.credential_transport` rule (HTTPS, loopback, or the
+  cell's own load balancer for one attempt).
+- **Redis-off cells.** Under owner ruling `redis-governed-control-plane-2026-10-08` (Redis is a
+  requirement of the governed control plane), a stage on a cell that declares `redis-off` passes by
+  recording the candidate's typed refusal instead of executing: the tool error must carry
+  `code: unavailable` and `missingDependency: redis`, and the capability manifest must report the
+  stage's capability `dependency-unavailable`. The stage row then carries `topologyRefusal` (schema:
+  `receipt.schema.json`) and no canonical identity, because nothing ran, and the receipt target
+  names `redisTopology: redis-off` (the schema refuses a refusal on any other target). Stages 5
+  (`jobs.runner`) and 6-8 (`operations.proposals`) are the ruling as written; the owner extended it
+  to stage 3 on 2026-10-10 (`operations.proposals`: `honua_publish_service` runs through the
+  governed operation runtime, and on a Redis-off Production host it returns the typed durable-store
+  refusal; the ruling names it, so stage 3 also requires `kind: ExecutionFailed` and
+  `retryable: false`). Stage 3 then passes on its datasource and import checks plus the refusal; nothing that
+  needs the published layer is required of it. On a Production Redis-off cell stages 4 and 6-8 have
+  no published layer and stay blocked on it, so the cell receipt is not a pass until those stages
+  can run or are ruled. Any other refusal, a redis-on cell,
+  or a manifest that reports the capability available keeps the failure. A local target can
+  declare `"redisTopology": "redis-off"` for the same treatment.
+
+A failing tool call names what the candidate said: the problem's `type`, `title`, `code`,
+`reasonCode`, `missingDependency`, `capability` and error `kind` as bounded tokens, and its message
+masked (credential-shaped members and the run's own principal keys redacted) and bounded. A
+`service.publish` that does not complete names its terminal `status`, policy outcome and masked
+message; a published-SDK refusal names the bridge's exception type only.
 
 See the [#120 acceptance audit](../../docs/2026.1-terminal-arc-acceptance.md) for
 pre-cut implementation gaps and separately released exact-candidate reruns.
@@ -140,6 +227,36 @@ wire order. The revision digest is server-authored and compared across transport
 not reconstructed from incomplete stage metadata. Full-catalog comparison hashes
 use a separately named normalized serialization and are not server wire digests.
 
+A failed HTTP/proxy parity check names what differs rather than saying only that
+something differs:
+- which `_meta` fields, with both values;
+- which tools are present on one side only, and which fields of a shared tool differ;
+- whether only the order changed.
+
+The sidecar also keeps the installed proxy's own initialize and tools/list
+responses, credential-masked. It records which server instance (`Honua-Instance`,
+honua-server#5790) answered each direct HTTP request. On a cloud cell,
+`e2e/cloud_journey.py` copies the sidecar next to the receipt as
+`setup-discovery-<attempt>.json`, replacing the cell admin key, the datasource
+secrets and the minted journey keys, and the cell workflow uploads it with the
+receipts.
+
+Why this matters on Lambda: the server keeps an MCP session, including its
+negotiated view, only in the memory of the process that served `initialize`.
+When a request arrives with an `Mcp-Session-Id` that process does not hold,
+`StatelessSessionFallback` (on by default) serves it without a session, so it
+gets the profile's default view and no error. On a Lambda cell, a proxy request
+that lands on a different warm instance therefore returns a different view than
+the HTTP session saw. The instance list and the named differences show whether
+that happened.
+When a stage 1 discovery check fails and the direct HTTP requests were answered
+by more than one instance, the check detail says so. It names the instance that
+answered `initialize` and the instances that answered the later requests, and it
+cites the session-affinity defect (honua-server#5629). It never claims affinity
+for a single instance or a response with no header. On run 38119871941, the
+Redis-on ECS cell on two tasks failed with only "requested server-authored view
+identity is missing". The check itself is unchanged.
+
 Both transports reject duplicate JSON keys, invalid/nonstandard JSON, oversized
 responses and incomplete catalog pagination. The stdio consumer reads bounded
 binary chunks before parsing. It invokes only the verified installed executable;
@@ -196,12 +313,26 @@ qualification.
 
 The first #377 executor slice adds fixed build-stage calls and the matching model
 action boundary. It has no shell execution. A model can select an observed MCP
-call, or stage 3's `honua-journey-sdk METHOD JSON_ARRAY` interpreter for the
-observed ingest/publication capabilities. The latter invokes the built bridge
+call, stage 3's `honua-journey-sdk METHOD JSON_ARRAY` interpreter for the
+datasource connection (`CreateConnectionAsync`, `TestConnectionAsync`), or the
+fixed `honua admin import uploadImportFile` step. The bridge invokes the built SDK
 with stdin JSON; it never executes that command string. Arguments bind the
 authored fixture and previously returned resource identities. The model observes
 the fixture, available method names and action results, rather than a forced
-sequence. An import submission cannot be repeated within a session.
+sequence. An upload cannot be repeated within a session.
+
+Stage 3 imports by file upload, not by GeoServices URL. The pinned CLI sends the
+committed `fixtures/journey-source.geojson` (pinned by SHA-256 in the target and
+required to equal the authored feature rows) as `multipart/form-data` to
+`POST /api/v1/admin/import/upload`, following a background import job if one is
+returned. `honua_publish_service` then publishes exactly the uploaded table
+through the canonical `service.publish` operation, which supplies the stage's
+operation identities, and the published features are compared with the fixture.
+A file-upload table keeps source attributes in one JSONB `properties` column, so
+the feature oracle accepts the fixture key either as a column or nested in that
+object, requires exactly one, and records which layout it saw. The GeoServices
+URL import stays out of the local run because `GeoservicesServiceUrlValidation`
+requires HTTPS and rejects private-network hosts with no operator opt-in.
 
 The bridge verifies the manifest's published `Honua.Sdk` digest and package
 identity, requires its exact `Honua.Sdk.Admin` dependency, and restores from the
@@ -210,7 +341,16 @@ SDK checkout never substitutes for the pin. The standalone
 `test_sdk_bridge.py --dll PATH` exercise runs five actual published SDK HTTP calls
 against an authored loopback peer. It is serialization/transport evidence only.
 
-The local target needs environment references for `HONUA_JOURNEY_PROPOSER_KEY`,
+The local fixture mints four short-lived keys: an `operator` (`admin:write`) that
+publishes, styles and runs GP; a non-admin Studio `proposer` (`write:journey`,
+whose stamped `layer-write-key` role receives StudioDraft
+Create/Read/Update/Publish operator grants in the isolated stack), because an
+admin caller publishes immediately and never produces an AwaitingApproval
+proposal; a separate `approver` (`admin:approve`); and a `viewer`. Stage 6 reads
+the map family's `currentSchemaVersion` from `GET /api/v1/studio/package-families`.
+Cloud cells mint these through the cell admin API (see [Cloud cells](#cloud-cells)).
+Other targets need environment references for `HONUA_JOURNEY_OPERATOR_KEY` (optional;
+the proposer is used when absent), `HONUA_JOURNEY_PROPOSER_KEY`,
 `HONUA_JOURNEY_APPROVER_KEY` and `HONUA_JOURNEY_DATASOURCE_PASSWORD`; approval
 requires different credentials and server-reported actor separation. Configure
 `viewer` and `other-tenant` principal environment references for the final RBAC
@@ -227,9 +367,21 @@ body and the immutable item/version/hash join. A proposer approval attempt must
 leave the proposal unchanged and the authenticated candidate must actually
 return 403; CLI usage failure cannot stand in for a security denial.
 
-Missing canonical policy, actuator, verification or approval identities remain
-explicit blockers. The executor neither invents IDs nor relaxes the receipt
-schema to turn content assertions into release qualification. The render fault
+Stage evidence is keyed on the identities the candidate actually emits for a
+canonical invocation (`OperationHandle` in honua-server
+`OperationExecutionModels.cs`): `operationInstanceId`, `correlationId` and
+`auditId`, plus `proposalId` for the proposal and approval stages. A passing
+stage 3, 4, 6, 7 or 8 must carry them; a missing one is an explicit
+`canonical-evidence` blocker. Stage 5 runs on the job runtime, which is not the
+operation gateway: `honua_execute_plan` returns `jobId`, `status`, `createdAt`
+and `resourceUri` and no operation ids, so a passing stage 5 carries `jobId`,
+`resourceUri`, `jobStatus` and `jobCreatedAt` instead (`stageEvidenceKeys` in
+`journey.v1.json`). Approval is keyed on `proposalId` + `resolvedBy` + the approved
+replay's audited operation instance (`executionOperationId` and its `auditId`).
+`policyDecisionId`, `actuatorId`, `verificationId` and `approvalId` are optional,
+nullable receipt fields: no candidate emits them, so they are never required and
+never invented. The executor does not relax the receipt schema to turn content
+assertions into release qualification. The render fault
 is a real read-only invalid-width request; only the candidate's structured
 refusal marks it observed, and an independently checked subsequent render marks
 recovery. Its failed action remains failed in the protocol JSON; the adapter

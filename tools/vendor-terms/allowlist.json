@@ -75,18 +75,6 @@
       "issue": "honua-io/honua-release#470"
     },
     {
-      "repo": "honua-release",
-      "paths": [
-        "certification/executable-docs/fixtures/pinned-seed-queries.json"
-      ],
-      "tokens": [
-        "Esri"
-      ],
-      "reason": "Verbatim fenced block from the pinned honua-sdk-python docs quickstart (inventory sha256 d88cc0bc53aca77fb204408ab924e69d5dce6e84f36f67394d55354292464fc2). certification/executable-docs/test_seed_contract.py requires those excerpt bytes to match the inventory block and the pinned tree, so renaming the comment in this fixture would falsify the pin. The token is that comment naming the geometry JSON rings/paths shape. An upstream rename belongs in honua-sdk-python; this excerpt updates when the pin moves. The exception is this token in this file only.",
-      "owner": "@mikemcdougall",
-      "issue": "honua-io/honua-release#423"
-    },
-    {
       "repo": "honua-server",
       "paths": [
         "src/Honua.Protocols.GeoServices/Catalog/GeoservicesCatalogEndpoints.cs",
@@ -98,6 +86,55 @@
       "reason": "R35 /arcgis site-root alias, kept for client compatibility: clients that hard-code the vendor path convention; canonical root is /rest. Scoped to the two route tables that register it.",
       "owner": "@mikemcdougall",
       "issue": "honua-io/honua-release#425"
+    },
+    {
+      "repo": "honua-release",
+      "paths": [
+        "platform-manifest.yaml",
+        "certification/installed-clients/matrix.json",
+        "certification/installed-clients/run.py",
+        "tools/mint_nightly_lock.py",
+        "tools/verify_client_artifacts.py",
+        "certification/sdk-publication-replay/selection.py",
+        "certification/sdk-publication-replay/run.py",
+        "certification/sdk-publication-replay/published-registry-observations.json",
+        "certification/sdk-publication-replay/published-sdk-016-registry-observations.json",
+        "certification/sdk-publication-replay/published-sdk-016-migrator.json"
+      ],
+      "tokens": [
+        "esri"
+      ],
+      "identifiers": [
+        "@honua/sdk-esri-compat",
+        "honua-sdk-esri-compat",
+        "sdk-esri-compat-0.1.14.tgz",
+        "npm-honua-sdk-esri-compat-installed-runtime",
+        "sdk-esri-compat-0.1.15.tgz",
+        "2Fsdk-esri-compat/0.1.15",
+        "sdk-esri-compat-0.1.16.tgz",
+        "2Fsdk-esri-compat/0.1.16",
+        "//registry.npmjs.org/@honua/sdk-esri-compat/-/sdk-esri-compat-0.1.16.tgz"
+      ],
+      "reason": "Exact published npm coordinate, tarball filename and manifest/matrix keys identify the required SDK compatibility artifact. Renaming them would select different registry bytes or lose the installed-runtime binding; revisit when the publisher renames the package. Unrelated prose and identifiers are not covered. The frozen 0.1.15 publication replay records the same exact coordinate, encoded registry URL and served filename; historical observations remain unchanged. The separately recorded 0.1.16 publication and migrator consumer receipts retain those exact verified artifact identities.",
+      "owner": "@mikemcdougall",
+      "issue": "honua-io/honua-sdk-js#1994"
+    },
+    {
+      "repo": "honua-release",
+      "paths": [
+        "certification/executable-docs/evidence/sdk-source-build-20261012/initial/executable-docs.json",
+        "certification/executable-docs/evidence/sdk-source-build-20261012/corrected/executable-docs.json"
+      ],
+      "tokens": [
+        "esri",
+        "arcgis",
+        "runEsriCompatCodemod",
+        "scanArcGisUsage",
+        "Living Atlas"
+      ],
+      "reason": "Byte-for-byte retained hosted documentation receipts include immutable published package names and tarball URLs, public service URLs, and quoted SDK commands or comments. Renaming these observations would falsify evidence; exact file hashes, upstream document revisions and run identities are recorded beside each receipt. This exception is confined to the two retained raw reports.",
+      "owner": "@mikemcdougall",
+      "issue": "honua-io/honua-release#555"
     }
   ]
 }

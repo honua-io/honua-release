@@ -28,6 +28,28 @@
 #    `blocked` here is "server not ready"; everything else is pass or fail. Before #305 every
 #    unexpected status returned `blocked`, which is how a permanently-202 create-draft rode every
 #    trunk run as a tolerated BLOCKED instead of a gate failure.
+#
+# 3. TOPOLOGY. Every draft mutation needs the durable operation-instance store, which honua-server
+#    composes only with Redis (Program.cs:628). On a Redis-off install the store is
+#    UnavailableOperationInstanceStore and `create-draft` is refused with the typed conflict
+#    "The operation proposal and approval control plane requires a Redis-backed durable store ..."
+#    (CapabilityUnavailableCodes.DurableControlPlaneDetail). That refusal IS the product contract for
+#    that topology (2026.1 rc.3 decision 3), so when the cell declares Redis off (E2E_REDIS=off) AND
+#    the server confirms it (harness/lib/common.sh resolve_topology), the seam asserts the typed
+#    refusal for every family -- the same shape as S5's typed capability-unavailable pass -- and
+#    records `topology: redis-off`. A family that composes a draft there, or is refused for any other
+#    reason, fails; a topology the server contradicts fails. Redis-on keeps the full lifecycle.
+#
+#    WHICH Redis-off shape applies is the server's host environment, read from the capability manifest
+#    (`server.deploymentEnvironment`, harness/lib/common.sh TOPOLOGY_ENVIRONMENT). A Development/Test
+#    host always composes the in-memory VolatileOperationInstanceStore (honua-server
+#    OperationsServiceCollectionExtensions), so on the Slice-1 stack (ASPNETCORE_ENVIRONMENT=Development)
+#    draft composition genuinely direct-executes without Redis -- observed on the pinned image in
+#    slice1-redis-off run 37892724773, all three families 201. There the seam drives composition to the
+#    content-version boundary, which must succeed, and requires the GOVERNED publish-request, which needs
+#    the Redis-only proposal gateway, to be refused with the same typed refusal. Any other environment
+#    (the cloud cells run Production) keeps the create-draft refusal. An environment the manifest does
+#    not report cannot be classified and fails.
 set -euo pipefail
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck source=../../harness/lib/common.sh
@@ -205,6 +227,11 @@ FAMILIES="$HTTP_BODY"
 descriptor() { printf '%s' "$FAMILIES" | jq -c --arg f "$1" '.data.families[]? | select(.family == $f)'; }
 
 # --- family bodies ----------------------------------------------------------------------------------
+# The map family body is the terminal journey's authored map (honua_map_package.v1), read from its
+# committed target fixture rather than copied, with its `{layerId}` source bound to the seeded slice1
+# layer exactly as the journey executor binds it. mapPackageId is made per-run so a re-used server
+# never sees a publish collide with an earlier run's package.
+MAP_FIXTURE="${E2E_STUDIO_MAP_FIXTURE:-$HERE/../../../certification/terminal-journey/targets/local-docker.json}"
 # Deterministic, seeded-data-backed payloads. `rasterSources: {}` is explicit on the analysis plan step:
 # omitting it is rejected at persistence with invalid_field "Raster source bindings must be an object
 # when supplied." even though the field has a non-null default (honua-server side; noted in #305).
@@ -219,33 +246,81 @@ analysis_body() {
      requestedArtifacts:["Table"]}'
 }
 
+map_body() { # package-key
+  jq -c --arg l "$LAYER" --arg k "$1" '
+    .execution.mapBody
+    | walk(if type == "string" then gsub("\\{layerId\\}"; $l) else . end)
+    | .mapPackageId = $k' "$MAP_FIXTURE" 2>/dev/null || true
+}
+
 # publish_required FAMILY -> 0 when this seam requires the family to still reach publish-request.
 # Only `analysis` is a known non-publishable family (publishSupported=false, by its own descriptor).
 publish_required() { case "$1" in analysis) return 1 ;; *) return 0 ;; esac; }
 
-# author_family FAMILY -> echoes "pass:<detail>" | "fail:<detail>"
-author_family() {
-  local family="$1" desc fmt schema body
+# draft_request FAMILY -> echoes "ok:<create-draft request json>" | "fail:<reason>"
+draft_request() {
+  local family="$1" desc fmt schema body key
   desc="$(descriptor "$family")"
   [ -n "$desc" ] || { echo "fail:server does not advertise the '$family' family"; return; }
   fmt="$(printf '%s' "$desc" | jq -r '.format')"
   schema="$(printf '%s' "$desc" | jq -r '.currentSchemaVersion')"
+  key="e2e-${family}-$RANDOM"
   case "$family" in
     query)    body="$(query_body)" ;;
     analysis) body="$(analysis_body)" ;;
+    map)      body="$(map_body "$key")" ;;
     *) echo "fail:no e2e fixture for family '$family'"; return ;;
   esac
+  [ -n "$body" ] && [ "$body" != "null" ] || { echo "fail:the '$family' e2e fixture body is unreadable ($MAP_FIXTURE)"; return; }
 
   # The envelope requires bindings/dependencies/provenance as ARRAYS (null => reject), the family's
   # declared schemaVersion, and its declared format string.
-  local envelope key r draft
-  envelope="$(jq -nc --arg f "$family" --arg sv "$schema" --arg fmt "$fmt" --argjson body "$body" \
-    '{family:$f, schemaVersion:$sv, format:$fmt, bindings:[], dependencies:[], provenance:[], body:$body}')"
-  key="e2e-${family}-$RANDOM"
+  printf 'ok:%s\n' "$(jq -nc --arg k "$key" --arg f "$family" --arg sv "$schema" --arg fmt "$fmt" --argjson body "$body" \
+    '{packageKey:$k, workspaceId:"e2e", ownerId:"e2e",
+      envelope:{family:$f, schemaVersion:$sv, format:$fmt, bindings:[], dependencies:[], provenance:[], body:$body}}')"
+}
 
-  r="$(studio_step "/api/v1/studio/package-drafts" \
-        "$(jq -nc --arg k "$key" --argjson e "$envelope" \
-           '{packageKey:$k, workspaceId:"e2e", ownerId:"e2e", envelope:$e}')" create-draft "$COMPOSE_GATE")"
+# refuse_family FAMILY -> echoes "pass:<detail>" | "fail:<detail>"   (Redis-off topology only)
+# create-draft must be refused with the typed durable-control-plane conflict. 503 capability-unavailable
+# naming redis is the same refusal on the shared problem envelope and is accepted as such.
+REDIS_OFF_DETAIL="requires a Redis-backed durable store"
+# typed_redis_refusal -> echoes the refusal kind for the last response (HTTP_CODE/HTTP_BODY), or
+# nothing when it is not the typed durable-control-plane refusal.
+typed_redis_refusal() {
+  local detail typ dep
+  detail="$(jget '.detail // ""')"; typ="$(jget '.type // ""')"; dep="$(jget '.missingDependency // ""')"
+  if [ "$HTTP_CODE" = "409" ] && [[ "$detail" == *"$REDIS_OFF_DETAIL"* ]]; then
+    echo "HTTP 409 (typed durable-control-plane conflict)"
+  elif [ "$HTTP_CODE" = "503" ] && [ "$typ" = "https://honua.io/problems/capability-unavailable" ] && [ "$dep" = "redis" ]; then
+    echo "HTTP 503 capability-unavailable (missingDependency=redis)"
+  fi
+}
+# not_typed STEP -> the failure detail for a response that is not the typed refusal. An untyped 5xx
+# is called out as the server gap it is: the typed-refusal contract is honua-server#5733's to deliver.
+not_typed() {
+  local gap=""
+  case "$HTTP_CODE" in 5??) gap=" -- an untyped server error, not the typed refusal (server gap, honua-server#5733)" ;; esac
+  printf 'fail:redis-off %s expected the typed refusal "%s", got HTTP %s%s %s\n' "$1" "$REDIS_OFF_DETAIL" "$HTTP_CODE" "$gap" \
+    "$(printf '%s' "$HTTP_BODY" | tr -d '\n' | cut -c1-180)"
+}
+refuse_family() {
+  local family="$1" req kind
+  req="$(draft_request "$family")"
+  [ "${req%%:*}" = "ok" ] || { echo "$req"; return; }
+  api_post "/api/v1/studio/package-drafts" "${req#ok:}"
+  kind="$(typed_redis_refusal)"
+  if [ -n "$kind" ]; then echo "pass:create-draft refused $kind"; return; fi
+  not_typed create-draft
+}
+
+# author_family FAMILY -> echoes "pass:<detail>" | "fail:<detail>"
+author_family() {
+  local family="$1" desc req r draft
+  desc="$(descriptor "$family")"
+  req="$(draft_request "$family")"
+  [ "${req%%:*}" = "ok" ] || { echo "$req"; return; }
+
+  r="$(studio_step "/api/v1/studio/package-drafts" "${req#ok:}" create-draft "$COMPOSE_GATE")"
   [ "${r%%:*}" = "ok" ] || { echo "$r"; return; }
   draft="$(printf '%s' "${r#ok:}" | jq -r '.draftId // .resourceIds.draftId // empty')"
   [ -n "$draft" ] || { echo "fail:create-draft returned no draftId"; return; }
@@ -291,6 +366,18 @@ author_family() {
     return
   fi
 
+  # Redis-off on a volatile-store host: composition ran (above, and had to), but the governed publish
+  # needs the Redis-only proposal gateway, so it must be the typed refusal -- never accepted, never an
+  # untyped error.
+  if [ "${VOLATILE_REDIS_OFF:-false}" = true ]; then
+    api_post "/api/v1/studio/content-items/$item/versions/$ver/publish-requests" '{}'
+    local kind; kind="$(typed_redis_refusal)"
+    if [ -n "$kind" ]; then
+      echo "pass:item=$item version=$ver composition=volatile-store publish-request refused $kind"; return
+    fi
+    not_typed publish-request; return
+  fi
+
   r="$(studio_step "/api/v1/studio/content-items/$item/versions/$ver/publish-requests" '{}' publish-request "$GOVERNED_GATE")"
   [ "${r%%:*}" = "ok" ] || { echo "$r"; return; }
   local pstatus
@@ -300,6 +387,68 @@ author_family() {
 }
 
 # --- drive ------------------------------------------------------------------------------------------
+# Every family this seam certifies. `map` is the terminal journey's stage-6 authored map, so the S3
+# lifecycle covers the same three families the journey depends on.
+STUDIO_FAMILIES=(query analysis map)
+
+resolve_topology
+TOPOLOGY_EVIDENCE="$(topology_evidence)"
+if [ -n "$TOPOLOGY_MISMATCH" ]; then
+  emit_scenario "$SCENARIO" fail "topology: $TOPOLOGY_MISMATCH" "$(jq -nc --argjson t "$TOPOLOGY_EVIDENCE" '{topology:$t}')"
+  exit 0
+fi
+
+if [ "$TOPOLOGY_DECLARED" = off ] && [ "$TOPOLOGY" = redis-off ]; then
+  case "$(printf '%s' "$TOPOLOGY_ENVIRONMENT" | tr '[:upper:]' '[:lower:]')" in
+    "")
+      emit_scenario "$SCENARIO" fail \
+        "redis-off: the capability manifest reports no server.deploymentEnvironment, so the seam cannot tell which operation store this host composes" \
+        "$(jq -nc --argjson t "$TOPOLOGY_EVIDENCE" '{topology:$t}')"
+      exit 0 ;;
+    development|test) OP_STORE=volatile ;;
+    *) OP_STORE=unavailable ;;
+  esac
+  results="{}"; any_fail=false
+  # The pass summary names only what each family actually proved: the families that reached the
+  # typed refusal, and separately those that stopped at their declared content-version boundary
+  # (analysis never sends a publish-request, so it cannot be claimed as refused there).
+  refused=(); at_boundary=()
+  for family in "${STUDIO_FAMILIES[@]}"; do
+    if [ "$OP_STORE" = volatile ]; then
+      r="$(VOLATILE_REDIS_OFF=true author_family "$family")"
+    else
+      r="$(refuse_family "$family")"
+    fi
+    st="${r%%:*}"; detail="${r#*:}"
+    results="$(jq -nc --argjson acc "$results" --arg f "$family" --arg s "$st" --arg d "$detail" \
+      '$acc + {($f):{status:$s, detail:$d}}')"
+    if [ "$st" != "pass" ]; then
+      any_fail=true
+    elif [[ "$detail" == *"publish=not-advertised-by-family"* ]]; then
+      at_boundary+=("$family")
+    else
+      refused+=("$family")
+    fi
+  done
+  evidence="$(jq -nc --argjson fam "$results" --argjson t "$TOPOLOGY_EVIDENCE" --arg s "$OP_STORE" \
+    '{topology:($t + {operationStore:$s}), families:$fam}')"
+  if [ "$OP_STORE" = volatile ]; then
+    refused_at="the governed publish-request (composition ran on the $TOPOLOGY_ENVIRONMENT host's volatile operation store)"
+  else
+    refused_at="create-draft"
+  fi
+  if [ "$any_fail" = true ]; then
+    emit_scenario "$SCENARIO" fail "redis-off: a family was not refused with the typed durable-store refusal at $refused_at" "$evidence"
+  else
+    summary="redis-off ($TOPOLOGY_SIGNAL: $TOPOLOGY_REASON; $TOPOLOGY_ENVIRONMENT): $(IFS=+; echo "${refused[*]}") refused with the typed durable-store refusal at $refused_at"
+    if [ "${#at_boundary[@]}" -gt 0 ]; then
+      summary="$summary; $(IFS=+; echo "${at_boundary[*]}") passed at its declared content-version boundary (no publish-request.create advertised, none sent)"
+    fi
+    emit_scenario "$SCENARIO" pass "$summary" "$evidence"
+  fi
+  exit 0
+fi
+
 APPROVER_REASON=""
 if ! provision_approver; then
   # The server is up and refused to mint the approver identity the operator gate requires. That is the
@@ -310,7 +459,7 @@ if ! provision_approver; then
 fi
 
 results="{}"; any_fail=false
-for family in query analysis; do
+for family in "${STUDIO_FAMILIES[@]}"; do
   r="$(author_family "$family")"
   st="${r%%:*}"; detail="${r#*:}"
   results="$(jq -nc --argjson acc "$results" --arg f "$family" --arg s "$st" --arg d "$detail" \
@@ -318,8 +467,8 @@ for family in query analysis; do
   [ "$st" = "pass" ] || any_fail=true
 done
 
-evidence="$(jq -nc --argjson fam "$results" --slurpfile lane "$GATE_STATE" \
-  '{families:$fam, approvalLane:$lane[0]}')"
+evidence="$(jq -nc --argjson fam "$results" --slurpfile lane "$GATE_STATE" --argjson t "$TOPOLOGY_EVIDENCE" \
+  '{topology:$t, families:$fam, approvalLane:$lane[0]}')"
 
 if [ "$any_fail" = false ] && [ "$GOVERNED_GATE" = true ] \
     && [ "$(gate_get separationOfDuties)" != "enforced" ]; then
@@ -334,6 +483,6 @@ if [ "$any_fail" = true ]; then
     "a family did not complete its declared authoring lifecycle" "$evidence"
 else
   emit_scenario "$SCENARIO" pass \
-    "query+analysis authored with $(lane_name "$COMPOSE_GATE") composition and $(lane_name "$GOVERNED_GATE") publication to each family's declared publish boundary" \
+    "$(IFS=+; echo "${STUDIO_FAMILIES[*]}") authored with $(lane_name "$COMPOSE_GATE") composition and $(lane_name "$GOVERNED_GATE") publication to each family's declared publish boundary" \
     "$evidence"
 fi

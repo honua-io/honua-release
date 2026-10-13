@@ -53,13 +53,45 @@ GA cells are `aws-ecs/redis-off`, `aws-ecs/redis-on`, `aws-serverless/redis-off`
   rc.3 → rc.N → rc.3 locks, a GP job in flight that finishes exactly once, and the schema rollback
   boundary. Each cell records its own `updateStatus` and `rollbackStatus`, and both must pass.
 
+A Redis-off GA cell (`aws-ecs/redis-off`, `aws-serverless/redis-off`) passes its journey when every
+stage passes, where a stage that needs the governed control plane passes by recording the candidate's
+typed `unavailable` refusal (`missingDependency: redis`) with the manifest `dependency-unavailable`
+reasonCode: stages 5-8 under owner decision 3 (2026-10-08) and stage 3 (publish-service) under its
+2026-10-10 extension. The receipt schema enforces this per stage (`topologyRefusal`, Redis-off targets
+only, stages 3 and 5-8 only), so the checker reads it from the cell's `pass` status. Redis-on cells
+must execute every stage. On a Production Redis-off cell stages 4 and 6-8 still have no published
+layer and stay blocked, so that cell does not yet pass. Owner decision 20 (2026-10-10) lets an
+admin-role caller's direct `service.publish` execute on Redis-off (honua-server#5792); once a lock
+carries it, stage 3 on a Redis-off cell must execute for the admin operator, stage 4 must execute,
+and only the stages that need the governed control plane keep the typed-refusal rule. Background file
+imports are not a governed-control-plane capability (ruling `redis-off-background-import-follows-job-2026-10-12`,
+learned on run 38192851328): the import job service runs in-process without Redis, so the S10
+large-import scenario on a Redis-off cell follows the job like a Redis-on cell, and the typed 503
+counts only from a host without the import job service.
+
 Each required journey cell passes within two attempts. A cell records `mode`, `attemptCount` and the
 complete ordered `attempts` array. Every attempt records its consecutive number, completion time,
 status and lock digest. A first-attempt failure must have `failureAttribution: model` or
 `failureAttribution: infrastructure`; the last attempt must pass. Skipped, missing, out-of-period or
-wrong-lock attempts fail. Mixed ECS + Batch and EKS remain informational Preview cells: their failures
-cannot block the GA cells, and their passes cannot replace GA evidence. The journey producers enforce
+wrong-lock attempts fail. The mixed ECS + Batch cell is out of the rc.3 matrix. The two aws-eks cells
+are required by the cloud matrix and the journey receipt gate (owner decisions 12/18 of 2026-10-10,
+honua-release#203), but this promotion contract still counts only the four ECS/Lambda cells: whether it
+also requires the EKS cells and EKS update/rollback evidence is an open owner question. Until then an
+EKS pass cannot replace ECS/Lambda evidence, and promotion says nothing about EKS. The journey producers enforce
 the per-run cost ceiling before teardown; a run over the ceiling fails and tears down.
+
+The cost reading is cell evidence, not a promotion class (owner decision 9, honua-release#519). Each
+cell's gate report carries `cost`, the run carries `finalCost`, and earlier runs appear under
+`priorRunCosts`: a live resource-hour estimate from the cell's Terraform state priced by
+`e2e/cost-prices.json`, and the Cost Explorer actual for earlier runs grouped by the
+`honua-release:run-id` tag once it is settled. A missing, stale, wrong-run or over-ceiling reading
+fails the run. The Cost Explorer half reports `tag-not-activated` until the owner activates the
+cost-allocation tags; see [Cost evidence](../e2e/README.md#cost-evidence-owner-decision-9-2026-10-10).
+
+Every cell is reached on its own HTTPS name. Certification cells use per-run names under
+`*.cert.demo.honua.io`; that is a certification artefact. The product must work on any customer
+FQDN, with `Public__BaseUrl` derived from the module's `domain_name` (ruling
+`customer-domains-2026-10-11`), so no journey check may assume a honua.io host.
 
 ## Canary coverage and promotion time
 
@@ -111,8 +143,36 @@ The checker reads these paths under `--evidence-dir`:
 
 A class receipt repeats the record reference fields and adds `kind` and `freshUntil`. Journey receipts
 add `cells` with the attempt ledger above. The update/rollback receipt adds top-level `updateStatus` and
-`rollbackStatus`, and `cells`: one `{"cell", "updateStatus", "rollbackStatus"}` object for each of the
-four GA cells, with no other cells. Successful Actions metadata must match each recorded qualifying
+`rollbackStatus`, `fromLockDigest` (retained lock), `toLockDigest` (selected candidate lock),
+and `cells`, exactly one for each of the four GA cells. The two lock digests must differ and
+`toLockDigest` must equal the receipt's `lockDigest`. A first-release self-rollback does not qualify.
+Each cell requires:
+
+- `updateStatus` and `rollbackStatus`, both `pass`.
+- `actuator`: `terraform-exact-apply` for ECS Redis-off, `honua-aws-ecs-alb` for the retained
+  controller on ECS Redis-on, or `honua-gitops-aws-lambda` for either Lambda cell.
+- Different immutable image `fromDigest` and `toDigest` values.
+- `inFlightJob`: a nonempty `jobId`, `initialState: running`, and `terminalStates`
+  containing exactly one of `succeeded`, `failed`, or `cancelled`. This records terminal observations;
+  it does not alone prove exactly-once effects.
+- `schemaBoundary`: `status: pass`, the observed candidate `schemaVersion`, and
+  `imageDigest` equal to the rollback image `fromDigest`. `outcome` is `serving` or
+  `refused-cleanly`; a clean refusal also requires its `reasonCode`.
+
+The receipt shape is `#/$defs/updateRollbackReceipt` in
+`certification/promotion-evidence.v1.schema.json`; promotion record entries remain artifact
+references. The checker enforces cross-field equality/inequality and the four distinct cells,
+which standard JSON Schema cannot express by comparing arbitrary sibling values.
+Target image pins are resolved from the selected lock and the retained minting train's
+`platform-manifest.yaml`; its bytes must match `sourceInputs.platformManifest.sha256` in that
+lock. ECS `toDigest` is the generic server image digest, also checked against the lock's sole
+server image artifact. Lambda `toDigest` is `awsLambdaEcrDigest`, the deployed mirror pin, not
+the GHCR source digest. Missing or pending mirror pins refuse. Producers must include the shared
+`runId`, `completedAt`, `status`, `kind` and `freshUntil` receipt envelope.
+
+These requirements do not create evidence: release#483 still needs the actual controller,
+Terraform update/rollback phase, in-flight GP observations, and two certified-lock cloud runs.
+ Successful Actions metadata must match each recorded qualifying
 completion time; nightly receipt production must fall within the minting run lifetime. These are retained workflow artifacts, never hand-minted summaries. The fetcher must
 verify producer workflow identity, successful run metadata, artifact integrity and complete sequence
 coverage before invoking the checker. Lock signature verification remains a separate mandatory gate.

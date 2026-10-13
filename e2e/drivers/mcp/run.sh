@@ -15,6 +15,12 @@
 #             inventory export both WORKS for an admin and is refused for anyone else;
 #         (f) discovery is not authority: every Studio-critical tool still answers tools/call even
 #             though it is outside the bounded default view.
+#       TOPOLOGY: the canonical full catalog is the Redis-on one. On a Redis-off cell honua-server does
+#       not compose the operation proposal store, so the 20 names in
+#       fullCatalog.requiresDurableControlPlane are not projected. When the cell declares Redis off
+#       (E2E_REDIS=off) AND the server confirms it (harness/lib/common.sh resolve_topology), (d)
+#       accepts those 20 as all-present or all-absent and records which; every other name stays exact
+#       in both directions. A topology the server contradicts is itself a failure.
 #       Contract sources: honua-server#3819 (`5bf9410843`) and that repo's
 #       docs/guides/connect/ai-agents-mcp.md ("Workflow views (bounded discovery)").
 #       The rosters live in expected-tools.json (see honua-release#300).
@@ -100,8 +106,15 @@ WANT_FULLNAME="$(jq -r '.defaultView.fullCatalogView' "$EXPECTED")"
 WANT_DEFAULT="$(jq -c '.defaultView.tools | sort' "$EXPECTED")"
 WANT_STAGES="$(jq -c '[.defaultView.stages[] | {id, tools:(.tools|sort)}] | sort_by(.id)' "$EXPECTED")"
 WANT_FULL="$(jq -c '.fullCatalog.tools | sort' "$EXPECTED")"
+DURABLE_ONLY="$(jq -c '.fullCatalog.requiresDurableControlPlane.tools // [] | sort' "$EXPECTED")"
 FULL_VIEW_NAME="$(jq -r '.fullCatalog.view' "$EXPECTED")"
 PAGE_SIZE="$(jq -r '.fullCatalog.pageSize' "$EXPECTED")"
+
+# Topology. Resolved once, before any roster comparison, and recorded in the evidence whatever it is.
+resolve_topology
+[ -z "$TOPOLOGY_MISMATCH" ] || note_failure "topology: $TOPOLOGY_MISMATCH"
+REDIS_OFF=false
+if [ "$TOPOLOGY_DECLARED" = off ] && [ "$TOPOLOGY" = redis-off ]; then REDIS_OFF=true; fi
 
 # (a) The unnegotiated tools/list IS the bounded default view, served whole in one page.
 #     honua-release#105 and honua-release#300 were both mis-read as server regressions because the
@@ -197,10 +210,34 @@ while :; do
   fi
 done
 FULL_LIVE="$(jq -nc --argjson n "$FULL_NAMES" '$n | sort')"
-FULL_MISSING="$(jq -nc --argjson live "$FULL_LIVE" --argjson want "$WANT_FULL" '$want - $live')"
-FULL_EXTRA="$(jq -nc --argjson live "$FULL_LIVE" --argjson want "$WANT_FULL" '$live - $want')"
 FULL_LEN="$(jq_or -1 "$FULL_LIVE" 'length')"
+# EXACT set equality against the canonical (Redis-on) roster, both directions. The ONLY relaxation is
+# a confirmed Redis-off topology, and it covers exactly the durable-control-plane names: they are
+# compared as a block (all advertised, as after honua-server S1, or all absent, as before it) and the
+# observed state is recorded. A partial block is neither topology and fails.
+DURABLE_STATE="required"
+if [ "$REDIS_OFF" = true ]; then
+  DURABLE_SEEN="$(jq -nc --argjson live "$FULL_LIVE" --argjson d "$DURABLE_ONLY" '[$d[] | select(. as $n | $live | index($n))]')"
+  if [ "$DURABLE_SEEN" = "$DURABLE_ONLY" ]; then
+    DURABLE_STATE="advertised"
+  elif [ "$DURABLE_SEEN" = "[]" ]; then
+    DURABLE_STATE="absent"
+  else
+    DURABLE_STATE="partial"
+    note_failure "redis-off: the durable-control-plane tools are partially advertised (all or none is expected); missing $(jq -nc --argjson s "$DURABLE_SEEN" --argjson d "$DURABLE_ONLY" '$d - $s')"
+  fi
+  WANT_FULL_COMPARED="$(jq -nc --argjson w "$WANT_FULL" --argjson d "$DURABLE_ONLY" '$w - $d')"
+  FULL_COMPARED="$(jq -nc --argjson l "$FULL_LIVE" --argjson d "$DURABLE_ONLY" '$l - $d')"
+else
+  WANT_FULL_COMPARED="$WANT_FULL"
+  FULL_COMPARED="$FULL_LIVE"
+fi
+FULL_MISSING="$(jq -nc --argjson live "$FULL_COMPARED" --argjson want "$WANT_FULL_COMPARED" '$want - $live')"
+FULL_EXTRA="$(jq -nc --argjson live "$FULL_COMPARED" --argjson want "$WANT_FULL_COMPARED" '$live - $want')"
 [ "$FULL_MISSING" = "[]" ] || note_failure "full catalog missing tools: $FULL_MISSING"
+# An extra name is a catalog the committed snapshot does not describe: regenerate expected-tools.json
+# from the booted pinned candidate rather than let the roster drift unrecorded.
+[ "$FULL_EXTRA" = "[]" ] || note_failure "full catalog advertised tools outside the committed roster: $FULL_EXTRA"
 [ "$OVERSIZED_PAGES" = "[]" ] || note_failure "full-catalog pages exceeded the documented page size $PAGE_SIZE: $OVERSIZED_PAGES"
 # The full roster is bigger than one page, so cursor-following MUST have happened. A single-page
 # walk here means the export silently truncated (the honua-release#105 failure shape).
@@ -334,11 +371,17 @@ EVIDENCE="$(jq -nc \
       --argjson tt "$CAPS_TOTAL_TOOLS" --argjson tr "$CAPS_TOTAL_RESOURCES" --arg anon "$CAPS_ANON_CODE" \
       '{admin:{tools:$t,resources:$r,ofTools:$tt,ofResources:$tr},anonymous:$anon}')" \
   --argjson calls "$call_results" \
-  '{defaultView:$defaultMeta,defaultViewTools:$defaultTools,fullCatalog:$fullCatalog,adminOnly:$adminOnly,listCapabilities:$listCapabilities,listCapabilitiesFullExport:$fullExport,toolCalls:$calls}')"
+  --argjson topology "$(topology_evidence | jq -c --arg s "$DURABLE_STATE" --argjson n "$(jq_or 0 "$DURABLE_ONLY" 'length')" \
+      '. + {durableControlPlaneTools:{state:$s, count:$n}}')" \
+  '{topology:$topology,defaultView:$defaultMeta,defaultViewTools:$defaultTools,fullCatalog:$fullCatalog,adminOnly:$adminOnly,listCapabilities:$listCapabilities,listCapabilitiesFullExport:$fullExport,toolCalls:$calls}')"
 
 if [ "${#FAILURES[@]}" -eq 0 ]; then
   note="bounded default view '$DEF_META_VIEW' ($DEF_META_REVISION) = $DEF_ACTUAL_COUNT tools in 1 page; admin '$FULL_VIEW_NAME' export = $FULL_LEN tools over $PAGES pages (server totalToolCount=$CAPS_TOTAL_TOOLS); anonymous full export denied; all critical tools callable"
-  if [ "$FULL_EXTRA" != "[]" ]; then note="$note (+extra advertised in full catalog: $FULL_EXTRA)"; fi
+  if [ "$REDIS_OFF" = true ]; then
+    note="$note; topology redis-off (${TOPOLOGY_SIGNAL}: ${TOPOLOGY_REASON}), $(jq_or 0 "$DURABLE_ONLY" 'length') durable-control-plane tools $DURABLE_STATE"
+  else
+    note="$note; topology $TOPOLOGY (declared $TOPOLOGY_DECLARED)"
+  fi
   emit_s2 pass "$note" "$EVIDENCE"
 else
   # A pre-#3819 server trips nearly every check at once, so `why` carries the leading reasons and

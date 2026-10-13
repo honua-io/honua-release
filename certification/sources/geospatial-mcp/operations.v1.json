@@ -85,10 +85,6 @@
                        },
                        {
                            "kind":  "tool",
-                           "operation":  "tools/call:propose_operation"
-                       },
-                       {
-                           "kind":  "tool",
                            "operation":  "tools/call:propose_rollback"
                        },
                        {

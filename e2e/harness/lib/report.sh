@@ -3,7 +3,7 @@
 #
 # Contract (the AI/MCP layer parses this, never logs — RELEASE plan §15):
 #   {
-#     gate, status, require_real, generatedAt, server:{image,booted},
+#     gate, status, require_real, topology, generatedAt, server:{image,booted},
 #     boot:{failed,reason,detail,exitCode,containerState,errorLines[],allScenariosBlocked}
 #     summary:{pass,fail,blocked,skipped},
 #     scenarios[]        : {scenario,status,why,evidence}      (S0 boot row + S1..S9)
@@ -54,6 +54,7 @@ assemble_report() { # out-dir  -> writes out-dir/gate-report.json, returns non-z
     --argjson booted "$booted" \
     --argjson boot "$boot_json" \
     --arg image "$image" \
+    --arg topology "redis-${E2E_REDIS:-on}" \
     --arg ts "$(date -u +%FT%TZ)" '
     ($boot // {}) as $b
     # boot.sh is authoritative about whether the stack came up; E2E_SERVER_BOOTED is the fallback.
@@ -102,6 +103,7 @@ assemble_report() { # out-dir  -> writes out-dir/gate-report.json, returns non-z
     | {
       gate: "e2e-local-docker",
       require_real: $require_real,
+      topology: $topology,
       generatedAt: $ts,
       server: { image: $image, booted: $bootedFlag },
       boot: $bootInfo,

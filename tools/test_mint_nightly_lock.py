@@ -71,6 +71,12 @@ def build_inputs(candidate, tmp_path, *, gate_fixtures=None, missing_post_gate=F
     bind_qualification(draft.lock, *real_paths, '2026.1-rc.3')
     qualification_lock = tmp_path / 'qualification-lock.json'
     qualification_lock.write_bytes(canonical_bytes(draft.lock))
+    # The genuine-model canary records the lock digest it ran against on every attempt.
+    for journey in journeys:
+        for row in journey['cells']:
+            for attempt in row['attempts']:
+                if attempt['driver'] == 'genuine-model':
+                    attempt['lockDigest'] = 'sha256:' + _sha256(qualification_lock)
     report = nightly.declare_evidence(report, qualification_lock, journeys)
     nightly.snapshot(*real_paths, report, tmp_path / 'notes')
     return report, real_paths
@@ -711,6 +717,24 @@ def test_missing_model_observation_cannot_be_turned_into_a_passing_receipt(input
     refuses_before_signing(declared, paths, tmp_path, 'nightly receipt')
 
 
+@pytest.mark.parametrize('bound', [None, 'sha256:' + 'b' * 64])
+def test_model_journey_attempt_bound_to_another_lock_cannot_be_retained(inputs, tmp_path, bound):
+    # The canary's own lockDigest is what promotion compares, never the digest the mint holds:
+    # a genuine-model attempt that ran against another lock, or recorded none, does not count.
+    report, paths = inputs
+    lock = tmp_path / 'qualification-lock.json'
+    stamp = report['generatedAt']
+    journeys = [{'status': 'pass', 'runId': RUN, 'runAttempt': 1, 'candidateDigest': _sha256(paths[0]),
+                 'cells': [{'cell': 'aws-ecs/redis-off', 'status': 'pass', 'attempts': [
+                     {'number': 1, 'status': 'pass', 'driver': 'genuine-model', 'completedAt': stamp,
+                      'lockDigest': bound}]}]}]
+    declared = nightly.declare_evidence(report, lock, journeys)
+    assert declared['evidenceReceipts']['nightly-model-journey']['status'] == 'fail'
+    journeys[0]['cells'][0]['attempts'][0]['lockDigest'] = 'sha256:' + _sha256(lock)
+    declared = nightly.declare_evidence(report, lock, journeys)
+    assert declared['evidenceReceipts']['nightly-model-journey']['status'] == 'pass'
+
+
 def test_installed_client_gate_must_pass_to_mint(inputs, tmp_path):
     # installed-clients is a nightly class (#381/#386): its receipt follows the train's
     # installed-clients gate, and a matrix-declared blocker (blocked) is not a pass.
@@ -1266,3 +1290,63 @@ def test_stamp_gives_bound_imaged_components_the_platform_version_and_never_an_s
     assert [item for item in draft.unresolved if item.split(':')[0].endswith(('.version', '.releaseVersion'))] == [
         '[PUBLISH] $.components.honua-helm.artifacts[0].version: source snapshot/pre-release is not a '
         'released artifact version']
+
+
+def test_mint_restamp_overrides_the_resolver_prestamp(tmp_path):
+    """Decision 22: the resolver pre-stamps the manifest's label; mint's label replaces it everywhere."""
+    import resolve_trunk_candidate as resolver
+    revision = 'a' * 40
+    image = {'sha': revision, 'version': 'pre-release', 'digest': 'sha256:' + 'b' * 64,
+             'artifactSourceRevision': revision, 'platformDigests': {'amd64': 'sha256:' + 'c' * 64}}
+    manifest = {'platformRelease': '2026.1-rc.2', 'status': 'rc', 'components': {
+        'honua-server': {**image, 'image': 'ghcr.io/honua-io/honua-server:nightly-aaaaaaa'},
+        'honua-console': {**image, 'image': 'ghcr.io/honua-io/honua-console:candidate-aaaaaaaaaaaa-1-1'},
+        'honua-sdk-js': {'sha': revision, 'version': '0.1.12', 'artifactVersion': '0.1.12'}}}
+    resolver.prestamp_platform_version(manifest, manifest['platformRelease'])
+    assert manifest['components']['honua-server']['artifactVersion'] == '2026.1.0-rc.2'
+    path = tmp_path / 'platform-manifest.yaml'
+    path.write_text(yaml.safe_dump(manifest, sort_keys=False))
+    nightly.stamp_release_label(path, '2026.1-rc.3')
+    minted = yaml.safe_load(path.read_text())
+    components = minted['components']
+    assert minted['platformRelease'] == '2026.1-rc.3'
+    assert components['honua-server']['artifactVersion'] == components['honua-server']['releaseVersion'] \
+        == components['honua-console']['artifactVersion'] == '2026.1.0-rc.3'
+    assert 'rc.2' not in repr(components)
+    assert components['honua-sdk-js'] == {'sha': revision, 'version': '0.1.12', 'artifactVersion': '0.1.12'}
+
+
+def test_npm_publisher_verification_selects_subject_algorithm_and_exact_ref(monkeypatch):
+    artifact = {'coordinate': '@honua/sdk', 'sourceRevision': 'a' * 40,
+        'integrity': 'sha512-' + base64.b64encode(b'x' * 64).decode(),
+        'sourceRef': 'refs/tags/js-sdk-v0.1.14', 'denySelfHosted': True, 'digestAlgorithm': 'sha512'}
+    artifact['signerWorkflow'] = nightly.signer_workflow({}, artifact, 'honua-io/honua-sdk-js')
+    calls = []
+    monkeypatch.setattr(nightly.subprocess, 'run', lambda command, **kwargs:
+        calls.append(command) or subprocess.CompletedProcess(command, 0, stdout='[]'))
+    nightly.verify_publisher_bundle(b'package', {}, artifact, 'honua-io/honua-sdk-js', 'https://slsa.dev/provenance/v1')
+    [command] = calls
+    assert command[command.index('--digest-alg') + 1] == 'sha512'
+    assert command[command.index('--source-ref') + 1] == artifact['sourceRef']
+    assert '--deny-self-hosted-runners' in command
+
+
+def test_non_npm_publisher_verification_preserves_default_algorithm(monkeypatch):
+    artifact = {'coordinate': 'Honua.Sdk', 'sourceRevision': 'a' * 40,
+        'signerWorkflow': 'honua-io/honua-sdk-dotnet/.github/workflows/publish-dotnet-sdk.yml'}
+    calls = []
+    monkeypatch.setattr(nightly.subprocess, 'run', lambda command, **kwargs:
+        calls.append(command) or subprocess.CompletedProcess(command, 0, stdout='[]'))
+    nightly.verify_publisher_bundle(b'package', {}, artifact, 'honua-io/honua-sdk-dotnet', 'https://slsa.dev/provenance/v1')
+    assert '--digest-alg' not in calls[0] and '--source-ref' not in calls[0]
+
+
+def test_npm_post_gate_integrity_does_not_change_github_subject_algorithm(monkeypatch):
+    artifact = {'coordinate': '@honua/sdk', 'sourceRevision': 'a' * 40,
+        'integrity': 'sha512-' + base64.b64encode(b'x' * 64).decode(),
+        'signerWorkflow': 'honua-io/honua-sdk-js/.github/workflows/publish-js-sdk.yml'}
+    calls = []
+    monkeypatch.setattr(nightly.subprocess, 'run', lambda command, **kwargs:
+        calls.append(command) or subprocess.CompletedProcess(command, 0, stdout='[]'))
+    nightly.verify_publisher_bundle(b'package', {}, artifact, 'honua-io/honua-sdk-js', 'https://slsa.dev/provenance/v1')
+    assert '--digest-alg' not in calls[0]

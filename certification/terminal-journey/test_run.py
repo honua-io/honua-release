@@ -203,7 +203,7 @@ class StageDisciplineTests(unittest.TestCase):
             root=None,
             reason=None,
             command_surface=[
-                {"command": "honua-mcp-proxy", "status": "present", "requiredBy": [1, 4, 5, 6, 7]},
+                {"command": "honua-mcp-proxy", "status": "present", "requiredBy": [1, 3, 4, 5, 6, 7]},
                 {
                     "command": "honua admin",
                     "requiredBy": [2, 3, 8],
@@ -220,7 +220,8 @@ class StageDisciplineTests(unittest.TestCase):
 
     def test_present_admin_does_not_claim_credential_or_mutation_execution(self):
         workspace = pins.ClientWorkspace(status="pass", root=None, reason=None,
-            command_surface=[{"command": "honua admin", "status": "present"}])
+            command_surface=[{"command": "honua admin", "status": "present"},
+                             {"command": "honua-mcp-proxy", "status": "present"}])
         observation = stagelib.Observation(anonymous_api_keys_status=401)
         for number in (2, 3, 8):
             with self.subTest(stage=number):
@@ -271,9 +272,11 @@ class StageDisciplineTests(unittest.TestCase):
         check = next(c for c in stagelib.stage_2(observation, self._no_blockers) if c.id == "2.2-admin-endpoint-present")
         self.assertEqual(check.status, "fail")
 
-    def test_stage_8_honestly_names_server_3599(self):
+    def test_stage_8_placeholder_cites_the_driver_not_closed_server_issues(self):
         result = stagelib._resolve(stagelib.stage_8(stagelib.Observation(), self._no_blockers), 8, "approval", "approve")
-        self.assertIn("https://github.com/honua-io/honua-server/issues/3599", result.blocked_by)
+        self.assertIn(stagelib.JOURNEY_DRIVER, result.blocked_by)
+        for number in (3474, 3599, 3431):
+            self.assertNotIn(f"https://github.com/honua-io/honua-server/issues/{number}", result.blocked_by)
 
     def test_blocked_check_without_a_dependency_is_rejected_by_the_schema(self):
         receipt = build()
@@ -304,6 +307,15 @@ class ReceiptTests(unittest.TestCase):
             target_base_url="http://127.0.0.1:8137",
         )
         self.assertEqual(receipt["target"]["baseUrl"], "http://127.0.0.1:8137")
+        validate(receipt)
+
+    def test_live_receipt_names_the_redis_topology_only_when_the_target_declares_it(self):
+        target = json.loads((HERE / "targets" / "local-docker.json").read_text())
+        common = dict(mode="live", target_path=HERE / "targets" / "local-docker.json",
+                      target_base_url="http://127.0.0.1:8137")
+        self.assertNotIn("redisTopology", build(target=target, **common)["target"])
+        receipt = build(target={**target, "redisTopology": "redis-off"}, **common)
+        self.assertEqual(receipt["target"]["redisTopology"], "redis-off")
         validate(receipt)
 
     def test_build_mode_cannot_claim_pass(self):
@@ -399,6 +411,92 @@ class ReceiptTests(unittest.TestCase):
         stage = receipt["stages"][2]
         stage.update(status="pass", blockedBy=[], checks=[{"id": "x", "kind": "mcp-tool", "invocation": "x", "status": "pass", "detail": "x"}])
         stage["evidence"] = {"uri": "u", "source": "live-local-docker", "freshness": "verified-current", "completeness": "complete", "observedAt": "2026-08-29T00:00:00Z"}
+        with self.assertRaises(Exception):
+            validate(receipt)
+
+    def _passing_stage(self, number):
+        receipt = build()
+        receipt["mode"] = "live"
+        stage = receipt["stages"][number - 1]
+        stage.update(status="pass", blockedBy=[], checks=[{"id": "x", "kind": "mcp-tool", "invocation": "x", "status": "pass", "detail": "x"}])
+        stage["evidence"] = {"uri": "u", "source": "live-local-docker", "freshness": "verified-current", "completeness": "complete", "observedAt": "2026-08-29T00:00:00Z"}
+        stage.update(operationId="studio.draft.save-version", operationInstanceId="opinst-1",
+                     correlationId="00-corr", auditId="audit-1")
+        return receipt, stage
+
+    def test_passing_mutation_stage_is_keyed_on_server_emitted_ids_not_legacy_ids(self):
+        # The candidate emits operationInstanceId/correlationId/auditId; policy-decision,
+        # actuator, verification and approval ids are optional and may stay null.
+        receipt, stage = self._passing_stage(6)
+        self.assertIsNone(stage["policyDecisionId"])
+        self.assertIsNone(stage["actuatorId"])
+        self.assertIsNone(stage["verificationId"])
+        validate(receipt)
+        for key in ("policyDecisionId", "approvalId", "actuatorId", "verificationId"):
+            del stage[key]
+        validate(receipt)
+        for key in ("operationInstanceId", "correlationId", "auditId"):
+            with self.subTest(missing=key):
+                changed, row = self._passing_stage(6)
+                row[key] = None
+                with self.assertRaises(Exception):
+                    validate(changed)
+
+    def test_passing_proposal_and_approval_stages_require_the_server_proposal_id(self):
+        for number in (7, 8):
+            with self.subTest(stage=number):
+                receipt, stage = self._passing_stage(number)
+                with self.assertRaises(Exception):
+                    validate(receipt)
+                stage["proposalId"] = "proposal-1"
+                self.assertIsNone(stage["approvalId"])
+                validate(receipt)
+
+    def test_every_stage_row_carries_the_server_identity_fields_even_when_not_passing(self):
+        receipt = build()
+        validate(receipt)
+        for key in ("operationInstanceId", "correlationId", "auditId", "proposalId"):
+            with self.subTest(missing=key):
+                changed = json.loads(json.dumps(receipt))
+                self.assertEqual(changed["stages"][3]["status"], "blocked")
+                del changed["stages"][3][key]
+                with self.assertRaises(Exception):
+                    validate(changed)
+
+    def test_contract_marks_legacy_identities_optional(self):
+        legacy = {"policyDecisionId", "approvalId", "actuatorId", "verificationId"}
+        self.assertFalse(legacy & set(JOURNEY["receiptRequired"]))
+        self.assertTrue(legacy <= set(JOURNEY["receiptOptional"]))
+        self.assertTrue({"operationInstanceId", "correlationId", "auditId", "proposalId"} <= set(JOURNEY["receiptRequired"]))
+        closed = {f"https://github.com/honua-io/honua-server/issues/{n}"
+                  for n in (3411, 3431, 3474, 3475, 3583, 3599, 3741)}
+        self.assertFalse(closed & {b for s in JOURNEY["stages"] for b in s["blockedBy"]})
+        placeholders = [c for fn in stagelib.STAGE_IMPLEMENTATIONS.values()
+                        for c in fn(stagelib.Observation(), lambda number: [])]
+        self.assertFalse(closed & {b for c in placeholders for b in c.blocked_by})
+
+    def test_stage_5_is_keyed_on_job_identities_in_contract_and_schema(self):
+        keys = JOURNEY["stageEvidenceKeys"]
+        self.assertEqual(keys["5"], ["jobId", "resourceUri", "jobStatus", "jobCreatedAt"])
+        for number in ("3", "4", "6", "7", "8"):
+            self.assertTrue({"operationId", "operationInstanceId", "correlationId", "auditId"} <= set(keys[number]))
+        receipt, stage = self._passing_stage(5)
+        # A passing GP stage carries no operation ids: the job runtime is not the gateway.
+        stage.update(operationId=None, operationInstanceId=None, correlationId=None, auditId=None)
+        with self.assertRaises(Exception):
+            validate(receipt)
+        stage.update(jobId="job-1", resourceUri="honua://jobs/job-1", jobStatus="accepted",
+                     jobCreatedAt="2026-10-08T00:00:00Z")
+        validate(receipt)
+        for key in ("jobId", "resourceUri", "jobStatus", "jobCreatedAt"):
+            with self.subTest(missing=key):
+                changed = json.loads(json.dumps(receipt))
+                changed["stages"][4][key] = None
+                with self.assertRaises(Exception):
+                    validate(changed)
+        # Operation-gateway stages still require operation ids even with job fields set.
+        receipt, stage = self._passing_stage(3)
+        stage.update(operationInstanceId=None, jobId="job-1", resourceUri="u", jobStatus="s", jobCreatedAt="t")
         with self.assertRaises(Exception):
             validate(receipt)
 
@@ -506,6 +604,9 @@ class CredentialPreflightTests(unittest.TestCase):
                 if MODE == "leak" and operation == "createAdminApiKey":
                     sys.stdout.write(ADMIN + "\\n" + ISSUED + "\\n")
 
+            if MODE == "https-refusal":
+                emit({{"error": "Admin client requires HTTPS except for exact loopback HTTP development endpoints."}})
+                raise SystemExit(1)
             if operation == "createAdminApiKey":
                 body = json.loads(flag("--body") or "{{}}")
                 if body.get("name") != NAME or body.get("permissions") != ["admin:read"]:
@@ -629,6 +730,33 @@ class CredentialPreflightTests(unittest.TestCase):
         )
         self.assertEqual(probe.status, "fail")
         self.assertIn("non-loopback", probe.detail)
+
+    def test_only_the_harness_named_cell_host_is_admitted_over_http(self):
+        cell = "http://cell-alb-1.us-east-1.elb.amazonaws.com"
+        self.assertIsNone(probes.credential_transport(cell))
+        self.assertEqual(probes.credential_transport("http://127.0.0.1:8137/mcp"), "http-loopback")
+        self.assertEqual(probes.credential_transport("http://[::1]:8137/"), "http-loopback")
+        self.assertEqual(probes.credential_transport("https://example.com/mcp"), "https")
+        with probes.allow_http_cell("Cell-ALB-1.us-east-1.elb.amazonaws.com."):
+            self.assertEqual(probes.credential_transport(cell + "/mcp"), "http-cell-allowed")
+            self.assertIsNone(probes._admin_target_refusal(cell))
+            # Exactly that host: no other HTTP host, no credentials, query or fragment in the URL.
+            for refused in ("http://other.us-east-1.elb.amazonaws.com/", "http://example.com/",
+                            "http://u:p@cell-alb-1.us-east-1.elb.amazonaws.com/",
+                            cell + "/mcp?key=x", cell + "/#f", "ftp://cell-alb-1.us-east-1.elb.amazonaws.com/"):
+                self.assertIsNone(probes.credential_transport(refused), refused)
+        # The admission ends with the attempt.
+        self.assertIsNone(probes.credential_transport(cell))
+        self.assertIn("non-loopback", probes._admin_target_refusal(cell))
+
+    def test_admitted_http_cell_names_the_clients_own_https_refusal(self):
+        host = "cell-alb-1.us-east-1.elb.amazonaws.com"
+        with probes.allow_http_cell(host):
+            probe, log, _ = self._run("https-refusal", base_url=f"http://{host}")
+        self.assertEqual(probe.status, "fail")
+        self.assertIn("createAdminApiKey exited 1: " + probes.CLIENT_HTTPS_REFUSAL_DETAIL, probe.detail)
+        self.assertNotIn(self.ADMIN_KEY, probe.detail)
+        self.assertEqual(log[0]["argv"][log[0]["argv"].index("--base-url") + 1], f"http://{host}")
 
     def test_passing_preflight_does_not_pass_later_stages_or_the_journey(self):
         probe = probes.CredentialProbe(

@@ -18,7 +18,8 @@
 #   - assets/demos/two-protocols/config.json  -> maui-zoning layerId 2, string zone_code
 #     ('030','010','500','320','215','929'), fields zone_code/zone_dist/cp_area
 #   - assets/demos/editing/config.json        -> service maui-inspections, OData Name
-#     "maui-inspections", pk `id`, Point/4326, fields name/category/status/note/reported_at with
+#     "maui-inspections", source pk `id` (managed publication exposes its own object-id field),
+#     Point/4326, fields name/category/status/note/reported_at with
 #     CHECK constraints mirroring categories/statuses/noteMaxLength, AllowAnonymous(+Write)
 #   - assets/sdk-samples/.../spatial-analytics-workbench (the bundle demo-analyst-workbench.html
 #     actually loads) -> live lane wants OBJECTID/risk/score over the Honolulu AOI extents; the six
@@ -41,6 +42,10 @@ source "$HERE/../lib/common.sh"
 COMPOSE_FILE="${E2E_COMPOSE_FILE:-$HERE/../compose.candidate.yml}"
 E2E_PSQL="${E2E_PSQL:-docker compose -f $COMPOSE_FILE exec -T db psql -U honua -d honua}"
 DB_HOST="${E2E_DB_HOST:-db}"   # hostname the SERVER uses to reach PostGIS (compose service name)
+
+# A failed rerun must not leave a previous success receipt beside the new failure.
+rm -f "$E2E_OUT/seed-manifest.json" "$E2E_OUT/seed-edit-proof.json" \
+  "$E2E_OUT/seed-inspections-publication.json"
 
 psql_apply() { $E2E_PSQL -v ON_ERROR_STOP=1 "$@"; }
 
@@ -288,22 +293,18 @@ INSERT INTO honua_data.workbench_assets (asset_id, title, category, risk, zone, 
  ('facility-1006','Airport fuel isolation valve', 'Critical asset','low',     'X', 39, ST_SetSRID(ST_MakePoint(-157.919,21.322),4326));
 SQL
 
-echo "== seed: applying the synthetic maui-buildings fixture =="
-buildings_sql="$(python3 "$HERE/plan.py" buildings-sql)"
-psql_apply <<<"$buildings_sql"
-
 echo "== seed: creating data connection =="
 api_post "/api/v1/admin/connections/" "$(jq -nc --arg h "$DB_HOST" \
   '{name:"e2e-pg",host:$h,port:5432,databaseName:"honua",username:"honua",password:"honua",provider:"PostGIS",sslRequired:false,sslMode:"Disable"}')"
 CID="$(jget '.data.connectionId // .connectionId // .data.id')"
 [ -z "$CID" ] && { echo "::error:: could not create connection (HTTP $HTTP_CODE): $HTTP_BODY"; exit 1; }
+printf '%s' "$HTTP_BODY" | python3 "$HERE/plan.py" require-http --step "create connection" --status "$HTTP_CODE"
 echo "   connection: $CID"
 
 # Publish bodies come from plan.py so the admin request the seed sends is the one the
 # tests execute. No fields list: the server introspects columns (zone_code included).
 # Edit capabilities are declared only for maui-inspections, and only as storageMode
-# managed plus Query/Create/Update/Delete. maui-buildings is published last so the
-# first nine layer ids stay on their historical services.
+# managed plus Query/Create/Update/Delete. The nine layer ids keep their historical order.
 
 # The demo pages are anonymous. They never ship a credential. demo.honua.io publishes
 # these layers with AllowAnonymous, and AllowAnonymousWrite on the inspections scratch
@@ -321,8 +322,7 @@ open_anonymous() { # serviceName layerId allowWrite
 
 # ORDER IS THE CONTRACT: Honua assigns publication ids globally in publish order, and
 # honua-site assets/demo/layers.json pins parcels=1, zoning=2, roads=3, flood=4, slr=5,
-# place-names=6. Those nine services are published first, in that order. maui-buildings
-# follows them. Docs that hard-code the public demo's layer 13 bind the returned id.
+# place-names=6. Those nine services retain their original order.
 echo "== seed: publishing services =="
 id_file="$E2E_OUT/seed-layer-ids.txt"
 : > "$id_file"
@@ -334,6 +334,9 @@ while IFS= read -r body; do
   if [ -z "$id" ] || [ "$id" = "null" ]; then
     echo "::error:: publish $svc returned no layerId (HTTP $HTTP_CODE): $HTTP_BODY" >&2
     exit 1
+  fi
+  if [ "$svc" = "maui-inspections" ]; then
+    printf '%s' "$HTTP_BODY" > "$E2E_OUT/seed-inspections-publication.json"
   fi
   printf '%s %s\n' "$svc" "$id" >> "$id_file"
   echo "   $svc -> layerId $id"
@@ -357,6 +360,12 @@ while IFS= read -r row; do
   write="$(jq -r '.allowAnonymousWrite' <<<"$row")"
   open_anonymous "$svc" "$(layer_id_of "$svc")" "$write"
 done < <(python3 "$HERE/plan.py" access-plan | jq -c '.[]')
+
+if [ "${SEED_DRY_RUN:-}" != "1" ]; then
+  E2E_BASE="$E2E_BASE" E2E_API_KEY="$E2E_API_KEY" \
+    python3 "$HERE/verify_edit.py" --publication "$E2E_OUT/seed-inspections-publication.json" \
+    --output "$E2E_OUT/seed-edit-proof.json"
+fi
 
 ids_json="$(python3 -c '
 import json, sys

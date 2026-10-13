@@ -1,6 +1,6 @@
 {
   "schema": "honua.protocol-certification-requirements/v1",
-  "revision": "2026-10-06-complete.22",
+  "revision": "2026-10-08-complete.23",
   "trademarkNotice": "Esri, ArcGIS, and the Esri product names used here are trademarks, registered trademarks, or service marks of Esri in the United States and other countries. They identify the products Honua is compatible with; Honua is not affiliated with, sponsored by, or endorsed by Esri.",
   "receipt_schema_min": "v2",
   "complete": true,
@@ -67,7 +67,7 @@
   "production": {
     "revision": "2026-10-04.3",
     "cells": {
-      "produced": 1526,
+      "produced": 1524,
       "unproduced": 989,
       "not_addressable": 495
     },
@@ -179,7 +179,7 @@
           "mcp-inspector",
           "mcp-typescript-sdk"
         ],
-        "cells": 84
+        "cells": 82
       },
       {
         "producer": "honua-sdk-python",
@@ -35460,54 +35460,6 @@
       "capability_key": "mcp.tool",
       "surface": "mcp",
       "operation": "tools/call:preview_package",
-      "maturity": "supported",
-      "canonical_client": "Official MCP TypeScript SDK",
-      "client_lane": "mcp-typescript-sdk",
-      "client_version": "1.30.0",
-      "deployment_target": "local-docker",
-      "required_tier": "nightly",
-      "licensed": false,
-      "entitlement_policy_revision": null,
-      "addressable_by_client": true,
-      "addressability_reason": null,
-      "scenario_facets": [
-        "positive",
-        "negative",
-        "media-schema"
-      ],
-      "contract_revision": "geospatial-mcp@5e052a76b6485edbe78c3482488c58f66700bd59",
-      "auth_policy_revision": "anonymous-public-v1",
-      "fixture_revision": "conformance@5e052a76b6485edbe78c3482488c58f66700bd59",
-      "budget_expectations": null
-    },
-    {
-      "capability_key": "mcp.tool",
-      "surface": "mcp",
-      "operation": "tools/call:propose_operation",
-      "maturity": "supported",
-      "canonical_client": "MCP Inspector",
-      "client_lane": "mcp-inspector",
-      "client_version": "2.3.0",
-      "deployment_target": "local-docker",
-      "required_tier": "nightly",
-      "licensed": false,
-      "entitlement_policy_revision": null,
-      "addressable_by_client": true,
-      "addressability_reason": null,
-      "scenario_facets": [
-        "positive",
-        "negative",
-        "media-schema"
-      ],
-      "contract_revision": "geospatial-mcp@5e052a76b6485edbe78c3482488c58f66700bd59",
-      "auth_policy_revision": "anonymous-public-v1",
-      "fixture_revision": "conformance@5e052a76b6485edbe78c3482488c58f66700bd59",
-      "budget_expectations": null
-    },
-    {
-      "capability_key": "mcp.tool",
-      "surface": "mcp",
-      "operation": "tools/call:propose_operation",
       "maturity": "supported",
       "canonical_client": "Official MCP TypeScript SDK",
       "client_lane": "mcp-typescript-sdk",

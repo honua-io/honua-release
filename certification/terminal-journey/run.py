@@ -46,6 +46,10 @@ class GateError(RuntimeError):
     pass
 
 
+# Target kinds whose live observations the receipt schema attributes (evidence.source live-<kind>).
+LIVE_KINDS = ("local-docker", *local_fixture.CLOUD_KINDS)
+
+
 def load(path: Path) -> dict[str, Any]:
     return json.loads(path.read_text())
 
@@ -126,6 +130,9 @@ def observe(
     expected_revision: str,
 ) -> stagelib.Observation:
     """Run every live probe exactly once and share the result across stages."""
+    import discovery
+
+    discovery.mark_step("observe: readiness and licensing")
     endpoints = target["endpoints"]
     observation = stagelib.Observation(
         base_url=base_url, image_ref=image_ref, expected_revision=expected_revision
@@ -148,6 +155,7 @@ def observe(
     except Exception as exc:
         observation.licensing_detail = str(exc)
 
+    discovery.mark_step("observe: anonymous capability and admin probes")
     manifest_response = probes.http_get(base_url + endpoints["capabilityManifest"])
     if manifest_response.status == 200:
         try:
@@ -161,6 +169,7 @@ def observe(
     api_keys_response = probes.http_get(base_url + endpoints["adminApiKeys"])
     observation.anonymous_api_keys_status = api_keys_response.status
 
+    discovery.mark_step("observe: credential preflight")
     honua = bindir / "honua" if bindir else None
     admin_password = target.get("adminPassword") or {}
     if honua is None or not honua.exists():
@@ -185,8 +194,7 @@ def observe(
             )
         finally:
             shutil.rmtree(probe_dir, ignore_errors=True)
-    import discovery
-
+    discovery.mark_step("observe: setup discovery")
     proxy = bindir / "honua-mcp-proxy" if bindir else None
     observation.proxy_available = proxy is not None and proxy.is_file()
     observation.setup_discovery = discovery.capture_setup_view(proxy, base_url + endpoints["mcp"],
@@ -218,7 +226,10 @@ def build_receipt(
 ) -> dict[str, Any]:
     server = manifest["components"]["honua-server"]
     revisions = (target or {}).get("revisions", {})
-    evidence_source = "harness-build" if mode == "build" else "live-local-docker"
+    # A live observation is attributed to the target kind that produced it.
+    kind = (target or {}).get("kind")
+    evidence_source = "harness-build" if mode == "build" else (
+        f"live-{kind}" if kind in LIVE_KINDS else "live-local-docker")
     observed_at = None if mode == "build" else _now()
 
     stage_rows: list[dict[str, Any]] = []
@@ -233,6 +244,14 @@ def build_receipt(
                     "blockedBy": list(stage["blockedBy"]),
                     "checks": [],
                     "operationId": None,
+                    "operationInstanceId": None,
+                    "correlationId": None,
+                    "auditId": None,
+                    "proposalId": None,
+                    "jobId": None,
+                    "resourceUri": None,
+                    "jobStatus": None,
+                    "jobCreatedAt": None,
                     "policyDecisionId": None,
                     "approvalId": None,
                     "actuatorId": None,
@@ -263,10 +282,19 @@ def build_receipt(
                     "blockedBy": result.blocked_by,
                     "checks": [c.as_receipt() for c in result.checks],
                     "operationId": result.operation_id,
+                    "operationInstanceId": result.operation_instance_id,
+                    "correlationId": result.correlation_id,
+                    "auditId": result.audit_id,
+                    "proposalId": result.proposal_id,
+                    "jobId": result.job_id,
+                    "resourceUri": result.resource_uri,
+                    "jobStatus": result.job_status,
+                    "jobCreatedAt": result.job_created_at,
                     "policyDecisionId": result.policy_decision_id,
                     "approvalId": result.approval_id,
                     "actuatorId": result.actuator_id,
                     "verificationId": result.verification_id,
+                    **({"topologyRefusal": result.topology_refusal} if result.topology_refusal else {}),
                     "evidence": {
                         "uri": evidence_uri,
                         "source": evidence_source,
@@ -304,6 +332,9 @@ def build_receipt(
             "detail": (check.detail if check else "stage failed") or "stage failed",
         }
 
+    from executor import declared_redis_topology
+
+    redis_topology = declared_redis_topology(target)
     return {
         "schemaVersion": 1,
         "receiptSchema": journey["receiptSchema"],
@@ -317,6 +348,7 @@ def build_receipt(
             "configSha256": _sha256_file(target_path) if target_path else None,
             "baseUrl": target_base_url,
             "composeProject": ((target or {}).get("compose") or {}).get("project"),
+            **({"redisTopology": redis_topology} if redis_topology else {}),
         },
         "status": status,
         "release": manifest["platformRelease"],
@@ -359,11 +391,18 @@ def run_live(
     workdir: Path,
     base_url_override: str | None,
     keep_stack: bool,
+    *, tenant_signing_key: str | None = None,
 ) -> tuple[pins.ClientWorkspace, list[stagelib.StageResult], list[str], str | None]:
     notices: list[str] = []
+    import discovery
+
+    discovery.mark_step("resolve pinned client workspace")
     workdir = workdir.resolve()
-    compose_cfg = target["compose"]
-    notices.append(compose_cfg["notes"])
+    cloud = target.get("kind") in local_fixture.CLOUD_KINDS
+    if cloud and base_url_override is None:
+        raise GateError("a cloud target is externally provisioned; pass its endpoint as the base URL")
+    compose_cfg = target.get("compose") or {}
+    notices.append(compose_cfg.get("notes") or target.get("notes") or "externally managed target")
 
     workspace = pins.resolve_client_workspace(manifest, workdir / "clients")
     bindir: Path | None = None
@@ -383,22 +422,27 @@ def run_live(
 
     server = manifest["components"]["honua-server"]
     image_ref = f"{server['image']}@{server['digest']}"
-    port = int(compose_cfg["port"])
-    base_url = base_url_override or f"http://127.0.0.1:{port}"
-    compose = probes.Compose(
-        compose_file=str(ROOT / compose_cfg["file"]),
-        project=compose_cfg["project"],
-        env={
-            **(local_fixture.compose_env(target, workdir) if base_url_override is None else {}),
-            compose_cfg["imageEnv"]: image_ref,
-            compose_cfg["portEnv"]: str(port),
-            target["adminPassword"]["env"]: probes.resolve_env_default(
-                target["adminPassword"]["env"], target["adminPassword"]["default"]
-            ),
-        },
-    )
+    compose = None
+    if base_url_override is None:
+        port = int(compose_cfg["port"])
+        base_url = f"http://127.0.0.1:{port}"
+        compose = probes.Compose(
+            compose_file=str(ROOT / compose_cfg["file"]),
+            project=compose_cfg["project"],
+            env={
+                **local_fixture.compose_env(target, workdir),
+                compose_cfg["imageEnv"]: image_ref,
+                compose_cfg["portEnv"]: str(port),
+                target["adminPassword"]["env"]: probes.resolve_env_default(
+                    target["adminPassword"]["env"], target["adminPassword"]["default"]
+                ),
+            },
+        )
+    else:
+        base_url = base_url_override
 
     running_image: str | None = None
+    discovery.mark_step("start or reach the candidate stack")
     try:
         if base_url_override is None:
             result = compose.up()
@@ -421,32 +465,68 @@ def run_live(
             notices.append(f"Setup discovery sidecar: {discovery_path}; SHA-256: {_sha256_file(discovery_path)}")
         if observation.proxy_note:
             notices.append(observation.proxy_note)
+        discovery.mark_step("evaluate observed stages")
         results = stagelib.run_stages(journey, observation, workspace_blockers)
         import executor
         import sdk
         from transport import ExecutionError, Transport
 
+        discovery.mark_step("resolve journey principals")
         try:
+            # Local Docker mints against the stack it started; a cloud cell mints through its own
+            # admin API with the cell's bootstrap credential (cloud_target).
             credentials = local_fixture.credentials(target, workdir, base_url,
-                mint=base_url_override is None and observation.ready)
+                mint=(base_url_override is None or cloud) and observation.ready,
+                **({"tenant_signing_key": tenant_signing_key} if tenant_signing_key is not None else {}))
+            if cloud and observation.ready:
+                notices.append("Journey principals: " + ", ".join(sorted(
+                    name for name in local_fixture.GRANTS if credentials.get(name)
+                    and not (target.get("tenantFixture") and name == "proposer")))
+                    + " minted through the cell admin API (short-lived; revoked when the run ends)")
+                if target.get("tenantFixture"):
+                    notices.append("Proposer and other-tenant use the run-owned signed issuer with identical subject and role and distinct tenants")
         except (ExecutionError, KeyError, ValueError, TypeError, AttributeError) as exc:
             credentials = {"proposer": ""}
             notices.append("Journey principal fixture could not establish verified short-lived grants")
+        if cloud:
+            topology = local_fixture.replica_topology(target)
+            if topology is not None:
+                notices.append(f"Cross-replica read: serving topology {topology['id']}: "
+                               f"{topology['description']}. The replica-map check re-reads the saved "
+                               f"map through the cell endpoint and records each answering instance's "
+                               f"{local_fixture.INSTANCE_HEADER} header (honua-server#5790); its "
+                               "verdict and the instances it observed are in that check's detail.")
+            for name, reason in sorted((target.get("unavailablePrincipals") or {}).items()):
+                notices.append(f"Principal {name} unavailable on this target: {reason.get('reason')}")
         credentials.setdefault("proposer", probes.resolve_env_default(
             target["adminPassword"]["env"], target["adminPassword"]["default"]))
         state = {"workspaceId": workdir.name, "workdir": str(workdir)}
         if observation.setup_view_present and workspace.status == "pass":
+            discovery.mark_step("prepare published SDK")
             try:
                 state["sdkBinding"] = sdk.prepare(manifest, workdir)
             except ExecutionError as exc:
                 notices.append(f"Published SDK preparation: {exc.command}: {exc.reason}")
+        discovery.mark_step("open candidate transport")
         transport = Transport(base_url, bindir / "honua-mcp-proxy" if bindir else None,
                               bindir / "honua" if bindir else None, workdir, credentials)
-        execution = executor.JourneyExecutor(state, target, observation, transport)
+        execution = executor.JourneyExecutor(state, target, observation, transport, manifest=manifest)
         results[2:] = [stagelib.merge_execution(original, executed)
                        for original, executed in zip(results[2:], execution.run_build(), strict=True)]
     finally:
-        if base_url_override is None and not keep_stack:
+        if cloud:
+            # Best effort: the cell outlives this attempt, so revoke what this run minted. The
+            # revocation exchanges must not replace the diagnostics of a step that raised.
+            trace = dict(discovery.TRACE)
+            try:
+                revoked, failed = local_fixture.revoke(target, workdir, base_url)
+            finally:
+                discovery.TRACE.update(trace)
+            if revoked or failed:
+                notices.append(f"Journey principals revoked: {len(revoked)} of {len(revoked) + len(failed)}"
+                               + (f"; not revoked (they expire within an hour): {', '.join(failed)}" if failed else ""))
+            local_fixture.cleanup(workdir)
+        if compose is not None and not keep_stack:
             compose.down()
             local_fixture.cleanup(workdir)
 

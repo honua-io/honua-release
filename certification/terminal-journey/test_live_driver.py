@@ -81,11 +81,14 @@ def test_approval_runs_final_and_authority_checks_before_next_observation():
     state = {"workspaceId": "unit", "execution": {}, "stackUp": True}
     state["execution"] = {"approvalResolution": {"proposalId": "proposal"}}
     engine = mock.Mock(evidence=state["execution"])
-    engine.approve.return_value = {"approvalId": "approval", "proposalId": "proposal", "proposerSelfApproval": "denied"}
+    engine.approve.return_value = {"proposalId": "proposal", "resolvedBy": "approver", "auditId": "audit",
+                                   "executionOperationId": "opinst", "approvalId": None, "proposerSelfApproval": "denied"}
     with mock.patch.object(live_driver, "_rehydrate", return_value=(state, {}, {}, stages.Observation(), None)), \
          mock.patch.object(live_driver, "_executor", return_value=engine), mock.patch.object(live_driver, "_write_state"):
         response = live_driver.op_approve({"workspaceId": "unit", "proposalId": "proposal"})
     assert response["status"] == "approved"
+    # The canary binds the server-emitted proposal, resolver and audit identities.
+    assert (response["proposalId"], response["resolvedBy"], response["auditId"]) == ("proposal", "approver", "audit")
     assert [call[0] for call in engine.method_calls] == ["approve", "verify_final", "verify_authority"]
 
 

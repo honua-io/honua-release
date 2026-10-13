@@ -118,7 +118,7 @@ def handoff_observations():
                                                         "enabled": True, "layerId": 12}),
         (sid, "query"): obs(sid, "query", observed={"features": rows}),
         (sid, "ids"): obs(sid, "ids", observed={"ids": [1, 2, 3]}),
-        (sid, "count"): obs(sid, "count", observed={"count": None}),
+        (sid, "count"): obs(sid, "count", observed={"count": len(rows)}),
         (sid, "edit"): obs(sid, "edit", error={"type": "HonuaHttpError", "status": 400}),
         (sid, "read-back"): obs(sid, "read-back", observed={"features": rows}),
     }, edited
@@ -222,13 +222,17 @@ class ContractTests(unittest.TestCase):
 
     def test_matrix_blocks_only_the_observed_seams(self):
         self.assertEqual(CELLS["interop-import-render-buffer"]["status"], "active")
-        self.assertEqual(set(CELLS["interop-publish-query-edit"]["blockedSteps"]), {"count", "edit", "read-back"})
-        self.assertEqual(set(CELLS["interop-api-key-revocation"]["blockedSteps"]), {"mcp-revoked"})
+        self.assertEqual(set(CELLS["interop-publish-query-edit"]["blockedSteps"]), {"edit", "read-back"})
+        # honua-server#5435 is in the 3ecd214 pin: a revoked session is refused, so the cell is active.
+        self.assertEqual(CELLS["interop-api-key-revocation"]["status"], "active")
+        self.assertNotIn("blockedSteps", CELLS["interop-api-key-revocation"])
+        # honua-server#5433 is in the 798d517 pin: the proposal, both approvals and the published pointer pass.
+        # honua-server#5794 is in the 0e03bdd pin and Honua.Sdk 1.11.0 carries honua-sdk-dotnet#425, so
+        # publication-url and published-content pass too; only the .NET published-route reader is missing.
         approval = CELLS["interop-proposal-approval"]["blockedSteps"]
-        self.assertNotIn("create-draft", approval)
+        self.assertEqual(set(approval), {"published-url"})
         self.assertEqual(approval["published-url"]["blockedBy"], "https://github.com/honua-io/honua-sdk-dotnet/issues/411")
-        self.assertTrue(all(entry["blockedBy"] == "https://github.com/honua-io/honua-server/issues/5433"
-                            for step, entry in approval.items() if step != "published-url"))
+        self.assertTrue(all(issue not in entry["blockedBy"] for entry in approval.values() for issue in ("5433", "5449", "5788")))
 
 
 class OracleTests(unittest.TestCase):
@@ -326,7 +330,7 @@ class OracleTests(unittest.TestCase):
         self.assertIn("still authenticated", summary)
         ok, summary = judge.oracle_revocation_observed({"timedOut": True, "timeoutSeconds": bound, "succeededAfterRevocation": 0}, FIXTURE)
         self.assertFalse(ok)
-        self.assertRegex(summary, CELLS["interop-api-key-revocation"]["blockedSteps"]["mcp-revoked"]["signature"])
+        self.assertRegex(summary, r"did not answer within 30s of its first call after revocation \(no refusal surfaced")
 
     def test_identity_oracles(self):
         minted = {"keyId": "k", "status": "active", "permissions": ["admin:write"], "secretWritten": True, "secretPrivate": True}
@@ -355,6 +359,15 @@ class OracleTests(unittest.TestCase):
         ok, summary = judge.oracle_publication_active({"requestId": None}, p)
         self.assertFalse(ok)
         self.assertIn("cannot be polled", summary)
+        # Active without a URL is its own finding, not a request that never went live.
+        ok, summary = judge.oracle_publication_active({"requestId": "r", "state": "Active", "status": "accepted",
+                                                       "publicationUrl": None}, p)
+        self.assertFalse(ok)
+        self.assertEqual(summary, "publication request polled to 'Active' (server status 'accepted'), "
+                                  "but the read carries no final publication URL")
+        self.assertFalse(judge.oracle_publication_active({"requestId": "r", "state": "Executing", "publicationUrl": None}, p)[0])
+        self.assertFalse(judge.oracle_publication_active({"requestId": "r", "state": "Active",
+                                                          "publicationUrl": "http://c/elsewhere"}, p)[0])
         self.assertTrue(judge.oracle_publication_active({"requestId": "r", "state": "Active",
                                                          "publicationUrl": "http://c" + p["proposal"]["route"]}, p)[0])
         self.assertTrue(judge.oracle_published_pointer({"publishedVersionId": "v"}, saved)[0])
@@ -384,8 +397,16 @@ class OracleTests(unittest.TestCase):
         ok, summary = judge.oracle_published_content({"family": "Map", "contentHash": agreed, "body": body},
                                                      FIXTURE, p, {"contentHash": agreed})
         self.assertFalse(ok)
-        self.assertIn("content hash recomputed from the approved content", summary)
+        self.assertIn("published version agrees across clients", summary)
+        self.assertIn("not recomputed from the approved content", summary)
         self.assertIn("honua-server#5449", summary)
+        # Disagreement is reported as a difference, never as the declared canonical-form blocker.
+        for drift in ({"contentHash": "d" * 64}, {"body": {}}, {"family": "Form"}):
+            ok, summary = judge.oracle_published_content(dict({"family": "Map", "contentHash": agreed, "body": body}, **drift),
+                                                         FIXTURE, p, {"contentHash": agreed})
+            self.assertFalse(ok)
+            self.assertTrue(summary.startswith("published version differs"), summary)
+            self.assertNotIn("5449", summary)
         ok, summary = judge.oracle_published_content(
             {"family": "Map", "contentHash": agreed, "body": body, "contentHashInput": encoded}, FIXTURE, p, {"contentHash": agreed})
         self.assertFalse(ok)
@@ -447,21 +468,57 @@ class SeamTests(unittest.TestCase):
         self.assertIn("contract names", detail)
 
     def test_the_declared_signatures_match_the_recorded_summaries(self):
-        sid = "interop-proposal-approval"
+        """The 0e03bdd shape: honua-server#5794 serves publicationUrl and contentHashInput and Honua.Sdk 1.11.0
+        reports the input, so everything through published-content passes; only published-url is blocked."""
+        sid, p = "interop-proposal-approval", plan()
         steps = [step["id"] for step in SCENARIOS[sid]["steps"]]
-        observations = {(sid, "create-draft"): obs(sid, "create-draft", observed={
-            "draftId": "d", "itemId": "i", "family": "map", "validation": "valid"})}
-        observations[(sid, "save-version")] = obs(sid, "save-version", error={"type": "HonuaStudioError", "status": 400})
-        needs = {"request-publication": ["version"], "self-approval-refused": ["proposal"], "approve": ["proposal"],
-                 "proposal-resolved": ["approved"], "publication-url": ["request", "resolved"],
-                 "published-pointer": ["version", "resolved"], "published-content": ["published"]}
-        for step, missing in needs.items():
-            observations[(sid, step)] = obs(sid, step, skipped=f"depends on {missing}, which did not complete")
-        observations[(sid, "published-url")] = obs(sid, "published-url", unsupported=(
-            "Honua.Sdk has no reader for a published Studio route (no published-content API in any Honua.Sdk.* package)"))
-        status, detail, rows = evaluate("interop-proposal-approval", observations)
+        body = p["proposal"]["envelope"]["body"]
+        canonical = json.dumps({"family": "map", "body": body}).encode()
+        digest = hashlib.sha256(canonical).hexdigest()
+        encoded = base64.b64encode(canonical).decode()
+        url = "http://c" + p["proposal"]["route"]
+        version = {"itemId": "i", "versionId": "v", "contentHash": digest}
+        observations = {
+            (sid, "create-draft"): obs(sid, "create-draft", observed={"draftId": "d", "itemId": "i", "family": "map", "validation": "valid"}),
+            (sid, "save-version"): obs(sid, "save-version", observed=version),
+            (sid, "request-publication"): obs(sid, "request-publication", observed={
+                "proposalId": "proposal-1", "requestId": "r", "requestIdSource": "handle.resourceIds", "status": "RequiresApproval"}),
+            (sid, "self-approval-refused"): obs(sid, "self-approval-refused", error={"type": "CommandFailed", "status": 403},
+                                               observed={"status": "AwaitingApproval"}),
+            (sid, "approve"): obs(sid, "approve", observed={"status": "Succeeded"}),
+            (sid, "proposal-resolved"): obs(sid, "proposal-resolved", observed={
+                "status": "Succeeded", "kind": "StudioDraftMutation", "requestedBy": "x:p-id", "resolvedBy": "x:a-id"}),
+            (sid, "publication-url"): obs(sid, "publication-url", observed={
+                "requestId": "r", "state": "Active", "active": True, "publicationUrl": url, "status": "accepted"}),
+            (sid, "published-pointer"): obs(sid, "published-pointer", observed={"publishedVersionId": "v"}),
+            (sid, "published-content"): obs(sid, "published-content", observed={
+                "family": "Map", "contentHash": digest, "body": body, "contentHashInput": encoded}),
+            (sid, "published-url"): obs(sid, "published-url", unsupported=(
+                "Honua.Sdk has no reader for a published Studio route (no published-content API in any Honua.Sdk.* package)")),
+        }
+        status, detail, rows = evaluate(sid, observations, p)
         self.assertEqual(status, "blocked", detail)
         self.assertEqual([row["step"] for row in rows], steps)
+        self.assertEqual({row["step"] for row in rows if row["status"] == "blocked"}, {"published-url"})
+        # The pre-#5794 shapes are no longer declared blockers: a read without the final URL or without the
+        # canonical hash input is red.
+        drift = dict(observations)
+        drift[(sid, "publication-url")] = obs(sid, "publication-url", observed={
+            "requestId": "r", "state": "Active", "active": True, "publicationUrl": None, "status": "accepted"})
+        self.assertEqual(evaluate(sid, drift, p)[0], "fail")
+        drift = dict(observations)
+        drift[(sid, "published-content")] = obs(sid, "published-content", observed={"family": "Map", "contentHash": digest, "body": body})
+        self.assertEqual(evaluate(sid, drift, p)[0], "fail")
+        # A content hash the .NET read does not share with the JS save is a difference.
+        drift = dict(observations)
+        drift[(sid, "published-content")] = obs(sid, "published-content", observed={
+            "family": "Map", "contentHash": "b" * 64, "body": body, "contentHashInput": encoded})
+        self.assertEqual(evaluate(sid, drift, p)[0], "fail")
+        # A publication that never reaches Active is not the missing-URL blocker either.
+        drift = dict(observations)
+        drift[(sid, "publication-url")] = obs(sid, "publication-url", observed={
+            "requestId": "r", "state": "Executing", "active": False, "publicationUrl": None, "status": "pending"})
+        self.assertEqual(evaluate(sid, drift, p)[0], "fail")
 
 
 class RunnerTests(unittest.TestCase):

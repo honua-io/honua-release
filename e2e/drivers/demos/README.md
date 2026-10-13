@@ -8,7 +8,7 @@ server booted by `e2e/harness/run_all.sh`:
 | `S9-demos-shim-security` | the honua-site backend-override shim rejects a non-allow-listed `?apiBase=`, does **not** widen the CSP for it, the re-emitted CSP really blocks that connect, and the allow-listed origin **is** accepted and added to `connect-src` |
 | `S9-demos-two-protocols` | GeoServices, OGC API Features and OData lanes each return the same non-zero feature count from the candidate, and the page's own "identical results from both protocols" line agrees |
 | `S9-demos-esri-leaflet` | unmodified esri-leaflet renders real features from the candidate's GeoServices surface, and `L.esri.query().intersects()` on a map click returns live parcel attributes into the popup + code strip |
-| `S9-demos-geoprocessing` | the live OGC API Processes catalog loads anonymously, and `generalization.simplify-layer` submits → polls → returns a successful job with a real result document |
+| `S9-demos-geoprocessing` | the live OGC API Processes catalog loads anonymously, and `generalization.simplify-layer` submits → polls → returns a successful job with a real result document. On a declared **and** server-confirmed Redis-off cell (`resolve_topology`, as S3/S5) the same submit must instead get S5's typed 503 capability-unavailable (`missingDependency=redis`) and the page must render it as its job-store-unavailable state (`gp-topology.mjs`) |
 | `S9-demos-editing` | `maui-inspections` is read live over OData, an edit is applied and survives reopening, the literal `PATCH` is emitted against the candidate, and the page's write-lane claim matches the candidate's own `edit.features` capability (when writes are advertised live, the server row must echo the change) |
 | `S9-demos-analyst-workbench` | the workbench's default GeoServices remote-pushdown policy executes explain → accept → execute against the candidate and returns aggregate rows |
 
@@ -28,6 +28,20 @@ http://127.0.0.1:$E2E_SITE_PORT/demo-two-protocols.html?apiBase=$E2E_BASE
 `assets/demos/backend-override.js` in honua-site validates that origin against a tight allow-list
 (loopback + `*.honua.io`), re-emits the page CSP widened by exactly that origin, and repoints the demo
 config. Everything after that is the demo's own code talking to the candidate.
+
+**What the page asked, and who answered** (`backend-calls.mjs`). Each page's calls to the candidate
+are logged from the browser's *requests*, with the status Chromium saw on the wire (CDP
+`Network.responseReceivedExtraInfo`) even when CORS hid the response from the page. A 5xx without the
+server's `Honua-Instance` header is reported as `(API Gateway, no server body)`: API Gateway's own
+500/503 carries no CORS header, so the page and Playwright see only `net::ERR_FAILED`. Cloud run
+38192851328 showed both on `aws-serverless` (a Lambda runtime abort, and throttling). So:
+
+* `S9-demos-editing`, when the data lane falls back to the fixture, names each failed probe
+  (`/odata/Layers`, the capability manifest) and features read with its status and who answered, e.g.
+  `features GET /odata/Layers(7)/Features?$top=500 → 503 (API Gateway, no server body)`.
+* `S9-demos-analyst-workbench` distinguishes "the workbench never requested the candidate" (the shim
+  did not reach the sample's `baseUrl`) from "the workbench requested the candidate and got <status>".
+* Every failing row keeps `consoleErrors`, `failedRequests` (with the wire status) and `backendCalls`.
 
 ## Prerequisites
 

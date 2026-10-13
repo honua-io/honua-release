@@ -88,4 +88,4 @@ demos:
   #
   # Bump this ref whenever the demos change in a way this cut should certify.
   sourceRepo: honua-io/honua-site
-  sourceRef: 0db19d7e6e5826fd885fb8f9c21c1798077c9b71   # honua-site#245 merge commit on trunk
+  sourceRef: b024902e2c4bc41bf7a5ce39d159bf65e35c9675   # honua-site#294 merge commit on trunk (2026-10-11; carries #295)

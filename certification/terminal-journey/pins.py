@@ -65,7 +65,8 @@ REQUIRED_COMMANDS: tuple[RequiredCommand, ...] = (
     # the subcommand row below reports them, so this row names only stage 1.
     RequiredCommand("honua", "honua-cli", (1,)),
     RequiredCommand("honua admin", "honua-admin", (2, 3, 8), subcommand_of="honua"),
-    RequiredCommand("honua-mcp-proxy", "honua-mcp-proxy", (1, 4, 5, 6, 7)),
+    # Stage 3 publishes the uploaded table through honua_publish_service on the proxy.
+    RequiredCommand("honua-mcp-proxy", "honua-mcp-proxy", (1, 3, 4, 5, 6, 7)),
 )
 
 
@@ -255,6 +256,9 @@ CANDIDATE_ENV_ALLOWLIST = (
     "DOTNET_ROOT", "DOTNET_CLI_HOME", "DOTNET_NOLOGO",
     "HONUA_CLOUD_JOURNEY_ADMIN",
     "HONUA_JOURNEY_DATASOURCE_PASSWORD",
+    # A cloud cell names its datasource coordinates by reference (cloud_target.DATASOURCE_ENV).
+    "HONUA_JOURNEY_DATASOURCE_HOST", "HONUA_JOURNEY_DATASOURCE_PORT",
+    "HONUA_JOURNEY_DATASOURCE_DATABASE", "HONUA_JOURNEY_DATASOURCE_USERNAME",
 )
 _CREDENTIAL_ENV_PREFIXES = ("AWS_", "ACTIONS_ID_TOKEN_REQUEST_", "HONUA_AWS_")
 _CREDENTIAL_ENV_NAMES = frozenset({"GITHUB_TOKEN", "GH_TOKEN"})

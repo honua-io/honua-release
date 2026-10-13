@@ -1,1 +1,4 @@
 This hand-written Actions run layout records the metadata and retained journey gate report shapes consumed by the nightly receipt assembler. Tests bind `candidateDigest` to their exact manifest bytes, generate the real minted lock and class receipt artifacts, then serve those uploaded paths through the promotion fetcher. The run ends one minute after receipt production, and the serverless Redis-off journey includes an attributed retry. The model observation is separate from the deterministic observations. This fixture is offline test data, not evidence of a live certified run.
+
+
+The model observation carries no `lockDigest` because it predates lock binding (fix unit J3). Tests bind each genuine-model attempt to the test lock digest, as the canary now does, and assert that the unbound row does not mint.
