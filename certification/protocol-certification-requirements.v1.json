@@ -11136,7 +11136,7 @@
       "licensed": true,
       "entitlement_policy_revision": "esri-arcgis-pro-arcpy-v1",
       "addressable_by_client": false,
-      "addressability_reason": "not-applicable: Stock ArcPy has no remote GeometryServer operation API. ArcPy Geometry methods operate on local geometry objects; ImportToolbox addresses geoprocessing services, and GetPortalDescription only discovers the helper-service URL. Raw REST or arcgis.geometry calls are different clients and cannot certify ArcPy. See docs/arcpy-geometry-service-addressability.md.",
+      "addressability_reason": "not-applicable: The stock licensed scripting driver has no remote GeometryServer operation API. Local geometry operations, geoprocessing-toolbox calls and helper-service discovery do not certify this endpoint. Private source evidence: git-blob:68f0fd206ee566682efebeb8d32ff4ac19dba66c.",
       "scenario_facets": [
         "not-client-addressable"
       ],
@@ -11232,7 +11232,7 @@
       "licensed": true,
       "entitlement_policy_revision": "esri-arcgis-pro-arcpy-v1",
       "addressable_by_client": false,
-      "addressability_reason": "not-applicable: Stock ArcPy has no remote GeometryServer operation API. ArcPy Geometry methods operate on local geometry objects; ImportToolbox addresses geoprocessing services, and GetPortalDescription only discovers the helper-service URL. Raw REST or arcgis.geometry calls are different clients and cannot certify ArcPy. See docs/arcpy-geometry-service-addressability.md.",
+      "addressability_reason": "not-applicable: The stock licensed scripting driver has no remote GeometryServer operation API. Local geometry operations, geoprocessing-toolbox calls and helper-service discovery do not certify this endpoint. Private source evidence: git-blob:68f0fd206ee566682efebeb8d32ff4ac19dba66c.",
       "scenario_facets": [
         "not-client-addressable"
       ],
@@ -11328,7 +11328,7 @@
       "licensed": true,
       "entitlement_policy_revision": "esri-arcgis-pro-arcpy-v1",
       "addressable_by_client": false,
-      "addressability_reason": "not-applicable: Stock ArcPy has no remote GeometryServer operation API. ArcPy Geometry methods operate on local geometry objects; ImportToolbox addresses geoprocessing services, and GetPortalDescription only discovers the helper-service URL. Raw REST or arcgis.geometry calls are different clients and cannot certify ArcPy. See docs/arcpy-geometry-service-addressability.md.",
+      "addressability_reason": "not-applicable: The stock licensed scripting driver has no remote GeometryServer operation API. Local geometry operations, geoprocessing-toolbox calls and helper-service discovery do not certify this endpoint. Private source evidence: git-blob:68f0fd206ee566682efebeb8d32ff4ac19dba66c.",
       "scenario_facets": [
         "not-client-addressable"
       ],
@@ -11424,7 +11424,7 @@
       "licensed": true,
       "entitlement_policy_revision": "esri-arcgis-pro-arcpy-v1",
       "addressable_by_client": false,
-      "addressability_reason": "not-applicable: Stock ArcPy has no remote GeometryServer operation API. ArcPy Geometry methods operate on local geometry objects; ImportToolbox addresses geoprocessing services, and GetPortalDescription only discovers the helper-service URL. Raw REST or arcgis.geometry calls are different clients and cannot certify ArcPy. See docs/arcpy-geometry-service-addressability.md.",
+      "addressability_reason": "not-applicable: The stock licensed scripting driver has no remote GeometryServer operation API. Local geometry operations, geoprocessing-toolbox calls and helper-service discovery do not certify this endpoint. Private source evidence: git-blob:68f0fd206ee566682efebeb8d32ff4ac19dba66c.",
       "scenario_facets": [
         "not-client-addressable"
       ],
@@ -11520,7 +11520,7 @@
       "licensed": true,
       "entitlement_policy_revision": "esri-arcgis-pro-arcpy-v1",
       "addressable_by_client": false,
-      "addressability_reason": "not-applicable: Stock ArcPy has no remote GeometryServer operation API. ArcPy Geometry methods operate on local geometry objects; ImportToolbox addresses geoprocessing services, and GetPortalDescription only discovers the helper-service URL. Raw REST or arcgis.geometry calls are different clients and cannot certify ArcPy. See docs/arcpy-geometry-service-addressability.md.",
+      "addressability_reason": "not-applicable: The stock licensed scripting driver has no remote GeometryServer operation API. Local geometry operations, geoprocessing-toolbox calls and helper-service discovery do not certify this endpoint. Private source evidence: git-blob:68f0fd206ee566682efebeb8d32ff4ac19dba66c.",
       "scenario_facets": [
         "not-client-addressable"
       ],
@@ -11616,7 +11616,7 @@
       "licensed": true,
       "entitlement_policy_revision": "esri-arcgis-pro-arcpy-v1",
       "addressable_by_client": false,
-      "addressability_reason": "not-applicable: Stock ArcPy has no remote GeometryServer operation API. ArcPy Geometry methods operate on local geometry objects; ImportToolbox addresses geoprocessing services, and GetPortalDescription only discovers the helper-service URL. Raw REST or arcgis.geometry calls are different clients and cannot certify ArcPy. See docs/arcpy-geometry-service-addressability.md.",
+      "addressability_reason": "not-applicable: The stock licensed scripting driver has no remote GeometryServer operation API. Local geometry operations, geoprocessing-toolbox calls and helper-service discovery do not certify this endpoint. Private source evidence: git-blob:68f0fd206ee566682efebeb8d32ff4ac19dba66c.",
       "scenario_facets": [
         "not-client-addressable"
       ],
@@ -11712,7 +11712,7 @@
       "licensed": true,
       "entitlement_policy_revision": "esri-arcgis-pro-arcpy-v1",
       "addressable_by_client": false,
-      "addressability_reason": "not-applicable: Stock ArcPy has no remote GeometryServer operation API. ArcPy Geometry methods operate on local geometry objects; ImportToolbox addresses geoprocessing services, and GetPortalDescription only discovers the helper-service URL. Raw REST or arcgis.geometry calls are different clients and cannot certify ArcPy. See docs/arcpy-geometry-service-addressability.md.",
+      "addressability_reason": "not-applicable: The stock licensed scripting driver has no remote GeometryServer operation API. Local geometry operations, geoprocessing-toolbox calls and helper-service discovery do not certify this endpoint. Private source evidence: git-blob:68f0fd206ee566682efebeb8d32ff4ac19dba66c.",
       "scenario_facets": [
         "not-client-addressable"
       ],
@@ -11808,7 +11808,7 @@
       "licensed": true,
       "entitlement_policy_revision": "esri-arcgis-pro-arcpy-v1",
       "addressable_by_client": false,
-      "addressability_reason": "not-applicable: Stock ArcPy has no remote GeometryServer operation API. ArcPy Geometry methods operate on local geometry objects; ImportToolbox addresses geoprocessing services, and GetPortalDescription only discovers the helper-service URL. Raw REST or arcgis.geometry calls are different clients and cannot certify ArcPy. See docs/arcpy-geometry-service-addressability.md.",
+      "addressability_reason": "not-applicable: The stock licensed scripting driver has no remote GeometryServer operation API. Local geometry operations, geoprocessing-toolbox calls and helper-service discovery do not certify this endpoint. Private source evidence: git-blob:68f0fd206ee566682efebeb8d32ff4ac19dba66c.",
       "scenario_facets": [
         "not-client-addressable"
       ],
@@ -11904,7 +11904,7 @@
       "licensed": true,
       "entitlement_policy_revision": "esri-arcgis-pro-arcpy-v1",
       "addressable_by_client": false,
-      "addressability_reason": "not-applicable: Stock ArcPy has no remote GeometryServer operation API. ArcPy Geometry methods operate on local geometry objects; ImportToolbox addresses geoprocessing services, and GetPortalDescription only discovers the helper-service URL. Raw REST or arcgis.geometry calls are different clients and cannot certify ArcPy. See docs/arcpy-geometry-service-addressability.md.",
+      "addressability_reason": "not-applicable: The stock licensed scripting driver has no remote GeometryServer operation API. Local geometry operations, geoprocessing-toolbox calls and helper-service discovery do not certify this endpoint. Private source evidence: git-blob:68f0fd206ee566682efebeb8d32ff4ac19dba66c.",
       "scenario_facets": [
         "not-client-addressable"
       ],
@@ -12000,7 +12000,7 @@
       "licensed": true,
       "entitlement_policy_revision": "esri-arcgis-pro-arcpy-v1",
       "addressable_by_client": false,
-      "addressability_reason": "not-applicable: Stock ArcPy has no remote GeometryServer operation API. ArcPy Geometry methods operate on local geometry objects; ImportToolbox addresses geoprocessing services, and GetPortalDescription only discovers the helper-service URL. Raw REST or arcgis.geometry calls are different clients and cannot certify ArcPy. See docs/arcpy-geometry-service-addressability.md.",
+      "addressability_reason": "not-applicable: The stock licensed scripting driver has no remote GeometryServer operation API. Local geometry operations, geoprocessing-toolbox calls and helper-service discovery do not certify this endpoint. Private source evidence: git-blob:68f0fd206ee566682efebeb8d32ff4ac19dba66c.",
       "scenario_facets": [
         "not-client-addressable"
       ],
@@ -12096,7 +12096,7 @@
       "licensed": true,
       "entitlement_policy_revision": "esri-arcgis-pro-arcpy-v1",
       "addressable_by_client": false,
-      "addressability_reason": "not-applicable: Stock ArcPy has no remote GeometryServer operation API. ArcPy Geometry methods operate on local geometry objects; ImportToolbox addresses geoprocessing services, and GetPortalDescription only discovers the helper-service URL. Raw REST or arcgis.geometry calls are different clients and cannot certify ArcPy. See docs/arcpy-geometry-service-addressability.md.",
+      "addressability_reason": "not-applicable: The stock licensed scripting driver has no remote GeometryServer operation API. Local geometry operations, geoprocessing-toolbox calls and helper-service discovery do not certify this endpoint. Private source evidence: git-blob:68f0fd206ee566682efebeb8d32ff4ac19dba66c.",
       "scenario_facets": [
         "not-client-addressable"
       ],
@@ -12192,7 +12192,7 @@
       "licensed": true,
       "entitlement_policy_revision": "esri-arcgis-pro-arcpy-v1",
       "addressable_by_client": false,
-      "addressability_reason": "not-applicable: Stock ArcPy has no remote GeometryServer operation API. ArcPy Geometry methods operate on local geometry objects; ImportToolbox addresses geoprocessing services, and GetPortalDescription only discovers the helper-service URL. Raw REST or arcgis.geometry calls are different clients and cannot certify ArcPy. See docs/arcpy-geometry-service-addressability.md.",
+      "addressability_reason": "not-applicable: The stock licensed scripting driver has no remote GeometryServer operation API. Local geometry operations, geoprocessing-toolbox calls and helper-service discovery do not certify this endpoint. Private source evidence: git-blob:68f0fd206ee566682efebeb8d32ff4ac19dba66c.",
       "scenario_facets": [
         "not-client-addressable"
       ],
@@ -12288,7 +12288,7 @@
       "licensed": true,
       "entitlement_policy_revision": "esri-arcgis-pro-arcpy-v1",
       "addressable_by_client": false,
-      "addressability_reason": "not-applicable: Stock ArcPy has no remote GeometryServer operation API. ArcPy Geometry methods operate on local geometry objects; ImportToolbox addresses geoprocessing services, and GetPortalDescription only discovers the helper-service URL. Raw REST or arcgis.geometry calls are different clients and cannot certify ArcPy. See docs/arcpy-geometry-service-addressability.md.",
+      "addressability_reason": "not-applicable: The stock licensed scripting driver has no remote GeometryServer operation API. Local geometry operations, geoprocessing-toolbox calls and helper-service discovery do not certify this endpoint. Private source evidence: git-blob:68f0fd206ee566682efebeb8d32ff4ac19dba66c.",
       "scenario_facets": [
         "not-client-addressable"
       ],
@@ -12384,7 +12384,7 @@
       "licensed": true,
       "entitlement_policy_revision": "esri-arcgis-pro-arcpy-v1",
       "addressable_by_client": false,
-      "addressability_reason": "not-applicable: Stock ArcPy has no remote GeometryServer operation API. ArcPy Geometry methods operate on local geometry objects; ImportToolbox addresses geoprocessing services, and GetPortalDescription only discovers the helper-service URL. Raw REST or arcgis.geometry calls are different clients and cannot certify ArcPy. See docs/arcpy-geometry-service-addressability.md.",
+      "addressability_reason": "not-applicable: The stock licensed scripting driver has no remote GeometryServer operation API. Local geometry operations, geoprocessing-toolbox calls and helper-service discovery do not certify this endpoint. Private source evidence: git-blob:68f0fd206ee566682efebeb8d32ff4ac19dba66c.",
       "scenario_facets": [
         "not-client-addressable"
       ],
@@ -12480,7 +12480,7 @@
       "licensed": true,
       "entitlement_policy_revision": "esri-arcgis-pro-arcpy-v1",
       "addressable_by_client": false,
-      "addressability_reason": "not-applicable: Stock ArcPy has no remote GeometryServer operation API. ArcPy Geometry methods operate on local geometry objects; ImportToolbox addresses geoprocessing services, and GetPortalDescription only discovers the helper-service URL. Raw REST or arcgis.geometry calls are different clients and cannot certify ArcPy. See docs/arcpy-geometry-service-addressability.md.",
+      "addressability_reason": "not-applicable: The stock licensed scripting driver has no remote GeometryServer operation API. Local geometry operations, geoprocessing-toolbox calls and helper-service discovery do not certify this endpoint. Private source evidence: git-blob:68f0fd206ee566682efebeb8d32ff4ac19dba66c.",
       "scenario_facets": [
         "not-client-addressable"
       ],
@@ -12576,7 +12576,7 @@
       "licensed": true,
       "entitlement_policy_revision": "esri-arcgis-pro-arcpy-v1",
       "addressable_by_client": false,
-      "addressability_reason": "not-applicable: Stock ArcPy has no remote GeometryServer operation API. ArcPy Geometry methods operate on local geometry objects; ImportToolbox addresses geoprocessing services, and GetPortalDescription only discovers the helper-service URL. Raw REST or arcgis.geometry calls are different clients and cannot certify ArcPy. See docs/arcpy-geometry-service-addressability.md.",
+      "addressability_reason": "not-applicable: The stock licensed scripting driver has no remote GeometryServer operation API. Local geometry operations, geoprocessing-toolbox calls and helper-service discovery do not certify this endpoint. Private source evidence: git-blob:68f0fd206ee566682efebeb8d32ff4ac19dba66c.",
       "scenario_facets": [
         "not-client-addressable"
       ],
@@ -12672,7 +12672,7 @@
       "licensed": true,
       "entitlement_policy_revision": "esri-arcgis-pro-arcpy-v1",
       "addressable_by_client": false,
-      "addressability_reason": "not-applicable: Stock ArcPy has no remote GeometryServer operation API. ArcPy Geometry methods operate on local geometry objects; ImportToolbox addresses geoprocessing services, and GetPortalDescription only discovers the helper-service URL. Raw REST or arcgis.geometry calls are different clients and cannot certify ArcPy. See docs/arcpy-geometry-service-addressability.md.",
+      "addressability_reason": "not-applicable: The stock licensed scripting driver has no remote GeometryServer operation API. Local geometry operations, geoprocessing-toolbox calls and helper-service discovery do not certify this endpoint. Private source evidence: git-blob:68f0fd206ee566682efebeb8d32ff4ac19dba66c.",
       "scenario_facets": [
         "not-client-addressable"
       ],
@@ -12768,7 +12768,7 @@
       "licensed": true,
       "entitlement_policy_revision": "esri-arcgis-pro-arcpy-v1",
       "addressable_by_client": false,
-      "addressability_reason": "not-applicable: Stock ArcPy has no remote GeometryServer operation API. ArcPy Geometry methods operate on local geometry objects; ImportToolbox addresses geoprocessing services, and GetPortalDescription only discovers the helper-service URL. Raw REST or arcgis.geometry calls are different clients and cannot certify ArcPy. See docs/arcpy-geometry-service-addressability.md.",
+      "addressability_reason": "not-applicable: The stock licensed scripting driver has no remote GeometryServer operation API. Local geometry operations, geoprocessing-toolbox calls and helper-service discovery do not certify this endpoint. Private source evidence: git-blob:68f0fd206ee566682efebeb8d32ff4ac19dba66c.",
       "scenario_facets": [
         "not-client-addressable"
       ],
@@ -12864,7 +12864,7 @@
       "licensed": true,
       "entitlement_policy_revision": "esri-arcgis-pro-arcpy-v1",
       "addressable_by_client": false,
-      "addressability_reason": "not-applicable: Stock ArcPy has no remote GeometryServer operation API. ArcPy Geometry methods operate on local geometry objects; ImportToolbox addresses geoprocessing services, and GetPortalDescription only discovers the helper-service URL. Raw REST or arcgis.geometry calls are different clients and cannot certify ArcPy. See docs/arcpy-geometry-service-addressability.md.",
+      "addressability_reason": "not-applicable: The stock licensed scripting driver has no remote GeometryServer operation API. Local geometry operations, geoprocessing-toolbox calls and helper-service discovery do not certify this endpoint. Private source evidence: git-blob:68f0fd206ee566682efebeb8d32ff4ac19dba66c.",
       "scenario_facets": [
         "not-client-addressable"
       ],
@@ -12960,7 +12960,7 @@
       "licensed": true,
       "entitlement_policy_revision": "esri-arcgis-pro-arcpy-v1",
       "addressable_by_client": false,
-      "addressability_reason": "not-applicable: Stock ArcPy has no remote GeometryServer operation API. ArcPy Geometry methods operate on local geometry objects; ImportToolbox addresses geoprocessing services, and GetPortalDescription only discovers the helper-service URL. Raw REST or arcgis.geometry calls are different clients and cannot certify ArcPy. See docs/arcpy-geometry-service-addressability.md.",
+      "addressability_reason": "not-applicable: The stock licensed scripting driver has no remote GeometryServer operation API. Local geometry operations, geoprocessing-toolbox calls and helper-service discovery do not certify this endpoint. Private source evidence: git-blob:68f0fd206ee566682efebeb8d32ff4ac19dba66c.",
       "scenario_facets": [
         "not-client-addressable"
       ],
@@ -13056,7 +13056,7 @@
       "licensed": true,
       "entitlement_policy_revision": "esri-arcgis-pro-arcpy-v1",
       "addressable_by_client": false,
-      "addressability_reason": "not-applicable: Stock ArcPy has no remote GeometryServer operation API. ArcPy Geometry methods operate on local geometry objects; ImportToolbox addresses geoprocessing services, and GetPortalDescription only discovers the helper-service URL. Raw REST or arcgis.geometry calls are different clients and cannot certify ArcPy. See docs/arcpy-geometry-service-addressability.md.",
+      "addressability_reason": "not-applicable: The stock licensed scripting driver has no remote GeometryServer operation API. Local geometry operations, geoprocessing-toolbox calls and helper-service discovery do not certify this endpoint. Private source evidence: git-blob:68f0fd206ee566682efebeb8d32ff4ac19dba66c.",
       "scenario_facets": [
         "not-client-addressable"
       ],
@@ -13152,7 +13152,7 @@
       "licensed": true,
       "entitlement_policy_revision": "esri-arcgis-pro-arcpy-v1",
       "addressable_by_client": false,
-      "addressability_reason": "not-applicable: Stock ArcPy has no remote GeometryServer operation API. ArcPy Geometry methods operate on local geometry objects; ImportToolbox addresses geoprocessing services, and GetPortalDescription only discovers the helper-service URL. Raw REST or arcgis.geometry calls are different clients and cannot certify ArcPy. See docs/arcpy-geometry-service-addressability.md.",
+      "addressability_reason": "not-applicable: The stock licensed scripting driver has no remote GeometryServer operation API. Local geometry operations, geoprocessing-toolbox calls and helper-service discovery do not certify this endpoint. Private source evidence: git-blob:68f0fd206ee566682efebeb8d32ff4ac19dba66c.",
       "scenario_facets": [
         "not-client-addressable"
       ],
@@ -13248,7 +13248,7 @@
       "licensed": true,
       "entitlement_policy_revision": "esri-arcgis-pro-arcpy-v1",
       "addressable_by_client": false,
-      "addressability_reason": "not-applicable: Stock ArcPy has no remote GeometryServer operation API. ArcPy Geometry methods operate on local geometry objects; ImportToolbox addresses geoprocessing services, and GetPortalDescription only discovers the helper-service URL. Raw REST or arcgis.geometry calls are different clients and cannot certify ArcPy. See docs/arcpy-geometry-service-addressability.md.",
+      "addressability_reason": "not-applicable: The stock licensed scripting driver has no remote GeometryServer operation API. Local geometry operations, geoprocessing-toolbox calls and helper-service discovery do not certify this endpoint. Private source evidence: git-blob:68f0fd206ee566682efebeb8d32ff4ac19dba66c.",
       "scenario_facets": [
         "not-client-addressable"
       ],
@@ -13344,7 +13344,7 @@
       "licensed": true,
       "entitlement_policy_revision": "esri-arcgis-pro-arcpy-v1",
       "addressable_by_client": false,
-      "addressability_reason": "not-applicable: Stock ArcPy has no remote GeometryServer operation API. ArcPy Geometry methods operate on local geometry objects; ImportToolbox addresses geoprocessing services, and GetPortalDescription only discovers the helper-service URL. Raw REST or arcgis.geometry calls are different clients and cannot certify ArcPy. See docs/arcpy-geometry-service-addressability.md.",
+      "addressability_reason": "not-applicable: The stock licensed scripting driver has no remote GeometryServer operation API. Local geometry operations, geoprocessing-toolbox calls and helper-service discovery do not certify this endpoint. Private source evidence: git-blob:68f0fd206ee566682efebeb8d32ff4ac19dba66c.",
       "scenario_facets": [
         "not-client-addressable"
       ],
@@ -13440,7 +13440,7 @@
       "licensed": true,
       "entitlement_policy_revision": "esri-arcgis-pro-arcpy-v1",
       "addressable_by_client": false,
-      "addressability_reason": "not-applicable: Stock ArcPy has no remote GeometryServer operation API. ArcPy Geometry methods operate on local geometry objects; ImportToolbox addresses geoprocessing services, and GetPortalDescription only discovers the helper-service URL. Raw REST or arcgis.geometry calls are different clients and cannot certify ArcPy. See docs/arcpy-geometry-service-addressability.md.",
+      "addressability_reason": "not-applicable: The stock licensed scripting driver has no remote GeometryServer operation API. Local geometry operations, geoprocessing-toolbox calls and helper-service discovery do not certify this endpoint. Private source evidence: git-blob:68f0fd206ee566682efebeb8d32ff4ac19dba66c.",
       "scenario_facets": [
         "not-client-addressable"
       ],
@@ -13536,7 +13536,7 @@
       "licensed": true,
       "entitlement_policy_revision": "esri-arcgis-pro-arcpy-v1",
       "addressable_by_client": false,
-      "addressability_reason": "not-applicable: Stock ArcPy has no remote GeometryServer operation API. ArcPy Geometry methods operate on local geometry objects; ImportToolbox addresses geoprocessing services, and GetPortalDescription only discovers the helper-service URL. Raw REST or arcgis.geometry calls are different clients and cannot certify ArcPy. See docs/arcpy-geometry-service-addressability.md.",
+      "addressability_reason": "not-applicable: The stock licensed scripting driver has no remote GeometryServer operation API. Local geometry operations, geoprocessing-toolbox calls and helper-service discovery do not certify this endpoint. Private source evidence: git-blob:68f0fd206ee566682efebeb8d32ff4ac19dba66c.",
       "scenario_facets": [
         "not-client-addressable"
       ],
@@ -13632,7 +13632,7 @@
       "licensed": true,
       "entitlement_policy_revision": "esri-arcgis-pro-arcpy-v1",
       "addressable_by_client": false,
-      "addressability_reason": "not-applicable: Stock ArcPy has no remote GeometryServer operation API. ArcPy Geometry methods operate on local geometry objects; ImportToolbox addresses geoprocessing services, and GetPortalDescription only discovers the helper-service URL. Raw REST or arcgis.geometry calls are different clients and cannot certify ArcPy. See docs/arcpy-geometry-service-addressability.md.",
+      "addressability_reason": "not-applicable: The stock licensed scripting driver has no remote GeometryServer operation API. Local geometry operations, geoprocessing-toolbox calls and helper-service discovery do not certify this endpoint. Private source evidence: git-blob:68f0fd206ee566682efebeb8d32ff4ac19dba66c.",
       "scenario_facets": [
         "not-client-addressable"
       ],
@@ -13728,7 +13728,7 @@
       "licensed": true,
       "entitlement_policy_revision": "esri-arcgis-pro-arcpy-v1",
       "addressable_by_client": false,
-      "addressability_reason": "not-applicable: Stock ArcPy has no remote GeometryServer operation API. ArcPy Geometry methods operate on local geometry objects; ImportToolbox addresses geoprocessing services, and GetPortalDescription only discovers the helper-service URL. Raw REST or arcgis.geometry calls are different clients and cannot certify ArcPy. See docs/arcpy-geometry-service-addressability.md.",
+      "addressability_reason": "not-applicable: The stock licensed scripting driver has no remote GeometryServer operation API. Local geometry operations, geoprocessing-toolbox calls and helper-service discovery do not certify this endpoint. Private source evidence: git-blob:68f0fd206ee566682efebeb8d32ff4ac19dba66c.",
       "scenario_facets": [
         "not-client-addressable"
       ],
@@ -13824,7 +13824,7 @@
       "licensed": true,
       "entitlement_policy_revision": "esri-arcgis-pro-arcpy-v1",
       "addressable_by_client": false,
-      "addressability_reason": "not-applicable: Stock ArcPy has no remote GeometryServer operation API. ArcPy Geometry methods operate on local geometry objects; ImportToolbox addresses geoprocessing services, and GetPortalDescription only discovers the helper-service URL. Raw REST or arcgis.geometry calls are different clients and cannot certify ArcPy. See docs/arcpy-geometry-service-addressability.md.",
+      "addressability_reason": "not-applicable: The stock licensed scripting driver has no remote GeometryServer operation API. Local geometry operations, geoprocessing-toolbox calls and helper-service discovery do not certify this endpoint. Private source evidence: git-blob:68f0fd206ee566682efebeb8d32ff4ac19dba66c.",
       "scenario_facets": [
         "not-client-addressable"
       ],
@@ -13920,7 +13920,7 @@
       "licensed": true,
       "entitlement_policy_revision": "esri-arcgis-pro-arcpy-v1",
       "addressable_by_client": false,
-      "addressability_reason": "not-applicable: Stock ArcPy has no remote GeometryServer operation API. ArcPy Geometry methods operate on local geometry objects; ImportToolbox addresses geoprocessing services, and GetPortalDescription only discovers the helper-service URL. Raw REST or arcgis.geometry calls are different clients and cannot certify ArcPy. See docs/arcpy-geometry-service-addressability.md.",
+      "addressability_reason": "not-applicable: The stock licensed scripting driver has no remote GeometryServer operation API. Local geometry operations, geoprocessing-toolbox calls and helper-service discovery do not certify this endpoint. Private source evidence: git-blob:68f0fd206ee566682efebeb8d32ff4ac19dba66c.",
       "scenario_facets": [
         "not-client-addressable"
       ],
@@ -14016,7 +14016,7 @@
       "licensed": true,
       "entitlement_policy_revision": "esri-arcgis-pro-arcpy-v1",
       "addressable_by_client": false,
-      "addressability_reason": "not-applicable: Stock ArcPy has no remote GeometryServer operation API. ArcPy Geometry methods operate on local geometry objects; ImportToolbox addresses geoprocessing services, and GetPortalDescription only discovers the helper-service URL. Raw REST or arcgis.geometry calls are different clients and cannot certify ArcPy. See docs/arcpy-geometry-service-addressability.md.",
+      "addressability_reason": "not-applicable: The stock licensed scripting driver has no remote GeometryServer operation API. Local geometry operations, geoprocessing-toolbox calls and helper-service discovery do not certify this endpoint. Private source evidence: git-blob:68f0fd206ee566682efebeb8d32ff4ac19dba66c.",
       "scenario_facets": [
         "not-client-addressable"
       ],

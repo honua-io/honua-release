@@ -83,6 +83,9 @@ def sdk_js_version() -> str:
     if contract.get("canonicalClient") != "@honua/sdk-js" or contract.get("clientVersion") != version:
         raise ValueError("pinned sdk-js coverage and protocol contract must declare the same client and version")
     return version
+def licensed_scripting_client() -> tuple:
+    """Authoritative existing licensed scripting declaration, shared by catalog validation."""
+    return ("desktop scripting client", PRO["version"], "desktop-arcpy", PRO["deployment_target"], True, "esri-arcgis-pro-arcpy-v1", MUST_FIX)
 
 
 def licensed_desktop(release_bucket: str, client_driver: str, *, entitlement: str | None = None) -> dict[str, Any]:
@@ -808,12 +811,12 @@ def main() -> None:
             )
 
     esri_index = load(SOURCES / "esri-compat" / "matrix" / "index.json")
-    arcpy_geometry = load(SOURCES / "arcpy-geometry-addressability.v1.json")
+    geometry_policy = load(SOURCES / "geometry-service-client-addressability.v1.json")
     esri_clients = [
         ("ArcGIS REST protocol client", "11.3", "raw-geoservices", "local-docker", False, None, None),
         ("ArcGIS API for Python", "2.4", "arcgis-python", "local-docker", False, None, None),
         ("ArcGIS Maps SDK for .NET", "200.8", "esri-dotnet", "windows", False, None, None),
-        ("desktop scripting client", PRO["version"], "desktop-arcpy", PRO["deployment_target"], True, "esri-arcgis-pro-arcpy-v1", MUST_FIX),
+        licensed_scripting_client(),
     ]
     # The public catalog keeps only the governed lane and policy identifiers; its canonical
     # client name remains the nominative product label.
@@ -844,7 +847,7 @@ def main() -> None:
                     auth_policy="anonymous-and-protected-v1", target=target,
                     licensed=licensed, entitlement_policy=entitlement_policy,
                     addressable=not geometry_unaddressable,
-                    addressability_reason=arcpy_geometry["reason"] if geometry_unaddressable else None,
+                    addressability_reason=geometry_policy["reason"] if geometry_unaddressable else None,
                     # The licensed scripting driver replaces the coarse desktop interop rows, which
                     # were the licensed client's only metadata coverage; its metadata cases keep it.
                     facets=["not-client-addressable"] if geometry_unaddressable else (
