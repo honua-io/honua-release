@@ -27,6 +27,14 @@ def validate(process, outputs):
         xs, ys = zip(*[(point[0], point[1]) for point in ring])
         if not all(math.isfinite(value) for value in (*xs, *ys)):
             raise ValueError("non-finite buffer coordinate")
+        if any(not math.isclose(math.hypot(x, y), 10, abs_tol=1e-6) for x, y in zip(xs, ys)):
+            raise ValueError("buffer vertices must lie on the radius-10 circle")
+        # A straight segment between correct vertices can still cut far inside
+        # the circle. Bound its midpoint's radial error to 1% of the radius;
+        # the server's 32-segment approximation stays within this tolerance.
+        if any(math.hypot((a[0] + b[0]) / 2, (a[1] + b[1]) / 2) < 9.9
+               for a, b in zip(ring, ring[1:])):
+            raise ValueError("buffer boundary cuts too far inside the radius-10 circle")
         bounds = [min(xs), min(ys), max(xs), max(ys)]
         if any(not math.isclose(a, b, abs_tol=1e-6) for a, b in zip(bounds, [-10, -10, 10, 10])):
             raise ValueError(f"incorrect buffer bounds: {bounds}")

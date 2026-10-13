@@ -13,9 +13,18 @@ ROOT = Path(__file__).resolve().parents[1]
 
 
 def exercise(tmp_path, *, submit_code=201, poll_code=200, result_code=200,
-             wrong_area=False, wrong_buffer=False, wrong_job=False, redis_off=False):
+             wrong_area=False, wrong_buffer=False, wrong_job=False, redis_off=False,
+             clipped_corners=False, long_chord=False):
     ring = [[10 * math.cos(i * math.pi / 32), 10 * math.sin(i * math.pi / 32)] for i in range(64)]
     ring.append(ring[0])
+    if clipped_corners:
+        # Exact expected bounds AND area, but all vertices are off the circle.
+        a = 10 - math.sqrt((400 - 100 * math.pi) / 2)
+        ring = [[a, 10], [-a, 10], [-10, a], [-10, -a], [-a, -10],
+                [a, -10], [10, -a], [10, a], [a, 10]]
+    if long_chord:
+        # Every vertex is on the circle, but this edge cuts too far inside it.
+        del ring[1:5]
     if wrong_buffer:
         ring = [[x * 500, y * 500] for x, y in ring]
     outputs = {
@@ -81,6 +90,7 @@ def test_correct_metric_results_pass(tmp_path):
 @pytest.mark.parametrize("options", [
     {"submit_code": 500}, {"poll_code": 500}, {"result_code": 500},
     {"wrong_area": True}, {"wrong_buffer": True}, {"wrong_job": True},
+    {"clipped_corners": True}, {"long_chord": True},
 ])
 def test_failure_cannot_be_reported_as_pass(tmp_path, options):
     assert exercise(tmp_path, **options)["status"] == "fail"
