@@ -417,22 +417,21 @@ follows the cell's job split (honua-release#381):
   1,200 s, recording each state change. It publishes `honua_data.imported_s10_large_import` through
   the seed's connection (`POST /api/v1/admin/connections/{id}/layers`) and counts it through
   `FeatureServer/{layer}/query?returnCountOnly=true`.
-- **publish** (fix unit J22). honua-server has no asynchronous publish: `service.publish`, the
-  operation behind stage 3's `honua_publish_service`, is `ExecutionKind: Synchronous` and calls the same
-  `PublishLayerAsync` inline, so its handle is terminal at submit and polling it adds nothing. On
-  330,000 rows the publish transaction (a geometry-health scan, an extent scan, a copy of every row into
-  the canonical `features` snapshot, an extent refresh) outlives the ECS ALB's 60 s idle timeout, and
-  the cell answered 504 (run 38249563601, job `cb0d2fe3…`). When the publish answers 504, or nothing
-  within 120 s, S10 never re-POSTs. It reads `GET /api/v1/admin/connections/{id}/layers?serviceName=`
-  every 5 s for up to 360 s (`PUBLISH_CONVERGE_SECONDS`: the server's 300 s
-  `LayerPublishing:MaterializationTimeoutSeconds` plus a minute) until a layer whose source is
-  `honua_data.imported_s10_large_import` appears, then counts it. The receipt records `publishPath`
-  (`admin-layers`), `publishAnswered`, `publishMs`, `publishReads` and `publishConvergedSeconds`, and
-  the pass line ends `publish answered 504, converged after N s`. The admin publish runs on the
-  request's abort token, so a gateway that closes the connection may roll the transaction back. A layer
-  that never appears fails `publish-not-converged`, naming the answer, its time, the reads, the wait
-  and the last list answer. Any other publish answer (a 409, a 400) fails on that answer, as before.
-  Redis-off publishes the small fixture well inside the timeout and never takes this branch.
+- **publish** follows the admin API's asynchronous 202 response when present. It validates the
+  job id, pinned source row count, and exact relative same-connection `statusUrl` before polling
+  `GET /api/v1/admin/connections/{id}/layers/jobs/{jobId}` every 5 s for at most 1,200 s. A completed
+  job must report full materialization and a committed layer id; the scenario then queries that
+  layer and still requires the pinned row count. Failed, cancelled, stalled, malformed and denied
+  jobs fail the scenario. Job acceptance alone never passes it. Receipts keep the job id, status,
+  bounded progress transitions, rows materialized/total, duration, reads and answering instances;
+  raw responses and credentials are excluded. The harness never follows a foreign status URL or
+  resubmits publication. Small 200/201 publications keep the synchronous path.
+  Older candidates can answer 504 or nothing within 120 s (as run 38249563601 did). For those
+  responses, S10 retains the existing read-only layer-list convergence window of 360 s, then
+  requires the same pinned count. It records `publishAnswered`, `publishMs`, `publishReads` and
+  `publishConvergedSeconds`; failure to find the layer remains `publish-not-converged`.
+  A typed publish refusal still fails the positive Redis-on journey. Real cloud receipts are
+  required after the asynchronous server implementation ships; harness tests do not qualify it.
 - **teardown** (AWS credentials) deletes the object (`s10Cleanup` in the cell report). A failed delete
   fails the cell. The bucket's one-day lifecycle on `release-cells/` is only the backstop.
 

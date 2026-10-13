@@ -1233,6 +1233,10 @@
     "honua-studio#77": {
       "bucket": "must-fix-before-cut",
       "reason": "2026-10-12 completed intake review: The exact Smoke suite remains failed on main: run 36512731958 at 8a658c7f75887df8842fabb50cd2585be64ce48d. Later Live AWS Studio browser smoke successes are a different workflow and do not close this issue. Repair/revert the bounded dependency regression and preserve the existing browser/accessibility assertions, then obtain a real Smoke suite pass. This is an existing CI repair, not new Studio functionality or GA scope."
+    },
+    "honua-server#5618": {
+      "bucket": "post-cut-hardening",
+      "reason": "2026-10-12 release-list reconciliation: the sole must-fix finding SRV-DB-005 is implemented by merged server#5670 (6fe7c4313467366e2845b9599bc99698898d64bb). Every remaining finding is explicitly post-cut in the original issue scope. Keep the aggregate open for that remaining hardening; this records existing per-finding scope rather than deferring a new RC requirement. Candidate E2E gates remain unchanged."
     }
   },
   "admission_reviews": {

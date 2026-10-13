@@ -29,18 +29,12 @@ available...` (ImportEndpoints.cs:643-647 at honua-server 93cad86ec); that refus
 A job that stops changing state fails `job-stalled` on either topology, naming the last transition,
 the time since it and the instances that answered the status reads.
 
-Publishing the imported table (fix unit J22). honua-server has no asynchronous publish: `service.publish`
-(the operation behind stage 3's `honua_publish_service`) is ExecutionKind Synchronous and its executor
-calls the same `ILayerPublishingService.PublishLayerAsync` inline (ServicePublishOperation.cs:39,
-ServicePublishExecutor.cs:120,168 at 0e03bdd06), so routing S10 through it would add an operation
-handle but not remove the wait. On the 330,000-row table the publish transaction (geometry-health scan,
-extent scan, a one-time copy of every row into the canonical `features` snapshot, extent refresh) outlives
-the ECS ALB's 60 s idle timeout and the cell answers 504 (run 38249563601). S10 therefore keeps the admin
-publish and, when it answers 504 or nothing, reads the connection's layer list until the layer for the
-imported table appears (PUBLISH_CONVERGE_SECONDS), recording `publishAnswered` and how long convergence
-took. It never re-POSTs. The admin publish runs on the request's abort token
-(LayerPublishingEndpoints.cs:228-231), so a gateway that drops the connection may roll the publish back;
-a layer that never appears fails `publish-not-converged`, naming the answer, the wait and the last read.
+Publishing the imported table follows the admin API's 202 job handle through its terminal state,
+then queries the committed layer and checks the pinned count. Polling is bounded and uses only the
+expected same-connection relative route; an untrusted status URL never receives the application key.
+Small synchronous publications keep the existing 200/201 path. For older candidates that answer a
+504 or nothing, the existing bounded layer-list convergence path remains: read, never re-POST.
+Neither job acceptance nor a progress report alone proves that the layer was published.
 """
 from __future__ import annotations
 
@@ -85,7 +79,7 @@ PUBLISH_UNKNOWN = {0, 504}
 PUBLISH_CONVERGE_SECONDS = 360
 PUBLISH_PATH = "admin-layers"
 # The server change that would let a large publish answer inside a gateway's idle timeout.
-PUBLISH_FOLLOW_UP = "server follow-up: asynchronous service.publish"
+PUBLISH_FOLLOW_UP = "server follow-up: honua-server#5948"
 # ImportStatus serializes as its name or its ordinal, depending on the serializer options.
 _STATUS_ORDINALS = {0: "queued", 1: "processing", 2: "completed", 3: "failed", 4: "cancelled"}
 
@@ -112,6 +106,7 @@ UPLOAD_URL_PATH = "/api/v1/admin/import/upload-url"
 JOB_PATH = "/api/v1/admin/import/jobs/{job}"
 LAYERS_PATH = "/api/v1/admin/connections/{connection}/layers"
 LIST_LAYERS_PATH = LAYERS_PATH + "?serviceName={service}"
+PUBLISH_JOB_PATH = LAYERS_PATH + "/jobs/{job}"
 COUNT_PATH = "/rest/services/{service}/FeatureServer/{layer}/query?where=1%3D1&returnCountOnly=true&f=json"
 INSTANCE_HEADER = "Honua-Instance"
 
@@ -123,7 +118,9 @@ RECEIPT_FIELDS = ("scenario", "topology", "variant", "fixture", "fixtureSha256",
                   "transitions", "jobStatus", "featuresProcessed", "layerId", "service", "rowCount",
                   "executor", "executorBasis", "jobRunner", "jobsRunnerCapability", "instances",
                   "statusInstances", "stall", "refusal", "publishPath", "publishAnswered", "publishMs",
-                  "publishConvergedSeconds", "publishReads")
+                  "publishConvergedSeconds", "publishReads", "publishJobId", "publishJobStatus",
+                  "publishJobTransitions", "publishJobDurationMs", "publishRowsTotal",
+                  "publishRowsMaterialized", "publishStatusInstances")
 
 _BUCKET = re.compile(r"[a-z0-9][a-z0-9.-]{1,61}[a-z0-9]\Z")
 _CELL = re.compile(r"(aws-ecs|aws-serverless|aws-eks|stub)/redis-(on|off)\Z")
@@ -434,9 +431,61 @@ def publish_not_converged(target: str, answered: int, publish_ms: int, *, wait: 
     """The `publish-not-converged` failure: the answer, how long it took, the wait and the last read."""
     return (f"publish-not-converged: publishing {target} answered {status_text(answered)} after "
             f"{publish_ms / 1000:.1f}s and no layer for that table appeared in {reads} layer-list reads over "
-            f"{int(wait)}s (last read {last}); service.publish has no asynchronous mode and the admin publish "
-            "runs on the request's abort token, so a gateway timeout can roll the publish transaction back "
+            f"{int(wait)}s (last read {last}); older candidates bind publication to the request's abort token, "
+            "so a gateway timeout can roll the publish transaction back; no asynchronous handle was received "
             f"({PUBLISH_FOLLOW_UP})")
+
+
+def follow_publish_job(accepted, *, connection: str, expected_rows: int, call, fields: dict,
+                       clock, sleep, timeout: float, poll_seconds: float, secrets: tuple) -> tuple[int | None, str | None]:
+    """Follow a validated 202 handle. Keep bounded allowlisted progress, never raw job documents."""
+    accepted = unwrap(accepted)
+    accepted = accepted if isinstance(accepted, dict) else {}
+    job = accepted.get("jobId")
+    if not isinstance(job, str) or not _JOB_ID.fullmatch(job):
+        return None, "publish-job-invalid: 202 did not carry a usable jobId"
+    path = PUBLISH_JOB_PATH.format(connection=connection, job=urllib.parse.quote(job, safe=""))
+    if accepted.get("statusUrl") != path:
+        return None, "publish-job-invalid: statusUrl is not the expected same-connection job route"
+    total = _int(accepted.get("rowsTotal"))
+    if total != expected_rows:
+        return None, "publish-job-invalid: accepted rowsTotal differs from the pinned fixture count"
+    fields.update(publishJobId=job, publishRowsTotal=total, publishJobTransitions=[], publishStatusInstances=[])
+    started, last = clock(), None
+    deadline = started + timeout
+    while True:
+        status, progress = call("GET", path, seen=fields["publishStatusInstances"])
+        fields["publishReads"] = fields.get("publishReads", 0) + 1
+        progress = unwrap(progress)
+        progress = progress if isinstance(progress, dict) else {}
+        state = progress.get("status")
+        state = state.lower() if isinstance(state, str) else None
+        fields["publishJobDurationMs"] = int((clock() - started) * 1000)
+        if status != 200:
+            return None, f"publish-job-read-failed: status read answered {status_text(status)}"
+        if progress.get("jobId") != job or state not in {"queued", "processing", *TERMINAL}:
+            return None, "publish-job-invalid: status document has a different jobId or an unknown status"
+        rows = _int(progress.get("rowsMaterialized"))
+        if (_int(progress.get("rowsTotal")) != total or rows is None or not 0 <= rows <= total):
+            return None, "publish-job-invalid: materialization progress does not match the admitted row count"
+        fields.update(publishJobStatus=state, publishRowsMaterialized=rows)
+        # Retain progress changes within a state as well as state transitions.
+        current = (state, rows)
+        if current != last:
+            fields["publishJobTransitions"].append({"status": state, "rowsMaterialized": rows, "at": now()})
+            last = current
+        if state == "completed":
+            layer = _int(progress.get("layerId"))
+            if layer is None or layer < 0 or rows != total:
+                return None, "publish-job-invalid: completed job lacks a committed layer id or complete row progress"
+            return layer, None
+        if state in TERMINAL:
+            detail = scrub(progress.get("errorMessage") or "", secrets)
+            return None, f"publish-job-{state}: job {job}" + (f": {detail}" if detail else "")
+        if clock() >= deadline:
+            return None, (f"publish-job-stalled: job {job} remained {state} after {int(timeout)}s "
+                          f"with {rows} of {total} rows materialized")
+        sleep(min(poll_seconds, max(0, deadline - clock())))
 
 
 def stall_detail(job: str, transitions: list, *, timeout: float, since: float, instances: list) -> str:
@@ -600,7 +649,13 @@ def run_scenario(state: dict, endpoint: str, admin_key: str, *, source_url: str 
     fields.update(publishPath=PUBLISH_PATH, publishAnswered=status, publishMs=publish_ms)
     layer = ((published or {}).get("data") or {}).get("layerId") if isinstance(published, dict) else None
     converged = None
-    if status in PUBLISH_UNKNOWN:
+    if status == 202:
+        layer, error = follow_publish_job(
+            published, connection=quoted, expected_rows=int(record["features"]), call=call, fields=fields,
+            clock=clock, sleep=sleep, timeout=job_timeout, poll_seconds=poll_seconds, secrets=secrets)
+        if error:
+            return _row("fail", label + error, fields)
+    elif status in PUBLISH_UNKNOWN:
         # The publish may still be running (or have committed) behind the gateway: read, never re-POST.
         reads, last_read, deadline = 0, "none", clock() + publish_converge
         while True:
