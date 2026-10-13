@@ -42,6 +42,7 @@ from inputs import assigned_names, doc_id, load_vars, needs, render  # noqa: E40
 from inventory import InventoryError, Resolver, document_record, drift  # noqa: E402
 from registry_guard import pins_from_manifest, NPM_HONUA, pypi_normalize  # noqa: E402
 import source_build  # noqa: E402
+import publish_inputs  # noqa: E402
 
 TAIL = 2000
 SERVE = re.compile(
@@ -1214,11 +1215,17 @@ def main() -> int:
                 binding = source_build.derive(document, revision, text,
                     lambda path: resolver.read({**document, "path": path}, revision).encode())
                 document_context = dict(context)
+                document_secrets = [api_key]
+                if ident == publish_inputs.DOCUMENT:
+                    fixture_context, fixture_observation = publish_inputs.publication_inputs(ROOT)
+                    document_context.update(fixture_context)
+                    document_secrets.append(fixture_context["publish.databasePassword"])
+                    row["publicationSourceFixture"] = fixture_observation
                 if binding:
                     document_context.update(_source_build=binding, _source_registry=guards.source_registry(binding, network))
                     row["sourceBuildAdmission"] = binding
                 result, defined[key] = run_document(document, text, session, document_context, variables, digest,
-                                                    [api_key], defined.get(key, set()), revision, token, row)
+                                                    document_secrets, defined.get(key, set()), revision, token, row)
                 row.update(result)
                 row["variablesFile"] = f"vars/{ident}.json" if (args.vars_dir / f"{ident}.json").exists() else None
             except Exception:
