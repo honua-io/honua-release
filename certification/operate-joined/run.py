@@ -197,9 +197,10 @@ def main():
         # Start from a real completed deployment, so the findings terminal index has provenance.
         j.reset()
         j.telemetry(journey.HEALTHY, "declared simulated healthy Prometheus measurements")
-        seed = j.create("prior-a", prefix + "-seed", extra={"deployment.protection.observation_window_seconds": str(WINDOW)})
+        seed = j.create("candidate-c", prefix + "-seed", extra={"deployment.protection.observation_window_seconds": str(WINDOW)})
         j.watch(seed, lambda op: op.get("status") == "Succeeded", 240, "real prior revision deployment completed")
-        j.check(j.served() == "prior-a", "prior workload serves before proposal")
+        j.snapshot("after real seed deployment")
+        j.check(j.served() == "candidate-c", "prior workload serves before proposal")
         report["seedOperationId"] = seed
         keys = {}
         for role, grants in (("proposer", ["admin"]), ("approver", ["admin:read", "admin:approve"])):
@@ -232,13 +233,13 @@ def main():
         code, pending = cli("proposer", "getOperationProposal")
         j.check(code == 0, "published authenticated CLI can read sealed proposal")
         assert_pending(pending, finding["id"])
-        j.check(j.served() == "prior-a", "proposal did not change serving workload")
+        j.check(j.served() == "candidate-c", "proposal did not change serving workload")
         code, denied = cli("proposer", "approveOperationProposal")
         j.check(code != 0 and re.search(r"HTTP 403\b", denied.get("error", "")), "actual CLI refuses self-approval")
         code, unchanged = cli("proposer", "getOperationProposal")
         j.check(code == 0, "proposal readable after refused approval")
         assert_pending(unchanged, finding["id"])
-        j.check(j.served() == "prior-a", "refused approval did not actuate deployment")
+        j.check(j.served() == "candidate-c", "refused approval did not actuate deployment")
         save()
         code, approved = cli("approver", "approveOperationProposal")
         j.check(code == 0, "separate authorized CLI approver accepted")
@@ -255,7 +256,7 @@ def main():
         report["executionOperationId"] = operation_id
         observed = j.watch(operation_id, lambda op: journey.phase(op) == "observing", 180, "typed actuator opened protection window")
         j.check(observed["protection"]["candidateRevision"] == j.image("candidate-b"), "protection binds declared candidate bytes")
-        j.check(observed["protection"]["previousRevision"] == j.image("prior-a"), "protection binds actual previous bytes")
+        j.check(observed["protection"]["previousRevision"] == j.image("candidate-c"), "protection binds actual previous bytes")
         completed = j.watch(operation_id, lambda op: op.get("status") == "Succeeded", 180, "full protection window completed")
         assert_completed_window(observed, completed)
         j.check(j.served() == "candidate-b", "actual proxy serves approved workload after convergence")
@@ -275,6 +276,11 @@ def main():
         report["status"] = "passed"
     except Exception as error:
         report["failure"] = f"{type(error).__name__}: {error}"
+        for name in (prefix + "-server", prefix + "-app-19181", prefix + "-app-19182"):
+            try:
+                subprocess.run(["docker", "logs", "--tail", "80", name], stdout=log, stderr=log, timeout=30, check=False)
+            except (OSError, subprocess.TimeoutExpired):
+                log.write("Bounded diagnostic unavailable\n")
         print("FAIL: joined operate proof; sanitized receipt retained", flush=True)
     finally:
         save()
