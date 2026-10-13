@@ -2517,11 +2517,11 @@
       "id": "honua-site-docs",
       "repo": "honua-io/honua-site",
       "path": "docs.html",
-      "revision": "b4cb9a2857390ec1bf68d9e5c9e557017076cfa9",
+      "revision": "bee278714a0f3411fb5ff9aad8fe28ec2eb2ba6e",
       "revisionRule": {
         "defaultBranch": true
       },
-      "url": "https://github.com/honua-io/honua-site/blob/b4cb9a2857390ec1bf68d9e5c9e557017076cfa9/docs.html",
+      "url": "https://github.com/honua-io/honua-site/blob/bee278714a0f3411fb5ff9aad8fe28ec2eb2ba6e/docs.html",
       "runtime": "python",
       "docker": true,
       "session": null,
@@ -2547,11 +2547,11 @@
       "id": "honua-site-docs-playbooks-install-with-docker-index",
       "repo": "honua-io/honua-site",
       "path": "docs/playbooks/install-with-docker/index.md",
-      "revision": "b4cb9a2857390ec1bf68d9e5c9e557017076cfa9",
+      "revision": "bee278714a0f3411fb5ff9aad8fe28ec2eb2ba6e",
       "revisionRule": {
         "defaultBranch": true
       },
-      "url": "https://github.com/honua-io/honua-site/blob/b4cb9a2857390ec1bf68d9e5c9e557017076cfa9/docs/playbooks/install-with-docker/index.md",
+      "url": "https://github.com/honua-io/honua-site/blob/bee278714a0f3411fb5ff9aad8fe28ec2eb2ba6e/docs/playbooks/install-with-docker/index.md",
       "runtime": "python",
       "docker": true,
       "session": null,
@@ -2700,11 +2700,11 @@
       "id": "honua-site-docs-playbooks-publish-a-service-index",
       "repo": "honua-io/honua-site",
       "path": "docs/playbooks/publish-a-service/index.md",
-      "revision": "b4cb9a2857390ec1bf68d9e5c9e557017076cfa9",
+      "revision": "bee278714a0f3411fb5ff9aad8fe28ec2eb2ba6e",
       "revisionRule": {
         "defaultBranch": true
       },
-      "url": "https://github.com/honua-io/honua-site/blob/b4cb9a2857390ec1bf68d9e5c9e557017076cfa9/docs/playbooks/publish-a-service/index.md",
+      "url": "https://github.com/honua-io/honua-site/blob/bee278714a0f3411fb5ff9aad8fe28ec2eb2ba6e/docs/playbooks/publish-a-service/index.md",
       "runtime": "python",
       "docker": false,
       "session": null,
@@ -2721,84 +2721,113 @@
         },
         {
           "index": 1,
-          "line": 33,
+          "line": 31,
           "language": "shell",
           "infoString": "bash",
           "intent": "run",
           "intentSource": "heuristic",
-          "sha256": "5830104fbfdf564abddb61eedc676f1af54df043d283ebd07cd05f30512f14c0"
+          "sha256": "3fd7d050f5cf0269831e5d5970664419de09d1175ce0d53b8401ed2f0058b4fb",
+          "needs": {
+            "placeholders": [
+              "<CONNECTION_NAME>",
+              "<DATABASE_HOST>",
+              "<DATABASE_NAME>",
+              "<DATABASE_PASSWORD>",
+              "<DATABASE_PORT>",
+              "<DATABASE_SSL_MODE>",
+              "<DATABASE_SSL_REQUIRED>",
+              "<DATABASE_USER>",
+              "<EXPECTED_SOURCE_COUNT>",
+              "<GEOMETRY_COLUMN>",
+              "<LAYER_NAME>",
+              "<PRIMARY_KEY>",
+              "<SERVICE_NAME>",
+              "<SOURCE_SCHEMA>",
+              "<SOURCE_SRID>",
+              "<SOURCE_TABLE>"
+            ]
+          }
         },
         {
           "index": 2,
-          "line": 49,
+          "line": 58,
           "language": "shell",
           "infoString": "bash",
           "intent": "run",
           "intentSource": "heuristic",
-          "sha256": "8d16c2d6f664527ff12581b07ed1ae4734856326231036987fb7cf0ad4d322fe"
+          "sha256": "14e36a823e5b273610430388d5bc10eca25bd550e80c203794389b3c534f200a"
         },
         {
           "index": 3,
-          "line": 57,
+          "line": 79,
           "language": "shell",
           "infoString": "bash",
           "intent": "run",
           "intentSource": "heuristic",
-          "sha256": "5e0a22110b7f9ae4108643bb11327283f2ece6eba10e5d3b6d0570305be0a56c"
+          "sha256": "e4f2fe67800e890d24738ceeab083e94b7234a0d4e69044763796dca842997de"
         },
         {
           "index": 4,
-          "line": 67,
+          "line": 89,
           "language": "shell",
           "infoString": "bash",
           "intent": "run",
           "intentSource": "heuristic",
-          "sha256": "7d2e465b3db97c067ddd603083c3c66d4ccdc4e17f3a32c224fa56ff29e9849a"
+          "sha256": "2dff7565635b4f723c6dac946fcd684c71babfb854010fbdaa72005e4fbf10cd"
         },
         {
           "index": 5,
-          "line": 82,
+          "line": 99,
           "language": "shell",
           "infoString": "bash",
           "intent": "run",
           "intentSource": "heuristic",
-          "sha256": "ee0e68f53fc1b44114b03b23d036ee37134a2ee406da7fa1285c05d5b11552f0"
+          "sha256": "f9bf7ce4854ca926f40fb5b4e6c118a52de6d46fa38ad9781d1f363dc9ad8cce"
         },
         {
           "index": 6,
-          "line": 92,
+          "line": 125,
           "language": "shell",
           "infoString": "bash",
           "intent": "run",
           "intentSource": "heuristic",
-          "sha256": "5e566aac0d0bcc95fd3cac03cd42ffaf9bbf44fbc5885da1f3f6aa6b9ff13419"
+          "sha256": "f8a237d10357fb3c67c9f90f48f0123e4a4d43528178e09d2c204f5571e51a63"
         },
         {
           "index": 7,
-          "line": 98,
+          "line": 138,
           "language": "shell",
           "infoString": "bash",
           "intent": "run",
           "intentSource": "heuristic",
-          "sha256": "9cdd8b1cbf5f186a9e857433c93fb4f6ca616f07975ccbef7078b8a626df5c69"
+          "sha256": "d635c625c8d893a6d32248afd515141f5b5d02856e447e194fbf4bd69aa2c878"
         },
         {
           "index": 8,
-          "line": 106,
+          "line": 146,
           "language": "shell",
           "infoString": "bash",
           "intent": "run",
           "intentSource": "heuristic",
-          "sha256": "0c9d721fb0f4e27e4281b01bf1074189221780a170cb59773f10c2f237511eb7"
+          "sha256": "40a975aacdb7b862d219186afddce22e6581954abd92cabfe6d84442847436a3"
         },
         {
           "index": 9,
-          "line": 120,
+          "line": 164,
           "language": "shell",
           "infoString": "bash",
           "intent": "run",
           "intentSource": "heuristic",
-          "sha256": "1a19833d9bf92c7b4d3f132d415e750a13342dddfab5fb3f5ebc4747ebc7d59e"
+          "sha256": "c2677d8b968319ca5a66ca9cb79272b59a04f1a09a0720d994e658b3b08d3492"
+        },
+        {
+          "index": 10,
+          "line": 176,
+          "language": "shell",
+          "infoString": "bash",
+          "intent": "run",
+          "intentSource": "heuristic",
+          "sha256": "782725c32657ddbbe610c7556b497667b3085e3db622d3bed9e4a35b92890e8d"
         }
       ]
     },
@@ -2806,11 +2835,11 @@
       "id": "honua-site-docs-playbooks-run-a-bounded-gp-job-index",
       "repo": "honua-io/honua-site",
       "path": "docs/playbooks/run-a-bounded-gp-job/index.md",
-      "revision": "b4cb9a2857390ec1bf68d9e5c9e557017076cfa9",
+      "revision": "bee278714a0f3411fb5ff9aad8fe28ec2eb2ba6e",
       "revisionRule": {
         "defaultBranch": true
       },
-      "url": "https://github.com/honua-io/honua-site/blob/b4cb9a2857390ec1bf68d9e5c9e557017076cfa9/docs/playbooks/run-a-bounded-gp-job/index.md",
+      "url": "https://github.com/honua-io/honua-site/blob/bee278714a0f3411fb5ff9aad8fe28ec2eb2ba6e/docs/playbooks/run-a-bounded-gp-job/index.md",
       "runtime": "python",
       "docker": false,
       "session": null,
@@ -2877,11 +2906,11 @@
       "id": "honua-site-docs-geoprocessing-index",
       "repo": "honua-io/honua-site",
       "path": "docs/geoprocessing/index.md",
-      "revision": "b4cb9a2857390ec1bf68d9e5c9e557017076cfa9",
+      "revision": "bee278714a0f3411fb5ff9aad8fe28ec2eb2ba6e",
       "revisionRule": {
         "defaultBranch": true
       },
-      "url": "https://github.com/honua-io/honua-site/blob/b4cb9a2857390ec1bf68d9e5c9e557017076cfa9/docs/geoprocessing/index.md",
+      "url": "https://github.com/honua-io/honua-site/blob/bee278714a0f3411fb5ff9aad8fe28ec2eb2ba6e/docs/geoprocessing/index.md",
       "runtime": "node",
       "docker": false,
       "session": null,
@@ -2973,7 +3002,7 @@
   ],
   "summary": {
     "documents": 35,
-    "blocks": 240,
+    "blocks": 241,
     "byIntent": {
       "alternative": 1,
       "compile": 8,
@@ -2981,7 +3010,7 @@
       "file": 24,
       "illustrative": 14,
       "output": 7,
-      "run": 179,
+      "run": 180,
       "teardown": 2
     }
   }
