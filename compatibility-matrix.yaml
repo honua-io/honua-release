@@ -105,12 +105,12 @@ deploy:
     # TODO: encode against a released server version once honua-server cuts a tag; today server is
     # pinned by sha and immutable GHCR digest, so the deploy range is sha-pinned, not semver-ranged.
     # Tracks components.honua-server.sha by construction — validate_platform.check_coherence hard-fails
-    # if it drifts. Advanced with the 2026-10-12 hand server re-pin (93cad86 -> 0e03bdd).
-    deploysServerImage: "sha:0e03bdd06b3ca3fb1b82388110bb5dfa19b9f8fa"
+    # if it drifts. Advanced for the 2026-10-13 integration candidate (57782b2).
+    deploysServerImage: "sha:57782b260027b5359174f6a80665750b85c71a6a"
   honua-helm:
     # Chart.yaml appVersion is "0.0.0" (placeholder); chart version is 0.4.0 (un-released).
-    # Same coupling as honua-iac above; advanced with the 2026-10-12 hand server re-pin (0e03bdd).
-    appVersion: "sha:0e03bdd06b3ca3fb1b82388110bb5dfa19b9f8fa"
+    # Same coupling as honua-iac above; advanced for the 2026-10-13 integration candidate (57782b2).
+    appVersion: "sha:57782b260027b5359174f6a80665750b85c71a6a"
     awsEks:
       target: aws-eks
       architectures:
