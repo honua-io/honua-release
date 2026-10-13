@@ -54,6 +54,23 @@ def source_sdk_version(source: str) -> str:
     return version
 
 
+def sdk_js_version() -> str:
+    """Bind every JS cell to the version in the two source-pinned declarations."""
+    coverage = load(SOURCES / "sdk-js" / "sdk-coverage.v1.json")
+    contract = load(SOURCES / "sdk-js" / "protocol-certification.v1.json")
+    sdk = coverage.get("sdk") or {}
+    version = sdk.get("version")
+    # npm SemVer, including historical prereleases; reject coerced or partial versions.
+    numeric = r"(?:0|[1-9][0-9]*)"
+    identifier = rf"(?:{numeric}|[0-9]*[A-Za-z-][0-9A-Za-z-]*)"
+    semver = rf"{numeric}\.{numeric}\.{numeric}(?:-{identifier}(?:\.{identifier})*)?(?:\+[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?"
+    if sdk.get("package") != "@honua/sdk-js" or not isinstance(version, str) or not re.fullmatch(semver, version):
+        raise ValueError("pinned sdk-js coverage must declare @honua/sdk-js and an exact SemVer version")
+    if contract.get("canonicalClient") != "@honua/sdk-js" or contract.get("clientVersion") != version:
+        raise ValueError("pinned sdk-js coverage and protocol contract must declare the same client and version")
+    return version
+
+
 def licensed_desktop(release_bucket: str, client_driver: str, *, entitlement: str | None = None) -> dict[str, Any]:
     """Every row of the licensed desktop client runs on its governed licensed target under its
     entitlement policy, so the gate applies licensed-evidence entitlement and freshness rules."""
@@ -457,7 +474,7 @@ def main() -> None:
     dotnet_version = source_sdk_version("sdk-dotnet")
     sdk_sources = [
         ("sdk-python", "capabilities", "Honua SDK Python", source_sdk_version("sdk-python"), "sdk-python", "geospatial-grpc@0.2.0-alpha.1"),
-        ("sdk-js", "capabilities", "@honua/sdk-js", "0.1.9-beta.0", "sdk-js", fixture_pins["sdk-js"]),
+        ("sdk-js", "capabilities", "@honua/sdk-js", sdk_js_version(), "sdk-js", fixture_pins["sdk-js"]),
         ("sdk-dotnet", "coverage", "Honua SDK .NET", dotnet_version, "sdk-dotnet", "sha256:83eb29ac38a3fb54914c1252b273dbb7f7f4d651a8204aafb4108d14d6d23727"),
     ]
     sdk_capability_operations: dict[tuple[str, str], list[str]] = {}
