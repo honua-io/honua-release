@@ -233,3 +233,11 @@ def test_nonexecuted_skip_cannot_claim_execution_evidence(field, value):
     cell[field] = value
     assert not cert._valid_execution_metadata(cell, ledger['candidate']['cut_at'], requirements['revision'])
     assert evaluate(ledger, requirements)['overall_status'] == 'fail'
+
+
+@pytest.mark.parametrize('value', [None, 'positive', [{}], [True]])
+def test_metadata_helper_refuses_malformed_governed_facets_without_raising(value):
+    ledger, requirements = fixture('cite')
+    cell = ledger['cells'][0]
+    cell['scenario_facets'] = value
+    assert not cert._valid_execution_metadata(cell, ledger['candidate']['cut_at'], requirements['revision'])

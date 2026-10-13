@@ -494,14 +494,17 @@ def _valid_execution_metadata(cell: dict, candidate_cut_at: str, revision: str) 
         if not isinstance(value, str) or not value.strip() or len(value) > 256 or any(ord(c) < 32 for c in value):
             return False
     facets = cell["exercised_capabilities"]
+    governed_facets = cell.get("scenario_facets")
+    if not isinstance(governed_facets, list) or not all(isinstance(value, str) for value in governed_facets):
+        return False
     if not (
         cell["client_id"] == cell["performed_by"] == cell["canonical_client"]
         and cell["runner_lane"] == cell["client_lane"]
         and isinstance(facets, list) and len(facets) <= len(FACETS)
         and all(isinstance(value, str) and value in FACETS for value in facets)
         and len(set(facets)) == len(facets)
-        and set(facets).issubset(cell["scenario_facets"])
-        and (cell["result"] != "pass" or facets == cell["scenario_facets"])
+        and set(facets).issubset(governed_facets)
+        and (cell["result"] != "pass" or facets == governed_facets)
     ):
         return False
     url = cell["request_url"]
