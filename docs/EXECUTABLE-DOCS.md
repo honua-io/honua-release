@@ -29,9 +29,14 @@ init system or Windows, so a container cannot stand in for the clean machine.
 |---|---|
 | `clientArtifact` | `platform-manifest.yaml` `clientArtifacts.<key>.sourceSha`: the commit the published npm/PyPI/NuGet package and its README were built from |
 | `component` | `components.<key>.sha`: the pinned component (the server docs) |
-| `npmPublished` | `gitHead` of the package's npm `latest` (a package the manifest does not pin, such as `create-honua-app`) |
+| `npmPublished` | `gitHead` of npm `latest`, only for a package the manifest does not pin |
 | `defaultBranch` | the default-branch head at run time: what the public site and samples serve today |
 | `checkout` | this repository's checkout: the release docs that ship with the candidate |
+
+`create-honua-app` is a pinned client artifact, so its README uses that artifact's
+`sourceSha`, just like the SDK READMEs. Reading a newer scaffold README while the
+registry guard installs the selected older package would test a different bundle.
+This gate does not claim that the latest public scaffold works with older release pins.
 
 **Candidate.** The runner boots `components.honua-server` `image@digest` through
 `e2e/harness/boot.sh`, the same local-Docker stack that `e2e-local-docker` uses (licensing disabled,
