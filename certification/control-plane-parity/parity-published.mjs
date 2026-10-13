@@ -4,6 +4,7 @@ import { pathToFileURL } from 'node:url';
 import { randomUUID, createHash } from 'node:crypto';
 import { spawnSync } from 'node:child_process';
 import assert from 'node:assert/strict';
+import { importExecutionRow, assertExecutionCredential } from './import-audit.mjs';
 const consumer=process.env.HONUA_PARITY_CONSUMER;
 const root=`${consumer}/node_modules/@honua/sdk-js`;
 const publishedClients=JSON.parse(await readFile(`${consumer}/provenance.json`,'utf8'));
@@ -117,9 +118,19 @@ async function invokeAll(user,connectionId){
    item.importJob=job;assert((job.data??job).status===2||['completed','succeeded'].includes(String((job.data??job).status).toLowerCase()),'import failed or did not complete');
   }else if(successfulConnection){assert(results.every(r=>r.value.output?.isHealthy===true || r.value.output?.data?.isHealthy===true),'connection unhealthy');}else assert.equal(item.status,404);
   assert(persisted.length>=4,'missing durable audit rows');
-  assert.equal(new Set(persisted.filter(r=>r.action==='admin.post').map(r=>r.actor)).size,1);
-  assert(persisted.filter(r=>r.action==='admin.post').every(r=>r.actor.includes(identity.actor)));
-  assert(persisted.filter(r=>r.action==='admin.post').every(r=>JSON.parse(r.details).tenantId===identity.tenantId));
+  if(importing){
+   const originalActor=`operatorbearer:subject:honua-operator-bearer:${identity.actor}`;
+   const execution=importExecutionRow(persisted,item.governedJoin,originalActor,identity.tenantId);
+   const redis=(...args)=>{const result=spawnSync('docker',['exec','honua-sdk1424-fixed-redis-1','redis-cli','--raw',...args],{encoding:'utf8',timeout:30000,maxBuffer:1024*1024});assert.equal(result.status,0);return result.stdout.trim();};
+   const record=JSON.parse(redis('GET',`honua:auth:admin-api-key:${execution.credentialId}`));
+   const active=Number(redis('SISMEMBER','honua:auth:admin-api-key:active-ids',execution.credentialId));
+   item.executionCredential=assertExecutionCredential(record,active,execution,item.governedJoin,originalActor,identity.tenantId);
+   await save(`${user}-execution-credential`,item.executionCredential);
+  }else{
+   assert.equal(new Set(persisted.filter(r=>r.action==='admin.post').map(r=>r.actor)).size,1);
+   assert(persisted.filter(r=>r.action==='admin.post').every(r=>r.actor.includes(identity.actor)));
+   assert(persisted.filter(r=>r.action==='admin.post').every(r=>JSON.parse(r.details).tenantId===identity.tenantId));
+  }
  }else assert.equal(item.status,403);
  summary.cases.push(item);await save('summary',summary);
  console.log(JSON.stringify({user,status:item.status,errorKind:item.errorKind,correlationId,auditApiRows:item.auditApiRows,persistedRows:item.persistedRows}));
