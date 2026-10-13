@@ -231,6 +231,17 @@
       },
       "allOf": [
         {
+          "if": {
+            "required": ["canonical_client", "client_lane", "deployment_target"],
+            "properties": {
+              "canonical_client": { "const": "Honua server public protocol integration harness" },
+              "client_lane": { "const": "server-protocol-harness" },
+              "deployment_target": { "const": "source-test-host" }
+            }
+          },
+          "then": { "required": ["client_id", "runner_lane", "protocol_version", "protocol_profile", "performed_by", "request_url", "exercised_capabilities"] }
+        },
+        {
           "if": { "required": ["request_url"], "properties": { "request_url": { "type": "null" }, "result": { "const": "skip" } } },
           "then": { "properties": {
             "exercised_capabilities": { "maxItems": 0 },

@@ -486,7 +486,13 @@ def _valid_execution_metadata(cell: dict, candidate_cut_at: str, revision: str) 
     """Optional historical metadata is absent as a group; supplied claims are closed and checked."""
     present = EXECUTION_FIELDS.intersection(cell)
     if not present:
-        return True
+        # This governed adapter's null URL is justified only by its bound execution
+        # object and test outcomes; absence must not bypass that proof obligation.
+        return not (
+            cell.get("canonical_client") == SOURCE_HOST_CLIENT
+            and cell.get("client_lane") == SOURCE_HOST_LANE
+            and cell.get("deployment_target") == "source-test-host"
+        )
     if present != EXECUTION_FIELDS:
         return False
     for field in ("client_id", "runner_lane", "protocol_version", "protocol_profile", "performed_by"):

@@ -65,7 +65,10 @@ The protocol ledger accepts a closed, optional group of seven execution fields:
 required. Actor and lane must match the canonical requirement, and exercised
 facets must stay within its governed facets; a pass must cover all of them. Failed
 execution can report a subset without hiding the required failure outcome. Text and URL sizes are bounded.
-Historical cells without this group retain all existing strict receipt checks.
+Historical cells outside the canonical source-host harness tuple may omit this
+group and retain all existing strict receipt checks. The canonical harness using
+`server-protocol-harness` against `source-test-host` always requires the complete
+group: removing every field cannot bypass its bound execution/outcome checks.
 Unknown fields remain errors.
 
 Network execution requires an absolute HTTP/S URL without embedded credentials.
