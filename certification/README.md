@@ -56,3 +56,39 @@ honua-release PRs (a stale manifest pin isn't an individual PR's fault); PRs run
 - **Artifact-consumption** — `gate-artifact-consume.yml` (install/consume every published artifact). (#4.)
 - **Manifest/matrix integrity** — `manifest-validate.yml` (the pinned set satisfies the matrix). (#1.)
 - **Cross-cloud parity** — `e2e-cloud-aws.yml` (canonical set on each deploy target). (Phase B.)
+
+## Protocol execution metadata
+
+The protocol ledger accepts a closed, optional group of seven execution fields:
+`client_id`, `runner_lane`, `protocol_version`, `protocol_profile`, `performed_by`,
+`request_url`, and `exercised_capabilities`. If supplied, the complete group is
+required. Actor and lane must match the canonical requirement, and exercised
+facets must stay within its governed facets; a pass must cover all of them. Failed
+execution can report a subset without hiding the required failure outcome. Text and URL sizes are bounded.
+Historical cells outside the canonical source-host harness tuple may omit this
+group and retain all existing strict receipt checks. The canonical harness using
+`server-protocol-harness` against `source-test-host` always requires the complete
+group: removing every field cannot bypass its bound execution/outcome checks.
+Unknown fields remain errors.
+
+Network execution requires an absolute HTTP/S URL without embedded credentials.
+An unexecuted skip may carry a null URL and empty exercised facets only when it
+claims no receipt, digest, evidence URI or facet results. Its existing tier gate
+still refuses it whenever the row is required. For executed observations, the
+one null-URL exception is the canonical server protocol harness using
+`source-test-host-http-adapter` against `source-test-host`, with no execution
+image claim. Its v2 receipt must bind the exact execution object, contract revision,
+nonempty governed test IDs and actual pass/fail outcomes, plus the five-field
+server harness run identity and the exact candidate cut timestamp. The checker recomputes the receipt digest and retains
+candidate, source, requirement, freshness and outcome gates. An in-memory adapter
+must not invent a network URL or claim TLS coverage. The outer ledger still names
+the candidate image; this exception does not certify that image's HTTP deployment.
+
+`tools/fixtures/protocol-execution-v2` retains 9 CITE, 42 harness and 67 SDK cells produced
+by the real generator and evidence intake/aggregate code with **synthetic**
+run/TRX/ETS inputs. Their hashes and producer metadata are recorded alongside
+unchanged receipt bytes. The SDK fixture contains 65 executed passes and two
+explicit unexecuted licensed release-tier skips; nightly admission does not
+satisfy those release obligations. These are consumer compatibility controls, never live
+qualification evidence. The original closed-schema rejection is retained in the
+implementation issue; the full chain is replayed against fixture clocks.

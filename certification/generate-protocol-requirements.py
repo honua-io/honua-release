@@ -14,6 +14,20 @@ OUTPUT = ROOT / "protocol-certification-requirements.v1.json"
 SOURCES = ROOT / "sources"
 SUPPORTED = {"implemented", "partial", "covered"}
 FIXTURE = "docker/cng/seed.sql@{source_sha}"
+# These are the actual fixture paths exercised by the pinned server CITE
+# normalizer. Unknown suites retain the existing default and refuse admission.
+CITE_FIXTURES = {
+    "OGC API Features 1.0": "docker/cite/ogc-api-features/seed.sql",
+    "OGC API Tiles 1.0": "docker/cite/ogc-api-tiles/seed.sql",
+    "WFS 1.0": "docker/cite/shared/test-data",
+    "WFS 1.1": "docker/cite/shared/test-data",
+    "WFS 2.0": "docker/cite/shared/test-data",
+    "WCS 2.0": "docker/cite/wcs20/seed.sql",
+    "WMS 1.3": "docker/cite/shared/seed/mapserver.sql",
+    "WMTS 1.0": "docker/cite/shared/seed/mapserver.sql",
+    "WPS 2.0": "docker/cite/wps20/crs84-echo.xml",
+}
+
 IDENTITY_FIELDS = ("surface", "operation", "canonical_client", "client_version", "deployment_target")
 # R38 (honua-release#376): desktop clients are certified against a release line, <major>.<minor>.x;
 # a receipt from any patch of the line satisfies it and records the exact version it observed.
@@ -644,6 +658,7 @@ def main() -> None:
             add(
                 capability=capability["key"], surface=slug(suite), operation=capability["key"],
                 client="OGC CITE", lane=f"cite-{slug(suite)}", version=suite,
+                fixture=f"{CITE_FIXTURES[suite]}@{{source_sha}}" if suite in CITE_FIXTURES else FIXTURE,
                 contract=f"server-capability-matrix@{revisions['server']['commit']}",
                 auth_policy="anonymous-public-v1",
                 facets=["positive", "negative", "crs-axis", "media-schema"],

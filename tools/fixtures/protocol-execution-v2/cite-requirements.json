@@ -1,0 +1,241 @@
+{
+  "schema": "honua.protocol-certification-requirements/v1",
+  "revision": "test-staged.1",
+  "complete": true,
+  "receipt_schema_min": "v2",
+  "requirements": [
+    {
+      "capability_key": "serve.ogc-api-features",
+      "surface": "ogc-api-features-1-0",
+      "operation": "serve.ogc-api-features",
+      "maturity": "supported",
+      "canonical_client": "OGC CITE",
+      "client_lane": "cite-ogc-api-features-1-0",
+      "client_version": "OGC API Features 1.0",
+      "deployment_target": "local-docker",
+      "required_tier": "nightly",
+      "licensed": false,
+      "entitlement_policy_revision": null,
+      "addressable_by_client": true,
+      "addressability_reason": null,
+      "scenario_facets": [
+        "positive",
+        "negative",
+        "crs-axis",
+        "media-schema"
+      ],
+      "budget_expectations": null,
+      "contract_revision": "server-capability-matrix@aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "auth_policy_revision": "anonymous-public-v1",
+      "fixture_revision": "docker/cite/ogc-api-features/seed.sql@{source_sha}"
+    },
+    {
+      "capability_key": "serve.ogc-api-tiles",
+      "surface": "ogc-api-tiles-1-0",
+      "operation": "serve.ogc-api-tiles",
+      "maturity": "supported",
+      "canonical_client": "OGC CITE",
+      "client_lane": "cite-ogc-api-tiles-1-0",
+      "client_version": "OGC API Tiles 1.0",
+      "deployment_target": "local-docker",
+      "required_tier": "nightly",
+      "licensed": false,
+      "entitlement_policy_revision": null,
+      "addressable_by_client": true,
+      "addressability_reason": null,
+      "scenario_facets": [
+        "positive",
+        "negative",
+        "crs-axis",
+        "media-schema"
+      ],
+      "budget_expectations": null,
+      "contract_revision": "server-capability-matrix@aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "auth_policy_revision": "anonymous-public-v1",
+      "fixture_revision": "docker/cite/ogc-api-tiles/seed.sql@{source_sha}"
+    },
+    {
+      "capability_key": "serve.wcs",
+      "surface": "wcs-2-0",
+      "operation": "serve.wcs",
+      "maturity": "supported",
+      "canonical_client": "OGC CITE",
+      "client_lane": "cite-wcs-2-0",
+      "client_version": "WCS 2.0",
+      "deployment_target": "local-docker",
+      "required_tier": "nightly",
+      "licensed": false,
+      "entitlement_policy_revision": null,
+      "addressable_by_client": true,
+      "addressability_reason": null,
+      "scenario_facets": [
+        "positive",
+        "negative",
+        "crs-axis",
+        "media-schema"
+      ],
+      "budget_expectations": null,
+      "contract_revision": "server-capability-matrix@aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "auth_policy_revision": "anonymous-public-v1",
+      "fixture_revision": "docker/cite/wcs20/seed.sql@{source_sha}"
+    },
+    {
+      "capability_key": "serve.wfs",
+      "surface": "wfs-1-0",
+      "operation": "serve.wfs",
+      "maturity": "supported",
+      "canonical_client": "OGC CITE",
+      "client_lane": "cite-wfs-1-0",
+      "client_version": "WFS 1.0",
+      "deployment_target": "local-docker",
+      "required_tier": "nightly",
+      "licensed": false,
+      "entitlement_policy_revision": null,
+      "addressable_by_client": true,
+      "addressability_reason": null,
+      "scenario_facets": [
+        "positive",
+        "negative",
+        "crs-axis",
+        "media-schema"
+      ],
+      "budget_expectations": null,
+      "contract_revision": "server-capability-matrix@aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "auth_policy_revision": "anonymous-public-v1",
+      "fixture_revision": "docker/cite/shared/test-data@{source_sha}"
+    },
+    {
+      "capability_key": "serve.wfs",
+      "surface": "wfs-1-1",
+      "operation": "serve.wfs",
+      "maturity": "supported",
+      "canonical_client": "OGC CITE",
+      "client_lane": "cite-wfs-1-1",
+      "client_version": "WFS 1.1",
+      "deployment_target": "local-docker",
+      "required_tier": "nightly",
+      "licensed": false,
+      "entitlement_policy_revision": null,
+      "addressable_by_client": true,
+      "addressability_reason": null,
+      "scenario_facets": [
+        "positive",
+        "negative",
+        "crs-axis",
+        "media-schema"
+      ],
+      "budget_expectations": null,
+      "contract_revision": "server-capability-matrix@aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "auth_policy_revision": "anonymous-public-v1",
+      "fixture_revision": "docker/cite/shared/test-data@{source_sha}"
+    },
+    {
+      "capability_key": "serve.wfs",
+      "surface": "wfs-2-0",
+      "operation": "serve.wfs",
+      "maturity": "supported",
+      "canonical_client": "OGC CITE",
+      "client_lane": "cite-wfs-2-0",
+      "client_version": "WFS 2.0",
+      "deployment_target": "local-docker",
+      "required_tier": "nightly",
+      "licensed": false,
+      "entitlement_policy_revision": null,
+      "addressable_by_client": true,
+      "addressability_reason": null,
+      "scenario_facets": [
+        "positive",
+        "negative",
+        "crs-axis",
+        "media-schema"
+      ],
+      "budget_expectations": null,
+      "contract_revision": "server-capability-matrix@aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "auth_policy_revision": "anonymous-public-v1",
+      "fixture_revision": "docker/cite/shared/test-data@{source_sha}"
+    },
+    {
+      "capability_key": "serve.wms",
+      "surface": "wms-1-3",
+      "operation": "serve.wms",
+      "maturity": "supported",
+      "canonical_client": "OGC CITE",
+      "client_lane": "cite-wms-1-3",
+      "client_version": "WMS 1.3",
+      "deployment_target": "local-docker",
+      "required_tier": "nightly",
+      "licensed": false,
+      "entitlement_policy_revision": null,
+      "addressable_by_client": true,
+      "addressability_reason": null,
+      "scenario_facets": [
+        "positive",
+        "negative",
+        "crs-axis",
+        "media-schema"
+      ],
+      "budget_expectations": null,
+      "contract_revision": "server-capability-matrix@aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "auth_policy_revision": "anonymous-public-v1",
+      "fixture_revision": "docker/cite/shared/seed/mapserver.sql@{source_sha}"
+    },
+    {
+      "capability_key": "serve.wmts",
+      "surface": "wmts-1-0",
+      "operation": "serve.wmts",
+      "maturity": "supported",
+      "canonical_client": "OGC CITE",
+      "client_lane": "cite-wmts-1-0",
+      "client_version": "WMTS 1.0",
+      "deployment_target": "local-docker",
+      "required_tier": "nightly",
+      "licensed": false,
+      "entitlement_policy_revision": null,
+      "addressable_by_client": true,
+      "addressability_reason": null,
+      "scenario_facets": [
+        "positive",
+        "negative",
+        "crs-axis",
+        "media-schema"
+      ],
+      "budget_expectations": null,
+      "contract_revision": "server-capability-matrix@aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "auth_policy_revision": "anonymous-public-v1",
+      "fixture_revision": "docker/cite/shared/seed/mapserver.sql@{source_sha}"
+    },
+    {
+      "capability_key": "serve.wps",
+      "surface": "wps-2-0",
+      "operation": "serve.wps",
+      "maturity": "supported",
+      "canonical_client": "OGC CITE",
+      "client_lane": "cite-wps-2-0",
+      "client_version": "WPS 2.0",
+      "deployment_target": "local-docker",
+      "required_tier": "nightly",
+      "licensed": false,
+      "entitlement_policy_revision": null,
+      "addressable_by_client": true,
+      "addressability_reason": null,
+      "scenario_facets": [
+        "positive",
+        "negative",
+        "crs-axis",
+        "media-schema"
+      ],
+      "budget_expectations": null,
+      "contract_revision": "server-capability-matrix@aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "auth_policy_revision": "anonymous-public-v1",
+      "fixture_revision": "docker/cite/wps20/crs84-echo.xml@{source_sha}"
+    }
+  ],
+  "source_revisions": {
+    "server": {
+      "commit": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+    },
+    "server-certification": {
+      "commit": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+    }
+  }
+}
