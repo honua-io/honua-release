@@ -20,6 +20,27 @@ def slug(value: str) -> str:
     return re.sub(r"[^a-z0-9]+", "-", value.lower()).strip("-")
 
 
+def validate_arcpy_geometry_addressability(catalog: dict) -> None:
+    policy = json.loads((ROOT / "sources/arcpy-geometry-addressability.v1.json").read_text(encoding="utf-8"))
+    if (policy["client_driver"], policy["surface"], policy["addressable_by_client"]) != ("arcpy", "geometry-service", False):
+        raise ValueError("ArcPy GeometryServer policy must remain scoped to that client and surface.")
+    matrix = json.loads((ROOT / "sources/esri-compat/matrix/geometry-service.matrix.json").read_text(encoding="utf-8"))
+    operations = {case["id"] for case in matrix["cases"] if case["status"] in SUPPORTED}
+    rows = [row for row in catalog["requirements"] if row["client_lane"] == "desktop-arcpy-geometry-service"]
+    if len(rows) != len(operations) or {row["operation"] for row in rows} != operations:
+        raise ValueError("All original ArcPy GeometryServer operation records must remain explicit.")
+    if any(row["addressable_by_client"] or row["addressability_reason"] != policy["reason"]
+           or row["scenario_facets"] != ["not-client-addressable"] for row in rows):
+        raise ValueError("ArcPy GeometryServer operations must carry the documented non-addressability policy.")
+    if any(row["addressability_reason"] == policy["reason"] for row in catalog["requirements"] if row not in rows):
+        raise ValueError("ArcPy GeometryServer policy cannot apply to another client or surface.")
+    for lane in ("raw-geoservices", "arcgis-python", "esri-dotnet"):
+        other = [row for row in catalog["requirements"] if row["client_lane"] == lane + "-geometry-service"]
+        if (len(other) != len(operations) or {row["operation"] for row in other} != operations
+                or any(not row["addressable_by_client"] or row["addressability_reason"] is not None for row in other)):
+            raise ValueError("Other GeometryServer clients must retain every addressable operation.")
+
+
 def validate_bounded_roster(catalog: dict, roster: dict) -> None:
     """Every bounded 2026.1 external-client row must join one receipt result (release#346).
 
@@ -165,6 +186,7 @@ def main() -> None:
         for cell in bounded_roster["cells"]
     }
     jsonschema.validate(catalog, schema)
+    validate_arcpy_geometry_addressability(catalog)
     if catalog["receipt_schema_min"] not in {"v1", "v2"}:
         raise ValueError("Catalog receipt_schema_min must be 'v1' or 'v2'.")
     if catalog["source_revisions"] != revisions:
