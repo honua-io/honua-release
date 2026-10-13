@@ -893,12 +893,23 @@ def prestamp_platform_version(candidate, label):
 
 
 def resolve(manifest, matrix, github, registry, limit=100, protocol_ledger='require', skips=None,
-            skip_limit=SKIP_REPORT_LIMIT, stale_days=STALE_DAYS):
+            skip_limit=SKIP_REPORT_LIMIT, stale_days=STALE_DAYS, prepare_deployments=False):
     """`protocol_ledger='produce'` is the nightly: its protocol-ledger job produces and binds the
     ledger for the server selected here, so an unbound ledger is not a refusal yet. Every other
     exact-candidate check still refuses, and the bound candidate is re-checked in full.
     `skips`, when given, receives each trunk-selected component's skip report, also on refusal."""
     candidate, candidate_matrix = copy.deepcopy(manifest), copy.deepcopy(matrix)
+    if prepare_deployments:
+        if protocol_ledger != 'produce':
+            raise ResolutionError('deployment preparation requires a newly produced protocol ledger')
+        # These are new execution inputs, not a certified snapshot. Never carry
+        # yesterday's passed deployment references onto a newly selected image.
+        for component, target in (('honua-server', 'awsLambda'), ('honua-helm', 'awsEks')):
+            rows = candidate_matrix.get('deploy', {}).get(component, {}).get(target, {}).get('architectures', {})
+            for row in rows.values():
+                if isinstance(row, dict) and (row.get('status') == 'ga-target' or row.get('releaseScope') == 'ga-target'):
+                    row.update(status='ga-target', qualification='pending')
+                    row.pop('qualificationReceipt', None)
     failures = []
     # Verify once, before selecting SDK checkouts or reading declarations. A component
     # identity must come from verified package bytes, even when another gate later refuses.
@@ -1029,12 +1040,13 @@ def resolve(manifest, matrix, github, registry, limit=100, protocol_ledger='requ
     if failures:
         # Local qualification still runs so the refusal names every exact-candidate error.
         # Reachability and registry client probes are not a passing claim on this path.
-        findings = validate_platform.validate(candidate, candidate_matrix, None, exact_candidate=True,
-            ledger_produced_later=protocol_ledger == 'produce')
+        findings = validate_resolved_inputs(candidate, candidate_matrix,
+            ledger_produced_later=protocol_ledger == 'produce', prepare_deployments=prepare_deployments)
         failures.extend(findings.errors)
         raise ResolutionError('candidate qualification refused:\n' + '\n'.join(failures))
-    findings = validate_platform.validate(candidate, candidate_matrix, None,
-        exact_candidate=True, reachability_client=github, ledger_produced_later=protocol_ledger == 'produce')
+    findings = validate_resolved_inputs(candidate, candidate_matrix,
+        reachability_client=github, ledger_produced_later=protocol_ledger == 'produce',
+        prepare_deployments=prepare_deployments)
     evidence_path = ROOT / 'certification' / 'conformance-evidence.yaml'
     if evidence_path.exists():
         validate_platform.check_legacy_evidence_pin_coherence(
@@ -1044,6 +1056,18 @@ def resolve(manifest, matrix, github, registry, limit=100, protocol_ledger='requ
     return candidate, candidate_matrix
 
 
+def validate_resolved_inputs(candidate, matrix, *, reachability_client=None,
+                            ledger_produced_later=False, prepare_deployments=False):
+    """Preparation has no candidate-admission verdict; all intrinsic pin gates still run."""
+    findings = validate_platform.validate(candidate, matrix, None,
+        exact_candidate=not prepare_deployments, reachability_client=reachability_client,
+        ledger_produced_later=ledger_produced_later)
+    if prepare_deployments:
+        validate_platform.check_exact_candidate(candidate, findings, reachability_client,
+                                                ledger_produced_later)
+    return findings
+
+
 def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--manifest', type=Path, default=ROOT / 'platform-manifest.yaml')
@@ -1051,6 +1075,8 @@ def main(argv=None):
     parser.add_argument('--out-dir', type=Path, default=Path('resolved-candidate'))
     parser.add_argument('--max-commits', type=int, default=100)
     parser.add_argument('--dry-run', action='store_true', help='read live trunk/registries; publish nothing')
+    parser.add_argument('--prepare-deployments', action='store_true',
+                        help='emit unadmitted execution inputs for real deployment producers, never a candidate')
     parser.add_argument('--protocol-ledger', choices=('require', 'produce'), default='require',
                         help='produce: the nightly binds a ledger it produces for the selected server')
     parser.add_argument('--skip-report-limit', type=int, default=SKIP_REPORT_LIMIT,
@@ -1064,14 +1090,25 @@ def main(argv=None):
             raise ResolutionError('--max-commits must be positive')
         if args.skip_report_limit < 0 or args.stale_days < 0:
             raise ResolutionError('--skip-report-limit and --stale-days must not be negative')
+        if args.prepare_deployments and (not args.dry_run or args.protocol_ledger != 'produce'):
+            raise ResolutionError('--prepare-deployments requires --dry-run --protocol-ledger produce')
         github = GitHub()
         manifest, matrix = resolve(yaml.safe_load(args.manifest.read_text()),
             yaml.safe_load(args.matrix.read_text()), github, Registry(github), args.max_commits,
-            args.protocol_ledger, skips, args.skip_report_limit, args.stale_days)
+            args.protocol_ledger, skips, args.skip_report_limit, args.stale_days,
+            prepare_deployments=args.prepare_deployments)
         args.out_dir.mkdir(parents=True, exist_ok=True)
         for filename, value in [('platform-manifest.yaml', manifest), ('compatibility-matrix.yaml', matrix)]:
             (args.out_dir / filename).write_text(yaml.safe_dump(value, sort_keys=False))
-        print(f'PASS: exact trunk candidate in {args.out_dir}; dry_run={args.dry_run}')
+        if args.prepare_deployments:
+            preparation = {'schema': 'honua.deployment-preparation/v1', 'status': 'unadmitted',
+                           'candidateQualified': False,
+                           'remaining': ['real deployment qualification', 'bound protocol ledger',
+                                         'exact candidate admission']}
+            (args.out_dir / 'deployment-preparation.json').write_text(json.dumps(preparation, indent=2) + '\n')
+            print(f'PREPARED ONLY: unadmitted deployment inputs in {args.out_dir}')
+        else:
+            print(f'PASS: exact trunk candidate in {args.out_dir}; dry_run={args.dry_run}')
         return 0
     except (OSError, ValueError, subprocess.CalledProcessError) as exc:
         print(f'REFUSED: {exc}', file=sys.stderr)

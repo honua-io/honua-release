@@ -54,6 +54,7 @@ import semver  # noqa: E402  (local module, sibling file)
 import trunk_reachability as tr  # noqa: E402
 from component_versions import version_map  # noqa: E402
 import platform_version  # noqa: E402
+import deployment_qualification as dq  # noqa: E402
 from image_platforms import image_platform_digests, verify_image_platform_digests  # noqa: E402
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
@@ -558,8 +559,14 @@ def check_lambda_operating_envelope(text: str, f: Findings) -> None:
         f.error("lambda-ga: operating envelope must not declare a Lambda qualification receipt")
 
 
-def check_deploy_qualification(manifest: dict, matrix: dict, f: Findings, *, exact_candidate: bool) -> None:
+def check_deploy_qualification(manifest: dict, matrix: dict, f: Findings, *, exact_candidate: bool,
+                               deployment_phase: str = "ga",
+                               deployment_qualification: dict | None = None) -> None:
     """A GA scope ruling is not qualification (quality contract §4.2)."""
+    if deployment_phase not in {"ga", "candidate-precut"}:
+        f.error("deployment qualification phase must be ga or candidate-precut")
+        return
+    proofs = deployment_qualification or {}
     for component, deployments in (matrix.get("deploy") or {}).items():
         for target, deployment in (deployments or {}).items():
             if not isinstance(deployment, dict):
@@ -586,7 +593,20 @@ def check_deploy_qualification(manifest: dict, matrix: dict, f: Findings, *, exa
                         f"matrix: {path}: pending Lambda GA target must not carry a qualificationReceipt"
                     )
                 if exact_candidate and (status == "ga-target" or row.get("releaseScope") == "ga-target") and status != "supported":
-                    f.error(f"exact-candidate: {path}: GA target, qualification pending; requires supported + passed + candidate-bound qualificationReceipt")
+                    if (deployment_phase == "candidate-precut" and component == "honua-server"
+                            and target == "awsLambda" and architecture == "x86_64"
+                            and status == "ga-target" and qualification == "pending"):
+                        proof = proofs.get(target)
+                        try:
+                            if not isinstance(proof, dq.VerifiedQualification):
+                                raise dq.QualificationError("verified before-execution Lambda proof is missing")
+                            proof.require_current(manifest, LAMBDA_ENVELOPE_PATH.read_bytes())
+                            if proof.receipt.get("phase") != "candidate-precut":
+                                raise dq.QualificationError("Lambda proof has the wrong qualification phase")
+                        except (OSError, ValueError) as exc:
+                            f.error(f"exact-candidate: {path}: candidate-precut refused: {exc}")
+                    else:
+                        f.error(f"exact-candidate: {path}: GA target, qualification pending; requires supported + passed + candidate-bound qualificationReceipt")
                 if status != "supported":
                     continue
                 if qualification != "passed":
@@ -594,6 +614,21 @@ def check_deploy_qualification(manifest: dict, matrix: dict, f: Findings, *, exa
                 receipt = row.get("qualificationReceipt")
                 if not isinstance(receipt, dict):
                     f.error(f"matrix: {path}: supported requires a candidate-bound qualificationReceipt reference")
+                    continue
+                if receipt.get("schema") == dq.RECEIPT_SCHEMA:
+                    proof = proofs.get(target)
+                    try:
+                        if (target != "awsEks" or component != "honua-helm" or architecture != "x86_64"
+                                or not isinstance(proof, dq.VerifiedEksQualification)):
+                            raise dq.QualificationError("versioned supported proof requires the full EKS bill")
+                        proof.require_current(manifest, LAMBDA_ENVELOPE_PATH.read_bytes())
+                        if receipt != proof.reference():
+                            raise dq.QualificationError("supported reference differs from verified EKS input binding")
+                    except (OSError, ValueError) as exc:
+                        f.error(f"matrix: {path}.qualificationReceipt: {exc}")
+                    continue
+                if "schema" in receipt:
+                    f.error(f"matrix: {path}.qualificationReceipt has an unknown binding schema")
                     continue
                 url = receipt.get("url")
                 try:
@@ -802,12 +837,16 @@ def validate(
     reachability_client: tr.APIClient | None = None,
     requirements: dict | None = None,
     ledger_produced_later: bool = False,
+    deployment_phase: str = "ga",
+    deployment_qualification: dict | None = None,
 ) -> Findings:
     f = Findings()
     check_structure(manifest, matrix, f)
     # Coherence/drift assume structure held well enough to read; they no-op on missing pieces.
     check_coherence(manifest, matrix, f)
-    check_deploy_qualification(manifest, matrix, f, exact_candidate=exact_candidate)
+    check_deploy_qualification(manifest, matrix, f, exact_candidate=exact_candidate,
+                              deployment_phase=deployment_phase,
+                              deployment_qualification=deployment_qualification)
     check_capability_lifecycle(
         matrix, f, _load_json(EXPECTED_GA_MANIFEST_PATH) if EXPECTED_GA_MANIFEST_PATH.is_file() else None)
     if LAMBDA_ENVELOPE_PATH.is_file():
@@ -834,6 +873,10 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--requirements", default=str(REQUIREMENTS_PATH))
     ap.add_argument("--exact-candidate", action="store_true",
                     help="reject unpublished/floating/local pins; use for release certification")
+    ap.add_argument("--deployment-phase", choices=("ga", "candidate-precut"), default="ga",
+                    help="GA remains strict; candidate-precut requires verified Lambda bill 1/2/5 proof")
+    ap.add_argument("--deployment-qualification", type=Path,
+                    help="producer-bound deployment qualification bundle; never a skipped gate")
     args = ap.parse_args(argv)
 
     manifest = _load_yaml(Path(args.manifest))
@@ -855,6 +898,14 @@ def main(argv: list[str] | None = None) -> int:
                 "SKIP  trunk-reachability checks unavailable offline "
                 "(not running in CI and GITHUB_TOKEN is unset)"
             )
+    deployment_proof = None
+    if args.deployment_qualification:
+        try:
+            deployment_proof = dq.verify_bundle(dq.read_json(args.deployment_qualification), manifest,
+                                               LAMBDA_ENVELOPE_PATH.read_bytes())
+        except (OSError, ValueError, subprocess.SubprocessError) as exc:
+            print(f"ERROR deployment qualification bundle refused: {exc}")
+            return 1
     f = validate(
         manifest,
         matrix,
@@ -862,6 +913,8 @@ def main(argv: list[str] | None = None) -> int:
         exact_candidate=args.exact_candidate,
         reachability_client=reachability_client,
         requirements=requirements,
+        deployment_phase=args.deployment_phase,
+        deployment_qualification=deployment_proof,
     )
     if args.exact_candidate:
         for name, component in (manifest.get("components") or {}).items():

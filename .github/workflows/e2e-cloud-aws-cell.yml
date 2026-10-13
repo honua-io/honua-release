@@ -18,6 +18,7 @@ on:
       redis: { required: true, type: string }
       preview: { required: true, type: boolean }
       candidate_ref: { required: false, type: string, default: "" }
+      prepared_ref: { required: false, type: string, default: "" }
       require_real: { required: false, type: boolean, default: false }
       cost_ceiling_usd: { required: false, type: string, default: "20" }
       iac_ref: { required: true, type: string }
@@ -42,6 +43,9 @@ permissions:
   contents: read
 
 env:
+  HONUA_DEPLOYMENT_PREPARED: ${{ inputs.prepared_ref != '' }}
+  # Prepared/admitted cohorts must include the reviewed typed OIDC fixture support.
+  HONUA_CLOUD_TENANT_FIXTURE: ${{ inputs.prepared_ref != '' || inputs.candidate_ref != '' }}
   AWS_REGION: "us-east-1"
   HONUA_LAMBDA_IMAGE_URI: ${{ inputs.lambda_image }}
   HONUA_LAMBDA_ARCHITECTURE: ${{ inputs.lambda_architecture }}
@@ -74,6 +78,12 @@ jobs:
         if: ${{ inputs.candidate_ref }}
         uses: ./.github/actions/candidate-input
         with:
+          candidate_ref: ${{ inputs.candidate_ref }}
+      - name: Use the unadmitted prepared deployment inputs
+        if: ${{ inputs.prepared_ref }}
+        uses: ./.github/actions/prepared-deployment-input
+        with:
+          prepared_ref: ${{ inputs.prepared_ref }}
           candidate_ref: ${{ inputs.candidate_ref }}
       - name: Checkout honua-iac (terraform tree)
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -208,6 +218,11 @@ jobs:
           # Identifiers and verdicts only; this repository's artifacts are public.
           path: |
             ${{ env.CELL_DIR }}/provision.json
+            ${{ env.CELL_DIR }}/deployment-execution-inputs.json
+            ${{ env.CELL_DIR }}/deployment-terraform-inputs.json
+            ${{ env.CELL_DIR }}/deployment-helm-inputs.json
+            ${{ env.CELL_DIR }}/deployment-actuation.json
+            ${{ env.CELL_DIR }}/executed-manifest.yaml
             ${{ env.CELL_DIR }}/extended/seed-manifest.json
             ${{ env.CELL_DIR }}/receipt-*.json
             ${{ env.CELL_DIR }}/target-*.json
@@ -251,6 +266,12 @@ jobs:
         if: ${{ inputs.candidate_ref }}
         uses: ./.github/actions/candidate-input
         with:
+          candidate_ref: ${{ inputs.candidate_ref }}
+      - name: Use the unadmitted prepared deployment inputs
+        if: ${{ inputs.prepared_ref }}
+        uses: ./.github/actions/prepared-deployment-input
+        with:
+          prepared_ref: ${{ inputs.prepared_ref }}
           candidate_ref: ${{ inputs.candidate_ref }}
       - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
         with:
@@ -492,6 +513,12 @@ jobs:
         uses: ./.github/actions/candidate-input
         with:
           candidate_ref: ${{ inputs.candidate_ref }}
+      - name: Use the unadmitted prepared deployment inputs
+        if: ${{ inputs.prepared_ref }}
+        uses: ./.github/actions/prepared-deployment-input
+        with:
+          prepared_ref: ${{ inputs.prepared_ref }}
+          candidate_ref: ${{ inputs.candidate_ref }}
       - name: Checkout honua-iac (terraform tree)
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -632,4 +659,10 @@ jobs:
             e2e/cloud-evidence/**/receipt-*.json
             e2e/cloud-evidence/**/target-*.json
             e2e/cloud-evidence/**/diagnostics-*.json
+            e2e/cloud-evidence/**/deployment-execution-inputs.json
+            e2e/cloud-evidence/**/deployment-terraform-inputs.json
+            e2e/cloud-evidence/**/deployment-helm-inputs.json
+            e2e/cloud-evidence/**/deployment-actuation.json
+            e2e/cloud-evidence/**/executed-manifest.yaml
+            e2e/cloud-evidence/**/deployment-cell-receipt.json
           if-no-files-found: warn

@@ -449,7 +449,13 @@ def test_recorded_minting_run_uploads_fetch_into_a_complete_layout(inputs, tmp_p
     assert retry['attempts'][0]['status'] == 'fail'
     assert retry['attempts'][0]['failureAttribution'] == 'infrastructure'
     if qualifying:
-        assert decision['status'] == 'pass', decision['checks']
+        # This recorded mint exercises package publication only: its lock has no
+        # honua-server image or Lambda mirror. Handwritten qualifying receipts must
+        # not turn that SDK-only bundle into deploy/update proof. All retained
+        # minting evidence and the other qualifying checks remain valid.
+        assert decision['status'] == 'refused'
+        failed = {name for name, check in decision['checks'].items() if check['status'] == 'fail'}
+        assert failed == {'evidence:update-rollback'}, decision['checks']
     else:
         assert decision['status'] == 'refused'
         for name in ('genuine-model-journey', 'update-rollback', 'esri-bundle', 'cite'):

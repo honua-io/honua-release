@@ -373,13 +373,15 @@ class AwsEksTarget(DeployTarget):
 
     def _redact(self, text: str) -> str:
         """Never let a generated credential reach the public Actions log through an error/diagnostic."""
-        hidden = [self._db_password, self._admin_password, self._master_key, self._redis_password]
+        hidden = [self._db_password, self._admin_password, self._master_key, self._redis_password,
+                  getattr(self, "journey_signing_key", "")]
         for name in (DB_OUTPUT, REDIS_OUTPUT):
             value = (self._outputs or {}).get(name)
             if isinstance(value, str) and value:
                 hidden.append(value)
         for secret_value in hidden:
-            text = text.replace(secret_value, "***")
+            if secret_value:
+                text = text.replace(secret_value, "***")
         return re.sub(r"(?i)(password|pwd)(\s*=\s*)[^;,\s\"']+", r"\1\2***", text)
 
     def _failure(self, operation: str, error: subprocess.CalledProcessError) -> ProvisionError:
@@ -678,6 +680,8 @@ class AwsEksTarget(DeployTarget):
             "HONUA_ADMIN_PASSWORD": self._admin_password,
             "Security__ConnectionEncryption__MasterKey": self._master_key,
         }
+        if getattr(self, "journey_signing_key", None):
+            values["Oidc__TokenValidation__SymmetricSigningKey"] = self.journey_signing_key
         if redis_enabled:
             if self._uses_elasticache():
                 redis = self._output(REDIS_OUTPUT)
@@ -691,6 +695,8 @@ class AwsEksTarget(DeployTarget):
                 values["ConnectionStrings__redis"] = (
                     f"{REDIS_RELEASE}-master:6379,password={self._redis_password}"
                 )
+        import deployment_capture
+        self._runtime_secret_commitments = deployment_capture.secret_commitments(values)
         self._ensure_namespace()
         self._apply({
             "apiVersion": "v1",
@@ -759,6 +765,16 @@ class AwsEksTarget(DeployTarget):
                     raise ProvisionError(f"{self.name}: root output {CHART_ENV_OUTPUT} holds a value "
                                          f"that is not a plain environment entry ({str(key)[:64]!r})")
                 env[str(key)] = str(value).lower() if isinstance(value, bool) else str(value)
+        if getattr(self, "journey_signing_key", None):
+            tenant_env = {"Oidc__Enabled": "true", "Oidc__Generic__Enabled": "true",
+                          "Oidc__Generic__Authority": "https://terminal-journey.invalid",
+                          "Oidc__Generic__ClientId": "terminal-journey",
+                          "Studio__EndUserAuthorization__Enabled": "true"}
+            if "Oidc__TokenValidation__SymmetricSigningKey" in env:
+                raise ProvisionError("tenant signing key must use the external runtime Secret")
+            if any(key in env and env[key] != value for key, value in tenant_env.items()):
+                raise ProvisionError("pinned root supplies a conflicting tenant issuer")
+            env.update(tenant_env)
         if redis_enabled:
             # S10 large-import (honua-release#548): the same background window as the Redis-on
             # ECS and serverless cells (terraform_target.IMPORT_BACKGROUND_THRESHOLD_VAR). The chart
@@ -918,9 +934,27 @@ class AwsEksTarget(DeployTarget):
             raise self._failure("Helm dependency build", error) from error
         with tempfile.TemporaryDirectory(prefix="honua-eks-values-") as scratch:
             values_file = Path(scratch) / "values.json"
-            values_file.write_text(json.dumps(self.chart_values(redis_enabled), indent=2), encoding="utf-8")
+            values = self.chart_values(redis_enabled)
+            import deployment_capture
+            if deployment_capture.enabled():
+                values["config"]["env"] = deployment_capture.pin_secret_references(values["config"]["env"])
+            values_file.write_text(json.dumps(values, indent=2), encoding="utf-8")
+            command = self._helm_command(redis_enabled, chart, values_file)
+            import deployment_capture
+            if deployment_capture.enabled():
+                if not self._uses_rds() or (redis_enabled and not self._uses_elasticache()):
+                    raise ProvisionError("prepared EKS qualification requires the managed database/cache profile")
+                deployment_capture.capture(self, "helm", {
+                    "arguments": command, "values": values,
+                    "helmSource": deployment_capture.source(chart),
+                    "runtimeSecretCommitmentAlgorithm": "hmac-sha256",
+                    "runtimeSecretValueCommitments": self._runtime_secret_commitments,
+                    "immutableSecretVersionIds": deployment_capture.secret_versions(values),
+                    "tenantSigningSecret": getattr(self, "journey_signing_secret", None),
+                }, redis_enabled)
             try:
-                self._run(self._helm_command(redis_enabled, chart, values_file), env=self._kube_env())
+                deployment_capture.actuating(self, "helm", redis_enabled)
+                self._run(command, env=self._kube_env())
             except subprocess.CalledProcessError as error:
                 failure = self._failure("Helm install", error)
                 diagnostics = self._diagnostics()
@@ -1082,6 +1116,14 @@ class AwsEksTarget(DeployTarget):
         prefix = self._prefix = self._name_prefix(redis_enabled)
         self._kubeconfig = Path(tempfile.gettempdir()) / f"{prefix}.kubeconfig"
         tf_vars = self._tf_vars(redis_enabled)
+        import deployment_capture
+        if deployment_capture.enabled():
+            deployment_capture.capture(self, "terraform", {
+                "arguments": tf_vars, "iacSource": deployment_capture.source(root),
+                "secretVersionObservations": deployment_capture.secret_versions(tf_vars),
+                "tenantFixture": {"enabled": bool(getattr(self, "journey_signing_key", None)),
+                                  "signingSecret": getattr(self, "journey_signing_secret", None)},
+            }, redis_enabled)
         domain = self.cell_domain(redis_enabled)
         if domain is not None:
             print(f"{self.name}: HTTPS cell hostname {domain[0]} (ACM certificate from the root; the "
@@ -1095,6 +1137,7 @@ class AwsEksTarget(DeployTarget):
                   "(honua-release#203)", flush=True)
         try:
             self._tf(root, "init", "-input=false", "-no-color")
+            deployment_capture.actuating(self, "terraform", redis_enabled)
             self._tf(root, "apply", "-auto-approve", *tf_vars)
             self._cluster_name = self._tf(root, "output", "-raw", "cluster_name").stdout.strip()
         except subprocess.CalledProcessError as error:

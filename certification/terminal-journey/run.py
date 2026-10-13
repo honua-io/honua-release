@@ -391,6 +391,7 @@ def run_live(
     workdir: Path,
     base_url_override: str | None,
     keep_stack: bool,
+    *, tenant_signing_key: str | None = None,
 ) -> tuple[pins.ClientWorkspace, list[stagelib.StageResult], list[str], str | None]:
     notices: list[str] = []
     import discovery
@@ -475,11 +476,15 @@ def run_live(
             # Local Docker mints against the stack it started; a cloud cell mints through its own
             # admin API with the cell's bootstrap credential (cloud_target).
             credentials = local_fixture.credentials(target, workdir, base_url,
-                mint=(base_url_override is None or cloud) and observation.ready)
+                mint=(base_url_override is None or cloud) and observation.ready,
+                **({"tenant_signing_key": tenant_signing_key} if tenant_signing_key is not None else {}))
             if cloud and observation.ready:
                 notices.append("Journey principals: " + ", ".join(sorted(
-                    name for name in local_fixture.GRANTS if credentials.get(name)))
+                    name for name in local_fixture.GRANTS if credentials.get(name)
+                    and not (target.get("tenantFixture") and name == "proposer")))
                     + " minted through the cell admin API (short-lived; revoked when the run ends)")
+                if target.get("tenantFixture"):
+                    notices.append("Proposer and other-tenant use the run-owned signed issuer with identical subject and role and distinct tenants")
         except (ExecutionError, KeyError, ValueError, TypeError, AttributeError) as exc:
             credentials = {"proposer": ""}
             notices.append("Journey principal fixture could not establish verified short-lived grants")

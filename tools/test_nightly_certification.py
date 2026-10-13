@@ -120,7 +120,9 @@ def test_resolve_and_mint_run_only_on_trunk():
         assert evaluate(jobs['mint']['if'], {'github.ref': ref, 'needs.train.result': 'success'}) is expected, ref
     # capacity needs the trunk-only resolve; dr and train need the bound candidate. A branch
     # dispatch reaches none of them.
-    assert jobs['protocol_ledger']['needs'] == 'resolve'
+    assert jobs['lambda_deployment']['needs'] == 'resolve'
+    assert jobs['deployment_qualification']['needs'] == 'lambda_deployment'
+    assert set(jobs['protocol_ledger']['needs']) == {'resolve', 'deployment_qualification'}
     assert jobs['capacity']['needs'] == 'resolve'
     assert jobs['dr']['needs'] == 'protocol_ledger'
     assert set(jobs['train']['needs']) >= {'protocol_ledger', 'capacity', 'dr'}
@@ -168,6 +170,8 @@ def test_write_scopes_live_only_on_the_jobs_that_use_them():
               for name, job in jobs.items()}
     assert writes == {
         'resolve': [],
+        'lambda_deployment': ['contents'],       # unadmitted refs/prepared-deployments/<sha> only
+        'deployment_qualification': ['actions'], # completed child EKS producer, before admission
         'protocol_ledger': ['contents'],         # refs/nightly-requirements/<sha>, refs/nightly-candidates/<sha>
         'capacity': [],                          # cross-repo work uses RELEASE_GH_TOKEN
         'dr': ['actions'],                       # dispatches the drill in this repository
@@ -233,6 +237,29 @@ def test_nightly_and_candidate_ref_are_call_only_inputs():
     # A manual dispatch therefore always takes the signed frozen-lock binding.
     bind = step(train['jobs']['freeze'], 'Bind the complete atomic platform lock')
     assert evaluate(bind['if'], {'inputs.dry_run': False})
+
+
+@pytest.mark.parametrize(('dry_run', 'nightly', 'expected'), [
+    ('false', '', ['--exact-candidate']),
+    ('false', 'false', ['--exact-candidate']),
+    ('false', 'true', ['--exact-candidate', '--deployment-phase', 'candidate-precut',
+                       '--deployment-qualification', 'certification/deployment-qualification.json']),
+    ('true', 'true', []),
+])
+def test_only_the_live_nightly_selects_precut_qualification(tmp_path, dry_run, nightly, expected):
+    candidate = step(workflow('release-train.yml')['jobs']['freeze'], 'Validate + publish the candidate manifest')
+    invocation = 'python tools/validate_platform.py "${ARGS[@]}"'
+    script = candidate['run'].split(invocation, 1)[0] + invocation
+    bin_dir = tmp_path / 'bin'
+    bin_dir.mkdir()
+    log = tmp_path / 'argv.json'
+    shim = bin_dir / 'python'
+    shim.write_text(f'#!{sys.executable}\nimport json,sys\n'
+                    f'open({str(log)!r},"w").write(json.dumps(sys.argv[1:]))\n')
+    shim.chmod(shim.stat().st_mode | stat.S_IEXEC)
+    subprocess.run(['bash', '-c', script], cwd=tmp_path, check=True,
+                   env={'PATH': f'{bin_dir}:{os.environ["PATH"]}', 'DRY_RUN': dry_run, 'NIGHTLY': nightly})
+    assert json.loads(log.read_text()) == ['tools/validate_platform.py', *expected]
 
 
 def test_the_strict_train_runs_the_real_journey_gate():
@@ -997,3 +1024,51 @@ def test_candidate_input_refuses_a_snapshot_that_changes_the_catalog_generator(l
     assert result.returncode != 0
     assert 'unexpected candidate change: certification/generate-protocol-requirements.py' in result.stdout
     assert (checkout / CATALOG).read_text() == 'old\n'
+
+
+def test_manifest_gate_precut_is_call_only_and_follows_the_live_nightly_phase():
+    manifest = workflow('manifest-validate.yml')
+    called = manifest['triggers']['workflow_call']['inputs']
+    assert called['candidate_precut'] == {'required': False, 'type': 'boolean', 'default': False}
+    assert manifest['triggers']['workflow_dispatch'] is None
+    assert 'deployment_qualification' not in called  # no caller-chosen evidence path
+    gate = workflow('release-train.yml')['jobs']['gate_manifest']
+    assert gate['with']['candidate_ref'] == '${{ inputs.candidate_ref }}'
+    assert gate['with']['candidate_precut'] == '${{ inputs.nightly && inputs.dry_run == false }}'
+    assert gate['secrets'] == 'inherit'
+    validate = step(manifest['jobs']['validate'], 'Validate manifest + matrix')
+    assert validate['env']['GITHUB_TOKEN'] == '${{ secrets.RELEASE_GH_TOKEN || github.token }}'
+    adopt = step(manifest['jobs']['validate'], 'Use the immutable candidate inputs')
+    assert adopt['uses'] == './.github/actions/candidate-input'
+
+
+@pytest.mark.parametrize(('candidate', 'precut', 'baseline', 'expected'), [
+    ('', '', '', []),
+    ('', 'false', 'origin/trunk', ['--baseline', 'origin/trunk']),
+    (SNAPSHOT, 'false', '', ['--exact-candidate']),
+    (SNAPSHOT, 'true', '', ['--exact-candidate', '--deployment-phase', 'candidate-precut',
+                           '--deployment-qualification', 'certification/deployment-qualification.json']),
+    (SNAPSHOT, 'true', 'origin/trunk', ['--baseline', 'origin/trunk', '--exact-candidate',
+         '--deployment-phase', 'candidate-precut', '--deployment-qualification',
+         'certification/deployment-qualification.json']),
+    ('', 'true', '', None),
+])
+def test_manifest_gate_executes_exact_phase_and_refuses_unbound_precut(tmp_path, candidate, precut, baseline, expected):
+    validate = step(workflow('manifest-validate.yml')['jobs']['validate'], 'Validate manifest + matrix')
+    bin_dir = tmp_path / 'bin'
+    bin_dir.mkdir()
+    log = tmp_path / 'argv.json'
+    shim = bin_dir / 'python'
+    shim.write_text(f'#!{sys.executable}\nimport json,sys\n'
+                    f'open({str(log)!r},"w").write(json.dumps(sys.argv[1:]))\n')
+    shim.chmod(shim.stat().st_mode | stat.S_IEXEC)
+    result = subprocess.run(['bash', '-c', validate['run']], cwd=tmp_path, capture_output=True, text=True,
+        env={'PATH': f'{bin_dir}:{os.environ["PATH"]}', 'CANDIDATE_REF': candidate,
+             'CANDIDATE_PRECUT': precut, 'BASELINE_REF': baseline})
+    if expected is None:
+        assert result.returncode != 0
+        assert 'requires adopted immutable candidate inputs' in result.stdout
+        assert not log.exists()
+    else:
+        assert result.returncode == 0, result.stderr
+        assert json.loads(log.read_text()) == ['tools/validate_platform.py', *expected]
