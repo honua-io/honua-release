@@ -10,6 +10,7 @@ import sys
 from pathlib import Path
 
 import pytest
+import yaml
 
 ROOT = Path(__file__).resolve().parents[1]
 SPEC = importlib.util.spec_from_file_location("harness_rebind", ROOT / "tools/convergence_rebind.py")
@@ -27,11 +28,24 @@ def write(path, value):
     path.write_text(json.dumps(value, indent=2) + "\n")
 
 
+def align_manifest_versions(candidate, versions):
+    path = candidate.parent / "platform-manifest.yaml"
+    manifest = yaml.safe_load(path.read_text())
+    for source, component, artifact in REBIND.SDK_PRODUCERS:
+        manifest["components"][component]["version"] = versions[source]
+        manifest["clientArtifacts"][artifact]["version"] = versions[source]
+    path.write_text(yaml.safe_dump(manifest, sort_keys=False))
+
+
 @pytest.fixture
 def candidate(tmp_path):
     target = tmp_path / "certification"
     shutil.copytree(ROOT / "certification", target, ignore=shutil.ignore_patterns("__pycache__"))
     shutil.copy2(ROOT / "platform-manifest.yaml", tmp_path / "platform-manifest.yaml")
+    # Synthetic admission fixture retains historical source declarations, so its
+    # selected versions must match them; no real publication or pin update.
+    historical = {row["source"]: row["version"] for row in read(target / "sources/official-sdk-protocol-assignments.v1.json")["clients"]}
+    align_manifest_versions(target, historical)
     # Byte-identical actual server 00a23a8c62f2e0ba5dd03244cdcf9f205790cbff contract.
     data = (ROOT / "tools/fixtures/protocol-harness-2026-08-26.1.json").read_bytes()
     assert len(read(ROOT / "tools/fixtures/protocol-harness-2026-08-26.1.json")["assignments"]) == 42
@@ -180,6 +194,7 @@ def test_projected_client_versions_validate_real_catalog_and_preserve_roster(can
     old = read(policy_path)
     old_bytes = policy_path.read_bytes()
     versions = change_client_versions(candidate)
+    align_manifest_versions(candidate, versions)
     # Real generation exposes the stale official-applicability identity before projection.
     generate(candidate)
     stale = validate(candidate)
@@ -233,3 +248,21 @@ def test_client_version_projection_refuses_incoherent_sources_without_writes(can
     with pytest.raises(REBIND.Finding):
         REBIND.project_official_protocol_assignments(candidate.parent)
     assert path.read_bytes() == before
+
+
+@pytest.mark.parametrize("source", ["sdk-js", "sdk-python", "sdk-dotnet"])
+@pytest.mark.parametrize("mismatch", ["component", "artifact", "both"])
+def test_source_versions_must_equal_both_manifest_selections(candidate, source, mismatch):
+    policy_path = candidate / "sources/official-sdk-protocol-assignments.v1.json"
+    original = policy_path.read_bytes()
+    manifest_path = candidate.parent / "platform-manifest.yaml"
+    manifest = yaml.safe_load(manifest_path.read_text())
+    _, component, artifact = next(row for row in REBIND.SDK_PRODUCERS if row[0] == source)
+    if mismatch in {"component", "both"}:
+        manifest["components"][component]["version"] = "9.9.9"
+    if mismatch in {"artifact", "both"}:
+        manifest["clientArtifacts"][artifact]["version"] = "9.9.9"
+    manifest_path.write_text(yaml.safe_dump(manifest, sort_keys=False))
+    with pytest.raises(REBIND.Finding, match=f"pinned {source} declaration version .* differs from"):
+        REBIND.project_official_protocol_assignments(candidate.parent)
+    assert policy_path.read_bytes() == original

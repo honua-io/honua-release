@@ -279,6 +279,8 @@ def project_official_protocol_assignments(root: Path) -> tuple[str, bytes]:
     declarations = runpy.run_path(str(root / "certification/generate-protocol-requirements.py"))
     identities = {"sdk-js": "@honua/sdk-js", "sdk-python": "Honua SDK Python", "sdk-dotnet": "Honua SDK .NET"}
     seen = set()
+    manifest = load_manifest(root)
+    bindings = {source: (component, artifact) for source, component, artifact in SDK_PRODUCERS}
     try:
         for client in assignments["clients"]:
             source = client["source"]
@@ -287,6 +289,15 @@ def project_official_protocol_assignments(root: Path) -> tuple[str, bytes]:
             seen.add(source)
             client["version"] = (declarations["sdk_js_version"]() if source == "sdk-js"
                                  else declarations["source_sdk_version"](source))
+            component, artifact = bindings[source]
+            component_version = manifest["components"][component]["version"]
+            artifact_version = manifest["clientArtifacts"][artifact]["version"]
+            if client["version"] != component_version or client["version"] != artifact_version:
+                raise Finding(
+                    f"pinned {source} declaration version {client['version']} differs from "
+                    f"components.{component}.version {component_version} or "
+                    f"clientArtifacts.{artifact}.version {artifact_version}"
+                )
     except (OSError, ValueError, KeyError) as exc:
         raise Finding(f"cannot project official client versions from pinned sources: {exc}") from exc
     if seen != set(identities):
