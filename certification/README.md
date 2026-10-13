@@ -79,7 +79,7 @@ one null-URL exception is the canonical server protocol harness using
 `source-test-host-http-adapter` against `source-test-host`, with no execution
 image claim. Its v2 receipt must bind the exact execution object, contract revision,
 nonempty governed test IDs and actual pass/fail outcomes, plus the five-field
-server harness run identity. The checker recomputes the receipt digest and retains
+server harness run identity and the exact candidate cut timestamp. The checker recomputes the receipt digest and retains
 candidate, source, requirement, freshness and outcome gates. An in-memory adapter
 must not invent a network URL or claim TLS coverage. The outer ledger still names
 the candidate image; this exception does not certify that image's HTTP deployment.

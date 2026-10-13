@@ -344,6 +344,7 @@ def test_server_harness_pass_binds_test_ids_and_certification_source_revision():
         "exercised_capabilities": cell["scenario_facets"],
     }
     cell.update(execution)
+    cell["evidence_receipt"]["identity"]["candidate_cut_at"] = CUT
     cell["evidence_receipt"]["identity"]["producer_run"] = {
         "repository": "honua-io/honua-server", "workflow": "protocol-harness-certification.yml",
         "run_id": 123, "run_attempt": 1, "dispatch_id": "nightly-certification-123-1",

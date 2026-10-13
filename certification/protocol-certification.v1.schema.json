@@ -266,7 +266,7 @@
               "protocol_profile": { "const": "source-test-host-http-adapter" },
               "evidence_receipt": {
                 "type": "object",
-                "properties": { "identity": { "type": "object", "required": ["producer_run"] } }
+                "properties": { "identity": { "type": "object", "required": ["producer_run", "candidate_cut_at"] } }
               }
             }
           }

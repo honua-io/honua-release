@@ -111,6 +111,8 @@ def test_unknown_eighth_field_is_still_refused():
     lambda c: c.update(runner_lane='other'),
     lambda c: c.update(protocol_version='other'),
     lambda c: c['evidence_receipt']['identity'].pop('producer_run'),
+    lambda c: c['evidence_receipt']['identity'].pop('candidate_cut_at'),
+    lambda c: c['evidence_receipt']['identity'].update(candidate_cut_at='2020-01-01T00:00:00Z'),
     lambda c: c['evidence_receipt']['identity']['producer_run'].update(workflow='other.yml'),
     lambda c: c['evidence_receipt']['identity']['producer_run'].update(repository='other/server'),
     lambda c: c['evidence_receipt']['identity']['producer_run'].update(run_id=True),
@@ -261,3 +263,12 @@ def test_source_host_all_metadata_omitted_cannot_bypass_bound_outcome_check(cont
     report = evaluate(ledger, requirements)
     assert report['overall_status'] == 'fail'
     assert any('execution metadata' in finding['why'] for finding in report['findings'])
+
+
+def test_source_host_missing_candidate_cut_fails_schema_and_full_evaluation():
+    ledger, requirements = fixture('harness')
+    cell = ledger['cells'][0]
+    del cell['evidence_receipt']['identity']['candidate_cut_at']
+    rebind(cell)
+    assert list(Draft202012Validator(CELL_SCHEMA).iter_errors(cell))
+    assert evaluate(ledger, requirements)['overall_status'] == 'fail'

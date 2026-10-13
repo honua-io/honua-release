@@ -456,6 +456,8 @@ def _bound_source_host_execution(cell: dict, candidate_cut_at: str, revision: st
         and all(isinstance(value, str) and value for value in test_ids)
         and len(set(test_ids)) == len(test_ids)
         and _valid_producer_run(run)
+        and identity.get("candidate_cut_at") == candidate_cut_at
+        and _timestamp(candidate_cut_at) is not None
         and run["repository"] == "honua-io/honua-server"
         and run["workflow"] == "protocol-harness-certification.yml"
         and re.fullmatch(r"nightly-certification-[1-9][0-9]*-[1-9][0-9]*", run["dispatch_id"])
