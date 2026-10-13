@@ -572,6 +572,47 @@ def _read(path: Path, suffix: str) -> str:
 DOTNET_ADD = re.compile(r"dotnet\s+add\s+(?:\S+\s+)?package\s+([\w.]+)(?:\s+(?:--version|-v)\s+([\w.\-+*]+))?")
 
 
+def shell_runtime(code: str, doc: dict[str, Any]) -> str:
+    """Route single-language install steps on multi-language pages to that pinned runtime.
+
+    Checkout/Docker sessions and mixed or opaque scripts keep their declared runtime.
+    Recognize only pip install and dotnet new/add-package, with the latter's optional
+    `&& cd project` setup. This is not a general shell interpreter or tool installer.
+    """
+    default = doc["runtime"]
+    if default != "node" or doc.get("docker") or doc.get("checkout"):
+        return default
+    families: set[str] = set()
+    for line in code.splitlines():
+        try:
+            lexer = shlex.shlex(line, posix=True, punctuation_chars=";&|<>()")
+            lexer.whitespace_split = True
+            tokens = list(lexer)
+        except ValueError:
+            return default
+        if not tokens:
+            continue
+        if any(any(char in token for char in "$`;<>()|") for token in tokens):
+            return default
+        if "&&" in tokens:
+            position = tokens.index("&&")
+            if tokens[:2] != ["dotnet", "new"] or tokens[position + 1:position + 2] != ["cd"]:
+                return default
+            if len(tokens[position + 1:]) != 2 or "&" in tokens[-1]:
+                return default
+            tokens = tokens[:position]
+        if any("&" in token for token in tokens):
+            return default
+        if tokens[:2] in (["pip", "install"], ["pip3", "install"]) or (
+                tokens[:4] in (["python", "-m", "pip", "install"], ["python3", "-m", "pip", "install"])):
+            families.add("python")
+        elif tokens[:2] == ["dotnet", "new"] or tokens[:3] == ["dotnet", "add", "package"]:
+            families.add("dotnet")
+        else:
+            return default
+    return next(iter(families)) if len(families) == 1 else default
+
+
 UNRESOLVED = re.compile(r"\{[a-zA-Z]+\.[A-Za-z0-9_]+\}")
 
 
@@ -811,13 +852,14 @@ def run_document(doc: dict[str, Any], text: str, session: Session, context: dict
         lang = block.language
         timeout = int(doc.get("timeout", DEFAULT_TIMEOUT))
         if lang == "shell":
+            runtime = shell_runtime(code, doc)
             serve = bool(SERVE.search(code))
             readiness = {k: substitute(v, subst) for k, v in (block.marker or {}).items()
                          if k in {"ready-url", "ready-log"}}
             if serve and readiness:
-                return session.run_shell(code, doc["runtime"], timeout, True,
+                return session.run_shell(code, runtime, timeout, True,
                                          {k.removeprefix("ready-"): v for k, v in readiness.items()})
-            return session.run_shell(code, doc["runtime"], timeout, serve)
+            return session.run_shell(code, runtime, timeout, serve)
         if lang == "python":
             return session.run_python(code, timeout)
         if lang in {"javascript", "typescript"}:
@@ -903,7 +945,8 @@ def run_document(doc: dict[str, Any], text: str, session: Session, context: dict
                 if not runnable or Path(block.file).name in later_text[block.index]:
                     record(block, None, "pass", f"saved as {block.file} for the steps that use it", {"file": block.file})
                     continue
-                outcome = audit(execute(block, code), LANGUAGE_RUNTIME.get(block.language, doc["runtime"]))
+                outcome = audit(execute(block, code), shell_runtime(code, doc) if block.language == "shell"
+                                else LANGUAGE_RUNTIME.get(block.language, doc["runtime"]))
                 record(block, outcome, outcome.status, f"saved as {block.file}; no later step runs it, so run it: "
                        + outcome.detail, {"file": block.file})
                 continue
@@ -932,7 +975,8 @@ def run_document(doc: dict[str, Any], text: str, session: Session, context: dict
             if doc.get("docker") and block.language == "shell":
                 observe_servers({c for c in snapshot_containers() - before if started_from(c, session.workdir)},
                                 servers_seen, candidate_digest)
-            outcome = audit(outcome, LANGUAGE_RUNTIME.get(block.language, doc["runtime"]))
+            outcome = audit(outcome, shell_runtime(code, doc) if block.language == "shell"
+                            else LANGUAGE_RUNTIME.get(block.language, doc["runtime"]))
             record(block, outcome, outcome.status, outcome.detail)
         except Exception:
             outcome = exception_outcome()

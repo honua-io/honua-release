@@ -634,6 +634,69 @@ def test_every_executed_language_rejects_unpinned_installs(tmp_path, language, r
     assert audited == [runtime]
 
 
+@pytest.mark.parametrize("code,runtime,package,version", [
+    ("python3 -m pip install honua-sdk==0.1.16", "python", "honua-sdk", "0.1.16"),
+    ("dotnet new console -o geoprocessing && cd geoprocessing\n"
+     "dotnet add package Honua.Sdk --version 1.11.1", "dotnet", "honua.sdk", "1.11.1"),
+])
+@pytest.mark.parametrize("wrong_version", [False, True])
+@pytest.mark.parametrize("saved_script", [False, True])
+def test_tab_installs_execute_and_audit_the_same_pinned_runtime(
+        tmp_path, code, runtime, package, version, wrong_version, saved_script):
+    from types import SimpleNamespace
+    from run import Outcome, run_document
+    executed, audited = [], []
+
+    def execute(actual_code, actual_runtime, *args):
+        executed.append((actual_code, actual_runtime))
+        return Outcome("pass", "installed", exit_code=0)
+
+    def installed(actual_runtime):
+        audited.append(actual_runtime)
+        # The node container is clean; auditing it would silently admit the wrong install.
+        return {package: "9.9.9" if wrong_version else version} if actual_runtime == runtime else {}
+
+    session = SimpleNamespace(workdir=tmp_path, cwd=str(tmp_path), env={}, passed={},
+                              run_shell=execute, installed_honua=installed, put=lambda *args: None)
+    marker = "<!-- doc-run: file=install.sh -->\n" if saved_script else ""
+    result, _ = run_document({"runtime": "node"}, marker + f"```bash\n{code}\n```", session,
+                             {"_pins": {package: version}}, {"env": {}, "substitute": {}},
+                             "sha256:test", [], set())
+    assert executed == [(code + "\n", runtime)]
+    assert audited == [runtime]
+    assert result["status"] == ("fail" if wrong_version else "pass")
+    if wrong_version:
+        assert "9.9.9" in result["blocks"][0]["detail"]
+
+
+@pytest.mark.parametrize("code", [
+    "pip install honua-sdk==0.1.16\nnpm install @honua/sdk-js@0.1.16",
+    "python3 -m pip install honua-sdk==0.1.16 && npm run build",
+    "pip install honua-sdk==0.1.16; npm run build",
+    "pip install honua-sdk==0.1.16\ndotnet add package Honua.Sdk --version 1.11.1",
+    "dotnet new console && cd example && node app.mjs",
+    "dotnet add package Honua.Sdk | tee result.txt",
+    'pip install "$(cat package.txt)"',
+    "pip install `cat package.txt`",
+    "if true; then pip install honua-sdk; fi",
+    "npm ci\nnpm test",
+    "python3 app.py",
+    "dotnet run",
+    "# python3 -m pip install honua-sdk\nnode app.mjs",
+    'pip install "unterminated',
+])
+def test_mixed_or_opaque_shell_keeps_the_declared_runtime(code):
+    from run import shell_runtime
+    assert shell_runtime(code, {"runtime": "node"}) == "node"
+
+
+@pytest.mark.parametrize("extra", [{"docker": True}, {"checkout": {"cwd": "app"}}])
+def test_owned_checkout_and_docker_installs_keep_their_runtime(extra):
+    from run import shell_runtime
+    assert shell_runtime("python3 -m pip install honua-sdk==0.1.16",
+                         {"runtime": "node", **extra}) == "node"
+
+
 @pytest.mark.parametrize("expected,actual,ok", [
     ("Found 3", "Found 30", False), ("version 1.2.3", "version 1.2.4", False),
     ("done", "prefix done", False), ("done", "done trailing", False),
