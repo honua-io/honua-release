@@ -1562,7 +1562,7 @@ def test_cloud_workflow_requires_the_six_ga_cells_including_eks():
     assert "aws-mixed" not in job["strategy"]["matrix"]["target"]
     assert "aws-mixed" not in workflow[True]["workflow_dispatch"]["inputs"]["target"]["options"]
     assert job["with"]["preview"] is False
-    assert job["strategy"]["fail-fast"] is False and job["strategy"]["max-parallel"] == 2
+    assert job["strategy"]["fail-fast"] is False and job["strategy"]["max-parallel"] == 1
     # Preview tolerance lives on the called cell's jobs; a reusable-workflow call cannot carry it.
     assert all(cell_job["continue-on-error"] == "${{ inputs.preview }}" for cell_job in cell["jobs"].values())
     assembly = next(step["run"] for step in workflow["jobs"]["cloud-report"]["steps"] if step.get("id") == "assemble")
