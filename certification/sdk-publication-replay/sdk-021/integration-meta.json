@@ -1,0 +1,48 @@
+{
+  "sdkVersion": "0.2.1",
+  "sdkPackage": "@honua/sdk-js",
+  "serverVersion": "2026.1.1",
+  "serverReleaseChannel": "stable",
+  "serverImage": "ghcr.io/honua-io/honua-server@sha256:3ef3bd41a2f84d1f3a6194c11db496f741cc4d869b54bf57e9d7067dd9cf3d39",
+  "serverCommit": "ff5f5671903e96e13cffac7b73546c3ed0f853c5",
+  "candidateCutAt": "2026-10-04T08:09:54Z",
+  "conformanceFixturesVersion": "0.2.0-alpha.1",
+  "baseUrl": "http://localhost:8080",
+  "seedProfile": "places-roads-v1",
+  "serviceId": "test_service",
+  "layerId": 0,
+  "collectionId": "0",
+  "tileMatrixSetId": "WebMercatorQuad",
+  "startedAt": "2026-10-13T20:41:45.374Z",
+  "surfaces": [
+    {
+      "surface": "conformance:feature-server",
+      "status": "exercised",
+      "recordedAt": "2026-10-13T20:41:46.423Z"
+    },
+    {
+      "surface": "conformance:feature-server-jsonb",
+      "status": "skipped",
+      "reason": "known-gap honua-server#1238",
+      "recordedAt": "2026-10-13T20:41:46.736Z"
+    },
+    {
+      "surface": "conformance:temporal",
+      "status": "skipped",
+      "reason": "known-gap honua-server#1166",
+      "recordedAt": "2026-10-13T20:41:46.737Z"
+    },
+    {
+      "surface": "conformance:replica",
+      "status": "skipped",
+      "reason": "known-gap honua-server#1167",
+      "recordedAt": "2026-10-13T20:41:46.737Z"
+    },
+    {
+      "surface": "conformance:analysis",
+      "status": "skipped",
+      "reason": "known-gap honua-server#1237",
+      "recordedAt": "2026-10-13T20:41:46.737Z"
+    }
+  ]
+}
