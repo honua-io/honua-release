@@ -10,6 +10,7 @@ import json
 import os
 from pathlib import Path
 import shutil
+import ssl
 import time
 import uuid
 
@@ -88,12 +89,18 @@ class GrpcTlsFixture:
                         "--tmpfs", "/config", "-v", f"{config}:/etc/caddy/Caddyfile:ro",
                         CADDY_IMAGE, check=True, timeout=300)
             for attempt in range(30):
-                copied = self.docker("cp", f"{self.name}:/data/caddy/pki/authorities/local/root.crt",
-                                     str(self.ca))
-                if copied.returncode == 0:
+                # Docker's archive/cp API cannot read tmpfs mounts. Read exactly the
+                # public certificate inside the container; never export /data or keys.
+                exported = self.docker("exec", self.name, "cat", "/data/caddy/pki/authorities/local/root.crt")
+                if exported.returncode == 0:
+                    pem = exported.stdout.strip()
+                    if not pem.startswith("-----BEGIN CERTIFICATE-----") or not pem.endswith("-----END CERTIFICATE-----") or "PRIVATE KEY" in pem:
+                        raise RuntimeError("gRPC TLS fixture returned an invalid public CA certificate")
+                    ssl.PEM_cert_to_DER_cert(pem)
+                    self.ca.write_text(pem + "\n", encoding="ascii")
                     break
                 if attempt == 29:
-                    raise RuntimeError("gRPC TLS fixture did not produce its public test CA")
+                    raise RuntimeError("gRPC TLS fixture did not produce its public test CA: " + exported.stderr[-1000:])
                 time.sleep(1)
             os.chmod(self.ca, 0o644)
             probe = self.docker("run", "--rm", "--name", self.probe_name, "--network", self.network,
@@ -107,9 +114,20 @@ class GrpcTlsFixture:
                              "upstream": "h2c://127.0.0.1:8081", "trustScope": "documentation session only",
                              "publicCaSha256": hashlib.sha256(self.ca.read_bytes()).hexdigest(), **result}
             (self.work / "tls-evidence.json").write_text(json.dumps(self.evidence, indent=2) + "\n", encoding="utf-8")
-        except Exception:
-            self.close()
-            raise
+        except Exception as exc:
+            diagnostics = {}
+            for label, command in (("state", ("inspect", "--format", "{{json .State}}", self.name)),
+                                   ("logs", ("logs", "--tail", "30", self.name))):
+                try:
+                    result = self.docker(*command)
+                    diagnostics[label] = (result.stdout + result.stderr)[-4000:]
+                except Exception as diagnostic_error:
+                    diagnostics[label] = str(diagnostic_error)
+            try:
+                self.close()
+            except Exception as cleanup_error:
+                diagnostics["cleanup"] = str(cleanup_error)
+            raise RuntimeError(f"gRPC TLS fixture failed: {exc}; diagnostics={json.dumps(diagnostics)}") from exc
 
     def session_env(self, state: Path) -> dict[str, str]:
         if not self.evidence:

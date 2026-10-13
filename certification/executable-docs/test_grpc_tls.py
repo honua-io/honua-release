@@ -86,13 +86,13 @@ def test_live_tls_requires_isolated_ca_and_http2(certificates, alpn, ca, pretrus
         assert "did not negotiate HTTP/2" in result.stderr
 
 
-def test_fixture_only_exports_public_ca_and_scopes_trust_to_session(tmp_path):
+def test_fixture_only_exports_public_ca_and_scopes_trust_to_session(tmp_path, certificates):
     calls = []
 
     def docker(*args, **kwargs):
         calls.append(args)
-        if args[0] == "cp":
-            Path(args[2]).write_text("public CA")
+        if args[0] == "exec":
+            return SimpleNamespace(returncode=0, stderr="", stdout=(certificates / "server.crt").read_text())
         return SimpleNamespace(returncode=0, stderr="", stdout=json.dumps({
             "untrustedCaRefused": True, "trustedTls": True, "alpn": "h2"}))
 
@@ -103,20 +103,21 @@ def test_fixture_only_exports_public_ca_and_scopes_trust_to_session(tmp_path):
     state.mkdir()
     env = fixture.session_env(state)
     assert env == {CA_ENV: str(state / "grpc-test-root.crt")}
-    assert (state / "grpc-test-root.crt").read_text() == "public CA"
+    assert (state / "grpc-test-root.crt").read_bytes() == (certificates / "server.crt").read_bytes()
     assert dict(os.environ) == original_env
-    assert [c[1].split(":", 1)[1] for c in calls if c[0] == "cp"] == ["/data/caddy/pki/authorities/local/root.crt"]
+    assert [c[2:] for c in calls if c[0] == "exec"] == [("cat", "/data/caddy/pki/authorities/local/root.crt")]
+    assert not any(c[0] == "cp" for c in calls)
     fixture.close()
     assert {c[-1] for c in calls if c[0] == "rm"} == {fixture.name, fixture.probe_name}
 
 
-def test_fixture_cleans_up_after_failed_trust_control(tmp_path):
+def test_fixture_cleans_up_after_failed_trust_control(tmp_path, certificates):
     calls = []
 
     def docker(*args, **kwargs):
         calls.append(args)
-        if args[0] == "cp":
-            Path(args[2]).write_text("public CA")
+        if args[0] == "exec":
+            return SimpleNamespace(returncode=0, stderr="", stdout=(certificates / "server.crt").read_text())
         if "python3" in args:
             raise RuntimeError("certificate verification failed")
         return SimpleNamespace(returncode=0, stderr="", stdout="")
@@ -148,3 +149,22 @@ def test_cleanup_attempts_sidecar_even_when_probe_removal_raises(tmp_path):
     with pytest.raises(RuntimeError, match="probe cleanup timed out"):
         fixture.close()
     assert removed == [fixture.probe_name, fixture.name]
+
+
+def test_fixture_refuses_private_key_export_and_retains_startup_diagnostics(tmp_path):
+    calls = []
+
+    def docker(*args, **kwargs):
+        calls.append(args)
+        output = {"exec": "-----BEGIN PRIVATE KEY-----\nfixture-secret\n-----END PRIVATE KEY-----",
+                  "inspect": '{"Status":"exited","ExitCode":1}',
+                  "logs": "Caddy startup failed"}.get(args[0], "")
+        return SimpleNamespace(returncode=0, stderr="", stdout=output)
+
+    fixture = GrpcTlsFixture(docker, tmp_path, "host", "python@sha256:fixture", "test")
+    with pytest.raises(RuntimeError, match="invalid public CA") as failure:
+        fixture.start()
+    assert "Caddy startup failed" in str(failure.value)
+    assert "fixture-secret" not in str(failure.value)
+    assert not fixture.ca.exists()
+    assert {c[-1] for c in calls if c[0] == "rm"} == {fixture.name, fixture.probe_name}
