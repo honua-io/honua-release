@@ -163,6 +163,13 @@ The receipt shape is `#/$defs/updateRollbackReceipt` in
 `certification/promotion-evidence.v1.schema.json`; promotion record entries remain artifact
 references. The checker enforces cross-field equality/inequality and the four distinct cells,
 which standard JSON Schema cannot express by comparing arbitrary sibling values.
+Target image pins are resolved from the selected lock and the retained minting train's
+`platform-manifest.yaml`; its bytes must match `sourceInputs.platformManifest.sha256` in that
+lock. ECS `toDigest` is the generic server image digest, also checked against the lock's sole
+server image artifact. Lambda `toDigest` is `awsLambdaEcrDigest`, the deployed mirror pin, not
+the GHCR source digest. Missing or pending mirror pins refuse. Producers must include the shared
+`runId`, `completedAt`, `status`, `kind` and `freshUntil` receipt envelope.
+
 These requirements do not create evidence: release#483 still needs the actual controller,
 Terraform update/rollback phase, in-flight GP observations, and two certified-lock cloud runs.
  Successful Actions metadata must match each recorded qualifying

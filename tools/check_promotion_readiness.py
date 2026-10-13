@@ -11,6 +11,8 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
 
+import yaml
+
 
 SHA256_RE = re.compile(r"^sha256:[0-9a-f]{64}$")
 RUN_ID_RE = re.compile(r"^[1-9][0-9]*$")
@@ -146,7 +148,35 @@ def _is_digest(value: Any) -> bool:
     return isinstance(value, str) and SHA256_RE.fullmatch(value) is not None
 
 
-def _update_rollback(receipt: dict[str, Any]) -> bool:
+def _update_rollback_target_images(lock_path: Path, manifest_path: Path) -> dict[str, str]:
+    """Resolve deployment pins from the signed lock and its retained, hash-bound inputs."""
+    lock = _load(lock_path, "selected lock")
+    inputs = lock.get("sourceInputs")
+    binding = inputs.get("platformManifest") if isinstance(inputs, dict) else None
+    payload = manifest_path.read_bytes()
+    if (not isinstance(binding, dict)
+            or binding.get("sha256") != "sha256:" + hashlib.sha256(payload).hexdigest()):
+        raise ReadinessError("selected lock does not bind the retained platform manifest")
+    try:
+        manifest = yaml.safe_load(payload)
+    except yaml.YAMLError as exc:
+        raise ReadinessError("retained platform manifest is invalid YAML") from exc
+    components = manifest.get("components") if isinstance(manifest, dict) else None
+    server = components.get("honua-server") if isinstance(components, dict) else None
+    lock_components = lock.get("components")
+    lock_server = lock_components.get("honua-server") if isinstance(lock_components, dict) else None
+    artifacts = lock_server.get("artifacts") if isinstance(lock_server, dict) else None
+    if not isinstance(server, dict) or not isinstance(artifacts, list):
+        raise ReadinessError("candidate server image pins are missing")
+    images = [artifact for artifact in artifacts if isinstance(artifact, dict) and artifact.get("kind") == "image"]
+    ecs, lambda_mirror = server.get("digest"), server.get("awsLambdaEcrDigest")
+    if (len(images) != 1 or not _is_digest(ecs) or images[0].get("digest") != ecs
+            or not _is_digest(lambda_mirror)):
+        raise ReadinessError("candidate ECS image or Lambda mirror pin is missing or inconsistent")
+    return {cell: lambda_mirror if cell.startswith("aws-serverless/") else ecs for cell in GA_CELLS}
+
+
+def _update_rollback(receipt: dict[str, Any], target_images: dict[str, str]) -> bool:
     """Refuse status-only/self-rollback proof; every GA cell binds its real actuator.
 
     Lock signatures and retained workflow artifact integrity are checked by the
@@ -169,6 +199,7 @@ def _update_rollback(receipt: dict[str, Any]) -> bool:
         if (cell.get("updateStatus") != "pass" or cell.get("rollbackStatus") != "pass"
                 or cell.get("actuator") != UPDATE_ROLLBACK_ACTUATORS[cell["cell"]]
                 or not _is_digest(before) or not _is_digest(after) or before == after
+                or after != target_images.get(cell["cell"])
                 or not isinstance(job, dict) or not isinstance(boundary, dict)):
             return False
         states = job.get("terminalStates")
@@ -305,7 +336,9 @@ def evaluate(
                 mode, required = JOURNEYS[name]
                 ok &= _journey(receipt, required, mode, digest, earliest, latest)
             if name == "update-rollback":
-                ok &= _update_rollback(receipt)
+                target_images = _update_rollback_target_images(
+                    lock_path, evidence_dir / "trains" / rc_run_id / "platform-manifest.yaml")
+                ok &= _update_rollback(receipt, target_images)
         except (ReadinessError, OSError, TypeError):
             ok = False
         check(f"evidence:{name}", bool(ok), detail)

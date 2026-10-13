@@ -402,7 +402,7 @@
       ]
     },
     "updateRollbackReceipt": {
-      "description": "Retained update-rollback class receipt, separate from the promotion record references. The checker also requires different from/to locks and image digests, toLockDigest == lockDigest, one of each GA cell, and schemaBoundary.imageDigest == fromDigest. Standard JSON Schema cannot compare arbitrary sibling values. Exactly-once remains a separate runtime proof, not inferred from a terminal state.",
+      "description": "Retained update-rollback class receipt, separate from the promotion record references. The checker also requires different from/to locks and image digests, toLockDigest == lockDigest, each target image matching the selected lock and its retained hash-bound manifest, one of each GA cell, and schemaBoundary.imageDigest == fromDigest. Standard JSON Schema cannot compare arbitrary sibling values. Exactly-once remains a separate runtime proof, not inferred from a terminal state.",
       "type": "object",
       "required": [
         "class",
@@ -411,7 +411,12 @@
         "toLockDigest",
         "updateStatus",
         "rollbackStatus",
-        "cells"
+        "cells",
+        "runId",
+        "completedAt",
+        "status",
+        "kind",
+        "freshUntil"
       ],
       "properties": {
         "class": {
@@ -439,6 +444,21 @@
           "items": {
             "$ref": "#/$defs/updateRollbackCell"
           }
+        },
+        "runId": {
+          "$ref": "#/$defs/runId"
+        },
+        "completedAt": {
+          "$ref": "#/$defs/time"
+        },
+        "status": {
+          "const": "pass"
+        },
+        "kind": {
+          "const": "qualifying"
+        },
+        "freshUntil": {
+          "$ref": "#/$defs/time"
         }
       }
     }
