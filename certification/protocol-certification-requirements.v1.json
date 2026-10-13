@@ -65,7 +65,7 @@
     }
   },
   "production": {
-    "revision": "2026-10-04.3",
+    "revision": "2026-10-13.1",
     "cells": {
       "produced": 1524,
       "unproduced": 989,
@@ -240,6 +240,15 @@
       }
     ],
     "unproduced": [
+      {
+        "client_lanes": [
+          "cite-wps-2-0"
+        ],
+        "owner": "honua-io/honua-server",
+        "issue": "https://github.com/honua-io/honua-release/issues/360",
+        "missing_producer": "The WPS Basic/Async CITE runner exercises the conformance echo profile, but cite-certification.yml has no normalized WPS requirement, suite/facet or fixture binding. A candidate-bound normalized producer remains required; echo results do not prove canonical durable GP operations.",
+        "cells": 0
+      },
       {
         "client_lanes": [
           "sdk-js-certification"

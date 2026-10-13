@@ -1642,3 +1642,14 @@ def test_pyqgis_is_the_full_surface_function_grid():
         "connect/discover", "add", "render", "identify", "query/filter", "edit",
         "raster read", "save/reopen", "auth",
     }
+
+
+def test_unproduced_wps_cite_required_skip_is_not_canonical_gp_evidence():
+    cell = _cell(
+        capability_key="serve.wps", surface="wps-2-0", operation="serve.wps",
+        canonical_client="OGC CITE", client_lane="cite-wps-2-0", client_version="WPS 2.0",
+        result="skip", skip_reason="Normalized candidate-bound WPS CITE producer absent",
+        evidence_receipt=None, evidence_uri=None, evidence_digest=None, facet_results=None,
+    )
+    report = _evaluate(_ledger(cell), "nightly", now=NOW)
+    assert report["overall_status"] == "fail"

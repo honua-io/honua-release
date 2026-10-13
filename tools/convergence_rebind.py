@@ -307,6 +307,38 @@ def project_official_protocol_assignments(root: Path) -> tuple[str, bytes]:
     return path, (json.dumps(assignments, indent=2) + "\n").encode()
 
 
+
+def project_canonical_client_applicability(root: Path) -> tuple[str, bytes]:
+    """Apply the reviewed H3 requirement only when the fetched matrix implements it.
+
+    Historical matrices without H3 remove only this exact projected decision. This is an
+    explicit policy addition, not automatic classification of unknown capabilities;
+    ordinary denominator validation still requires real SDK or harness assignments.
+    """
+    path = "certification/sources/canonical-client-applicability.v1.json"
+    original = (root / path).read_bytes()
+    policy = json.loads(original)
+    matrix = load_json(root, Path("certification/sources/server/capability-matrix.v1.json"))
+    capabilities = [row for row in matrix["capabilities"] if row["key"] == "analytics.h3"]
+    if len(capabilities) > 1:
+        raise Finding("candidate matrix repeats analytics.h3")
+    expected = {"capability_key": "analytics.h3", "classification": "official-sdk-required"}
+    existing = [row for row in policy["decisions"] if row["capability_key"] == "analytics.h3"]
+    if existing and existing != [expected]:
+        raise Finding("analytics.h3 applicability conflicts with the reviewed official SDK or harness requirement")
+    if not capabilities:
+        if not existing:
+            return path, original
+        policy["decisions"].remove(expected)
+        return path, (json.dumps(policy, indent=2) + "\n").encode()
+    if existing or not capabilities[0].get("maturity", {}).get("implemented"):
+        return path, original
+    position = next((i for i, row in enumerate(policy["decisions"])
+                     if row["capability_key"] > "analytics.h3"), len(policy["decisions"]))
+    policy["decisions"].insert(position, expected)
+    return path, (json.dumps(policy, indent=2) + "\n").encode()
+
+
 def run_catalog(root: Path, receipt_min: str) -> None:
     generator = root / "certification/generate-protocol-requirements.py"
     text = generator.read_text(encoding="utf-8")
@@ -340,6 +372,8 @@ def prepare(root: Path, gh: GitHub, receipt_min_arg: str) -> tuple[dict[str, Any
             (trial / path).write_bytes(data)
         assignments_path, assignments_bytes = project_official_protocol_assignments(trial)
         (trial / assignments_path).write_bytes(assignments_bytes)
+        applicability_path, applicability_bytes = project_canonical_client_applicability(trial)
+        (trial / applicability_path).write_bytes(applicability_bytes)
         run_catalog(trial, receipt_min)
         new_catalog_bytes = (trial / CATALOG).read_bytes()
         new_generator_bytes = (trial / "certification/generate-protocol-requirements.py").read_bytes()
@@ -379,8 +413,16 @@ def prepare(root: Path, gh: GitHub, receipt_min_arg: str) -> tuple[dict[str, Any
             if old["version"] != new["version"]
         ],
     }
+    plan["canonical_client_applicability"] = {
+        "path": applicability_path,
+        "added": [row for row in json.loads(applicability_bytes)["decisions"]
+                  if row not in load_json(root, Path(applicability_path))["decisions"]],
+        "removed": [row for row in load_json(root, Path(applicability_path))["decisions"]
+                    if row not in json.loads(applicability_bytes)["decisions"]],
+    }
     payloads = dict(snapshots)
     payloads[assignments_path] = assignments_bytes
+    payloads[applicability_path] = applicability_bytes
     revised = copy.deepcopy(source_doc)
     for name, pin in pins.items(): revised["sources"][name]["commit"] = pin
     payloads[str(REVISIONS)] = (json.dumps(revised, indent=2) + "\n").encode()
@@ -405,6 +447,11 @@ def human(plan: dict[str, Any], root: Path = ROOT) -> str:
                   f"  removed: {', '.join(policy['removed']) or 'none'}"]
         for client in policy["client_versions"]:
             lines.append(f"  {client['source']} ({client['name']}): {client['current']} -> {client['proposed']}")
+    applicability = plan.get("canonical_client_applicability")
+    if applicability:
+        lines += ["", f"Canonical client applicability: {applicability['path']}",
+                  f"  added decisions: {json.dumps(applicability['added'], sort_keys=True)}",
+                  f"  removed decisions: {json.dumps(applicability['removed'], sort_keys=True)}"]
     lines += ["", "Apply mode stages the catalog; the workflow then aggregates, verifies, and finalizes one review PR. Repository variables activate automatically only after merge."]
     return "\n".join(lines)
 
