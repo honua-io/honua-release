@@ -107,8 +107,12 @@ the cell. Preview and stub cells keep the documented blocked build receipt.
   retained target document holds no host, login or password.
 - **Replica.** A cell has one endpoint. honua-server#5790 stamps every response with a stable
   `Honua-Instance` id, so stage 6's `replica-map` check re-reads the saved map through that endpoint
-  up to 8 times, half a second apart. Each read must match the write, and the check collects the
-  instance ids that answered:
+  up to 8 times. Once the saved-map response has an instance id, Lambda sends its eight
+  reads concurrently, with a separate HTTP transport per read, so sequential reuse of one
+  warm environment does not prevent the probe from exercising scale-out. Each request retains
+  the existing 30-second HTTP timeout; launching the bounded batch has a 10-second deadline.
+  Other topologies, or candidates without an observed header, keep sequential reads half a
+  second apart. Each read must match the write, and the check collects the instance ids that answered:
   - two or more distinct instances: `pass`, with the ids (and each id's source from
     `GET /api/v1/admin/version` when the operator key can read it) in the check detail;
   - one instance only (one ECS task, a warm Lambda): `blocked` with `topology served one instance:
@@ -116,6 +120,10 @@ the cell. Preview and stub cells keep the documented blocked build receipt.
   - no header on any read: `blocked` on the server need (honua-server#5790), naming the pinned
     candidate sha;
   - a header on some reads but not others: `fail`.
+
+  Concurrency alone never proves scale-out. Every concurrent response is validated, including
+  late stale or malformed responses after two ids have been observed. If Lambda still serves
+  all eight reads from one instance, the result remains blocked.
 
   `replicaTopology` stays as evidence in the check and a receipt notice: `ecs-alb-tasks` (the ALB
   spreads requests across ECS tasks) or `lambda-function` (one function).

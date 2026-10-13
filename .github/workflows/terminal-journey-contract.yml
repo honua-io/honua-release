@@ -125,6 +125,9 @@ jobs:
       - name: Test cloud cell targets, minted principals and cloud receipt kinds
         run: python certification/terminal-journey/test_cloud_target.py -v
 
+      - name: Test bounded Lambda replica HTTP concurrency and refusal controls
+        run: python certification/terminal-journey/test_lambda_replica_probe.py -v
+
       - name: Build blocked receipt without claiming live success
         env:
           EVIDENCE_URI: https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}
