@@ -181,7 +181,8 @@ def main():
     os.umask(0o077)
     source = args.server_checkout.resolve()
     check_server_source(source, args.server_source)
-    producer_files = [HERE/'export_catalog.py', HERE/'run.py', HERE/'catalog-export/Program.cs',
+    producer_files = [HERE/'export_catalog.py', HERE/'run.py',
+                      RELEASE/'certification/terminal-journey/pins.py', HERE/'catalog-export/Program.cs',
                       HERE/'catalog-export/CatalogExport.csproj', RELEASE/'tools/verify_client_artifacts.py']
     producer_source, producer_bytes = producer_snapshot(producer_files)
     manifest_bytes = args.platform_manifest.read_bytes()
