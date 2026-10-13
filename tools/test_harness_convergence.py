@@ -87,7 +87,9 @@ def test_exact_catalog_denominator_remains_required(candidate, mutation):
         capability["maturity"] = {"preview": 1}
         write(candidate / "sources/server/capability-matrix.v1.json", matrix)
     write(candidate / CATALOG, catalog)
-    assert validate(candidate).returncode != 0
+    result = validate(candidate)
+    assert result.returncode != 0
+    assert "denominator differs from the governed server harness contract" in result.stderr
 
 
 @pytest.mark.parametrize("mutation", ["unknown", "duplicate", "gap"])
