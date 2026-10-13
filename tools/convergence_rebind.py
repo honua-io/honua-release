@@ -30,6 +30,7 @@ import fnmatch
 import hashlib
 import json
 import re
+import runpy
 import shutil
 import subprocess
 import sys
@@ -265,15 +266,33 @@ def project_official_protocol_assignments(root: Path) -> tuple[str, bytes]:
     """
     path = "certification/sources/official-sdk-protocol-assignments.v1.json"
     assignments = load_json(root, Path(path))
+    original = copy.deepcopy(assignments)
     matrix = load_json(root, Path("certification/sources/server/capability-matrix.v1.json"))
     prefixes = ("serve.", "process.", "editing.", "routing.", "geocoding.", "styling.")
     implemented = sorted(row["key"] for row in matrix["capabilities"]
                          if row["key"].startswith(prefixes) and row.get("maturity", {}).get("implemented"))
     if len(implemented) != len(set(implemented)):
         raise Finding("candidate matrix repeats an implemented protocol capability")
-    if assignments["capabilities"] == implemented:
-        return path, (root / path).read_bytes()
     assignments["capabilities"] = implemented
+    # Execute only the checked-out canonical generator, never vendored source code.
+    # Reuse its exact identity/version validation after the pinned data is fetched.
+    declarations = runpy.run_path(str(root / "certification/generate-protocol-requirements.py"))
+    identities = {"sdk-js": "@honua/sdk-js", "sdk-python": "Honua SDK Python", "sdk-dotnet": "Honua SDK .NET"}
+    seen = set()
+    try:
+        for client in assignments["clients"]:
+            source = client["source"]
+            if source not in identities or client["name"] != identities[source] or source in seen:
+                raise Finding("official client roster has an unknown, mismatched, or duplicate source identity")
+            seen.add(source)
+            client["version"] = (declarations["sdk_js_version"]() if source == "sdk-js"
+                                 else declarations["source_sdk_version"](source))
+    except (OSError, ValueError, KeyError) as exc:
+        raise Finding(f"cannot project official client versions from pinned sources: {exc}") from exc
+    if seen != set(identities):
+        raise Finding("official client roster is missing a governed SDK source")
+    if assignments == original:
+        return path, (root / path).read_bytes()
     return path, (json.dumps(assignments, indent=2) + "\n").encode()
 
 
@@ -343,6 +362,11 @@ def prepare(root: Path, gh: GitHub, receipt_min_arg: str) -> tuple[dict[str, Any
         "path": assignments_path,
         "added": sorted(set(json.loads(assignments_bytes)["capabilities"]) - set(load_json(root, Path(assignments_path))["capabilities"])),
         "removed": sorted(set(load_json(root, Path(assignments_path))["capabilities"]) - set(json.loads(assignments_bytes)["capabilities"])),
+        "client_versions": [
+            {"source": old["source"], "name": old["name"], "current": old["version"], "proposed": new["version"]}
+            for old, new in zip(load_json(root, Path(assignments_path))["clients"], json.loads(assignments_bytes)["clients"])
+            if old["version"] != new["version"]
+        ],
     }
     payloads = dict(snapshots)
     payloads[assignments_path] = assignments_bytes
@@ -368,6 +392,8 @@ def human(plan: dict[str, Any], root: Path = ROOT) -> str:
         lines += ["", f"Official protocol assignments: {policy['path']}",
                   f"  added: {', '.join(policy['added']) or 'none'}",
                   f"  removed: {', '.join(policy['removed']) or 'none'}"]
+        for client in policy["client_versions"]:
+            lines.append(f"  {client['source']} ({client['name']}): {client['current']} -> {client['proposed']}")
     lines += ["", "Apply mode stages the catalog; the workflow then aggregates, verifies, and finalizes one review PR. Repository variables activate automatically only after merge."]
     return "\n".join(lines)
 

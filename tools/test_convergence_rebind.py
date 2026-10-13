@@ -121,7 +121,7 @@ def test_apply_changes_only_planned_repository_files(tmp_path, monkeypatch):
     assert set(payloads) == {str(MODULE.REVISIONS), str(MODULE.CATALOG), "certification/generate-protocol-requirements.py", "certification/sources/official-sdk-protocol-assignments.v1.json", *(p for mappings in MODULE.VENDORED.values() for _, p in mappings)}
     assert plan["official_protocol_assignments"] == {
         "path": "certification/sources/official-sdk-protocol-assignments.v1.json",
-        "added": [], "removed": [],
+        "added": [], "removed": [], "client_versions": [],
     }
     rendered = MODULE.human(plan, root)
     assert "Official protocol assignments:" in rendered
@@ -596,3 +596,22 @@ def test_nightly_refuses_a_desktop_cell_whose_driver_is_not_its_requirement_or_r
     message = refusal(ledger=ledger, catalog=catalog)
     assert "receipt driver 'qgis-ui' is not the cell driver 'pyqgis'" in message
     assert "cells do not match the staged catalog" not in message
+
+
+def test_plan_reports_source_derived_official_client_version_changes(tmp_path):
+    root = fixture(tmp_path)
+    align_components_to_published(root)
+    # Controlled coherent source declarations, never a claim of new publication.
+    for relative in ("sdk-coverage.v1.json", "protocol-certification.v1.json"):
+        path = root / "certification/sources/sdk-js" / relative
+        data = json.loads(path.read_text())
+        if relative == "sdk-coverage.v1.json":
+            data["sdk"]["version"] = "0.2.0"
+        else:
+            data["clientVersion"] = "0.2.0"
+        path.write_text(json.dumps(data) + "\n")
+    plan, _, _ = MODULE.prepare(root, StubGitHub(root), "keep")
+    assert plan["official_protocol_assignments"]["client_versions"] == [{
+        "source": "sdk-js", "name": "@honua/sdk-js", "current": "0.1.9-beta.0", "proposed": "0.2.0",
+    }]
+    assert "sdk-js (@honua/sdk-js): 0.1.9-beta.0 -> 0.2.0" in MODULE.human(plan, root)
