@@ -358,6 +358,29 @@ def test_vars_files_name_declared_documents_and_cite_them():
         load_vars(HERE / "vars", path.stem)
 
 
+def test_python_readme_mounts_its_documented_node_prerequisite(tmp_path, monkeypatch):
+    from types import SimpleNamespace
+    import run
+    sources = json.loads((HERE / "sources.json").read_text())
+    document = next(d for d in sources["documents"] if d["repo"] == "honua-io/honua-sdk-python" and d["path"] == "README.md")
+    calls = []
+    def docker(*args, **_kwargs):
+        calls.append(args)
+        return SimpleNamespace(returncode=0, stdout="", stderr="")
+    monkeypatch.setattr(run, "docker", docker)
+    session = run.Session(name="python-readme", workdir=tmp_path, runtimes=sources["runtimes"],
+                          guard_base="http://guard", tools=tmp_path / "tools", docker_access=False,
+                          network="fixture", run_id="fixture", typescript="5.9.3",
+                          prerequisites=set(document.get("prerequisites", {})))
+    session.container("python")
+    launched = next(args for args in calls if args[0] == "run")
+    assert f"{tmp_path / 'tools' / 'node'}:/opt/node:ro" in launched
+    assert any(arg.startswith("PATH=/opt/node/bin:") for arg in launched)
+    assert sources["runtimes"]["python"] in launched
+    # Supplying the documented tool does not weaken exact-package registry isolation.
+    assert "PIP_INDEX_URL=http://guard/pypi/simple/" in launched
+
+
 def test_guard_binds_pinned_artifacts_to_manifest_digests(monkeypatch):
     import base64
     import hashlib
