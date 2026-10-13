@@ -378,9 +378,11 @@ def test_h3_applicability_is_explicit_conditional_and_idempotent(candidate, stat
         assert len(row["test_ids"]) == 2
 
 
+@pytest.mark.parametrize("state", ["absent", "implemented"])
 @pytest.mark.parametrize("mutation", ["classification", "duplicate", "extra-fields"])
-def test_h3_projection_refuses_conflicting_existing_decisions(candidate, mutation):
-    add_reviewed_h3_contract(candidate)
+def test_h3_projection_refuses_conflicting_existing_decisions(candidate, mutation, state):
+    if state == "implemented":
+        add_reviewed_h3_contract(candidate)
     path = candidate / "sources/canonical-client-applicability.v1.json"
     policy = read(path)
     decision = {"capability_key": "analytics.h3", "classification": "official-sdk-required"}
@@ -424,3 +426,25 @@ def test_h3_projection_does_not_classify_unreviewed_capabilities(candidate):
     result = validate(candidate)
     assert result.returncode != 0
     assert "unclassified=['analytics.unreviewed']" in result.stderr
+
+
+def test_h3_projection_can_roll_back_to_pre_h3_source(candidate):
+    policy = candidate / "sources/canonical-client-applicability.v1.json"
+    original = read(policy)
+    matrix_path = candidate / "sources/server/capability-matrix.v1.json"
+    historical_matrix = matrix_path.read_bytes()
+    harness_path = candidate / HARNESS
+    historical_harness = harness_path.read_bytes()
+    add_reviewed_h3_contract(candidate)
+    path, data = REBIND.project_canonical_client_applicability(candidate.parent)
+    policy.write_bytes(data)
+    assert any(row["capability_key"] == "analytics.h3" for row in read(policy)["decisions"])
+    matrix_path.write_bytes(historical_matrix)
+    harness_path.write_bytes(historical_harness)
+    path, data = REBIND.project_canonical_client_applicability(candidate.parent)
+    assert json.loads(data) == original
+    policy.write_bytes(data)
+    assert REBIND.project_canonical_client_applicability(candidate.parent) == (path, data)
+    generate(candidate)
+    result = validate(candidate)
+    assert result.returncode == 0, result.stderr

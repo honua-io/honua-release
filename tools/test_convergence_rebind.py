@@ -133,11 +133,12 @@ def test_apply_changes_only_planned_repository_files(tmp_path, monkeypatch):
         "added": [], "removed": [], "client_versions": [],
     }
     assert plan["canonical_client_applicability"] == {
-        "path": "certification/sources/canonical-client-applicability.v1.json", "added": [],
+        "path": "certification/sources/canonical-client-applicability.v1.json", "added": [], "removed": [],
     }
     rendered = MODULE.human(plan, root)
     assert "Canonical client applicability:" in rendered
     assert "added decisions: []" in rendered
+    assert "removed decisions: []" in rendered
     assert "Official protocol assignments:" in rendered
     assert "added: none" in rendered and "removed: none" in rendered
     assert tuple(MODULE.CALLERS) == (Path(".github/workflows/release-train.yml"),)

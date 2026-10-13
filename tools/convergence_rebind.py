@@ -311,7 +311,7 @@ def project_official_protocol_assignments(root: Path) -> tuple[str, bytes]:
 def project_canonical_client_applicability(root: Path) -> tuple[str, bytes]:
     """Apply the reviewed H3 requirement only when the fetched matrix implements it.
 
-    Historical matrices without H3 retain their exact policy bytes. This is an
+    Historical matrices without H3 remove only this exact projected decision. This is an
     explicit policy addition, not automatic classification of unknown capabilities;
     ordinary denominator validation still requires real SDK or harness assignments.
     """
@@ -322,13 +322,16 @@ def project_canonical_client_applicability(root: Path) -> tuple[str, bytes]:
     capabilities = [row for row in matrix["capabilities"] if row["key"] == "analytics.h3"]
     if len(capabilities) > 1:
         raise Finding("candidate matrix repeats analytics.h3")
-    if not capabilities or not capabilities[0].get("maturity", {}).get("implemented"):
-        return path, original
     expected = {"capability_key": "analytics.h3", "classification": "official-sdk-required"}
     existing = [row for row in policy["decisions"] if row["capability_key"] == "analytics.h3"]
-    if existing:
-        if existing != [expected]:
-            raise Finding("analytics.h3 applicability conflicts with the reviewed official SDK or harness requirement")
+    if existing and existing != [expected]:
+        raise Finding("analytics.h3 applicability conflicts with the reviewed official SDK or harness requirement")
+    if not capabilities:
+        if not existing:
+            return path, original
+        policy["decisions"].remove(expected)
+        return path, (json.dumps(policy, indent=2) + "\n").encode()
+    if existing or not capabilities[0].get("maturity", {}).get("implemented"):
         return path, original
     position = next((i for i, row in enumerate(policy["decisions"])
                      if row["capability_key"] > "analytics.h3"), len(policy["decisions"]))
@@ -414,6 +417,8 @@ def prepare(root: Path, gh: GitHub, receipt_min_arg: str) -> tuple[dict[str, Any
         "path": applicability_path,
         "added": [row for row in json.loads(applicability_bytes)["decisions"]
                   if row not in load_json(root, Path(applicability_path))["decisions"]],
+        "removed": [row for row in load_json(root, Path(applicability_path))["decisions"]
+                    if row not in json.loads(applicability_bytes)["decisions"]],
     }
     payloads = dict(snapshots)
     payloads[assignments_path] = assignments_bytes
@@ -445,7 +450,8 @@ def human(plan: dict[str, Any], root: Path = ROOT) -> str:
     applicability = plan.get("canonical_client_applicability")
     if applicability:
         lines += ["", f"Canonical client applicability: {applicability['path']}",
-                  f"  added decisions: {json.dumps(applicability['added'], sort_keys=True)}"]
+                  f"  added decisions: {json.dumps(applicability['added'], sort_keys=True)}",
+                  f"  removed decisions: {json.dumps(applicability['removed'], sort_keys=True)}"]
     lines += ["", "Apply mode stages the catalog; the workflow then aggregates, verifies, and finalizes one review PR. Repository variables activate automatically only after merge."]
     return "\n".join(lines)
 
