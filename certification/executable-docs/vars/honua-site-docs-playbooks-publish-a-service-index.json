@@ -4,7 +4,71 @@
   "substitute": {
     "quickstart-admin-password": {
       "value": "{candidate.adminPassword}",
-      "documentedAt": "docs/playbooks/publish-a-service/index.md:20 — \"the admin password is `HONUA_ADMIN_PASSWORD`, which the root compose file defaults to `quickstart-admin-password` — a placeholder\""
+      "documentedAt": "docs/playbooks/publish-a-service/index.md:20 \u2014 \"the admin password is `HONUA_ADMIN_PASSWORD`, which the root compose file defaults to `quickstart-admin-password` \u2014 a placeholder\""
+    },
+    "<DATABASE_HOST>": {
+      "value": "{publish.databaseHost}",
+      "documentedAt": "docs/playbooks/publish-a-service/index.md:29\u201352 \u2014 supply a server-reachable PostGIS database, an existing spatial table with integer primary key and 1\u20131000 rows, new connection/service/layer names, and a directly measured source count; Disable/false is only for an isolated local database"
+    },
+    "<DATABASE_PORT>": {
+      "value": "{publish.databasePort}",
+      "documentedAt": "docs/playbooks/publish-a-service/index.md:29\u201352 \u2014 supply a server-reachable PostGIS database, an existing spatial table with integer primary key and 1\u20131000 rows, new connection/service/layer names, and a directly measured source count; Disable/false is only for an isolated local database"
+    },
+    "<DATABASE_NAME>": {
+      "value": "{publish.databaseName}",
+      "documentedAt": "docs/playbooks/publish-a-service/index.md:29\u201352 \u2014 supply a server-reachable PostGIS database, an existing spatial table with integer primary key and 1\u20131000 rows, new connection/service/layer names, and a directly measured source count; Disable/false is only for an isolated local database"
+    },
+    "<DATABASE_USER>": {
+      "value": "{publish.databaseUser}",
+      "documentedAt": "docs/playbooks/publish-a-service/index.md:29\u201352 \u2014 supply a server-reachable PostGIS database, an existing spatial table with integer primary key and 1\u20131000 rows, new connection/service/layer names, and a directly measured source count; Disable/false is only for an isolated local database"
+    },
+    "<DATABASE_PASSWORD>": {
+      "value": "{publish.databasePassword}",
+      "documentedAt": "docs/playbooks/publish-a-service/index.md:29\u201352 \u2014 supply a server-reachable PostGIS database, an existing spatial table with integer primary key and 1\u20131000 rows, new connection/service/layer names, and a directly measured source count; Disable/false is only for an isolated local database"
+    },
+    "<DATABASE_SSL_MODE>": {
+      "value": "{publish.databaseSslMode}",
+      "documentedAt": "docs/playbooks/publish-a-service/index.md:29\u201352 \u2014 supply a server-reachable PostGIS database, an existing spatial table with integer primary key and 1\u20131000 rows, new connection/service/layer names, and a directly measured source count; Disable/false is only for an isolated local database"
+    },
+    "<DATABASE_SSL_REQUIRED>": {
+      "value": "{publish.databaseSslRequired}",
+      "documentedAt": "docs/playbooks/publish-a-service/index.md:29\u201352 \u2014 supply a server-reachable PostGIS database, an existing spatial table with integer primary key and 1\u20131000 rows, new connection/service/layer names, and a directly measured source count; Disable/false is only for an isolated local database"
+    },
+    "<CONNECTION_NAME>": {
+      "value": "{publish.connectionName}",
+      "documentedAt": "docs/playbooks/publish-a-service/index.md:29\u201352 \u2014 supply a server-reachable PostGIS database, an existing spatial table with integer primary key and 1\u20131000 rows, new connection/service/layer names, and a directly measured source count; Disable/false is only for an isolated local database"
+    },
+    "<SERVICE_NAME>": {
+      "value": "{publish.serviceName}",
+      "documentedAt": "docs/playbooks/publish-a-service/index.md:29\u201352 \u2014 supply a server-reachable PostGIS database, an existing spatial table with integer primary key and 1\u20131000 rows, new connection/service/layer names, and a directly measured source count; Disable/false is only for an isolated local database"
+    },
+    "<LAYER_NAME>": {
+      "value": "{publish.layerName}",
+      "documentedAt": "docs/playbooks/publish-a-service/index.md:29\u201352 \u2014 supply a server-reachable PostGIS database, an existing spatial table with integer primary key and 1\u20131000 rows, new connection/service/layer names, and a directly measured source count; Disable/false is only for an isolated local database"
+    },
+    "<SOURCE_SCHEMA>": {
+      "value": "{publish.sourceSchema}",
+      "documentedAt": "docs/playbooks/publish-a-service/index.md:29\u201352 \u2014 supply a server-reachable PostGIS database, an existing spatial table with integer primary key and 1\u20131000 rows, new connection/service/layer names, and a directly measured source count; Disable/false is only for an isolated local database"
+    },
+    "<SOURCE_TABLE>": {
+      "value": "{publish.sourceTable}",
+      "documentedAt": "docs/playbooks/publish-a-service/index.md:29\u201352 \u2014 supply a server-reachable PostGIS database, an existing spatial table with integer primary key and 1\u20131000 rows, new connection/service/layer names, and a directly measured source count; Disable/false is only for an isolated local database"
+    },
+    "<GEOMETRY_COLUMN>": {
+      "value": "{publish.geometryColumn}",
+      "documentedAt": "docs/playbooks/publish-a-service/index.md:29\u201352 \u2014 supply a server-reachable PostGIS database, an existing spatial table with integer primary key and 1\u20131000 rows, new connection/service/layer names, and a directly measured source count; Disable/false is only for an isolated local database"
+    },
+    "<PRIMARY_KEY>": {
+      "value": "{publish.primaryKey}",
+      "documentedAt": "docs/playbooks/publish-a-service/index.md:29\u201352 \u2014 supply a server-reachable PostGIS database, an existing spatial table with integer primary key and 1\u20131000 rows, new connection/service/layer names, and a directly measured source count; Disable/false is only for an isolated local database"
+    },
+    "<SOURCE_SRID>": {
+      "value": "{publish.sourceSrid}",
+      "documentedAt": "docs/playbooks/publish-a-service/index.md:29\u201352 \u2014 supply a server-reachable PostGIS database, an existing spatial table with integer primary key and 1\u20131000 rows, new connection/service/layer names, and a directly measured source count; Disable/false is only for an isolated local database"
+    },
+    "<EXPECTED_SOURCE_COUNT>": {
+      "value": "{publish.expectedSourceCount}",
+      "documentedAt": "docs/playbooks/publish-a-service/index.md:29\u201352 \u2014 supply a server-reachable PostGIS database, an existing spatial table with integer primary key and 1\u20131000 rows, new connection/service/layer names, and a directly measured source count; Disable/false is only for an isolated local database"
     }
   }
 }
