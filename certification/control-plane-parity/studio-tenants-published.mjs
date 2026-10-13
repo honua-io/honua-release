@@ -4,7 +4,7 @@ import {createRequire} from 'node:module';
 import {randomUUID} from 'node:crypto';
 import {spawnSync} from 'node:child_process';
 import assert from 'node:assert/strict';
-import {terminalDraft,assertTenantParity,assertTenantAudit,operatorAuditActor,assertDraftOwnership} from './terminal-draft.mjs';
+import {terminalDraft,assertTenantParity,assertTenantAudit,operatorAuditActor,operatorDraftOwner,assertDraftOwnership} from './terminal-draft.mjs';
 const consumer=process.env.HONUA_PARITY_CONSUMER,run=process.env.HONUA_PARITY_RUN,baseUrl='http://127.0.0.1:19816';
 const publishedClients=JSON.parse(await readFile(`${consumer}/provenance.json`,'utf8'));
 const fixtureProvenance=JSON.parse(await readFile(`${run}/published-map-envelope-provenance.json`,'utf8'));
@@ -38,7 +38,7 @@ try{
  const envelope=JSON.parse(await readFile(`${run}/published-map-envelope.json`,'utf8'));
  const draft=await a.studio.drafts.create({packageKey:`sdk1424-${randomUUID()}`,envelope});summary.draft=draft;await save();
  const owned=await a.studio.drafts.get(draft.draftId);
- const expectedOwnership={draftId:draft.draftId,...a.identity};
+ const expectedOwnership={draftId:draft.draftId,...a.identity,ownerId:operatorDraftOwner(await token('admin-a'),a.identity)};
  summary.ownerBefore={draftId:owned.draftId,ownerId:owned.ownerId};
  if(terminalEnabled)summary.persistedOwnerBefore=persistedOwnership(draft.draftId);
  assertDraftOwnership(owned,expectedOwnership,summary.persistedOwnerBefore);await save();
