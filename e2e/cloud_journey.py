@@ -691,7 +691,12 @@ def attempt(cell, number, endpoint, admin_key, running_image=None, *, image_deta
             "observedServer": identity}
 
 
-def validate_attempt(record, receipt, cell, *, run_id, run_attempt, at=None):
+def validate_attempt(record, receipt, cell, *, run_id, run_attempt, at=None,
+                     pinned_manifest=None, pinned_manifest_digest=None):
+    if (pinned_manifest is None) != (pinned_manifest_digest is None):
+        raise ValueError("captured manifest and digest must be supplied together")
+    if pinned_manifest_digest is not None and not re.fullmatch(r"[0-9a-f]{64}", pinned_manifest_digest):
+        raise ValueError("captured manifest digest must be SHA256")
     driver, _ = drivers()
     driver.validate_receipt(receipt, HERE / "receipt.schema.json")
     # A receipt speaks only for its own cell kind: a build receipt ("none"), or live evidence of
@@ -708,11 +713,12 @@ def validate_attempt(record, receipt, cell, *, run_id, run_attempt, at=None):
         raise ValueError("cell receipt does not cover the pinned journey contract")
     if receipt["status"] == "pass" and receipt["roster"]["status"] != "pass":
         raise ValueError("passing receipt lacks authoritative candidate roster evidence")
-    pinned = manifest()
+    pinned = manifest() if pinned_manifest is None else pinned_manifest
+    pinned_digest = candidate_digest() if pinned_manifest_digest is None else pinned_manifest_digest
     server = pinned["components"]["honua-server"]
     if (record.get("cell") != cell or receipt["target"]["id"] != cell
             or record.get("runId") != run_id or record.get("runAttempt") != run_attempt
-            or record.get("candidateDigest") != candidate_digest()
+            or record.get("candidateDigest") != pinned_digest
             or receipt["release"] != pinned["platformRelease"]
             or receipt["clientArtifacts"] != driver.pins.receipt_pins(pinned)):
         raise ValueError("cell receipt is bound to the wrong candidate, run or cell")

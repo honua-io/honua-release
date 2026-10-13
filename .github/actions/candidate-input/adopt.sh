@@ -61,6 +61,7 @@ while IFS= read -r -d '' file; do
   case "$file" in
     platform-manifest.yaml|compatibility-matrix.yaml) ;;
     certification/protocol-certification-requirements.v1.json|certification/sources/*) ;;
+    certification/deployment-qualification.json) ;;
     *) echo "unexpected candidate change: $file"; exit 1 ;;
   esac
 done < "$changes"
@@ -69,8 +70,20 @@ for file in platform-manifest.yaml compatibility-matrix.yaml; do
     echo "candidate input must be a regular file: $file"; exit 1
   fi
 done
+# Validate optional proof before adopting any candidate input.
+if [ -e "$snapshot/certification/deployment-qualification.json" ] || [ -L "$snapshot/certification/deployment-qualification.json" ]; then
+  test -f "$snapshot/certification/deployment-qualification.json"
+  test ! -L "$snapshot/certification/deployment-qualification.json"
+fi
 cp "$snapshot/platform-manifest.yaml" platform-manifest.yaml
 cp "$snapshot/compatibility-matrix.yaml" compatibility-matrix.yaml
+if [ -f "$snapshot/certification/deployment-qualification.json" ]; then
+  mkdir -p certification
+  cp "$snapshot/certification/deployment-qualification.json" certification/deployment-qualification.json
+else
+  # Never carry a previous candidate's deployment proof across a new snapshot.
+  rm -f certification/deployment-qualification.json
+fi
 if [ -f "$snapshot/certification/protocol-certification-requirements.v1.json" ]; then
   cp "$snapshot/certification/protocol-certification-requirements.v1.json" certification/protocol-certification-requirements.v1.json
   rm -rf certification/sources

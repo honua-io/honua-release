@@ -380,6 +380,7 @@ def teardown_phase(state: dict, journey: dict, target, *, reference_endpoint: st
     if journey_blocked:
         report["journeyBlockedBy"] = journey.get("blockedBy", [])
     cost_unavailable = None
+    report["teardown"] = {"attempted": False, "completed": False}
     if not state.get("provisionAttempted"):
         # Self-skipped, blocked, or never started: nothing was deployed, so nothing is destroyed.
         state["destroyed"] = False
@@ -450,9 +451,11 @@ def teardown_phase(state: dict, journey: dict, target, *, reference_endpoint: st
                                   + f"S10 staged fixture not deleted: {report['s10Cleanup']['why']}")
             state["destroyed"] = False
             if destroy:
+                report["teardown"]["attempted"] = True
                 try:
                     target.teardown(redis_enabled=redis_enabled)
                     state["destroyed"] = True
+                    report["teardown"]["completed"] = True
                 except Exception as e:
                     prior = report.get("why")
                     report["status"] = "fail"
@@ -1475,6 +1478,14 @@ def _phase_teardown(args) -> int:
     if problems:
         report["status"] = "fail"
         report["why"] = "; ".join(filter(None, [report.get("why"), *problems]))
+    if args.target == "aws-eks" and os.environ.get("HONUA_DEPLOYMENT_PREPARED") == "true":
+        try:
+            from deployment_cell import write_receipt
+            write_receipt(report, directory, E2E_DIR)
+        except Exception as error:
+            report["status"] = "fail"
+            report["why"] = "; ".join(filter(None, [report.get("why"),
+                f"before-actuation deployment proof could not be retained: {type(error).__name__}"]))
     report.setdefault("evidence_url", os.environ.get("HONUA_RUN_URL", ""))
     REPORT_PATH.write_text(json.dumps(report, indent=2) + "\n", encoding="utf-8")
     _print_report(report)
