@@ -119,9 +119,13 @@ jobs:
           RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
         run: |
           set -euo pipefail
-          mkdir -p out
+          mkdir -p out receipt
           receipt=receipt/installed-client-certification.json
-          [ -s "$receipt" ] || echo '{"results": []}' > "$receipt"
+          if [ ! -s "$receipt" ]; then
+            echo '::error::The suite produced no installed-client receipt; retaining a failed gate report.'
+            echo '{"results": []}' > "$receipt"
+            SUITE_STATUS=fail
+          fi
           # One row per matrix cell; the receipt already carries only allowlisted fields.
           jq --arg label "$PLATFORM_LABEL" --arg ts "$(date -u +%FT%TZ)" --arg run "$RUN_URL" \
              --arg status "$SUITE_STATUS" '

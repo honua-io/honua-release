@@ -1,6 +1,8 @@
 import hashlib
 import importlib.util
 import json
+import os
+import stat
 import subprocess
 import sys
 from pathlib import Path
@@ -16,6 +18,22 @@ from cleanup import validate_owned_object
 spec = importlib.util.spec_from_file_location("parity_run", HERE / "run.py")
 replay = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(replay)
+
+
+@pytest.mark.skipif(os.name == "nt", reason="POSIX mount permissions are enforced by the Linux replay")
+def test_private_umask_does_not_hide_idp_mount_roots(tmp_path):
+    run = tmp_path / "private"
+    run.mkdir(mode=0o700)
+    secret = run / "credentials.json"
+    secret.write_text("private fixture credential")
+    secret.chmod(0o600)
+    for name in ("certs", "import"):
+        (run / name).mkdir(mode=0o700)
+    replay.make_idp_mounts_readable(run)
+    assert stat.S_IMODE(run.stat().st_mode) == 0o700
+    assert stat.S_IMODE(secret.stat().st_mode) == 0o600
+    for name in ("certs", "import"):
+        assert stat.S_IMODE((run / name).stat().st_mode) == 0o755
 
 
 @pytest.mark.parametrize("image,source", [

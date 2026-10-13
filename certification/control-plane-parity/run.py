@@ -61,6 +61,14 @@ def sanitize(text: str, private_values: list[str]) -> str:
     return text
 
 
+def make_idp_mounts_readable(run: Path) -> None:
+    # The private parent stays 0700 on the host. These two directories become
+    # mount roots inside Keycloak, whose uid differs from the hosted runner's.
+    # The renderer already makes only its throwaway certificate/realm files 0644.
+    for name in ("certs", "import"):
+        (run / name).chmod(0o755)
+
+
 def main() -> int:
     os.umask(0o077)
     image, source = os.environ["HONUA_SERVER_IMAGE"], os.environ["HONUA_SERVER_SOURCE"]
@@ -96,6 +104,7 @@ def main() -> int:
               "scope": "Bounded actual SDK/CLI/MCP/Studio command stages, followed by automated distinct-principal terminal approval. Not human approval acceptance, full release certification or manifest promotion.", "stages": []}
     log = (run / "execution.log").open("w")
     compose = ["docker", "compose", "-p", PROJECT, "--env-file", str(run / "run.env"), "-f", str(ROOT / "e2e/harness/compose.console-s4.yml"), "-f", str(run / "production.yml")]
+    stores_started = False
 
     def call(args: list[str], *, cwd: Path = run, timeout: int = 300, extra: dict | None = None) -> None:
         subprocess.run(args, cwd=cwd, env={**env, **(extra or {})}, stdout=log, stderr=log, timeout=timeout, check=True)
@@ -110,6 +119,7 @@ def main() -> int:
     try:
         stage("verify reviewed public artifact bytes and provenance", lambda: call([sys.executable, str(ROOT / "tools/verify_client_artifacts.py"), "--manifest", str(ROOT / "platform-manifest.yaml"), "--ecosystem", "npm"], cwd=ROOT, timeout=300, extra=artifact_credentials))
         call(["bash", str(ROOT / "e2e/harness/keycloak/render.sh"), str(run)])
+        make_idp_mounts_readable(run)
         realm_path = run / "import/honua-realm.json"
         realm = json.loads(realm_path.read_text())
         template = realm["users"][0]
@@ -145,6 +155,8 @@ def main() -> int:
         assert inspected["Config"]["Labels"]["org.opencontainers.image.revision"] == source, "Image OCI source mismatch"
         assert any(x.endswith("@" + image.split("@", 1)[1]) for x in inspected["RepoDigests"]), "Pulled image digest mismatch"
         report["imageId"] = inspected["Id"]
+        # Compose can create containers and then fail while waiting for readiness.
+        stores_started = True
         stage("start persistent stores and IdP", lambda: call([*compose, "up", "-d", "--wait", "--wait-timeout", "300", "db", "redis", "keycloak"], timeout=600))
         stage("real IdP discovery readiness", lambda: call(["curl", "--fail", "--silent", "--show-error", "--cacert", str(run / "certs/kc.crt"), "--resolve", "host.docker.internal:19808:127.0.0.1", "--noproxy", "*", "--retry", "60", "--retry-all-errors", "--retry-delay", "2", "--max-time", "5", "https://host.docker.internal:19808/realms/honua/.well-known/openid-configuration"], timeout=300))
         stage("start Production server", lambda: call([*compose, "up", "-d", "--wait", "--wait-timeout", "300", "server"], timeout=600))
@@ -190,6 +202,18 @@ def main() -> int:
     except Exception as exc:
         report["failure"] = sanitize(str(exc), private)
         print("Replay failed; sanitized report retains the stage and cause", flush=True)
+        if stores_started:
+            # Capture bounded diagnostics before teardown. Do not inspect Config/Env;
+            # execution.log is sanitized with all run secrets before publication.
+            for command in (
+                [*compose, "logs", "--no-color", "--tail", "100"],
+                ["docker", "inspect", "--format", "{{.Name}} {{json .State}}",
+                 *[PROJECT + "-" + name + "-1" for name in ("db", "redis", "keycloak", "server")]],
+            ):
+                try:
+                    subprocess.run(command, env=env, stdout=log, stderr=log, timeout=30, check=False)
+                except (OSError, subprocess.TimeoutExpired) as diagnostic_error:
+                    log.write(f"Bounded diagnostic failed: {type(diagnostic_error).__name__}\n")
     finally:
         try:
             receipt = cleanup(run, ROOT, env["HONUA_PARITY_BUCKET"])
