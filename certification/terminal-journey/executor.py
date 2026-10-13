@@ -791,6 +791,10 @@ class JourneyExecutor:
                                          blocked_by=list(unavailable["blockedBy"]))
                 raise ExecutionError("GET authority denial", f"{principal} credential reference is unavailable", blocked=True)
             if principal == "other-tenant":
+                if self.target.get("tenantFixture"):
+                    # Prove this exact private resource is readable by the same subject/role
+                    # in tenant A immediately before the tenant B comparison.
+                    self.transport.http("GET", path, principal="proposer", expected=(200,))
                 # Reach a non-admin Studio route before testing a private resource;
                 # a blanket RBAC refusal cannot establish tenant isolation.
                 self.transport.http("GET", "/api/v1/studio/package-families", principal=principal, expected=(200,))
