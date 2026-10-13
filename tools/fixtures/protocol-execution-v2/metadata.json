@@ -1,0 +1,65 @@
+{
+  "scope": "SYNTHETIC TEST ONLY: actual generator and authenticated-intake/aggregate code with mocked run/TRX/ETS/network data. No live qualification.",
+  "evidence_tested_source": "5d786ea97140bf9556cd9b0e5bda91e692e45fa3",
+  "evidence_merge": "99fe21b5ff27a5f1768f73355e89f86a338619f1",
+  "files": {
+    "cite-ledger.json": "9175cda43eafb21c082293dcce01cd2a35479294e85096f5319e088c2f322fbb",
+    "cite-requirements.json": "f500137295c2150ee90c4023cee483a0932eb604e8647d3117d0cd2dfc2ee1ff",
+    "harness-ledger.json": "52d4ae62c516b9df502cc2d93d20f9b60d5e96631cec8471233c57ecd4936421",
+    "harness-requirements.json": "c748512b08eebb15ce5dbb0fa1b931b30a3d3707a0ab905bee5e409c5a7291df",
+    "sdk-ledger.json": "8ac68aada07177673f651dab29867ce44ce6907848e82d2775251015a4d7284d",
+    "sdk-requirements.json": "339f48ba65e7d5b51ae1f7fcd127e9984eff93e3135f77bf28326748e18c5802"
+  },
+  "producer_metadata": {
+    "cite": {
+      "scope": "SYNTHETIC TEST FIXTURE ONLY; invented run/candidate/ETS controls, no live execution or qualification",
+      "generatorSource": "cf4aaa89cb20893cef9816d0d80c138e56cf4156",
+      "rows": 9,
+      "results": [
+        "pass",
+        "pass",
+        "pass",
+        "pass",
+        "pass",
+        "pass",
+        "pass",
+        "pass",
+        "pass"
+      ]
+    },
+    "harness": {
+      "scope": "Synthetic producer/consumer compatibility fixture only; not executed HTTP or live certification evidence",
+      "candidate_source_sha": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "declared_operations": 51,
+      "governed_observations": 42,
+      "all_receipt_hashes_verified": true,
+      "negative_controls_per_observation": 6,
+      "producer_files_sha256": {
+        "scripts/certification/generate-protocol-harness-fragment.py": "29624fbd32a6eefdc3494ee95c01864c404269297e256d1a7c48beb9c5e6a9f6",
+        "scripts/certification/harness_context.py": "680b1664db388447d9d0a7ea44b9dc1d6f05986225230acd96d7c22e9912e6ee",
+        "scripts/certification/producer_context.py": "e7b3695a50eb2dde1df822406e2674b4b16bf31c87bbcf221d1e5c36c6077cc9"
+      },
+      "consumer_sha256": "6e41b58bdbec404e0e9e37fb13047799fb757839fb0e3971c9c70b1a36b52951"
+    },
+    "sdk": {
+      "scope": "SYNTHETIC OFFLINE CONTROL ONLY: fixture assertions are not live execution evidence",
+      "producer": "/home/mike/honua-io/sdk-certification-receipt-v2-1567/scripts/protocol-certification-fragment.mjs",
+      "actual_producer_source_commit": "08520c87cbad4c22054c10fa96e9b10a31d58122",
+      "producer_run": {
+        "repository": "honua-io/honua-sdk-js",
+        "workflow": "integration.yml",
+        "run_id": 123,
+        "run_attempt": 2,
+        "dispatch_id": "nightly-certification-123-2"
+      },
+      "producer_sha256": "67ec35c6523ea17ada550d4ec5a99d4d33acc4437c3bff5b29cf5cf6a941e216",
+      "context": "/tmp/sdk1567-nightly67-context.json",
+      "output": "/tmp/sdk1567-full67-run-generated-fragment.json",
+      "counts": {
+        "pass": 65,
+        "fail": 0,
+        "skip": 2
+      }
+    }
+  }
+}

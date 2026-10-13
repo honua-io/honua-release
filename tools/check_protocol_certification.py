@@ -38,7 +38,14 @@ CELL_FIELDS = {
     "started_at", "completed_at",
     "budget_expectations", "budget_observations",
 }
-OPTIONAL_CELL_FIELDS = {"test_ids", "client_version_observed", "release_bucket", "client_driver"}
+EXECUTION_FIELDS = {
+    "client_id", "runner_lane", "protocol_version", "protocol_profile", "performed_by",
+    "request_url", "exercised_capabilities",
+}
+OPTIONAL_CELL_FIELDS = {"test_ids", "client_version_observed", "release_bucket", "client_driver"} | EXECUTION_FIELDS
+SOURCE_HOST_CLIENT = "Honua server public protocol integration harness"
+SOURCE_HOST_LANE = "server-protocol-harness"
+SOURCE_HOST_PROFILE = "source-test-host-http-adapter"
 # R40 (honua-release#376): a desktop ledger cell names the driver that produced it, and the receipt
 # identity binds that same driver. Buckets are the cut obligation, not a second result vocabulary.
 # The licensed scripting driver id is the suffix of the lane prefix already listed below.
@@ -420,6 +427,120 @@ def _valid_receipt(
     return True
 
 
+def _bound_source_host_execution(cell: dict, candidate_cut_at: str, revision: str) -> bool:
+    """Validate in-memory HTTP execution without inventing a network request URL."""
+    receipt = cell.get("evidence_receipt")
+    identity = receipt.get("identity") if isinstance(receipt, dict) else None
+    run = identity.get("producer_run") if isinstance(identity, dict) else None
+    test_ids = cell.get("test_ids")
+    encoded = receipt.get("payload_base64") if isinstance(receipt, dict) else None
+    # Bound before _valid_receipt, which itself decodes the general receipt payload.
+    if not isinstance(encoded, str) or len(encoded) > ((MAX_FORMAT_RECEIPT_PAYLOAD_BYTES + 2) // 3) * 4:
+        return False
+    if not (
+        cell.get("canonical_client") == SOURCE_HOST_CLIENT
+        and cell.get("client_lane") == SOURCE_HOST_LANE
+        and cell.get("client_id") == cell.get("performed_by") == SOURCE_HOST_CLIENT
+        and cell.get("runner_lane") == SOURCE_HOST_LANE
+        and cell.get("deployment_target") == "source-test-host"
+        and cell.get("image_digest") is None
+        and cell.get("source_sha") == cell.get("producer_source_sha")
+        and cell.get("request_url") is None
+        and cell.get("protocol_profile") == SOURCE_HOST_PROFILE
+        and cell.get("contract_revision") == (
+            f"server-protocol-harness@{cell.get('protocol_version')}+{cell.get('producer_source_sha')}"
+        )
+        and "tls" not in cell.get("scenario_facets", [])
+        and cell.get("exercised_capabilities") == cell.get("scenario_facets")
+        and isinstance(test_ids, list) and test_ids
+        and all(isinstance(value, str) and value for value in test_ids)
+        and len(set(test_ids)) == len(test_ids)
+        and _valid_producer_run(run)
+        and run["repository"] == "honua-io/honua-server"
+        and run["workflow"] == "protocol-harness-certification.yml"
+        and re.fullmatch(r"nightly-certification-[1-9][0-9]*-[1-9][0-9]*", run["dispatch_id"])
+        and _valid_receipt(cell, candidate_cut_at, revision)
+        and _receipt_digest(receipt) == cell.get("evidence_digest")
+    ):
+        return False
+    try:
+        raw = base64.b64decode(encoded, validate=True)
+        if len(raw) > MAX_FORMAT_RECEIPT_PAYLOAD_BYTES:
+            return False
+        payload = json.loads(raw, object_pairs_hook=_unique_json_object, parse_constant=_reject_json_constant)
+    except (ValueError, UnicodeDecodeError, RecursionError):
+        return False
+    if not isinstance(payload, dict) or set(payload) != {"contract_revision", "test_outcomes", "execution"}:
+        return False
+    outcomes = payload["test_outcomes"]
+    return (
+        payload["contract_revision"] == cell["contract_revision"]
+        and isinstance(outcomes, dict) and set(outcomes) == set(test_ids)
+        and all(isinstance(value, str) and value in {"pass", "fail"} for value in outcomes.values())
+        and cell["result"] == ("fail" if "fail" in outcomes.values() else "pass")
+        and _typed_equal(payload["execution"], {field: cell[field] for field in EXECUTION_FIELDS})
+    )
+
+
+def _valid_execution_metadata(cell: dict, candidate_cut_at: str, revision: str) -> bool:
+    """Optional historical metadata is absent as a group; supplied claims are closed and checked."""
+    present = EXECUTION_FIELDS.intersection(cell)
+    if not present:
+        return True
+    if present != EXECUTION_FIELDS:
+        return False
+    for field in ("client_id", "runner_lane", "protocol_version", "protocol_profile", "performed_by"):
+        value = cell[field]
+        if not isinstance(value, str) or not value.strip() or len(value) > 256 or any(ord(c) < 32 for c in value):
+            return False
+    facets = cell["exercised_capabilities"]
+    if not (
+        cell["client_id"] == cell["performed_by"] == cell["canonical_client"]
+        and cell["runner_lane"] == cell["client_lane"]
+        and isinstance(facets, list) and len(facets) <= len(FACETS)
+        and all(isinstance(value, str) and value in FACETS for value in facets)
+        and len(set(facets)) == len(facets)
+        and set(facets).issubset(cell["scenario_facets"])
+        and (cell["result"] != "pass" or facets == cell["scenario_facets"])
+    ):
+        return False
+    url = cell["request_url"]
+    if cell["result"] == "skip" and url is None:
+        # A non-executed optional/licensed row makes no request or evidence claim.
+        # The existing tier/result gate still refuses this row whenever required.
+        return (
+            facets == []
+            and all(cell.get(field) is None for field in (
+                "evidence_receipt", "evidence_digest", "evidence_uri", "facet_results",
+            ))
+            and isinstance(cell.get("skip_reason"), str) and bool(cell["skip_reason"].strip())
+        )
+    if facets and (
+        not isinstance(cell.get("facet_results"), dict)
+        or any(not isinstance(cell["facet_results"].get(facet), dict)
+               or cell["facet_results"][facet].get("result") not in {"pass", "fail"}
+               for facet in facets)
+    ):
+        return False
+    if url is None:
+        return _bound_source_host_execution(cell, candidate_cut_at, revision)
+    if cell["protocol_profile"] == SOURCE_HOST_PROFILE or cell["deployment_target"] == "source-test-host":
+        return False
+    if not isinstance(url, str) or not url or len(url) > 8192 or any(c.isspace() or ord(c) < 32 for c in url):
+        return False
+    try:
+        parsed = urlparse(url)
+        # Reading port also rejects malformed/non-numeric authority ports.
+        _ = parsed.port
+        return (
+            parsed.scheme in {"http", "https"} and bool(parsed.hostname)
+            and parsed.username is None and parsed.password is None
+            and ("tls" not in facets or parsed.scheme == "https")
+        )
+    except ValueError:
+        return False
+
+
 def evaluate(
     ledger: dict | None,
     tier: str,
@@ -628,6 +749,8 @@ def evaluate(
             fail(prefix, f"unknown fields: {', '.join(extra)}")
         if missing:
             continue
+        if not _valid_execution_metadata(raw, candidate.get("cut_at"), owned_revision):
+            fail(prefix, "execution metadata must be complete, bounded and bound to the canonical actor, lane, facets and request")
 
         key = (
             raw["surface"], raw["operation"], raw["canonical_client"],
