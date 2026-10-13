@@ -456,6 +456,8 @@ def _bound_source_host_execution(cell: dict, candidate_cut_at: str, revision: st
         and all(isinstance(value, str) and value for value in test_ids)
         and len(set(test_ids)) == len(test_ids)
         and _valid_producer_run(run)
+        and identity.get("candidate_cut_at") == candidate_cut_at
+        and _timestamp(candidate_cut_at) is not None
         and run["repository"] == "honua-io/honua-server"
         and run["workflow"] == "protocol-harness-certification.yml"
         and re.fullmatch(r"nightly-certification-[1-9][0-9]*-[1-9][0-9]*", run["dispatch_id"])
@@ -486,7 +488,13 @@ def _valid_execution_metadata(cell: dict, candidate_cut_at: str, revision: str) 
     """Optional historical metadata is absent as a group; supplied claims are closed and checked."""
     present = EXECUTION_FIELDS.intersection(cell)
     if not present:
-        return True
+        # This governed adapter's null URL is justified only by its bound execution
+        # object and test outcomes; absence must not bypass that proof obligation.
+        return not (
+            cell.get("canonical_client") == SOURCE_HOST_CLIENT
+            and cell.get("client_lane") == SOURCE_HOST_LANE
+            and cell.get("deployment_target") == "source-test-host"
+        )
     if present != EXECUTION_FIELDS:
         return False
     for field in ("client_id", "runner_lane", "protocol_version", "protocol_profile", "performed_by"):

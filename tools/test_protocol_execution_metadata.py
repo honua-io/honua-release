@@ -69,9 +69,10 @@ def test_retained_fixture_files_are_byte_bound_to_provenance():
         assert hashlib.sha256((FIXTURES / name).read_bytes()).hexdigest() == digest
 
 
+@pytest.mark.parametrize('name', ['cite', 'harness'])
 @pytest.mark.parametrize('field', sorted(cert.EXECUTION_FIELDS))
-def test_partial_metadata_group_refused_by_schema_and_consumer(field):
-    ledger, requirements = fixture('cite')
+def test_partial_metadata_group_refused_by_schema_and_consumer(name, field):
+    ledger, requirements = fixture(name)
     del ledger['cells'][0][field]
     assert list(Draft202012Validator(CELL_SCHEMA).iter_errors(ledger['cells'][0]))
     assert evaluate(ledger, requirements)['overall_status'] == 'fail'
@@ -110,6 +111,8 @@ def test_unknown_eighth_field_is_still_refused():
     lambda c: c.update(runner_lane='other'),
     lambda c: c.update(protocol_version='other'),
     lambda c: c['evidence_receipt']['identity'].pop('producer_run'),
+    lambda c: c['evidence_receipt']['identity'].pop('candidate_cut_at'),
+    lambda c: c['evidence_receipt']['identity'].update(candidate_cut_at='2020-01-01T00:00:00Z'),
     lambda c: c['evidence_receipt']['identity']['producer_run'].update(workflow='other.yml'),
     lambda c: c['evidence_receipt']['identity']['producer_run'].update(repository='other/server'),
     lambda c: c['evidence_receipt']['identity']['producer_run'].update(run_id=True),
@@ -241,3 +244,31 @@ def test_metadata_helper_refuses_malformed_governed_facets_without_raising(value
     cell = ledger['cells'][0]
     cell['scenario_facets'] = value
     assert not cert._valid_execution_metadata(cell, ledger['candidate']['cut_at'], requirements['revision'])
+
+
+@pytest.mark.parametrize('contradictory_outcomes', [False, True])
+def test_source_host_all_metadata_omitted_cannot_bypass_bound_outcome_check(contradictory_outcomes):
+    ledger, requirements = fixture('harness')
+    cell = ledger['cells'][0]
+    if contradictory_outcomes:
+        mutate_payload(cell, lambda payload: payload['test_outcomes'].update(
+            {test_id: 'fail' for test_id in payload['test_outcomes']}))
+    # Keep the original or correctly rehashed receipt bytes: neither omission
+    # may enter the historical metadata-absent path for this governed adapter.
+    assert cert._receipt_digest(cell['evidence_receipt']) == cell['evidence_digest']
+    for field in cert.EXECUTION_FIELDS:
+        del cell[field]
+    assert list(Draft202012Validator(CELL_SCHEMA).iter_errors(cell))
+    assert not cert._valid_execution_metadata(cell, ledger['candidate']['cut_at'], requirements['revision'])
+    report = evaluate(ledger, requirements)
+    assert report['overall_status'] == 'fail'
+    assert any('execution metadata' in finding['why'] for finding in report['findings'])
+
+
+def test_source_host_missing_candidate_cut_fails_schema_and_full_evaluation():
+    ledger, requirements = fixture('harness')
+    cell = ledger['cells'][0]
+    del cell['evidence_receipt']['identity']['candidate_cut_at']
+    rebind(cell)
+    assert list(Draft202012Validator(CELL_SCHEMA).iter_errors(cell))
+    assert evaluate(ledger, requirements)['overall_status'] == 'fail'
