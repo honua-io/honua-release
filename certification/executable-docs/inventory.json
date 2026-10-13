@@ -506,11 +506,11 @@
       "id": "honua-sdk-python-readme",
       "repo": "honua-io/honua-sdk-python",
       "path": "README.md",
-      "revision": "a2729be7b2fa0e363319043e9d084b2204d30a08",
+      "revision": "5a79352066b8aa23f1bae45b5c38e6d83efd003f",
       "revisionRule": {
         "clientArtifact": "honua-sdk-python-wheel"
       },
-      "url": "https://github.com/honua-io/honua-sdk-python/blob/a2729be7b2fa0e363319043e9d084b2204d30a08/README.md",
+      "url": "https://github.com/honua-io/honua-sdk-python/blob/5a79352066b8aa23f1bae45b5c38e6d83efd003f/README.md",
       "runtime": "python",
       "docker": false,
       "session": null,
@@ -536,16 +536,16 @@
         },
         {
           "index": 2,
-          "line": 73,
+          "line": 72,
           "language": "shell",
           "infoString": "bash",
           "intent": "run",
           "intentSource": "heuristic",
-          "sha256": "4a2aae6113ee1ae0d5031f98db2041522d3f4727eacc4f935d7cf312cec9ee57"
+          "sha256": "3a38e130922dfee7ba8a52d59c775292c8646d2568a5597f4316e07179c8933c"
         },
         {
           "index": 3,
-          "line": 103,
+          "line": 107,
           "language": "python",
           "infoString": "python",
           "intent": "run",
@@ -554,7 +554,7 @@
         },
         {
           "index": 4,
-          "line": 140,
+          "line": 144,
           "language": "python",
           "infoString": "python",
           "intent": "run",
@@ -563,7 +563,7 @@
         },
         {
           "index": 5,
-          "line": 154,
+          "line": 158,
           "language": "python",
           "infoString": "python",
           "intent": "run",
@@ -572,7 +572,7 @@
         },
         {
           "index": 6,
-          "line": 168,
+          "line": 172,
           "language": "python",
           "infoString": "python",
           "intent": "run",
@@ -581,7 +581,7 @@
         },
         {
           "index": 7,
-          "line": 201,
+          "line": 205,
           "language": "python",
           "infoString": "python",
           "intent": "run",
@@ -598,7 +598,7 @@
         },
         {
           "index": 8,
-          "line": 279,
+          "line": 283,
           "language": "shell",
           "infoString": "bash",
           "intent": "run",
@@ -611,11 +611,11 @@
       "id": "honua-sdk-python-install",
       "repo": "honua-io/honua-sdk-python",
       "path": "INSTALL.md",
-      "revision": "a2729be7b2fa0e363319043e9d084b2204d30a08",
+      "revision": "5a79352066b8aa23f1bae45b5c38e6d83efd003f",
       "revisionRule": {
         "clientArtifact": "honua-sdk-python-wheel"
       },
-      "url": "https://github.com/honua-io/honua-sdk-python/blob/a2729be7b2fa0e363319043e9d084b2204d30a08/INSTALL.md",
+      "url": "https://github.com/honua-io/honua-sdk-python/blob/5a79352066b8aa23f1bae45b5c38e6d83efd003f/INSTALL.md",
       "runtime": "python",
       "docker": false,
       "session": null,
@@ -641,16 +641,16 @@
         },
         {
           "index": 2,
-          "line": 58,
+          "line": 57,
           "language": "shell",
           "infoString": "bash",
           "intent": "run",
           "intentSource": "heuristic",
-          "sha256": "4a2aae6113ee1ae0d5031f98db2041522d3f4727eacc4f935d7cf312cec9ee57"
+          "sha256": "3a38e130922dfee7ba8a52d59c775292c8646d2568a5597f4316e07179c8933c"
         },
         {
           "index": 3,
-          "line": 73,
+          "line": 77,
           "language": "python",
           "infoString": "python",
           "intent": "run",
@@ -659,7 +659,7 @@
         },
         {
           "index": 4,
-          "line": 106,
+          "line": 110,
           "language": "python",
           "infoString": "python",
           "intent": "run",
@@ -674,7 +674,7 @@
         },
         {
           "index": 5,
-          "line": 123,
+          "line": 127,
           "language": "python",
           "infoString": "python",
           "intent": "run",
@@ -689,7 +689,7 @@
         },
         {
           "index": 6,
-          "line": 149,
+          "line": 153,
           "language": "python",
           "infoString": "python",
           "intent": "run",
@@ -706,7 +706,7 @@
         },
         {
           "index": 7,
-          "line": 193,
+          "line": 197,
           "language": "python",
           "infoString": "python",
           "intent": "run",
@@ -719,11 +719,11 @@
       "id": "honua-sdk-python-docs-quickstart",
       "repo": "honua-io/honua-sdk-python",
       "path": "docs/quickstart.md",
-      "revision": "a2729be7b2fa0e363319043e9d084b2204d30a08",
+      "revision": "5a79352066b8aa23f1bae45b5c38e6d83efd003f",
       "revisionRule": {
         "clientArtifact": "honua-sdk-python-wheel"
       },
-      "url": "https://github.com/honua-io/honua-sdk-python/blob/a2729be7b2fa0e363319043e9d084b2204d30a08/docs/quickstart.md",
+      "url": "https://github.com/honua-io/honua-sdk-python/blob/5a79352066b8aa23f1bae45b5c38e6d83efd003f/docs/quickstart.md",
       "runtime": "python",
       "docker": false,
       "session": null,
@@ -892,11 +892,11 @@
       "id": "honua-sdk-python-packages-honua-sdk-readme",
       "repo": "honua-io/honua-sdk-python",
       "path": "packages/honua-sdk/README.md",
-      "revision": "a2729be7b2fa0e363319043e9d084b2204d30a08",
+      "revision": "5a79352066b8aa23f1bae45b5c38e6d83efd003f",
       "revisionRule": {
         "clientArtifact": "honua-sdk-python-wheel"
       },
-      "url": "https://github.com/honua-io/honua-sdk-python/blob/a2729be7b2fa0e363319043e9d084b2204d30a08/packages/honua-sdk/README.md",
+      "url": "https://github.com/honua-io/honua-sdk-python/blob/5a79352066b8aa23f1bae45b5c38e6d83efd003f/packages/honua-sdk/README.md",
       "runtime": "python",
       "docker": false,
       "session": null,
@@ -913,7 +913,7 @@
         },
         {
           "index": 1,
-          "line": 56,
+          "line": 60,
           "language": "python",
           "infoString": "python",
           "intent": "run",
@@ -922,7 +922,7 @@
         },
         {
           "index": 2,
-          "line": 85,
+          "line": 89,
           "language": "python",
           "infoString": "python",
           "intent": "run",
