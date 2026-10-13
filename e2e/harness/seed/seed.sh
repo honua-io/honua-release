@@ -367,6 +367,8 @@ if [ "${SEED_DRY_RUN:-}" != "1" ]; then
     --output "$E2E_OUT/seed-edit-proof.json"; then
     echo "::error:: managed scratch edit proof failed; bounded redacted server diagnostics follow" >&2
     E2E_BOOT_LOG_MAX_LINES=40 bash "$HERE/../boot.sh" errors >&2 || true
+    # Schema/type identifiers only: preserve enough evidence to diagnose the managed writer.
+    $E2E_PSQL -c "SELECT current_schema(), n.nspname, c.relname, a.attname, format_type(a.atttypid, a.atttypmod) FROM pg_attribute a JOIN pg_class c ON c.oid=a.attrelid JOIN pg_namespace n ON n.oid=c.relnamespace WHERE c.relname='features' AND a.attname='geometry' AND a.attnum>0 AND NOT a.attisdropped;" >&2 || true
     exit 1
   fi
 fi
