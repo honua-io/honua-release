@@ -24,7 +24,10 @@ jobs:
     if: github.ref == 'refs/heads/trunk'
     runs-on: ubuntu-latest
     timeout-minutes: 120
+    permissions:
+      contents: write
     outputs:
+      prepared_ref: ${{ steps.prepared.outputs.prepared_ref }}
       platform_label: ${{ steps.stamp.outputs.platform_label }}
       server_sha: ${{ steps.server.outputs.server_sha }}
       server_image: ${{ steps.server.outputs.server_image }}
@@ -81,6 +84,31 @@ jobs:
           print(f"server_sha={server['sha']}")
           print(f"server_image={image}")
           PY
+      - name: Publish unadmitted resolved inputs for capacity
+        id: prepared
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          git diff --cached --quiet
+          python - <<'PYTHON'
+          import json
+          marker = json.load(open("resolved-candidate/deployment-preparation.json", encoding="utf-8"))
+          if (marker.get("schema") != "honua.deployment-preparation/v1"
+                  or marker.get("status") != "unadmitted"
+                  or marker.get("candidateQualified") is not False):
+              raise SystemExit("resolved preparation must remain explicitly unadmitted")
+          PYTHON
+          for file in platform-manifest.yaml compatibility-matrix.yaml deployment-preparation.json; do
+            test -f "resolved-candidate/$file" && test ! -L "resolved-candidate/$file"
+            cp "resolved-candidate/$file" "$file"
+          done
+          git add platform-manifest.yaml compatibility-matrix.yaml deployment-preparation.json
+          tree="$(git write-tree)"
+          sha="$(GIT_AUTHOR_NAME='Mike McDougall' GIT_AUTHOR_EMAIL='mike@honua.io' \
+            GIT_COMMITTER_NAME='Mike McDougall' GIT_COMMITTER_EMAIL='mike@honua.io' \
+            git commit-tree "$tree" -p "$GITHUB_SHA" -m 'chore: prepare unadmitted capacity inputs')"
+          git push origin "${sha}:refs/prepared-deployments/${sha}"
+          echo "prepared_ref=${sha}" >> "$GITHUB_OUTPUT"
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: resolved-candidate
@@ -315,10 +343,9 @@ jobs:
             ${{ runner.temp }}/protocol-ledger-binding.json
           if-no-files-found: warn
 
-  # capacity soaks the resolved server image in parallel with protocol_ledger: it reads only the
-  # server sha and image (fixed by resolve) and certification/capacity-envelope.v1.json at
-  # lock_ref, which a candidate snapshot never changes (candidate-input admits manifest, matrix and
-  # catalog data only), so this run's commit is the same envelope bytes.
+  # Capacity reads both the resolved manifest and unchanged capacity envelope from the same
+  # immutable, unadmitted preparation commit. It remains parallel with deployment/protocol proof;
+  # this input snapshot is never a qualified candidate or a mint authorization.
   capacity:
     needs: resolve
     runs-on: ubuntu-latest
@@ -340,7 +367,7 @@ jobs:
           GH_TOKEN: ${{ secrets.RELEASE_GH_TOKEN }}
           SERVER_SHA: ${{ needs.resolve.outputs.server_sha }}
           SERVER_IMAGE: ${{ needs.resolve.outputs.server_image }}
-          LOCK_REF: ${{ github.sha }}
+          LOCK_REF: ${{ needs.resolve.outputs.prepared_ref }}
         run: |
           set -euo pipefail
           repo=honua-io/honua-server

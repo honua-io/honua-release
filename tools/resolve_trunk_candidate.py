@@ -3,6 +3,8 @@
 
 A discovery tag is only a lookup key. Candidate images are repo@digest, with every
 linux architecture and its source revision checked against registry config bytes.
+Lambda retains its verified discovery tag plus a separate immutable platform digest
+for the existing tag@digest deployment producer.
 SDK source pins name the published primary package's source, never an unpublished head.
 """
 from __future__ import annotations
@@ -356,7 +358,7 @@ class Registry:
                     # A moved source pin cannot keep yesterday's mirror digest (honua-release#99).
                     ecr = existing if component.get('sha') == sha and (
                         existing == 'pending-ecr-mirror' or DIGEST.fullmatch(existing)) else 'pending-ecr-mirror'
-                    result.update(awsLambdaImage=f'ghcr.io/{repository}@{digest}', awsLambdaDigest=digest,
+                    result.update(awsLambdaImage=f'ghcr.io/{repository}:{lambda_tag}', awsLambdaDigest=digest,
                                   awsLambdaEcrDigest=ecr)
                 return result
             except (OSError, ValueError, subprocess.CalledProcessError) as exc:
