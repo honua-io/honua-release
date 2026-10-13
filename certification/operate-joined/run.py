@@ -197,10 +197,26 @@ def main():
         # Start from a real completed deployment, so the findings terminal index has provenance.
         j.reset()
         j.telemetry(journey.HEALTHY, "declared simulated healthy Prometheus measurements")
-        seed = j.create("candidate-c", prefix + "-seed", extra={"deployment.protection.observation_window_seconds": str(WINDOW)})
+        # The target inherits declared artifact B. The seed is a deliberate older
+        # deployment, so explicitly select its actual image instead of only its label.
+        seed = j.create("candidate-c", prefix + "-seed", extra={
+            "deployment.protection.observation_window_seconds": str(WINDOW),
+            "selfhosted.image": j.image("candidate-c"),
+        })
         j.watch(seed, lambda op: op.get("status") == "Succeeded", 240, "real prior revision deployment completed")
         j.snapshot("after real seed deployment")
         j.check(j.served() == "candidate-c", "prior workload serves before proposal")
+        seed_image = subprocess.check_output(["docker", "inspect", "--format", "{{.Image}}", prefix + "-app-19182"], text=True).strip()
+        j.check(seed_image == j.image("candidate-c"), "seed container executes the prior immutable image, not merely its revision label")
+        # C now owns the old standby port. Declare the actual surviving placement
+        # before the next rollout so B receives a distinct slot and C stays retained.
+        configuration = (run / "server.env").read_text()
+        configuration = replace_once(configuration, "ControlPlane__SelfHosted__ActivePort=19181", "ControlPlane__SelfHosted__ActivePort=19182")
+        configuration = replace_once(configuration, "ControlPlane__SelfHosted__StandbyPort=19182", "ControlPlane__SelfHosted__StandbyPort=19181")
+        (run / "server.env").write_text(configuration)
+        stage("align actual prior placement before next rollout", lambda: command(["bash", str(fixture / "boot.sh"), "restart"]))
+        j.check(j.served() == "candidate-c", "previous immutable workload still serves after placement configuration")
+        report["rolloutPlacement"] = {"activePort": 19182, "standbyPort": 19181, "previousImage": seed_image}
         report["seedOperationId"] = seed
         keys = {}
         for role, grants in (("proposer", ["admin"]), ("approver", ["admin:read", "admin:approve"])):
@@ -260,6 +276,8 @@ def main():
         completed = j.watch(operation_id, lambda op: op.get("status") == "Succeeded", 180, "full protection window completed")
         assert_completed_window(observed, completed)
         j.check(j.served() == "candidate-b", "actual proxy serves approved workload after convergence")
+        final_image = subprocess.check_output(["docker", "inspect", "--format", "{{.Image}}", prefix + "-app-19181"], text=True).strip()
+        j.check(final_image == j.image("candidate-b"), "final container executes declared immutable candidate bytes")
         report["terminalOperation"] = completed
         assert re.fullmatch(r"[A-Za-z0-9_-]+", proposal_id)
         query = f"select coalesce(json_agg(t),'[]'::json) from (select audit_id,actor,action,outcome,resource_id,correlation_id,details from honua.audit_log where resource_id='{proposal_id}' order by audit_id)t"
