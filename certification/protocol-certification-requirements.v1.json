@@ -63193,7 +63193,7 @@
       ],
       "contract_revision": "server-capability-matrix@ac30266fbd153363bebdbed13130accc8ab0c94a",
       "auth_policy_revision": "anonymous-public-v1",
-      "fixture_revision": "docker/cng/seed.sql@{source_sha}",
+      "fixture_revision": "docker/cite/ogc-api-features/seed.sql@{source_sha}",
       "budget_expectations": null
     },
     {
@@ -66539,7 +66539,7 @@
       ],
       "contract_revision": "server-capability-matrix@ac30266fbd153363bebdbed13130accc8ab0c94a",
       "auth_policy_revision": "anonymous-public-v1",
-      "fixture_revision": "docker/cng/seed.sql@{source_sha}",
+      "fixture_revision": "docker/cite/ogc-api-tiles/seed.sql@{source_sha}",
       "budget_expectations": null
     },
     {
@@ -70084,7 +70084,7 @@
       ],
       "contract_revision": "server-capability-matrix@ac30266fbd153363bebdbed13130accc8ab0c94a",
       "auth_policy_revision": "anonymous-public-v1",
-      "fixture_revision": "docker/cng/seed.sql@{source_sha}",
+      "fixture_revision": "docker/cite/wcs20/seed.sql@{source_sha}",
       "budget_expectations": null
     },
     {
@@ -71584,7 +71584,7 @@
       ],
       "contract_revision": "server-capability-matrix@ac30266fbd153363bebdbed13130accc8ab0c94a",
       "auth_policy_revision": "anonymous-public-v1",
-      "fixture_revision": "docker/cng/seed.sql@{source_sha}",
+      "fixture_revision": "docker/cite/shared/test-data@{source_sha}",
       "budget_expectations": null
     },
     {
@@ -71609,7 +71609,7 @@
       ],
       "contract_revision": "server-capability-matrix@ac30266fbd153363bebdbed13130accc8ab0c94a",
       "auth_policy_revision": "anonymous-public-v1",
-      "fixture_revision": "docker/cng/seed.sql@{source_sha}",
+      "fixture_revision": "docker/cite/shared/test-data@{source_sha}",
       "budget_expectations": null
     },
     {
@@ -71634,7 +71634,7 @@
       ],
       "contract_revision": "server-capability-matrix@ac30266fbd153363bebdbed13130accc8ab0c94a",
       "auth_policy_revision": "anonymous-public-v1",
-      "fixture_revision": "docker/cng/seed.sql@{source_sha}",
+      "fixture_revision": "docker/cite/shared/test-data@{source_sha}",
       "budget_expectations": null
     },
     {
@@ -72673,7 +72673,7 @@
       ],
       "contract_revision": "server-capability-matrix@ac30266fbd153363bebdbed13130accc8ab0c94a",
       "auth_policy_revision": "anonymous-public-v1",
-      "fixture_revision": "docker/cng/seed.sql@{source_sha}",
+      "fixture_revision": "docker/cite/shared/seed/mapserver.sql@{source_sha}",
       "budget_expectations": null
     },
     {
@@ -73318,7 +73318,7 @@
       ],
       "contract_revision": "server-capability-matrix@ac30266fbd153363bebdbed13130accc8ab0c94a",
       "auth_policy_revision": "anonymous-public-v1",
-      "fixture_revision": "docker/cng/seed.sql@{source_sha}",
+      "fixture_revision": "docker/cite/shared/seed/mapserver.sql@{source_sha}",
       "budget_expectations": null
     },
     {
