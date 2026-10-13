@@ -11,7 +11,7 @@ What differs from local Docker, and why:
 * Principals are minted at run time through the cell's admin REST API with the cell's bootstrap
   credential, with the same grants and Studio author role as `local_fixture`, and revoked at the
   end of the run (`local_fixture.credentials` / `local_fixture.revoke`).
-* The second-tenant principal does not exist on a cell. Local Docker injects an ephemeral JWT
+* By default the second-tenant principal does not exist on a cell. Local Docker injects an ephemeral JWT
   signing key into its compose stack; a cell trusts no harness-held issuer and admin API keys are
   tenant-independent. The target documents the principal as unavailable, so the tenant-isolation
   assertion is blocked with that reason while the rest of stage 8 runs.
@@ -86,7 +86,7 @@ def kind_of(cell):
     return match.group(1) if match else None
 
 
-def build(template, *, cell, endpoint):
+def build(template, *, cell, endpoint, tenant_fixture=False):
     """The cloud target document for one cell attempt, derived from the authored local fixture."""
     kind = kind_of(cell)
     if kind is None:
@@ -120,6 +120,12 @@ def build(template, *, cell, endpoint):
         "replicaTopology": dict(TOPOLOGIES[kind]),
         "execution": execution,
     }
+    if tenant_fixture:
+        from local_fixture import TENANT_FIXTURE
+        target["tenantFixture"] = dict(TENANT_FIXTURE)
+        target["principalSource"] = "cell-admin-api-and-run-owned-jwt"
+        target["principals"]["other-tenant"] = "HONUA_JOURNEY_OTHER_TENANT_TOKEN"
+        target["unavailablePrincipals"] = {}
     validate(target, template=template)
     return target
 
@@ -144,14 +150,22 @@ def validate(target, *, template=None):
     if "compose" in target:
         raise TargetError("a cloud target never manages a compose stack")
     principals = target.get("principals")
-    if not isinstance(principals, dict) or set(principals) != set(MINTED_PRINCIPALS):
+    from local_fixture import TENANT_FIXTURE
+    fixture = target.get("tenantFixture")
+    if fixture is not None and fixture != TENANT_FIXTURE:
+        raise TargetError("cloud tenant fixture must equal the reviewed same-subject tenant pair")
+    expected_principals = set(MINTED_PRINCIPALS) | ({"other-tenant"} if fixture is not None else set())
+    if not isinstance(principals, dict) or set(principals) != expected_principals:
         raise TargetError("cloud principals are exactly the four minted journey principals")
     if not all(isinstance(ref, str) and ENV_NAME.match(ref) for ref in principals.values()):
         raise TargetError("principals must be environment references, never values")
-    if target.get("principalSource") != "cell-admin-api":
+    expected_source = "cell-admin-api-and-run-owned-jwt" if fixture is not None else "cell-admin-api"
+    if target.get("principalSource") != expected_source:
         raise TargetError("cloud principals are minted through the cell admin API")
     unavailable = target.get("unavailablePrincipals")
-    if (not isinstance(unavailable, dict) or set(unavailable) != {"other-tenant"}
+    if fixture is not None and unavailable != {}:
+        raise TargetError("the configured second tenant cannot also be declared unavailable")
+    if fixture is None and (not isinstance(unavailable, dict) or set(unavailable) != {"other-tenant"}
             or not unavailable["other-tenant"].get("reason")
             or not unavailable["other-tenant"].get("blockedBy")):
         raise TargetError("the second-tenant principal must be documented unavailable with a reason and blocker")

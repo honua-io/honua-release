@@ -2569,7 +2569,9 @@ def _phase_env(monkeypatch, run_id="phase381"):
     return run_cloud.cloud_journey.cell_dir("aws-ecs/redis-off")
 
 
-def test_teardown_job_fails_closed_when_provisioned_state_never_arrives(monkeypatch):
+@pytest.mark.parametrize("tenant_fixture", [False, True])
+def test_teardown_job_fails_closed_when_provisioned_state_never_arrives(monkeypatch, tenant_fixture):
+    monkeypatch.setenv("HONUA_CLOUD_TENANT_FIXTURE", "true" if tenant_fixture else "false")
     cj = run_cloud.cloud_journey
     directory = _phase_env(monkeypatch)
     with tempfile.TemporaryDirectory() as scratch:
@@ -2595,12 +2597,15 @@ def test_teardown_job_fails_closed_when_provisioned_state_never_arrives(monkeypa
             report = json.loads(run_cloud.REPORT_PATH.read_text())
             assert stub.torn_down == 0 and "never reached teardown" in report["why"]
             # The application key goes regardless; the state key stays while the cell may still exist.
-            assert forgotten == [run_cloud.app_key_secret_name("aws-ecs/redis-off")]
+            expected_secrets = [run_cloud.app_key_secret_name("aws-ecs/redis-off")]
+            if tenant_fixture:
+                expected_secrets.append(run_cloud.tenant_secret_name("aws-ecs/redis-off"))
+            assert forgotten == expected_secrets
             forgotten.clear()
             # Restored state: destroy, then delete the state key.
             Path(scratch, "marker").write_text("")
             assert run_cloud.main(argv) == 1  # the provision failure still fails the cell
-            assert stub.torn_down == 1 and forgotten == [run_cloud.app_key_secret_name("aws-ecs/redis-off"),
+            assert stub.torn_down == 1 and forgotten == [*expected_secrets,
                                                          run_cloud.state_secret_name("aws-ecs/redis-off")]
             # A handoff from another run attempt cannot be adopted.
             run_cloud._write_json(directory / run_cloud.HANDOFF_NAME, {**state, "runAttempt": "2"})

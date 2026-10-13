@@ -162,6 +162,8 @@ def provision_phase(target, target_name: str, *, require_real: bool, redis_enabl
     try:
         _mark_provision_attempt()
         state["provisionAttempted"] = True
+        configure_tenant_fixture(target, cell)
+        state["tenantFixtureEnabled"] = bool(getattr(target, "journey_signing_key", None))
         endpoint = target.provision(redis_enabled=redis_enabled)
         report["endpoint"] = endpoint
         # The scheme the pinned clients will be handed and the host they will see (honua-release#450:
@@ -254,7 +256,7 @@ def provision_phase(target, target_name: str, *, require_real: bool, redis_enabl
 
 
 def journey_phase(state: dict, *, admin_key: str, max_attempts: int = 2,
-                  s10_source_url: str | None = None) -> dict:
+                  s10_source_url: str | None = None, tenant_signing_key: str | None = None) -> dict:
     """Credential-free half: the npm/browser seam drivers and the manifest-pinned journey.
 
     The workflow runs this in a job with no id-token permission and no AWS credential, so nothing a
@@ -273,6 +275,8 @@ def journey_phase(state: dict, *, admin_key: str, max_attempts: int = 2,
         if (state.get("runId"), state.get("runAttempt"), state.get("candidateDigest")) != (
                 run_id, run_attempt, cloud_journey.candidate_digest()):
             raise ValueError("provision handoff is bound to another run or candidate")
+        if bool(state.get("tenantFixtureEnabled")) != (tenant_signing_key is not None):
+            raise ValueError("sealed tenant fixture does not match the provisioned cell")
         if not admin_key:
             raise ValueError("provision handoff did not deliver the cell's application key")
         if state.get("ready"):
@@ -305,7 +309,8 @@ def journey_phase(state: dict, *, admin_key: str, max_attempts: int = 2,
         for number in range(1, max_attempts + 1):
             detail = state.get("runningImageDetail")
             record = cloud_journey.attempt(cell, number, endpoint, admin_key, state.get("runningImage"),
-                                           **({"image_detail": detail} if detail else {}))
+                                           **({"image_detail": detail} if detail else {}),
+                                           **({"tenant_signing_key": tenant_signing_key} if tenant_signing_key else {}))
             journey["journeyAttempts"].append(record)
             receipt = json.loads((E2E_DIR / record["receipt"]).read_text())
             try:
@@ -567,11 +572,23 @@ def run(target_name: str, require_real: bool, reference_endpoint: str | None,
     try:
         with cloud_journey.cell_datasource(datasource or None):
             journey = journey_phase(state, admin_key=target.admin_api_key, max_attempts=max_attempts,
-                                    s10_source_url=s10_url)
+                                    s10_source_url=s10_url, tenant_signing_key=getattr(target, "journey_signing_key", None))
     except Exception as e:
         journey = {"status": "fail", "why": f"cloud checks/journey failed: {type(e).__name__}"}
-    return teardown_phase(state, journey, target, reference_endpoint=reference_endpoint,
-                          cost_ceiling_usd=cost_ceiling_usd, cost_report=cost_report)
+    report = None
+    try:
+        report = teardown_phase(state, journey, target, reference_endpoint=reference_endpoint,
+                                cost_ceiling_usd=cost_ceiling_usd, cost_report=cost_report)
+    finally:
+        if os.environ.get("HONUA_CLOUD_TENANT_FIXTURE") == "true":
+            try:
+                forget_secret(tenant_secret_name(state["cell"]))
+            except Exception as error:
+                if report is None:
+                    raise RuntimeError("run-owned tenant secret cleanup failed") from None
+                report["status"] = "fail"
+                report["why"] = f"run-owned tenant secret cleanup failed: {type(error).__name__}"
+    return report
 
 
 # ---- job handoffs ----------------------------------------------------------------------------------
@@ -613,6 +630,32 @@ def state_secret_name(cell: str) -> str:
 
 def app_key_secret_name(cell: str) -> str:
     return state_secret_name(cell) + "-app-key"
+
+
+def tenant_secret_name(cell: str) -> str:
+    return state_secret_name(cell) + "-tenant-signing-key"
+
+
+def configure_tenant_fixture(target, cell: str, *, run=subprocess.run) -> None:
+    """Opt-in run-owned issuer; only an existing-secret reference enters Terraform."""
+    if os.environ.get("HONUA_CLOUD_TENANT_FIXTURE") != "true":
+        return
+    if target.name not in ("aws-ecs", "aws-serverless", "aws-eks"):
+        raise ValueError("tenant fixture requires an owned AWS cell")
+    if target.name != "aws-eks" and not target._root_declares("oidc_static_jwt"):
+        raise ValueError("pinned IaC root does not support the typed tenant issuer")
+    key = secrets.token_hex(32)
+    result = run(["aws", "secretsmanager", "create-secret", "--name", tenant_secret_name(cell),
+                  "--description", "Ephemeral cloud journey tenant issuer; deleted by teardown",
+                  "--secret-string", "file:///dev/stdin"],
+                 input=key, text=True, capture_output=True, check=True)
+    observed = json.loads(result.stdout)
+    arn, version = observed.get("ARN"), observed.get("VersionId")
+    if (not isinstance(arn, str) or not re.fullmatch(r"arn:aws[a-z-]*:secretsmanager:[a-z0-9-]+:[0-9]{12}:secret:[A-Za-z0-9/_+=.@-]+", arn)
+            or not isinstance(version, str) or not re.fullmatch(r"[A-Za-z0-9-]{32,64}", version)):
+        raise ValueError("tenant signing secret has no immutable identity")
+    target.journey_signing_key = key
+    target.journey_signing_secret = {"arn": arn, "versionId": version}
 
 
 def _with_secret_fd(run, argv, secret: str, **kwargs):
@@ -1214,7 +1257,8 @@ def _phase_provision(args) -> int:
         # (honua-release#377). It exists only in Secrets Manager and sealed to that runner.
         try:
             store_secret(app_key_secret_name(cell),
-                         cloud_journey.pack_handoff(target.admin_api_key, datasource or None),
+                         cloud_journey.pack_handoff(target.admin_api_key, datasource or None,
+                             tenant_signing_key=getattr(target, "journey_signing_key", None)),
                          "Ephemeral cloud-cell application key; deleted by teardown")
         except Exception as error:
             state["report"].update(status="fail", why="could not hand the cell's application key to "
@@ -1241,11 +1285,12 @@ def _phase_journey(args) -> int:
                        else os.environ.get("HONUA_CLOUD_ADMIN_KEY", ""))
             admin_key, datasource = cloud_journey.unpack_handoff(handoff)
             s10_url = cloud_journey.handoff_source_url(handoff)
+            tenant_key = cloud_journey.handoff_tenant_signing_key(handoff)
         except Exception:
-            admin_key, datasource, s10_url = "", None, None
+            admin_key, datasource, s10_url, tenant_key = "", None, None, None
         with cloud_journey.cell_datasource(datasource):
             journey = journey_phase(state, admin_key=admin_key, max_attempts=args.max_attempts,
-                                    s10_source_url=s10_url)
+                                    s10_source_url=s10_url, tenant_signing_key=tenant_key)
     _write_json(cloud_journey.cell_dir(cell) / JOURNEY_NAME, journey)
     print(f"== cloud-journey :: {cell} -> {journey.get('status', 'recorded').upper()} ==")
     for c in journey.get("scenarioCoverage", []):
@@ -1466,7 +1511,8 @@ def _phase_teardown(args) -> int:
     if stranded:
         problems.append("the cell provisioned infrastructure but its sealed Terraform state never "
                         "reached teardown; reap it by hand (honua-iac#142)")
-    secret_names = [app_key_secret_name(cell)] + ([state_secret_name(cell)] if state.get("destroyed") else [])
+    secret_names = [app_key_secret_name(cell)] + ([tenant_secret_name(cell)] if
+        state.get("tenantFixtureEnabled") or os.environ.get("HONUA_CLOUD_TENANT_FIXTURE") == "true" else []) + ([state_secret_name(cell)] if state.get("destroyed") else [])
     for name in secret_names:
         try:
             forget_secret(name)

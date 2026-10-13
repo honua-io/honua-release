@@ -3,8 +3,9 @@
 Local Docker mints them against the isolated compose stack, which also injects an ephemeral
 JWT signing key for the second-tenant bearer. A cloud cell (`aws-ecs`, `aws-serverless`, `aws-eks`) mints
 the same four API keys through the cell's admin REST API with the cell's bootstrap credential and
-revokes them when the run ends. A cell has no harness-held signing key, so no second-tenant
-bearer is fabricated there; the target documents that principal as unavailable.
+revokes them when the run ends. The opt-in cloud tenant profile instead signs the author and
+second-tenant bearers with the run-owned issuer delivered by the encrypted handoff; defaults
+continue to document the second tenant as unavailable.
 """
 from __future__ import annotations
 
@@ -42,6 +43,18 @@ AUTHOR_GRANTS = [{"service": "StudioDraft", "layer": "*", "operation": operation
 # Targets whose principals are minted through the candidate's own admin API.
 CLOUD_KINDS = ("aws-ecs", "aws-serverless", "aws-eks")
 MINTED_KINDS = ("local-docker", *CLOUD_KINDS)
+TENANT_FIXTURE = {"schema": "honua-cloud-tenant-fixture/v1", "issuer": ISSUER, "audience": AUDIENCE,
+                  "subject": "journey-author", "role": AUTHOR_ROLE,
+                  "authorTenant": "journey-author-tenant", "otherTenant": "journey-other-tenant"}
+
+
+def validate_tenant_signing_key(signing_key):
+    """Private, run-owned key received only through the encrypted cloud handoff."""
+    if not isinstance(signing_key, str) or not re.fullmatch(r"[0-9a-f]{64}", signing_key):
+        raise ValueError("cloud tenant signing key must contain 32 random bytes encoded as hex")
+    return signing_key
+
+
 KEY_ID = re.compile(r"[A-Za-z0-9][A-Za-z0-9-]{0,63}\Z")
 
 
@@ -125,32 +138,43 @@ def _bootstrap(target):
     return probes.resolve_env_default(target["adminPassword"]["env"], target["adminPassword"].get("default", ""))
 
 
-def _other_tenant_token(signing_key):
+def _tenant_token(signing_key, *, subject, tenant, role):
     def encode(value):
         return base64.urlsafe_b64encode(json.dumps(value, separators=(",", ":")).encode()).rstrip(b"=")
     now = int(time.time())
     body = encode({"alg": "HS256", "typ": "JWT"}) + b"." + encode({
-        "iss": ISSUER, "aud": AUDIENCE, "sub": "journey-other-tenant", "tenant_id": "journey-other",
-        "role": "user", "iat": now, "nbf": now, "exp": now + 300, "jti": secrets.token_hex(16)})
+        "iss": ISSUER, "aud": AUDIENCE, "sub": subject, "tenant_id": tenant,
+        "role": role, "iat": now, "nbf": now, "exp": now + 300, "jti": secrets.token_hex(16)})
     signature = base64.urlsafe_b64encode(hmac.new(signing_key.encode(), body, hashlib.sha256).digest()).rstrip(b"=")
     return "Bearer " + (body + b"." + signature).decode()
 
 
-def credentials(target, workdir, base_url, *, mint=False):
+def _other_tenant_token(signing_key):
+    return _tenant_token(signing_key, subject="journey-other-tenant", tenant="journey-other", role="user")
+
+
+def credentials(target, workdir, base_url, *, mint=False, tenant_signing_key=None):
     refs = target.get("principals") or {}
     resolved = {name: probes.resolve_env_default(ref, "") for name, ref in refs.items()}
     kind = target.get("kind")
     path = _path(workdir)
-    if mint and kind in CLOUD_KINDS and not path.exists():
-        # No signing key: a cloud cell trusts no harness-held issuer.
+    if (mint or tenant_signing_key is not None) and kind in CLOUD_KINDS and not path.exists():
+        # API key state only. The opt-in signing key stays in Python memory.
         _save(path, {"keys": {}, "keyIds": {}})
     if kind not in MINTED_KINDS or not path.exists():
         return resolved
     private = json.loads(path.read_text())
+    tenant_fixture = target.get("tenantFixture")
+    if tenant_fixture is not None and (tenant_fixture != TENANT_FIXTURE or tenant_signing_key is None):
+        raise ExecutionError("tenant fixture", "the declared run-owned issuer has no sealed signing key")
+    if tenant_fixture is not None:
+        validate_tenant_signing_key(tenant_signing_key)
     if mint:
         transport = Transport(base_url, None, None, workdir, {"bootstrap": _bootstrap(target)})
         _grant_author_role(transport)
         for name, grants in GRANTS.items():
+            if tenant_fixture is not None and name == "proposer":
+                continue
             raw, _ = transport.http("POST", "/api/v1/admin/api-keys/", principal="bootstrap", expected=(201,), body={
                 "name": f"journey-{Path(workdir).name}-{name}", "permissions": grants,
                 "expiresAt": (datetime.now(timezone.utc) + timedelta(hours=1)).isoformat()})
@@ -167,7 +191,15 @@ def credentials(target, workdir, base_url, *, mint=False):
                     or effective["canAuthenticate"] is not True):
                 raise ExecutionError("mint journey principals", "candidate effective permissions differ from fixture grants")
     resolved.update(private["keys"])
-    if private.get("signingKey"):
+    if tenant_fixture is not None:
+        # Subject and role are identical. Only the signed tenant differs; every request gets a
+        # fresh jti without weakening the candidate's token replay policy.
+        for name, tenant in (("proposer", TENANT_FIXTURE["authorTenant"]),
+                             ("other-tenant", TENANT_FIXTURE["otherTenant"])):
+            resolved[name] = lambda tenant=tenant: _tenant_token(
+                tenant_signing_key, subject=TENANT_FIXTURE["subject"], tenant=tenant,
+                role=TENANT_FIXTURE["role"])
+    elif private.get("signingKey"):
         # A fresh single-use bearer avoids weakening the candidate's replay protection.
         resolved["other-tenant"] = lambda: _other_tenant_token(private["signingKey"])
     return resolved

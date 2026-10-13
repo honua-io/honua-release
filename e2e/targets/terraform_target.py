@@ -370,6 +370,14 @@ class TerraformTarget(DeployTarget):
                 else architecture.upper()
             )
             values.append(f"-var={self.spec.architecture_var}={architecture_value}")
+        fixture_secret = getattr(self, "journey_signing_secret", None)
+        if fixture_secret is not None and not destroy:
+            if not self._root_declares("oidc_static_jwt"):
+                raise ProvisionError("pinned root does not declare the typed cloud tenant issuer")
+            values.append("-var=oidc_static_jwt=" + json.dumps({
+                "issuer": "https://terminal-journey.invalid", "audience": "terminal-journey",
+                "signing_key_secret_arn": fixture_secret["arn"],
+                "signing_key_secret_version_id": fixture_secret["versionId"]}, separators=(",", ":")))
         return values
 
     def _tag_vars(self, redis_enabled: bool) -> list[str]:
