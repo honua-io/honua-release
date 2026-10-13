@@ -5,6 +5,70 @@
     "quickstart-admin-password": {
       "value": "{candidate.adminPassword}",
       "documentedAt": "docs/playbooks/publish-a-service/index.md:20 — \"the admin password is `HONUA_ADMIN_PASSWORD`, which the root compose file defaults to `quickstart-admin-password` — a placeholder\""
+    },
+    "<DATABASE_HOST>": {
+      "value": "db",
+      "documentedAt": "docs/playbooks/publish-a-service/index.md:33 - explicitly declared DATABASE_HOST input; replay uses the isolated compose PostGIS database and seed.sh public.e2e_layer_src (three rows), not a published catalog ID."
+    },
+    "<DATABASE_PORT>": {
+      "value": "5432",
+      "documentedAt": "docs/playbooks/publish-a-service/index.md:34 - explicitly declared DATABASE_PORT input; replay uses the isolated compose PostGIS database and seed.sh public.e2e_layer_src (three rows), not a published catalog ID."
+    },
+    "<DATABASE_NAME>": {
+      "value": "honua",
+      "documentedAt": "docs/playbooks/publish-a-service/index.md:35 - explicitly declared DATABASE_NAME input; replay uses the isolated compose PostGIS database and seed.sh public.e2e_layer_src (three rows), not a published catalog ID."
+    },
+    "<DATABASE_USER>": {
+      "value": "honua",
+      "documentedAt": "docs/playbooks/publish-a-service/index.md:36 - explicitly declared DATABASE_USER input; replay uses the isolated compose PostGIS database and seed.sh public.e2e_layer_src (three rows), not a published catalog ID."
+    },
+    "<DATABASE_PASSWORD>": {
+      "value": "honua",
+      "documentedAt": "docs/playbooks/publish-a-service/index.md:37 - explicitly declared DATABASE_PASSWORD input; replay uses the isolated compose PostGIS database and seed.sh public.e2e_layer_src (three rows), not a published catalog ID."
+    },
+    "<DATABASE_SSL_MODE>": {
+      "value": "Disable",
+      "documentedAt": "docs/playbooks/publish-a-service/index.md:38 - explicitly declared DATABASE_SSL_MODE input; replay uses the isolated compose PostGIS database and seed.sh public.e2e_layer_src (three rows), not a published catalog ID."
+    },
+    "<DATABASE_SSL_REQUIRED>": {
+      "value": "false",
+      "documentedAt": "docs/playbooks/publish-a-service/index.md:39 - explicitly declared DATABASE_SSL_REQUIRED input; replay uses the isolated compose PostGIS database and seed.sh public.e2e_layer_src (three rows), not a published catalog ID."
+    },
+    "<CONNECTION_NAME>": {
+      "value": "docs-publish-proof",
+      "documentedAt": "docs/playbooks/publish-a-service/index.md:40 - explicitly declared CONNECTION_NAME input; replay uses the isolated compose PostGIS database and seed.sh public.e2e_layer_src (three rows), not a published catalog ID."
+    },
+    "<SOURCE_SCHEMA>": {
+      "value": "public",
+      "documentedAt": "docs/playbooks/publish-a-service/index.md:41 - explicitly declared SOURCE_SCHEMA input; replay uses the isolated compose PostGIS database and seed.sh public.e2e_layer_src (three rows), not a published catalog ID."
+    },
+    "<SOURCE_TABLE>": {
+      "value": "e2e_layer_src",
+      "documentedAt": "docs/playbooks/publish-a-service/index.md:42 - explicitly declared SOURCE_TABLE input; replay uses the isolated compose PostGIS database and seed.sh public.e2e_layer_src (three rows), not a published catalog ID."
+    },
+    "<GEOMETRY_COLUMN>": {
+      "value": "geom",
+      "documentedAt": "docs/playbooks/publish-a-service/index.md:43 - explicitly declared GEOMETRY_COLUMN input; replay uses the isolated compose PostGIS database and seed.sh public.e2e_layer_src (three rows), not a published catalog ID."
+    },
+    "<PRIMARY_KEY>": {
+      "value": "id",
+      "documentedAt": "docs/playbooks/publish-a-service/index.md:44 - explicitly declared PRIMARY_KEY input; replay uses the isolated compose PostGIS database and seed.sh public.e2e_layer_src (three rows), not a published catalog ID."
+    },
+    "<SOURCE_SRID>": {
+      "value": "3857",
+      "documentedAt": "docs/playbooks/publish-a-service/index.md:45 - explicitly declared SOURCE_SRID input; replay uses the isolated compose PostGIS database and seed.sh public.e2e_layer_src (three rows), not a published catalog ID."
+    },
+    "<SERVICE_NAME>": {
+      "value": "docs-publish-proof",
+      "documentedAt": "docs/playbooks/publish-a-service/index.md:46 - explicitly declared SERVICE_NAME input; replay uses the isolated compose PostGIS database and seed.sh public.e2e_layer_src (three rows), not a published catalog ID."
+    },
+    "<LAYER_NAME>": {
+      "value": "docs-source-polygons",
+      "documentedAt": "docs/playbooks/publish-a-service/index.md:47 - explicitly declared LAYER_NAME input; replay uses the isolated compose PostGIS database and seed.sh public.e2e_layer_src (three rows), not a published catalog ID."
+    },
+    "<EXPECTED_SOURCE_COUNT>": {
+      "value": "3",
+      "documentedAt": "docs/playbooks/publish-a-service/index.md:48 - explicitly declared EXPECTED_SOURCE_COUNT input; replay uses the isolated compose PostGIS database and seed.sh public.e2e_layer_src (three rows), not a published catalog ID."
     }
   }
 }

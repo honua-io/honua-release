@@ -47,7 +47,7 @@
     {"repo": "honua-io/honua-samples", "path": "samples/wms-getmap-check/README.md", "revision": {"defaultBranch": true}, "runtime": "node", "docker": true, "checkout": {"cwd": ""}, "prerequisites": {"jq": "samples/wms-getmap-check/README.md:10 — \"Bash, `curl`, `jq`, and `od`\""}},
     {"repo": "honua-io/honua-site", "path": "docs.html", "revision": {"defaultBranch": true}, "runtime": "python", "docker": true, "format": "html"},
     {"repo": "honua-io/honua-site", "path": "docs/playbooks/install-with-docker/index.md", "revision": {"defaultBranch": true}, "runtime": "python", "docker": true, "prerequisites": {"node": "docs/playbooks/install-with-docker/index.md:18 - Node.js 20.19.0 or later with npm for the capability check."}},
-    {"repo": "honua-io/honua-site", "path": "docs/playbooks/publish-a-service/index.md", "revision": {"defaultBranch": true}, "runtime": "python", "prerequisites": {"node": "docs/playbooks/publish-a-service/index.md:27 - Node.js 20.19.0 or later with npm for the CLI check."}},
+    {"repo": "honua-io/honua-site", "path": "docs/playbooks/publish-a-service/index.md", "revision": {"defaultBranch": true}, "runtime": "python", "prerequisites": {"node": "docs/playbooks/publish-a-service/index.md:27 - Node.js 20.19.0 or later with npm for the CLI check.", "jq": "docs/playbooks/publish-a-service/index.md:27 - Bash, curl 7.76 or later, and jq 1.6 or later are prerequisites."}},
     {"repo": "honua-io/honua-site", "path": "docs/playbooks/run-a-bounded-gp-job/index.md", "revision": {"defaultBranch": true}, "runtime": "python"},
     {"repo": "honua-io/honua-site", "path": "docs/geoprocessing/index.md", "revision": {"defaultBranch": true}, "runtime": "node"}
   ],
