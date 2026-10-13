@@ -81,6 +81,7 @@ cmd_check() {
   # The verdict logic is the gate. Fixture-test it here, in the static tier, so a regression that
   # would let a non-booting candidate go green fails on the PR that introduces it - with no images.
   bash "$HERE/test_report.sh"
+  python3 -m unittest discover -s "$HERE" -p 'test_capture_capabilities.py' -v
   # S4 used to exit under set -e before emit_scenario, which left the gate green. This fixture
   # runs with no images: a refused realm render must be a failing scenario, and a stale project
   # must be removed before the port check.
@@ -93,6 +94,16 @@ cmd_run() {
   local booted=1
   if bash "$HERE/boot.sh" up; then
     booted=0; export E2E_SERVER_BOOTED=true
+    local capture_status=fail
+    if python3 "$HERE/capture_capabilities.py" --manifest "$E2E_DIR/../platform-manifest.yaml" \
+      --out "$E2E_OUT/capability-manifest"; then
+      capture_status=pass
+    fi
+    # A missing dependency or crashed collector must also fail, while allowing driver evidence and cleanup.
+    jq -nc --arg status "$capture_status" \
+      '{scenario:"candidate-capability-identity",status:$status,
+        why:("raw discovery capture and exact candidate identity: " + $status),
+        evidence:{capture:"capability-manifest/capture.json"}}' >> "$E2E_OUT/scenarios.jsonl"
     echo "== seeding =="
     bash "$HERE/seed/seed.sh" || echo "::warning:: seed failed — data-dependent drivers will block/fail"
   else
