@@ -135,6 +135,24 @@
       "reason": "Byte-for-byte retained hosted documentation receipts include immutable published package names and tarball URLs, public service URLs, and quoted SDK commands or comments. Renaming these observations would falsify evidence; exact file hashes, upstream document revisions and run identities are recorded beside each receipt. This exception is confined to the two retained raw reports.",
       "owner": "@mikemcdougall",
       "issue": "honua-io/honua-release#555"
+    },
+    {
+      "repo": "honua-release",
+      "paths": [
+        "certification/sources/geometry-service-client-addressability.v1.json",
+        "certification/validate-protocol-requirements.py",
+        "tools/test_geometry_client_addressability.py"
+      ],
+      "tokens": [
+        "esri"
+      ],
+      "identifiers": [
+        "honua-io/honua-esri-compat",
+        "sources/esri-compat/matrix/geometry-service.matrix.json"
+      ],
+      "reason": "Exact existing upstream repository and pinned matrix path identify the source ownership and unchanged operation set. This exception covers these two source identifiers only; desktop implementation details remain in the private source repository.",
+      "owner": "@mikemcdougall",
+      "issue": "honua-io/honua-release#576"
     }
   ]
 }
