@@ -750,6 +750,7 @@ def main() -> None:
             )
 
     esri_index = load(SOURCES / "esri-compat" / "matrix" / "index.json")
+    arcpy_geometry = load(SOURCES / "arcpy-geometry-addressability.v1.json")
     esri_clients = [
         ("ArcGIS REST protocol client", "11.3", "raw-geoservices", "local-docker", False, None, None),
         ("ArcGIS API for Python", "2.4", "arcgis-python", "local-docker", False, None, None),
@@ -772,6 +773,7 @@ def main() -> None:
                 facets += ["pagination", "limit", "crs-axis"]
             for client, version, lane, target, licensed, entitlement_policy, bucket in esri_clients:
                 scripting = lane == "desktop-arcpy"
+                geometry_unaddressable = scripting and service["service"] == "geometry-service"
                 if scripting and scripting_driver is None:
                     scripting_lane = lane
                     scripting_entitlement = entitlement_policy
@@ -783,9 +785,12 @@ def main() -> None:
                     contract=f"esri-matrix@{revisions['esri-compat']['commit']}",
                     auth_policy="anonymous-and-protected-v1", target=target,
                     licensed=licensed, entitlement_policy=entitlement_policy,
+                    addressable=not geometry_unaddressable,
+                    addressability_reason=arcpy_geometry["reason"] if geometry_unaddressable else None,
                     # The licensed scripting driver replaces the coarse desktop interop rows, which
                     # were the licensed client's only metadata coverage; its metadata cases keep it.
-                    facets=facets + ["metadata"] if scripting and "metadata" in case["name"].lower() else facets,
+                    facets=["not-client-addressable"] if geometry_unaddressable else (
+                        facets + ["metadata"] if scripting and "metadata" in case["name"].lower() else facets),
                     release_bucket=bucket,
                     client_driver=scripting_driver if scripting else None,
                 )
