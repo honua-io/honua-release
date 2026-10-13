@@ -605,16 +605,13 @@ components:
   honua-sdk-dotnet:
     repository: "https://github.com/honua-io/honua-sdk-dotnet"
     lifecycleStatus: GA
-    # R25 manual advance 2026-10-12: Honua.Sdk 1.11.0 is listed on nuget.org (publish run
-    # 38207282456); its catalog repository.commit, nuspec <repository commit> and the
-    # dotnet-sdk-v1.11.0 tag are all 5f09e4fc, which carries release/component-versions.json
-    # and release/sdk-capability-baseline.json and descends from 68158344 (SSH.NET fix, #102).
-    # All 14 Honua.Sdk.* dependency packages are also listed at 1.11.0. 1.11.0 carries
-    # honua-sdk-dotnet#425; no installed-client matrix cell flips (the pinned server lacks #5794).
-    # The 2026-10-12 server re-pin to 0e03bdd carries #5794, so interop-proposal-approval's
-    # publication-url and published-content steps flip to active there.
-    version: "1.11.0"
-    sha: "5f09e4fca08a4cc6b9877c81e549fc5bc8648dba"
+    # 2026-10-13: published Honua.Sdk 1.11.1 from normal release run 38389094208.
+    # Catalog, nuspec and dotnet-sdk-v1.11.1 tag bind source 5a57e5f2; two public
+    # downloads have the clientArtifacts digest below. Includes #424 managed publish
+    # capabilities and typed final-publication reads with canonical hash verification.
+    # Installed-client cells remain blocked until witnessed candidate image proof.
+    version: "1.11.1"
+    sha: "5a57e5f2611ec874283d5637c2204551f6e1aeff"
     artifact: "nuget:Honua.Sdk"
     contractVersions:
       sdk-certification: "v1"
@@ -862,8 +859,8 @@ components:
 #                        1.3.6.1.4.1.57264.1.13) for honua_sdk-0.1.16-py3-none-any.whl      MATCHES
 #   honua-admin-python-wheel a2729be7 = same certificate extension for
 #                        honua_admin-0.1.12-py3-none-any.whl                                 MATCHES
-#   honua-sdk-dotnet     5f09e4fc = nuget.org catalog repository.commit and nuspec <repository
-#                        commit> for Honua.Sdk 1.11.0 and dotnet-sdk-v1.11.0 tag           MATCHES
+#   honua-sdk-dotnet     5a57e5f2 = nuget.org catalog repository.commit and nuspec <repository
+#                        commit> for Honua.Sdk 1.11.1 and dotnet-sdk-v1.11.1 tag           MATCHES
 # tools/verify_client_artifacts.py re-checks registry digests and, for nuget.org, the catalog
 # SHA-512, listing, and catalog + nuspec repository commit against `sourceSha`.
 # Superseded selection (verified 2026-09-01/09-08): JS 0.1.9-beta.0 c99e7119, MCP 0.1.4-beta.0
@@ -979,14 +976,14 @@ clientArtifacts:
   honua-sdk-dotnet:
     ecosystem: nuget
     package: "Honua.Sdk"
-    version: "1.11.0"
-    digest: "sha256:89a1001f1a9c922413b88cc262c7f21ec2d64b95d7c49a07386b3eded1cc62bb"
+    version: "1.11.1"
+    digest: "sha256:3d05bec8b22dc1bf0dd5547d8e0dfdc339f0610222a3f4356874c3e4e0aa06ee"
     repository: honua-io/honua-sdk-dotnet
-    sourceSha: "5f09e4fca08a4cc6b9877c81e549fc5bc8648dba"
+    sourceSha: "5a57e5f2611ec874283d5637c2204551f6e1aeff"
     publicationState: published
     registry: nuget.org
     targets: [net10.0]
-    filename: honua.sdk.1.11.0.nupkg
+    filename: honua.sdk.1.11.1.nupkg
 
 # Non-shipping workflows whose observations can affect promotion. A full producer commit is the
 # trust root; workflow/event/branch identity prevents evidence from an unreviewed execution path.

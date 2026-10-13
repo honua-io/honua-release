@@ -241,7 +241,8 @@
         "1.10.2",
         "1.10.3",
         "1.10.4",
-        "1.11.0"
+        "1.11.0",
+        "1.11.1"
       ]
     },
     {
@@ -249,25 +250,20 @@
       "evidence_class": "downloaded-bytes",
       "files": [
         {
-          "filename": "honua.sdk.1.11.0.nupkg",
-          "sha256": "89a1001f1a9c922413b88cc262c7f21ec2d64b95d7c49a07386b3eded1cc62bb",
-          "url": "https://api.nuget.org/v3-flatcontainer/honua.sdk/1.11.0/honua.sdk.1.11.0.nupkg"
-        },
-        {
-          "filename": "honua.sdk.1.11.0.snupkg",
-          "sha256": "961e12a16d1821ffbf140c562d81b8a847354adefac80b01053391e3edb7a513",
-          "url": "https://globalcdn.nuget.org/symbol-packages/honua.sdk.1.11.0.snupkg"
+          "filename": "honua.sdk.1.11.1.nupkg",
+          "sha256": "3d05bec8b22dc1bf0dd5547d8e0dfdc339f0610222a3f4356874c3e4e0aa06ee",
+          "url": "https://api.nuget.org/v3-flatcontainer/honua.sdk/1.11.1/honua.sdk.1.11.1.nupkg"
         }
       ],
       "flat_container_snupkg_status": 404,
       "http_status": 200,
       "id": "nuget:Honua.Sdk-newest",
-      "publication": "nuget.org Honua.Sdk 1.11.0",
+      "publication": "nuget.org Honua.Sdk 1.11.1",
       "urls": [
-        "https://api.nuget.org/v3-flatcontainer/honua.sdk/1.11.0/honua.sdk.1.11.0.nupkg",
-        "https://globalcdn.nuget.org/symbol-packages/honua.sdk.1.11.0.snupkg"
+        "https://api.nuget.org/v3-flatcontainer/honua.sdk/1.11.1/honua.sdk.1.11.1.nupkg",
+        "https://globalcdn.nuget.org/symbol-packages/honua.sdk.1.11.1.snupkg"
       ],
-      "version": "1.11.0"
+      "version": "1.11.1"
     },
     {
       "disposition": "listed",
@@ -288,7 +284,8 @@
         "1.10.2",
         "1.10.3",
         "1.10.4",
-        "1.11.0"
+        "1.11.0",
+        "1.11.1"
       ]
     },
     {
@@ -310,7 +307,8 @@
         "1.10.2",
         "1.10.3",
         "1.10.4",
-        "1.11.0"
+        "1.11.0",
+        "1.11.1"
       ]
     },
     {
@@ -332,7 +330,8 @@
         "1.10.2",
         "1.10.3",
         "1.10.4",
-        "1.11.0"
+        "1.11.0",
+        "1.11.1"
       ]
     },
     {
@@ -354,7 +353,8 @@
         "1.10.2",
         "1.10.3",
         "1.10.4",
-        "1.11.0"
+        "1.11.0",
+        "1.11.1"
       ]
     },
     {
@@ -376,7 +376,8 @@
         "1.10.2",
         "1.10.3",
         "1.10.4",
-        "1.11.0"
+        "1.11.0",
+        "1.11.1"
       ]
     },
     {
@@ -398,7 +399,8 @@
         "1.10.2",
         "1.10.3",
         "1.10.4",
-        "1.11.0"
+        "1.11.0",
+        "1.11.1"
       ]
     },
     {
@@ -420,7 +422,8 @@
         "1.10.2",
         "1.10.3",
         "1.10.4",
-        "1.11.0"
+        "1.11.0",
+        "1.11.1"
       ]
     },
     {
@@ -442,7 +445,8 @@
         "1.10.2",
         "1.10.3",
         "1.10.4",
-        "1.11.0"
+        "1.11.0",
+        "1.11.1"
       ]
     },
     {
@@ -464,7 +468,8 @@
         "1.10.2",
         "1.10.3",
         "1.10.4",
-        "1.11.0"
+        "1.11.0",
+        "1.11.1"
       ]
     },
     {
@@ -486,7 +491,8 @@
         "1.10.2",
         "1.10.3",
         "1.10.4",
-        "1.11.0"
+        "1.11.0",
+        "1.11.1"
       ]
     },
     {
@@ -508,7 +514,8 @@
         "1.10.2",
         "1.10.3",
         "1.10.4",
-        "1.11.0"
+        "1.11.0",
+        "1.11.1"
       ]
     },
     {
@@ -530,7 +537,8 @@
         "1.10.2",
         "1.10.3",
         "1.10.4",
-        "1.11.0"
+        "1.11.0",
+        "1.11.1"
       ]
     },
     {
@@ -552,7 +560,8 @@
         "1.10.2",
         "1.10.3",
         "1.10.4",
-        "1.11.0"
+        "1.11.0",
+        "1.11.1"
       ]
     },
     {
@@ -574,7 +583,8 @@
         "1.10.2",
         "1.10.3",
         "1.10.4",
-        "1.11.0"
+        "1.11.0",
+        "1.11.1"
       ]
     },
     {
@@ -596,7 +606,8 @@
         "1.10.2",
         "1.10.3",
         "1.10.4",
-        "1.11.0"
+        "1.11.0",
+        "1.11.1"
       ]
     },
     {
@@ -696,20 +707,20 @@
     },
     {
       "client_artifact_registry": "nuget.org",
-      "client_artifact_version": "1.11.0",
-      "component_version": "1.11.0",
+      "client_artifact_version": "1.11.1",
+      "component_version": "1.11.1",
       "disposition": "published",
       "evidence_class": "downloaded-bytes",
       "files": [
         {
-          "filename": "honua.sdk.1.11.0.nupkg",
-          "sha256": "89a1001f1a9c922413b88cc262c7f21ec2d64b95d7c49a07386b3eded1cc62bb",
-          "url": "https://api.nuget.org/v3-flatcontainer/honua.sdk/1.11.0/honua.sdk.1.11.0.nupkg"
+          "filename": "honua.sdk.1.11.1.nupkg",
+          "sha256": "3d05bec8b22dc1bf0dd5547d8e0dfdc339f0610222a3f4356874c3e4e0aa06ee",
+          "url": "https://api.nuget.org/v3-flatcontainer/honua.sdk/1.11.1/honua.sdk.1.11.1.nupkg"
         },
         {
-          "filename": "honua.sdk.studio.1.11.0.nupkg",
-          "sha256": "8c221f7d1f75bdbdf3704acfac0394e8d81e8960c4dc41dc505648496e504a7d",
-          "url": "https://api.nuget.org/v3-flatcontainer/honua.sdk.studio/1.11.0/honua.sdk.studio.1.11.0.nupkg"
+          "filename": "honua.sdk.studio.1.11.1.nupkg",
+          "sha256": "28e623db16bbda89e7997dd54fdfefa85cb31d0b785528cfc704a726800b0061",
+          "url": "https://api.nuget.org/v3-flatcontainer/honua.sdk.studio/1.11.1/honua.sdk.studio.1.11.1.nupkg"
         }
       ],
       "http_status": 200,
@@ -718,10 +729,10 @@
         "Honua.Sdk": 200,
         "Honua.Sdk.Studio": 200
       },
-      "publication": "nuget.org Honua.Sdk 1.11.0",
+      "publication": "nuget.org Honua.Sdk 1.11.1",
       "urls": [
-        "https://api.nuget.org/v3-flatcontainer/honua.sdk/1.11.0/honua.sdk.1.11.0.nupkg",
-        "https://api.nuget.org/v3-flatcontainer/honua.sdk.studio/1.11.0/honua.sdk.studio.1.11.0.nupkg"
+        "https://api.nuget.org/v3-flatcontainer/honua.sdk/1.11.1/honua.sdk.1.11.1.nupkg",
+        "https://api.nuget.org/v3-flatcontainer/honua.sdk.studio/1.11.1/honua.sdk.studio.1.11.1.nupkg"
       ]
     }
   ],
@@ -731,6 +742,6 @@
   },
   "issue": "honua-io/honua-release#57",
   "method": "Anonymous HTTPS with no Authorization header. published rows are sha256 of bytes this probe downloaded. listed rows are registry indexes only. Blocked rows name the publication and the operator boundary and do not carry package bytes. deferred-experimental rows are channels of a component the platform manifest lists under experimental:; they are not GA evidence and not release blockers.",
-  "observed_at": "2026-10-13T09:31:32Z",
+  "observed_at": "2026-10-13T11:46:17Z",
   "schema": "honua.first-publication-preflight/v1"
 }
