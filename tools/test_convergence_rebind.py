@@ -46,6 +46,15 @@ def align_components_to_published(root: Path) -> None:
             text = MODULE.replace_scalar(text, "sha", current, published)
     path.write_text(text, encoding="utf-8")
     assert yaml.safe_load(text)["protocolCertification"]["ledger"]["status"] == "pending"
+    # This synthetic fetch stub serves historical declarations, not registry bytes.
+    # Keep selected versions coherent with those retained source fixtures too.
+    manifest = yaml.safe_load(text)
+    policy = MODULE.load_json(root, Path("certification/sources/official-sdk-protocol-assignments.v1.json"))
+    historical = {row["source"]: row["version"] for row in policy["clients"]}
+    for source, component, artifact in MODULE.SDK_PRODUCERS:
+        manifest["components"][component]["version"] = historical[source]
+        manifest["clientArtifacts"][artifact]["version"] = historical[source]
+    path.write_text(yaml.safe_dump(manifest, sort_keys=False))
 
 
 def diverge_sdk_js(root: Path) -> None:
@@ -118,7 +127,14 @@ def test_apply_changes_only_planned_repository_files(tmp_path, monkeypatch):
     plan, payloads, _ = MODULE.prepare(root, StubGitHub(root), "keep")
     monkeypatch.setattr(MODULE.subprocess, "run", lambda *a, **kw: type("R", (), {"stdout": "", "stderr": "", "returncode": 0})())
     # Assert the complete intended payload rather than mutating the real worktree.
-    assert set(payloads) == {str(MODULE.REVISIONS), str(MODULE.CATALOG), "certification/generate-protocol-requirements.py", *(p for mappings in MODULE.VENDORED.values() for _, p in mappings)}
+    assert set(payloads) == {str(MODULE.REVISIONS), str(MODULE.CATALOG), "certification/generate-protocol-requirements.py", "certification/sources/official-sdk-protocol-assignments.v1.json", *(p for mappings in MODULE.VENDORED.values() for _, p in mappings)}
+    assert plan["official_protocol_assignments"] == {
+        "path": "certification/sources/official-sdk-protocol-assignments.v1.json",
+        "added": [], "removed": [], "client_versions": [],
+    }
+    rendered = MODULE.human(plan, root)
+    assert "Official protocol assignments:" in rendered
+    assert "added: none" in rendered and "removed: none" in rendered
     assert tuple(MODULE.CALLERS) == (Path(".github/workflows/release-train.yml"),)
 
 
@@ -589,3 +605,27 @@ def test_nightly_refuses_a_desktop_cell_whose_driver_is_not_its_requirement_or_r
     message = refusal(ledger=ledger, catalog=catalog)
     assert "receipt driver 'qgis-ui' is not the cell driver 'pyqgis'" in message
     assert "cells do not match the staged catalog" not in message
+
+
+def test_plan_reports_source_derived_official_client_version_changes(tmp_path):
+    root = fixture(tmp_path)
+    align_components_to_published(root)
+    # Controlled coherent source declarations, never a claim of new publication.
+    for relative in ("sdk-coverage.v1.json", "protocol-certification.v1.json"):
+        path = root / "certification/sources/sdk-js" / relative
+        data = json.loads(path.read_text())
+        if relative == "sdk-coverage.v1.json":
+            data["sdk"]["version"] = "0.2.0"
+        else:
+            data["clientVersion"] = "0.2.0"
+        path.write_text(json.dumps(data) + "\n")
+    manifest_path = root / MODULE.MANIFEST
+    manifest = yaml.safe_load(manifest_path.read_text())
+    manifest["components"]["honua-sdk-js"]["version"] = "0.2.0"
+    manifest["clientArtifacts"]["honua-sdk-js"]["version"] = "0.2.0"
+    manifest_path.write_text(yaml.safe_dump(manifest, sort_keys=False))
+    plan, _, _ = MODULE.prepare(root, StubGitHub(root), "keep")
+    assert plan["official_protocol_assignments"]["client_versions"] == [{
+        "source": "sdk-js", "name": "@honua/sdk-js", "current": "0.1.9-beta.0", "proposed": "0.2.0",
+    }]
+    assert "sdk-js (@honua/sdk-js): 0.1.9-beta.0 -> 0.2.0" in MODULE.human(plan, root)
