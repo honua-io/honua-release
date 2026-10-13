@@ -266,3 +266,66 @@ def test_source_versions_must_equal_both_manifest_selections(candidate, source, 
     with pytest.raises(REBIND.Finding, match=f"pinned {source} declaration version .* differs from"):
         REBIND.project_official_protocol_assignments(candidate.parent)
     assert policy_path.read_bytes() == original
+
+
+def add_reviewed_wps_contract(candidate):
+    """Extracted source inputs, not a conformance receipt or a support promotion."""
+    fixture = read(ROOT / "tools/fixtures/wps-contract-source-2026-10-13.json")
+    matrix_path = candidate / "sources/server/capability-matrix.v1.json"
+    matrix = read(matrix_path)
+    assert not any(row["key"] == "serve.wps" for row in matrix["capabilities"])
+    matrix["capabilities"].append(fixture["capability"])
+    write(matrix_path, matrix)
+    harness = read(candidate / HARNESS)
+    harness["assignments"].extend(fixture["assignments"])
+    write(candidate / HARNESS, harness)
+    path, data = REBIND.project_official_protocol_assignments(candidate.parent)
+    (candidate.parent / path).write_bytes(data)
+
+
+def test_wps_operations_admit_without_inventing_cite_production(candidate):
+    add_reviewed_wps_contract(candidate)
+    generate(candidate)
+    result = validate(candidate)
+    assert result.returncode == 0, result.stderr
+    catalog = read(candidate / CATALOG)
+    harness = [r for r in catalog["requirements"] if r["client_lane"] == "server-protocol-harness"]
+    assert len(harness) == 47
+    wps = [r for r in harness if r["capability_key"] == "serve.wps"]
+    assert len(wps) == 5
+    assert sum(len(r["test_ids"]) for r in wps) == 10
+    cite = [r for r in catalog["requirements"] if r["client_lane"] == "cite-wps-2-0"]
+    assert len(cite) == 1
+    assert cite[0]["addressable_by_client"] is True
+    assert cite[0]["required_tier"] == "nightly"
+    assert cite[0]["scenario_facets"] == ["positive", "negative", "crs-axis", "media-schema"]
+    assert not any("cite-wps-2-0" in p["client_lanes"] for p in catalog["production"]["producers"])
+    owner = next(p for p in catalog["production"]["unproduced"] if p["client_lanes"] == ["cite-wps-2-0"])
+    assert owner["cells"] == 1
+    assert owner["issue"] == "https://github.com/honua-io/honua-release/issues/360"
+    # A claimed produced row cannot be substituted into the generated catalog.
+    catalog["production"]["unproduced"].remove(owner)
+    producer = next(p for p in catalog["production"]["producers"] if p["producer"] == "honua-server-cite")
+    producer["client_lanes"].append("cite-wps-2-0")
+    producer["cells"] += owner["cells"]
+    catalog["production"]["cells"]["produced"] += owner["cells"]
+    catalog["production"]["cells"]["unproduced"] -= owner["cells"]
+    write(candidate / CATALOG, catalog)
+    rejected = validate(candidate)
+    assert rejected.returncode != 0
+    assert "production dispositions differ" in rejected.stderr
+
+
+@pytest.mark.parametrize("mutation, count", [("missing", 0), ("duplicate", 2)])
+def test_wps_cite_disposition_must_be_exactly_once(candidate, mutation, count):
+    add_reviewed_wps_contract(candidate)
+    path = candidate / "sources/protocol-certification-production.v1.json"
+    policy = read(path)
+    if mutation == "missing":
+        policy["unproduced"] = [p for p in policy["unproduced"] if p["client_lanes"] != ["cite-wps-2-0"]]
+    else:
+        next(p for p in policy["producers"] if p["producer"] == "honua-server-cite")["client_lanes"].append("cite-wps-2-0")
+    write(path, policy)
+    refused = run(candidate, "generate-protocol-requirements.py")
+    assert refused.returncode != 0
+    assert f"client lane 'cite-wps-2-0' (local-docker) has {count} production dispositions" in refused.stderr

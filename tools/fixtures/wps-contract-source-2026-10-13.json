@@ -1,0 +1,104 @@
+{
+  "source": {
+    "repository": "honua-io/honua-server",
+    "commit": "22dc4262c649baa537dbbb64bed7d012ed98e0d3",
+    "capabilityMatrixSha256": "4b2090c9c4025185b9aef02a48dd828457487c76e6a0652fabadcf8a3ff19035",
+    "harnessSha256": "2dc0136e150077e23b295bcdbd109d502127f020da6a9a652ceaeaa0da9b8c9a"
+  },
+  "capability": {
+    "key": "serve.wps",
+    "displayName": "WPS 2.0",
+    "category": "Serve",
+    "edition": "Community",
+    "status": null,
+    "entryCount": 3,
+    "provingTestCount": 28,
+    "maturity": {
+      "implemented": 3
+    },
+    "noSurface": null,
+    "cite": [
+      {
+        "suite": "WPS 2.0",
+        "profile": "basic-async",
+        "passed": 21,
+        "total": 21,
+        "passRate": 100.0
+      }
+    ],
+    "parity": [],
+    "esriAssess": [],
+    "interop": [],
+    "geobench": []
+  },
+  "assignments": [
+    {
+      "capability_key": "serve.wps",
+      "surface": "wps-2.0.2",
+      "operation": "GET /wps?request=GetCapabilities",
+      "test_ids": [
+        "Wps20EndpointsTests.GetCapabilities_AdvertisesAsyncExecutionForCanonicalProcesses"
+      ],
+      "scenario_facets": [
+        "positive",
+        "media-schema"
+      ]
+    },
+    {
+      "capability_key": "serve.wps",
+      "surface": "wps-2.0.2",
+      "operation": "GET /wps?request=DescribeProcess",
+      "test_ids": [
+        "Wps20EndpointsTests.DescribeProcess_Kvp_ReturnsNamespaceCorrectDescription",
+        "Wps20EndpointsTests.DescribeProcess_NonJobProcess_ReturnsNoSuchProcess"
+      ],
+      "scenario_facets": [
+        "positive",
+        "negative",
+        "media-schema"
+      ]
+    },
+    {
+      "capability_key": "serve.wps",
+      "surface": "wps-2.0.2",
+      "operation": "POST /wps",
+      "test_ids": [
+        "Wps20EndpointsTests.Execute_XmlInputId_SubmitsCanonicalPlan",
+        "Wps20EndpointsTests.Execute_WithoutDurableJobStore_ProjectsCapabilityUnavailableReceiptIntoExceptionReport",
+        "Wps20EndpointsTests.Execute_XmlWithDtd_IsRejectedWithoutEntityExpansion"
+      ],
+      "scenario_facets": [
+        "positive",
+        "negative",
+        "media-schema"
+      ]
+    },
+    {
+      "capability_key": "serve.wps",
+      "surface": "wps-2.0.2",
+      "operation": "GET /wps?request=GetStatus",
+      "test_ids": [
+        "Wps20EndpointsTests.GetStatus_CanonicalRunningJob_ReturnsIdentityAndProgress",
+        "Wps20EndpointsTests.GetStatus_UnknownJob_ReturnsOwsExceptionReport"
+      ],
+      "scenario_facets": [
+        "positive",
+        "negative",
+        "media-schema"
+      ]
+    },
+    {
+      "capability_key": "serve.wps",
+      "surface": "wps-2.0.2",
+      "operation": "GET /wps?request=GetResult",
+      "test_ids": [
+        "Wps20EndpointsTests.GetResult_MapsAdvertisedResultIdentifierAndLiteralMediaType",
+        "Wps20EndpointsTests.GetResult_ExposesEveryArtifactOutput"
+      ],
+      "scenario_facets": [
+        "positive",
+        "media-schema"
+      ]
+    }
+  ]
+}
