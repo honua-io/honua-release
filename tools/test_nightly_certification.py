@@ -431,8 +431,8 @@ fail(404, f'unrouted {method} {path}')
 def github(tmp_path):
     bin_dir = tmp_path / 'bin'
     bin_dir.mkdir()
-    for name, body in (('gh', FAKE_GH), ('python', 'import runpy, sys\nsys.argv = sys.argv[1:]\n'
-                                                  'runpy.run_path(sys.argv[0], run_name="__main__")\n')):
+    python_launcher = 'import os, sys\nos.execv(sys.executable, [sys.executable, *sys.argv[1:]])\n'
+    for name, body in (('gh', FAKE_GH), ('python', python_launcher)):
         path = bin_dir / name
         path.write_text(f'#!{sys.executable}\n{body}')
         path.chmod(path.stat().st_mode | stat.S_IEXEC)
@@ -466,6 +466,11 @@ def github(tmp_path):
             work.mkdir(exist_ok=True)
             shutil.copytree(ROOT / 'tools', work / 'tools', dirs_exist_ok=True,
                             ignore=shutil.ignore_patterns('__pycache__'))
+            (work / 'certification').mkdir(exist_ok=True)
+            shutil.copy(ROOT / 'certification/generate-protocol-requirements.py', work / 'certification')
+            (work / 'certification/sources').mkdir(exist_ok=True)
+            shutil.copy(ROOT / 'certification/sources/desktop-client-certification.v1.json',
+                        work / 'certification/sources/desktop-client-certification.v1.json')
             for relative, text in (files or {}).items():
                 (work / relative).parent.mkdir(parents=True, exist_ok=True)
                 (work / relative).write_text(text)
@@ -904,6 +909,14 @@ def test_protocol_producers_run_at_their_pins_bound_to_the_candidate(github):
     candidate = {'candidate_source_sha': SERVER, 'candidate_image': LEDGER_IMAGE, 'candidate_cut_at': CUT,
                  'nightly_dispatch_id': DISPATCH_ID}
     dispatched = github.load()['dispatches']
+    context_json = dispatched[0]['inputs'].pop('requirements_context')
+    context = json.loads(context_json)
+    assert context['producer'] == 'server-protocol-harness'
+    assert context['producer_source_sha'] == SERVER
+    assert context['candidate'] == {'source_sha': SERVER, 'image_digest': NIGHT['candidate']['image_digest'], 'cut_at': CUT}
+    assert context['requirements_revision'] == NIGHT['catalog']['revision']
+    governed = [row for row in NIGHT['catalog']['requirements'] if row['client_lane'] == 'harness']
+    assert context['requirements'] == [{key: row[key] for key in context['requirements'][0]} for row in governed]
     assert dispatched == [
         # honua-server trunk has moved past the candidate: the harness runs on a tag at the candidate.
         {'repo': 'honua-io/honua-server', 'workflow': 'protocol-harness-certification.yml',
