@@ -1,0 +1,10 @@
+{
+  "document": "honua-samples-samples-wms-getmap-check-readme",
+  "env": {},
+  "substitute": {
+    "<CANDIDATE_SERVER_IMAGE>": {
+      "value": "{candidate.image}",
+      "documentedAt": "samples/wms-getmap-check/README.md:15-21 - select a full immutable public GHCR image reference for CANDIDATE_SERVER_IMAGE."
+    }
+  }
+}
