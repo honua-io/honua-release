@@ -169,7 +169,7 @@ def test_write_scopes_live_only_on_the_jobs_that_use_them():
     writes = {name: sorted(k for k, v in (job.get('permissions') or {}).items() if v == 'write')
               for name, job in jobs.items()}
     assert writes == {
-        'resolve': [],
+        'resolve': ['contents'],               # unadmitted capacity preparation only
         'lambda_deployment': ['contents'],       # unadmitted refs/prepared-deployments/<sha> only
         'deployment_qualification': ['actions'], # completed child EKS producer, before admission
         'protocol_ledger': ['contents'],         # refs/nightly-requirements/<sha>, refs/nightly-candidates/<sha>
@@ -484,7 +484,7 @@ def github(tmp_path):
     return GitHub()
 
 
-CAPACITY_ENV = {'SERVER_SHA': SERVER, 'SERVER_IMAGE': IMAGE, 'LOCK_REF': REVIEWED, 'GH_TOKEN': 'x'}
+CAPACITY_ENV = {'SERVER_SHA': SERVER, 'SERVER_IMAGE': IMAGE, 'LOCK_REF': SNAPSHOT, 'GH_TOKEN': 'x'}
 DR_ENV = {'CANDIDATE_REF': SNAPSHOT, 'REVIEWED_SHA': REVIEWED, 'GH_TOKEN': 'x'}
 
 
@@ -510,9 +510,9 @@ def test_capacity_producer_runs_on_a_tag_at_the_exact_server_commit(github):
     assert dispatched['repo'] == 'honua-io/honua-server'
     assert dispatched['workflow'] == 'capacity-soak-candidate.yml'
     assert dispatched['ref'] == f'refs/tags/nightly-candidate/{SERVER}'
-    # The envelope is read at this run's commit: a candidate snapshot never changes it.
+    # The resolved unadmitted snapshot carries both candidate manifest and unchanged envelope.
     assert dispatched['inputs'] == {'candidate_sha': SERVER, 'candidate_image': IMAGE,
-                                    'lock_ref': REVIEWED, 'publish': 'true'}
+                                    'lock_ref': SNAPSHOT, 'publish': 'true'}
     assert state['refs']['honua-io/honua-server'][f'refs/tags/nightly-candidate/{SERVER}'] == SERVER
     run = state['runs'][str(state['next_run'])]
     assert run['head_sha'] == SERVER  # the producer's workflow source is the candidate commit
@@ -854,7 +854,10 @@ def ledger_files(catalog=None, server=SERVER):
 
 def test_the_night_produces_its_ledger_before_any_candidate_exists():
     jobs = workflow()['jobs']
-    assert not any('git push' in s.get('run', '') for s in jobs['resolve']['steps'])
+    preparation = step(jobs['resolve'], 'Publish unadmitted resolved inputs')['run']
+    assert 'refs/prepared-deployments/' in preparation
+    assert 'refs/nightly-candidates/' not in preparation
+    assert '-p "$GITHUB_SHA"' in preparation
     resolver = step(jobs['resolve'], 'Resolve the newest qualifying trunk candidate')['run']
     assert '--protocol-ledger produce' in resolver
     names = [s.get('name', '') for s in jobs['protocol_ledger']['steps']]
@@ -882,7 +885,8 @@ def test_capacity_runs_in_parallel_with_the_ledger_and_only_the_train_joins_them
     assert 'protocol_ledger' not in json.dumps(jobs['capacity'])
     assert capacity['env']['SERVER_SHA'] == '${{ needs.resolve.outputs.server_sha }}'
     assert capacity['env']['SERVER_IMAGE'] == '${{ needs.resolve.outputs.server_image }}'
-    assert capacity['env']['LOCK_REF'] == '${{ github.sha }}'
+    assert capacity['env']['LOCK_REF'] == '${{ needs.resolve.outputs.prepared_ref }}'
+    assert jobs['resolve']['outputs']['prepared_ref'] == '${{ steps.prepared.outputs.prepared_ref }}'
     # DR's receipt hashes the bound manifest, so it stays behind the ledger.
     assert jobs['dr']['needs'] == 'protocol_ledger'
     assert set(jobs['train']['needs']) == {'resolve', 'protocol_ledger', 'capacity', 'dr'}

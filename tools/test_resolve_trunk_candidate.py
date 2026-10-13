@@ -415,7 +415,7 @@ def test_lambda_image_pins_a_single_architecture_manifest():
     registry, _, child = _lambda_registry(NEW, 'manifest')
     result = registry.image('honua-server', _lambda_component(), NEW)
     assert result['awsLambdaDigest'] == child
-    assert result['awsLambdaImage'].endswith('@' + child)
+    assert result['awsLambdaImage'] == f'ghcr.io/honua-io/honua-server:nightly-lambda-aot-{NEW[:7]}-amd64'
     assert result['awsLambdaEcrDigest'] == 'pending-ecr-mirror'
 
 
@@ -423,8 +423,27 @@ def test_lambda_attested_index_pins_the_linux_amd64_child():
     registry, server_child, child = _lambda_registry(NEW, 'index')
     result = registry.image('honua-server', _lambda_component(), NEW)
     assert result['awsLambdaDigest'] == child
+    assert result['awsLambdaImage'] == f'ghcr.io/honua-io/honua-server:nightly-lambda-aot-{NEW[:7]}-amd64'
     assert result['awsLambdaDigest'] != result['digest']
     assert result['platformDigests'] == {'amd64': server_child}
+
+
+@pytest.mark.parametrize('shape', ['manifest', 'index'])
+def test_verified_lambda_identity_survives_the_deployment_dispatch(shape):
+    from nightly_deployments import lambda_inputs
+    registry, _, child = _lambda_registry(NEW, shape)
+    selected = registry.image('honua-server', _lambda_component(), NEW)
+    server = {**selected, 'sha': NEW, 'awsLambdaArchitecture': 'x86_64'}
+    inputs = lambda_inputs({'components': {'honua-server': server}}, b'operating policy')
+    assert inputs['source_image'] == f'ghcr.io/honua-io/honua-server:nightly-lambda-aot-{NEW[:7]}-amd64'
+    assert '@' not in inputs['source_image']
+    assert inputs['source_digest'] == child
+    # The producer executes tag@digest; the discovery tag never replaces the verified child.
+    assert inputs['source_image'] + '@' + inputs['source_digest'] == (
+        f'ghcr.io/honua-io/honua-server:nightly-lambda-aot-{NEW[:7]}-amd64@{child}')
+    captured = json.loads(inputs['prepared_manifest'])['manifest']['components']['honua-server']
+    assert captured['awsLambdaDigest'] == child
+    assert captured['awsLambdaImage'] == inputs['source_image']
 
 
 def test_lambda_index_without_a_linux_amd64_image_refuses():
