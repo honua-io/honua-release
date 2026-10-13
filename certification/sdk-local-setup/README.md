@@ -12,6 +12,46 @@ and binds `candidateId` to `manifest-sha256:<adopted-platform-manifest-sha256>`.
 The workflow takes that file's independently reviewed SHA256. It does not learn an
 expected catalog from the running server and then call that a match.
 
+Prepare that expectation with `export_catalog.py` after the final server source,
+candidate, and public package pins exist. Pass a clean checkout of the candidate's
+exact server commit, the independently checked platform-manifest SHA256, and the
+exact shipped immutable installer image string. The exporter verifies the two
+public client artifacts, builds the source into a new private directory, and runs
+the server test assembly's existing source composition through its canonical
+setup projector and JSON serializer. A small reflection adapter fails if those
+reviewed source seams change. Full-composition and static setup projections must
+agree; a future dynamic setup profile requires an explicit exporter review.
+
+The adapter emits complete schemas, annotations, source metadata and canonical
+digest inputs without contacting a server. Two fresh invocations must agree.
+Schema, roster, stage, budget and digest controls precede output. The preparation
+receipt binds the clean server source/tree, assembly hashes, exporter source and
+code hashes, candidate digest, and actual public package verification. Private
+build logs are not proof artifacts and must not be uploaded. The new output
+directory is never reused or overwritten.
+
+Use a clean hosted worker for the full source build. In a shared local environment,
+acquire the supported build lock exactly once: its acquired-lock
+`HONUA_BUILD_SLOT_HELD=1` marker is preserved for the dotnet shim's reentrancy.
+Do not set that marker without acquiring the lock or nest a wrapper that loses
+the marker around another locking shim. The adapter is compiled from captured
+reviewed source bytes, and the exporter rechecks its original commit and files
+after the build before writing provenance.
+
+```bash
+python certification/sdk-local-setup/export_catalog.py \
+  --server-checkout "$SERVER_CHECKOUT" --server-source "$SERVER_SOURCE" \
+  --platform-manifest "$PLATFORM_MANIFEST" --platform-sha256 "$PLATFORM_SHA256" \
+  --server-image "$SHIPPED_INSTALLER_IMAGE" --output "$NEW_PREPARATION_DIRECTORY"
+```
+
+Independently review the emitted `expected-setup-manifest.json` together with
+`source-projection.json` and `preparation.json`, then commit the expected manifest
+under `manifests/` and pin its SHA256 before the installed replay. An offline
+source expectation is not an observed catalog or a passing qualification receipt.
+This exporter requires no server production change and does not gate RC server
+image publication. It cannot override shipped installer or customer-image pins.
+
 The canonical candidate-input action verifies snapshot lineage. The canonical package
 verifier checks registry bytes and published source identity. Installation uses those
 verified tarballs once, with normal peer resolution, disabled install lifecycle scripts,

@@ -322,7 +322,7 @@ def test_licensed_desktop_policy_is_governed_and_fresh():
 
 
 def test_server_harness_pass_binds_test_ids_and_certification_source_revision():
-    harness_sha = "c" * 40
+    harness_sha = SHA
     test_ids = ["EdrEndpointsTests.Edr_Cube_ReturnsCoverageJsonGridSubset"]
     cell = _cell(
         capability_key="serve.ogc-api-edr",
@@ -335,7 +335,28 @@ def test_server_harness_pass_binds_test_ids_and_certification_source_revision():
         producer_source_sha=harness_sha,
         image_digest=None,
         test_ids=test_ids,
+        contract_revision=f"server-protocol-harness@fixture-v1+{harness_sha}",
     )
+    execution = {
+        "client_id": cell["canonical_client"], "performed_by": cell["canonical_client"],
+        "runner_lane": cell["client_lane"], "protocol_version": "fixture-v1",
+        "protocol_profile": "source-test-host-http-adapter", "request_url": None,
+        "exercised_capabilities": cell["scenario_facets"],
+    }
+    cell.update(execution)
+    cell["evidence_receipt"]["identity"]["candidate_cut_at"] = CUT
+    cell["evidence_receipt"]["identity"]["producer_run"] = {
+        "repository": "honua-io/honua-server", "workflow": "protocol-harness-certification.yml",
+        "run_id": 123, "run_attempt": 1, "dispatch_id": "nightly-certification-123-1",
+    }
+    cell["evidence_receipt"]["payload_base64"] = base64.b64encode(json.dumps({
+        "contract_revision": cell["contract_revision"], "execution": execution,
+        "test_outcomes": {test_id: "pass" for test_id in test_ids},
+    }, sort_keys=True, separators=(",", ":")).encode()).decode()
+    cell["evidence_digest"] = cert._receipt_digest(cell["evidence_receipt"])
+    cell["evidence_uri"] = "https://evidence.honua.io/data/sha256/" + cell["evidence_digest"][7:]
+    for facet in cell["facet_results"].values():
+        facet["evidence_digest"] = cell["evidence_digest"]
     requirements = _requirements(cell)
     requirements["source_revisions"]["server-certification"] = {"commit": harness_sha}
     passing = _evaluate(_ledger(cell), "nightly", requirements=requirements, now=NOW)
@@ -353,20 +374,15 @@ def test_server_harness_pass_binds_test_ids_and_certification_source_revision():
         _ledger(wrong_tests), "nightly", requirements=requirements, now=NOW,
     )
     assert wrong_test_report["overall_status"] == "fail"
-    assert any("semantically bound" in finding["why"] for finding in wrong_test_report["findings"])
+    assert any("execution metadata" in finding["why"] for finding in wrong_test_report["findings"])
 
-    falsely_bound = _cell(
-        capability_key="serve.ogc-api-edr",
-        surface="ogc-api-edr",
-        operation="GET /edr/collections/{collectionId}/cube",
-        canonical_client="Honua server public protocol integration harness",
-        client_lane="server-protocol-harness",
-        client_version=f"source@{harness_sha}",
-        deployment_target="source-test-host",
-        producer_source_sha=harness_sha,
-        image_digest=DIGEST,
-        test_ids=test_ids,
-    )
+    falsely_bound = copy.deepcopy(cell)
+    falsely_bound["image_digest"] = DIGEST
+    falsely_bound["evidence_receipt"]["identity"]["image_digest"] = DIGEST
+    falsely_bound["evidence_digest"] = cert._receipt_digest(falsely_bound["evidence_receipt"])
+    falsely_bound["evidence_uri"] = "https://evidence.honua.io/data/sha256/" + falsely_bound["evidence_digest"][7:]
+    for facet in falsely_bound["facet_results"].values():
+        facet["evidence_digest"] = falsely_bound["evidence_digest"]
     false_report = _evaluate(
         _ledger(falsely_bound), "nightly", requirements=requirements, now=NOW,
     )
@@ -1642,3 +1658,14 @@ def test_pyqgis_is_the_full_surface_function_grid():
         "connect/discover", "add", "render", "identify", "query/filter", "edit",
         "raster read", "save/reopen", "auth",
     }
+
+
+def test_unproduced_wps_cite_required_skip_is_not_canonical_gp_evidence():
+    cell = _cell(
+        capability_key="serve.wps", surface="wps-2-0", operation="serve.wps",
+        canonical_client="OGC CITE", client_lane="cite-wps-2-0", client_version="WPS 2.0",
+        result="skip", skip_reason="Normalized candidate-bound WPS CITE producer absent",
+        evidence_receipt=None, evidence_uri=None, evidence_digest=None, facet_results=None,
+    )
+    report = _evaluate(_ledger(cell), "nightly", now=NOW)
+    assert report["overall_status"] == "fail"

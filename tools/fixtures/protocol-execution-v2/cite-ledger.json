@@ -1,0 +1,941 @@
+{
+  "schema": "honua.protocol-certification/v1",
+  "requirements_revision": "test-staged.1",
+  "requirements_source_revision": "dddddddddddddddddddddddddddddddddddddddd",
+  "requirements_complete": true,
+  "generated_at": "2026-10-13T00:01:00Z",
+  "candidate": {
+    "source_sha": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "image_digest": "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+    "cut_at": "2026-10-13T00:00:00Z"
+  },
+  "cells": [
+    {
+      "capability_key": "serve.ogc-api-features",
+      "surface": "ogc-api-features-1-0",
+      "operation": "serve.ogc-api-features",
+      "maturity": "supported",
+      "canonical_client": "OGC CITE",
+      "client_lane": "cite-ogc-api-features-1-0",
+      "client_version": "OGC API Features 1.0",
+      "deployment_target": "local-docker",
+      "required_tier": "nightly",
+      "licensed": false,
+      "entitlement_policy_revision": null,
+      "addressable_by_client": true,
+      "addressability_reason": null,
+      "scenario_facets": [
+        "positive",
+        "negative",
+        "crs-axis",
+        "media-schema"
+      ],
+      "contract_revision": "server-capability-matrix@aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "auth_policy_revision": "anonymous-public-v1",
+      "fixture_revision": "docker/cite/ogc-api-features/seed.sql@aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "budget_expectations": null,
+      "result": "pass",
+      "skip_reason": null,
+      "source_sha": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "producer_source_sha": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "image_digest": "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+      "evidence_uri": "https://evidence.honua.io/data/sha256/786324b881f2b9159cab13af8fed2a7ac00920eaee1625bf639170f6907d7742",
+      "evidence_digest": "sha256:786324b881f2b9159cab13af8fed2a7ac00920eaee1625bf639170f6907d7742",
+      "evidence_receipt": {
+        "facets": {
+          "crs-axis": "pass",
+          "media-schema": "pass",
+          "negative": "pass",
+          "positive": "pass"
+        },
+        "identity": {
+          "auth_policy_revision": "anonymous-public-v1",
+          "candidate_cut_at": "2026-10-13T00:00:00Z",
+          "canonical_client": "OGC CITE",
+          "capability_key": "serve.ogc-api-features",
+          "client_version": "OGC API Features 1.0",
+          "completed_at": "2026-10-13T00:01:00Z",
+          "contract_revision": "server-capability-matrix@aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "deployment_target": "local-docker",
+          "fixture_revision": "docker/cite/ogc-api-features/seed.sql@aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "image_digest": "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+          "maturity": "supported",
+          "operation": "serve.ogc-api-features",
+          "producer_run": {
+            "dispatch_id": "nightly-certification-1-1",
+            "repository": "honua-io/honua-server",
+            "run_attempt": 1,
+            "run_id": 1,
+            "workflow": "cite-certification.yml"
+          },
+          "producer_source_sha": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "required_tier": "nightly",
+          "requirements_revision": "test-staged.1",
+          "source_sha": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "started_at": "2026-10-13T00:00:00Z",
+          "surface": "ogc-api-features-1-0"
+        },
+        "payload_base64": "eyJjb3VudHMiOnsiY2FudFRlbGwiOjAsImZhaWxlZCI6MCwicGFzc2VkIjoxLCJza2lwcGVkIjowLCJ0b3RhbFRlc3RzIjoxfSwicHJvZmlsZSI6InN5bnRoZXRpYy1jb250cm9sIiwicnVuX3VybCI6Imh0dHBzOi8vZ2l0aHViLmNvbS9ob251YS1pby9ob251YS1zZXJ2ZXIvYWN0aW9ucy9ydW5zLzEiLCJzdWl0ZV9pZCI6Im9nY2FwaS1mZWF0dXJlcyIsInN1aXRlX3ZlcnNpb24iOiJzeW50aGV0aWMtY29udHJvbCIsInRlYW1fZW5naW5lX3ZlcnNpb24iOiJzeW50aGV0aWMtY29udHJvbCJ9",
+        "result": "pass",
+        "schema": "honua.certification-evidence-receipt/v2"
+      },
+      "facet_results": {
+        "crs-axis": {
+          "evidence_digest": "sha256:786324b881f2b9159cab13af8fed2a7ac00920eaee1625bf639170f6907d7742",
+          "result": "pass"
+        },
+        "media-schema": {
+          "evidence_digest": "sha256:786324b881f2b9159cab13af8fed2a7ac00920eaee1625bf639170f6907d7742",
+          "result": "pass"
+        },
+        "negative": {
+          "evidence_digest": "sha256:786324b881f2b9159cab13af8fed2a7ac00920eaee1625bf639170f6907d7742",
+          "result": "pass"
+        },
+        "positive": {
+          "evidence_digest": "sha256:786324b881f2b9159cab13af8fed2a7ac00920eaee1625bf639170f6907d7742",
+          "result": "pass"
+        }
+      },
+      "started_at": "2026-10-13T00:00:00Z",
+      "completed_at": "2026-10-13T00:01:00Z",
+      "client_id": "OGC CITE",
+      "runner_lane": "cite-ogc-api-features-1-0",
+      "protocol_version": "synthetic-control",
+      "protocol_profile": "synthetic-control",
+      "performed_by": "OGC CITE",
+      "request_url": "http://localhost:8080/synthetic-control",
+      "exercised_capabilities": [
+        "positive",
+        "negative",
+        "crs-axis",
+        "media-schema"
+      ],
+      "budget_observations": null
+    },
+    {
+      "capability_key": "serve.ogc-api-tiles",
+      "surface": "ogc-api-tiles-1-0",
+      "operation": "serve.ogc-api-tiles",
+      "maturity": "supported",
+      "canonical_client": "OGC CITE",
+      "client_lane": "cite-ogc-api-tiles-1-0",
+      "client_version": "OGC API Tiles 1.0",
+      "deployment_target": "local-docker",
+      "required_tier": "nightly",
+      "licensed": false,
+      "entitlement_policy_revision": null,
+      "addressable_by_client": true,
+      "addressability_reason": null,
+      "scenario_facets": [
+        "positive",
+        "negative",
+        "crs-axis",
+        "media-schema"
+      ],
+      "contract_revision": "server-capability-matrix@aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "auth_policy_revision": "anonymous-public-v1",
+      "fixture_revision": "docker/cite/ogc-api-tiles/seed.sql@aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "budget_expectations": null,
+      "result": "pass",
+      "skip_reason": null,
+      "source_sha": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "producer_source_sha": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "image_digest": "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+      "evidence_uri": "https://evidence.honua.io/data/sha256/8f045874075fe80cdfa9f79abca27de2f9ab44e53e07ed788187bddee71fb81d",
+      "evidence_digest": "sha256:8f045874075fe80cdfa9f79abca27de2f9ab44e53e07ed788187bddee71fb81d",
+      "evidence_receipt": {
+        "facets": {
+          "crs-axis": "pass",
+          "media-schema": "pass",
+          "negative": "pass",
+          "positive": "pass"
+        },
+        "identity": {
+          "auth_policy_revision": "anonymous-public-v1",
+          "candidate_cut_at": "2026-10-13T00:00:00Z",
+          "canonical_client": "OGC CITE",
+          "capability_key": "serve.ogc-api-tiles",
+          "client_version": "OGC API Tiles 1.0",
+          "completed_at": "2026-10-13T00:01:00Z",
+          "contract_revision": "server-capability-matrix@aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "deployment_target": "local-docker",
+          "fixture_revision": "docker/cite/ogc-api-tiles/seed.sql@aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "image_digest": "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+          "maturity": "supported",
+          "operation": "serve.ogc-api-tiles",
+          "producer_run": {
+            "dispatch_id": "nightly-certification-1-1",
+            "repository": "honua-io/honua-server",
+            "run_attempt": 1,
+            "run_id": 1,
+            "workflow": "cite-certification.yml"
+          },
+          "producer_source_sha": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "required_tier": "nightly",
+          "requirements_revision": "test-staged.1",
+          "source_sha": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "started_at": "2026-10-13T00:00:00Z",
+          "surface": "ogc-api-tiles-1-0"
+        },
+        "payload_base64": "eyJjb3VudHMiOnsiY2FudFRlbGwiOjAsImZhaWxlZCI6MCwicGFzc2VkIjoxLCJza2lwcGVkIjowLCJ0b3RhbFRlc3RzIjoxfSwicHJvZmlsZSI6InN5bnRoZXRpYy1jb250cm9sIiwicnVuX3VybCI6Imh0dHBzOi8vZ2l0aHViLmNvbS9ob251YS1pby9ob251YS1zZXJ2ZXIvYWN0aW9ucy9ydW5zLzEiLCJzdWl0ZV9pZCI6Im9nY2FwaS10aWxlcyIsInN1aXRlX3ZlcnNpb24iOiJzeW50aGV0aWMtY29udHJvbCIsInRlYW1fZW5naW5lX3ZlcnNpb24iOiJzeW50aGV0aWMtY29udHJvbCJ9",
+        "result": "pass",
+        "schema": "honua.certification-evidence-receipt/v2"
+      },
+      "facet_results": {
+        "crs-axis": {
+          "evidence_digest": "sha256:8f045874075fe80cdfa9f79abca27de2f9ab44e53e07ed788187bddee71fb81d",
+          "result": "pass"
+        },
+        "media-schema": {
+          "evidence_digest": "sha256:8f045874075fe80cdfa9f79abca27de2f9ab44e53e07ed788187bddee71fb81d",
+          "result": "pass"
+        },
+        "negative": {
+          "evidence_digest": "sha256:8f045874075fe80cdfa9f79abca27de2f9ab44e53e07ed788187bddee71fb81d",
+          "result": "pass"
+        },
+        "positive": {
+          "evidence_digest": "sha256:8f045874075fe80cdfa9f79abca27de2f9ab44e53e07ed788187bddee71fb81d",
+          "result": "pass"
+        }
+      },
+      "started_at": "2026-10-13T00:00:00Z",
+      "completed_at": "2026-10-13T00:01:00Z",
+      "client_id": "OGC CITE",
+      "runner_lane": "cite-ogc-api-tiles-1-0",
+      "protocol_version": "synthetic-control",
+      "protocol_profile": "synthetic-control",
+      "performed_by": "OGC CITE",
+      "request_url": "http://localhost:8080/synthetic-control",
+      "exercised_capabilities": [
+        "positive",
+        "negative",
+        "crs-axis",
+        "media-schema"
+      ],
+      "budget_observations": null
+    },
+    {
+      "capability_key": "serve.wcs",
+      "surface": "wcs-2-0",
+      "operation": "serve.wcs",
+      "maturity": "supported",
+      "canonical_client": "OGC CITE",
+      "client_lane": "cite-wcs-2-0",
+      "client_version": "WCS 2.0",
+      "deployment_target": "local-docker",
+      "required_tier": "nightly",
+      "licensed": false,
+      "entitlement_policy_revision": null,
+      "addressable_by_client": true,
+      "addressability_reason": null,
+      "scenario_facets": [
+        "positive",
+        "negative",
+        "crs-axis",
+        "media-schema"
+      ],
+      "contract_revision": "server-capability-matrix@aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "auth_policy_revision": "anonymous-public-v1",
+      "fixture_revision": "docker/cite/wcs20/seed.sql@aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "budget_expectations": null,
+      "result": "pass",
+      "skip_reason": null,
+      "source_sha": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "producer_source_sha": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "image_digest": "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+      "evidence_uri": "https://evidence.honua.io/data/sha256/0c3c7d2692a74462223ba35cfcb92400454fcdc2a5bfd77d417ca124b47d755b",
+      "evidence_digest": "sha256:0c3c7d2692a74462223ba35cfcb92400454fcdc2a5bfd77d417ca124b47d755b",
+      "evidence_receipt": {
+        "facets": {
+          "crs-axis": "pass",
+          "media-schema": "pass",
+          "negative": "pass",
+          "positive": "pass"
+        },
+        "identity": {
+          "auth_policy_revision": "anonymous-public-v1",
+          "candidate_cut_at": "2026-10-13T00:00:00Z",
+          "canonical_client": "OGC CITE",
+          "capability_key": "serve.wcs",
+          "client_version": "WCS 2.0",
+          "completed_at": "2026-10-13T00:01:00Z",
+          "contract_revision": "server-capability-matrix@aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "deployment_target": "local-docker",
+          "fixture_revision": "docker/cite/wcs20/seed.sql@aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "image_digest": "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+          "maturity": "supported",
+          "operation": "serve.wcs",
+          "producer_run": {
+            "dispatch_id": "nightly-certification-1-1",
+            "repository": "honua-io/honua-server",
+            "run_attempt": 1,
+            "run_id": 1,
+            "workflow": "cite-certification.yml"
+          },
+          "producer_source_sha": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "required_tier": "nightly",
+          "requirements_revision": "test-staged.1",
+          "source_sha": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "started_at": "2026-10-13T00:00:00Z",
+          "surface": "wcs-2-0"
+        },
+        "payload_base64": "eyJjb3VudHMiOnsiY2FudFRlbGwiOjAsImZhaWxlZCI6MCwicGFzc2VkIjoxLCJza2lwcGVkIjowLCJ0b3RhbFRlc3RzIjoxfSwicHJvZmlsZSI6InN5bnRoZXRpYy1jb250cm9sIiwicnVuX3VybCI6Imh0dHBzOi8vZ2l0aHViLmNvbS9ob251YS1pby9ob251YS1zZXJ2ZXIvYWN0aW9ucy9ydW5zLzEiLCJzdWl0ZV9pZCI6IndjczIwIiwic3VpdGVfdmVyc2lvbiI6InN5bnRoZXRpYy1jb250cm9sIiwidGVhbV9lbmdpbmVfdmVyc2lvbiI6InN5bnRoZXRpYy1jb250cm9sIn0=",
+        "result": "pass",
+        "schema": "honua.certification-evidence-receipt/v2"
+      },
+      "facet_results": {
+        "crs-axis": {
+          "evidence_digest": "sha256:0c3c7d2692a74462223ba35cfcb92400454fcdc2a5bfd77d417ca124b47d755b",
+          "result": "pass"
+        },
+        "media-schema": {
+          "evidence_digest": "sha256:0c3c7d2692a74462223ba35cfcb92400454fcdc2a5bfd77d417ca124b47d755b",
+          "result": "pass"
+        },
+        "negative": {
+          "evidence_digest": "sha256:0c3c7d2692a74462223ba35cfcb92400454fcdc2a5bfd77d417ca124b47d755b",
+          "result": "pass"
+        },
+        "positive": {
+          "evidence_digest": "sha256:0c3c7d2692a74462223ba35cfcb92400454fcdc2a5bfd77d417ca124b47d755b",
+          "result": "pass"
+        }
+      },
+      "started_at": "2026-10-13T00:00:00Z",
+      "completed_at": "2026-10-13T00:01:00Z",
+      "client_id": "OGC CITE",
+      "runner_lane": "cite-wcs-2-0",
+      "protocol_version": "synthetic-control",
+      "protocol_profile": "synthetic-control",
+      "performed_by": "OGC CITE",
+      "request_url": "http://localhost:8080/synthetic-control",
+      "exercised_capabilities": [
+        "positive",
+        "negative",
+        "crs-axis",
+        "media-schema"
+      ],
+      "budget_observations": null
+    },
+    {
+      "capability_key": "serve.wfs",
+      "surface": "wfs-1-0",
+      "operation": "serve.wfs",
+      "maturity": "supported",
+      "canonical_client": "OGC CITE",
+      "client_lane": "cite-wfs-1-0",
+      "client_version": "WFS 1.0",
+      "deployment_target": "local-docker",
+      "required_tier": "nightly",
+      "licensed": false,
+      "entitlement_policy_revision": null,
+      "addressable_by_client": true,
+      "addressability_reason": null,
+      "scenario_facets": [
+        "positive",
+        "negative",
+        "crs-axis",
+        "media-schema"
+      ],
+      "contract_revision": "server-capability-matrix@aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "auth_policy_revision": "anonymous-public-v1",
+      "fixture_revision": "docker/cite/shared/test-data@aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "budget_expectations": null,
+      "result": "pass",
+      "skip_reason": null,
+      "source_sha": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "producer_source_sha": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "image_digest": "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+      "evidence_uri": "https://evidence.honua.io/data/sha256/7847c45b07459363b728e5a266036e29732964a1666d12cf89ab08c6bd16f30a",
+      "evidence_digest": "sha256:7847c45b07459363b728e5a266036e29732964a1666d12cf89ab08c6bd16f30a",
+      "evidence_receipt": {
+        "facets": {
+          "crs-axis": "pass",
+          "media-schema": "pass",
+          "negative": "pass",
+          "positive": "pass"
+        },
+        "identity": {
+          "auth_policy_revision": "anonymous-public-v1",
+          "candidate_cut_at": "2026-10-13T00:00:00Z",
+          "canonical_client": "OGC CITE",
+          "capability_key": "serve.wfs",
+          "client_version": "WFS 1.0",
+          "completed_at": "2026-10-13T00:01:00Z",
+          "contract_revision": "server-capability-matrix@aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "deployment_target": "local-docker",
+          "fixture_revision": "docker/cite/shared/test-data@aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "image_digest": "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+          "maturity": "supported",
+          "operation": "serve.wfs",
+          "producer_run": {
+            "dispatch_id": "nightly-certification-1-1",
+            "repository": "honua-io/honua-server",
+            "run_attempt": 1,
+            "run_id": 1,
+            "workflow": "cite-certification.yml"
+          },
+          "producer_source_sha": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "required_tier": "nightly",
+          "requirements_revision": "test-staged.1",
+          "source_sha": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "started_at": "2026-10-13T00:00:00Z",
+          "surface": "wfs-1-0"
+        },
+        "payload_base64": "eyJjb3VudHMiOnsiY2FudFRlbGwiOjAsImZhaWxlZCI6MCwicGFzc2VkIjoxLCJza2lwcGVkIjowLCJ0b3RhbFRlc3RzIjoxfSwicHJvZmlsZSI6InN5bnRoZXRpYy1jb250cm9sIiwicnVuX3VybCI6Imh0dHBzOi8vZ2l0aHViLmNvbS9ob251YS1pby9ob251YS1zZXJ2ZXIvYWN0aW9ucy9ydW5zLzEiLCJzdWl0ZV9pZCI6IndmczEwIiwic3VpdGVfdmVyc2lvbiI6InN5bnRoZXRpYy1jb250cm9sIiwidGVhbV9lbmdpbmVfdmVyc2lvbiI6InN5bnRoZXRpYy1jb250cm9sIn0=",
+        "result": "pass",
+        "schema": "honua.certification-evidence-receipt/v2"
+      },
+      "facet_results": {
+        "crs-axis": {
+          "evidence_digest": "sha256:7847c45b07459363b728e5a266036e29732964a1666d12cf89ab08c6bd16f30a",
+          "result": "pass"
+        },
+        "media-schema": {
+          "evidence_digest": "sha256:7847c45b07459363b728e5a266036e29732964a1666d12cf89ab08c6bd16f30a",
+          "result": "pass"
+        },
+        "negative": {
+          "evidence_digest": "sha256:7847c45b07459363b728e5a266036e29732964a1666d12cf89ab08c6bd16f30a",
+          "result": "pass"
+        },
+        "positive": {
+          "evidence_digest": "sha256:7847c45b07459363b728e5a266036e29732964a1666d12cf89ab08c6bd16f30a",
+          "result": "pass"
+        }
+      },
+      "started_at": "2026-10-13T00:00:00Z",
+      "completed_at": "2026-10-13T00:01:00Z",
+      "client_id": "OGC CITE",
+      "runner_lane": "cite-wfs-1-0",
+      "protocol_version": "synthetic-control",
+      "protocol_profile": "synthetic-control",
+      "performed_by": "OGC CITE",
+      "request_url": "http://localhost:8080/synthetic-control",
+      "exercised_capabilities": [
+        "positive",
+        "negative",
+        "crs-axis",
+        "media-schema"
+      ],
+      "budget_observations": null
+    },
+    {
+      "capability_key": "serve.wfs",
+      "surface": "wfs-1-1",
+      "operation": "serve.wfs",
+      "maturity": "supported",
+      "canonical_client": "OGC CITE",
+      "client_lane": "cite-wfs-1-1",
+      "client_version": "WFS 1.1",
+      "deployment_target": "local-docker",
+      "required_tier": "nightly",
+      "licensed": false,
+      "entitlement_policy_revision": null,
+      "addressable_by_client": true,
+      "addressability_reason": null,
+      "scenario_facets": [
+        "positive",
+        "negative",
+        "crs-axis",
+        "media-schema"
+      ],
+      "contract_revision": "server-capability-matrix@aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "auth_policy_revision": "anonymous-public-v1",
+      "fixture_revision": "docker/cite/shared/test-data@aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "budget_expectations": null,
+      "result": "pass",
+      "skip_reason": null,
+      "source_sha": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "producer_source_sha": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "image_digest": "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+      "evidence_uri": "https://evidence.honua.io/data/sha256/b1347788ec80f12cafc8251088f7aec37f9c46365eadd05de6f7f40cf2d3d83d",
+      "evidence_digest": "sha256:b1347788ec80f12cafc8251088f7aec37f9c46365eadd05de6f7f40cf2d3d83d",
+      "evidence_receipt": {
+        "facets": {
+          "crs-axis": "pass",
+          "media-schema": "pass",
+          "negative": "pass",
+          "positive": "pass"
+        },
+        "identity": {
+          "auth_policy_revision": "anonymous-public-v1",
+          "candidate_cut_at": "2026-10-13T00:00:00Z",
+          "canonical_client": "OGC CITE",
+          "capability_key": "serve.wfs",
+          "client_version": "WFS 1.1",
+          "completed_at": "2026-10-13T00:01:00Z",
+          "contract_revision": "server-capability-matrix@aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "deployment_target": "local-docker",
+          "fixture_revision": "docker/cite/shared/test-data@aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "image_digest": "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+          "maturity": "supported",
+          "operation": "serve.wfs",
+          "producer_run": {
+            "dispatch_id": "nightly-certification-1-1",
+            "repository": "honua-io/honua-server",
+            "run_attempt": 1,
+            "run_id": 1,
+            "workflow": "cite-certification.yml"
+          },
+          "producer_source_sha": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "required_tier": "nightly",
+          "requirements_revision": "test-staged.1",
+          "source_sha": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "started_at": "2026-10-13T00:00:00Z",
+          "surface": "wfs-1-1"
+        },
+        "payload_base64": "eyJjb3VudHMiOnsiY2FudFRlbGwiOjAsImZhaWxlZCI6MCwicGFzc2VkIjoxLCJza2lwcGVkIjowLCJ0b3RhbFRlc3RzIjoxfSwicHJvZmlsZSI6InN5bnRoZXRpYy1jb250cm9sIiwicnVuX3VybCI6Imh0dHBzOi8vZ2l0aHViLmNvbS9ob251YS1pby9ob251YS1zZXJ2ZXIvYWN0aW9ucy9ydW5zLzEiLCJzdWl0ZV9pZCI6IndmczExIiwic3VpdGVfdmVyc2lvbiI6InN5bnRoZXRpYy1jb250cm9sIiwidGVhbV9lbmdpbmVfdmVyc2lvbiI6InN5bnRoZXRpYy1jb250cm9sIn0=",
+        "result": "pass",
+        "schema": "honua.certification-evidence-receipt/v2"
+      },
+      "facet_results": {
+        "crs-axis": {
+          "evidence_digest": "sha256:b1347788ec80f12cafc8251088f7aec37f9c46365eadd05de6f7f40cf2d3d83d",
+          "result": "pass"
+        },
+        "media-schema": {
+          "evidence_digest": "sha256:b1347788ec80f12cafc8251088f7aec37f9c46365eadd05de6f7f40cf2d3d83d",
+          "result": "pass"
+        },
+        "negative": {
+          "evidence_digest": "sha256:b1347788ec80f12cafc8251088f7aec37f9c46365eadd05de6f7f40cf2d3d83d",
+          "result": "pass"
+        },
+        "positive": {
+          "evidence_digest": "sha256:b1347788ec80f12cafc8251088f7aec37f9c46365eadd05de6f7f40cf2d3d83d",
+          "result": "pass"
+        }
+      },
+      "started_at": "2026-10-13T00:00:00Z",
+      "completed_at": "2026-10-13T00:01:00Z",
+      "client_id": "OGC CITE",
+      "runner_lane": "cite-wfs-1-1",
+      "protocol_version": "synthetic-control",
+      "protocol_profile": "synthetic-control",
+      "performed_by": "OGC CITE",
+      "request_url": "http://localhost:8080/synthetic-control",
+      "exercised_capabilities": [
+        "positive",
+        "negative",
+        "crs-axis",
+        "media-schema"
+      ],
+      "budget_observations": null
+    },
+    {
+      "capability_key": "serve.wfs",
+      "surface": "wfs-2-0",
+      "operation": "serve.wfs",
+      "maturity": "supported",
+      "canonical_client": "OGC CITE",
+      "client_lane": "cite-wfs-2-0",
+      "client_version": "WFS 2.0",
+      "deployment_target": "local-docker",
+      "required_tier": "nightly",
+      "licensed": false,
+      "entitlement_policy_revision": null,
+      "addressable_by_client": true,
+      "addressability_reason": null,
+      "scenario_facets": [
+        "positive",
+        "negative",
+        "crs-axis",
+        "media-schema"
+      ],
+      "contract_revision": "server-capability-matrix@aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "auth_policy_revision": "anonymous-public-v1",
+      "fixture_revision": "docker/cite/shared/test-data@aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "budget_expectations": null,
+      "result": "pass",
+      "skip_reason": null,
+      "source_sha": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "producer_source_sha": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "image_digest": "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+      "evidence_uri": "https://evidence.honua.io/data/sha256/707240b3e856de084fc0c531e03c68245ce8bf71838b9af3c57c55faf5a63e10",
+      "evidence_digest": "sha256:707240b3e856de084fc0c531e03c68245ce8bf71838b9af3c57c55faf5a63e10",
+      "evidence_receipt": {
+        "facets": {
+          "crs-axis": "pass",
+          "media-schema": "pass",
+          "negative": "pass",
+          "positive": "pass"
+        },
+        "identity": {
+          "auth_policy_revision": "anonymous-public-v1",
+          "candidate_cut_at": "2026-10-13T00:00:00Z",
+          "canonical_client": "OGC CITE",
+          "capability_key": "serve.wfs",
+          "client_version": "WFS 2.0",
+          "completed_at": "2026-10-13T00:01:00Z",
+          "contract_revision": "server-capability-matrix@aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "deployment_target": "local-docker",
+          "fixture_revision": "docker/cite/shared/test-data@aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "image_digest": "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+          "maturity": "supported",
+          "operation": "serve.wfs",
+          "producer_run": {
+            "dispatch_id": "nightly-certification-1-1",
+            "repository": "honua-io/honua-server",
+            "run_attempt": 1,
+            "run_id": 1,
+            "workflow": "cite-certification.yml"
+          },
+          "producer_source_sha": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "required_tier": "nightly",
+          "requirements_revision": "test-staged.1",
+          "source_sha": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "started_at": "2026-10-13T00:00:00Z",
+          "surface": "wfs-2-0"
+        },
+        "payload_base64": "eyJjb3VudHMiOnsiY2FudFRlbGwiOjAsImZhaWxlZCI6MCwicGFzc2VkIjoxLCJza2lwcGVkIjowLCJ0b3RhbFRlc3RzIjoxfSwicHJvZmlsZSI6InN5bnRoZXRpYy1jb250cm9sIiwicnVuX3VybCI6Imh0dHBzOi8vZ2l0aHViLmNvbS9ob251YS1pby9ob251YS1zZXJ2ZXIvYWN0aW9ucy9ydW5zLzEiLCJzdWl0ZV9pZCI6IndmczIwIiwic3VpdGVfdmVyc2lvbiI6InN5bnRoZXRpYy1jb250cm9sIiwidGVhbV9lbmdpbmVfdmVyc2lvbiI6InN5bnRoZXRpYy1jb250cm9sIn0=",
+        "result": "pass",
+        "schema": "honua.certification-evidence-receipt/v2"
+      },
+      "facet_results": {
+        "crs-axis": {
+          "evidence_digest": "sha256:707240b3e856de084fc0c531e03c68245ce8bf71838b9af3c57c55faf5a63e10",
+          "result": "pass"
+        },
+        "media-schema": {
+          "evidence_digest": "sha256:707240b3e856de084fc0c531e03c68245ce8bf71838b9af3c57c55faf5a63e10",
+          "result": "pass"
+        },
+        "negative": {
+          "evidence_digest": "sha256:707240b3e856de084fc0c531e03c68245ce8bf71838b9af3c57c55faf5a63e10",
+          "result": "pass"
+        },
+        "positive": {
+          "evidence_digest": "sha256:707240b3e856de084fc0c531e03c68245ce8bf71838b9af3c57c55faf5a63e10",
+          "result": "pass"
+        }
+      },
+      "started_at": "2026-10-13T00:00:00Z",
+      "completed_at": "2026-10-13T00:01:00Z",
+      "client_id": "OGC CITE",
+      "runner_lane": "cite-wfs-2-0",
+      "protocol_version": "synthetic-control",
+      "protocol_profile": "synthetic-control",
+      "performed_by": "OGC CITE",
+      "request_url": "http://localhost:8080/synthetic-control",
+      "exercised_capabilities": [
+        "positive",
+        "negative",
+        "crs-axis",
+        "media-schema"
+      ],
+      "budget_observations": null
+    },
+    {
+      "capability_key": "serve.wms",
+      "surface": "wms-1-3",
+      "operation": "serve.wms",
+      "maturity": "supported",
+      "canonical_client": "OGC CITE",
+      "client_lane": "cite-wms-1-3",
+      "client_version": "WMS 1.3",
+      "deployment_target": "local-docker",
+      "required_tier": "nightly",
+      "licensed": false,
+      "entitlement_policy_revision": null,
+      "addressable_by_client": true,
+      "addressability_reason": null,
+      "scenario_facets": [
+        "positive",
+        "negative",
+        "crs-axis",
+        "media-schema"
+      ],
+      "contract_revision": "server-capability-matrix@aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "auth_policy_revision": "anonymous-public-v1",
+      "fixture_revision": "docker/cite/shared/seed/mapserver.sql@aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "budget_expectations": null,
+      "result": "pass",
+      "skip_reason": null,
+      "source_sha": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "producer_source_sha": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "image_digest": "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+      "evidence_uri": "https://evidence.honua.io/data/sha256/431198c947a82289feb36f81c34a8cce6a615f7e376f9e1c5208089cd4480e76",
+      "evidence_digest": "sha256:431198c947a82289feb36f81c34a8cce6a615f7e376f9e1c5208089cd4480e76",
+      "evidence_receipt": {
+        "facets": {
+          "crs-axis": "pass",
+          "media-schema": "pass",
+          "negative": "pass",
+          "positive": "pass"
+        },
+        "identity": {
+          "auth_policy_revision": "anonymous-public-v1",
+          "candidate_cut_at": "2026-10-13T00:00:00Z",
+          "canonical_client": "OGC CITE",
+          "capability_key": "serve.wms",
+          "client_version": "WMS 1.3",
+          "completed_at": "2026-10-13T00:01:00Z",
+          "contract_revision": "server-capability-matrix@aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "deployment_target": "local-docker",
+          "fixture_revision": "docker/cite/shared/seed/mapserver.sql@aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "image_digest": "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+          "maturity": "supported",
+          "operation": "serve.wms",
+          "producer_run": {
+            "dispatch_id": "nightly-certification-1-1",
+            "repository": "honua-io/honua-server",
+            "run_attempt": 1,
+            "run_id": 1,
+            "workflow": "cite-certification.yml"
+          },
+          "producer_source_sha": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "required_tier": "nightly",
+          "requirements_revision": "test-staged.1",
+          "source_sha": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "started_at": "2026-10-13T00:00:00Z",
+          "surface": "wms-1-3"
+        },
+        "payload_base64": "eyJjb3VudHMiOnsiY2FudFRlbGwiOjAsImZhaWxlZCI6MCwicGFzc2VkIjoxLCJza2lwcGVkIjowLCJ0b3RhbFRlc3RzIjoxfSwicHJvZmlsZSI6InN5bnRoZXRpYy1jb250cm9sIiwicnVuX3VybCI6Imh0dHBzOi8vZ2l0aHViLmNvbS9ob251YS1pby9ob251YS1zZXJ2ZXIvYWN0aW9ucy9ydW5zLzEiLCJzdWl0ZV9pZCI6IndtczEzIiwic3VpdGVfdmVyc2lvbiI6InN5bnRoZXRpYy1jb250cm9sIiwidGVhbV9lbmdpbmVfdmVyc2lvbiI6InN5bnRoZXRpYy1jb250cm9sIn0=",
+        "result": "pass",
+        "schema": "honua.certification-evidence-receipt/v2"
+      },
+      "facet_results": {
+        "crs-axis": {
+          "evidence_digest": "sha256:431198c947a82289feb36f81c34a8cce6a615f7e376f9e1c5208089cd4480e76",
+          "result": "pass"
+        },
+        "media-schema": {
+          "evidence_digest": "sha256:431198c947a82289feb36f81c34a8cce6a615f7e376f9e1c5208089cd4480e76",
+          "result": "pass"
+        },
+        "negative": {
+          "evidence_digest": "sha256:431198c947a82289feb36f81c34a8cce6a615f7e376f9e1c5208089cd4480e76",
+          "result": "pass"
+        },
+        "positive": {
+          "evidence_digest": "sha256:431198c947a82289feb36f81c34a8cce6a615f7e376f9e1c5208089cd4480e76",
+          "result": "pass"
+        }
+      },
+      "started_at": "2026-10-13T00:00:00Z",
+      "completed_at": "2026-10-13T00:01:00Z",
+      "client_id": "OGC CITE",
+      "runner_lane": "cite-wms-1-3",
+      "protocol_version": "synthetic-control",
+      "protocol_profile": "synthetic-control",
+      "performed_by": "OGC CITE",
+      "request_url": "http://localhost:8080/synthetic-control",
+      "exercised_capabilities": [
+        "positive",
+        "negative",
+        "crs-axis",
+        "media-schema"
+      ],
+      "budget_observations": null
+    },
+    {
+      "capability_key": "serve.wmts",
+      "surface": "wmts-1-0",
+      "operation": "serve.wmts",
+      "maturity": "supported",
+      "canonical_client": "OGC CITE",
+      "client_lane": "cite-wmts-1-0",
+      "client_version": "WMTS 1.0",
+      "deployment_target": "local-docker",
+      "required_tier": "nightly",
+      "licensed": false,
+      "entitlement_policy_revision": null,
+      "addressable_by_client": true,
+      "addressability_reason": null,
+      "scenario_facets": [
+        "positive",
+        "negative",
+        "crs-axis",
+        "media-schema"
+      ],
+      "contract_revision": "server-capability-matrix@aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "auth_policy_revision": "anonymous-public-v1",
+      "fixture_revision": "docker/cite/shared/seed/mapserver.sql@aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "budget_expectations": null,
+      "result": "pass",
+      "skip_reason": null,
+      "source_sha": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "producer_source_sha": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "image_digest": "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+      "evidence_uri": "https://evidence.honua.io/data/sha256/283c57d37ce0d10705583c95eefb1d2348dcab8833a51bf85c222c0e6aac337c",
+      "evidence_digest": "sha256:283c57d37ce0d10705583c95eefb1d2348dcab8833a51bf85c222c0e6aac337c",
+      "evidence_receipt": {
+        "facets": {
+          "crs-axis": "pass",
+          "media-schema": "pass",
+          "negative": "pass",
+          "positive": "pass"
+        },
+        "identity": {
+          "auth_policy_revision": "anonymous-public-v1",
+          "candidate_cut_at": "2026-10-13T00:00:00Z",
+          "canonical_client": "OGC CITE",
+          "capability_key": "serve.wmts",
+          "client_version": "WMTS 1.0",
+          "completed_at": "2026-10-13T00:01:00Z",
+          "contract_revision": "server-capability-matrix@aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "deployment_target": "local-docker",
+          "fixture_revision": "docker/cite/shared/seed/mapserver.sql@aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "image_digest": "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+          "maturity": "supported",
+          "operation": "serve.wmts",
+          "producer_run": {
+            "dispatch_id": "nightly-certification-1-1",
+            "repository": "honua-io/honua-server",
+            "run_attempt": 1,
+            "run_id": 1,
+            "workflow": "cite-certification.yml"
+          },
+          "producer_source_sha": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "required_tier": "nightly",
+          "requirements_revision": "test-staged.1",
+          "source_sha": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "started_at": "2026-10-13T00:00:00Z",
+          "surface": "wmts-1-0"
+        },
+        "payload_base64": "eyJjb3VudHMiOnsiY2FudFRlbGwiOjAsImZhaWxlZCI6MCwicGFzc2VkIjoxLCJza2lwcGVkIjowLCJ0b3RhbFRlc3RzIjoxfSwicHJvZmlsZSI6InN5bnRoZXRpYy1jb250cm9sIiwicnVuX3VybCI6Imh0dHBzOi8vZ2l0aHViLmNvbS9ob251YS1pby9ob251YS1zZXJ2ZXIvYWN0aW9ucy9ydW5zLzEiLCJzdWl0ZV9pZCI6IndtdHMxMCIsInN1aXRlX3ZlcnNpb24iOiJzeW50aGV0aWMtY29udHJvbCIsInRlYW1fZW5naW5lX3ZlcnNpb24iOiJzeW50aGV0aWMtY29udHJvbCJ9",
+        "result": "pass",
+        "schema": "honua.certification-evidence-receipt/v2"
+      },
+      "facet_results": {
+        "crs-axis": {
+          "evidence_digest": "sha256:283c57d37ce0d10705583c95eefb1d2348dcab8833a51bf85c222c0e6aac337c",
+          "result": "pass"
+        },
+        "media-schema": {
+          "evidence_digest": "sha256:283c57d37ce0d10705583c95eefb1d2348dcab8833a51bf85c222c0e6aac337c",
+          "result": "pass"
+        },
+        "negative": {
+          "evidence_digest": "sha256:283c57d37ce0d10705583c95eefb1d2348dcab8833a51bf85c222c0e6aac337c",
+          "result": "pass"
+        },
+        "positive": {
+          "evidence_digest": "sha256:283c57d37ce0d10705583c95eefb1d2348dcab8833a51bf85c222c0e6aac337c",
+          "result": "pass"
+        }
+      },
+      "started_at": "2026-10-13T00:00:00Z",
+      "completed_at": "2026-10-13T00:01:00Z",
+      "client_id": "OGC CITE",
+      "runner_lane": "cite-wmts-1-0",
+      "protocol_version": "synthetic-control",
+      "protocol_profile": "synthetic-control",
+      "performed_by": "OGC CITE",
+      "request_url": "http://localhost:8080/synthetic-control",
+      "exercised_capabilities": [
+        "positive",
+        "negative",
+        "crs-axis",
+        "media-schema"
+      ],
+      "budget_observations": null
+    },
+    {
+      "capability_key": "serve.wps",
+      "surface": "wps-2-0",
+      "operation": "serve.wps",
+      "maturity": "supported",
+      "canonical_client": "OGC CITE",
+      "client_lane": "cite-wps-2-0",
+      "client_version": "WPS 2.0",
+      "deployment_target": "local-docker",
+      "required_tier": "nightly",
+      "licensed": false,
+      "entitlement_policy_revision": null,
+      "addressable_by_client": true,
+      "addressability_reason": null,
+      "scenario_facets": [
+        "positive",
+        "negative",
+        "crs-axis",
+        "media-schema"
+      ],
+      "contract_revision": "server-capability-matrix@aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "auth_policy_revision": "anonymous-public-v1",
+      "fixture_revision": "docker/cite/wps20/crs84-echo.xml@aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "budget_expectations": null,
+      "result": "pass",
+      "skip_reason": null,
+      "source_sha": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "producer_source_sha": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "image_digest": "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+      "evidence_uri": "https://evidence.honua.io/data/sha256/6ce679c9d2c87b72d112646f3df4940c388df0b3cbb926d12578683e20032ea7",
+      "evidence_digest": "sha256:6ce679c9d2c87b72d112646f3df4940c388df0b3cbb926d12578683e20032ea7",
+      "evidence_receipt": {
+        "facets": {
+          "crs-axis": "pass",
+          "media-schema": "pass",
+          "negative": "pass",
+          "positive": "pass"
+        },
+        "identity": {
+          "auth_policy_revision": "anonymous-public-v1",
+          "candidate_cut_at": "2026-10-13T00:00:00Z",
+          "canonical_client": "OGC CITE",
+          "capability_key": "serve.wps",
+          "client_version": "WPS 2.0",
+          "completed_at": "2026-10-13T00:01:00Z",
+          "contract_revision": "server-capability-matrix@aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "deployment_target": "local-docker",
+          "fixture_revision": "docker/cite/wps20/crs84-echo.xml@aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "image_digest": "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+          "maturity": "supported",
+          "operation": "serve.wps",
+          "producer_run": {
+            "dispatch_id": "nightly-certification-1-1",
+            "repository": "honua-io/honua-server",
+            "run_attempt": 1,
+            "run_id": 1,
+            "workflow": "cite-certification.yml"
+          },
+          "producer_source_sha": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "required_tier": "nightly",
+          "requirements_revision": "test-staged.1",
+          "source_sha": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "started_at": "2026-10-13T00:00:00Z",
+          "surface": "wps-2-0"
+        },
+        "payload_base64": "eyJjb3VudHMiOnsiY2FudFRlbGwiOjAsImZhaWxlZCI6MCwicGFzc2VkIjo4LCJza2lwcGVkIjowLCJ0b3RhbFRlc3RzIjo4fSwicHJvZmlsZSI6ImJhc2ljLWFzeW5jIiwicnVuX3VybCI6Imh0dHBzOi8vZ2l0aHViLmNvbS9ob251YS1pby9ob251YS1zZXJ2ZXIvYWN0aW9ucy9ydW5zLzEiLCJzdWl0ZV9pZCI6IndwczIwIiwic3VpdGVfdmVyc2lvbiI6InN5bnRoZXRpYy1jb250cm9sIiwidGVhbV9lbmdpbmVfdmVyc2lvbiI6InN5bnRoZXRpYy1jb250cm9sIiwid3BzX2ZhY2V0X2V2aWRlbmNlIjp7ImV4Y2x1ZGVkIjpbImNhbm9uaWNhbCBkdXJhYmxlIGdlb3Byb2Nlc3NpbmciLCJ1cHN0cmVhbSBFVFMgYXhpcy1vcmRlciBjZXJ0aWZpY2F0aW9uIl0sInN1cHBsZW1lbnRhbF9jcnNfYXhpcyI6eyJjb21wbGV0ZWRfYXQiOiIyMDI2LTEwLTEzVDAwOjAxOjAwWiIsImVsYXBzZWRfc2Vjb25kcyI6MC4yLCJlcnJvciI6bnVsbCwicmVxdWVzdCI6eyJtZXRob2QiOiJQT1NUIiwicGF0aCI6Ii93cHMiLCJzaGEyNTYiOiI5MjcwODY1YTM2NzlkMmJlMjg0ODY5ZjgyOTFiMmUyNzE1MjI1ZDM2NjA0MmYwNzIwMzI1YzcwNDIyMWEwMmMzIn0sInJlc3BvbnNlIjp7ImJ5dGVzIjozODcsIm1lZGlhX3R5cGUiOiJhcHBsaWNhdGlvbi94bWwiLCJzaGEyNTYiOiI2ZGZlOTM5MzNiMzE0MDlkNzM4MmUyNDRmYmY0YWZhOTk1MjE2OWJmYjc5N2VhYjUwZTMxMTlmMDFmODYxNDRjIiwic3RhdHVzIjoyMDB9LCJyZXN1bHQiOiJwYXNzIiwic2NoZW1hIjoiaG9udWEud3BzLWNyczg0LXN1cHBsZW1lbnQvdjEiLCJzdGFydGVkX2F0IjoiMjAyNi0xMC0xM1QwMDowMDowMFoifSwidXBzdHJlYW1fZXRzIjp7ImZhY2V0cyI6eyJtZWRpYS1zY2hlbWEiOlsiVmVyaWZ5UHJvY2Vzc1hNTEVuY29kaW5nIiwiVmVyaWZ5UHJvY2Vzc0RhdGFUeXBlWE1MRW5jb2RpbmciXSwibmVnYXRpdmUiOlsiVmFsaWRTZXJ2aWNlTmFtZSIsIlZhbGlkU2VydmljZVZlcnNpb24iXSwicG9zaXRpdmUiOlsiVmFsaWRFY2hvUHJvY2VzcyIsIlZhbGlkR2V0Q2FwYWJpbGl0aWVzVmlhR0VUS1ZQIiwiVmFsaWREZXNjcmliZVByb2Nlc3NWaWFHRVRLVlAiXX0sInJhd19zaGEyNTYiOiJhZjExNDlhNGZjYjc0ZDJlZTBjOWE1MDQ2Y2Y0YmI5N2Q4NWFmNWQyZWIzNDgyMGM3NzU1OGNmYzFjYWMxMzQ1Iiwic291cmNlX3NoYSI6ImUyYWNjNjkxNDQwZmFkOThkMzJlODczYTZiNzIzN2M5ZDc1OWI4ZGYifX19",
+        "result": "pass",
+        "schema": "honua.certification-evidence-receipt/v2"
+      },
+      "facet_results": {
+        "crs-axis": {
+          "evidence_digest": "sha256:6ce679c9d2c87b72d112646f3df4940c388df0b3cbb926d12578683e20032ea7",
+          "result": "pass"
+        },
+        "media-schema": {
+          "evidence_digest": "sha256:6ce679c9d2c87b72d112646f3df4940c388df0b3cbb926d12578683e20032ea7",
+          "result": "pass"
+        },
+        "negative": {
+          "evidence_digest": "sha256:6ce679c9d2c87b72d112646f3df4940c388df0b3cbb926d12578683e20032ea7",
+          "result": "pass"
+        },
+        "positive": {
+          "evidence_digest": "sha256:6ce679c9d2c87b72d112646f3df4940c388df0b3cbb926d12578683e20032ea7",
+          "result": "pass"
+        }
+      },
+      "started_at": "2026-10-13T00:00:00Z",
+      "completed_at": "2026-10-13T00:01:00Z",
+      "client_id": "OGC CITE",
+      "runner_lane": "cite-wps-2-0",
+      "protocol_version": "synthetic-control",
+      "protocol_profile": "basic-async",
+      "performed_by": "OGC CITE",
+      "request_url": "http://localhost:8080/wps",
+      "exercised_capabilities": [
+        "positive",
+        "negative",
+        "crs-axis",
+        "media-schema"
+      ],
+      "budget_observations": null
+    }
+  ]
+}
