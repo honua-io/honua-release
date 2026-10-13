@@ -238,7 +238,11 @@ class ContractTests(unittest.TestCase):
                     run.validate_release_inputs(manifest, matrix)
 
     def test_suite_cell_validation(self):
-        cell = next(c for c in MATRIX["cells"] if c["id"] == "pypi-sdk-geoservices")
+        # Retain malformed-blocker coverage after the observed edit repair activates this cell.
+        cell = copy.deepcopy(next(c for c in MATRIX["cells"] if c["id"] == "pypi-sdk-geoservices"))
+        blocker = "https://github.com/honua-io/honua-server/issues/5407"
+        cell.update(status="blocked", blockedBy=[blocker], blockedSteps={
+            "apply-edits-update": {"blockedBy": blocker, "signature": "recorded update failure"}})
         cases = [
             (lambda c: c.update(scenario="sdk-unknown"), "unknown scenario"),
             (lambda c: c.update(driver="npm-sdk"), "does not drive"),

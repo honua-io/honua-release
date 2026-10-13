@@ -87,6 +87,14 @@ async Task<JsonObject> PublishLayer(JsonObject args)
         ["layerName"] = published.LayerName,
         ["serviceName"] = published.ServiceName,
         ["enabled"] = published.Enabled,
+        // Managed storage assigns public object IDs independently of the source's business key.
+        // Read the publisher's mapping once so the other clients must preserve that identity.
+        ["assignedFeatures"] = await QueryFeatures(new JsonObject
+        {
+            ["service"] = published.ServiceName,
+            ["layerId"] = published.LayerId,
+            ["fields"] = args["fields"]!.DeepClone(),
+        }),
     };
 }
 
@@ -103,7 +111,13 @@ async Task<JsonObject> QueryFeatures(JsonObject args)
         {
             attributes[field] = feature.Attributes is { } values && values.TryGetValue(field, out var value) ? Scalar(value) : null;
         }
-        var row = new JsonObject { ["attributes"] = attributes, ["x"] = null, ["y"] = null };
+        var row = new JsonObject
+        {
+            ["attributes"] = attributes, ["x"] = null, ["y"] = null,
+            ["objectId"] = response.ObjectIdFieldName is { } oidField
+                && feature.Attributes is { } allValues && allValues.TryGetValue(oidField, out var oid)
+                    ? Scalar(oid) : null,
+        };
         if (feature.Geometry is { ValueKind: JsonValueKind.Object } geometry)
         {
             if (geometry.TryGetProperty("x", out var x)) row["x"] = Scalar(x);
@@ -111,7 +125,7 @@ async Task<JsonObject> QueryFeatures(JsonObject args)
         }
         rows.Add(row);
     }
-    return new JsonObject { ["features"] = rows };
+    return new JsonObject { ["features"] = rows, ["objectIdField"] = response.ObjectIdFieldName };
 }
 
 // IHonuaStudioPackageClient.GetContentItemPointersAsync

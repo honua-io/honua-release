@@ -51,7 +51,7 @@ HTTP_STATUS = re.compile(r"\bHTTP (\d{3})\b")
 # The exact API each step goes through; a self-test checks it equals the scenario contract.
 API = {
     "interop-publish-query-edit": {
-        "publish": "IHonuaAdminClient.PublishLayerAsync",
+        "publish": "IHonuaAdminClient.PublishLayerAsync + IHonuaFeatureServerClient.QueryAsync",
         "query": "honua_sdk.GeoServicesFeatureServerClient.query",
         "ids": "honua_sdk.GeoServicesFeatureServerClient.query(extra_params returnIdsOnly)",
         "count": "honua_sdk.HonuaClient.query(return_count_only=True)",
@@ -382,7 +382,8 @@ class Interop:
         def publish() -> dict[str, Any]:
             observed = outcome(self.dotnet.call(
                 "publish-layer", connectionId=PLAN["connectionId"], schema=handoff["schema"], table=handoff["table"],
-                layerName=handoff["layerName"], service=handoff["service"], geometryType=handoff["geometryType"]))
+                layerName=handoff["layerName"], service=handoff["service"], geometryType=handoff["geometryType"],
+                fields=handoff["fields"]))
             if type(observed.get("layerId")) is int:
                 state["layer"] = observed["layerId"]
             return observed
@@ -394,7 +395,7 @@ class Interop:
             rows = observed.get("features") or []
             state["oidField"] = observed.get("objectIdField")
             state["oids"] = {row.get("attributes", {}).get("gid"): row.get("objectId") for row in rows}
-            return {"features": [{key: row.get(key) for key in ("attributes", "x", "y")} for row in rows]}
+            return observed
         step(scenario, "query", query, state, ("layer",))
         step(scenario, "ids", lambda: outcome(self.python.call("query-ids", service=handoff["service"], layerId=state["layer"])),
              state, ("layer",))

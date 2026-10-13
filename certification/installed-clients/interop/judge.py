@@ -2,8 +2,9 @@
 
 An interop scenario hands one piece of work from client to client: each step names the client
 artifact that performs it, the exact SDK API, command or MCP request it goes through, and the
-earlier steps whose state it consumes. Every expectation is computed from ``fixture.v1.json`` in
-this directory, never from a server response. When a consuming step fails, its oracle summary
+earlier steps whose state it consumes. Expected content comes from ``fixture.v1.json``. Opaque
+managed object IDs are bound by the publishing client to those independently verified fixture rows;
+each consuming client must retain that same mapping. When a consuming step fails, its oracle summary
 names the seam: the producing client and API, and the consuming client and API.
 """
 from __future__ import annotations
@@ -515,13 +516,75 @@ def _draft(observations: dict[tuple[str, str], dict[str, Any]], scenario: str) -
     return observed if isinstance(observed, dict) else None
 
 
+def _handoff_identity(observed: Any, expected: list[dict[str, Any]]) -> tuple[dict[int, int] | None, str]:
+    if not isinstance(observed, dict):
+        return None, "missing publisher-assigned feature identities"
+    ok, detail = oracles._compare_features(observed, expected, ["gid", "name", "rank"], "handoff layer")
+    if not ok:
+        return None, detail
+    field = observed.get("objectIdField")
+    rows = observed["features"]
+    ids = [row.get("objectId") for row in rows]
+    if (not isinstance(field, str) or not field.strip()
+            or any(type(value) is not int or value <= 0 for value in ids) or len(set(ids)) != len(ids)):
+        return None, "handoff requires a named object-ID field and unique positive integer object IDs"
+    return {row["attributes"]["gid"]: row["objectId"] for row in rows}, detail
+
+
+def _published_handoff(observations: dict, scenario: str, fixture: dict) -> tuple[dict | None, str | None, str]:
+    published = observations.get((scenario, "publish"), {}).get("observed", {})
+    assigned = published.get("assignedFeatures") if isinstance(published, dict) else None
+    mapping, detail = _handoff_identity(assigned, fixture["handoff"]["features"])
+    return mapping, assigned.get("objectIdField") if isinstance(assigned, dict) else None, detail
+
+
+def oracle_handoff_published(observed: dict, fixture: dict, plan: dict) -> tuple[bool, str]:
+    ok, detail = _layer_published(observed, plan["handoff"])
+    if not ok:
+        return ok, detail
+    mapping, identity_detail = _handoff_identity(observed.get("assignedFeatures"), fixture["handoff"]["features"])
+    return mapping is not None, f"{detail}; publisher assignment: {identity_detail}; gid to object ID {mapping}"
+
+
+def oracle_handoff_features(observed: dict, fixture: dict, observations: dict, scenario: str,
+                            *, edited: bool = False) -> tuple[bool, str]:
+    baseline, field, detail = _published_handoff(observations, scenario, fixture)
+    if baseline is None:
+        return False, f"invalid publisher identity: {detail}"
+    mapping, detail = _handoff_identity(observed, edited_handoff(fixture) if edited else fixture["handoff"]["features"])
+    if mapping is None:
+        return False, detail
+    ok = mapping == baseline and observed.get("objectIdField") == field
+    return ok, f"{detail}; object-ID mapping {mapping}, publisher assigned {baseline} (field {field!r})"
+
+
+def oracle_handoff_ids(observed: dict, fixture: dict, observations: dict, scenario: str) -> tuple[bool, str]:
+    baseline, _field, detail = _published_handoff(observations, scenario, fixture)
+    if baseline is None:
+        return False, f"invalid publisher identity: {detail}"
+    ok, detail = oracles.oracle_object_ids(observed, list(baseline.values()))
+    return ok, f"publisher-assigned identity: {detail}"
+
+
+def oracle_handoff_edit(observed: dict, fixture: dict, observations: dict, scenario: str) -> tuple[bool, str]:
+    baseline, _field, detail = _published_handoff(observations, scenario, fixture)
+    if baseline is None:
+        return False, f"invalid publisher identity: {detail}"
+    ok, detail = oracles.oracle_edit_success(observed)
+    if not ok:
+        return ok, detail
+    expected = baseline[fixture["handoff"]["edit"]["gid"]]
+    actual = observed["results"][0].get("objectId")
+    return type(actual) is int and actual == expected, f"{detail}; edited object ID {actual}, publisher assigned {expected}"
+
+
 ORACLES: dict[str, Callable[..., tuple[bool, str]]] = {
-    "interop-layer-published": lambda o, f, p, obs, s: _layer_published(o, p["handoff"]),
-    "interop-handoff-features": lambda o, f, p, obs, s: oracles._compare_features(o, f["handoff"]["features"], ["gid", "name", "rank"], "published layer"),
-    "interop-handoff-ids": lambda o, f, p, obs, s: oracles.oracle_object_ids(o, [row["gid"] for row in f["handoff"]["features"]]),
+    "interop-layer-published": lambda o, f, p, obs, s: oracle_handoff_published(o, f, p),
+    "interop-handoff-features": lambda o, f, p, obs, s: oracle_handoff_features(o, f, obs, s),
+    "interop-handoff-ids": lambda o, f, p, obs, s: oracle_handoff_ids(o, f, obs, s),
     "interop-handoff-count": lambda o, f, p, obs, s: oracles.oracle_count(o, len(f["handoff"]["features"])),
-    "interop-edit-success": lambda o, f, p, obs, s: oracles.oracle_edit_success(o),
-    "interop-edited-features": lambda o, f, p, obs, s: oracles._compare_features(o, edited_handoff(f), ["gid", "name", "rank"], "edited layer"),
+    "interop-edit-success": lambda o, f, p, obs, s: oracle_handoff_edit(o, f, obs, s),
+    "interop-edited-features": lambda o, f, p, obs, s: oracle_handoff_features(o, f, obs, s, edited=True),
     "interop-imported": lambda o, f, p, obs, s: oracle_imported(o, f),
     "interop-area-published": lambda o, f, p, obs, s: _layer_published(o, p["area"], f["area"]["geometryType"]),
     "interop-area-features": lambda o, f, p, obs, s: oracle_area_features(o, f),
