@@ -83,6 +83,16 @@ def sdk_js_version() -> str:
     if contract.get("canonicalClient") != "@honua/sdk-js" or contract.get("clientVersion") != version:
         raise ValueError("pinned sdk-js coverage and protocol contract must declare the same client and version")
     return version
+def protocol_clients() -> list[tuple]:
+    """Authoritative protocol client declarations, shared by generation and validation."""
+    return [
+        ("ArcGIS REST protocol client", "11.3", "raw-geoservices", "local-docker", False, None, None),
+        ("ArcGIS API for Python", "2.4", "arcgis-python", "local-docker", False, None, None),
+        ("ArcGIS Maps SDK for .NET", "200.8", "esri-dotnet", "windows", False, None, None),
+        licensed_scripting_client(),
+    ]
+
+
 def licensed_scripting_client() -> tuple:
     """Authoritative existing licensed scripting declaration, shared by catalog validation."""
     return ("desktop scripting client", PRO["version"], "desktop-arcpy", PRO["deployment_target"], True, "esri-arcgis-pro-arcpy-v1", MUST_FIX)
@@ -812,12 +822,7 @@ def main() -> None:
 
     esri_index = load(SOURCES / "esri-compat" / "matrix" / "index.json")
     geometry_policy = load(SOURCES / "geometry-service-client-addressability.v1.json")
-    esri_clients = [
-        ("ArcGIS REST protocol client", "11.3", "raw-geoservices", "local-docker", False, None, None),
-        ("ArcGIS API for Python", "2.4", "arcgis-python", "local-docker", False, None, None),
-        ("ArcGIS Maps SDK for .NET", "200.8", "esri-dotnet", "windows", False, None, None),
-        licensed_scripting_client(),
-    ]
+    esri_clients = protocol_clients()
     # The public catalog keeps only the governed lane and policy identifiers; its canonical
     # client name remains the nominative product label.
     scripting_canonical = PRO["name"]

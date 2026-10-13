@@ -41,12 +41,12 @@ def validate_geometry_client_addressability(catalog: dict) -> None:
     rows = [row for row in catalog["requirements"] if row["client_lane"] == lane + "-geometry-service"]
     if len(operations) != policy["supported_operation_count"] or len(rows) != len(operations) or {row["operation"] for row in rows} != operations:
         raise ValueError("All original Licensed scripting GeometryServer operation records must remain explicit.")
-    if any(row["addressable_by_client"] or row["addressability_reason"] != policy["reason"]
+    if any(row.get("client_driver") != driver or row["addressable_by_client"] or row["addressability_reason"] != policy["reason"]
            or row["scenario_facets"] != ["not-client-addressable"] for row in rows):
         raise ValueError("Licensed scripting GeometryServer operations must carry the documented non-addressability policy.")
     if any(row["addressability_reason"] == policy["reason"] for row in catalog["requirements"] if row not in rows):
         raise ValueError("Licensed scripting GeometryServer policy cannot apply to another client or surface.")
-    for lane in {row["client_lane"].removesuffix("-geometry-service") for row in catalog["requirements"] if row["surface"] == "geometry-service" and row["operation"] in operations and row.get("client_driver") != driver}:
+    for lane in (client[2] for client in config.protocol_clients() if not client[4]):
         other = [row for row in catalog["requirements"] if row["client_lane"] == lane + "-geometry-service"]
         if (len(other) != len(operations) or {row["operation"] for row in other} != operations
                 or any(not row["addressable_by_client"] or row["addressability_reason"] is not None for row in other)):
