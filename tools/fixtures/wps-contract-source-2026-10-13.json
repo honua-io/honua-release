@@ -3,7 +3,8 @@
     "repository": "honua-io/honua-server",
     "commit": "22dc4262c649baa537dbbb64bed7d012ed98e0d3",
     "capabilityMatrixSha256": "4b2090c9c4025185b9aef02a48dd828457487c76e6a0652fabadcf8a3ff19035",
-    "harnessSha256": "2dc0136e150077e23b295bcdbd109d502127f020da6a9a652ceaeaa0da9b8c9a"
+    "harnessSha256": "2dc0136e150077e23b295bcdbd109d502127f020da6a9a652ceaeaa0da9b8c9a",
+    "projection": "Selected capability and operation-contract fields; unused empty assessment metadata omitted. Source hashes identify the complete upstream files."
   },
   "capability": {
     "key": "serve.wps",
@@ -27,7 +28,6 @@
       }
     ],
     "parity": [],
-    "esriAssess": [],
     "interop": [],
     "geobench": []
   },
