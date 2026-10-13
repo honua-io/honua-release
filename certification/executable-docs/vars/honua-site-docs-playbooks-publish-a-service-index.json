@@ -5,6 +5,14 @@
     "quickstart-admin-password": {
       "value": "{candidate.adminPassword}",
       "documentedAt": "docs/playbooks/publish-a-service/index.md:20 — \"the admin password is `HONUA_ADMIN_PASSWORD`, which the root compose file defaults to `quickstart-admin-password` — a placeholder\""
+    },
+    "<serviceName>": {
+      "value": "{fixture.featureService}",
+      "documentedAt": "docs/playbooks/publish-a-service/index.md:104-109 - SERVICE_NAME is explicitly assigned the serviceName from publication; this run supplies its seeded feature service."
+    },
+    "<layerId>": {
+      "value": "{fixture.featureLayerId}",
+      "documentedAt": "docs/playbooks/publish-a-service/index.md:104-110 - LAYER_ID is explicitly assigned the layerId from publication; this run supplies its seeded feature layer."
     }
   }
 }
