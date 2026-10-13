@@ -351,12 +351,13 @@ jobs:
       # which reads like a broken cell rather than a capacity ceiling. Observed on run 32193955519,
       # where four cells took slots and the rest failed.
       #
-      # max-parallel keeps concurrent VPC demand at 2 + the default VPC, leaving headroom for the
+      # Serial cells keep concurrent VPC demand at 1 + the default VPC, leaving headroom for the
       # demo VPC and any validation cell that has not been reaped yet (honua-iac#142). Raising the
       # quota is the other half of the fix and is tracked separately; this is the half that does not
       # depend on an AWS support ticket, and it stays correct afterwards. It bounds whole cells: a
       # cell's VPC lives from its provision job to its teardown job, inside one called workflow.
-      max-parallel: 2
+      # Finish each provision -> journey -> teardown chain before starting the next paid cell.
+      max-parallel: 1
       matrix:
         # aws-mixed is out for 2026.1 rc.3 (no examples/aws-mixed root); restore it when honua-iac#209 lands.
         target: ${{ fromJSON((inputs.target == '' || inputs.target == 'all') && '["aws-serverless","aws-ecs","aws-eks"]' || format('["{0}"]', inputs.target)) }}
@@ -397,7 +398,8 @@ jobs:
     continue-on-error: true
     name: "iac-live (terraform-manual-validation, run_live=aws)"
     needs: candidate
-    if: ${{ github.event_name == 'schedule' || inputs.run_iac_live }}
+    # A reusable call inherits its caller's event: scheduled nightly must honor its explicit false.
+    if: ${{ (github.event_name == 'schedule' && github.workflow == 'e2e-cloud-aws') || inputs.run_iac_live }}
     runs-on: ubuntu-latest
     steps:
       - name: Dispatch + poll honua-iac terraform-manual-validation (run_live, AWS)
@@ -539,7 +541,7 @@ jobs:
           FULL_SCOPE: ${{ (github.event_name == 'schedule' || ((inputs.target == '' || inputs.target == 'all') && (inputs.redis_mode == '' || inputs.redis_mode == 'both') )) && 'true' || 'false' }}
           REQUESTED_TARGET: ${{ inputs.target || 'all' }}
           REQUESTED_REDIS: ${{ inputs.redis_mode || 'both' }}
-          REQUESTED_IAC_LIVE: ${{ github.event_name == 'schedule' || inputs.run_iac_live }}
+          REQUESTED_IAC_LIVE: ${{ (github.event_name == 'schedule' && github.workflow == 'e2e-cloud-aws') || inputs.run_iac_live }}
           HONUA_CLOUD_COST_CEILING_USD: ${{ inputs.cost_ceiling_usd || '20' }}
           AGGREGATION_STARTED_AT: ${{ steps.started.outputs.at }}
         # The meter step above wrote e2e/cloud-evidence/run-cost.json (the run's estimate) after every

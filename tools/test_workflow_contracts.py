@@ -66,6 +66,42 @@ def test_real_release_cut_verifies_published_bytes_and_producer_trust():
     assert 'DRY_RUN" = "false' in commands
 
 
+def test_release_train_cloud_budget_excludes_supplemental_iac():
+    caller = _workflow("release-train.yml")["jobs"]["gate_cloud_parity"]
+    assert caller["with"]["run_iac_live"] is False
+    assert caller["with"]["cost_ceiling_usd"] == "20"
+    cloud = _workflow("e2e-cloud-aws.yml")
+    assert cloud["jobs"]["parity"]["strategy"]["max-parallel"] == 1
+    # Serialization changes neither the required cell set nor failure/cleanup execution.
+    assert cloud["jobs"]["parity"]["strategy"]["fail-fast"] is False
+    assert cloud["jobs"]["parity"]["uses"] == "./.github/workflows/e2e-cloud-aws-cell.yml"
+
+
+@pytest.mark.parametrize("event,caller,requested,expected", [
+    ("schedule", "nightly-certification", False, False),
+    ("schedule", "release-train", False, False),
+    ("schedule", "e2e-cloud-aws", False, True),
+    ("workflow_dispatch", "e2e-cloud-aws", False, False),
+    ("workflow_dispatch", "e2e-cloud-aws", True, True),
+    ("workflow_dispatch", "release-train", False, False),
+])
+def test_cloud_iac_schedule_does_not_override_reusable_caller(event, caller, requested, expected):
+    workflow = _workflow("e2e-cloud-aws.yml")
+    condition = workflow["jobs"]["iac-live"]["if"]
+    reporting = next(step["env"]["REQUESTED_IAC_LIVE"]
+                     for step in workflow["jobs"]["cloud-report"]["steps"]
+                     if "REQUESTED_IAC_LIVE" in step.get("env", {}))
+    assert reporting == condition
+    # Evaluate the checked-in boolean expression against both scheduled caller identities.
+    # Reusable workflows inherit github.event_name from the caller, not workflow_call.
+    expression = condition.removeprefix("${{").removesuffix("}}").strip()
+    for token, value in {"github.event_name": event, "github.workflow": caller,
+                         "inputs.run_iac_live": requested}.items():
+        expression = expression.replace(token, repr(value))
+    expression = expression.replace("&&", " and ").replace("||", " or ")
+    assert eval(expression, {"__builtins__": {}}) is expected
+
+
 def _run_with_refusing_generator(command: str, root: Path, variables: dict) -> tuple[subprocess.CompletedProcess, bool]:
     """Run a workflow shell whose generator writes a partial draft and refuses.
 
