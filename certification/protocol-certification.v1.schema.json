@@ -46,6 +46,13 @@
         "surface": { "type": "string", "minLength": 1 },
         "operation": { "type": "string", "minLength": 1 },
         "maturity": { "enum": ["supported", "preview", "experimental", "roadmap", "deprecated", "internal"] },
+        "client_id": { "type": "string", "minLength": 1, "maxLength": 256, "pattern": "^[^\\u0000-\\u001f]*\\S[^\\u0000-\\u001f]*$" },
+        "runner_lane": { "type": "string", "minLength": 1, "maxLength": 256, "pattern": "^[^\\u0000-\\u001f]*\\S[^\\u0000-\\u001f]*$" },
+        "protocol_version": { "type": "string", "minLength": 1, "maxLength": 256, "pattern": "^[^\\u0000-\\u001f]*\\S[^\\u0000-\\u001f]*$" },
+        "protocol_profile": { "type": "string", "minLength": 1, "maxLength": 256, "pattern": "^[^\\u0000-\\u001f]*\\S[^\\u0000-\\u001f]*$" },
+        "performed_by": { "type": "string", "minLength": 1, "maxLength": 256, "pattern": "^[^\\u0000-\\u001f]*\\S[^\\u0000-\\u001f]*$" },
+        "request_url": { "type": ["string", "null"], "minLength": 1, "maxLength": 8192, "pattern": "^https?://[^\\s]+$" },
+        "exercised_capabilities": { "type": "array", "uniqueItems": true, "maxItems": 15, "items": { "$ref": "#/$defs/cell/properties/scenario_facets/items" } },
         "canonical_client": { "type": "string", "minLength": 1 },
         "client_lane": { "type": "string", "minLength": 1 },
         "client_version": { "type": "string", "minLength": 1 },
@@ -213,7 +220,46 @@
           }
         }
       },
+      "dependentRequired": {
+        "client_id": ["runner_lane", "protocol_version", "protocol_profile", "performed_by", "request_url", "exercised_capabilities"],
+        "runner_lane": ["client_id", "protocol_version", "protocol_profile", "performed_by", "request_url", "exercised_capabilities"],
+        "protocol_version": ["client_id", "runner_lane", "protocol_profile", "performed_by", "request_url", "exercised_capabilities"],
+        "protocol_profile": ["client_id", "runner_lane", "protocol_version", "performed_by", "request_url", "exercised_capabilities"],
+        "performed_by": ["client_id", "runner_lane", "protocol_version", "protocol_profile", "request_url", "exercised_capabilities"],
+        "request_url": ["client_id", "runner_lane", "protocol_version", "protocol_profile", "performed_by", "exercised_capabilities"],
+        "exercised_capabilities": ["client_id", "runner_lane", "protocol_version", "protocol_profile", "performed_by", "request_url"]
+      },
       "allOf": [
+        {
+          "if": { "required": ["request_url"], "properties": { "request_url": { "type": "null" }, "result": { "const": "skip" } } },
+          "then": { "properties": {
+            "exercised_capabilities": { "maxItems": 0 },
+            "evidence_receipt": { "type": "null" },
+            "evidence_digest": { "type": "null" },
+            "evidence_uri": { "type": "null" },
+            "facet_results": { "type": "null" }
+          } }
+        },
+        {
+          "if": { "required": ["request_url"], "properties": { "request_url": { "type": "null" } }, "not": { "properties": { "result": { "const": "skip" } } } },
+          "then": {
+            "required": ["test_ids"],
+            "properties": {
+              "canonical_client": { "const": "Honua server public protocol integration harness" },
+              "client_id": { "const": "Honua server public protocol integration harness" },
+              "performed_by": { "const": "Honua server public protocol integration harness" },
+              "client_lane": { "const": "server-protocol-harness" },
+              "runner_lane": { "const": "server-protocol-harness" },
+              "deployment_target": { "const": "source-test-host" },
+              "image_digest": { "type": "null" },
+              "protocol_profile": { "const": "source-test-host-http-adapter" },
+              "evidence_receipt": {
+                "type": "object",
+                "properties": { "identity": { "type": "object", "required": ["producer_run"] } }
+              }
+            }
+          }
+        },
         {
           "if": {
             "properties": { "deployment_target": { "const": "source-test-host" } },
