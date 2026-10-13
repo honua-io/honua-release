@@ -50,7 +50,6 @@ SERVE = re.compile(
     r"npx\s+(?:-y\s+)?(?:vite|serve|http-server)|vite\b|python3?\s+-m\s+http\.server|uvicorn\b|flask\s+run|"
     r"dotnet\s+watch\b|docker\s+compose\s+up(?!.*\s-d\b)(?!.*--detach))", re.M)
 DEFAULT_TIMEOUT = 600
-SERVE_WINDOW = 60
 SECRETISH = re.compile(
     r"(([Pp]ass(word|wd)?|PASSWORD|[Ss]ecret|SECRET|[Tt]oken|TOKEN|[Aa]pi[-_]?[Kk]ey|API[-_]?KEY|MASTER_KEY)"
     r"[\"']?\s*[=:]\s*[\"']?)(?!os\.environ|os\.getenv|process\.env|Environment\.|\$|\*\*\*)[^\s\"';,]+")
@@ -351,7 +350,9 @@ class Session:
             f"cd {shlex.quote(self.cwd)} 2>/dev/null || cd {shlex.quote(str(self.workdir))}\n"
             f"trap 'rc=$?; pwd > {shlex.quote(str(cwdfile))}; env -0 > {shlex.quote(str(envfile))}; exit $rc' EXIT\n"
             f"set -a -e\n. {shlex.quote(str(script))}\n")
-        window = SERVE_WINDOW if serve else timeout
+        # A serve block can install dependencies before starting its server. Honor
+        # the same document budget for that unchanged setup + serving sequence.
+        window = timeout
         started = time.monotonic()
         with out.open("w") as stdout_file, err.open("w") as stderr_file:
             proc = subprocess.Popen(

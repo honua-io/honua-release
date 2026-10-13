@@ -16,7 +16,13 @@ Readiness attributes combine with the issue marker:
 ```
 
 `ready-log="exact ready line"` also works. Once readiness succeeds it stays observed through
-shutdown at the end of the serve window.
+shutdown at the end of the document's execution budget (`timeout`, default 600 seconds).
+That budget covers the complete unchanged command block, including scaffolding and
+dependency installation before the server starts. A separate 60-second serve cap
+previously terminated cold installs before readiness could be observed. The runner
+still requires a successful readiness probe or exact log line; reaching the timeout
+alone never passes, and early or unsuccessful process exits still fail. GNU `timeout`
+retains bounded process-group termination and its five-second kill grace period.
 
 Document precedence is `fail > needs-input > blocked > pass`. Any blocked document keeps the
 nightly gate `blocked` and red; there is no waiver. Documented `jq`, `python` and `sudo`
