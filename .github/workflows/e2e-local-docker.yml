@@ -219,6 +219,7 @@ jobs:
       - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
         with:
           python-version: "3.12"
+      - run: python -m pip install pyyaml==6.0.3
 
       # Static gates first â€” these ALWAYS run and can FAIL on a broken edit even with no image
       # (compose validity, shell syntax, python compile, manifest-snapshot validity).
@@ -440,6 +441,14 @@ jobs:
           path: e2e/gate-report.json
           if-no-files-found: warn
 
+      - name: Upload candidate raw capability manifests
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: e2e-slice1-capability-manifest
+          path: e2e/out/capability-manifest/
+          if-no-files-found: warn
+
       # S4's failure message is `see .../e2e/out/console-live.log`, but that file was never uploaded,
       # so a red S4 was undebuggable from CI. Upload the Playwright log plus the traces/screenshots
       # the driver now writes under e2e/out/console-playwright. Kept as its OWN artifact, deliberately
@@ -478,6 +487,7 @@ jobs:
       - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
         with:
           python-version: "3.12"
+      - run: python -m pip install pyyaml==6.0.3
 
       - name: Static checks
         run: bash e2e/harness/run_all.sh check
@@ -514,6 +524,14 @@ jobs:
         with:
           name: e2e-slice1-redis-off-gate-report
           path: e2e/gate-report.json
+          if-no-files-found: warn
+
+      - name: Upload Redis-off raw capability manifests
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: e2e-slice1-redis-off-capability-manifest
+          path: e2e/out/capability-manifest/
           if-no-files-found: warn
 
   control-plane-parity:
