@@ -61,7 +61,7 @@ RUNNER_CALLS = {
     "HonuaStudioLifecycleClient.publicationRequests.poll": ("honua-sdk-js", "studio.publicationRequests.poll("),
     "IHonuaStudioPackageClient.GetContentItemPointersAsync": ("honua-sdk-dotnet", ".GetContentItemPointersAsync("),
     "IHonuaStudioPackageClient.GetVersionAsync": ("honua-sdk-dotnet", ".GetVersionAsync("),
-    "(no published Studio route reader in Honua.Sdk)": ("honua-sdk-dotnet", "throw new NotSupportedException("),
+    "IHonuaStudioPackageClient.GetPublishedArtifactAsync": ("honua-sdk-dotnet", ".GetPublishedArtifactAsync("),
     "honua_sdk.HonuaClient(api_key).feature_server(...).query": ("honua-sdk-python-wheel", "HonuaClient(BASE, api_key=handle.read().strip())"),
     "HonuaClient({apiKey}).featureLayer().queryFeatures": ("honua-sdk-js", "new HonuaClient({ baseUrl: base, apiKey: readFileSync(args.secretFile"),
     "IHonuaFeatureServerClient.QueryAsync (HonuaSdkOptions.ApiKey)": ("honua-sdk-dotnet", "identity = Provider("),
@@ -180,7 +180,10 @@ class ContractTests(unittest.TestCase):
     def test_no_client_program_makes_a_raw_http_call(self):
         network = r"(?m)^\s*(import|from)\s+(httpx|requests|urllib|http\.client|socket|aiohttp)\b|\b(urllib|httpx|requests)\.\w+\("
         self.assertNotRegex(SOURCES["honua-sdk-python-wheel"], network)
-        self.assertNotRegex(SOURCES["orchestrator"], network)
+        # These two pure URL parsing functions cannot issue requests. All network-capable imports stay prohibited.
+        parsing_only = "from urllib.parse import unquote, urlsplit\n"
+        self.assertEqual(SOURCES["orchestrator"].count(parsing_only), 1)
+        self.assertNotRegex(SOURCES["orchestrator"].replace(parsing_only, ""), network)
         self.assertNotRegex(SOURCES["honua-sdk-js"], r"\bfetch\(|node:https?\b")
         self.assertNotRegex(SOURCES["honua-sdk-dotnet"], r"new HttpClient|GetAsync\(\"|PostAsync\(")
 
@@ -377,8 +380,16 @@ class OracleTests(unittest.TestCase):
         self.assertTrue(judge.oracle_published_content(content, FIXTURE, p, saved)[0])
         self.assertFalse(judge.oracle_published_content(dict(content, contentHash="b" * 64), FIXTURE, p, saved)[0])
         self.assertFalse(judge.oracle_published_content(dict(content, body={}), FIXTURE, p, saved)[0])
-        polled = {"state": "Active", "publicationUrl": "http://c" + p["proposal"]["route"]}
-        self.assertTrue(judge.oracle_published_url(dict(content, url=polled["publicationUrl"]), FIXTURE, p, saved, polled)[0])
+        polled = {"requestId": "r", "state": "Active", "publicationUrl": "http://c" + p["proposal"]["route"]}
+        artifact = dict(content, url=polled["publicationUrl"], itemId="i", versionId="v", publicationId="r",
+                        route=p["proposal"]["route"], verifiedContentHash=True)
+        self.assertTrue(judge.oracle_published_url(artifact, FIXTURE, p, saved, polled)[0])
+        for field in ("itemId", "versionId", "publicationId", "route", "verifiedContentHash"):
+            for value in (None, "wrong"):
+                with self.subTest(field=field, value=value):
+                    self.assertFalse(judge.oracle_published_url(dict(artifact, **{field: value}), FIXTURE, p, saved, polled)[0])
+        self.assertFalse(judge.oracle_published_url(dict(artifact, contentHashInput=base64.b64encode(b"tampered").decode()),
+                                                  FIXTURE, p, saved, polled)[0])
         # The .NET reader must consume the URL the JS SDK polled, not rebuild it from the fixture route.
         for url in ("http://other" + p["proposal"]["route"], p["proposal"]["route"], None):
             ok, summary = judge.oracle_published_url(dict(content, url=url), FIXTURE, p, saved, polled)
@@ -691,8 +702,7 @@ class RunnerTests(unittest.TestCase):
                 return {"status": "Succeeded"}
 
         route = self.orchestrator.PLAN["proposal"]["route"]
-        # Wrong origin and prefixed: the reader must be handed this string, not the fixture route.
-        polled = "https://elsewhere.example/prefix" + route
+        polled = self.orchestrator.BASE.rstrip("/") + "/api/v1/studio/published" + route
         js = {"studio-create-draft": {"draftId": "d", "itemId": "i"},
               "studio-save-version": {"itemId": "i", "versionId": "v", "contentHash": "a" * 64},
               "studio-request-publication": {"proposalId": "proposal-1", "requestId": "r"},
@@ -702,8 +712,32 @@ class RunnerTests(unittest.TestCase):
         interop.proposer = interop.approver = "key"
         with mock.patch.object(self.orchestrator, "emit"):
             interop.proposal_approval()
-        self.assertIn(("studio-published-url", {"url": polled}), calls)
-        self.assertNotIn(route, [kwargs.get("route") for op, kwargs in calls if op == "studio-published-url"])
+        self.assertIn(("studio-published-url", {"url": polled, "route": route, "itemId": "i", "versionId": "v",
+                                               "publicationId": "r"}), calls)
+        # A malicious polled URL is refused before the credential-bearing SDK call, never replaced with a fixture URL.
+        calls.clear()
+        js["studio-publication-url"]["publicationUrl"] = "https://elsewhere.example/api/v1/studio/published" + route
+        with mock.patch.object(self.orchestrator, "emit") as emitted, contextlib.redirect_stderr(io.StringIO()):
+            interop.proposal_approval()
+        self.assertFalse(any(op == "studio-published-url" for op, _ in calls))
+        result = {call.args[1]: call.kwargs for call in emitted.call_args_list}["published-url"]
+        self.assertEqual(result["error"]["type"], "ValueError")
+
+    def test_published_route_accepts_only_unambiguous_same_origin_urls(self):
+        convert = self.orchestrator.published_route
+        base = "https://candidate.example"
+        path = "/api/v1/studio/published/maps/approved%20map"
+        for url in (path, base + path, "https://candidate.example:443" + path):
+            self.assertEqual(convert(url, base), "/maps/approved map")
+        for url in (None, "", "relative" + path, "//candidate.example" + path,
+                    "https://foreign.example" + path, "http://candidate.example" + path,
+                    "https://candidate.example:444" + path, "https://user@candidate.example" + path,
+                    base + path + "?query", base + path + "#fragment", base + path + "\\evil",
+                    "\n" + base + path, base + "/wrong" + path,
+                    *(base + "/api/v1/studio/published/" + value
+                      for value in ("", ".", "..", "%2e%2e", "%2f", "%5c", "%252e", "%00", "a//b", "a/%FF"))):
+            with self.subTest(url=url), self.assertRaises((ValueError, UnicodeError)):
+                convert(url, base)
 
     def test_sdk_runners_receive_only_their_own_credentials(self):
         script = "import json, os\nprint(json.dumps(dict(os.environ)), flush=True)\n"

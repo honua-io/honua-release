@@ -31,6 +31,7 @@ import time
 import traceback
 from pathlib import Path
 from typing import Any, Callable
+from urllib.parse import unquote, urlsplit
 
 ROOT = Path(__file__).resolve().parents[3]
 sys.path.insert(0, str(ROOT / "certification" / "terminal-journey"))
@@ -76,7 +77,7 @@ API = {
         "publication-url": "HonuaStudioLifecycleClient.publicationRequests.poll",
         "published-pointer": "IHonuaStudioPackageClient.GetContentItemPointersAsync",
         "published-content": "IHonuaStudioPackageClient.GetVersionAsync",
-        "published-url": "(no published Studio route reader in Honua.Sdk)",
+        "published-url": "IHonuaStudioPackageClient.GetPublishedArtifactAsync",
     },
     "interop-api-key-revocation": {
         "mint": "honua admin secure createAdminApiKey --secret-output --yes",
@@ -91,6 +92,31 @@ API = {
         "mcp-revoked": "honua-mcp-proxy tools/call honua_query_features (HONUA_API_KEY)",
     },
 }
+
+
+def published_route(url: Any, base_url: str) -> str:
+    """Convert the exact polled URL to a local SDK route without following a foreign URL."""
+    if not isinstance(url, str) or not url or any(ord(char) <= 32 for char in url):
+        raise ValueError("Publication URL is missing or contains whitespace/control characters")
+    if any(char in url for char in ("\\", "?", "#")):
+        raise ValueError("Publication URL must not contain a query, fragment or backslash")
+    parsed, base = urlsplit(url), urlsplit(base_url)
+    if parsed.username is not None or parsed.password is not None:
+        raise ValueError("Publication URL must not contain user information")
+    if parsed.scheme or parsed.netloc:
+        origin = lambda value: (value.scheme.lower(), value.hostname, value.port or (443 if value.scheme == "https" else 80))
+        if parsed.scheme not in {"http", "https"} or origin(parsed) != origin(base):
+            raise ValueError("Publication URL must have the candidate's origin")
+    elif not url.startswith("/") or url.startswith("//"):
+        raise ValueError("Publication URL must be absolute or root-relative")
+    prefix = "/api/v1/studio/published/"
+    if not parsed.path.startswith(prefix):
+        raise ValueError("Publication URL does not name the Studio published-route endpoint")
+    segments = [unquote(segment, encoding="utf-8", errors="strict") for segment in parsed.path[len(prefix):].split("/")]
+    if any(segment in {"", ".", ".."} or any(char in segment for char in ("/", "\\", "%"))
+           or any(ord(char) < 32 for char in segment) for segment in segments):
+        raise ValueError("Publication route contains an ambiguous or traversal segment")
+    return "/" + "/".join(segments)
 
 
 class Unsupported(Exception):
@@ -567,6 +593,7 @@ class Interop:
             if observed.get("state") == "Active" and isinstance(observed.get("publicationUrl"), str):
                 # The handoff: the .NET reader consumes this exact URL, never one rebuilt from the fixture route.
                 state["publicationUrl"] = observed["publicationUrl"]
+                state["publication"] = observed
             return observed
         step(scenario, "publication-url", publication_url, state, ("request", "resolved"))
 
@@ -578,10 +605,15 @@ class Interop:
         step(scenario, "published-pointer", pointer, state, ("version", "resolved"))
         step(scenario, "published-content", lambda: outcome(self.dotnet.call(
             "studio-version", itemId=state["version"]["itemId"], versionId=state["published"])), state, ("published",))
-        # No dependency gate: the missing .NET reader (honua-sdk-dotnet#411) surfaces whatever the upstream steps did.
-        # A reader handed no polled URL refuses, and the judge compares the URL it read with the one the JS SDK polled.
-        step(scenario, "published-url", lambda: outcome(self.dotnet.call(
-            "studio-published-url", url=state.get("publicationUrl"))), state)
+        def published() -> dict[str, Any]:
+            url = state.get("publicationUrl")
+            route = published_route(url, BASE)
+            version, publication = state["version"], state["publication"]
+            return outcome(self.dotnet.call(
+                "studio-published-url", url=url, route=route, itemId=version["itemId"],
+                versionId=version["versionId"], publicationId=publication["requestId"]))
+        # A missing or foreign URL fails before any credential-bearing client request.
+        step(scenario, "published-url", published, state)
 
     # (d) one API key minted by the admin CLI, used by every client, revoked, refused by every client
     def api_key_revocation(self) -> None:

@@ -441,6 +441,15 @@ def oracle_published_url(observed: dict[str, Any], fixture: dict[str, Any], plan
     if not isinstance(want, str) or observed.get("url") != want:
         return False, (f"final publication URL: the .NET reader read {observed.get('url')!r}, "
                        f"not the URL the JS SDK polled ({want!r})")
+    identity = {
+        "item": bool((saved or {}).get("itemId")) and observed.get("itemId") == (saved or {}).get("itemId"),
+        "version": bool((saved or {}).get("versionId")) and observed.get("versionId") == (saved or {}).get("versionId"),
+        "publication": bool((polled or {}).get("requestId")) and observed.get("publicationId") == (polled or {}).get("requestId"),
+        "route": observed.get("route") == plan["proposal"]["route"],
+        "SDK canonical hash verification": observed.get("verifiedContentHash") is True,
+    }
+    if not all(identity.values()):
+        return False, "final publication identity differs: " + ", ".join(name for name, ok in identity.items() if not ok)
     ok, detail = oracle_published_content(observed, fixture, plan, saved)
     return ok, f"final publication URL (the one the JS SDK polled): {detail}"
 
