@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # S5 — Geoprocessing via OGC API Processes. Submit two catalog processes (geometry.area,
-# geometry.buffer), poll each job to `successful`, and assert the results document is returned.
+# geometry.buffer), poll each job to `successful`, and validate the numerical and geometry outputs.
 # Requires the Redis-backed job runtime (all entitlements active via Licensing__Mode=Disabled).
 set -euo pipefail
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -12,7 +12,7 @@ if ! server_ready; then
   exit 0
 fi
 
-# base64 WKB of a unit square polygon (SRID 4326), computed deterministically with stdlib.
+# base64 WKB of a unit square polygon (SRID 3857), computed deterministically with stdlib.
 WKB="$(python3 - <<'PY'
 import struct,base64
 pts=[(0,0),(1,0),(1,1),(0,1),(0,0)]
@@ -27,7 +27,7 @@ PY
 # (honua-release#202) rather than queue a job that never runs. Anything else is a failure.
 if [ "${E2E_REDIS:-on}" = "off" ]; then
   api_json POST "/ogc/processes/processes/geometry.area/execution" \
-    "$(jq -nc --arg w "$WKB" '{inputs:{wkb:$w,srid:4326}}')" -H "Prefer: respond-async"
+    "$(jq -nc --arg w "$WKB" '{inputs:{wkb:$w,srid:3857}}')" -H "Prefer: respond-async"
   evidence="$(jq -nc --arg c "$HTTP_CODE" --arg t "$(jget '.type')" --arg d "$(jget '.missingDependency')" \
     --arg k "$(jget '.capability')" '{httpStatus:$c,type:$t,missingDependency:$d,capability:$k}')"
   if [ "$HTTP_CODE" = "503" ] && [ "$(jget '.type')" = "https://honua.io/problems/capability-unavailable" ] \
@@ -46,27 +46,37 @@ run_process() { # process-id inputs-json  -> sets globals ST and RESULTS (NOT vi
   api_json POST "/ogc/processes/processes/$pid/execution" "$(jq -nc --argjson i "$inputs" '{inputs:$i}')" \
     -H "Prefer: respond-async"
   local job; job="$(jget '.jobID')"
-  [ -z "$job" ] && { ST="submit-failed:$HTTP_CODE"; return; }
+  case "$HTTP_CODE" in 201|202) ;; *) ST="submit-failed:$HTTP_CODE"; return ;; esac
+  [ -z "$job" ] || [ "$job" = "null" ] && { ST="missing-job-id"; return; }
   local i
   for i in $(seq 1 30); do
-    api_get "/ogc/processes/jobs/$job"; ST="$(jget '.status')"
+    api_get "/ogc/processes/jobs/$job"
+    [ "$HTTP_CODE" = "200" ] || { ST="poll-failed:$HTTP_CODE"; return; }
+    [ "$(jget '.jobID // .jobId // empty')" = "$job" ] || { ST="wrong-job-id"; return; }
+    ST="$(jget '.status')"
     { [ "$ST" = "successful" ] || [ "$ST" = "failed" ] || [ "$ST" = "dismissed" ]; } && break
     sleep 2
   done
-  api_get "/ogc/processes/jobs/$job/results"; RESULTS="$HTTP_BODY"
+  [ "$ST" = "successful" ] || return 0
+  api_get "/ogc/processes/jobs/$job/results"
+  [ "$HTTP_CODE" = "200" ] || { ST="results-failed:$HTTP_CODE"; return; }
+  RESULTS="$HTTP_BODY"
 }
 
-declare -A want=( [geometry.area]='{"wkb":"'"$WKB"'","srid":4326}' [geometry.buffer]='{"wkb":"'"$WKB"'","srid":4326,"distance":10}' )
+declare -A want=( [geometry.area]='{"wkb":"'"$WKB"'","srid":3857}' [geometry.buffer]='{"wkb":"AQEAAAAAAAAAAAAAAAAAAAAAAAAA","srid":3857,"distance":10,"geodesic":false}' )
 fails=""; evidence="{}"
 for pid in geometry.area geometry.buffer; do
   run_process "$pid" "${want[$pid]}"; st="$ST"
-  has_result="$(printf '%s' "$RESULTS" | jq -r 'if (.|length)>0 then "yes" else "no" end' 2>/dev/null || echo no)"
+  has_result=no
+  if [ "$st" = "successful" ] && printf '%s' "$RESULTS" | python3 "$HERE/validate_result.py" "$pid"; then
+    has_result=yes
+  fi
   evidence="$(jq -nc --argjson e "$evidence" --arg p "$pid" --arg s "$st" --arg r "$has_result" '$e + {($p):{status:$s,hasResult:$r}}')"
   { [ "$st" = "successful" ] && [ "$has_result" = "yes" ]; } || fails="$fails $pid($st)"
 done
 
 if [ -z "$fails" ]; then
-  emit_scenario "S5-geoprocessing" pass "geometry.area + geometry.buffer ran to successful with results" "$evidence"
+  emit_scenario "S5-geoprocessing" pass "geometry.area + geometry.buffer completed with verified metric results" "$evidence"
 else
   emit_scenario "S5-geoprocessing" fail "process(es) did not complete with results:$fails" "$evidence"
 fi
