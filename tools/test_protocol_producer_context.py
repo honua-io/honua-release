@@ -42,6 +42,14 @@ def test_context_refuses_invalid_denominator_before_dispatch(mutation):
         context(catalog, producer, CANDIDATE, PIN)
 
 
+@pytest.mark.parametrize('revision', ['', 'with space', '../leading', 'é', 'x' * 201])
+def test_revision_grammar_matches_producer_admission(revision):
+    catalog = copy.deepcopy(CATALOG)
+    catalog['revision'] = revision
+    with pytest.raises(ValueError, match='catalog revision'):
+        context(catalog, PRODUCER, CANDIDATE, PIN)
+
+
 def test_sdk_context_does_not_invent_test_ids_or_include_other_lanes():
     catalog = copy.deepcopy(CATALOG)
     rows = [r for r in catalog['requirements'] if r['client_lane'] == 'sdk-js-certification']

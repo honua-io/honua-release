@@ -23,7 +23,7 @@ def context(catalog: dict, producer: dict, candidate: dict, pin: str) -> str:
     if identity != (producer.get('repository'), producer.get('workflow')):
         raise ValueError('producer context requires the exact reviewed repository/workflow')
     revision = catalog.get('revision')
-    if not isinstance(revision, str) or not revision.strip() or len(revision) > 200:
+    if not isinstance(revision, str) or not re.fullmatch(r'[A-Za-z0-9][A-Za-z0-9._/-]{0,199}', revision):
         raise ValueError('producer context requires a bounded catalog revision')
     if not re.fullmatch('[0-9a-f]{40}', pin):
         raise ValueError('producer context requires a full source pin')
