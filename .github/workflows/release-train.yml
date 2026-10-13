@@ -284,7 +284,7 @@ jobs:
       require_real: ${{ !inputs.dry_run }}
     secrets: inherit           # RELEASE_GH_TOKEN for the private frozen-SDK source checkouts
 
-  gate_cloud_parity:           # e) Slice-2 cloud CERT — wraps honua-iac terraform-manual-validation (run_live)
+  gate_cloud_parity:           # e) Slice-2 cloud CERT — six serialized runtime cells
     needs: [freeze, gate_e2e]  #    + asserts MCP/Studio/GP/demo scenarios. Self-skips (cloud-creds-unset).
     uses: ./.github/workflows/e2e-cloud-aws.yml
     with:
@@ -293,6 +293,9 @@ jobs:
       # FAIL. When cloud/OIDC creds are unset the whole tier SELF-SKIPS (status: skipped) so a local cut
       # is not reddened — but it is ready to enforce per-RC once HONUA_AWS_ROLE_ARN is wired.
       require_real: ${{ !inputs.dry_run }}
+      # The supplemental IaC harness has its own budget and is not part of this train.
+      run_iac_live: false
+      cost_ceiling_usd: "20"
       # The nightly's genuine-model canary runs in this ECS Redis-off cell after its journey (the
       # cell admits only this run's journey runner, so a second workflow cannot reach it).
       genuine_model_bedrock: ${{ inputs.nightly && inputs.genuine_model }}

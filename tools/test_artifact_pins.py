@@ -110,7 +110,7 @@ def test_iac_live_receives_exact_manifest_server_candidate():
         assert "HONUA_ECS_IMAGE: ${{ vars.HONUA_ECS_IMAGE }}" not in text
     assert "inputs.target == '' || inputs.target == 'all'" in workflow
     assert "inputs.redis_mode == '' || inputs.redis_mode == 'both'" in workflow
-    assert "github.event_name == 'schedule' || inputs.run_iac_live" in workflow
+    assert "(github.event_name == 'schedule' && github.workflow == 'e2e-cloud-aws') || inputs.run_iac_live" in workflow
     assert "needs: [candidate, parity, iac-live]" in workflow
     assert "CANDIDATE_RESULT: ${{ needs.candidate.result }}" in workflow
     assert 'candidate prerequisite ended $CANDIDATE_RESULT' in workflow
