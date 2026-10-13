@@ -301,7 +301,10 @@ def main() -> None:
         "scenario_facets",
     }
     required_assignment_fields = allowed_assignment_fields - {"catalog_capability_key"}
+    known_capabilities = {capability["key"] for capability in server["capabilities"]}
     for assignment in harness_assignments:
+        if assignment.get("capability_key") not in known_capabilities:
+            raise ValueError("Server protocol harness assignment names an unknown capability.")
         if not required_assignment_fields.issubset(assignment) or not set(assignment).issubset(allowed_assignment_fields):
             raise ValueError("Server protocol harness assignment has unknown or missing fields.")
         if not re.fullmatch(r"(?:GET|POST|PUT|PATCH|DELETE) /\S(?:.*\S)?", assignment["operation"]):
@@ -349,17 +352,19 @@ def main() -> None:
     expected_harness_capabilities = {
         capability
         for capability in governed_official_capabilities
-        if not sdk_has_entrypoints(capability)
+        if capability in implemented_keys and not sdk_has_entrypoints(capability)
     }
     actual_harness_capabilities = {
         assignment["capability_key"] for assignment in harness_assignments
         if assignment["capability_key"] in implemented_keys
     }
-    if actual_harness_capabilities != expected_harness_capabilities:
+    # Governed write operations supplement SDK-covered capabilities; they are not gaps.
+    # The exact operation/test/facet denominator below still requires every implemented
+    # assignment and refuses extra, omitted or altered generated rows.
+    if not expected_harness_capabilities.issubset(actual_harness_capabilities):
         raise ValueError(
-            "Server protocol harness assignments differ from the operation-contract gaps "
-            f"(missing={sorted(expected_harness_capabilities - actual_harness_capabilities)}, "
-            f"unexpected={sorted(actual_harness_capabilities - expected_harness_capabilities)})"
+            "Server protocol harness assignments omit operation-contract gaps "
+            f"(missing={sorted(expected_harness_capabilities - actual_harness_capabilities)})"
         )
     expected_harness_rows = {
         (
@@ -453,7 +458,17 @@ def main() -> None:
             "Capabilities cannot be both protocol-assigned and separately classified: "
             f"{sorted(overlap)}"
         )
-    classified_capabilities = declared_protocols | decision_capabilities
+    unknown_decisions = decision_capabilities - known_capabilities
+    if unknown_decisions:
+        raise ValueError(f"Canonical-client applicability names unknown capabilities: {sorted(unknown_decisions)}")
+    implemented_decisions = decision_capabilities & implemented_capabilities
+    if any(
+        row["contract_revision"] == f"canonical-client-applicability@{applicability['revision']}"
+        and row["capability_key"] not in implemented_decisions
+        for row in catalog["requirements"]
+    ):
+        raise ValueError("Canonical-client applicability has a generated row for a nonimplemented decision.")
+    classified_capabilities = declared_protocols | implemented_decisions
     if implemented_capabilities != classified_capabilities:
         raise ValueError(
             "Canonical-client applicability differs from the implemented capability surface "
@@ -489,6 +504,8 @@ def main() -> None:
     expected_decision_rows: list[dict] = []
     for decision in decisions:
         capability_key = decision["capability_key"]
+        if capability_key not in implemented_decisions:
+            continue
         classification = decision["classification"]
         if classification == "official-sdk-required":
             capability_row_count = 0
@@ -626,7 +643,7 @@ def main() -> None:
     present_decision_rows = [
         row
         for row in catalog["requirements"]
-        if row["capability_key"] in decision_capabilities
+        if row["capability_key"] in implemented_decisions
         and (
             row["contract_revision"]
             == f"canonical-client-applicability@{applicability['revision']}"

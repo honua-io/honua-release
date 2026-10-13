@@ -102,6 +102,57 @@ def observation(scenario, step, **payload):
     return {"scenario": scenario, "step": step, "api": api, **payload}
 
 
+class PythonTileDriverTests(unittest.TestCase):
+    def load_tile_driver(self):
+        area = {"tileMatrixSet": "WebMercatorQuad", "collectionId": "areas",
+                "painted": {"tileMatrix": 7, "tileRow": 45, "tileCol": 19},
+                "empty": {"tileMatrix": 7, "tileRow": 0, "tileCol": 0}}
+        # Only import placeholders: the SDK client boundary below records the calls. These
+        # controls do not substitute for the installed-wheel/candidate pixel proof.
+        modules = {name: mock.Mock() for name in
+                   ("honua_admin", "honua_admin._models", "honua_sdk", "honua_sdk.auth")}
+        env = {"SDKREG_API_KEY": "test-key", "SDKREG_BEARER": "test-bearer", "SDKREG_DB_PASSWORD": "test-db"}
+        with tempfile.TemporaryDirectory() as tmp, mock.patch.dict(sys.modules, modules), mock.patch.dict(os.environ, env):
+            path = Path(tmp) / "plan.json"
+            path.write_text(json.dumps({"baseUrl": "http://candidate.invalid", "area": area}))
+            return load_driver("python", path)
+
+    def test_python_raster_uses_sdk_png_selector_and_preserves_tile_bytes(self):
+        driver = self.load_tile_driver()
+        tiles = mock.Mock()
+        raster = png(2, 2, lambda x, y: x == y)
+        tiles.tile.side_effect = [b"vector-tile", raster, b""]
+        with mock.patch.object(driver, "data_client") as factory, mock.patch.object(driver, "emit") as emit:
+            factory.return_value.__enter__.return_value.ogc_tiles.return_value = tiles
+            driver.run_tiles({})
+        factory.assert_called_once_with(api_key="test-key")
+        self.assertEqual(tiles.tile.call_args_list, [
+            mock.call("WebMercatorQuad", "7", 45, 19, collection_id="areas"),
+            mock.call("WebMercatorQuad", "7", 45, 19, collection_id="areas", response_format="png"),
+            mock.call("WebMercatorQuad", "7", 0, 0, collection_id="areas"),
+        ])
+        self.assertEqual(emit.call_args_list, [
+            mock.call("sdk-ogc-tiles", "vector-tile", observed={"bytes": base64.b64encode(b"vector-tile").decode()}),
+            mock.call("sdk-ogc-tiles", "raster-tile", observed={"bytes": base64.b64encode(raster).decode()}),
+            mock.call("sdk-ogc-tiles", "empty-tile", observed={"empty": True, "size": 0}),
+        ])
+
+    def test_python_raster_sdk_failure_is_reported_as_error(self):
+        driver = self.load_tile_driver()
+        tiles = mock.Mock()
+        error = RuntimeError("candidate refused PNG")
+        error.status_code = 500
+        tiles.tile.side_effect = [b"vector-tile", error, b""]
+        with mock.patch.object(driver, "data_client") as factory, mock.patch.object(driver, "emit") as emit, \
+                mock.patch.object(driver.traceback, "print_exc"), mock.patch("builtins.print"):
+            factory.return_value.__enter__.return_value.ogc_tiles.return_value = tiles
+            driver.run_tiles({})
+        self.assertEqual(emit.call_args_list[1], mock.call(
+            "sdk-ogc-tiles", "raster-tile", error={"type": "RuntimeError", "status": 500}))
+        self.assertEqual(emit.call_args_list[2], mock.call(
+            "sdk-ogc-tiles", "empty-tile", observed={"empty": True, "size": 0}))
+
+
 class ContractTests(unittest.TestCase):
     def test_every_scenario_names_one_api_per_step_for_every_client_of_its_family(self):
         self.assertEqual(set(SCENARIOS), {"sdk-auth", "sdk-admin-lifecycle", "sdk-geoservices", "sdk-ogc-features",

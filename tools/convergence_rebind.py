@@ -30,6 +30,7 @@ import fnmatch
 import hashlib
 import json
 import re
+import runpy
 import shutil
 import subprocess
 import sys
@@ -67,7 +68,7 @@ VENDORED: dict[str, tuple[tuple[str, str], ...]] = {
     "server-certification": (("docs/gis/data/protocol-harness-assignments.v1.json", "certification/sources/server/protocol-harness-assignments.v1.json"),),
     "sdk-js": (("config/protocol-certification.v1.json", "certification/sources/sdk-js/protocol-certification.v1.json"), ("config/sdk-coverage.v1.json", "certification/sources/sdk-js/sdk-coverage.v1.json")),
     "sdk-python": (("conformance/protocol-certification.v1.json", "certification/sources/sdk-python/protocol-certification.v1.json"), ("compatibility/sdk-coverage.v1.json", "certification/sources/sdk-python/sdk-coverage.v1.json")),
-    "sdk-dotnet": (("contracts/sdk-certification.v1.json", "certification/sources/sdk-dotnet/sdk-certification.v1.json"), ("contracts/sdk-coverage.v1.json", "certification/sources/sdk-dotnet/sdk-coverage.v1.json")),
+    "sdk-dotnet": (("contracts/sdk-certification.v1.json", "certification/sources/sdk-dotnet/sdk-certification.v1.json"), ("contracts/sdk-coverage.v1.json", "certification/sources/sdk-dotnet/sdk-coverage.v1.json"), (".release-please-manifest.json", "certification/sources/sdk-dotnet/release-please-manifest.json")),
 }
 
 
@@ -256,6 +257,56 @@ def fetch_snapshots(root: Path, gh: GitHub, revisions: dict[str, Any], pins: dic
     return fetched
 
 
+def project_official_protocol_assignments(root: Path) -> tuple[str, bytes]:
+    """Follow the exact vendored implemented protocol surface; never edit snapshots.
+
+    This is the existing validator's equality rule, applied to release-owned policy
+    during PLAN/APPLY. The plan exposes additions/demotions for normal review.
+    Historical catalog and policy files stay unchanged until that apply.
+    """
+    path = "certification/sources/official-sdk-protocol-assignments.v1.json"
+    assignments = load_json(root, Path(path))
+    original = copy.deepcopy(assignments)
+    matrix = load_json(root, Path("certification/sources/server/capability-matrix.v1.json"))
+    prefixes = ("serve.", "process.", "editing.", "routing.", "geocoding.", "styling.")
+    implemented = sorted(row["key"] for row in matrix["capabilities"]
+                         if row["key"].startswith(prefixes) and row.get("maturity", {}).get("implemented"))
+    if len(implemented) != len(set(implemented)):
+        raise Finding("candidate matrix repeats an implemented protocol capability")
+    assignments["capabilities"] = implemented
+    # Execute only the checked-out canonical generator, never vendored source code.
+    # Reuse its exact identity/version validation after the pinned data is fetched.
+    declarations = runpy.run_path(str(root / "certification/generate-protocol-requirements.py"))
+    identities = {"sdk-js": "@honua/sdk-js", "sdk-python": "Honua SDK Python", "sdk-dotnet": "Honua SDK .NET"}
+    seen = set()
+    manifest = load_manifest(root)
+    bindings = {source: (component, artifact) for source, component, artifact in SDK_PRODUCERS}
+    try:
+        for client in assignments["clients"]:
+            source = client["source"]
+            if source not in identities or client["name"] != identities[source] or source in seen:
+                raise Finding("official client roster has an unknown, mismatched, or duplicate source identity")
+            seen.add(source)
+            client["version"] = (declarations["sdk_js_version"]() if source == "sdk-js"
+                                 else declarations["source_sdk_version"](source))
+            component, artifact = bindings[source]
+            component_version = manifest["components"][component]["version"]
+            artifact_version = manifest["clientArtifacts"][artifact]["version"]
+            if client["version"] != component_version or client["version"] != artifact_version:
+                raise Finding(
+                    f"pinned {source} declaration version {client['version']} differs from "
+                    f"components.{component}.version {component_version} or "
+                    f"clientArtifacts.{artifact}.version {artifact_version}"
+                )
+    except (OSError, ValueError, KeyError) as exc:
+        raise Finding(f"cannot project official client versions from pinned sources: {exc}") from exc
+    if seen != set(identities):
+        raise Finding("official client roster is missing a governed SDK source")
+    if assignments == original:
+        return path, (root / path).read_bytes()
+    return path, (json.dumps(assignments, indent=2) + "\n").encode()
+
+
 def run_catalog(root: Path, receipt_min: str) -> None:
     generator = root / "certification/generate-protocol-requirements.py"
     text = generator.read_text(encoding="utf-8")
@@ -287,6 +338,8 @@ def prepare(root: Path, gh: GitHub, receipt_min_arg: str) -> tuple[dict[str, Any
         (trial / REVISIONS).write_text(json.dumps(revised, indent=2) + "\n", encoding="utf-8")
         for path, data in snapshots.items():
             (trial / path).write_bytes(data)
+        assignments_path, assignments_bytes = project_official_protocol_assignments(trial)
+        (trial / assignments_path).write_bytes(assignments_bytes)
         run_catalog(trial, receipt_min)
         new_catalog_bytes = (trial / CATALOG).read_bytes()
         new_generator_bytes = (trial / "certification/generate-protocol-requirements.py").read_bytes()
@@ -316,7 +369,18 @@ def prepare(root: Path, gh: GitHub, receipt_min_arg: str) -> tuple[dict[str, Any
         },
         "gate_workflow_pins": [{"path": str(path), "current": PIN_RE.search((root / path).read_text()).group(0), "proposed_comment": REBIND_COMMENT} for path in CALLERS],
     }
+    plan["official_protocol_assignments"] = {
+        "path": assignments_path,
+        "added": sorted(set(json.loads(assignments_bytes)["capabilities"]) - set(load_json(root, Path(assignments_path))["capabilities"])),
+        "removed": sorted(set(load_json(root, Path(assignments_path))["capabilities"]) - set(json.loads(assignments_bytes)["capabilities"])),
+        "client_versions": [
+            {"source": old["source"], "name": old["name"], "current": old["version"], "proposed": new["version"]}
+            for old, new in zip(load_json(root, Path(assignments_path))["clients"], json.loads(assignments_bytes)["clients"])
+            if old["version"] != new["version"]
+        ],
+    }
     payloads = dict(snapshots)
+    payloads[assignments_path] = assignments_bytes
     revised = copy.deepcopy(source_doc)
     for name, pin in pins.items(): revised["sources"][name]["commit"] = pin
     payloads[str(REVISIONS)] = (json.dumps(revised, indent=2) + "\n").encode()
@@ -334,6 +398,13 @@ def human(plan: dict[str, Any], root: Path = ROOT) -> str:
     for name, values in plan["bindings"].items(): lines.append(f"  {name}: {values['current']} -> {values['proposed']}")
     lines += ["", "Gate workflow pins:"]
     for pin in plan["gate_workflow_pins"]: lines.append(f"  {pin['path']}: {pin['current']} -> {pin['proposed_comment']}")
+    policy = plan.get("official_protocol_assignments")
+    if policy:
+        lines += ["", f"Official protocol assignments: {policy['path']}",
+                  f"  added: {', '.join(policy['added']) or 'none'}",
+                  f"  removed: {', '.join(policy['removed']) or 'none'}"]
+        for client in policy["client_versions"]:
+            lines.append(f"  {client['source']} ({client['name']}): {client['current']} -> {client['proposed']}")
     lines += ["", "Apply mode stages the catalog; the workflow then aggregates, verifies, and finalizes one review PR. Repository variables activate automatically only after merge."]
     return "\n".join(lines)
 

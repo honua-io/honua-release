@@ -29,6 +29,48 @@ MUST_FIX = DESKTOP["buckets"]["must_fix"]
 PROVE = DESKTOP["buckets"]["prove"]
 
 
+def source_sdk_version(source: str) -> str:
+    """Read the declared version at the catalog's pinned source, never registry latest.
+
+    .NET's coverage snapshot has no version; its release-please manifest is
+    vendored from the same commit by convergence_rebind. Publication/source
+    equality remains the rebind's separate registry-artifact prerequisite.
+    """
+    if source == "sdk-python":
+        declaration = load(SOURCES / source / "protocol-certification.v1.json")
+        if (declaration.get("canonicalClient") != "Honua SDK Python"
+                or declaration.get("sourceRepository") != "honua-io/honua-sdk-python"):
+            raise ValueError("pinned sdk-python contract has an unexpected client or repository")
+        version = declaration.get("clientVersion")
+    elif source == "sdk-dotnet":
+        version = load(SOURCES / source / "release-please-manifest.json").get(".")
+    else:
+        raise ValueError(f"no source version declaration for {source}")
+    numeric = r"(?:0|[1-9][0-9]*)"
+    identifier = rf"(?:{numeric}|[0-9]*[A-Za-z-][0-9A-Za-z-]*)"
+    semver = rf"{numeric}\.{numeric}\.{numeric}(?:-{identifier}(?:\.{identifier})*)?(?:\+[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?"
+    if not isinstance(version, str) or not re.fullmatch(semver, version):
+        raise ValueError(f"pinned {source} must declare an exact SemVer version")
+    return version
+
+
+def sdk_js_version() -> str:
+    """Bind every JS cell to the version in the two source-pinned declarations."""
+    coverage = load(SOURCES / "sdk-js" / "sdk-coverage.v1.json")
+    contract = load(SOURCES / "sdk-js" / "protocol-certification.v1.json")
+    sdk = coverage.get("sdk") or {}
+    version = sdk.get("version")
+    # npm SemVer, including historical prereleases; reject coerced or partial versions.
+    numeric = r"(?:0|[1-9][0-9]*)"
+    identifier = rf"(?:{numeric}|[0-9]*[A-Za-z-][0-9A-Za-z-]*)"
+    semver = rf"{numeric}\.{numeric}\.{numeric}(?:-{identifier}(?:\.{identifier})*)?(?:\+[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?"
+    if sdk.get("package") != "@honua/sdk-js" or not isinstance(version, str) or not re.fullmatch(semver, version):
+        raise ValueError("pinned sdk-js coverage must declare @honua/sdk-js and an exact SemVer version")
+    if contract.get("canonicalClient") != "@honua/sdk-js" or contract.get("clientVersion") != version:
+        raise ValueError("pinned sdk-js coverage and protocol contract must declare the same client and version")
+    return version
+
+
 def licensed_desktop(release_bucket: str, client_driver: str, *, entitlement: str | None = None) -> dict[str, Any]:
     """Every row of the licensed desktop client runs on its governed licensed target under its
     entitlement policy, so the gate applies licensed-evidence entitlement and freshness rules."""
@@ -429,10 +471,11 @@ def main() -> None:
         if bound is not None:
             requirements.append(bound)
 
+    dotnet_version = source_sdk_version("sdk-dotnet")
     sdk_sources = [
-        ("sdk-python", "capabilities", "Honua SDK Python", "0.1.11", "sdk-python", "geospatial-grpc@0.2.0-alpha.1"),
-        ("sdk-js", "capabilities", "@honua/sdk-js", "0.1.9-beta.0", "sdk-js", fixture_pins["sdk-js"]),
-        ("sdk-dotnet", "coverage", "Honua SDK .NET", "1.6.0", "sdk-dotnet", "sha256:83eb29ac38a3fb54914c1252b273dbb7f7f4d651a8204aafb4108d14d6d23727"),
+        ("sdk-python", "capabilities", "Honua SDK Python", source_sdk_version("sdk-python"), "sdk-python", "geospatial-grpc@0.2.0-alpha.1"),
+        ("sdk-js", "capabilities", "@honua/sdk-js", sdk_js_version(), "sdk-js", fixture_pins["sdk-js"]),
+        ("sdk-dotnet", "coverage", "Honua SDK .NET", dotnet_version, "sdk-dotnet", "sha256:83eb29ac38a3fb54914c1252b273dbb7f7f4d651a8204aafb4108d14d6d23727"),
     ]
     sdk_capability_operations: dict[tuple[str, str], list[str]] = {}
     for source_name, collection, client, version, surface, fixture in sdk_sources:
@@ -540,7 +583,7 @@ def main() -> None:
         add(
             capability=f"sdk-dotnet.{operation['surface']}", surface=operation["surface"],
             operation=operation["id"], client="Honua SDK .NET", lane="sdk-dotnet-certification",
-            version="1.6.0", contract=f"sdk-dotnet-certification@{revisions['sdk-dotnet']['commit']}",
+            version=dotnet_version, contract=f"sdk-dotnet-certification@{revisions['sdk-dotnet']['commit']}",
             auth_policy="api-key-protected-v1",
             fixture="sha256:1165029a4c750c38a9b180f79f560dea41b84d8f0725618c9d96d3864be2d419",
             facets=facets, required_tier=required_tier,
