@@ -83,3 +83,22 @@ def test_private_evidence_pin_cannot_silently_change(monkeypatch, field):
     monkeypatch.setattr(validator.json, "loads", altered)
     with pytest.raises(ValueError):
         validator.validate_geometry_client_addressability(catalog())
+
+
+def test_an_entire_other_client_lane_cannot_disappear():
+    value = copy.deepcopy(catalog())
+    spec = importlib.util.spec_from_file_location("generator_config_missing_lane", CERT / "generate-protocol-requirements.py")
+    config = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(config)
+    lane = next(client[2] for client in config.protocol_clients() if not client[4])
+    value["requirements"] = [r for r in value["requirements"] if r["client_lane"] != lane + "-geometry-service"]
+    with pytest.raises(ValueError):
+        validator.validate_geometry_client_addressability(value)
+
+
+def test_target_lane_cannot_be_mislabeled_as_another_driver():
+    value = copy.deepcopy(catalog())
+    row = next(r for r in value["requirements"] if r["surface"] == "geometry-service" and not r["addressable_by_client"])
+    row["client_driver"] = "pro-ui"
+    with pytest.raises(ValueError):
+        validator.validate_geometry_client_addressability(value)
