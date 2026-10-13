@@ -112,6 +112,9 @@ services:
       AllowedHosts: "*"
       # connections.live.spec.ts references `env:HONUA_TEST_DB_DSN`; the server resolves it.
       HONUA_TEST_DB_DSN: "Host=db;Port=5432;Database=honua;Username=honua;Password=honua"
+      Security__RequestSecretReferences__AllowedEnvironmentVariables__0: "HONUA_TEST_DB_DSN"
+      # Present but deliberately unapproved: the live negative case must prove policy refusal.
+      HONUA_TEST_UNAPPROVED_DB_DSN: "Host=db;Port=5432;Database=honua;Username=honua;Password=honua"
     volumes:
       - "${S4_RUN_DIR:?rendered per run by e2e/harness/keycloak/render.sh}/certs:/certs:ro"
     ports:
