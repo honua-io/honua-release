@@ -798,3 +798,27 @@ def test_identifier_exception_cannot_cover_confidential_hits_or_nonliteral_patte
     for identifiers in [["*esri*"], [""], "esri", [12]]:
         with pytest.raises(SystemExit, match="exact nonempty lexical identifiers"):
             vt.load_allowlist(_allowlist(tmp_path, [{**entry, "identifiers": identifiers}]))
+
+
+def test_published_021_coordinate_exception_is_exact_and_path_scoped():
+    publication = "certification/sdk-publication-replay/sdk-021/published-release-verification.v1.json"
+    observations = "certification/sdk-publication-replay/sdk-021/registry-observations.json"
+    entries = vt.load_allowlist(vt.ALLOWLIST)
+    selected = [entry for entry in entries if publication in entry.paths]
+    assert len(selected) == 1
+    entry = selected[0]
+    assert set(entry.paths) == {"platform-manifest.yaml", publication, observations}
+    classifier = vt.Classifier("honua-release", VOCABULARY, selected)
+    for path in (publication, observations):
+        hits = classifier.classify_text(path, (vt.ROOT / path).read_text())
+        assert hits and all(hit.exception is not None for hit in hits)
+    for identifier in entry.identifiers:
+        for path, value in [(publication, identifier + "-extra"), ("other.json", identifier)]:
+            hits = classifier.classify_text(path, json.dumps({"package": value}))
+            assert hits and all(hit.exception is None for hit in hits)
+        hits = classifier.classify_text(publication, json.dumps({"description": "endorsed by " + identifier}))
+        assert hits and all(hit.exception is None for hit in hits)
+    prose = classifier.classify_text(publication, json.dumps({"description": entry.tokens[0] + " compatibility"}))
+    assert prose and all(hit.exception is None for hit in prose)
+    changed_version = classifier.classify_text(publication, (vt.ROOT / publication).read_text().replace("0.2.1", "0.2.2"))
+    assert any(hit.exception is None for hit in changed_version)
