@@ -1024,3 +1024,51 @@ def test_candidate_input_refuses_a_snapshot_that_changes_the_catalog_generator(l
     assert result.returncode != 0
     assert 'unexpected candidate change: certification/generate-protocol-requirements.py' in result.stdout
     assert (checkout / CATALOG).read_text() == 'old\n'
+
+
+def test_manifest_gate_precut_is_call_only_and_follows_the_live_nightly_phase():
+    manifest = workflow('manifest-validate.yml')
+    called = manifest['triggers']['workflow_call']['inputs']
+    assert called['candidate_precut'] == {'required': False, 'type': 'boolean', 'default': False}
+    assert manifest['triggers']['workflow_dispatch'] is None
+    assert 'deployment_qualification' not in called  # no caller-chosen evidence path
+    gate = workflow('release-train.yml')['jobs']['gate_manifest']
+    assert gate['with']['candidate_ref'] == '${{ inputs.candidate_ref }}'
+    assert gate['with']['candidate_precut'] == '${{ inputs.nightly && inputs.dry_run == false }}'
+    assert gate['secrets'] == 'inherit'
+    validate = step(manifest['jobs']['validate'], 'Validate manifest + matrix')
+    assert validate['env']['GITHUB_TOKEN'] == '${{ secrets.RELEASE_GH_TOKEN || github.token }}'
+    adopt = step(manifest['jobs']['validate'], 'Use the immutable candidate inputs')
+    assert adopt['uses'] == './.github/actions/candidate-input'
+
+
+@pytest.mark.parametrize(('candidate', 'precut', 'baseline', 'expected'), [
+    ('', '', '', []),
+    ('', 'false', 'origin/trunk', ['--baseline', 'origin/trunk']),
+    (SNAPSHOT, 'false', '', ['--exact-candidate']),
+    (SNAPSHOT, 'true', '', ['--exact-candidate', '--deployment-phase', 'candidate-precut',
+                           '--deployment-qualification', 'certification/deployment-qualification.json']),
+    (SNAPSHOT, 'true', 'origin/trunk', ['--baseline', 'origin/trunk', '--exact-candidate',
+         '--deployment-phase', 'candidate-precut', '--deployment-qualification',
+         'certification/deployment-qualification.json']),
+    ('', 'true', '', None),
+])
+def test_manifest_gate_executes_exact_phase_and_refuses_unbound_precut(tmp_path, candidate, precut, baseline, expected):
+    validate = step(workflow('manifest-validate.yml')['jobs']['validate'], 'Validate manifest + matrix')
+    bin_dir = tmp_path / 'bin'
+    bin_dir.mkdir()
+    log = tmp_path / 'argv.json'
+    shim = bin_dir / 'python'
+    shim.write_text(f'#!{sys.executable}\nimport json,sys\n'
+                    f'open({str(log)!r},"w").write(json.dumps(sys.argv[1:]))\n')
+    shim.chmod(shim.stat().st_mode | stat.S_IEXEC)
+    result = subprocess.run(['bash', '-c', validate['run']], cwd=tmp_path, capture_output=True, text=True,
+        env={'PATH': f'{bin_dir}:{os.environ["PATH"]}', 'CANDIDATE_REF': candidate,
+             'CANDIDATE_PRECUT': precut, 'BASELINE_REF': baseline})
+    if expected is None:
+        assert result.returncode != 0
+        assert 'requires adopted immutable candidate inputs' in result.stdout
+        assert not log.exists()
+    else:
+        assert result.returncode == 0, result.stderr
+        assert json.loads(log.read_text()) == ['tools/validate_platform.py', *expected]

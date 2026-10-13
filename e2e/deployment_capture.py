@@ -85,7 +85,7 @@ def secret_commitments(values):
 
     The fresh 256-bit HMAC key exists only during this call and is never persisted or
     published. Field names are included in each commitment's domain. These attest the
-    producer's actual inputs; public verification checks the signed capture binding,
+    producer's actual inputs; public verification checks the authenticated capture binding,
     not secret values or an offline recomputation of these commitments.
     """
     key = secrets.token_bytes(32)

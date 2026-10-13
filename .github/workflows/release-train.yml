@@ -251,6 +251,8 @@ jobs:
     uses: ./.github/workflows/manifest-validate.yml
     with:
       candidate_ref: ${{ inputs.candidate_ref }}
+      candidate_precut: ${{ inputs.nightly && inputs.dry_run == false }}
+    secrets: inherit
     # A train cut is a fresh full snapshot, not a diff, so no drift baseline is passed here
     # (structure + coherence still run, and fail on an incoherent pinned set).
 

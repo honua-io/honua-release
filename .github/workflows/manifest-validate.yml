@@ -21,11 +21,15 @@ on:
   workflow_call:
     inputs:
       candidate_ref: { required: false, type: string, default: "" }
+      # Call-only: an authenticated nightly candidate may carry the documented Lambda precut phase.
+      candidate_precut: { required: false, type: boolean, default: false }
       baseline_ref:
         description: "git ref to enforce drift against (empty = skip drift)"
         required: false
         type: string
         default: ""
+    secrets:
+      RELEASE_GH_TOKEN: { required: false }
 
 permissions:
   contents: read
@@ -252,12 +256,22 @@ jobs:
       - name: Validate manifest + matrix
         env:
           CANDIDATE_REF: ${{ inputs.candidate_ref }}
+          CANDIDATE_PRECUT: ${{ inputs.candidate_precut }}
+          BASELINE_REF: ${{ steps.baseline.outputs.ref }}
+          GITHUB_TOKEN: ${{ secrets.RELEASE_GH_TOKEN || github.token }}
         run: |
           set -euo pipefail
-          REF='${{ steps.baseline.outputs.ref }}'
+          REF="$BASELINE_REF"
           ARGS=()
           if [ -n "$CANDIDATE_REF" ]; then
             ARGS+=(--exact-candidate)
+          fi
+          if [ "$CANDIDATE_PRECUT" = "true" ]; then
+            if [ -z "$CANDIDATE_REF" ]; then
+              echo "::error::candidate-precut requires adopted immutable candidate inputs"
+              exit 1
+            fi
+            ARGS+=(--deployment-phase candidate-precut --deployment-qualification certification/deployment-qualification.json)
           fi
           if [ -n "$REF" ]; then
             python tools/validate_platform.py --baseline "$REF" "${ARGS[@]}"
