@@ -77,6 +77,8 @@ async Task<JsonObject> PublishLayer(JsonObject args)
         Srid = 4326,
         PrimaryKey = "gid",
         ServiceName = Text(args, "service"),
+        StorageMode = "managed",
+        Capabilities = ["Query", "Create", "Update", "Delete"],
         Enabled = true,
     });
     return new JsonObject
@@ -140,11 +142,33 @@ async Task<JsonObject> StudioVersion(JsonObject args)
     };
 }
 
-Task<JsonObject> StudioPublishedUrl(JsonObject args) =>
-    // Honua.Sdk 1.10.1 reads Studio drafts, versions and pointers, but has no reader for the
-    // final publication route (/api/v1/studio/published/{route}) in any Honua.Sdk.* package. A reader must
-    // read args.url, the exact URL the JS SDK polled, refuse a missing one, and echo it as "url" (the judge compares).
-    throw new NotSupportedException("Honua.Sdk has no reader for a published Studio route (no published-content API in any Honua.Sdk.* package)");
+// The orchestrator validates the exact polled URL's origin and derives its route before handing it here.
+async Task<JsonObject> StudioPublishedUrl(JsonObject args)
+{
+    var route = Text(args, "route");
+    var artifact = await root.GetRequiredService<IHonuaStudioPackageClient>().GetPublishedArtifactAsync(route);
+    if (artifact.Route != route
+        || artifact.ItemId != Guid.Parse(Text(args, "itemId"))
+        || artifact.VersionId != Guid.Parse(Text(args, "versionId"))
+        || artifact.PublicationId != Guid.Parse(Text(args, "publicationId"))
+        || artifact.VerifyContentHash() != true)
+    {
+        throw new InvalidOperationException("Final publication identity or canonical content hash differs from the approved version.");
+    }
+    return new JsonObject
+    {
+        ["url"] = Text(args, "url"),
+        ["route"] = artifact.Route,
+        ["publicationId"] = artifact.PublicationId.ToString(),
+        ["itemId"] = artifact.ItemId.ToString(),
+        ["versionId"] = artifact.VersionId.ToString(),
+        ["contentHash"] = artifact.ContentHash,
+        ["contentHashInput"] = artifact.ContentHashInput,
+        ["verifiedContentHash"] = true,
+        ["family"] = artifact.Envelope.Family.ToString(),
+        ["body"] = artifact.Envelope.Body is { } body ? JsonNode.Parse(body.GetRawText()) : null,
+    };
+}
 
 async Task<int> IdentityQuery(JsonObject args) =>
     (await identity!.GetRequiredService<IHonuaFeatureServerClient>().QueryAsync(Text(args, "service"), Int(args, "layerId"), everything)).Features?.Count ?? 0;

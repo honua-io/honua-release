@@ -988,11 +988,11 @@
       "id": "honua-sdk-dotnet-readme",
       "repo": "honua-io/honua-sdk-dotnet",
       "path": "README.md",
-      "revision": "5f09e4fca08a4cc6b9877c81e549fc5bc8648dba",
+      "revision": "5a57e5f2611ec874283d5637c2204551f6e1aeff",
       "revisionRule": {
         "clientArtifact": "honua-sdk-dotnet"
       },
-      "url": "https://github.com/honua-io/honua-sdk-dotnet/blob/5f09e4fca08a4cc6b9877c81e549fc5bc8648dba/README.md",
+      "url": "https://github.com/honua-io/honua-sdk-dotnet/blob/5a57e5f2611ec874283d5637c2204551f6e1aeff/README.md",
       "runtime": "dotnet",
       "docker": false,
       "session": null,
@@ -1104,11 +1104,11 @@
       "id": "honua-sdk-dotnet-install",
       "repo": "honua-io/honua-sdk-dotnet",
       "path": "INSTALL.md",
-      "revision": "5f09e4fca08a4cc6b9877c81e549fc5bc8648dba",
+      "revision": "5a57e5f2611ec874283d5637c2204551f6e1aeff",
       "revisionRule": {
         "clientArtifact": "honua-sdk-dotnet"
       },
-      "url": "https://github.com/honua-io/honua-sdk-dotnet/blob/5f09e4fca08a4cc6b9877c81e549fc5bc8648dba/INSTALL.md",
+      "url": "https://github.com/honua-io/honua-sdk-dotnet/blob/5a57e5f2611ec874283d5637c2204551f6e1aeff/INSTALL.md",
       "runtime": "dotnet",
       "docker": false,
       "session": null,
@@ -1240,11 +1240,11 @@
       "id": "honua-sdk-dotnet-docs-quickstart",
       "repo": "honua-io/honua-sdk-dotnet",
       "path": "docs/quickstart.md",
-      "revision": "5f09e4fca08a4cc6b9877c81e549fc5bc8648dba",
+      "revision": "5a57e5f2611ec874283d5637c2204551f6e1aeff",
       "revisionRule": {
         "clientArtifact": "honua-sdk-dotnet"
       },
-      "url": "https://github.com/honua-io/honua-sdk-dotnet/blob/5f09e4fca08a4cc6b9877c81e549fc5bc8648dba/docs/quickstart.md",
+      "url": "https://github.com/honua-io/honua-sdk-dotnet/blob/5a57e5f2611ec874283d5637c2204551f6e1aeff/docs/quickstart.md",
       "runtime": "dotnet",
       "docker": false,
       "session": null,
