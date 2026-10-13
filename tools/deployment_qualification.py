@@ -237,7 +237,7 @@ def verify_eks_configuration(configuration: dict, manifest: dict) -> None:
     helm = configuration["stages"]["helm"]["configuration"]
     require({"arguments", "iacSource", "secretVersionObservations", "tenantFixture"} <= set(terraform),
             "complete Terraform configuration is required")
-    require({"arguments", "values", "helmSource", "runtimeSecretValueDigests",
+    require({"arguments", "values", "helmSource", "runtimeSecretValueCommitments", "runtimeSecretCommitmentAlgorithm",
              "immutableSecretVersionIds", "tenantSigningSecret"} <= set(helm),
             "complete Helm configuration is required")
     require(terraform["iacSource"] == manifest["components"]["honua-iac"]["sha"]
@@ -247,10 +247,12 @@ def verify_eks_configuration(configuration: dict, manifest: dict) -> None:
         require(isinstance(arguments, list) and arguments and all(isinstance(arg, str) for arg in arguments),
                 "actual deployment command arguments are required")
     require(isinstance(helm["values"], dict) and bool(helm["values"]), "actual Helm values are required")
-    fingerprints = helm["runtimeSecretValueDigests"]
+    require(helm["runtimeSecretCommitmentAlgorithm"] == "hmac-sha256",
+            "runtime Secret commitments must use the keyed producer algorithm")
+    fingerprints = helm["runtimeSecretValueCommitments"]
     require(isinstance(fingerprints, dict) and fingerprints
-            and all(isinstance(name, str) and DIGEST.fullmatch(str(value))
-                    for name, value in fingerprints.items()), "actual runtime Secret value digests are required")
+            and all(isinstance(name, str) and re.fullmatch(r"hmac-sha256:[0-9a-f]{64}", str(value))
+                    for name, value in fingerprints.items()), "actual keyed runtime Secret value commitments are required")
     def identities(values):
         require(isinstance(values, list), "secret version identities must be an array")
         result = set()

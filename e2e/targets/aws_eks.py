@@ -43,7 +43,6 @@ must all be gone, or the cell is red.
 """
 from __future__ import annotations
 
-import hashlib
 import ipaddress
 import json
 import os
@@ -696,8 +695,8 @@ class AwsEksTarget(DeployTarget):
                 values["ConnectionStrings__redis"] = (
                     f"{REDIS_RELEASE}-master:6379,password={self._redis_password}"
                 )
-        self._runtime_secret_fingerprints = {key: "sha256:" + hashlib.sha256(value.encode()).hexdigest()
-                                             for key, value in values.items()}
+        import deployment_capture
+        self._runtime_secret_commitments = deployment_capture.secret_commitments(values)
         self._ensure_namespace()
         self._apply({
             "apiVersion": "v1",
@@ -948,7 +947,8 @@ class AwsEksTarget(DeployTarget):
                 deployment_capture.capture(self, "helm", {
                     "arguments": command, "values": values,
                     "helmSource": deployment_capture.source(chart),
-                    "runtimeSecretValueDigests": self._runtime_secret_fingerprints,
+                    "runtimeSecretCommitmentAlgorithm": "hmac-sha256",
+                    "runtimeSecretValueCommitments": self._runtime_secret_commitments,
                     "immutableSecretVersionIds": deployment_capture.secret_versions(values),
                     "tenantSigningSecret": getattr(self, "journey_signing_secret", None),
                 }, redis_enabled)

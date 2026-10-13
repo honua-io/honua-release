@@ -26,7 +26,8 @@ def cell():
     configuration['stages']['helm']['configuration'] = {
         'arguments': ['helm', 'upgrade', '--install', 'synthetic'], 'values': {'replicas': 1},
         'helmSource': manifest['components']['honua-helm']['sha'],
-        'runtimeSecretValueDigests': {'HONUA_ADMIN_PASSWORD': 'sha256:' + 'a' * 64},
+        'runtimeSecretCommitmentAlgorithm': 'hmac-sha256',
+        'runtimeSecretValueCommitments': {'HONUA_ADMIN_PASSWORD': 'hmac-sha256:' + 'a' * 64},
         'immutableSecretVersionIds': [], 'tenantSigningSecret': None}
     configuration['stages']['helm']['previousStageDigest'] = dq.digest(configuration['stages']['terraform'])
     producer = {'repository': 'honua-io/honua-release', 'sourceRevision': 'a' * 40,
@@ -158,7 +159,7 @@ def test_supported_projection_requires_both_complete_cells(cell):
 
 
 @pytest.mark.parametrize('change', ['iac-source', 'helm-source', 'missing-values', 'floating-reference',
-                                   'wrong-version', 'missing-runtime-digests'])
+                                   'wrong-version', 'missing-runtime-commitments', 'unkeyed-runtime-hash', 'wrong-commitment-algorithm'])
 def test_configuration_cannot_borrow_source_or_unobserved_secret_version(cell, change):
     import copy
     manifest, inputs, _raw, _producer, _artifact = cell
@@ -180,8 +181,12 @@ def test_configuration_cannot_borrow_source_or_unobserved_secret_version(cell, c
         helm['values']['config']['env']['Example'] = 'aws:secretsmanager:' + arn
     elif change == 'wrong-version':
         helm['values']['config']['env']['Example'] = 'aws:secretsmanager:' + arn + '?versionId=' + 'b' * 32
+    elif change == 'unkeyed-runtime-hash':
+        helm['runtimeSecretValueCommitments'] = {'HONUA_ADMIN_PASSWORD': 'sha256:' + 'a' * 64}
+    elif change == 'wrong-commitment-algorithm':
+        helm['runtimeSecretCommitmentAlgorithm'] = 'sha256'
     else:
-        helm['runtimeSecretValueDigests'] = {}
+        helm['runtimeSecretValueCommitments'] = {}
     with pytest.raises(dq.QualificationError):
         dq.verify_eks_configuration(configuration, manifest)
 

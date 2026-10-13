@@ -142,11 +142,13 @@ def test_staged_capture_chains_exact_inputs_and_persists_before_actuation(monkey
 
 def test_secret_capture_requests_version_identity_only():
     import deployment_capture as capture
-    run = mock.Mock(return_value=subprocess.CompletedProcess([], 0, VERSION + "\n"))
+    run = mock.Mock(return_value=subprocess.CompletedProcess([], 0, json.dumps({"ARN": ARN, "VersionIdsToStages": {VERSION: ["AWSCURRENT"]}})))
     result = capture.secret_versions([f"-var=key={ARN}", f"-var=key2={ARN}"], run=run)
     assert result == [{"arn": ARN, "versionId": VERSION}]
     assert run.call_count == 1
-    assert run.call_args.args[0][-4:] == ["--query", "VersionId", "--output", "text"]
+    assert run.call_args.args[0][2] == "describe-secret"
+    assert "get-secret-value" not in run.call_args.args[0]
+    assert run.call_args.args[0][-4:] == ["--query", "{ARN:ARN,VersionIdsToStages:VersionIdsToStages}", "--output", "json"]
 
 
 @pytest.mark.parametrize("author_allowed", [True, False])
@@ -199,16 +201,49 @@ def test_runtime_secret_references_pin_the_version_actually_consumed():
     import deployment_capture as capture
     environment = {"AuditLog__ChainVerification__Key": "aws:secretsmanager:" + ARN,
                    "Other": "unchanged"}
-    run = mock.Mock(return_value=subprocess.CompletedProcess([], 0, VERSION + "\n"))
+    run = mock.Mock(return_value=subprocess.CompletedProcess([], 0, json.dumps({"ARN": ARN, "VersionIdsToStages": {VERSION: ["AWSCURRENT"]}})))
     result = capture.pin_secret_references(environment, run=run)
     assert result == {**environment, "AuditLog__ChainVerification__Key": "aws:secretsmanager:" + ARN + "?versionId=" + VERSION}
     assert environment["AuditLog__ChainVerification__Key"] == "aws:secretsmanager:" + ARN
     run.reset_mock()
     assert capture.secret_versions(result, run=run) == [{"arn": ARN, "versionId": VERSION}]
-    assert "--version-id" in run.call_args.args[0]
-    assert run.call_args.args[0][run.call_args.args[0].index("--version-id") + 1] == VERSION
-    run.return_value.stdout = "different-immutable-version-0000000000"
+    assert run.call_args.args[0][2] == "describe-secret"
+    # A pinned historical version remains valid even after AWSCURRENT rotates.
+    run.return_value.stdout = json.dumps({"ARN": ARN, "VersionIdsToStages": {VERSION: [], "b" * 32: ["AWSCURRENT"]}})
+    assert capture.secret_versions(result, run=run) == [{"arn": ARN, "versionId": VERSION}]
+    run.return_value.stdout = json.dumps({"ARN": ARN, "VersionIdsToStages": {"b" * 32: ["AWSCURRENT"]}})
     with pytest.raises(ValueError, match="matching immutable"):
         capture.secret_versions(result, run=run)
     with pytest.raises(ValueError, match="exact ARN"):
         capture.pin_secret_references({"Key": "aws:secretsmanager:name?versionStage=AWSCURRENT"}, run=run)
+
+
+@pytest.mark.parametrize("metadata", [
+    {"ARN": ARN, "VersionIdsToStages": {}},
+    {"ARN": ARN, "VersionIdsToStages": {VERSION: ["AWSCURRENT"], "b" * 32: ["AWSCURRENT"]}},
+    {"ARN": ARN, "VersionIdsToStages": {"invalid": ["AWSCURRENT"]}},
+    {"ARN": ARN + "other", "VersionIdsToStages": {VERSION: ["AWSCURRENT"]}},
+])
+def test_secret_version_metadata_refuses_missing_ambiguous_or_wrong_identity(metadata):
+    import deployment_capture as capture
+    run = mock.Mock(return_value=subprocess.CompletedProcess([], 0, json.dumps(metadata)))
+    with pytest.raises(ValueError, match="matching immutable"):
+        capture.secret_versions([ARN], run=run)
+
+
+def test_runtime_secret_commitments_are_keyed_field_bound_and_fresh():
+    import hashlib
+    import hmac
+    import deployment_capture as capture
+    values = {"Password": "low-entropy-example", "OtherPassword": "low-entropy-example"}
+    key = b"a" * 32
+    with mock.patch.object(capture.secrets, "token_bytes", return_value=key) as random:
+        committed = capture.secret_commitments(values)
+    random.assert_called_once_with(32)
+    assert committed["Password"] == "hmac-sha256:" + hmac.new(
+        key, capture.canonical({"name": "Password", "value": values["Password"]}), hashlib.sha256).hexdigest()
+    assert committed["Password"] != committed["OtherPassword"]
+    assert committed != capture.secret_commitments(values)
+    assert all(value.startswith("hmac-sha256:") and len(value) == 76 for value in committed.values())
+    assert "low-entropy-example" not in json.dumps(committed)
+    assert key.hex() not in json.dumps(committed)

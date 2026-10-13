@@ -6,10 +6,12 @@ that subprocess; Helm outputs are captured after Terraform, before Helm executes
 from __future__ import annotations
 
 import hashlib
+import hmac
 import json
 import os
 from pathlib import Path
 import re
+import secrets
 import subprocess
 import sys
 import urllib.parse
@@ -52,24 +54,44 @@ SECRET_ARN = r"arn:aws[a-z-]*:secretsmanager:[a-z0-9-]+:[0-9]{12}:secret:[A-Za-z
 
 
 def secret_versions(arguments, *, run=subprocess.run):
-    """Read immutable identities, honoring any version already pinned in a reference."""
+    """Resolve version metadata without ever retrieving secret material."""
     references = sorted(set(re.findall(SECRET_ARN + r"(?:\?versionId=[A-Za-z0-9-]+)?",
                                       json.dumps(arguments))))
     versions = []
     for reference in references:
         arn, _, query = reference.partition("?")
         expected = urllib.parse.parse_qs(query).get("versionId", [None])[0]
-        command = ["aws", "secretsmanager", "get-secret-value", "--secret-id", arn]
-        if expected is not None:
-            command += ["--version-id", expected]
-        result = run([*command, "--query", "VersionId", "--output", "text"],
+        result = run(["aws", "secretsmanager", "describe-secret", "--secret-id", arn,
+                      "--query", "{ARN:ARN,VersionIdsToStages:VersionIdsToStages}", "--output", "json"],
                      capture_output=True, text=True, check=True)
-        version = result.stdout.strip()
-        if (not re.fullmatch(r"[A-Za-z0-9-]{32,64}", version)
-                or (expected is not None and version != expected)):
+        metadata = json.loads(result.stdout)
+        mapping = metadata.get("VersionIdsToStages", {})
+        if metadata.get("ARN") != arn or not isinstance(mapping, dict):
+            raise ValueError("deployment secret has no matching immutable version metadata")
+        if expected is None:
+            current = [version for version, stages in mapping.items()
+                       if isinstance(stages, list) and "AWSCURRENT" in stages]
+            version = current[0] if len(current) == 1 else ""
+        else:
+            version = expected if expected in mapping else ""
+        if not re.fullmatch(r"[A-Za-z0-9-]{32,64}", version):
             raise ValueError("deployment secret has no matching immutable version")
         versions.append({"arn": arn, "versionId": version})
     return versions
+
+
+def secret_commitments(values):
+    """Bind values at consumption without exposing a public password-guessing oracle.
+
+    The fresh 256-bit HMAC key exists only during this call and is never persisted or
+    published. Field names are included in each commitment's domain. These attest the
+    producer's actual inputs; public verification checks the signed capture binding,
+    not secret values or an offline recomputation of these commitments.
+    """
+    key = secrets.token_bytes(32)
+    return {name: "hmac-sha256:" + hmac.new(key, canonical({"name": name, "value": value}),
+                                          hashlib.sha256).hexdigest()
+            for name, value in values.items()}
 
 
 def pin_secret_references(environment, *, run=subprocess.run):

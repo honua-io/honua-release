@@ -827,8 +827,11 @@ its ARN to the typed ECS/Lambda configuration. The key travels to the isolated
 journey job through the existing encrypted handoff and remains in Python memory;
 it is not passed to npm or retained in a principal file, target document, receipt
 or public artifact. Teardown deletes the run-owned secret. Public configuration
-capture retains immutable secret version identities or high-entropy runtime-secret
-value digests, never secret values.
+capture resolves immutable secret version identities using metadata-only DescribeSecret
+requests. Runtime secret values use field-bound HMAC-SHA256 commitments with a fresh
+256-bit key that exists only in producer memory and is never published or persisted.
+Public validation verifies the captured configuration binding, not secret values or
+offline guesses against a public password hash.
 
 For prepared EKS qualification, `deployment-terraform-inputs.json` records exact
 Terraform arguments before apply. `deployment-helm-inputs.json` chains that digest
