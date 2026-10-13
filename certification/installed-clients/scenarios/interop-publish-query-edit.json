@@ -7,10 +7,10 @@
     {
       "id": "publish",
       "client": "honua-sdk-dotnet",
-      "api": "IHonuaAdminClient.PublishLayerAsync",
+      "api": "IHonuaAdminClient.PublishLayerAsync + IHonuaFeatureServerClient.QueryAsync",
       "oracle": "interop-layer-published",
       "consumes": [],
-      "description": "Publish the fixture's handoff table as a new service and layer through the .NET admin client."
+      "description": "Publish the fixture's handoff table as a managed service/layer, then read the publisher-assigned object IDs through the .NET query client, bound to exact fixture attributes and geometry."
     },
     {
       "id": "query",
@@ -36,7 +36,7 @@
           "handoff": "layer"
         }
       ],
-      "description": "Query the published layer's object ids; they are the fixture gids."
+      "description": "Query the published layer's object IDs; they equal the IDs the .NET publisher read for the independently verified fixture rows. Business gids remain separate attributes."
     },
     {
       "id": "count",
