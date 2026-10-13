@@ -362,9 +362,13 @@ while IFS= read -r row; do
 done < <(python3 "$HERE/plan.py" access-plan | jq -c '.[]')
 
 if [ "${SEED_DRY_RUN:-}" != "1" ]; then
-  E2E_BASE="$E2E_BASE" E2E_API_KEY="$E2E_API_KEY" \
+  if ! E2E_BASE="$E2E_BASE" E2E_API_KEY="$E2E_API_KEY" \
     python3 "$HERE/verify_edit.py" --publication "$E2E_OUT/seed-inspections-publication.json" \
-    --output "$E2E_OUT/seed-edit-proof.json"
+    --output "$E2E_OUT/seed-edit-proof.json"; then
+    echo "::error:: managed scratch edit proof failed; bounded redacted server diagnostics follow" >&2
+    E2E_BOOT_LOG_MAX_LINES=40 bash "$HERE/../boot.sh" errors >&2 || true
+    exit 1
+  fi
 fi
 
 ids_json="$(python3 -c '
