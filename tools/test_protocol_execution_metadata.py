@@ -183,10 +183,14 @@ def test_source_host_oversized_payload_is_refused_before_any_base64_decode(monke
     cell = ledger['cells'][0]
     cell['evidence_receipt']['payload_base64'] = 'a' * (4 * ((65536 + 2) // 3) + 4)
     rebind(cell)
+    ledger['cells'] = [cell]
+    requirements['requirements'] = [row for row in requirements['requirements']
+                                    if cert._requirement_signature(row) == cert._requirement_signature(cell)]
     def unexpected_decode(*args, **kwargs):
         pytest.fail('oversized source-host receipt was decoded before its bound')
     monkeypatch.setattr(cert.base64, 'b64decode', unexpected_decode)
-    assert not cert._valid_execution_metadata(cell, ledger['candidate']['cut_at'], requirements['revision'])
+    # Exercise the complete entrypoint: a later pass-receipt check must not decode it either.
+    assert evaluate(ledger, requirements)['overall_status'] == 'fail'
 
 
 def test_nonpassing_network_subset_keeps_actual_failure():

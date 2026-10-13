@@ -749,7 +749,8 @@ def evaluate(
             fail(prefix, f"unknown fields: {', '.join(extra)}")
         if missing:
             continue
-        if not _valid_execution_metadata(raw, candidate.get("cut_at"), owned_revision):
+        execution_metadata_valid = _valid_execution_metadata(raw, candidate.get("cut_at"), owned_revision)
+        if not execution_metadata_valid:
             fail(prefix, "execution metadata must be complete, bounded and bound to the canonical actor, lane, facets and request")
 
         key = (
@@ -845,16 +846,18 @@ def evaluate(
                 fail(prefix, "passing cell requires a digest-bound result for every scenario facet")
             elif any(result.get("result") != "pass" for result in facet_results.values() if isinstance(result, dict)):
                 fail(prefix, "passing cell requires every scenario facet to pass")
-            if not _valid_receipt(raw, candidate.get("cut_at"), owned_revision):
-                fail(prefix, "passing cell evidence_receipt is not semantically bound to the cell")
-            elif _receipt_digest(evidence_receipt) != evidence_digest:
-                fail(prefix, "passing cell evidence_receipt bytes do not match evidence_digest")
-            elif receipt_root is not None:
-                receipt_path = receipt_root / evidence_digest[7:]
-                if not receipt_path.is_file():
-                    fail(prefix, "passing cell content-addressed evidence receipt is not materialized")
-                elif f"sha256:{hashlib.sha256(receipt_path.read_bytes()).hexdigest()}" != evidence_digest:
-                    fail(prefix, "materialized evidence receipt bytes do not match evidence_digest")
+            # Already rejected metadata must not reach a second, unbounded receipt decode.
+            if execution_metadata_valid:
+                if not _valid_receipt(raw, candidate.get("cut_at"), owned_revision):
+                    fail(prefix, "passing cell evidence_receipt is not semantically bound to the cell")
+                elif _receipt_digest(evidence_receipt) != evidence_digest:
+                    fail(prefix, "passing cell evidence_receipt bytes do not match evidence_digest")
+                elif receipt_root is not None:
+                    receipt_path = receipt_root / evidence_digest[7:]
+                    if not receipt_path.is_file():
+                        fail(prefix, "passing cell content-addressed evidence receipt is not materialized")
+                    elif f"sha256:{hashlib.sha256(receipt_path.read_bytes()).hexdigest()}" != evidence_digest:
+                        fail(prefix, "materialized evidence receipt bytes do not match evidence_digest")
 
         if raw["addressable_by_client"]:
             if raw["result"] == "not-addressable":
