@@ -155,8 +155,9 @@ def main() -> int:
         assert inspected["Config"]["Labels"]["org.opencontainers.image.revision"] == source, "Image OCI source mismatch"
         assert any(x.endswith("@" + image.split("@", 1)[1]) for x in inspected["RepoDigests"]), "Pulled image digest mismatch"
         report["imageId"] = inspected["Id"]
-        stage("start persistent stores and IdP", lambda: call([*compose, "up", "-d", "--wait", "--wait-timeout", "300", "db", "redis", "keycloak"], timeout=600))
+        # Compose can create containers and then fail while waiting for readiness.
         stores_started = True
+        stage("start persistent stores and IdP", lambda: call([*compose, "up", "-d", "--wait", "--wait-timeout", "300", "db", "redis", "keycloak"], timeout=600))
         stage("real IdP discovery readiness", lambda: call(["curl", "--fail", "--silent", "--show-error", "--cacert", str(run / "certs/kc.crt"), "--resolve", "host.docker.internal:19808:127.0.0.1", "--noproxy", "*", "--retry", "60", "--retry-all-errors", "--retry-delay", "2", "--max-time", "5", "https://host.docker.internal:19808/realms/honua/.well-known/openid-configuration"], timeout=300))
         stage("start Production server", lambda: call([*compose, "up", "-d", "--wait", "--wait-timeout", "300", "server"], timeout=600))
         consumer = run / "consumer"
