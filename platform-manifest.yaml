@@ -634,12 +634,11 @@ components:
   honua-sdk-python:
     repository: "https://github.com/honua-io/honua-sdk-python"
     lifecycleStatus: GA
-    # R25 manual advance 2026-10-12: PyPI wheel bytes (downloaded twice) and PEP 740 publish
-    # attestations (run 38207317004) verified. SDK 0.1.15 and admin 0.1.12 share this published
-    # source (tags python-sdk-v0.1.15 / python-admin-v0.1.12), which carries
-    # release/component-versions.json and release/sdk-capability-baseline.json.
-    version: "0.1.15"
-    sha: "a2729be7b2fa0e363319043e9d084b2204d30a08"
+    # R25 published-doc repair: SDK 0.1.16 from python-sdk-v0.1.16.
+    # Registry wheel bytes and PEP 740 source provenance are verified independently;
+    # honua-admin 0.1.12 retains its original publication under clientArtifacts.
+    version: "0.1.16"
+    sha: "5a79352066b8aa23f1bae45b5c38e6d83efd003f"
     artifact: "pypi:honua-sdk"
     contractVersions:
       protocol-factories: "1"
@@ -859,8 +858,8 @@ components:
 # the npm pair again after the 0.1.14 publications reached the registry on 2026-10-06:
 #   honua-sdk-js         984425f9 = npm registry gitHead for @honua/sdk-js 0.1.14           MATCHES
 #   honua-mcp-server     704eb957 = npm registry gitHead for @honua/mcp-server 0.1.14       MATCHES
-#   honua-sdk-python-wheel a2729be7 = PyPI publication certificate GitHub SHA (OID
-#                        1.3.6.1.4.1.57264.1.3) for honua_sdk-0.1.15-py3-none-any.whl       MATCHES
+#   honua-sdk-python-wheel 5a793520 = PyPI publication certificate GitHub SHA (OID
+#                        1.3.6.1.4.1.57264.1.13) for honua_sdk-0.1.16-py3-none-any.whl      MATCHES
 #   honua-admin-python-wheel a2729be7 = same certificate extension for
 #                        honua_admin-0.1.12-py3-none-any.whl                                 MATCHES
 #   honua-sdk-dotnet     5f09e4fc = nuget.org catalog repository.commit and nuspec <repository
@@ -970,11 +969,11 @@ clientArtifacts:
   honua-sdk-python-wheel:
     ecosystem: pypi
     package: "honua-sdk"
-    version: "0.1.15"
-    filename: "honua_sdk-0.1.15-py3-none-any.whl"
-    digest: "sha256:c058087d8bd93d6ce44f5e64150d2d31376a49bade61a933b1ff0fcb8de7dc00"
+    version: "0.1.16"
+    filename: "honua_sdk-0.1.16-py3-none-any.whl"
+    digest: "sha256:b0520257e5cd3d323ece4cca183971a4480214406582b9b3aad1a713557aa5fc"
     repository: honua-io/honua-sdk-python
-    sourceSha: "a2729be7b2fa0e363319043e9d084b2204d30a08"
+    sourceSha: "5a79352066b8aa23f1bae45b5c38e6d83efd003f"
     publicationState: published
     targets: [python3]
   honua-sdk-dotnet:
