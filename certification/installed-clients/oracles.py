@@ -233,7 +233,23 @@ def oracle_buffer(observed: dict[str, Any], fixture: dict[str, Any]) -> tuple[bo
     ring = _exterior_ring(observed.get("geometry"))
     if ring is None:
         return False, "the job result holds no polygon geometry"
+    geometry = observed["geometry"]
+    if geometry.get("type") == "Feature":
+        geometry = geometry["geometry"]
+    if len(geometry["coordinates"]) != 1:
+        return False, "point buffer must not contain interior rings"
+    if not all(isinstance(vertex, list) and len(vertex) >= 2
+               and all(type(value) in (int, float) and math.isfinite(value) for value in vertex[:2]) for vertex in ring):
+        return False, "buffer coordinates must be finite numbers"
     vertices = ring[:-1] if ring[0] == ring[-1] else ring
+    # Radius alone accepts a diamond (or a crossed polygon) with correct vertices.
+    area = abs(sum((a[0] - cx) * (b[1] - cy) - (b[0] - cx) * (a[1] - cy)
+                   for a, b in zip(ring, ring[1:]))) / 2
+    if not math.isclose(area, math.pi * distance ** 2, rel_tol=0.01):
+        return False, "buffer area differs from the requested circle by more than 1%"
+    if any(math.hypot((a[0] + b[0]) / 2 - cx, (a[1] + b[1]) / 2 - cy) < distance * 0.99
+           for a, b in zip(ring, ring[1:])):
+        return False, "buffer boundary has a chord cutting more than 1% inside the requested circle"
     worst = max(abs(math.hypot(x - cx, y - cy) - distance) for x, y in (vertex[:2] for vertex in vertices))
     mean_x = sum(vertex[0] for vertex in vertices) / len(vertices)
     mean_y = sum(vertex[1] for vertex in vertices) / len(vertices)
@@ -624,3 +640,62 @@ def oracle_mcp_job_accepted(observed: dict[str, Any]) -> tuple[bool, str]:
 def oracle_mcp_job_succeeded(observed: dict[str, Any]) -> tuple[bool, str]:
     status = observed.get("status")
     return status == "Succeeded", f"terminal job status {status!r}"
+
+
+def oracle_mcp_process_catalog(observed: dict[str, Any], fixture: dict[str, Any]) -> tuple[bool, str]:
+    processes = observed.get("processes")
+    if not isinstance(processes, list) or not processes or not all(isinstance(p, dict) for p in processes):
+        return False, "missing process catalog"
+    ids = [p.get("processId") for p in processes]
+    if not all(isinstance(pid, str) and pid for pid in ids) or len(set(ids)) != len(ids):
+        return False, "duplicate or missing process identifiers"
+    selected = next((p for p in processes if p["processId"] == fixture["processes"]["processId"]), {})
+    parameters = selected.get("parameters") or []
+    names = {p.get("name") for p in parameters if isinstance(p, dict)}
+    ok = (selected.get("executionKind") == "Job" and "Async" in (selected.get("supportedExecutionModes") or [])
+          and {"wkb", "srid", "distance", "geodesic"} <= names)
+    return ok, "catalog must describe the fixture buffer's asynchronous entry point and inputs"
+
+
+def oracle_mcp_plan_valid(observed: dict[str, Any]) -> tuple[bool, str]:
+    ok = (observed.get("isExecutable") is True and observed.get("requiresApproval") is False
+          and observed.get("violations") == [])
+    return ok, "bounded buffer must validate without violations or approval"
+
+
+def oracle_mcp_plan_invalid(observed: dict[str, Any]) -> tuple[bool, str]:
+    violations = observed.get("violations")
+    actionable = isinstance(violations, list) and any(
+        isinstance(v, dict) and v.get("code") == "INVALID_PARAMETER_VALUE"
+        and v.get("fieldPath") == "steps[buffer].inputs.wkb"
+        and isinstance(v.get("message"), str) and "base64" in v["message"].lower()
+        for v in violations)
+    return observed.get("isExecutable") is False and actionable, "invalid WKB must be refused with an actionable parameter violation"
+
+
+def oracle_mcp_dry_run(observed: dict[str, Any]) -> tuple[bool, str]:
+    ok = ("FeatureLayer" in (observed.get("estimatedArtifacts") or [])
+          and isinstance(observed.get("sideEffects"), list) and not observed.get("jobId"))
+    return ok, "dry run must preview a FeatureLayer without reporting an executed job"
+
+
+def oracle_mcp_bound_job(observed: dict[str, Any], submitted: dict[str, Any], *, terminal: bool = False) -> tuple[bool, str]:
+    job = submitted.get("jobId")
+    ok = isinstance(job, str) and bool(job) and observed.get("jobId") == job
+    accepted, _ = oracle_mcp_job_accepted(observed)
+    ok = ok and accepted and (not terminal or observed.get("status") == "Succeeded")
+    return ok, "job identity must match submission and status must be " + ("Succeeded" if terminal else "accepted")
+
+
+def oracle_mcp_buffer_result(observed: dict[str, Any], fixture: dict[str, Any], submitted: dict[str, Any]) -> tuple[bool, str]:
+    job, artifact = submitted.get("jobId"), observed.get("artifactId")
+    if not (isinstance(job, str) and job and observed.get("jobId") == job
+            and observed.get("status") == "Completed" and observed.get("errors") == []
+            and observed.get("artifactsTruncated") is False and isinstance(artifact, str) and artifact):
+        return False, "result must be complete, error-free, identified and bound to the submitted job"
+    feature = observed.get("geometry") or {}
+    properties = feature.get("properties") or {}
+    if (properties.get("inputSrid") != fixture["processes"]["srid"]
+            or properties.get("processId") != fixture["processes"]["processId"]):
+        return False, "buffer metadata must identify the fixture process and CRS"
+    return oracle_buffer(observed, fixture)

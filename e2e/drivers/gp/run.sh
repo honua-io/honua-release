@@ -7,8 +7,23 @@ HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck source=../../harness/lib/common.sh
 source "$HERE/../../harness/lib/common.sh"
 
+# The harness consumes receipt rows even when a driver exits nonzero. Never let
+# an aborted driver silently remove this required scenario from the report.
+GP_EMITTED=false
+emit_gp() {
+  emit_scenario "S5-geoprocessing" "$@"
+  GP_EMITTED=true
+}
+trap 'if [ "$GP_EMITTED" != true ]; then
+  emit_scenario "S5-geoprocessing" fail "GP driver aborted before producing its receipt"
+fi' EXIT
+POLL_ATTEMPTS="${E2E_GP_POLL_ATTEMPTS:-30}"
+POLL_INTERVAL="${E2E_GP_POLL_INTERVAL:-2}"
+if ! [[ "$POLL_ATTEMPTS" =~ ^[1-9][0-9]{0,2}$ ]] || [ "$POLL_ATTEMPTS" -gt 300 ]; then exit 1; fi
+[[ "$POLL_INTERVAL" =~ ^[0-9]+([.][0-9]+)?$ ]]
+
 if ! server_ready; then
-  emit_scenario "S5-geoprocessing" blocked "server not ready at $E2E_BASE"
+  emit_gp blocked "server not ready at $E2E_BASE"
   exit 0
 fi
 
@@ -32,9 +47,9 @@ if [ "${E2E_REDIS:-on}" = "off" ]; then
     --arg k "$(jget '.capability')" '{httpStatus:$c,type:$t,missingDependency:$d,capability:$k}')"
   if [ "$HTTP_CODE" = "503" ] && [ "$(jget '.type')" = "https://honua.io/problems/capability-unavailable" ] \
      && [ "$(jget '.missingDependency')" = "redis" ]; then
-    emit_scenario "S5-geoprocessing" pass "redis-off: async job submission refused with the typed capability-unavailable receipt (missingDependency=redis)" "$evidence"
+    emit_gp pass "redis-off: async job submission refused with the typed capability-unavailable receipt (missingDependency=redis)" "$evidence"
   else
-    emit_scenario "S5-geoprocessing" fail "redis-off: expected 503 capability-unavailable (missingDependency=redis), got HTTP $HTTP_CODE" "$evidence"
+    emit_gp fail "redis-off: expected 503 capability-unavailable (missingDependency=redis), got HTTP $HTTP_CODE" "$evidence"
   fi
   exit 0
 fi
@@ -47,15 +62,19 @@ run_process() { # process-id inputs-json  -> sets globals ST and RESULTS (NOT vi
     -H "Prefer: respond-async"
   local job; job="$(jget '.jobID')"
   case "$HTTP_CODE" in 201|202) ;; *) ST="submit-failed:$HTTP_CODE"; return ;; esac
-  [ -z "$job" ] || [ "$job" = "null" ] && { ST="missing-job-id"; return; }
+  if ! printf '%s' "$HTTP_BODY" | jq -e '.jobID | type == "string" and length > 0' >/dev/null; then
+    ST="missing-job-id"; return
+  fi
   local i
-  for i in $(seq 1 30); do
+  for i in $(seq 1 "$POLL_ATTEMPTS"); do
     api_get "/ogc/processes/jobs/$job"
     [ "$HTTP_CODE" = "200" ] || { ST="poll-failed:$HTTP_CODE"; return; }
     [ "$(jget '.jobID // .jobId // empty')" = "$job" ] || { ST="wrong-job-id"; return; }
     ST="$(jget '.status')"
     { [ "$ST" = "successful" ] || [ "$ST" = "failed" ] || [ "$ST" = "dismissed" ]; } && break
-    sleep 2
+    case "$ST" in accepted|running) ;; *) ST="unknown-status:$ST"; return ;; esac
+    if [ "$i" -eq "$POLL_ATTEMPTS" ]; then ST="poll-timeout"; return; fi
+    sleep "$POLL_INTERVAL"
   done
   [ "$ST" = "successful" ] || return 0
   api_get "/ogc/processes/jobs/$job/results"
@@ -76,7 +95,7 @@ for pid in geometry.area geometry.buffer; do
 done
 
 if [ -z "$fails" ]; then
-  emit_scenario "S5-geoprocessing" pass "geometry.area + geometry.buffer completed with verified metric results" "$evidence"
+  emit_gp pass "geometry.area + geometry.buffer completed with verified metric results" "$evidence"
 else
-  emit_scenario "S5-geoprocessing" fail "process(es) did not complete with results:$fails" "$evidence"
+  emit_gp fail "process(es) did not complete with results:$fails" "$evidence"
 fi

@@ -14,7 +14,7 @@ ROOT = Path(__file__).resolve().parents[1]
 
 def exercise(tmp_path, *, submit_code=201, poll_code=200, result_code=200,
              wrong_area=False, wrong_buffer=False, wrong_job=False, redis_off=False,
-             clipped_corners=False, long_chord=False):
+             clipped_corners=False, long_chord=False, status="successful", malformed_result=False, job_id="default"):
     ring = [[10 * math.cos(i * math.pi / 32), 10 * math.sin(i * math.pi / 32)] for i in range(64)]
     ring.append(ring[0])
     if clipped_corners:
@@ -54,7 +54,7 @@ def exercise(tmp_path, *, submit_code=201, poll_code=200, result_code=200,
             if redis_off:
                 self.send(503, {"type": "https://honua.io/problems/capability-unavailable", "missingDependency": "redis"})
             else:
-                self.send(submit_code, {"jobID": self.path.split("/")[-2], "status": "accepted"})
+                self.send(submit_code, {"jobID": self.path.split("/")[-2] if job_id == "default" else job_id, "status": "accepted"})
 
         def do_GET(self):
             if self.path == "/healthz/ready":
@@ -62,9 +62,9 @@ def exercise(tmp_path, *, submit_code=201, poll_code=200, result_code=200,
                 return
             job = self.path.split("/")[4]
             if self.path.endswith("/results"):
-                self.send(result_code, outputs[job])
+                self.send(result_code, {"unexpected": "payload"} if malformed_result else outputs[job])
             else:
-                self.send(poll_code, {"jobID": "wrong" if wrong_job else job, "status": "successful"})
+                self.send(poll_code, {"jobID": "wrong" if wrong_job else job, "status": status})
 
     with ThreadingHTTPServer(("127.0.0.1", 0), Handler) as server:
         thread = Thread(target=server.serve_forever, daemon=True)
@@ -73,7 +73,8 @@ def exercise(tmp_path, *, submit_code=201, poll_code=200, result_code=200,
             result = subprocess.run(
                 ["bash", str(ROOT / "e2e/drivers/gp/run.sh")], cwd=ROOT,
                 env={**os.environ, "E2E_BASE": f"http://127.0.0.1:{server.server_port}",
-                     "E2E_OUT": str(tmp_path), "E2E_REDIS": "off" if redis_off else "on"},
+                     "E2E_OUT": str(tmp_path), "E2E_REDIS": "off" if redis_off else "on",
+                     "E2E_GP_POLL_ATTEMPTS": "2", "E2E_GP_POLL_INTERVAL": "0"},
                 capture_output=True, text=True, timeout=20,
             )
             assert result.returncode == 0, result.stderr
@@ -91,6 +92,9 @@ def test_correct_metric_results_pass(tmp_path):
     {"submit_code": 500}, {"poll_code": 500}, {"result_code": 500},
     {"wrong_area": True}, {"wrong_buffer": True}, {"wrong_job": True},
     {"clipped_corners": True}, {"long_chord": True},
+    {"status": "failed"}, {"status": "dismissed"}, {"status": "unexpected"},
+    {"status": "running"}, {"malformed_result": True},
+    {"job_id": None}, {"job_id": ""}, {"job_id": 123},
 ])
 def test_failure_cannot_be_reported_as_pass(tmp_path, options):
     assert exercise(tmp_path, **options)["status"] == "fail"
@@ -98,3 +102,15 @@ def test_failure_cannot_be_reported_as_pass(tmp_path, options):
 
 def test_redis_off_still_requires_typed_refusal(tmp_path):
     assert exercise(tmp_path, redis_off=True)["status"] == "pass"
+
+
+def test_driver_abort_still_emits_a_failure_receipt(tmp_path):
+    result = subprocess.run(
+        ["bash", str(ROOT / "e2e/drivers/gp/run.sh")], cwd=ROOT,
+        env={**os.environ, "E2E_OUT": str(tmp_path), "E2E_GP_POLL_ATTEMPTS": "invalid"},
+        capture_output=True, text=True, timeout=5,
+    )
+    assert result.returncode != 0
+    receipt = json.loads((tmp_path / "scenarios.jsonl").read_text())
+    assert receipt["status"] == "fail"
+    assert "aborted" in receipt["why"]

@@ -575,9 +575,17 @@ def passing_mcp_observations(setup=None):
         "read": {"observed": {"features": [{"attributes": {k: r[k] for k in ("gid", "name", "rank")}, "x": r["x"], "y": r["y"]}
                                            for r in oracles.filtered_sites(FIXTURE)]}},
         "render": {"observed": {"png": image, "mimeType": "image/png"}},
+        "process-catalog": {"observed": {"processes": [{"processId": FIXTURE["processes"]["processId"],
+            "executionKind": "Job", "supportedExecutionModes": ["Async"],
+            "parameters": [{"name": name} for name in ("wkb", "srid", "distance", "geodesic")]}]}},
+        "buffer-validate": {"observed": {"isExecutable": True, "requiresApproval": False, "violations": []}},
+        "buffer-invalid": {"observed": {"isExecutable": False, "violations": [{"code": "INVALID_PARAMETER_VALUE",
+            "fieldPath": "steps[buffer].inputs.wkb", "message": "expected base64-encoded WKB"}]}},
+        "buffer-dry-run": {"observed": {"estimatedArtifacts": ["FeatureLayer"], "sideEffects": []}},
         "buffer-submit": {"observed": {"jobId": "gp-1", "status": "Queued"}},
-        "buffer-poll": {"observed": {"status": "Succeeded"}},
-        "buffer-result": {"observed": {"geometry": {"type": "Feature", "geometry": {"type": "Polygon", "coordinates": [ring + [ring[0]]]}}}},
+        "buffer-replay": {"observed": {"jobId": "gp-1", "status": "Running"}},
+        "buffer-poll": {"observed": {"jobId": "gp-1", "status": "Succeeded"}},
+        "buffer-result": {"observed": {"jobId": "gp-1", "status": "Completed", "artifactId": "a-1", "errors": [], "artifactsTruncated": False, "geometry": {"type": "Feature", "properties": {"inputSrid": FIXTURE["processes"]["srid"], "processId": FIXTURE["processes"]["processId"]}, "geometry": {"type": "Polygon", "coordinates": [ring + [ring[0]]]}}}},
     })
 
 
@@ -686,6 +694,83 @@ class WorkflowTests(unittest.TestCase):
         self.assertFalse(ok)
         self.assertIn("honua_admin_role_list", detail)
         self.assertFalse(judge(setup_view("default", list(PINNED_DEFAULT_VIEW), "default.v2"), FIXTURE, {}, {}, {})[0])
+
+    def test_gp_release_steps_reject_missing_and_corrupted_observations(self):
+        cell_, plan = workflow_cell("npm-mcp-workflow"), cli_plan()
+        mutations = {
+            "process-catalog": [{"processes": []}, {"processes": [{"processId": "geometry.buffer"}]}],
+            "buffer-validate": [{"isExecutable": False}, {"isExecutable": True, "requiresApproval": True, "violations": []}],
+            "buffer-invalid": [{"isExecutable": True, "violations": []}, {"isExecutable": False, "violations": []}],
+            "buffer-dry-run": [{"estimatedArtifacts": [], "sideEffects": []},
+                               {"estimatedArtifacts": ["FeatureLayer"], "sideEffects": [], "jobId": "unexpected"}],
+            "buffer-replay": [{"jobId": "gp-2", "status": "Queued"}, {"jobId": "gp-1", "status": "Failed"}],
+            "buffer-poll": [{"jobId": "gp-2", "status": "Succeeded"}, {"jobId": "gp-1", "status": "Cancelled"}],
+        }
+        for step, bad_values in mutations.items():
+            for value in [None, *bad_values]:
+                with self.subTest(step=step, value=value):
+                    observations = passing_mcp_observations()
+                    if value is None:
+                        del observations[("mcp-workflow", step)]
+                    else:
+                        observations[("mcp-workflow", step)]["observed"] = value
+                    status, detail, _ = evaluate_workflow(cell_, observations, "honua-mcp-server", plan)
+                    self.assertEqual(status, "fail", detail)
+        for patch in ({"jobId": "gp-2"}, {"status": "Failed"}, {"artifactId": None},
+                      {"errors": [{"message": "failed"}]}, {"artifactsTruncated": True}):
+            observations = passing_mcp_observations()
+            observations[("mcp-workflow", "buffer-result")]["observed"].update(patch)
+            status, detail, _ = evaluate_workflow(cell_, observations, "honua-mcp-server", plan)
+            self.assertEqual(status, "fail", detail)
+
+    def test_mcp_buffer_metadata_must_identify_the_process_and_crs(self):
+        for properties in ({}, {"inputSrid": 4326, "processId": "geometry.buffer"},
+                           {"inputSrid": 3857, "processId": "geometry.area"}):
+            observed = passing_mcp_observations()[("mcp-workflow", "buffer-result")]["observed"]
+            observed["geometry"]["properties"] = properties
+            self.assertFalse(oracles.oracle_mcp_buffer_result(observed, FIXTURE, {"jobId": "gp-1"})[0])
+
+    def test_resource_reader_reassembles_mid_token_chunks_and_preserves_cursor(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            plan = Path(tmp) / "plan.json"
+            plan.write_text(json.dumps({"baseUrl": "http://localhost:8080"}))
+            driver = load_driver("mcp", plan)
+        uri = "honua://catalog/processes"
+        session = mock.Mock()
+        session.request.side_effect = [
+            {"result": {"contents": [{"uri": uri, "text": '{"process'}], "nextCursor": "opaque+/="}},
+            {"result": {"contents": [{"uri": uri, "text": 'es":[]}'}]}},
+        ]
+        self.assertEqual(driver.resource(session, uri), {"processes": []})
+        self.assertEqual(session.request.call_args_list, [
+            mock.call("resources/read", {"uri": uri}),
+            mock.call("resources/read", {"uri": uri, "cursor": "opaque+/="}),
+        ])
+        for result in (
+            {"contents": [{"uri": "honua://wrong", "text": "{}"}]},
+            {"contents": [{"uri": uri, "text": "{}"}], "nextCursor": "loop"},
+            {"contents": [{"uri": uri, "text": "{}"}], "nextCursor": 123},
+            {"contents": [{"uri": uri, "text": "[]"}]},
+        ):
+            session.request.side_effect = None
+            session.request.return_value = {"result": result}
+            with self.subTest(result=result), self.assertRaises(driver.RpcError):
+                driver.resource(session, uri)
+        session.request.return_value = {"result": {"contents": [{"uri": uri, "text": '{"cut":'}]}}
+        with self.assertRaises(json.JSONDecodeError):
+            driver.resource(session, uri)
+
+    def test_buffer_oracle_rejects_diamond_holes_and_nonfinite_coordinates(self):
+        x, y = FIXTURE["processes"]["point"]
+        d = FIXTURE["processes"]["distance"]
+        diamond = [[x+d,y], [x,y+d], [x-d,y], [x,y-d], [x+d,y]]
+        good = passing_mcp_observations()[("mcp-workflow", "buffer-result")]["observed"]
+        for rings in ([diamond], [diamond, diamond], [[[float("nan"), y]] * 5],
+                      [[[True, y]] * 5], [[[]] * 5]):
+            bad = copy.deepcopy(good)
+            bad["geometry"]["geometry"]["coordinates"] = rings
+            with self.subTest(rings=rings):
+                self.assertFalse(oracles.oracle_buffer(bad, FIXTURE)[0])
 
     def test_mcp_setup_view_is_blocked_only_by_the_dropped_selector(self):
         # The committed cell is active: @honua/mcp-server 0.1.14 retains the setup view (sdk-js#1875).
