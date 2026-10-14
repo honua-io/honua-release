@@ -1,0 +1,12 @@
+{
+  "at": "2026-10-14T03:04:23.654156+00:00",
+  "clean": true,
+  "checkout": "/home/mike/honua-io/sdk022-final-cohort-verification-20261014",
+  "scaffoldTag": "create-honua-app-v0.2.2",
+  "scaffoldSource": "bd178cf762574379c8c0cfe6e923fe9a39ce9832",
+  "sdkTag": "js-sdk-v0.2.2",
+  "sdkSource": "076b4218f832725d57a8e23745fae75aeb9f4e5a",
+  "mcpSource": "6601a8d12c971b8916679ea7cbbb0290fd1ad78c",
+  "verifierSha256": "2252a70772cb85be0ac11f0806acf2d58901cc2a3018d950c31498ddf22dc1c9",
+  "scope": "Unmodified canonical all-eight verifier from final scaffold tag, all actual artifact versions0.2.2; no SDK recut"
+}
