@@ -40,7 +40,7 @@ def validate(ledger):
         raise BudgetError("invalid candidate ledger")
     ceiling, reserve = money(ledger["ceilingUsd"]), money(ledger["cleanupReserveUsd"])
     if ceiling != 500 or reserve != 50:
-        raise BudgetError("pack v1 requires a $500 ceiling and $50 cleanup reserve")
+        raise BudgetError("agent pack requires a $500 ceiling and $50 cleanup reserve")
     entries = ledger.get("entries")
     if not isinstance(entries, list):
         raise BudgetError("entries must be a list")
@@ -55,6 +55,8 @@ def validate(ledger):
             raise BudgetError("reservation lacks campaign, case or priced liability basis")
         if type(row.get("attempt")) is not int or row["attempt"] not in (1, 2):
             raise BudgetError("reservation must identify attempt 1 or 2")
+        if row.get("campaignMode", "qualification") not in ("development", "qualification"):
+            raise BudgetError("unknown campaign mode")
         if not re.fullmatch(r"sha256:[0-9a-f]{64}", row["basisDigest"]):
             raise BudgetError("invalid pricing/liability basis digest")
         upper = money(row["amountUsd"])
@@ -104,6 +106,7 @@ def update(path, operation, *, candidate_key, **values):
             ledger["entries"].append({"id": values["reservation_id"], "campaignId": values["campaign_id"],
                 "caseId": values["case_id"], "kind": values["kind"], "amountUsd": str(money(values["amount"])),
                 "attempt": values["attempt"],
+                "campaignMode": values.get("campaign_mode", "qualification"),
                 "basisDigest": values["basis_digest"], "state": "reserved", "actualUsd": None})
         elif operation == "settle":
             rows = [r for r in ledger["entries"] if r["id"] == values["reservation_id"]]
@@ -134,6 +137,7 @@ def main(argv=None):
     parser.add_argument("--candidate-key", required=True)
     parser.add_argument("--reservation-id")
     parser.add_argument("--campaign-id")
+    parser.add_argument("--campaign-mode", choices=["development", "qualification"], default="qualification")
     parser.add_argument("--case-id")
     parser.add_argument("--kind", choices=["model", "infrastructure", "cleanup"])
     parser.add_argument("--amount")

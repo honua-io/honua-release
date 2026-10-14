@@ -10,6 +10,8 @@ from agent_e2e_budget import update
 from agent_e2e_controller import ControllerError, ModelFailure, run_goal, validate_action
 from agent_e2e_pack import load_json
 from agent_e2e_telemetry import read_events, summarize
+from test_agent_e2e_knowledge import sample_manifest
+from agent_e2e_knowledge import binding
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -45,7 +47,8 @@ class Adapter:
     def call(self, operation, payload, **kwargs):
         self.operations.append((operation, copy.deepcopy(payload)))
         if operation == "prepare":
-            return {"publicInputs": self.public, "secretOracle": "MUST NOT REACH MODEL"}
+            return {"publicInputs": self.public, "secretOracle": "MUST NOT REACH MODEL",
+                    "workerKnowledgeManifest": self.manifest}
         if operation == "verify":
             return {"status": self.verify_status, "failedAssertions": []}
         if operation == "cleanup":
@@ -62,15 +65,18 @@ class Adapter:
 
 @pytest.fixture
 def environment(tmp_path):
-    pack = load_json(ROOT / "certification/agent-e2e/pack.v1.json")
+    pack = load_json(ROOT / "certification/agent-e2e/pack.v2.json")
     corpus = load_json(ROOT / "certification/agent-e2e/corpus/manifest.v1.json")
     next(s for s in pack["scenarios"] if s["id"] == "P10")["limits"]["maxTurns"] = 2
     ledger = tmp_path / "budget.json"
     update(ledger, "init", candidate_key=KEY)
+    adapter = Adapter()
+    adapter.manifest = sample_manifest(tmp_path/'knowledge', pack)
     return {"pack": pack, "corpus": corpus, "case_id": "P10:A:local-docker",
             "campaign": {"campaignId": "campaign", "componentBindingDigest": KEY,
+                         "campaignMode": "qualification", "knowledge": binding(adapter.manifest),
                          "qualificationLockDigest": BASIS, "modelId": "requested", "returnedModelId": "returned"},
-            "ledger": ledger, "journal_root": tmp_path / "journals", "backend": Adapter(), "model": Model()}
+            "ledger": ledger, "journal_root": tmp_path / "journals", "backend": adapter, "model": Model()}
 
 
 def test_hidden_prepare_payload_not_in_model_input_and_no_qualification_claim(environment):
@@ -85,7 +91,7 @@ def test_hidden_prepare_payload_not_in_model_input_and_no_qualification_claim(en
 def test_incorrect_final_state_is_not_retryable_infrastructure(environment):
     environment["backend"].verify_status = "fail"
     result = run_goal(**environment)
-    assert result["status"] == "fail" and result["failureAttribution"] == "product"
+    assert result["status"] == "fail" and result["failureAttribution"] == "undetermined"
 
 
 def test_unknown_model_action_is_model_failure_and_cleanup_runs(environment):
@@ -129,6 +135,23 @@ def test_retry_requires_independent_authorization_before_paid_work(environment):
     assert result["status"] == "blocked"
     assert [op for op, _ in environment["backend"].operations] == ["authorize_retry"]
     assert load_json(environment["ledger"])["entries"] == []
+
+
+def test_development_cannot_expose_holdout(environment):
+    environment['campaign']['campaignMode'] = 'development'
+    environment['case_id'] = 'P10:C:local-docker'
+    with pytest.raises(ControllerError, match='held-out'):
+        run_goal(**environment)
+    assert environment['backend'].operations == []
+    assert load_json(environment['ledger'])['entries'] == []
+
+
+def test_worker_documentation_mismatch_blocks_model_and_cleans_up(environment):
+    environment['backend'].manifest['sourceRevision'] = 'f'*40
+    result = run_goal(**environment)
+    assert result['status'] == 'blocked'
+    assert environment['model'].inputs == []
+    assert environment['backend'].operations[-1][0] == 'cleanup'
 
 
 @pytest.mark.parametrize("args", [{"command": "echo hi", "timeoutSeconds": True}, {"command": ""},

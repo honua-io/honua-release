@@ -7,6 +7,9 @@ from pathlib import Path
 import pytest
 
 import agent_e2e_gate as gate
+from test_agent_e2e_knowledge import sample_manifest
+from test_agent_e2e_semantics import observation as semantic_observation
+from agent_e2e_semantics import CASES
 
 
 NOW = datetime(2026, 10, 14, 12, tzinfo=timezone.utc)
@@ -26,10 +29,11 @@ def campaign(tmp_path, monkeypatch):
         for i in range(1, count + 1):
             sid = f'{prefix}{i:02}'
             scenarios.append({'id': sid, 'targets': cells,
+                              'conceptIds': ['concepts/domain/map'], 'workflowIds': ['guides/workflows/compose-map'],
                               'prompts': {v: f'{sid} goal {v}' for v in 'ABC'},
                               'assertions': ['catalog.exact', 'filter.exact'],
                               'limits': {'maxTurns': 40, 'maxActions': 80, 'timeoutSeconds': 900}})
-    pack = {'schemaVersion': 1, 'packId': 'honua-agent-e2e-rc-v1', 'totalBudgetUsd': 500,
+    pack = {'schemaVersion': 1, 'packId': 'honua-agent-e2e-rc-v2', 'totalBudgetUsd': 500,
             'variants': list('ABC'), 'targets': targets, 'scenarios': scenarios,
             'corpusManifest': 'corpus.json'}
     write(tmp_path / 'pack.json', pack)
@@ -39,7 +43,7 @@ def campaign(tmp_path, monkeypatch):
                                              'sha256': fixture_ref['sha256'].removeprefix('sha256:')}]})
     lock = {'components': {'server': {'source': 'a' * 40}}, 'contentDigests': {'data': 'b' * 64}, 'fixtures': []}
     write(tmp_path / 'lock.json', lock)
-    expected = {'schemaVersion': 1, 'campaignId': 'test-campaign',
+    expected = {'schemaVersion': 2, 'campaignId': 'test-campaign', 'campaignMode': 'qualification',
                 'packDigest': gate.digest((tmp_path / 'pack.json').read_bytes()),
                 'corpusDigest': gate.digest((tmp_path / 'corpus.json').read_bytes()),
                 'qualificationLockDigest': gate.digest((tmp_path / 'lock.json').read_bytes()),
@@ -52,6 +56,19 @@ def campaign(tmp_path, monkeypatch):
                 'totalBudgetUsd': 500}
     write(tmp_path / 'campaign.json', expected)
     evidence_root = tmp_path / 'evidence'
+    manifest = sample_manifest(evidence_root / 'knowledge', pack)
+    expected['knowledge'] = gate.knowledge.binding(manifest)
+    knowledge_ref = {'path': 'knowledge/knowledge-manifest.json',
+                     'sha256': gate.digest((evidence_root/'knowledge/knowledge-manifest.json').read_bytes())}
+    schema_ref = write(evidence_root/'runtime-schema.json', {'observed': 'test schema'})
+    semantic_checks = []
+    for case in CASES:
+        ref = write(evidence_root/f'semantic-{case}.json', semantic_observation(case))
+        semantic_checks.append({'id': case, 'observation': ref, 'rawResponses': [schema_ref]})
+    semantic_ref = write(evidence_root/'semantics.json', {
+        'schemaVersion': 1, 'producer': 'independent-semantic-suite',
+        'componentBindingDigest': expected['componentBindingDigest'], 'knowledge': expected['knowledge'],
+        'configurations': [{'target': target, 'runtimeInterfaces': schema_ref, 'checks': semantic_checks} for target in targets]})
     observation = write(evidence_root / 'observed.json', {'resourceIds': ['fixture-one']})
     cleanup_ref = write(evidence_root / 'cleanup.json', {'resourceIds': []})
     expectations = {'schemaVersion': 1, 'campaignId': expected['campaignId'],
@@ -71,9 +88,12 @@ def campaign(tmp_path, monkeypatch):
                                  for a in sorted(case['assertions'])]}
         oracle = write(evidence_root / f'oracle-{number}.json', report)
         receipt = {k: copy.deepcopy(expected[k]) for k in ('campaignId', 'packDigest', 'corpusDigest',
-                   'qualificationLockDigest', 'componentBindingDigest', 'modelId', 'returnedModelId', 'controller')}
+                   'qualificationLockDigest', 'componentBindingDigest', 'modelId', 'returnedModelId', 'controller', 'knowledge', 'campaignMode')}
+        interface_ref = write(evidence_root/f'interfaces-{number}.json', {'caseId': cid, 'attempt': 1,
+            'interfaces': [{'kind': 'mcp', 'operation': 'query', 'schema': schema_ref}]})
         receipt.update({k: case[k] for k in ('scenarioId', 'variant', 'target', 'promptDigest')})
-        receipt.update(schemaVersion=1, receiptSchema='agent-e2e-receipt.v1', caseId=cid,
+        receipt.update(schemaVersion=2, receiptSchema='agent-e2e-receipt.v2', caseId=cid,
+                       workerKnowledge=knowledge_ref, runtimeInterfaces=interface_ref,
                        attempt=1, mode='genuine-model', startedAt=f'2026-10-14T10:{targets.index(case["target"])*2:02}:00Z',
                        completedAt=f'2026-10-14T10:{targets.index(case["target"])*2+1:02}:00Z', status='pass', failureAttribution=None,
                        namespace=f'ns-{number}', costs={'modelUsd': 0.01, 'infrastructureUsd': 0.01,
@@ -83,7 +103,7 @@ def campaign(tmp_path, monkeypatch):
                        transcript=transcript_ref, failureEvidence=None)
         receipts.append(write(tmp_path / 'receipts' / f'{number}.json', receipt))
         registered.append({**{k: receipt[k] for k in ('campaignId','caseId','attempt','status','failureAttribution','packDigest','corpusDigest','modelId')},
-                           'receiptDigest': receipts[-1]['sha256']})
+                           'receiptDigest': receipts[-1]['sha256'], 'campaignMode': 'qualification', 'knowledgeDigest': gate.canonical_digest(expected['knowledge'])})
         for kind in ('model', 'infrastructure', 'cleanup'):
             ledger_entries.append({'id': f'{cid}/1/{kind}', 'campaignId': expected['campaignId'],
                                    'caseId': cid, 'attempt': 1, 'kind': kind, 'amountUsd': '0.02',
@@ -99,7 +119,8 @@ def campaign(tmp_path, monkeypatch):
                'campaignDigest': gate.digest((tmp_path / 'campaign.json').read_bytes()),
                'controller': expected['controller'], 'receipts': receipts,
                'budgetLedgerDigest': gate.digest((tmp_path / 'ledger.json').read_bytes()),
-               'attemptRegistryDigest': gate.digest((tmp_path / 'registry.json').read_bytes())}
+               'attemptRegistryDigest': gate.digest((tmp_path / 'registry.json').read_bytes()),
+               'knowledgeManifest': knowledge_ref, 'semanticReport': semantic_ref}
     write(tmp_path / 'trusted.json', trusted)
     return tmp_path
 
@@ -289,6 +310,9 @@ def add_retry(root, attribution):
     transcript = gate.read_json(root / 'evidence' / original['transcript']['path'])
     transcript['attempt'] = 2
     retry['transcript'] = write(root / 'evidence' / 'retry-transcript.json', transcript)
+    interfaces = gate.read_json(root / 'evidence' / original['runtimeInterfaces']['path'])
+    interfaces['attempt'] = 2
+    retry['runtimeInterfaces'] = write(root / 'evidence' / 'retry-interfaces.json', interfaces)
     def fail(receipt):
         receipt.update(status='fail', failureAttribution=attribution, oracle=None,
                        failureEvidence=receipt['transcript'])
@@ -304,7 +328,7 @@ def add_retry(root, attribution):
     trusted['receipts'].append(ref)
     registry = gate.read_json(root / 'registry.json')
     registry['attempts'].append({**{k: retry[k] for k in ('campaignId','caseId','attempt','status','failureAttribution','packDigest','corpusDigest','modelId')},
-                                 'receiptDigest': ref['sha256']})
+                                 'receiptDigest': ref['sha256'], 'campaignMode': 'qualification', 'knowledgeDigest': gate.canonical_digest(retry['knowledge'])})
     write(root / 'registry.json', registry)
     trusted['attemptRegistryDigest'] = gate.digest((root / 'registry.json').read_bytes())
     trusted['budgetLedgerDigest'] = gate.digest((root / 'ledger.json').read_bytes())
@@ -319,7 +343,7 @@ def test_one_attributed_infrastructure_retry_preserves_both_attempts(campaign):
     assert result['totalCostUsd'] == '7.59'
 
 
-@pytest.mark.parametrize('attribution', ['model', 'product'])
+@pytest.mark.parametrize('attribution', ['model', 'product', 'undetermined'])
 def test_model_and_product_failure_cannot_be_retried_to_green(campaign, attribution):
     add_retry(campaign, attribution)
     with pytest.raises(gate.Invalid, match='cannot be retried'):

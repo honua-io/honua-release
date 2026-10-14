@@ -6,10 +6,14 @@ Redis, 72 EKS with durable storage, 18 Lambda, and 18 Batch. It adds independent
 goal-driven evidence; the older guided journey remains a separate test. No live
 qualification is implied by checking in the pack or passing its unit tests.
 
+Implementation status, remaining runtime work and operational commands are in
+[IMPLEMENTATION.md](IMPLEMENTATION.md). The active pack and receipt contracts are
+v2; historical v1 files remain for inspection and do not qualify a v2 campaign.
+
 ## Custody and exposure
 
 Never mount this directory, the release checkout, or a controller evidence directory
-into an agent worker. `pack.v1.json` contains all prompts, including held-out C;
+into an agent worker. `pack.v2.json` contains all prompts, including held-out C;
 the repository is controller-private, not a public agent bundle. A and B are
 development variants. C is selected only for frozen qualification. Holdout means
 unseen by the tested worker, not inaccessible to maintainers.
@@ -36,7 +40,7 @@ permission checks. Approval uses a distinct controller-held approver principal.
 
 ## Scenario contract and target semantics
 
-`pack.v1.json` is the inventory. Expand each scenario's `targets` by `variants`;
+`pack.v2.json` is the inventory. Expand each scenario's `targets` by `variants`;
 case IDs are `scenario:variant:target`. Hash exact UTF-8 prompt strings without
 trimming. `scenarios/prompts.v1.json` contains all 108 plain-language requests:
 A is a GIS user's request, B is a less experienced user's description, and C is a
@@ -138,6 +142,9 @@ Generate it outside the checkout and verify all pins; do not commit the large fi
   deny-only matrices cannot pass.
 - Exact resource inventories, lifecycle transitions, actual decoded render regions,
   loaded layers and labels.
+- Protected source/shared content before and after execution, including attributes,
+  geometry, CRS and configuration in a controller-frozen content projection.
+  Unchanged resource IDs alone cannot satisfy preservation assertions.
 - Raw field bindings for remaining assertions, with mandatory field sets in
   `BINDING_FIELDS`; a `{ "pass": true }` object cannot substitute for observations.
 - Distinct approver/worker identities, bootstrap revocation, native-worker pins and

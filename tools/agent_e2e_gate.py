@@ -23,12 +23,13 @@ import re
 from typing import Any
 
 import agent_e2e_budget
+import agent_e2e_knowledge as knowledge
 
 _ORACLE_PATH = Path(__file__).resolve().parents[1] / 'certification/agent-e2e/corpus/oracle.py'
 _ORACLE_SPEC = importlib.util.spec_from_file_location('agent_e2e_independent_oracle', _ORACLE_PATH)
 oracle_predicates = importlib.util.module_from_spec(_ORACLE_SPEC)
 _ORACLE_SPEC.loader.exec_module(oracle_predicates)
-FROZEN_PACK_BYTES = (_ORACLE_PATH.parents[1] / 'pack.v1.json').read_bytes()
+FROZEN_PACK_BYTES = (_ORACLE_PATH.parents[1] / 'pack.v2.json').read_bytes()
 
 
 class Invalid(ValueError):
@@ -127,7 +128,7 @@ def evidence(root: Path, ref: Any) -> Path:
 
 def inventory(pack: dict) -> dict[str, dict]:
     require(type(pack.get('schemaVersion')) is int and pack['schemaVersion'] == 1
-            and pack.get('packId') == 'honua-agent-e2e-rc-v1',
+            and pack.get('packId') == 'honua-agent-e2e-rc-v2',
             'unsupported pack')
     require(pack.get('variants') == ['A', 'B', 'C'], 'pack must contain frozen A/B/C variants')
     targets = ['local-docker', 'aws-ecs-redis-on', 'aws-eks', 'aws-lambda', 'aws-batch']
@@ -165,7 +166,8 @@ def inventory(pack: dict) -> dict[str, dict]:
 RECEIPT_FIELDS = set(('schemaVersion receiptSchema campaignId caseId scenarioId variant target attempt mode '
                       'packDigest corpusDigest promptDigest qualificationLockDigest componentBindingDigest '
                       'modelId returnedModelId controller startedAt completedAt status failureAttribution '
-                      'namespace costs usage cleanup oracle transcript failureEvidence').split())
+                      'namespace costs usage cleanup oracle transcript failureEvidence '
+                      'knowledge workerKnowledge runtimeInterfaces campaignMode').split())
 
 
 def validate(pack_path: Path, campaign_path: Path, lock_path: Path, trusted_path: Path,
@@ -177,9 +179,11 @@ def validate(pack_path: Path, campaign_path: Path, lock_path: Path, trusted_path
     require(pack_path.read_bytes() == FROZEN_PACK_BYTES, 'pack differs from reviewed source inventory')
     exact_keys(campaign, set(('schemaVersion campaignId packDigest corpusDigest qualificationLockDigest '
                              'componentBindingDigest modelId returnedModelId controller startedAt expiresAt '
-                             'totalBudgetUsd expectationsDigest').split()), 'expected campaign')
-    require(type(campaign['schemaVersion']) is int and campaign['schemaVersion'] == 1,
+                             'totalBudgetUsd expectationsDigest knowledge campaignMode').split()), 'expected campaign')
+    require(type(campaign['schemaVersion']) is int and campaign['schemaVersion'] == 2,
             'unsupported campaign')
+    require(campaign['campaignMode'] == 'qualification', 'development cannot qualify')
+    knowledge.validate_binding(campaign['knowledge'])
     for key in ('campaignId', 'modelId', 'returnedModelId'):
         require(isinstance(campaign[key], str) and campaign[key].strip(), f'empty {key}')
     exact_keys(campaign['controller'], {'repository', 'workflow', 'sourceSha', 'runId', 'runAttempt'},
@@ -226,13 +230,21 @@ def validate(pack_path: Path, campaign_path: Path, lock_path: Path, trusted_path
     require(amount(campaign['totalBudgetUsd']) == 500 and amount(pack['totalBudgetUsd']) == 500,
             'campaign budget must remain $500')
     exact_keys(trusted, {'schemaVersion', 'campaignId', 'campaignDigest', 'controller', 'receipts', 'budgetLedgerDigest',
-                         'attemptRegistryDigest'},
+                         'attemptRegistryDigest', 'knowledgeManifest', 'semanticReport'},
                'trusted inventory')
     require(type(trusted['schemaVersion']) is int and trusted['schemaVersion'] == 1,
             'unsupported trusted inventory')
     require(trusted['campaignDigest'] == digest(campaign_path.read_bytes()) and
             trusted['campaignId'] == campaign['campaignId'] and trusted['controller'] == controller,
             'trusted inventory does not bind expected campaign/controller')
+    manifest_path = evidence(evidence_root, trusted['knowledgeManifest'])
+    graph = knowledge.verify(manifest_path.parent, read_json(manifest_path), campaign['knowledge'])
+    knowledge.references(pack, graph)
+    # The deterministic suite is a separately observed requirement, never part
+    # of the 252 model-success denominator.
+    from agent_e2e_semantics import validate_report
+    semantic_report = read_json(evidence(evidence_root, trusted['semanticReport']))
+    validate_report(semantic_report, campaign, pack['targets'], evidence_root, evidence)
     require(isinstance(trusted['receipts'], list) and trusted['receipts'], 'missing trusted receipt inventory')
     require(digest(budget_path.read_bytes()) == trusted['budgetLedgerDigest'], 'wrong candidate budget ledger')
     ledger = read_json(budget_path)
@@ -248,18 +260,22 @@ def validate(pack_path: Path, campaign_path: Path, lock_path: Path, trusted_path
     prior_infrastructure_failures: dict[str, int] = defaultdict(int)
     for row in registry['attempts']:
         exact_keys(row, {'campaignId', 'caseId', 'attempt', 'status', 'failureAttribution', 'packDigest',
-                         'corpusDigest', 'modelId', 'receiptDigest'}, 'registered attempt')
+                         'corpusDigest', 'modelId', 'receiptDigest', 'campaignMode', 'knowledgeDigest'}, 'registered attempt')
+        require(row['campaignMode'] in ('development', 'qualification'), 'invalid registered campaign mode')
+        require(isinstance(row['knowledgeDigest'], str) and re.fullmatch(r'sha256:[0-9a-f]{64}', row['knowledgeDigest']),
+                'invalid registered knowledge binding')
         key = (row['campaignId'], row['caseId'], row['attempt'])
         require(type(row['attempt']) is int and row['attempt'] in (1, 2) and key not in registered,
                 'duplicate/invalid registered attempt')
         require(row['status'] in ('pass', 'fail', 'blocked') and
                 ((row['status'] == 'pass' and row['failureAttribution'] is None) or
-                 (row['status'] != 'pass' and row['failureAttribution'] in ('model', 'product', 'infrastructure'))),
+                 (row['status'] != 'pass' and row['failureAttribution'] in ('model', 'product', 'infrastructure', 'undetermined'))),
                 'invalid registered outcome')
         registered[key] = row
-        if row['campaignId'] != campaign['campaignId'] and all(row[k] == campaign[k]
-                for k in ('packDigest', 'corpusDigest', 'modelId')):
-            require(row['failureAttribution'] not in ('model', 'product'),
+        if (row['campaignMode'] == 'qualification' and row['knowledgeDigest'] == canonical_digest(campaign['knowledge'])
+                and row['campaignId'] != campaign['campaignId'] and all(row[k] == campaign[k]
+                for k in ('packDigest', 'corpusDigest', 'modelId'))):
+            require(row['failureAttribution'] not in ('model', 'product', 'undetermined'),
                     'prior model/product failure requires changed qualification inputs; campaign reset forbidden')
             if row['failureAttribution'] == 'infrastructure':
                 prior_infrastructure_failures[row['caseId']] += 1
@@ -267,6 +283,8 @@ def validate(pack_path: Path, campaign_path: Path, lock_path: Path, trusted_path
     require(set(registered) == ledger_attempts, 'attempt registry omits candidate budget history')
     settled: dict[tuple, Decimal] = defaultdict(Decimal)
     for row in ledger['entries']:
+        registered_row = registered[(row['campaignId'], row['caseId'], row['attempt'])]
+        require(row.get('campaignMode', 'qualification') == registered_row['campaignMode'], 'ledger/registry mode mismatch')
         if row['campaignId'] == campaign['campaignId']:
             require(row['state'] == 'settled', 'current campaign has unsettled resource liability')
             require(type(row.get('attempt')) is int and row['attempt'] in (1, 2), 'ledger attempt missing/invalid')
@@ -281,8 +299,24 @@ def validate(pack_path: Path, campaign_path: Path, lock_path: Path, trusted_path
         paths.add(ref['path'])
         receipt = read_json(path)
         exact_keys(receipt, RECEIPT_FIELDS, 'receipt')
-        require(type(receipt['schemaVersion']) is int and receipt['schemaVersion'] == 1 and
-                receipt['receiptSchema'] == 'agent-e2e-receipt.v1', 'unsupported receipt schema')
+        require(type(receipt['schemaVersion']) is int and receipt['schemaVersion'] == 2 and
+                receipt['receiptSchema'] == 'agent-e2e-receipt.v2', 'unsupported receipt schema')
+        require(receipt['caseId'] in cases, 'unknown case')
+        require(receipt['campaignMode'] == 'qualification', 'development receipt cannot qualify')
+        require(receipt['knowledge'] == campaign['knowledge'], 'wrong receipt knowledge binding')
+        worker_manifest = read_json(evidence(evidence_root, receipt['workerKnowledge']))
+        require(knowledge.binding(worker_manifest) == campaign['knowledge'], 'wrong worker knowledge manifest')
+        interfaces = read_json(evidence(evidence_root, receipt['runtimeInterfaces']))
+        exact_keys(interfaces, {'caseId', 'attempt', 'interfaces'}, 'runtime interfaces')
+        require(interfaces['caseId'] == receipt['caseId'] and interfaces['attempt'] == receipt['attempt'],
+                'runtime interfaces belong to another attempt')
+        require(isinstance(interfaces['interfaces'], list) and bool(interfaces['interfaces']),
+                'no observed runtime interfaces')
+        for interface in interfaces['interfaces']:
+            exact_keys(interface, {'kind', 'operation', 'schema'}, 'runtime interface')
+            require(interface['kind'] in ('mcp', 'http', 'cli', 'spec') and
+                    isinstance(interface['operation'], str) and bool(interface['operation']), 'invalid interface')
+            evidence(evidence_root, interface['schema'])
         require(receipt['mode'] == 'genuine-model', 'mock/test receipts cannot qualify')
         cid = receipt['caseId']
         require(cid in cases, f'unknown case: {cid}')
@@ -295,6 +329,8 @@ def validate(pack_path: Path, campaign_path: Path, lock_path: Path, trusted_path
         require(type(receipt['attempt']) is int and receipt['attempt'] in (1, 2), 'invalid attempt')
         registered_attempt = registered.get((campaign['campaignId'], cid, receipt['attempt']))
         require(registered_attempt is not None and registered_attempt['receiptDigest'] == ref['sha256'] and
+                registered_attempt['campaignMode'] == receipt['campaignMode'] and
+                registered_attempt['knowledgeDigest'] == canonical_digest(receipt['knowledge']) and
                 all(registered_attempt[k] == receipt[k] for k in ('status', 'failureAttribution',
                     'packDigest', 'corpusDigest', 'modelId')), 'receipt differs from retained attempt registry')
         begin, end = timestamp(receipt['startedAt']), timestamp(receipt['completedAt'])
@@ -359,7 +395,7 @@ def validate(pack_path: Path, campaign_path: Path, lock_path: Path, trusted_path
                 oracle_predicates.verify(aid, observation, expectations['cases'][cid]['assertions'][aid])
             require(observed == expected['assertions'], f'{cid}: missing independent assertions')
         else:
-            require(receipt['failureAttribution'] in ('infrastructure', 'model', 'product'),
+            require(receipt['failureAttribution'] in ('infrastructure', 'model', 'product', 'undetermined'),
                     f'{cid}: missing failure attribution')
             evidence(evidence_root, receipt['failureEvidence'])
             require(receipt['oracle'] is None, f'{cid}: failed attempt must not claim passing oracle')

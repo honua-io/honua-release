@@ -162,8 +162,11 @@ def build():
         if s["id"] in {"B02","B05","B06"}:
             s["assertions"].append("batch.native-worker-bound")
             s["topology"]["workerContract"]={"artifact":"honua-worker-etl","requireOciDigest":True,"requireArchitecture":True,"requireSourceRevision":True,"requireAttestation":True,"serverImageSubstituteAllowed":False}
-    return {"schemaVersion":1,"packId":"honua-agent-e2e-rc-v1","visibility":"controller-only","corpusManifest":"corpus/manifest.v1.json","totalBudgetUsd":500,"modelPolicy":{"provider":"aws-bedrock","family":"claude","requireExactModelId":True,"requireReturnedIdentity":True,"maxModelsPerCampaign":1},"variants":["A","B","C"],"developmentVariants":["A","B"],"heldOutVariants":["C"],"targets":COMMON+["aws-lambda","aws-batch"],"caseCount":252,"targetOrder":COMMON+["aws-lambda","aws-batch"],"scenarios":scenarios}
+    for scenario in scenarios:
+        if scenario["id"] in {"P04", "P05", "P06", "P08", "P09", "P10", "P11", "P12", "P13", "P14", "P15", "P19", "P21", "P22", "P23", "P24", "L02", "L03", "B02", "B03", "B05", "B06"}:
+            scenario["assertions"].append("source-content.unchanged")
+    return {"schemaVersion":1,"packId":"honua-agent-e2e-rc-v2","visibility":"controller-only","corpusManifest":"corpus/manifest.v1.json","totalBudgetUsd":500,"modelPolicy":{"provider":"aws-bedrock","family":"claude","requireExactModelId":True,"requireReturnedIdentity":True,"maxModelsPerCampaign":1},"variants":["A","B","C"],"developmentVariants":["A","B"],"heldOutVariants":["C"],"targets":COMMON+["aws-lambda","aws-batch"],"caseCount":252,"targetOrder":COMMON+["aws-lambda","aws-batch"],"scenarios":scenarios}
 
 
 if __name__=="__main__":
-    (Path(__file__).resolve().parents[1]/"pack.v1.json").write_text(json.dumps(build(),indent=2,ensure_ascii=False)+"\n",encoding="utf-8",newline="\n")
+    (Path(__file__).resolve().parents[1]/"pack.v2.json").write_text(json.dumps(build(),indent=2,ensure_ascii=False)+"\n",encoding="utf-8",newline="\n")

@@ -12,6 +12,7 @@ import argparse
 from decimal import Decimal
 import hashlib
 import json
+import re
 from pathlib import Path
 import subprocess
 import time
@@ -21,6 +22,7 @@ from agent_e2e_budget import BudgetError, money, update
 from agent_e2e_pack import (PackError, canonical_digest, digest_bytes, load_json,
                             select, visible_task, verify_corpus, verify_export_index)
 from agent_e2e_telemetry import Journal
+from agent_e2e_knowledge import binding as knowledge_binding, validate_binding
 
 
 class ControllerError(ValueError):
@@ -164,19 +166,26 @@ class BedrockModel:
         return message, cost, response.get("ResponseMetadata", {}).get("RequestId")
 
 
-def run_goal(*, pack, corpus, case_id, campaign, backend, model, ledger, journal_root, attempt=1):
+def run_goal(*, pack, corpus, case_id, campaign, backend, model, ledger, journal_root, attempt=1,
+             budget_update=update, journal_sink=None):
     """Return execution diagnostics; only the independent receipt gate qualifies a run."""
     case, scenario = select(pack, case_id)
+    mode = campaign["campaignMode"]
+    if mode not in ("development", "qualification"):
+        raise ControllerError("unknown campaign mode")
+    if mode == "development" and case["variant"] not in pack["developmentVariants"]:
+        raise ControllerError("held-out variant cannot run in development")
+    validate_binding(campaign["knowledge"])
     context = {"campaignId": campaign["campaignId"], "caseId": case_id, "attempt": attempt,
                "qualificationLockDigest": campaign["qualificationLockDigest"],
-               "componentBindingDigest": campaign["componentBindingDigest"]}
+               "componentBindingDigest": campaign["componentBindingDigest"], "campaignMode": mode,
+               "knowledge": campaign["knowledge"]}
     candidate = campaign["componentBindingDigest"]
     if type(attempt) is not int or attempt not in (1, 2):
         raise ControllerError("invalid attempt")
     if model.config["modelId"] != campaign["modelId"] or model.config["returnedModelId"] != campaign["returnedModelId"]:
         raise ControllerError("model differs from frozen campaign")
-    journal = Journal(journal_root, context)
-    journal.emit("start", modelId=model.config["modelId"], returnedModelId=model.config["returnedModelId"])
+    journal = Journal(journal_root, context, sink=journal_sink)
     # Reserve maximum infrastructure lifetime INCLUDING a failed prepare before
     # creating any resource. The immutable backend policy limits enforce it.
     infra_id, cleanup_id = str(uuid.uuid4()), str(uuid.uuid4())
@@ -190,7 +199,10 @@ def run_goal(*, pack, corpus, case_id, campaign, backend, model, ledger, journal
             raise ModelFailure("time-limit")
         return max(0.001, seconds)
     try:
-        update(ledger, "check", candidate_key=candidate)
+        journal.emit("start", modelId=model.config["modelId"], returnedModelId=model.config["returnedModelId"])
+        journal.emit("context", campaignMode=mode, knowledge=campaign["knowledge"],
+                     conceptIds=scenario["conceptIds"], workflowIds=scenario["workflowIds"])
+        budget_update(ledger, "check", candidate_key=candidate)
         preflight = backend.preflight(context)
         if preflight.get("target") != case["target"]:
             raise ControllerError("backend target differs from frozen case")
@@ -202,15 +214,18 @@ def run_goal(*, pack, corpus, case_id, campaign, backend, model, ledger, journal
             if retry.get("authorized") is not True or retry.get("previousFailureAttribution") != "infrastructure" or not retry.get("previousAttemptDigest"):
                 raise ControllerError("retry lacks independent first-attempt evidence")
         reserve_args = {"candidate_key": candidate, "campaign_id": campaign["campaignId"],
-                        "case_id": case_id, "attempt": attempt, "basis_digest": preflight["liabilityBasisDigest"]}
-        update(ledger, "reserve", reservation_id=infra_id, kind="infrastructure",
+                        "case_id": case_id, "attempt": attempt, "campaign_mode": mode,
+                        "basis_digest": preflight["liabilityBasisDigest"]}
+        budget_update(ledger, "reserve", reservation_id=infra_id, kind="infrastructure",
                amount=preflight["maximumInfrastructureUsd"], **reserve_args)
         reserved.add(infra_id)
-        update(ledger, "reserve", reservation_id=cleanup_id, kind="cleanup",
+        budget_update(ledger, "reserve", reservation_id=cleanup_id, kind="cleanup",
                amount=preflight["maximumCleanupUsd"], **reserve_args)
         reserved.add(cleanup_id)
         prepared_started = True
         prepared = backend.call("prepare", {**context, "scenario": scenario, "target": case["target"]}, timeout=remaining())
+        if knowledge_binding(prepared["workerKnowledgeManifest"]) != campaign["knowledge"]:
+            raise ControllerError("worker did not verify the pinned knowledge bundle")
         # Agent input is explicit and deliberately excludes the full prepare
         # response, oracle assertions, case IDs and solution-state metadata.
         task = visible_task(pack, case_id, prepared["publicInputs"])
@@ -221,12 +236,12 @@ def run_goal(*, pack, corpus, case_id, campaign, backend, model, ledger, journal
             remaining()
             body, maximum = model.quote(model.request(messages))
             rid = str(uuid.uuid4())
-            update(ledger, "reserve", candidate_key=candidate, reservation_id=rid,
-                   campaign_id=campaign["campaignId"], case_id=case_id, attempt=attempt,
+            budget_update(ledger, "reserve", candidate_key=candidate, reservation_id=rid,
+                   campaign_id=campaign["campaignId"], case_id=case_id, attempt=attempt, campaign_mode=mode,
                    kind="model", amount=maximum, basis_digest=model.config["pricingDigest"])
             turn_start = time.monotonic()
             message, cost, provider_request = model.invoke(body)
-            update(ledger, "settle", candidate_key=candidate, reservation_id=rid, amount=cost)
+            budget_update(ledger, "settle", candidate_key=candidate, reservation_id=rid, amount=cost)
             turns += 1
             usage = message["usage"]
             journal.emit("model", turn=turns, durationMs=round((time.monotonic()-turn_start)*1000),
@@ -244,10 +259,24 @@ def run_goal(*, pack, corpus, case_id, campaign, backend, model, ledger, journal
                 if message.get("stop_reason") != "end_turn":
                     raise ModelFailure("incomplete-model-response")
                 result = backend.call("verify", context, timeout=remaining())
-                # A reachable verifier reporting incorrect state is a product/
-                # model failure, NEVER an infrastructure retry opportunity.
+                # Incorrect state alone does not establish the cause. Only an
+                # independent diagnosis can establish a retryable outage.
                 status = "pass" if result.get("status") == "pass" else "fail"
-                attribution = None if status == "pass" else "product"
+                attribution = None if status == "pass" else "undetermined"
+                diagnosis = result.get("diagnosis")
+                if status != "pass" and diagnosis is not None:
+                    if (not isinstance(diagnosis, dict) or set(diagnosis) != {"attribution", "basis", "evidenceDigest"}
+                            or diagnosis["attribution"] not in ("model", "product", "infrastructure", "undetermined")
+                            or diagnosis["basis"] not in ("invalid-model-action", "independent-runtime-reproduction", "independent-infrastructure-probe", "insufficient-evidence")
+                            or not isinstance(diagnosis["evidenceDigest"], str)
+                            or not re.fullmatch(r"sha256:[0-9a-f]{64}", diagnosis["evidenceDigest"])):
+                        raise ControllerError("invalid independent diagnosis")
+                    expected_basis = {"model": "invalid-model-action", "product": "independent-runtime-reproduction",
+                                      "infrastructure": "independent-infrastructure-probe", "undetermined": "insufficient-evidence"}
+                    if expected_basis[diagnosis["attribution"]] != diagnosis["basis"]:
+                        raise ControllerError("diagnosis basis does not support attribution")
+                    attribution = diagnosis["attribution"]
+                    journal.emit("diagnosis", **diagnosis)
                 reason = "verified" if status == "pass" else "oracle-failure"
                 failures = result.get("failedAssertions", [])
                 if not isinstance(failures, list) or any(a not in scenario["assertions"] for a in failures):
@@ -277,6 +306,10 @@ def run_goal(*, pack, corpus, case_id, campaign, backend, model, ledger, journal
                 operation = observed.get("operationCategory", "other")
                 if operation not in {"discovery", "read", "write", "configure", "deploy", "publish", "delete", "clarify", "other"}:
                     raise ControllerError("invalid operation telemetry")
+                for event in observed.get("telemetry", []):
+                    if not isinstance(event, dict) or event.get("event") not in ("discovery", "knowledge-read"):
+                        raise ControllerError("invalid backend telemetry")
+                    journal.emit(event["event"], **{k: v for k, v in event.items() if k != "event"})
                 journal.emit("action", action=actions, kind=call["name"], operation=operation, requestDigest=canonical_digest({"name": call["name"], "input": call["input"]}),
                              resultDigest=canonical_digest(public), durationMs=round((time.monotonic()-action_start)*1000),
                              isError=public["isError"], errorCategory=public["errorCategory"])
@@ -291,12 +324,12 @@ def run_goal(*, pack, corpus, case_id, campaign, backend, model, ledger, journal
         status, attribution, reason = "fail", "model", str(exc)
         result = {"errorType": type(exc).__name__}
     except BudgetError as exc:
-        status, attribution, reason = "blocked", "model", "candidate-budget-blocked"
+        status, attribution, reason = "blocked", "undetermined", "candidate-budget-blocked"
         result = {"errorType": type(exc).__name__}
     except Exception as exc:
         # Provider/backend exceptions may contain credentials. Persist only the
         # class; an independent classifier must prove any retryable cause.
-        status, attribution, reason = "blocked", "infrastructure", "controller-error"
+        status, attribution, reason = "blocked", attribution if attribution not in (None, "infrastructure") else "undetermined", "controller-error"
         result = {"errorType": type(exc).__name__}  # never serialize credential-bearing exception text
     finally:
         try:
@@ -310,14 +343,14 @@ def run_goal(*, pack, corpus, case_id, campaign, backend, model, ledger, journal
             for rid, field in ((infra_id, "observedInfrastructureUsd"), (cleanup_id, "observedCleanupUsd")):
                 if rid in reserved:
                     try:
-                        update(ledger, "settle", candidate_key=candidate, reservation_id=rid, amount=cleaned[field])
+                        budget_update(ledger, "settle", candidate_key=candidate, reservation_id=rid, amount=cleaned[field])
                     except Exception as exc:
                         settlement_errors.append(type(exc).__name__)
             if settlement_errors or (prepared_started and cleaned.get("status") != "pass"):
-                status, attribution, reason = "blocked", attribution or "infrastructure", "cleanup-or-accounting-failure"
+                status, attribution, reason = "blocked", attribution or "undetermined", "cleanup-or-accounting-failure"
         except Exception as exc:
             cleaned = {"status": "blocked", "errorType": type(exc).__name__}
-            status, attribution, reason = "blocked", attribution or "infrastructure", "cleanup-failure"
+            status, attribution, reason = "blocked", attribution or "undetermined", "cleanup-failure"
         try:
             journal.emit("end", status=status, failureAttribution=attribution, reason=reason, cleanupStatus=cleaned["status"])
         finally:
@@ -334,7 +367,10 @@ def main(argv=None):
         p.add_argument("--" + name, required=True, type=Path)
     p.add_argument("--case-id", required=True)
     p.add_argument("--attempt", type=int, choices=[1, 2], default=1)
+    p.add_argument("--state-config", required=True, type=Path)
+    p.add_argument("--initialize-state", action="store_true")
     args = p.parse_args(argv)
+    durable = None
     try:
         pack, campaign = load_json(args.pack), load_json(args.campaign)
         corpus_path = args.pack.parent / pack["corpusManifest"]
@@ -342,11 +378,31 @@ def main(argv=None):
             raise ControllerError("pack or corpus differs from frozen campaign")
         corpus = load_json(corpus_path)
         verify_corpus(corpus_path.parent, corpus)
+        import boto3
+        from botocore.config import Config
+        from agent_e2e_state import StateStore, DurableExecution
+        state_config = load_json(args.state_config)
+        if set(state_config) != {"region", "bucket", "table"}:
+            raise ControllerError("invalid durable state configuration")
+        client_config = Config(connect_timeout=10, read_timeout=20, retries={"total_max_attempts": 1})
+        store = StateStore(s3=boto3.client("s3", region_name=state_config["region"], config=client_config),
+            dynamodb=boto3.client("dynamodb", region_name=state_config["region"], config=client_config),
+            bucket=state_config["bucket"], table=state_config["table"], candidate_key=campaign["componentBindingDigest"])
+        durable = DurableExecution(store, args.ledger, initialize=args.initialize_state)
         result = run_goal(pack=pack, corpus=corpus, case_id=args.case_id,
             campaign=campaign, backend=Backend(load_json(args.backend)),
-            model=BedrockModel(load_json(args.model)), ledger=args.ledger, journal_root=args.journal_root, attempt=args.attempt)
-    except (ControllerError, BudgetError, PackError, OSError, KeyError, ValueError) as exc:
+            model=BedrockModel(load_json(args.model)), ledger=args.ledger, journal_root=args.journal_root, attempt=args.attempt,
+            budget_update=durable.update, journal_sink=durable.event)
+    except Exception as exc:
+        # SDK/import failures also fail closed without leaking exception text.
         result = {"status": "blocked", "qualification": False, "errorType": type(exc).__name__}
+    finally:
+        if durable is not None:
+            try:
+                durable.close()
+            except Exception as exc:
+                result = {"status": "blocked", "qualification": False, "errorType": type(exc).__name__,
+                          "reason": "durable-state-release-failed"}
     args.output.write_text(json.dumps(result, indent=2, allow_nan=False) + "\n", encoding="utf-8")
     return 0 if result["status"] == "pass" else 1
 

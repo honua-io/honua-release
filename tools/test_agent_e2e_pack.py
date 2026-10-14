@@ -13,7 +13,7 @@ ROOT = Path(__file__).resolve().parents[1] / "certification/agent-e2e"
 
 @pytest.fixture
 def inputs():
-    return load_json(ROOT / "pack.v1.json"), load_json(ROOT / "corpus/manifest.v1.json")
+    return load_json(ROOT / "pack.v2.json"), load_json(ROOT / "corpus/manifest.v1.json")
 
 
 def test_export_excludes_oracles_sql_other_variants_and_unrelated_attacks(inputs, tmp_path):

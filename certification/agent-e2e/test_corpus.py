@@ -24,7 +24,7 @@ pack_source=load("agent_pack_source",ROOT/"scenarios/build_pack.py")
 
 
 def test_pack_has_exact_252_cases_and_all_machine_predicates():
-    pack=json.loads((ROOT/"pack.v1.json").read_text(encoding="utf-8"))
+    pack=json.loads((ROOT/"pack.v2.json").read_text(encoding="utf-8"))
     assert pack==pack_source.build()
     cases={(s["id"],v,t) for s in pack["scenarios"] for v in pack["variants"] for t in s["targets"]}
     assert len(cases)==252
@@ -120,6 +120,22 @@ def test_buffer_accepts_independent_analytic_circle(segments):
 def test_unknown_missing_and_empty_assertions_fail_closed():
     for name,seen,wanted in [("unknown",{},{}),("candidate.identity",{},{}),("candidate.identity",{"pass":True},{"sourceRevision":"a"*40}),("features.exact",{},{}),("render.actual",{},{}),("batch.native-worker-bound",{}, {})]:
         with pytest.raises(oracle.VerificationError): oracle.verify(name,seen,wanted)
+
+
+@pytest.mark.parametrize('assertion',['source-content.unchanged','shared.preserved','mutations.absent'])
+def test_preservation_checks_content_not_only_identifiers(assertion):
+    resources=[{'resourceId':'shared-layer','content':{'attributes':{'capacity':50},'geometry':[1,2],
+                'permissions':['operator-read'],'revision':'one'}}]
+    expected={'profile':'honua.protected-content/v1','resources':resources}
+    observed={'profile':expected['profile'],'before':copy.deepcopy(resources),'after':copy.deepcopy(resources)}
+    oracle.verify(assertion,observed,expected)
+    for field,value in [('attributes',{'capacity':51}),('geometry',[2,1]),('permissions',['anonymous-write']),('revision','two')]:
+        corrupted=copy.deepcopy(observed)
+        corrupted['after'][0]['content'][field]=value
+        with pytest.raises(oracle.VerificationError):
+            oracle.verify(assertion,corrupted,expected)
+    with pytest.raises(oracle.VerificationError):
+        oracle.verify(assertion,{'resourceIds':['shared-layer']},expected)
 
 
 def test_permission_oracle_rejects_missing_and_leaking_probe():

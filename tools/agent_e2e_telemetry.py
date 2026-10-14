@@ -11,6 +11,8 @@ from collections import Counter, defaultdict
 from decimal import Decimal
 import json
 import os
+import math
+import re
 from pathlib import Path
 import time
 
@@ -23,12 +25,57 @@ class TelemetryError(ValueError):
 
 FIELDS = {
     "start": {"modelId", "returnedModelId"},
+    "context": {"campaignMode", "knowledge", "conceptIds", "workflowIds"},
+    "diagnosis": {"attribution", "basis", "evidenceDigest"},
+    "discovery": {"interfaceKind", "operation", "schemaDigest", "observationDigest"},
+    "knowledge-read": {"documentId", "documentDigest", "bundleDigest"},
     "model": {"turn", "durationMs", "inputTokens", "outputTokens", "costUsd", "responseDigest"},
     "action": {"action", "kind", "operation", "requestDigest", "resultDigest", "durationMs", "isError", "errorCategory"},
     "verification": {"status", "failedAssertions"},
     "end": {"status", "failureAttribution", "reason", "cleanupStatus"},
 }
 COMMON = {"schemaVersion", "campaignId", "caseId", "attempt", "sequence", "elapsedMs", "previousDigest", "event"}
+
+
+def validate_identity(context):
+    case = context.get("caseId")
+    if not isinstance(case, str) or not re.fullmatch(
+            r"(?:P(?:0[1-9]|1[0-9]|2[0-4]):[ABC]:(?:local-docker|aws-ecs-redis-on|aws-eks)|"
+            r"L0[1-6]:[ABC]:aws-lambda|B0[1-6]:[ABC]:aws-batch)", case):
+        raise TelemetryError("case outside frozen telemetry inventory")
+    if type(context.get("attempt")) is not int or context["attempt"] not in (1, 2):
+        raise TelemetryError("invalid attempt identity")
+    if not isinstance(context.get("campaignId"), str) or not context["campaignId"]:
+        raise TelemetryError("missing campaign identity")
+
+
+def validate_values(event, values):
+    if event not in FIELDS or set(values) != FIELDS[event]:
+        raise TelemetryError("unreviewed telemetry fields")
+    if event == "context" and values["campaignMode"] not in ("development", "qualification"):
+        raise TelemetryError("invalid campaign mode")
+    if event in ("end", "verification") and values["status"] not in ("pass", "fail", "blocked"):
+        raise TelemetryError("invalid observed status")
+    if event == "end":
+        if values["failureAttribution"] not in (None, "model", "product", "infrastructure", "undetermined"):
+            raise TelemetryError("invalid failure attribution")
+        if values["cleanupStatus"] not in ("pass", "fail", "blocked", "not-started"):
+            raise TelemetryError("invalid cleanup status")
+    for key in ("inputTokens", "outputTokens", "durationMs", "turn", "action"):
+        if key in values and (type(values[key]) is not int or values[key] < 0):
+            raise TelemetryError("invalid nonnegative telemetry count")
+    if "costUsd" in values:
+        try:
+            cost = Decimal(values["costUsd"])
+        except Exception as exc:
+            raise TelemetryError("invalid model cost") from exc
+        if not cost.is_finite() or cost < 0:
+            raise TelemetryError("invalid model cost")
+    if event in ("discovery", "knowledge-read", "diagnosis"):
+        for key, value in values.items():
+            pattern = r"sha256:[0-9a-f]{64}" if key.endswith("Digest") else r"[A-Za-z0-9._:/{}-]{1,256}"
+            if not isinstance(value, str) or not re.fullmatch(pattern, value):
+                raise TelemetryError("telemetry identifiers cannot carry raw payloads")
 
 
 class Journal:
@@ -38,7 +85,8 @@ class Journal:
     end event is an interrupted attempt, never permission to start it again.
     Hash chaining detects edits but does not replace controller attestation.
     """
-    def __init__(self, root, context):
+    def __init__(self, root, context, sink=None):
+        validate_identity(context)
         root = Path(root)
         root.mkdir(parents=True, exist_ok=True)
         self.context = {k: context[k] for k in ("campaignId", "caseId", "attempt")}
@@ -47,10 +95,10 @@ class Journal:
         self.fd = os.open(self.path, os.O_CREAT | os.O_EXCL | os.O_WRONLY, 0o600)
         self.started = time.monotonic()
         self.sequence, self.previous = 0, None
+        self.sink = sink
 
     def emit(self, event, **values):
-        if event not in FIELDS or set(values) != FIELDS[event]:
-            raise TelemetryError("unreviewed telemetry fields")
+        validate_values(event, values)
         row = {"schemaVersion": 1, **self.context, "sequence": self.sequence,
                "elapsedMs": round((time.monotonic() - self.started) * 1000),
                "previousDigest": self.previous, "event": event, **values}
@@ -65,6 +113,8 @@ class Journal:
         os.fsync(self.fd)
         self.previous = canonical_digest(row)
         self.sequence += 1
+        if self.sink is not None:
+            self.sink(row)
 
     def close(self):
         if self.fd is not None:
@@ -80,6 +130,10 @@ def read_events(path):
         event = row.get("event")
         if event not in FIELDS or set(row) != COMMON | FIELDS[event]:
             raise TelemetryError("unexpected telemetry event/fields")
+        if type(row["schemaVersion"]) is not int or row["schemaVersion"] != 1:
+            raise TelemetryError("unsupported telemetry schema")
+        validate_identity(row)
+        validate_values(event, {k: row[k] for k in FIELDS[event]})
         if row["sequence"] != len(rows) or row["previousDigest"] != previous:
             raise TelemetryError("broken telemetry chain")
         current = tuple(row[k] for k in ("campaignId", "caseId", "attempt"))
@@ -110,8 +164,19 @@ def summarize(rows):
     counts = Counter(r["requestDigest"] for r in actions)
     errors = sum(r["isError"] is True for r in actions)
     parts = first["caseId"].split(":")
+    contexts = [r for r in rows if r["event"] == "context"]
+    if len(contexts) > 1:
+        raise TelemetryError("duplicate context")
+    context = contexts[0] if contexts else {}
     return {"campaignId": first["campaignId"], "caseId": first["caseId"], "attempt": first["attempt"],
             "scenarioId": parts[0], "variant": parts[1], "target": parts[2],
+            "campaignMode": context.get("campaignMode", "unbound"),
+            "knowledge": context.get("knowledge"),
+            "conceptIds": context.get("conceptIds", []), "workflowIds": context.get("workflowIds", []),
+            "diagnoses": [{k: r[k] for k in FIELDS["diagnosis"]} for r in rows if r["event"] == "diagnosis"],
+            "discoveredInterfaces": [{k: r[k] for k in FIELDS["discovery"]} for r in rows if r["event"] == "discovery"],
+            "knowledgeReads": [{k: r[k] for k in FIELDS["knowledge-read"]} for r in rows if r["event"] == "knowledge-read"],
+            "cleanupStatus": last.get("cleanupStatus", "not-observed"),
             "status": last["status"] if last["event"] == "end" else "interrupted",
             "failureAttribution": last.get("failureAttribution"), "reason": last.get("reason"),
             "modelTurns": len(models), "actions": len(actions), "toolErrors": errors,
@@ -138,21 +203,94 @@ def report(paths):
     groups = defaultdict(list)
     for row in attempts:
         groups[(row["scenarioId"], row["variant"], row["target"])].append(row)
+    campaigns = []
+    for cid in sorted({row["campaignId"] for row in attempts}):
+        rows = [r for r in attempts if r["campaignId"] == cid]
+        modes = {r["campaignMode"] for r in rows}
+        if len(modes) != 1:
+            raise TelemetryError("mixed campaign modes")
+        if len({canonical_digest(r["knowledge"]) for r in rows}) != 1:
+            raise TelemetryError("mixed campaign knowledge bindings")
+        by_case = defaultdict(list)
+        for row in rows:
+            by_case[row["caseId"]].append(row)
+        final = [max(values, key=lambda r: r["attempt"]) for values in by_case.values()]
+        passed = sum(r["status"] == "pass" and r["cleanupStatus"] == "pass" for r in final)
+        durations = sorted(r["elapsedMs"] for r in rows)
+        def percentile(fraction):
+            return durations[max(0, math.ceil(len(durations) * fraction) - 1)]
+        campaigns.append({"campaignId": cid, "campaignMode": next(iter(modes)),
+            "requiredCases": 252 if next(iter(modes)) == "qualification" else None,
+            "casesObserved": len(by_case), "casesMissing": 252-len(by_case) if next(iter(modes)) == "qualification" else None,
+            "finalGoalAndCleanupPasses": passed,
+            "firstAttemptPasses": sum(r["attempt"] == 1 and r["status"] == "pass" and r["cleanupStatus"] == "pass" for r in rows),
+            "goalCompletionFraction": passed/252 if next(iter(modes)) == "qualification" else None,
+            "attemptOutcomes": dict(Counter(r["status"] for r in rows)),
+            "failureAttributions": dict(Counter(r["failureAttribution"] or "unclassified" for r in rows if r["status"] != "pass")),
+            "failedAssertions": dict(Counter(a for r in rows for a in r["failedAssertions"])),
+            "cleanupOutcomes": dict(Counter(r["cleanupStatus"] for r in rows)),
+            "durationP50Ms": percentile(.5), "durationP95Ms": percentile(.95),
+            "inputTokens": sum(r["inputTokens"] for r in rows), "outputTokens": sum(r["outputTokens"] for r in rows),
+            "modelCostUsd": str(sum((Decimal(r["modelCostUsd"]) for r in rows), Decimal(0))),
+            "qualification": False})
     return {"schemaVersion": 1, "qualification": False,
             "interpretation": "Observed signals only. Repetition may be polling; clarification may be correct. No success or coverage inference from missing runs.",
             "attemptsObserved": len(attempts), "casesObserved": len(groups),
             "requiredCases": 252, "attempts": attempts,
+            "campaigns": campaigns,
             "attention": sorted([r for r in attempts if r["status"] != "pass" or r["possibleStall"] or r["toolErrors"]],
                                 key=lambda r: (-r["toolErrors"], -r["longestUnchangedRepeat"], -r["elapsedMs"]))}
+
+
+def prometheus(value):
+    """Textfile metrics from retained journals; no secrets or unbounded IDs in labels.
+
+    Export one controller dataset consistently. These are cumulative observed
+    attempts, not a claim that the release qualification gate passed.
+    """
+    groups = defaultdict(list)
+    for row in value["attempts"]:
+        groups[(row["target"], row["campaignMode"])].append(row)
+    lines = ["# HELP honua_agent_attempts_total Observed attempts including interrupted attempts.",
+             "# TYPE honua_agent_attempts_total counter",
+             "# TYPE honua_agent_tool_errors_total counter",
+             "# TYPE honua_agent_failure_attributions_total counter",
+             "# TYPE honua_agent_cleanup_outcomes_total counter",
+             "# TYPE honua_agent_input_tokens_total counter", "# TYPE honua_agent_output_tokens_total counter",
+             "# TYPE honua_agent_model_cost_usd_total counter", "# TYPE honua_agent_duration_seconds histogram"]
+    def labels(target, mode, **extra):
+        return ','.join(k+'='+json.dumps(v) for k,v in {"target":target,"mode":mode,**extra}.items())
+    for (target, mode), rows in sorted(groups.items()):
+        base = labels(target, mode)
+        for status, count in sorted(Counter(r["status"] for r in rows).items()):
+            lines.append(f'honua_agent_attempts_total{{{labels(target, mode, status=status)}}} {count}')
+        for attribution, count in sorted(Counter(r["failureAttribution"] or "unclassified" for r in rows if r["status"] != "pass").items()):
+            lines.append(f'honua_agent_failure_attributions_total{{{labels(target, mode, attribution=attribution)}}} {count}')
+        for status, count in sorted(Counter(r["cleanupStatus"] for r in rows).items()):
+            lines.append(f'honua_agent_cleanup_outcomes_total{{{labels(target, mode, status=status)}}} {count}')
+        for name, field in (("tool_errors", "toolErrors"), ("input_tokens", "inputTokens"), ("output_tokens", "outputTokens")):
+            lines.append(f'honua_agent_{name}_total{{{base}}} {sum(r[field] for r in rows)}')
+        cost = sum((Decimal(r["modelCostUsd"]) for r in rows), Decimal(0))
+        lines.append(f'honua_agent_model_cost_usd_total{{{base}}} {cost}')
+        durations = [r["elapsedMs"]/1000 for r in rows]
+        for bound in (1, 10, 60, 300, 900, 1800, 5400, math.inf):
+            label = '+Inf' if math.isinf(bound) else str(bound)
+            lines.append(f'honua_agent_duration_seconds_bucket{{{labels(target, mode, le=label)}}} {sum(d<=bound for d in durations)}')
+        lines.append(f'honua_agent_duration_seconds_sum{{{base}}} {sum(durations)}')
+        lines.append(f'honua_agent_duration_seconds_count{{{base}}} {len(durations)}')
+    return '\n'.join(lines)+'\n'
 
 
 def main(argv=None):
     p = argparse.ArgumentParser(description=__doc__)
     p.add_argument("--journals", required=True, type=Path)
     p.add_argument("--output", required=True, type=Path)
+    p.add_argument("--prometheus", type=Path)
     args = p.parse_args(argv)
     value = report(sorted(args.journals.glob("*.jsonl")))
     args.output.write_text(json.dumps(value, indent=2, allow_nan=False) + "\n", encoding="utf-8")
+    if args.prometheus:
+        args.prometheus.write_text(prometheus(value), encoding="utf-8", newline="\n")
     return 0
 
 

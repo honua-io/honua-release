@@ -58,7 +58,7 @@ jobs:
         run: |
           set -euo pipefail
           python tools/verify_agent_e2e_campaign.py --bundle campaign-input \
-            --pack certification/agent-e2e/pack.v1.json \
+            --pack certification/agent-e2e/pack.v2.json \
             --current-lock candidate-input/frozen-lock/platform-lock.json \
             --campaign-digest "$CAMPAIGN_DIGEST" --source-sha "$SOURCE_SHA" \
             --run-id "$RUN_ID" --run-attempt "$RUN_ATTEMPT" \
