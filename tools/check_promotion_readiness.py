@@ -115,7 +115,8 @@ def valid_agent_pack(summary: Any, binding: str | None = None) -> bool:
         identity = summary['controller']
         hashes = ('packDigest', 'corpusDigest', 'componentBindingDigest', 'qualificationLockDigest',
                   'campaignDigest', 'inventoryDigest')
-        return (summary.get('schemaVersion') == 1 and summary.get('status') == 'pass'
+        return (type(summary.get('schemaVersion')) is int and summary['schemaVersion'] == 1
+                and summary.get('status') == 'pass'
                 and type(summary.get('casesExpected')) is int and summary['casesExpected'] == 252
                 and type(summary.get('casesPassed')) is int and summary['casesPassed'] == 252
                 and type(summary.get('attempts')) is int and 252 <= summary['attempts'] <= 504
