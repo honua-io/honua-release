@@ -1,0 +1,13 @@
+{
+  "format": "honua.scaffold-published-documentation-provenance/v1",
+  "status": "verified",
+  "package": "create-honua-app",
+  "version": "0.2.2",
+  "sourceRevision": "bd178cf762574379c8c0cfe6e923fe9a39ce9832",
+  "sourceTag": "create-honua-app-v0.2.2",
+  "sourcePath": "packages/create-honua-app/README.md",
+  "archivePath": "package/README.md",
+  "bytes": 3585,
+  "sha256": "2d4577c98ecf567ffc6ce4e183293bc4d0fcb5047adca1aa088b03a33054d97f",
+  "evidence": "Actual published scaffold tarball README is byte-identical to its own immutable managed scaffold release source"
+}

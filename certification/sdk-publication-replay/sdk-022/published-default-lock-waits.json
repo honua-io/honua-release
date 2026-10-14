@@ -1,0 +1,19 @@
+{
+  "scope": "Semaphore wait only; harness never executed and120s measurement never began",
+  "attempts": [
+    {
+      "template": "vanilla-ts",
+      "exitCode": 75,
+      "waitSeconds": 600,
+      "log": "published-default-vanilla-ts-attempt1.log",
+      "observedAt": "2026-10-14T03:18:32.924887+00:00"
+    },
+    {
+      "template": "react-ts",
+      "exitCode": 75,
+      "waitSeconds": 600,
+      "log": "published-default-react-ts-attempt1.log",
+      "observedAt": "2026-10-14T03:32:08.244596+00:00"
+    }
+  ]
+}
