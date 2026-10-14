@@ -1,0 +1,115 @@
+{
+  "schema": "honua.published-sdk-source-compatibility-observation/v1",
+  "scope": "Published SDK source compatibility against the fixed self-contained server; not installed npm or final candidate certification",
+  "runId": 38464614054,
+  "runUrl": "https://github.com/honua-io/honua-sdk-js/actions/runs/38464614054",
+  "tag": "js-sdk-v0.2.1",
+  "source": "0fd1a2b46f52bf7761d68837c06436b6f841ec07",
+  "artifactId": 11847578378,
+  "archiveSha256": "5b3cc72a4c9178615624282f668de07940c4fde2819207087a1d7e7d7f358178",
+  "status": "pass",
+  "counts": {
+    "integration-alerts-true-vitest.json": {
+      "numTotalTests": 1,
+      "numPassedTests": 1,
+      "numFailedTests": 0,
+      "numPendingTests": 0
+    },
+    "integration-alerts-false-vitest.json": {
+      "numTotalTests": 1,
+      "numPassedTests": 1,
+      "numFailedTests": 0,
+      "numPendingTests": 0
+    },
+    "conformance-vitest.json": {
+      "numTotalTests": 6,
+      "numPassedTests": 2,
+      "numFailedTests": 0,
+      "numPendingTests": 4
+    },
+    "integration-vitest.json": {
+      "numTotalTests": 65,
+      "numPassedTests": 58,
+      "numFailedTests": 0,
+      "numPendingTests": 7
+    }
+  },
+  "geoservices": {
+    "featureServer": 4,
+    "mapServer": 4,
+    "geometryServer": 2,
+    "failed": 0,
+    "skipped": 0
+  },
+  "files": {
+    "integration-alerts-true-vitest.json": {
+      "sha256": "6ceb252aa87c54afa27b445fdb557291edd8ccb3805392c23aa7825a227691d8",
+      "bytes": 1147
+    },
+    "integration-alerts-false-vitest.json": {
+      "sha256": "01e1866cbbb1872a0980f4aa5ddd3df9d0976a6b558a40173a56b677d1ae8524",
+      "bytes": 1103
+    },
+    "conformance-vitest.json": {
+      "sha256": "4e4bc582de202950b0019bf0c5214046999e6e3504f0ec9116209e263ad74ab5",
+      "bytes": 3439
+    },
+    "integration-vitest.json": {
+      "sha256": "19f790cd93d2b1334dbdcb878f393deaf74c3da5294c6b697050598b2e76d52a",
+      "bytes": 33770
+    },
+    "integration-meta.json": {
+      "sha256": "c48dadb38d2a48d78be069550d1ba510ea023009e66145db384109333bfd05b7",
+      "bytes": 1499
+    }
+  },
+  "metadata": {
+    "sdkVersion": "0.2.1",
+    "sdkPackage": "@honua/sdk-js",
+    "serverVersion": "2026.1.1",
+    "serverReleaseChannel": "stable",
+    "serverImage": "ghcr.io/honua-io/honua-server@sha256:3ef3bd41a2f84d1f3a6194c11db496f741cc4d869b54bf57e9d7067dd9cf3d39",
+    "serverCommit": "ff5f5671903e96e13cffac7b73546c3ed0f853c5",
+    "candidateCutAt": "2026-10-04T08:09:54Z",
+    "conformanceFixturesVersion": "0.2.0-alpha.1",
+    "baseUrl": "http://localhost:8080",
+    "seedProfile": "places-roads-v1",
+    "serviceId": "test_service",
+    "layerId": 0,
+    "collectionId": "0",
+    "tileMatrixSetId": "WebMercatorQuad",
+    "startedAt": "2026-10-13T20:41:45.374Z",
+    "surfaces": [
+      {
+        "surface": "conformance:feature-server",
+        "status": "exercised",
+        "recordedAt": "2026-10-13T20:41:46.423Z"
+      },
+      {
+        "surface": "conformance:feature-server-jsonb",
+        "status": "skipped",
+        "reason": "known-gap honua-server#1238",
+        "recordedAt": "2026-10-13T20:41:46.736Z"
+      },
+      {
+        "surface": "conformance:temporal",
+        "status": "skipped",
+        "reason": "known-gap honua-server#1166",
+        "recordedAt": "2026-10-13T20:41:46.737Z"
+      },
+      {
+        "surface": "conformance:replica",
+        "status": "skipped",
+        "reason": "known-gap honua-server#1167",
+        "recordedAt": "2026-10-13T20:41:46.737Z"
+      },
+      {
+        "surface": "conformance:analysis",
+        "status": "skipped",
+        "reason": "known-gap honua-server#1237",
+        "recordedAt": "2026-10-13T20:41:46.737Z"
+      }
+    ]
+  },
+  "certificationContextProvided": false
+}

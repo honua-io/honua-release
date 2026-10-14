@@ -1,0 +1,81 @@
+{
+  "format": "honua.sdk.public-minor-pair-proof/v1",
+  "status": "passed",
+  "verifiedAt": "2026-10-13T20:53:58.445528+00:00",
+  "publicationReceiptSha256": "03e4166b75a7262c3af74fb510913ec0cf1ed1ec9aba8fd672941212bc7f7a78",
+  "sealedTag": "js-sdk-v0.2.1",
+  "sealedCommit": "0fd1a2b46f52bf7761d68837c06436b6f841ec07",
+  "registry": "https://registry.npmjs.org",
+  "node": "v22.23.3",
+  "npm": "10.9.9",
+  "defaultPeerResolution": true,
+  "mcpResolvesInstalledSdk": true,
+  "relaxingFlags": [],
+  "installCommand": [
+    "npm",
+    "install",
+    "--ignore-scripts",
+    "--no-audit",
+    "--no-fund",
+    "--save-exact",
+    "@honua/sdk-js@0.2.1",
+    "@honua/mcp-server@0.2.1"
+  ],
+  "installed": {
+    "@honua/sdk-js": {
+      "version": "0.2.1",
+      "integrity": "sha512-z2MkPdQGtDn7bUSYH5QA9YQUU5fxJUxBbewzwemGYuwjLIU0fkrqhzARvaC5MJYdvBNwnU7JDHflQAFwiYsOYw==",
+      "sourceRevision": "0fd1a2b46f52bf7761d68837c06436b6f841ec07",
+      "peerDependencies": {
+        "@bufbuild/protobuf": "^2.0.0",
+        "@connectrpc/connect": "^2.0.0",
+        "@connectrpc/connect-web": "^2.0.0",
+        "@deck.gl/layers": "^9.0.0",
+        "@duckdb/duckdb-wasm": "^1.29.0",
+        "@kepler.gl/actions": "^3.0.0",
+        "@kepler.gl/processors": "^3.0.0",
+        "@turf/area": "^7.0.0",
+        "@turf/bbox": "^7.0.0",
+        "@turf/boolean-contains": "^7.0.0",
+        "@turf/boolean-intersects": "^7.0.0",
+        "@turf/boolean-within": "^7.0.0",
+        "@turf/buffer": "^7.0.0",
+        "@turf/centroid": "^7.0.0",
+        "@turf/convex": "^7.0.0",
+        "@turf/difference": "^7.0.0",
+        "@turf/helpers": "^7.0.0",
+        "@turf/intersect": "^7.0.0",
+        "@turf/length": "^7.0.0",
+        "@turf/nearest-point": "^7.0.0",
+        "@turf/simplify": "^7.0.0",
+        "@turf/union": "^7.0.0",
+        "apache-arrow": "^17.0.0",
+        "cesium": "^1.139.0",
+        "maplibre-gl": "^6.4.1",
+        "pmtiles": "^4.0.0",
+        "proj4": "^2.11.0",
+        "react": "^18.2.0 || ^19.0.0",
+        "react-dom": "^18.2.0 || ^19.0.0",
+        "terra-draw": "^1.32.0",
+        "terra-draw-maplibre-gl-adapter": "^1.4.1",
+        "typescript": "^5.9.2",
+        "uplot": "^1.6.32"
+      },
+      "engines": {
+        "node": ">=22.12.0"
+      }
+    },
+    "@honua/mcp-server": {
+      "version": "0.2.1",
+      "integrity": "sha512-NtrSMZeR7bcefEduQ0E2sYQ/pLev171a1/PT+/2PyxkrbOYfgEDN4N4bXhVXb3kHH6yBsSQRfuTlzcBiMf8aBg==",
+      "sourceRevision": "44e0378cfca1d0781651373f2412b24a2d0deb8c",
+      "peerDependencies": {
+        "@honua/sdk-js": "^0.1.17 || ^0.2.0"
+      },
+      "engines": {
+        "node": ">=22.12.0"
+      }
+    }
+  },
+  "packageLockSha256": "820545c656a666c105f5cd8631dd0e54e40e5a325a4eb7014d33ddf9bfa17811"
+}

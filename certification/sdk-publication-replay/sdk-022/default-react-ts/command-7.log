@@ -1,0 +1,9 @@
+Created app from the react-ts template in app.
+Pinned @honua/sdk-js@0.2.2, the certified version this release of create-honua-app ships (the release-2026.1 channel has not been promoted yet).
+
+Next steps:
+  cd app
+  npm install
+  npm run dev
+
+The default lane serves a committed fixture, so the first map needs no account, key, or network.
