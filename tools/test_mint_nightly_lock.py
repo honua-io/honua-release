@@ -690,7 +690,7 @@ def test_cli_refuses_to_stamp_or_mint_without_synced_history(inputs, tmp_path):
 
 NIGHTLY_EXPECTED = ('build-test', 'contract', 'sbom', 'security', 'upgrade', 'capacity-soak', 'dr',
                     'lambda-certification', 'protocol-ledger', 'deterministic-journey', 'nightly-model-journey',
-                    'executable-docs', 'installed-clients')
+                    'executable-docs', 'installed-clients', 'agent-e2e')
 QUALIFYING_EXPECTED = ('genuine-model-journey', 'update-rollback', 'esri-bundle', 'cite')
 
 

@@ -187,4 +187,32 @@ candidate lock. All 252 cases and cleanup must pass within the candidate-wide
 $500 model/AWS/retry budget. The budget is a ceiling, not a cost prediction.
 Missing prerequisites, skipped cases, exhausted budgets and unknown assertions
 fail closed. The later signed release must retain the same component bindings.
-This pack excludes ArcPy and does not replace existing release qualification gates.
+The separate desktop-client work in honua-server#5036 is excluded. Existing release
+qualification gates remain required.
+
+### Draft integration and required producer
+
+The release train, nightly mint and promotion checker now require the `agent-e2e`
+evidence class. This integration must remain a draft until the isolated backend
+and `.github/workflows/agent-e2e-campaign.yml` producer exist. The current controller
+and offline contract workflow produce diagnostics, not qualifying receipts.
+
+The consumer requires repository configuration `AGENT_E2E_RUN_ID`,
+`AGENT_E2E_RUN_ATTEMPT`, `AGENT_E2E_SOURCE_SHA`, and the pre-execution frozen
+`AGENT_E2E_CAMPAIGN_DIGEST`. Missing configuration fails the gate. It verifies
+the exact trunk workflow, source revision, hosted runner, run/attempt and signed
+artifact subject using GitHub attestations before reading campaign evidence.
+
+The producer artifact `agent-e2e-campaign-<attempt>` must contain `campaign.json`,
+`trusted-inventory.json`, `qualification-lock.json`, `expectations.json`,
+`budget-ledger.json`, `attempt-registry.json`, and the `receipts/` and `evidence/`
+directories. The campaign pins expectations before execution; the attested
+inventory binds every receipt and the final candidate-wide ledger and registry.
+Those histories must live in durable controller-only storage across campaigns.
+Deleting both histories is not a valid retry or a fresh spending allowance.
+
+Dynamic resource IDs require independently captured creation events and reviewed
+expectation resolution; that backend is not implemented here. The gate already
+rejects arbitrary observation blobs, missing assertions, altered corpus bytes,
+overlapping target campaigns, and repeated failures hidden behind new campaign IDs.
+All 252 cases remain unqualified until actual independent evidence is available.

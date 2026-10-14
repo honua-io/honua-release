@@ -379,7 +379,7 @@ def evaluate(
                 from agent_e2e_gate import component_binding
                 ok &= valid_agent_pack(receipt.get('agentPack'), component_binding(_load(lock_path, 'platform lock')))
                 ok &= now <= _time(receipt['agentPack']['expiresAt'], 'agent campaign expiry')
-        except (ReadinessError, OSError, TypeError):
+        except (ValueError, OSError, TypeError, KeyError):
             ok = False
         check(f"evidence:{name}", bool(ok), detail)
 
