@@ -715,7 +715,7 @@ def test_minted_layout_retains_every_declared_receipt_and_no_qualifying_receipt(
     for name in QUALIFYING_EXPECTED:
         assert retained['evidenceDeclarations'][name] == {'kind': 'qualifying', 'receipt': None, 'freshUntil': None}
         assert not (output / 'promotion-receipts' / name).exists()
-    assert len(list((output / 'promotion-receipts').glob('*/receipt.json'))) == len(NIGHTLY_EXPECTED) == 13
+    assert len(list((output / 'promotion-receipts').glob('*/receipt.json'))) == len(NIGHTLY_EXPECTED) == 14
 
 
 @pytest.mark.parametrize('mutation', ['missing-class', 'wrong-lock', 'missing-model', 'forged-qualifying', 'expiry'])
