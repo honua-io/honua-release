@@ -1,0 +1,102 @@
+{
+  "scope": "actual public SDK and MCP 0.2.2 default-resolution installation",
+  "startedAt": "2026-10-14T01:44:21.695930+00:00",
+  "status": "passed",
+  "directory": "/home/mike/.local/state/honua-release-work/sdk022-public-pair-96d9vupg",
+  "expectedSources": {
+    "@honua/sdk-js": "076b4218f832725d57a8e23745fae75aeb9f4e5a",
+    "@honua/mcp-server": "6601a8d12c971b8916679ea7cbbb0290fd1ad78c"
+  },
+  "nodeVersion": "v22.23.3",
+  "npmVersion": "10.9.9",
+  "npmConfig": {
+    "registry": "https://registry.npmjs.org",
+    "legacy-peer-deps": "false",
+    "force": "false",
+    "strict-ssl": "true"
+  },
+  "command": [
+    "npm",
+    "install",
+    "--ignore-scripts",
+    "--no-audit",
+    "--no-fund",
+    "@honua/sdk-js@0.2.2",
+    "@honua/mcp-server@0.2.2"
+  ],
+  "installed": {
+    "@honua/sdk-js": {
+      "version": "0.2.2",
+      "source": "076b4218f832725d57a8e23745fae75aeb9f4e5a",
+      "integrity": "sha512-qwDHad4gd3haLRvQsoGKLavjOTXUZMYfhZ8GfCIh6nyERjAf+K6xPGVn/3qXSmx52TzVHVcyQbC1LNa0Hs1IHQ==",
+      "resolved": "https://registry.npmjs.org/@honua/sdk-js/-/sdk-js-0.2.2.tgz",
+      "peerDependencies": {
+        "@bufbuild/protobuf": "^2.0.0",
+        "@connectrpc/connect": "^2.0.0",
+        "@connectrpc/connect-web": "^2.0.0",
+        "@deck.gl/layers": "^9.0.0",
+        "@duckdb/duckdb-wasm": "^1.29.0",
+        "@kepler.gl/actions": "^3.0.0",
+        "@kepler.gl/processors": "^3.0.0",
+        "@turf/area": "^7.0.0",
+        "@turf/bbox": "^7.0.0",
+        "@turf/boolean-contains": "^7.0.0",
+        "@turf/boolean-intersects": "^7.0.0",
+        "@turf/boolean-within": "^7.0.0",
+        "@turf/buffer": "^7.0.0",
+        "@turf/centroid": "^7.0.0",
+        "@turf/convex": "^7.0.0",
+        "@turf/difference": "^7.0.0",
+        "@turf/helpers": "^7.0.0",
+        "@turf/intersect": "^7.0.0",
+        "@turf/length": "^7.0.0",
+        "@turf/nearest-point": "^7.0.0",
+        "@turf/simplify": "^7.0.0",
+        "@turf/union": "^7.0.0",
+        "apache-arrow": "^17.0.0",
+        "cesium": "^1.139.0",
+        "maplibre-gl": "^6.4.1",
+        "pmtiles": "^4.0.0",
+        "proj4": "^2.11.0",
+        "react": "^18.2.0 || ^19.0.0",
+        "react-dom": "^18.2.0 || ^19.0.0",
+        "terra-draw": "^1.32.0",
+        "terra-draw-maplibre-gl-adapter": "^1.4.1",
+        "typescript": "^5.9.2",
+        "uplot": "^1.6.32"
+      }
+    },
+    "@honua/mcp-server": {
+      "version": "0.2.2",
+      "source": "6601a8d12c971b8916679ea7cbbb0290fd1ad78c",
+      "integrity": "sha512-OeqbWiX3GtE9L2X+8OgquuNZqmqcboPF/DXXcB6C+ZOoPx+nubOI5COH+QtjUu9s+Ehzm7Pm7g++x0VaGhG4QA==",
+      "resolved": "https://registry.npmjs.org/@honua/mcp-server/-/mcp-server-0.2.2.tgz",
+      "peerDependencies": {
+        "@honua/sdk-js": "^0.1.17 || ^0.2.0"
+      }
+    }
+  },
+  "installedBins": {
+    "honua": {
+      "mapping": "./dist/src/cli/bin.js",
+      "targetSha256": "a49993be5468fcf08a729b66ff3e31793148f6a9bd007e70d0fc0966db9ee1d4",
+      "npmBinTarget": "../@honua/sdk-js/dist/src/cli/bin.js",
+      "executable": true,
+      "nodeShebang": true
+    },
+    "honua-plugin-certify": {
+      "mapping": "./dist/src/plugin/bin.js",
+      "targetSha256": "37016049725769c4382b31539ca10a61e0042e539dd88df9401b6d0f8d3e43fb",
+      "npmBinTarget": "../@honua/sdk-js/dist/src/plugin/bin.js",
+      "executable": true,
+      "nodeShebang": true
+    }
+  },
+  "honuaHelp": {
+    "exitCode": 0,
+    "file": "/home/mike/.local/state/honua-release-work/sdk022-public-pair-96d9vupg/honua-help.txt",
+    "sha256": "b3aaad305686512886068f4401558fefb76828201281619406e7185630dbea66"
+  },
+  "packageLockSha256": "8c13579cd775319dbc7d7c13f30faa884500b0ce7349e5e85132254d041a02d5",
+  "completedAt": "2026-10-14T01:45:12.091173+00:00"
+}

@@ -159,6 +159,48 @@
       "reason": "Exact SDK 0.2.1 published package identity, provenance subject, registry URL and tarball filename in the selected manifest and byte-identical official publication observations. Changing these values would falsify the verified registry artifact. Other paths, identifiers, versions, prose and endorsement claims remain checked.",
       "owner": "@mikemcdougall",
       "issue": "honua-io/honua-release#181"
+    },
+    {
+      "repo": "honua-release",
+      "paths": [
+        "platform-manifest.yaml",
+        "certification/sdk-publication-replay/sdk-022/published-release-verification.v1.json",
+        "certification/sdk-publication-replay/sdk-022/registry-observations.json"
+      ],
+      "tokens": [
+        "esri"
+      ],
+      "identifiers": [
+        "sdk-esri-compat",
+        "@honua/sdk-esri-compat",
+        "honua-sdk-esri-compat",
+        "sdk-esri-compat-0.2.2.tgz",
+        "@honua/sdk-esri-compat@0.2.2",
+        "40honua/sdk-esri-compat@0.2.2",
+        "2Fsdk-esri-compat/0.2.2",
+        "//registry.npmjs.org/@honua/sdk-esri-compat/-/sdk-esri-compat-0.2.2.tgz"
+      ],
+      "reason": "Exact SDK 0.2.2 published package identity, provenance subject, registry URL and tarball filename in the selected manifest and byte-identical official publication observations. Changing these values would falsify the verified registry artifact. Other paths, identifiers, versions, prose and endorsement claims remain checked.",
+      "owner": "@mikemcdougall",
+      "issue": "honua-io/honua-release#181"
+    },
+    {
+      "repo": "honua-release",
+      "paths": [
+        "certification/sdk-publication-replay/sdk-022/default-vanilla-ts/sdk-package-lock.json",
+        "certification/sdk-publication-replay/sdk-022/default-react-ts/sdk-package-lock.json"
+      ],
+      "tokens": [
+        "esri"
+      ],
+      "identifiers": [
+        "@honua/sdk-esri-compat",
+        "node_modules/@honua/sdk-esri-compat",
+        "//registry.npmjs.org/@honua/sdk-esri-compat/-/sdk-esri-compat-0.1.18.tgz"
+      ],
+      "reason": "Exact unmodified default-consumer lock coordinates. The generated migration tooling dependency resolves this historical package under its retained range; these observations do not advance the selected release cohort or endorse a vendor. Other versions, paths, identifiers and prose remain checked.",
+      "owner": "@mikemcdougall",
+      "issue": "honua-io/honua-release#181"
     }
   ]
 }

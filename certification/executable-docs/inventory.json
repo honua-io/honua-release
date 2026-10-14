@@ -6,11 +6,11 @@
       "id": "honua-sdk-js-readme",
       "repo": "honua-io/honua-sdk-js",
       "path": "README.md",
-      "revision": "0fd1a2b46f52bf7761d68837c06436b6f841ec07",
+      "revision": "076b4218f832725d57a8e23745fae75aeb9f4e5a",
       "revisionRule": {
         "clientArtifact": "honua-sdk-js"
       },
-      "url": "https://github.com/honua-io/honua-sdk-js/blob/0fd1a2b46f52bf7761d68837c06436b6f841ec07/README.md",
+      "url": "https://github.com/honua-io/honua-sdk-js/blob/076b4218f832725d57a8e23745fae75aeb9f4e5a/README.md",
       "runtime": "node",
       "docker": false,
       "session": null,
@@ -133,11 +133,11 @@
       "id": "honua-sdk-js-install",
       "repo": "honua-io/honua-sdk-js",
       "path": "INSTALL.md",
-      "revision": "0fd1a2b46f52bf7761d68837c06436b6f841ec07",
+      "revision": "076b4218f832725d57a8e23745fae75aeb9f4e5a",
       "revisionRule": {
         "clientArtifact": "honua-sdk-js"
       },
-      "url": "https://github.com/honua-io/honua-sdk-js/blob/0fd1a2b46f52bf7761d68837c06436b6f841ec07/INSTALL.md",
+      "url": "https://github.com/honua-io/honua-sdk-js/blob/076b4218f832725d57a8e23745fae75aeb9f4e5a/INSTALL.md",
       "runtime": "node",
       "docker": false,
       "session": null,
@@ -181,11 +181,11 @@
       "id": "honua-sdk-js-docs-quickstart",
       "repo": "honua-io/honua-sdk-js",
       "path": "docs/quickstart.md",
-      "revision": "0fd1a2b46f52bf7761d68837c06436b6f841ec07",
+      "revision": "076b4218f832725d57a8e23745fae75aeb9f4e5a",
       "revisionRule": {
         "clientArtifact": "honua-sdk-js"
       },
-      "url": "https://github.com/honua-io/honua-sdk-js/blob/0fd1a2b46f52bf7761d68837c06436b6f841ec07/docs/quickstart.md",
+      "url": "https://github.com/honua-io/honua-sdk-js/blob/076b4218f832725d57a8e23745fae75aeb9f4e5a/docs/quickstart.md",
       "runtime": "node",
       "docker": false,
       "session": null,
@@ -226,7 +226,7 @@
           "infoString": "bash",
           "intent": "run",
           "intentSource": "marker",
-          "sha256": "7d4b2fb74db25f7c9823bd4fe9b581b3054e14fd750e97a7c95d4bf6dde0d37f"
+          "sha256": "b6b04aa5893d5420a92a0aceda29cec24510ec9e5bc339de4f88b7896e9dec50"
         },
         {
           "index": 4,
@@ -252,11 +252,11 @@
       "id": "honua-sdk-js-mcp-readme",
       "repo": "honua-io/honua-sdk-js",
       "path": "mcp/README.md",
-      "revision": "44e0378cfca1d0781651373f2412b24a2d0deb8c",
+      "revision": "6601a8d12c971b8916679ea7cbbb0290fd1ad78c",
       "revisionRule": {
         "clientArtifact": "honua-mcp-server"
       },
-      "url": "https://github.com/honua-io/honua-sdk-js/blob/44e0378cfca1d0781651373f2412b24a2d0deb8c/mcp/README.md",
+      "url": "https://github.com/honua-io/honua-sdk-js/blob/6601a8d12c971b8916679ea7cbbb0290fd1ad78c/mcp/README.md",
       "runtime": "node",
       "docker": false,
       "session": null,
@@ -453,11 +453,11 @@
       "id": "honua-sdk-js-packages-create-honua-app-readme",
       "repo": "honua-io/honua-sdk-js",
       "path": "packages/create-honua-app/README.md",
-      "revision": "609455826e35eea144b573e86f37580d75272561",
+      "revision": "bd178cf762574379c8c0cfe6e923fe9a39ce9832",
       "revisionRule": {
         "npmPublished": "create-honua-app"
       },
-      "url": "https://github.com/honua-io/honua-sdk-js/blob/609455826e35eea144b573e86f37580d75272561/packages/create-honua-app/README.md",
+      "url": "https://github.com/honua-io/honua-sdk-js/blob/bd178cf762574379c8c0cfe6e923fe9a39ce9832/packages/create-honua-app/README.md",
       "runtime": "node",
       "docker": false,
       "session": null,
@@ -470,7 +470,7 @@
           "infoString": "bash",
           "intent": "run",
           "intentSource": "marker",
-          "sha256": "1d3ffd30f4be74ab277d3ebad80b3b17d10051e1747ac1011be4cf3803dabc27"
+          "sha256": "b6b04aa5893d5420a92a0aceda29cec24510ec9e5bc339de4f88b7896e9dec50"
         },
         {
           "index": 1,
@@ -489,7 +489,7 @@
           "infoString": "bash",
           "intent": "run",
           "intentSource": "heuristic",
-          "sha256": "55e2cce97f49f66373dad150807c3615c38d5ced5a358ccf65aa55a141bb47c0"
+          "sha256": "e7d5d345e11942d56bc59ab42723ef0461d998b34b97bebdf85b3a4b948bd4d5"
         },
         {
           "index": 3,
@@ -498,7 +498,7 @@
           "infoString": "bash",
           "intent": "run",
           "intentSource": "heuristic",
-          "sha256": "43f2ed59e72502fff856fdf720d064b62569b00b5dbde88e6f25f61bf9274665"
+          "sha256": "a41188114494aa2b724723bdd5656c615ae208430bd2a8dc3d924e53348eb0aa"
         }
       ]
     },
