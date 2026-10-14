@@ -1,0 +1,84 @@
+name: Agent E2E contract tests
+
+on:
+  pull_request:
+    paths:
+      - '.github/workflows/agent-e2e-contracts.yml'
+      - '.gitattributes'
+      - 'certification/agent-e2e/**'
+      - 'schemas/agent-e2e*'
+      - 'tools/agent_e2e*.py'
+      - 'tools/test_agent_e2e*.py'
+      - 'tools/conftest.py'
+      - 'tools/*agent_e2e*.py'
+      - 'tools/*promotion*.py'
+      - 'tools/*mint_nightly_lock.py'
+      - 'tools/*candidate_binding.py'
+      - 'tools/test_workflow_contracts.py'
+      - 'certification/promotion-evidence.v1.schema.json'
+      - '.github/workflows/gate-agent-e2e.yml'
+      - '.github/workflows/release-train.yml'
+      - '.github/workflows/nightly-certification.yml'
+      - 'e2e/fixtures/large_import.py'
+  push:
+    branches: [trunk]
+    paths:
+      - '.github/workflows/agent-e2e-contracts.yml'
+      - '.gitattributes'
+      - 'certification/agent-e2e/**'
+      - 'schemas/agent-e2e*'
+      - 'tools/agent_e2e*.py'
+      - 'tools/test_agent_e2e*.py'
+      - 'tools/conftest.py'
+      - 'tools/*agent_e2e*.py'
+      - 'tools/*promotion*.py'
+      - 'tools/*mint_nightly_lock.py'
+      - 'tools/*candidate_binding.py'
+      - 'tools/test_workflow_contracts.py'
+      - 'certification/promotion-evidence.v1.schema.json'
+      - '.github/workflows/gate-agent-e2e.yml'
+      - '.github/workflows/release-train.yml'
+      - '.github/workflows/nightly-certification.yml'
+      - 'e2e/fixtures/large_import.py'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: agent-e2e-contracts-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  contracts:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      PYTHONPATH: tools
+      PYTHONDONTWRITEBYTECODE: '1'
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: '3.12'
+      - name: Install unit-test dependency
+        run: python -m pip install 'pytest>=8,<10' 'pyyaml>=6.0' 'jsonschema>=4.23' 'cryptography>=45.0'
+      - name: Check controller contracts and corpus oracles
+        # These are offline tests with fixture model responses, never live E2E evidence.
+        # Explicit files avoid collecting unrelated conformance/cloud suites.
+        run: >-
+          python -m pytest --import-mode=importlib
+          tools/test_agent_e2e*.py tools/test_verify_agent_e2e_campaign.py
+          tools/test_candidate_binding.py tools/test_check_promotion_readiness.py
+          tools/test_mint_nightly_lock.py tools/test_fetch_promotion_evidence.py
+          tools/test_workflow_contracts.py certification/agent-e2e/test_corpus.py
+          -q --junitxml=agent-e2e-contracts.xml
+      - name: Retain actual unit-test results
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: agent-e2e-contracts-${{ github.run_attempt }}
+          path: agent-e2e-contracts.xml
+          if-no-files-found: error

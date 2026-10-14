@@ -1,0 +1,72 @@
+{
+  "crs": {
+    "properties": {
+      "name": "EPSG:3857"
+    },
+    "type": "name"
+  },
+  "features": [
+    {
+      "geometry": {
+        "coordinates": [
+          [
+            [
+              [
+                0,
+                2000
+              ],
+              [
+                100,
+                2000
+              ],
+              [
+                100,
+                2100
+              ],
+              [
+                0,
+                2100
+              ],
+              [
+                0,
+                2000
+              ]
+            ]
+          ],
+          [
+            [
+              [
+                300,
+                2200
+              ],
+              [
+                500,
+                2200
+              ],
+              [
+                500,
+                2400
+              ],
+              [
+                300,
+                2400
+              ],
+              [
+                300,
+                2200
+              ]
+            ]
+          ]
+        ],
+        "type": "MultiPolygon"
+      },
+      "id": "multi-A",
+      "properties": {
+        "name": "Separated islands",
+        "source_id": "multi-A"
+      },
+      "type": "Feature"
+    }
+  ],
+  "type": "FeatureCollection"
+}

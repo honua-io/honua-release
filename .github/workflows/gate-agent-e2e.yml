@@ -1,0 +1,79 @@
+name: gate-agent-e2e
+on:
+  workflow_call:
+    inputs:
+      run_id: {required: true, type: string}
+      run_attempt: {required: true, type: string}
+      source_sha: {required: true, type: string}
+      campaign_digest: {required: true, type: string}
+    outputs:
+      overall_status:
+        value: ${{ jobs.verify.outputs.status }}
+permissions:
+  contents: read
+  actions: read
+  attestations: read
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    outputs:
+      status: ${{ steps.verify.outputs.status || 'fail' }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: '3.12'
+      - name: Require configured real campaign identity
+        env:
+          RUN_ID: ${{ inputs.run_id }}
+          RUN_ATTEMPT: ${{ inputs.run_attempt }}
+          SOURCE_SHA: ${{ inputs.source_sha }}
+          CAMPAIGN_DIGEST: ${{ inputs.campaign_digest }}
+        run: |
+          set -euo pipefail
+          [[ "$RUN_ID" =~ ^[1-9][0-9]*$ ]]
+          [[ "$RUN_ATTEMPT" =~ ^[1-9][0-9]*$ ]]
+          [[ "$SOURCE_SHA" =~ ^[0-9a-f]{40}$ ]]
+          [[ "$CAMPAIGN_DIGEST" =~ ^sha256:[0-9a-f]{64}$ ]]
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: candidate-manifest
+          path: candidate-input
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          github-token: ${{ github.token }}
+          repository: honua-io/honua-release
+          run-id: ${{ inputs.run_id }}
+          name: agent-e2e-campaign-${{ inputs.run_attempt }}
+          path: campaign-input
+      - name: Authenticate controller and evaluate all 252 cases
+        id: verify
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RUN_ID: ${{ inputs.run_id }}
+          RUN_ATTEMPT: ${{ inputs.run_attempt }}
+          SOURCE_SHA: ${{ inputs.source_sha }}
+          CAMPAIGN_DIGEST: ${{ inputs.campaign_digest }}
+        run: |
+          set -euo pipefail
+          python tools/verify_agent_e2e_campaign.py --bundle campaign-input \
+            --pack certification/agent-e2e/pack.v1.json \
+            --current-lock candidate-input/frozen-lock/platform-lock.json \
+            --campaign-digest "$CAMPAIGN_DIGEST" --source-sha "$SOURCE_SHA" \
+            --run-id "$RUN_ID" --run-attempt "$RUN_ATTEMPT" \
+            --output out/agent-e2e-summary.json
+          echo 'status=pass' >> "$GITHUB_OUTPUT"
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        if: always()
+        with:
+          name: agent-e2e-gate-report
+          path: out/agent-e2e-summary.json
+          if-no-files-found: warn
+      - name: Retain the authenticated campaign evidence
+        if: steps.verify.outputs.status == 'pass'
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: agent-e2e-campaign-evidence
+          path: campaign-input/
+          if-no-files-found: error

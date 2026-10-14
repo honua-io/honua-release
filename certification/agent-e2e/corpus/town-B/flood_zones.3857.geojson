@@ -1,0 +1,46 @@
+{
+  "crs": {
+    "properties": {
+      "name": "EPSG:3857"
+    },
+    "type": "name"
+  },
+  "features": [
+    {
+      "geometry": {
+        "coordinates": [
+          [
+            [
+              12990,
+              -8010
+            ],
+            [
+              13350,
+              -8010
+            ],
+            [
+              13350,
+              -7890
+            ],
+            [
+              12990,
+              -7890
+            ],
+            [
+              12990,
+              -8010
+            ]
+          ]
+        ],
+        "type": "Polygon"
+      },
+      "id": "f101",
+      "properties": {
+        "name": "Willow flood zone",
+        "source_id": "f101"
+      },
+      "type": "Feature"
+    }
+  ],
+  "type": "FeatureCollection"
+}

@@ -2,7 +2,7 @@ import copy
 import base64
 import hashlib
 import json
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 import subprocess
 import sys
@@ -77,9 +77,35 @@ def build_inputs(candidate, tmp_path, *, gate_fixtures=None, missing_post_gate=F
             for attempt in row['attempts']:
                 if attempt['driver'] == 'genuine-model':
                     attempt['lockDigest'] = 'sha256:' + _sha256(qualification_lock)
-    report = nightly.declare_evidence(report, qualification_lock, journeys)
+    report = nightly.declare_evidence(report, qualification_lock, journeys, agent_summary(qualification_lock, report['generatedAt']))
     nightly.snapshot(*real_paths, report, tmp_path / 'notes')
     return report, real_paths
+
+
+def agent_summary(lock, stamp=None):
+    from agent_e2e_gate import component_binding
+    digest = 'sha256:' + 'c' * 64
+    completed = datetime.fromisoformat(stamp.replace('Z', '+00:00')) if stamp else datetime.now(timezone.utc)
+    return {'schemaVersion': 1, 'status': 'pass', 'campaignId': 'test-campaign',
+            'packDigest': digest, 'corpusDigest': digest, 'componentBindingDigest': component_binding(json.loads(lock.read_text())),
+            'qualificationLockDigest': 'sha256:' + _sha256(lock), 'campaignDigest': digest, 'inventoryDigest': digest,
+            'casesExpected': 252, 'casesPassed': 252, 'attempts': 252, 'infrastructureRetries': 0,
+            'totalCostUsd': '1', 'candidateLiabilityUsd': '1',
+            'completedAt': completed.isoformat().replace('+00:00', 'Z'),
+            'expiresAt': (completed + timedelta(days=7)).isoformat().replace('+00:00', 'Z'),
+            'controller': {'repository': 'honua-io/honua-release', 'workflow': '.github/workflows/agent-e2e-campaign.yml',
+                           'sourceSha': 'f' * 40, 'runId': 4241, 'runAttempt': 1}}
+
+
+def test_agent_pack_missing_or_wrong_component_cannot_declare_pass(inputs):
+    report, paths = inputs
+    lock = paths[0].parent / 'qualification-lock.json'
+    missing = nightly.declare_evidence(report, lock, [])
+    assert missing['evidenceReceipts']['agent-e2e']['status'] == 'fail'
+    wrong = agent_summary(lock, report['generatedAt'])
+    wrong['componentBindingDigest'] = 'sha256:' + '0' * 64
+    rebound = nightly.declare_evidence(report, lock, [], wrong)
+    assert rebound['evidenceReceipts']['agent-e2e']['status'] == 'fail'
 
 
 SOURCE = 'f' * 40
