@@ -2,8 +2,8 @@
 """Goal-driven model loop; controller and execution worker are separate machines.
 
 The backend is a reviewed controller-side executable, NOT an agent tool and NOT
-the guided terminal-journey driver. It owns disposable worker provisioning,
-independent observations, credential custody and cleanup. Missing backend
+the guided terminal-journey driver. It starts Terraform-defined disposable jobs,
+captures independent observations and manages test credential custody/cleanup. Missing backend
 capabilities block execution rather than falling back to a local shell.
 """
 from __future__ import annotations
