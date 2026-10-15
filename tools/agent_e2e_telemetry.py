@@ -33,6 +33,7 @@ FIELDS = {
     "provider-request": {"turn", "requestId"},
     "runtime-trace": {"action", "traceId", "spanId", "requestId", "evidenceDigest"},
     "model": {"turn", "durationMs", "inputTokens", "outputTokens", "costUsd", "responseDigest"},
+    "action-intent": {"action", "kind", "requestDigest"},
     "action": {"action", "kind", "operation", "requestDigest", "resultDigest", "durationMs", "isError", "errorCategory"},
     "verification": {"status", "failedAssertions"},
     "end": {"status", "failureAttribution", "reason", "cleanupStatus"},
@@ -92,6 +93,11 @@ def validate_values(event, values):
                 raise TelemetryError("invalid runtime trace identifier")
         if not isinstance(values["evidenceDigest"], str) or not re.fullmatch(r"sha256:[0-9a-f]{64}", values["evidenceDigest"]):
             raise TelemetryError("runtime correlation requires evidence digest")
+    if event in ('action-intent', 'action'):
+        if values['action'] < 1 or values['kind'] not in ('terminal', 'mcp_list_tools', 'mcp_call_tool', 'ask_user'):
+            raise TelemetryError('invalid action identity')
+        if not isinstance(values['requestDigest'], str) or not re.fullmatch(r'sha256:[0-9a-f]{64}', values['requestDigest']):
+            raise TelemetryError('action requires a request digest, never raw arguments')
 
 
 class Journal:
@@ -141,6 +147,7 @@ class Journal:
 def validate_events(events):
     rows = []
     previous, identity = None, None
+    dispatched, observed = {}, set()
     for row in events:
         event = row.get("event")
         if event not in FIELDS or set(row) != COMMON | FIELDS[event]:
@@ -149,6 +156,17 @@ def validate_events(events):
             raise TelemetryError("unsupported telemetry schema")
         validate_identity(row)
         validate_values(event, {k: row[k] for k in FIELDS[event]})
+        if event == 'action-intent':
+            if row['action'] != len(dispatched)+1:
+                raise TelemetryError('duplicate or nonsequential action dispatch')
+            dispatched[row['action']] = row
+        if event == 'action':
+            sent = dispatched.get(row['action'])
+            if sent is None or row['action'] in observed or any(row[k] != sent[k] for k in ('kind', 'requestDigest')):
+                raise TelemetryError('action observation lacks matching prior dispatch')
+            observed.add(row['action'])
+        if event == 'runtime-trace' and row['action'] not in dispatched:
+            raise TelemetryError('runtime trace lacks prior action dispatch')
         if type(row["sequence"]) is not int or row["sequence"] != len(rows) or row["previousDigest"] != previous:
             raise TelemetryError("broken telemetry chain")
         current = tuple(row[k] for k in ("campaignId", "caseId", "attempt"))
@@ -164,6 +182,8 @@ def validate_events(events):
     ends = [i for i, r in enumerate(rows) if r["event"] == "end"]
     if ends and ends != [len(rows) - 1]:
         raise TelemetryError("events after completion")
+    if ends and rows[-1]['status'] == 'pass' and set(dispatched) != observed:
+        raise TelemetryError('passing attempt has unresolved action dispatches')
     return rows
 
 
@@ -191,6 +211,10 @@ def atomic_write(path, data):
 def summarize(rows):
     first, last = rows[0], rows[-1]
     actions = [r for r in rows if r["event"] == "action"]
+    dispatches = [r for r in rows if r['event'] == 'action-intent']
+    observed = {row['action'] for row in actions}
+    unresolved = [{key:row[key] for key in FIELDS['action-intent']}
+                  for row in dispatches if row['action'] not in observed]
     models = [r for r in rows if r["event"] == "model"]
     same, longest, previous = 0, 0, None
     for action in actions:
@@ -218,6 +242,7 @@ def summarize(rows):
             "status": last["status"] if last["event"] == "end" else "interrupted",
             "failureAttribution": last.get("failureAttribution"), "reason": last.get("reason"),
             "modelTurns": len(models), "actions": len(actions), "toolErrors": errors,
+            "actionIntents":len(dispatches), "actionsUnresolved":len(unresolved), "unresolvedActions":unresolved,
             "agentEncounteredCorpus": bool(models),
             "toolErrorRate": errors / len(actions) if actions else None,
             "clarificationRequests": sum(r["kind"] == "ask_user" for r in actions),
@@ -292,6 +317,9 @@ def prometheus(value):
     lines = ["# HELP honua_agent_attempts_total Observed attempts including interrupted attempts.",
              "# TYPE honua_agent_attempts_total counter",
              "# TYPE honua_agent_tool_errors_total counter",
+             "# TYPE honua_agent_action_intents_total counter",
+             "# TYPE honua_agent_actions_observed_total counter",
+             "# TYPE honua_agent_actions_unresolved gauge",
              "# TYPE honua_agent_failure_attributions_total counter",
              "# TYPE honua_agent_cleanup_outcomes_total counter",
              "# TYPE honua_agent_input_tokens_total counter", "# TYPE honua_agent_output_tokens_total counter",
@@ -300,6 +328,9 @@ def prometheus(value):
         return ','.join(k+'='+json.dumps(v) for k,v in {"target":target,"mode":mode,**extra}.items())
     for (target, mode), rows in sorted(groups.items()):
         base = labels(target, mode)
+        lines.append(f'honua_agent_action_intents_total{{{base}}} {sum(r["actionIntents"] for r in rows)}')
+        lines.append(f'honua_agent_actions_observed_total{{{base}}} {sum(r["actions"] for r in rows)}')
+        lines.append(f'honua_agent_actions_unresolved{{{base}}} {sum(r["actionsUnresolved"] for r in rows)}')
         for status, count in sorted(Counter(r["status"] for r in rows).items()):
             lines.append(f'honua_agent_attempts_total{{{labels(target, mode, status=status)}}} {count}')
         for attribution, count in sorted(Counter(r["failureAttribution"] or "unclassified" for r in rows if r["status"] != "pass").items()):

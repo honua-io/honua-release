@@ -135,6 +135,19 @@ artifacts to connect those signals to a controller attempt. Merely having both
 sets of counters does not establish that correlation.
 
 The controller journals each returned provider request ID with its model turn.
+A model-selected action records an `action-intent` event synchronously before
+calling the backend. The event contains only its ordinal, tool kind and request
+digest. If durable publication fails, the backend is not called. A crash or lost
+reply leaves an unresolved intent; it does not establish whether the command
+executed or authorize replay. Completed observations must match a preceding
+intent, and a journal claiming success with unresolved actions is rejected.
+Reports distinguish action intents, observed results and unresolved actions.
+Prometheus exposes `honua_agent_action_intents_total`,
+`honua_agent_actions_observed_total` and the `honua_agent_actions_unresolved`
+gauge, with only target/mode labels. These are dispatch-intent counts, not proof
+of executed commands. Historical journals lacking intent evidence are retained
+for investigation; do not synthesize missing events to make them pass validation.
+
 A backend may emit `runtime-trace` events containing the current action number,
 observed `traceId`, `spanId`, `requestId` and the digest of the retained evidence.
 The controller rejects events assigned to another action or malformed IDs.

@@ -23,8 +23,10 @@ def test_no_runs_does_not_mean_passing_coverage():
 def test_repeated_errors_and_clarification_visible_without_secret_arguments(tmp_path):
     log = journal(tmp_path)
     for number in range(1, 4):
+        log.emit('action-intent', action=number, kind='mcp_call_tool', requestDigest='sha256:'+'a'*64)
         log.emit("action", action=number, kind="mcp_call_tool", operation="read", requestDigest="sha256:" + "a"*64,
                  resultDigest="sha256:" + "b"*64, durationMs=1, isError=True, errorCategory="crs")
+    log.emit('action-intent', action=4, kind='ask_user', requestDigest='sha256:'+'c'*64)
     log.emit("action", action=4, kind="ask_user", operation="clarify", requestDigest="sha256:" + "c"*64,
              resultDigest="sha256:" + "d"*64, durationMs=2, isError=False, errorCategory=None)
     log.emit("end", status="fail", failureAttribution="product", reason="oracle-failure", cleanupStatus="pass")
@@ -44,6 +46,37 @@ def test_interrupted_attempt_stays_in_denominator(tmp_path):
     assert result["casesObserved"] == 1
     assert result["attempts"][0]["status"] == "interrupted"
     assert result["attempts"][0]["agentEncounteredCorpus"] is False
+
+
+def test_unresolved_action_intent_survives_interruption_and_is_not_a_success(tmp_path):
+    log = journal(tmp_path)
+    log.emit('action-intent', action=1, kind='terminal', requestDigest='sha256:'+'a'*64)
+    log.close()
+    value = report([log.path])
+    attempt = value['attempts'][0]
+    assert attempt['status'] == 'interrupted'
+    assert attempt['actionIntents'] == attempt['actionsUnresolved'] == 1
+    assert attempt['actions'] == 0
+    metrics = prometheus(value)
+    assert 'honua_agent_action_intents_total{target="local-docker",mode="unbound"} 1' in metrics
+    assert 'honua_agent_actions_unresolved{target="local-docker",mode="unbound"} 1' in metrics
+    assert 'a'*64 not in metrics
+
+
+@pytest.mark.parametrize('mutation', ['unresolved-pass', 'missing-intent', 'changed-request', 'duplicate-observation'])
+def test_missing_or_mismatched_action_telemetry_cannot_become_success(tmp_path, mutation):
+    log = journal(tmp_path)
+    if mutation != 'missing-intent':
+        log.emit('action-intent', action=1, kind='terminal', requestDigest='sha256:'+'a'*64)
+    if mutation != 'unresolved-pass':
+        digest = 'sha256:'+('b' if mutation == 'changed-request' else 'a')*64
+        for _ in range(2 if mutation == 'duplicate-observation' else 1):
+            log.emit('action', action=1, kind='terminal', operation='read', requestDigest=digest,
+                     resultDigest='sha256:'+'c'*64, durationMs=1, isError=False, errorCategory=None)
+    log.emit('end', status='pass', failureAttribution=None, reason='verified', cleanupStatus='pass')
+    log.close()
+    with pytest.raises(TelemetryError, match='dispatch'):
+        report([log.path])
 
 
 def test_edit_or_duplicate_journal_cannot_silently_change_report(tmp_path):
@@ -119,6 +152,7 @@ def test_invalid_cost_cannot_pollute_metrics(tmp_path, cost):
 def test_correlations_survive_reports_but_never_become_metric_labels(tmp_path):
     log = journal(tmp_path)
     log.emit('provider-request', turn=1, requestId='provider-request-123')
+    log.emit('action-intent', action=1, kind='mcp_call_tool', requestDigest='sha256:'+'d'*64)
     log.emit('runtime-trace', action=1, requestId='server-request-456',
              traceId='a'*32, spanId='b'*16, evidenceDigest='sha256:'+'c'*64)
     log.close()

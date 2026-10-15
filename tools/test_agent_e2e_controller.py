@@ -121,6 +121,38 @@ def test_unknown_model_action_is_model_failure_and_cleanup_runs(environment):
     assert [op for op, _ in environment["backend"].operations] == ["prepare", "cleanup"]
 
 
+def test_action_intent_is_durable_before_backend_dispatch(environment):
+    environment['model'] = Model([{'type':'tool_use', 'id':'x', 'name':'terminal', 'input':{'command':'echo private-command'}}])
+    persisted = []
+    original = environment['backend'].call
+    def call(operation, payload, **kwargs):
+        if operation == 'agent_action':
+            assert persisted[-1]['event'] == 'action-intent'
+            assert persisted[-1]['action'] == 1
+            assert 'private-command' not in json.dumps(persisted)
+            raise TimeoutError('response lost after dispatch')
+        return original(operation, payload, **kwargs)
+    environment['backend'].call = call
+    result = run_goal(**environment, journal_sink=lambda row:persisted.append(row))
+    assert result['status'] == 'blocked'
+    summary = summarize(read_events(result['journal']))
+    assert summary['actionIntents'] == summary['actionsUnresolved'] == 1
+    assert summary['actions'] == 0
+    assert summary['unresolvedActions'][0]['kind'] == 'terminal'
+    assert summary['failureAttribution'] == 'undetermined'
+
+
+def test_failed_intent_persistence_prevents_backend_dispatch(environment):
+    environment['model'] = Model([{'type':'tool_use', 'id':'x', 'name':'mcp_list_tools', 'input':{}}])
+    def unavailable(row):
+        if row['event'] == 'action-intent':
+            raise OSError('state storage unavailable')
+    result = run_goal(**environment, journal_sink=unavailable)
+    assert result['status'] == 'blocked'
+    assert [op for op, _ in environment['backend'].operations] == ['prepare', 'cleanup']
+    assert summarize(read_events(result['journal']))['actionsUnresolved'] == 1
+
+
 def test_turn_exhaustion_is_not_infrastructure_retry(environment):
     class RepeatingModel(Model):
         def invoke(self, body):

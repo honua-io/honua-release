@@ -295,6 +295,11 @@ def run_goal(*, pack, corpus, case_id, campaign, backend, model, ledger, journal
                 used_call_ids.add(call["id"])
                 actions += 1
                 action_start = time.monotonic()
+                request_digest = canonical_digest({"name": call["name"], "input": call["input"]})
+                # The durable sink must acknowledge intent before any command
+                # can reach the worker. A missing reply leaves an unresolved
+                # action, not evidence that nothing executed or may be retried.
+                journal.emit("action-intent", action=actions, kind=call["name"], requestDigest=request_digest)
                 observed = backend.call("agent_action", {**context, "action": call},
                                         timeout=min(remaining(), call["input"].get("timeoutSeconds", 300) + 10))
                 # Adapter is responsible for returning only bounded, redacted
@@ -314,7 +319,7 @@ def run_goal(*, pack, corpus, case_id, campaign, backend, model, ledger, journal
                     if event["event"] == "runtime-trace" and (type(event.get("action")) is not int or event["action"] != actions):
                         raise ControllerError("runtime trace belongs to another action")
                     journal.emit(event["event"], **{k: v for k, v in event.items() if k != "event"})
-                journal.emit("action", action=actions, kind=call["name"], operation=operation, requestDigest=canonical_digest({"name": call["name"], "input": call["input"]}),
+                journal.emit("action", action=actions, kind=call["name"], operation=operation, requestDigest=request_digest,
                              resultDigest=canonical_digest(public), durationMs=round((time.monotonic()-action_start)*1000),
                              isError=public["isError"], errorCategory=public["errorCategory"])
                 replies.append({"type": "tool_result", "tool_use_id": call["id"],
