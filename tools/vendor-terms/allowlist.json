@@ -201,6 +201,24 @@
       "reason": "Exact unmodified default-consumer lock coordinates. The generated migration tooling dependency resolves this historical package under its retained range; these observations do not advance the selected release cohort or endorse a vendor. Other versions, paths, identifiers and prose remain checked.",
       "owner": "@mikemcdougall",
       "issue": "honua-io/honua-release#181"
+    },
+    {
+      "repo": "honua-release",
+      "paths": [
+        "certification/sources/geometry-service-client-addressability.v1.json",
+        "certification/validate-protocol-requirements.py",
+        "tools/test_geometry_client_addressability.py"
+      ],
+      "tokens": [
+        "esri"
+      ],
+      "identifiers": [
+        "honua-io/honua-esri-compat",
+        "sources/esri-compat/matrix/geometry-service.matrix.json"
+      ],
+      "reason": "Exact existing upstream repository and pinned matrix path identify the source ownership and unchanged operation set. This exception covers these two source identifiers only; desktop implementation details remain in the private source repository.",
+      "owner": "@mikemcdougall",
+      "issue": "honua-io/honua-release#576"
     }
   ]
 }
