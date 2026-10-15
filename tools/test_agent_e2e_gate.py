@@ -9,7 +9,9 @@ import pytest
 import agent_e2e_gate as gate
 from test_agent_e2e_knowledge import sample_manifest
 from test_agent_e2e_semantics import observation as semantic_observation
-from agent_e2e_semantics import CASES
+from agent_e2e_semantics import CASES, response_evidence
+from agent_e2e_deployment import bind
+from test_agent_e2e_deployment import deployment
 
 
 NOW = datetime(2026, 10, 14, 12, tzinfo=timezone.utc)
@@ -61,14 +63,27 @@ def campaign(tmp_path, monkeypatch):
     knowledge_ref = {'path': 'knowledge/knowledge-manifest.json',
                      'sha256': gate.digest((evidence_root/'knowledge/knowledge-manifest.json').read_bytes())}
     schema_ref = write(evidence_root/'runtime-schema.json', {'observed': 'test schema'})
-    semantic_checks = []
-    for case in CASES:
-        ref = write(evidence_root/f'semantic-{case}.json', semantic_observation(case))
-        semantic_checks.append({'id': case, 'observation': ref, 'rawResponses': [schema_ref]})
+    semantic_configurations = []
+    for target in targets:
+        deployed = deployment(target, expected)
+        deployment_ref = write(evidence_root/f'deployment-{target}.json', deployed)
+        def write_bound(name, value):
+            return write(evidence_root/f'{target}-{name}.json', bind(value, deployment_ref['sha256'], deployed['endpoint']))
+        semantic_checks = []
+        for case in CASES:
+            observed = semantic_observation(case)
+            ref = write_bound(f'semantic-{case}', observed)
+            raw_refs = [write_bound(f'semantic-{case}-{part}', response_evidence(200, json.dumps(observed[part]).encode()))
+                        for part in ('sourceBefore', 'result', 'sourceAfter')]
+            projection = write(evidence_root/f'semantic-{case}-projection.json', {'sourcePointer':'/body',
+                'result': {field:{'response':0, 'pointer':'/body/'+field} for field in observed['result']}})
+            semantic_checks.append({'id': case, 'observation': ref, 'rawResponses': raw_refs, 'projection':projection})
+        semantic_configurations.append({'target':target, 'runtimeInterfaces':schema_ref,
+                                        'deployment':deployment_ref, 'checks':semantic_checks})
     semantic_ref = write(evidence_root/'semantics.json', {
         'schemaVersion': 1, 'producer': 'independent-semantic-suite',
         'componentBindingDigest': expected['componentBindingDigest'], 'knowledge': expected['knowledge'],
-        'configurations': [{'target': target, 'runtimeInterfaces': schema_ref, 'checks': semantic_checks} for target in targets]})
+        'configurations': semantic_configurations})
     observation = write(evidence_root / 'observed.json', {'resourceIds': ['fixture-one']})
     cleanup_ref = write(evidence_root / 'cleanup.json', {'resourceIds': []})
     expectations = {'schemaVersion': 1, 'campaignId': expected['campaignId'],
