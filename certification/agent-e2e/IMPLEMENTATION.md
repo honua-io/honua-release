@@ -44,6 +44,20 @@ Native identity validation alone does not establish image provenance, Redis
 configuration, network routing or live API collection; the producer's preflight
 and backend still must prove those properties before qualification.
 
+Spatial semantic cases use two concrete EPSG:3857 source layers from
+`agent_e2e_semantics.spatial_fixture()`: five points (inside, outer boundary,
+hole interior, hole boundary and outside) and two polygons (a square with a hole
+and an overlapping square). Both layers must be seeded and observed in their
+entirety before and after each spatial operation. The predicates reject changed
+holes, moved polygons, missing points/layers and CRS changes even when reported
+result IDs still match. The cardinality case selects the inside/outside pair;
+contains and boundary cases use all five points. Per-case recipes can capture up
+to 16 source HTTP responses before and after an operation and assemble named
+source fields through JSON pointers. The gate replays every source projection
+from the exact retained bytes. The backend still needs reviewed target-specific
+API paths, seeding and normalization recipes; point-only snapshots cannot stand
+in for spatial-source protection.
+
 The consumer integration in PR #607 must remain draft until the producer and
 runtime evidence exist. This foundation adds no release/nightly/promotion
 requirement. Unknown attribution and missing observations fail closed.
