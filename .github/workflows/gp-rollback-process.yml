@@ -1,0 +1,109 @@
+# GP process rollback (honua-release#616): redeploy the environment pin's PREVIOUS release through
+# the same serialized deployment path, with the same preflight and the same receipt. Rollback is
+# not a different mechanism, it is a deployment whose target is proven to be the previous lock.
+#
+# Refusals (tools/gp_process_release.py, all exercised by tools/test_gp_process_release.py):
+#   ROLLBACK_TARGET_MISSING   the pin has no previous release (first release of a process)
+#   ROLLBACK_TARGET_MISMATCH  the requested lock is not the pin's previous release
+#   ARTIFACT_/IMAGE_UNAVAILABLE  the previous release's bytes can no longer be served
+#   INCOMPATIBLE_SERVER_CONTRACT the environment's server moved past the previous release
+#   STALE_BINDING_VERSION     another attempt changed the environment since the pin was written
+#
+# What a rollback does NOT do: undo committed data changes, or change the release of jobs already
+# admitted (they keep theirs; honua-server#6221 pins the release at admission). Schedules are
+# reconciled by the binding API when it ships; until then the receipt says `pending-server-6221`.
+name: gp-rollback-process
+run-name: "gp rollback ${{ inputs.process }} in ${{ inputs.environment }}"
+
+on:
+  workflow_dispatch:
+    inputs:
+      environment: { description: "Environment directory under release/gp-environments/", required: true, type: string }
+      process: { description: "Logical process name", required: true, type: string }
+      target_lock_path:
+        description: "Lock to roll back to; empty means the pin's previous release (the only target preflight admits)"
+        required: false
+        type: string
+        default: ""
+
+permissions:
+  contents: read
+  id-token: write
+  attestations: write
+  actions: read
+
+concurrency:
+  group: gp-rollback-${{ inputs.environment }}
+  cancel-in-progress: false
+
+jobs:
+  plan:
+    runs-on: ubuntu-latest
+    outputs:
+      target: ${{ steps.target.outputs.target }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.12"
+      - run: python -m pip install "jsonschema>=4.23" "pyyaml>=6.0" pytest
+      - name: Self-test the release gate
+        run: python -m pytest tools/test_gp_process_release.py -q
+
+      # Judge the rollback target before the deployment path starts, from committed content only
+      # (the deploy path repeats the preflight against resolved availability). A pin with no
+      # previous release, or a requested lock that is not that previous release, stops here with
+      # the reason on the job summary.
+      - name: Prove the target is the pin's previous release
+        id: target
+        env:
+          ENVIRONMENT: ${{ inputs.environment }}
+          PROCESS: ${{ inputs.process }}
+          TARGET_LOCK_PATH: ${{ inputs.target_lock_path }}
+        run: |
+          set -euo pipefail
+          pin="release/gp-environments/$ENVIRONMENT/$PROCESS.pin.json"
+          state="release/gp-environments/$ENVIRONMENT/environment.json"
+          python3 tools/gp_process_release.py validate-pin "$pin" --locks-root .
+          target="${TARGET_LOCK_PATH:-$(python3 -c 'import json,sys; p=json.load(open(sys.argv[1]))["previous"]; print(p["lockPath"] if p else "")' "$pin")}"
+          if [ -z "$target" ]; then
+            echo "::error::ROLLBACK_TARGET_MISSING: $pin has no previous release"
+            exit 1
+          fi
+          mkdir -p out/rollback
+          python3 - "$target" <<'PY' > out/rollback/committed-index.json
+          import json, sys
+          lock = json.load(open(sys.argv[1]))
+          print(json.dumps({"schema": "honua.gp-artifact-index/v1", "source": "committed lock digests (plan stage only)",
+                            "artifacts": [a["sha256"] for a in lock["artifacts"]],
+                            "images": sorted({lock["runtimeImage"]["digest"]} | {t["workerImageDigest"] for t in lock["targets"]})}, indent=2))
+          PY
+          python3 tools/gp_process_release.py preflight \
+            --lock "$target" --pin "$pin" --environment "$state" \
+            --artifact-index out/rollback/committed-index.json --rollback-to "$target" \
+            --out out/rollback/plan-decision.json
+          echo "target=$target" >> "$GITHUB_OUTPUT"
+          { echo "## Rollback plan"; echo; echo "- target lock: \`$target\`"; echo "- digest: \`$(python3 tools/gp_process_release.py lock-digest "$target")\`"; } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload the rollback plan
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: gp-rollback-plan-${{ inputs.environment }}-${{ inputs.process }}-${{ github.run_id }}
+          path: out/rollback
+          if-no-files-found: error
+
+  rollback:
+    needs: plan
+    uses: ./.github/workflows/gp-deploy-process.yml
+    permissions:
+      contents: read
+      id-token: write
+      attestations: write
+      actions: read
+    with:
+      environment: ${{ inputs.environment }}
+      process: ${{ inputs.process }}
+      operation: rollback
+      rollback_lock_path: ${{ needs.plan.outputs.target }}
+    secrets: inherit

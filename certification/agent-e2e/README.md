@@ -201,10 +201,12 @@ qualification gates remain required.
 
 ### Draft integration and required producer
 
-The release train, nightly mint and promotion checker now require the `agent-e2e`
-evidence class. This integration must remain a draft until the isolated backend
-and `.github/workflows/agent-e2e-campaign.yml` producer exist. The current controller
-and offline contract workflow produce diagnostics, not qualifying receipts.
+Draft PR #607 proposes making the release train, nightly mint and promotion
+checker require the `agent-e2e` evidence class. This foundation does not activate
+that requirement. The integration remains deferred until the isolated backend,
+`.github/workflows/agent-e2e-campaign.yml` producer and actual qualifying evidence
+exist. The current controller and offline workflow produce diagnostics, not
+qualifying receipts.
 
 The consumer requires repository configuration `AGENT_E2E_RUN_ID`,
 `AGENT_E2E_RUN_ATTEMPT`, `AGENT_E2E_SOURCE_SHA`, and the pre-execution frozen

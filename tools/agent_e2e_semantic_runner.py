@@ -16,20 +16,13 @@ import urllib.parse
 import urllib.request
 
 from agent_e2e_pack import PackError, canonical_digest, digest_bytes, load_json, portable_path
-from agent_e2e_semantics import CASES, fixture, verify
+from agent_e2e_semantics import CASES, verify, pointer, response_evidence, project_observation, MAX_RESPONSE_BYTES
+import agent_e2e_deployment as deployments
 
 
 def require(condition, reason):
     if not condition:
         raise PackError(reason)
-
-
-def pointer(value, path):
-    require(isinstance(path, str) and (path == '' or path.startswith('/')), 'invalid response pointer')
-    for part in path.split('/')[1:]:
-        part = part.replace('~1', '/').replace('~0', '~')
-        value = value[int(part)] if isinstance(value, list) else value[part]
-    return value
 
 
 class NoRedirect(urllib.request.HTTPRedirectHandler):
@@ -63,11 +56,11 @@ class HttpObserver:
         except urllib.error.HTTPError as error:
             response = error
         with response:
-            raw = response.read(8*1024*1024+1)
-            require(len(raw) <= 8*1024*1024, 'semantic response exceeds bound')
+            raw = response.read(MAX_RESPONSE_BYTES+1)
+            require(len(raw) <= MAX_RESPONSE_BYTES, 'semantic response exceeds bound')
             # Refuse to persist known observer credentials, including server echo.
             require(self.token.encode() not in raw, 'response disclosed observer credential')
-            return {'httpStatus': response.code, 'body': json.loads(raw), 'responseDigest': digest_bytes(raw)}
+            return response_evidence(response.code, raw)
 
 
 def save(root, path, value):
@@ -86,9 +79,14 @@ def run(config, campaign, destination, *, observer_factory=HttpObserver):
             'semantic configuration differs from campaign')
     require(set(config['cases']) == set(CASES), 'semantic recipes must cover the complete suite')
     require(isinstance(config['runtimeInterfaces'], dict) and bool(config['runtimeInterfaces']), 'missing observed interface schemas')
+    deployments.identity(config['deployment'], campaign, config['target'])
+    require(config['deployment']['endpoint'] == config['endpoint'], 'observer endpoint differs from observed deployment')
     root = Path(destination)
     root.mkdir(parents=True, exist_ok=False)
     observer = observer_factory(config['endpoint'], config['credentialEnv'])
+    deployment = save(root, 'deployment.json', config['deployment'])
+    def bound_save(path, value):
+        return save(root, path, deployments.bind(value, deployment['sha256'], config['endpoint']))
     interfaces = save(root, 'runtime-interfaces.json', config['runtimeInterfaces'])
     checks = []
     for case in CASES:
@@ -98,29 +96,24 @@ def run(config, campaign, destination, *, observer_factory=HttpObserver):
         raw_refs = []
         before = observer.request(config['sourceRequest'])
         require(before['httpStatus'] == 200, 'cannot observe immutable source before probe')
-        raw_refs.append(save(root, f'{case}/source-before.json', before))
+        raw_refs.append(bound_save(f'{case}/source-before.json', before))
         responses = []
         for index, request in enumerate(recipe['requests']):
             response = observer.request(request)
             responses.append(response)
-            raw_refs.append(save(root, f'{case}/response-{index}.json', response))
+            raw_refs.append(bound_save(f'{case}/response-{index}.json', response))
         after = observer.request(config['sourceRequest'])
         require(after['httpStatus'] == 200, 'cannot observe immutable source after probe')
-        raw_refs.append(save(root, f'{case}/source-after.json', after))
+        raw_refs.append(bound_save(f'{case}/source-after.json', after))
         # Every result field comes from an actual response. Literal expected
         # values and executable projection expressions are deliberately absent.
-        result = {}
-        for field, projection in recipe['result'].items():
-            require(set(projection) == {'response', 'pointer'}, 'result must reference an observed response')
-            index = projection['response']
-            require(type(index) is int and 0 <= index < len(responses), 'unknown observed response')
-            result[field] = pointer(responses[index], projection['pointer'])
-        observed = {'sourceBefore': pointer(before, config['sourcePointer']),
-                    'sourceAfter': pointer(after, config['sourcePointer']), 'result': result}
-        observation = save(root, f'{case}/observation.json', observed)
+        projection = {'sourcePointer': config['sourcePointer'], 'result': recipe['result']}
+        projection_ref = save(root, f'{case}/projection.json', projection)
+        observed = project_observation([before, *responses, after], projection)
+        observation = bound_save(f'{case}/observation.json', observed)
         verify(case, observed)
-        checks.append({'id': case, 'observation': observation, 'rawResponses': raw_refs})
-    return {'target': config['target'], 'runtimeInterfaces': interfaces, 'checks': checks}
+        checks.append({'id': case, 'observation': observation, 'rawResponses': raw_refs, 'projection': projection_ref})
+    return {'target': config['target'], 'deployment': deployment, 'runtimeInterfaces': interfaces, 'checks': checks}
 
 
 def main():

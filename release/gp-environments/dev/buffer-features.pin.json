@@ -1,0 +1,18 @@
+{
+  "environment": "dev",
+  "expectedBindingVersion": 7,
+  "previous": {
+    "lockDigest": "sha256:3e8baa9ac547cc4123ca56188893d92e7996f75682663e34a87c397df02b6b4e",
+    "lockPath": "release/gp-process-locks/buffer-features/3e8baa9ac547.json"
+  },
+  "process": "buffer-features",
+  "promotedBy": {
+    "actor": "mikemcdougall",
+    "sourceRun": "https://github.com/honua-io/honua-release/actions/runs/1"
+  },
+  "release": {
+    "lockDigest": "sha256:75154d7a4ebdf830a0e68cfe5e2d7a15fbb58ceef02eba73fa6bc92e3ecad747",
+    "lockPath": "release/gp-process-locks/buffer-features/75154d7a4ebd.json"
+  },
+  "schema": "honua.gp-environment-pin/v1"
+}

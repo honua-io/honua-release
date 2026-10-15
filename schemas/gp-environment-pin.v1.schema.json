@@ -1,0 +1,43 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://honua.io/schemas/gp-environment-pin.v1.schema.json",
+  "title": "GP environment pin v1",
+  "description": "The reviewed binding of one environment's logical process name to one release lock digest. Lives in Git under release/gp-environments/<environment>/<process>.pin.json; a merged change to it is the only way a deployment starts, and `previous` is what a rollback redeploys.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema", "environment", "process", "release", "previous", "expectedBindingVersion", "promotedBy"],
+  "$defs": {
+    "sha256": {"type": "string", "pattern": "^sha256:[0-9a-f]{64}$"},
+    "lockRef": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["lockPath", "lockDigest"],
+      "properties": {
+        "lockPath": {"type": "string", "pattern": "^release/gp-process-locks/[a-z][a-z0-9-]*/[0-9a-f]{12}\\.json$"},
+        "lockDigest": {"$ref": "#/$defs/sha256"}
+      }
+    }
+  },
+  "properties": {
+    "schema": {"const": "honua.gp-environment-pin/v1"},
+    "environment": {"type": "string", "pattern": "^[a-z][a-z0-9-]{1,31}$"},
+    "process": {"type": "string", "pattern": "^[a-z][a-z0-9-]{1,62}$"},
+    "release": {"$ref": "#/$defs/lockRef"},
+    "previous": {"oneOf": [{"type": "null"}, {"$ref": "#/$defs/lockRef"}]},
+    "expectedBindingVersion": {
+      "type": "integer",
+      "minimum": 0,
+      "description": "The environment binding version this pin was written against. Activation is refused when the live binding has moved: that is a stale concurrent attempt."
+    },
+    "promotedBy": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["actor", "sourceRun"],
+      "properties": {
+        "actor": {"type": "string", "minLength": 1},
+        "sourceRun": {"type": "string", "pattern": "^https://github\\.com/[^/]+/[^/]+/actions/runs/[0-9]+$"},
+        "pullRequest": {"type": "integer", "minimum": 1}
+      }
+    }
+  }
+}

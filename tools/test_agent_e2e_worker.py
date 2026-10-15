@@ -47,6 +47,17 @@ def test_transport_uses_bound_queues_and_does_not_provision():
         worker.execute("echo hello", "action-1")
 
 
+@pytest.mark.parametrize('now,timeout,expected', [(1000.99, 1, 1002), (1000.01, 300, 1301), (1000, 1, 1001), (1590.99, 10, 1595)])
+def test_deadline_rounding_preserves_requested_duration_within_absolute_expiry(now, timeout, expected):
+    queue = Queue()
+    Worker(queue, CONFIG, clock=lambda:now).execute('echo hello', 'action-1', timeout=timeout)
+    command = json.loads(queue.sent[0]['MessageBody'])
+    assert command['deadlineEpoch'] == expected
+    assert command['deadlineEpoch'] <= CONFIG['expiresEpoch'] - 5
+    if now + timeout <= CONFIG['expiresEpoch'] - 5:
+        assert timeout <= command['deadlineEpoch'] - now < timeout + 1
+
+
 @pytest.mark.parametrize("field,value", [("attemptId","other"), ("actionId","other"),
     ("commandDigest","sha256:"+"f"*64), ("exitCode",True), ("stdout","x"*16385),
     ("status","pass")])

@@ -98,3 +98,31 @@ every step names the client and API that performed it. The four hand-offs are:
 
 A failing hand-off names its seam (the producing client and API, and the consuming client and API) in the
 receipt.
+
+### GP release hardening
+
+The MCP workflow requires five preflight/retry observations in addition to execution:
+complete paginated process discovery, valid-plan validation, actionable invalid-WKB
+refusal, a FeatureLayer dry run, and replay of the same idempotency key returning the
+original job. Polling and result packages must identify that submitted job; failed,
+truncated, unidentified, or error-bearing result packages fail certification.
+
+All SDK and MCP buffer fixtures use EPSG:3857 and a 500-metre distance around
+`[10, 20]`. The independent oracle checks closed finite coordinates, vertex radius,
+centering, polygon area and boundary chords. Correct-radius diamonds, holes and
+non-finite coordinates cannot pass as circles.
+
+The S5 OGC seam driver also rejects missing job IDs, unknown/failed/dismissed states,
+poll exhaustion and malformed results. An aborted driver emits a failure receipt.
+For bounded diagnostic runs, `E2E_GP_POLL_ATTEMPTS` (default 30, maximum 300) and
+`E2E_GP_POLL_INTERVAL` (default 2 seconds) control polling; exhaustion always fails.
+
+Run the gate's self-tests with Python 3.12 or newer:
+
+```sh
+python -m pytest certification/installed-clients/test_regression.py \
+  certification/installed-clients/test_run.py tools/test_gp_driver.py -q
+```
+
+These self-tests inject faulty responses to verify that the gate rejects them.
+A passing self-test run does not replace the live installed-client release receipt.

@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import fnmatch
+import importlib.util
 import json
 import re
 from pathlib import Path
@@ -18,6 +19,38 @@ FIXTURE = "docker/cng/seed.sql@{source_sha}"
 
 def slug(value: str) -> str:
     return re.sub(r"[^a-z0-9]+", "-", value.lower()).strip("-")
+
+
+def validate_geometry_client_addressability(catalog: dict) -> None:
+    policy = json.loads((ROOT / "sources/geometry-service-client-addressability.v1.json").read_text(encoding="utf-8"))
+    if (policy["schema"], policy["client_key"], policy["client_kind"], policy["surface"], policy["supported_operation_count"], policy["addressable_by_client"]) != ("honua.geometry-service-client-addressability/v1", "pro", "licensed-scripting", "geometry-service", 31, False):
+        raise ValueError("GeometryServer policy must remain scoped to the governed licensed scripting client.")
+    source = policy["source"]
+    if (source["repository"] != "honua-io/honua-esri-compat" or source["commit"] != "7b275a11a7a4995dcd4dbfb90f21d9e57342eacc" or source["blob"] != "68f0fd206ee566682efebeb8d32ff4ac19dba66c" or "git-blob:" + source["blob"] not in policy["reason"]):
+        raise ValueError("GeometryServer policy requires an exact private source commit/blob and matching evidence reference.")
+    spec = importlib.util.spec_from_file_location("protocol_generator_config", ROOT / "generate-protocol-requirements.py")
+    config = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(config)
+    declaration = config.licensed_scripting_client()
+    lane = declaration[2]
+    driver = lane.removeprefix("desktop-")
+    if declaration[3] != config.DESKTOP["clients"][policy["client_key"]]["deployment_target"] or declaration[4] is not True:
+        raise ValueError("Licensed scripting declaration must match the authoritative desktop manifest.")
+    matrix = json.loads((ROOT / "sources/esri-compat/matrix/geometry-service.matrix.json").read_text(encoding="utf-8"))
+    operations = {case["id"] for case in matrix["cases"] if case["status"] in SUPPORTED}
+    rows = [row for row in catalog["requirements"] if row["client_lane"] == lane + "-geometry-service"]
+    if len(operations) != policy["supported_operation_count"] or len(rows) != len(operations) or {row["operation"] for row in rows} != operations:
+        raise ValueError("All original Licensed scripting GeometryServer operation records must remain explicit.")
+    if any(row.get("client_driver") != driver or row["addressable_by_client"] or row["addressability_reason"] != policy["reason"]
+           or row["scenario_facets"] != ["not-client-addressable"] for row in rows):
+        raise ValueError("Licensed scripting GeometryServer operations must carry the documented non-addressability policy.")
+    if any(row["addressability_reason"] == policy["reason"] for row in catalog["requirements"] if row not in rows):
+        raise ValueError("Licensed scripting GeometryServer policy cannot apply to another client or surface.")
+    for lane in (client[2] for client in config.protocol_clients() if not client[4]):
+        other = [row for row in catalog["requirements"] if row["client_lane"] == lane + "-geometry-service"]
+        if (len(other) != len(operations) or {row["operation"] for row in other} != operations
+                or any(not row["addressable_by_client"] or row["addressability_reason"] is not None for row in other)):
+            raise ValueError("Other GeometryServer clients must retain every addressable operation.")
 
 
 def validate_bounded_roster(catalog: dict, roster: dict) -> None:
@@ -165,6 +198,7 @@ def main() -> None:
         for cell in bounded_roster["cells"]
     }
     jsonschema.validate(catalog, schema)
+    validate_geometry_client_addressability(catalog)
     if catalog["receipt_schema_min"] not in {"v1", "v2"}:
         raise ValueError("Catalog receipt_schema_min must be 'v1' or 'v2'.")
     if catalog["source_revisions"] != revisions:
