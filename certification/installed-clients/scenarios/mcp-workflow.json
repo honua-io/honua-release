@@ -2,7 +2,7 @@
   "schemaVersion": 1,
   "id": "mcp-workflow",
   "title": "MCP through the installed proxy: setup view, default view, full-catalog override, read, render and a geometry.buffer job",
-  "promise": "An agent configured with the installed honua-mcp-proxy discovers the bounded setup view, sees the default view without a selector, gets the full catalog only when authenticated, and reads, renders and runs a buffer job, all through the proxy's stdio.",
+  "promise": "An agent configured with the installed honua-mcp-proxy discovers the bounded setup view, sees the default view without a selector, gets the full catalog only when authenticated, and reads, renders and runs a buffer job, all through the proxy's stdio. GP discovery, validation, invalid-input refusal, dry run, idempotent replay and result identity are required release checks.",
   "steps": [
     {
       "id": "initialize-setup",
@@ -40,19 +40,44 @@
       "description": "tools/call honua_render_map over the area layer; every sampled pixel inside the fixture polygon is painted and every sampled pixel outside it is transparent."
     },
     {
+      "id": "process-catalog",
+      "oracle": "mcp-process-catalog",
+      "description": "Read and reassemble every process catalog chunk; unique process IDs include the fixture buffer with its async entry point and parameter schema."
+    },
+    {
+      "id": "buffer-validate",
+      "oracle": "mcp-plan-valid",
+      "description": "Validate the metric buffer plan; it is executable without violations or approval."
+    },
+    {
+      "id": "buffer-invalid",
+      "oracle": "mcp-plan-invalid",
+      "description": "Corrupt only the WKB input; validation refuses execution and names the parameter, encoding and field path."
+    },
+    {
+      "id": "buffer-dry-run",
+      "oracle": "mcp-dry-run",
+      "description": "Preview the valid plan: a FeatureLayer artifact is expected, with no executed job claimed."
+    },
+    {
       "id": "buffer-submit",
       "oracle": "mcp-job-accepted",
       "description": "tools/call honua_execute_plan with a geometry.buffer step for the fixture point; a job id is returned."
     },
     {
+      "id": "buffer-replay",
+      "oracle": "mcp-job-replayed",
+      "description": "Replay the identical plan with the same idempotency key; receive the original job ID, not a second job."
+    },
+    {
       "id": "buffer-poll",
       "oracle": "mcp-job-succeeded",
-      "description": "resources/read the job until it is terminal; it succeeded."
+      "description": "Read the submitted job until terminal; its ID matches the submission and status is Succeeded."
     },
     {
       "id": "buffer-result",
-      "oracle": "buffer-result",
-      "description": "resources/read the job results; every ring vertex lies at the fixture distance from the fixture point and the centroid is the point."
+      "oracle": "mcp-buffer-result",
+      "description": "Read all result chunks; require the original job ID, Completed status, no errors or truncation and an artifact ID, then verify buffer geometry independently."
     }
   ],
   "receiptFields": [
@@ -74,7 +99,12 @@
       "full-catalog": "honua-mcp-proxy tools/list {view: full} (HONUA_API_KEY)",
       "read": "honua-mcp-proxy tools/call honua_query_features",
       "render": "honua-mcp-proxy tools/call honua_render_map",
+      "process-catalog": "honua-mcp-proxy resources/read honua://catalog/processes (all chunks)",
+      "buffer-validate": "honua-mcp-proxy tools/call honua_validate_plan (geometry.buffer)",
+      "buffer-invalid": "honua-mcp-proxy tools/call honua_validate_plan (invalid WKB)",
+      "buffer-dry-run": "honua-mcp-proxy tools/call honua_dry_run_plan (geometry.buffer)",
       "buffer-submit": "honua-mcp-proxy tools/call honua_execute_plan (geometry.buffer)",
+      "buffer-replay": "honua-mcp-proxy tools/call honua_execute_plan (same idempotency key)",
       "buffer-poll": "honua-mcp-proxy resources/read honua://jobs/{jobId}",
       "buffer-result": "honua-mcp-proxy resources/read honua://jobs/{jobId}/results"
     }

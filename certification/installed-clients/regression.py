@@ -471,7 +471,16 @@ ORACLES: dict[str, Callable[..., tuple[bool, str]]] = {
     "mcp-full-catalog": lambda o, f, p, obs, s: oracles.oracle_mcp_full_catalog(o, load_tool_roster(), _observed_names(obs, s, "default-tools-list")),
     "map-render": lambda o, f, p, obs, s: oracles.oracle_map_render(o, f),
     "mcp-job-accepted": lambda o, f, p, obs, s: oracles.oracle_mcp_job_accepted(o),
-    "mcp-job-succeeded": lambda o, f, p, obs, s: oracles.oracle_mcp_job_succeeded(o),
+    "mcp-process-catalog": lambda o, f, p, obs, s: oracles.oracle_mcp_process_catalog(o, f),
+    "mcp-plan-valid": lambda o, f, p, obs, s: oracles.oracle_mcp_plan_valid(o),
+    "mcp-plan-invalid": lambda o, f, p, obs, s: oracles.oracle_mcp_plan_invalid(o),
+    "mcp-dry-run": lambda o, f, p, obs, s: oracles.oracle_mcp_dry_run(o),
+    "mcp-job-replayed": lambda o, f, p, obs, s: oracles.oracle_mcp_bound_job(
+        o, obs.get((s, "buffer-submit"), {}).get("observed", {})),
+    "mcp-job-succeeded": lambda o, f, p, obs, s: oracles.oracle_mcp_bound_job(
+        o, obs.get((s, "buffer-submit"), {}).get("observed", {}), terminal=True),
+    "mcp-buffer-result": lambda o, f, p, obs, s: oracles.oracle_mcp_buffer_result(
+        o, f, obs.get((s, "buffer-submit"), {}).get("observed", {})),
 }
 
 
