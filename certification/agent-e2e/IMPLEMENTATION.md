@@ -143,6 +143,20 @@ store. The controller needs `s3:ListBucketVersions` on its candidate snapshot
 prefix: a missing DynamoDB pointer may initialize only when no current or prior
 snapshot version or delete marker exists. Unreferenced snapshots require explicit
 reconciliation, not a fresh budget. Failure to inspect history blocks initialization.
+Before its first snapshot, the controller conditionally creates a permanent
+`initialization.json` record in that prefix (`If-None-Match: *`). Every snapshot
+and DynamoDB update binds its exact version/digest. The conditional publication
+closes the race between an empty history probe and an older writer: only one
+controller can establish the candidate's accounting history. A failed or ambiguous
+publication retains the record and requires reconciliation. Merely reading or
+recovering an unknown candidate does not create this record or a fresh ledger.
+Runtime identities must have no permission to delete the record, its versions,
+or history; a lifecycle rule must not expire them while the candidate is usable.
+
+Existing snapshots without an initialization binding require all older writers
+to stop and explicit reconciliation of every retained snapshot and charge. They
+are not adopted automatically. This is an internal state-format change; no live
+campaign has used the earlier unanchored format. Do not delete history to migrate.
 The controller environment requires boto3 as well as the offline test
 dependencies. Credentials come from the controller's standard provider chain.
 
