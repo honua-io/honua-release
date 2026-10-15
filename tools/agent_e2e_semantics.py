@@ -77,27 +77,58 @@ def validate_response(value):
             'parsed semantic body differs from raw response')
 
 
-def project_observation(responses, projection):
-    """Replay only reviewed JSON pointers over independently retained responses."""
-    require(isinstance(responses, list) and len(responses) >= 3, 'missing source or operation responses')
-    for response in responses:
-        validate_response(response)
-    require(set(projection) == {'sourcePointer', 'result'}, 'invalid semantic projection')
-    before, after = responses[0], responses[-1]
-    require(before['httpStatus'] == after['httpStatus'] == 200, 'cannot observe immutable source')
-    operations = responses[1:-1]
+def project_fields(responses, fields):
     result = {}
-    require(isinstance(projection['result'], dict), 'invalid semantic result projection')
-    for field, reference in projection['result'].items():
+    require(isinstance(fields, dict) and bool(fields), 'invalid semantic result projection')
+    for field, reference in fields.items():
         require(set(reference) == {'response', 'pointer'}, 'result must reference an observed response')
         index = reference['response']
-        require(type(index) is int and 0 <= index < len(operations), 'unknown observed response')
-        result[field] = pointer(operations[index], reference['pointer'])
-    return {'sourceBefore': pointer(before, projection['sourcePointer']),
-            'sourceAfter': pointer(after, projection['sourcePointer']), 'result': result}
+        require(type(index) is int and 0 <= index < len(responses), 'unknown observed response')
+        result[field] = pointer(responses[index], reference['pointer'])
+    return result
 
 
-def fixture():
+def project_observation(responses, projection):
+    """Replay only reviewed JSON pointers over independently retained responses."""
+    require(set(projection) in ({'sourcePointer', 'result'}, {'sourceCount', 'sourceFields', 'result'}),
+            'invalid semantic projection')
+    count = projection.get('sourceCount', 1)
+    require(type(count) is int and 1 <= count <= 16, 'invalid source response count')
+    require(isinstance(responses, list) and len(responses) >= 2*count+1, 'missing source or operation responses')
+    for response in responses:
+        validate_response(response)
+    before, after = responses[:count], responses[-count:]
+    require(all(row['httpStatus'] == 200 for row in before+after), 'cannot observe immutable source')
+    def source(rows):
+        if 'sourceFields' in projection:
+            return project_fields(rows, projection['sourceFields'])
+        return pointer(rows[0], projection['sourcePointer'])
+    return {'sourceBefore': source(before), 'sourceAfter': source(after),
+            'result': project_fields(responses[count:-count], projection['result'])}
+
+
+SPATIAL_CASES = ('contains-target', 'contains-join', 'boundary-hole', 'join-multiplicity')
+
+
+def spatial_fixture():
+    """Two separately seedable layers in metres, including both kinds of boundary."""
+    points = [('inside', [20, 20]), ('boundary', [0, 20]), ('hole', [50, 50]),
+              ('hole-boundary', [40, 50]), ('outside', [110, 20])]
+    polygons = [('outer', [
+        [[0, 0], [100, 0], [100, 100], [0, 100], [0, 0]],
+        [[40, 40], [40, 60], [60, 60], [60, 40], [40, 40]],
+    ]), ('overlap', [[[10, 10], [30, 10], [30, 30], [10, 30], [10, 10]]])]
+    def layer(items, kind):
+        return {'type':'FeatureCollection', 'features':[
+            {'type':'Feature', 'id':identifier, 'properties':{'source_id':identifier},
+             'geometry':{'type':kind, 'coordinates':coordinates}}
+            for identifier, coordinates in items]}
+    return {'srid':3857, 'pointLayer':layer(points, 'Point'), 'polygonLayer':layer(polygons, 'Polygon')}
+
+
+def fixture(case=None):
+    if case in SPATIAL_CASES:
+        return spatial_fixture()
     return {"srid": 3857, "features": [
         {"type": "Feature", "id": f"s{i}", "properties": {"source_id": f"s{i}", "capacity": capacity},
          "geometry": {"type": "Point", "coordinates": [i * 10, i * 10]}}
@@ -114,8 +145,8 @@ def expected_ids(case):
 
 def verify(case, observed):
     require(case in CASES, "unknown semantic assertion")
-    require(canonical_digest(observed.get("sourceBefore")) == canonical_digest(fixture()) and
-            canonical_digest(observed.get("sourceAfter")) == canonical_digest(fixture()),
+    require(canonical_digest(observed.get("sourceBefore")) == canonical_digest(fixture(case)) and
+            canonical_digest(observed.get("sourceAfter")) == canonical_digest(fixture(case)),
             "immutable semantic source differs or changed")
     result = observed["result"]
     if case in CASES[:7]:
@@ -153,10 +184,9 @@ def verify(case, observed):
             require(row["properties"] == source["properties"] and row["geometry"]["type"] == "Point", "transformation changed attributes/type")
             actual = row["geometry"]["coordinates"]
             require(len(actual) == 2 and all(type(a) in (int, float) and math.isfinite(a) and abs(a-b) <= 1e-8 for a,b in zip(actual,wanted)), "coordinates were relabeled or rounded beyond tolerance")
-    elif case in ("contains-target", "contains-join", "boundary-hole", "join-multiplicity"):
-        # Spatial fixture: polygon outer square (0,0)-(100,100), hole
-        # (40,40)-(60,60); points inside=(20,20), boundary=(0,20),
-        # hole=(50,50), outside=(110,20). A second polygon overlaps inside.
+    elif case in SPATIAL_CASES:
+        # Both point and polygon layers, including the hole and its boundary,
+        # were compared with the immutable seed above. Roles remain observable.
         expected = {
             "contains-target": [["inside", "outer"], ["inside", "overlap"]],
             "contains-join": [["outer", "inside"], ["overlap", "inside"]],

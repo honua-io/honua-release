@@ -91,25 +91,37 @@ def run(config, campaign, destination, *, observer_factory=HttpObserver):
     checks = []
     for case in CASES:
         recipe = config['cases'][case]
-        require(set(recipe) == {'requests', 'result'}, 'invalid semantic recipe')
+        require(set(recipe) in ({'requests', 'result'}, {'requests', 'result', 'source'}), 'invalid semantic recipe')
         require(isinstance(recipe['requests'], list) and bool(recipe['requests']), 'semantic case has no API operations')
+        if 'source' in recipe:
+            source = recipe['source']
+            require(set(source) == {'requests', 'result'} and isinstance(source['requests'], list) and
+                    1 <= len(source['requests']) <= 16, 'invalid multi-source recipe')
+            source_requests = source['requests']
+            projection = {'sourceCount':len(source_requests), 'sourceFields':source['result'], 'result':recipe['result']}
+        else:
+            source_requests = [config['sourceRequest']]
+            projection = {'sourcePointer':config['sourcePointer'], 'result':recipe['result']}
         raw_refs = []
-        before = observer.request(config['sourceRequest'])
-        require(before['httpStatus'] == 200, 'cannot observe immutable source before probe')
-        raw_refs.append(bound_save(f'{case}/source-before.json', before))
+        def capture_source(phase):
+            rows = []
+            for index, request in enumerate(source_requests):
+                row = observer.request(request)
+                require(row['httpStatus'] == 200, 'cannot observe immutable source '+phase+' probe')
+                rows.append(row)
+                raw_refs.append(bound_save(f'{case}/source-{phase}-{index}.json', row))
+            return rows
+        before = capture_source('before')
         responses = []
         for index, request in enumerate(recipe['requests']):
             response = observer.request(request)
             responses.append(response)
             raw_refs.append(bound_save(f'{case}/response-{index}.json', response))
-        after = observer.request(config['sourceRequest'])
-        require(after['httpStatus'] == 200, 'cannot observe immutable source after probe')
-        raw_refs.append(bound_save(f'{case}/source-after.json', after))
+        after = capture_source('after')
         # Every result field comes from an actual response. Literal expected
         # values and executable projection expressions are deliberately absent.
-        projection = {'sourcePointer': config['sourcePointer'], 'result': recipe['result']}
         projection_ref = save(root, f'{case}/projection.json', projection)
-        observed = project_observation([before, *responses, after], projection)
+        observed = project_observation([*before, *responses, *after], projection)
         observation = bound_save(f'{case}/observation.json', observed)
         verify(case, observed)
         checks.append({'id': case, 'observation': observation, 'rawResponses': raw_refs, 'projection': projection_ref})

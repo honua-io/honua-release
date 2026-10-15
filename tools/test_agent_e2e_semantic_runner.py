@@ -8,7 +8,7 @@ import pytest
 
 from agent_e2e_pack import PackError
 from agent_e2e_semantic_runner import HttpObserver, NoRedirect, pointer, run
-from agent_e2e_semantics import CASES, response_evidence, validate_response, validate_report
+from agent_e2e_semantics import CASES, SPATIAL_CASES, response_evidence, validate_response, validate_report, project_observation
 from agent_e2e_pack import digest_bytes
 from test_agent_e2e_semantics import observation
 from test_agent_e2e_deployment import deployment, CAMPAIGN
@@ -97,8 +97,22 @@ def test_runner_report_replays_observations_and_rejects_fabrication(tmp_path):
         observed = observation(case)
         config['cases'][case] = {'requests':[{'method':'GET','path':'/operation'}],
             'result': {field:{'response':0, 'pointer':'/body/'+field} for field in observed['result']}}
-        replies.extend(response_evidence(200, json.dumps(observed[part], indent=2).encode())
-                       for part in ('sourceBefore','result','sourceAfter'))
+        if case in SPATIAL_CASES:
+            config['cases'][case]['source'] = {'requests':[
+                {'method':'GET','path':'/points'}, {'method':'GET','path':'/polygons'}], 'result':{
+                    'srid':{'response':0, 'pointer':'/body/srid'},
+                    'pointLayer':{'response':0, 'pointer':'/body/collection'},
+                    'polygonLayer':{'response':1, 'pointer':'/body/collection'}}}
+            parts = []
+            for part in ('sourceBefore','result','sourceAfter'):
+                if part == 'result':
+                    parts.append(observed[part])
+                else:
+                    parts.extend({'srid':3857, 'collection':observed[part][layer]}
+                                 for layer in ('pointLayer','polygonLayer'))
+        else:
+            parts = [observed[part] for part in ('sourceBefore','result','sourceAfter')]
+        replies.extend(response_evidence(200, json.dumps(part, indent=2).encode()) for part in parts)
     class Observer:
         def __init__(self, *args):
             self.replies = iter(copy.deepcopy(replies))
@@ -123,3 +137,9 @@ def test_runner_report_replays_observations_and_rejects_fabrication(tmp_path):
     check['observation']['sha256'] = digest_bytes(path.read_bytes())
     with pytest.raises(PackError, match='retained response projections'):
         validate_report(report, campaign, ['local-docker'], root, resolve)
+
+
+@pytest.mark.parametrize('count', [0, -1, 17, True, '2'])
+def test_source_capture_count_must_be_positive_and_bounded(count):
+    with pytest.raises(PackError, match='source response count'):
+        project_observation([], {'sourceCount':count, 'sourceFields':{}, 'result':{}})
