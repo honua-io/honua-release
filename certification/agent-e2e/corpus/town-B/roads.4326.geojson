@@ -1,0 +1,32 @@
+{
+  "crs": {
+    "properties": {
+      "name": "EPSG:4326"
+    },
+    "type": "name"
+  },
+  "features": [
+    {
+      "geometry": {
+        "coordinates": [
+          [
+            0.1158826717,
+            -0.0700685747
+          ],
+          [
+            0.1293574009,
+            -0.0700685747
+          ]
+        ],
+        "type": "LineString"
+      },
+      "id": "r101",
+      "properties": {
+        "name": "Willow Road",
+        "source_id": "r101"
+      },
+      "type": "Feature"
+    }
+  ],
+  "type": "FeatureCollection"
+}

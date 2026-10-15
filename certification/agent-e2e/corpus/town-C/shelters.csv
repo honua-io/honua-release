@@ -1,0 +1,6 @@
+source_id,name,capacity,is_open,longitude,latitude
+s201,Cedar Central,80,true,0.0476107101,-0.087136549
+s202,Cedar Central,50,true,0.0556955476,-0.087136549
+s203,"Hālau, ""North"" refuge",75,true,0.0530006018,-0.087136549
+s204,Centre d’accueil,120,false,0.0503056559,-0.087136549
+s205,Mālama refuge,,true,0.0449157642,-0.087136549

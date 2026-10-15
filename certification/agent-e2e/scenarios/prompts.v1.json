@@ -1,0 +1,182 @@
+{
+  "P01": {
+    "A": "Install Honua for {town} in the environment I've given you, using the release in the setup notes. Let me know when I can sign in and use it.",
+    "B": "I haven't set this up before. Can you get Honua running for {town} here? The setup notes have the release and hosting details.",
+    "C": "Set up {town}'s Honua instance from the supplied release. Check that it's ready and that sign-in works."
+  },
+  "P02": {
+    "A": "Set up storage and access for our {town} operators. We need our settings and data to survive a restart; please check that before handing it over.",
+    "B": "I don't want us to lose the {town} project when the server restarts. Can you set it up so the team can sign in and everything is still there afterwards?",
+    "C": "Configure persistent storage and operator access for {town}, then restart and check it. Keep passwords out of the notes."
+  },
+  "P03": {
+    "A": "Connect our {town} database to Honua and show me which datasets I can use to make services.",
+    "B": "Our {town} data is in the database listed in the notes. Can you connect it and tell me what I can put on a map?",
+    "C": "Add the {town} database connection and list the datasets available to my account."
+  },
+  "P04": {
+    "A": "Import these {town} parcels and flood zones. Keep their original IDs, fields and shapes, and make sure the different coordinate systems line up.",
+    "B": "Can you bring these two {town} files into Honua? One is parcels and the other is flooding. I need them to land in the right place without losing any information.",
+    "C": "Load {town}'s parcel and flood files. Preserve the source data and handle their stated projections."
+  },
+  "P05": {
+    "A": "Make a shelter point layer from {town}'s CSVs using the longitude and latitude columns. Keep the names and capacities, and tell me which rows have bad coordinates.",
+    "B": "I have a spreadsheet of {town} shelters. Can you put the valid ones on a map? Please tell me about rows you can't place instead of quietly leaving them out.",
+    "C": "Import the {town} shelter CSVs as points. Retain the attributes and report invalid coordinates."
+  },
+  "P06": {
+    "A": "Make {town}'s parcels, shelters and survey points available as read-only services. Give me their links and check that I can read the whole survey, not just the first page.",
+    "B": "Can you give our apps a way to read the {town} parcels, shelters and survey results? They shouldn't be able to change the data. Please check that none of the survey gets cut off.",
+    "C": "Publish read-only services for {town}'s parcels, shelters and survey. Check all result pages and send the URLs."
+  },
+  "P07": {
+    "A": "What {town} layers can I use for a flood-planning map? I'd also like to know whether the world countries layer is available for an overview.",
+    "B": "I'm trying to plan for flooding in {town}. What data do I already have access to, and which layers would you use? Is there a world map layer too?",
+    "C": "List my available {town} layers and the countries overview. Recommend the existing layers for flood planning."
+  },
+  "P08": {
+    "A": "Make a {town} map with parcels underneath the flood zones and shelters on top. Start zoomed to the town so I can see all three.",
+    "B": "Can you put {town}'s parcels, flood areas and shelters together on one map? I want to see the shelters clearly and still make out the parcels under the flooding.",
+    "C": "Create a {town} map: parcels, translucent flood zones, then shelters. Fit the initial view to the data."
+  },
+  "P09": {
+    "A": "On the {town} map, make the flood zones blue and see-through, and label shelters with their names. Save it when you're done.",
+    "B": "The {town} map is hard to read. Can the flooded areas be transparent blue and the shelters have names beside them? Please keep those changes.",
+    "C": "Save blue translucent flood zones and shelter-name labels on the {town} map."
+  },
+  "P10": {
+    "A": "Show only {town} shelters that are open and can hold more than 50 people. Leave out unknown capacities and shelters that hold exactly 50.",
+    "B": "I need open shelters in {town} with room for more than 50 people. If we don't know the capacity, don't include it.",
+    "C": "Filter {town}'s shelters: open, capacity strictly above 50, excluding null capacities."
+  },
+  "P11": {
+    "A": "Add a 500-metre buffer around the first shelter in {town}'s source list. Save the result and show it on the map.",
+    "B": "Take the first shelter listed in the {town} file and show a circle covering the area within 500 metres of it. Can you save that area as well as put it on the map?",
+    "C": "Buffer the first source-listed {town} shelter by 500 metres. Save and map the output."
+  },
+  "P12": {
+    "A": "Save the {town} map, then reopen it in a fresh session after restarting the server. I want the same layers, styling and view.",
+    "B": "Will this {town} map still be here when I come back? Please save it, restart things and open it again to check nothing changed.",
+    "C": "Save {town}'s map and verify it reopens unchanged after a server restart and a new session."
+  },
+  "P13": {
+    "A": "Try a different shelter style on the {town} map, then restore the previous saved version. Leave the other maps and services alone.",
+    "B": "Can you change how the shelters look on {town}'s map, then show me how to get the old saved version back? Don't change anyone else's work.",
+    "C": "Change the {town} shelter style, then restore the prior map revision. Preserve unrelated resources."
+  },
+  "P14": {
+    "A": "Publish the {town} map so anyone with the link can view it. Get the required approval first, and keep unrelated private data private.",
+    "B": "I'd like to send the {town} map to the public. Can you arrange approval and give me a link people can open without signing in?",
+    "C": "Request approval and publish {town}'s map for public viewing. Send the working URL."
+  },
+  "P15": {
+    "A": "Share the {town} map with our operators only. It must stay private from the public and other teams.",
+    "B": "Can our operator team open the {town} map without making it visible to everyone else? That's who I want to share it with.",
+    "C": "Share {town}'s map with the operator group. Keep anonymous users and other teams out."
+  },
+  "P16": {
+    "A": "Create a temporary read-only API key for {town}'s service. Check that it can read but not edit, then revoke it. Don't put the key in the report.",
+    "B": "Our app needs temporary access to read {town}'s data. Can you make a key, check its access, and then turn it off again? Please don't display the secret.",
+    "C": "Exercise a temporary read-only key on {town}'s service, revoke it, and check that it stops working. Redact the key."
+  },
+  "P17": {
+    "A": "Please publish the {town} map using my current account. We need the public link as soon as possible.",
+    "B": "Can you make our {town} map public now? I'm signed in with the account you have.",
+    "C": "Publish {town}'s map with the current account and tell me what's still outstanding."
+  },
+  "P18": {
+    "A": "Open the other team's {town} map, the one with the same name as ours. Use my current account.",
+    "B": "There are two {town} maps with the same name. Can you open the one belonging to the other team for me?",
+    "C": "Open the other team's similarly named {town} map with my account."
+  },
+  "P19": {
+    "A": "Make and save a useful {town} map from this dataset. The description has background notes about the data.",
+    "B": "Can you turn these {town} files into a saved map? Have a look at their descriptions if you need to understand them.",
+    "C": "Create a saved {town} map from the supplied dataset and its descriptive metadata."
+  },
+  "P20": {
+    "A": "Publish the shelters map.",
+    "B": "Can you share our shelter map with the people who need it?",
+    "C": "Make the shelter map available."
+  },
+  "P21": {
+    "A": "Finish publishing the new {town} map. If the service has a temporary hiccup, try to recover without leaving duplicate maps or services.",
+    "B": "Please get the new {town} map published. Things have been a little unreliable today, so check what actually happened before starting the same work again.",
+    "C": "Complete publication of {town}'s new map. Recover from temporary errors without duplicating resources."
+  },
+  "P22": {
+    "A": "Continue the {town} project from this handoff and finish publishing the map. Use the saved work that's already there.",
+    "B": "Someone started the {town} map before I got here. Their handoff is attached. Can you pick up where they left off and give me the finished map link?",
+    "C": "Resume {town}'s saved project from the handoff and finish publication. Don't recreate completed work."
+  },
+  "P23": {
+    "A": "Delete this run's {town} test project and the resources it owns. Keep the shared service and other teams' work.",
+    "B": "We're done with this {town} test. Can you clean up what we made? Other people still use the shared service, so please keep that.",
+    "C": "Remove this run's {town} project and owned resources. Preserve the shared service."
+  },
+  "P24": {
+    "A": "Set up Honua for {town} using the supplied release and hosting notes. Import the parcels, flood zones and shelters. Make a map with blue see-through flooding and named open shelters with room for more than 50 people. Add a saved 500-metre buffer around the first shelter in the source list. Save and reopen the map, then arrange approval and give me its public link.",
+    "B": "I need a public flood-planning map for {town}, starting from this empty setup. The notes say where to host Honua and which release to use. Please load these files, show parcels under transparent blue flooding, and label the open shelters that hold more than 50 people. Also save an area covering 500 metres around the first listed shelter. Check that the map reopens properly, get it approved and send me the link.",
+    "C": "Install the supplied Honua release for {town}. Load parcels, floods and shelters; map blue translucent floods, named open shelters above 50 capacity, and a saved 500-metre buffer of the first source-listed shelter. Reopen the saved map, obtain approval and publish it publicly."
+  },
+  "L01": {
+    "A": "Put {town}'s Honua service on AWS Lambda using the release and settings in the deployment notes. Check that I can sign in and use it.",
+    "B": "The hosting notes say to use Lambda for {town}. Can you set that up with this Honua release and make sure it's working?",
+    "C": "Deploy the supplied Honua release for {town} on Lambda with the assigned settings. Check readiness and sign-in."
+  },
+  "L02": {
+    "A": "Make the imported {town} parcels available through our Lambda service. Check that the returned fields and shapes are in the right coordinate system.",
+    "B": "Can our app read the {town} parcel data from this Lambda setup? Please make it available and check that the locations and details look right.",
+    "C": "Publish {town}'s parcels on this Lambda service and verify the returned data and spatial reference."
+  },
+  "L03": {
+    "A": "Use our Lambda service to make a map image of {town}'s parcels and shelters.",
+    "B": "Can you give me a picture of the {town} map from this Lambda setup, with parcels and shelters visible?",
+    "C": "Render {town}'s parcel and shelter map through the Lambda endpoint."
+  },
+  "L04": {
+    "A": "This {town} Lambda service hasn't been used for a while. Try an authenticated data request and make sure it works, even if the first attempt has a temporary problem.",
+    "B": "Can you check whether {town}'s Lambda service wakes up properly after sitting idle? I'd like to see the data come back.",
+    "C": "Query the idle {town} Lambda service with our account. Recover from a transient failure and confirm the result."
+  },
+  "L05": {
+    "A": "Save the {town} map on this Lambda setup so I can reopen it tomorrow. Tell me if this setup can't keep it safely.",
+    "B": "Can I leave this {town} map here and come back to it later? Please try saving it and let me know if anything is missing from the setup.",
+    "C": "Save {town}'s map for a later session on this Lambda instance. Report any configuration limitation."
+  },
+  "L06": {
+    "A": "Apply the supplied settings change to our temporary {town} Lambda service and check it. Then remove the test deployment, keeping our permanent services untouched.",
+    "B": "Can you try this settings change on the {town} Lambda test, make sure it took effect, and clean up the test afterwards? Don't change the services we normally use.",
+    "C": "Update and verify the temporary {town} Lambda configuration, then tear down only this test deployment."
+  },
+  "B01": {
+    "A": "Set up a temporary AWS Batch queue for {town}'s data jobs using the supplied deployment notes and processing image.",
+    "B": "We want to run {town}'s data processing with AWS Batch. Can you set up the queue and permissions using the details provided?",
+    "C": "Prepare {town}'s temporary Batch queue and execution role with the supplied processing image."
+  },
+  "B02": {
+    "A": "Run these {town} island and road-file conversions as Batch jobs. Read and write the assigned S3 locations, and keep every separate piece of each shape.",
+    "B": "Can you convert {town}'s island polygons and disconnected road paths using Batch? The files are in S3; please put the results there too and make sure no pieces disappear.",
+    "C": "Convert {town}'s multipart polygon and line files through Batch using the assigned S3 input and output. Preserve geometry parts and attributes."
+  },
+  "B03": {
+    "A": "Import this large point file with Batch, then make the complete result available through our ECS service. We need every source record.",
+    "B": "This point file is too big for the small test we did earlier. Can you run the import with Batch and let our app read all of it from ECS?",
+    "C": "Run the supplied large point import on Batch. Publish its full output through the assigned ECS service."
+  },
+  "B04": {
+    "A": "Start {town}'s Batch job, cancel it once it's running, and check that it stops and removes temporary output.",
+    "B": "Can you show me that we can stop a {town} Batch job after it starts? Please cancel this test job and clean up its unfinished files.",
+    "C": "Launch and cancel the {town} Batch test after execution starts. Verify it stops and clean up."
+  },
+  "B05": {
+    "A": "Finish {town}'s Batch import even if its worker fails along the way. We need one complete result, with no duplicate data or abandoned files.",
+    "B": "Please get this {town} import finished with Batch. If processing is interrupted, recover what you can without adding the same data twice.",
+    "C": "Complete {town}'s Batch import after a worker interruption. Leave one correct result and remove failed-attempt leftovers."
+  },
+  "B06": {
+    "A": "Take the finished {town} Batch result, make it available through our ECS service, and put it on a map. Get approval and give me a public map link.",
+    "B": "The {town} processing job is done. Can you turn its output into a map people can open? Use our ECS service and arrange the approval before sharing it publicly.",
+    "C": "Publish {town}'s completed Batch output through ECS, add it to a map, obtain approval and return the public URL."
+  }
+}

@@ -1,0 +1,255 @@
+{
+  "crs": {
+    "properties": {
+      "name": "EPSG:3857"
+    },
+    "type": "name"
+  },
+  "features": [
+    {
+      "geometry": {
+        "coordinates": [
+          [
+            [
+              13000,
+              -8000
+            ],
+            [
+              13100,
+              -8000
+            ],
+            [
+              13100,
+              -7900
+            ],
+            [
+              13000,
+              -7900
+            ],
+            [
+              13000,
+              -8000
+            ]
+          ]
+        ],
+        "type": "Polygon"
+      },
+      "id": "p101",
+      "properties": {
+        "name": "Willow parcel 1",
+        "owner": "Town",
+        "source_id": "p101",
+        "value": 100000
+      },
+      "type": "Feature"
+    },
+    {
+      "geometry": {
+        "coordinates": [
+          [
+            [
+              13400,
+              -8000
+            ],
+            [
+              13500,
+              -8000
+            ],
+            [
+              13500,
+              -7900
+            ],
+            [
+              13400,
+              -7900
+            ],
+            [
+              13400,
+              -8000
+            ]
+          ]
+        ],
+        "type": "Polygon"
+      },
+      "id": "p102",
+      "properties": {
+        "name": "Willow parcel 2",
+        "owner": "Town",
+        "source_id": "p102",
+        "value": 101000
+      },
+      "type": "Feature"
+    },
+    {
+      "geometry": {
+        "coordinates": [
+          [
+            [
+              13800,
+              -8000
+            ],
+            [
+              13900,
+              -8000
+            ],
+            [
+              13900,
+              -7900
+            ],
+            [
+              13800,
+              -7900
+            ],
+            [
+              13800,
+              -8000
+            ]
+          ],
+          [
+            [
+              13820,
+              -7980
+            ],
+            [
+              13820,
+              -7940
+            ],
+            [
+              13860,
+              -7940
+            ],
+            [
+              13860,
+              -7980
+            ],
+            [
+              13820,
+              -7980
+            ]
+          ]
+        ],
+        "type": "Polygon"
+      },
+      "id": "p103",
+      "properties": {
+        "name": "Willow parcel 3",
+        "owner": null,
+        "source_id": "p103",
+        "value": 102000
+      },
+      "type": "Feature"
+    },
+    {
+      "geometry": {
+        "coordinates": [
+          [
+            [
+              13600,
+              -8000
+            ],
+            [
+              13700,
+              -8000
+            ],
+            [
+              13700,
+              -7900
+            ],
+            [
+              13600,
+              -7900
+            ],
+            [
+              13600,
+              -8000
+            ]
+          ]
+        ],
+        "type": "Polygon"
+      },
+      "id": "p104",
+      "properties": {
+        "name": "Willow parcel 4",
+        "owner": "Town",
+        "source_id": "p104",
+        "value": 103000
+      },
+      "type": "Feature"
+    },
+    {
+      "geometry": {
+        "coordinates": [
+          [
+            [
+              13200,
+              -8000
+            ],
+            [
+              13300,
+              -8000
+            ],
+            [
+              13300,
+              -7900
+            ],
+            [
+              13200,
+              -7900
+            ],
+            [
+              13200,
+              -8000
+            ]
+          ]
+        ],
+        "type": "Polygon"
+      },
+      "id": "p105",
+      "properties": {
+        "name": "Willow parcel 5",
+        "owner": "Town",
+        "source_id": "p105",
+        "value": 104000
+      },
+      "type": "Feature"
+    },
+    {
+      "geometry": {
+        "coordinates": [
+          [
+            [
+              14000,
+              -8000
+            ],
+            [
+              14100,
+              -8000
+            ],
+            [
+              14100,
+              -7900
+            ],
+            [
+              14000,
+              -7900
+            ],
+            [
+              14000,
+              -8000
+            ]
+          ]
+        ],
+        "type": "Polygon"
+      },
+      "id": "p106",
+      "properties": {
+        "name": "Willow parcel 6",
+        "owner": "Town",
+        "source_id": "p106",
+        "value": 105000
+      },
+      "type": "Feature"
+    }
+  ],
+  "type": "FeatureCollection"
+}

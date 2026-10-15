@@ -1,0 +1,19 @@
+{
+  "coordinateColumns": {
+    "crs": "EPSG:4326",
+    "x": "longitude",
+    "y": "latitude"
+  },
+  "encoding": "UTF-8",
+  "nativeConversionFiles": [
+    "multipolygons.3857.geojson",
+    "multilines.3857.geojson"
+  ],
+  "primaryFiles": {
+    "flood_zones": "flood_zones.4326.geojson",
+    "parcels": "parcels.3857.geojson",
+    "shelters": "shelters.csv"
+  },
+  "town": "Willow",
+  "variant": "B"
+}

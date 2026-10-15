@@ -1,0 +1,96 @@
+{
+  "crs": {
+    "properties": {
+      "name": "EPSG:3857"
+    },
+    "type": "name"
+  },
+  "features": [
+    {
+      "geometry": {
+        "coordinates": [
+          -19400,
+          -4700
+        ],
+        "type": "Point"
+      },
+      "id": "s1",
+      "properties": {
+        "capacity": null,
+        "is_open": true,
+        "name": "Kestrel Central",
+        "source_id": "s1"
+      },
+      "type": "Feature"
+    },
+    {
+      "geometry": {
+        "coordinates": [
+          -18800,
+          -4700
+        ],
+        "type": "Point"
+      },
+      "id": "s2",
+      "properties": {
+        "capacity": 120,
+        "is_open": false,
+        "name": "Kestrel Central",
+        "source_id": "s2"
+      },
+      "type": "Feature"
+    },
+    {
+      "geometry": {
+        "coordinates": [
+          -19100,
+          -4700
+        ],
+        "type": "Point"
+      },
+      "id": "s3",
+      "properties": {
+        "capacity": 80,
+        "is_open": true,
+        "name": "Hālau, \"North\" refuge",
+        "source_id": "s3"
+      },
+      "type": "Feature"
+    },
+    {
+      "geometry": {
+        "coordinates": [
+          -19700,
+          -4700
+        ],
+        "type": "Point"
+      },
+      "id": "s4",
+      "properties": {
+        "capacity": 75,
+        "is_open": true,
+        "name": "Centre d’accueil",
+        "source_id": "s4"
+      },
+      "type": "Feature"
+    },
+    {
+      "geometry": {
+        "coordinates": [
+          -20000,
+          -4700
+        ],
+        "type": "Point"
+      },
+      "id": "s5",
+      "properties": {
+        "capacity": 50,
+        "is_open": true,
+        "name": "Mālama refuge",
+        "source_id": "s5"
+      },
+      "type": "Feature"
+    }
+  ],
+  "type": "FeatureCollection"
+}
