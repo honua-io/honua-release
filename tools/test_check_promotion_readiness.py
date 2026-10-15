@@ -363,8 +363,12 @@ def test_promotion_path_schema_and_readiness_agree_on_patch_rc(tmp_path, label, 
     # Execute the actual path admission condition without performing any GitHub calls.
     condition = next(line.strip().split(" ||", 1)[0] for line in command.splitlines()
                      if line.strip().startswith('[[ "$PROMOTION_RECORD"'))
-    result = subprocess.run(["bash", "-c", condition], env={**os.environ,
-                            "PROMOTION_RECORD": f"certification/promotions/{label}.json"})
+    # The Windows WSL launcher neither forwards arbitrary environment variables
+    # nor preserves bash -c positional parameters. Pipe a quoted, LF-only script
+    # while retaining the exact admission expression from the workflow.
+    import shlex
+    script = 'PROMOTION_RECORD=' + shlex.quote(f"certification/promotions/{label}.json") + '\n' + condition + '\n'
+    result = subprocess.run(["bash"], input=script.encode('utf-8'))
     assert (result.returncode == 0) == accepted
 
 

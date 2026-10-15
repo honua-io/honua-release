@@ -956,7 +956,7 @@ def test_emit_refuses_a_job_that_is_not_a_fixture_job(tmp_path):
 
 
 def _workflow(name):
-    return yaml.safe_load((Path(__file__).resolve().parents[1] / '.github/workflows' / name).read_text())
+    return yaml.safe_load((Path(__file__).resolve().parents[1] / '.github/workflows' / name).read_text(encoding='utf-8'))
 
 
 def test_every_fixture_gate_job_records_each_repository_it_checks_out():
