@@ -24,3 +24,6 @@ certification/terminal-journey/fixtures/journey-source.geojson -text
 
 # Digest-pinned S10 large-import Redis-off fixture (e2e/fixtures/large_import.py SMALL).
 e2e/fixtures/s10-redis-off.geojson -text
+
+# Prompt and corpus hashes are byte-bound on every controller platform.
+certification/agent-e2e/** text eol=lf

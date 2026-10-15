@@ -1,0 +1,32 @@
+{
+  "crs": {
+    "properties": {
+      "name": "EPSG:4326"
+    },
+    "type": "name"
+  },
+  "features": [
+    {
+      "geometry": {
+        "coordinates": [
+          [
+            -0.1805613721,
+            -0.0431191296
+          ],
+          [
+            -0.1670866428,
+            -0.0431191296
+          ]
+        ],
+        "type": "LineString"
+      },
+      "id": "r1",
+      "properties": {
+        "name": "Kestrel Road",
+        "source_id": "r1"
+      },
+      "type": "Feature"
+    }
+  ],
+  "type": "FeatureCollection"
+}

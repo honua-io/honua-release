@@ -1,0 +1,46 @@
+{
+  "crs": {
+    "properties": {
+      "name": "EPSG:3857"
+    },
+    "type": "name"
+  },
+  "features": [
+    {
+      "geometry": {
+        "coordinates": [
+          [
+            [
+              -20010,
+              -5010
+            ],
+            [
+              -19650,
+              -5010
+            ],
+            [
+              -19650,
+              -4890
+            ],
+            [
+              -20010,
+              -4890
+            ],
+            [
+              -20010,
+              -5010
+            ]
+          ]
+        ],
+        "type": "Polygon"
+      },
+      "id": "f1",
+      "properties": {
+        "name": "Kestrel flood zone",
+        "source_id": "f1"
+      },
+      "type": "Feature"
+    }
+  ],
+  "type": "FeatureCollection"
+}

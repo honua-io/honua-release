@@ -1,0 +1,23 @@
+{
+  "crs": {
+    "properties": {
+      "name": "EPSG:3857"
+    },
+    "type": "name"
+  },
+  "features": [
+    {
+      "geometry": {
+        "geometries": [],
+        "type": "GeometryCollection"
+      },
+      "id": "empty-A",
+      "properties": {
+        "name": "Empty geometry",
+        "source_id": "empty-A"
+      },
+      "type": "Feature"
+    }
+  ],
+  "type": "FeatureCollection"
+}

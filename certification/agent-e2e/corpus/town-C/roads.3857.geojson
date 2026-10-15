@@ -1,0 +1,32 @@
+{
+  "crs": {
+    "properties": {
+      "name": "EPSG:3857"
+    },
+    "type": "name"
+  },
+  "features": [
+    {
+      "geometry": {
+        "coordinates": [
+          [
+            4900,
+            -9800
+          ],
+          [
+            6400,
+            -9800
+          ]
+        ],
+        "type": "LineString"
+      },
+      "id": "r201",
+      "properties": {
+        "name": "Cedar Road",
+        "source_id": "r201"
+      },
+      "type": "Feature"
+    }
+  ],
+  "type": "FeatureCollection"
+}
