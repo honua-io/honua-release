@@ -1,0 +1,12 @@
+{
+  "bindingVersion": 7,
+  "deploymentTooling": {
+    "kind": "reference"
+  },
+  "environment": "dev",
+  "schema": "honua.gp-environment-state/v1",
+  "serverContractVersion": 3,
+  "targets": [
+    "kubernetes-job"
+  ]
+}
