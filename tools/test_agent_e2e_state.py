@@ -173,6 +173,46 @@ def test_unversioned_bucket_blocks_before_lease_acquisition():
         store.acquire()
 
 
+@pytest.mark.parametrize('history', [
+    {'Versions':[{'Key':'retained', 'VersionId':'previous'}]},
+    {'DeleteMarkers':[{'Key':'hidden', 'VersionId':'deleted'}]},
+    {'IsTruncated':True},
+])
+def test_missing_state_head_cannot_reset_existing_snapshot_history(history):
+    class Headless:
+        def get_item(self, **kwargs):
+            assert kwargs['ConsistentRead'] is True
+            return {'Item':{'leaseOwner':{'S':'owner'}, 'fence':{'N':'1'}}}
+    objects = S3()
+    def versions(**kwargs):
+        assert kwargs == {'Bucket':'bucket', 'Prefix':'agent-e2e/'+'a'*64+'/', 'MaxKeys':1}
+        return history
+    objects.list_object_versions = versions
+    store = StateStore(s3=objects, dynamodb=Headless(), bucket='bucket', table='table',
+                       candidate_key='sha256:'+'a'*64, owner='owner')
+    store.fence = 1
+    with pytest.raises(PackError, match='reconcile'):
+        store.load()
+    assert objects.objects == {}
+
+
+def test_new_candidate_requires_successful_history_absence_probe():
+    class Headless:
+        def get_item(self, **kwargs):
+            return {'Item':{'leaseOwner':{'S':'owner'}, 'fence':{'N':'1'}}}
+    objects = S3()
+    store = StateStore(s3=objects, dynamodb=Headless(), bucket='bucket', table='table',
+                       candidate_key='sha256:'+'a'*64, owner='owner')
+    store.fence = 1
+    def denied(**kwargs):
+        raise PermissionError('history unavailable')
+    objects.list_object_versions = denied
+    with pytest.raises(PermissionError):
+        store.load()
+    objects.list_object_versions = lambda **kwargs: {'IsTruncated':False}
+    assert store.load() is None
+
+
 def test_history_cannot_hide_failure_change_mode_or_erase_charge():
     initial={'ledger':{'entries':[{'id':'r1','state':'reserved','actualUsd':None,'amountUsd':'1','campaignMode':'development'}]},
              'registry':{'attempts':[{'caseId':'P10:A:local-docker','status':'fail','campaignMode':'development'}]}}

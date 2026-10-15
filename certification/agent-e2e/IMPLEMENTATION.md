@@ -116,7 +116,11 @@ erase the first failure or its cost from either history.
 The controller CLI requires `--state-config` pointing to a JSON object with
 `region`, `bucket` and `table`. The S3 bucket must have versioning enabled; DynamoDB
 uses the string partition key `candidateKey`. Workers must have no access to either
-store. The controller environment requires boto3 as well as the offline test
+store. The controller needs `s3:ListBucketVersions` on its candidate snapshot
+prefix: a missing DynamoDB pointer may initialize only when no current or prior
+snapshot version or delete marker exists. Unreferenced snapshots require explicit
+reconciliation, not a fresh budget. Failure to inspect history blocks initialization.
+The controller environment requires boto3 as well as the offline test
 dependencies. Credentials come from the controller's standard provider chain.
 
 `--initialize-state` is only for a candidate with no remote state and no existing

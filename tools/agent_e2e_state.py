@@ -78,6 +78,13 @@ class StateStore:
         if 'snapshotKey' not in row:
             if self.version != 0:
                 raise PackError('state history is missing; refusing reset')
+            # Loss of the DynamoDB head must not turn retained S3 history into
+            # a new candidate allowance. Include non-current versions and delete
+            # markers: listing only current objects would miss a hidden history.
+            history = self.s3.list_object_versions(Bucket=self.bucket,
+                Prefix=f"agent-e2e/{self.candidate.split(':')[1]}/", MaxKeys=1)
+            if history.get('Versions') or history.get('DeleteMarkers') or history.get('IsTruncated'):
+                raise PackError('snapshot history exists without its state head; reconcile instead of resetting')
             return None
         response = self.s3.get_object(Bucket=self.bucket, Key=row['snapshotKey']['S'], VersionId=row['snapshotVersion']['S'])
         data = response['Body'].read()
