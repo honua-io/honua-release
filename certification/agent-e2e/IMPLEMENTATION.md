@@ -14,7 +14,7 @@ been qualified by the offline tests described here.
 | Public OKF knowledge | Exact Git revision, graph/bundle/document hashes, allowlisted export, concept resolution, worker manifest binding | Deliver and verify the export on each isolated worker |
 | Semantic verification | Fifteen deterministic predicates, protected-content checks, independent raw-response/observation evidence contract | Reviewed API recipes, fixture seeding and response normalization for every supported configuration |
 | Goal execution | Model-selected actions, bounded turns/actions/cost, development holdout protection, cleanup accounting | Complete scenario backend for setup, permissions, fault injection, observation and custody changes |
-| Worker isolation | EC2/SSM transport with pinned image/profile and bounded command lifetime | Reviewed AMI, IAM/network restrictions, independent watchdog and deployment configuration |
+| Worker isolation | Common per-attempt FIFO container transport, bounded terminal execution and persistent duplicate-delivery journal | Pinned image, Fargate/Docker deployment, IAM/network isolation and independent expiry cleanup |
 | Durable state | Versioned S3 snapshots, fenced DynamoDB lease, synchronous reservation/event persistence, journal recovery and protection against overwriting newer local charges | Provision controller-only stores; integrate final receipt/registry publication and prove cloud crash recovery |
 | Instrumentation | Hash-chained attempt journals, request/trace correlation contracts, JSON diagnostics and atomic Prometheus text output | Scrape/upload wiring, dashboards, alerts and observed server trace artifacts from the live backend |
 | Release evidence | v2 gate checks exact knowledge, independent semantics, runtime interfaces, all receipts and candidate spending | Attesting campaign producer workflow and successful live campaign before release activation |
@@ -143,6 +143,29 @@ resuming. The normal controller also restores durable journals before attempting
 another case. Recovery itself never creates a passing receipt or authorizes retry.
 
 ## Delivery order and acceptance
+
+Terraform in `honua-iac` owns all campaign infrastructure, including disposable
+workers, IAM, networking, state stores, telemetry infrastructure and the independent
+cleanup deployment. Infrastructure changes use reviewed Terraform plans and
+retained state. Runtime APIs start/stop predefined container jobs. Python owns
+test orchestration, API actions, observations, budget accounting and evidence; it
+must not provide a second infrastructure provisioner. Calling existing services
+to run a test or write an evidence object is runtime use, not provisioning.
+
+The accepted full work plan is [DELIVERY.md](DELIVERY.md). Cloud agent workers use
+ECS Fargate; local Docker uses a dedicated container runner separate from the
+controller. Existing EKS managed-node-group deployments remain in the target
+matrix. The standalone EC2/SSM worker path and its watchdog drafts were removed.
+No campaign infrastructure has been applied.
+
+The queue transport binds attempt/action identity, command digest and deadline.
+Duplicate completed delivery returns its retained result; a journal entry left
+started by a crash returns interrupted and never executes again. A replacement
+task must never reuse an attempt's queues after loss of its local journal. The
+lifecycle's durable launch claim and prohibition on redrive enforce that boundary.
+Worker replies are untrusted terminal output; only independent probes qualify a
+goal. Live container isolation, independent cleanup and backend integration remain
+required; the offline tests do not prove these deployments operational.
 
 1. Validate the contracts and public documentation graph. Keep all 252 live
    cases unqualified while these offline checks pass.

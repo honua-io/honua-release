@@ -2,7 +2,7 @@
 """Validate a frozen goal corpus and export ONLY one agent-visible task.
 
 The pack and oracle corpus are controller inputs. Never mount this repository,
-pack file, expected campaign, credentials store or oracle outputs in an agent VM.
+pack file, expected campaign, credentials store or oracle outputs in an agent container.
 """
 from __future__ import annotations
 
@@ -13,14 +13,12 @@ from pathlib import Path
 import re
 import shutil
 
+from agent_e2e_errors import PackError
+
 
 TARGETS = {"local-docker": 72, "aws-ecs-redis-on": 72, "aws-eks": 72,
            "aws-lambda": 18, "aws-batch": 18}
 VARIANTS = ("A", "B", "C")
-
-
-class PackError(ValueError):
-    pass
 
 
 def digest_bytes(data):

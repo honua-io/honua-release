@@ -82,3 +82,14 @@ jobs:
           name: agent-e2e-contracts-${{ github.run_attempt }}
           path: agent-e2e-contracts.xml
           if-no-files-found: error
+      - name: Build isolated container runtime from allowlisted files
+        run: |
+          python tools/bundle_agent_e2e_container.py --output "$RUNNER_TEMP/agent-worker-context"
+          docker build --platform linux/amd64 -t honua-agent-worker:contract "$RUNNER_TEMP/agent-worker-context"
+      - name: Exercise actual non-root container boundaries
+        # Fixed smoke commands only; these are not scenario/model qualification.
+        run: |
+          docker run --rm -i --read-only --cap-drop ALL --security-opt no-new-privileges \
+            --network none --memory 512m --cpus 0.25 --pids-limit 64 \
+            -e HONUA_AGENT_TRANSPORT=private-canary -e AWS_SECRET_ACCESS_KEY=private-canary \
+            honua-agent-worker:contract python -I - < tools/smoke_agent_e2e_container.py
