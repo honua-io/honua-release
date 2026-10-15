@@ -52,3 +52,21 @@ def test_development_failure_retains_cost_without_becoming_qualification_history
     assert result['casesPassed'] == 252
     assert result['totalCostUsd'] == '7.56'
     assert result['candidateLiabilityUsd'] == '9.56'
+
+
+@pytest.mark.parametrize('replace', ['configuration', 'rawResponses', 'observation'])
+def test_semantic_target_relabel_or_cross_target_replay_fails(campaign, replace):
+    report = gate.read_json(campaign/'evidence/semantics.json')
+    source, destination = report['configurations'][:2]
+    if replace == 'configuration':
+        copied = copy.deepcopy(source)
+        copied['target'] = destination['target']
+        report['configurations'][1] = copied
+    else:
+        destination['checks'][0][replace] = source['checks'][0][replace]
+    ref = write(campaign/'evidence/semantics.json', report)
+    trusted = gate.read_json(campaign/'trusted.json')
+    trusted['semanticReport'] = ref
+    write(campaign/'trusted.json', trusted)
+    with pytest.raises(PackError, match='target/candidate|another deployment'):
+        validate(campaign)

@@ -7,9 +7,12 @@ from __future__ import annotations
 
 import json
 import math
+import base64
+import binascii
 from pathlib import Path
 
-from agent_e2e_pack import PackError, canonical_digest
+from agent_e2e_pack import PackError, canonical_digest, digest_bytes, load_json
+import agent_e2e_deployment as deployments
 
 CASES = (
     "select-strict", "select-inclusive", "select-inclusive-null", "paging-small",
@@ -22,6 +25,76 @@ CASES = (
 def require(condition, message):
     if not condition:
         raise PackError(message)
+
+
+MAX_RESPONSE_BYTES = 8 * 1024 * 1024
+
+
+def parse_response(raw):
+    def pairs(items):
+        result = {}
+        for key, value in items:
+            require(key not in result, 'duplicate key in semantic response')
+            result[key] = value
+        return result
+    def constant(value):
+        raise PackError('non-finite value in semantic response')
+    return json.loads(raw, object_pairs_hook=pairs, parse_constant=constant)
+
+
+def pointer(value, path):
+    require(isinstance(path, str) and (path == '' or path.startswith('/')), 'invalid response pointer')
+    for part in path.split('/')[1:]:
+        part = part.replace('~1', '/').replace('~0', '~')
+        value = value[int(part)] if isinstance(value, list) else value[part]
+    return value
+
+
+def response_evidence(status, raw):
+    """Retain exact HTTP entity bytes, including JSON whitespace and key order."""
+    require(type(raw) is bytes and len(raw) <= MAX_RESPONSE_BYTES, 'semantic response exceeds bound')
+    value = {'httpStatus': status, 'body': parse_response(raw), 'responseDigest': digest_bytes(raw),
+             'rawBodyBase64': base64.b64encode(raw).decode('ascii')}
+    validate_response(value)
+    return value
+
+
+def validate_response(value):
+    require(isinstance(value, dict) and set(value) == {'httpStatus', 'body', 'responseDigest', 'rawBodyBase64'},
+            'missing exact semantic response bytes')
+    require(type(value['httpStatus']) is int and 100 <= value['httpStatus'] <= 599, 'invalid observed HTTP status')
+    encoded = value['rawBodyBase64']
+    require(isinstance(encoded, str) and len(encoded) <= 4*((MAX_RESPONSE_BYTES+2)//3),
+            'semantic response exceeds bound')
+    try:
+        raw = base64.b64decode(encoded, validate=True)
+    except (ValueError, binascii.Error) as exc:
+        raise PackError('invalid encoded semantic response') from exc
+    require(len(raw) <= MAX_RESPONSE_BYTES and base64.b64encode(raw).decode('ascii') == encoded,
+            'noncanonical or oversized semantic response')
+    require(digest_bytes(raw) == value['responseDigest'], 'raw semantic response digest differs')
+    require(canonical_digest(parse_response(raw)) == canonical_digest(value['body']),
+            'parsed semantic body differs from raw response')
+
+
+def project_observation(responses, projection):
+    """Replay only reviewed JSON pointers over independently retained responses."""
+    require(isinstance(responses, list) and len(responses) >= 3, 'missing source or operation responses')
+    for response in responses:
+        validate_response(response)
+    require(set(projection) == {'sourcePointer', 'result'}, 'invalid semantic projection')
+    before, after = responses[0], responses[-1]
+    require(before['httpStatus'] == after['httpStatus'] == 200, 'cannot observe immutable source')
+    operations = responses[1:-1]
+    result = {}
+    require(isinstance(projection['result'], dict), 'invalid semantic result projection')
+    for field, reference in projection['result'].items():
+        require(set(reference) == {'response', 'pointer'}, 'result must reference an observed response')
+        index = reference['response']
+        require(type(index) is int and 0 <= index < len(operations), 'unknown observed response')
+        result[field] = pointer(operations[index], reference['pointer'])
+    return {'sourceBefore': pointer(before, projection['sourcePointer']),
+            'sourceAfter': pointer(after, projection['sourcePointer']), 'result': result}
 
 
 def fixture():
@@ -107,16 +180,26 @@ def validate_report(report, campaign, targets, evidence_root, resolve):
     configurations = report["configurations"]
     require(isinstance(configurations, list) and len(configurations) == len(targets) and
             {c["target"] for c in configurations} == set(targets), "semantic target coverage incomplete")
+    identities = set()
     for configuration in configurations:
-        require(set(configuration) == {"target", "runtimeInterfaces", "checks"}, "invalid semantic configuration")
+        require(set(configuration) == {"target", "runtimeInterfaces", "deployment", "checks"}, "invalid semantic configuration")
+        deployment = load_json(resolve(evidence_root, configuration['deployment']))
+        identity = deployments.identity(deployment, campaign, configuration['target'])
+        require(identity not in identities, 'semantic deployment was reused for multiple targets')
+        identities.add(identity)
+        deployment_digest = configuration['deployment']['sha256']
         resolve(evidence_root, configuration["runtimeInterfaces"])
         checks = configuration["checks"]
         require(isinstance(checks, list) and len(checks) == len(CASES) and {c["id"] for c in checks} == set(CASES),
                 "semantic assertion coverage incomplete")
         for check in checks:
-            require(set(check) == {"id", "observation", "rawResponses"}, "invalid semantic check")
+            require(set(check) == {"id", "observation", "rawResponses", "projection"}, "invalid semantic check")
             require(isinstance(check["rawResponses"], list) and bool(check["rawResponses"]), "missing raw semantic responses")
-            for ref in check["rawResponses"]:
-                resolve(evidence_root, ref)
-            observed = json.loads(Path(resolve(evidence_root, check["observation"])).read_text(encoding="utf-8"))
+            responses = [deployments.unbind(load_json(resolve(evidence_root, ref)), deployment_digest, deployment['endpoint'])
+                         for ref in check['rawResponses']]
+            projection = load_json(resolve(evidence_root, check['projection']))
+            observed = deployments.unbind(load_json(resolve(evidence_root, check['observation'])),
+                                          deployment_digest, deployment['endpoint'])
+            require(canonical_digest(project_observation(responses, projection)) == canonical_digest(observed),
+                    'semantic observation differs from retained response projections')
             verify(check["id"], observed)

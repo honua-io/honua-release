@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import math
 import re
 import time
 
@@ -73,7 +74,7 @@ class Worker:
         if type(timeout) is not int or not 1 <= timeout <= 300:
             raise PackError("invalid terminal timeout")
         now = self.clock()
-        deadline = min(int(now) + timeout, self.config["expiresEpoch"] - 5)
+        deadline = min(math.ceil(now + timeout), self.config["expiresEpoch"] - 5)
         request = {"protocol": PROTOCOL, "attemptId": self.config["attemptId"], "actionId": action_id,
                    "deadlineEpoch": deadline, "command": command, "timeoutSeconds": timeout}
         validate_command(request, self.config["attemptId"], self.config["expiresEpoch"], now)

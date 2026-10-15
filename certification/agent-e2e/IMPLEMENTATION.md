@@ -21,6 +21,29 @@ been qualified by the offline tests described here.
 
 The HTTP recipe runner and worker transport are building blocks, not a complete
 backend. There is no fallback to running model-selected commands on the controller.
+
+Semantic evidence retains each exact HTTP response body as base64, its SHA-256,
+HTTP status and parsed JSON. Source-before, operation and source-after responses
+are ordered and content-addressed. The gate checks the raw bytes against the hash
+and parsed body, then replays the saved JSON-pointer projections and compares the
+result with the asserted observation. A hash without its original bytes, or an
+observation disconnected from the retained responses, cannot qualify. This does
+not replace reviewed API recipes, fixture seeding, protected spatial-source
+snapshots or live transport observations; those integrations remain open in #624.
+
+Each semantic configuration also requires a controller-collected deployment
+observation within the campaign window: Docker inspect; ECS DescribeTasks;
+EKS cluster and Kubernetes pod observations; Lambda function configuration; or
+Batch DescribeJobs. The gate validates native identity and running/active status
+(a completed Batch job is also valid), candidate and target. Every HTTP response
+and resulting assertion artifact carries that deployment artifact's digest and
+the actual probed endpoint. Relabeling a configuration or reusing another target's
+response/observation fails validation. These artifacts must be collected by the
+trusted backend; accepting model-supplied identity JSON would defeat this boundary.
+Native identity validation alone does not establish image provenance, Redis
+configuration, network routing or live API collection; the producer's preflight
+and backend still must prove those properties before qualification.
+
 The consumer integration in PR #607 must remain draft until the producer and
 runtime evidence exist. This foundation adds no release/nightly/promotion
 requirement. Unknown attribution and missing observations fail closed.
