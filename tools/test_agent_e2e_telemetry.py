@@ -5,6 +5,7 @@ from pathlib import Path
 import pytest
 
 from agent_e2e_telemetry import Journal, TelemetryError, read_events, report, summarize, prometheus
+from agent_e2e_telemetry import atomic_write
 
 
 def journal(tmp_path):
@@ -113,3 +114,42 @@ def test_invalid_cost_cannot_pollute_metrics(tmp_path, cost):
                      costUsd=cost, responseDigest='sha256:'+'a'*64)
     finally:
         log.close()
+
+
+def test_correlations_survive_reports_but_never_become_metric_labels(tmp_path):
+    log = journal(tmp_path)
+    log.emit('provider-request', turn=1, requestId='provider-request-123')
+    log.emit('runtime-trace', action=1, requestId='server-request-456',
+             traceId='a'*32, spanId='b'*16, evidenceDigest='sha256:'+'c'*64)
+    log.close()
+    value = report([log.path])
+    attempt = value['attempts'][0]
+    assert attempt['providerRequests'][0]['requestId'] == 'provider-request-123'
+    assert attempt['runtimeTraces'][0]['evidenceDigest'] == 'sha256:'+'c'*64
+    metrics = prometheus(value)
+    assert 'request-123' not in metrics and 'request-456' not in metrics and 'a'*32 not in metrics
+
+
+@pytest.mark.parametrize('change', [{'traceId':'0'*32}, {'spanId':'bad'}, {'action':0},
+                                  {'requestId':'Bearer private-value'}, {'evidenceDigest':'unbound'}])
+def test_malformed_or_sensitive_trace_fields_are_rejected(tmp_path, change):
+    log = journal(tmp_path)
+    values = {'action':1, 'requestId':'server-123', 'traceId':'a'*32,
+              'spanId':'b'*16, 'evidenceDigest':'sha256:'+'c'*64, **change}
+    try:
+        with pytest.raises(TelemetryError):
+            log.emit('runtime-trace', **values)
+    finally:
+        log.close()
+
+
+def test_failed_atomic_publication_keeps_previous_metrics(tmp_path, monkeypatch):
+    path = tmp_path/'metrics.prom'
+    path.write_bytes(b'previous complete metrics\n')
+    def fail_replace(*args):
+        raise OSError('replace failed')
+    monkeypatch.setattr('agent_e2e_telemetry.os.replace', fail_replace)
+    with pytest.raises(OSError):
+        atomic_write(path, b'new metrics\n')
+    assert path.read_bytes() == b'previous complete metrics\n'
+    assert sorted(p.name for p in tmp_path.iterdir()) == ['metrics.prom']

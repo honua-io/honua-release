@@ -247,6 +247,8 @@ def run_goal(*, pack, corpus, case_id, campaign, backend, model, ledger, journal
             journal.emit("model", turn=turns, durationMs=round((time.monotonic()-turn_start)*1000),
                          inputTokens=usage["input_tokens"], outputTokens=usage["output_tokens"],
                          costUsd=str(cost), responseDigest=canonical_digest(message))
+            if provider_request is not None:
+                journal.emit("provider-request", turn=turns, requestId=provider_request)
             remaining()
             content = message.get("content")
             if not isinstance(content, list) or not content or not all(isinstance(item, dict) for item in content):
@@ -307,8 +309,10 @@ def run_goal(*, pack, corpus, case_id, campaign, backend, model, ledger, journal
                 if operation not in {"discovery", "read", "write", "configure", "deploy", "publish", "delete", "clarify", "other"}:
                     raise ControllerError("invalid operation telemetry")
                 for event in observed.get("telemetry", []):
-                    if not isinstance(event, dict) or event.get("event") not in ("discovery", "knowledge-read"):
+                    if not isinstance(event, dict) or event.get("event") not in ("discovery", "knowledge-read", "runtime-trace"):
                         raise ControllerError("invalid backend telemetry")
+                    if event["event"] == "runtime-trace" and (type(event.get("action")) is not int or event["action"] != actions):
+                        raise ControllerError("runtime trace belongs to another action")
                     journal.emit(event["event"], **{k: v for k, v in event.items() if k != "event"})
                 journal.emit("action", action=actions, kind=call["name"], operation=operation, requestDigest=canonical_digest({"name": call["name"], "input": call["input"]}),
                              resultDigest=canonical_digest(public), durationMs=round((time.monotonic()-action_start)*1000),
@@ -378,17 +382,10 @@ def main(argv=None):
             raise ControllerError("pack or corpus differs from frozen campaign")
         corpus = load_json(corpus_path)
         verify_corpus(corpus_path.parent, corpus)
-        import boto3
-        from botocore.config import Config
-        from agent_e2e_state import StateStore, DurableExecution
-        state_config = load_json(args.state_config)
-        if set(state_config) != {"region", "bucket", "table"}:
-            raise ControllerError("invalid durable state configuration")
-        client_config = Config(connect_timeout=10, read_timeout=20, retries={"total_max_attempts": 1})
-        store = StateStore(s3=boto3.client("s3", region_name=state_config["region"], config=client_config),
-            dynamodb=boto3.client("dynamodb", region_name=state_config["region"], config=client_config),
-            bucket=state_config["bucket"], table=state_config["table"], candidate_key=campaign["componentBindingDigest"])
+        from agent_e2e_state import open_store, DurableExecution
+        store = open_store(load_json(args.state_config), campaign['componentBindingDigest'])
         durable = DurableExecution(store, args.ledger, initialize=args.initialize_state)
+        durable.restore_journals(args.journal_root)
         result = run_goal(pack=pack, corpus=corpus, case_id=args.case_id,
             campaign=campaign, backend=Backend(load_json(args.backend)),
             model=BedrockModel(load_json(args.model)), ledger=args.ledger, journal_root=args.journal_root, attempt=args.attempt,

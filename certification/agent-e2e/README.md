@@ -1,6 +1,8 @@
 # Goal-driven agent E2E pack
 
-This is controller-only material for server #3428. The frozen inventory has 36
+This is controller-only material tracked in
+[honua-release #619](https://github.com/honua-io/honua-release/issues/619);
+server #3428 owns the related MCP setup view. The frozen inventory has 36
 scenarios, three variants each, and 252 target cases: 72 local Docker, 72 ECS with
 Redis, 72 EKS with durable storage, 18 Lambda, and 18 Batch. It adds independent
 goal-driven evidence; the older guided journey remains a separate test. No live

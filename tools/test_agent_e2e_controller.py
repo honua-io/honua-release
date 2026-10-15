@@ -86,6 +86,26 @@ def test_hidden_prepare_payload_not_in_model_input_and_no_qualification_claim(en
     assert "secretOracle" not in text and "MUST NOT REACH MODEL" not in text
     assert "assertions" not in text and "expectedOutcome" not in text
     assert summarize(read_events(result["journal"]))["agentEncounteredCorpus"] is True
+    assert summarize(read_events(result["journal"]))['providerRequests'] == [{'turn':1, 'requestId':'request-id'}]
+
+
+@pytest.mark.parametrize('observed_action', [1, 2])
+def test_backend_trace_must_belong_to_current_action(environment, observed_action):
+    environment['model'] = Model([{'type':'tool_use', 'id':'x', 'name':'mcp_list_tools', 'input':{}}])
+    original = environment['backend'].call
+    def call(operation, payload, **kwargs):
+        result = original(operation, payload, **kwargs)
+        if operation == 'agent_action':
+            result['telemetry'] = [{'event':'runtime-trace', 'action':observed_action,
+                'traceId':'a'*32, 'spanId':'b'*16, 'requestId':'server-request', 'evidenceDigest':'sha256:'+'c'*64}]
+        return result
+    environment['backend'].call = call
+    result = run_goal(**environment)
+    traces = summarize(read_events(result['journal']))['runtimeTraces']
+    if observed_action == 1:
+        assert traces[0]['action'] == 1
+    else:
+        assert result['status'] == 'blocked' and traces == []
 
 
 def test_incorrect_final_state_is_not_retryable_infrastructure(environment):

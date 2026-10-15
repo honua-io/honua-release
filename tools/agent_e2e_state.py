@@ -12,9 +12,24 @@ import re
 import time
 import uuid
 import threading
+import argparse
 from pathlib import Path
 
-from agent_e2e_pack import PackError, canonical_digest, digest_bytes
+from agent_e2e_pack import PackError, canonical_digest, digest_bytes, load_json
+
+
+def open_store(config, candidate_key):
+    """Construct controller clients without embedding credentials in configuration."""
+    if not isinstance(config, dict) or set(config) != {'region', 'bucket', 'table'}:
+        raise PackError('invalid durable state configuration')
+    if not all(isinstance(v, str) and v.strip() for v in config.values()):
+        raise PackError('empty durable state configuration')
+    import boto3
+    from botocore.config import Config
+    client_config = Config(connect_timeout=10, read_timeout=20, retries={'total_max_attempts':1})
+    return StateStore(s3=boto3.client('s3', region_name=config['region'], config=client_config),
+        dynamodb=boto3.client('dynamodb', region_name=config['region'], config=client_config),
+        bucket=config['bucket'], table=config['table'], candidate_key=candidate_key)
 
 
 class StateStore:
@@ -140,25 +155,65 @@ class DurableExecution:
     """Synchronously persist each liability and journal event before continuing."""
     def __init__(self, store, ledger_path, *, initialize=False):
         from agent_e2e_budget import update
+        from agent_e2e_telemetry import atomic_write
         self.store, self.path = store, Path(ledger_path)
         state = store.acquire()
-        if state is None:
-            if not initialize:
-                store.release()
-                raise PackError('new candidate state requires explicit initialization')
+        try:
+            if state is None:
+                if not initialize:
+                    raise PackError('new candidate state requires explicit initialization')
+                if self.path.exists():
+                    raise PackError('cannot initialize durable state from an existing local ledger')
+                update(self.path, 'init', candidate_key=store.candidate)
+                state = {'ledger':load_json(self.path), 'journals':{}}
+                store.commit(state)
             if self.path.exists():
+                # A failed remote settlement may leave a newer local charge.
+                # Never overwrite it with an older snapshot and lose the cost.
+                preserve_history({'ledger':load_json(self.path)}, {'ledger':state['ledger']})
+            atomic_write(self.path, json.dumps(state['ledger'], allow_nan=False).encode())
+        except Exception:
+            try:
                 store.release()
-                raise PackError('cannot initialize durable state from an existing local ledger')
-            update(self.path, 'init', candidate_key=store.candidate)
-            state = {'ledger':json.loads(self.path.read_text()), 'journals':{}}
-            store.commit(state)
+            except Exception:
+                pass  # Leave an expired/lost lease to its fenced recovery path.
+            raise
         self.state = state
-        self.path.parent.mkdir(parents=True, exist_ok=True)
-        self.path.write_text(json.dumps(state['ledger']), encoding='utf-8')
         self.stop = threading.Event()
         self.heartbeat_error = None
         self.thread = threading.Thread(target=self._heartbeat, daemon=True)
         self.thread.start()
+
+    def restore_journals(self, root):
+        """Recover retained attempts without inventing end events or retry rights.
+
+        An existing local file must agree exactly with the durable events. A
+        divergent/torn local journal is retained for explicit reconciliation.
+        Validate the entire recovery set before publishing any recovered file.
+        """
+        from agent_e2e_telemetry import atomic_write, read_events, validate_events
+        root = Path(root)
+        if root.is_symlink():
+            raise PackError('refusing symlink journal root')
+        pending = []
+        for key, rows in self.state['journals'].items():
+            validate_events(rows)
+            expected_key = canonical_digest({k:rows[0][k] for k in ('campaignId','caseId','attempt')})
+            if key != expected_key:
+                raise PackError('durable journal identity mismatch')
+            path = root/(key.split(':', 1)[1]+'.jsonl')
+            if path.is_symlink():
+                raise PackError('refusing symlink journal')
+            if path.exists():
+                if canonical_digest(read_events(path)) != canonical_digest(rows):
+                    raise PackError('local journal differs from durable history; retain for reconciliation')
+            else:
+                pending.append((path, rows))
+        if self.heartbeat_error:
+            raise PackError('durable controller lease renewal failed')
+        for path, rows in pending:
+            atomic_write(path, ''.join(json.dumps(row, sort_keys=True, allow_nan=False)+'\n' for row in rows).encode())
+        return len(pending)
 
     def _heartbeat(self):
         while not self.stop.wait(30):
@@ -205,3 +260,35 @@ class DurableExecution:
         if self.thread.is_alive() or self.heartbeat_error:
             raise PackError('lease renewal unavailable; retain lease for recovery')
         self.store.release()
+
+
+def main(argv=None):
+    """Recover existing history for reporting; never initialize or run a model."""
+    from agent_e2e_telemetry import atomic_write
+    parser = argparse.ArgumentParser(description=main.__doc__)
+    for name in ('state-config', 'ledger', 'journal-root', 'output'):
+        parser.add_argument('--'+name, required=True, type=Path)
+    parser.add_argument('--candidate-key', required=True)
+    args = parser.parse_args(argv)
+    execution = None
+    try:
+        store = open_store(load_json(args.state_config), args.candidate_key)
+        execution = DurableExecution(store, args.ledger)
+        count = execution.restore_journals(args.journal_root)
+        result = {'status':'recovered', 'candidateKey':args.candidate_key,
+                  'journalsRestored':count, 'journalsRetained':len(execution.state['journals']), 'qualification':False}
+    except Exception as exc:
+        result = {'status':'blocked', 'errorType':type(exc).__name__, 'qualification':False}
+    finally:
+        if execution is not None:
+            try:
+                execution.close()
+            except Exception as exc:
+                result = {'status':'blocked', 'errorType':type(exc).__name__,
+                          'reason':'durable-state-release-failed', 'qualification':False}
+    atomic_write(args.output, (json.dumps(result, indent=2)+'\n').encode())
+    return 0 if result['status'] == 'recovered' else 1
+
+
+if __name__ == '__main__':
+    raise SystemExit(main())

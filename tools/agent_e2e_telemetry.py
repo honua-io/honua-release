@@ -15,6 +15,7 @@ import math
 import re
 from pathlib import Path
 import time
+import tempfile
 
 from agent_e2e_pack import canonical_digest
 
@@ -29,6 +30,8 @@ FIELDS = {
     "diagnosis": {"attribution", "basis", "evidenceDigest"},
     "discovery": {"interfaceKind", "operation", "schemaDigest", "observationDigest"},
     "knowledge-read": {"documentId", "documentDigest", "bundleDigest"},
+    "provider-request": {"turn", "requestId"},
+    "runtime-trace": {"action", "traceId", "spanId", "requestId", "evidenceDigest"},
     "model": {"turn", "durationMs", "inputTokens", "outputTokens", "costUsd", "responseDigest"},
     "action": {"action", "kind", "operation", "requestDigest", "resultDigest", "durationMs", "isError", "errorCategory"},
     "verification": {"status", "failedAssertions"},
@@ -76,6 +79,19 @@ def validate_values(event, values):
             pattern = r"sha256:[0-9a-f]{64}" if key.endswith("Digest") else r"[A-Za-z0-9._:/{}-]{1,256}"
             if not isinstance(value, str) or not re.fullmatch(pattern, value):
                 raise TelemetryError("telemetry identifiers cannot carry raw payloads")
+    if event in ("provider-request", "runtime-trace"):
+        if not isinstance(values["requestId"], str) or not re.fullmatch(r"[A-Za-z0-9._:-]{1,128}", values["requestId"]):
+            raise TelemetryError("invalid request correlation identifier")
+        ordinal = "turn" if event == "provider-request" else "action"
+        if values[ordinal] < 1:
+            raise TelemetryError("correlation requires a positive turn/action")
+    if event == "runtime-trace":
+        for key, width in (("traceId", 32), ("spanId", 16)):
+            value = values[key]
+            if not isinstance(value, str) or not re.fullmatch(r"[0-9a-f]{"+str(width)+r"}", value) or int(value, 16) == 0:
+                raise TelemetryError("invalid runtime trace identifier")
+        if not isinstance(values["evidenceDigest"], str) or not re.fullmatch(r"sha256:[0-9a-f]{64}", values["evidenceDigest"]):
+            raise TelemetryError("runtime correlation requires evidence digest")
 
 
 class Journal:
@@ -122,11 +138,10 @@ class Journal:
             self.fd = None
 
 
-def read_events(path):
+def validate_events(events):
     rows = []
     previous, identity = None, None
-    for line in Path(path).read_text(encoding="utf-8").splitlines():
-        row = json.loads(line)
+    for row in events:
         event = row.get("event")
         if event not in FIELDS or set(row) != COMMON | FIELDS[event]:
             raise TelemetryError("unexpected telemetry event/fields")
@@ -134,7 +149,7 @@ def read_events(path):
             raise TelemetryError("unsupported telemetry schema")
         validate_identity(row)
         validate_values(event, {k: row[k] for k in FIELDS[event]})
-        if row["sequence"] != len(rows) or row["previousDigest"] != previous:
+        if type(row["sequence"]) is not int or row["sequence"] != len(rows) or row["previousDigest"] != previous:
             raise TelemetryError("broken telemetry chain")
         current = tuple(row[k] for k in ("campaignId", "caseId", "attempt"))
         if identity is not None and identity != current:
@@ -150,6 +165,27 @@ def read_events(path):
     if ends and ends != [len(rows) - 1]:
         raise TelemetryError("events after completion")
     return rows
+
+
+def read_events(path):
+    return validate_events(json.loads(line) for line in Path(path).read_text(encoding="utf-8").splitlines())
+
+
+def atomic_write(path, data):
+    """Publish a complete file so readers never consume a partially written report."""
+    path = Path(path)
+    if path.is_symlink():
+        raise TelemetryError("refusing symlink output")
+    path.parent.mkdir(parents=True, exist_ok=True)
+    fd, temporary = tempfile.mkstemp(prefix="."+path.name+"-", dir=path.parent)
+    try:
+        with os.fdopen(fd, "wb") as stream:
+            stream.write(data)
+            stream.flush()
+            os.fsync(stream.fileno())
+        os.replace(temporary, path)
+    finally:
+        Path(temporary).unlink(missing_ok=True)
 
 
 def summarize(rows):
@@ -176,6 +212,8 @@ def summarize(rows):
             "diagnoses": [{k: r[k] for k in FIELDS["diagnosis"]} for r in rows if r["event"] == "diagnosis"],
             "discoveredInterfaces": [{k: r[k] for k in FIELDS["discovery"]} for r in rows if r["event"] == "discovery"],
             "knowledgeReads": [{k: r[k] for k in FIELDS["knowledge-read"]} for r in rows if r["event"] == "knowledge-read"],
+            "providerRequests": [{k: r[k] for k in FIELDS["provider-request"]} for r in rows if r["event"] == "provider-request"],
+            "runtimeTraces": [{k: r[k] for k in FIELDS["runtime-trace"]} for r in rows if r["event"] == "runtime-trace"],
             "cleanupStatus": last.get("cleanupStatus", "not-observed"),
             "status": last["status"] if last["event"] == "end" else "interrupted",
             "failureAttribution": last.get("failureAttribution"), "reason": last.get("reason"),
@@ -288,9 +326,9 @@ def main(argv=None):
     p.add_argument("--prometheus", type=Path)
     args = p.parse_args(argv)
     value = report(sorted(args.journals.glob("*.jsonl")))
-    args.output.write_text(json.dumps(value, indent=2, allow_nan=False) + "\n", encoding="utf-8")
+    atomic_write(args.output, (json.dumps(value, indent=2, allow_nan=False) + "\n").encode())
     if args.prometheus:
-        args.prometheus.write_text(prometheus(value), encoding="utf-8", newline="\n")
+        atomic_write(args.prometheus, prometheus(value).encode())
     return 0
 
 

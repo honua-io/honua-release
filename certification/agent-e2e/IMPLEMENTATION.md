@@ -1,6 +1,8 @@
 # Agent E2E implementation and operations
 
 This records the recovered implementation plan and its current delivery boundary.
+The full delivery checklist is tracked in
+[honua-release #619](https://github.com/honua-io/honua-release/issues/619).
 The 36 scenarios and 108 prompts are unchanged. Qualification still requires all
 252 cases across Docker, ECS with Redis, EKS, Lambda and Batch. No live cases have
 been qualified by the offline tests described here.
@@ -13,8 +15,8 @@ been qualified by the offline tests described here.
 | Semantic verification | Fifteen deterministic predicates, protected-content checks, independent raw-response/observation evidence contract | Reviewed API recipes, fixture seeding and response normalization for every supported configuration |
 | Goal execution | Model-selected actions, bounded turns/actions/cost, development holdout protection, cleanup accounting | Complete scenario backend for setup, permissions, fault injection, observation and custody changes |
 | Worker isolation | EC2/SSM transport with pinned image/profile and bounded command lifetime | Reviewed AMI, IAM/network restrictions, independent watchdog and deployment configuration |
-| Durable state | Versioned S3 snapshots, fenced DynamoDB lease, synchronous reservation/event persistence, history preservation | Provision controller-only stores; integrate final receipt/registry publication and crash recovery |
-| Instrumentation | Hash-chained attempt journals, JSON diagnostics and Prometheus text output | Scrape/upload wiring, dashboards, alerts and correlation with server trace artifacts |
+| Durable state | Versioned S3 snapshots, fenced DynamoDB lease, synchronous reservation/event persistence, journal recovery and protection against overwriting newer local charges | Provision controller-only stores; integrate final receipt/registry publication and prove cloud crash recovery |
+| Instrumentation | Hash-chained attempt journals, request/trace correlation contracts, JSON diagnostics and atomic Prometheus text output | Scrape/upload wiring, dashboards, alerts and observed server trace artifacts from the live backend |
 | Release evidence | v2 gate checks exact knowledge, independent semantics, runtime interfaces, all receipts and candidate spending | Attesting campaign producer workflow and successful live campaign before release activation |
 
 The HTTP recipe runner and worker transport are building blocks, not a complete
@@ -94,6 +96,16 @@ integration must retain the matching server trace/request identifiers and eviden
 artifacts to connect those signals to a controller attempt. Merely having both
 sets of counters does not establish that correlation.
 
+The controller journals each returned provider request ID with its model turn.
+A backend may emit `runtime-trace` events containing the current action number,
+observed `traceId`, `spanId`, `requestId` and the digest of the retained evidence.
+The controller rejects events assigned to another action or malformed IDs.
+Reports expose `providerRequests` and `runtimeTraces`; these identifiers never
+become metric labels. The backend must collect actual correlation evidence: this
+contract does not synthesize server spans or prove that a collector received them.
+Each report/metrics file is published atomically, preserving the previous complete
+file if publication fails. The JSON and metrics files are separate snapshots.
+
 Reports always contain `qualification: false`. Only the independent, attested
 complete-campaign gate can qualify a candidate. A final successful retry does not
 erase the first failure or its cost from either history.
@@ -112,6 +124,23 @@ qualification attempts, retries, infrastructure and cleanup draw from the same
 candidate-wide $500 ceiling, including the $50 cleanup reserve. Unknown usage
 remains reserved. A lost lease stops further work; an independent watchdog is
 still required to remove resources when the controller itself is gone.
+
+Recover existing durable history on a replacement controller without starting a
+model or initializing a new spending allowance:
+
+```powershell
+python tools/agent_e2e_state.py --state-config C:/controller/state.json --candidate-key <sha256-candidate-binding> --ledger C:/controller/recovered/budget.json --journal-root C:/controller/recovered/journals --output C:/controller/recovery.json
+python tools/agent_e2e_telemetry.py --journals C:/controller/recovered/journals --output C:/controller/recovered/report.json --prometheus C:/controller/recovered/metrics.prom
+```
+
+Recovery acquires the candidate lease and verifies the retained journal identities
+and chains before publishing missing files. An interrupted attempt remains
+interrupted and cannot reuse its attempt identity. Existing divergent/torn local
+journals are retained and block recovery; use an independent reconciliation process,
+not deletion of evidence. A newer local charge cannot be overwritten by an older
+remote ledger. Retain both copies and reconcile the actual liability before
+resuming. The normal controller also restores durable journals before attempting
+another case. Recovery itself never creates a passing receipt or authorizes retry.
 
 ## Delivery order and acceptance
 
