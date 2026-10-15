@@ -1,0 +1,172 @@
+# GP process promotion (honua-release#616): carry an already-built release into an environment by
+# opening a reviewed environment-pin pull request. Nothing is deployed here. The pin
+# (schemas/gp-environment-pin.v1.schema.json) names the lock by path AND digest, records the
+# previous release (the rollback target) and the environment binding version it was written
+# against; merging the PR to trunk is what starts gp-deploy-process.yml.
+#
+# The digests in the PR are the digests the release run attested. This workflow downloads that
+# run's artifact, verifies its attestation, proves the digest the operator asked for is the digest
+# of those bytes, and commits the lock bytes next to the pin so the deployment reads committed
+# content, not a mutable artifact store.
+name: gp-promote-process
+run-name: "gp promote ${{ inputs.process }} -> ${{ inputs.environment }}"
+
+on:
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: "Target environment directory under release/gp-environments/"
+        required: true
+        type: string
+      process:
+        description: "Logical process name (must equal the lock's process.name)"
+        required: true
+        type: string
+      release_run_id:
+        description: "gp-release-process run id that built the release"
+        required: true
+        type: string
+      artifact_name:
+        description: "Artifact uploaded by that run (gp-process-release-<12 hex>)"
+        required: true
+        type: string
+      lock_digest:
+        description: "sha256:<hex> the operator expects; the PR is refused if the artifact differs"
+        required: true
+        type: string
+
+permissions:
+  contents: write
+  pull-requests: write
+  actions: read
+
+concurrency:
+  group: gp-promote-${{ inputs.environment }}-${{ inputs.process }}
+  cancel-in-progress: false
+
+jobs:
+  promote:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.12"
+      - run: python -m pip install "jsonschema>=4.23" "pyyaml>=6.0" pytest
+
+      - name: Self-test the release gate
+        run: python -m pytest tools/test_gp_process_release.py -q
+
+      - name: Fetch and verify the attested release lock
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_RUN_ID: ${{ inputs.release_run_id }}
+          ARTIFACT_NAME: ${{ inputs.artifact_name }}
+          EXPECTED_DIGEST: ${{ inputs.lock_digest }}
+        run: |
+          set -euo pipefail
+          gh run download "$RELEASE_RUN_ID" --repo "$GITHUB_REPOSITORY" --name "$ARTIFACT_NAME" --dir _release
+          gh attestation verify _release/process-release-lock.json --repo "$GITHUB_REPOSITORY"
+          python3 tools/gp_process_release.py validate-lock _release/process-release-lock.json
+          actual="$(python3 tools/gp_process_release.py lock-digest _release/process-release-lock.json)"
+          if [ "$actual" != "$EXPECTED_DIGEST" ]; then
+            echo "::error::artifact $ARTIFACT_NAME digests to $actual, not the requested $EXPECTED_DIGEST"
+            exit 1
+          fi
+
+      - name: Write the lock and the environment pin
+        id: pin
+        env:
+          ENVIRONMENT: ${{ inputs.environment }}
+          PROCESS: ${{ inputs.process }}
+          LOCK_DIGEST: ${{ inputs.lock_digest }}
+          RELEASE_RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ inputs.release_run_id }}
+          ACTOR: ${{ github.triggering_actor || github.actor }}
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import json, os, sys
+          from pathlib import Path
+          env, process, digest = os.environ["ENVIRONMENT"], os.environ["PROCESS"], os.environ["LOCK_DIGEST"]
+          lock = json.load(open("_release/process-release-lock.json"))
+          if lock["process"]["name"] != process:
+              print(f"::error::the lock is for {lock['process']['name']!r}, not {process!r}"); sys.exit(1)
+          state_path = Path("release/gp-environments") / env / "environment.json"
+          if not state_path.is_file():
+              print(f"::error::{state_path} does not exist; environments are declared in Git before anything is promoted to them"); sys.exit(1)
+          state = json.load(open(state_path))
+          short = digest[len("sha256:"):][:12]
+          lock_path = Path("release/gp-process-locks") / process / f"{short}.json"
+          lock_path.parent.mkdir(parents=True, exist_ok=True)
+          lock_path.write_text(json.dumps(lock, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+          pin_path = Path("release/gp-environments") / env / f"{process}.pin.json"
+          previous = None
+          if pin_path.is_file():
+              current = json.load(open(pin_path))
+              if current["release"]["lockDigest"] == digest:
+                  print(f"::error::{env} already pins {process} to {digest}"); sys.exit(1)
+              previous = current["release"]
+          pin = {
+              "schema": "honua.gp-environment-pin/v1", "environment": env, "process": process,
+              "release": {"lockPath": str(lock_path).replace(os.sep, "/"), "lockDigest": digest},
+              "previous": previous,
+              "expectedBindingVersion": state["bindingVersion"],
+              "promotedBy": {"actor": os.environ["ACTOR"], "sourceRun": os.environ["RELEASE_RUN_URL"]},
+          }
+          pin_path.write_text(json.dumps(pin, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+          with open(os.environ["GITHUB_OUTPUT"], "a") as out:
+              out.write(f"short={short}\npin_path={pin_path}\nlock_path={lock_path}\nversion={lock['process']['version']}\n")
+              out.write(f"previous={previous['lockDigest'] if previous else 'none'}\n")
+              out.write(f"expected_binding_version={state['bindingVersion']}\n")
+          PY
+          python3 tools/gp_process_release.py validate-pin "$(sed -n 's/^pin_path=//p' "$GITHUB_OUTPUT" | tail -n1)" --locks-root .
+
+      # A pull request opened with the default token does not trigger other workflows; set
+      # RELEASE_GH_TOKEN (a fine-grained token with contents + pull-requests write) so the pin PR
+      # gets its validate check like any other change. The deployment itself only starts when
+      # the PR is MERGED to trunk, by a human reviewer.
+      - name: Open the environment-pin pull request
+        env:
+          GH_TOKEN: ${{ secrets.RELEASE_GH_TOKEN || github.token }}
+          ENVIRONMENT: ${{ inputs.environment }}
+          PROCESS: ${{ inputs.process }}
+          VERSION: ${{ steps.pin.outputs.version }}
+          SHORT: ${{ steps.pin.outputs.short }}
+          LOCK_DIGEST: ${{ inputs.lock_digest }}
+          PREVIOUS: ${{ steps.pin.outputs.previous }}
+          EXPECTED_BINDING_VERSION: ${{ steps.pin.outputs.expected_binding_version }}
+          PIN_PATH: ${{ steps.pin.outputs.pin_path }}
+          LOCK_PATH: ${{ steps.pin.outputs.lock_path }}
+          RELEASE_RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ inputs.release_run_id }}
+        run: |
+          set -euo pipefail
+          branch="gp-pin/$ENVIRONMENT/$PROCESS/$SHORT"
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git checkout -b "$branch"
+          git add "$PIN_PATH" "$LOCK_PATH"
+          git commit -m "gp($ENVIRONMENT): pin $PROCESS to $VERSION ($SHORT)"
+          git push origin "$branch"
+          body="$(cat <<EOF
+          ## Environment pin
+
+          | | |
+          |---|---|
+          | environment | \`$ENVIRONMENT\` |
+          | process | \`$PROCESS\` $VERSION |
+          | release lock | \`$LOCK_DIGEST\` (\`$LOCK_PATH\`) |
+          | rollback target (previous) | \`$PREVIOUS\` |
+          | expectedBindingVersion | $EXPECTED_BINDING_VERSION |
+          | built by | $RELEASE_RUN_URL |
+
+          Merging this PR starts \`gp-deploy-process.yml\` for \`$ENVIRONMENT\`, serialized per environment. The deployment re-verifies the lock digest, artifact and image availability, server-contract compatibility, supported targets and the binding version before changing anything, and records a signed deployment receipt either way. Running jobs keep the release they were admitted with.
+
+          Refs honua-io/honua-release#616
+          EOF
+          )"
+          gh pr create --base trunk --head "$branch" \
+            --title "gp($ENVIRONMENT): pin $PROCESS to $VERSION ($SHORT)" \
+            --body "$body"

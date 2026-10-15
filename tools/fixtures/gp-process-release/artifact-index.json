@@ -1,0 +1,15 @@
+{
+  "artifacts": [
+    "sha256:eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+    "sha256:7777777777777777777777777777777777777777777777777777777777777777",
+    "sha256:5555555555555555555555555555555555555555555555555555555555555555"
+  ],
+  "description": "Digests the environment's registry and artifact store can serve. The reference workflow writes this from the release run's uploaded artifacts; a real environment lists what its registry resolved.",
+  "images": [
+    "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+    "sha256:4444444444444444444444444444444444444444444444444444444444444444",
+    "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+    "sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
+  ],
+  "schema": "honua.gp-artifact-index/v1"
+}

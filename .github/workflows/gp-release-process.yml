@@ -1,0 +1,188 @@
+# GP process release (honua-release#616, stage 4 of the GP developer-experience plan, #613).
+#
+# Build a geoprocessing process release ONCE and publish its immutable identity: the release lock
+# (schemas/gp-process-release-lock.v1.schema.json) carrying the source SHA, dependency-lock digest,
+# runtime image digest, workflow version, configuration references, targets, artifact digests and
+# validation receipts. Promotion (gp-promote-process.yml) and deployment (gp-deploy-process.yml)
+# move this lock by digest; nothing downstream rebuilds.
+#
+# Contract boundary: the lock is written by `honua-gp-devkit release`, which ships with
+# honua-io/honua-server#6221. Until then this workflow runs in REFERENCE MODE: `lock_fixture`
+# names a committed lock (for example tools/fixtures/gp-process-release/lock-v2.json) that is
+# validated, published and attested exactly as a devkit-built lock would be. The devkit path is
+# present and fails closed when the tool is absent; it does not fake a build.
+name: gp-release-process
+run-name: "gp release ${{ inputs.process_repository }}@${{ inputs.process_ref }}"
+
+on:
+  workflow_dispatch:
+    inputs:
+      process_repository:
+        description: "Repository holding the process project, e.g. honua-io/honua-samples"
+        required: true
+        type: string
+      process_ref:
+        description: "Full commit SHA to release (branches are not release identities)"
+        required: true
+        type: string
+      descriptor_path:
+        description: "Path of honua-gp.yaml inside the process repository"
+        required: false
+        type: string
+        default: "honua-gp.yaml"
+      lock_fixture:
+        description: "Reference mode until honua-server#6221: path in THIS repository of a committed lock to publish instead of running honua-gp-devkit release"
+        required: false
+        type: string
+        default: ""
+  workflow_call:
+    inputs:
+      process_repository: { required: true, type: string }
+      process_ref: { required: true, type: string }
+      descriptor_path: { required: false, type: string, default: "honua-gp.yaml" }
+      lock_fixture: { required: false, type: string, default: "" }
+    outputs:
+      lock_digest:
+        description: "sha256:<hex> of the canonical lock JSON"
+        value: ${{ jobs.release.outputs.lock_digest }}
+      artifact_name:
+        description: "Uploaded run artifact holding process-release-lock.json (+ artifacts/ in devkit mode)"
+        value: ${{ jobs.release.outputs.artifact_name }}
+
+permissions:
+  contents: read
+  id-token: write
+  attestations: write
+
+concurrency:
+  group: gp-release-${{ inputs.process_repository }}-${{ inputs.process_ref }}
+  cancel-in-progress: false
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    outputs:
+      lock_digest: ${{ steps.lock.outputs.lock_digest }}
+      artifact_name: ${{ steps.lock.outputs.artifact_name }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Check out the process source at its exact SHA
+        if: inputs.lock_fixture == ''
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: ${{ inputs.process_repository }}
+          ref: ${{ inputs.process_ref }}
+          path: process
+          persist-credentials: false
+
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.12"
+      - run: python -m pip install "jsonschema>=4.23" "pyyaml>=6.0" pytest
+
+      # The gate must be able to fail before it is trusted with a release (AGENTS.md).
+      - name: Self-test the release gate
+        run: python -m pytest tools/test_gp_process_release.py -q
+
+      - name: Build the release once and write its lock
+        if: inputs.lock_fixture == ''
+        env:
+          DESCRIPTOR_PATH: ${{ inputs.descriptor_path }}
+          PROCESS_REF: ${{ inputs.process_ref }}
+        run: |
+          set -euo pipefail
+          if ! command -v honua-gp-devkit >/dev/null 2>&1; then
+            echo "::error::honua-gp-devkit is not installed on this runner; 'honua-gp-devkit release' ships with honua-io/honua-server#6221. Pass lock_fixture for the reference path."
+            exit 1
+          fi
+          if [ "$(git -C process rev-parse HEAD)" != "$PROCESS_REF" ]; then
+            echo "::error::process_ref must be the full commit SHA that was checked out"
+            exit 1
+          fi
+          mkdir -p out/release
+          honua-gp-devkit release \
+            --descriptor "process/$DESCRIPTOR_PATH" \
+            --source-repository "${{ inputs.process_repository }}" \
+            --source-sha "$PROCESS_REF" \
+            --output out/release
+
+      - name: Publish the committed lock (reference mode)
+        if: inputs.lock_fixture != ''
+        env:
+          LOCK_FIXTURE: ${{ inputs.lock_fixture }}
+        run: |
+          set -euo pipefail
+          case "$LOCK_FIXTURE" in
+            /*|*..*) echo "::error::lock_fixture must be a path inside this repository"; exit 1 ;;
+          esac
+          mkdir -p out/release
+          cp "$LOCK_FIXTURE" out/release/process-release-lock.json
+          echo "::notice::reference mode: publishing the committed lock $LOCK_FIXTURE; no process was built (honua-server#6221)"
+
+      - name: Validate the lock and bind its digest
+        id: lock
+        run: |
+          set -euo pipefail
+          python3 tools/gp_process_release.py validate-lock out/release/process-release-lock.json
+          digest="$(python3 tools/gp_process_release.py lock-digest out/release/process-release-lock.json)"
+          short="${digest#sha256:}"
+          echo "lock_digest=$digest" >> "$GITHUB_OUTPUT"
+          echo "artifact_name=gp-process-release-${short:0:12}" >> "$GITHUB_OUTPUT"
+          { echo "## GP process release"; echo; echo "- lock digest: \`$digest\`"; echo "- mode: $([ -n '${{ inputs.lock_fixture }}' ] && echo reference || echo devkit)"; } >> "$GITHUB_STEP_SUMMARY"
+
+      # In devkit mode the built artifact bytes must be the ones the lock names; a lock whose
+      # artifacts are not on disk with the exact digest cannot be published.
+      - name: Verify built artifact bytes against the lock
+        if: inputs.lock_fixture == ''
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import hashlib, json, sys
+          from pathlib import Path
+          lock = json.load(open("out/release/process-release-lock.json"))
+          bad = []
+          for artifact in lock["artifacts"]:
+              path = Path("out/release/artifacts") / artifact["name"]
+              if not path.is_file():
+                  bad.append(f"{artifact['name']}: missing"); continue
+              actual = "sha256:" + hashlib.sha256(path.read_bytes()).hexdigest()
+              if actual != artifact["sha256"] or path.stat().st_size != artifact["sizeBytes"]:
+                  bad.append(f"{artifact['name']}: {actual} ({path.stat().st_size} bytes) != lock")
+          if bad:
+              print("::error::built artifacts do not match the lock: " + "; ".join(bad)); sys.exit(1)
+          print(f"{len(lock['artifacts'])} artifact(s) match the lock")
+          PY
+
+      - name: Record the release receipt
+        env:
+          LOCK_DIGEST: ${{ steps.lock.outputs.lock_digest }}
+          MODE: ${{ inputs.lock_fixture != '' && 'reference' || 'devkit' }}
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import json, os
+          from datetime import datetime, timezone
+          receipt = {
+              "schema": "honua.gp-release-receipt/v1",
+              "lockDigest": os.environ["LOCK_DIGEST"],
+              "mode": os.environ["MODE"],
+              "run": {"repository": os.environ["GITHUB_REPOSITORY"], "id": os.environ["GITHUB_RUN_ID"],
+                      "attempt": int(os.environ["GITHUB_RUN_ATTEMPT"]), "sha": os.environ["GITHUB_SHA"]},
+              "recordedAt": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
+          }
+          json.dump(receipt, open("out/release/release-receipt.json", "w"), indent=2, sort_keys=True)
+          PY
+
+      - name: Upload the immutable release
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: ${{ steps.lock.outputs.artifact_name }}
+          path: out/release
+          retention-days: 90
+          if-no-files-found: error
+
+      - name: Attest the lock with the workflow identity
+        uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
+        with:
+          subject-path: out/release/process-release-lock.json
