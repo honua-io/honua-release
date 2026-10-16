@@ -11,7 +11,7 @@
 #
 # What a rollback does NOT do: undo committed data changes, or change the release of jobs already
 # admitted (they keep theirs; honua-server#6221 pins the release at admission). Schedules are
-# reconciled by the binding API when it ships; until then the receipt says `pending-server-6221`.
+# not reconciled by this direct-admission API; receipts say `pending-orchestration-integration`.
 name: gp-rollback-process
 run-name: "gp rollback ${{ inputs.process }} in ${{ inputs.environment }}"
 

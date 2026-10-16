@@ -5,25 +5,25 @@ Status: reference implementation for stage 4 of the GP developer-experience plan
 here is in the release train's required set, and the existing platform-level rollback proof
 (release#483, `rollback-certification.yml`) is unchanged.
 
-The server half (`honua-gp.yaml`, `honua-gp-devkit release`, the environment binding API and
-admission-time pinning) is honua-io/honua-server#6221. Until it ships, the workflows below run
-against the same contract in **reference mode**; every seam that depends on the server is marked
-in the workflow and in the receipt, and nothing pretends to have changed a binding it did not.
+The server binding/admission API is merged. Live deployment uses that API and the
+release-bound job/artifact routes; its minimum server includes the GP HTTP integration and
+credential-free artifact broker fixes. The checked-in `dev` environment remains **reference-only**.
+No live AWS or installed-tool qualification is implied by fixture tests or reference receipts.
 
 ## The objects
 
 | Object | Schema | Where | Who writes it |
 |---|---|---|---|
 | Release lock | `schemas/gp-process-release-lock.v1.schema.json` | run artifact, then `release/gp-process-locks/<process>/<12 hex>.json` | `honua-gp-devkit release` (reference mode: a committed fixture) |
-| Environment state | `schemas/gp-environment-state.v1.schema.json` | `release/gp-environments/<env>/environment.json` | reviewed by hand; later reconciled against the live binding API |
+| Environment state | `schemas/gp-environment-state.v1.schema.json` | `release/gp-environments/<env>/environment.json` | reviewed policy; versions/capabilities read from the live binding API |
 | Environment pin | `schemas/gp-environment-pin.v1.schema.json` | `release/gp-environments/<env>/<process>.pin.json` | `gp-promote-process.yml`, merged by a reviewer |
 | Deployment receipt | `schemas/gp-deployment-receipt.v1.schema.json` | run artifact, OIDC-attested | `gp-deploy-process.yml`, on every attempt |
 
 A release is identified by the digest of its lock's canonical JSON (`tools/gp_process_release.py
 lock-digest`). The lock names the source SHA, dependency-lock digest, runtime image digest,
 workflow version, configuration references (references only, never values), targets with worker
-image digests, artifact digests, and the validation receipts that passed. Nothing downstream
-rebuilds: promotion and deployment copy and verify bytes.
+image digests, artifact digests, and the validation receipts that passed. Promotion and deployment verify the packaged bytes. Custom workers still fetch the pinned source
+and restore/build at execution time; the lock is not an independently enforced dependency closure.
 
 ## The flow
 
@@ -32,7 +32,7 @@ gp-release-process ──lock + artifacts + attestation──▶ run artifact
         │
 gp-promote-process ──verifies attestation and digest──▶ PR: pin + committed lock bytes
         │  (human review, merge to trunk)
-gp-deploy-process  ──preflight ▶ tooling ▶ smoke ▶ binding ▶ receipt (always)
+gp-deploy-process  ──live preflight ▶ verify IaC revision ▶ binding ▶ real job/output smoke ▶ receipt
         ▲
 gp-rollback-process ──proves target == pin.previous──▶ same deploy path, operation=rollback
 ```
@@ -80,25 +80,57 @@ Preflight (`tools/gp_process_release.py preflight`) refuses, with the reason in 
 | `STALE_BINDING_VERSION` | the environment moved since the pin was written: a concurrent attempt won |
 | `ENVIRONMENT_MISMATCH` | pin and environment state disagree |
 
-Then, by `deploymentTooling.kind` in the environment state:
+Live custom-code deployment supports `deploymentTooling.kind: aws-batch` (ADR-0063).
+IaC must first provision the exact immutable revision and register its image/revision in the
+server's custom-code workload configuration. The workflow **describes and verifies** this
+revision; it never creates an image-only replacement that loses compute, role or retry settings.
+It requires Fargate, no task IAM role, and no ambient credential environment/secrets. The
+provider execution role remains provider-owned. Built-in Helm worker deployment is a separate
+path; a custom-code release with Kubernetes targets is refused before activation.
 
-- `helm`: `helm upgrade --install` of the pinned chart version with the worker image **by
-  digest** (`geoprocessing.kubernetesJobs.image.digest`, honua-helm#100 refuses a native profile
-  without an explicit worker image).
-- `aws-batch`: `aws batch register-job-definition` with the pinned image, producing a new
-  immutable revision tagged with the lock digest. honua-iac owns the compute environment, role
-  and retry settings; the deployment never edits them.
-- `reference`: no tooling runs; the committed `dev` environment is this kind.
+For a real environment, configure its GitHub Environment with `HONUA_GP_SERVER_URL` (HTTPS),
+`HONUA_GP_AWS_REGION`, `HONUA_GP_VERIFICATION_ROLE_ARN` (OIDC role with Batch describe permission),
+and secret `HONUA_GP_ADMIN_API_KEY`. The runner uses the repository's Python client; no devkit
+installation or unsupported `test --server` command is involved. Private worker registries must
+be reachable by the runner. No credentials are stored in locks, pins or receipts.
 
-Smoke: `honua-gp-devkit test <process> --server $HONUA_GP_SERVER_URL`, recorded pass/fail; the
-reference environment records `skipped` with that reason.
+The reviewed environment's `deploymentTooling.releases` maps each lock digest to
+`jobDefinitionArn` and `smokeFixture` (a repository-relative JSON path). Keep both current and
+previous registrations for rollback. Example smoke fixture:
 
-Binding: **pending honua-server#6221**. The step is the seam where the binding API call goes; the
-receipt records `binding.status = pending-server-6221` and `outcome = reference-only` until then.
-When the API exists: activate only after the worker path is ready, under the pin's
-`expectedBindingVersion` (the server refuses a stale version), then reconcile schedules
-explicitly. Running and queued jobs keep the release they were admitted with; a new binding
-affects subsequent admissions only.
+```json
+{
+  "params": {"distance": 5},
+  "declaredScope": [],
+  "expectedArtifacts": [
+    {"label": "summary.json", "sha256": "sha256:<64 hex digest of independently expected bytes>", "maxBytes": 4096}
+  ]
+}
+```
+
+Choose deterministic, non-destructive smoke inputs and independently calculate expected output
+hashes; never copy the observed result into its own expectation. Each output is limited to 4 MiB
+for this smoke. The client refuses another origin, redirects, missing/ambiguous artifacts,
+wrong bytes, wrong release/source/binding version, failure and timeout. It retrieves bytes through
+the same-origin authorized custom-artifact route, not by forwarding an admin token to storage.
+
+Binding: the client reads live state, requires the reviewed predecessor and expected version,
+publishes the lock, reads its exact bytes back, and activates with compare-and-set. It reads the
+new digest/version/provider identity back before submitting a smoke job. This ordering is
+necessary because new jobs resolve the active binding. A failed smoke means the **binding may
+already be active**: the receipt reports `failed` with `binding.status: activated`. It does not
+silently undo data or overwrite a concurrent promotion. Inspect the job, then explicitly roll
+back through the same reviewed path. A lost activation response is resolved by exact version
+readback, never by retrying with a newly observed version; unresolved outcomes remain `unknown`.
+
+The smoke submits `POST /api/v1/admin/gp/process-releases/bindings/{process}/jobs` with a stable
+run/attempt/binding idempotency key, polls the actual job, verifies diagnostic release identity,
+and reads the expected artifact bytes. Terminal success alone is insufficient. On timeout the
+job can still be running; the client reports failure and requires operator inspection.
+
+Activation does not reconcile schedules. Receipts say `pending-orchestration-integration`, even
+on success. Running and queued jobs keep the release they were admitted with; promotion affects
+subsequent direct admissions. Whole-workflow/schedule pinning remains separate.
 
 Receipt: written on every path (`if: always()`), validated against its schema, uploaded as
 `gp-deployment-receipt-<env>-<process>-<run>-<attempt>` and attested. A refused attempt's receipt
@@ -115,7 +147,9 @@ previous release whose artifacts are gone or whose server contract the environme
 is refused, not attempted. A rollback does not undo committed data changes and does not change
 the release of jobs already admitted.
 
-After a successful rollback, promote again to record the new `previous`; the pin is the history.
+Rollback additionally requires the live current and previous digests to match the reviewed pin,
+then uses the freshly read live version for compare-and-set. After a successful rollback, promote
+again from the observed live state; server binding history records the activation.
 
 ## Reference environment
 

@@ -13,11 +13,9 @@
 # executable here, binding version unchanged since the pin was written (otherwise a stale
 # concurrent attempt), and for a rollback that the target IS the pin's previous release.
 #
-# Contract boundary (honua-io/honua-server#6221): the environment binding is changed through the
-# server's binding API and admission pins the release for queued, running and retried jobs. Until
-# that ships, this workflow performs preflight, deployment tooling and smoke, and records the
-# binding as `pending-server-6221`; it never claims a binding it did not change. A reference
-# environment (deploymentTooling.kind == reference) exercises the whole path without a cluster.
+# Live deployment verifies an IaC-provisioned Batch revision, reads live state, publishes and
+# CAS-activates the lock, then submits a real job and checks its admitted release and output bytes.
+# Reference environments remain reference-only. Schedule reconciliation is not implemented.
 name: gp-deploy-process
 run-name: "gp ${{ inputs.operation || 'deploy' }} ${{ inputs.process || 'changed pins' }} -> ${{ inputs.environment || 'trunk' }}"
 
@@ -47,6 +45,8 @@ on:
       process: { required: true, type: string }
       operation: { required: false, type: string, default: deploy }
       rollback_lock_path: { required: false, type: string, default: "" }
+    secrets:
+      HONUA_GP_ADMIN_API_KEY: { required: false }
     outputs:
       outcome:
         description: "activated | refused | failed | reference-only"
@@ -108,6 +108,7 @@ jobs:
     needs: resolve
     if: fromJSON(needs.resolve.outputs.matrix).include[0] != null
     runs-on: ubuntu-latest
+    environment: ${{ matrix.environment }}
     strategy:
       fail-fast: false
       max-parallel: 1
@@ -131,7 +132,7 @@ jobs:
       - run: python -m pip install "jsonschema>=4.23" "pyyaml>=6.0" pytest
 
       - name: Self-test the release gate
-        run: python -m pytest tools/test_gp_process_release.py -q
+        run: python -m pytest tools/test_gp_process_release.py tools/test_gp_process_deploy.py -q
 
       - name: Record the attempt start
         id: start
@@ -177,12 +178,12 @@ jobs:
           index = {"schema": "honua.gp-artifact-index/v1", "source": "reference environment: digests taken from the committed lock, nothing was resolved",
                    "artifacts": [a["sha256"] for a in lock["artifacts"]],
                    "images": sorted({lock["runtimeImage"]["digest"]} | {t["workerImageDigest"] for t in lock["targets"]})}
-            json.dump(index, open("out/deploy/artifact-index.json", "w"), indent=2, sort_keys=True)
+          json.dump(index, open("out/deploy/artifact-index.json", "w"), indent=2, sort_keys=True)
           PY
             echo "::notice::reference environment: artifact availability is not resolved against a registry"
           else
             python3 - <<'PY'
-          import hashlib, json, os, re, subprocess
+          import hashlib, json, os, re, subprocess, sys
           lock = json.load(open(os.environ["LOCK"]))
           pin = json.load(open(os.environ["PIN"]))
           images = []
@@ -192,10 +193,17 @@ jobs:
               print(("resolved " if ok else "MISSING  ") + reference)
               if ok:
                   images.append(digest)
-          run_id = re.search(r"/actions/runs/(\d+)$", pin["promotedBy"]["sourceRun"]).group(1)
-          short = pin["release"]["lockDigest"][len("sha256:"):][:12]
+          sys.path.insert(0, "tools")
+          import gp_process_release as gate
+          short = gate.digest(lock)[len("sha256:"):][:12]
+          artifact_name = f"gp-process-release-{short}"
+          # Resolve the chosen lock's artifact, including a previous release on rollback.
+          # The current pin's producer run may not contain that previous artifact.
+          found = subprocess.run(["gh", "api", f"repos/{os.environ['GITHUB_REPOSITORY']}/actions/artifacts?name={artifact_name}&per_page=100"], capture_output=True, text=True, check=True)
+          candidates = [a for a in json.loads(found.stdout)["artifacts"] if not a["expired"] and a["name"] == artifact_name]
+          run_id = str(candidates[0]["workflow_run"]["id"]) if candidates else None
           artifacts = []
-          if subprocess.run(["gh", "run", "download", run_id, "--repo", os.environ["GITHUB_REPOSITORY"], "--name", f"gp-process-release-{short}", "--dir", "_release"]).returncode == 0:
+          if run_id and subprocess.run(["gh", "run", "download", run_id, "--repo", os.environ["GITHUB_REPOSITORY"], "--name", artifact_name, "--dir", "_release"]).returncode == 0:
               for artifact in lock["artifacts"]:
                   path = os.path.join("_release", "artifacts", artifact["name"])
                   if os.path.isfile(path) and "sha256:" + hashlib.sha256(open(path, "rb").read()).hexdigest() == artifact["sha256"]:
@@ -205,7 +213,8 @@ jobs:
           PY
           fi
 
-      - name: Preflight the activation
+      - name: Preflight the reference activation
+        if: steps.resolve.outputs.tooling == 'reference'
         id: preflight
         env:
           PIN: ${{ steps.resolve.outputs.pin }}
@@ -218,90 +227,31 @@ jobs:
           if [ -n "$ROLLBACK_TO" ]; then args+=(--rollback-to "$ROLLBACK_TO"); fi
           python3 tools/gp_process_release.py preflight "${args[@]}"
 
-      # Deployment tooling. Only the kinds the environment declares run; each pins by digest from the
-      # lock, never by tag. A reference environment runs none of them.
-      - name: Deploy the pinned worker with Helm (kubernetes-job target)
-        if: steps.resolve.outputs.tooling == 'helm'
-        env:
-          LOCK: ${{ steps.resolve.outputs.lock }}
-          STATE: ${{ steps.resolve.outputs.state }}
-        run: |
-          set -euo pipefail
-          release="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["deploymentTooling"]["helmRelease"])' "$STATE")"
-          namespace="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["deploymentTooling"]["namespace"])' "$STATE")"
-          worker="$(python3 -c 'import json,sys; l=json.load(open(sys.argv[1])); t=[t for t in l["targets"] if t["kind"]=="kubernetes-job"][0]; print(t["workerImageDigest"])' "$LOCK")"
-          repository="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["runtimeImage"]["reference"].split("@")[0])' "$LOCK")"
-          chart="$(python3 -c 'import json,sys; l=json.load(open(sys.argv[1])); t=[t for t in l["targets"] if t["kind"]=="kubernetes-job"][0]; print(t["chartVersion"])' "$LOCK")"
-          # honua-helm: geoprocessing.kubernetesJobs.image pins the worker by digest; the chart refuses a
-          # native runtime profile without an explicit worker image (honua-helm#100).
-          helm upgrade --install "$release" oci://ghcr.io/honua-io/charts/honua --version "$chart" \
-            --namespace "$namespace" --reuse-values --wait --timeout 10m \
-            --set geoprocessing.kubernetesJobs.image.repository="$repository" \
-            --set-string geoprocessing.kubernetesJobs.image.tag="" \
-            --set geoprocessing.kubernetesJobs.image.digest="$worker"
-
-      - name: Register the pinned job definition revision (aws-batch target)
+      - name: Configure read-only provider verification credentials
         if: steps.resolve.outputs.tooling == 'aws-batch'
+        uses: aws-actions/configure-aws-credentials@e1253824e5c10ff9df46874f81ed3ec929e19cfd # v6.3.0
+        with:
+          role-to-assume: ${{ vars.HONUA_GP_VERIFICATION_ROLE_ARN }}
+          aws-region: ${{ vars.HONUA_GP_AWS_REGION }}
+
+      - name: Activate and execute the release smoke
+        if: steps.resolve.outputs.tooling != 'reference'
         env:
           LOCK: ${{ steps.resolve.outputs.lock }}
+          PIN: ${{ steps.resolve.outputs.pin }}
+          STATE: ${{ steps.resolve.outputs.state }}
+          HONUA_GP_SERVER_URL: ${{ vars.HONUA_GP_SERVER_URL }}
+          HONUA_GP_ADMIN_API_KEY: ${{ secrets.HONUA_GP_ADMIN_API_KEY }}
         run: |
-          set -euo pipefail
-          name="$(python3 -c 'import json,sys; l=json.load(open(sys.argv[1])); t=[t for t in l["targets"] if t["kind"]=="aws-batch"][0]; print(t["jobDefinitionName"])' "$LOCK")"
-          image="$(python3 -c 'import json,sys; l=json.load(open(sys.argv[1])); t=[t for t in l["targets"] if t["kind"]=="aws-batch"][0]; print(l["runtimeImage"]["reference"].split("@")[0] + "@" + t["workerImageDigest"])' "$LOCK")"
-          # honua-iac owns the job definition's compute, role and retry settings; this step only
-          # registers a new immutable revision with the pinned image and records its ARN.
-          aws batch register-job-definition --job-definition-name "$name" --type container \
-            --container-properties "{\"image\":\"$image\"}" --tags "honuaLockDigest=$(python3 tools/gp_process_release.py lock-digest "$LOCK")" \
-            --query jobDefinitionArn --output text | tee out/deploy/job-definition-arn.txt
-
-      # A meaningful smoke: the process itself, against this environment, through the devkit. The
-      # reference environment has no server to run against and records `skipped` honestly.
-      - name: Run the process smoke
-        id: smoke
-        env:
-          TOOLING: ${{ steps.resolve.outputs.tooling }}
-          LOCK: ${{ steps.resolve.outputs.lock }}
-          # the environment's server URL is a repository/environment variable, never a secret value in the lock
-          HONUA_SERVER_URL: ${{ vars.HONUA_GP_SERVER_URL }}
-        run: |
-          set -euo pipefail
-          if [ "$TOOLING" = "reference" ]; then
-            echo "status=skipped" >> "$GITHUB_OUTPUT"; echo "evidence=reference environment: no server to execute against" >> "$GITHUB_OUTPUT"; exit 0
-          fi
-          if [ -z "${HONUA_SERVER_URL:-}" ]; then
-            echo "status=fail" >> "$GITHUB_OUTPUT"; echo "evidence=HONUA_GP_SERVER_URL variable is not set for this environment" >> "$GITHUB_OUTPUT"
-            echo "::error::set the HONUA_GP_SERVER_URL repository or environment variable"; exit 1
-          fi
-          if ! command -v honua-gp-devkit >/dev/null 2>&1; then
-            echo "status=fail" >> "$GITHUB_OUTPUT"; echo "evidence=honua-gp-devkit is not installed on this runner" >> "$GITHUB_OUTPUT"
-            echo "::error::the smoke needs honua-gp-devkit (honua-io/honua-server#6090)"; exit 1
-          fi
-          process="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["process"]["name"])' "$LOCK")"
-          if honua-gp-devkit test "$process" --server "$HONUA_SERVER_URL" --json > out/deploy/smoke.json; then
-            echo "status=pass" >> "$GITHUB_OUTPUT"; echo "evidence=out/deploy/smoke.json" >> "$GITHUB_OUTPUT"
-          else
-            echo "status=fail" >> "$GITHUB_OUTPUT"; echo "evidence=out/deploy/smoke.json" >> "$GITHUB_OUTPUT"; exit 1
-          fi
-
-      # The binding API arrives with honua-server#6221. This step is the seam: it records that the
-      # binding was NOT changed by this run instead of pretending. When the API exists, replace the
-      # notice with the activation call and set binding=activated only on its success.
-      - name: Activate the environment binding
-        id: binding
-        run: |
-          echo "::notice::binding activation is pending honua-io/honua-server#6221; this run changed deployment tooling only"
-          echo "status=pending-server-6221" >> "$GITHUB_OUTPUT"
-          echo "detail=binding API not available; running jobs keep their admitted release; schedules not reconciled" >> "$GITHUB_OUTPUT"
+          python3 tools/gp_process_deploy.py --lock "$LOCK" --pin "$PIN" --environment "$STATE" \
+            --artifact-index out/deploy/artifact-index.json --operation "$OPERATION" --out out/deploy
 
       - name: Record the deployment receipt
         id: receipt
         if: always()
         env:
           STARTED_AT: ${{ steps.start.outputs.started_at }}
-          SMOKE_STATUS: ${{ steps.smoke.outputs.status || 'skipped' }}
-          SMOKE_EVIDENCE: ${{ steps.smoke.outputs.evidence || 'not reached' }}
-          BINDING_STATUS: ${{ steps.binding.outputs.status || 'unchanged' }}
-          BINDING_DETAIL: ${{ steps.binding.outputs.detail || 'not reached' }}
+          TOOLING: ${{ steps.resolve.outputs.tooling }}
           ACTOR: ${{ github.triggering_actor || github.actor }}
         run: |
           set -uo pipefail
@@ -310,19 +260,27 @@ jobs:
             echo "::error::no preflight decision was written; the attempt failed before it could be judged"
             exit 1
           fi
-          python3 tools/gp_process_release.py receipt \
-            --decision out/deploy/decision.json --operation "$OPERATION" \
-            --smoke "$SMOKE_STATUS" --smoke-evidence "$SMOKE_EVIDENCE" \
-            --binding pending-server-6221 --binding-detail "$BINDING_DETAIL" \
-            --actor "$ACTOR" --run-repository "$GITHUB_REPOSITORY" --run-id "$GITHUB_RUN_ID" --run-attempt "$GITHUB_RUN_ATTEMPT" \
-            --started-at "$STARTED_AT" --out out/deploy/deployment-receipt.json
+          python3 - <<'PY'
+          import json, os, sys
+          from pathlib import Path
+          sys.path.insert(0, "tools")
+          import gp_process_release as gate
+          root = Path("out/deploy")
+          reference = os.environ["TOOLING"] == "reference"
+          binding = json.loads((root / "binding.json").read_text()) if (root / "binding.json").exists() else {"status": "reference-only" if reference else "unchanged", "detail": "Reference environment; no activation" if reference else "Activation not reached"}
+          smoke = json.loads((root / "smoke.json").read_text()) if (root / "smoke.json").exists() else {"status": "skipped", "evidence": "Reference environment" if reference else "Smoke not reached"}
+          receipt = gate.build_receipt(json.loads((root / "decision.json").read_text()), operation=os.environ["OPERATION"],
+              smoke=smoke["status"], smoke_evidence=smoke.get("evidence", "out/deploy/smoke.json"), binding=binding["status"], binding_detail=binding["detail"],
+              actor=os.environ["ACTOR"], run_repository=os.environ["GITHUB_REPOSITORY"], run_id=os.environ["GITHUB_RUN_ID"],
+              run_attempt=int(os.environ["GITHUB_RUN_ATTEMPT"]), started_at=os.environ["STARTED_AT"], finished_at=gate.now())
+          gate.validate_document(gate.RECEIPT_SCHEMA, receipt, "receipt")
+          (root / "deployment-receipt.json").write_text(json.dumps(receipt, indent=2) + "\n")
+          raise SystemExit(0 if receipt["outcome"] in {"activated", "reference-only"} else 1)
+          PY
           rc=$?
           outcome="$(python3 -c 'import json; print(json.load(open("out/deploy/deployment-receipt.json"))["outcome"])')"
           echo "outcome=$outcome" >> "$GITHUB_OUTPUT"
           { echo "## GP $OPERATION $PROCESS -> $ENVIRONMENT: **$outcome**"; echo; echo '```'; cat out/deploy/deployment-receipt.json; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
-          if [ "$BINDING_STATUS" != "pending-server-6221" ]; then
-            echo "::warning::binding step reported '$BINDING_STATUS'; the receipt records pending-server-6221 until the binding API exists"
-          fi
           exit $rc
 
       - name: Upload the deployment receipt

@@ -169,7 +169,7 @@ def test_receipts_record_every_outcome_truthfully(docs):
     admissible = gate.preflight(docs["v2"], docs["pin"], docs["state"], docs["index"])
     assert _receipt(admissible)["outcome"] == "reference-only"
     assert _receipt(admissible, binding="activated")["outcome"] == "activated"
-    assert _receipt(admissible, binding="activated")["scheduleReconciliation"] == "reconciled"
+    assert _receipt(admissible, binding="activated")["scheduleReconciliation"] == "pending-orchestration-integration"
     assert _receipt(admissible, smoke="fail", binding="unchanged")["outcome"] == "failed"
     refused = gate.preflight(docs["v2"], docs["pin_stale"], docs["state"], docs["index"])
     receipt = _receipt(refused, smoke="skipped", binding="unchanged")
@@ -241,11 +241,14 @@ def test_deploy_preflights_and_records_a_receipt_on_every_path():
     text = (WORKFLOWS / "gp-deploy-process.yml").read_text(encoding="utf-8")
     deploy = _workflow("gp-deploy-process.yml")
     preflight = [s for _, s in _steps(deploy) if "gp_process_release.py preflight" in s.get("run", "")]
-    receipt = [s for _, s in _steps(deploy) if "gp_process_release.py receipt" in s.get("run", "")]
+    receipt = [s for _, s in _steps(deploy) if "gate.build_receipt(" in s.get("run", "")]
     assert preflight and receipt
     assert all("continue-on-error" not in s for s in preflight)
     assert receipt[0].get("if") == "always()", "a refused or failed attempt still gets a receipt"
-    assert "--binding pending-server-6221" in text, "the binding API does not exist until honua-server#6221; the receipt says so"
+    assert "gp_process_deploy.py" in text
+    assert "honua-gp-devkit test" not in text
+    assert "register-job-definition" not in text
+    assert "binding[\"status\"]" in text, "receipt records the actual activation outcome"
     upload = [s for _, s in _steps(deploy) if "upload-artifact" in s.get("uses", "") and "receipt" in str(s.get("with", {}).get("name", ""))]
     assert upload and upload[0].get("if") == "always()"
     attest = [s for _, s in _steps(deploy) if "attest-build-provenance" in s.get("uses", "")]

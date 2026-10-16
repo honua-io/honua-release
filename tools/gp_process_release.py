@@ -20,9 +20,9 @@ Exit codes: 0 valid / admissible, 1 invalid / refused, 2 usage. `preflight` alwa
 decision file (also on refusal) so the deploy workflow can record a receipt for a refused attempt.
 
 Contract boundary (honua-server#6221): the lock is produced by `honua-gp-devkit release` and the
-environment binding is activated through the server's binding API. Until those ship, the lock is a
-committed artifact and the binding version is read from the committed environment-state file; this
-tool neither invents a server endpoint nor pretends the binding changed (see `binding.status`).
+environment binding is activated through the server's binding API by gp_process_deploy.py, which
+reads live versions and checks actual output bytes. This module handles pure validation and receipts;
+committed environment state alone is not evidence of live activation.
 """
 from __future__ import annotations
 
@@ -253,7 +253,7 @@ def build_receipt(decision: dict, *, operation: str, smoke: str, smoke_evidence:
     if operation != decision["operation"]:
         raise GateError(f"receipt operation {operation!r} disagrees with the decision's {decision['operation']!r}")
     if decision["admissible"]:
-        if smoke == "fail" or binding == "unchanged":
+        if binding in {"unchanged", "unknown"} or smoke == "fail" or (binding == "activated" and smoke != "pass"):
             outcome = "failed"
         elif binding == "activated":
             outcome = "activated"
@@ -276,7 +276,7 @@ def build_receipt(decision: dict, *, operation: str, smoke: str, smoke_evidence:
         "outcome": outcome,
         "refusalReasons": decision["refusalReasons"],
         "runningJobsRetainRelease": True,
-        "scheduleReconciliation": "pending-server-6221" if binding == "pending-server-6221" else ("reconciled" if outcome == "activated" else "not-required"),
+        "scheduleReconciliation": "pending-orchestration-integration" if binding == "activated" else ("pending-server-6221" if binding == "pending-server-6221" else "not-required"),
         "actor": actor,
         "run": {"repository": run_repository, "id": run_id, "attempt": run_attempt, "url": f"https://github.com/{run_repository}/actions/runs/{run_id}"},
         "startedAt": started_at,
@@ -307,7 +307,7 @@ def main(argv: list[str] | None = None) -> int:
     p = sub.add_parser("receipt")
     p.add_argument("--decision", required=True); p.add_argument("--operation", required=True, choices=["deploy", "rollback"])
     p.add_argument("--smoke", required=True, choices=["pass", "fail", "skipped"]); p.add_argument("--smoke-evidence", default="")
-    p.add_argument("--binding", required=True, choices=["activated", "unchanged", "pending-server-6221"]); p.add_argument("--binding-detail", default="")
+    p.add_argument("--binding", required=True, choices=["activated", "unchanged", "unknown", "reference-only", "pending-server-6221"]); p.add_argument("--binding-detail", default="")
     p.add_argument("--actor", required=True); p.add_argument("--run-repository", required=True); p.add_argument("--run-id", required=True)
     p.add_argument("--run-attempt", type=int, default=1); p.add_argument("--started-at", default=None); p.add_argument("--out", required=True)
     p = sub.add_parser("validate-receipt"); p.add_argument("receipt")
