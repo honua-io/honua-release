@@ -288,6 +288,44 @@ another case. Recovery itself never creates a passing receipt or authorizes retr
 
 ## Delivery order and acceptance
 
+### MCP action transport component
+
+`tools/agent_e2e_mcp.py` implements the HTTP client needed by the scenario backend
+under [#623](https://github.com/honua-io/honua-release/issues/623). It negotiates
+Honua's `2025-03-26` protocol, acknowledges initialization, retains the session,
+follows opaque tool-list cursors and sends the model-selected tool name and
+arguments unchanged. It accepts JSON and POST SSE responses, preserves tool
+errors and structured content, and refuses server-initiated requests for
+unnegotiated capabilities. An incomplete or oversized catalog fails discovery;
+it is never silently shortened into an apparently complete interface schema.
+
+The client uses only its supplied agent credential reference, verified TLS (or
+loopback HTTP for local tests), one origin and no environment proxy or redirects.
+No HTTP error, missing session, connection loss or malformed response triggers a
+retry or automatic reinitialization. A lost response may follow a committed write:
+retain the durable action intent and use an independent observation to reconcile
+the outcome. Session deletion is attempted explicitly through `close()`; errors
+are reported and never establish successful scenario cleanup.
+
+Response observations retain exact received bytes, hashes, request digests,
+statuses and allowlisted server correlation headers. Credentials and session
+headers are excluded; echoed credentials (including JSON-escaped echoes) are
+rejected before retaining a response. These are untrusted action observations,
+not independent semantic evidence or a success receipt. Bounds are 512 KiB per
+request/response, 2 MiB total received per client, 32 catalog pages and 1,024 tools.
+The client has a cumulative time budget of at most 120 seconds and socket waits
+of at most 10 seconds. Its caller must enforce a process deadline as well; a
+socket read can finish after the remaining cumulative budget expires.
+
+Integration remains open: the trusted backend must persist dispatch intent and
+enforce attempt fencing, run this client in the agent's isolated identity,
+deliver the complete discovered catalog to the model, and retain observations
+with attempt/action bindings. This library is not yet in the worker image or
+wired to the campaign controller. Its real loopback HTTP tests use fixture
+servers; they neither run Honua nor qualify any of the 252 live cases.
+
+### Deployment sequence
+
 Terraform in `honua-iac` owns all campaign infrastructure, including disposable
 workers, IAM, networking, state stores, telemetry infrastructure and the independent
 cleanup deployment. Infrastructure changes use reviewed Terraform plans and
