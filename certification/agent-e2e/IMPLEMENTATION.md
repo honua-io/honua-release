@@ -378,7 +378,11 @@ storage nor runs inside the worker image.
 Before the first chunk, the callback retains an immutable action header binding
 candidate, worker attempt, action, complete command digest, reply digest, byte
 length and chunk count. Every write requires `If-None-Match: *` and a matching
-SHA-256 checksum acknowledgement with a non-null S3 version ID. Duplicate writes
+SHA-256 checksum acknowledgement with a non-null S3 version ID. Before queue
+acknowledgement, a version-history listing and exact-version read must prove that
+the returned version is the sole retained version, with matching bytes and no
+delete markers or truncated history. S3 conditional writes can succeed over a
+current delete marker; that response alone does not establish retention. Duplicate writes
 can adopt only a single retained version whose canonical bytes match exactly.
 Connection failures and incomplete write acknowledgements leave the queue
 message unacknowledged. No raw model command or argument is added to the header.

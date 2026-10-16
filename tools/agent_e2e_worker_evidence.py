@@ -89,7 +89,13 @@ class ReplyEvidence:
         if (not isinstance(version, str) or not version or version == 'null'
                 or response.get('ChecksumSHA256') != checksum):
             raise PackError('worker evidence write lacks verified version/checksum acknowledgement')
-        return {'key':key, 'version':version, 'sha256':digest(raw)}
+        # S3 permits If-None-Match writes over a current delete marker. A PUT
+        # acknowledgement alone therefore does not establish recoverable history.
+        existing, reference = self._discover(key)
+        if (reference['version'] != version or reference['sha256'] != digest(raw)
+                or existing != value):
+            raise PackError('worker evidence write and retained history disagree')
+        return reference
 
     def _validate_header(self, value):
         if (not isinstance(value, dict) or set(value) != {'schemaVersion', *self.identity, 'binding', 'payloadDigest', 'byteLength', 'count'}
