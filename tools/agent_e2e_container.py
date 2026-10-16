@@ -17,7 +17,8 @@ import tempfile
 import time
 
 from agent_e2e_worker import (PROTOCOL, MAX_STDOUT, MAX_STDERR, Worker, PackError,
-                              command_digest, encode, validate_command, validate_reply)
+                              MCP_PROTOCOL, MAX_REPLY_BYTES, command_digest, encode,
+                              validate_command, validate_reply, reply_messages)
 
 
 def terminal(command, seconds, workspace):
@@ -58,9 +59,47 @@ def terminal(command, seconds, workspace):
                 "stderr": stderr.read(MAX_STDERR).decode("utf-8", errors="ignore")}
 
 
+def mcp_action(action, seconds, workspace):
+    if os.name != 'posix' or os.geteuid() == 0:
+        raise PackError('MCP execution requires a non-root Linux container')
+    import resource
+    def limits():
+        resource.setrlimit(resource.RLIMIT_FSIZE, (MAX_REPLY_BYTES, MAX_REPLY_BYTES))
+        resource.setrlimit(resource.RLIMIT_CORE, (0, 0))
+    config = os.environ.get('HONUA_AGENT_MCP_CONFIG')
+    if not config or len(config.encode()) > 16384:
+        raise PackError('missing or oversized agent MCP configuration')
+    env = {'PATH':'/usr/local/bin:/usr/bin:/bin', 'LANG':'C.UTF-8', 'HOME':str(workspace),
+           'TMPDIR':str(workspace), 'HONUA_AGENT_MCP_CONFIG':config}
+    with tempfile.TemporaryFile(dir=workspace) as stdout, tempfile.TemporaryFile(dir=workspace) as stderr:
+        process = subprocess.Popen(['/usr/local/bin/python', '-I', '/app/agent_e2e_mcp_entry.py'],
+            cwd=workspace, env=env, stdin=subprocess.PIPE, stdout=stdout, stderr=stderr,
+            start_new_session=True, preexec_fn=limits)
+        status = 'completed'
+        try:
+            process.communicate(encode({'action':action, 'seconds':seconds}).encode(), timeout=seconds)
+        except subprocess.TimeoutExpired:
+            status = 'timed-out'
+        finally:
+            try:
+                os.killpg(process.pid, signal.SIGKILL)
+            except ProcessLookupError:
+                pass
+            process.wait(timeout=5)
+        if status == 'timed-out':
+            return {'status':status, 'payload':None}
+        if process.returncode:
+            raise PackError('MCP process failed; outcome remains unverified')
+        stdout.seek(0)
+        raw = stdout.read(MAX_REPLY_BYTES+1)
+        if len(raw) > MAX_REPLY_BYTES:
+            raise PackError('oversized MCP process result')
+        return {'status':status, 'payload':json.loads(raw)}
+
+
 class Executor:
-    def __init__(self, config, journal, workspace, *, clock=time.time, execute=terminal):
-        self.config, self.clock, self.execute = dict(config), clock, execute
+    def __init__(self, config, journal, workspace, *, clock=time.time, execute=terminal, execute_mcp=mcp_action):
+        self.config, self.clock, self.execute, self.execute_mcp = dict(config), clock, execute, execute_mcp
         self.workspace = Path(workspace).resolve(strict=True)
         self.db = sqlite3.connect(journal)
         self.db.execute("PRAGMA journal_mode=WAL")
@@ -79,6 +118,10 @@ class Executor:
         validate_command(request, self.config["attemptId"], self.config["expiresEpoch"],
                          request["deadlineEpoch"] - seconds)
         digest = command_digest(request)
+        structured = request['protocol'] == MCP_PROTOCOL
+        def unfinished(status):
+            return ({'status':status, 'payload':None} if structured else
+                    {'status':status, 'exitCode':-1, 'stdout':'', 'stderr':''})
         row = self.db.execute("SELECT digest,reply FROM actions WHERE id=?", (request["actionId"],)).fetchone()
         if row:
             if row[0] != digest:
@@ -86,17 +129,18 @@ class Executor:
             if row[1] is not None:
                 return json.loads(row[1])
             # A crash after dispatch could have committed external effects.
-            result = {"status": "interrupted", "exitCode": -1, "stdout": "", "stderr": ""}
+            result = unfinished('interrupted')
         else:
             self.db.execute("INSERT INTO actions(id,digest) VALUES(?,?)", (request["actionId"], digest))
             self.db.commit()
             remaining = min(request["deadlineEpoch"], self.config["expiresEpoch"]) - self.clock()
             if remaining <= 0:
-                result = {"status": "timed-out", "exitCode": -1, "stdout": "", "stderr": ""}
+                result = unfinished('timed-out')
             else:
                 # Exceptions leave the durable started row intact for recovery.
-                result = self.execute(request["command"], min(seconds, remaining), self.workspace)
-        reply = {"protocol": PROTOCOL, "attemptId": request["attemptId"], "actionId": request["actionId"],
+                result = (self.execute_mcp(request['action'], min(seconds, remaining), self.workspace) if structured else
+                          self.execute(request["command"], min(seconds, remaining), self.workspace))
+        reply = {"protocol": request['protocol'], "attemptId": request["attemptId"], "actionId": request["actionId"],
                  "commandDigest": digest, **result}
         validate_reply(reply, request)
         self.db.execute("UPDATE actions SET reply=? WHERE id=?", (encode(reply), request["actionId"]))
@@ -116,8 +160,12 @@ def serve(sqs, config, executor, *, clock=time.time):
                 raise PackError("oversized container command")
             request = json.loads(message["Body"])
             reply = executor.handle(request)
-            sqs.send_message(QueueUrl=config["replyQueueUrl"], MessageBody=encode(reply),
-                MessageGroupId=config["attemptId"], MessageDeduplicationId=command_digest(request)[7:])
+            for part in reply_messages(reply, request):
+                if clock() >= config['expiresEpoch']:
+                    raise PackError('worker expired during reply publication; reconcile retained evidence')
+                # Each immutable chunk has its own deduplication identity.
+                sqs.send_message(QueueUrl=config["replyQueueUrl"], MessageBody=encode(part),
+                    MessageGroupId=config["attemptId"], MessageDeduplicationId=command_digest(part)[7:])
             # A reply-publication failure leaves the command available; the
             # persisted result handles redelivery without re-execution.
             sqs.delete_message(QueueUrl=config["commandQueueUrl"], ReceiptHandle=message["ReceiptHandle"])

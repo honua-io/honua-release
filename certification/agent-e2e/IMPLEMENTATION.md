@@ -333,12 +333,50 @@ The client has a cumulative time budget of at most 120 seconds and socket waits
 of at most 10 seconds. Its caller must enforce a process deadline as well; a
 socket read can finish after the remaining cumulative budget expires.
 
-Integration remains open: the trusted backend must persist dispatch intent and
-enforce attempt fencing, run this client in the agent's isolated identity,
-deliver the complete discovered catalog to the model, and retain observations
-with attempt/action bindings. This library is not yet in the worker image or
-wired to the campaign controller. Its real loopback HTTP tests use fixture
-servers; they neither run Honua nor qualify any of the 252 live cases.
+The worker image now includes this client and a separate immutable Python
+entrypoint for each MCP action. `Worker.execute_mcp` sends a structured discovery
+or call request through the attempt's existing FIFO queues. The worker persists
+intent before launching the process and the full result before publishing it.
+Repeated delivery returns the retained result; a crash after dispatch returns
+`interrupted` and never executes again. The subprocess receives only its agent
+MCP configuration and a small execution environment, with a process deadline,
+bounded output files and descendant termination. Workspace modules cannot replace
+the immutable application imports.
+
+The trusted lifecycle must supply `HONUA_AGENT_MCP_CONFIG` containing exactly
+`endpoint`, `credentialKind` (`bearer` or `api-key`), `credential` (the agent's
+token, or null for an anonymous test) and `workflowView` (`setup` for the standard
+controller action). This is runtime secret configuration, not model tool input;
+the model cannot override the endpoint or identity through the MCP action API.
+Never supply controller or approver credentials. Terraform secret delivery and
+live identity isolation remain prerequisites; the current Fargate root does not
+yet supply this configuration. Terminal commands do not inherit this variable.
+
+MCP replies carry at most 4 MiB of structured result and raw observations in
+32 KiB chunks. Each chunk binds the attempt, action, complete command digest,
+payload digest, byte length, index and count. The controller rejects mixed,
+changed, missing or oversized chunks; it never reports a prefix as a complete
+catalog. `execute_mcp(..., retain_chunk=...)` requires a synchronous durable
+retention callback before deleting each reply message. Recovery can reassemble
+retained chunks through `ReplyChunks` without dispatching an action. The worker
+retains its complete reply if publication fails, and chunk deduplication IDs are
+stable across redelivery. Delivery has a separate 30-second allowance inside the
+attempt's absolute expiry; incomplete delivery leaves the outcome unverified.
+
+The controller passes the backend a `dispatch` object after durable intent
+acknowledgement: controller-generated `actionId`, `ordinal`, `requestDigest` and
+`intentDigest`. The ID binds candidate/campaign/case/attempt/ordinal, independent
+of model-generated tool IDs. The backend must validate it against retained intent
+and the active attempt, use that ID in the worker request, persist chunks in
+controller custody, and bind the raw observations to the action. These identity
+fields are not an atomic external-action fence: lifecycle fencing, real backend
+routing, final evidence publication and independent cleanup still need live
+integration. Return only the bounded public result to the model; the complete
+raw observation payload belongs in retained controller artifacts.
+
+Loopback HTTP integration tests and the image smoke check exercise the transport,
+client, isolated process, catalog delivery and replay handling using fixture
+servers. They neither run Honua nor qualify any of the 252 live cases.
 
 ### Deployment sequence
 

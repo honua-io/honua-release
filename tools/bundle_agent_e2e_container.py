@@ -5,7 +5,8 @@ import hashlib
 import json
 
 
-RUNTIME = ("agent_e2e_errors.py", "agent_e2e_worker.py", "agent_e2e_container.py", "agent_e2e_container_entry.py")
+RUNTIME = ("agent_e2e_errors.py", "agent_e2e_worker.py", "agent_e2e_container.py", "agent_e2e_container_entry.py",
+           "agent_e2e_mcp.py", "agent_e2e_mcp_runner.py", "agent_e2e_mcp_entry.py")
 
 
 def bundle(destination):

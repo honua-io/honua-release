@@ -301,7 +301,10 @@ def run_goal(*, pack, corpus, case_id, campaign, backend, model, ledger, journal
                 # can reach the worker. A missing reply leaves an unresolved
                 # action, not evidence that nothing executed or may be retried.
                 journal.emit("action-intent", action=actions, kind=call["name"], requestDigest=request_digest)
-                observed = backend.call("agent_action", {**context, "action": call},
+                dispatch = {'ordinal':actions, 'requestDigest':request_digest, 'intentDigest':journal.previous,
+                    'actionId':canonical_digest({**{key:context[key] for key in
+                        ('campaignId','caseId','attempt','componentBindingDigest')}, 'ordinal':actions})[7:]}
+                observed = backend.call("agent_action", {**context, "action": call, 'dispatch':dispatch},
                                         timeout=min(remaining(), call["input"].get("timeoutSeconds", 300) + 10))
                 # Adapter is responsible for returning only bounded, redacted
                 # worker outputs; full privileged responses never go to model.
