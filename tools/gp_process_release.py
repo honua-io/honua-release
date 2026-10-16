@@ -106,8 +106,6 @@ def validate_lock(lock: dict, label: str = "lock") -> None:
     if len(kinds) != len(set(kinds)):
         findings.append("$.targets: a target kind may appear once")
     for index, target in enumerate(lock["targets"]):
-        if target["kind"] == "aws-batch" and "jobDefinitionName" not in target:
-            findings.append(f"$.targets[{index}]: aws-batch target needs jobDefinitionName")
         if target["kind"] == "kubernetes-job" and "chartVersion" not in target:
             findings.append(f"$.targets[{index}]: kubernetes-job target needs chartVersion")
     if findings:
@@ -140,6 +138,19 @@ def validate_pin(pin: dict, locks_root: Path, label: str = "pin") -> dict:
     if findings:
         raise GateError(f"{label} does not bind to its locks:\n  " + "\n  ".join(findings))
     return lock
+
+
+def validate_rollback_target(pin: dict, target: dict) -> dict:
+    """Check reviewed target identity only; the deployment reads live state later."""
+    validate_document(PIN_SCHEMA, pin, "pin")
+    validate_lock(target, "rollback target")
+    previous = pin.get("previous")
+    if previous is None:
+        raise GateError("ROLLBACK_TARGET_MISSING")
+    if digest(target) != previous["lockDigest"] or target["process"]["name"] != pin["process"]:
+        raise GateError("ROLLBACK_TARGET_MISMATCH")
+    return {"schema": "honua.gp-rollback-plan/v1", "process": pin["process"],
+            "lockDigest": digest(target), "livePreflightRequired": True}
 
 
 # ----------------------------------------------------------------------------- preflight
@@ -301,6 +312,7 @@ def main(argv: list[str] | None = None) -> int:
     p = sub.add_parser("validate-lock"); p.add_argument("lock")
     p = sub.add_parser("lock-digest"); p.add_argument("lock")
     p = sub.add_parser("validate-pin"); p.add_argument("pin"); p.add_argument("--locks-root", default=str(REPO_ROOT))
+    p = sub.add_parser("validate-rollback"); p.add_argument("pin"); p.add_argument("target"); p.add_argument("--out", required=True)
     p = sub.add_parser("preflight")
     p.add_argument("--lock", required=True); p.add_argument("--pin", required=True); p.add_argument("--environment", required=True)
     p.add_argument("--artifact-index", required=True); p.add_argument("--rollback-to", default=None); p.add_argument("--out", required=True)
@@ -322,6 +334,9 @@ def main(argv: list[str] | None = None) -> int:
         elif args.command == "validate-pin":
             lock = validate_pin(load_json(args.pin), Path(args.locks_root), args.pin)
             print(f"ok: {args.pin} binds {lock['process']['name']} {lock['process']['version']} ({digest(lock)})")
+        elif args.command == "validate-rollback":
+            _write(args.out, validate_rollback_target(load_json(args.pin), load_json(args.target)))
+            print("ok: rollback target matches the reviewed previous release; live preflight still required")
         elif args.command == "preflight":
             lock, pin, state = load_json(args.lock), load_json(args.pin), load_json(args.environment)
             validate_lock(lock, args.lock)

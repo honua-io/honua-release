@@ -94,17 +94,23 @@ def live_preflight(client, lock, pin, state, index, operation):
     if live.get("process") != process or type(live.get("bindingVersion")) is not int:
         raise DeploymentError("Binding response identity/version is invalid")
     expected = pin.get("previous")
+    lineage_error = None
     if operation == "rollback":
         if (live.get("lockDigest") != pin["release"]["lockDigest"]
                 or expected is None or live.get("previousLockDigest") != expected["lockDigest"]):
-            raise DeploymentError("Rollback requires the live current and previous bindings to match the reviewed pin")
+            lineage_error = "ROLLBACK_TARGET_MISMATCH"
         pin = dict(pin, expectedBindingVersion=live["bindingVersion"])
     elif live.get("lockDigest") != (expected["lockDigest"] if expected else None):
-        raise DeploymentError("Live binding no longer matches the reviewed predecessor")
+        lineage_error = "LIVE_PREDECESSOR_MISMATCH"
     observed = dict(state, bindingVersion=live["bindingVersion"],
                     serverContractVersion=live.get("serverContractVersion"), targets=live.get("supportedTargets"))
     gate.validate_document(gate.STATE_SCHEMA, observed, "live environment")
     decision = gate.preflight(lock, pin, observed, index, lock if operation == "rollback" else None)
+    if lineage_error:
+        decision["admissible"] = False
+        decision["refusalReasons"].append(lineage_error)
+        check = "rollbackTarget" if operation == "rollback" else "bindingVersion"
+        decision["checks"][check] = {"status": "fail", "detail": "Live binding lineage differs from the reviewed pin"}
     return decision, live
 
 
@@ -278,6 +284,14 @@ def main(argv=None):
         gate.validate_lock(lock)
         gate.validate_pin(pin, Path.cwd())
         gate.validate_document(gate.STATE_SCHEMA, state, "environment")
+        # A validated input gets a structured refusal even when auth/provider/network checks
+        # prevent reading live state. This placeholder can never authorize activation.
+        initial = gate.preflight(lock, pin, state, index, lock if args.operation == "rollback" else None)
+        initial["admissible"] = False
+        initial["refusalReasons"].append("LIVE_PREFLIGHT_NOT_COMPLETED")
+        for name in ("bindingVersion", "compatibility", "targets"):
+            initial["checks"][name] = {"status": "fail", "detail": "Live server state has not been verified"}
+        write(out / "decision.json", initial)
         registration = registration_for(lock, state)
         fixture = load_smoke(registration["smokeFixture"])
         client = Client(os.environ.get("HONUA_GP_SERVER_URL", ""), os.environ.get("HONUA_GP_ADMIN_API_KEY", ""))

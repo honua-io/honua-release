@@ -89,10 +89,10 @@ provider execution role remains provider-owned. Built-in Helm worker deployment 
 path; a custom-code release with Kubernetes targets is refused before activation.
 
 For a real environment, configure its GitHub Environment with `HONUA_GP_SERVER_URL` (HTTPS),
-`HONUA_GP_AWS_REGION`, `HONUA_GP_VERIFICATION_ROLE_ARN` (OIDC role with Batch describe permission),
+`HONUA_GP_AWS_REGION`, `HONUA_GP_VERIFICATION_ROLE_ARN` (OIDC role with Batch describe and ECR pull permissions when using private ECR),
 and secret `HONUA_GP_ADMIN_API_KEY`. The runner uses the repository's Python client; no devkit
-installation or unsupported `test --server` command is involved. Private worker registries must
-be reachable by the runner. No credentials are stored in locks, pins or receipts.
+installation or unsupported `test --server` command is involved. Private ECR authentication is performed before image verification; other private registries
+need separately configured runner access and are not qualified by this workflow. No credentials are stored in locks, pins or receipts.
 
 The reviewed environment's `deploymentTooling.releases` maps each lock digest to
 `jobDefinitionArn` and `smokeFixture` (a repository-relative JSON path). Keep both current and

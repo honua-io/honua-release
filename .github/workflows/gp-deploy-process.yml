@@ -158,6 +158,13 @@ jobs:
           tooling="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["deploymentTooling"]["kind"])' "$state")"
           { echo "pin=$pin"; echo "state=$state"; echo "lock=$lock"; echo "tooling=$tooling"; } >> "$GITHUB_OUTPUT"
 
+      - name: Configure read-only provider verification credentials
+        if: steps.resolve.outputs.tooling == 'aws-batch'
+        uses: aws-actions/configure-aws-credentials@e1253824e5c10ff9df46874f81ed3ec929e19cfd # v6.3.0
+        with:
+          role-to-assume: ${{ vars.HONUA_GP_VERIFICATION_ROLE_ARN }}
+          aws-region: ${{ vars.HONUA_GP_AWS_REGION }}
+
       # What this environment can actually serve. A reference environment is answered from the
       # committed locks themselves (and says so); a real one asks the registry for every image
       # digest and the release run's artifact store for every artifact digest.
@@ -186,6 +193,11 @@ jobs:
           import hashlib, json, os, re, subprocess, sys
           lock = json.load(open(os.environ["LOCK"]))
           pin = json.load(open(os.environ["PIN"]))
+          registry = lock["runtimeImage"]["reference"].split("/", 1)[0]
+          ecr = re.fullmatch(r"[0-9]{12}\.dkr\.ecr\.([a-z0-9-]+)\.amazonaws\.com(?:\.cn)?", registry)
+          if ecr:
+              password = subprocess.run(["aws", "ecr", "get-login-password", "--region", ecr.group(1)], capture_output=True, check=True).stdout
+              subprocess.run(["docker", "login", "--username", "AWS", "--password-stdin", registry], input=password, capture_output=True, check=True)
           images = []
           for digest in sorted({lock["runtimeImage"]["digest"]} | {t["workerImageDigest"] for t in lock["targets"]}):
               reference = lock["runtimeImage"]["reference"].split("@")[0] + "@" + digest
@@ -226,13 +238,6 @@ jobs:
           args=(--lock "$LOCK" --pin "$PIN" --environment "$STATE" --artifact-index out/deploy/artifact-index.json --out out/deploy/decision.json)
           if [ -n "$ROLLBACK_TO" ]; then args+=(--rollback-to "$ROLLBACK_TO"); fi
           python3 tools/gp_process_release.py preflight "${args[@]}"
-
-      - name: Configure read-only provider verification credentials
-        if: steps.resolve.outputs.tooling == 'aws-batch'
-        uses: aws-actions/configure-aws-credentials@e1253824e5c10ff9df46874f81ed3ec929e19cfd # v6.3.0
-        with:
-          role-to-assume: ${{ vars.HONUA_GP_VERIFICATION_ROLE_ARN }}
-          aws-region: ${{ vars.HONUA_GP_AWS_REGION }}
 
       - name: Activate and execute the release smoke
         if: steps.resolve.outputs.tooling != 'reference'

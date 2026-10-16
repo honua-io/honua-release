@@ -76,8 +76,9 @@ def test_rollback_reads_current_version_but_requires_exact_predecessor(docs):
     decision, _ = deploy.live_preflight(FakeServer(lock, live), lock, pin, state, index, "rollback")
     assert decision["admissible"]
     live["previousLockDigest"] = "sha256:" + "b" * 64
-    with pytest.raises(deploy.DeploymentError, match="Rollback requires"):
-        deploy.live_preflight(FakeServer(lock, live), lock, pin, state, index, "rollback")
+    refused, _ = deploy.live_preflight(FakeServer(lock, live), lock, pin, state, index, "rollback")
+    assert not refused["admissible"]
+    assert "ROLLBACK_TARGET_MISMATCH" in refused["refusalReasons"]
 
 
 @pytest.mark.parametrize("lost_ack", [False, True])
@@ -253,3 +254,59 @@ def test_reference_workflow_executes_its_index_script_without_claiming_resolutio
     index = json.loads((tmp_path / "out/deploy/artifact-index.json").read_text())
     assert index["artifacts"] and index["images"]
     assert "nothing was resolved" in index["source"]
+
+
+def test_optional_batch_definition_name_matches_server_contract(docs):
+    lock = copy.deepcopy(docs[0])
+    del lock["targets"][0]["jobDefinitionName"]
+    gate.validate_lock(lock)
+
+
+def test_live_lineage_refusal_keeps_a_structured_decision(docs):
+    lock, pin, state, index, live = docs
+    live["lockDigest"] = "sha256:" + "f" * 64
+    decision, _ = deploy.live_preflight(FakeServer(lock, live), lock, pin, state, index, "deploy")
+    assert not decision["admissible"]
+    assert "LIVE_PREDECESSOR_MISMATCH" in decision["refusalReasons"]
+    assert decision["checks"]["bindingVersion"]["status"] == "fail"
+
+
+def test_main_writes_refused_live_decision_when_live_configuration_refuses(tmp_path, monkeypatch):
+    repo = Path(__file__).resolve().parents[1]
+    pin_path = FIXTURES / "pin-dev-v2.json"
+    lock_path = FIXTURES / "lock-v2.json"
+    state_path = FIXTURES / "environment-dev.json"
+    monkeypatch.chdir(repo)
+    monkeypatch.delenv("HONUA_GP_ADMIN_API_KEY", raising=False)
+    code = deploy.main(["--lock", str(lock_path), "--pin", str(pin_path), "--environment", str(state_path),
+                        "--artifact-index", str(FIXTURES / "artifact-index.json"), "--out", str(tmp_path)])
+    assert code == 1
+    decision = json.loads((tmp_path / "decision.json").read_text())
+    assert not decision["admissible"] and "LIVE_PREFLIGHT_NOT_COMPLETED" in decision["refusalReasons"]
+    assert json.loads((tmp_path / "binding.json").read_text())["status"] == "unchanged"
+
+
+def test_executed_rollback_plan_checks_identity_without_stale_committed_version(tmp_path):
+    repo = Path(__file__).resolve().parents[1]
+    workflow = yaml.safe_load((repo / ".github/workflows/gp-rollback-process.yml").read_text())
+    step = next(s for s in workflow["jobs"]["plan"]["steps"] if s.get("id") == "target")
+    (tmp_path / "tools").symlink_to(repo / "tools", target_is_directory=True)
+    pin = gate.load_json(FIXTURES / "pin-dev-v2.json")
+    pin["expectedBindingVersion"] = 1
+    state = gate.load_json(FIXTURES / "environment-dev.json")
+    state["bindingVersion"] = 0
+    (tmp_path / "release").mkdir()
+    (tmp_path / "release/gp-process-locks").symlink_to(repo / "release/gp-process-locks", target_is_directory=True)
+    deploy.write(tmp_path / "release/gp-environments/dev/buffer-features.pin.json", pin)
+    deploy.write(tmp_path / "release/gp-environments/dev/environment.json", state)
+    env = dict(os.environ, PROCESS="buffer-features", ENVIRONMENT="dev", TARGET_LOCK_PATH="",
+               GITHUB_OUTPUT=str(tmp_path / "outputs"), GITHUB_STEP_SUMMARY=str(tmp_path / "summary"))
+    result = subprocess.run(["bash", "-c", step["run"]], cwd=tmp_path, env=env, capture_output=True, text=True)
+    assert result.returncode == 0, result.stderr
+    plan = json.loads((tmp_path / "out/rollback/plan-decision.json").read_text())
+    assert plan["livePreflightRequired"] is True
+    assert plan["lockDigest"] == pin["previous"]["lockDigest"]
+    # An arbitrary rollback target must still fail before calling deployment.
+    env["TARGET_LOCK_PATH"] = str(FIXTURES / "lock-v2.json")
+    refused = subprocess.run(["bash", "-c", step["run"]], cwd=tmp_path, env=env, capture_output=True, text=True)
+    assert refused.returncode != 0 and "ROLLBACK_TARGET_MISMATCH" in refused.stderr

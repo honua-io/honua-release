@@ -63,7 +63,6 @@ jobs:
         run: |
           set -euo pipefail
           pin="release/gp-environments/$ENVIRONMENT/$PROCESS.pin.json"
-          state="release/gp-environments/$ENVIRONMENT/environment.json"
           python3 tools/gp_process_release.py validate-pin "$pin" --locks-root .
           target="${TARGET_LOCK_PATH:-$(python3 -c 'import json,sys; p=json.load(open(sys.argv[1]))["previous"]; print(p["lockPath"] if p else "")' "$pin")}"
           if [ -z "$target" ]; then
@@ -71,16 +70,7 @@ jobs:
             exit 1
           fi
           mkdir -p out/rollback
-          python3 - "$target" <<'PY' > out/rollback/committed-index.json
-          import json, sys
-          lock = json.load(open(sys.argv[1]))
-          print(json.dumps({"schema": "honua.gp-artifact-index/v1", "source": "committed lock digests (plan stage only)",
-                            "artifacts": [a["sha256"] for a in lock["artifacts"]],
-                            "images": sorted({lock["runtimeImage"]["digest"]} | {t["workerImageDigest"] for t in lock["targets"]})}, indent=2))
-          PY
-          python3 tools/gp_process_release.py preflight \
-            --lock "$target" --pin "$pin" --environment "$state" \
-            --artifact-index out/rollback/committed-index.json --rollback-to "$target" \
+          python3 tools/gp_process_release.py validate-rollback "$pin" "$target" \
             --out out/rollback/plan-decision.json
           echo "target=$target" >> "$GITHUB_OUTPUT"
           { echo "## Rollback plan"; echo; echo "- target lock: \`$target\`"; echo "- digest: \`$(python3 tools/gp_process_release.py lock-digest "$target")\`"; } >> "$GITHUB_STEP_SUMMARY"

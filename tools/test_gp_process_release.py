@@ -260,7 +260,7 @@ def test_rollback_reuses_the_deploy_path_with_the_previous_lock():
     assert rollback["concurrency"]["cancel-in-progress"] is False
     deploy_calls = [job for job in rollback["jobs"].values() if job.get("uses", "").endswith("gp-deploy-process.yml")]
     assert deploy_calls and deploy_calls[0]["with"]["operation"] == "rollback"
-    plan = [s for _, s in _steps(rollback) if "--rollback-to" in s.get("run", "")]
+    plan = [s for _, s in _steps(rollback) if "validate-rollback" in s.get("run", "")]
     assert plan, "the rollback target is checked against the pin's previous release before the deploy path runs"
 
 
