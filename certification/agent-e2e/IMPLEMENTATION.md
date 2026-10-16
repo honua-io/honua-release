@@ -395,9 +395,40 @@ only when there is exactly one retained version with no delete markers or
 truncated history. Missing chunks, extra versions, changed hashes or conflicting
 identities require reconciliation; recovery never dispatches a command, grants a
 retry, alters the budget or emits a qualifying receipt. Fully retained evidence
-can be recovered after a controller crash. Draining any still-pending queue
-messages, incorporating these references into the final trusted inventory and
-proving live crash/restart behavior remain backend integration work.
+can be recovered after a controller crash.
+
+For partial replies, `agent_e2e_reply_recovery.drain_mcp_replies` combines retained
+chunks with pending messages from the reviewed reply queue. Supply a fresh
+`ReplyEvidence` instance and the exact `protocol`, `attemptId`, `actionId` and
+`commandDigest` from controller-owned dispatch history. The digest covers the
+entire transport command, including deadline and timeout; the model action digest
+alone is insufficient. Persist this binding before dispatch in the complete
+backend integration. Never infer it from a queue message or accept an untrusted
+binding to make recovery pass. Without trusted dispatch history, reconcile
+manually and retain liability.
+
+`ReplyEvidence.resume(binding)` validates existing header/chunk histories before
+receiving messages. Missing chunks are allowed only when their keys have no
+versions or delete markers; a missing header with orphaned evidence blocks.
+Pending chunks must match the trusted binding and retained payload digest. Each
+chunk is synchronously retained before queue deletion. A lost retention/delete
+acknowledgement is recoverable from retained versions, without resending a command.
+The recovery function has no command queue and does not construct a worker, so an
+expired attempt can be reconciled while its reply queue remains available.
+
+The poll window is at most 300 seconds with at most 256 receive calls. Supply an
+SQS client with bounded connect/read timeouts and one total SDK attempt, as with
+the evidence client; storage and queue calls have their own bounded duration.
+Reserve the full worst-case recovery API/storage liability before starting.
+Missing output, foreign messages, conflicting history and exhausted polling all
+leave the attempt unverified. Complete output returns `qualification: false` and
+exact retained references; it does not settle charges or grant a retry. Once a
+complete reply is retained, redundant deliveries may remain on the queue for
+governed teardown. Do not delete the queue before required recovery and evidence
+publication finish. Independent expiry cleanup must still stop the worker.
+
+Actual backend routing, final trusted inventory publication, and live
+crash/restart/cleanup proof remain open.
 
 Account for the bounded header/chunk PUTs, duplicate/recovery reads, version
 listing, retained bytes and final artifact publication in the prepaid operation
