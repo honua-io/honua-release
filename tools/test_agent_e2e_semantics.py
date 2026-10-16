@@ -11,7 +11,7 @@ def observation(case):
     source=fixture(case)
     if case in CASES[:7]:
         ids = ['s3'] if case in ('select-strict','same-name-isolation') else ['s2','s3'] if case=='select-inclusive' else ['s2','s3','s4']
-        result={'features':[f for f in source['features'] if f['id'] in ids],
+        result={'srid':3857, 'features':[f for f in source['features'] if f['id'] in ids],
                 'pages':[{'sourceIds':[i],'responseDigest':'sha256:'+'a'*64} for i in ids], 'terminalPageObserved':True}
     elif case=='buffer-metric':
         ring=[[10+500*math.cos(2*math.pi*i/64),10+500*math.sin(2*math.pi*i/64)] for i in range(64)]
