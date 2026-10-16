@@ -17,7 +17,7 @@ No live AWS or installed-tool qualification is implied by fixture tests or refer
 | Release lock | `schemas/gp-process-release-lock.v1.schema.json` | run artifact, then `release/gp-process-locks/<process>/<12 hex>.json` | `honua-gp-devkit release` (reference mode: a committed fixture) |
 | Environment state | `schemas/gp-environment-state.v1.schema.json` | `release/gp-environments/<env>/environment.json` | reviewed policy; versions/capabilities read from the live binding API |
 | Environment pin | `schemas/gp-environment-pin.v1.schema.json` | `release/gp-environments/<env>/<process>.pin.json` | `gp-promote-process.yml`, merged by a reviewer |
-| Deployment receipt | `schemas/gp-deployment-receipt.v1.schema.json` | run artifact, OIDC-attested | `gp-deploy-process.yml`, on every attempt |
+| Deployment receipt | `schemas/gp-deployment-receipt.v1.schema.json` | run artifact, OIDC-attested | `gp-deploy-process.yml`, after a structured preflight decision |
 
 A release is identified by the digest of its lock's canonical JSON (`tools/gp_process_release.py
 lock-digest`). The lock names the source SHA, dependency-lock digest, runtime image digest,
@@ -67,7 +67,7 @@ release run attested, and that `previous` is the release they would want back.
 
 Runs on push to `trunk` for every changed `*.pin.json`, or on dispatch for one environment and
 process. One deployment at a time per environment (`concurrency`, never cancelled), so a queued
-attempt waits and still writes its receipt.
+attempt waits for the preceding deployment.
 
 Preflight (`tools/gp_process_release.py preflight`) refuses, with the reason in the receipt:
 
@@ -132,10 +132,12 @@ Activation does not reconcile schedules. Receipts say `pending-orchestration-int
 on success. Running and queued jobs keep the release they were admitted with; promotion affects
 subsequent direct admissions. Whole-workflow/schedule pinning remains separate.
 
-Receipt: written on every path (`if: always()`), validated against its schema, uploaded as
+Receipt: attempted even after failure (`if: always()`), validated against its schema, uploaded as
 `gp-deployment-receipt-<env>-<process>-<run>-<attempt>` and attested. A refused attempt's receipt
 lists its reasons; a failed smoke is `failed`; `activated` is reserved for a binding the run
-actually changed.
+actually changed. Receipt generation requires a structured preflight decision. Runner setup,
+invalid input, or registry/artifact-index failures before that decision can leave only workflow
+logs and available error artifacts; these paths are not qualified as signed deployment receipts.
 
 ### 4. Roll back (`gp-rollback-process.yml`)
 
