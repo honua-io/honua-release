@@ -138,6 +138,7 @@ def test_action_intent_is_durable_before_backend_dispatch(environment):
     summary = summarize(read_events(result['journal']))
     assert summary['actionIntents'] == summary['actionsUnresolved'] == 1
     assert summary['actions'] == 0
+    assert result['usage']['executedActions'] == 0
     assert summary['unresolvedActions'][0]['kind'] == 'terminal'
     assert summary['failureAttribution'] == 'undetermined'
 
@@ -151,6 +152,18 @@ def test_failed_intent_persistence_prevents_backend_dispatch(environment):
     assert result['status'] == 'blocked'
     assert [op for op, _ in environment['backend'].operations] == ['prepare', 'cleanup']
     assert summarize(read_events(result['journal']))['actionsUnresolved'] == 1
+    assert result['usage']['executedActions'] == 0
+
+
+def test_failed_result_persistence_is_not_a_durably_observed_action(environment):
+    environment['model'] = Model([{'type':'tool_use', 'id':'x', 'name':'mcp_list_tools', 'input':{}}])
+    def unavailable(row):
+        if row['event'] == 'action':
+            raise OSError('result storage unavailable')
+    result = run_goal(**environment, journal_sink=unavailable)
+    assert result['status'] == 'blocked'
+    assert [op for op, _ in environment['backend'].operations] == ['prepare', 'agent_action', 'cleanup']
+    assert result['usage']['executedActions'] == 0
 
 
 def test_turn_exhaustion_is_not_infrastructure_retry(environment):

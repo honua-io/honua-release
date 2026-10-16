@@ -142,6 +142,9 @@ reply leaves an unresolved intent; it does not establish whether the command
 executed or authorize replay. Completed observations must match a preceding
 intent, and a journal claiming success with unresolved actions is rejected.
 Reports distinguish action intents, observed results and unresolved actions.
+The controller's `usage.executedActions` counts only results acknowledged by
+the durable journal sink; attempted dispatches and unpersisted results do not
+increase it. A zero count after interruption does not prove that nothing ran.
 Prometheus exposes `honua_agent_action_intents_total`,
 `honua_agent_actions_observed_total` and the `honua_agent_actions_unresolved`
 gauge, with only target/mode labels. These are dispatch-intent counts, not proof
