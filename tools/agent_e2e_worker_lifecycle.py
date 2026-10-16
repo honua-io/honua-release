@@ -64,11 +64,11 @@ class WorkerLifecycle:
     def __init__(self, config, *, states, ecs, db, clock=time.time):
         fields = {'region', 'candidateKey', 'attemptId', 'context', 'stateMachineArn',
                   'definitionDigest', 'stateMachineRoleArn', 'clusterArn', 'taskDefinitionArn',
-                  'claimTable', 'expiresEpoch', 'liability'}
+                  'claimTable', 'expiresEpoch', 'liability', 'transportDigest'}
         if not isinstance(config, dict) or set(config) != fields:
             raise PackError('invalid worker lifecycle configuration')
         c = copy.deepcopy(config)
-        if (not _digest(c['candidateKey']) or not _digest(c['definitionDigest'])
+        if (not _digest(c['candidateKey']) or not _digest(c['definitionDigest']) or not _digest(c['transportDigest'])
                 or not isinstance(c['attemptId'], str) or not re.fullmatch(r'[A-Za-z0-9-]{1,80}', c['attemptId'])
                 or type(c['expiresEpoch']) is not int or c['expiresEpoch'] <= 0
                 or not isinstance(c['region'], str) or not re.fullmatch(r'[a-z]{2}-[a-z]+-[0-9]', c['region'])

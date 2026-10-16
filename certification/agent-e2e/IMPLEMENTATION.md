@@ -471,8 +471,10 @@ Terraform-defined Fargate lifecycle. It creates no infrastructure and is exclude
 from the worker image. The controller-owned configuration binds the region,
 candidate digest, worker attempt ID, campaign/case/attempt/mode, exact state
 machine ARN and role, canonical definition digest, cluster ARN, revisioned task
-definition ARN, claim table, absolute expiry epoch and reviewed liability basis
-and upper bounds. These values come from the reviewed Terraform deployment and
+definition ARN, claim table, absolute expiry epoch, `transportDigest` and reviewed
+liability basis and upper bounds. `transportDigest` is the canonical digest of the
+complete Terraform `transport` output: command/reply queue URLs, attempt ID and
+expiry epoch. These values come from the reviewed Terraform deployment and
 campaign configuration, never from model text. `inspect_definition()` verifies
 the deployed Standard state machine and role against those reviewed inputs; it
 does not declare the entire scenario backend ready.
@@ -533,6 +535,54 @@ bounded observation calls and retention in prepaid liability. Full backend
 `prepare`/action/verify/cleanup routing, public knowledge delivery, raw observation
 publication, interrupted-claim reconciliation and live crash/cleanup proof
 remain open. The lifecycle adapter's fault tests use fixture AWS responses.
+
+### MCP backend action routing
+
+`tools/agent_e2e_mcp_backend.py` implements the MCP branch of a trusted backend's
+`agent_action` operation. Construct `McpActions` with the existing durable
+controller, reviewed lifecycle, retained launch record, `Worker` transport and
+a controller-owned `ReplyEvidence` factory keyed by action ID. Route
+`mcp_list_tools` and `mcp_call_tool` requests through
+`execute(context, action, dispatch)`. Other action types still need their own
+backend handlers; this component does not declare preflight/setup/verification
+or cleanup ready.
+
+Before sending, it checks the live controller lease and unsettled infrastructure
+and cleanup reservations, the launch's exact queue configuration digest, the
+candidate/campaign/case/attempt/mode and the latest retained journal event. The
+action ordinal, controller-generated ID, argument digest and intent digest must
+match that event. An independently observed running task and execution are also
+required. Model tool-use IDs are never dispatch authority. Exact transport
+binding is retained before queue send; the lease and intent are checked again
+after that retention. These checks inherit the lifecycle's documented limits:
+they are not an atomic fence against a controller paused between checking its
+lease and sending an external request.
+
+After the worker reply, the adapter reconstructs it from retained exact S3
+versions, checks the retained dispatch binding and commits a `workerActions`
+record to candidate state before returning any public result. That record binds
+the launch, intent, request, reply digest and dispatch/header/chunk references.
+Existing records cannot be rewritten or removed and block redispatch, including
+after a lost publication acknowledgement. A malformed reply or failed session
+cleanup remains retained and blocks public delivery. Interrupted/partial replies
+still use the separate recovery path; no failure grants a new model attempt.
+
+Only the tool catalog/result or protocol error becomes `agentResult`. Raw HTTP
+captures, retained object references and private backend fields stay in controller
+custody. Server tool errors remain errors, with unknown categories reported as
+`other`; this does not diagnose the model, product or infrastructure. Discovery
+telemetry hashes the complete observed catalog. Valid request/trace/span IDs from
+the corresponding MCP calls are bound to their retained raw observation digests;
+invalid or absent correlation is never replaced with invented IDs. Those headers
+are worker-observed diagnostic data, not independent server-side trace proof.
+Collector integration, exact runtime schema verification, scenario oracles and
+complete campaign inventory publication remain required.
+
+The integration test drives the actual goal loop, durable journal, queue
+transport, worker executor, loopback MCP server and reply-retention code together.
+Its model, scenario setup/verifier and AWS services are fixtures. It proves the
+software connection and failure behavior, not live Honua qualification. This
+adapter is excluded from the agent image and changes none of the 252 live cases.
 
 ### Deployment sequence
 

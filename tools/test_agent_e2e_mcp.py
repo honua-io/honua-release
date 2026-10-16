@@ -226,6 +226,25 @@ def test_malformed_tool_response_cannot_be_success(server, mutation, category):
     client.close()
 
 
+@pytest.mark.parametrize('name', ['', ' \t\n', 'x'*257, 'x'*256])
+def test_catalog_only_advertises_names_accepted_by_call_path(server, name):
+    tool = {'name': name, 'inputSchema': {}}
+    server.respond = lambda request: (result(request, {'tools': [tool]})
+        if request and request.get('method') == 'tools/list' else standard(request))
+    client = mcp.Client(server.url)
+    client.initialize()
+    try:
+        if name.strip() and len(name) <= 256:
+            assert client.list_tools() == {'tools': [tool]}
+            assert client.call_tool(name, {})['isError'] is False
+        else:
+            with pytest.raises(mcp.McpError, match='invalid-or-duplicate-tool'):
+                client.list_tools()
+            assert not any(row[3] and row[3].get('method') == 'tools/call' for row in server.seen)
+    finally:
+        client.close()
+
+
 @pytest.mark.parametrize('failure', ['duplicate-tool','repeated-cursor','page-limit'])
 def test_discovery_fails_instead_of_silently_truncating_catalog(server, failure):
     pages = []

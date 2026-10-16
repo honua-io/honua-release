@@ -183,6 +183,9 @@ def preserve_history(previous, current):
     for key, record in previous.get('workerLaunches', {}).items():
         if canonical_digest(current.get('workerLaunches', {}).get(key)) != canonical_digest(record):
             raise PackError('cannot rewrite or erase retained worker launch intent')
+    for key, record in previous.get('workerActions', {}).items():
+        if canonical_digest(current.get('workerActions', {}).get(key)) != canonical_digest(record):
+            raise PackError('cannot rewrite or erase retained worker action evidence')
     if 'bootstrapImport' in current and 'bootstrapImport' not in previous:
         raise PackError('bootstrap import must be the first state, never a retrofit')
     if 'bootstrapImport' in previous and canonical_digest(previous['bootstrapImport']) != canonical_digest(current.get('bootstrapImport')):
@@ -360,6 +363,20 @@ class DurableExecution:
         if self.stop.is_set() or self.heartbeat_error:
             raise PackError('durable controller lease is unavailable')
         self.store.renew()
+
+    def retain_worker_action(self, record, launch):
+        """Publish reply references before returning any public action result."""
+        self.require_worker_launch(launch)
+        if record.get('launchDigest') != canonical_digest(launch):
+            raise PackError('worker action evidence has another launch identity')
+        action_id = record.get('actionId')
+        if not isinstance(action_id, str) or not re.fullmatch(r'[0-9a-f]{64}', action_id):
+            raise PackError('worker action lacks controller dispatch identity')
+        actions = self.state.setdefault('workerActions', {})
+        if action_id in actions:
+            raise PackError('worker action evidence already retained; reconcile without redispatch')
+        actions[action_id] = copy.deepcopy(record)
+        self._persist()
 
     def close(self):
         self.stop.set()
