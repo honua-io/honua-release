@@ -123,19 +123,26 @@ def campaign(tmp_path, monkeypatch):
             ledger_entries.append({'id': f'{cid}/1/{kind}', 'campaignId': expected['campaignId'],
                                    'caseId': cid, 'attempt': 1, 'kind': kind, 'amountUsd': '0.02',
                                    'actualUsd': '0.01', 'state': 'settled', 'basisDigest': 'sha256:' + 'b' * 64})
-    ledger = {'schemaVersion': 1, 'candidateKey': expected['componentBindingDigest'], 'ceilingUsd': '500',
-              'cleanupReserveUsd': '50', 'entries': ledger_entries}
+    operations = [{'id':'bootstrap-'+kind, 'operationId':'bootstrap', 'purpose':'bootstrap', 'kind':kind,
+        'amountUsd':'1', 'actualUsd':'0.01', 'state':'settled', 'basisDigest':'sha256:'+'b'*64}
+        for kind in ('infrastructure', 'cleanup')]
+    operation_observation = write(evidence_root/'bootstrap-cost-observation.json', {'fixture':'offline cost observation'})
+    operation_report = write(evidence_root/'bootstrap-report.json', {'schemaVersion':1,
+        'candidateKey':expected['componentBindingDigest'], 'operationId':'bootstrap', 'purpose':'bootstrap',
+        'status':'settled', 'reservations':operations, 'observations':[operation_observation]})
+    ledger = {'schemaVersion': 2, 'candidateKey': expected['componentBindingDigest'], 'ceilingUsd': '500',
+              'cleanupReserveUsd': '50', 'entries': ledger_entries, 'operations':operations}
     write(tmp_path / 'ledger.json', ledger)
     write(tmp_path / 'registry.json', {'schemaVersion': 1, 'candidateKey': expected['componentBindingDigest'], 'attempts': registered})
     write(tmp_path / 'expectations.json', expectations)
     expected['expectationsDigest'] = gate.digest((tmp_path / 'expectations.json').read_bytes())
     write(tmp_path / 'campaign.json', expected)
-    trusted = {'schemaVersion': 1, 'campaignId': expected['campaignId'],
+    trusted = {'schemaVersion': 2, 'campaignId': expected['campaignId'],
                'campaignDigest': gate.digest((tmp_path / 'campaign.json').read_bytes()),
                'controller': expected['controller'], 'receipts': receipts,
                'budgetLedgerDigest': gate.digest((tmp_path / 'ledger.json').read_bytes()),
                'attemptRegistryDigest': gate.digest((tmp_path / 'registry.json').read_bytes()),
-               'knowledgeManifest': knowledge_ref, 'semanticReport': semantic_ref}
+               'knowledgeManifest': knowledge_ref, 'semanticReport': semantic_ref, 'operationReports':[operation_report]}
     write(tmp_path / 'trusted.json', trusted)
     return tmp_path
 
@@ -166,6 +173,7 @@ def test_full_inventory_passes(campaign):
     assert result['casesPassed'] == result['casesExpected'] == 252
     assert result['attempts'] == 252
     assert result['totalCostUsd'] == '7.56'
+    assert result['candidateLiabilityUsd'] == '7.58'  # Bootstrap counts in the budget, never in the 252 cases.
 
 
 @pytest.mark.parametrize('field,value,match', [

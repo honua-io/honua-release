@@ -23,6 +23,9 @@ class BudgetError(ValueError):
     pass
 
 
+OPERATION_PURPOSES = {'bootstrap', 'shared-environment', 'semantics', 'telemetry', 'retention'}
+
+
 def money(value):
     if isinstance(value, bool):
         raise BudgetError("boolean is not a cost")
@@ -35,40 +38,63 @@ def money(value):
     return result
 
 
-def validate(ledger):
-    if ledger.get("schemaVersion") != 1 or not re.fullmatch(r"sha256:[0-9a-f]{64}", ledger.get("candidateKey", "")):
+def validate(ledger, *, allow_overrun=False):
+    if not isinstance(ledger, dict):
+        raise BudgetError('invalid candidate ledger')
+    if (type(ledger.get("schemaVersion")) is not int or ledger['schemaVersion'] not in (1, 2)
+            or not isinstance(ledger.get('candidateKey'), str)
+            or not re.fullmatch(r"sha256:[0-9a-f]{64}", ledger['candidateKey'])):
         raise BudgetError("invalid candidate ledger")
+    fields = {'schemaVersion', 'candidateKey', 'ceilingUsd', 'cleanupReserveUsd', 'entries'}
+    if set(ledger) != fields | ({'operations'} if ledger['schemaVersion'] == 2 else set()):
+        raise BudgetError('unexpected or missing candidate ledger fields')
     ceiling, reserve = money(ledger["ceilingUsd"]), money(ledger["cleanupReserveUsd"])
     if ceiling != 500 or reserve != 50:
         raise BudgetError("agent pack requires a $500 ceiling and $50 cleanup reserve")
     entries = ledger.get("entries")
     if not isinstance(entries, list):
         raise BudgetError("entries must be a list")
+    operations = ledger.get('operations', [])
+    if not isinstance(operations, list):
+        raise BudgetError('candidate operations require ledger version 2')
     ids, liability, operating = set(), Decimal(0), Decimal(0)
-    for row in entries:
-        if not isinstance(row, dict) or not row.get("id") or row["id"] in ids:
+    purposes = {}
+    for scope, row in [('attempt', r) for r in entries] + [('operation', r) for r in operations]:
+        if not isinstance(row, dict) or not isinstance(row.get("id"), str) or not row['id'].strip() or row["id"] in ids:
             raise BudgetError("duplicate or missing reservation id")
         ids.add(row["id"])
         if row.get("kind") not in {"model", "infrastructure", "cleanup"} or row.get("state") not in {"reserved", "settled"}:
             raise BudgetError("invalid reservation")
-        if not row.get("campaignId") or not row.get("caseId") or not row.get("basisDigest"):
-            raise BudgetError("reservation lacks campaign, case or priced liability basis")
-        if type(row.get("attempt")) is not int or row["attempt"] not in (1, 2):
-            raise BudgetError("reservation must identify attempt 1 or 2")
-        if row.get("campaignMode", "qualification") not in ("development", "qualification"):
-            raise BudgetError("unknown campaign mode")
-        if not re.fullmatch(r"sha256:[0-9a-f]{64}", row["basisDigest"]):
+        if scope == 'attempt':
+            if not row.get("campaignId") or not row.get("caseId") or {'operationId', 'purpose'} & set(row):
+                raise BudgetError("reservation lacks campaign/case or mixes operation scope")
+            if type(row.get("attempt")) is not int or row["attempt"] not in (1, 2):
+                raise BudgetError("reservation must identify attempt 1 or 2")
+            if row.get("campaignMode", "qualification") not in ("development", "qualification"):
+                raise BudgetError("unknown campaign mode")
+        else:
+            if (set(row) != {'id', 'operationId', 'purpose', 'kind', 'amountUsd', 'basisDigest', 'state', 'actualUsd'}
+                    or row['kind'] not in ('infrastructure', 'cleanup')
+                    or not isinstance(row['operationId'], str)
+                    or not re.fullmatch(r'[A-Za-z0-9][A-Za-z0-9._-]{0,119}', row['operationId'])
+                    or not isinstance(row['purpose'], str) or row['purpose'] not in OPERATION_PURPOSES):
+                raise BudgetError('invalid candidate operation reservation')
+            if purposes.setdefault(row['operationId'], row['purpose']) != row['purpose']:
+                raise BudgetError('candidate operation purpose changed')
+        if not isinstance(row.get('basisDigest'), str) or not re.fullmatch(r"sha256:[0-9a-f]{64}", row["basisDigest"]):
             raise BudgetError("invalid pricing/liability basis digest")
         upper = money(row["amountUsd"])
         if upper <= 0:
             raise BudgetError("reservation must be positive")
+        if row['state'] == 'reserved' and row.get('actualUsd') is not None:
+            raise BudgetError('unsettled reservation cannot claim an actual charge')
         actual = money(row["actualUsd"]) if row["state"] == "settled" else upper
-        if actual > upper:
+        if actual > upper and not allow_overrun:
             raise BudgetError("actual charge exceeded reserved liability; qualification blocked")
         liability += actual
         if row["kind"] != "cleanup":
             operating += actual
-    if liability > ceiling or operating > ceiling - reserve:
+    if not allow_overrun and (liability > ceiling or operating > ceiling - reserve):
         raise BudgetError("candidate budget or protected cleanup reserve exhausted")
     return {"liabilityUsd": str(liability), "operatingUsd": str(operating),
             "remainingUsd": str(ceiling - liability)}
@@ -95,21 +121,29 @@ def update(path, operation, *, candidate_key, **values):
         if path.exists():
             ledger = json.loads(path.read_text(encoding="utf-8"))
         elif operation == "init":
-            ledger = {"schemaVersion": 1, "candidateKey": candidate_key,
-                      "ceilingUsd": "500", "cleanupReserveUsd": "50", "entries": []}
+            ledger = {"schemaVersion": 2, "candidateKey": candidate_key,
+                      "ceilingUsd": "500", "cleanupReserveUsd": "50", "entries": [], 'operations': []}
         else:
             raise BudgetError("candidate ledger must be initialized and retained before execution")
         if ledger["candidateKey"] != candidate_key:
             raise BudgetError("ledger belongs to another candidate")
-        validate(ledger)
+        # A prior overrun blocks new work, but must not prevent retaining later
+        # independently observed charges for already-reserved cleanup/resources.
+        validate(ledger, allow_overrun=operation == 'settle')
         if operation == "reserve":
             ledger["entries"].append({"id": values["reservation_id"], "campaignId": values["campaign_id"],
                 "caseId": values["case_id"], "kind": values["kind"], "amountUsd": str(money(values["amount"])),
                 "attempt": values["attempt"],
                 "campaignMode": values.get("campaign_mode", "qualification"),
                 "basisDigest": values["basis_digest"], "state": "reserved", "actualUsd": None})
+        elif operation == 'reserve-operation':
+            if ledger['schemaVersion'] != 2:
+                raise BudgetError('legacy history requires reviewed migration, never a budget reset')
+            ledger['operations'].append({'id':values['reservation_id'], 'operationId':values['operation_id'],
+                'purpose':values['purpose'], 'kind':values['kind'], 'amountUsd':str(money(values['amount'])),
+                'basisDigest':values['basis_digest'], 'state':'reserved', 'actualUsd':None})
         elif operation == "settle":
-            rows = [r for r in ledger["entries"] if r["id"] == values["reservation_id"]]
+            rows = [r for r in ledger["entries"] + ledger.get('operations', []) if r["id"] == values["reservation_id"]]
             if len(rows) != 1 or rows[0]["state"] != "reserved":
                 raise BudgetError("missing or already settled reservation")
             actual = money(values["amount"])
@@ -132,10 +166,12 @@ def update(path, operation, *, candidate_key, **values):
 
 def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("operation", choices=["init", "reserve", "settle", "check"])
+    parser.add_argument("operation", choices=["init", "reserve", "reserve-operation", "settle", "check"])
     parser.add_argument("--ledger", required=True, type=Path)
     parser.add_argument("--candidate-key", required=True)
     parser.add_argument("--reservation-id")
+    parser.add_argument('--operation-id')
+    parser.add_argument('--purpose', choices=sorted(OPERATION_PURPOSES))
     parser.add_argument("--campaign-id")
     parser.add_argument("--campaign-mode", choices=["development", "qualification"], default="qualification")
     parser.add_argument("--case-id")
