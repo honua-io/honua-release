@@ -44,6 +44,52 @@ Native identity validation alone does not establish image provenance, Redis
 configuration, network routing or live API collection; the producer's preflight
 and backend still must prove those properties before qualification.
 
+The first three selection checks have reviewed FeatureServer query recipes in
+`tools/agent_e2e_query_recipes.py`. Bind their service and layer IDs from the
+controller's observed publication, after seeding `agent_e2e_semantics.fixture()`
+in the isolated environment. These are deterministic verifier requests, not
+scripted answers for the tested agent. The recipes request every attribute,
+geometry, EPSG:3857 and source-ID ordering, with separate before/after queries.
+The full runner still requires all fifteen checks; these three recipes alone
+cannot produce a complete semantic report.
+
+Response field references may name the fixed `feature-server-points/v1`
+normalizer and a `resultPointer`. Replay applies the same conversion to retained
+raw bytes. It maps observed x/y to GeoJSON coordinates and uses the corpus
+`source_id` as feature identity, removing only the metadata-declared numeric
+object-ID attribute. Every other attribute, null, coordinate and row order stays
+unchanged. CRS comes from the observed response, never the requested outSR.
+Incomplete, quantized, ambiguous, duplicate-ID or non-2D-point responses fail.
+Selection assertions also require the observed result CRS to match the fixture.
+This converter does not yet cover polygon topology, pagination or job outputs.
+
+On October 15, a local development probe ran all three selection recipes against
+the manifest-pinned server `0e03bdd06b3ca3fb1b82388110bb5dfa19b9f8fa`, amd64 image
+`sha256:8a211f46bbc92fe6907b72fb8bcdc36a808924f3ca001a090591c0752360d2bd`.
+It seeded the four semantic points in a separate PostGIS container, registered
+the connection and published through the admin API. Publication returned a
+disabled layer. The initial query returned HTTP 200 with a protocol 404, which
+the verifier rejected. An enable request without the service query parameter
+also returned 404: list/enable endpoints default to service `default`. Supplying
+`?serviceName=sem-probe-624` to the enable endpoint succeeded. All three queries
+then passed with independently captured before/after source responses. Exact
+bytes, the failed setup responses and the seed SQL are retained in
+`fixtures/feature-server-points-0e03bdd.json` as a regression fixture. The scoped
+Compose teardown completed with volumes requested for removal; no project
+containers or network remained. This manual local probe is not the isolated CI
+lane, full semantic suite, deployed cleanup proof or an agent/model campaign.
+All 252 agent cases remain unqualified.
+
+Scenario preparation and cleanup must keep application outputs separate from
+environment lifetime. Use fresh case-owned tables/services and bind publication
+to the observed physical import table; never overwrite an existing fixture table
+to make a rerun pass. A stopped worker is not proof that its application outputs
+are gone. Disabling a layer is not deletion, and connection deletion may fail
+while services reference it. Delete case-owned outputs through their owning APIs,
+observe source/shared-content preservation, and independently verify scoped
+environment teardown for seeded data. These setup/cleanup integrations remain
+open in #623; this normalization work does not claim that they exist.
+
 Spatial semantic cases use two concrete EPSG:3857 source layers from
 `agent_e2e_semantics.spatial_fixture()`: five points (inside, outer boundary,
 hole interior, hole boundary and outside) and two polygons (a square with a hole

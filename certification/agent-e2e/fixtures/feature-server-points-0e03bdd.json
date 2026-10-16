@@ -1,0 +1,932 @@
+{
+  "qualification": false,
+  "scope": "three deterministic API probes, no agent/model run",
+  "endpoint": "http://127.0.0.1:19826",
+  "serverRevision": "0e03bdd06b3ca3fb1b82388110bb5dfa19b9f8fa",
+  "image": "ghcr.io/honua-io/honua-server@sha256:8a211f46bbc92fe6907b72fb8bcdc36a808924f3ca001a090591c0752360d2bd",
+  "connectionId": "793e6ee3-e858-467c-85b5-588ffbfdd00c",
+  "layerId": 1,
+  "checks": [
+    {
+      "case": "select-strict",
+      "status": "pass"
+    },
+    {
+      "case": "select-inclusive",
+      "status": "pass"
+    },
+    {
+      "case": "select-inclusive-null",
+      "status": "pass"
+    }
+  ],
+  "captureKind": "local-development-regression-fixture",
+  "setup": {
+    "seedSql": "CREATE TABLE public.sem_points_624 (objectid bigint PRIMARY KEY, source_id text NOT NULL UNIQUE, capacity integer, geom geometry(Point,3857));\nINSERT INTO public.sem_points_624 VALUES\n(701,'s1',49,ST_SetSRID(ST_MakePoint(10,10),3857)),\n(702,'s2',50,ST_SetSRID(ST_MakePoint(20,20),3857)),\n(703,'s3',51,ST_SetSRID(ST_MakePoint(30,30),3857)),\n(704,'s4',NULL,ST_SetSRID(ST_MakePoint(40,40),3857));",
+    "publication": {
+      "httpStatus": 201,
+      "body": {
+        "success": true,
+        "data": {
+          "layerId": 1,
+          "layerName": "semantic-points",
+          "schema": "public",
+          "table": "sem_points_624",
+          "description": null,
+          "license": null,
+          "attribution": null,
+          "publisher": null,
+          "licenseUrl": null,
+          "sourceUrl": null,
+          "geometryType": "Point",
+          "srid": 3857,
+          "primaryKey": "objectid",
+          "fieldCount": 4,
+          "enabled": false,
+          "serviceName": "sem-probe-624",
+          "storageMode": "source",
+          "capabilities": [
+            "Query",
+            "Extract"
+          ]
+        },
+        "message": null,
+        "timestamp": "2026-10-16T04:25:46.1939745+00:00"
+      },
+      "responseDigest": "sha256:762284f2af7f07e9a0871e83ebdeb730509b0dba184378080f1ec0cdc164612d",
+      "rawBodyBase64": "eyJzdWNjZXNzIjp0cnVlLCJkYXRhIjp7ImxheWVySWQiOjEsImxheWVyTmFtZSI6InNlbWFudGljLXBvaW50cyIsInNjaGVtYSI6InB1YmxpYyIsInRhYmxlIjoic2VtX3BvaW50c182MjQiLCJkZXNjcmlwdGlvbiI6bnVsbCwibGljZW5zZSI6bnVsbCwiYXR0cmlidXRpb24iOm51bGwsInB1Ymxpc2hlciI6bnVsbCwibGljZW5zZVVybCI6bnVsbCwic291cmNlVXJsIjpudWxsLCJnZW9tZXRyeVR5cGUiOiJQb2ludCIsInNyaWQiOjM4NTcsInByaW1hcnlLZXkiOiJvYmplY3RpZCIsImZpZWxkQ291bnQiOjQsImVuYWJsZWQiOmZhbHNlLCJzZXJ2aWNlTmFtZSI6InNlbS1wcm9iZS02MjQiLCJzdG9yYWdlTW9kZSI6InNvdXJjZSIsImNhcGFiaWxpdGllcyI6WyJRdWVyeSIsIkV4dHJhY3QiXX0sIm1lc3NhZ2UiOm51bGwsInRpbWVzdGFtcCI6IjIwMjYtMTAtMTZUMDQ6MjU6NDYuMTkzOTc0NSswMDowMCJ9"
+    },
+    "unscopedEnable": {
+      "httpStatus": 404,
+      "body": {
+        "success": false,
+        "data": null,
+        "message": "Layer not found.",
+        "timestamp": "2026-10-16T04:26:52.7448106+00:00"
+      },
+      "responseDigest": "sha256:7a5d499ef30bbfe532031604321413b0c06b9b6b2cb0c1099421a6fcc4fc3fd0",
+      "rawBodyBase64": "eyJzdWNjZXNzIjpmYWxzZSwiZGF0YSI6bnVsbCwibWVzc2FnZSI6IkxheWVyIG5vdCBmb3VuZC4iLCJ0aW1lc3RhbXAiOiIyMDI2LTEwLTE2VDA0OjI2OjUyLjc0NDgxMDYrMDA6MDAifQ=="
+    },
+    "scopedEnable": {
+      "httpStatus": 200,
+      "body": {
+        "success": true,
+        "data": {
+          "layerId": 1,
+          "layerName": "semantic-points",
+          "schema": "public",
+          "table": "sem_points_624",
+          "description": null,
+          "license": null,
+          "attribution": null,
+          "publisher": null,
+          "licenseUrl": null,
+          "sourceUrl": null,
+          "geometryType": "Point",
+          "srid": 3857,
+          "primaryKey": "objectid",
+          "fieldCount": 4,
+          "enabled": true,
+          "serviceName": "sem-probe-624",
+          "storageMode": null,
+          "capabilities": null
+        },
+        "message": null,
+        "timestamp": "2026-10-16T04:29:04.0709492+00:00"
+      },
+      "responseDigest": "sha256:91f0789c3c8b436bd0d54c2a04d3f84700a142f4c0928965491528cde6747320",
+      "rawBodyBase64": "eyJzdWNjZXNzIjp0cnVlLCJkYXRhIjp7ImxheWVySWQiOjEsImxheWVyTmFtZSI6InNlbWFudGljLXBvaW50cyIsInNjaGVtYSI6InB1YmxpYyIsInRhYmxlIjoic2VtX3BvaW50c182MjQiLCJkZXNjcmlwdGlvbiI6bnVsbCwibGljZW5zZSI6bnVsbCwiYXR0cmlidXRpb24iOm51bGwsInB1Ymxpc2hlciI6bnVsbCwibGljZW5zZVVybCI6bnVsbCwic291cmNlVXJsIjpudWxsLCJnZW9tZXRyeVR5cGUiOiJQb2ludCIsInNyaWQiOjM4NTcsInByaW1hcnlLZXkiOiJvYmplY3RpZCIsImZpZWxkQ291bnQiOjQsImVuYWJsZWQiOnRydWUsInNlcnZpY2VOYW1lIjoic2VtLXByb2JlLTYyNCIsInN0b3JhZ2VNb2RlIjpudWxsLCJjYXBhYmlsaXRpZXMiOm51bGx9LCJtZXNzYWdlIjpudWxsLCJ0aW1lc3RhbXAiOiIyMDI2LTEwLTE2VDA0OjI5OjA0LjA3MDk0OTIrMDA6MDAifQ=="
+    },
+    "initialQuery": {
+      "httpStatus": 200,
+      "body": {
+        "error": {
+          "code": 404,
+          "message": "Not Found",
+          "details": [
+            "Layer 1 not found in service 'sem-probe-624'.",
+            "CorrelationId: 00-aff090c30084d60d101a6efcb6ec22f7-89eaf05294f92082-00",
+            "Timestamp: 2026-10-16T04:25:46.2844302+00:00"
+          ]
+        }
+      },
+      "responseDigest": "sha256:b077a71de05e3957350c8f993cca6b8df58c11bf7dca55f13141521ea8fdfb34",
+      "rawBodyBase64": "eyJlcnJvciI6eyJjb2RlIjo0MDQsIm1lc3NhZ2UiOiJOb3QgRm91bmQiLCJkZXRhaWxzIjpbIkxheWVyIDEgbm90IGZvdW5kIGluIHNlcnZpY2UgXHUwMDI3c2VtLXByb2JlLTYyNFx1MDAyNy4iLCJDb3JyZWxhdGlvbklkOiAwMC1hZmYwOTBjMzAwODRkNjBkMTAxYTZlZmNiNmVjMjJmNy04OWVhZjA1Mjk0ZjkyMDgyLTAwIiwiVGltZXN0YW1wOiAyMDI2LTEwLTE2VDA0OjI1OjQ2LjI4NDQzMDJcdTAwMkIwMDowMCJdfX0="
+    }
+  },
+  "queries": {
+    "select-strict": {
+      "before": {
+        "httpStatus": 200,
+        "body": {
+          "geometryType": "esriGeometryPoint",
+          "spatialReference": {
+            "wkid": 3857,
+            "latestWkid": 3857
+          },
+          "displayFieldName": "source_id",
+          "fields": [
+            {
+              "sqlType": "sqlTypeOther",
+              "editable": false,
+              "visible": true,
+              "canSort": true,
+              "name": "objectid",
+              "type": "esriFieldTypeOID",
+              "alias": "objectid",
+              "nullable": false,
+              "displayName": "objectid"
+            },
+            {
+              "sqlType": "sqlTypeNVarchar",
+              "editable": true,
+              "visible": true,
+              "canSort": true,
+              "name": "source_id",
+              "type": "esriFieldTypeString",
+              "alias": "source_id",
+              "length": 256,
+              "nullable": false,
+              "displayName": "source_id"
+            },
+            {
+              "sqlType": "sqlTypeInteger",
+              "editable": true,
+              "visible": true,
+              "canSort": true,
+              "name": "capacity",
+              "type": "esriFieldTypeInteger",
+              "alias": "capacity",
+              "nullable": true,
+              "displayName": "capacity"
+            }
+          ],
+          "objectIdFieldName": "objectid",
+          "features": [
+            {
+              "attributes": {
+                "capacity": 49,
+                "objectid": 701,
+                "source_id": "s1"
+              },
+              "geometry": {
+                "x": 10,
+                "y": 10
+              }
+            },
+            {
+              "attributes": {
+                "capacity": 50,
+                "objectid": 702,
+                "source_id": "s2"
+              },
+              "geometry": {
+                "x": 20,
+                "y": 20
+              }
+            },
+            {
+              "attributes": {
+                "capacity": 51,
+                "objectid": 703,
+                "source_id": "s3"
+              },
+              "geometry": {
+                "x": 30,
+                "y": 30
+              }
+            },
+            {
+              "attributes": {
+                "capacity": null,
+                "objectid": 704,
+                "source_id": "s4"
+              },
+              "geometry": {
+                "x": 40,
+                "y": 40
+              }
+            }
+          ],
+          "exceededTransferLimit": false
+        },
+        "responseDigest": "sha256:0ecdcdbeb894c569e71e96f6c75b1652a950a5cbfc835758d5e68b03488dde62",
+        "rawBodyBase64": "eyJnZW9tZXRyeVR5cGUiOiJlc3JpR2VvbWV0cnlQb2ludCIsInNwYXRpYWxSZWZlcmVuY2UiOnsid2tpZCI6Mzg1NywibGF0ZXN0V2tpZCI6Mzg1N30sImRpc3BsYXlGaWVsZE5hbWUiOiJzb3VyY2VfaWQiLCJmaWVsZHMiOlt7InNxbFR5cGUiOiJzcWxUeXBlT3RoZXIiLCJlZGl0YWJsZSI6ZmFsc2UsInZpc2libGUiOnRydWUsImNhblNvcnQiOnRydWUsIm5hbWUiOiJvYmplY3RpZCIsInR5cGUiOiJlc3JpRmllbGRUeXBlT0lEIiwiYWxpYXMiOiJvYmplY3RpZCIsIm51bGxhYmxlIjpmYWxzZSwiZGlzcGxheU5hbWUiOiJvYmplY3RpZCJ9LHsic3FsVHlwZSI6InNxbFR5cGVOVmFyY2hhciIsImVkaXRhYmxlIjp0cnVlLCJ2aXNpYmxlIjp0cnVlLCJjYW5Tb3J0Ijp0cnVlLCJuYW1lIjoic291cmNlX2lkIiwidHlwZSI6ImVzcmlGaWVsZFR5cGVTdHJpbmciLCJhbGlhcyI6InNvdXJjZV9pZCIsImxlbmd0aCI6MjU2LCJudWxsYWJsZSI6ZmFsc2UsImRpc3BsYXlOYW1lIjoic291cmNlX2lkIn0seyJzcWxUeXBlIjoic3FsVHlwZUludGVnZXIiLCJlZGl0YWJsZSI6dHJ1ZSwidmlzaWJsZSI6dHJ1ZSwiY2FuU29ydCI6dHJ1ZSwibmFtZSI6ImNhcGFjaXR5IiwidHlwZSI6ImVzcmlGaWVsZFR5cGVJbnRlZ2VyIiwiYWxpYXMiOiJjYXBhY2l0eSIsIm51bGxhYmxlIjp0cnVlLCJkaXNwbGF5TmFtZSI6ImNhcGFjaXR5In1dLCJvYmplY3RJZEZpZWxkTmFtZSI6Im9iamVjdGlkIiwiZmVhdHVyZXMiOlt7ImF0dHJpYnV0ZXMiOnsiY2FwYWNpdHkiOjQ5LCJvYmplY3RpZCI6NzAxLCJzb3VyY2VfaWQiOiJzMSJ9LCJnZW9tZXRyeSI6eyJ4IjoxMCwieSI6MTB9fSx7ImF0dHJpYnV0ZXMiOnsiY2FwYWNpdHkiOjUwLCJvYmplY3RpZCI6NzAyLCJzb3VyY2VfaWQiOiJzMiJ9LCJnZW9tZXRyeSI6eyJ4IjoyMCwieSI6MjB9fSx7ImF0dHJpYnV0ZXMiOnsiY2FwYWNpdHkiOjUxLCJvYmplY3RpZCI6NzAzLCJzb3VyY2VfaWQiOiJzMyJ9LCJnZW9tZXRyeSI6eyJ4IjozMCwieSI6MzB9fSx7ImF0dHJpYnV0ZXMiOnsiY2FwYWNpdHkiOm51bGwsIm9iamVjdGlkIjo3MDQsInNvdXJjZV9pZCI6InM0In0sImdlb21ldHJ5Ijp7IngiOjQwLCJ5Ijo0MH19XSwiZXhjZWVkZWRUcmFuc2ZlckxpbWl0IjpmYWxzZX0="
+      },
+      "operation": {
+        "httpStatus": 200,
+        "body": {
+          "geometryType": "esriGeometryPoint",
+          "spatialReference": {
+            "wkid": 3857,
+            "latestWkid": 3857
+          },
+          "displayFieldName": "source_id",
+          "fields": [
+            {
+              "sqlType": "sqlTypeOther",
+              "editable": false,
+              "visible": true,
+              "canSort": true,
+              "name": "objectid",
+              "type": "esriFieldTypeOID",
+              "alias": "objectid",
+              "nullable": false,
+              "displayName": "objectid"
+            },
+            {
+              "sqlType": "sqlTypeNVarchar",
+              "editable": true,
+              "visible": true,
+              "canSort": true,
+              "name": "source_id",
+              "type": "esriFieldTypeString",
+              "alias": "source_id",
+              "length": 256,
+              "nullable": false,
+              "displayName": "source_id"
+            },
+            {
+              "sqlType": "sqlTypeInteger",
+              "editable": true,
+              "visible": true,
+              "canSort": true,
+              "name": "capacity",
+              "type": "esriFieldTypeInteger",
+              "alias": "capacity",
+              "nullable": true,
+              "displayName": "capacity"
+            }
+          ],
+          "objectIdFieldName": "objectid",
+          "features": [
+            {
+              "attributes": {
+                "capacity": 51,
+                "objectid": 703,
+                "source_id": "s3"
+              },
+              "geometry": {
+                "x": 30,
+                "y": 30
+              }
+            }
+          ],
+          "exceededTransferLimit": false
+        },
+        "responseDigest": "sha256:56266c04f44f55973796ddeeadf0728a52fa42be3ef1c47bba5ae8f61c3bb6bf",
+        "rawBodyBase64": "eyJnZW9tZXRyeVR5cGUiOiJlc3JpR2VvbWV0cnlQb2ludCIsInNwYXRpYWxSZWZlcmVuY2UiOnsid2tpZCI6Mzg1NywibGF0ZXN0V2tpZCI6Mzg1N30sImRpc3BsYXlGaWVsZE5hbWUiOiJzb3VyY2VfaWQiLCJmaWVsZHMiOlt7InNxbFR5cGUiOiJzcWxUeXBlT3RoZXIiLCJlZGl0YWJsZSI6ZmFsc2UsInZpc2libGUiOnRydWUsImNhblNvcnQiOnRydWUsIm5hbWUiOiJvYmplY3RpZCIsInR5cGUiOiJlc3JpRmllbGRUeXBlT0lEIiwiYWxpYXMiOiJvYmplY3RpZCIsIm51bGxhYmxlIjpmYWxzZSwiZGlzcGxheU5hbWUiOiJvYmplY3RpZCJ9LHsic3FsVHlwZSI6InNxbFR5cGVOVmFyY2hhciIsImVkaXRhYmxlIjp0cnVlLCJ2aXNpYmxlIjp0cnVlLCJjYW5Tb3J0Ijp0cnVlLCJuYW1lIjoic291cmNlX2lkIiwidHlwZSI6ImVzcmlGaWVsZFR5cGVTdHJpbmciLCJhbGlhcyI6InNvdXJjZV9pZCIsImxlbmd0aCI6MjU2LCJudWxsYWJsZSI6ZmFsc2UsImRpc3BsYXlOYW1lIjoic291cmNlX2lkIn0seyJzcWxUeXBlIjoic3FsVHlwZUludGVnZXIiLCJlZGl0YWJsZSI6dHJ1ZSwidmlzaWJsZSI6dHJ1ZSwiY2FuU29ydCI6dHJ1ZSwibmFtZSI6ImNhcGFjaXR5IiwidHlwZSI6ImVzcmlGaWVsZFR5cGVJbnRlZ2VyIiwiYWxpYXMiOiJjYXBhY2l0eSIsIm51bGxhYmxlIjp0cnVlLCJkaXNwbGF5TmFtZSI6ImNhcGFjaXR5In1dLCJvYmplY3RJZEZpZWxkTmFtZSI6Im9iamVjdGlkIiwiZmVhdHVyZXMiOlt7ImF0dHJpYnV0ZXMiOnsiY2FwYWNpdHkiOjUxLCJvYmplY3RpZCI6NzAzLCJzb3VyY2VfaWQiOiJzMyJ9LCJnZW9tZXRyeSI6eyJ4IjozMCwieSI6MzB9fV0sImV4Y2VlZGVkVHJhbnNmZXJMaW1pdCI6ZmFsc2V9"
+      },
+      "after": {
+        "httpStatus": 200,
+        "body": {
+          "geometryType": "esriGeometryPoint",
+          "spatialReference": {
+            "wkid": 3857,
+            "latestWkid": 3857
+          },
+          "displayFieldName": "source_id",
+          "fields": [
+            {
+              "sqlType": "sqlTypeOther",
+              "editable": false,
+              "visible": true,
+              "canSort": true,
+              "name": "objectid",
+              "type": "esriFieldTypeOID",
+              "alias": "objectid",
+              "nullable": false,
+              "displayName": "objectid"
+            },
+            {
+              "sqlType": "sqlTypeNVarchar",
+              "editable": true,
+              "visible": true,
+              "canSort": true,
+              "name": "source_id",
+              "type": "esriFieldTypeString",
+              "alias": "source_id",
+              "length": 256,
+              "nullable": false,
+              "displayName": "source_id"
+            },
+            {
+              "sqlType": "sqlTypeInteger",
+              "editable": true,
+              "visible": true,
+              "canSort": true,
+              "name": "capacity",
+              "type": "esriFieldTypeInteger",
+              "alias": "capacity",
+              "nullable": true,
+              "displayName": "capacity"
+            }
+          ],
+          "objectIdFieldName": "objectid",
+          "features": [
+            {
+              "attributes": {
+                "capacity": 49,
+                "objectid": 701,
+                "source_id": "s1"
+              },
+              "geometry": {
+                "x": 10,
+                "y": 10
+              }
+            },
+            {
+              "attributes": {
+                "capacity": 50,
+                "objectid": 702,
+                "source_id": "s2"
+              },
+              "geometry": {
+                "x": 20,
+                "y": 20
+              }
+            },
+            {
+              "attributes": {
+                "capacity": 51,
+                "objectid": 703,
+                "source_id": "s3"
+              },
+              "geometry": {
+                "x": 30,
+                "y": 30
+              }
+            },
+            {
+              "attributes": {
+                "capacity": null,
+                "objectid": 704,
+                "source_id": "s4"
+              },
+              "geometry": {
+                "x": 40,
+                "y": 40
+              }
+            }
+          ],
+          "exceededTransferLimit": false
+        },
+        "responseDigest": "sha256:0ecdcdbeb894c569e71e96f6c75b1652a950a5cbfc835758d5e68b03488dde62",
+        "rawBodyBase64": "eyJnZW9tZXRyeVR5cGUiOiJlc3JpR2VvbWV0cnlQb2ludCIsInNwYXRpYWxSZWZlcmVuY2UiOnsid2tpZCI6Mzg1NywibGF0ZXN0V2tpZCI6Mzg1N30sImRpc3BsYXlGaWVsZE5hbWUiOiJzb3VyY2VfaWQiLCJmaWVsZHMiOlt7InNxbFR5cGUiOiJzcWxUeXBlT3RoZXIiLCJlZGl0YWJsZSI6ZmFsc2UsInZpc2libGUiOnRydWUsImNhblNvcnQiOnRydWUsIm5hbWUiOiJvYmplY3RpZCIsInR5cGUiOiJlc3JpRmllbGRUeXBlT0lEIiwiYWxpYXMiOiJvYmplY3RpZCIsIm51bGxhYmxlIjpmYWxzZSwiZGlzcGxheU5hbWUiOiJvYmplY3RpZCJ9LHsic3FsVHlwZSI6InNxbFR5cGVOVmFyY2hhciIsImVkaXRhYmxlIjp0cnVlLCJ2aXNpYmxlIjp0cnVlLCJjYW5Tb3J0Ijp0cnVlLCJuYW1lIjoic291cmNlX2lkIiwidHlwZSI6ImVzcmlGaWVsZFR5cGVTdHJpbmciLCJhbGlhcyI6InNvdXJjZV9pZCIsImxlbmd0aCI6MjU2LCJudWxsYWJsZSI6ZmFsc2UsImRpc3BsYXlOYW1lIjoic291cmNlX2lkIn0seyJzcWxUeXBlIjoic3FsVHlwZUludGVnZXIiLCJlZGl0YWJsZSI6dHJ1ZSwidmlzaWJsZSI6dHJ1ZSwiY2FuU29ydCI6dHJ1ZSwibmFtZSI6ImNhcGFjaXR5IiwidHlwZSI6ImVzcmlGaWVsZFR5cGVJbnRlZ2VyIiwiYWxpYXMiOiJjYXBhY2l0eSIsIm51bGxhYmxlIjp0cnVlLCJkaXNwbGF5TmFtZSI6ImNhcGFjaXR5In1dLCJvYmplY3RJZEZpZWxkTmFtZSI6Im9iamVjdGlkIiwiZmVhdHVyZXMiOlt7ImF0dHJpYnV0ZXMiOnsiY2FwYWNpdHkiOjQ5LCJvYmplY3RpZCI6NzAxLCJzb3VyY2VfaWQiOiJzMSJ9LCJnZW9tZXRyeSI6eyJ4IjoxMCwieSI6MTB9fSx7ImF0dHJpYnV0ZXMiOnsiY2FwYWNpdHkiOjUwLCJvYmplY3RpZCI6NzAyLCJzb3VyY2VfaWQiOiJzMiJ9LCJnZW9tZXRyeSI6eyJ4IjoyMCwieSI6MjB9fSx7ImF0dHJpYnV0ZXMiOnsiY2FwYWNpdHkiOjUxLCJvYmplY3RpZCI6NzAzLCJzb3VyY2VfaWQiOiJzMyJ9LCJnZW9tZXRyeSI6eyJ4IjozMCwieSI6MzB9fSx7ImF0dHJpYnV0ZXMiOnsiY2FwYWNpdHkiOm51bGwsIm9iamVjdGlkIjo3MDQsInNvdXJjZV9pZCI6InM0In0sImdlb21ldHJ5Ijp7IngiOjQwLCJ5Ijo0MH19XSwiZXhjZWVkZWRUcmFuc2ZlckxpbWl0IjpmYWxzZX0="
+      }
+    },
+    "select-inclusive": {
+      "before": {
+        "httpStatus": 200,
+        "body": {
+          "geometryType": "esriGeometryPoint",
+          "spatialReference": {
+            "wkid": 3857,
+            "latestWkid": 3857
+          },
+          "displayFieldName": "source_id",
+          "fields": [
+            {
+              "sqlType": "sqlTypeOther",
+              "editable": false,
+              "visible": true,
+              "canSort": true,
+              "name": "objectid",
+              "type": "esriFieldTypeOID",
+              "alias": "objectid",
+              "nullable": false,
+              "displayName": "objectid"
+            },
+            {
+              "sqlType": "sqlTypeNVarchar",
+              "editable": true,
+              "visible": true,
+              "canSort": true,
+              "name": "source_id",
+              "type": "esriFieldTypeString",
+              "alias": "source_id",
+              "length": 256,
+              "nullable": false,
+              "displayName": "source_id"
+            },
+            {
+              "sqlType": "sqlTypeInteger",
+              "editable": true,
+              "visible": true,
+              "canSort": true,
+              "name": "capacity",
+              "type": "esriFieldTypeInteger",
+              "alias": "capacity",
+              "nullable": true,
+              "displayName": "capacity"
+            }
+          ],
+          "objectIdFieldName": "objectid",
+          "features": [
+            {
+              "attributes": {
+                "capacity": 49,
+                "objectid": 701,
+                "source_id": "s1"
+              },
+              "geometry": {
+                "x": 10,
+                "y": 10
+              }
+            },
+            {
+              "attributes": {
+                "capacity": 50,
+                "objectid": 702,
+                "source_id": "s2"
+              },
+              "geometry": {
+                "x": 20,
+                "y": 20
+              }
+            },
+            {
+              "attributes": {
+                "capacity": 51,
+                "objectid": 703,
+                "source_id": "s3"
+              },
+              "geometry": {
+                "x": 30,
+                "y": 30
+              }
+            },
+            {
+              "attributes": {
+                "capacity": null,
+                "objectid": 704,
+                "source_id": "s4"
+              },
+              "geometry": {
+                "x": 40,
+                "y": 40
+              }
+            }
+          ],
+          "exceededTransferLimit": false
+        },
+        "responseDigest": "sha256:0ecdcdbeb894c569e71e96f6c75b1652a950a5cbfc835758d5e68b03488dde62",
+        "rawBodyBase64": "eyJnZW9tZXRyeVR5cGUiOiJlc3JpR2VvbWV0cnlQb2ludCIsInNwYXRpYWxSZWZlcmVuY2UiOnsid2tpZCI6Mzg1NywibGF0ZXN0V2tpZCI6Mzg1N30sImRpc3BsYXlGaWVsZE5hbWUiOiJzb3VyY2VfaWQiLCJmaWVsZHMiOlt7InNxbFR5cGUiOiJzcWxUeXBlT3RoZXIiLCJlZGl0YWJsZSI6ZmFsc2UsInZpc2libGUiOnRydWUsImNhblNvcnQiOnRydWUsIm5hbWUiOiJvYmplY3RpZCIsInR5cGUiOiJlc3JpRmllbGRUeXBlT0lEIiwiYWxpYXMiOiJvYmplY3RpZCIsIm51bGxhYmxlIjpmYWxzZSwiZGlzcGxheU5hbWUiOiJvYmplY3RpZCJ9LHsic3FsVHlwZSI6InNxbFR5cGVOVmFyY2hhciIsImVkaXRhYmxlIjp0cnVlLCJ2aXNpYmxlIjp0cnVlLCJjYW5Tb3J0Ijp0cnVlLCJuYW1lIjoic291cmNlX2lkIiwidHlwZSI6ImVzcmlGaWVsZFR5cGVTdHJpbmciLCJhbGlhcyI6InNvdXJjZV9pZCIsImxlbmd0aCI6MjU2LCJudWxsYWJsZSI6ZmFsc2UsImRpc3BsYXlOYW1lIjoic291cmNlX2lkIn0seyJzcWxUeXBlIjoic3FsVHlwZUludGVnZXIiLCJlZGl0YWJsZSI6dHJ1ZSwidmlzaWJsZSI6dHJ1ZSwiY2FuU29ydCI6dHJ1ZSwibmFtZSI6ImNhcGFjaXR5IiwidHlwZSI6ImVzcmlGaWVsZFR5cGVJbnRlZ2VyIiwiYWxpYXMiOiJjYXBhY2l0eSIsIm51bGxhYmxlIjp0cnVlLCJkaXNwbGF5TmFtZSI6ImNhcGFjaXR5In1dLCJvYmplY3RJZEZpZWxkTmFtZSI6Im9iamVjdGlkIiwiZmVhdHVyZXMiOlt7ImF0dHJpYnV0ZXMiOnsiY2FwYWNpdHkiOjQ5LCJvYmplY3RpZCI6NzAxLCJzb3VyY2VfaWQiOiJzMSJ9LCJnZW9tZXRyeSI6eyJ4IjoxMCwieSI6MTB9fSx7ImF0dHJpYnV0ZXMiOnsiY2FwYWNpdHkiOjUwLCJvYmplY3RpZCI6NzAyLCJzb3VyY2VfaWQiOiJzMiJ9LCJnZW9tZXRyeSI6eyJ4IjoyMCwieSI6MjB9fSx7ImF0dHJpYnV0ZXMiOnsiY2FwYWNpdHkiOjUxLCJvYmplY3RpZCI6NzAzLCJzb3VyY2VfaWQiOiJzMyJ9LCJnZW9tZXRyeSI6eyJ4IjozMCwieSI6MzB9fSx7ImF0dHJpYnV0ZXMiOnsiY2FwYWNpdHkiOm51bGwsIm9iamVjdGlkIjo3MDQsInNvdXJjZV9pZCI6InM0In0sImdlb21ldHJ5Ijp7IngiOjQwLCJ5Ijo0MH19XSwiZXhjZWVkZWRUcmFuc2ZlckxpbWl0IjpmYWxzZX0="
+      },
+      "operation": {
+        "httpStatus": 200,
+        "body": {
+          "geometryType": "esriGeometryPoint",
+          "spatialReference": {
+            "wkid": 3857,
+            "latestWkid": 3857
+          },
+          "displayFieldName": "source_id",
+          "fields": [
+            {
+              "sqlType": "sqlTypeOther",
+              "editable": false,
+              "visible": true,
+              "canSort": true,
+              "name": "objectid",
+              "type": "esriFieldTypeOID",
+              "alias": "objectid",
+              "nullable": false,
+              "displayName": "objectid"
+            },
+            {
+              "sqlType": "sqlTypeNVarchar",
+              "editable": true,
+              "visible": true,
+              "canSort": true,
+              "name": "source_id",
+              "type": "esriFieldTypeString",
+              "alias": "source_id",
+              "length": 256,
+              "nullable": false,
+              "displayName": "source_id"
+            },
+            {
+              "sqlType": "sqlTypeInteger",
+              "editable": true,
+              "visible": true,
+              "canSort": true,
+              "name": "capacity",
+              "type": "esriFieldTypeInteger",
+              "alias": "capacity",
+              "nullable": true,
+              "displayName": "capacity"
+            }
+          ],
+          "objectIdFieldName": "objectid",
+          "features": [
+            {
+              "attributes": {
+                "capacity": 50,
+                "objectid": 702,
+                "source_id": "s2"
+              },
+              "geometry": {
+                "x": 20,
+                "y": 20
+              }
+            },
+            {
+              "attributes": {
+                "capacity": 51,
+                "objectid": 703,
+                "source_id": "s3"
+              },
+              "geometry": {
+                "x": 30,
+                "y": 30
+              }
+            }
+          ],
+          "exceededTransferLimit": false
+        },
+        "responseDigest": "sha256:814772192f1958570b6a827a9ffca4b4cf48aed1aea9c56a7e7fd9a80caab5b7",
+        "rawBodyBase64": "eyJnZW9tZXRyeVR5cGUiOiJlc3JpR2VvbWV0cnlQb2ludCIsInNwYXRpYWxSZWZlcmVuY2UiOnsid2tpZCI6Mzg1NywibGF0ZXN0V2tpZCI6Mzg1N30sImRpc3BsYXlGaWVsZE5hbWUiOiJzb3VyY2VfaWQiLCJmaWVsZHMiOlt7InNxbFR5cGUiOiJzcWxUeXBlT3RoZXIiLCJlZGl0YWJsZSI6ZmFsc2UsInZpc2libGUiOnRydWUsImNhblNvcnQiOnRydWUsIm5hbWUiOiJvYmplY3RpZCIsInR5cGUiOiJlc3JpRmllbGRUeXBlT0lEIiwiYWxpYXMiOiJvYmplY3RpZCIsIm51bGxhYmxlIjpmYWxzZSwiZGlzcGxheU5hbWUiOiJvYmplY3RpZCJ9LHsic3FsVHlwZSI6InNxbFR5cGVOVmFyY2hhciIsImVkaXRhYmxlIjp0cnVlLCJ2aXNpYmxlIjp0cnVlLCJjYW5Tb3J0Ijp0cnVlLCJuYW1lIjoic291cmNlX2lkIiwidHlwZSI6ImVzcmlGaWVsZFR5cGVTdHJpbmciLCJhbGlhcyI6InNvdXJjZV9pZCIsImxlbmd0aCI6MjU2LCJudWxsYWJsZSI6ZmFsc2UsImRpc3BsYXlOYW1lIjoic291cmNlX2lkIn0seyJzcWxUeXBlIjoic3FsVHlwZUludGVnZXIiLCJlZGl0YWJsZSI6dHJ1ZSwidmlzaWJsZSI6dHJ1ZSwiY2FuU29ydCI6dHJ1ZSwibmFtZSI6ImNhcGFjaXR5IiwidHlwZSI6ImVzcmlGaWVsZFR5cGVJbnRlZ2VyIiwiYWxpYXMiOiJjYXBhY2l0eSIsIm51bGxhYmxlIjp0cnVlLCJkaXNwbGF5TmFtZSI6ImNhcGFjaXR5In1dLCJvYmplY3RJZEZpZWxkTmFtZSI6Im9iamVjdGlkIiwiZmVhdHVyZXMiOlt7ImF0dHJpYnV0ZXMiOnsiY2FwYWNpdHkiOjUwLCJvYmplY3RpZCI6NzAyLCJzb3VyY2VfaWQiOiJzMiJ9LCJnZW9tZXRyeSI6eyJ4IjoyMCwieSI6MjB9fSx7ImF0dHJpYnV0ZXMiOnsiY2FwYWNpdHkiOjUxLCJvYmplY3RpZCI6NzAzLCJzb3VyY2VfaWQiOiJzMyJ9LCJnZW9tZXRyeSI6eyJ4IjozMCwieSI6MzB9fV0sImV4Y2VlZGVkVHJhbnNmZXJMaW1pdCI6ZmFsc2V9"
+      },
+      "after": {
+        "httpStatus": 200,
+        "body": {
+          "geometryType": "esriGeometryPoint",
+          "spatialReference": {
+            "wkid": 3857,
+            "latestWkid": 3857
+          },
+          "displayFieldName": "source_id",
+          "fields": [
+            {
+              "sqlType": "sqlTypeOther",
+              "editable": false,
+              "visible": true,
+              "canSort": true,
+              "name": "objectid",
+              "type": "esriFieldTypeOID",
+              "alias": "objectid",
+              "nullable": false,
+              "displayName": "objectid"
+            },
+            {
+              "sqlType": "sqlTypeNVarchar",
+              "editable": true,
+              "visible": true,
+              "canSort": true,
+              "name": "source_id",
+              "type": "esriFieldTypeString",
+              "alias": "source_id",
+              "length": 256,
+              "nullable": false,
+              "displayName": "source_id"
+            },
+            {
+              "sqlType": "sqlTypeInteger",
+              "editable": true,
+              "visible": true,
+              "canSort": true,
+              "name": "capacity",
+              "type": "esriFieldTypeInteger",
+              "alias": "capacity",
+              "nullable": true,
+              "displayName": "capacity"
+            }
+          ],
+          "objectIdFieldName": "objectid",
+          "features": [
+            {
+              "attributes": {
+                "capacity": 49,
+                "objectid": 701,
+                "source_id": "s1"
+              },
+              "geometry": {
+                "x": 10,
+                "y": 10
+              }
+            },
+            {
+              "attributes": {
+                "capacity": 50,
+                "objectid": 702,
+                "source_id": "s2"
+              },
+              "geometry": {
+                "x": 20,
+                "y": 20
+              }
+            },
+            {
+              "attributes": {
+                "capacity": 51,
+                "objectid": 703,
+                "source_id": "s3"
+              },
+              "geometry": {
+                "x": 30,
+                "y": 30
+              }
+            },
+            {
+              "attributes": {
+                "capacity": null,
+                "objectid": 704,
+                "source_id": "s4"
+              },
+              "geometry": {
+                "x": 40,
+                "y": 40
+              }
+            }
+          ],
+          "exceededTransferLimit": false
+        },
+        "responseDigest": "sha256:0ecdcdbeb894c569e71e96f6c75b1652a950a5cbfc835758d5e68b03488dde62",
+        "rawBodyBase64": "eyJnZW9tZXRyeVR5cGUiOiJlc3JpR2VvbWV0cnlQb2ludCIsInNwYXRpYWxSZWZlcmVuY2UiOnsid2tpZCI6Mzg1NywibGF0ZXN0V2tpZCI6Mzg1N30sImRpc3BsYXlGaWVsZE5hbWUiOiJzb3VyY2VfaWQiLCJmaWVsZHMiOlt7InNxbFR5cGUiOiJzcWxUeXBlT3RoZXIiLCJlZGl0YWJsZSI6ZmFsc2UsInZpc2libGUiOnRydWUsImNhblNvcnQiOnRydWUsIm5hbWUiOiJvYmplY3RpZCIsInR5cGUiOiJlc3JpRmllbGRUeXBlT0lEIiwiYWxpYXMiOiJvYmplY3RpZCIsIm51bGxhYmxlIjpmYWxzZSwiZGlzcGxheU5hbWUiOiJvYmplY3RpZCJ9LHsic3FsVHlwZSI6InNxbFR5cGVOVmFyY2hhciIsImVkaXRhYmxlIjp0cnVlLCJ2aXNpYmxlIjp0cnVlLCJjYW5Tb3J0Ijp0cnVlLCJuYW1lIjoic291cmNlX2lkIiwidHlwZSI6ImVzcmlGaWVsZFR5cGVTdHJpbmciLCJhbGlhcyI6InNvdXJjZV9pZCIsImxlbmd0aCI6MjU2LCJudWxsYWJsZSI6ZmFsc2UsImRpc3BsYXlOYW1lIjoic291cmNlX2lkIn0seyJzcWxUeXBlIjoic3FsVHlwZUludGVnZXIiLCJlZGl0YWJsZSI6dHJ1ZSwidmlzaWJsZSI6dHJ1ZSwiY2FuU29ydCI6dHJ1ZSwibmFtZSI6ImNhcGFjaXR5IiwidHlwZSI6ImVzcmlGaWVsZFR5cGVJbnRlZ2VyIiwiYWxpYXMiOiJjYXBhY2l0eSIsIm51bGxhYmxlIjp0cnVlLCJkaXNwbGF5TmFtZSI6ImNhcGFjaXR5In1dLCJvYmplY3RJZEZpZWxkTmFtZSI6Im9iamVjdGlkIiwiZmVhdHVyZXMiOlt7ImF0dHJpYnV0ZXMiOnsiY2FwYWNpdHkiOjQ5LCJvYmplY3RpZCI6NzAxLCJzb3VyY2VfaWQiOiJzMSJ9LCJnZW9tZXRyeSI6eyJ4IjoxMCwieSI6MTB9fSx7ImF0dHJpYnV0ZXMiOnsiY2FwYWNpdHkiOjUwLCJvYmplY3RpZCI6NzAyLCJzb3VyY2VfaWQiOiJzMiJ9LCJnZW9tZXRyeSI6eyJ4IjoyMCwieSI6MjB9fSx7ImF0dHJpYnV0ZXMiOnsiY2FwYWNpdHkiOjUxLCJvYmplY3RpZCI6NzAzLCJzb3VyY2VfaWQiOiJzMyJ9LCJnZW9tZXRyeSI6eyJ4IjozMCwieSI6MzB9fSx7ImF0dHJpYnV0ZXMiOnsiY2FwYWNpdHkiOm51bGwsIm9iamVjdGlkIjo3MDQsInNvdXJjZV9pZCI6InM0In0sImdlb21ldHJ5Ijp7IngiOjQwLCJ5Ijo0MH19XSwiZXhjZWVkZWRUcmFuc2ZlckxpbWl0IjpmYWxzZX0="
+      }
+    },
+    "select-inclusive-null": {
+      "before": {
+        "httpStatus": 200,
+        "body": {
+          "geometryType": "esriGeometryPoint",
+          "spatialReference": {
+            "wkid": 3857,
+            "latestWkid": 3857
+          },
+          "displayFieldName": "source_id",
+          "fields": [
+            {
+              "sqlType": "sqlTypeOther",
+              "editable": false,
+              "visible": true,
+              "canSort": true,
+              "name": "objectid",
+              "type": "esriFieldTypeOID",
+              "alias": "objectid",
+              "nullable": false,
+              "displayName": "objectid"
+            },
+            {
+              "sqlType": "sqlTypeNVarchar",
+              "editable": true,
+              "visible": true,
+              "canSort": true,
+              "name": "source_id",
+              "type": "esriFieldTypeString",
+              "alias": "source_id",
+              "length": 256,
+              "nullable": false,
+              "displayName": "source_id"
+            },
+            {
+              "sqlType": "sqlTypeInteger",
+              "editable": true,
+              "visible": true,
+              "canSort": true,
+              "name": "capacity",
+              "type": "esriFieldTypeInteger",
+              "alias": "capacity",
+              "nullable": true,
+              "displayName": "capacity"
+            }
+          ],
+          "objectIdFieldName": "objectid",
+          "features": [
+            {
+              "attributes": {
+                "capacity": 49,
+                "objectid": 701,
+                "source_id": "s1"
+              },
+              "geometry": {
+                "x": 10,
+                "y": 10
+              }
+            },
+            {
+              "attributes": {
+                "capacity": 50,
+                "objectid": 702,
+                "source_id": "s2"
+              },
+              "geometry": {
+                "x": 20,
+                "y": 20
+              }
+            },
+            {
+              "attributes": {
+                "capacity": 51,
+                "objectid": 703,
+                "source_id": "s3"
+              },
+              "geometry": {
+                "x": 30,
+                "y": 30
+              }
+            },
+            {
+              "attributes": {
+                "capacity": null,
+                "objectid": 704,
+                "source_id": "s4"
+              },
+              "geometry": {
+                "x": 40,
+                "y": 40
+              }
+            }
+          ],
+          "exceededTransferLimit": false
+        },
+        "responseDigest": "sha256:0ecdcdbeb894c569e71e96f6c75b1652a950a5cbfc835758d5e68b03488dde62",
+        "rawBodyBase64": "eyJnZW9tZXRyeVR5cGUiOiJlc3JpR2VvbWV0cnlQb2ludCIsInNwYXRpYWxSZWZlcmVuY2UiOnsid2tpZCI6Mzg1NywibGF0ZXN0V2tpZCI6Mzg1N30sImRpc3BsYXlGaWVsZE5hbWUiOiJzb3VyY2VfaWQiLCJmaWVsZHMiOlt7InNxbFR5cGUiOiJzcWxUeXBlT3RoZXIiLCJlZGl0YWJsZSI6ZmFsc2UsInZpc2libGUiOnRydWUsImNhblNvcnQiOnRydWUsIm5hbWUiOiJvYmplY3RpZCIsInR5cGUiOiJlc3JpRmllbGRUeXBlT0lEIiwiYWxpYXMiOiJvYmplY3RpZCIsIm51bGxhYmxlIjpmYWxzZSwiZGlzcGxheU5hbWUiOiJvYmplY3RpZCJ9LHsic3FsVHlwZSI6InNxbFR5cGVOVmFyY2hhciIsImVkaXRhYmxlIjp0cnVlLCJ2aXNpYmxlIjp0cnVlLCJjYW5Tb3J0Ijp0cnVlLCJuYW1lIjoic291cmNlX2lkIiwidHlwZSI6ImVzcmlGaWVsZFR5cGVTdHJpbmciLCJhbGlhcyI6InNvdXJjZV9pZCIsImxlbmd0aCI6MjU2LCJudWxsYWJsZSI6ZmFsc2UsImRpc3BsYXlOYW1lIjoic291cmNlX2lkIn0seyJzcWxUeXBlIjoic3FsVHlwZUludGVnZXIiLCJlZGl0YWJsZSI6dHJ1ZSwidmlzaWJsZSI6dHJ1ZSwiY2FuU29ydCI6dHJ1ZSwibmFtZSI6ImNhcGFjaXR5IiwidHlwZSI6ImVzcmlGaWVsZFR5cGVJbnRlZ2VyIiwiYWxpYXMiOiJjYXBhY2l0eSIsIm51bGxhYmxlIjp0cnVlLCJkaXNwbGF5TmFtZSI6ImNhcGFjaXR5In1dLCJvYmplY3RJZEZpZWxkTmFtZSI6Im9iamVjdGlkIiwiZmVhdHVyZXMiOlt7ImF0dHJpYnV0ZXMiOnsiY2FwYWNpdHkiOjQ5LCJvYmplY3RpZCI6NzAxLCJzb3VyY2VfaWQiOiJzMSJ9LCJnZW9tZXRyeSI6eyJ4IjoxMCwieSI6MTB9fSx7ImF0dHJpYnV0ZXMiOnsiY2FwYWNpdHkiOjUwLCJvYmplY3RpZCI6NzAyLCJzb3VyY2VfaWQiOiJzMiJ9LCJnZW9tZXRyeSI6eyJ4IjoyMCwieSI6MjB9fSx7ImF0dHJpYnV0ZXMiOnsiY2FwYWNpdHkiOjUxLCJvYmplY3RpZCI6NzAzLCJzb3VyY2VfaWQiOiJzMyJ9LCJnZW9tZXRyeSI6eyJ4IjozMCwieSI6MzB9fSx7ImF0dHJpYnV0ZXMiOnsiY2FwYWNpdHkiOm51bGwsIm9iamVjdGlkIjo3MDQsInNvdXJjZV9pZCI6InM0In0sImdlb21ldHJ5Ijp7IngiOjQwLCJ5Ijo0MH19XSwiZXhjZWVkZWRUcmFuc2ZlckxpbWl0IjpmYWxzZX0="
+      },
+      "operation": {
+        "httpStatus": 200,
+        "body": {
+          "geometryType": "esriGeometryPoint",
+          "spatialReference": {
+            "wkid": 3857,
+            "latestWkid": 3857
+          },
+          "displayFieldName": "source_id",
+          "fields": [
+            {
+              "sqlType": "sqlTypeOther",
+              "editable": false,
+              "visible": true,
+              "canSort": true,
+              "name": "objectid",
+              "type": "esriFieldTypeOID",
+              "alias": "objectid",
+              "nullable": false,
+              "displayName": "objectid"
+            },
+            {
+              "sqlType": "sqlTypeNVarchar",
+              "editable": true,
+              "visible": true,
+              "canSort": true,
+              "name": "source_id",
+              "type": "esriFieldTypeString",
+              "alias": "source_id",
+              "length": 256,
+              "nullable": false,
+              "displayName": "source_id"
+            },
+            {
+              "sqlType": "sqlTypeInteger",
+              "editable": true,
+              "visible": true,
+              "canSort": true,
+              "name": "capacity",
+              "type": "esriFieldTypeInteger",
+              "alias": "capacity",
+              "nullable": true,
+              "displayName": "capacity"
+            }
+          ],
+          "objectIdFieldName": "objectid",
+          "features": [
+            {
+              "attributes": {
+                "capacity": 50,
+                "objectid": 702,
+                "source_id": "s2"
+              },
+              "geometry": {
+                "x": 20,
+                "y": 20
+              }
+            },
+            {
+              "attributes": {
+                "capacity": 51,
+                "objectid": 703,
+                "source_id": "s3"
+              },
+              "geometry": {
+                "x": 30,
+                "y": 30
+              }
+            },
+            {
+              "attributes": {
+                "capacity": null,
+                "objectid": 704,
+                "source_id": "s4"
+              },
+              "geometry": {
+                "x": 40,
+                "y": 40
+              }
+            }
+          ],
+          "exceededTransferLimit": false
+        },
+        "responseDigest": "sha256:ec3c04bd514607af7e4b334bdc9a5c2e353ca42f89d6e2c2c2a4fb4649f2d6e6",
+        "rawBodyBase64": "eyJnZW9tZXRyeVR5cGUiOiJlc3JpR2VvbWV0cnlQb2ludCIsInNwYXRpYWxSZWZlcmVuY2UiOnsid2tpZCI6Mzg1NywibGF0ZXN0V2tpZCI6Mzg1N30sImRpc3BsYXlGaWVsZE5hbWUiOiJzb3VyY2VfaWQiLCJmaWVsZHMiOlt7InNxbFR5cGUiOiJzcWxUeXBlT3RoZXIiLCJlZGl0YWJsZSI6ZmFsc2UsInZpc2libGUiOnRydWUsImNhblNvcnQiOnRydWUsIm5hbWUiOiJvYmplY3RpZCIsInR5cGUiOiJlc3JpRmllbGRUeXBlT0lEIiwiYWxpYXMiOiJvYmplY3RpZCIsIm51bGxhYmxlIjpmYWxzZSwiZGlzcGxheU5hbWUiOiJvYmplY3RpZCJ9LHsic3FsVHlwZSI6InNxbFR5cGVOVmFyY2hhciIsImVkaXRhYmxlIjp0cnVlLCJ2aXNpYmxlIjp0cnVlLCJjYW5Tb3J0Ijp0cnVlLCJuYW1lIjoic291cmNlX2lkIiwidHlwZSI6ImVzcmlGaWVsZFR5cGVTdHJpbmciLCJhbGlhcyI6InNvdXJjZV9pZCIsImxlbmd0aCI6MjU2LCJudWxsYWJsZSI6ZmFsc2UsImRpc3BsYXlOYW1lIjoic291cmNlX2lkIn0seyJzcWxUeXBlIjoic3FsVHlwZUludGVnZXIiLCJlZGl0YWJsZSI6dHJ1ZSwidmlzaWJsZSI6dHJ1ZSwiY2FuU29ydCI6dHJ1ZSwibmFtZSI6ImNhcGFjaXR5IiwidHlwZSI6ImVzcmlGaWVsZFR5cGVJbnRlZ2VyIiwiYWxpYXMiOiJjYXBhY2l0eSIsIm51bGxhYmxlIjp0cnVlLCJkaXNwbGF5TmFtZSI6ImNhcGFjaXR5In1dLCJvYmplY3RJZEZpZWxkTmFtZSI6Im9iamVjdGlkIiwiZmVhdHVyZXMiOlt7ImF0dHJpYnV0ZXMiOnsiY2FwYWNpdHkiOjUwLCJvYmplY3RpZCI6NzAyLCJzb3VyY2VfaWQiOiJzMiJ9LCJnZW9tZXRyeSI6eyJ4IjoyMCwieSI6MjB9fSx7ImF0dHJpYnV0ZXMiOnsiY2FwYWNpdHkiOjUxLCJvYmplY3RpZCI6NzAzLCJzb3VyY2VfaWQiOiJzMyJ9LCJnZW9tZXRyeSI6eyJ4IjozMCwieSI6MzB9fSx7ImF0dHJpYnV0ZXMiOnsiY2FwYWNpdHkiOm51bGwsIm9iamVjdGlkIjo3MDQsInNvdXJjZV9pZCI6InM0In0sImdlb21ldHJ5Ijp7IngiOjQwLCJ5Ijo0MH19XSwiZXhjZWVkZWRUcmFuc2ZlckxpbWl0IjpmYWxzZX0="
+      },
+      "after": {
+        "httpStatus": 200,
+        "body": {
+          "geometryType": "esriGeometryPoint",
+          "spatialReference": {
+            "wkid": 3857,
+            "latestWkid": 3857
+          },
+          "displayFieldName": "source_id",
+          "fields": [
+            {
+              "sqlType": "sqlTypeOther",
+              "editable": false,
+              "visible": true,
+              "canSort": true,
+              "name": "objectid",
+              "type": "esriFieldTypeOID",
+              "alias": "objectid",
+              "nullable": false,
+              "displayName": "objectid"
+            },
+            {
+              "sqlType": "sqlTypeNVarchar",
+              "editable": true,
+              "visible": true,
+              "canSort": true,
+              "name": "source_id",
+              "type": "esriFieldTypeString",
+              "alias": "source_id",
+              "length": 256,
+              "nullable": false,
+              "displayName": "source_id"
+            },
+            {
+              "sqlType": "sqlTypeInteger",
+              "editable": true,
+              "visible": true,
+              "canSort": true,
+              "name": "capacity",
+              "type": "esriFieldTypeInteger",
+              "alias": "capacity",
+              "nullable": true,
+              "displayName": "capacity"
+            }
+          ],
+          "objectIdFieldName": "objectid",
+          "features": [
+            {
+              "attributes": {
+                "capacity": 49,
+                "objectid": 701,
+                "source_id": "s1"
+              },
+              "geometry": {
+                "x": 10,
+                "y": 10
+              }
+            },
+            {
+              "attributes": {
+                "capacity": 50,
+                "objectid": 702,
+                "source_id": "s2"
+              },
+              "geometry": {
+                "x": 20,
+                "y": 20
+              }
+            },
+            {
+              "attributes": {
+                "capacity": 51,
+                "objectid": 703,
+                "source_id": "s3"
+              },
+              "geometry": {
+                "x": 30,
+                "y": 30
+              }
+            },
+            {
+              "attributes": {
+                "capacity": null,
+                "objectid": 704,
+                "source_id": "s4"
+              },
+              "geometry": {
+                "x": 40,
+                "y": 40
+              }
+            }
+          ],
+          "exceededTransferLimit": false
+        },
+        "responseDigest": "sha256:0ecdcdbeb894c569e71e96f6c75b1652a950a5cbfc835758d5e68b03488dde62",
+        "rawBodyBase64": "eyJnZW9tZXRyeVR5cGUiOiJlc3JpR2VvbWV0cnlQb2ludCIsInNwYXRpYWxSZWZlcmVuY2UiOnsid2tpZCI6Mzg1NywibGF0ZXN0V2tpZCI6Mzg1N30sImRpc3BsYXlGaWVsZE5hbWUiOiJzb3VyY2VfaWQiLCJmaWVsZHMiOlt7InNxbFR5cGUiOiJzcWxUeXBlT3RoZXIiLCJlZGl0YWJsZSI6ZmFsc2UsInZpc2libGUiOnRydWUsImNhblNvcnQiOnRydWUsIm5hbWUiOiJvYmplY3RpZCIsInR5cGUiOiJlc3JpRmllbGRUeXBlT0lEIiwiYWxpYXMiOiJvYmplY3RpZCIsIm51bGxhYmxlIjpmYWxzZSwiZGlzcGxheU5hbWUiOiJvYmplY3RpZCJ9LHsic3FsVHlwZSI6InNxbFR5cGVOVmFyY2hhciIsImVkaXRhYmxlIjp0cnVlLCJ2aXNpYmxlIjp0cnVlLCJjYW5Tb3J0Ijp0cnVlLCJuYW1lIjoic291cmNlX2lkIiwidHlwZSI6ImVzcmlGaWVsZFR5cGVTdHJpbmciLCJhbGlhcyI6InNvdXJjZV9pZCIsImxlbmd0aCI6MjU2LCJudWxsYWJsZSI6ZmFsc2UsImRpc3BsYXlOYW1lIjoic291cmNlX2lkIn0seyJzcWxUeXBlIjoic3FsVHlwZUludGVnZXIiLCJlZGl0YWJsZSI6dHJ1ZSwidmlzaWJsZSI6dHJ1ZSwiY2FuU29ydCI6dHJ1ZSwibmFtZSI6ImNhcGFjaXR5IiwidHlwZSI6ImVzcmlGaWVsZFR5cGVJbnRlZ2VyIiwiYWxpYXMiOiJjYXBhY2l0eSIsIm51bGxhYmxlIjp0cnVlLCJkaXNwbGF5TmFtZSI6ImNhcGFjaXR5In1dLCJvYmplY3RJZEZpZWxkTmFtZSI6Im9iamVjdGlkIiwiZmVhdHVyZXMiOlt7ImF0dHJpYnV0ZXMiOnsiY2FwYWNpdHkiOjQ5LCJvYmplY3RpZCI6NzAxLCJzb3VyY2VfaWQiOiJzMSJ9LCJnZW9tZXRyeSI6eyJ4IjoxMCwieSI6MTB9fSx7ImF0dHJpYnV0ZXMiOnsiY2FwYWNpdHkiOjUwLCJvYmplY3RpZCI6NzAyLCJzb3VyY2VfaWQiOiJzMiJ9LCJnZW9tZXRyeSI6eyJ4IjoyMCwieSI6MjB9fSx7ImF0dHJpYnV0ZXMiOnsiY2FwYWNpdHkiOjUxLCJvYmplY3RpZCI6NzAzLCJzb3VyY2VfaWQiOiJzMyJ9LCJnZW9tZXRyeSI6eyJ4IjozMCwieSI6MzB9fSx7ImF0dHJpYnV0ZXMiOnsiY2FwYWNpdHkiOm51bGwsIm9iamVjdGlkIjo3MDQsInNvdXJjZV9pZCI6InM0In0sImdlb21ldHJ5Ijp7IngiOjQwLCJ5Ijo0MH19XSwiZXhjZWVkZWRUcmFuc2ZlckxpbWl0IjpmYWxzZX0="
+      }
+    }
+  }
+}
