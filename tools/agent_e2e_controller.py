@@ -190,6 +190,7 @@ def run_goal(*, pack, corpus, case_id, campaign, backend, model, ledger, journal
     # creating any resource. The immutable backend policy limits enforce it.
     infra_id, cleanup_id = str(uuid.uuid4()), str(uuid.uuid4())
     started, actions, turns, status, attribution = time.monotonic(), 0, 0, "blocked", "infrastructure"
+    observed_actions = 0
     trace, result, cleaned = [], {}, {"status": "not-started"}
     reason, prepared_started, reserved = "controller-error", False, set()
     limits = scenario["limits"]
@@ -295,6 +296,11 @@ def run_goal(*, pack, corpus, case_id, campaign, backend, model, ledger, journal
                 used_call_ids.add(call["id"])
                 actions += 1
                 action_start = time.monotonic()
+                request_digest = canonical_digest({"name": call["name"], "input": call["input"]})
+                # The durable sink must acknowledge intent before any command
+                # can reach the worker. A missing reply leaves an unresolved
+                # action, not evidence that nothing executed or may be retried.
+                journal.emit("action-intent", action=actions, kind=call["name"], requestDigest=request_digest)
                 observed = backend.call("agent_action", {**context, "action": call},
                                         timeout=min(remaining(), call["input"].get("timeoutSeconds", 300) + 10))
                 # Adapter is responsible for returning only bounded, redacted
@@ -314,9 +320,10 @@ def run_goal(*, pack, corpus, case_id, campaign, backend, model, ledger, journal
                     if event["event"] == "runtime-trace" and (type(event.get("action")) is not int or event["action"] != actions):
                         raise ControllerError("runtime trace belongs to another action")
                     journal.emit(event["event"], **{k: v for k, v in event.items() if k != "event"})
-                journal.emit("action", action=actions, kind=call["name"], operation=operation, requestDigest=canonical_digest({"name": call["name"], "input": call["input"]}),
+                journal.emit("action", action=actions, kind=call["name"], operation=operation, requestDigest=request_digest,
                              resultDigest=canonical_digest(public), durationMs=round((time.monotonic()-action_start)*1000),
                              isError=public["isError"], errorCategory=public["errorCategory"])
+                observed_actions += 1
                 replies.append({"type": "tool_result", "tool_use_id": call["id"],
                                 "content": json.dumps(public["content"], ensure_ascii=False), "is_error": public["isError"]})
                 trace.append({"action": actions, "origin": "MODEL_SELECTED",
@@ -360,7 +367,7 @@ def run_goal(*, pack, corpus, case_id, campaign, backend, model, ledger, journal
         finally:
             journal.close()
     return {**context, "status": status, "failureAttribution": attribution,
-            "usage": {"modelTurns": turns, "executedActions": actions}, "trace": trace,
+            "usage": {"modelTurns": turns, "executedActions": observed_actions}, "trace": trace,
             "verification": result, "cleanup": cleaned, "reason": reason, "journal": str(journal.path),
             "qualification": False, "note": "Requires independent artifacts, attestation and complete-pack gate."}
 
