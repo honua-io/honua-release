@@ -278,7 +278,8 @@ class Client:
             page = result.get('tools')
             require(isinstance(page, list), 'invalid-tool-catalog')
             for tool in page:
-                require(isinstance(tool, dict) and isinstance(tool.get('name'), str) and tool['name']
+                require(isinstance(tool, dict) and isinstance(tool.get('name'), str)
+                        and tool['name'].strip() and len(tool['name']) <= 256
                         and isinstance(tool.get('inputSchema'), dict) and tool['name'] not in names, 'invalid-or-duplicate-tool')
                 names.add(tool['name'])
                 tools.append(tool)

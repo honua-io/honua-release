@@ -180,6 +180,12 @@ def preserve_history(previous, current):
     """A new campaign cannot delete spending or reclassify retained attempts."""
     if previous is None:
         return
+    for key, record in previous.get('workerLaunches', {}).items():
+        if canonical_digest(current.get('workerLaunches', {}).get(key)) != canonical_digest(record):
+            raise PackError('cannot rewrite or erase retained worker launch intent')
+    for key, record in previous.get('workerActions', {}).items():
+        if canonical_digest(current.get('workerActions', {}).get(key)) != canonical_digest(record):
+            raise PackError('cannot rewrite or erase retained worker action evidence')
     if 'bootstrapImport' in current and 'bootstrapImport' not in previous:
         raise PackError('bootstrap import must be the first state, never a retrofit')
     if 'bootstrapImport' in previous and canonical_digest(previous['bootstrapImport']) != canonical_digest(current.get('bootstrapImport')):
@@ -326,6 +332,50 @@ class DurableExecution:
         if rows and rows[-1]['event'] == 'end':
             raise PackError('durable attempt is already complete')
         rows.append(row)
+        self._persist()
+
+    def retain_worker_launch(self, record):
+        """Commit prepaid launch identity before the one allowed runtime start."""
+        from agent_e2e_worker_lifecycle import validate_reservations
+        self._require_live_lease()
+        validate_reservations(record, self.state['ledger'])
+        launches = self.state.setdefault('workerLaunches', {})
+        if record['attemptId'] in launches:
+            raise PackError('worker launch already retained; observe without restarting')
+        reserved_ids = set(record['reservationIds'].values())
+        if any(reserved_ids & set(old['reservationIds'].values()) for old in launches.values()):
+            raise PackError('worker reservation already funds a retained launch')
+        launches[record['attemptId']] = copy.deepcopy(record)
+        # A failed acknowledgement leaves the intent in memory. A fresh process
+        # must recover the durable head; neither path can assume no start occurred.
+        self._persist()
+
+    def require_worker_launch(self, record, *, launching=False):
+        self._require_live_lease()
+        retained = self.state.get('workerLaunches', {}).get(record['attemptId'])
+        if canonical_digest(retained) != canonical_digest(record):
+            raise PackError('worker launch differs from retained intent')
+        if launching:
+            from agent_e2e_worker_lifecycle import validate_reservations
+            validate_reservations(record, self.state['ledger'])
+
+    def _require_live_lease(self):
+        if self.stop.is_set() or self.heartbeat_error:
+            raise PackError('durable controller lease is unavailable')
+        self.store.renew()
+
+    def retain_worker_action(self, record, launch):
+        """Publish reply references before returning any public action result."""
+        self.require_worker_launch(launch)
+        if record.get('launchDigest') != canonical_digest(launch):
+            raise PackError('worker action evidence has another launch identity')
+        action_id = record.get('actionId')
+        if not isinstance(action_id, str) or not re.fullmatch(r'[0-9a-f]{64}', action_id):
+            raise PackError('worker action lacks controller dispatch identity')
+        actions = self.state.setdefault('workerActions', {})
+        if action_id in actions:
+            raise PackError('worker action evidence already retained; reconcile without redispatch')
+        actions[action_id] = copy.deepcopy(record)
         self._persist()
 
     def close(self):

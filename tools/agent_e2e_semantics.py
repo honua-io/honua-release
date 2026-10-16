@@ -81,10 +81,17 @@ def project_fields(responses, fields):
     result = {}
     require(isinstance(fields, dict) and bool(fields), 'invalid semantic result projection')
     for field, reference in fields.items():
-        require(set(reference) == {'response', 'pointer'}, 'result must reference an observed response')
+        require(isinstance(reference, dict) and set(reference) in (
+            {'response', 'pointer'}, {'response', 'pointer', 'normalizer', 'resultPointer'}),
+            'result must reference an observed response')
         index = reference['response']
         require(type(index) is int and 0 <= index < len(responses), 'unknown observed response')
-        result[field] = pointer(responses[index], reference['pointer'])
+        value = pointer(responses[index], reference['pointer'])
+        if 'normalizer' in reference:
+            from agent_e2e_query_projection import normalize
+            require(responses[index]['httpStatus'] == 200, 'cannot normalize unsuccessful query')
+            value = pointer(normalize(reference['normalizer'], value), reference['resultPointer'])
+        result[field] = value
     return result
 
 
@@ -150,6 +157,8 @@ def verify(case, observed):
             "immutable semantic source differs or changed")
     result = observed["result"]
     if case in CASES[:7]:
+        require(type(result.get('srid')) is int and result['srid'] == fixture()['srid'],
+                'selected feature coordinate reference system differs or is missing')
         rows = result["features"]
         require(isinstance(rows, list), "missing selected features")
         ids = [r["properties"]["source_id"] for r in rows]
