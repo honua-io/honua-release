@@ -55,6 +55,16 @@ honua-sdk-js:
       job on 984425f9 succeeded. The pinned SHA's own browser, unit, and verify lanes stay
       core, as does "Three-engine smoke and source-packed parity". The sibling job
       "Regenerate + reseal on trunk", which does build the SDK, is not listed.
+  - name: "Required live evidence health"
+    why: >-
+      Scheduled observer (`.github/workflows/scheduled-live-health.yml`, cron 15:41).
+      It checks out the default branch and runs `scripts/scheduled-live-health.mjs`,
+      which reads other Actions runs and files an issue when required scheduled lanes
+      are unhealthy. It does not npm ci, build, or test the pinned source. On
+      32ab86472 run 38625697105 the aggregate was failing for realtime-conformance,
+      overture-aws, sample-bundle-publication, release-please and
+      mcp-live-certification. Those lanes keep their own core or env-gated verdicts.
+      "Compare browser impact routing" stays core: it validates the pinned tree.
 
 honua-sdk-dotnet:
   - name: "follow"

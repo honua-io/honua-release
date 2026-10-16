@@ -273,6 +273,23 @@ def test_dotnet_pin_follow_and_certify_pin_lag_are_advisory_but_build_stays_core
     assert _red_names(why) == "1/2 core check-run(s) red (['failure']: ['Build'])"
 
 
+def test_js_live_evidence_observer_is_advisory_but_browser_impact_stays_core():
+    live_health = "Required live evidence health"
+    browser_impact = "Compare browser impact routing"
+    status, why = _classify("honua-sdk-js", _runs_named(
+        ("Unit tests", "success"), (live_health, "failure")))
+    assert status == "pass", why
+    assert "advisory" in why and live_health in why
+    assert live_health in bt.load_advisory()["honua-sdk-js"]["names"]
+    # The pinned tree's own routing check stays core. A red there still refuses.
+    status, why = _classify("honua-sdk-js", _runs_named(
+        ("Unit tests", "success"), (live_health, "failure"), (browser_impact, "failure")))
+    assert status == "fail"
+    assert _red_names(why) == (
+        "1/2 core check-run(s) red (['failure']: ['Compare browser impact routing'])"
+    )
+
+
 def test_helm_chart_publication_is_advisory_but_chart_lint_and_smoke_stay_core():
     status, why = _classify("honua-helm", _runs_named(
         ("lint-chart", "success"), ("install-upgrade-rollback-smoke", "success"),
