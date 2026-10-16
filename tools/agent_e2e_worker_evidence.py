@@ -52,7 +52,7 @@ class ReplyEvidence:
         if any(expected[key] != self.identity[key] for key in ('attemptId', 'actionId')):
             raise PackError('worker dispatch belongs to another action')
         value = {'schemaVersion':1, **self.identity, 'binding':expected}
-        reference = self._put(self.dispatch_key, value)
+        reference = self._put(self.dispatch_key, value, allow_existing=False)
         self.expected_binding, self.dispatch_reference = expected, reference
         return reference
 
@@ -95,7 +95,7 @@ class ReplyEvidence:
             raise PackError('worker evidence history is missing or ambiguous; reconcile without redispatch')
         return self._read(key, versions[0].get('VersionId'))
 
-    def _put(self, key, value):
+    def _put(self, key, value, *, allow_existing=True):
         raw = encode(value).encode()
         if len(raw) > 60000:
             raise PackError('oversized worker evidence object')
@@ -108,6 +108,8 @@ class ReplyEvidence:
             # object. Timeouts/connection failures remain unacknowledged.
             if getattr(exc, 'response', {}).get('Error', {}).get('Code') not in ('PreconditionFailed', '412'):
                 raise
+            if not allow_existing:
+                raise PackError('worker dispatch already retained; recover without redispatch') from exc
             existing, reference = self._discover(key)
             if existing != value or reference['sha256'] != digest(raw):
                 raise PackError('worker evidence cannot replace retained content') from exc

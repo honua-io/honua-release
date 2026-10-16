@@ -105,6 +105,27 @@ def test_dispatch_retention_failure_never_sends_command_and_keeps_binding(tmp_pa
     assert evidence(s3).load_dispatch()['binding'] == ReplyChunks(request()).expected
     with pytest.raises(PackError, match='already dispatched'):
         worker.execute_mcp(request()['action'], 'action-1', retain_chunk=sink, retain_dispatch=sink.retain_dispatch)
+    restarted = evidence(s3)
+    with pytest.raises(PackError, match='already retained'):
+        Worker(queue, CONFIG, clock=lambda:1000).execute_mcp(request()['action'], 'action-1',
+            retain_chunk=restarted, retain_dispatch=restarted.retain_dispatch)
+    assert queue.requests == queue.deleted == []
+
+
+def test_new_controller_process_cannot_resend_an_identical_dispatched_command(tmp_path):
+    s3 = S3()
+    sink = evidence(s3)
+    executor = Executor(CONFIG, tmp_path/'worker.sqlite', tmp_path, clock=lambda:1000,
+        execute_mcp=lambda *_: {'status':'completed','payload':{'observed':'result'}})
+    queue = Exchange(executor)
+    Worker(queue, CONFIG, clock=lambda:1000).execute_mcp(request()['action'], 'action-1',
+        retain_chunk=sink, retain_dispatch=sink.retain_dispatch)
+    restarted = evidence(s3)
+    with pytest.raises(PackError, match='already retained'):
+        Worker(queue, CONFIG, clock=lambda:1000).execute_mcp(request()['action'], 'action-1',
+            retain_chunk=restarted, retain_dispatch=restarted.retain_dispatch)
+    assert len(queue.requests) == 1
+    assert restarted.recover()['reply']['payload'] == {'observed':'result'}
 
 
 def test_retention_delay_cannot_dispatch_an_expired_command(tmp_path):
@@ -127,10 +148,11 @@ def test_dispatch_binding_contains_no_raw_command_and_cannot_be_replaced():
         'input':{'name':'configure','arguments':{'secret':'private-command-value'}}}}
     expected = ReplyChunks(command).expected
     reference = sink.retain_dispatch(expected)
-    assert sink.retain_dispatch(expected) == reference
+    with pytest.raises(PackError, match='already retained'):
+        sink.retain_dispatch(expected)
     assert sink.load_dispatch() == {'binding':expected, 'reference':reference}
     assert b'private-command-value' not in s3.objects[sink.dispatch_key][0][1]
-    with pytest.raises(PackError, match='replace retained'):
+    with pytest.raises(PackError, match='already retained'):
         sink.retain_dispatch(ReplyChunks(request()).expected)
     assert len(s3.objects[sink.dispatch_key]) == 1
 

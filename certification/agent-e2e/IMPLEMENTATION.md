@@ -384,8 +384,8 @@ SHA-256 checksum acknowledgement with a non-null S3 version ID. Before queue
 acknowledgement, a version-history listing and exact-version read must prove that
 the returned version is the sole retained version, with matching bytes and no
 delete markers or truncated history. S3 conditional writes can succeed over a
-current delete marker; that response alone does not establish retention. Duplicate writes
-can adopt only a single retained version whose canonical bytes match exactly.
+current delete marker; that response alone does not establish retention. Duplicate
+header/chunk writes can adopt only a single retained version whose canonical bytes match exactly.
 Connection failures and incomplete write acknowledgements leave the queue
 message unacknowledged. No raw model command or argument is added to the header.
 The chunk bodies remain the bounded, untrusted worker output described above.
@@ -395,7 +395,10 @@ Before command dispatch, `retain_dispatch` retains the exact transport binding a
 create-only, checksum, version and history checks. It contains identity and the
 command digest, not raw model arguments. Lost acknowledgement prevents the queue
 send. The transport rechecks expiry after retention and never automatically
-resends an ambiguous command. This durable binding does not replace the
+resends an ambiguous command. An existing dispatch record always rejects another
+send, even if its binding is identical; only reply-chunk retention permits
+idempotent adoption. A fresh backend process must use recovery, never interpret
+a retained dispatch as authorization to send it again. This durable binding does not replace the
 controller's prior action-intent journal or confer dispatch authority.
 
 `ReplyEvidence.recover(header_reference)` reads the exact retained header
