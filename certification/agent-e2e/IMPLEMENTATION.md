@@ -191,11 +191,83 @@ The controller environment requires boto3 as well as the offline test
 dependencies. Credentials come from the controller's standard provider chain.
 
 `--initialize-state` is only for a candidate with no remote state and no existing
-local ledger. It does not grant another $500 budget. All development attempts,
+destination ledger. It requires the authenticated bootstrap artifact described
+below, including retained infrastructure and cleanup reservations. It does not
+grant another $500 budget. All development attempts,
 qualification attempts, retries, infrastructure and cleanup draw from the same
 candidate-wide $500 ceiling, including the $50 cleanup reserve. Unknown usage
 remains reserved. A lost lease stops further work; an independent watchdog is
 still required to remove resources when the controller itself is gone.
+
+### Bootstrap and shared-operation accounting
+
+Ledger version 2 retains model-attempt reservations in `entries` and non-case
+reservations in `operations`. Both arrays share the same $500 ceiling and $50
+cleanup reserve; reservation IDs are unique across both. An operation records
+`operationId`, `purpose` (`bootstrap`, `shared-environment`, `semantics`,
+`telemetry` or `retention`), infrastructure/cleanup kind, reserved maximum, pricing
+basis digest, settlement state and actual charge when known. These records never
+create a case, model success, retry authorization or denominator credit.
+An overrun blocks new reservations, but later actual charges for already-reserved
+resources and cleanup are still retained. Settlement continues to return a
+blocked result while the overrun remains; it never restores execution authority.
+
+Before any Terraform apply, the trusted producer must reserve the complete
+bootstrap/shared liability and durably publish that history in an existing,
+controller-only substrate. A local file alone is not enough for controller-loss
+recovery. The governed Terraform workflow then retains observed charges and
+unknown reservations. The initial producer execution seals a bootstrap artifact
+with `schemaVersion: 1`, `candidateKey`, the entire version-2 `ledger`, and its
+`source` identity (`repository`, `workflow`, `sourceSha`, `runId`, `runAttempt`).
+It must contain infrastructure and cleanup bootstrap reservations and no model
+attempts. Failed or interrupted bootstrap work stays in that same history;
+starting another producer run must not initialize a replacement budget.
+
+The controller initialization arguments are:
+
+```text
+--initialize-state
+--bootstrap-artifact <retained-bootstrap.json>
+--bootstrap-digest <sha256-from-trusted-configuration>
+--bootstrap-source-sha <exact-reviewed-producer-commit>
+--bootstrap-run-id <completed-producer-run>
+--bootstrap-run-attempt <exact-run-attempt>
+```
+
+The importer verifies the exact digest, candidate, successful trunk
+`agent-e2e-campaign.yml` workflow-dispatch run and GitHub attestation, including
+source/run/attempt and GitHub-hosted signing custody. It imports every retained
+charge and unknown reservation in one initial fenced snapshot and preserves the
+bootstrap artifact/binding in all later snapshots. Existing local or remote
+history cannot be overwritten by an import. Recovery of existing state requires
+no bootstrap flags and never reruns the import. Failed or ambiguous publication
+retains the permanent initialization marker; reconcile rather than reinitialize.
+
+The complete producer, pre-apply durable handoff and live import/recovery
+demonstration are still prerequisites. These import routines do not provision
+infrastructure or make an unauthenticated local ledger a trusted bootstrap.
+There is currently no completed live bootstrap producer run to import.
+
+The final trusted inventory uses version 2 and includes `operationReports`: one
+hash-bound report per candidate operation, covering every operation in the full
+ledger, including earlier development and bootstrap work. A report has
+`schemaVersion: 1`, `candidateKey`, `operationId`, `purpose`, `status`, exact
+`reservations` copied from the current ledger and nonempty `observations` artifact
+references. Observations must come from the trusted infrastructure/cost collector.
+`status` is `settled` only when every reservation is settled, otherwise
+`liability-retained`; unknown usage counts at the full reserved maximum. The gate
+checks all references and exact ledger bindings. It does not infer actual AWS
+charges from an arbitrary JSON observation or independently replace the trusted
+collector's pricing/usage work. New reports after settlement are new immutable
+artifacts; retain earlier reports rather than overwriting their evidence.
+
+`totalCostUsd` remains the current campaign's model-attempt receipt total.
+`candidateLiabilityUsd` includes all attempts and all shared-operation actuals or
+unresolved maxima. A stale, missing or relabeled operation report blocks the gate.
+Version-1 ledgers remain readable for investigation; qualification requires
+version 2, and adding operation charges to legacy history requires reviewed
+reconciliation rather than resetting or silently upgrading it. No earlier live
+campaign used the version-1 ledger.
 
 Recover existing durable history on a replacement controller without starting a
 model or initializing a new spending allowance:

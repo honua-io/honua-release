@@ -380,6 +380,11 @@ def main(argv=None):
     p.add_argument("--attempt", type=int, choices=[1, 2], default=1)
     p.add_argument("--state-config", required=True, type=Path)
     p.add_argument("--initialize-state", action="store_true")
+    p.add_argument('--bootstrap-artifact', type=Path)
+    p.add_argument('--bootstrap-digest')
+    p.add_argument('--bootstrap-source-sha')
+    p.add_argument('--bootstrap-run-id', type=int)
+    p.add_argument('--bootstrap-run-attempt', type=int)
     args = p.parse_args(argv)
     durable = None
     try:
@@ -390,8 +395,19 @@ def main(argv=None):
         corpus = load_json(corpus_path)
         verify_corpus(corpus_path.parent, corpus)
         from agent_e2e_state import open_store, DurableExecution
+        bootstrap_args = (args.bootstrap_artifact, args.bootstrap_digest, args.bootstrap_source_sha,
+                          args.bootstrap_run_id, args.bootstrap_run_attempt)
+        bootstrap = None
+        if args.initialize_state:
+            if any(value is None for value in bootstrap_args):
+                raise ControllerError('initialization requires authenticated bootstrap accounting')
+            from agent_e2e_bootstrap import verify_import
+            bootstrap = verify_import(args.bootstrap_artifact, args.bootstrap_digest,
+                campaign['componentBindingDigest'], args.bootstrap_source_sha, args.bootstrap_run_id, args.bootstrap_run_attempt)
+        elif any(value is not None for value in bootstrap_args):
+            raise ControllerError('bootstrap import is only allowed during first initialization')
         store = open_store(load_json(args.state_config), campaign['componentBindingDigest'])
-        durable = DurableExecution(store, args.ledger, initialize=args.initialize_state)
+        durable = DurableExecution(store, args.ledger, initialize=args.initialize_state, bootstrap=bootstrap)
         durable.restore_journals(args.journal_root)
         result = run_goal(pack=pack, corpus=corpus, case_id=args.case_id,
             campaign=campaign, backend=Backend(load_json(args.backend)),

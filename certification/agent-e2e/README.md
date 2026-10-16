@@ -219,6 +219,12 @@ The producer artifact `agent-e2e-campaign-<attempt>` must contain `campaign.json
 `budget-ledger.json`, `attempt-registry.json`, and the `receipts/` and `evidence/`
 directories. The campaign pins expectations before execution; the attested
 inventory binds every receipt and the final candidate-wide ledger and registry.
+The version-2 inventory also binds `operationReports` for every non-case cost in
+the version-2 ledger's `operations` array: bootstrap, shared environments,
+semantic probes, telemetry and retained evidence. These charges share the budget
+with model attempts and do not add cases. The controller's initial state must
+import authenticated bootstrap accounting; see the
+[bootstrap handoff and report contract](IMPLEMENTATION.md#bootstrap-and-shared-operation-accounting).
 Those histories must live in durable controller-only storage across campaigns.
 Deleting both histories is not a valid retry or a fresh spending allowance.
 

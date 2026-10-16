@@ -170,6 +170,40 @@ RECEIPT_FIELDS = set(('schemaVersion receiptSchema campaignId caseId scenarioId 
                       'knowledge workerKnowledge runtimeInterfaces campaignMode').split())
 
 
+def validate_operation_reports(ledger, refs, evidence_root):
+    """Bind non-case infrastructure liability without adding passing cases."""
+    require(ledger['schemaVersion'] == 2, 'qualification requires operation-aware candidate accounting')
+    require(isinstance(refs, list) and refs, 'missing candidate operation reports')
+    operations = defaultdict(list)
+    for row in ledger['operations']:
+        operations[row['operationId']].append(row)
+    require({r['kind'] for r in ledger['operations'] if r['purpose'] == 'bootstrap'} == {'infrastructure', 'cleanup'},
+            'candidate budget omits bootstrap infrastructure or cleanup liability')
+    seen = set()
+    for ref in refs:
+        report = read_json(evidence(evidence_root, ref))
+        exact_keys(report, {'schemaVersion', 'candidateKey', 'operationId', 'purpose', 'status', 'reservations', 'observations'},
+                   'candidate operation report')
+        require(type(report['schemaVersion']) is int and report['schemaVersion'] == 1
+                and report['candidateKey'] == ledger['candidateKey'], 'operation report belongs to another candidate/format')
+        operation_id = report['operationId']
+        require(isinstance(operation_id, str) and operation_id in operations and operation_id not in seen,
+                'unknown or duplicate candidate operation report')
+        seen.add(operation_id)
+        rows = operations[operation_id]
+        require(report['purpose'] == rows[0]['purpose'], 'operation report purpose mismatch')
+        require(isinstance(report['reservations'], list) and all(isinstance(r, dict) and isinstance(r.get('id'), str)
+                for r in report['reservations']), 'invalid operation report reservations')
+        require(canonical_digest(sorted(report['reservations'], key=lambda r:r['id'])) ==
+                canonical_digest(sorted(rows, key=lambda r:r['id'])), 'operation report does not bind all retained charges')
+        expected_status = 'liability-retained' if any(r['state'] == 'reserved' for r in rows) else 'settled'
+        require(report['status'] == expected_status, 'operation report understates unresolved liability')
+        require(isinstance(report['observations'], list) and report['observations'], 'operation lacks independent cost observations')
+        for observation in report['observations']:
+            evidence(evidence_root, observation)
+    require(seen == set(operations), 'candidate operation reports omit budget history')
+
+
 def validate(pack_path: Path, campaign_path: Path, lock_path: Path, trusted_path: Path,
              receipts_root: Path, evidence_root: Path, budget_path: Path, expectations_path: Path,
              registry_path: Path,
@@ -230,9 +264,9 @@ def validate(pack_path: Path, campaign_path: Path, lock_path: Path, trusted_path
     require(amount(campaign['totalBudgetUsd']) == 500 and amount(pack['totalBudgetUsd']) == 500,
             'campaign budget must remain $500')
     exact_keys(trusted, {'schemaVersion', 'campaignId', 'campaignDigest', 'controller', 'receipts', 'budgetLedgerDigest',
-                         'attemptRegistryDigest', 'knowledgeManifest', 'semanticReport'},
+                         'attemptRegistryDigest', 'knowledgeManifest', 'semanticReport', 'operationReports'},
                'trusted inventory')
-    require(type(trusted['schemaVersion']) is int and trusted['schemaVersion'] == 1,
+    require(type(trusted['schemaVersion']) is int and trusted['schemaVersion'] == 2,
             'unsupported trusted inventory')
     require(trusted['campaignDigest'] == digest(campaign_path.read_bytes()) and
             trusted['campaignId'] == campaign['campaignId'] and trusted['controller'] == controller,
@@ -250,6 +284,7 @@ def validate(pack_path: Path, campaign_path: Path, lock_path: Path, trusted_path
     ledger = read_json(budget_path)
     require(ledger['candidateKey'] == campaign['componentBindingDigest'], 'budget belongs to another candidate')
     budget_summary = agent_e2e_budget.validate(ledger)
+    validate_operation_reports(ledger, trusted['operationReports'], evidence_root)
     require(digest(registry_path.read_bytes()) == trusted['attemptRegistryDigest'], 'wrong candidate attempt registry')
     registry = read_json(registry_path)
     exact_keys(registry, {'schemaVersion', 'candidateKey', 'attempts'}, 'candidate attempt registry')

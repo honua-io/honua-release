@@ -180,6 +180,10 @@ def preserve_history(previous, current):
     """A new campaign cannot delete spending or reclassify retained attempts."""
     if previous is None:
         return
+    if 'bootstrapImport' in current and 'bootstrapImport' not in previous:
+        raise PackError('bootstrap import must be the first state, never a retrofit')
+    if 'bootstrapImport' in previous and canonical_digest(previous['bootstrapImport']) != canonical_digest(current.get('bootstrapImport')):
+        raise PackError('cannot rewrite or erase bootstrap import history')
     for key, old_rows in previous.get('journals', {}).items():
         new_rows = current.get('journals', {}).get(key, [])
         if len(new_rows) < len(old_rows) or canonical_digest(new_rows[:len(old_rows)]) != canonical_digest(old_rows):
@@ -189,40 +193,53 @@ def preserve_history(previous, current):
             continue
         if key not in current:
             raise PackError('cannot erase durable candidate history')
-        field = 'entries' if key == 'ledger' else 'attempts'
-        if canonical_digest({k:v for k,v in previous[key].items() if k != field}) != canonical_digest(
-                {k:v for k,v in current[key].items() if k != field}):
+        fields = ('entries', 'operations') if key == 'ledger' else ('attempts',)
+        if canonical_digest({k:v for k,v in previous[key].items() if k not in fields}) != canonical_digest(
+                {k:v for k,v in current[key].items() if k not in fields}):
             raise PackError('cannot change durable candidate identity or budget policy')
-        old_rows, new_rows = previous[key][field], current[key][field]
-        if len(new_rows) < len(old_rows):
-            raise PackError('cannot truncate durable candidate history')
-        for old, new in zip(old_rows, new_rows):
-            if key == 'registry' or old.get('state') == 'settled':
-                if canonical_digest(old) != canonical_digest(new):
-                    raise PackError('retained outcome or charge cannot change')
-            else:
-                immutable = set(old) - {'state', 'actualUsd'}
-                if set(new) != set(old) or any(old[k] != new[k] for k in immutable):
-                    raise PackError('reservation identity or ceiling changed')
-                if new['state'] not in ('reserved', 'settled'):
-                    raise PackError('invalid reservation transition')
+        for field in fields:
+            old_rows, new_rows = previous[key].get(field, []), current[key].get(field, [])
+            if len(new_rows) < len(old_rows):
+                raise PackError('cannot truncate durable candidate history')
+            for old, new in zip(old_rows, new_rows):
+                if key == 'registry' or old.get('state') == 'settled':
+                    if canonical_digest(old) != canonical_digest(new):
+                        raise PackError('retained outcome or charge cannot change')
+                else:
+                    immutable = set(old) - {'state', 'actualUsd'}
+                    if set(new) != set(old) or any(old[k] != new[k] for k in immutable):
+                        raise PackError('reservation identity or ceiling changed')
+                    if new['state'] not in ('reserved', 'settled'):
+                        raise PackError('invalid reservation transition')
 
 
 class DurableExecution:
     """Synchronously persist each liability and journal event before continuing."""
-    def __init__(self, store, ledger_path, *, initialize=False):
+    def __init__(self, store, ledger_path, *, initialize=False, bootstrap=None):
         from agent_e2e_budget import update
         from agent_e2e_telemetry import atomic_write
         self.store, self.path = store, Path(ledger_path)
+        if bootstrap is not None and not initialize:
+            raise PackError('bootstrap import requires explicit initialization')
+        if bootstrap is not None:
+            from agent_e2e_bootstrap import validate_import
+            imported_ledger = validate_import(bootstrap, store.candidate)
         state = store.acquire()
         try:
+            if state is not None and bootstrap is not None:
+                raise PackError('candidate history already exists; bootstrap cannot replace it')
             if state is None:
                 if not initialize:
                     raise PackError('new candidate state requires explicit initialization')
                 if self.path.exists():
                     raise PackError('cannot initialize durable state from an existing local ledger')
-                update(self.path, 'init', candidate_key=store.candidate)
-                state = {'ledger':load_json(self.path), 'journals':{}}
+                if bootstrap is None:
+                    # Offline callers can exercise a fresh store. Production
+                    # CLI initialization requires authenticated bootstrap input.
+                    update(self.path, 'init', candidate_key=store.candidate)
+                    state = {'ledger':load_json(self.path), 'journals':{}}
+                else:
+                    state = {'ledger':imported_ledger, 'journals':{}, 'bootstrapImport':copy.deepcopy(bootstrap)}
                 store.commit(state)
             if self.path.exists():
                 # A failed remote settlement may leave a newer local charge.
