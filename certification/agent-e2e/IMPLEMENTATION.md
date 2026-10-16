@@ -348,9 +348,13 @@ The trusted lifecycle must supply `HONUA_AGENT_MCP_CONFIG` containing exactly
 token, or null for an anonymous test) and `workflowView` (`setup` for the standard
 controller action). This is runtime secret configuration, not model tool input;
 the model cannot override the endpoint or identity through the MCP action API.
-Never supply controller or approver credentials. Terraform secret delivery and
-live identity isolation remain prerequisites; the current Fargate root does not
-yet supply this configuration. Terminal commands do not inherit this variable.
+Never supply controller or approver credentials. The Fargate root's
+`mcp_configuration` input in [honua-iac #251](https://github.com/honua-io/honua-iac/pull/251)
+provides an explicit secret-version reference through the execution role, with
+attempt/candidate tags, fixed expiry and optional scoped KMS decryption. Supply
+only secret metadata to Terraform; the credential custodian populates the
+already-provisioned secret. Deployed delivery, application scope and revocation
+remain live prerequisites. Terminal commands do not inherit this variable.
 
 MCP replies carry at most 4 MiB of structured result and raw observations in
 32 KiB chunks. Each chunk binds the attempt, action, complete command digest,
@@ -362,6 +366,43 @@ retained chunks through `ReplyChunks` without dispatching an action. The worker
 retains its complete reply if publication fails, and chunk deduplication IDs are
 stable across redelivery. Delivery has a separate 30-second allowance inside the
 attempt's absolute expiry; incomplete delivery leaves the outcome unverified.
+
+`tools/agent_e2e_worker_evidence.py` supplies the controller-side retention
+callback. Construct `open_evidence({"region": ..., "bucket": ...}, candidate_key,
+worker_attempt_id, dispatch["actionId"])` after the backend has validated active
+attempt/intent ownership and reserved the complete liability. Pass that object as
+`retain_chunk` to `Worker.execute_mcp`. It uses the Terraform-owned controller
+bucket and its existing `evidence/<candidate>/` permission; it neither provisions
+storage nor runs inside the worker image.
+
+Before the first chunk, the callback retains an immutable action header binding
+candidate, worker attempt, action, complete command digest, reply digest, byte
+length and chunk count. Every write requires `If-None-Match: *` and a matching
+SHA-256 checksum acknowledgement with a non-null S3 version ID. Before queue
+acknowledgement, a version-history listing and exact-version read must prove that
+the returned version is the sole retained version, with matching bytes and no
+delete markers or truncated history. S3 conditional writes can succeed over a
+current delete marker; that response alone does not establish retention. Duplicate writes
+can adopt only a single retained version whose canonical bytes match exactly.
+Connection failures and incomplete write acknowledgements leave the queue
+message unacknowledged. No raw model command or argument is added to the header.
+The chunk bodies remain the bounded, untrusted worker output described above.
+
+`ReplyEvidence.recover(header_reference)` reads the exact retained header
+key/version/hash and reconstructs the full reply with exact chunk-version
+references. If the header acknowledgement was lost, `recover()` discovers it
+only when there is exactly one retained version with no delete markers or
+truncated history. Missing chunks, extra versions, changed hashes or conflicting
+identities require reconciliation; recovery never dispatches a command, grants a
+retry, alters the budget or emits a qualifying receipt. Fully retained evidence
+can be recovered after a controller crash. Draining any still-pending queue
+messages, incorporating these references into the final trusted inventory and
+proving live crash/restart behavior remain backend integration work.
+
+Account for the bounded header/chunk PUTs, duplicate/recovery reads, version
+listing, retained bytes and final artifact publication in the prepaid operation
+liability. The adapter does not create a second spending ledger or claim that a
+storage acknowledgement proves the agent's goal or application cleanup.
 
 The controller passes the backend a `dispatch` object after durable intent
 acknowledgement: controller-generated `actionId`, `ordinal`, `requestDigest` and
