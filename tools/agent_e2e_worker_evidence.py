@@ -38,11 +38,35 @@ class ReplyEvidence:
         self.s3, self.bucket = s3, bucket
         self.identity = {'candidateKey':candidate_key, 'attemptId':attempt_id, 'actionId':action_id}
         self.prefix = f"evidence/{candidate_key[7:]}/worker/{attempt_id}/{action_id}/"
+        self.dispatch_key = f"evidence/{candidate_key[7:]}/worker-dispatch/{attempt_id}/{action_id}.json"
         if s3.get_bucket_versioning(Bucket=bucket).get('Status') != 'Enabled':
             raise PackError('worker evidence requires versioned controller storage')
         self.header, self.header_reference, self.collector = None, None, None
         self.references = {}
         self.expected_binding = None
+        self.dispatch_reference = None
+
+    def retain_dispatch(self, binding):
+        """Synchronously retain exact command identity before any queue send."""
+        expected = ReplyChunks.from_binding(binding).expected
+        if any(expected[key] != self.identity[key] for key in ('attemptId', 'actionId')):
+            raise PackError('worker dispatch belongs to another action')
+        value = {'schemaVersion':1, **self.identity, 'binding':expected}
+        reference = self._put(self.dispatch_key, value)
+        self.expected_binding, self.dispatch_reference = expected, reference
+        return reference
+
+    def load_dispatch(self):
+        """Load controller-retained identity; it is not permission to dispatch."""
+        value, reference = self._discover(self.dispatch_key)
+        if (not isinstance(value, dict) or set(value) != {'schemaVersion', *self.identity, 'binding'}
+                or type(value['schemaVersion']) is not int or value['schemaVersion'] != 1
+                or any(value[key] != expected for key, expected in self.identity.items())):
+            raise PackError('invalid retained worker dispatch')
+        expected = ReplyChunks.from_binding(value['binding']).expected
+        if any(expected[key] != self.identity[key] for key in ('attemptId', 'actionId')):
+            raise PackError('retained worker dispatch belongs to another action')
+        return {'binding':expected, 'reference':reference}
 
     def _read(self, key, version, expected_digest=None):
         if not isinstance(version, str) or not version or version == 'null':

@@ -360,8 +360,9 @@ MCP replies carry at most 4 MiB of structured result and raw observations in
 32 KiB chunks. Each chunk binds the attempt, action, complete command digest,
 payload digest, byte length, index and count. The controller rejects mixed,
 changed, missing or oversized chunks; it never reports a prefix as a complete
-catalog. `execute_mcp(..., retain_chunk=...)` requires a synchronous durable
-retention callback before deleting each reply message. Recovery can reassemble
+catalog. `execute_mcp(..., retain_dispatch=..., retain_chunk=...)` requires a
+synchronous durable dispatch-binding callback before sending the command and a
+chunk-retention callback before deleting each reply message. Recovery can reassemble
 retained chunks through `ReplyChunks` without dispatching an action. The worker
 retains its complete reply if publication fails, and chunk deduplication IDs are
 stable across redelivery. Delivery has a separate 30-second allowance inside the
@@ -371,7 +372,8 @@ attempt's absolute expiry; incomplete delivery leaves the outcome unverified.
 callback. Construct `open_evidence({"region": ..., "bucket": ...}, candidate_key,
 worker_attempt_id, dispatch["actionId"])` after the backend has validated active
 attempt/intent ownership and reserved the complete liability. Pass that object as
-`retain_chunk` to `Worker.execute_mcp`. It uses the Terraform-owned controller
+`retain_chunk` and its `retain_dispatch` method as `retain_dispatch` to
+`Worker.execute_mcp`. It uses the Terraform-owned controller
 bucket and its existing `evidence/<candidate>/` permission; it neither provisions
 storage nor runs inside the worker image.
 
@@ -388,6 +390,14 @@ Connection failures and incomplete write acknowledgements leave the queue
 message unacknowledged. No raw model command or argument is added to the header.
 The chunk bodies remain the bounded, untrusted worker output described above.
 
+Before command dispatch, `retain_dispatch` retains the exact transport binding at
+`evidence/<candidate>/worker-dispatch/<attempt>/<action>.json`, with the same
+create-only, checksum, version and history checks. It contains identity and the
+command digest, not raw model arguments. Lost acknowledgement prevents the queue
+send. The transport rechecks expiry after retention and never automatically
+resends an ambiguous command. This durable binding does not replace the
+controller's prior action-intent journal or confer dispatch authority.
+
 `ReplyEvidence.recover(header_reference)` reads the exact retained header
 key/version/hash and reconstructs the full reply with exact chunk-version
 references. If the header acknowledgement was lost, `recover()` discovers it
@@ -400,10 +410,11 @@ can be recovered after a controller crash.
 For partial replies, `agent_e2e_reply_recovery.drain_mcp_replies` combines retained
 chunks with pending messages from the reviewed reply queue. Supply a fresh
 `ReplyEvidence` instance and the exact `protocol`, `attemptId`, `actionId` and
-`commandDigest` from controller-owned dispatch history. The digest covers the
+`commandDigest` from its `load_dispatch()["binding"]`. Retain the accompanying
+dispatch reference in the final trusted inventory. The digest covers the
 entire transport command, including deadline and timeout; the model action digest
-alone is insufficient. Persist this binding before dispatch in the complete
-backend integration. Never infer it from a queue message or accept an untrusted
+alone is insufficient. The required callback persists this binding before
+dispatch. Never infer it from a queue message or accept an untrusted
 binding to make recovery pass. Without trusted dispatch history, reconcile
 manually and retain liability.
 

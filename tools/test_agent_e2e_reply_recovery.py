@@ -63,7 +63,8 @@ def test_recovery_combines_durable_and_pending_chunks_after_attempt_expiry(retai
         # Once complete, redundant deliveries can remain for governed teardown.
 
 
-def test_actual_worker_crash_after_first_ack_recovers_without_second_execution(tmp_path):
+@pytest.mark.parametrize('crash_before_first_reply', [False, True])
+def test_actual_worker_crash_recovers_without_second_execution(tmp_path, crash_before_first_reply):
     s3, executions = S3(), []
     def execute(*args):
         executions.append(args)
@@ -71,16 +72,78 @@ def test_actual_worker_crash_after_first_ack_recovers_without_second_execution(t
     executor = Executor(CONFIG, tmp_path/'worker.sqlite', tmp_path, clock=lambda:1000, execute_mcp=execute)
     class CrashingExchange(Exchange):
         def receive_message(self, **kwargs):
-            if self.deleted:
+            if crash_before_first_reply or self.deleted:
                 raise ConnectionError('controller process lost')
             return super().receive_message(**kwargs)
     queue = CrashingExchange(executor)
+    sink = evidence(s3)
     with pytest.raises(ConnectionError):
-        Worker(queue, CONFIG, clock=lambda:1000).execute_mcp(request()['action'], 'action-1', retain_chunk=evidence(s3))
-    assert queue.deleted == ['0']
-    restored = drain(Queue(queue.pending), evidence(s3))
+        Worker(queue, CONFIG, clock=lambda:1000).execute_mcp(request()['action'], 'action-1', retain_chunk=sink, retain_dispatch=sink.retain_dispatch)
+    assert queue.deleted == ([] if crash_before_first_reply else ['0'])
+    restarted = evidence(s3)
+    dispatch = restarted.load_dispatch()
+    assert dispatch['reference'] == sink.dispatch_reference
+    restored = drain_mcp_replies(Queue(queue.pending), reply_queue_url=CONFIG['replyQueueUrl'],
+        binding=dispatch['binding'], evidence=restarted, clock=lambda:10000)
     assert restored['reply']['payload'] == {'data':'x'*100000}
     assert len(executions) == len(queue.requests) == 1
+
+
+def test_dispatch_retention_failure_never_sends_command_and_keeps_binding(tmp_path):
+    s3 = S3()
+    sink = evidence(s3)
+    def lose_ack(key):
+        if key == sink.dispatch_key:
+            raise TimeoutError('dispatch binding acknowledgement lost')
+    s3.after_write = lose_ack
+    executor = Executor(CONFIG, tmp_path/'worker.sqlite', tmp_path, clock=lambda:1000)
+    queue = Exchange(executor)
+    worker = Worker(queue, CONFIG, clock=lambda:1000)
+    with pytest.raises(TimeoutError):
+        worker.execute_mcp(request()['action'], 'action-1', retain_chunk=sink, retain_dispatch=sink.retain_dispatch)
+    assert queue.requests == queue.deleted == []
+    assert evidence(s3).load_dispatch()['binding'] == ReplyChunks(request()).expected
+    with pytest.raises(PackError, match='already dispatched'):
+        worker.execute_mcp(request()['action'], 'action-1', retain_chunk=sink, retain_dispatch=sink.retain_dispatch)
+
+
+def test_retention_delay_cannot_dispatch_an_expired_command(tmp_path):
+    now = [1000]
+    executor = Executor(CONFIG, tmp_path/'worker.sqlite', tmp_path, clock=lambda:now[0])
+    queue, sink = Exchange(executor), evidence(S3())
+    def delayed_retention(binding):
+        sink.retain_dispatch(binding)
+        now[0] += 121
+    with pytest.raises(PackError, match='expired'):
+        Worker(queue, CONFIG, clock=lambda:now[0]).execute_mcp(request()['action'], 'action-1',
+            retain_chunk=sink, retain_dispatch=delayed_retention)
+    assert queue.requests == []
+
+
+def test_dispatch_binding_contains_no_raw_command_and_cannot_be_replaced():
+    s3 = S3()
+    sink = evidence(s3)
+    command = {**request(), 'action':{'name':'mcp_call_tool',
+        'input':{'name':'configure','arguments':{'secret':'private-command-value'}}}}
+    expected = ReplyChunks(command).expected
+    reference = sink.retain_dispatch(expected)
+    assert sink.retain_dispatch(expected) == reference
+    assert sink.load_dispatch() == {'binding':expected, 'reference':reference}
+    assert b'private-command-value' not in s3.objects[sink.dispatch_key][0][1]
+    with pytest.raises(PackError, match='replace retained'):
+        sink.retain_dispatch(ReplyChunks(request()).expected)
+    assert len(s3.objects[sink.dispatch_key]) == 1
+
+
+def test_missing_or_deleted_dispatch_history_cannot_be_loaded():
+    s3 = S3()
+    sink = evidence(s3)
+    with pytest.raises(PackError, match='history'):
+        sink.load_dispatch()
+    sink.retain_dispatch(ReplyChunks(request()).expected)
+    s3.objects[sink.dispatch_key].append(('delete-marker', None))
+    with pytest.raises(PackError, match='history'):
+        sink.load_dispatch()
 
 
 @pytest.mark.parametrize('field,value', [('attemptId','foreign'), ('actionId','foreign'),

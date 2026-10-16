@@ -185,18 +185,18 @@ class Worker:
                    "deadlineEpoch": deadline, "command": command, "timeoutSeconds": timeout}
         return self._exchange(request, now)
 
-    def execute_mcp(self, action, action_id, *, retain_chunk, timeout=120):
+    def execute_mcp(self, action, action_id, *, retain_chunk, retain_dispatch, timeout=120):
         if type(timeout) is not int or not 1 <= timeout <= 120:
             raise PackError('invalid MCP timeout')
-        if not callable(retain_chunk):
-            raise PackError('MCP transport requires durable chunk retention before acknowledgement')
+        if not callable(retain_chunk) or not callable(retain_dispatch):
+            raise PackError('MCP transport requires durable dispatch and chunk retention')
         now = self.clock()
         request = {'protocol':MCP_PROTOCOL, 'attemptId':self.config['attemptId'], 'actionId':action_id,
                    'deadlineEpoch':min(math.ceil(now+timeout), self.config['expiresEpoch']-35),
                    'action':action, 'timeoutSeconds':timeout}
-        return self._exchange(request, now, retain_chunk=retain_chunk)
+        return self._exchange(request, now, retain_chunk=retain_chunk, retain_dispatch=retain_dispatch)
 
-    def _exchange(self, request, now, *, retain_chunk=None):
+    def _exchange(self, request, now, *, retain_chunk=None, retain_dispatch=None):
         action_id, deadline = request['actionId'], request['deadlineEpoch']
         validate_command(request, self.config["attemptId"], self.config["expiresEpoch"], now)
         if action_id in self.sent:
@@ -204,6 +204,9 @@ class Worker:
         # Mark before the API call: an ambiguous network failure must not resend.
         # The backend also persists dispatch before calling this transport.
         self.sent.add(action_id)
+        if request['protocol'] == MCP_PROTOCOL:
+            retain_dispatch(ReplyChunks(request).expected)
+            validate_command(request, self.config['attemptId'], self.config['expiresEpoch'], self.clock())
         self.sqs.send_message(QueueUrl=self.config["commandQueueUrl"], MessageBody=encode(request),
             MessageGroupId=self.config["attemptId"], MessageDeduplicationId=command_digest(request)[7:])
         chunks = ReplyChunks(request) if request['protocol'] == MCP_PROTOCOL else None

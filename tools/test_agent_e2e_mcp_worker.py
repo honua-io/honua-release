@@ -53,7 +53,7 @@ def test_complete_large_catalog_crosses_worker_transport_without_truncation(serv
     def retain(value):
         assert len(queue.deleted) == len(retained)
         retained.append(copy.deepcopy(value))
-    observed = Worker(queue, CONFIG, clock=lambda:1000).execute_mcp(request()['action'], 'action-1', retain_chunk=retain)
+    observed = Worker(queue, CONFIG, clock=lambda:1000).execute_mcp(request()['action'], 'action-1', retain_chunk=retain, retain_dispatch=lambda _: None)
     assert observed['payload']['result'] == {'tools':tools}
     assert observed['payload']['error'] is None
     assert observed['payload']['sessionCleanup'] == {'status':'pass'}
@@ -114,10 +114,10 @@ def test_failed_chunk_retention_prevents_queue_acknowledgement(tmp_path):
         raise OSError('durable storage unavailable')
     worker = Worker(queue, CONFIG, clock=lambda:1000)
     with pytest.raises(OSError):
-        worker.execute_mcp(request()['action'], 'action-1', retain_chunk=unavailable)
+        worker.execute_mcp(request()['action'], 'action-1', retain_chunk=unavailable, retain_dispatch=lambda _: None)
     assert not queue.deleted
     with pytest.raises(PackError, match='already dispatched'):
-        worker.execute_mcp(request()['action'], 'action-1', retain_chunk=unavailable)
+        worker.execute_mcp(request()['action'], 'action-1', retain_chunk=unavailable, retain_dispatch=lambda _: None)
     assert len(queue.requests) == 1
 
 
