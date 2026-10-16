@@ -464,6 +464,76 @@ Loopback HTTP integration tests and the image smoke check exercise the transport
 client, isolated process, catalog delivery and replay handling using fixture
 servers. They neither run Honua nor qualify any of the 252 live cases.
 
+### Controller runtime lifecycle
+
+`tools/agent_e2e_worker_lifecycle.py` starts, observes and requests stop of the
+Terraform-defined Fargate lifecycle. It creates no infrastructure and is excluded
+from the worker image. The controller-owned configuration binds the region,
+candidate digest, worker attempt ID, campaign/case/attempt/mode, exact state
+machine ARN and role, canonical definition digest, cluster ARN, revisioned task
+definition ARN, claim table, absolute expiry epoch and reviewed liability basis
+and upper bounds. These values come from the reviewed Terraform deployment and
+campaign configuration, never from model text. `inspect_definition()` verifies
+the deployed Standard state machine and role against those reviewed inputs; it
+does not declare the entire scenario backend ready.
+
+Use the existing `DurableExecution` instance in the trusted controller:
+
+```python
+worker = open_lifecycle(reviewed_worker_configuration)
+launch = worker.start(durable, reservation_ids={
+    "infrastructure": infrastructure_reservation_id,
+    "cleanup": cleanup_reservation_id,
+})
+observation = worker.observe(launch)
+stop_request = worker.stop(durable, launch)
+```
+
+Both reservations must already be durably retained, unsettled, for this exact
+candidate/campaign/case/attempt/mode and pricing basis, and cover the configured
+maximum amounts. A reservation cannot fund another worker launch. Separate
+post-install workers require their own prepaid launch reservations and reviewed
+configuration. The adapter records an immutable `workerLaunches[attemptId]`
+intent in candidate state before its one `StartExecution` call. It renews/checks
+the current lease and rechecks expiry before that call. SDK clients have five
+second connection and ten second read timeouts, with one total request attempt.
+No startup retry, redrive, task-definition override or direct `RunTask` path is
+available. Definition approval and runtime IAM restrictions remain deployment
+requirements; checking a mutable state machine is not an atomic freeze of its
+definition.
+
+After an interruption or lost start acknowledgement, recover the retained launch
+record from candidate state and call `observe`; do not call `start` again. Even
+an intent retained before a request that never reached AWS remains spent as a
+launch identity. A missing execution, task or launch response leaves the outcome
+unverified and liability reserved. Observation checks the exact execution/input,
+absence of redrive, permanent attempt claim, bounded forward launch history,
+and an independent ECS task response including candidate/attempt tags, cluster,
+task-definition revision and Fargate launch type. History discovery makes at most
+eight requests of 100 events and rejects truncated output or repeated pagination.
+Observation remains possible after attempt expiry. Retain returned observations
+in controller evidence before teardown; this adapter does not publish final
+inventory or qualification artifacts. ECS eventually removes stopped tasks from
+its describe response, so delayed observation may remain unverified.
+
+`stop` renews the current lease, discovers the exact claimed task and requests
+`StopTask`. It leaves the lifecycle running so Terraform's workflow can observe
+STOPPED and append its immutable stop record. A stop acknowledgement is only a
+request, and a stopped container is not proof of application resource cleanup,
+credential revocation, completed accounting or scenario success. No claim is
+cleared and no reservation is settled by this adapter. Cleanup remains possible
+after a budget overrun; the overrun stays retained. Every observation explicitly
+has `qualification: false`.
+
+The lease check before a runtime request is not an atomic external-action fence.
+The Terraform candidate/attempt claim transaction and ban on redrive prevent
+overlapping/replacement workers; independent expiry cleanup remains required
+after controller loss. Include state-machine transitions, ECS/DynamoDB reads,
+bounded observation calls and retention in prepaid liability. Full backend
+`prepare`/action/verify/cleanup routing, public knowledge delivery, raw observation
+publication, interrupted-claim reconciliation and live crash/cleanup proof
+remain open. The lifecycle adapter's fault tests use fixture AWS responses.
+
 ### Deployment sequence
 
 Terraform in `honua-iac` owns all campaign infrastructure, including disposable
