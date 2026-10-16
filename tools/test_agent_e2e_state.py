@@ -141,6 +141,8 @@ class S3:
         return {'Status':'Enabled'}
     def put_object(self, **kwargs):
         assert kwargs['IfNoneMatch']=='*'
+        if kwargs['Key'] in self.objects:
+            raise RuntimeError('PreconditionFailed')
         self.objects[kwargs['Key']]=kwargs['Body']
         return {'VersionId':'version-one'}
     def get_object(self, **kwargs):
@@ -159,6 +161,7 @@ def test_expired_writer_cannot_advance_state_head():
     objects=S3()
     store=StateStore(s3=objects,dynamodb=LostLease(),bucket='bucket',table='table',candidate_key='sha256:'+'a'*64)
     store.version=1; store.fence=2
+    store.generation={'digest':'sha256:'+'b'*64}
     with pytest.raises(RuntimeError,match='ConditionalCheckFailed'):
         store.commit({'ledger':{'entries':[]}})
     assert store.version==1
@@ -171,6 +174,125 @@ def test_unversioned_bucket_blocks_before_lease_acquisition():
     store=StateStore(s3=objects,dynamodb=LostLease(),bucket='bucket',table='table',candidate_key='sha256:'+'a'*64)
     with pytest.raises(PackError,match='versioned'):
         store.acquire()
+
+
+@pytest.mark.parametrize('history', [
+    {'Versions':[{'Key':'retained', 'VersionId':'previous'}]},
+    {'DeleteMarkers':[{'Key':'hidden', 'VersionId':'deleted'}]},
+    {'IsTruncated':True},
+])
+def test_missing_state_head_cannot_reset_existing_snapshot_history(history):
+    class Headless:
+        def get_item(self, **kwargs):
+            assert kwargs['ConsistentRead'] is True
+            return {'Item':{'leaseOwner':{'S':'owner'}, 'fence':{'N':'1'}}}
+    objects = S3()
+    def versions(**kwargs):
+        assert kwargs == {'Bucket':'bucket', 'Prefix':'agent-e2e/'+'a'*64+'/', 'MaxKeys':1}
+        return history
+    objects.list_object_versions = versions
+    store = StateStore(s3=objects, dynamodb=Headless(), bucket='bucket', table='table',
+                       candidate_key='sha256:'+'a'*64, owner='owner')
+    store.fence = 1
+    with pytest.raises(PackError, match='reconcile'):
+        store.load()
+    assert objects.objects == {}
+
+
+def test_new_candidate_requires_successful_history_absence_probe():
+    class Headless:
+        def get_item(self, **kwargs):
+            return {'Item':{'leaseOwner':{'S':'owner'}, 'fence':{'N':'1'}}}
+        def update_item(self, **kwargs):
+            if kwargs['UpdateExpression'].startswith('SET generationKey'):
+                assert 'attribute_not_exists(generationDigest)' in kwargs['ConditionExpression']
+            else:
+                assert 'generationDigest = :generationDigest' in kwargs['ConditionExpression']
+    objects = S3()
+    store = StateStore(s3=objects, dynamodb=Headless(), bucket='bucket', table='table',
+                       candidate_key='sha256:'+'a'*64, owner='owner')
+    store.fence = 1
+    def denied(**kwargs):
+        raise PermissionError('history unavailable')
+    objects.list_object_versions = denied
+    with pytest.raises(PermissionError):
+        store.load()
+    objects.list_object_versions = lambda **kwargs: {'IsTruncated':False}
+    assert store.load() is None
+    assert objects.objects == {}  # A recovery/read does not initialize a candidate.
+    store.commit({'ledger':{'entries':[]}})
+    assert store.generation['key'] in objects.objects
+
+
+def test_conditional_initialization_closes_history_probe_publication_race():
+    class Headless:
+        updates = 0
+        def get_item(self, **kwargs):
+            return {'Item':{'leaseOwner':{'S':'new'}, 'fence':{'N':'1'}}}
+        def update_item(self, **kwargs):
+            self.updates += 1
+    objects, db = S3(), Headless()
+    store = StateStore(s3=objects, dynamodb=db, bucket='bucket', table='table',
+                       candidate_key=MemoryStore.candidate, owner='new')
+    store.fence = 1
+    old_marker = b'{"candidateKey":"retained-old-generation"}'
+    def raced_listing(**kwargs):
+        # Another initializer publishes after the list's empty observation but
+        # before this controller attempts the conditional initialization write.
+        objects.put_object(Key=store.generation_key, Body=old_marker, IfNoneMatch='*')
+        return {'IsTruncated':False}
+    objects.list_object_versions = raced_listing
+    assert store.load() is None
+    with pytest.raises(RuntimeError, match='PreconditionFailed'):
+        store.commit({'ledger':{'entries':[]}})
+    assert db.updates == 0 and store.generation is None
+    assert objects.objects == {store.generation_key:old_marker}
+
+
+def test_failed_initialization_retains_record_and_cannot_reset_after_head_loss():
+    class Headless(LostLease):
+        def get_item(self, **kwargs):
+            return {'Item':{'leaseOwner':{'S':'owner'}, 'fence':{'N':'1'}}}
+    objects = S3()
+    objects.list_object_versions = lambda **kwargs: ({'Versions':[{'Key':key} for key in objects.objects]})
+    store = StateStore(s3=objects, dynamodb=Headless(), bucket='bucket', table='table',
+                       candidate_key=MemoryStore.candidate, owner='owner')
+    store.fence = 1
+    assert store.load() is None
+    with pytest.raises(RuntimeError, match='ConditionalCheckFailed'):
+        store.commit({'ledger':{'entries':[]}})
+    assert store.generation is None and len(objects.objects) == 1
+    with pytest.raises(PackError, match='reconcile'):
+        store.load()
+
+
+def test_generation_record_and_snapshot_must_belong_to_same_history():
+    objects = S3()
+    candidate = MemoryStore.candidate
+    marker = json.dumps({'schemaVersion':1, 'candidateKey':candidate, 'generationId':'test'}).encode()
+    marker_key = 'agent-e2e/'+'a'*64+'/initialization.json'
+    snapshot = json.dumps({'candidateKey':candidate, 'version':1, 'generationDigest':digest_bytes(marker),
+                           'payload':{'ledger':{'entries':[]}}}).encode()
+    objects.objects = {marker_key:marker, 'snapshot':snapshot}
+    row = {'leaseOwner':{'S':'owner'}, 'fence':{'N':'1'}, 'stateVersion':{'N':'1'},
+           'generationKey':{'S':marker_key}, 'generationVersion':{'S':'version-one'},
+           'generationDigest':{'S':digest_bytes(marker)}, 'snapshotKey':{'S':'snapshot'},
+           'snapshotVersion':{'S':'version-one'}, 'snapshotDigest':{'S':digest_bytes(snapshot)}}
+    class Head:
+        def get_item(self, **kwargs):
+            return {'Item':row}
+    store = StateStore(s3=objects, dynamodb=Head(), bucket='bucket', table='table', candidate_key=candidate, owner='owner')
+    store.fence = 1
+    assert store.load() == {'ledger':{'entries':[]}}
+    altered = json.loads(snapshot)
+    altered['generationDigest'] = 'sha256:'+'0'*64
+    objects.objects['snapshot'] = json.dumps(altered).encode()
+    row['snapshotDigest']['S'] = digest_bytes(objects.objects['snapshot'])
+    with pytest.raises(PackError, match='another candidate/version'):
+        store.load()
+    del row['generationDigest']
+    with pytest.raises(PackError, match='quiesced reconciliation'):
+        store.load()
 
 
 def test_history_cannot_hide_failure_change_mode_or_erase_charge():

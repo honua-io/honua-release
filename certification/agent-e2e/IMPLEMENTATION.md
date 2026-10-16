@@ -44,6 +44,20 @@ Native identity validation alone does not establish image provenance, Redis
 configuration, network routing or live API collection; the producer's preflight
 and backend still must prove those properties before qualification.
 
+Spatial semantic cases use two concrete EPSG:3857 source layers from
+`agent_e2e_semantics.spatial_fixture()`: five points (inside, outer boundary,
+hole interior, hole boundary and outside) and two polygons (a square with a hole
+and an overlapping square). Both layers must be seeded and observed in their
+entirety before and after each spatial operation. The predicates reject changed
+holes, moved polygons, missing points/layers and CRS changes even when reported
+result IDs still match. The cardinality case selects the inside/outside pair;
+contains and boundary cases use all five points. Per-case recipes can capture up
+to 16 source HTTP responses before and after an operation and assemble named
+source fields through JSON pointers. The gate replays every source projection
+from the exact retained bytes. The backend still needs reviewed target-specific
+API paths, seeding and normalization recipes; point-only snapshots cannot stand
+in for spatial-source protection.
+
 The consumer integration in PR #607 must remain draft until the producer and
 runtime evidence exist. This foundation adds no release/nightly/promotion
 requirement. Unknown attribution and missing observations fail closed.
@@ -121,6 +135,22 @@ artifacts to connect those signals to a controller attempt. Merely having both
 sets of counters does not establish that correlation.
 
 The controller journals each returned provider request ID with its model turn.
+A model-selected action records an `action-intent` event synchronously before
+calling the backend. The event contains only its ordinal, tool kind and request
+digest. If durable publication fails, the backend is not called. A crash or lost
+reply leaves an unresolved intent; it does not establish whether the command
+executed or authorize replay. Completed observations must match a preceding
+intent, and a journal claiming success with unresolved actions is rejected.
+Reports distinguish action intents, observed results and unresolved actions.
+The controller's `usage.executedActions` counts only results acknowledged by
+the durable journal sink; attempted dispatches and unpersisted results do not
+increase it. A zero count after interruption does not prove that nothing ran.
+Prometheus exposes `honua_agent_action_intents_total`,
+`honua_agent_actions_observed_total` and the `honua_agent_actions_unresolved`
+gauge, with only target/mode labels. These are dispatch-intent counts, not proof
+of executed commands. Historical journals lacking intent evidence are retained
+for investigation; do not synthesize missing events to make them pass validation.
+
 A backend may emit `runtime-trace` events containing the current action number,
 observed `traceId`, `spanId`, `requestId` and the digest of the retained evidence.
 The controller rejects events assigned to another action or malformed IDs.
@@ -139,7 +169,25 @@ erase the first failure or its cost from either history.
 The controller CLI requires `--state-config` pointing to a JSON object with
 `region`, `bucket` and `table`. The S3 bucket must have versioning enabled; DynamoDB
 uses the string partition key `candidateKey`. Workers must have no access to either
-store. The controller environment requires boto3 as well as the offline test
+store. The controller needs `s3:ListBucketVersions` on its candidate snapshot
+prefix: a missing DynamoDB pointer may initialize only when no current or prior
+snapshot version or delete marker exists. Unreferenced snapshots require explicit
+reconciliation, not a fresh budget. Failure to inspect history blocks initialization.
+Before its first snapshot, the controller conditionally creates a permanent
+`initialization.json` record in that prefix (`If-None-Match: *`). Every snapshot
+and DynamoDB update binds its exact version/digest. The conditional publication
+closes the race between an empty history probe and an older writer: only one
+controller can establish the candidate's accounting history. A failed or ambiguous
+publication retains the record and requires reconciliation. Merely reading or
+recovering an unknown candidate does not create this record or a fresh ledger.
+Runtime identities must have no permission to delete the record, its versions,
+or history; a lifecycle rule must not expire them while the candidate is usable.
+
+Existing snapshots without an initialization binding require all older writers
+to stop and explicit reconciliation of every retained snapshot and charge. They
+are not adopted automatically. This is an internal state-format change; no live
+campaign has used the earlier unanchored format. Do not delete history to migrate.
+The controller environment requires boto3 as well as the offline test
 dependencies. Credentials come from the controller's standard provider chain.
 
 `--initialize-state` is only for a candidate with no remote state and no existing

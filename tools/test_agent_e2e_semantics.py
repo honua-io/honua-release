@@ -4,11 +4,11 @@ import math
 import pytest
 
 from agent_e2e_pack import PackError
-from agent_e2e_semantics import CASES, fixture, verify
+from agent_e2e_semantics import CASES, SPATIAL_CASES, fixture, verify
 
 
 def observation(case):
-    source=fixture()
+    source=fixture(case)
     if case in CASES[:7]:
         ids = ['s3'] if case in ('select-strict','same-name-isolation') else ['s2','s3'] if case=='select-inclusive' else ['s2','s3','s4']
         result={'features':[f for f in source['features'] if f['id'] in ids],
@@ -36,7 +36,10 @@ def observation(case):
 def test_semantic_observations_and_source_mutations(case):
     value=observation(case)
     verify(case,value)
-    value['sourceAfter']['features'][0]['properties']['capacity']=999
+    if case in SPATIAL_CASES:
+        value['sourceAfter']['pointLayer']['features'][0]['properties']['changed']=True
+    else:
+        value['sourceAfter']['features'][0]['properties']['capacity']=999
     with pytest.raises(PackError,match='source differs'):
         verify(case,value)
 
@@ -58,3 +61,30 @@ def test_reversed_contains_and_relabelled_crs_fail():
     value['result']['features']=fixture()['features']
     with pytest.raises(PackError,match='relabeled'):
         verify('transform-coordinates',value)
+
+
+@pytest.mark.parametrize('case', SPATIAL_CASES)
+@pytest.mark.parametrize('mutation', ['missing-hole', 'moved-overlap', 'missing-point', 'wrong-crs', 'missing-layer'])
+def test_expected_spatial_results_cannot_hide_protected_source_changes(case, mutation):
+    value = observation(case)
+    source = value['sourceAfter']
+    if mutation == 'missing-hole':
+        source['polygonLayer']['features'][0]['geometry']['coordinates'].pop()
+    elif mutation == 'moved-overlap':
+        source['polygonLayer']['features'][1]['geometry']['coordinates'][0][0] = [99, 99]
+    elif mutation == 'missing-point':
+        source['pointLayer']['features'].pop()
+    elif mutation == 'wrong-crs':
+        source['srid'] = 4326
+    else:
+        del source['polygonLayer']
+    with pytest.raises(PackError, match='source differs'):
+        verify(case, value)
+
+
+@pytest.mark.parametrize('case', SPATIAL_CASES)
+def test_old_point_only_snapshots_do_not_qualify_spatial_checks(case):
+    value = observation(case)
+    value['sourceBefore'] = value['sourceAfter'] = fixture()
+    with pytest.raises(PackError, match='source differs'):
+        verify(case, value)

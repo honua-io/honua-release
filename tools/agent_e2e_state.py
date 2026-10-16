@@ -42,10 +42,49 @@ class StateStore:
         self.clock = clock
         self.version = None
         self.payload = None
+        self.generation = None
 
     @property
     def key(self):
         return {'candidateKey': {'S': self.candidate}}
+
+    @property
+    def generation_key(self):
+        return f"agent-e2e/{self.candidate.split(':')[1]}/initialization.json"
+
+    def _initialize_generation(self):
+        # S3's conditional write serializes initial publication independently of
+        # the deletable DynamoDB head. No snapshot may precede this permanent
+        # record, so an in-flight older writer cannot race a fresh allowance.
+        marker = {'schemaVersion':1, 'candidateKey':self.candidate, 'generationId':str(uuid.uuid4())}
+        data = json.dumps(marker, sort_keys=True, separators=(',', ':')).encode()
+        response = self.s3.put_object(Bucket=self.bucket, Key=self.generation_key,
+                                     Body=data, ContentType='application/json', IfNoneMatch='*')
+        if not response.get('VersionId') or response['VersionId'] == 'null':
+            raise PackError('initialization record was not versioned')
+        generation = {'key':self.generation_key, 'version':response['VersionId'], 'digest':digest_bytes(data)}
+        condition, values = self._condition()
+        condition += ' AND attribute_not_exists(snapshotKey) AND attribute_not_exists(generationDigest)'
+        values.update({':generationKey':{'S':generation['key']}, ':generationVersion':{'S':generation['version']},
+                       ':generationDigest':{'S':generation['digest']}})
+        self.db.update_item(TableName=self.table, Key=self.key, ConditionExpression=condition,
+            UpdateExpression='SET generationKey = :generationKey, generationVersion = :generationVersion, generationDigest = :generationDigest',
+            ExpressionAttributeValues=values)
+        self.generation = generation
+
+    def _load_generation(self, row):
+        if not all(field in row for field in ('generationKey', 'generationVersion', 'generationDigest')):
+            raise PackError('unanchored legacy state requires quiesced reconciliation; refusing automatic adoption')
+        generation = {'key':row['generationKey']['S'], 'version':row['generationVersion']['S'],
+                      'digest':row['generationDigest']['S']}
+        if generation['key'] != self.generation_key:
+            raise PackError('initialization record belongs to another candidate')
+        response = self.s3.get_object(Bucket=self.bucket, Key=generation['key'], VersionId=generation['version'])
+        data = response['Body'].read()
+        marker = json.loads(data)
+        if digest_bytes(data) != generation['digest'] or marker.get('candidateKey') != self.candidate:
+            raise PackError('initialization record binding differs')
+        self.generation = generation
 
     def acquire(self):
         if self.s3.get_bucket_versioning(Bucket=self.bucket).get('Status') != 'Enabled':
@@ -71,6 +110,7 @@ class StateStore:
             UpdateExpression='SET leaseUntil = :until', ExpressionAttributeValues=values)
 
     def load(self):
+        self.generation, self.payload, self.version = None, None, None
         row = self.db.get_item(TableName=self.table, Key=self.key, ConsistentRead=True).get('Item', {})
         if row.get('leaseOwner', {}).get('S') != self.owner or int(row.get('fence', {'N':'-1'})['N']) != self.fence:
             raise PackError('controller state lease was lost')
@@ -78,13 +118,22 @@ class StateStore:
         if 'snapshotKey' not in row:
             if self.version != 0:
                 raise PackError('state history is missing; refusing reset')
+            # Loss of the DynamoDB head must not turn retained S3 history into
+            # a new candidate allowance. Include non-current versions and delete
+            # markers: listing only current objects would miss a hidden history.
+            history = self.s3.list_object_versions(Bucket=self.bucket,
+                Prefix=f"agent-e2e/{self.candidate.split(':')[1]}/", MaxKeys=1)
+            if history.get('Versions') or history.get('DeleteMarkers') or history.get('IsTruncated'):
+                raise PackError('snapshot history exists without its state head; reconcile instead of resetting')
             return None
+        self._load_generation(row)
         response = self.s3.get_object(Bucket=self.bucket, Key=row['snapshotKey']['S'], VersionId=row['snapshotVersion']['S'])
         data = response['Body'].read()
         if digest_bytes(data) != row['snapshotDigest']['S']:
             raise PackError('controller snapshot digest mismatch')
         state = json.loads(data)
-        if state['candidateKey'] != self.candidate or state['version'] != self.version:
+        if (state['candidateKey'] != self.candidate or state['version'] != self.version
+                or state.get('generationDigest') != self.generation['digest']):
             raise PackError('snapshot belongs to another candidate/version')
         self.payload = copy.deepcopy(state['payload'])
         return state['payload']
@@ -92,8 +141,14 @@ class StateStore:
     def commit(self, payload):
         if self.version is None:
             raise PackError('acquire state before committing')
+        canonical_digest(payload)
+        if self.generation is None:
+            if self.version != 0:
+                raise PackError('acquire anchored state before committing')
+            self._initialize_generation()
         preserve_history(self.payload, payload)
-        state = {'candidateKey': self.candidate, 'version': self.version+1, 'payload': payload}
+        state = {'candidateKey': self.candidate, 'version': self.version+1,
+                 'generationDigest':self.generation['digest'], 'payload': payload}
         # Validate finite, JSON-serializable state before any write.
         canonical_digest(state)
         data = json.dumps(state, sort_keys=True, separators=(',', ':'), allow_nan=False).encode()
@@ -103,6 +158,8 @@ class StateStore:
         if not response.get('VersionId') or response['VersionId'] == 'null':
             raise PackError('snapshot was not versioned')
         condition, values = self._condition()
+        condition += ' AND generationDigest = :generationDigest'
+        values[':generationDigest'] = {'S':self.generation['digest']}
         condition += ' AND (stateVersion = :previous OR (attribute_not_exists(stateVersion) AND :previous = :zero))'
         values.update({':previous':{'N':str(self.version)}, ':zero':{'N':'0'}, ':version':{'N':str(self.version+1)},
             ':key':{'S':key}, ':objectVersion':{'S':response['VersionId']}, ':digest':{'S':digest_bytes(data)}})
