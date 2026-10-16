@@ -296,8 +296,23 @@ Honua's `2025-03-26` protocol, acknowledges initialization, retains the session,
 follows opaque tool-list cursors and sends the model-selected tool name and
 arguments unchanged. It accepts JSON and POST SSE responses, preserves tool
 errors and structured content, and refuses server-initiated requests for
-unnegotiated capabilities. An incomplete or oversized catalog fails discovery;
+unnegotiated capabilities. Protocol pings are answered once, bounded to 16 per
+request, without advertising sampling or approval capabilities.
+An incomplete or oversized catalog fails discovery;
 it is never silently shortened into an apparently complete interface schema.
+
+Use `Client(..., workflow_view="setup")` for the controller's setup-discovery
+action. The client sends Honua's `initialize.params._meta["honua.io/workflow-view"]`
+and repeats the explicit `tools/list.params.view` selector on every page, including
+stateless sessions. `list_tools(view="full")` requests the authenticated full
+catalog for that call without changing the configured session view. No client
+tool roster is maintained. Returned `_meta` revisions, digests and stages are
+preserved, changes between pages fail discovery, and an explicitly requested
+named view must be observed in the response. Omit the selector only when the
+server-profile default is intended. These negotiation fields were checked against
+the server implementation at `baf41822fb`; deployed candidate parity remains a
+live check. Server-reported digest values are retained claims, not independently
+verified hashes of the descriptors.
 
 The client uses only its supplied agent credential reference, verified TLS (or
 loopback HTTP for local tests), one origin and no environment proxy or redirects.
@@ -310,7 +325,8 @@ are reported and never establish successful scenario cleanup.
 Response observations retain exact received bytes, hashes, request digests,
 statuses and allowlisted server correlation headers. Credentials and session
 headers are excluded; echoed credentials (including JSON-escaped echoes) are
-rejected before retaining a response. These are untrusted action observations,
+rejected before retaining a response, including SSE comments and partial frames.
+These are untrusted action observations,
 not independent semantic evidence or a success receipt. Bounds are 512 KiB per
 request/response, 2 MiB total received per client, 32 catalog pages and 1,024 tools.
 The client has a cumulative time budget of at most 120 seconds and socket waits

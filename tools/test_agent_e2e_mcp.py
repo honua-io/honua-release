@@ -58,12 +58,20 @@ def server():
                 status, headers, body = response
                 self.send_response(status)
                 self.send_header('Content-Type', headers.get('Content-Type', 'application/json'))
-                self.send_header('Content-Length', str(len(body)))
+                length = len(body[0])+len(body[1]) if isinstance(body, tuple) else len(body)
+                self.send_header('Content-Length', str(length))
                 for key, value in headers.items():
                     if key != 'Content-Type':
                         self.send_header(key, value)
                 self.end_headers()
-                self.wfile.write(body)
+                if isinstance(body, tuple):
+                    first, second, acknowledgement = body
+                    self.wfile.write(first)
+                    self.wfile.flush()
+                    assert acknowledgement.wait(timeout=5), 'Client did not answer the ping while reading SSE'
+                    self.wfile.write(second)
+                else:
+                    self.wfile.write(body)
             except (ConnectionResetError, BrokenPipeError):
                 pass  # Client intentionally stops at its bounded response limit.
             except Exception as exc:
@@ -160,7 +168,7 @@ def test_ambiguous_write_never_retried_or_reinitialized(server, failure):
     client.close()
 
 
-@pytest.mark.parametrize('location', ['body', 'escaped-body', 'header', 'sse-notification'])
+@pytest.mark.parametrize('location', ['body', 'escaped-body', 'header', 'sse-notification', 'sse-partial', 'sse-comment'])
 def test_credential_echo_never_enters_observations_or_errors(server, monkeypatch, location):
     secret = 'private-credential-canary'
     monkeypatch.setenv('TEST_MCP_TOKEN', secret)
@@ -177,6 +185,11 @@ def test_credential_echo_never_enters_observations_or_errors(server, monkeypatch
                 headers['Content-Type'] = 'text/event-stream'
                 raw = (b'data: '+mcp.encode({'jsonrpc':'2.0','method':'notifications/message','params':{'text':secret}})
                        +b'\n\ndata: '+standard(request)[2]+b'\n\n')
+            elif location in ('sse-partial','sse-comment'):
+                headers['Content-Type'] = 'text/event-stream'
+                echo = b'\\u0070rivate-credential-canary'
+                suffix = b'data: {"partial":"'+echo if location == 'sse-partial' else b': '+echo+b'\n\n'
+                raw = b'data: '+standard(request)[2]+b'\n\n'+suffix
             return 200, headers, raw
         return standard(request)
     server.respond = respond
@@ -366,3 +379,80 @@ def test_sse_duplicate_and_incomplete_response_are_not_success():
         mcp.Client._sse((raw+b'\n\n')*2, 'expected')
     with pytest.raises(mcp.McpError, match='missing-rpc-response'):
         mcp.Client._sse(raw, 'expected')
+
+
+@pytest.mark.parametrize('stateless', [False, True])
+def test_explicit_setup_view_retains_metadata_and_full_override_is_per_request(server, stateless):
+    metadata = {'view':'setup', 'revision':'setup.v1', 'revisionDigest':'sha256:'+'a'*64,
+                'membershipDigest':'sha256:'+'b'*64, 'descriptorDigest':'sha256:'+'c'*64,
+                'toolCount':2, 'descriptorBytes':100, 'estimatedTokens':25, 'stages':[{'id':'publish'}]}
+    def respond(request):
+        if request and request['method'] == 'tools/list':
+            params = request['params']
+            if params['view'] == 'full':
+                return result(request, {'tools':[{'name':'expert','inputSchema':{}}]})
+            page = {'tools':[{'name':'second' if 'cursor' in params else 'first', 'inputSchema':{}}], '_meta':metadata}
+            if 'cursor' not in params:
+                page['nextCursor'] = 'opaque-setup'
+            return result(request, page)
+        status, headers, raw = standard(request)
+        if stateless:
+            headers.pop('Mcp-Session-Id', None)
+        return status, headers, raw
+    server.respond = respond
+    client = mcp.Client(server.url, workflow_view='setup')
+    client.initialize()
+    assert server.seen[0][3]['params']['_meta'] == {'honua.io/workflow-view':'setup'}
+    catalog = client.list_tools()
+    assert catalog['_meta'] == metadata
+    assert [tool['name'] for tool in catalog['tools']] == ['first','second']
+    assert server.seen[3][3]['params'] == {'view':'setup','cursor':'opaque-setup'}
+    assert client.list_tools(view='full')['tools'][0]['name'] == 'expert'
+    assert client.list_tools() == catalog
+    client.close()
+
+
+@pytest.mark.parametrize('failure', ['ignored-view','missing-metadata','changed-revision','wrong-count'])
+def test_named_view_cannot_silently_fall_back_or_mix_revisions(server, failure):
+    def respond(request):
+        if request and request['method'] == 'tools/list':
+            second = 'cursor' in request['params']
+            metadata = {'view':'default' if failure == 'ignored-view' else 'setup', 'revision':'one',
+                        'toolCount':3 if failure == 'wrong-count' else 2}
+            if second and failure == 'changed-revision':
+                metadata['revision'] = 'two'
+            page = {'tools':[{'name':str(second),'inputSchema':{}}], '_meta':metadata}
+            if failure == 'missing-metadata':
+                page.pop('_meta')
+            if not second:
+                page['nextCursor'] = 'second'
+            return result(request, page)
+        return standard(request)
+    server.respond = respond
+    client = mcp.Client(server.url, workflow_view='setup')
+    client.initialize()
+    with pytest.raises(mcp.McpError, match='workflow-view-not-observed|metadata-changed|tool-count-mismatch'):
+        client.list_tools()
+    client.close()
+
+
+def test_server_ping_answered_once_without_granting_capabilities(server):
+    ping_responses = []
+    acknowledged = threading.Event()
+    def respond(request):
+        if request and 'result' in request:
+            ping_responses.append(request)
+            acknowledged.set()
+            return 202, {}, b''
+        if request and request['method'] == 'tools/call':
+            ping = {'jsonrpc':'2.0','id':'server-ping','method':'ping'}
+            return 200, {'Content-Type':'text/event-stream'}, (b'data: '+mcp.encode(ping)+b'\n\n',
+                b'data: '+standard(request)[2]+b'\n\n', acknowledged)
+        return standard(request)
+    server.respond = respond
+    client = mcp.Client(server.url)
+    client.initialize()
+    assert client.call_tool('query', {})['isError'] is False
+    assert ping_responses == [{'jsonrpc':'2.0','id':'server-ping','result':{}}]
+    assert len(client.observations) == 4
+    client.close()
