@@ -94,7 +94,7 @@ def test_worker_acknowledges_only_after_actual_retention_callback(tmp_path):
             assert sink.header_reference['key'] in s3.objects
             super().delete_message(**kwargs)
     queue = DurableQueue(executor)
-    observed = Worker(queue, CONFIG, clock=lambda:1000).execute_mcp(request()['action'], 'action-1', retain_chunk=sink)
+    observed = Worker(queue, CONFIG, clock=lambda:1000).execute_mcp(request()['action'], 'action-1', retain_chunk=sink, retain_dispatch=sink.retain_dispatch)
     assert len(queue.deleted) > 1
     assert evidence(s3).recover()['reply'] == observed
 
@@ -119,11 +119,11 @@ def test_lost_write_acknowledgement_retains_evidence_without_queue_ack(tmp_path)
     queue = Exchange(executor)
     worker = Worker(queue, CONFIG, clock=lambda:1000)
     with pytest.raises(TimeoutError):
-        worker.execute_mcp(request()['action'], 'action-1', retain_chunk=sink)
+        worker.execute_mcp(request()['action'], 'action-1', retain_chunk=sink, retain_dispatch=sink.retain_dispatch)
     assert queue.deleted == [] and len(queue.requests) == 1
     assert evidence(s3).recover()['reply']['payload'] == {'observed':'write-result'}
     with pytest.raises(PackError, match='already dispatched'):
-        worker.execute_mcp(request()['action'], 'action-1', retain_chunk=sink)
+        worker.execute_mcp(request()['action'], 'action-1', retain_chunk=sink, retain_dispatch=sink.retain_dispatch)
 
 
 @pytest.mark.parametrize('key_name', ['header.json', 'chunk-000.json'])
@@ -139,12 +139,12 @@ def test_successful_write_over_delete_marker_never_acknowledges_queue(tmp_path, 
     queue = Exchange(executor)
     worker = Worker(queue, CONFIG, clock=lambda:1000)
     with pytest.raises(PackError, match='history'):
-        worker.execute_mcp(request()['action'], 'action-1', retain_chunk=sink)
+        worker.execute_mcp(request()['action'], 'action-1', retain_chunk=sink, retain_dispatch=sink.retain_dispatch)
     assert len(s3.objects[key]) == len(history)+2  # PUT succeeds over the marker.
     assert queue.deleted == [] and len(queue.requests) == 1
     assert sink.references == {}
     with pytest.raises(PackError, match='already dispatched'):
-        worker.execute_mcp(request()['action'], 'action-1', retain_chunk=sink)
+        worker.execute_mcp(request()['action'], 'action-1', retain_chunk=sink, retain_dispatch=sink.retain_dispatch)
 
 
 @pytest.mark.parametrize('change', ['version', 'content', 'list-failure'])

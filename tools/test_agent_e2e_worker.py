@@ -153,6 +153,7 @@ def test_image_context_cannot_export_private_controller_sources(tmp_path):
     assert set(manifest["files"]) == set(RUNTIME) | {"Dockerfile", "requirements.txt"}
     assert not (context / "agent_e2e_pack.py").exists()
     assert not (context / "agent_e2e_worker_evidence.py").exists()
+    assert not (context / "agent_e2e_reply_recovery.py").exists()
     assert not (context / "corpus").exists()
     with pytest.raises(FileExistsError):
         bundle(context)

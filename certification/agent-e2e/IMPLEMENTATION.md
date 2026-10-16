@@ -360,8 +360,9 @@ MCP replies carry at most 4 MiB of structured result and raw observations in
 32 KiB chunks. Each chunk binds the attempt, action, complete command digest,
 payload digest, byte length, index and count. The controller rejects mixed,
 changed, missing or oversized chunks; it never reports a prefix as a complete
-catalog. `execute_mcp(..., retain_chunk=...)` requires a synchronous durable
-retention callback before deleting each reply message. Recovery can reassemble
+catalog. `execute_mcp(..., retain_dispatch=..., retain_chunk=...)` requires a
+synchronous durable dispatch-binding callback before sending the command and a
+chunk-retention callback before deleting each reply message. Recovery can reassemble
 retained chunks through `ReplyChunks` without dispatching an action. The worker
 retains its complete reply if publication fails, and chunk deduplication IDs are
 stable across redelivery. Delivery has a separate 30-second allowance inside the
@@ -371,7 +372,8 @@ attempt's absolute expiry; incomplete delivery leaves the outcome unverified.
 callback. Construct `open_evidence({"region": ..., "bucket": ...}, candidate_key,
 worker_attempt_id, dispatch["actionId"])` after the backend has validated active
 attempt/intent ownership and reserved the complete liability. Pass that object as
-`retain_chunk` to `Worker.execute_mcp`. It uses the Terraform-owned controller
+`retain_chunk` and its `retain_dispatch` method as `retain_dispatch` to
+`Worker.execute_mcp`. It uses the Terraform-owned controller
 bucket and its existing `evidence/<candidate>/` permission; it neither provisions
 storage nor runs inside the worker image.
 
@@ -382,11 +384,22 @@ SHA-256 checksum acknowledgement with a non-null S3 version ID. Before queue
 acknowledgement, a version-history listing and exact-version read must prove that
 the returned version is the sole retained version, with matching bytes and no
 delete markers or truncated history. S3 conditional writes can succeed over a
-current delete marker; that response alone does not establish retention. Duplicate writes
-can adopt only a single retained version whose canonical bytes match exactly.
+current delete marker; that response alone does not establish retention. Duplicate
+header/chunk writes can adopt only a single retained version whose canonical bytes match exactly.
 Connection failures and incomplete write acknowledgements leave the queue
 message unacknowledged. No raw model command or argument is added to the header.
 The chunk bodies remain the bounded, untrusted worker output described above.
+
+Before command dispatch, `retain_dispatch` retains the exact transport binding at
+`evidence/<candidate>/worker-dispatch/<attempt>/<action>.json`, with the same
+create-only, checksum, version and history checks. It contains identity and the
+command digest, not raw model arguments. Lost acknowledgement prevents the queue
+send. The transport rechecks expiry after retention and never automatically
+resends an ambiguous command. An existing dispatch record always rejects another
+send, even if its binding is identical; only reply-chunk retention permits
+idempotent adoption. A fresh backend process must use recovery, never interpret
+a retained dispatch as authorization to send it again. This durable binding does not replace the
+controller's prior action-intent journal or confer dispatch authority.
 
 `ReplyEvidence.recover(header_reference)` reads the exact retained header
 key/version/hash and reconstructs the full reply with exact chunk-version
@@ -395,9 +408,41 @@ only when there is exactly one retained version with no delete markers or
 truncated history. Missing chunks, extra versions, changed hashes or conflicting
 identities require reconciliation; recovery never dispatches a command, grants a
 retry, alters the budget or emits a qualifying receipt. Fully retained evidence
-can be recovered after a controller crash. Draining any still-pending queue
-messages, incorporating these references into the final trusted inventory and
-proving live crash/restart behavior remain backend integration work.
+can be recovered after a controller crash.
+
+For partial replies, `agent_e2e_reply_recovery.drain_mcp_replies` combines retained
+chunks with pending messages from the reviewed reply queue. Supply a fresh
+`ReplyEvidence` instance and the exact `protocol`, `attemptId`, `actionId` and
+`commandDigest` from its `load_dispatch()["binding"]`. Retain the accompanying
+dispatch reference in the final trusted inventory. The digest covers the
+entire transport command, including deadline and timeout; the model action digest
+alone is insufficient. The required callback persists this binding before
+dispatch. Never infer it from a queue message or accept an untrusted
+binding to make recovery pass. Without trusted dispatch history, reconcile
+manually and retain liability.
+
+`ReplyEvidence.resume(binding)` validates existing header/chunk histories before
+receiving messages. Missing chunks are allowed only when their keys have no
+versions or delete markers; a missing header with orphaned evidence blocks.
+Pending chunks must match the trusted binding and retained payload digest. Each
+chunk is synchronously retained before queue deletion. A lost retention/delete
+acknowledgement is recoverable from retained versions, without resending a command.
+The recovery function has no command queue and does not construct a worker, so an
+expired attempt can be reconciled while its reply queue remains available.
+
+The poll window is at most 300 seconds with at most 256 receive calls. Supply an
+SQS client with bounded connect/read timeouts and one total SDK attempt, as with
+the evidence client; storage and queue calls have their own bounded duration.
+Reserve the full worst-case recovery API/storage liability before starting.
+Missing output, foreign messages, conflicting history and exhausted polling all
+leave the attempt unverified. Complete output returns `qualification: false` and
+exact retained references; it does not settle charges or grant a retry. Once a
+complete reply is retained, redundant deliveries may remain on the queue for
+governed teardown. Do not delete the queue before required recovery and evidence
+publication finish. Independent expiry cleanup must still stop the worker.
+
+Actual backend routing, final trusted inventory publication, and live
+crash/restart/cleanup proof remain open.
 
 Account for the bounded header/chunk PUTs, duplicate/recovery reads, version
 listing, retained bytes and final artifact publication in the prepaid operation
