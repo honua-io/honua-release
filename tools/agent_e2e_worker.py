@@ -66,15 +66,8 @@ def validate_command(value, attempt_id, expires, now):
 
 def validate_reply(value, command):
     if command['protocol'] == MCP_PROTOCOL:
-        required = {'protocol','attemptId','actionId','commandDigest','status','payload'}
-        if (not isinstance(value, dict) or set(value) != required or value['protocol'] != MCP_PROTOCOL
-                or value['attemptId'] != command['attemptId'] or value['actionId'] != command['actionId']
-                or value['commandDigest'] != command_digest(command)
-                or value['status'] not in ('completed','timed-out','interrupted')
-                or (value['status'] == 'completed' and not isinstance(value['payload'], dict))
-                or (value['status'] != 'completed' and value['payload'] is not None)
-                or len(encode(value).encode()) > MAX_REPLY_BYTES):
-            raise PackError('unbound or malformed MCP reply')
+        validate_mcp_reply(value, {'protocol':MCP_PROTOCOL, 'attemptId':command['attemptId'],
+                                  'actionId':command['actionId'], 'commandDigest':command_digest(command)})
         return
     required = {"protocol", "attemptId", "actionId", "commandDigest", "status", "exitCode", "stdout", "stderr"}
     if (not isinstance(value, dict) or set(value) != required or value["protocol"] != PROTOCOL
@@ -85,6 +78,17 @@ def validate_reply(value, command):
             or not isinstance(value["stdout"], str) or len(value["stdout"].encode()) > MAX_STDOUT
             or not isinstance(value["stderr"], str) or len(value["stderr"].encode()) > MAX_STDERR):
         raise PackError("unbound or malformed container reply")
+
+
+def validate_mcp_reply(value, binding):
+    required = {'protocol','attemptId','actionId','commandDigest','status','payload'}
+    if (not isinstance(value, dict) or set(value) != required
+            or any(value.get(key) != expected for key, expected in binding.items())
+            or value['status'] not in ('completed','timed-out','interrupted')
+            or (value['status'] == 'completed' and not isinstance(value['payload'], dict))
+            or (value['status'] != 'completed' and value['payload'] is not None)
+            or len(encode(value).encode()) > MAX_REPLY_BYTES):
+        raise PackError('unbound or malformed MCP reply')
 
 
 def reply_messages(reply, command):
@@ -104,13 +108,29 @@ def reply_messages(reply, command):
 class ReplyChunks:
     """Bounded assembly; partial replies never become an action observation."""
     def __init__(self, command):
-        self.command, self.binding, self.parts = command, None, {}
+        self.expected = {'protocol':MCP_PROTOCOL, 'attemptId':command['attemptId'],
+                         'actionId':command['actionId'], 'commandDigest':command_digest(command)}
+        self.binding, self.parts = None, {}
+
+    @classmethod
+    def from_binding(cls, binding):
+        """Recover from a controller-retained binding without retaining raw commands."""
+        if (not isinstance(binding, dict) or set(binding) != {'protocol','attemptId','actionId','commandDigest'}
+                or binding['protocol'] != MCP_PROTOCOL
+                or any(not isinstance(binding[key], str) or not re.fullmatch(r'[A-Za-z0-9-]{1,80}', binding[key])
+                       for key in ('attemptId','actionId'))
+                or not isinstance(binding['commandDigest'], str)
+                or not re.fullmatch(r'sha256:[0-9a-f]{64}', binding['commandDigest'])):
+            raise PackError('invalid retained command binding')
+        instance = cls.__new__(cls)
+        instance.expected, instance.binding, instance.parts = dict(binding), None, {}
+        return instance
 
     def accept(self, value):
         required = {'protocol','attemptId','actionId','commandDigest','payloadDigest','byteLength','index','count','data'}
         if (not isinstance(value, dict) or set(value) != required or value['protocol'] != CHUNK_PROTOCOL
-                or value['attemptId'] != self.command['attemptId'] or value['actionId'] != self.command['actionId']
-                or value['commandDigest'] != command_digest(self.command)
+                or value['attemptId'] != self.expected['attemptId'] or value['actionId'] != self.expected['actionId']
+                or value['commandDigest'] != self.expected['commandDigest']
                 or type(value['byteLength']) is not int or not 0 < value['byteLength'] <= MAX_REPLY_BYTES
                 or type(value['count']) is not int or value['count'] != math.ceil(value['byteLength']/CHUNK_BYTES)
                 or type(value['index']) is not int or not 0 <= value['index'] < value['count']
@@ -135,7 +155,7 @@ class ReplyChunks:
         if 'sha256:'+hashlib.sha256(raw).hexdigest() != value['payloadDigest']:
             raise PackError('reply payload digest mismatch')
         reply = json.loads(raw)
-        validate_reply(reply, self.command)
+        validate_mcp_reply(reply, self.expected)
         return reply
 
 
