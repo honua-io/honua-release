@@ -23,6 +23,7 @@ CONFIG = {
     'clusterArn': f'arn:aws:ecs:us-east-1:{ACCOUNT}:cluster/agent-workers',
     'taskDefinitionArn': f'arn:aws:ecs:us-east-1:{ACCOUNT}:task-definition/worker-1:3',
     'claimTable': 'worker-claims', 'expiresEpoch': 2000,
+    'transportDigest': 'sha256:'+'e'*64,
     'liability': {'basisDigest': 'sha256:'+'b'*64, 'maximumInfrastructureUsd': '2', 'maximumCleanupUsd': '1'},
 }
 TASK = f'arn:aws:ecs:us-east-1:{ACCOUNT}:task/agent-workers/'+'c'*32
