@@ -59,6 +59,19 @@ def execute(wiring):
     return wiring.router.execute(wiring.context, wiring.action, wiring.dispatch)
 
 
+@pytest.mark.parametrize('name', ['', ' \t\n', 'x'*257, 'x'*256])
+def test_public_catalog_rejects_uncallable_worker_names(name):
+    catalog = {'tools': [{'name': name, 'inputSchema': {}}]}
+    reply = {'status': 'completed', 'payload': {'result': catalog, 'error': None,
+             'observations': [], 'sessionCleanup': {'status': 'pass'}}}
+    action = {'name': 'mcp_list_tools', 'input': {}}
+    if name.strip() and len(name) <= 256:
+        assert public_result(reply, action)['content'] == catalog
+    else:
+        with pytest.raises(PackError, match='invalid or duplicate worker tool descriptor'):
+            public_result(reply, action)
+
+
 def test_actual_transport_retains_reply_before_public_catalog_and_emits_correlation(wiring, server):
     tools = [{'name': 'find', 'inputSchema': {'type': 'object'}}]
     def respond(request):

@@ -70,7 +70,8 @@ def public_result(reply, action):
                 raise PackError('invalid worker tool catalog')
             names = set()
             for tool in tools:
-                if (not isinstance(tool, dict) or not isinstance(tool.get('name'), str) or not tool['name']
+                if (not isinstance(tool, dict) or not isinstance(tool.get('name'), str)
+                        or not tool['name'].strip() or len(tool['name']) > 256
                         or not isinstance(tool.get('inputSchema'), dict) or tool['name'] in names):
                     raise PackError('invalid or duplicate worker tool descriptor')
                 names.add(tool['name'])
