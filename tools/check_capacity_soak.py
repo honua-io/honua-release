@@ -480,6 +480,31 @@ def bind_attestation(
     or independently admitted dedicated runner at the candidate source commit, and name the same
     run and workflow ref as the receipt. Dedicated admission reads GitHub metadata itself.
     """
+    failures = bind_attestation_content(verified, bundle_sha256, receipt, expected_revision)
+    if not isinstance(verified, list) or not verified:
+        return failures
+    for index, entry in enumerate(verified):
+        result = _mapping(_mapping(entry).get("verificationResult"))
+        certificate = _mapping(_mapping(result.get("signature")).get("certificate"))
+        runner = certificate.get("runnerEnvironment")
+        if runner == "self-hosted":
+            report_path = (runner_report.with_name(f"{runner_report.stem}-{index}{runner_report.suffix}")
+                           if runner_report is not None else None)
+            failures.extend(admit_release_runner(certificate, report_path=report_path))
+        elif runner != "github-hosted":
+            failures.append(f"attestation {index}: unknown runner environment; expected GitHub-hosted or approved dedicated runner")
+    return failures
+
+
+def bind_attestation_content(
+    verified: object, bundle_sha256: str, receipt: dict[str, Any], expected_revision: str,
+) -> list[str]:
+    """Bind cryptographically verified content for producer preflight, without runner admission.
+
+    This is not a release verdict. An executing producer cannot prove its own run
+    completed successfully. The external release consumer must use bind_attestation,
+    which also admits the completed producing run through live runner policy.
+    """
     failures: list[str] = []
     if not isinstance(verified, list) or not verified:
         return ["no verified attestation was returned for the capacity evidence bundle"]
@@ -514,13 +539,6 @@ def bind_attestation(
                 f"{label}: attested source commit {certificate.get('sourceRepositoryDigest')} is not the "
                 f"candidate {expected_revision}; the producer must run at the candidate revision"
             )
-        runner = certificate.get("runnerEnvironment")
-        if runner == "self-hosted":
-            report_path = (runner_report.with_name(f"{runner_report.stem}-{index}{runner_report.suffix}")
-                           if runner_report is not None else None)
-            failures.extend(admit_release_runner(certificate, report_path=report_path))
-        elif runner != "github-hosted":
-            failures.append(f"{label}: unknown runner environment; expected GitHub-hosted or approved dedicated runner")
         if certificate.get("runInvocationURI") != expected_run:
             failures.append(f"{label}: attested workflow run is not the receipt's producer run")
         build = _mapping(_mapping(statement.get("predicate")).get("buildDefinition"))

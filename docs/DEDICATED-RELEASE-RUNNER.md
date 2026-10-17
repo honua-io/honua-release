@@ -21,6 +21,11 @@ workflow access, job before group approval, API failure or absent metadata fails
 Labels alone cannot admit a runner. The gate retains API observations and the policy digest.
 The checker reads metadata itself; an uploaded JSON file cannot assert runner trust.
 
+While the producer is executing, it can recompute signals and bind cryptographically
+verified bundle content using `bind_attestation_content`. That preflight does not admit
+the runner or prove a completed run. The external release consumer always invokes
+`bind_attestation`, including the successful completed-run and live runner-group checks.
+
 The capacity producer runs at `refs/tags/nightly-candidate/<full-source-sha>` or protected
 trunk. Add each exact candidate workflow ref to the group's selected workflows before its
 run. Wildcards, arbitrary branches and pull-request refs are not permitted. Candidate bytes

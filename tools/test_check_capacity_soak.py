@@ -397,6 +397,19 @@ def test_missing_attestation_fails(tmp_path):
     assert bind(None, tmp_path)
 
 
+def test_producer_content_preflight_cannot_replace_completed_runner_admission(tmp_path):
+    verified = verification(runnerEnvironment="self-hosted")
+    value = receipt(tmp_path)
+    assert gate.bind_attestation_content(verified, BUNDLE_SHA, value, REVISION) == []
+    assert any("no self-hosted release runner group is approved" in item
+               for item in gate.bind_attestation(verified, BUNDLE_SHA, value, REVISION))
+    assert gate.bind_attestation_content(verified, "e" * 64, value, REVISION)
+    assert gate.bind_attestation_content(verified, BUNDLE_SHA, value, "e" * 40)
+    assert gate.bind_attestation_content([], BUNDLE_SHA, value, REVISION)
+    value["producer"]["runAttempt"] = 2
+    assert gate.bind_attestation_content(verified, BUNDLE_SHA, value, REVISION)
+
+
 def test_approved_dedicated_runner_keeps_bundle_source_and_attempt_binding(tmp_path, monkeypatch):
     calls = []
     def admitted(certificate, **kwargs):
@@ -486,6 +499,11 @@ def test_cli_requires_and_applies_the_attestation(tmp_path, monkeypatch, capsys)
 
     monkeypatch.setattr(sys, "argv", base + ["--bundle", str(bundle), "--attestation", str(attestation)])
     assert gate.main() == 0
+
+    attested[0]["verificationResult"]["signature"]["certificate"]["runnerEnvironment"] = "self-hosted"
+    attestation.write_text(json.dumps(attested), encoding="utf-8")
+    assert gate.main() == 1
+    assert "no self-hosted release runner group is approved" in capsys.readouterr().out
 
     attestation.write_text(json.dumps(verification()), encoding="utf-8")
     assert gate.main() == 1
