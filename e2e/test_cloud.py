@@ -4085,9 +4085,20 @@ def test_ecs_bedrock_is_opt_in_and_fails_closed_on_a_root_without_it(monkeypatch
         _iac_root_with(monkeypatch, base, "aws")
         with pytest.raises(ProvisionError, match="does not declare enable_bedrock_ai"):
             ecs(run_id="r1")._vars(False)
-    # Serverless has no Bedrock opt-in.
+    # Serverless uses the same explicit opt-in and fails closed on older roots.
+    from targets.terraform_target import SERVERLESS_SPEC
+    assert SERVERLESS_SPEC.opt_in_env == "HONUA_ENABLE_BEDROCK_AI"
     _serverless_env(monkeypatch)
-    assert "enable_bedrock_ai" not in _tf_vars(serverless(run_id="r1")._vars(False))
+    with tempfile.TemporaryDirectory() as base:
+        _iac_root_with(monkeypatch, base, "aws-serverless", "enable_bedrock_ai", "bedrock_ai_region")
+        monkeypatch.setenv("HONUA_ENABLE_BEDROCK_AI", "false")
+        assert "enable_bedrock_ai" not in _tf_vars(serverless(run_id="r1")._vars(False))
+        monkeypatch.setenv("HONUA_ENABLE_BEDROCK_AI", "true")
+        values = _tf_vars(serverless(run_id="r1")._vars(False))
+        assert values["enable_bedrock_ai"] == "true" and values["bedrock_ai_region"] == "us-east-1"
+        _iac_root_with(monkeypatch, base, "aws-serverless")
+        with pytest.raises(ProvisionError, match="does not declare enable_bedrock_ai"):
+            serverless(run_id="r1")._vars(False)
 
 
 def test_cloud_workflow_threads_the_batch_image_and_scopes_bedrock_to_the_genuine_model_cell():
@@ -4100,7 +4111,7 @@ def test_cloud_workflow_threads_the_batch_image_and_scopes_bedrock_to_the_genuin
     parity = workflow["jobs"]["parity"]["with"]
     assert parity["gp_batch_image"] == "${{ needs.candidate.outputs.gp_batch_image }}"
     assert parity["enable_bedrock"] == ("${{ (inputs.genuine_model_bedrock || false) && "
-                                        "matrix.target == 'aws-ecs' && matrix.redis == 'off' }}")
+                                        "(matrix.target == 'aws-ecs' || matrix.target == 'aws-serverless') }}")
     for trigger in ("workflow_dispatch", "workflow_call"):
         assert workflow[True][trigger]["inputs"]["genuine_model_bedrock"]["default"] is False
     assert cell["env"]["HONUA_GP_BATCH_IMAGE"] == "${{ inputs.gp_batch_image }}"
@@ -4680,21 +4691,28 @@ def test_redact_log_strips_key_values_bearer_tokens_and_postgres_uri_passwords(l
 LOCK = "sha256:" + "c" * 64
 
 
-def _model_cell(monkeypatch, run_id, *, deterministic_status):
+def _model_cell(monkeypatch, run_id, *, deterministic_status, cell="aws-ecs/redis-off", endpoint="http://cell.example"):
     monkeypatch.setenv("GITHUB_RUN_ID", run_id)
     monkeypatch.setenv("GITHUB_RUN_ATTEMPT", "1")
-    directory = run_cloud.cloud_journey.cell_dir("aws-ecs/redis-off")
+    monkeypatch.setattr(run_cloud.cloud_journey, "reset_prior_attempt", lambda *args, **kwargs: ["reset test fixture"])
+    directory = run_cloud.cloud_journey.cell_dir(cell)
     directory.mkdir(parents=True, exist_ok=True)
     receipt = directory / "receipt-1.json"
-    receipt.write_text(json.dumps({"status": deterministic_status}))
+    target = directory / "target-1.json"
+    target.write_text(json.dumps({"id": cell, "replicaBaseUrl": endpoint}))
+    receipt.write_text(json.dumps({"status": deterministic_status, "target": {
+        "id": cell, "configSha256": hashlib.sha256(target.read_bytes()).hexdigest()}}))
     (directory / run_cloud.JOURNEY_NAME).write_text(json.dumps(
         {"journeyAttempts": [{"number": 1, "receipt": str(receipt.relative_to(run_cloud.E2E_DIR))}]}))
     return directory
 
 
-def _canary_receipt(attempt, status, attribution):
-    return {"mode": "genuine-model", "cell": "aws-ecs/redis-off", "attempt": attempt, "lockDigest": LOCK,
+def _canary_receipt(attempt, status, attribution, cell="aws-ecs/redis-off"):
+    return {"mode": "genuine-model", "cell": cell, "attempt": attempt, "lockDigest": LOCK,
             "status": status, "failureAttribution": attribution,
+            "profile": "redis-off-serving-refusal" if cell.endswith("/redis-off") else "full-workflow",
+            "executionOutcome": "refused" if cell.endswith("/redis-off") else "completed",
+            "functionalGpExecuted": not cell.endswith("/redis-off"),
             "completedAt": f"2026-10-08T12:0{attempt}:00.000000Z"}
 
 
@@ -4713,9 +4731,12 @@ def test_model_canary_is_refused_without_this_jobs_passing_deterministic_journey
         shutil.rmtree(run_cloud.cloud_journey.EVIDENCE / "990001", ignore_errors=True)
 
 
-def test_model_canary_binds_each_attempt_to_the_lock_and_reports_the_nightly_row(monkeypatch):
+@pytest.mark.parametrize("cell", sorted(run_cloud.MODEL_CANARY_CELLS))
+def test_model_canary_binds_each_attempt_to_the_lock_and_reports_the_nightly_row(monkeypatch, cell):
     sys.path.insert(0, str(run_cloud.E2E_DIR.parent / "tools"))
-    directory = _model_cell(monkeypatch, "990002", deterministic_status="pass")
+    directory = _model_cell(monkeypatch, "990002", deterministic_status="pass", cell=cell, endpoint="https://cell.example")
+    monkeypatch.setenv("AWS_SECRET_ACCESS_KEY", "never-forward-cloud-credentials")
+    monkeypatch.setenv("GITHUB_TOKEN", "never-forward-github-credentials")
     try:
         calls = []
 
@@ -4723,16 +4744,20 @@ def test_model_canary_binds_each_attempt_to_the_lock_and_reports_the_nightly_row
             calls.append((argv, env))
             number = int(argv[argv.index("--attempt") + 1])
             outcome = ("fail", "infrastructure") if number == 1 else ("pass", None)
-            Path(argv[argv.index("--output") + 1]).write_text(json.dumps(_canary_receipt(number, *outcome)))
+            Path(argv[argv.index("--output") + 1]).write_text(json.dumps(_canary_receipt(number, *outcome, cell=cell)))
             return subprocess.CompletedProcess(argv, 1 if number == 1 else 0)
 
         report = run_cloud.model_canary_phase(
-            {"cell": "aws-ecs/redis-off", "endpoint": "https://cell.example/"}, admin_key="cell-key",
+            {"cell": cell, "endpoint": "https://cell.example/"}, admin_key="cell-key",
             lock_digest=LOCK, run=fake_run)
         assert len(calls) == 2
         argv, env = calls[0]
         assert argv[argv.index("--lock-digest") + 1] == LOCK
-        assert argv[argv.index("--cell") + 1] == "aws-ecs/redis-off"
+        assert argv[argv.index("--cell") + 1] == cell
+        assert argv[argv.index("--profile") + 1] == ("redis-off-serving-refusal" if cell.endswith("/redis-off") else "full-workflow")
+        assert argv[argv.index("--target") + 1] == str(directory / "target-1.json")
+        assert "AWS_SECRET_ACCESS_KEY" not in env and "GITHUB_TOKEN" not in env
+        assert env["HONUA_CLOUD_JOURNEY_ADMIN"] == "cell-key"
         assert argv[argv.index("--base-url") + 1] == "https://cell.example/api"
         # Owner ruling canary-http-cell-2026-10-08: only this cell's own host may use plain HTTP.
         assert argv[argv.index("--allow-http-cell") + 1] == "cell.example"
@@ -4740,6 +4765,8 @@ def test_model_canary_binds_each_attempt_to_the_lock_and_reports_the_nightly_row
         assert env["TERMINAL_MODEL_API_KEY"] == "cell-key" and "cell-key" not in argv
         row = report["cells"][0]
         assert report["status"] == row["status"] == "pass"
+        assert row["cell"] == cell
+        assert [r["modelAttempt"] for r in report["harnessSetup"]] == [1, 2]
         assert [(a["number"], a["status"], a["failureAttribution"], a["lockDigest"], a["driver"])
                 for a in row["attempts"]] == [(1, "fail", "infrastructure", LOCK, "genuine-model"),
                                               (2, "pass", None, LOCK, "genuine-model")]
@@ -5294,3 +5321,56 @@ def test_preview_teardown_refuses_unconfirmed_missing_state(monkeypatch, tmp_pat
             assert cj.cleanup_failure(report) is not None
     finally:
         shutil.rmtree(cj.EVIDENCE / "preview-missing-state", ignore_errors=True)
+
+
+@pytest.mark.parametrize("mutation", ["missing-config", "digest", "endpoint", "cell", "history"])
+def test_model_canary_refuses_mismatched_target_or_history_without_invoking_model(monkeypatch, mutation):
+    sys.path.insert(0, str(run_cloud.E2E_DIR.parent / "tools"))
+    directory = _model_cell(monkeypatch, "990008", deterministic_status="pass", cell="aws-serverless/redis-on")
+    try:
+        path = directory / "target-1.json"
+        if mutation == "missing-config":
+            path.unlink()
+        elif mutation == "history":
+            (directory / run_cloud.JOURNEY_NAME).write_text(json.dumps({"journeyAttempts": [None, "wrong"]}))
+        else:
+            config = json.loads(path.read_text())
+            config[{"digest": "extra", "endpoint": "replicaBaseUrl", "cell": "id"}[mutation]] = "changed"
+            path.write_text(json.dumps(config))
+        calls = []
+        report = run_cloud.model_canary_phase(
+            {"cell": "aws-serverless/redis-on", "endpoint": "http://cell.example"},
+            admin_key="private-app-key", lock_digest=LOCK, run=lambda *args, **kwargs: calls.append(args))
+        assert not calls and report["status"] == "fail"
+        assert report["cells"][0]["cell"] == "aws-serverless/redis-on"
+    finally:
+        shutil.rmtree(run_cloud.cloud_journey.EVIDENCE / "990008", ignore_errors=True)
+
+
+def test_model_phase_rejects_handoff_for_another_cell(monkeypatch):
+    seen = []
+    monkeypatch.setattr(run_cloud, "_read_json", lambda *_: {"cell": "aws-ecs/redis-off", "endpoint": "https://wrong.example"})
+    monkeypatch.setattr(run_cloud, "open_key", lambda *_: "application-key")
+    monkeypatch.setattr(run_cloud, "model_canary_phase", lambda state, **kwargs: (
+        seen.append(state) or {"status": "fail", "why": state["handoffError"]}))
+    args = mock.Mock(target="aws-serverless", redis="on", sealed_key=Path("s"), private_key=Path("p"),
+                     lock_digest=LOCK, max_attempts=2)
+    assert run_cloud._phase_model_canary(args) == 1
+    assert seen[0]["cell"] == "aws-serverless/redis-on" and "endpoint" not in seen[0]
+
+
+def test_model_canary_never_reuses_old_output_when_current_process_writes_no_receipt(monkeypatch):
+    sys.path.insert(0, str(run_cloud.E2E_DIR.parent / "tools"))
+    directory = _model_cell(monkeypatch, "990009", deterministic_status="pass")
+    try:
+        out = directory / "model-journey"
+        out.mkdir()
+        stale = out / "model-canary-1.json"
+        stale.write_text(json.dumps(_canary_receipt(1, "pass", None)))
+        report = run_cloud.model_canary_phase({"cell": "aws-ecs/redis-off", "endpoint": "http://cell.example"},
+            admin_key="private-app-key", lock_digest=LOCK,
+            run=lambda argv, **kwargs: subprocess.CompletedProcess(argv, 0))
+        assert report["status"] == "fail" and not stale.exists()
+        assert "before writing attempt" in report["why"]
+    finally:
+        shutil.rmtree(run_cloud.cloud_journey.EVIDENCE / "990009", ignore_errors=True)

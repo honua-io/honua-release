@@ -32,7 +32,7 @@ on:
       gp_batch_image: { required: false, type: string, default: "" }
       enable_bedrock: { required: false, type: boolean, default: false }
       # Fix unit J3: the genuine-model canary runs after this cell's journey whenever Bedrock is on
-      # (the caller enables it only for aws-ecs / redis off), bound to this lock digest. Empty on a
+      # (opt-in on approved ECS/Lambda GA cells), bound to this lock digest. Empty on a
       # manual dispatch: the canary then records an unbound `blocked` row.
       lock_digest: { required: false, type: string, default: "" }
     secrets:
@@ -382,9 +382,10 @@ jobs:
           TERMINAL_MODEL_SIGNING_MANIFEST_SHA256: ${{ vars.TERMINAL_MODEL_SIGNING_MANIFEST_SHA256 }}
         run: |
           set -euo pipefail
-          if [ "${{ inputs.target }}" != aws-ecs ] || [ "${{ inputs.redis }}" != off ]; then
-            echo "::error::the genuine-model canary runs on aws-ecs / redis-off only"; exit 1
-          fi
+          case "${{ inputs.target }}/redis-${{ inputs.redis }}" in
+            aws-ecs/redis-off|aws-ecs/redis-on|aws-serverless/redis-off|aws-serverless/redis-on) ;;
+            *) echo "::error::the genuine-model canary requires an approved AWS GA cell"; exit 1 ;;
+          esac
           python -m pip install "cryptography>=45.0"
           # The nightly train passes its qualification lock digest and every attempt binds to it. A
           # manual dispatch has no nightly lock: the canary then runs once unbound and records an
@@ -403,7 +404,7 @@ jobs:
         if: ${{ always() && inputs.enable_bedrock }}
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
-          name: journey-gate-report-nightly-model
+          name: journey-gate-report-nightly-model-${{ env.CELL_ARTIFACT }}
           path: |
             ${{ env.CELL_DIR }}/model-journey/gate-report-journey.json
             ${{ env.CELL_DIR }}/model-journey/model-canary-*.json

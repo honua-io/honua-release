@@ -1330,7 +1330,7 @@ def test_contract_live_request_timeout_still_tears_down_and_records_failure(tmp_
 
 def test_cloud_matrix_is_the_ga_set_including_eks_and_threads_the_batch_image():
     # rc.3 fix units C2/C6: aws-mixed has no IaC root (honua-iac#209), so it is not dispatched; the
-    # Lambda+Batch cell gets the manifest's amd64 server child; Bedrock is opt-in and ECS/Redis-off only.
+    # Lambda+Batch cell gets the manifest's amd64 server child; Bedrock is opt-in across the four ECS/Lambda GA cells.
     # October 16 amendment: EKS is Preview; required ECS/Lambda cells retain their bill.
     workflow = _workflow("e2e-cloud-aws.yml")
     text = (REPO_ROOT / ".github" / "workflows" / "e2e-cloud-aws.yml").read_text(encoding="utf-8")
@@ -1343,7 +1343,8 @@ def test_cloud_matrix_is_the_ga_set_including_eks_and_threads_the_batch_image():
     parity = workflow["jobs"]["parity"]["with"]
     assert parity["preview"] == "${{ matrix.target == 'aws-eks' }}"
     assert parity["gp_batch_image"] == "${{ needs.candidate.outputs.gp_batch_image }}"
-    assert "matrix.target == 'aws-ecs' && matrix.redis == 'off'" in parity["enable_bedrock"]
+    assert "(matrix.target == 'aws-ecs' || matrix.target == 'aws-serverless')" in parity["enable_bedrock"]
+    assert "matrix.redis" not in parity["enable_bedrock"]
     for trigger in ("workflow_dispatch", "workflow_call"):
         assert triggers[trigger]["inputs"]["genuine_model_bedrock"]["default"] is False
     assert cell["env"]["HONUA_GP_BATCH_IMAGE"] == "${{ inputs.gp_batch_image }}"

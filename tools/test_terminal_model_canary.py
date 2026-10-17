@@ -1119,7 +1119,7 @@ def test_receipt_carries_lock_mode_cell_attempt_and_attribution_and_schema_requi
         broken = copy.deepcopy(receipt)
         del broken[field]
         assert list(validator.iter_errors(broken)), field
-    for field, value in (("mode", "deterministic"), ("cell", "aws-ecs/redis-on"), ("attempt", 3),
+    for field, value in (("mode", "deterministic"), ("cell", "aws-eks/redis-on"), ("attempt", 3),
                          ("lockDigest", "sha256:short"), ("failureAttribution", None)):
         assert list(validator.iter_errors({**receipt, field: value})), field
     passing = {**receipt, "status": "pass", "failureAttribution": None}
@@ -1127,7 +1127,7 @@ def test_receipt_carries_lock_mode_cell_attempt_and_attribution_and_schema_requi
     assert list(validator.iter_errors({**passing, "failureAttribution": "model"}))
 
 
-@pytest.mark.parametrize("kwargs", [{"lock_digest": "sha256:" + "D" * 64}, {"cell": "aws-serverless/redis-off"},
+@pytest.mark.parametrize("kwargs", [{"lock_digest": "sha256:" + "D" * 64}, {"cell": "aws-eks/redis-off"},
                                     {"attempt": 3}])
 def test_builder_refuses_malformed_lock_cell_or_attempt(kwargs):
     with pytest.raises(canary.CanaryError):
@@ -1259,6 +1259,7 @@ def test_model_journey_report_counts_only_attempts_bound_to_the_lock(tmp_path: P
         path = tmp_path / f"model-canary-{len(written)}-{number}.json"
         path.write_text(json.dumps({"mode": "genuine-model", "cell": "aws-ecs/redis-off", "attempt": number,
                                     "lockDigest": lock, "status": status, "failureAttribution": attribution,
+                                    "profile": "redis-off-serving-refusal", "executionOutcome": "refused", "functionalGpExecuted": False,
                                     "completedAt": f"2026-10-08T12:0{number}:00Z"}), encoding="utf-8")
         return path
 
@@ -1285,6 +1286,7 @@ def test_model_journey_report_records_an_unbound_run_as_blocked_never_pass(tmp_p
     builder = canary.build_receipt_builder(manifest_path=MANIFEST, journey_path=JOURNEY, protocol_path=PROTOCOL,
                                            endpoint=endpoint, driver_command=canary.DEFAULT_DRIVER,
                                            cell="aws-ecs/redis-off")
+    builder.receipt.update(profile="redis-off-serving-refusal", executionOutcome="refused", functionalGpExecuted=False)
     builder.receipt["linkedEvidence"]["deterministicReceipt"] = {"status": "pass"}
     canary.unavailable_receipt(builder, endpoint, canary.DEFAULT_DRIVER)
     builder.receipt["completedAt"] = "2026-10-08T12:01:00Z"
@@ -1373,3 +1375,91 @@ def test_cli_passes_the_cell_host_into_the_receipt(tmp_path: Path, monkeypatch):
         "http-cell-allowed", CELL_HOST)
     assert canary.main(["--output", str(tmp_path / "refused.json"),
                         "--base-url", f"http://{CELL_HOST}/api"]) == 2
+
+
+@pytest.mark.parametrize("cell", ["aws-ecs/redis-on", "aws-ecs/redis-off",
+                                  "aws-serverless/redis-on", "aws-serverless/redis-off"])
+def test_all_ga_cells_have_schema_valid_honest_receipts_and_report_identity(tmp_path, cell):
+    import model_journey_report
+    builder = canary.build_receipt_builder(manifest_path=MANIFEST, journey_path=JOURNEY,
+        protocol_path=PROTOCOL, endpoint=_endpoint(), driver_command=None, cell=cell, lock_digest=LOCK)
+    canary.unavailable_receipt(builder, _endpoint(), None)
+    receipt = builder.validated_receipt(_schema())
+    assert receipt["cell"] == cell and receipt["status"] != "pass"
+    path = tmp_path / "attempt.json"
+    path.write_text(json.dumps(receipt))
+    report = model_journey_report.build([path], cell=cell, lock_digest=LOCK,
+        candidate_digest="a" * 64, run_id="1", run_attempt="1")
+    assert report["cells"][0]["cell"] == cell
+    assert report["status"] == "fail", "topology support does not qualify an unexecuted model"
+    other_cell = "aws-ecs/redis-off" if cell != "aws-ecs/redis-off" else "aws-serverless/redis-off"
+    report = model_journey_report.build([path], cell=other_cell, lock_digest=LOCK,
+        candidate_digest="a" * 64, run_id="1", run_attempt="1")
+    assert report["status"] == "fail" and "another cell" in report["why"]
+
+
+@pytest.mark.parametrize("mutation", ["missing", "cell", "digest", "origin"])
+def test_cloud_model_refuses_unbound_target_before_driver_setup(tmp_path, monkeypatch, mutation):
+    cell = "aws-ecs/redis-on"
+    builder = canary.build_receipt_builder(manifest_path=MANIFEST, journey_path=JOURNEY,
+        protocol_path=PROTOCOL, endpoint=_endpoint(), driver_command=canary.DEFAULT_DRIVER,
+        cell=cell, lock_digest=LOCK)
+    config = tmp_path / "target.json"
+    config.write_text(json.dumps({"id": cell, "replicaBaseUrl": "http://127.0.0.1:8000"}))
+    deterministic = tmp_path / "deterministic.json"
+    target = {"id": cell, "configSha256": hashlib.sha256(config.read_bytes()).hexdigest()}
+    if mutation == "cell":
+        target["id"] = "aws-serverless/redis-on"
+    if mutation == "digest":
+        target["configSha256"] = "f" * 64
+    if mutation == "origin":
+        config.write_text(json.dumps({"id": cell, "replicaBaseUrl": "https://other.example"}))
+        target["configSha256"] = hashlib.sha256(config.read_bytes()).hexdigest()
+    deterministic.write_text(json.dumps({"target": target}))
+    builder.receipt["linkedEvidence"]["deterministicReceipt"] = {"path": str(deterministic)}
+    class Driver:
+        def __init__(self, *_):
+            pass
+        def invoke(self, *_):
+            raise AssertionError("a mismatched target must never invoke the driver")
+    monkeypatch.setattr(canary, "DriverAdapter", Driver)
+    receipt = canary.execute_live(builder, endpoint=_endpoint(), driver_command=canary.DEFAULT_DRIVER,
+        max_actions_per_stage=1, target_path=None if mutation == "missing" else config)
+    assert receipt["status"] == "fail" and receipt["failureAttribution"] == "infrastructure"
+    assert receipt["totals"]["modelCalls"] == 0
+
+
+def test_cloud_canary_workflow_preserves_opt_in_and_distinct_cell_artifacts():
+    workflow = yaml.safe_load((REPO_ROOT / ".github/workflows/e2e-cloud-aws-cell.yml").read_text())
+    steps = workflow["jobs"]["journey"]["steps"]
+    step = next(step for step in steps if step.get("name", "").startswith("Run the genuine-model canary"))
+    assert step["if"] == "${{ always() && inputs.enable_bedrock }}"
+    for cell in canary.CELLS[1:]:
+        assert cell in step["run"]
+    upload = next(step for step in steps if step.get("name") == "Upload the nightly-model-journey row")
+    assert upload["with"]["name"] == "journey-gate-report-nightly-model-${{ env.CELL_ARTIFACT }}"
+
+
+def test_cloud_target_reaches_driver_setup_without_claiming_unexecuted_model_success(tmp_path, monkeypatch):
+    cell = "aws-serverless/redis-on"
+    config = tmp_path / "target.json"
+    config.write_text(json.dumps({"id": cell, "replicaBaseUrl": "http://127.0.0.1:8000"}))
+    deterministic = tmp_path / "deterministic.json"
+    deterministic.write_text(json.dumps({"target": {"id": cell,
+        "configSha256": hashlib.sha256(config.read_bytes()).hexdigest()}}))
+    builder = canary.build_receipt_builder(manifest_path=MANIFEST, journey_path=JOURNEY,
+        protocol_path=PROTOCOL, endpoint=_endpoint(), driver_command=canary.DEFAULT_DRIVER, cell=cell, lock_digest=LOCK)
+    builder.receipt["linkedEvidence"]["deterministicReceipt"] = {"path": str(deterministic)}
+    seen = []
+    class Driver:
+        def __init__(self, *_):
+            pass
+        def invoke(self, operation, payload):
+            seen.append((operation, payload))
+            return {"status": "blocked", "workspaceId": "cloud"} if operation == "setup" else {"status": "pass"}
+    monkeypatch.setattr(canary, "DriverAdapter", Driver)
+    receipt = canary.execute_live(builder, endpoint=_endpoint(), driver_command=canary.DEFAULT_DRIVER,
+        max_actions_per_stage=1, target_path=config)
+    assert seen[0][1]["target"] == str(config.resolve())
+    assert [operation for operation, _ in seen] == ["setup", "teardown"]
+    assert receipt["status"] == "fail" and receipt["totals"]["modelCalls"] == 0
