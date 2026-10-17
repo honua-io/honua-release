@@ -217,7 +217,7 @@ class Transport:
                 # A JSON-RPC error carries the same typed problem in error.data; name it (masked).
                 error = response.get("error") if isinstance(response.get("error"), dict) else {}
                 data = error.get("data") if isinstance(error.get("data"), dict) else {}
-                if has_execution_evidence(data):
+                if has_execution_evidence(response):
                     # Fixed diagnostic only: private identities/output never enter the receipt.
                     raise ExecutionError(name, "candidate error carries contradictory execution evidence")
                 fields = tool_error({"structuredContent": {"message": error.get("message"), **data}},

@@ -447,7 +447,7 @@ def test_optional_nonobject_raw_stage_is_a_typed_prerequisite_rejection(tmp_path
         validate(path, tmp_path)
 
 
-@pytest.mark.parametrize("wire", ["jsonrpc", "mcp"])
+@pytest.mark.parametrize("wire", ["jsonrpc", "jsonrpc-sibling", "mcp"])
 @pytest.mark.parametrize("extra", [None, {"resourceUri": "honua://jobs/private-job"},
     {"jobCreatedAt": "2026-10-17T10:00:00Z"},
     {"encoded": json.dumps({"nested": {"resourceUri": "honua://jobs/private-job"}})}])
@@ -458,7 +458,10 @@ def test_actual_proxy_error_wire_cannot_mask_execution_into_refusal(tmp_path, mo
     view = engine.view(); secret = 'private-application-key'
     problem = {**GP, **(extra or {})}
     response = ({"error": {"code": -32603, "message": 'refused for ' + secret, "data": problem}}
-                if wire == 'jsonrpc' else {"result": {"isError": True, "structuredContent": problem}})
+                if wire.startswith('jsonrpc') else {"result": {"isError": True, "structuredContent": problem}})
+    if wire == 'jsonrpc-sibling' and extra:
+        response['error']['data'] = dict(GP)
+        response['result'] = extra
     class Session:
         def __init__(self, *args): pass
         def __enter__(self): return self
