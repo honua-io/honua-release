@@ -243,6 +243,22 @@
       "reason": "Exact existing repository/source-key, client-lane and immutable source-path identifiers are needed to join the coverage audit to governed producers. Prose remains neutral; this does not admit licensed desktop detail or expand the baseline.",
       "owner": "@mikemcdougall",
       "issue": "honua-io/honua-release#652"
+    },
+    {
+      "repo": "honua-release",
+      "paths": [
+        "certification/coverage-audit.v1.json",
+        "certification/audits/2026-10-17/ai-gp-migration.json"
+      ],
+      "tokens": [
+        "arcgis"
+      ],
+      "identifiers": [
+        "//github.com/honua-io/honua-migrate/blob/6fec271367e29df9b98cdb04b7a606c0d064f6c6/src/honua_migrate/services/arcgis.py"
+      ],
+      "reason": "Exact immutable source path identifies the reviewed migration implementation. This admits only the source identifier, not product prose or licensed desktop detail.",
+      "owner": "@mikemcdougall",
+      "issue": "honua-io/honua-release#652"
     }
   ]
 }

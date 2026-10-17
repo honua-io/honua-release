@@ -4,8 +4,8 @@
   "requirements_revision": "2026-10-08-complete.23",
   "requirements_digest": "sha256:ee6863ad46cd10317824ae748bc58c8f391652201ea113214f05fb9f0cad74ad",
   "production_digest": "sha256:cb71f546d61260881e3d798be0bd08b5c03ea59fe58745268136c68f693f21d1",
-  "audit_digest": "sha256:5a73331a3e0f8123ad113fa4bc7d03838cb0335224c8a6c485bc12347d7b31d6",
-  "rows_digest": "sha256:e36828758bcc71ae0b23503a409f5c4c771ae2e6077ae9ceb099fadb92e8b956",
+  "audit_digest": "sha256:141fa8f4b69f5ea2f99ca25e8ffb2c4be8b736ed10e7338c581b0315aaeb69ba",
+  "rows_digest": "sha256:5970afe06cd41f73a7ee0a077c3aefe8732d24cfc789cf6bad73a777b0036c9d",
   "rows": 3008,
   "non_licensed_rows": 2668,
   "external_licensed_rows": 340,
@@ -15,8 +15,8 @@
     "unproduced": 927
   },
   "non_licensed_assertion_review": {
-    "findings-recorded": 377,
-    "not-reviewed": 2291
+    "findings-recorded": 573,
+    "not-reviewed": 2095
   },
   "finding_matches": {
     "NC-01": 82,
@@ -30,9 +30,24 @@
     "NC-09": 3008,
     "NC-10": 3008,
     "NC-11": 82,
-    "NC-12": 16
+    "NC-12": 16,
+    "NC-17": 305,
+    "NC-18": 1,
+    "NC-19": 22,
+    "NC-20": 66,
+    "NC-21": 1,
+    "NC-22": 1
   },
   "source_comparison": [
+    {
+      "source": "console",
+      "reviewed": {
+        "repository": "honua-io/honua-console",
+        "commit": "46a55297cc843ff645ae25e56749b64214d28eb6"
+      },
+      "governed": null,
+      "same_revision": false
+    },
     {
       "source": "esri-compat",
       "reviewed": {
@@ -67,6 +82,33 @@
         "repository": "honua-io/geospatial-mcp",
         "commit": "d5a09d13c4ad541c05702e598c3679c0f42db7af"
       },
+      "same_revision": false
+    },
+    {
+      "source": "iac",
+      "reviewed": {
+        "repository": "honua-io/honua-iac",
+        "commit": "c476c9b08c3db9cfc6df64cfc0b884cb2cbc0601"
+      },
+      "governed": null,
+      "same_revision": false
+    },
+    {
+      "source": "migrate",
+      "reviewed": {
+        "repository": "honua-io/honua-migrate",
+        "commit": "6fec271367e29df9b98cdb04b7a606c0d064f6c6"
+      },
+      "governed": null,
+      "same_revision": false
+    },
+    {
+      "source": "release",
+      "reviewed": {
+        "repository": "honua-io/honua-release",
+        "commit": "a5296ff13f34c6dd1a2109d1d31ad5c8d0e80935"
+      },
+      "governed": null,
       "same_revision": false
     },
     {
@@ -115,6 +157,15 @@
         "repository": "honua-io/honua-server",
         "commit": "ac30266fbd153363bebdbed13130accc8ab0c94a"
       },
+      "same_revision": false
+    },
+    {
+      "source": "studio",
+      "reviewed": {
+        "repository": "honua-io/honua-studio",
+        "commit": "8e3d654e32a294af27f03d9d19dccc700ab0d987"
+      },
+      "governed": null,
       "same_revision": false
     }
   ],

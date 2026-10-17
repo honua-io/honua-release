@@ -51,6 +51,25 @@ def matches(selectors, row):
                for key, patterns in selectors.items())
 
 
+def validate_verification_receipt(receipt, finding_id):
+    """Require a traceable, content-bound receipt; qualification still belongs to its consumer."""
+    fields = {'url', 'sha256', 'source_revision', 'finding_id'}
+    if not isinstance(receipt, dict) or set(receipt) != fields:
+        raise ValueError(f'{finding_id}: structured verification receipt required')
+    url = receipt['url']
+    if not isinstance(url, str) or any(part in {'.', '..'} for part in url.split('/')) or not re.fullmatch(
+        r'https://github.com/honua-io/[\w.-]+/(?:'
+        r'actions/runs/[1-9]\d*/artifacts/[1-9]\d*|'
+        r'blob/[0-9a-f]{40}/[\w./-]+\.json)', url
+    ):
+        raise ValueError(f'{finding_id}: verification receipt needs an immutable JSON or run artifact URL')
+    for field, length in (('sha256', 64), ('source_revision', 40)):
+        if not isinstance(receipt[field], str) or not re.fullmatch(f'[0-9a-f]{{{length}}}', receipt[field]):
+            raise ValueError(f'{finding_id}: invalid verification receipt {field}')
+    if receipt['finding_id'] != finding_id:
+        raise ValueError(f'{finding_id}: verification receipt belongs to another finding')
+
+
 def validate_findings(audit):
     if audit.get('schema') != 'honua.coverage-audit-input/v1':
         raise ValueError('unknown audit schema')
@@ -79,8 +98,8 @@ def validate_findings(audit):
             if not re.fullmatch(r'https://github.com/honua-io/[\w.-]+/pull/\d+', finding.get('delivery_pr', '')):
                 raise ValueError(f'{key}: landed implementation requires a PR')
         # A reviewed source or merged PR is not execution evidence.
-        if finding['status'] == 'verified' and not finding.get('verification_receipt'):
-            raise ValueError(f'{key}: verification receipt required')
+        if finding['status'] == 'verified':
+            validate_verification_receipt(finding.get('verification_receipt'), key)
     if not seen:
         raise ValueError('audit must retain its findings')
 
@@ -157,6 +176,15 @@ def build(catalog, production, audit):
             'audit_workstreams': audit['workstreams'], 'gate_sequence': audit['gate_sequence']}
 
 
+def validate_source_artifacts(root, audit):
+    for artifact in audit.get('deeper_source_review', {}).get('source_artifacts', []):
+        path = Path(artifact['path'])
+        if path.is_absolute() or '..' in path.parts or not (root / path).resolve().is_relative_to(root.resolve()):
+            raise ValueError('source-review artifact escapes repository')
+        if hashlib.sha256((root / path).read_bytes()).hexdigest() != artifact['sha256']:
+            raise ValueError(f'source-review artifact digest mismatch: {path}')
+
+
 def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--root', type=Path, default=ROOT)
@@ -166,9 +194,11 @@ def main(argv=None):
     actions.add_argument('--write-summary', action='store_true')
     args = parser.parse_args(argv)
     try:
+        audit = load(args.root / 'certification/coverage-audit.v1.json')
+        validate_source_artifacts(args.root, audit)
         report = build(load(args.root / 'certification/protocol-certification-requirements.v1.json'),
                        load(args.root / 'certification/sources/protocol-certification-production.v1.json'),
-                       load(args.root / 'certification/coverage-audit.v1.json'))
+                       audit)
         summary_path = args.root / 'certification/coverage-audit-summary.v1.json'
         if args.check and load(summary_path) != report['summary']:
             raise ValueError('coverage summary drift: review source changes and run --write-summary')

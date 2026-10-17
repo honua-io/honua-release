@@ -94,6 +94,51 @@ def test_target_handoff_exclusions_match_governed_selection():
     assert not audit.selected(entry, {'client_lane': 'excluded-sdk', 'deployment_target': 'windows'})
 
 
+def verification_receipt(finding_id):
+    return {'url': 'https://github.com/honua-io/honua-release/actions/runs/123/artifacts/456',
+            'sha256': 'a' * 64, 'source_revision': 'b' * 40, 'finding_id': finding_id}
+
+
+@pytest.mark.parametrize('url', [
+    'https://github.com/honua-io/honua-release/actions/runs/123/artifacts/456',
+    'https://github.com/honua-io/honua-evidence/blob/' + 'b' * 40 + '/receipts/check.json',
+])
+def test_traceable_finding_receipt_still_does_not_qualify_catalog_rows(inputs, url):
+    catalog, production, findings = copy.deepcopy(inputs)
+    finding = findings['findings'][0]
+    receipt = verification_receipt(finding['id'])
+    receipt['url'] = url
+    finding.update(status='verified', delivery_pr='https://github.com/honua-io/geospatial-mcp/pull/1',
+                   verification_receipt=receipt)
+    report = audit.build(catalog, production, findings)
+    assert all(row['execution'] == row['qualification'] == 'not-evaluated' for row in report['rows'])
+
+
+@pytest.mark.parametrize('receipt', [True, False, 1, 'done', [], {},
+    'https://github.com/honua-io/honua-release/actions/runs/123/artifacts/456'])
+def test_placeholder_receipts_cannot_verify_finding(receipt):
+    with pytest.raises(ValueError, match='structured verification receipt required'):
+        audit.validate_verification_receipt(receipt, 'NC-01')
+
+
+@pytest.mark.parametrize('field,value', [
+    ('url', 'https://github.com/honua-io/honua-evidence/blob/trunk/receipts/check.json'),
+    ('url', 'https://github.com/honua-io/honua-release/pull/1'),
+    ('url', 'https://github.com/honua-io/honua-release/actions/runs/123'),
+    ('url', 'https://github.com/honua-io/honua-evidence/blob/' + 'b' * 40 + '/../../blob/trunk/check.json'),
+    ('url', 'https://github.com/honua-io/honua-evidence/blob/' + 'b' * 40 + '/receipts/./check.json'),
+    ('url', 'https://github.com/honua-io/honua-evidence/blob/' + 'b' * 40 + '/%2e%2e/check.json'),
+    ('url', 'https://example.com/receipt.json'), ('url', True),
+    ('sha256', 'pending'), ('sha256', True), ('source_revision', 'trunk'),
+    ('source_revision', 'b' * 7), ('finding_id', 'NC-02'), ('unknown', 'value'),
+])
+def test_unbound_receipt_fields_cannot_verify_finding(field, value):
+    receipt = verification_receipt('NC-01')
+    receipt[field] = value
+    with pytest.raises(ValueError, match='receipt'):
+        audit.validate_verification_receipt(receipt, 'NC-01')
+
+
 def test_duplicate_json_keys_fail(tmp_path):
     source = tmp_path / 'input.json'
     source.write_text('{"result":"fail","result":"pass"}')
@@ -112,3 +157,24 @@ def test_changed_requirements_invalidate_summary(inputs):
     changed = audit.build(catalog, production, findings)['summary']
     assert prior['requirements_digest'] != changed['requirements_digest']
     assert prior['rows_digest'] != changed['rows_digest']
+
+
+def test_committed_source_artifacts_match_reviewed_bytes(inputs):
+    audit.validate_source_artifacts(ROOT, inputs[2])
+
+
+@pytest.mark.parametrize('mutation', ['changed', 'missing', 'escape'])
+def test_source_artifact_drift_cannot_pass(tmp_path, mutation):
+    path = tmp_path / 'review.json'
+    path.write_bytes(b'{}')
+    findings = {'deeper_source_review': {'source_artifacts': [
+        {'path': 'review.json', 'sha256': audit.hashlib.sha256(b'{}').hexdigest()}
+    ]}}
+    if mutation == 'changed':
+        path.write_bytes(b'{"changed":true}')
+    elif mutation == 'missing':
+        path.unlink()
+    else:
+        findings['deeper_source_review']['source_artifacts'][0]['path'] = '../review.json'
+    with pytest.raises((ValueError, OSError)):
+        audit.validate_source_artifacts(tmp_path, findings)

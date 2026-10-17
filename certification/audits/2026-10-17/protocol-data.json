@@ -1,0 +1,212 @@
+{
+  "scope": "Bounded read-only protocol/data source audit; not exhaustive coverage or candidate qualification",
+  "server_revision": "9277d29ffbe4bfb954d59c4755b21d1ccefb9cbc",
+  "method": "Read immutable Git objects, existing NC01\u201312 inventory and bounded existing-issue search. No tests, queues, deployments, source or issue mutations.",
+  "strong_existing_coverage": [
+    {
+      "surface": "GeoServices REST",
+      "assertions": "Mutation add/update/delete and rejected writes independently read stored state. Query service predicates test contradictory intersections.",
+      "sources": [
+        "https://github.com/honua-io/honua-server/blob/9277d29ffbe4bfb954d59c4755b21d1ccefb9cbc/tests/dotnet/Honua.Protocols.GeoServices.Tests/Source/FeatureServer/FeatureServerMutationScenarioTests.cs#L48",
+        "https://github.com/honua-io/honua-server/blob/9277d29ffbe4bfb954d59c4755b21d1ccefb9cbc/tests/dotnet/Honua.Protocols.GeoServices.Tests/Source/FeatureServer/FeatureServerMutationScenarioTests.cs#L203",
+        "https://github.com/honua-io/honua-server/blob/9277d29ffbe4bfb954d59c4755b21d1ccefb9cbc/tests/dotnet/Honua.Protocols.GeoServices.Tests/Source/FeatureServer/FeatureServerServiceQueryTests.cs#L100"
+      ]
+    },
+    {
+      "surface": "GeoServices CRS/Z/M",
+      "assertions": "Stored Z survives query only when requested; replica extract/sync checks literal XY/Z/M and spatial reference against authored values. True-curve input test explicitly asserts documented densification, not lossless curve output.",
+      "sources": [
+        "https://github.com/honua-io/honua-server/blob/9277d29ffbe4bfb954d59c4755b21d1ccefb9cbc/tests/dotnet/Honua.Protocols.GeoServices.Tests/Source/FeatureServer/FeatureServerReturnZTests.cs#L44",
+        "https://github.com/honua-io/honua-server/blob/9277d29ffbe4bfb954d59c4755b21d1ccefb9cbc/tests/dotnet/Honua.Protocols.GeoServices.Tests/Source/FeatureServer/FeatureServerReplicationTests.cs#L471",
+        "https://github.com/honua-io/honua-server/blob/9277d29ffbe4bfb954d59c4755b21d1ccefb9cbc/tests/dotnet/Honua.Protocols.GeoServices.Tests/Source/FeatureServer/FeatureServerTrueCurveTests.cs#L20"
+      ]
+    },
+    {
+      "surface": "OData",
+      "assertions": "Microsoft.OData.Client exact filtered ID and disjoint pages; exact count/top/empty-boundary cases. Real Postgres component fixture tests stale PATCH ETag with persisted final value, atomic batch rollback and missing deleted entity.",
+      "sources": [
+        "https://github.com/honua-io/honua-server/blob/9277d29ffbe4bfb954d59c4755b21d1ccefb9cbc/tests/dotnet/Honua.Protocols.OData.Tests/Source/ODataClientCertificationTests.cs#L199",
+        "https://github.com/honua-io/honua-server/blob/9277d29ffbe4bfb954d59c4755b21d1ccefb9cbc/tests/dotnet/Honua.Protocols.OData.Tests/Source/ODataClientCertificationTests.cs#L242",
+        "https://github.com/honua-io/honua-server/blob/9277d29ffbe4bfb954d59c4755b21d1ccefb9cbc/tests/dotnet/Honua.Protocols.OData.Tests/Source/ODataPaginationTests.cs#L490",
+        "https://github.com/honua-io/honua-server/blob/9277d29ffbe4bfb954d59c4755b21d1ccefb9cbc/tests/dotnet/Honua.Protocols.OData.ComponentTests/ODataContractTests.cs#L54",
+        "https://github.com/honua-io/honua-server/blob/9277d29ffbe4bfb954d59c4755b21d1ccefb9cbc/tests/dotnet/Honua.Protocols.OData.ComponentTests/ODataContractTests.cs#L94",
+        "https://github.com/honua-io/honua-server/blob/9277d29ffbe4bfb954d59c4755b21d1ccefb9cbc/tests/dotnet/Honua.Protocols.OData.ComponentTests/ODataComponentFixture.cs#L61"
+      ]
+    },
+    {
+      "surface": "OGC API Features",
+      "assertions": "Exact filtered IDs and numberMatched; full one-row page walk union/uniqueness and final empty page; property whitelist excludes unselected fields. Mutation ETag and geometry-preservation cases exist, alongside media/error tests.",
+      "sources": [
+        "https://github.com/honua-io/honua-server/blob/9277d29ffbe4bfb954d59c4755b21d1ccefb9cbc/tests/dotnet/Honua.Protocols.OgcApi.Tests/Source/Features/OgcFeaturesItemsTests.cs#L186",
+        "https://github.com/honua-io/honua-server/blob/9277d29ffbe4bfb954d59c4755b21d1ccefb9cbc/tests/dotnet/Honua.Protocols.OgcApi.Tests/Source/Features/OgcFeaturesItemsTests.cs#L337",
+        "https://github.com/honua-io/honua-server/blob/9277d29ffbe4bfb954d59c4755b21d1ccefb9cbc/tests/dotnet/Honua.Protocols.OgcApi.Tests/Source/Features/OgcFeaturesItemsTests.cs#L389",
+        "https://github.com/honua-io/honua-server/blob/9277d29ffbe4bfb954d59c4755b21d1ccefb9cbc/tests/dotnet/Honua.Protocols.OgcApi.Tests/Source/Features/OgcFeaturesTransactionTests.cs#L211",
+        "https://github.com/honua-io/honua-server/blob/9277d29ffbe4bfb954d59c4755b21d1ccefb9cbc/tests/dotnet/Honua.Protocols.OgcApi.Tests/Source/Features/OgcFeaturesTransactionTests.cs#L500"
+      ],
+      "existing_related_issue": "https://github.com/honua-io/honua-server/issues/4393"
+    },
+    {
+      "surface": "WFS",
+      "assertions": "Real HTTP/PostGIS mutation readback and invalid-write preservation; auth tests exercise production dispatcher/edit pipeline with only principal grants controlled. OWSLib exact numeric filter names/count, property projection, hits without members, page count/uniqueness, authored anchor and bbox-axis parity.",
+      "sources": [
+        "https://github.com/honua-io/honua-server/blob/9277d29ffbe4bfb954d59c4755b21d1ccefb9cbc/tests/dotnet/Honua.Protocols.OgcClassic.Tests/Source/Wfs20/Wfs20MutationScenarioTests.cs#L123",
+        "https://github.com/honua-io/honua-server/blob/9277d29ffbe4bfb954d59c4755b21d1ccefb9cbc/tests/dotnet/Honua.Protocols.OgcClassic.Tests/Source/Wfs20/WfsAuthorizationProofTests.cs#L24",
+        "https://github.com/honua-io/honua-server/blob/9277d29ffbe4bfb954d59c4755b21d1ccefb9cbc/tests/python/owslib_client/test_wfs.py#L537",
+        "https://github.com/honua-io/honua-server/blob/9277d29ffbe4bfb954d59c4755b21d1ccefb9cbc/tests/python/owslib_client/test_wfs.py#L556",
+        "https://github.com/honua-io/honua-server/blob/9277d29ffbe4bfb954d59c4755b21d1ccefb9cbc/tests/python/owslib_client/test_wfs.py#L597",
+        "https://github.com/honua-io/honua-server/blob/9277d29ffbe4bfb954d59c4755b21d1ccefb9cbc/tests/python/owslib_client/test_wfs.py#L666",
+        "https://github.com/honua-io/honua-server/blob/9277d29ffbe4bfb954d59c4755b21d1ccefb9cbc/tests/python/owslib_client/test_wfs.py#L695"
+      ],
+      "existing_related_issue": "https://github.com/honua-io/honua-server/issues/4387"
+    },
+    {
+      "surface": "WMS",
+      "assertions": "OWSLib parses capabilities; compares explicit EPSG4326/CRS84 wire and normalized bbox axes, equal rendered pixels, backgrounds, multilayer increased content and distant-bbox emptiness.",
+      "sources": [
+        "https://github.com/honua-io/honua-server/blob/9277d29ffbe4bfb954d59c4755b21d1ccefb9cbc/tests/python/owslib_client/test_wms.py#L248",
+        "https://github.com/honua-io/honua-server/blob/9277d29ffbe4bfb954d59c4755b21d1ccefb9cbc/tests/python/owslib_client/test_wms.py#L410",
+        "https://github.com/honua-io/honua-server/blob/9277d29ffbe4bfb954d59c4755b21d1ccefb9cbc/tests/python/owslib_client/test_wms.py#L446",
+        "https://github.com/honua-io/honua-server/blob/9277d29ffbe4bfb954d59c4755b21d1ccefb9cbc/tests/python/owslib_client/test_wms.py#L480",
+        "https://github.com/honua-io/honua-server/blob/9277d29ffbe4bfb954d59c4755b21d1ccefb9cbc/tests/python/owslib_client/test_wms.py#L510"
+      ]
+    },
+    {
+      "surface": "WMTS",
+      "assertions": "OWSLib checks grid geometry, matrix limits, REST/KVP equality, deterministic bytes and empty-data tiles. Separate .NET test requires actual red pixels from configured seed/style; protocol auth denies tile bytes to a principal lacking the read role.",
+      "sources": [
+        "https://github.com/honua-io/honua-server/blob/9277d29ffbe4bfb954d59c4755b21d1ccefb9cbc/tests/python/owslib_client/test_wmts.py#L250",
+        "https://github.com/honua-io/honua-server/blob/9277d29ffbe4bfb954d59c4755b21d1ccefb9cbc/tests/python/owslib_client/test_wmts.py#L496",
+        "https://github.com/honua-io/honua-server/blob/9277d29ffbe4bfb954d59c4755b21d1ccefb9cbc/tests/python/owslib_client/test_wmts.py#L653",
+        "https://github.com/honua-io/honua-server/blob/9277d29ffbe4bfb954d59c4755b21d1ccefb9cbc/tests/dotnet/Honua.Protocols.OgcClassic.Tests/Source/Wmts/OgcClassicWmtsTests.cs#L968",
+        "https://github.com/honua-io/honua-server/blob/9277d29ffbe4bfb954d59c4755b21d1ccefb9cbc/tests/dotnet/Honua.Protocols.OgcClassic.Tests/Source/Wmts/WmtsAuthorizationProofTests.cs#L24"
+      ],
+      "existing_related_issues": [
+        "https://github.com/honua-io/honua-server/issues/2945",
+        "https://github.com/honua-io/honua-server/issues/4388"
+      ]
+    }
+  ],
+  "findings": [
+    {
+      "id": "PD-01",
+      "priority": "P1 qualification-path blocker",
+      "title": "OWSLib transport probes cannot run against HTTPS despite documenting the same release lane",
+      "evidence": "WFS/WMS/WMTS each assert scheme == http before a branch that would record HTTPS pass. HTTPS necessarily fails; compose records not-applicable and cannot establish live TLS.",
+      "sources": [
+        "https://github.com/honua-io/honua-server/blob/9277d29ffbe4bfb954d59c4755b21d1ccefb9cbc/tests/python/owslib_client/test_wfs.py#L215",
+        "https://github.com/honua-io/honua-server/blob/9277d29ffbe4bfb954d59c4755b21d1ccefb9cbc/tests/python/owslib_client/test_wms.py#L115",
+        "https://github.com/honua-io/honua-server/blob/9277d29ffbe4bfb954d59c4755b21d1ccefb9cbc/tests/python/owslib_client/test_wmts.py#L128"
+      ],
+      "recommendation": "Retain explicit compose applicability, add a real HTTPS canonical-client request/certificate-validation path and typed refusal controls; do not relabel HTTP as TLS proof.",
+      "owner": "honua-io/honua-server",
+      "coordination_issue": "https://github.com/honua-io/honua-release/issues/652",
+      "existing_exact_open_issue_found": false
+    },
+    {
+      "id": "PD-02",
+      "priority": "P1 canonical-receipt assertion gap",
+      "title": "OWSLib WMTS positive rendering receipt accepts a correctly sized blank PNG",
+      "evidence": "CERT-RNDR-01, zoom sweep and second grid assert only PNG decoding/dimensions. Always-transparent positive responses satisfy these checks, while the explicit distant tile emptiness check also passes. Separate .NET red-pixel integration exists, so this is a canonical-client receipt weakness, not missing server rendering coverage.",
+      "sources": [
+        "https://github.com/honua-io/honua-server/blob/9277d29ffbe4bfb954d59c4755b21d1ccefb9cbc/tests/python/owslib_client/test_wmts.py#L371",
+        "https://github.com/honua-io/honua-server/blob/9277d29ffbe4bfb954d59c4755b21d1ccefb9cbc/tests/python/owslib_client/test_wmts.py#L398",
+        "https://github.com/honua-io/honua-server/blob/9277d29ffbe4bfb954d59c4755b21d1ccefb9cbc/tests/python/owslib_client/test_wmts.py#L429",
+        "https://github.com/honua-io/honua-server/blob/9277d29ffbe4bfb954d59c4755b21d1ccefb9cbc/tests/python/owslib_client/test_wmts.py#L653",
+        "https://github.com/honua-io/honua-server/blob/9277d29ffbe4bfb954d59c4755b21d1ccefb9cbc/tests/dotnet/Honua.Protocols.OgcClassic.Tests/Source/Wmts/OgcClassicWmtsTests.cs#L968"
+      ],
+      "recommendation": "Require authored feature/style pixels at independently computed positions for positive tiles, distinguish both grids, retain a distant blank tile and add blank/wrong-location negative controls.",
+      "owner": "honua-io/honua-server",
+      "coordination_issue": "https://github.com/honua-io/honua-release/issues/652",
+      "existing_related_issue": "https://github.com/honua-io/honua-server/issues/2945",
+      "existing_exact_open_issue_found": false
+    },
+    {
+      "id": "PD-03",
+      "priority": "P1 canonical-auth attribution gap",
+      "title": "OWSLib WMTS AUTH receipts substantiate an admin route rather than protected tile access",
+      "evidence": "WMTS AUTH01/02 use shared admin_probe and explicitly state the WMTS fixture is anonymous. The separate expanded canonical auth suite enumerates only OGC Features/WFS/WMS. .NET WMTS denied-no-payload/allowed-image proof exists and must be credited separately.",
+      "sources": [
+        "https://github.com/honua-io/honua-server/blob/9277d29ffbe4bfb954d59c4755b21d1ccefb9cbc/tests/python/owslib_client/test_wmts.py#L143",
+        "https://github.com/honua-io/honua-server/blob/9277d29ffbe4bfb954d59c4755b21d1ccefb9cbc/tests/python/owslib_client/test_auth_breadth.py#L35",
+        "https://github.com/honua-io/honua-server/blob/9277d29ffbe4bfb954d59c4755b21d1ccefb9cbc/tests/dotnet/Honua.Protocols.OgcClassic.Tests/Source/Wmts/WmtsAuthorizationProofTests.cs#L24"
+      ],
+      "recommendation": "Exercise OWSLib against a genuinely protected WMTS tile through valid/invalid/expired credentials, assert challenge + absence of image bytes on denial and expected pixels on success; preserve existing generic admin checks as distinct evidence.",
+      "owner": "honua-io/honua-server",
+      "coordination_issue": "https://github.com/honua-io/honua-release/issues/652",
+      "existing_related_issue": "https://github.com/honua-io/honua-server/issues/4388",
+      "existing_exact_open_issue_found": false
+    },
+    {
+      "id": "PD-04",
+      "priority": "P2 assertion depth",
+      "title": "Generic Python FeatureServer filter cases often assert only HTTP200",
+      "evidence": "Equality/inequality/range/LIKE/IN/BETWEEN/IS NULL/AND/OR cases do not inspect result rows. Ignored filters or universally empty successful responses can satisfy these individual cases. Other .NET predicate/state tests provide stronger independent coverage.",
+      "sources": [
+        "https://github.com/honua-io/honua-server/blob/9277d29ffbe4bfb954d59c4755b21d1ccefb9cbc/tests/python/feature_server/test_query.py#L105",
+        "https://github.com/honua-io/honua-server/blob/9277d29ffbe4bfb954d59c4755b21d1ccefb9cbc/tests/python/feature_server/test_query.py#L177",
+        "https://github.com/honua-io/honua-server/blob/9277d29ffbe4bfb954d59c4755b21d1ccefb9cbc/tests/dotnet/Honua.Protocols.GeoServices.Tests/Source/FeatureServer/FeatureServerServiceQueryTests.cs#L100"
+      ],
+      "recommendation": "Use authored contrasting/null/boundary rows and assert exact expected ID sets, positive cardinality, exclusions and empty-result cases. Do not count these HTTP-only cases as semantic filter proof.",
+      "owner": "honua-io/honua-server",
+      "coordination_issue": "https://github.com/honua-io/honua-release/issues/652",
+      "existing_exact_open_issue_found": false
+    },
+    {
+      "id": "PD-05",
+      "priority": "P2 canonical-client oracle weakness",
+      "title": "GDAL WFS client filter and positive bbox checks allow over-return",
+      "evidence": "Raw WFS filter independently checks exactly alpha, but the actual ogr2ogr -where path checks only alpha membership. Its positive -spat path checks nonempty, not returned IDs or coordinate bounds. A client ignoring the predicate can pass those checks when the raw server filter remains correct. OWSLib has stronger exact-set checks.",
+      "sources": [
+        "https://github.com/honua-io/honua-server/blob/9277d29ffbe4bfb954d59c4755b21d1ccefb9cbc/tests/python/gdal_ogr/test_wfs_query.py#L53",
+        "https://github.com/honua-io/honua-server/blob/9277d29ffbe4bfb954d59c4755b21d1ccefb9cbc/tests/python/gdal_ogr/test_wfs_query.py#L61",
+        "https://github.com/honua-io/honua-server/blob/9277d29ffbe4bfb954d59c4755b21d1ccefb9cbc/tests/python/gdal_ogr/test_wfs_query.py#L79",
+        "https://github.com/honua-io/honua-server/blob/9277d29ffbe4bfb954d59c4755b21d1ccefb9cbc/tests/python/owslib_client/test_wfs.py#L537"
+      ],
+      "recommendation": "Assert exact GDAL output ID/name sets, known excluded rows and coordinate bounds, plus deliberately ignored-filter controls. Retain GDAL-specific evidence rather than replacing it with raw HTTP or OWSLib.",
+      "owner": "honua-io/honua-server",
+      "coordination_issue": "https://github.com/honua-io/honua-release/issues/652",
+      "existing_exact_open_issue_found": false
+    }
+  ],
+  "selection": {
+    "declared_routes": [
+      {
+        "shard": "FeatureServer Endpoints Query Services and Replication",
+        "source": "https://github.com/honua-io/honua-server/blob/9277d29ffbe4bfb954d59c4755b21d1ccefb9cbc/.github/ci-shards.json#L794"
+      },
+      {
+        "shard": "OGC API Features (items/transaction/batch included)",
+        "source": "https://github.com/honua-io/honua-server/blob/9277d29ffbe4bfb954d59c4755b21d1ccefb9cbc/.github/ci-shards.json#L855"
+      },
+      {
+        "shard": "WFS + separate WFS Endpoints",
+        "source": "https://github.com/honua-io/honua-server/blob/9277d29ffbe4bfb954d59c4755b21d1ccefb9cbc/.github/ci-shards.json#L877"
+      },
+      {
+        "shard": "OData Core/Filters/Pagination/Mutation/Client/Error/Component split",
+        "sources": [
+          "https://github.com/honua-io/honua-server/blob/9277d29ffbe4bfb954d59c4755b21d1ccefb9cbc/.github/ci-shards.json#L982",
+          "https://github.com/honua-io/honua-server/blob/9277d29ffbe4bfb954d59c4755b21d1ccefb9cbc/.github/ci-shards.json#L1094",
+          "https://github.com/honua-io/honua-server/blob/9277d29ffbe4bfb954d59c4755b21d1ccefb9cbc/.github/ci-shards.json#L1122",
+          "https://github.com/honua-io/honua-server/blob/9277d29ffbe4bfb954d59c4755b21d1ccefb9cbc/.github/ci-shards.json#L4526"
+        ]
+      },
+      {
+        "shard": "OGC Classic Maps and WMTS",
+        "source": "https://github.com/honua-io/honua-server/blob/9277d29ffbe4bfb954d59c4755b21d1ccefb9cbc/.github/ci-shards.json#L1219"
+      }
+    ],
+    "execution_caveat": "CI composes shard filters excluding Fast/Slow. Fast protocol projects are covered by foundation tests; Slow belongs to distinct workflow. Static declaration is not proof a current run executed matching tests. Existing NC10 owns no-tests success; not duplicated here.",
+    "sources": [
+      "https://github.com/honua-io/honua-server/blob/9277d29ffbe4bfb954d59c4755b21d1ccefb9cbc/.github/workflows/ci.yml#L1164",
+      "https://github.com/honua-io/honua-server/blob/9277d29ffbe4bfb954d59c4755b21d1ccefb9cbc/docker/client-compat/owslib/run.sh#L56",
+      "https://github.com/honua-io/honua-server/blob/9277d29ffbe4bfb954d59c4755b21d1ccefb9cbc/docker/client-compat/duckdb/run.sh#L58"
+    ]
+  },
+  "limits": [
+    "No runtime defect reproduced or new issue filed. Prior closed regression issue references are context, not current unassigned implementation claims.",
+    "Existing NC01\u201312 are not refiled; in particular OWSLib expired-token NC07, DuckDB CRS NC12 and shard no-test NC10 retain their owners.",
+    "No complete claim for all CRS/Z/M shapes, true-curve preservation, concurrency races, canonical-client writes, media variants, or tenant isolation follows from the sampled tests.",
+    "No fresh candidate or AWS qualification; no current CITE rate inferred from source. STAC/gRPC not expanded in this bounded pass."
+  ]
+}
