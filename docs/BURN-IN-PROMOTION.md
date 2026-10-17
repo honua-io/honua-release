@@ -223,3 +223,5 @@ commit for a nightly mint.
 The independent human approval and signature gates remain mandatory. `promote.yml` publishes the
 minting train's exact signed lock and artifacts as `honua-2026.1.0` (then `honua-2026.1.Z`) and moves
 npm, container, Helm and install-manifest channels. Only promotion may move those pointers.
+
+Preview qualification is informational; failed or unknown cleanup, leaked run-owned resources and run cost overruns remain fatal. EKS teardown always executes and its independent workflow/aggregation checks retain the pre-amendment safety bar.

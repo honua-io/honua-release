@@ -873,6 +873,22 @@ def prior_run_gate(prior_runs, *, run_id, run_attempt, final_cost):
     return failures, gaps
 
 
+def cleanup_failure(report):
+    """Cleanup is a safety obligation even when the journey is informational Preview."""
+    if not isinstance(report, dict):
+        return "cleanup report missing"
+    if report.get("cleanupFailures") or report.get("s10Cleanup", {}).get("status") == "failed":
+        return "run-owned resource cleanup failed"
+    teardown = report.get("teardown", {})
+    if report.get("provisionAttempted") is False:
+        return "inconsistent cleanup obligation" if teardown.get("attempted") is True else None
+    if report.get("provisionAttempted") is not True:
+        return "provisioning cleanup obligation unknown"
+    if teardown.get("attempted") is not True or teardown.get("completed") is not True:
+        return "provisioned infrastructure cleanup incomplete"
+    return None
+
+
 def aggregate(reports, reports_root, *, require_real, full_scope, run_id, run_attempt,
               final_cost=None, prior_runs=None):
     cells = []
@@ -901,6 +917,8 @@ def aggregate(reports, reports_root, *, require_real, full_scope, run_id, run_at
         row = {**report, "evidenceTier": "Preview" if preview else "GA"}
         cells.append(row)
         by_cell.setdefault(cell, []).append(row)
+        if preview and (cleanup_problem := cleanup_failure(report)):
+            failures.append(f"{cell}: {cleanup_problem}")
         # Preview journey failures are informational. The run-wide spend ceiling remains
         # independent of topology maturity, including a later snapshot from a Preview cell.
         cost = report.get("cost", {})

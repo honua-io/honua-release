@@ -1365,7 +1365,7 @@ def test_preview_cell_failure_is_informational_and_cannot_fill_a_ga_cell():
     with tempfile.TemporaryDirectory() as directory:
         root = Path(directory)
         report = _cell_report(root, _ecs_receipt())
-        previews = [{"cell": f"{target}/redis-off", "status": "fail"} for target in cj.PREVIEW_TARGETS]
+        previews = [{"cell": f"{target}/redis-off", "status": "fail", "provisionAttempted": False} for target in cj.PREVIEW_TARGETS]
         result = _aggregate_fixture([report, *previews], root)
         assert result["status"] == "blocked"  # focused dispatch remains diagnostic
         assert [r["evidenceTier"] for r in result["cells"]] == ["GA", *(["Preview"] * len(cj.PREVIEW_TARGETS))]
@@ -1564,7 +1564,9 @@ def test_cloud_workflow_requires_four_ga_cells_and_keeps_eks_preview():
     assert job["with"]["preview"] == "${{ matrix.target == 'aws-eks' }}"
     assert job["strategy"]["fail-fast"] is False and job["strategy"]["max-parallel"] == 1
     # Preview tolerance lives on the called cell's jobs; a reusable-workflow call cannot carry it.
-    assert all(cell_job["continue-on-error"] == "${{ inputs.preview }}" for cell_job in cell["jobs"].values())
+    assert all(cell_job["continue-on-error"] == "${{ inputs.preview }}"
+               for name, cell_job in cell["jobs"].items() if name != "teardown")
+    assert cell["jobs"]["teardown"]["continue-on-error"] is False
     assembly = next(step["run"] for step in workflow["jobs"]["cloud-report"]["steps"] if step.get("id") == "assemble")
     assert "python e2e/cloud_journey.py --reports reports" in assembly
     assert "PARITY_RESULT" not in assembly and "IAC_LIVE_RESULT" not in assembly
@@ -1610,7 +1612,7 @@ def test_cloud_full_scope_preview_failure_cannot_redden_a_passing_ga_run():
             subdir.mkdir()
             reports.append(_cell_report(subdir, _ecs_receipt(cell)))
         # EKS failures stay informational; required ECS/Lambda failures and cost ceilings still refuse.
-        previews = [{"cell": f"{target}/redis-{redis}", "status": "fail"}
+        previews = [{"cell": f"{target}/redis-{redis}", "status": "fail", "provisionAttempted": False}
                     for target in (cj.PREVIEW_TARGETS or ("stub",)) for redis in ("off", "on")]
         with mock.patch.object(cj, "validate_attempt", return_value=True):
             result = _aggregate_fixture([*reports, *previews], root, full_scope=True)
@@ -1619,6 +1621,11 @@ def test_cloud_full_scope_preview_failure_cannot_redden_a_passing_ga_run():
             over_budget = _aggregate_fixture([*reports, *previews], root, full_scope=True)
             assert over_budget["status"] == "fail" and "run cost ceiling exceeded" in over_budget["why"]
             del previews[0]["cost"]
+            previews[0].update(provisionAttempted=True, teardown={"attempted": True, "completed": False})
+            leaked = _aggregate_fixture([*reports, *previews], root, full_scope=True)
+            assert leaked["status"] == "fail" and "infrastructure cleanup incomplete" in leaked["why"]
+            previews[0]["teardown"]["completed"] = True
+            assert _aggregate_fixture([*reports, *previews], root, full_scope=True)["status"] == "pass"
             reports[0]["status"] = "fail"
             assert _aggregate_fixture([*reports, *previews], root, full_scope=True)["status"] == "fail"
 
@@ -2569,11 +2576,14 @@ def _phase_env(monkeypatch, run_id="phase381"):
     return run_cloud.cloud_journey.cell_dir("aws-ecs/redis-off")
 
 
+@pytest.mark.parametrize("preview", [False, True])
 @pytest.mark.parametrize("tenant_fixture", [False, True])
-def test_teardown_job_fails_closed_when_provisioned_state_never_arrives(monkeypatch, tenant_fixture):
+def test_teardown_job_fails_closed_when_provisioned_state_never_arrives(monkeypatch, tenant_fixture, preview):
     monkeypatch.setenv("HONUA_CLOUD_TENANT_FIXTURE", "true" if tenant_fixture else "false")
     cj = run_cloud.cloud_journey
     directory = _phase_env(monkeypatch)
+    if preview:
+        monkeypatch.setattr(cj, "PREVIEW_TARGETS", ("aws-ecs",))
     with tempfile.TemporaryDirectory() as scratch:
         stub = _PhaseStub(Path(scratch))
         monkeypatch.setattr(run_cloud, "REGISTRY", {**run_cloud.REGISTRY, "aws-ecs": lambda **kw: stub})
@@ -2604,7 +2614,8 @@ def test_teardown_job_fails_closed_when_provisioned_state_never_arrives(monkeypa
             forgotten.clear()
             # Restored state: destroy, then delete the state key.
             Path(scratch, "marker").write_text("")
-            assert run_cloud.main(argv) == 1  # the provision failure still fails the cell
+            assert run_cloud.main(argv) == (0 if preview else 1)
+            assert json.loads(run_cloud.REPORT_PATH.read_text())["status"] == "fail"  # qualification is retained
             assert stub.torn_down == 1 and forgotten == [*expected_secrets,
                                                          run_cloud.state_secret_name("aws-ecs/redis-off")]
             # A handoff from another run attempt cannot be adopted.
@@ -5214,3 +5225,38 @@ def test_cell_workflow_threads_the_cell_dns_repository_variables():
     # Step-scoped, never workflow-level, and the credential-free journey job never sees them.
     assert not {"HONUA_AWS_CELL_DNS_ZONE_ID", "HONUA_AWS_CELL_DNS_PARENT"} & set(cell["env"])
     assert "HONUA_AWS_CELL_DNS" not in json.dumps(cell["jobs"]["journey"])
+
+
+@pytest.mark.parametrize("change,expected", [
+    ("qualification-only", 0), ("never-provisioned", 0), ("destroy-failed", 1),
+    ("lost-state", 1), ("unknown-obligation", 1), ("missing-report", 1),
+    ("secret-cleanup", 1), ("staged-fixture", 1), ("cost-failed", 1),
+])
+def test_preview_workflow_cannot_tolerate_failed_cleanup(tmp_path, change, expected):
+    workflow, cell = _cloud_workflows()
+    teardown = cell["jobs"]["teardown"]
+    assert teardown["continue-on-error"] is False
+    steps = teardown["steps"]
+    destroy = next(step for step in steps if (step.get("name") or "").startswith("Tear down"))
+    assert "continue-on-error" not in destroy
+    guard = next(step for step in steps if step.get("name") == "Refuse incomplete cleanup on every topology")
+    assert guard["if"] == "always()" and steps.index(guard) > steps.index(destroy)
+    # Execute the actual workflow guard against retained reports. Qualification failure alone
+    # remains informational; lost state, failed destroy, leaked secrets and spend remain fatal.
+    report = {"status": "fail", "provisionAttempted": True,
+              "teardown": {"attempted": True, "completed": True}, "cost": {"status": "pass"}}
+    if change == "never-provisioned":
+        report.update(provisionAttempted=False, teardown={"attempted": False, "completed": False})
+    elif change == "destroy-failed": report["teardown"]["completed"] = False
+    elif change == "lost-state": report["teardown"].update(attempted=False, completed=False)
+    elif change == "unknown-obligation": del report["provisionAttempted"]
+    elif change == "secret-cleanup": report["cleanupFailures"] = ["owned-secret-delete-failed"]
+    elif change == "staged-fixture": report["s10Cleanup"] = {"status": "failed"}
+    elif change == "cost-failed": report["cost"]["status"] = "fail"
+    directory = tmp_path / "e2e"
+    directory.mkdir()
+    if change != "missing-report":
+        (directory / "gate-report-cloud.json").write_text(json.dumps(report))
+    result = subprocess.run(["bash", "-c", guard["run"]], cwd=tmp_path,
+                            env={**os.environ, "PYTHONPATH": str(E2E_DIR)}, capture_output=True, text=True)
+    assert result.returncode == expected, result.stderr

@@ -501,7 +501,7 @@ jobs:
     needs: [provision, journey, admit]
     if: always()
     runs-on: ubuntu-latest
-    continue-on-error: ${{ inputs.preview }}
+    continue-on-error: false
     permissions:
       contents: read
       id-token: write
@@ -620,6 +620,7 @@ jobs:
       # Batch usage) is written into the cell gate-report's `cost` (owner decision 9).
       - name: "Tear down ${{ inputs.target }} / redis-${{ inputs.redis }} and decide the cell"
         if: always()
+        # The runner separates Preview qualification from mandatory cleanup; no error is swallowed.
         env:
           HONUA_IAC_DIR: ${{ github.workspace }}/_honua-iac
           HONUA_CLOUD_PROVISION_MARKER: ${{ runner.temp }}/honua-cloud-provision-attempted
@@ -647,6 +648,23 @@ jobs:
                 --journey-dir "$RUNNER_TEMP/journey-upload")
           if [ "${{ inputs.require_real }}" = "true" ]; then ARGS+=(--require-real); fi
           python e2e/run_cloud.py "${ARGS[@]}"
+
+      - name: Refuse incomplete cleanup on every topology
+        if: always()
+        run: |
+          python3 - <<'PYCODE'
+          import json
+          import sys
+          from pathlib import Path
+          sys.path.insert(0, "e2e")
+          from cloud_journey import cleanup_failure
+          report = json.loads(Path("e2e/gate-report-cloud.json").read_text())
+          problem = cleanup_failure(report)
+          if problem:
+              raise SystemExit(problem)
+          if report.get("cost", {}).get("status") == "fail":
+              raise SystemExit("run cost ceiling exceeded")
+          PYCODE
 
       - name: Upload cloud gate-report (per cell)
         if: always()

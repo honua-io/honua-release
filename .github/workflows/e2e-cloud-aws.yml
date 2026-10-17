@@ -567,7 +567,7 @@ jobs:
                     requestedScope:{target:$target,redis:$redis,runIacLive:($iac == "true")}}
               | if .status == "pass" and $full != "true" then
                   .status = "blocked"
-                  | .why = "focused dispatch is diagnostic only; all six GA target x Redis cells are required for certification"
+                  | .why = "focused dispatch is diagnostic only; all four GA target x Redis cells are required for certification"
                 else . end' \
              merged.json > out/gate-report-cloud.json
 

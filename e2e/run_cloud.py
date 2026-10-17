@@ -386,6 +386,7 @@ def teardown_phase(state: dict, journey: dict, target, *, reference_endpoint: st
         report["journeyBlockedBy"] = journey.get("blockedBy", [])
     cost_unavailable = None
     report["teardown"] = {"attempted": False, "completed": False}
+    report["provisionAttempted"] = bool(state.get("provisionAttempted"))
     if not state.get("provisionAttempted"):
         # Self-skipped, blocked, or never started: nothing was deployed, so nothing is destroyed.
         state["destroyed"] = False
@@ -591,6 +592,7 @@ def run(target_name: str, require_real: bool, reference_endpoint: str | None,
                     raise RuntimeError("run-owned tenant secret cleanup failed") from None
                 report["status"] = "fail"
                 report["why"] = f"run-owned tenant secret cleanup failed: {type(error).__name__}"
+                report.setdefault("cleanupFailures", []).append("tenant-secret-delete-failed")
     return report
 
 
@@ -1521,6 +1523,7 @@ def _phase_teardown(args) -> int:
             forget_secret(name)
         except Exception as error:
             problems.append(f"{name} could not be deleted: {type(error).__name__}")
+            report.setdefault("cleanupFailures", []).append("owned-secret-delete-failed")
     if problems:
         report["status"] = "fail"
         report["why"] = "; ".join(filter(None, [report.get("why"), *problems]))
@@ -1535,6 +1538,11 @@ def _phase_teardown(args) -> int:
     report.setdefault("evidence_url", os.environ.get("HONUA_RUN_URL", ""))
     REPORT_PATH.write_text(json.dumps(report, indent=2) + "\n", encoding="utf-8")
     _print_report(report)
+    if args.target in cloud_journey.PREVIEW_TARGETS:
+        # Keep the qualification outcome in the receipt. Only its informational verdict is
+        # tolerated; cleanup and cost failures remain hard process/workflow failures.
+        return int(cloud_journey.cleanup_failure(report) is not None
+                   or report.get("cost", {}).get("status") == "fail")
     return 1 if report["status"] == "fail" else 0
 
 

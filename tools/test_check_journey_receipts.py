@@ -142,12 +142,12 @@ def test_hand_built_fixtures_validate_against_owned_schema():
         validator.validate(failed_receipt(cell))
 
 
-def test_all_six_exact_candidate_cells_pass_and_record_driver(intake):
+def test_all_four_exact_candidate_cells_pass_and_record_driver(intake):
     intake.write(checker.GA_CELLS[0], drivers=["genuine-model"])
     result = intake.evaluate()
     assert result["status"] == "pass"
     ga = [r for r in result["cells"] if r["counted"]]
-    assert len(ga) == 6
+    assert len(ga) == 4
     assert ga[0]["drivers"] == ["genuine-model"]
     assert ga[0]["attempts"][0]["completedAt"] == STAMP
     assert ga[1]["drivers"] == ["deterministic"]
