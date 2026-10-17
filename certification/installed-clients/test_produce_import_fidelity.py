@@ -312,3 +312,14 @@ def test_github_and_cloud_credentials_never_enter_the_sdk_consumer_environment()
     actual = launch.call_args.kwargs["env"]
     assert not {"GH_TOKEN", "GITHUB_TOKEN", "AWS_ACCESS_KEY_ID", "AWS_SECRET_ACCESS_KEY"} & actual.keys()
     assert actual["IMPORT_FIDELITY_API_KEY"] == "candidate-application-key"
+
+
+def test_fresh_source_reads_request_true_curves_alongside_all_zm_ordinates():
+    metadata = {"fields": [{"name": "OBJECTID", "type": "esriFieldTypeOID"}]}
+    curve = {"curvePaths": [[[0, 0, 10, 100], {"c": [[10, 0, 30, 300], [5, 5, 20, 200]]}]]}
+    sdk = mock.Mock()
+    sdk.call.side_effect = [metadata, 1, [1], {"features": [{"attributes": {"OBJECTID": 1}, "geometry": curve}]}]
+    captured = producer.read_snapshot(sdk, "https://source.example/FeatureServer", 0)
+    query = sdk.call.call_args.kwargs["query"]
+    assert query["returnTrueCurves"] is True and query["returnZ"] is True and query["returnM"] is True
+    assert captured["features"][0]["geometry"] == curve

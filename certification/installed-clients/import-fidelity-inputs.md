@@ -143,9 +143,22 @@ combined client cell requires every independent comparison to succeed.
 
 Existing native workflows do not yet emit this response/attestation contract. An
 absent native response is therefore blocked; this document does not establish
-native qualification. SDK pin `1.11.0` also omits explicit `DataCommitted` from its
-progress model and a `returnTrueCurves` query option. The producer refuses to infer
-false commit state or treat densified shapes as true curves. A suitable published
-pin and real input replay remain prerequisites. The fixed geometry/catalog mapping
-on server trunk likewise needs its own immutable image and measured readback;
-source commits and closed issues alone are not candidate proof.
+native qualification. SDK pin `1.11.0` lacks the `returnTrueCurves` query option. The producer
+requests that option and refuses to treat densified shapes as true curves; a
+suitable actual published pin and real input replay remain prerequisites.
+
+`DataCommitted` is internal import-result state on the server, not a current job
+progress wire member. The producer does not invent that field or infer commit
+state from the cancel endpoint's immediate acknowledgement. It requires observed
+partial transfer while the existing session import lease is held, then waits for
+the worker lease to end before comparing the complete prior physical fingerprint
+and fresh published readback. The lease survives commit through publication,
+attachments and reconciliation. A worker still running, a wrong lease probe, or a
+postcommit mutation therefore cannot pass cancellation; only then may an explicit
+retry import and verify every record. An injected failure likewise must end its
+worker lease and preserve all prior data. All work remains confined to the owned
+disposable stack.
+
+The fixed geometry/catalog mapping on server trunk likewise needs its own
+immutable image and measured readback; source commits and closed issues alone
+are not candidate proof.

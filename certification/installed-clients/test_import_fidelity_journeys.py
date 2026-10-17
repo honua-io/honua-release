@@ -124,25 +124,32 @@ def test_cancel_requested_is_not_enough_must_observe_cancelled_before_commit(sco
     lane.states["bounded-large-data"] = {"source": snapshot(), "spec": {"serviceUrl": "https://source.example/FeatureServer", "layerId": 2}}
     score.record("fixture.bounded-large-data", lambda: "unit input")
     with mock.patch.object(lane, "start", return_value="real-shaped-job"), mock.patch.object(lane, "fingerprint", return_value="2:before"), mock.patch.object(
-            lane, "wait", return_value={"status": terminal, "dataCommitted": False}):
-        lane.sdk.call.return_value = {"status": "TransferringFeatures"}
+            lane, "wait", return_value={"status": terminal}), mock.patch.object(lane, "lease_free", side_effect=[True, False]):
+        lane.sdk.call.return_value = {"jobId": "real-shaped-job", "status": "InsertingFeatures", "featuresProcessed": 1}
         score.record("journey.cancellation-recovery", lane.cancellation)
     assert score.cells["journey.cancellation-recovery"]["verdict"] == "fail"
 
 
-def test_missing_published_progress_field_cannot_mean_false(score):
+def test_missing_wire_commit_field_requires_worker_cessation_and_measured_prior_data(score):
     lane = lane_with_points(score)
-    with mock.patch.object(lane, "start", return_value="job"), mock.patch.object(lane, "fingerprint", return_value="2:before"), mock.patch.object(
-            lane, "wait", return_value={"status": "Failed"}):
+    observations = []
+    def fingerprint(table):
+        observations.append("fingerprint")
+        return "2:before"
+    def release(table):
+        observations.append("worker-lease-ended")
+    with mock.patch.object(lane, "start", return_value="job"), mock.patch.object(lane, "fingerprint", side_effect=fingerprint), mock.patch.object(
+            lane, "wait", return_value={"status": "Failed"}), mock.patch.object(lane, "wait_for_lease_release", side_effect=release), mock.patch.object(
+            producer, "read_snapshot", return_value=lane.states["points"]["source"]):
         score.record("fixture.injected-failure", lane.injected_failure)
-    assert score.cells["fixture.injected-failure"]["verdict"] == "blocked"
-    assert "DataCommitted" in score.cells["fixture.injected-failure"]["reason"]
+    assert score.cells["fixture.injected-failure"]["verdict"] == "pass"
+    assert observations == ["fingerprint", "worker-lease-ended", "fingerprint"]
 
 
 def test_failed_overwrite_must_preserve_every_prior_row(score):
     lane = lane_with_points(score)
     with mock.patch.object(lane, "start", return_value="job"), mock.patch.object(lane, "fingerprint", side_effect=["2:before", "1:lost"]), mock.patch.object(
-            lane, "wait", return_value={"status": "Failed", "dataCommitted": False}):
+            lane, "wait", return_value={"status": "Failed"}), mock.patch.object(lane, "wait_for_lease_release"):
         score.record("fixture.injected-failure", lane.injected_failure)
     assert score.cells["fixture.injected-failure"]["verdict"] == "fail"
     assert "retained every prior row" in score.cells["fixture.injected-failure"]["reason"]
@@ -257,3 +264,56 @@ def test_gdal_success_exit_cannot_hide_missing_or_truncated_measured_output(scor
     cell = score.cells["dependency.server-4420"]
     assert cell["verdict"] == "fail" and cell["executed"] is True
     assert "absent, empty or failed" in cell["reason"] or "every imported feature" in cell["reason"]
+
+
+def cancellation_lane(score):
+    lane = lane_with_points(score)
+    lane.states["bounded-large-data"] = {"source": snapshot(), "spec": {"serviceUrl": "https://source.example/FeatureServer", "layerId": 2}}
+    score.record("fixture.bounded-large-data", lambda: "unit input")
+    lane.sdk.call.side_effect = [
+        {"jobId": "job", "status": "InsertingFeatures", "featuresProcessed": 1},
+        {"jobId": "job", "message": "Cancellation requested"},
+        {"jobId": "job", "status": "Cancelled"}]
+    return lane
+
+
+def test_cancel_endpoint_acknowledgement_cannot_pass_before_worker_lease_ends(score):
+    lane = cancellation_lane(score)
+    with mock.patch.object(lane, "start", return_value="job"), mock.patch.object(lane, "fingerprint", return_value="2:prior") as fingerprint, mock.patch.object(
+            lane, "lease_free", side_effect=[True, False]), mock.patch.object(lane, "wait", return_value={"status": "Cancelled"}), mock.patch.object(
+            lane, "wait_for_lease_release", side_effect=ValueError("cancel acknowledgement arrived before worker lease release")), mock.patch.object(lane, "complete") as recover:
+        score.record("journey.cancellation-recovery", lane.cancellation)
+    assert score.cells["journey.cancellation-recovery"]["verdict"] == "fail"
+    assert fingerprint.call_count == 1
+    recover.assert_not_called()
+
+
+def test_postcommit_cancel_mutation_fails_even_after_worker_lease_ends(score):
+    lane = cancellation_lane(score)
+    with mock.patch.object(lane, "start", return_value="job"), mock.patch.object(lane, "fingerprint", side_effect=["2:prior", "2501:committed"]), mock.patch.object(
+            lane, "lease_free", side_effect=[True, False]), mock.patch.object(lane, "wait", return_value={"status": "Cancelled"}), mock.patch.object(
+            lane, "wait_for_lease_release"), mock.patch.object(lane, "complete") as recover:
+        score.record("journey.cancellation-recovery", lane.cancellation)
+    cell = score.cells["journey.cancellation-recovery"]
+    assert cell["verdict"] == "fail" and "after worker cessation" in cell["reason"]
+    recover.assert_not_called()
+
+
+def test_wrong_import_lease_key_cannot_qualify_from_processing_status_alone(score):
+    lane = cancellation_lane(score)
+    with mock.patch.object(lane, "start", return_value="job"), mock.patch.object(lane, "fingerprint", return_value="2:prior"), mock.patch.object(
+            lane, "lease_free", return_value=True), mock.patch.object(journeys.time, "monotonic", side_effect=[0, 31]):
+        score.record("journey.cancellation-recovery", lane.cancellation)
+    cell = score.cells["journey.cancellation-recovery"]
+    assert cell["verdict"] == "fail" and "held its lease" in cell["reason"]
+    assert lane.sdk.call.call_count == 1
+
+
+def test_worker_lease_probe_is_bounded_and_unknown_results_fail(score):
+    lane = lane_with_points(score)
+    with mock.patch.object(lane, "lease_free", return_value=False), mock.patch.object(journeys.time, "monotonic", side_effect=[0, 31]):
+        with pytest.raises(ValueError, match="before worker lease release"):
+            lane.wait_for_lease_release("authored_points_unit")
+    with mock.patch.object(producer, "sql", return_value="unknown"):
+        with pytest.raises(ValueError, match="unknown result"):
+            lane.lease_free("authored_points_unit")

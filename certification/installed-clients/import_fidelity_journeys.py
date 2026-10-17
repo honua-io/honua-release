@@ -436,43 +436,74 @@ class Journeys:
         require(re.fullmatch(r"[a-z0-9_]+", table), "invalid generated target table")
         return self.p.sql(self.compose, 'SELECT count(*)::text || \':\' || md5(coalesce(string_agg(row_to_json(t)::text,\'\' ORDER BY row_to_json(t)::text),\'\')) FROM import_fidelity."' + table + '" t;')
 
+    def lease_free(self, table):
+        require(re.fullmatch(r"[a-z0-9_]+", table), "invalid generated import-lease target")
+        # The real importer takes this session lease before source transfer and releases
+        # it in finally, after commit/rollback, publication, attachments and reconciliation.
+        # psql's short-lived session releases a successful probe automatically on exit.
+        key = f'honua.geoservices-import:"import_fidelity"."{table}"'
+        result = self.p.sql(self.compose, f"SELECT pg_try_advisory_lock(hashtextextended('{key}',0));")
+        require(result in {"t", "f"}, "independent import lease probe returned an unknown result")
+        return result == "t"
+
+    def wait_for_lease_release(self, table):
+        deadline = time.monotonic() + 30
+        while not self.lease_free(table):
+            require(time.monotonic() < deadline, "cancel/failure acknowledgement arrived before worker lease release")
+            time.sleep(0.1)
+
     def cancellation(self):
         prior, large = self.ready("points"), self.ready("bounded-large-data")
         table = prior["request"]["tableName"]
         before = self.fingerprint(table)
         request = self.request(large["spec"], table, prior["request"]["serviceName"], overwriteExisting=True, batchSize=1)
+        require(self.lease_free(table), "prior import worker still owns the target before cancellation test")
         job_id = self.start(request)
-        observed = self.sdk.call("GetGeoservicesImportJobStatusAsync", baseUrl=self.base, candidate=True, arguments=[job_id])
-        require(str(observed["status"]).lower() not in {"completed", "failed", "cancelled", "needsreview"},
-                "cancellation requires observing a nonterminal real job")
+        deadline = time.monotonic() + 30
+        while True:
+            observed = self.sdk.call("GetGeoservicesImportJobStatusAsync", baseUrl=self.base, candidate=True, arguments=[job_id])
+            require(observed.get("jobId") == job_id, "cancellation progress identity differs from the started job")
+            status = str(observed["status"]).lower()
+            require(status not in {"completed", "failed", "cancelled", "needsreview"},
+                    "cancellation requires observing partial real transfer before termination")
+            processed = observed.get("featuresProcessed", 0)
+            if status in {"retrievingfeatures", "insertingfeatures"} and 0 < processed < large["source"]["count"] and not self.lease_free(table):
+                break
+            require(time.monotonic() < deadline, "did not observe actual partial transfer while the import worker held its lease")
+            time.sleep(0.1)
         self.sdk.call("CancelGeoservicesImportJobAsync", baseUrl=self.base, candidate=True, arguments=[job_id])
+        # Cancelled is an endpoint acknowledgement until the real session lease ends.
         cancelled = self.wait(job_id)
-        if "dataCommitted" not in cancelled:
-            raise PrerequisiteMissing("published SDK progress model does not expose explicit DataCommitted; cancellation cannot qualify")
-        require(str(cancelled["status"]).lower() == "cancelled" and cancelled.get("dataCommitted") is False,
-                "cancellation did not confirm cancelled before commit")
-        self.p.require_equal(before, self.fingerprint(table), "cancelled overwrite preserves every prior physical row")
+        require(str(cancelled["status"]).lower() == "cancelled", "cancel request did not produce the expected cancelled outcome")
+        self.wait_for_lease_release(table)
+        cancelled = self.sdk.call("GetGeoservicesImportJobStatusAsync", baseUrl=self.base, candidate=True, arguments=[job_id])
+        require(cancelled.get("jobId") == job_id and str(cancelled["status"]).lower() == "cancelled",
+                "worker completion changed the cancellation into a non-cancelled outcome")
+        require(cancelled.get("dataCommitted") is not True, "cancelled worker explicitly reported committed data")
+        self.p.require_equal(before, self.fingerprint(table), "cancelled overwrite preserves every prior physical row after worker cessation")
+        retained = self.p.read_snapshot(self.sdk, prior["targetUrl"], prior["targetLayer"], candidate=True)
+        self.parity({**prior, "target": retained})
         recovered = self.complete({**request, "batchSize": 100})
         recovered.update(source=large["source"])
         self.parity(recovered)
         self.score.provenance["cancellationRecovery"] = {"cancelledJobId": job_id, "recoveryJobId": recovered["jobId"],
-                                                         "priorFingerprint": before, "cancelled": cancelled}
+                                                         "priorFingerprint": before, "cancelled": cancelled, "partialTransferObserved": observed,
+                                                         "workerLeaseHeldBeforeCancel": True, "workerLeaseReleasedAfterCancel": True}
         # Subsequent cases use the original points table; restore it through the same SDK path.
         restored = self.complete({**prior["request"], "overwriteExisting": True})
         restored.update(source=prior["source"], spec=prior["spec"])
         self.parity(restored)
         self.states["points"] = restored
-        return "observed cancellation before commit preserved prior data; explicit fresh retry imported every row without duplicates"
+        return "actual partial transfer cancelled; worker lease ended with every prior row/publication retained; fresh retry imported all rows without duplicates"
 
     def injected_failure(self):
         state = self.ready("points")
         request = {**state["request"], "overwriteExisting": True, "whereClause": "__missing_fidelity_column__ = 1"}
         before = self.fingerprint(request["tableName"])
         failed = self.wait(self.start(request))
-        if "dataCommitted" not in failed:
-            raise PrerequisiteMissing("published SDK progress model does not expose explicit DataCommitted; injected failure cannot qualify")
-        require(str(failed["status"]).lower() in {"failed", "needsreview"} and failed.get("dataCommitted") is False,
+        require(str(failed["status"]).lower() in {"failed", "needsreview"} and failed.get("dataCommitted") is not True,
                 "injected invalid source predicate must fail explicitly without committing")
+        self.wait_for_lease_release(request["tableName"])
         self.p.require_equal(before, self.fingerprint(request["tableName"]), "failed overwrite retained every prior row")
         fresh = self.p.read_snapshot(self.sdk, state["targetUrl"], state["targetLayer"], candidate=True)
         self.p.require_equal(rows(state["source"]), rows(fresh), "failed overwrite retained published values")

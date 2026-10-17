@@ -329,7 +329,7 @@ def read_snapshot(sdk: Sdk, service: str, layer: int, *, candidate: bool = False
         batch = ids[offset:offset + 200]
         document = sdk.call("query", baseUrl=service, layerId=layer, candidate=candidate,
                             query={"objectIds": batch, "outFields": "*", "outSR": 4326,
-                                   "returnZ": True, "returnM": True, "returnGeometry": True})
+                                   "returnZ": True, "returnM": True, "returnTrueCurves": True, "returnGeometry": True})
         if document.get("exceededTransferLimit") is True or len(document.get("features", [])) != len(batch):
             raise ProducerError("ID-batch query truncated, omitted, or duplicated records")
         found = [feature["attributes"][oid] for feature in document["features"]]
