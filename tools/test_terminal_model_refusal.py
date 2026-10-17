@@ -157,12 +157,15 @@ def _plan_arguments():
 GP={"code":"unavailable","missingDependency":"redis","capability":"jobs.runner"}
 
 
-@pytest.mark.parametrize("mutation", [None,"on","other-dependency","available","other-capability","job"])
+@pytest.mark.parametrize("mutation", [None,"on","other-dependency","available","other-capability","job","resource-uri","created-at","encoded-uri"])
 def test_actual_tool_refusal_must_match_independent_live_dependency_manifest(mutation):
     problem=dict(GP)
     if mutation=="other-dependency":problem["missingDependency"]="postgres"
     if mutation=="other-capability":problem["capability"]="operations.proposals"
     if mutation=="job":problem["jobId"]="accepted"
+    if mutation=="resource-uri":problem["resourceUri"]="honua://jobs/accepted"
+    if mutation=="created-at":problem["jobCreatedAt"]="2026-10-17T10:00:00Z"
+    if mutation=="encoded-uri":problem["encoded"]=json.dumps({"nested":{"resourceUri":"honua://jobs/accepted"}})
     driver,engine,state=_driver(cell="aws-ecs/redis-on" if mutation=="on" else "aws-ecs/redis-off",
                                problem=problem,available=mutation=="available")
     request={"profile":r.PROFILE,"stage":"durable-refusal","action":{"kind":"tool_call","tool":"honua_validate_plan","arguments":_plan_arguments()}}
@@ -410,3 +413,28 @@ def test_driver_rejects_a_retained_seed_manifest_changed_after_setup(tmp_path,mo
     fixture.write_text(json.dumps({**_seed_manifest(),"changed":True}))
     with pytest.raises(live_driver.DriverError,match="serving fixture"):
         live_driver._rehydrate({"workspaceId":"unit"})
+
+
+@pytest.mark.parametrize("cell", sorted(r.CELLS))
+def test_setup_prerequisite_does_not_require_raw_gp_execution_before_actual_profile(tmp_path, cell):
+    path, receipt = _prerequisite(tmp_path, cell)
+    receipt['stages'][4].update(status='blocked')
+    receipt['stages'][4].pop('topologyRefusal')
+    path.write_text(json.dumps(receipt))
+    before = path.read_bytes()
+    proof = validate(path, tmp_path, cell)
+    assert proof['status'] == 'pass' and proof['sourceStatus'] == 'blocked'
+    assert path.read_bytes() == before
+    # This is a deployment prerequisite only; it never qualifies the full journey or GP.
+    with pytest.raises(c.CanaryError, match='not green'):
+        c.validate_deterministic_receipt(path, manifest=c.load_manifest(MANIFEST),
+            journey=c.load_journey(JOURNEY), repo_root=tmp_path, cell=cell)
+
+
+@pytest.mark.parametrize("field", ["jobId", "resourceUri", "jobCreatedAt", "operationId"])
+def test_blocked_raw_gp_stage_cannot_hide_execution_behind_bounded_prerequisite(tmp_path, field):
+    path, receipt = _prerequisite(tmp_path)
+    receipt['stages'][4].update(status='blocked', **{field: 'actually-executed'})
+    path.write_text(json.dumps(receipt))
+    with pytest.raises(c.CanaryError, match='contradictory GP execution'):
+        validate(path, tmp_path)

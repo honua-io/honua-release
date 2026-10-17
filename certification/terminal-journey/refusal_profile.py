@@ -202,7 +202,7 @@ def execute(driver, request):
         # An error containing a job or operation identity is contradictory evidence, not refusal.
         def has_execution_id(value):
             if isinstance(value, dict):
-                return any(key in {"jobId", "operationId", "operationInstanceId", "jobStatus"} and item
+                return any(key in {"jobId", "operationId", "operationInstanceId", "jobStatus", "resourceUri", "jobCreatedAt"} and item
                            or has_execution_id(item) for key, item in value.items())
             if isinstance(value, str):
                 try:
