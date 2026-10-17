@@ -268,7 +268,7 @@ jobs:
 
       - name: Upload suppression evidence
         if: always()
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: contract-suppression-evidence
           path: suppression-evidence.json
@@ -419,7 +419,7 @@ jobs:
             jq -r '.gates[] | "| \(.gate) | \(.decided) | \(.why) |"' out/gate-report.json;
           } >> "$GITHUB_STEP_SUMMARY"
       - name: Upload gate-report
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: contract-gate-report
           path: out/gate-report.json

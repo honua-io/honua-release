@@ -97,7 +97,7 @@ jobs:
       # Retain exact verified bytes before exercising the consumer path. A dry run only
       # publishes a run artifact; promotion already publishes the real lock as a release asset.
       - name: Retain the candidate rollback target
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: retained-rollback-target
           path: _rollback-target/platform-lock.json
@@ -185,7 +185,7 @@ jobs:
 
       - name: Upload immutable rollback packet
         if: always()
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: one-operation-rollback-receipts
           path: out/rollback-certification
