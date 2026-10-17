@@ -157,7 +157,8 @@ class Sdk:
         except (BrokenPipeError, json.JSONDecodeError) as exc:
             raise ProducerError("SDK consumer exited or returned invalid JSON") from exc
         if not response.get("ok"):
-            raise ProducerError(f"{operation}: {response.get('errorType')} code={response.get('code')}")
+            raise ProducerError(f"{operation}: {response.get('errorType')} httpStatus={response.get('httpStatus')} "
+                                f"problemType={response.get('problemType')} code={response.get('code')}")
         return response["result"]
 
     def close(self):

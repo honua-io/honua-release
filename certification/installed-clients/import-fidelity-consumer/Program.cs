@@ -2,6 +2,7 @@ using System.Reflection;
 using System.Security.Cryptography;
 using System.Text.Json;
 using System.Text.Json.Serialization;
+using Honua.Sdk.Abstractions;
 using Honua.Sdk.Admin;
 using Honua.Sdk.GeoServices.FeatureServer;
 using Honua.Sdk.GeoServices.FeatureServer.Exceptions;
@@ -101,9 +102,17 @@ while (await Console.In.ReadLineAsync() is { } line)
     catch (Exception error) when (error is not OutOfMemoryException)
     {
         var actual = error is TargetInvocationException invocation ? invocation.InnerException! : error;
+        var problemType = (actual as HonuaException)?.ProblemDetails?.Type;
+        // Keep bounded identifiers; response bodies, occurrence details and exception messages
+        // may contain request data and never enter certification evidence.
+        if (problemType is not { Length: > 0 and <= 160 } ||
+            problemType.Any(character => !char.IsAsciiLetterOrDigit(character) && !":/._-#".Contains(character)))
+            problemType = null;
         Console.WriteLine(JsonSerializer.Serialize(new
         {
             ok = false, errorType = actual.GetType().Name,
+            httpStatus = (actual as HonuaException)?.HttpStatus,
+            problemType,
             code = actual is HonuaFeatureServerException fs ? fs.GeoServicesErrorCode : null
         }, json));
     }
