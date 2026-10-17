@@ -447,6 +447,7 @@ def teardown_phase(state: dict, journey: dict, target, *, reference_endpoint: st
         except Exception as e:
             report.update(status="fail", why=report.get("why", "") +
                           f"; journey cleanup failed: {type(e).__name__}")
+            report.setdefault("cleanupFailures", []).append("journey-cleanup-failed")
         finally:
             if "s10" in state:
                 # The staged S10 fixture lives in the operator-owned bucket, not in the cell: delete
@@ -1470,8 +1471,10 @@ def _phase_teardown(args) -> int:
     marker = os.environ.get("HONUA_CLOUD_PROVISION_MARKER")
     restored = bool(marker) and Path(marker).is_file()
     problems = []
+    cleanup_unconfirmed = False
     if state is None or state.get("cell") != cell:
         problems.append("provision handoff missing")
+        cleanup_unconfirmed = True
         state = {"cell": cell, "redis": f"redis-{args.redis}", "requireReal": args.require_real,
                  "startedAt": cloud_journey.now(), "provisionAttempted": restored,
                  "report": {"gate": "cloud-parity", "target": args.target, "redis": f"redis-{args.redis}",
@@ -1481,6 +1484,9 @@ def _phase_teardown(args) -> int:
     elif (state.get("runId"), state.get("runAttempt"), state.get("candidateDigest")) != (
             *_run_identity(), cloud_journey.candidate_digest()):
         problems.append("provision handoff is bound to another run or candidate")
+        cleanup_unconfirmed = True
+    if not isinstance(state.get("provisionAttempted"), bool):
+        cleanup_unconfirmed = True
     if journey and journey.get("cell") != cell:
         problems.append("journey handoff is for another cell")
         journey = {}
@@ -1513,6 +1519,9 @@ def _phase_teardown(args) -> int:
     report = teardown_phase(state, journey, target, reference_endpoint=args.reference_endpoint,
                             cost_ceiling_usd=args.cost_ceiling_usd, cost_report=args.cost_report,
                             destroy=restored)
+    if cleanup_unconfirmed and not restored:
+        # Absence of both handoff and restored state is not evidence that apply never ran.
+        report.setdefault("cleanupFailures", []).append("provisioning-obligation-unconfirmed")
     if stranded:
         problems.append("the cell provisioned infrastructure but its sealed Terraform state never "
                         "reached teardown; reap it by hand (honua-iac#142)")

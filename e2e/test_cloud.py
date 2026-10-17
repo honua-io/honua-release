@@ -2576,9 +2576,10 @@ def _phase_env(monkeypatch, run_id="phase381"):
     return run_cloud.cloud_journey.cell_dir("aws-ecs/redis-off")
 
 
+@pytest.mark.parametrize("cleanup_raises", [False, True])
 @pytest.mark.parametrize("preview", [False, True])
 @pytest.mark.parametrize("tenant_fixture", [False, True])
-def test_teardown_job_fails_closed_when_provisioned_state_never_arrives(monkeypatch, tenant_fixture, preview):
+def test_teardown_job_fails_closed_when_provisioned_state_never_arrives(monkeypatch, tenant_fixture, preview, cleanup_raises):
     monkeypatch.setenv("HONUA_CLOUD_TENANT_FIXTURE", "true" if tenant_fixture else "false")
     cj = run_cloud.cloud_journey
     directory = _phase_env(monkeypatch)
@@ -2589,6 +2590,8 @@ def test_teardown_job_fails_closed_when_provisioned_state_never_arrives(monkeypa
         monkeypatch.setattr(run_cloud, "REGISTRY", {**run_cloud.REGISTRY, "aws-ecs": lambda **kw: stub})
         monkeypatch.setattr(run_cloud, "REPORT_PATH", Path(scratch) / "report.json")
         monkeypatch.setattr(cj, "check_cost", lambda *a, **k: {"status": "pass"})
+        if cleanup_raises:
+            monkeypatch.setattr(cj, "cleanup", mock.Mock(side_effect=OSError("cleanup fixture")))
         monkeypatch.setenv("HONUA_CLOUD_PROVISION_MARKER", str(Path(scratch) / "marker"))
         forgotten = []
         monkeypatch.setattr(run_cloud, "forget_secret", lambda name: forgotten.append(name))
@@ -2614,8 +2617,10 @@ def test_teardown_job_fails_closed_when_provisioned_state_never_arrives(monkeypa
             forgotten.clear()
             # Restored state: destroy, then delete the state key.
             Path(scratch, "marker").write_text("")
-            assert run_cloud.main(argv) == (0 if preview else 1)
+            assert run_cloud.main(argv) == (0 if preview and not cleanup_raises else 1)
             assert json.loads(run_cloud.REPORT_PATH.read_text())["status"] == "fail"  # qualification is retained
+            if cleanup_raises:
+                assert "journey-cleanup-failed" in json.loads(run_cloud.REPORT_PATH.read_text())["cleanupFailures"]
             assert stub.torn_down == 1 and forgotten == [*expected_secrets,
                                                          run_cloud.state_secret_name("aws-ecs/redis-off")]
             # A handoff from another run attempt cannot be adopted.
@@ -5260,3 +5265,32 @@ def test_preview_workflow_cannot_tolerate_failed_cleanup(tmp_path, change, expec
     result = subprocess.run(["bash", "-c", guard["run"]], cwd=tmp_path,
                             env={**os.environ, "PYTHONPATH": str(E2E_DIR)}, capture_output=True, text=True)
     assert result.returncode == expected, result.stderr
+
+
+@pytest.mark.parametrize("handoff", ["missing", "stale", "confirmed-no-provision"])
+def test_preview_teardown_refuses_unconfirmed_missing_state(monkeypatch, tmp_path, handoff):
+    cj = run_cloud.cloud_journey
+    directory = _phase_env(monkeypatch, run_id="preview-missing-state")
+    monkeypatch.setattr(cj, "PREVIEW_TARGETS", ("aws-ecs",))
+    stub = _PhaseStub(tmp_path)
+    monkeypatch.setattr(run_cloud, "REGISTRY", {**run_cloud.REGISTRY, "aws-ecs": lambda **kw: stub})
+    monkeypatch.setattr(run_cloud, "REPORT_PATH", tmp_path / "report.json")
+    monkeypatch.setattr(run_cloud, "forget_secret", lambda *_: None)
+    monkeypatch.setenv("HONUA_CLOUD_PROVISION_MARKER", str(tmp_path / "absent-marker"))
+    if handoff != "missing":
+        state = {"cell": "aws-ecs/redis-off", "redis": "redis-off", "runId": "preview-missing-state",
+                 "runAttempt": "2" if handoff == "stale" else "1", "candidateDigest": cj.candidate_digest(),
+                 "startedAt": cj.now(), "provisionAttempted": False,
+                 "report": {"cell": "aws-ecs/redis-off", "status": "fail", "journeyAttempts": []}}
+        run_cloud._write_json(directory / run_cloud.HANDOFF_NAME, state)
+    try:
+        result = run_cloud.main(["--phase", "teardown", "--target", "aws-ecs", "--redis", "off"])
+        report = json.loads(run_cloud.REPORT_PATH.read_text())
+        assert stub.torn_down == 0
+        assert result == (0 if handoff == "confirmed-no-provision" else 1)
+        assert report["status"] == "fail"  # informational qualification never becomes a pass
+        if handoff != "confirmed-no-provision":
+            assert "provisioning-obligation-unconfirmed" in report["cleanupFailures"]
+            assert cj.cleanup_failure(report) is not None
+    finally:
+        shutil.rmtree(cj.EVIDENCE / "preview-missing-state", ignore_errors=True)
