@@ -323,3 +323,35 @@ def test_fresh_source_reads_request_true_curves_alongside_all_zm_ordinates():
     query = sdk.call.call_args.kwargs["query"]
     assert query["returnTrueCurves"] is True and query["returnZ"] is True and query["returnM"] is True
     assert captured["features"][0]["geometry"] == curve
+
+
+def test_snapshot_respects_real_source_cap_below_default_batch_size():
+    metadata = {"objectIdField": "OBJECTID", "maxRecordCount": 2,
+                "fields": [{"name": "OBJECTID", "type": "esriFieldTypeOID"}]}
+    class CappedSource:
+        def __init__(self):
+            self.batches = []
+        def call(self, operation, **arguments):
+            if operation == "layer":
+                return metadata
+            if operation == "count":
+                return 5
+            if operation == "ids":
+                return [5, 3, 1, 4, 2]
+            if operation == "query":
+                batch = arguments["query"]["objectIds"]
+                self.batches.append(batch)
+                assert len(batch) <= 2
+                return {"features": [{"attributes": {"OBJECTID": oid}} for oid in reversed(batch)]}
+            raise AssertionError(operation)
+    sdk = CappedSource()
+    result = producer.read_snapshot(sdk, "https://source.example/FeatureServer", 0)
+    assert sdk.batches == [[1, 2], [3, 4], [5]]
+    assert result["ids"] == [1, 2, 3, 4, 5]
+    assert [feature["attributes"]["OBJECTID"] for feature in result["features"]] == result["ids"]
+
+
+@pytest.mark.parametrize("cap", [0, -1, True, "100"])
+def test_unknown_or_invalid_declared_transfer_caps_are_not_silently_replaced(cap):
+    with pytest.raises(producer.ProducerError, match="invalid transfer cap"):
+        producer.query_batch_size({"maxRecordCount": cap})

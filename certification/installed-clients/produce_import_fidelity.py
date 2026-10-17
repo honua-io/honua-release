@@ -316,6 +316,15 @@ def object_id_field(metadata: dict) -> str:
     return identifier
 
 
+def query_batch_size(metadata: dict) -> int:
+    cap = metadata.get("maxRecordCount")
+    if cap is None:
+        return 200
+    if type(cap) is not int or cap <= 0:
+        raise ProducerError("layer advertises an invalid transfer cap")
+    return min(200, cap)
+
+
 def read_snapshot(sdk: Sdk, service: str, layer: int, *, candidate: bool = False, limit: int = 50000, where: str = "1=1") -> dict:
     metadata = sdk.call("layer", baseUrl=service, layerId=layer, candidate=candidate)
     oid = object_id_field(metadata)
@@ -325,8 +334,9 @@ def read_snapshot(sdk: Sdk, service: str, layer: int, *, candidate: bool = False
         raise ProducerError("source/target empty, exceeds the explicit 50000-row bound, or has incomplete/duplicate IDs")
     ids = sorted(ids)
     features = []
-    for offset in range(0, count, 200):
-        batch = ids[offset:offset + 200]
+    size = query_batch_size(metadata)
+    for offset in range(0, count, size):
+        batch = ids[offset:offset + size]
         document = sdk.call("query", baseUrl=service, layerId=layer, candidate=candidate,
                             query={"objectIds": batch, "outFields": "*", "outSR": 4326,
                                    "returnZ": True, "returnM": True, "returnTrueCurves": True, "returnGeometry": True})
@@ -353,8 +363,10 @@ def geojson_snapshot(sdk: Sdk, service: str, layer: int, snapshot: dict, *, cand
     oid = snapshot["objectIdField"].lower()
     field_names = [field["name"].lower() for field in snapshot["metadata"]["fields"] if field["type"] != "esriFieldTypeGeometry"]
     result = []
-    for offset in range(0, len(snapshot["ids"]), 200):
-        batch = snapshot["ids"][offset:offset + 200]
+    metadata = sdk.call("layer", baseUrl=service, layerId=layer, candidate=candidate)
+    size = query_batch_size(metadata)
+    for offset in range(0, len(snapshot["ids"]), size):
+        batch = snapshot["ids"][offset:offset + size]
         document = sdk.call("query", baseUrl=service, layerId=layer, candidate=candidate,
                             query={"objectIds": batch, "outFields": "*", "format": "GeoJson", "outSR": 4326})
         if (document.get("type") != "FeatureCollection" or document.get("exceededTransferLimit") is True
