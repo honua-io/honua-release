@@ -55,7 +55,7 @@
     },
     "demoCanaries": {
       "type": "array",
-      "minItems": 7,
+      "minItems": 2,
       "maxItems": 7,
       "items": {
         "$ref": "#/$defs/run"
@@ -148,6 +148,28 @@
       "items": {
         "$ref": "#/$defs/evidence"
       }
+    },
+    "profile": {
+      "enum": [
+        "ga",
+        "patch"
+      ]
+    },
+    "baseline": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "runId",
+        "lockDigest"
+      ],
+      "properties": {
+        "runId": {
+          "$ref": "#/$defs/runId"
+        },
+        "lockDigest": {
+          "$ref": "#/$defs/digest"
+        }
+      }
     }
   },
   "$defs": {
@@ -214,6 +236,15 @@
         },
         "lockDigest": {
           "$ref": "#/$defs/digest"
+        },
+        "reusedComponents": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
         }
       }
     },
@@ -462,5 +493,52 @@
         }
       }
     }
-  }
+  },
+  "allOf": [
+    {
+      "if": {
+        "required": [
+          "profile"
+        ],
+        "properties": {
+          "profile": {
+            "const": "patch"
+          }
+        }
+      },
+      "then": {
+        "required": [
+          "baseline"
+        ],
+        "properties": {
+          "demoCanaries": {
+            "minItems": 2,
+            "maxItems": 2
+          }
+        }
+      },
+      "else": {
+        "not": {
+          "required": [
+            "baseline"
+          ]
+        },
+        "properties": {
+          "demoCanaries": {
+            "minItems": 7,
+            "maxItems": 7
+          },
+          "evidence": {
+            "items": {
+              "not": {
+                "required": [
+                  "reusedComponents"
+                ]
+              }
+            }
+          }
+        }
+      }
+    }
+  ]
 }

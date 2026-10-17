@@ -198,6 +198,16 @@ def fetch(record: dict[str, Any], gh: GitHub, out: Path) -> None:
     if not _retain(gh, rc, CANDIDATE_ARTIFACT, root, train) or not (root / "platform-lock.json").is_file():
         raise FetchError(f"minting train {rc} has no retained certified candidate lock")
 
+    baseline = record.get("baseline")
+    if baseline is not None:
+        if record.get("profile") != "patch" or not isinstance(baseline, dict):
+            raise FetchError("baseline evidence requires declared patch profile")
+        baseline_run = _run_id(baseline.get("runId"), "baseline runId")
+        baseline_meta = gh.api(f"actions/runs/{baseline_run}")
+        _identity(baseline_meta, gh.repository, default_branch, baseline_run, MINTING_WORKFLOWS, MINTING_EVENTS)
+        if not _retain(gh, baseline_run, CANDIDATE_ARTIFACT, out / "baselines" / baseline_run, baseline_meta):
+            raise FetchError("patch baseline has no authenticated certified candidate artifact")
+
     runs: dict[str, dict[str, Any]] = {rc: train}
     for row in record.get("evidence") or []:
         name = row.get("class") if isinstance(row, dict) else None
@@ -246,7 +256,8 @@ def candidates(promotions: Path, gh: GitHub, *, now: datetime,
             rc = _run_id(record.get("rcTrainRunId"), "rcTrainRunId")
         except (FetchError, ValueError, AttributeError):
             continue
-        if now - burn_start < BURN or published(label):
+        burn = timedelta(hours=12) if record.get("profile") == "patch" else BURN
+        if now - burn_start < burn or published(label):
             continue
         pending = [run for run in requests
                    if str(run.get("display_title", "")).startswith(f"promote {label} ")

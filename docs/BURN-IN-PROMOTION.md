@@ -225,3 +225,11 @@ minting train's exact signed lock and artifacts as `honua-2026.1.0` (then `honua
 npm, container, Helm and install-manifest channels. Only promotion may move those pointers.
 
 Preview qualification is informational; failed or unknown cleanup, leaked run-owned resources and run cost overruns remain fatal. EKS teardown always executes and its independent workflow/aggregation checks retain the pre-amendment safety bar.
+
+## Owner-approved patch profile (2026-10-17)
+
+First mint stays on trusted trunk. Protect maintenance branches only after an accepted RC and before GA. A patch lock declares `profile: patch`, exact `changedComponents`, and `baselineLockDigest`; its promotion record repeats `profile: patch` and names the authenticated prior certified artifact in `baseline: {runId, lockDigest}`. The checker compares complete component identities, not merely version strings. Require one strict train, at least 12 hours on the actually deployed selected lock, two consecutive scheduled six-hour canaries and mandatory actual AWS update/rollback. GA retains 48 hours and seven canaries. Human approval and App dispatch remain unchanged; promotion publishes the same bytes.
+
+Required evidence classes are unchanged. Changed components need fresh evidence. The conservative initial reuse policy admits only `cite` (server) and `esri-bundle` (server plus JS, .NET and Python SDKs): an evidence row declares the exact policy `reusedComponents`, and its original authenticated receipt carries `componentIdentities` equal to both signed locks. Shared fixtures/content digests must be identical, the receipt must bind the authenticated baseline, and the original completion/expiry and class maximum apply. No security, build, journey, rollback or arbitrary class is reusable. Missing producer allowlists still refuse; this patch does not invent live qualifying producers. Reuse cannot renew freshness.
+
+An end-to-end patch rehearsal, baseline-certified artifact retention, deployed-lock canary producer binding, and maintenance branch protection remain execution obligations under #380/#386. Code tests do not perform them. Before first public RC, use two distinct immutable attested rehearsal builds for actual AWS transitions; GA still requires two distinct certified signed locks. A self-loop never qualifies.

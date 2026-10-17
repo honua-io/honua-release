@@ -246,10 +246,12 @@ def evaluate(
     actual_digest = _digest(lock_path)
     check("lock-digest", isinstance(digest, str) and SHA256_RE.fullmatch(digest) is not None and digest == actual_digest,
           f"recorded={digest!r}; selected={actual_digest}")
+    from patch_promotion_policy import profile, reused_receipt
+    policy = profile(record, _load(lock_path, "selected lock"), evidence_dir)
     burn_start = _time(lock.get("burnStartedAt"), "lock.burnStartedAt")
     age = now - burn_start
-    check("burn-duration", age >= timedelta(hours=48),
-          f"lock burn age is {age.total_seconds() / 3600:.2f}h; required at least 48h")
+    check("burn-duration", age >= timedelta(hours=policy["hours"]),
+          f"lock burn age is {age.total_seconds() / 3600:.2f}h; required at least {policy['hours']}h")
 
     trains = record.get("strictTrains")
     rc_run_id = _run_id(record.get("rcTrainRunId"), "rcTrainRunId")
@@ -314,8 +316,10 @@ def evaluate(
             metadata = _load(root / "run.json", f"{name} metadata")
             expiry = _time(receipt.get("freshUntil"), f"{name} freshUntil")
             tier = declarations[name]
+            reused = reused_receipt(name, row, receipt, metadata, policy, now)
+            bound_digest = reused or digest
             ok &= (row.get("status") == receipt.get("status") == "pass"
-                   and row.get("lockDigest") == receipt.get("lockDigest") == digest
+                   and row.get("lockDigest") == receipt.get("lockDigest") == bound_digest
                    and receipt.get("class") == name and receipt.get("kind") == tier
                    and str(receipt.get("runId")) == run_id
                    and receipt.get("completedAt") == row.get("completedAt")
@@ -327,7 +331,7 @@ def evaluate(
                        <= completed <= _time(metadata.get("updated_at"), "run updated_at"))
                 earliest, latest = train_time - timedelta(hours=24), completed
             else:
-                ok &= burn_start <= completed <= now and row.get("completedAt") == metadata.get("updated_at")
+                ok &= (completed <= now if reused else burn_start <= completed <= now) and row.get("completedAt") == metadata.get("updated_at")
                 earliest, latest = burn_start, completed
             ok &= name in MAX_FRESHNESS and expiry - completed <= MAX_FRESHNESS.get(name, timedelta(0))
             if name in JOURNEYS:
@@ -344,7 +348,8 @@ def evaluate(
     canaries = record.get("demoCanaries")
     if not isinstance(canaries, list):
         raise ReadinessError("demoCanaries must be an array")
-    canary_ok = len(canaries) == 7
+    required_canaries = policy["canaries"]
+    canary_ok = len(canaries) == required_canaries
     times: list[datetime] = []
     ids: list[str] = []
     for row in canaries:
@@ -367,7 +372,7 @@ def evaluate(
         except (ReadinessError, AttributeError):
             canary_ok = False
     canary_ok &= len(set(ids)) == len(ids)
-    if len(times) == 7:
+    if len(times) == required_canaries:
         canary_ok &= times == sorted(times) and times[0] >= burn_start
         canary_ok &= all(timedelta(hours=5, minutes=30) <= b - a <= CANARY_SLOT
                          for a, b in zip(times, times[1:]))
@@ -407,7 +412,7 @@ def evaluate(
         observed_ids = [key[0] for key in observed]
         burn_ok &= len(set(observed_ids)) == len(observed_ids)
         selected = [_canary_key(row, "canary") for row in canaries if isinstance(row, dict)]
-        canary_ok &= len(observed) >= 7 and observed[-7:] == selected
+        canary_ok &= len(observed) >= required_canaries and observed[-required_canaries:] == selected
         # The lock is deployed when burn starts, so its first canary follows within one slot.
         # A burn start claimed earlier than that would shorten the real burn.
         start_ok = bool(observed) and observed[0][1] - burn_start <= CANARY_SLOT
@@ -418,10 +423,10 @@ def evaluate(
           "the lock's first observed canary completed no more than 6h30m after the recorded burn start")
     check("lock-burn-health", bool(burn_ok), burn_detail)
     check("demo-canaries", bool(canary_ok),
-          "seven consecutive passing lock-bound 6-hour canaries, latest no more than 6.5h old")
+          f"{required_canaries} consecutive passing lock-bound 6-hour canaries, latest no more than 6.5h old")
     decision = {
         "schemaVersion": "promotion-readiness.v1", "platformLabel": label,
-        "lockDigest": actual_digest, "rcTrainRunId": rc_run_id,
+        "lockDigest": actual_digest, "rcTrainRunId": rc_run_id, "profile": policy["name"],
         "evaluatedAt": now.isoformat().replace("+00:00", "Z"),
         "status": "pass" if not failures else "refused", "checks": checks,
     }
