@@ -28,9 +28,15 @@ on:
       - .github/workflows/gate-installed-clients.yml
   workflow_dispatch:
     inputs:
+      qualify_import_fidelity:
+        description: Execute the incomplete 142-cell published-SDK qualification (fail closed)
+        required: false
+        type: boolean
+        default: false
       platform_label: { required: false, type: string, default: "dev-local" }
   workflow_call:
     inputs:
+      qualify_import_fidelity: { required: false, type: boolean, default: false }
       candidate_ref: { required: false, type: string, default: "" }
       platform_label: { required: false, type: string, default: "dev-local" }
     outputs:
@@ -69,14 +75,30 @@ jobs:
       - name: Self-test the installed-client gate
         run: |
           python -m pytest certification/installed-clients/test_run.py certification/installed-clients/test_import_fidelity.py \
+            certification/installed-clients/test_produce_import_fidelity.py \
             certification/installed-clients/test_regression.py certification/installed-clients/interop/test_interop.py -q
+      # Diagnostic qualification is explicit until every frozen requirement has a real producer.
+      # Incomplete receipts are uploaded and fail; they never reactivate the blocked matrix row.
+      - name: Produce published .NET SDK import-fidelity evidence
+        if: ${{ inputs.qualify_import_fidelity == true }}
+        env:
+          EVIDENCE_URI: https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          python certification/installed-clients/produce_import_fidelity.py --live \
+            --evidence-uri "$EVIDENCE_URI" \
+            --output artifacts/dotnet-import-fidelity-receipt.json
       - name: Run the SDK regression suite against the candidate
+        if: ${{ !cancelled() }}
         id: run
         env:
           EVIDENCE_URI: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
         run: |
           set -uo pipefail
-          python certification/installed-clients/run.py \
+          import_fidelity_args=()
+          if [ -f artifacts/dotnet-import-fidelity-receipt.json ]; then
+            import_fidelity_args=(--import-fidelity-receipt artifacts/dotnet-import-fidelity-receipt.json)
+          fi
+          python certification/installed-clients/run.py "${import_fidelity_args[@]}" \
             --live --subset all \
             --evidence-uri "$EVIDENCE_URI" \
             --output artifacts/installed-client-certification.json > /dev/null || code=$?
@@ -96,7 +118,10 @@ jobs:
         if: always()
         with:
           name: installed-clients-receipt
-          path: artifacts/installed-client-certification.json
+          path: |
+            artifacts/installed-client-certification.json
+            artifacts/dotnet-import-fidelity-receipt.json
+            artifacts/import-fidelity-observations/
           if-no-files-found: ignore
 
   report:
