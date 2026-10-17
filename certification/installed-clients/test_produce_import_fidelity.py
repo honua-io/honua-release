@@ -93,6 +93,7 @@ def test_sdk_failure_retains_structured_status_without_response_data():
     sdk.process.stdout.readline.return_value = json.dumps({
         "ok": False, "errorType": "HonuaAdminApiException", "httpStatus": 400,
         "problemType": "https://honua.io/problems/validation", "code": None,
+        "diagnosticReason": "source-address-rejected",
         "message": "sensitive occurrence details", "responseBody": "credential-value",
     })
     with mock.patch.object(producer.select, "select", return_value=([sdk.process.stdout], [], [])):
@@ -100,6 +101,7 @@ def test_sdk_failure_retains_structured_status_without_response_data():
             sdk.call("StartGeoservicesImportAsync")
     assert "httpStatus=400" in str(error.value)
     assert "problemType=https://honua.io/problems/validation" in str(error.value)
+    assert "diagnosticReason=source-address-rejected" in str(error.value)
     assert "credential-value" not in str(error.value)
     assert "sensitive occurrence details" not in str(error.value)
 
