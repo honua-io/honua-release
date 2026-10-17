@@ -225,3 +225,16 @@ minting train's exact signed lock and artifacts as `honua-2026.1.0` (then `honua
 npm, container, Helm and install-manifest channels. Only promotion may move those pointers.
 
 Preview qualification is informational; failed or unknown cleanup, leaked run-owned resources and run cost overruns remain fatal. EKS teardown always executes and its independent workflow/aggregation checks retain the pre-amendment safety bar.
+
+
+## Selected deployed-lock demo canary (initial ECS adapter)
+
+The existing `demo-canary.yml` remains a daily monitor at 06:23 UTC. Without a selected record its envelope has no `candidateLock` and cannot satisfy a candidate burn. A governed repository variable, `DEMO_CANARY_PROMOTION_RECORD`, selects an already committed `certification/promotions/<label>.json` on protected trunk. While set, scheduled slots at 00:23, 12:23 and 18:23 UTC complete the six-hour cadence. Clearing the selection returns to daily monitoring. Manual runs remain diagnostic: promotion still requires the existing consecutive scheduled observations and failure ledger.
+
+Bound mode obtains the record's exact `certified-candidate` from its successful trusted-trunk mint. It checks retained lock bytes against the record, verifies the minting workflow's signature/attestation and the existing derived-bundle contract, and passes that lock's server revision to the probes. It does not accept a supplied JSON lock or bind the current checkout's lock. The committed expected-GA fixture must still match the selected server revision; fixture drift refuses rather than rewriting expectations.
+
+Activation requires operator-approved variables `DEMO_CANARY_READ_ROLE_ARN`, `DEMO_CANARY_REGION`, `DEMO_CANARY_CLUSTER`, `DEMO_CANARY_SERVICE`, `DEMO_CANARY_CONTAINER` and `DEMO_CANARY_ZONE`. The role must be restricted to read-only observation of the intended ECS service/tasks, ELB routing/target health and Route53 records, with OIDC trust restricted to this repository's protected trunk workflow. This code does not create the role, choose infrastructure identifiers, change variables or claim that this configuration exists.
+
+The initial adapter requires a stable ECS service, one IP target group, direct public Route53 aliases to its active ALB and an HTTPS listener whose forwarding rules all select that group. Live endpoint DNS must match the ALB. Every healthy target must be a running service task; the named server container must report the selected immutable image index or its verified architecture child digest. The workflow repeats observation after the probes and refuses a changed deployment. Missing inputs, unsupported topology, incomplete observations, mismatched images or unavailable AWS reads fail closed. The envelope preserves passing, blocked and failed probe verdicts and records the observed deployment identity with the selected lock.
+
+This ECS demo producer is burn monitoring, not acceptance of every AWS feature or cell. It cannot replace Lambda/Batch qualification, Redis-off serving/refusal proof, actual update/rollback, CITE/Esri receipts or the full AWS functional acceptance required before public RC. Existing demo failures remain owned by #475; this change claims no successful deployment, burn or promotion.

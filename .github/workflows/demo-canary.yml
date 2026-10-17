@@ -4,8 +4,8 @@
 # the full canary probe set (e2e/canary_probes.py — corrected 2026-07-20 protocol reachability probes,
 # ported from honua-server's docs/internal/demo/scripts/demo-b-probes.sh, plus STAC/EDR/OData/
 # OGC-Features/tiles/per-service-WMS-WMTS-WCS/geocoding-latency) against https://demo.honua.io every 6
-# hours. This is a HYBRID-train evidence producer (docs/HYBRID-TRAIN.md): it runs on its own schedule
-# against the ALWAYS-ON public demo deployment, independent of any specific release candidate — it is
+# hours while a governed selected-lock burn is active, daily otherwise. This is a HYBRID-train evidence producer (docs/HYBRID-TRAIN.md): it runs on its own schedule
+# against the ALWAYS-ON public demo deployment. Optional burn mode authenticates the selected candidate; it is
 # NOT wired as a release-train gate job. Its output (a versioned live-canary-evidence.json envelope) is
 # meant to be consumed/joined by honua-evidence (honua-io/honua-evidence#8), the same "produce evidence
 # out-of-band, consume it with freshness bounds" shape as the honua-esri-compat lane.
@@ -28,9 +28,9 @@ name: demo-canary
 
 on:
   schedule:
-    # Daily (was every 6 hours): the demo deployment changes only when it is redeployed, so four
-    # identical red runs a day added nothing. A failure opens/updates one tracking issue below.
+    # Daily monitoring; the additional slots run only during a governed selected-lock burn.
     - cron: "23 6 * * *"
+    - cron: "23 0,12,18 * * *"
   workflow_dispatch:
     inputs:
       base_url:
@@ -42,6 +42,9 @@ on:
 permissions:
   contents: read
   issues: write
+  actions: read
+  attestations: read
+  id-token: write # optional read-only ECS identity role; no deploy credentials
 
 concurrency:
   group: demo-canary
@@ -53,7 +56,15 @@ env:
 
 jobs:
   canary:
+    if: ${{ github.event_name != 'schedule' || github.event.schedule == '23 6 * * *' || vars.DEMO_CANARY_PROMOTION_RECORD != '' }}
     runs-on: ubuntu-latest
+    env:
+      SELECTED_PROMOTION_RECORD: ${{ vars.DEMO_CANARY_PROMOTION_RECORD }}
+      DEMO_CANARY_REGION: ${{ vars.DEMO_CANARY_REGION }}
+      DEMO_CANARY_CLUSTER: ${{ vars.DEMO_CANARY_CLUSTER }}
+      DEMO_CANARY_SERVICE: ${{ vars.DEMO_CANARY_SERVICE }}
+      DEMO_CANARY_CONTAINER: ${{ vars.DEMO_CANARY_CONTAINER }}
+      DEMO_CANARY_ZONE: ${{ vars.DEMO_CANARY_ZONE }}
     outputs:
       status: ${{ steps.canary.outputs.status }}
     steps:
@@ -63,9 +74,34 @@ jobs:
           python-version: "3.12"
       - run: python -m pip install -r e2e/requirements.txt pytest
 
+      - name: Install cosign for retained mint verification
+        if: ${{ env.SELECTED_PROMOTION_RECORD != '' }}
+        uses: sigstore/cosign-installer@6f9f17788090df1f26f669e9d70d6ae9567deba6 # v4.1.2
+
+      - name: Authenticate the selected committed promotion record and retained mint
+        if: ${{ env.SELECTED_PROMOTION_RECORD != '' }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          python tools/demo_canary_binding.py prepare --record "$SELECTED_PROMOTION_RECORD" \
+            --root "$RUNNER_TEMP/demo-canary-candidate" --base "$HONUA_DEMO_BASE_URL"
+
+      - name: Assume the approved read-only ECS observation role
+        if: ${{ env.SELECTED_PROMOTION_RECORD != '' }}
+        uses: aws-actions/configure-aws-credentials@e1253824e5c10ff9df46874f81ed3ec929e19cfd # v6.3.0
+        with:
+          role-to-assume: ${{ vars.DEMO_CANARY_READ_ROLE_ARN }}
+          aws-region: ${{ vars.DEMO_CANARY_REGION }}
+
+      - name: Observe selected ECS deployment before probes
+        id: deployment_before
+        if: ${{ env.SELECTED_PROMOTION_RECORD != '' }}
+        run: |
+          python tools/demo_canary_binding.py observe --root "$RUNNER_TEMP/demo-canary-candidate" --base "$HONUA_DEMO_BASE_URL"
+
       # The check/probe logic's own correctness must be proven before we trust a live run against it.
       - name: Self-test the canonical + canary probe + quarantine logic
-        run: python -m pytest e2e/test_cloud.py e2e/test_canary_probes.py e2e/test_quarantine.py -q
+        run: python -m pytest e2e/test_cloud.py e2e/test_canary_probes.py e2e/test_quarantine.py tools/test_demo_canary_binding.py -q
 
       - name: Run the demo canary
         id: canary
@@ -76,7 +112,9 @@ jobs:
           # The step shell is `bash -e`: capture the exit code explicitly, or a failing canary aborts
           # here before the log, the status output and the tracking issue below ever see it.
           RC=0
-          python e2e/demo_canary.py --base "$HONUA_DEMO_BASE_URL" > /tmp/canary.log 2>&1 || RC=$?
+          ARGS=(--base "$HONUA_DEMO_BASE_URL")
+          if [ -n "${HONUA_CANARY_CANDIDATE_SHA:-}" ]; then ARGS+=(--candidate-sha "$HONUA_CANARY_CANDIDATE_SHA"); fi
+          python e2e/demo_canary.py "${ARGS[@]}" > /tmp/canary.log 2>&1 || RC=$?
           cat /tmp/canary.log
           STATUS="$(python -c "import json;print(json.load(open('e2e/gate-report-demo-canary.json'))['status'])" 2>/dev/null || echo fail)"
           echo "status=$STATUS" >> "$GITHUB_OUTPUT"
@@ -119,33 +157,10 @@ jobs:
           fi
           exit "$RC"
 
-      - name: Bind passing canary evidence to the committed candidate lock
-        if: ${{ always() && hashFiles('e2e/live-canary-evidence.json') != '' }}
-        env:
-          RUN_ID: ${{ github.run_id }}
+      - name: Bind canary evidence to the selected lock and unchanged live deployment
+        if: ${{ always() && env.SELECTED_PROMOTION_RECORD != '' && steps.deployment_before.outcome == 'success' && hashFiles('e2e/live-canary-evidence.json') != '' }}
         run: |
-          set -euo pipefail
-          test -f platform-lock.json || {
-            echo "::error::platform-lock.json is required for burn-in canary evidence"; exit 1;
-          }
-          python - <<'PY'
-          import hashlib, json, os, pathlib
-          lock_path = pathlib.Path("platform-lock.json")
-          lock = json.loads(lock_path.read_text(encoding="utf-8"))
-          report = json.loads(pathlib.Path("e2e/gate-report-demo-canary.json").read_text(encoding="utf-8"))
-          envelope_path = pathlib.Path("e2e/live-canary-evidence.json")
-          envelope = json.loads(envelope_path.read_text(encoding="utf-8"))
-          expected_server = lock["components"]["honua-server"]["source"]["revision"]
-          if envelope.get("candidateServerSha") != expected_server:
-              raise SystemExit("demo deployment revision does not match platform-lock honua-server revision")
-          envelope["runId"] = os.environ["RUN_ID"]
-          envelope["status"] = report.get("status")
-          envelope["candidateLock"] = {
-              "path": "platform-lock.json",
-              "digest": "sha256:" + hashlib.sha256(lock_path.read_bytes()).hexdigest(),
-          }
-          envelope_path.write_text(json.dumps(envelope, indent=2) + "\n", encoding="utf-8")
-          PY
+          python tools/demo_canary_binding.py bind --root "$RUNNER_TEMP/demo-canary-candidate" --base "$HONUA_DEMO_BASE_URL"
 
       - name: Upload demo-canary gate-report
         if: always()
