@@ -32,6 +32,7 @@ from fractions import Fraction
 
 import yaml
 import dotnet_import_fidelity as gate
+import import_fidelity_journeys as journeys
 
 HERE = Path(__file__).resolve().parent
 ROOT = HERE.parents[1]
@@ -239,11 +240,16 @@ class Scorecard:
         self.provenance = {}
         self.capture_directory = None
 
+    def block(self, requirement_id: str, reason: str):
+        self.cells[requirement_id].update(verdict="blocked", executed=False, reason=reason)
+
     def record(self, requirement_id: str, action):
         cell = self.cells[requirement_id]
         try:
             detail = action()
             cell.update(verdict="pass", executed=True, evidenceUri=self.evidence, reason=detail)
+        except journeys.PrerequisiteMissing as exc:
+            self.block(requirement_id, str(exc))
         except (ProducerError, ValueError, KeyError, TypeError) as exc:
             cell.update(verdict="fail", executed=True, evidenceUri=self.evidence, reason=str(exc))
 
@@ -473,7 +479,7 @@ def baseline_case(score: Scorecard, sdk: Sdk, compose: list[str], name: str, bas
                 documents.append(error["code"])
             except ProducerError as exc:
                 # Typed SDK exceptions preserve GeoServices error codes, including HTTP-200 envelopes.
-                match = re.search(r"HonuaFeatureServerException code=(\d+)$", str(exc))
+                match = re.search(r"HonuaFeatureServerException .* code=(\d+)$", str(exc))
                 if not match:
                     raise
                 documents.append(int(match[1]))
@@ -578,7 +584,7 @@ def service_journey(score: Scorecard, sdk: Sdk, base: str, tag: str) -> None:
     score.record("journey.reconciliation", reconcile)
 
 
-def run_live(score: Scorecard, sdk: Sdk, compose: list[str], selected: list[str]) -> None:
+def run_live(score: Scorecard, sdk: Sdk, compose: list[str], selected: list[str], *, fixture_path: Path | None = None) -> None:
     score.provenance["candidate"] = candidate_identity(score.manifest, compose)
     score.provenance["producer"] = {
         "scriptSha256": hashlib.sha256(Path(__file__).read_bytes()).hexdigest(),
@@ -598,6 +604,10 @@ def run_live(score: Scorecard, sdk: Sdk, compose: list[str], selected: list[str]
     for name in selected:
         print(f"executing {name} against manifest-pinned candidate", file=sys.stderr, flush=True)
         baseline_case(score, sdk, compose, name, base, tag)
+    if set(selected) == set(CASES):
+        source_sdk = journeys.SourceSdk(sdk, os.environ.get("IMPORT_FIDELITY_AUTH_SOURCE_URL"))
+        authored = journeys.Journeys(sys.modules[__name__], score, source_sdk, compose, base, tag, fixture_path)
+        authored.run()
     def immutable_identities():
         imports = score.provenance.get("imports", [])
         if set(selected) != set(CASES) or {item["serviceCase"] for item in imports} != set(CASES):
@@ -612,6 +622,7 @@ def main(argv=None) -> int:
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--evidence-uri", required=True)
     parser.add_argument("--live", action="store_true", help="boot a disposable candidate and real PostGIS; never use a shared server")
+    parser.add_argument("--authored-source", type=Path, help="authored real-source manifest; missing inputs remain blocked")
     parser.add_argument("--case", action="append", choices=sorted(CASES), help="diagnostic subset only; omitted requirements remain blocked")
     parser.add_argument("--timeout-seconds", type=int, default=1800,
                         help="bound live SDK execution after install/startup (60..3600 seconds)")
@@ -648,7 +659,7 @@ def main(argv=None) -> int:
                     os.environ[key] = candidate_url
                 compose = installed.boot_candidate(manifest, overlay=HERE / "compose.import-fidelity.yml")
                 sdk.deadline = time.monotonic() + args.timeout_seconds
-                run_live(score, sdk, compose, args.case or sorted(CASES))
+                run_live(score, sdk, compose, args.case or sorted(CASES), fixture_path=args.authored_source)
     except (ProducerError, OSError, subprocess.SubprocessError, installed.CertificationError) as exc:
         score.differences.append({"code": "producer-execution-incomplete", "severity": "blocking", "reason": str(exc)})
     finally:

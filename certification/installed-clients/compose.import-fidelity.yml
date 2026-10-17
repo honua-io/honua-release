@@ -6,6 +6,8 @@ services:
     environment:
       # Register this disposable target through the supported operational-schema policy.
       Database__OperationalSchemas__0: import_fidelity
+      # Runtime-only source token; never persist plaintext in import requests or receipts.
+      IMPORT_FIDELITY_SOURCE_TOKEN: ${IMPORT_FIDELITY_SOURCE_TOKEN:-}
   db:
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -h 127.0.0.1 -U honua -d honua"]

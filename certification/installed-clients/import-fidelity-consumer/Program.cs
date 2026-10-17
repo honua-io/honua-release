@@ -3,6 +3,7 @@ using System.Security.Cryptography;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 using Honua.Sdk.Abstractions;
+using Honua.Sdk.Abstractions.Features;
 using Honua.Sdk.Admin;
 using Honua.Sdk.GeoServices.FeatureServer;
 using Honua.Sdk.GeoServices.FeatureServer.Exceptions;
@@ -44,7 +45,19 @@ while (await Console.In.ReadLineAsync() is { } line)
                 throw new ArgumentException("HTTPS or loopback required");
             if (address.UserInfo.Length != 0 || address.Query.Length != 0 || address.Fragment.Length != 0)
                 throw new ArgumentException("invalid service URL");
-            using var http = new HttpClient(new HttpClientHandler { AllowAutoRedirect = false })
+            var transport = new HttpClientHandler { AllowAutoRedirect = false };
+            HttpMessageHandler handler = transport;
+            if (request.TryGetProperty("sourceAuth", out var sourceAuth) && sourceAuth.GetBoolean())
+            {
+                if (address.AbsoluteUri.TrimEnd('/') != Environment.GetEnvironmentVariable("IMPORT_FIDELITY_AUTH_SOURCE_URL")?.TrimEnd('/') ||
+                    address.Scheme != "https" || (request.TryGetProperty("candidate", out var own) && own.GetBoolean()))
+                    throw new ArgumentException("source credential destination mismatch");
+                var token = Environment.GetEnvironmentVariable("IMPORT_FIDELITY_SOURCE_TOKEN");
+                if (string.IsNullOrEmpty(token))
+                    throw new ArgumentException("source token missing");
+                handler = new ArcGisSourceCredentialHandler(new ArcGisSourceCredential { Mode = ArcGisCredentialMode.Token, Token = token }, transport);
+            }
+            using var http = new HttpClient(handler)
             {
                 BaseAddress = address,
                 Timeout = TimeSpan.FromMinutes(4)
@@ -88,6 +101,36 @@ while (await Console.In.ReadLineAsync() is { } line)
                     case "count": result = await client.QueryCountAsync(root.ServiceId, layer, query, timeout.Token); break;
                     case "ids": result = await client.QueryIdsAsync(root.ServiceId, layer, query, timeout.Token); break;
                     case "extent": result = await client.QueryExtentAsync(root.ServiceId, layer, query, timeout.Token); break;
+                    case "attachments":
+                        result = await ((HonuaFeatureServerClient)client).ListAttachmentsAsync(new FeatureAttachmentListRequest
+                        {
+                            Source = new FeatureSource { ServiceId = root.ServiceId, LayerId = layer },
+                            ObjectId = request.GetProperty("objectId").GetInt64()
+                        }, timeout.Token);
+                        break;
+                    case "attachment-hash":
+                        var content = await ((HonuaFeatureServerClient)client).DownloadAttachmentAsync(new FeatureAttachmentDownloadRequest
+                        {
+                            Source = new FeatureSource { ServiceId = root.ServiceId, LayerId = layer },
+                            ObjectId = request.GetProperty("objectId").GetInt64(),
+                            AttachmentId = request.GetProperty("attachmentId").GetInt64()
+                        }, timeout.Token);
+                        await using (var stream = content.Content)
+                        using (var hash = IncrementalHash.CreateHash(HashAlgorithmName.SHA256))
+                        {
+                            var buffer = new byte[65536];
+                            long size = 0;
+                            int length;
+                            while ((length = await stream.ReadAsync(buffer, timeout.Token)) != 0)
+                            {
+                                size += length;
+                                if (size > 16777216)
+                                    throw new InvalidOperationException("attachment exceeds qualification bound");
+                                hash.AppendData(buffer, 0, length);
+                            }
+                            result = new { size, sha256 = Convert.ToHexStringLower(hash.GetHashAndReset()) };
+                        }
+                        break;
                     case "query":
                         using (var response = await client.QueryRawAsync(root.ServiceId, layer, query, timeout.Token))
                         using (var raw = JsonDocument.Parse(await response.Content.ReadAsStringAsync(timeout.Token)))
