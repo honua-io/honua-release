@@ -15,8 +15,9 @@ import struct
 import sys
 
 ROOT = Path(__file__).resolve().parents[1]
-if str(ROOT) not in sys.path:
-    sys.path.insert(0, str(ROOT))
+TOOLS = ROOT / 'tools'
+if str(TOOLS) not in sys.path:
+    sys.path.insert(0, str(TOOLS))
 PROFILE = 'redis-off-serving-refusal'
 CELLS = {'aws-ecs/redis-off', 'aws-serverless/redis-off'}
 ASSERTIONS = {'servingRead', 'typedRedisRefusal', 'authentication', 'anonymousDenial', 'viewerDenial', 'catalogExact'}
@@ -88,7 +89,7 @@ def check_refusal(value):
 
 def produce(record, raw_path, target_path, *, adapter, pinned, digest, cell):
     """Fixed actions through the same pinned driver, in the existing credential-free job."""
-    from tools.terminal_model_canary import validate_deterministic_receipt, load_journey
+    from terminal_model_canary import validate_deterministic_receipt, load_journey
     require(cell in CELLS, 'serving/refusal profile is only for approved Redis-off cells')
     raw_bytes = raw_path.read_bytes()
     raw = json.loads(raw_bytes)

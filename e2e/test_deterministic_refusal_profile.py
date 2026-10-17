@@ -151,7 +151,7 @@ def produce(sample, adapter):
     _, record, _, _, path = sample
     # Deployment prerequisite testing belongs to its own focused helper suite; these controls
     # exercise the fixed producer actions and fail-closed independently verified results.
-    with mock.patch('tools.terminal_model_canary.validate_deterministic_receipt', return_value={'status': 'pass'}):
+    with mock.patch('terminal_model_canary.validate_deterministic_receipt', return_value={'status': 'pass'}):
         return profile.produce(record, path.parent / 'receipt-1.json', path,
             adapter=adapter, pinned={}, digest='c' * 64, cell=record['cell'])
 
