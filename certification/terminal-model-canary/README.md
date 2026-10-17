@@ -69,7 +69,7 @@ Every receipt is one attempt of the `genuine-model` journey on one cell (fix uni
 rc.3 plan). The schema requires:
 
 - `mode` — always `genuine-model`.
-- `cell` — `local-docker` or `aws-ecs/redis-off` (`--cell`).
+- `cell` — `local-docker` or one of `{aws-ecs, aws-serverless}/redis-{off,on}` (`--cell`); EKS remains Preview.
 - `attempt` — `1` or `2` (`--attempt`); promotion allows one retry after an attributed failure.
 - `lockDigest` — `sha256:<hex>` of the exact `platform-lock.json` under certification
   (`--lock-digest`). With `--lock <path>` the harness hashes those bytes and fails the receipt if they
@@ -126,11 +126,34 @@ the model proxy: a driver that composed a local stack cannot certify a cloud cel
   surfaced as a notice. It counts for no lock and is never a pass.
 - **nightly train** — `nightly-certification.yml` passes `genuine_model` to `release-train.yml`, which
   forwards it with the qualification lock digest to its own cloud cells (`gate_cloud_parity`). The
-  ECS Redis-off cell uploads `journey-gate-report-nightly-model`, which the train's
+  selected GA cells upload distinct `journey-gate-report-nightly-model-<cell>-<attempt>` artifacts, which the train's
   `--declare-evidence` step reads. The canary runs inside that cell rather than a second workflow
   because the cell admits only its own run's journey runner.
 - **dispatch `target=endpoint`** — the original harness against an operator-named endpoint, on
   `ubuntu-latest` or `self-hosted`.
+
+### AWS GA topology support and qualification boundary
+
+The cloud workflow's explicit `genuine_model_bedrock` opt-in enables the model path on selected ECS
+and Lambda cells in both Redis modes. Defaults remain off, and EKS Preview is excluded. Both maintained
+Terraform target adapters require the pinned root to declare the provider inputs before passing them.
+The journey worker receives application credentials, datasource references and the run-owned tenant
+fixture through its sealed handoff; it receives no cloud or CI token environment.
+
+Each cloud canary passes `--target` with the same retained target configuration used by its passing
+deterministic journey. Its cell, SHA-256 and endpoint origin must agree. The driver checks the linked
+receipt digest and its verified deployment-image observation instead of inferring a cloud image from
+manifest pins, then retains that provenance while it observes the external endpoint, mints separate bounded application principals, and revokes them after the attempt.
+It never starts local Docker or destroys the provisioned cell. Target changes and stale attempt files
+cannot stand in for current execution. Harness fixture resets are recorded separately from model actions.
+
+Redis-on qualification still requires actual model-selected calls, error recovery, independent approval,
+pixel proof and final-URL proof. Redis-off model qualification remains unresolved: deterministic
+Redis-off journeys have explicit typed dependency-refusal rules, while this genuine-model contract
+retains its full-workflow assertions. A refusal is never recorded as functional GP execution or as a
+successful genuine-model journey. A separate topology-specific refusal journey must prove actual model
+observation of serving behavior and typed refusal, with an explicit refused execution outcome.
+Unit and workflow tests establish wiring only; fresh exact-candidate, signed model receipts remain required.
 
 ### Repository settings the owner configures
 

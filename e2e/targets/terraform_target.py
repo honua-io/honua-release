@@ -923,6 +923,9 @@ IMPORT_BACKGROUND_THRESHOLD_VAR = "import_background_job_threshold_bytes=6710886
 # The two terraform-output cells. EKS is a separate, heavier target (cluster + Helm + LB).
 SERVERLESS_SPEC = TfTargetSpec(
     name="aws-serverless",
+    # Same explicit, fail-closed Bedrock opt-in as ECS; absent root inputs refuse provisioning.
+    opt_in_env="HONUA_ENABLE_BEDROCK_AI",
+    opt_in_vars=("enable_bedrock_ai=true", "bedrock_ai_region=us-east-1"),
     root="infrastructure/terraform/examples/aws-serverless",
     image_env="HONUA_LAMBDA_IMAGE_URI",
     image_var="honua_image_uri",
@@ -1003,8 +1006,7 @@ ECS_SPEC = TfTargetSpec(
     ephemeral_vars=("alb_deletion_protection=false",),
     declared_ephemeral_vars=("rds_deletion_protection=false", "enable_postgis=true",
                              OPERATIONS_POLICY_RULES_VAR, STUDIO_END_USER_AUTHORIZATION_VAR),
-    # Genuine-model cell only (rc.3 fix unit C6): the workflow sets HONUA_ENABLE_BEDROCK_AI=true for
-    # aws-ecs/redis-off when its genuine_model_bedrock input is on; every other run stays cost-free.
+    # The workflow opts selected GA cells into Bedrock explicitly; defaults incur no model calls.
     opt_in_env="HONUA_ENABLE_BEDROCK_AI",
     opt_in_vars=("enable_bedrock_ai=true", "bedrock_ai_region=us-east-1"),
     # honua-iac#216: the operation key-ring certificate secret for Redis-on cells (see above).

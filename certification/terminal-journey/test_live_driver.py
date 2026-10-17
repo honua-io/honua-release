@@ -124,3 +124,112 @@ def test_missing_unexecuted_assertions_remain_actionable_before_first_attempt():
         response = live_driver.op_observe({"stage": stage["id"]})
     assert response["status"] == response["stageStatus"]["status"] == "ready"
     assert response["blockedBy"] == []
+
+
+def _cloud_target_file(path, cell="aws-ecs/redis-on"):
+    import cloud_target
+    target = cloud_target.build(json.loads(live_driver.DEFAULT_TARGET.read_text()),
+        cell=cell, endpoint="https://owned-cell.example")
+    path.write_text(json.dumps(target))
+    return target
+
+
+def test_cloud_setup_observes_external_endpoint_and_never_manages_compose(tmp_path):
+    target_path = tmp_path / "target.json"
+    target = _cloud_target_file(target_path)
+    deployment = _cloud_deployment_receipt(tmp_path / "deployment.json", target, target_path)
+    workspace = mock.Mock(status="pass", install_notes=[])
+    workspace.as_receipt.return_value = {"status": "pass"}
+    observation = stages.Observation(ready=True, setup_view_present=True)
+    import run as driver
+    with mock.patch.object(live_driver, "STATE_ROOT", tmp_path / "sessions"), \
+         mock.patch.object(live_driver.pins, "resolve_client_workspace", return_value=workspace), \
+         mock.patch.object(live_driver.pins, "install_executables", return_value=(tmp_path / "bin", "", [])), \
+         mock.patch.object(live_driver, "_compose_for", side_effect=AssertionError("cloud must never start local Docker")), \
+         mock.patch.object(driver, "observe", return_value=observation) as observe, \
+         mock.patch.object(live_driver.local_fixture, "credentials", return_value={}) as credentials:
+        response = live_driver.op_setup({"target": str(target_path), "deploymentReceipt": deployment})
+        assert response["status"] == "ready"
+        assert response["baseUrl"] == target["replicaBaseUrl"]
+        assert observe.call_args.args[1] == target["replicaBaseUrl"]
+        expected_image = json.loads(Path(deployment["path"]).read_text())["server"]["image"]
+        assert observe.call_args.args[4] == expected_image
+        assert "same-job deployment readback" in live_driver._read_state(response["workspaceId"])["deploymentDetail"]
+
+        assert credentials.call_args.kwargs["mint"] is True
+        state = live_driver._read_state(response["workspaceId"])
+        assert state["external"] is True
+
+
+def test_cloud_teardown_revokes_application_principals_without_deleting_external_cell(tmp_path):
+    target_path = tmp_path / "target.json"
+    _cloud_target_file(target_path)
+    with mock.patch.object(live_driver, "STATE_ROOT", tmp_path / "sessions"), \
+         mock.patch.object(live_driver, "_compose_for", side_effect=AssertionError("no external infrastructure teardown")), \
+         mock.patch.object(live_driver.local_fixture, "revoke", return_value=(["operator"], [])) as revoke:
+        live_driver._write_state("cloud", {"workspaceId": "cloud", "targetPath": str(target_path),
+            "workdir": str(tmp_path), "baseUrl": "https://owned-cell.example", "external": True})
+        response = live_driver.op_teardown({"workspaceId": "cloud"})
+        assert response["status"] == "pass" and "external cell retained" in response["detail"]
+        revoke.assert_called_once()
+        assert not live_driver._state_path("cloud").exists()
+
+
+def test_failed_cloud_principal_revocation_retains_private_session_for_retry(tmp_path):
+    target_path = tmp_path / "target.json"
+    _cloud_target_file(target_path)
+    with mock.patch.object(live_driver, "STATE_ROOT", tmp_path / "sessions"), \
+         mock.patch.object(live_driver.local_fixture, "revoke", return_value=([], ["operator"])):
+        live_driver._write_state("cloud", {"workspaceId": "cloud", "targetPath": str(target_path),
+            "workdir": str(tmp_path), "baseUrl": "https://owned-cell.example", "external": True})
+        response = live_driver.op_teardown({"workspaceId": "cloud"})
+        assert response["status"] == "fail" and live_driver._state_path("cloud").exists()
+
+
+def test_driver_refuses_target_changed_after_setup(tmp_path):
+    target_path = tmp_path / "target.json"
+    _cloud_target_file(target_path)
+    with mock.patch.object(live_driver, "STATE_ROOT", tmp_path / "sessions"):
+        live_driver._write_state("cloud", {"targetPath": str(target_path), "targetSha256": "0" * 64})
+        with unittest.TestCase().assertRaisesRegex(live_driver.DriverError, "changed after setup"):
+            live_driver._rehydrate({"workspaceId": "cloud"})
+
+
+
+def _cloud_deployment_receipt(path, target, target_path):
+    manifest = live_driver._load_yaml(live_driver.ROOT / "platform-manifest.yaml")
+    server = manifest["components"]["honua-server"]
+    receipt = {"status": "pass", "target": {"id": target["id"], "baseUrl": target["replicaBaseUrl"],
+        "configSha256": live_driver.hashlib.sha256(target_path.read_bytes()).hexdigest()},
+        "server": {"sourceSha": server["sha"], "image": f"{server['image']}@{server['digest']}"},
+        "stages": [{"number": 1, "status": "pass", "checks": [{"id": "1.1-candidate-image", "status": "pass"}],
+            "evidence": {"source": "live-" + target["kind"], "freshness": "verified-current"}}]}
+    path.write_text(json.dumps(receipt))
+    return {"path": str(path), "sha256": live_driver.hashlib.sha256(path.read_bytes()).hexdigest()}
+
+
+def test_external_model_setup_requires_bound_observed_deployment_image(tmp_path):
+    target_path = tmp_path / "target.json"
+    target = _cloud_target_file(target_path)
+    manifest = live_driver._load_yaml(live_driver.ROOT / "platform-manifest.yaml")
+    digest = live_driver.hashlib.sha256(target_path.read_bytes()).hexdigest()
+    proof = _cloud_deployment_receipt(tmp_path / "deployment.json", target, target_path)
+    image, detail = live_driver._cloud_image(target, manifest, digest, proof)
+    assert image == json.loads(Path(proof["path"]).read_text())["server"]["image"]
+    assert proof["sha256"] in detail
+    mutations = ("missing", "digest", "cell", "config", "origin", "image", "unobserved", "source")
+    for mutation in mutations:
+        proof = _cloud_deployment_receipt(tmp_path / "deployment.json", target, target_path)
+        path = Path(proof["path"])
+        receipt = json.loads(path.read_text())
+        if mutation == "cell": receipt["target"]["id"] = "aws-serverless/redis-on"
+        if mutation == "config": receipt["target"]["configSha256"] = "0" * 64
+        if mutation == "origin": receipt["target"]["baseUrl"] = "https://wrong.example"
+        if mutation == "image": receipt["server"]["image"] = "unobserved-image"
+        if mutation == "unobserved": receipt["stages"][0]["checks"][0]["status"] = "blocked"
+        if mutation == "source": receipt["stages"][0]["evidence"]["source"] = "harness-build"
+        path.write_text(json.dumps(receipt))
+        proof["sha256"] = live_driver.hashlib.sha256(path.read_bytes()).hexdigest()
+        if mutation == "digest": proof["sha256"] = "0" * 64
+        with unittest.TestCase().subTest(mutation=mutation), unittest.TestCase().assertRaises(live_driver.DriverError):
+            live_driver._cloud_image(target, manifest, digest, None if mutation == "missing" else proof)

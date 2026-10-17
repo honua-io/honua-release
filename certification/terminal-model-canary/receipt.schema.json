@@ -43,7 +43,8 @@
     },
     "status": {"enum": ["pass", "fail", "blocked", "skipped"]},
     "mode": {"const": "genuine-model"},
-    "cell": {"enum": ["local-docker", "aws-ecs/redis-off"]},
+    "cell": {"enum": ["local-docker", "aws-ecs/redis-off", "aws-ecs/redis-on",
+                      "aws-serverless/redis-off", "aws-serverless/redis-on"]},
     "attempt": {"enum": [1, 2]},
     "lockDigest": {
       "description": "sha256 of the exact platform-lock.json bytes under certification; a pass requires it.",

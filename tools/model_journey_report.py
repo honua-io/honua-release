@@ -3,8 +3,8 @@
 
 tools/mint_nightly_lock.py --declare-evidence reads every `gate-report-journey.json` the train
 retained and builds the `nightly-model-journey` promotion receipt from rows whose attempts all ran
-the `genuine-model` driver. This tool writes that row for the ECS Redis-off cell (or the local Docker
-venue) from the canary receipts of one run, in attempt order.
+the `genuine-model` driver. This tool writes a row for one approved AWS GA cell (or the local Docker venue) from
+the canary receipts of one run, in attempt order. Nightly selects ECS Redis-off; GA uses all four.
 
 It fails closed: an attempt bound to another lock digest, another cell, a different mode, out of
 order, or a failed attempt without a model/infrastructure attribution makes the row `fail`. Each
@@ -25,7 +25,8 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 LOCK_DIGEST = re.compile(r"sha256:[0-9a-f]{64}")
-CELLS = ("local-docker", "aws-ecs/redis-off")
+CELLS = ("local-docker", "aws-ecs/redis-off", "aws-ecs/redis-on",
+         "aws-serverless/redis-off", "aws-serverless/redis-on")
 DRIVER = "genuine-model"
 UNBOUND_WHY = ("no platform lock to bind to (manual dispatch without a lock digest): the canary ran unbound "
                "and its receipt is blocked; it counts for no lock")

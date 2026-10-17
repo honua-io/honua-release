@@ -48,9 +48,10 @@ HARNESS_DRIVEN = "HARNESS_DRIVEN"
 MODEL_ACTION_KINDS = frozenset({"terminal_command", "tool_call"})
 HARNESS_ACTION_KINDS = frozenset({"setup", "error_injection", "approval", "verification", "teardown"})
 JOURNEY_MODE = "genuine-model"
-# Cells the genuine-model journey runs on: the local Docker venue and the nightly ECS Redis-off cell
-# that promotion requires (check_promotion_readiness.JOURNEYS["nightly-model-journey"]).
-CELLS = ("local-docker", "aws-ecs/redis-off")
+# Local Docker and the four approved AWS GA cells. EKS remains Preview.
+# Nightly still selects ECS Redis-off; GA qualification selects all four cloud cells.
+CELLS = ("local-docker", "aws-ecs/redis-off", "aws-ecs/redis-on",
+         "aws-serverless/redis-off", "aws-serverless/redis-on")
 LOCK_DIGEST = re.compile(r"sha256:[0-9a-f]{64}")
 MODEL = "model"
 INFRASTRUCTURE = "infrastructure"
@@ -1164,6 +1165,7 @@ def execute_live(
     endpoint: EndpointConfig,
     driver_command: Path,
     max_actions_per_stage: int,
+    target_path: Path | None = None,
 ) -> dict[str, Any]:
     """Execute when #123 eventually supplies its live adapter; otherwise callers never enter here."""
     client = CandidateProxyClient(endpoint)
@@ -1179,10 +1181,25 @@ def execute_live(
     approved_proposals: set[str] = set()
     active_stage: dict[str, Any] | None = None
     try:
+        if receipt["cell"] != "local-docker":
+            if target_path is None:
+                raise CanaryError("a cloud model journey requires its deterministic target config")
+            target = _load_json(target_path)
+            linked = receipt["linkedEvidence"]["deterministicReceipt"] or {}
+            deterministic = _load_json(ROOT / str(linked.get("path", "")))
+            if (target.get("id") != receipt["cell"]
+                    or deterministic.get("target", {}).get("id") != receipt["cell"]
+                    or deterministic.get("target", {}).get("configSha256") != _sha256(target_path)
+                    or _origin(str(target.get("replicaBaseUrl", ""))) != _origin(endpoint.validated_base_url())):
+                raise CanaryError("cloud target config does not match the deterministic cell, digest and candidate origin")
         setup_request = {
             "candidate": receipt["candidate"],
             "journeyContract": receipt["journeyContract"],
         }
+        if target_path is not None:
+            setup_request["target"] = str(target_path.resolve())
+        if receipt["cell"] != "local-docker":
+            setup_request["deploymentReceipt"] = linked
         setup = builder.redactor.value(driver.invoke("setup", setup_request))
         # A failed setup can still own resources; always attempt its teardown.
         if isinstance(setup.get("workspaceId"), str) and setup["workspaceId"]:
@@ -1450,6 +1467,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--lock-digest", help="sha256:<hex> of the exact platform-lock.json under certification")
     parser.add_argument("--lock", type=Path, help="platform-lock.json whose bytes must hash to --lock-digest")
     parser.add_argument("--cell", choices=CELLS, default="local-docker")
+    parser.add_argument("--target", type=Path, help="the reviewed target config chained to this cell's deterministic receipt")
     parser.add_argument("--attempt", type=int, choices=(1, 2), default=1)
     parser.add_argument("--allow-http-cell", metavar="HOSTNAME",
                         help="the provisioned cloud cell's ALB hostname; plain HTTP is admitted for exactly "
@@ -1518,6 +1536,7 @@ def main(argv: list[str] | None = None) -> int:
                     endpoint=endpoint,
                     driver_command=args.driver_command,
                     max_actions_per_stage=args.max_actions_per_stage,
+                    target_path=args.target,
                 )
         schema = _load_json(args.receipt_schema)
         receipt = builder.validated_receipt(schema)

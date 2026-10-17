@@ -44,7 +44,7 @@ on:
         type: boolean
         default: true
       genuine_model_bedrock:
-        description: "Enable Bedrock on the aws-ecs/redis-off cell for the genuine-model journey (billed tokens)"
+        description: "Enable Bedrock on selected ECS/Lambda GA cells for the genuine-model journey (billed tokens)"
         type: boolean
         default: false
       lock_digest:
@@ -386,8 +386,8 @@ jobs:
       lambda_image: ${{ needs.candidate.outputs.lambda_image }}
       lambda_architecture: ${{ needs.candidate.outputs.lambda_architecture }}
       gp_batch_image: ${{ needs.candidate.outputs.gp_batch_image }}
-      # Bedrock is billed: only the genuine-model cell (ECS, Redis off), only when asked for.
-      enable_bedrock: ${{ (inputs.genuine_model_bedrock || false) && matrix.target == 'aws-ecs' && matrix.redis == 'off' }}
+      # Bedrock is billed: opt-in for the selected four GA cells; never EKS Preview.
+      enable_bedrock: ${{ (inputs.genuine_model_bedrock || false) && (matrix.target == 'aws-ecs' || matrix.target == 'aws-serverless') }}
       lock_digest: ${{ inputs.lock_digest || '' }}
     secrets:
       RELEASE_GH_TOKEN: ${{ secrets.RELEASE_GH_TOKEN }}

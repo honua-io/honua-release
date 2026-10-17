@@ -1306,8 +1306,9 @@ def _phase_journey(args) -> int:
     return 1 if journey.get("status") == "fail" else 0
 
 
-# The nightly genuine-model cell (check_promotion_readiness.JOURNEYS["nightly-model-journey"]).
-MODEL_CANARY_CELL = "aws-ecs/redis-off"
+# Approved GA cells; nightly selects ECS Redis-off while promotion can exercise all four.
+MODEL_CANARY_CELLS = frozenset(f"{target}/redis-{redis}" for target in ("aws-ecs", "aws-serverless")
+                               for redis in ("off", "on"))
 MODEL_JOURNEY_DIR = "model-journey"
 LOCK_DIGEST = re.compile(r"sha256:[0-9a-f]{64}")
 
@@ -1315,8 +1316,16 @@ LOCK_DIGEST = re.compile(r"sha256:[0-9a-f]{64}")
 def _passing_deterministic_receipt(cell_directory: Path) -> Path | None:
     """The cell journey's passing receipt from this job, which the canary protocol requires."""
     journey = _read_json(cell_directory / JOURNEY_NAME) or {}
-    for record in reversed(journey.get("journeyAttempts") or []):
+    records = journey.get("journeyAttempts")
+    if not isinstance(records, list):
+        return None
+    for record in reversed(records):
+        if not isinstance(record, dict):
+            continue
         path = E2E_DIR / str(record.get("receipt", ""))
+        if (path.resolve().parent != cell_directory.resolve()
+                or not re.fullmatch(r"receipt-[12]\.json", path.name)):
+            continue
         receipt = _read_json(path) if path.is_file() else None
         if receipt and receipt.get("status") == "pass":
             return path
@@ -1324,7 +1333,7 @@ def _passing_deterministic_receipt(cell_directory: Path) -> Path | None:
 
 
 def model_canary_phase(state: dict, *, admin_key: str, lock_digest: str | None, run=subprocess.run,
-                       max_attempts: int = 2) -> dict:
+                       max_attempts: int = 2, tenant_signing_key: str | None = None) -> dict:
     """Credential-free: run the genuine-model canary on the cell after its deterministic journey.
 
     Every attempt is bound to the lock digest under certification and chained to this job's passing
@@ -1343,19 +1352,52 @@ def model_canary_phase(state: dict, *, admin_key: str, lock_digest: str | None, 
     run_id, run_attempt = _run_identity()
     receipts: list[Path] = []
     why = None
-    if cell != MODEL_CANARY_CELL:
-        why = f"{cell} is not the genuine-model cell ({MODEL_CANARY_CELL})"
+    if state.get("handoffError"):
+        why = str(state["handoffError"])
+    elif cell not in MODEL_CANARY_CELLS:
+        why = f"{cell} is not an approved genuine-model GA cell"
     elif not state.get("endpoint") or not admin_key:
         why = "the cell has no endpoint or application key for the canary"
     deterministic = _passing_deterministic_receipt(directory) if why is None else None
     if why is None and deterministic is None:
         why = "the cell's deterministic journey did not pass in this job; the canary is refused"
+    target = (deterministic.with_name(deterministic.name.replace("receipt-", "target-"))
+              if deterministic is not None else None)
+    if why is None and (target is None or not target.is_file()):
+        why = "the passing deterministic journey has no retained target config; the canary is refused"
     if why is None:
-        env = {**os.environ, "TERMINAL_MODEL_API_KEY": admin_key}
+        config = _read_json(target) or {}
+        prerequisite = _read_json(deterministic) or {}
+        if (target.resolve().parent != directory.resolve()
+                or config.get("id") != cell
+                or prerequisite.get("target", {}).get("id") != cell
+                or prerequisite.get("target", {}).get("configSha256") != hashlib.sha256(target.read_bytes()).hexdigest()
+                or str(config.get("replicaBaseUrl", "")).rstrip("/") != str(state["endpoint"]).rstrip("/")):
+            why = "the retained target config is not bound to this deterministic cell and endpoint"
+    setup_notices = []
+    if why is None:
+        driver, _adapter = cloud_journey.drivers()
+        # Candidate subprocesses receive application capabilities only, never CI/cloud credentials.
+        env = {**driver.pins.candidate_env(),
+               **{key: os.environ[key] for key in ("TERMINAL_MODEL_NAME", "TERMINAL_MODEL_RUNTIME",
+                   "TERMINAL_MODEL_QUANTIZATION", "TERMINAL_MODEL_SIGNING_MANIFEST_SHA256") if key in os.environ},
+               "TERMINAL_MODEL_API_KEY": admin_key, "HONUA_CLOUD_JOURNEY_ADMIN": admin_key,
+               "HONUA_CANARY_HTTP_CELL_HOST": urllib.parse.urlsplit(str(state["endpoint"])).hostname or ""}
+        if tenant_signing_key is not None:
+            env["HONUA_CANARY_TENANT_SIGNING_KEY"] = tenant_signing_key
         binding = ["--lock-digest", lock_digest] if lock_digest is not None else []
         attempts = max_attempts if lock_digest is not None else 1
         for number in range(1, attempts + 1):
             output = out / f"model-canary-{number}.json"
+            # Deterministic setup left fixed-name fixture objects. Reset them before every model
+            # attempt; the model must issue fresh writes instead of inheriting a completed journey.
+            try:
+                setup_notices.append({"modelAttempt": number, "notices": cloud_journey.reset_prior_attempt(
+                    state["endpoint"], admin_key, config.get("execution"), number + 1)})
+            except Exception as error:
+                why = f"fixture reset before model attempt {number} failed ({type(error).__name__})"
+                break
+            output.unlink(missing_ok=True)  # An earlier phase invocation cannot stand in for this attempt.
             endpoint = str(state["endpoint"]).rstrip("/")
             argv = [sys.executable, str(E2E_DIR.parent / "tools" / "terminal_model_canary.py"),
                     "--base-url", endpoint + "/api",
@@ -1363,6 +1405,8 @@ def model_canary_phase(state: dict, *, admin_key: str, lock_digest: str | None, 
                     # harness-provisioned ALB host, never to any other non-loopback host.
                     "--allow-http-cell", urllib.parse.urlsplit(endpoint).hostname or "",
                     "--require-api-key", "--cell", cell, "--attempt", str(number),
+                    "--driver-command", str(E2E_DIR.parent / "certification" / "terminal-journey" / "live_driver.py"),
+                    "--target", str(target),
                     *binding,
                     "--deterministic-receipt", str(deterministic.relative_to(E2E_DIR.parent)),
                     "--output", str(output)]
@@ -1373,9 +1417,10 @@ def model_canary_phase(state: dict, *, admin_key: str, lock_digest: str | None, 
             receipts.append(output)
             if completed.returncode == 0:
                 break
-    report = model_journey_report.build(receipts, cell=MODEL_CANARY_CELL, lock_digest=lock_digest,
+    report = model_journey_report.build(receipts, cell=cell, lock_digest=lock_digest,
                                         candidate_digest=cloud_journey.candidate_digest(),
                                         run_id=run_id, run_attempt=run_attempt)
+    report["harnessSetup"] = setup_notices
     if why is not None:
         report["cells"][0]["why"] = report["why"] = why
         report["cells"][0]["status"] = report["status"] = report["overallStatus"] = "fail"
@@ -1387,12 +1432,17 @@ def _phase_model_canary(args) -> int:
     sys.path.insert(0, str(E2E_DIR.parent / "tools"))
     cell = _cell(args.target, args.redis)
     state = _read_json(cloud_journey.cell_dir(cell) / HANDOFF_NAME) or {"cell": cell}
+    if state.get("cell") != cell:
+        state = {"cell": cell, "handoffError": "provision handoff is for another cell; the model is refused"}
     try:
-        admin_key, _ = cloud_journey.unpack_handoff(open_key(args.sealed_key, args.private_key))
+        handoff = open_key(args.sealed_key, args.private_key)
+        admin_key, datasource = cloud_journey.unpack_handoff(handoff)
+        tenant_key = cloud_journey.handoff_tenant_signing_key(handoff)
     except Exception:
-        admin_key = ""
-    report = model_canary_phase(state, admin_key=admin_key, lock_digest=args.lock_digest,
-                                max_attempts=args.max_attempts)
+        admin_key, datasource, tenant_key = "", None, None
+    with cloud_journey.cell_datasource(datasource):
+        report = model_canary_phase(state, admin_key=admin_key, lock_digest=args.lock_digest,
+                                    max_attempts=args.max_attempts, tenant_signing_key=tenant_key)
     print(f"== cloud-model-canary :: {cell} -> {report['status'].upper()} ==")
     print(f"   {report['why']}")
     if args.lock_digest is None and report["status"] == "blocked":
