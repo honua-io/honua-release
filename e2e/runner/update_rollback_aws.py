@@ -482,6 +482,23 @@ class AwsRuntime:
                 "oracle": oracle, "featureCount": 1}
 
     def execution_events(self, identity, started):
+        # CloudWatch publication is asynchronous. Wait for independent events, then re-read
+        # after a bounded settle interval; missing or duplicate events never become success.
+        for _ in range(30):
+            events = self._execution_events(identity, started)
+            if events["started"] > 1 or events["completed"] > 1:
+                return events
+            if events["started"] == events["completed"] == 1:
+                self.sleep(5)
+                repeated = self._execution_events(identity, started)
+                if repeated == events:
+                    return events
+                if repeated["started"] > 1 or repeated["completed"] > 1:
+                    return repeated
+            self.sleep(2)
+        raise ProofError("independent execution events did not settle within the bounded publication window")
+
+    def _execution_events(self, identity, started):
         # Query all streams in every declared worker log group, with AWS CLI automatic pagination.
         # Restrict to this exact job id, deduplicate provider event ids, never count status reads.
         job = self.job(identity)

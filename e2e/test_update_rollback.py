@@ -503,3 +503,66 @@ def test_actual_candidate_schema_probe_removes_only_owned_network_admission_and_
     assert docker_calls[-1][:3] == ["docker", "rm", "-f"]
     assert not any("apply" in c for c in aws_calls + [tuple(c) for c in docker_calls])
     assert not runtime.probe_cleanup_failures
+
+
+def test_async_preference_reaches_actual_http_boundary():
+    import http.server
+    import threading
+    seen = []
+    class Handler(http.server.BaseHTTPRequestHandler):
+        def do_POST(self):
+            seen.append((self.path, self.headers.get("Prefer"), self.headers.get("X-API-Key")))
+            self.rfile.read(int(self.headers["Content-Length"]))
+            payload = json.dumps({"jobID": "actual-wire-job", "status": "accepted"}).encode()
+            self.send_response(201 if self.headers.get("Prefer") == "respond-async" else 200)
+            self.send_header("Content-Type", "application/json"); self.send_header("Content-Length", str(len(payload)))
+            self.end_headers(); self.wfile.write(payload)
+        def log_message(self, *args): pass
+    with http.server.ThreadingHTTPServer(("127.0.0.1", 0), Handler) as server:
+        thread = threading.Thread(target=server.serve_forever, daemon=True); thread.start()
+        try:
+            api = proof.Api(f"http://127.0.0.1:{server.server_port}", "synthetic-wire-key", loopback=True)
+            status, document = api.request("POST", "/ogc/processes/processes/geometry.centroid/execution", native.centroid_workload(4))
+            assert status == 201 and document["status"] == "accepted"
+            assert seen == [("/ogc/processes/processes/geometry.centroid/execution", "respond-async", "synthetic-wire-key")]
+        finally: server.shutdown(); thread.join()
+
+
+@pytest.mark.parametrize("confirm", [True, False])
+def test_cleanup_requires_terminal_confirmation_before_retained_worker_deregistration(confirm):
+    runtime = native.AwsRuntime.__new__(native.AwsRuntime)
+    runtime.probe_cleanup_failures = []; runtime.submitted_job = "owned-job"
+    runtime.controller_name = None; runtime.registered_tasks = []
+    runtime.retained_batch_definitions = ["owned-baseline-definition"]
+    runtime.api = FakeApi([(202, {})]); runtime.sleep = lambda _: None
+    reads = []
+    def job(identity):
+        reads.append(identity)
+        return {"status": "Cancelled" if confirm and len(reads) > 1 else "Running"}
+    runtime.job = job
+    calls = []; runtime.aws = lambda *a: calls.append(a)
+    failures = runtime.close()
+    if confirm:
+        assert failures == [] and calls == [("batch", "deregister-job-definition", "--job-definition", "owned-baseline-definition")]
+    else:
+        assert "owned-inflight-job" in failures and "retained-batch-definition-awaiting-job" in failures
+        assert calls == []
+    assert runtime.api.calls == [("DELETE", "/ogc/processes/jobs/owned-job", None)]
+
+
+@pytest.mark.parametrize("mode", ["delayed", "duplicate", "missing"])
+def test_cloudwatch_settle_never_turns_missing_or_duplicate_execution_into_success(mode):
+    runtime = native.AwsRuntime.__new__(native.AwsRuntime); runtime.sleep = lambda _: None
+    reads = []
+    def events(*a):
+        reads.append(1)
+        if mode == "missing" or len(reads) == 1: return {"started": 0, "completed": 0, "eventIdsSha256": "none"}
+        if mode == "duplicate" and len(reads) > 2: return {"started": 2, "completed": 1, "eventIdsSha256": "duplicate"}
+        return {"started": 1, "completed": 1, "eventIdsSha256": "one"}
+    runtime._execution_events = events
+    if mode == "missing":
+        with pytest.raises(proof.ProofError, match="publication window"): runtime.execution_events("job", "start")
+        assert len(reads) == 30
+    else:
+        result = runtime.execution_events("job", "start")
+        assert result["started"] == (2 if mode == "duplicate" else 1) and len(reads) == 3
