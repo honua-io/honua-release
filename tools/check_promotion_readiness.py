@@ -174,7 +174,8 @@ def _update_rollback_target_images(lock_path: Path, manifest_path: Path) -> dict
     return {cell: lambda_mirror if cell.startswith("aws-serverless/") else ecs for cell in GA_CELLS}
 
 
-def _update_rollback(receipt: dict[str, Any], target_images: dict[str, str]) -> bool:
+def _update_rollback(receipt: dict[str, Any], target_images: dict[str, str],
+                     baseline_images: dict[str, str] | None = None) -> bool:
     """Refuse status-only/self-rollback proof; every GA cell binds its real actuator.
 
     Lock signatures and retained workflow artifact integrity are checked by the
@@ -198,6 +199,7 @@ def _update_rollback(receipt: dict[str, Any], target_images: dict[str, str]) -> 
                 or cell.get("actuator") != UPDATE_ROLLBACK_ACTUATORS[cell["cell"]]
                 or not _is_digest(before) or not _is_digest(after) or before == after
                 or after != target_images.get(cell["cell"])
+                or (baseline_images is not None and before != baseline_images.get(cell["cell"]))
                 or not isinstance(job, dict) or not isinstance(boundary, dict)):
             return False
         states = job.get("terminalStates")
@@ -340,9 +342,12 @@ def evaluate(
             if name == "update-rollback":
                 target_images = _update_rollback_target_images(
                     lock_path, evidence_dir / "trains" / rc_run_id / "platform-manifest.yaml")
-                ok &= _update_rollback(receipt, target_images)
+                baseline_images = None
                 if policy["name"] == "patch":
+                    baseline_images = _update_rollback_target_images(
+                        policy["baselineRoot"] / "platform-lock.json", policy["baselineRoot"] / "platform-manifest.yaml")
                     ok &= receipt.get("fromLockDigest") == policy["baselineDigest"]
+                ok &= _update_rollback(receipt, target_images, baseline_images)
         except (ReadinessError, OSError, TypeError):
             ok = False
         check(f"evidence:{name}", bool(ok), detail)

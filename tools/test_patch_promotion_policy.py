@@ -17,7 +17,7 @@ def _metadata(run, completed, workflow='.github/workflows/nightly-certification.
             'conclusion': 'success', 'updated_at': completed}
 
 
-def patch_fixture(tmp_path, age=12):
+def patch_fixture(tmp_path, age=12, *, server_changed=True):
     fixture = _fixture(tmp_path, age=age)
     record, lock, evidence, _ = fixture
     selected = json.loads(lock.read_text())
@@ -27,8 +27,16 @@ def patch_fixture(tmp_path, age=12):
     baseline['platform']['id'] = 'honua-2026.1-rc.3'
     baseline['components']['honua-helm']['sha'] = 'a' * 40
     root = evidence / 'baselines' / '900'
+    import yaml
+    baseline_manifest = yaml.safe_load((evidence / 'trains/101/platform-manifest.yaml').read_bytes())
+    if server_changed:
+        baseline['components']['honua-server']['artifacts'][0]['digest'] = 'sha256:' + 'a' * 64
+        baseline_manifest['components']['honua-server'].update(digest='sha256:' + 'a' * 64, awsLambdaEcrDigest='sha256:' + 'e' * 64)
+    payload = yaml.safe_dump(baseline_manifest).encode()
+    (root / 'platform-manifest.yaml').parent.mkdir(parents=True, exist_ok=True)
+    (root / 'platform-manifest.yaml').write_bytes(payload)
+    baseline['sourceInputs']['platformManifest']['sha256'] = 'sha256:' + hashlib.sha256(payload).hexdigest()
     _write(root / 'platform-lock.json', baseline)
-    (root / 'platform-manifest.yaml').write_bytes((evidence / 'trains/101/platform-manifest.yaml').read_bytes())
     (root / 'published-platform-lock.json').write_bytes((root / 'platform-lock.json').read_bytes())
     _write(root / 'publication.json', {'id': 91, 'tag_name': 'honua-2026.1.0', 'draft': False, 'prerelease': False,
         'html_url': 'https://github.com/honua-io/honua-release/releases/tag/honua-2026.1.0',
@@ -36,7 +44,7 @@ def patch_fixture(tmp_path, age=12):
     baseline_digest = 'sha256:' + hashlib.sha256((root / 'platform-lock.json').read_bytes()).hexdigest()
     _write(root / 'run.json', _metadata('900', _stamp(NOW - timedelta(days=2))))
     old = record['lock']['digest']
-    selected.update(profile='patch', changedComponents=['honua-helm'], baselineLockDigest=baseline_digest)
+    selected.update(profile='patch', changedComponents=['honua-server', 'honua-helm'] if server_changed else ['honua-helm'], baselineLockDigest=baseline_digest)
     _write(lock, selected)
     new = 'sha256:' + hashlib.sha256(lock.read_bytes()).hexdigest()
     for path in evidence.rglob('*.json'):
@@ -45,7 +53,13 @@ def patch_fixture(tmp_path, age=12):
     (evidence / 'trains/101/platform-lock.json').write_bytes(lock.read_bytes())
     record = json.loads(json.dumps(record).replace(old, new))
     record.update(platformLabel='2026.1.1-rc.1', profile='patch', baseline={'runId': '900', 'lockDigest': baseline_digest, 'releaseTag': 'honua-2026.1.0'})
-    _edit(evidence / 'evidence/update-rollback' / next(row['runId'] for row in record['evidence'] if row['class'] == 'update-rollback') / 'receipt.json', lambda d: d.update(fromLockDigest=baseline_digest))
+    rollback = evidence / 'evidence/update-rollback' / next(row['runId'] for row in record['evidence'] if row['class'] == 'update-rollback') / 'receipt.json'
+    value = json.loads(rollback.read_text())
+    value['fromLockDigest'] = baseline_digest
+    for cell in value['cells']:
+        source = baseline_manifest['components']['honua-server']['awsLambdaEcrDigest' if cell['cell'].startswith('aws-serverless/') else 'digest']
+        cell['fromDigest'] = cell['schemaBoundary']['imageDigest'] = source
+    _write(rollback, value)
     return record, lock, evidence, fixture[3]
 
 
@@ -71,7 +85,7 @@ def test_patch_declaration_and_baseline_identity_fail_closed(tmp_path, mutation)
     if mutation == 'profile': f[0]['profile'] = 'ga'
     if mutation == 'baseline-digest': f[0]['baseline']['lockDigest'] = 'sha256:' + 'f' * 64
     if mutation in ('changed-omitted', 'changed-extra'):
-        _edit(f[1], lambda d: d.update(changedComponents=[] if mutation == 'changed-omitted' else ['honua-server', 'honua-helm']))
+        _edit(f[1], lambda d: d.update(changedComponents=[] if mutation == 'changed-omitted' else ['honua-server', 'honua-helm', 'honua-sdk-js']))
     if mutation == 'baseline-foreign':
         _edit(f[2] / 'baselines/900/run.json', lambda d: d.update(head_branch='untrusted'))
     with pytest.raises(readiness.ReadinessError): _decision(f)
@@ -86,7 +100,7 @@ def test_patch_still_requires_current_rollback_and_every_class(tmp_path):
 
 
 def reused_fixture(tmp_path, monkeypatch):
-    f = patch_fixture(tmp_path)
+    f = patch_fixture(tmp_path, server_changed=False)
     row = next(row for row in f[0]['evidence'] if row['class'] == 'cite')
     row.update(reusedComponents=['honua-server'], lockDigest=f[0]['baseline']['lockDigest'])
     baseline = json.loads((f[2] / 'baselines/900/platform-lock.json').read_text())
@@ -98,7 +112,10 @@ def reused_fixture(tmp_path, monkeypatch):
 
 
 def test_unchanged_certificate_reuse_keeps_authenticated_identity_and_freshness(tmp_path, monkeypatch):
-    assert _decision(reused_fixture(tmp_path, monkeypatch))['status'] == 'pass'
+    decision = _decision(reused_fixture(tmp_path, monkeypatch))
+    assert decision['checks']['evidence:cite']['status'] == 'pass'
+    assert decision['checks']['evidence:update-rollback']['status'] == 'fail'
+    assert decision['status'] == 'refused'
 
 
 @pytest.mark.parametrize('mutation', ['stale', 'wrong-component', 'wrong-lock', 'foreign-producer', 'changed-component', 'shared-fixture', 'manifest-artifact', 'missing-manifest'])
@@ -131,7 +148,8 @@ def test_reuse_may_precede_burn_but_never_refresh_its_original_expiry(tmp_path, 
     row['completedAt'] = _stamp(NOW - timedelta(hours=24))
     _edit(_receipt(f, 'cite'), lambda d: d.update(completedAt=row['completedAt'], freshUntil=_stamp(NOW + timedelta(hours=1))))
     _edit(_receipt(f, 'cite').with_name('run.json'), lambda d: d.update(updated_at=row['completedAt']))
-    assert _decision(f)['status'] == 'pass'
+    assert _decision(f)['checks']['evidence:cite']['status'] == 'pass'
+    assert _decision(f)['status'] == 'refused'  # unchanged-runtime rollback is not yet supported
     assert _decision(f, now=NOW + timedelta(hours=2))['checks']['evidence:cite']['status'] == 'fail'
 
 
@@ -185,3 +203,14 @@ def test_patch_needs_actual_same_series_published_baseline(tmp_path, mutation):
         assert _decision(f)['checks']['evidence:update-rollback']['status'] == 'fail'
     else:
         with pytest.raises((readiness.ReadinessError, OSError)): _decision(f)
+
+
+@pytest.mark.parametrize('cell', ['aws-ecs/redis-off', 'aws-ecs/redis-on', 'aws-serverless/redis-off', 'aws-serverless/redis-on'])
+def test_patch_rollback_must_use_each_baseline_image_pin(tmp_path, cell):
+    f = patch_fixture(tmp_path)
+    def forge(d):
+        row = next(r for r in d['cells'] if r['cell'] == cell)
+        # Internally consistent claimed source/schema image still must match the authenticated baseline.
+        row['fromDigest'] = row['schemaBoundary']['imageDigest'] = 'sha256:' + 'f' * 64
+    _edit(_receipt(f, 'update-rollback'), forge)
+    assert _decision(f)['checks']['evidence:update-rollback']['status'] == 'fail'
