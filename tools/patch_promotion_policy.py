@@ -41,7 +41,26 @@ def profile(record, selected, evidence_dir):
     train = _load(evidence_dir / "trains" / str(record.get("rcTrainRunId")) / "run.json", "selected train metadata")
     if _time(metadata.get("updated_at"), "baseline completedAt") >= _time(train.get("updated_at"), "selected train completedAt"):
         raise ReadinessError("patch baseline must precede the selected minting train")
+    publication = _load(root / "publication.json", "published baseline release")
+    tag = baseline.get("releaseTag")
+    published = re.fullmatch(r"honua-([0-9]+)\.([0-9]+)\.([0-9]+)", tag or "")
+    patch = re.fullmatch(r"([0-9]+)\.([0-9]+)\.([1-9][0-9]*)-rc\.[1-9][0-9]*", label)
+    baseline_platform = previous.get("platform", {}).get("id", "")
+    baseline_version = re.fullmatch(r"honua-([0-9]+)\.([0-9]+)(?:\.([0-9]+))?(?:-rc\.[1-9][0-9]*)?", baseline_platform)
+    if (not published or not patch or not baseline_version
+            or published.group(1, 2) != patch.group(1, 2)
+            or int(published[3]) >= int(patch[3])
+            or baseline_version.group(1, 2) != published.group(1, 2)
+            or int(baseline_version[3] or 0) != int(published[3])
+            or publication.get("tag_name") != tag or publication.get("draft") is not False
+            or publication.get("prerelease") is not False
+            or type(publication.get("id")) is not int or publication["id"] <= 0
+            or publication.get("html_url") != "https://github.com/honua-io/honua-release/releases/tag/" + tag
+            or _time(publication.get("published_at"), "baseline publishedAt") > _time(train.get("updated_at"), "selected train completedAt")):
+        raise ReadinessError("patch baseline must be an actual published same-series lower patch release")
     digest = _digest(root / "platform-lock.json")
+    if _digest(root / "published-platform-lock.json") != digest:
+        raise ReadinessError("published baseline lock differs from the certified baseline bytes")
     if digest != baseline.get("lockDigest") or digest != selected.get("baselineLockDigest"):
         raise ReadinessError("patch baseline digest does not match authenticated retained bytes")
     before, after = previous.get("components"), selected.get("components")

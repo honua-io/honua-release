@@ -341,6 +341,8 @@ def evaluate(
                 target_images = _update_rollback_target_images(
                     lock_path, evidence_dir / "trains" / rc_run_id / "platform-manifest.yaml")
                 ok &= _update_rollback(receipt, target_images)
+                if policy["name"] == "patch":
+                    ok &= receipt.get("fromLockDigest") == policy["baselineDigest"]
         except (ReadinessError, OSError, TypeError):
             ok = False
         check(f"evidence:{name}", bool(ok), detail)

@@ -160,7 +160,8 @@
       "additionalProperties": false,
       "required": [
         "runId",
-        "lockDigest"
+        "lockDigest",
+        "releaseTag"
       ],
       "properties": {
         "runId": {
@@ -168,6 +169,10 @@
         },
         "lockDigest": {
           "$ref": "#/$defs/digest"
+        },
+        "releaseTag": {
+          "type": "string",
+          "pattern": "^honua-[0-9]+\\.[0-9]+\\.[0-9]+$"
         }
       }
     }

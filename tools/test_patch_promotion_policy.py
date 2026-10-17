@@ -29,6 +29,10 @@ def patch_fixture(tmp_path, age=12):
     root = evidence / 'baselines' / '900'
     _write(root / 'platform-lock.json', baseline)
     (root / 'platform-manifest.yaml').write_bytes((evidence / 'trains/101/platform-manifest.yaml').read_bytes())
+    (root / 'published-platform-lock.json').write_bytes((root / 'platform-lock.json').read_bytes())
+    _write(root / 'publication.json', {'id': 91, 'tag_name': 'honua-2026.1.0', 'draft': False, 'prerelease': False,
+        'html_url': 'https://github.com/honua-io/honua-release/releases/tag/honua-2026.1.0',
+        'published_at': _stamp(NOW - timedelta(days=1))})
     baseline_digest = 'sha256:' + hashlib.sha256((root / 'platform-lock.json').read_bytes()).hexdigest()
     _write(root / 'run.json', _metadata('900', _stamp(NOW - timedelta(days=2))))
     old = record['lock']['digest']
@@ -40,7 +44,8 @@ def patch_fixture(tmp_path, age=12):
             path.write_text(path.read_text().replace(old, new))
     (evidence / 'trains/101/platform-lock.json').write_bytes(lock.read_bytes())
     record = json.loads(json.dumps(record).replace(old, new))
-    record.update(platformLabel='2026.1.1-rc.1', profile='patch', baseline={'runId': '900', 'lockDigest': baseline_digest})
+    record.update(platformLabel='2026.1.1-rc.1', profile='patch', baseline={'runId': '900', 'lockDigest': baseline_digest, 'releaseTag': 'honua-2026.1.0'})
+    _edit(evidence / 'evidence/update-rollback' / next(row['runId'] for row in record['evidence'] if row['class'] == 'update-rollback') / 'receipt.json', lambda d: d.update(fromLockDigest=baseline_digest))
     return record, lock, evidence, fixture[3]
 
 
@@ -150,9 +155,33 @@ def test_fetcher_authenticates_and_retains_patch_baseline(tmp_path, monkeypatch)
     metadata = json.loads((root / 'run.json').read_text())
     gh.add_run('900', metadata['updated_at'], path=metadata['path'], event=metadata['event'])
     gh.artifacts[('900', 'certified-candidate')] = [root / 'platform-lock.json', root / 'platform-manifest.yaml']
+    original_api = gh.api
+    gh.api = lambda path='': json.loads((root / 'publication.json').read_text()) if path.startswith('releases/tags/') else original_api(path)
+    def download_release(tag, dest):
+        dest.mkdir(parents=True, exist_ok=True)
+        (dest / 'platform-lock.json').write_bytes((root / 'platform-lock.json').read_bytes())
+        return True
+    gh.download_release_lock = download_release
     out = tmp_path / 'fetched'
     fetcher.fetch(f[0], gh, out)
     assert (out / 'baselines/900/platform-lock.json').read_bytes() == (root / 'platform-lock.json').read_bytes()
     assert readiness.evaluate(f[0], lock_path=out / 'trains/101/platform-lock.json', evidence_dir=out, now=NOW)[0]['status'] == 'pass'
     gh.runs['900']['head_branch'] = 'untrusted'
     with pytest.raises(fetcher.FetchError): fetcher.fetch(f[0], gh, tmp_path / 'untrusted')
+
+
+@pytest.mark.parametrize('mutation', ['missing-publication', 'draft', 'prerelease', 'different-series', 'same-patch', 'unpublished-bytes', 'wrong-family-lock', 'wrong-rollback'])
+def test_patch_needs_actual_same_series_published_baseline(tmp_path, mutation):
+    f = patch_fixture(tmp_path)
+    root = f[2] / 'baselines/900'
+    if mutation == 'missing-publication': (root / 'publication.json').unlink()
+    if mutation in ('draft', 'prerelease'): _edit(root / 'publication.json', lambda d: d.update({mutation: True}))
+    if mutation == 'different-series': f[0]['baseline']['releaseTag'] = 'honua-2026.2.0'
+    if mutation == 'same-patch': f[0]['baseline']['releaseTag'] = 'honua-2026.1.1'
+    if mutation == 'unpublished-bytes': (root / 'published-platform-lock.json').write_text('{}')
+    if mutation == 'wrong-family-lock': _edit(root / 'platform-lock.json', lambda d: d.update(platform={'id': 'honua-2026.2-rc.3'}))
+    if mutation == 'wrong-rollback':
+        _edit(_receipt(f, 'update-rollback'), lambda d: d.update(fromLockDigest='sha256:' + 'f' * 64))
+        assert _decision(f)['checks']['evidence:update-rollback']['status'] == 'fail'
+    else:
+        with pytest.raises((readiness.ReadinessError, OSError)): _decision(f)

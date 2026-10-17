@@ -14,6 +14,7 @@ Nothing in this tool can pass a record: missing artifacts leave gaps the checker
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import re
 import shutil
@@ -96,6 +97,11 @@ class GitHub:
         dest.mkdir(parents=True, exist_ok=True)
         result = self._gh("run", "download", run_id, "--repo", self.repository, "--name", artifact, "--dir", str(dest))
         return result.returncode == 0
+
+    def download_release_lock(self, tag: str, dest: Path) -> bool:
+        dest.mkdir(parents=True, exist_ok=True)
+        return self._gh("release", "download", tag, "--repo", self.repository,
+                        "--pattern", "platform-lock.json", "--dir", str(dest)).returncode == 0
 
     def release_exists(self, tag: str) -> bool:
         return self._gh("release", "view", tag, "--repo", self.repository).returncode == 0
@@ -207,6 +213,22 @@ def fetch(record: dict[str, Any], gh: GitHub, out: Path) -> None:
         _identity(baseline_meta, gh.repository, default_branch, baseline_run, MINTING_WORKFLOWS, MINTING_EVENTS)
         if not _retain(gh, baseline_run, CANDIDATE_ARTIFACT, out / "baselines" / baseline_run, baseline_meta):
             raise FetchError("patch baseline has no authenticated certified candidate artifact")
+        tag = baseline.get("releaseTag")
+        if not isinstance(tag, str) or not re.fullmatch(r"honua-[0-9]+\.[0-9]+\.[0-9]+", tag):
+            raise FetchError("patch baseline requires a published GA/maintenance release tag")
+        publication = gh.api("releases/tags/" + tag)
+        if publication.get("tag_name") != tag or publication.get("draft") is not False or publication.get("prerelease") is not False:
+            raise FetchError("patch baseline is not a published GA/maintenance release")
+        with tempfile.TemporaryDirectory() as scratch:
+            if not gh.download_release_lock(tag, Path(scratch)):
+                raise FetchError("published patch baseline has no lock asset")
+            published = Path(scratch, "platform-lock.json").read_bytes()
+        baseline_root = out / "baselines" / baseline_run
+        if ("sha256:" + hashlib.sha256(published).hexdigest() != baseline.get("lockDigest")
+                or published != (baseline_root / "platform-lock.json").read_bytes()):
+            raise FetchError("published baseline differs from the certified lock")
+        (baseline_root / "published-platform-lock.json").write_bytes(published)
+        _write(baseline_root / "publication.json", publication)
 
     runs: dict[str, dict[str, Any]] = {rc: train}
     for row in record.get("evidence") or []:
