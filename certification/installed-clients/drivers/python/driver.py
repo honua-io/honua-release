@@ -178,7 +178,7 @@ def run_admin(state: dict[str, Any]) -> None:
     def create() -> dict[str, Any]:
         created = admin.create_connection(CreateSecureConnectionRequest(
             name=life["connectionName"], host=db["host"], port=db["port"], database_name=db["databaseName"],
-            username=db["username"], password=DB_PASSWORD, ssl_required=False, ssl_mode="Disable"))
+            username=db["username"], password=DB_PASSWORD, ssl_required=db.get("sslRequired", False), ssl_mode=db.get("sslMode", "Disable")))
         state["connection"] = created.connection_id
         return {"connectionId": created.connection_id}
 

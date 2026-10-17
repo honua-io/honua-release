@@ -721,7 +721,7 @@ def client_labels(pins: dict[str, Any]) -> dict[str, str]:
     return {artifact: f"{pin['package']} {pin['version']}" for artifact, pin in pins.items()}
 
 
-def run_suite(manifest: dict[str, Any], matrix: dict[str, Any], base: Path) -> dict[str, tuple[str, str, list[dict[str, Any]]]]:
+def run_suite(manifest: dict[str, Any], matrix: dict[str, Any], base: Path, endpoint_context: dict | None = None) -> dict[str, tuple[str, str, list[dict[str, Any]]]]:
     """Run every regression cell (SDK, command-line and MCP): one install and one driver run per client."""
     regression = _regression()
     pins = manifest["clientArtifacts"]
@@ -736,7 +736,16 @@ def run_suite(manifest: dict[str, Any], matrix: dict[str, Any], base: Path) -> d
     interop = interop_context = interop_principals = None
     if "interop" in drivers:
         interop = _interop()
-    if server:
+    db_password = FIXTURE_DB_PASSWORD
+    if endpoint_context is not None:
+        published = endpoint_context["published"]
+        bearer = endpoint_context["bearer"]
+        principals = endpoint_context["principals"]
+        interop_context = endpoint_context["interopContext"]
+        interop_principals = endpoint_context["interopPrincipals"]
+        db_password = endpoint_context["dbPassword"]
+        fixture["lifecycle"]["database"] = endpoint_context["database"]
+    elif server:
         try:
             family = lambda driver: regression.DRIVER_CLIENTS[driver][0]  # noqa: E731
             slugs = [regression.SUITE_DRIVERS[driver] for driver in drivers if family(driver) == "sdk"]
@@ -786,8 +795,12 @@ def run_suite(manifest: dict[str, Any], matrix: dict[str, Any], base: Path) -> d
         plan_path.write_text(json.dumps(plan, indent=2))
         code, stdout, stderr = regression.run_driver(command, work, regression.driver_env(
             env, api_key=os.environ.get("E2E_API_KEY", DEFAULT_ADMIN_KEY), bearer=bearer,
-            db_password=FIXTURE_DB_PASSWORD, plan_path=plan_path, principals=workflow))
-        regression.log(f"== {client} driver exited {code} ==\n{stderr[-6000:]}")
+            db_password=db_password, plan_path=plan_path, principals=workflow))
+        diagnostic = f"== {client} driver exited {code} ==\n{stderr[-6000:]}"
+        if endpoint_context is not None:
+            import endpoint
+            diagnostic = endpoint.redact_log(diagnostic, endpoint_context, os.environ.get("E2E_API_KEY", ""))
+        regression.log(diagnostic)
         observations = regression.parse_observations(stdout)
         for cell in group:
             if driver == "interop":
@@ -969,13 +982,15 @@ def execute(
     matrix: dict[str, Any],
     evidence_uri: str,
     import_fidelity_receipt: dict[str, Any] | None = None,
+    endpoint_context: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     pins = manifest["clientArtifacts"]
     results: list[dict[str, Any]] = []
     with tempfile.TemporaryDirectory(prefix="honua-installed-client-") as tmp:
         base = Path(tmp)
         # Blocked cells and blocked steps still execute so a fix is observed instead of assumed.
-        suite = run_suite(manifest, matrix, base)
+        suite = (run_suite(manifest, matrix, base, endpoint_context) if endpoint_context is not None
+                 else run_suite(manifest, matrix, base))
         for cell in matrix["cells"]:
             pin = pins[cell["artifact"]]
             steps = None
@@ -996,7 +1011,11 @@ def execute(
             if cell["status"] == "blocked":
                 result["blockedBy"] = cell["blockedBy"]
             results.append(result)
-    return make_receipt(manifest, matrix, results, evidence_uri)
+    receipt = make_receipt(manifest, matrix, results, evidence_uri)
+    if endpoint_context is not None:
+        receipt["deployment"] = endpoint_context["binding"]
+        receipt["server"] = dict(endpoint_context["binding"]["server"])
+    return receipt
 
 
 def main() -> int:
@@ -1017,7 +1036,10 @@ def main() -> int:
         default="all",
         help="fast: only the install/probe cells (the PR check); all: also the SDK regression scenarios (the gate)",
     )
-    parser.add_argument("--live", action="store_true", help="boot and seed the single real server/PostgreSQL target")
+    target = parser.add_mutually_exclusive_group()
+    target.add_argument("--live", action="store_true", help="boot and seed the single real server/PostgreSQL target")
+    target.add_argument("--endpoint-context", type=Path,
+                        help="private prepared endpoint context from the trusted provisioner; never boots Docker")
     parser.add_argument(
         "--import-fidelity-receipt",
         type=Path,
@@ -1050,7 +1072,18 @@ def main() -> int:
                 raise CertificationError(f"import fidelity receipt is not readable JSON: {exc}") from exc
             if not isinstance(import_fidelity_receipt, dict):
                 raise CertificationError("import fidelity receipt must be a JSON object")
-        if args.live:
+        if args.endpoint_context:
+            import endpoint
+            context = endpoint.read_context(args.endpoint_context)
+            endpoint.validate_context(context, manifest, matrix, args.manifest)
+            endpoint.require_client_transport(context)
+            with endpoint.client_environment(context):
+                endpoint.verify_live_identity(context, manifest)
+                receipt = execute(manifest, matrix, args.evidence_uri,
+                                  import_fidelity_receipt=import_fidelity_receipt, endpoint_context=context)
+                endpoint.verify_live_identity(context, manifest)
+            receipt = endpoint.redact_receipt(receipt, context, os.environ.get("E2E_API_KEY", ""))
+        elif args.live:
             compose = boot_candidate(manifest)
             try:
                 seed = subprocess.run(["bash", str(ROOT / "e2e/harness/seed/seed.sh")], cwd=ROOT,
@@ -1070,7 +1103,7 @@ def main() -> int:
         args.output.write_text(json.dumps(receipt, indent=2) + "\n")
         print(json.dumps(receipt, indent=2))
         return 0 if receipt["status"] in {"pass", "blocked"} else 1
-    except CertificationError as exc:
+    except (CertificationError, ValueError) as exc:
         print(f"certification input error: {exc}", file=sys.stderr)
         return 2
 

@@ -93,9 +93,9 @@ HANDOFF_SCHEMA = "honua-cloud-journey-handoff-v1"
 DATASOURCE_FIELDS = ("host", "port", "databaseName", "username", "password")
 
 
-def pack_handoff(admin_key, datasource=None, *, tenant_signing_key=None):
+def pack_handoff(admin_key, datasource=None, *, tenant_signing_key=None, installed_clients=None):
     """The sealed journey handoff: the bare application key, or a JSON object with the datasource."""
-    if not datasource and tenant_signing_key is None:
+    if not datasource and tenant_signing_key is None and installed_clients is None:
         return admin_key
     document = {"schema": HANDOFF_SCHEMA, "appKey": admin_key}
     if datasource:
@@ -103,6 +103,8 @@ def pack_handoff(admin_key, datasource=None, *, tenant_signing_key=None):
     if tenant_signing_key is not None:
         _validate_tenant_signing_key(tenant_signing_key)
         document["tenantSigningKey"] = tenant_signing_key
+    if installed_clients is not None:
+        document["installedClients"] = installed_clients
     return json.dumps(document, separators=(",", ":"))
 
 
