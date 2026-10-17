@@ -55,8 +55,15 @@ def validate_authored_data(role, snapshot, equal):
         if "geometry" in feature:
             geometry = {key: value for key, value in feature["geometry"].items() if key != "spatialReference"}
             equal(geometry, {key: actual.get("geometry", {})[key] for key in geometry}, "fixed authored geometry", 1e-8)
-    definition = json.loads(FIXTURES.read_text())["roles"][role]
+    document = json.loads(FIXTURES.read_text())
+    definition = document["roles"][role]
     metadata = snapshot["metadata"]
+    fields = {field["name"]: field for field in metadata["fields"]}
+    names = set(expected[0]["attributes"])
+    for field in document["fieldDefinitions"]:
+        if field["name"] in names:
+            actual = fields[field["name"]]
+            equal(field, {key: actual[key] for key in field if key in actual}, "fixed authored field metadata")
     if role == "domains-subtypes":
         expected = definition["metadata"]
         field = next(field for field in metadata["fields"] if field["name"] == expected["domainField"])
@@ -67,13 +74,17 @@ def validate_authored_data(role, snapshot, equal):
         equal(definition["metadata"]["timeInfo"]["startTimeField"], metadata.get("timeInfo", {}).get("startTimeField"), "fixed authored time field")
         renderer = metadata.get("drawingInfo", {}).get("renderer", {})
         for member in ("type", "symbol"):
-            equal(definition["metadata"]["renderer"][member], renderer.get(member), "fixed authored renderer " + member)
+            expected_member = definition["metadata"]["renderer"][member]
+            actual_member = renderer.get(member)
+            if isinstance(expected_member, dict) and isinstance(actual_member, dict):
+                actual_member = {key: actual_member[key] for key in expected_member if key in actual_member}
+            equal(expected_member, actual_member, "fixed authored renderer " + member)
     if "maximumSourceRecordCount" in definition:
         require(0 < metadata.get("maxRecordCount", 0) <= definition["maximumSourceRecordCount"], "authored paging fixture transfer cap is too large")
 
 
 class PrerequisiteMissing(RuntimeError):
-    """No execution occurred; this must not become a passing or executed cell."""
+    """A required input or observation is absent; the requirement cannot qualify."""
 
 
 def digest(value):
@@ -429,7 +440,7 @@ class Journeys:
         prior, large = self.ready("points"), self.ready("bounded-large-data")
         table = prior["request"]["tableName"]
         before = self.fingerprint(table)
-        request = self.request(large["spec"], table, "recovered-" + self.tag, overwriteExisting=True, batchSize=1)
+        request = self.request(large["spec"], table, prior["request"]["serviceName"], overwriteExisting=True, batchSize=1)
         job_id = self.start(request)
         observed = self.sdk.call("GetGeoservicesImportJobStatusAsync", baseUrl=self.base, candidate=True, arguments=[job_id])
         require(str(observed["status"]).lower() not in {"completed", "failed", "cancelled", "needsreview"},

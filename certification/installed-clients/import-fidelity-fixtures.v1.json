@@ -673,5 +673,65 @@
       },
       "maximumSourceRecordCount": 100
     }
-  }
+  },
+  "fieldDefinitions": [
+    {
+      "name": "OBJECTID",
+      "type": "esriFieldTypeOID",
+      "alias": "Record identity",
+      "nullable": false
+    },
+    {
+      "name": "label",
+      "type": "esriFieldTypeString",
+      "alias": "Authored label",
+      "length": 64,
+      "nullable": false
+    },
+    {
+      "name": "nullable_value",
+      "type": "esriFieldTypeString",
+      "alias": "Nullable text",
+      "length": 64,
+      "nullable": true
+    },
+    {
+      "name": "kind",
+      "type": "esriFieldTypeSmallInteger",
+      "alias": "Kind code",
+      "nullable": false
+    },
+    {
+      "name": "observed_at",
+      "type": "esriFieldTypeDate",
+      "alias": "Observed instant",
+      "nullable": false
+    },
+    {
+      "name": "precise_value",
+      "type": "esriFieldTypeBigInteger",
+      "alias": "Exact integer",
+      "nullable": true
+    },
+    {
+      "name": "empty_value",
+      "type": "esriFieldTypeString",
+      "alias": "Empty versus null",
+      "length": 32,
+      "nullable": true
+    },
+    {
+      "name": "parent_id",
+      "type": "esriFieldTypeInteger",
+      "alias": "Parent identity",
+      "nullable": false
+    },
+    {
+      "name": "note",
+      "type": "esriFieldTypeString",
+      "alias": "Related note",
+      "length": 64,
+      "nullable": false
+    }
+  ]
 }

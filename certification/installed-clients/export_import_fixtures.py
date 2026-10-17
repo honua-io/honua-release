@@ -18,7 +18,8 @@ def export(destination: Path):
     destination.mkdir(parents=True)
     definitions = json.loads(FIXTURES.read_text())
     for role, definition in definitions["roles"].items():
-        document = {"role": role, "fixtureRevision": fixture_revision(), **definition,
+        names = set(fixture_features(role)[0]["attributes"])
+        document = {"fields": [field for field in definitions["fieldDefinitions"] if field["name"] in names], "role": role, "fixtureRevision": fixture_revision(), **definition,
                     "features": fixture_features(role)}
         (destination / (role + ".json")).write_text(json.dumps(document, indent=2) + "\n")
     attachment_directory = destination / "attachment-bytes"

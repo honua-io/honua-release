@@ -206,7 +206,7 @@ def test_unavailable_gdal_never_substitutes_baseline(score):
 @pytest.mark.parametrize("role", journeys.ROLES)
 def test_authored_data_is_fixed_and_rejects_a_seeded_source_value_fault(role):
     features = journeys.fixture_features(role)
-    value = {"features": deepcopy(features), "metadata": {"fields": []}}
+    value = {"features": deepcopy(features), "metadata": {"fields": json.loads(journeys.FIXTURES.read_text())["fieldDefinitions"]}}
     if role in {"domains-subtypes", "renderer-time-metadata", "pagination-limits", "bounded-large-data"}:
         # These additional metadata preconditions are independently covered by role checks.
         # Stop at the first known attribute fault, before any later metadata access.
