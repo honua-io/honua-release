@@ -224,7 +224,7 @@ def test_wrong_receipt_candidate_or_cell_is_red(intake, field):
         data[field] = json.loads(json.dumps(CLIENTS))
         data[field]["honua-sdk-js"]["version"] = "old"
     else:
-        data[field]["id"] = checker.GA_CELLS[1]
+        data[field]["id"] = checker.GA_CELLS[2]
     intake.write(cell, [data])
     assert_red(intake, "wrong candidate or receipt cell")
 
@@ -258,9 +258,9 @@ def test_attempt_after_pass_is_red(intake):
 
 def test_unrecorded_failed_receipt_cannot_be_hidden(intake):
     cell = checker.GA_CELLS[0]
-    report = intake.write(cell, [failed_receipt(cell), receipt(cell)])
-    report["journeyAttempts"] = [{**report["journeyAttempts"][1], "number": 1}]
-    intake.save(cell, report)
+    report = intake.write(cell)
+    source = intake.directory(cell) / report["journeyAttempts"][0]["receipt"]
+    source.with_name("receipt-unrecorded.json").write_text(json.dumps(failed_receipt(cell)))
     assert_red(intake, "omitted from recorded attempt history")
 
 
@@ -487,7 +487,7 @@ def test_failed_raw_blocked_profile_then_success_survives_collection_mint_and_re
     first = receipt(cell); first['status'] = 'blocked'
     for stage in first['stages'][2:]:
         stage.update(status='blocked', blockedBy=['honua-release#381'])
-        for check in stage['checks']: check['status'] = 'blocked'
+        for check in stage['checks']: check.update(status='blocked', blockedBy=['honua-release#381'])
         for key in ('jobId', 'operationId', 'operationInstanceId', 'resourceUri', 'jobStatus', 'jobCreatedAt'):
             stage[key] = None
     produced = intake.write(cell, [first, receipt(cell)], attributions=['infrastructure', None])
