@@ -815,6 +815,11 @@ def verify_journey(state: dict, journey: dict, journey_dir: Path) -> dict:
             or [r.get("number") for r in records] != list(range(1, len(records) + 1))):
         raise ValueError("journey attempt history is not 1..n within two attempts")
     expected = cloud_journey.observed_server(state.get("observedServer"), state.get("runningImage"))
+    expected_receipts = {f"receipt-{record['number']}.json" for record in records}
+    expected_profiles = {f"serving-refusal-{record['number']}.json" for record in records if record.get("servingRefusal")}
+    if (any(path.name not in expected_receipts for path in journey_dir.glob("receipt-*.json"))
+            or any(path.name not in expected_profiles for path in journey_dir.glob("serving-refusal-*.json"))):
+        raise ValueError("produced journey/profile artifact omitted from attempt history")
     verified: list[tuple[int, bytes, bytes | None]] = []
     blockers: list[list[str]] = []
     passed = False

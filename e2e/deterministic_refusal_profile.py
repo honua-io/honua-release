@@ -156,6 +156,7 @@ def produce(record, raw_path, target_path, *, adapter, pinned, digest, cell):
 def validate(value, record, raw, raw_bytes, target_path, *, cell, digest, expected_server, at=None, require_observation=True):
     """Re-derive bounded admission from retained source/target/fixture and actual operation proof."""
     at = at or datetime.now(timezone.utc)
+    require(isinstance(value, dict) and isinstance(raw, dict) and isinstance(record, dict), 'malformed profile envelope')
     require(cell in CELLS and value.get('schemaVersion') == 'deterministic-redis-off-serving-refusal.v1'
         and value.get('profile') == PROFILE and value.get('mode') == 'deterministic'
         and value.get('status') == 'pass' and value.get('executionOutcome') == 'refused'
@@ -163,7 +164,7 @@ def validate(value, record, raw, raw_bytes, target_path, *, cell, digest, expect
         'invalid deterministic serving/refusal profile')
     contract = json.loads((ROOT / 'certification/terminal-journey/journey.v1.json').read_bytes())
     expected_stages = [(s['number'], s['id'], s['command']) for s in contract['stages']]
-    require(isinstance(raw.get('stages'), list)
+    require(isinstance(raw.get('stages'), list) and all(isinstance(s, dict) for s in raw['stages'])
         and [(s.get('number'), s.get('stage'), s.get('command')) for s in raw['stages']] == expected_stages,
         'profile source does not cover the complete ordered canonical journey')
     require(value.get('cell') == record['cell'] == cell and value.get('attempt') == record['number']
@@ -238,9 +239,10 @@ def validate_record(record, raw, raw_path, *, cell, pinned, digest, at=None, req
 
 def failed_record(record, raw, raw_path):
     """A failed attempt remains attributed history; it cannot satisfy a required success."""
-    if raw.get('status') != 'pass' and not record.get('servingRefusal'):
-        return True
     path = raw_path.parent / f"serving-refusal-{record['number']}.json"
+    if raw.get('status') != 'pass' and not record.get('servingRefusal'):
+        require(not path.exists(), 'produced serving/refusal sidecar omitted from attempt history')
+        return True
     proof = record.get('servingRefusal', {})
     require(isinstance(proof, dict) and proof.get('file') == path.name
         and path.is_file() and not path.is_symlink()

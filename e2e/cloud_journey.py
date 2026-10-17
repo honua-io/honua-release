@@ -744,6 +744,8 @@ def attempt(cell, number, endpoint, admin_key, running_image=None, *, image_deta
         sidecar = directory / f"serving-refusal-{number}.json"
         sidecar.write_text(json.dumps(proof, indent=2) + "\n")
         record["servingRefusal"] = {"file": sidecar.name, "sha256": hashlib.sha256(sidecar.read_bytes()).hexdigest()}
+        if proof.get("status") != "pass" and record["failureAttribution"] is None:
+            record["failureAttribution"] = "infrastructure"
     return record
 
 
@@ -1007,6 +1009,11 @@ def aggregate(reports, reports_root, *, require_real, full_scope, run_id, run_at
                 receipt = json.loads(data)
                 passed = qualify_attempt(record, receipt, cell, raw_path=path, run_id=run_id, run_attempt=run_attempt)
                 attempt_blockers.append(documented_blockers(receipt))
+            recorded_profiles = {(Path(report["artifactDirectory"]) / record["receipt"]).parent
+                / f"serving-refusal-{record['number']}.json" for record in attempts if record.get("servingRefusal")}
+            if any(path.resolve() not in {p.resolve() for p in recorded_profiles}
+                   for path in Path(report["artifactDirectory"]).rglob("serving-refusal-*.json")):
+                raise ValueError("produced serving/refusal sidecar omitted from attempt history")
             cost = report.get("cost", {})
             # Outside require_real a cell that is BLOCKED only by tracked, documented limitations
             # (journey receipts, scenarios, a missing run cost meter) is reported blocked, never

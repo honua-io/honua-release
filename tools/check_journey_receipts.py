@@ -99,6 +99,7 @@ def validate_cell(report, directory, cell, manifest, digest, run_id, run_attempt
         raise ValueError("candidate lacks required client pins")
     history = []
     recorded_paths = set()
+    recorded_profiles = set()
     passed = False
     for record in attempts:
         if passed:
@@ -152,6 +153,8 @@ def validate_cell(report, directory, cell, manifest, digest, run_id, run_attempt
             if str(ROOT / "e2e") not in sys.path:
                 sys.path.insert(0, str(ROOT / "e2e"))
             import deterministic_refusal_profile
+            if record.get("servingRefusal"):
+                recorded_profiles.add((path.parent / f"serving-refusal-{record['number']}.json").resolve())
             if deterministic_refusal_profile.failed_record(record, receipt, path):
                 profile_metadata = {"profile": "redis-off-serving-refusal"}
                 passed = False
@@ -159,6 +162,8 @@ def validate_cell(report, directory, cell, manifest, digest, run_id, run_attempt
                 profile_metadata = deterministic_refusal_profile.validate_record(record, receipt, path,
                     cell=cell, pinned=manifest, digest=digest, at=at)
                 passed = True
+        if not passed and attribution not in ("model", "infrastructure"):
+            raise ValueError("failed profile attempt is unattributed")
         history.append({"number": record["number"], "status": "pass" if passed else "fail",
                         "sourceStatus": receipt["status"], **profile_metadata,
                         "completedAt": profile_metadata.get("completedAt", receipt["generatedAt"]),
@@ -166,6 +171,8 @@ def validate_cell(report, directory, cell, manifest, digest, run_id, run_attempt
                         "receipt": record["receipt"]})
     if any(path.resolve() not in recorded_paths for path in directory.rglob("receipt-*.json")):
         raise ValueError("receipt file omitted from recorded attempt history")
+    if any(path.resolve() not in recorded_profiles for path in directory.rglob("serving-refusal-*.json")):
+        raise ValueError("produced serving/refusal sidecar omitted from attempt history")
     if not passed or report.get("status") != "pass":
         raise ValueError("cell missing a passing receipt within 2 attempts, or cell skipped/failed")
     return history

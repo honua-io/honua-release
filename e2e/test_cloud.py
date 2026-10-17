@@ -2638,6 +2638,10 @@ def _journey_upload(directory, receipts, *, run_id="offline-run", run_attempt="2
     """A journey job's upload: receipt files plus the journey.json records that name them."""
     cj = run_cloud.cloud_journey
     cell_dir = cj.cell_dir(cell)
+    # Each call stands for a fresh artifact from a separate journey job.
+    for pattern in ("receipt-*.json", "serving-refusal-*.json", "target-*.json"):
+        for stale in directory.glob(pattern):
+            stale.unlink()
     records = []
     for number, receipt in enumerate(receipts, 1):
         data = json.dumps(receipt).encode()
@@ -5458,3 +5462,34 @@ def test_off_profile_transient_failure_keeps_raw_block_and_spends_only_existing_
         assert proof['status'] == 'pass' and proof['functionalGpExecuted'] is False
     finally:
         shutil.rmtree(cj.EVIDENCE / 'offline-run', ignore_errors=True)
+
+
+def test_raw_pass_with_failed_profile_is_attributed_by_actual_attempt_producer(monkeypatch):
+    import deterministic_refusal_profile as profile
+    cj = run_cloud.cloud_journey; driver, _ = cj.drivers()
+    monkeypatch.setenv('GITHUB_RUN_ID', 'offline-run'); monkeypatch.setenv('GITHUB_RUN_ATTEMPT', '2')
+    raw = _ecs_receipt(); workspace = driver.pins.ClientWorkspace(status='blocked', root=None, reason='unit seam')
+    monkeypatch.setattr(driver, 'run_live', lambda *a, **k: (workspace, [], [], None))
+    monkeypatch.setattr(driver, 'build_receipt', lambda **kwargs: raw)
+    sha, image = _manifest_server()
+    monkeypatch.setattr(cj, 'server_identity', lambda endpoint: {'revision': sha, 'source': 'commit-sha'})
+    monkeypatch.setattr(profile, 'produce', lambda *a, **k: {'status': 'fail', 'why': 'controlled profile failure'})
+    try:
+        record = cj.attempt('aws-ecs/redis-off', 1, 'https://cell.invalid', 'private-app-key', image)
+        assert raw['status'] == 'pass' and record['failureAttribution'] == 'infrastructure'
+        assert json.loads((cj.cell_dir(record['cell']) / record['servingRefusal']['file']).read_bytes())['status'] == 'fail'
+    finally: shutil.rmtree(cj.EVIDENCE / 'offline-run', ignore_errors=True)
+
+
+def test_controller_and_aggregate_refuse_unaccounted_profile_artifacts(monkeypatch, tmp_path):
+    cj = run_cloud.cloud_journey
+    monkeypatch.setenv('GITHUB_RUN_ID', 'offline-run'); monkeypatch.setenv('GITHUB_RUN_ATTEMPT', '2')
+    report = _cell_report(tmp_path, _ecs_receipt())
+    (tmp_path / 'serving-refusal-unrecorded.json').write_text('{"status":"pass"}')
+    assert 'sidecar omitted from attempt history' in _aggregate_fixture([report], tmp_path)['why']
+    # Controller rejects it before copying any uploaded evidence into its trusted directory.
+    sha, image = _manifest_server()
+    with pytest.raises(ValueError, match='artifact omitted from attempt history'):
+        run_cloud.verify_journey({'cell': 'aws-ecs/redis-off', 'observedServer': {
+            'revision': sha, 'source': 'commit-sha'}, 'runningImage': image},
+            {'journeyAttempts': report['journeyAttempts']}, tmp_path)
