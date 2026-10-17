@@ -171,7 +171,7 @@ def test_write_scopes_live_only_on_the_jobs_that_use_them():
     assert writes == {
         'resolve': ['contents'],               # unadmitted capacity preparation only
         'lambda_deployment': ['contents'],       # unadmitted refs/prepared-deployments/<sha> only
-        'deployment_qualification': ['actions'], # completed child EKS producer, before admission
+        'deployment_qualification': [],          # validates Lambda proof; Preview EKS is not dispatched
         'protocol_ledger': ['contents'],         # refs/nightly-requirements/<sha>, refs/nightly-candidates/<sha>
         'capacity': [],                          # cross-repo work uses RELEASE_GH_TOKEN
         'dr': ['actions'],                       # dispatches the drill in this repository
