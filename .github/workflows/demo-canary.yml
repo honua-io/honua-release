@@ -113,7 +113,7 @@ jobs:
           # here before the log, the status output and the tracking issue below ever see it.
           RC=0
           ARGS=(--base "$HONUA_DEMO_BASE_URL")
-          if [ -n "${HONUA_CANARY_CANDIDATE_SHA:-}" ]; then ARGS+=(--candidate-sha "$HONUA_CANARY_CANDIDATE_SHA"); fi
+          if [ -n "${HONUA_CANARY_CANDIDATE_SHA:-}" ]; then ARGS+=(--candidate-sha "$HONUA_CANARY_CANDIDATE_SHA" --bound-candidate); fi
           python e2e/demo_canary.py "${ARGS[@]}" > /tmp/canary.log 2>&1 || RC=$?
           cat /tmp/canary.log
           STATUS="$(python -c "import json;print(json.load(open('e2e/gate-report-demo-canary.json'))['status'])" 2>/dev/null || echo fail)"

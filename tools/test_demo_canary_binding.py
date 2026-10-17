@@ -171,7 +171,7 @@ def test_workflow_has_daily_monitoring_and_optional_six_hour_burn_without_arbitr
     assert prepare < credentials
     commands = '\n'.join(s.get('run', '') for s in steps)
     assert 'demo_canary_binding.py observe' in commands and 'demo_canary_binding.py bind' in commands
-    assert '--candidate-sha "$HONUA_CANARY_CANDIDATE_SHA"' in commands
+    assert '--candidate-sha "$HONUA_CANARY_CANDIDATE_SHA" --bound-candidate' in commands
     assert 'lock_path = pathlib.Path("platform-lock.json")' not in commands
 
 
@@ -205,3 +205,46 @@ def test_final_binding_reobserves_real_identity_and_preserves_probe_verdict(tmp_
     else:
         with pytest.raises(binding.FetchError): binding.bind(tmp_path, BASE, config, aws=aws, resolve=resolve)
         assert 'candidateLock' not in json.loads((e2e / 'live-canary-evidence.json').read_text())
+
+
+def test_bound_public_and_authenticated_probes_do_not_follow_external_redirects(monkeypatch):
+    import http.server
+    import threading
+    sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'e2e'))
+    import demo_canary
+    external_requests = []
+    origin_requests = []
+    class External(http.server.BaseHTTPRequestHandler):
+        def do_GET(self):
+            external_requests.append(dict(self.headers))
+            self.send_response(200); self.end_headers(); self.wfile.write(b'wrong deployment')
+        def log_message(self, *args): pass
+    external = http.server.ThreadingHTTPServer(('127.0.0.1', 0), External)
+    class Origin(http.server.BaseHTTPRequestHandler):
+        def do_GET(self):
+            origin_requests.append((self.path, self.headers.get('X-API-Key')))
+            self.send_response(302)
+            self.send_header('Location', f'http://127.0.0.1:{external.server_port}/elsewhere')
+            self.end_headers()
+        def log_message(self, *args): pass
+    origin = http.server.ThreadingHTTPServer(('127.0.0.1', 0), Origin)
+    threads = [threading.Thread(target=server.serve_forever, kwargs={'poll_interval': 0.01}, daemon=True)
+               for server in (external, origin)]
+    for thread in threads: thread.start()
+    observed = []
+    def canonical(base, fetch, *, authenticated_fetch, **kwargs):
+        observed.extend([fetch(base + '/public').status, authenticated_fetch(base + '/private').status])
+        return [demo_canary.CheckResult('redirected-probe', 'fail', 'redirect refused')]
+    monkeypatch.setattr(demo_canary, 'run_canonical', canonical)
+    monkeypatch.setattr(demo_canary.canary_probes, 'run_canary', lambda *args, **kwargs: [])
+    monkeypatch.setattr(demo_canary, 'load_quarantine', lambda: {})
+    try:
+        report, envelope = demo_canary.run(f'http://127.0.0.1:{origin.server_port}', 'private-admin-key',
+            None, None, False, 3000, SHA, bound_candidate=True)
+        assert observed == [302, 302] and report['status'] == 'fail'
+        assert envelope['candidateServerSha'] == ''
+        assert ('/public', None) in origin_requests and ('/private', 'private-admin-key') in origin_requests
+        assert external_requests == []
+    finally:
+        for server in (origin, external): server.shutdown(); server.server_close()
+        for thread in threads: thread.join(timeout=2)
