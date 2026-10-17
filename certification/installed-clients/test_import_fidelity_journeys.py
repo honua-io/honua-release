@@ -80,7 +80,7 @@ def test_transfer_limit_role_requires_crossing_real_source_cap():
 
 
 def test_source_manifest_refuses_insecure_or_unpinned_inputs(tmp_path, monkeypatch):
-    spec = {"schema": journeys.FIXTURE_SCHEMA, "fixtures": {role: {
+    spec = {"schema": journeys.FIXTURE_SCHEMA, "fixtureRevision": journeys.fixture_revision(), "fixtures": {role: {
         "serviceUrl": "https://source.example/rest/services/authored/FeatureServer", "layerId": 1,
         "expectedSnapshotDigest": "sha256:" + "a" * 64} for role in journeys.ROLES}}
     monkeypatch.setenv("IMPORT_FIDELITY_AUTH_SOURCE_URL", spec["fixtures"]["auth"]["serviceUrl"])
@@ -201,3 +201,39 @@ def test_unavailable_gdal_never_substitutes_baseline(score):
         score.record("dependency.server-4420", lane.dependency_evidence)
     assert score.cells["dependency.server-4420"]["verdict"] == "blocked"
     assert "ogr2ogr" in score.cells["dependency.server-4420"]["reason"]
+
+
+@pytest.mark.parametrize("role", journeys.ROLES)
+def test_authored_data_is_fixed_and_rejects_a_seeded_source_value_fault(role):
+    features = journeys.fixture_features(role)
+    value = {"features": deepcopy(features), "metadata": {"fields": []}}
+    if role in {"domains-subtypes", "renderer-time-metadata", "pagination-limits", "bounded-large-data"}:
+        # These additional metadata preconditions are independently covered by role checks.
+        # Stop at the first known attribute fault, before any later metadata access.
+        value["features"][0]["attributes"]["label"] = "changed-source-data"
+        with pytest.raises(producer.ProducerError, match="fixed authored values"):
+            journeys.validate_authored_data(role, value, producer.require_equal)
+    else:
+        journeys.validate_authored_data(role, value, producer.require_equal)
+        value["features"][0]["attributes"]["label"] = "changed-source-data"
+        with pytest.raises(producer.ProducerError, match="fixed authored values"):
+            journeys.validate_authored_data(role, value, producer.require_equal)
+
+
+def test_fixture_export_writes_real_bytes_and_full_bounded_dataset_without_a_verdict(tmp_path):
+    import export_import_fixtures
+    destination = tmp_path / "authored"
+    export_import_fixtures.export(destination)
+    document = json.loads((destination / "bounded-large-data.json").read_text())
+    assert len(document["features"]) == 2501
+    assert document["features"][0]["attributes"]["OBJECTID"] == 1
+    assert document["features"][-1]["attributes"]["OBJECTID"] == 2501
+    assert document["fixtureRevision"] == journeys.fixture_revision()
+    assert "verdict" not in document
+    definitions = json.loads(journeys.FIXTURES.read_text())["roles"]["attachments"]["attachments"]
+    import hashlib
+    for item in definitions:
+        raw = (destination / "attachment-bytes" / item["name"]).read_bytes()
+        assert len(raw) == item["size"] and hashlib.sha256(raw).hexdigest() == item["sha256"]
+    with pytest.raises(ValueError, match="already exist"):
+        export_import_fixtures.export(destination)

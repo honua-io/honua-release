@@ -24,6 +24,54 @@ ROLES = ("points", "lines", "polygons", "tables", "domains-subtypes", "related-r
          "filters-crs", "auth", "pagination-limits", "bounded-large-data")
 
 
+FIXTURES = Path(__file__).with_name("import-fidelity-fixtures.v1.json")
+
+
+def fixture_revision():
+    return "sha256:" + hashlib.sha256(FIXTURES.read_bytes()).hexdigest()
+
+
+def fixture_features(role):
+    definition = json.loads(FIXTURES.read_text())["roles"][role]
+    if "features" in definition:
+        return definition["features"]
+    sequence = definition["sequence"]
+    return [{"attributes": {"OBJECTID": i, "label": sequence["labelPrefix"] + str(i),
+                            "nullable_value": None if i % 3 == 0 else "retained", "kind": 1 if i % 2 else 2,
+                            "observed_at": 1700000000000 + i * 1000},
+             "geometry": {"x": sequence["xOrigin"] + i * sequence["step"],
+                          "y": sequence["yOrigin"] + i * sequence["step"], "spatialReference": {"wkid": 4326}}}
+            for i in range(sequence["firstObjectId"], sequence["firstObjectId"] + sequence["recordCount"])]
+
+
+def validate_authored_data(role, snapshot, equal):
+    """Compare actual source data with our authored inputs, never another target read."""
+    expected = fixture_features(role)
+    observed = {feature["attributes"]["OBJECTID"]: feature for feature in snapshot["features"]}
+    equal([feature["attributes"]["OBJECTID"] for feature in expected], sorted(observed), "fixed authored object identities")
+    for feature in expected:
+        actual = observed[feature["attributes"]["OBJECTID"]]
+        equal(feature["attributes"], {key: actual["attributes"][key] for key in feature["attributes"]}, "fixed authored values")
+        if "geometry" in feature:
+            geometry = {key: value for key, value in feature["geometry"].items() if key != "spatialReference"}
+            equal(geometry, {key: actual.get("geometry", {})[key] for key in geometry}, "fixed authored geometry", 1e-8)
+    definition = json.loads(FIXTURES.read_text())["roles"][role]
+    metadata = snapshot["metadata"]
+    if role == "domains-subtypes":
+        expected = definition["metadata"]
+        field = next(field for field in metadata["fields"] if field["name"] == expected["domainField"])
+        equal(expected["domain"], field.get("domain"), "fixed authored domain")
+        equal(expected["typeIdField"], metadata.get("typeIdField"), "fixed authored subtype field")
+        equal(expected["subtypeIds"], sorted(item["id"] for item in metadata.get("types", [])), "fixed authored subtype identities")
+    if role == "renderer-time-metadata":
+        equal(definition["metadata"]["timeInfo"]["startTimeField"], metadata.get("timeInfo", {}).get("startTimeField"), "fixed authored time field")
+        renderer = metadata.get("drawingInfo", {}).get("renderer", {})
+        for member in ("type", "symbol"):
+            equal(definition["metadata"]["renderer"][member], renderer.get(member), "fixed authored renderer " + member)
+    if "maximumSourceRecordCount" in definition:
+        require(0 < metadata.get("maxRecordCount", 0) <= definition["maximumSourceRecordCount"], "authored paging fixture transfer cap is too large")
+
+
 class PrerequisiteMissing(RuntimeError):
     """No execution occurred; this must not become a passing or executed cell."""
 
@@ -44,6 +92,7 @@ def source_spec(path: Path | None):
         raise ValueError("authored source input violates its closed schema") from exc
     if value.get("schema") != FIXTURE_SCHEMA or set(value.get("fixtures", {})) != set(ROLES):
         raise ValueError("authored source manifest must identify every frozen fixture role")
+    require(value.get("fixtureRevision") == fixture_revision(), "authored source uses different fixture seed bytes")
     for role, spec in value["fixtures"].items():
         url = urlsplit(spec["serviceUrl"])
         if (url.scheme != "https" or not url.hostname or url.username or url.password or url.query or url.fragment
@@ -208,6 +257,7 @@ class Journeys:
             return self.relationship_fixture(spec)
         source = self.p.read_snapshot(self.sdk, spec["serviceUrl"], spec["layerId"])
         validate_role(role, source)
+        validate_authored_data(role, source, self.p.require_equal)
         self.p.require_equal(spec["expectedSnapshotDigest"], digest(source), "authored source snapshot pin")
         table = "authored_" + role.replace("-", "_") + "_" + self.tag
         request = self.request(spec, table, "authored-" + role + "-" + self.tag)
@@ -229,6 +279,10 @@ class Journeys:
             state["sourceAttachments"] = self.attachments(spec["serviceUrl"], spec["layerId"], source)
             state["targetAttachments"] = self.attachments(state["targetUrl"], state["targetLayer"], state["target"], True)
             require(len(state["sourceAttachments"]) >= 2, "attachment fixture must contain at least two actual attachments")
+            definitions = json.loads(FIXTURES.read_text())["roles"]["attachments"]["attachments"]
+            expected_attachments = sorted([{key: value for key, value in item.items() if key != "contentUtf8"} for item in definitions],
+                                          key=lambda value: json.dumps(value, sort_keys=True))
+            self.p.require_equal(expected_attachments, state["sourceAttachments"], "fixed authored attachment bytes")
             self.p.require_equal(state["sourceAttachments"], state["targetAttachments"], "attachment names, MIME, lengths and byte hashes")
         if role == "filters-crs":
             query = spec.get("filter")
@@ -284,6 +338,7 @@ class Journeys:
                            "targetSchema": "import_fidelity", "serviceName": service})
         root = snapshots[spec["layerId"]]
         validate_role("related-records", root)
+        validate_authored_data("related-records", root, self.p.require_equal)
         self.p.require_equal(spec["expectedSnapshotDigest"], digest(root), "relationship root snapshot pin")
         started = self.sdk.call("StartMigrationBatchAsync", baseUrl=self.base, candidate=True, arguments=[{
             "sourceKind": "arcgis-geoservices-rest", "sourceUrl": source_url, "layers": layers,
@@ -334,6 +389,12 @@ class Journeys:
             expected = sorted([[x[ao], y[bo]] for x in rows(a["source"]) for y in rows(b["source"])
                                if x[key] is not None and x[key] == y[foreign]])
             require(expected, "relationship fixture contains no related records")
+            authored = json.loads(FIXTURES.read_text())["roles"]["related-records"]
+            self.p.require_equal(authored["relationship"]["name"], original["name"], "fixed authored relationship name")
+            self.p.require_equal(authored["relationship"]["pairs"], expected, "fixed authored relationship pairs")
+            expected_children = [feature["attributes"] for feature in authored["relatedFeatures"]]
+            actual_children = [{key: row[key] for key in expected_children[0]} for row in rows(b["source"])]
+            self.p.require_equal(expected_children, actual_children, "fixed authored child values")
             statement = (f"SELECT coalesce(json_agg(json_build_array(a.\"{ao}\",b.\"{bo}\") "
                          f"ORDER BY a.\"{ao}\",b.\"{bo}\"),'[]'::json) "
                          f"FROM import_fidelity.\"{a['request']['tableName']}\" a "
@@ -556,6 +617,7 @@ class Journeys:
             for role in ROLES:
                 self.score.block("fixture." + role, str(exc))
         else:
+            self.score.provenance["authoredFixtureRevision"] = fixture_revision()
             self.score.provenance["authoredSourceManifestDigest"] = digest(document)
             for role in ROLES:
                 spec = {**document["fixtures"][role], "authenticated": role == "auth"}

@@ -1,0 +1,677 @@
+{
+  "schema": "honua.import-fidelity-authored-fixtures/v1",
+  "description": "Fixed nonproduction service-import fixture data; publication belongs to the real source owner. No HTTP fixture server is qualification evidence.",
+  "identityField": "OBJECTID",
+  "roles": {
+    "points": {
+      "features": [
+        {
+          "attributes": {
+            "OBJECTID": 1,
+            "label": "one",
+            "nullable_value": "retained",
+            "kind": 1,
+            "observed_at": 1700000000000
+          },
+          "geometry": {
+            "x": -157.8,
+            "y": 21.3,
+            "spatialReference": {
+              "wkid": 4326
+            }
+          }
+        },
+        {
+          "attributes": {
+            "OBJECTID": 2,
+            "label": "two",
+            "nullable_value": null,
+            "kind": 2,
+            "observed_at": 1700000060000
+          },
+          "geometry": {
+            "x": -156.4,
+            "y": 20.9,
+            "spatialReference": {
+              "wkid": 4326
+            }
+          }
+        }
+      ]
+    },
+    "lines": {
+      "features": [
+        {
+          "attributes": {
+            "OBJECTID": 1,
+            "label": "one",
+            "nullable_value": "retained",
+            "kind": 1,
+            "observed_at": 1700000000000
+          },
+          "geometry": {
+            "paths": [
+              [
+                [
+                  -157.8,
+                  21.3
+                ],
+                [
+                  -157.7,
+                  21.4
+                ]
+              ]
+            ],
+            "spatialReference": {
+              "wkid": 4326
+            }
+          }
+        },
+        {
+          "attributes": {
+            "OBJECTID": 2,
+            "label": "two",
+            "nullable_value": null,
+            "kind": 2,
+            "observed_at": 1700000060000
+          },
+          "geometry": {
+            "paths": [
+              [
+                [
+                  -156.4,
+                  20.9
+                ],
+                [
+                  -156.3,
+                  21.0
+                ]
+              ]
+            ],
+            "spatialReference": {
+              "wkid": 4326
+            }
+          }
+        }
+      ]
+    },
+    "polygons": {
+      "features": [
+        {
+          "attributes": {
+            "OBJECTID": 1,
+            "label": "one",
+            "nullable_value": "retained",
+            "kind": 1,
+            "observed_at": 1700000000000
+          },
+          "geometry": {
+            "rings": [
+              [
+                [
+                  -157.8,
+                  21.3
+                ],
+                [
+                  -157.8,
+                  21.310000000000002
+                ],
+                [
+                  -157.79000000000002,
+                  21.310000000000002
+                ],
+                [
+                  -157.79000000000002,
+                  21.3
+                ],
+                [
+                  -157.8,
+                  21.3
+                ]
+              ]
+            ],
+            "spatialReference": {
+              "wkid": 4326
+            }
+          }
+        },
+        {
+          "attributes": {
+            "OBJECTID": 2,
+            "label": "two",
+            "nullable_value": null,
+            "kind": 2,
+            "observed_at": 1700000060000
+          },
+          "geometry": {
+            "rings": [
+              [
+                [
+                  -156.4,
+                  20.9
+                ],
+                [
+                  -156.4,
+                  20.91
+                ],
+                [
+                  -156.39000000000001,
+                  20.91
+                ],
+                [
+                  -156.39000000000001,
+                  20.9
+                ],
+                [
+                  -156.4,
+                  20.9
+                ]
+              ]
+            ],
+            "spatialReference": {
+              "wkid": 4326
+            }
+          }
+        }
+      ]
+    },
+    "tables": {
+      "features": [
+        {
+          "attributes": {
+            "OBJECTID": 1,
+            "label": "one",
+            "nullable_value": "retained",
+            "kind": 1,
+            "observed_at": 1700000000000
+          }
+        },
+        {
+          "attributes": {
+            "OBJECTID": 2,
+            "label": "two",
+            "nullable_value": null,
+            "kind": 2,
+            "observed_at": 1700000060000
+          }
+        }
+      ]
+    },
+    "domains-subtypes": {
+      "features": [
+        {
+          "attributes": {
+            "OBJECTID": 1,
+            "label": "one",
+            "nullable_value": "retained",
+            "kind": 1,
+            "observed_at": 1700000000000
+          },
+          "geometry": {
+            "x": -157.8,
+            "y": 21.3,
+            "spatialReference": {
+              "wkid": 4326
+            }
+          }
+        },
+        {
+          "attributes": {
+            "OBJECTID": 2,
+            "label": "two",
+            "nullable_value": null,
+            "kind": 2,
+            "observed_at": 1700000060000
+          },
+          "geometry": {
+            "x": -156.4,
+            "y": 20.9,
+            "spatialReference": {
+              "wkid": 4326
+            }
+          }
+        }
+      ],
+      "metadata": {
+        "typeIdField": "kind",
+        "domainField": "kind",
+        "domain": {
+          "type": "codedValue",
+          "name": "fixture_kind",
+          "codedValues": [
+            {
+              "name": "active",
+              "code": 1
+            },
+            {
+              "name": "retired",
+              "code": 2
+            }
+          ]
+        },
+        "subtypeIds": [
+          1,
+          2
+        ]
+      }
+    },
+    "related-records": {
+      "features": [
+        {
+          "attributes": {
+            "OBJECTID": 1,
+            "label": "one",
+            "nullable_value": "retained",
+            "kind": 1,
+            "observed_at": 1700000000000
+          },
+          "geometry": {
+            "x": -157.8,
+            "y": 21.3,
+            "spatialReference": {
+              "wkid": 4326
+            }
+          }
+        },
+        {
+          "attributes": {
+            "OBJECTID": 2,
+            "label": "two",
+            "nullable_value": null,
+            "kind": 2,
+            "observed_at": 1700000060000
+          },
+          "geometry": {
+            "x": -156.4,
+            "y": 20.9,
+            "spatialReference": {
+              "wkid": 4326
+            }
+          }
+        }
+      ],
+      "relatedFeatures": [
+        {
+          "attributes": {
+            "OBJECTID": 1,
+            "parent_id": 1,
+            "note": "first-child"
+          }
+        },
+        {
+          "attributes": {
+            "OBJECTID": 2,
+            "parent_id": 1,
+            "note": "second-child"
+          }
+        }
+      ],
+      "relationship": {
+        "name": "authored_parent_children",
+        "keyField": "OBJECTID",
+        "foreignKey": "parent_id",
+        "pairs": [
+          [
+            1,
+            1
+          ],
+          [
+            1,
+            2
+          ]
+        ]
+      }
+    },
+    "attachments": {
+      "features": [
+        {
+          "attributes": {
+            "OBJECTID": 1,
+            "label": "one",
+            "nullable_value": "retained",
+            "kind": 1,
+            "observed_at": 1700000000000
+          },
+          "geometry": {
+            "x": -157.8,
+            "y": 21.3,
+            "spatialReference": {
+              "wkid": 4326
+            }
+          }
+        },
+        {
+          "attributes": {
+            "OBJECTID": 2,
+            "label": "two",
+            "nullable_value": null,
+            "kind": 2,
+            "observed_at": 1700000060000
+          },
+          "geometry": {
+            "x": -156.4,
+            "y": 20.9,
+            "spatialReference": {
+              "wkid": 4326
+            }
+          }
+        }
+      ],
+      "attachments": [
+        {
+          "objectId": 1,
+          "name": "one.txt",
+          "contentType": "text/plain",
+          "contentUtf8": "authored attachment one\n",
+          "size": 24,
+          "sha256": "0c9a14843aee45593344ee7d5fe156040efb52c2629f80d91908249ed866afb3"
+        },
+        {
+          "objectId": 2,
+          "name": "two.txt",
+          "contentType": "text/plain",
+          "contentUtf8": "authored attachment two\n",
+          "size": 24,
+          "sha256": "c052d1cab2b44c1d78f8bf86b196c391a29b2890459061365e4f239d6071e996"
+        }
+      ]
+    },
+    "zm-curves": {
+      "features": [
+        {
+          "attributes": {
+            "OBJECTID": 1,
+            "label": "one",
+            "nullable_value": "retained",
+            "kind": 1,
+            "observed_at": 1700000000000
+          },
+          "geometry": {
+            "curvePaths": [
+              [
+                [
+                  -157.8,
+                  21.3,
+                  10,
+                  100
+                ],
+                {
+                  "c": [
+                    [
+                      -157.78,
+                      21.3,
+                      30,
+                      300
+                    ],
+                    [
+                      -157.79000000000002,
+                      21.310000000000002,
+                      20,
+                      200
+                    ]
+                  ]
+                }
+              ]
+            ],
+            "spatialReference": {
+              "wkid": 4326
+            }
+          }
+        },
+        {
+          "attributes": {
+            "OBJECTID": 2,
+            "label": "two",
+            "nullable_value": null,
+            "kind": 2,
+            "observed_at": 1700000060000
+          },
+          "geometry": {
+            "curvePaths": [
+              [
+                [
+                  -156.4,
+                  20.9,
+                  20,
+                  200
+                ],
+                {
+                  "c": [
+                    [
+                      -156.38,
+                      20.9,
+                      60,
+                      600
+                    ],
+                    [
+                      -156.39000000000001,
+                      20.91,
+                      40,
+                      400
+                    ]
+                  ]
+                }
+              ]
+            ],
+            "spatialReference": {
+              "wkid": 4326
+            }
+          }
+        }
+      ]
+    },
+    "nulls-int64-time": {
+      "features": [
+        {
+          "attributes": {
+            "OBJECTID": 1,
+            "label": "one",
+            "nullable_value": "retained",
+            "kind": 1,
+            "observed_at": 1700000000000,
+            "precise_value": 9007199254740993,
+            "empty_value": ""
+          },
+          "geometry": {
+            "x": -157.8,
+            "y": 21.3,
+            "spatialReference": {
+              "wkid": 4326
+            }
+          }
+        },
+        {
+          "attributes": {
+            "OBJECTID": 2,
+            "label": "two",
+            "nullable_value": null,
+            "kind": 2,
+            "observed_at": 1700000060000,
+            "precise_value": -9007199254740993,
+            "empty_value": null
+          },
+          "geometry": {
+            "x": -156.4,
+            "y": 20.9,
+            "spatialReference": {
+              "wkid": 4326
+            }
+          }
+        }
+      ]
+    },
+    "renderer-time-metadata": {
+      "features": [
+        {
+          "attributes": {
+            "OBJECTID": 1,
+            "label": "one",
+            "nullable_value": "retained",
+            "kind": 1,
+            "observed_at": 1700000000000
+          },
+          "geometry": {
+            "x": -157.8,
+            "y": 21.3,
+            "spatialReference": {
+              "wkid": 4326
+            }
+          }
+        },
+        {
+          "attributes": {
+            "OBJECTID": 2,
+            "label": "two",
+            "nullable_value": null,
+            "kind": 2,
+            "observed_at": 1700000060000
+          },
+          "geometry": {
+            "x": -156.4,
+            "y": 20.9,
+            "spatialReference": {
+              "wkid": 4326
+            }
+          }
+        }
+      ],
+      "metadata": {
+        "timeInfo": {
+          "startTimeField": "observed_at"
+        },
+        "renderer": {
+          "type": "simple",
+          "symbol": {
+            "type": "esriSMS",
+            "style": "esriSMSCircle",
+            "color": [
+              20,
+              80,
+              160,
+              255
+            ],
+            "size": 8
+          }
+        }
+      }
+    },
+    "filters-crs": {
+      "features": [
+        {
+          "attributes": {
+            "OBJECTID": 1,
+            "label": "one",
+            "nullable_value": "retained",
+            "kind": 1,
+            "observed_at": 1700000000000
+          },
+          "geometry": {
+            "x": -157.8,
+            "y": 21.3,
+            "spatialReference": {
+              "wkid": 4326
+            }
+          }
+        },
+        {
+          "attributes": {
+            "OBJECTID": 2,
+            "label": "two",
+            "nullable_value": null,
+            "kind": 2,
+            "observed_at": 1700000060000
+          },
+          "geometry": {
+            "x": -156.4,
+            "y": 20.9,
+            "spatialReference": {
+              "wkid": 4326
+            }
+          }
+        }
+      ],
+      "publicationSrid": 3857,
+      "filter": {
+        "where": "kind = 1",
+        "spatialFilter": {
+          "geometry": "{\"xmin\":-158,\"ymin\":21,\"xmax\":-157,\"ymax\":22,\"spatialReference\":{\"wkid\":4326}}",
+          "geometryType": "esriGeometryEnvelope",
+          "spatialRel": "Intersects"
+        }
+      }
+    },
+    "auth": {
+      "features": [
+        {
+          "attributes": {
+            "OBJECTID": 1,
+            "label": "one",
+            "nullable_value": "retained",
+            "kind": 1,
+            "observed_at": 1700000000000
+          },
+          "geometry": {
+            "x": -157.8,
+            "y": 21.3,
+            "spatialReference": {
+              "wkid": 4326
+            }
+          }
+        },
+        {
+          "attributes": {
+            "OBJECTID": 2,
+            "label": "two",
+            "nullable_value": null,
+            "kind": 2,
+            "observed_at": 1700000060000
+          },
+          "geometry": {
+            "x": -156.4,
+            "y": 20.9,
+            "spatialReference": {
+              "wkid": 4326
+            }
+          }
+        }
+      ],
+      "requiresAuthentication": true
+    },
+    "pagination-limits": {
+      "sequence": {
+        "firstObjectId": 1,
+        "recordCount": 2501,
+        "labelPrefix": "record-",
+        "xOrigin": -158.0,
+        "yOrigin": 21.0,
+        "step": 0.0001,
+        "attributes": {
+          "OBJECTID": "i",
+          "label": "labelPrefix + decimal(i)",
+          "nullable_value": "null when i % 3 == 0, otherwise retained",
+          "kind": "1 when i % 2 == 1, otherwise 2",
+          "observed_at": "1700000000000 + i * 1000"
+        }
+      },
+      "maximumSourceRecordCount": 100
+    },
+    "bounded-large-data": {
+      "sequence": {
+        "firstObjectId": 1,
+        "recordCount": 2501,
+        "labelPrefix": "record-",
+        "xOrigin": -158.0,
+        "yOrigin": 21.0,
+        "step": 0.0001,
+        "attributes": {
+          "OBJECTID": "i",
+          "label": "labelPrefix + decimal(i)",
+          "nullable_value": "null when i % 3 == 0, otherwise retained",
+          "kind": "1 when i % 2 == 1, otherwise 2",
+          "observed_at": "1700000000000 + i * 1000"
+        }
+      },
+      "maximumSourceRecordCount": 100
+    }
+  }
+}

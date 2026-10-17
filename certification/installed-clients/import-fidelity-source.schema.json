@@ -6,7 +6,8 @@
   "additionalProperties": false,
   "required": [
     "schema",
-    "fixtures"
+    "fixtures",
+    "fixtureRevision"
   ],
   "properties": {
     "schema": {
@@ -75,6 +76,9 @@
           "$ref": "#/$defs/fixture"
         }
       }
+    },
+    "fixtureRevision": {
+      "$ref": "#/$defs/digest"
     }
   },
   "$defs": {

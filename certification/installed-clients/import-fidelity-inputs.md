@@ -9,7 +9,7 @@ it does not waive a missing source capability, native runtime or candidate image
 Pass `--authored-source PATH` to `produce_import_fidelity.py`. The closed contract is
 [import-fidelity-source.schema.json](import-fidelity-source.schema.json), schema
 `honua.import-fidelity-source/v1`. Each role identifies a real HTTPS service URL,
-layer ID and `expectedSnapshotDigest`. The digest uses SHA-256 of UTF-8 JSON with
+layer ID and `expectedSnapshotDigest`. Its top-level `fixtureRevision` must match the SHA-256 of [the fixed authored fixture file](import-fidelity-fixtures.v1.json). The digest uses SHA-256 of UTF-8 JSON with
 sorted keys, compact separators and finite numbers, prefixed with `sha256:`. Its
 input is the producer's normalized `read_snapshot` result: raw layer metadata,
 count, sorted IDs, object-ID field and all features sorted by ID, with geometries
@@ -17,6 +17,23 @@ queried in 4326 and Z/M requested. The author captures and pins this expected
 snapshot **before** running the candidate import. The producer reads the source
 again, checks the authored digest, imports, measures the target, then checks that
 the source did not change. A synthetic HTTP source cannot qualify these checks.
+
+The source owner publishes the checked-in authored data, not an arbitrary similar
+sample. Export all feature records (including the 2,501-row deterministic cases),
+metadata definitions, related-table data and actual attachment files with:
+
+```sh
+python certification/installed-clients/export_import_fixtures.py --output-dir "$FIXTURE_EXPORT_DIR"
+```
+
+This command writes data only and refuses an existing destination. It starts no
+HTTP source and emits no qualification receipt. The source owner uses its existing
+real publication workflow, creates the required schema/domains/subtypes and
+relationships, attaches the exported bytes, and publishes the logical 4326
+features into the requested source CRS (3857 for the CRS role). The producer
+compares live source attributes and geometry to those fixed authored values before
+using the live metadata snapshot pin. A moving target, changed seed data or another
+fixture revision fails. Publication and native execution remain with their owners.
 
 The same service may supply several roles if it actually contains every required
 construct. Every role needs at least two records, and the richer roles enforce
