@@ -43,6 +43,7 @@ on:
       - ".github/workflows/gate-executable-docs.yml"
       - "e2e/harness/boot.sh"
       - "e2e/harness/compose.candidate.yml"
+      - "e2e/harness/seed/**"
   workflow_call:
     inputs:
       candidate_ref: { required: false, type: string, default: "" }
@@ -111,6 +112,7 @@ jobs:
       - name: Run every getting-started block against the candidate
         env:
           GH_TOKEN: ${{ github.token }}
+          E2E_OUT: ${{ github.workspace }}/e2e/out
           EVIDENCE_URI: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
         run: |
           python certification/executable-docs/docker_regressions.py
@@ -166,6 +168,9 @@ jobs:
           path: |
             artifacts/executable-docs/
             e2e/out/boot.json
+            e2e/out/seed-manifest.json
+            e2e/out/seed-inspections-publication.json
+            e2e/out/seed-edit-proof.json
           if-no-files-found: warn
 
   sdk-publication-diagnostic:
