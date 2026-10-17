@@ -17,7 +17,8 @@ var adminMethods = new HashSet<string>(StringComparer.Ordinal)
 {
     "DiscoverGeoservicesServiceAsync", "ScanMigrationSourceAsync", "StartGeoservicesImportAsync",
     "GetGeoservicesImportJobStatusAsync", "CancelGeoservicesImportJobAsync", "StartMigrationBatchAsync",
-    "GetMigrationBatchAsync", "GetMigrationRunAsync", "GetMigrationRunReconciliationScorecardAsync"
+    "GetMigrationBatchAsync", "GetMigrationRunAsync", "GetMigrationRunReconciliationScorecardAsync",
+    "UpdateLayerMetadataAsync"
 };
 while (await Console.In.ReadLineAsync() is { } line)
 {

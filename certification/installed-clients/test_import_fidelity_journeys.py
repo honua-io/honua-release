@@ -167,3 +167,37 @@ def test_attachment_metadata_cannot_substitute_for_content_bytes(score):
                                  {"size": 7, "sha256": "a" * 64}]
     with pytest.raises(ValueError, match="content length"):
         lane.attachments("https://source.example/FeatureServer", 1, {"ids": [1]})
+
+
+def test_vector_geometry_tolerance_never_applies_to_attributes(score):
+    lane = lane_with_points(score)
+    expected = [{"id": 1, "properties": {"value": 1.0}, "geometry": {"value": {"x": 1.0, "y": 2.0}}}]
+    observed = deepcopy(expected)
+    observed[0]["geometry"]["value"]["x"] += 1e-10
+    lane.geojson_equal(expected, observed, "vector readback")
+    observed[0]["properties"]["value"] += 1e-10
+    with pytest.raises(producer.ProducerError, match="exact attributes"):
+        lane.geojson_equal(expected, observed, "vector readback")
+
+
+def test_client_repoint_must_read_distinct_forward_data_then_complete_prior_publication(score):
+    lane = lane_with_points(score)
+    prior = lane.states["points"]["source"]
+    subset = deepcopy(prior)
+    subset.update(count=1, ids=[1], features=prior["features"][:1])
+    target = {"targetUrl": "http://localhost/rest/services/repoint-unit/FeatureServer", "targetLayer": 2}
+    # The final read is deliberately still on the one-row forward publication.
+    # A count-only/no-op repoint must fail the complete rollback data assertion.
+    with mock.patch.object(producer, "read_snapshot", side_effect=[subset, subset, subset]), mock.patch.object(
+            lane, "complete", return_value=target), mock.patch.object(lane, "fingerprint", return_value="2:preserved"):
+        score.record("evidence.rollback-repoint", lane.rollback)
+    assert score.cells["evidence.rollback-repoint"]["verdict"] == "fail"
+    assert "rollback attributes" in score.cells["evidence.rollback-repoint"]["reason"]
+
+
+def test_unavailable_gdal_never_substitutes_baseline(score):
+    lane = lane_with_points(score)
+    with mock.patch.object(lane, "independent_geometry"), mock.patch.object(journeys.shutil, "which", return_value=None):
+        score.record("dependency.server-4420", lane.dependency_evidence)
+    assert score.cells["dependency.server-4420"]["verdict"] == "blocked"
+    assert "ogr2ogr" in score.cells["dependency.server-4420"]["reason"]

@@ -11,7 +11,11 @@ import json
 import os
 from pathlib import Path
 import re
+import shutil
+import subprocess
 import time
+
+import jsonschema
 from urllib.parse import urlsplit
 
 FIXTURE_SCHEMA = "honua.import-fidelity-source/v1"
@@ -33,6 +37,11 @@ def source_spec(path: Path | None):
     if path is None:
         raise PrerequisiteMissing("authored source manifest is required; public baseline samples do not cover these roles")
     value = json.loads(path.read_text())
+    contract = json.loads((Path(__file__).with_name("import-fidelity-source.schema.json")).read_text())
+    try:
+        jsonschema.Draft202012Validator(contract).validate(value)
+    except jsonschema.ValidationError as exc:
+        raise ValueError("authored source input violates its closed schema") from exc
     if value.get("schema") != FIXTURE_SCHEMA or set(value.get("fixtures", {})) != set(ROLES):
         raise ValueError("authored source manifest must identify every frozen fixture role")
     for role, spec in value["fixtures"].items():
@@ -202,11 +211,20 @@ class Journeys:
         self.p.require_equal(spec["expectedSnapshotDigest"], digest(source), "authored source snapshot pin")
         table = "authored_" + role.replace("-", "_") + "_" + self.tag
         request = self.request(spec, table, "authored-" + role + "-" + self.tag)
+        full_source = source
+        if role == "filters-crs":
+            query = spec.get("filter")
+            require(isinstance(query, dict) and query.get("where") not in {None, "", "1=1"} and query.get("spatialFilter"),
+                    "filter fixture requires both an attribute predicate and spatial predicate")
+            request["whereClause"] = query["where"]
+            source = self.p.read_snapshot(self.sdk, spec["serviceUrl"], spec["layerId"], where=query["where"])
+            self.p.require_equal(spec["expectedFilteredSnapshotDigest"], digest(source), "authored import filter snapshot pin")
+            require(source["count"] < full_source["count"], "import predicate must exclude actual source records")
         state = self.complete(request)
         state.update(source=source, spec=spec)
         self.states[role] = state
         detail = self.parity(state)
-        self.p.require_equal(source, self.p.read_snapshot(self.sdk, spec["serviceUrl"], spec["layerId"]), "authored source stability")
+        self.p.require_equal(full_source, self.p.read_snapshot(self.sdk, spec["serviceUrl"], spec["layerId"]), "authored source stability")
         if role == "attachments":
             state["sourceAttachments"] = self.attachments(spec["serviceUrl"], spec["layerId"], source)
             state["targetAttachments"] = self.attachments(state["targetUrl"], state["targetLayer"], state["target"], True)
@@ -219,8 +237,11 @@ class Journeys:
             a = self.sdk.call("query", baseUrl=spec["serviceUrl"], layerId=spec["layerId"], query={**query, "outSR": 4326, "outFields": "*"})
             b = self.sdk.call("query", baseUrl=state["targetUrl"], layerId=state["targetLayer"], candidate=True,
                               query={**query, "outSR": 4326, "outFields": "*"})
-            require(0 < len(a["features"]) < source["count"], "filter must actually exclude some source rows")
-            self.p.require_equal(a["features"], b["features"], "attribute/spatial filter and transformed CRS", 1e-8)
+            require(0 < len(a["features"]) < full_source["count"], "filter must actually exclude some source rows")
+            self.p.require_equal(rows({"features": a["features"]}), rows({"features": b["features"]}), "attribute/spatial filter values")
+            self.p.require_equal(shapes({"features": a["features"], "objectIdField": source["objectIdField"]}),
+                                 shapes({"features": b["features"], "objectIdField": source["objectIdField"]}),
+                                 "spatial filter and transformed CRS", 1e-8)
         if role == "auth":
             # The same source must refuse anonymous access; an open source cannot qualify auth.
             try:
@@ -390,16 +411,24 @@ class Journeys:
         prior = self.ready("points")
         # Retain both immutable publications. Repoint the client configuration to v2 and
         # roll it back to v1, reading all records after each switch. No route alias is claimed.
-        second = self.complete(self.request(prior["spec"], "repoint_" + self.tag, "repoint-" + self.tag))
+        oid = prior["source"]["objectIdField"]
+        require(re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*", oid) and type(prior["source"]["ids"][0]) is int,
+                "rollback fixture needs a declared numeric OID")
+        where = f"{oid} = {prior['source']['ids'][0]}"
+        forward_source = self.p.read_snapshot(self.sdk, prior["spec"]["serviceUrl"], prior["spec"]["layerId"], where=where)
+        require(forward_source["count"] == 1 and prior["source"]["count"] > 1,
+                "forward and rollback publications must have distinguishable actual records")
+        second = self.complete(self.request(prior["spec"], "repoint_" + self.tag, "repoint-" + self.tag, whereClause=where))
         before = self.fingerprint(prior["request"]["tableName"])
         configuration = {"serviceUrl": second["targetUrl"], "layerId": second["targetLayer"]}
-        for target in (configuration, {"serviceUrl": prior["targetUrl"], "layerId": prior["targetLayer"]}):
+        for target, expected in ((configuration, forward_source), ({"serviceUrl": prior["targetUrl"], "layerId": prior["targetLayer"]}, prior["source"])):
             fresh = self.p.read_snapshot(self.sdk, target["serviceUrl"], target["layerId"], candidate=True)
-            self.p.require_equal(rows(prior["source"]), rows(fresh), "client repoint/rollback attributes")
-            self.p.require_equal(shapes(prior["source"]), shapes(fresh), "client repoint/rollback geometry", 1e-8)
+            self.p.require_equal(rows(expected), rows(fresh), "client repoint/rollback attributes")
+            self.p.require_equal(shapes(expected), shapes(fresh), "client repoint/rollback geometry", 1e-8)
         self.p.require_equal(before, self.fingerprint(prior["request"]["tableName"]), "rollback preserved prior physical publication")
         self.score.provenance["rollbackRepoint"] = {"forward": configuration,
-            "rollback": {"serviceUrl": prior["targetUrl"], "layerId": prior["targetLayer"]}, "priorFingerprint": before}
+            "rollback": {"serviceUrl": prior["targetUrl"], "layerId": prior["targetLayer"]}, "priorFingerprint": before,
+            "forwardSourceDigest": digest(forward_source), "rollbackSourceDigest": digest(prior["source"])}
         return "client URL/layer repointed to a fresh publication and rolled back to retained v1 with exact data and geometry"
 
     def independent_geometry(self):
@@ -419,8 +448,55 @@ class Journeys:
                                                        "measuredDigest": digest(physical), "sourceDigest": digest(expected)}
         return "real measured PostGIS vector envelope/count/coordinates agree with the independent source; no baseline self-comparison"
 
+    def geojson_equal(self, expected, actual, message):
+        self.p.require_equal(len(expected), len(actual), message + " record count")
+        for left, right in zip(expected, actual):
+            self.p.require_equal(left["id"], right["id"], message + " identity")
+            self.p.require_equal(left["properties"], right["properties"], message + " exact attributes")
+            self.p.require_equal(left["geometry"], right["geometry"], message + " geometry", 1e-8)
+
+    def dependency_evidence(self):
+        self.independent_geometry()
+        if not shutil.which("ogr2ogr"):
+            raise PrerequisiteMissing("independent GDAL ogr2ogr reader is required for the server-4420 output check")
+        state = self.ready("points")
+        observed = self.p.geojson_snapshot(self.sdk, state["targetUrl"], state["targetLayer"], state["target"], candidate=True)
+        expected = self.p.geojson_snapshot(self.sdk, state["spec"]["serviceUrl"], state["spec"]["layerId"], state["source"])
+        self.geojson_equal(expected, observed, "live source/target SDK GeoJSON before independent vector decode")
+        directory = self.score.capture_directory
+        require(directory is not None, "independent vector outputs must be retained")
+        directory.mkdir(parents=True, exist_ok=True)
+        source_path, output_path = directory / "measured-target.geojson", directory / "gdal-readback.geojson"
+        require(not output_path.exists(), "GDAL output must not exist before independent reader execution")
+        source_path.write_text(json.dumps({"type": "FeatureCollection", "features": [
+            {"type": "Feature", "id": feature["id"], "properties": feature["properties"], "geometry": feature["geometry"]["value"]}
+            for feature in observed]}) + "\n")
+        process = subprocess.run(["ogr2ogr", "-f", "GeoJSON", "-lco", "COORDINATE_PRECISION=15", "-preserve_fid",
+                                  str(output_path), str(source_path)], capture_output=True, text=True, timeout=60, check=False)
+        require(process.returncode == 0 and output_path.is_file() and output_path.stat().st_size > 0,
+                "independent GDAL output is absent, empty or failed; no baseline substitution is permitted")
+        decoded = json.loads(output_path.read_text())
+        require(decoded.get("type") == "FeatureCollection" and len(decoded.get("features", [])) == len(expected),
+                "GDAL measured output did not account for every imported feature")
+        oid = state["source"]["objectIdField"].lower()
+        measured = []
+        fields = set(expected[0]["properties"])
+        for feature in decoded["features"]:
+            properties = {key.lower(): value for key, value in feature["properties"].items()}
+            require(fields <= properties.keys(), "GDAL output dropped an imported field")
+            measured.append({"id": properties[oid], "properties": {field: properties[field] for field in fields},
+                             "geometry": {"present": "geometry" in feature, "value": feature.get("geometry")}})
+        measured.sort(key=lambda feature: feature["id"])
+        self.geojson_equal(expected, measured, "independent measured GDAL values and vector coordinates")
+        version = subprocess.run(["ogr2ogr", "--version"], capture_output=True, text=True, timeout=10, check=True).stdout.strip()
+        self.score.provenance["independentVectorOutput"] = {"reader": version, "measuredCount": len(measured),
+            "inputSha256": hashlib.sha256(source_path.read_bytes()).hexdigest(),
+            "outputSha256": hashlib.sha256(output_path.read_bytes()).hexdigest()}
+        return "real PostGIS vector readback and fresh, existing GDAL-decoded SDK output match independent source values/geometry/count"
+
     def rejects_data_loss(self):
         state = self.ready("points")
+        temporal = self.ready("renderer-time-metadata")
         table = state["request"]["tableName"]
         # A committed geometry fault must be visible through the real SDK and the
         # independent vector reader, then the original publication is restored by SDK import.
@@ -440,7 +516,38 @@ class Journeys:
             restored.update(source=state["source"], spec=state["spec"])
             self.parity(restored)
             self.states["points"] = restored
-        return "real SDK and independent vector oracle rejected a committed seeded geometry fault; clean SDK reimport restored parity"
+        state = self.states["points"]
+        candidates = [field["name"] for field in state["source"]["metadata"]["fields"]
+                      if field["type"] not in {"esriFieldTypeOID", "esriFieldTypeGeometry"} and field.get("nullable") is True
+                      and any(feature["attributes"].get(field["name"]) is not None for feature in state["source"]["features"])]
+        require(candidates, "data-loss control requires a populated nullable source attribute")
+        field = candidates[0]
+        require(re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*", field), "unsafe attribute fault field")
+        self.p.sql(self.compose, f'UPDATE import_fidelity."{table}" SET "{field}"=NULL;')
+        try:
+            fresh = self.p.read_snapshot(self.sdk, state["targetUrl"], state["targetLayer"], candidate=True)
+            require(not self.p.equal(rows(state["source"]), rows(fresh)), "SDK accepted deliberately lost attribute values")
+        finally:
+            restored = self.complete({**state["request"], "overwriteExisting": True})
+            restored.update(source=state["source"], spec=state["spec"])
+            self.parity(restored)
+            self.states["points"] = restored
+        service = temporal["request"]["serviceName"]
+        original = temporal["source"]["metadata"]["timeInfo"]
+        require(original.get("startTimeField"), "metadata fault control requires a populated start-time field")
+        try:
+            self.sdk.call("UpdateLayerMetadataAsync", baseUrl=self.base, candidate=True,
+                          arguments=[service, temporal["targetLayer"], {"timeInfo": {"startTimeField": ""}}])
+            metadata = self.sdk.call("layer", baseUrl=temporal["targetUrl"], layerId=temporal["targetLayer"], candidate=True)
+            require(not self.p.equal(original, metadata.get("timeInfo")), "SDK accepted deliberately lost time metadata")
+        finally:
+            self.sdk.call("UpdateLayerMetadataAsync", baseUrl=self.base, candidate=True, arguments=[service, temporal["targetLayer"], {
+                "timeInfo": {key: original.get(key) or "" for key in ("startTimeField", "endTimeField", "trackIdField")}}])
+            temporal["target"] = self.p.read_snapshot(self.sdk, temporal["targetUrl"], temporal["targetLayer"], candidate=True)
+            self.parity(temporal)
+        self.score.provenance["lossControls"] = {"geometry": "committed-translation-rejected", "values": "committed-null-rejected",
+                                                "metadata": "cleared-time-field-rejected", "restoration": "fresh-SDK-parity"}
+        return "real SDK/physical oracles rejected committed geometry, attribute and time-metadata faults; SDK restore re-established full parity"
 
     def run(self):
         try:
@@ -457,6 +564,6 @@ class Journeys:
                              ("fixture.injected-failure", self.injected_failure),
                              ("evidence.rollback-repoint", self.rollback),
                              ("evidence.rejects-data-loss", self.rejects_data_loss),
-                             ("dependency.server-4420", self.independent_geometry)):
+                             ("dependency.server-4420", self.dependency_evidence)):
             self.score.record(cell, action)
         return self.states

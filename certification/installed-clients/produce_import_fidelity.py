@@ -33,6 +33,7 @@ from fractions import Fraction
 import yaml
 import dotnet_import_fidelity as gate
 import import_fidelity_journeys as journeys
+import import_fidelity_reference as reference
 
 HERE = Path(__file__).resolve().parent
 ROOT = HERE.parents[1]
@@ -133,6 +134,11 @@ def verify_runtime_assets(assets: dict, packages: Path, output: Path, framework:
 
 class Sdk:
     def __init__(self, command: list[str], env: dict[str, str], consumer: dict):
+        # Registry/runtime configuration and explicit application credentials only. GitHub,
+        # cloud and native-attestation credentials stay in the orchestrator process.
+        env = {key: value for key, value in env.items() if key in {"PATH", "HOME", "TMPDIR", "LANG", "LC_ALL",
+               "IMPORT_FIDELITY_API_KEY", "IMPORT_FIDELITY_SOURCE_TOKEN", "IMPORT_FIDELITY_AUTH_SOURCE_URL"}
+               or key.startswith(("DOTNET_", "NUGET_", "HONUA_BUILD_"))}
         self.process = subprocess.Popen(command, env=env, stdin=subprocess.PIPE, stdout=subprocess.PIPE,
                                         stderr=subprocess.DEVNULL, text=True, bufsize=1)
         identity = self.call("identity")
@@ -310,13 +316,14 @@ def object_id_field(metadata: dict) -> str:
     return identifier
 
 
-def read_snapshot(sdk: Sdk, service: str, layer: int, *, candidate: bool = False, limit: int = 50000) -> dict:
+def read_snapshot(sdk: Sdk, service: str, layer: int, *, candidate: bool = False, limit: int = 50000, where: str = "1=1") -> dict:
     metadata = sdk.call("layer", baseUrl=service, layerId=layer, candidate=candidate)
     oid = object_id_field(metadata)
-    count = sdk.call("count", baseUrl=service, layerId=layer, candidate=candidate, query={"where": "1=1"})
-    ids = sdk.call("ids", baseUrl=service, layerId=layer, candidate=candidate, query={"where": "1=1"})
+    count = sdk.call("count", baseUrl=service, layerId=layer, candidate=candidate, query={"where": where})
+    ids = sdk.call("ids", baseUrl=service, layerId=layer, candidate=candidate, query={"where": where})
     if not 0 < count <= limit or len(ids) != count or len(set(ids)) != count:
         raise ProducerError("source/target empty, exceeds the explicit 50000-row bound, or has incomplete/duplicate IDs")
+    ids = sorted(ids)
     features = []
     for offset in range(0, count, 200):
         batch = ids[offset:offset + 200]
@@ -329,6 +336,7 @@ def read_snapshot(sdk: Sdk, service: str, layer: int, *, candidate: bool = False
         if set(found) != set(batch) or len(found) != len(set(found)):
             raise ProducerError("ID-batch query did not return exactly the requested feature identities")
         features.extend(document["features"])
+    features.sort(key=lambda feature: feature["attributes"][oid])
     return {"metadata": metadata, "count": count, "ids": ids, "objectIdField": oid, "features": features}
 
 
@@ -584,7 +592,7 @@ def service_journey(score: Scorecard, sdk: Sdk, base: str, tag: str) -> None:
     score.record("journey.reconciliation", reconcile)
 
 
-def run_live(score: Scorecard, sdk: Sdk, compose: list[str], selected: list[str], *, fixture_path: Path | None = None) -> None:
+def run_live(score: Scorecard, sdk: Sdk, compose: list[str], selected: list[str], *, fixture_path: Path | None = None, reference_inbox: Path | None = None, reference_wait_seconds: int = 0) -> None:
     score.provenance["candidate"] = candidate_identity(score.manifest, compose)
     score.provenance["producer"] = {
         "scriptSha256": hashlib.sha256(Path(__file__).read_bytes()).hexdigest(),
@@ -607,7 +615,10 @@ def run_live(score: Scorecard, sdk: Sdk, compose: list[str], selected: list[str]
     if set(selected) == set(CASES):
         source_sdk = journeys.SourceSdk(sdk, os.environ.get("IMPORT_FIDELITY_AUTH_SOURCE_URL"))
         authored = journeys.Journeys(sys.modules[__name__], score, source_sdk, compose, base, tag, fixture_path)
-        authored.run()
+        states = authored.run()
+        reference.consume(score, states, reference_inbox, reference_wait_seconds, sys.modules[__name__])
+        # Qualification ends with a fresh image/source readback as well as the initial binding.
+        require_equal(score.provenance["candidate"], candidate_identity(score.manifest, compose), "candidate identity after all live journeys")
     def immutable_identities():
         imports = score.provenance.get("imports", [])
         if set(selected) != set(CASES) or {item["serviceCase"] for item in imports} != set(CASES):
@@ -622,6 +633,8 @@ def main(argv=None) -> int:
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--evidence-uri", required=True)
     parser.add_argument("--live", action="store_true", help="boot a disposable candidate and real PostGIS; never use a shared server")
+    parser.add_argument("--reference-inbox", type=Path, help="native owner's attested response to this run's fresh retained request")
+    parser.add_argument("--reference-wait-seconds", type=int, default=0, help="bounded wait for native owner response (0..300)")
     parser.add_argument("--authored-source", type=Path, help="authored real-source manifest; missing inputs remain blocked")
     parser.add_argument("--case", action="append", choices=sorted(CASES), help="diagnostic subset only; omitted requirements remain blocked")
     parser.add_argument("--timeout-seconds", type=int, default=1800,
@@ -632,6 +645,8 @@ def main(argv=None) -> int:
         parser.error("--evidence-uri must be a durable honua-io Actions/evidence URL")
     if not 60 <= args.timeout_seconds <= 3600:
         parser.error("--timeout-seconds must be between 60 and 3600")
+    if not 0 <= args.reference_wait_seconds <= 300:
+        parser.error("--reference-wait-seconds must be between 0 and 300")
     if not args.live and not args.package_only:
         parser.error("use --live or --package-only; shared candidate mutation is not supported")
     installed = installed_module()
@@ -644,6 +659,9 @@ def main(argv=None) -> int:
     try:
         with tempfile.TemporaryDirectory(prefix="honua-import-fidelity-") as temporary:
             command, env, score.consumer = install_consumer(manifest, Path(temporary) / "published")
+            consumer_home = Path(temporary) / "consumer-home"
+            consumer_home.mkdir()
+            env["HOME"] = str(consumer_home)
             env["IMPORT_FIDELITY_API_KEY"] = os.environ.get("E2E_API_KEY", "honua-console-dev-key")
             sdk = Sdk(command, env, score.consumer)
             score.record("journey.published-package-install", lambda: "clean public NuGet pin and loaded assembly hashes verified")
@@ -659,7 +677,8 @@ def main(argv=None) -> int:
                     os.environ[key] = candidate_url
                 compose = installed.boot_candidate(manifest, overlay=HERE / "compose.import-fidelity.yml")
                 sdk.deadline = time.monotonic() + args.timeout_seconds
-                run_live(score, sdk, compose, args.case or sorted(CASES), fixture_path=args.authored_source)
+                run_live(score, sdk, compose, args.case or sorted(CASES), fixture_path=args.authored_source,
+                         reference_inbox=args.reference_inbox, reference_wait_seconds=args.reference_wait_seconds)
     except (ProducerError, OSError, subprocess.SubprocessError, installed.CertificationError) as exc:
         score.differences.append({"code": "producer-execution-incomplete", "severity": "blocking", "reason": str(exc)})
     finally:

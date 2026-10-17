@@ -11,7 +11,7 @@ cell with `status: blocked` must name the issue that blocks it in `blockedBy`. I
 every execution and is reported `blocked` only when its specific named blocker is observed.
 Installation, integrity, infrastructure, handshake, and supplied-evidence validation failures
 remain fatal. The setup-view blocker requires a valid complete 12-tool `default.v1` catalog;
-the import-fidelity blocker requires an absent receipt because no producer exists yet. If a blocked cell starts
+the import-fidelity blocker requires an absent complete passing receipt until live qualification finishes. If a blocked cell starts
 passing, it is reported as a failure until the matrix row is set back to `active`, so a fix is
 observed rather than assumed. `run.py` exits 0 only when every active cell passes and no blocked
 cell passes silently or fails for an unexpected reason. `run.py --verify-receipt <receipt>` checks a receipt against the matrix, and
@@ -152,12 +152,23 @@ fails. `--package-only` and `--case NAME` are diagnostic subsets: every unexecut
 requirement remains blocked, and the producer exits nonzero. They cannot mint a
 passing certification.
 
-This is an incomplete producer, not completed release qualification. It executes
-the ten frozen public-service imports and separate complete-service
-inventory/selection/apply/wait/reconciliation operations. Cancellation/recovery,
-rollback/repoint, the authored journey fixtures, relationship/attachment hash
-cross-checks, reference-client cross-checks and server#4420 proof remain unimplemented
-and visible as blocked cells. The 142 supported and ten not-applicable cells are
-unchanged. No #341 source-client unsupported finding is a waiver of these target
-import requirements. The matrix row stays blocked until a complete passing
-receipt exists and is reviewed.
+The producer also executes authored-source roles through
+`import_fidelity_journeys.py`: whole-service relationship application and physical
+join-edge checks, attachment downloads and hashes, cancel/retry with prior-row
+fingerprints, a failed overwrite, client URL/layer repoint and rollback to a
+retained publication, and committed geometry/value/time-metadata fault controls
+with SDK restoration. The server#4420 cell measures actual PostGIS vectors and
+fresh GDAL-decoded SDK GeoJSON outputs; a missing output never substitutes the
+baseline. Install `gdal-bin` for this independent reader.
+
+These executable paths are **not a completed qualification receipt**. Real
+rich-source fixtures, native observations, a suitable published SDK and the
+fixed immutable candidate must be available before every path can pass. The
+142 supported and ten not-applicable cells are unchanged. Source-client
+limitations never waive a target import requirement. The matrix row stays
+blocked until a complete passing receipt exists and is reviewed.
+
+See [the authored-source and native-reference contract](import-fidelity-inputs.md)
+for exact inputs and owner handoff. The existing native certification owner
+retains its Windows execution lane; this producer consumes authenticated raw
+observations and never adopts a native client's reported verdict.
