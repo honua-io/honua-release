@@ -113,6 +113,8 @@ while (await Console.In.ReadLineAsync() is { } line)
             "TableName is required" => "missing-target-table",
             "Invalid table name. Use only letters, numbers, and underscores." => "invalid-target-table",
             "Invalid target schema. Use only letters, numbers, and underscores." => "invalid-target-schema",
+            "Target schema is not a configured operational schema. Import targets are limited to the default operational schema, public, and Database:OperationalSchemas." => "unregistered-operational-schema",
+            "Schema is reserved for server metadata or database system catalogs and cannot be used by an import." => "reserved-target-schema",
             "ServiceUrl must be a valid HTTPS URL" => "invalid-source-https-url",
             "ServiceUrl must not include embedded credentials." => "source-embedded-credentials",
             "ServiceUrl must not include credential query parameters; use the credentials object instead." => "source-query-credentials",
