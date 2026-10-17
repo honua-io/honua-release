@@ -657,7 +657,9 @@ def main(argv=None) -> int:
     compose = None
     sdk = None
     try:
-        with tempfile.TemporaryDirectory(prefix="honua-import-fidelity-") as temporary:
+        workspace_root = ROOT / "out" / "import-fidelity-workspaces"
+        workspace_root.mkdir(parents=True, exist_ok=True)
+        with tempfile.TemporaryDirectory(prefix="honua-import-fidelity-", dir=workspace_root) as temporary:
             command, env, score.consumer = install_consumer(manifest, Path(temporary) / "published")
             consumer_home = Path(temporary) / "consumer-home"
             consumer_home.mkdir()

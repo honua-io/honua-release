@@ -264,9 +264,51 @@
         "certification/installed-clients/import-fidelity-consumer/Program.cs"
       ],
       "identifiers": [
-        "ArcGisServiceRoot.Parse"
+        "ArcGisServiceRoot.Parse",
+        "ArcGisSourceCredentialHandler",
+        "ArcGisSourceCredential",
+        "ArcGisCredentialMode.Token"
       ],
-      "reason": "Exact public Honua.Sdk.GeoServices 1.11.0 API member used to resolve the external service URL. Its name belongs to the manifest-pinned published package; replacing or renaming it would invent a different API or reimplement SDK URL parsing. No prose or other consumer identifiers are covered.",
+      "reason": "Exact public Honua.Sdk.GeoServices 1.11.0 service-root and source-credential API members. Their names belong to the manifest-pinned published package; renaming them invents an API or bypasses SDK credential handling. No prose or other consumer identifiers are covered.",
+      "owner": "@mikemcdougall",
+      "issue": "honua-io/honua-release#418"
+    },
+    {
+      "repo": "honua-release",
+      "paths": [
+        "certification/installed-clients/import_fidelity_journeys.py"
+      ],
+      "identifiers": [
+        "arcgis-geoservices-rest"
+      ],
+      "reason": "Exact published migration sourceKind wire value used by the SDK batch/scan APIs; changing it selects a different source family. No prose or other identifiers are covered.",
+      "owner": "@mikemcdougall",
+      "issue": "honua-io/honua-release#418"
+    },
+    {
+      "repo": "honua-release",
+      "paths": [
+        "certification/installed-clients/import_fidelity_reference.py",
+        "certification/installed-clients/import-fidelity-inputs.md"
+      ],
+      "identifiers": [
+        "honua-io/honua-esri-compat",
+        ".github/workflows/esri-sdk-certification.yml"
+      ],
+      "reason": "Exact existing owning repository and workflow path bind authenticated reference evidence to its actual producer. These names are identity checks, not new product terminology. Native desktop implementation details stay in the private producer repository.",
+      "owner": "@mikemcdougall",
+      "issue": "honua-io/honua-release#418"
+    },
+    {
+      "repo": "honua-release",
+      "paths": [
+        "certification/installed-clients/import_fidelity_reference.py",
+        "certification/installed-clients/test_import_fidelity_reference.py"
+      ],
+      "identifiers": [
+        "honua-and-esri-clients"
+      ],
+      "reason": "Exact frozen requirement ID crosscheck.honua-and-esri-clients from the unchanged requirements file; the consumer and negative control must address that governed cell. Other identifiers and prose remain checked.",
       "owner": "@mikemcdougall",
       "issue": "honua-io/honua-release#418"
     }

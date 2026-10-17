@@ -123,7 +123,7 @@ def crosscheck_fixture():
     for side in ("source", "target"):
         observation[side] = {"count": 2, "rows": reference.journeys.rows(snapshot),
                              "shapes": reference.journeys.shapes(snapshot), "schema": reference.journeys.schema(snapshot)}
-    return ({"fixtures": {"points": {"identity": identity, "observations": {"arcpy": deepcopy(observation), "pyqgis": deepcopy(observation)}}}},
+    return ({"fixtures": {"points": {"identity": identity, "observations": {"licensed-desktop": deepcopy(observation), "open-desktop": deepcopy(observation)}}}},
             {"fixtures": {"points": identity}}, {"points": state})
 
 
@@ -133,7 +133,7 @@ def test_authenticated_native_identity_does_not_hide_measured_data_loss(check, f
     import produce_import_fidelity as producer
     response, request, states = crosscheck_fixture()
     reference.crosscheck(check, response, request, states, producer.require_equal)
-    target = response["fixtures"]["points"]["observations"]["arcpy"]["target"]
+    target = response["fixtures"]["points"]["observations"]["licensed-desktop"]["target"]
     if fault == "int64":
         target["rows"][0]["value"] = 9007199254740992
     elif fault == "null":

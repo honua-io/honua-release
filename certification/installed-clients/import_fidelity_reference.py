@@ -124,7 +124,7 @@ def crosscheck(name, response, request, states, equal):
         result = response["fixtures"][role]
         require(result.get("identity") == request["fixtures"][role], "native observed source/target identity differs")
         observations = result.get("observations", {})
-        require(set(observations) == {"arcpy", "pyqgis"}, "native response requires both independent native readers")
+        require(set(observations) == {"licensed-desktop", "open-desktop"}, "native response requires both independent native readers")
         for reader, observation in observations.items():
             require(observation.get("runtimeVersion") and observation.get("methods") and observation.get("live") is True,
                     "native reader must identify real runtime and executed methods")
