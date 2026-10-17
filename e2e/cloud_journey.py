@@ -22,11 +22,11 @@ import yaml
 ROOT = Path(__file__).resolve().parents[1]
 HERE = ROOT / "certification/terminal-journey"
 EVIDENCE = ROOT / "e2e/cloud-evidence"
-# aws-eks is GA for 2026.1 (honua-release#203; owner decisions 12/18 of 2026-10-10).
-GA_CELLS = tuple(f"{target}/redis-{redis}" for target in ("aws-ecs", "aws-serverless", "aws-eks")
+# Owner amendment 2026-10-16 supersedes decisions 12/18: EKS is informational Preview.
+GA_CELLS = tuple(f"{target}/redis-{redis}" for target in ("aws-ecs", "aws-serverless")
                  for redis in ("off", "on"))
 # aws-mixed is out for 2026.1 rc.3 (no examples/aws-mixed root); restore it when honua-iac#209 lands.
-PREVIEW_TARGETS: tuple[str, ...] = ()
+PREVIEW_TARGETS: tuple[str, ...] = ("aws-eks",)
 
 
 def drivers():
@@ -873,6 +873,22 @@ def prior_run_gate(prior_runs, *, run_id, run_attempt, final_cost):
     return failures, gaps
 
 
+def cleanup_failure(report):
+    """Cleanup is a safety obligation even when the journey is informational Preview."""
+    if not isinstance(report, dict):
+        return "cleanup report missing"
+    if report.get("cleanupFailures") or report.get("s10Cleanup", {}).get("status") == "failed":
+        return "run-owned resource cleanup failed"
+    teardown = report.get("teardown", {})
+    if report.get("provisionAttempted") is False:
+        return "inconsistent cleanup obligation" if teardown.get("attempted") is True else None
+    if report.get("provisionAttempted") is not True:
+        return "provisioning cleanup obligation unknown"
+    if teardown.get("attempted") is not True or teardown.get("completed") is not True:
+        return "provisioned infrastructure cleanup incomplete"
+    return None
+
+
 def aggregate(reports, reports_root, *, require_real, full_scope, run_id, run_attempt,
               final_cost=None, prior_runs=None):
     cells = []
@@ -901,6 +917,8 @@ def aggregate(reports, reports_root, *, require_real, full_scope, run_id, run_at
         row = {**report, "evidenceTier": "Preview" if preview else "GA"}
         cells.append(row)
         by_cell.setdefault(cell, []).append(row)
+        if preview and (cleanup_problem := cleanup_failure(report)):
+            failures.append(f"{cell}: {cleanup_problem}")
         # Preview journey failures are informational. The run-wide spend ceiling remains
         # independent of topology maturity, including a later snapshot from a Preview cell.
         cost = report.get("cost", {})

@@ -58,8 +58,8 @@ stage passes, where a stage that needs the governed control plane passes by reco
 typed `unavailable` refusal (`missingDependency: redis`) with the manifest `dependency-unavailable`
 reasonCode: stages 5-8 under owner decision 3 (2026-10-08) and stage 3 (publish-service) under its
 2026-10-10 extension. The receipt schema enforces this per stage (`topologyRefusal`, Redis-off targets
-only, stages 3 and 5-8 only), so the checker reads it from the cell's `pass` status. Redis-on cells
-must execute every stage. On a Production Redis-off cell stages 4 and 6-8 still have no published
+only, stages 3 and 5-8 only), so the checker reads it from the cell's `pass` status. Redis-on is recommended for full workflows and must execute every stage. A typed refusal
+is limited-serving evidence and never counts as GP executed. On a Production Redis-off cell stages 4 and 6-8 still have no published
 layer and stay blocked, so that cell does not yet pass. Owner decision 20 (2026-10-10) lets an
 admin-role caller's direct `service.publish` execute on Redis-off (honua-server#5792); once a lock
 carries it, stage 3 on a Redis-off cell must execute for the admin operator, stage 4 must execute,
@@ -73,11 +73,9 @@ Each required journey cell passes within two attempts. A cell records `mode`, `a
 complete ordered `attempts` array. Every attempt records its consecutive number, completion time,
 status and lock digest. A first-attempt failure must have `failureAttribution: model` or
 `failureAttribution: infrastructure`; the last attempt must pass. Skipped, missing, out-of-period or
-wrong-lock attempts fail. The mixed ECS + Batch cell is out of the rc.3 matrix. The two aws-eks cells
-are required by the cloud matrix and the journey receipt gate (owner decisions 12/18 of 2026-10-10,
-honua-release#203), but this promotion contract still counts only the four ECS/Lambda cells: whether it
-also requires the EKS cells and EKS update/rollback evidence is an open owner question. Until then an
-EKS pass cannot replace ECS/Lambda evidence, and promotion says nothing about EKS. The journey producers enforce
+wrong-lock attempts fail. The mixed ECS + Batch cell is out of the rc.3 matrix. The two aws-eks cells are informational Preview under the 2026-10-16 owner amendment in #376,
+superseding decisions 12/18. Their unknown/failed observations remain visible; no EKS success
+replaces an ECS/Lambda requirement or establishes GA qualification. The journey producers enforce
 the per-run cost ceiling before teardown; a run over the ceiling fails and tears down.
 
 The cost reading is cell evidence, not a promotion class (owner decision 9, honua-release#519). Each
@@ -225,3 +223,5 @@ commit for a nightly mint.
 The independent human approval and signature gates remain mandatory. `promote.yml` publishes the
 minting train's exact signed lock and artifacts as `honua-2026.1.0` (then `honua-2026.1.Z`) and moves
 npm, container, Helm and install-manifest channels. Only promotion may move those pointers.
+
+Preview qualification is informational; failed or unknown cleanup, leaked run-owned resources and run cost overruns remain fatal. EKS teardown always executes and its independent workflow/aggregation checks retain the pre-amendment safety bar.
