@@ -51,7 +51,7 @@ def test_geometry_tolerance_is_bounded_and_checks_zm():
     expected = [[1, {"paths": [[[1.0, 2.0, 30.0, 40.0], [3.0, 4.0, 50.0, 60.0]]]}]]
     within = copy.deepcopy(expected)
     within[0][1]["paths"][0][0][0] += 1e-10
-    assert producer.equal(expected, within)
+    assert producer.equal(expected, within, tolerance=1e-8)
     for ordinate in range(4):
         fault = copy.deepcopy(expected)
         fault[0][1]["paths"][0][0][ordinate] += 0.1
@@ -181,3 +181,84 @@ def test_numeric_tolerance_is_absolute_and_cannot_hide_large_value_loss():
     assert not producer.equal(1e12, 1e12 + 1.0)
     assert not producer.equal(float("nan"), float("nan"))
     assert not producer.equal(float("inf"), float("inf"))
+
+
+def test_expired_live_budget_refuses_new_sdk_mutations():
+    sdk = object.__new__(producer.Sdk)
+    sdk.process = mock.Mock()
+    sdk.deadline = producer.time.monotonic() - 1
+    with pytest.raises(producer.ProducerError, match="overall time bound"):
+        sdk.call("StartGeoservicesImportAsync", baseUrl="http://localhost", candidate=True, arguments=[])
+    sdk.process.stdin.write.assert_not_called()
+
+
+def multitarget_runtime(tmp_path):
+    import zipfile
+    packages, output = tmp_path / "packages", tmp_path / "out"
+    output.mkdir()
+    assets = {"libraries": {}, "targets": {"net10.0": {}}}
+    for name in ("Honua.Sdk.Admin", "Honua.Sdk.GeoServices"):
+        key = name + "/1.2.3"
+        path = packages / name.lower() / "1.2.3"
+        path.mkdir(parents=True)
+        (path / ".nupkg.metadata").write_text(json.dumps({"source": gate.PUBLIC_REGISTRIES[0]}))
+        with zipfile.ZipFile(path / f"{name.lower()}.1.2.3.nupkg", "w") as archive:
+            archive.writestr(f"lib/net8.0/{name}.dll", b"different net8 runtime")
+            archive.writestr(f"lib/net10.0/{name}.dll", b"selected net10 runtime")
+            archive.writestr(f"ref/net10.0/{name}.dll", b"different reference assembly")
+        (output / f"{name}.dll").write_bytes(b"selected net10 runtime")
+        assets["libraries"][key] = {"path": f"{name.lower()}/1.2.3", "type": "package"}
+        assets["targets"]["net10.0"][key] = {"runtime": {f"lib/net10.0/{name}.dll": {}}}
+    return assets, packages, output
+
+
+def test_selected_tfm_runtime_matches_despite_other_tfm_and_reference_bytes(tmp_path):
+    assets, packages, output = multitarget_runtime(tmp_path)
+    matched = producer.verify_runtime_assets(assets, packages, output, "net10.0")
+    assert len(matched) == 2
+    assert all(item["asset"].startswith("lib/net10.0/") for item in matched)
+
+
+def test_wrong_selected_tfm_bytes_are_rejected_even_if_another_tfm_matches(tmp_path):
+    assets, packages, output = multitarget_runtime(tmp_path)
+    (output / "Honua.Sdk.Admin.dll").write_bytes(b"different net8 runtime")
+    with pytest.raises(producer.ProducerError, match="differs from selected runtime asset"):
+        producer.verify_runtime_assets(assets, packages, output, "net10.0")
+
+
+def test_missing_selected_runtime_asset_cannot_be_replaced_by_basename_match(tmp_path):
+    assets, packages, output = multitarget_runtime(tmp_path)
+    assets["targets"]["net10.0"]["Honua.Sdk.Admin/1.2.3"]["runtime"] = {"lib/net10.0/missing/Honua.Sdk.Admin.dll": {}}
+    with pytest.raises(producer.ProducerError, match="selected runtime asset is absent"):
+        producer.verify_runtime_assets(assets, packages, output, "net10.0")
+
+
+def test_attribute_value_parity_does_not_borrow_geometry_tolerance():
+    assert not producer.equal({"value": 1.0}, {"value": 1.000000001})
+    assert producer.equal({"x": 1.0}, {"x": 1.000000001}, tolerance=1e-8)
+    assert producer.equal({"x": 1}, {"x": 1.000000001}, tolerance=1e-8)
+    assert not producer.equal(9007199254740993, 9007199254740992.0, tolerance=1e-8)
+
+
+def test_geojson_pages_all_rows_beyond_source_transfer_cap_and_rejects_repeated_ids():
+    snapshot = {"objectIdField": "gid", "ids": list(range(1, 252)), "metadata": {"fields": [
+        {"name": "gid", "type": "esriFieldTypeOID"}, {"name": "value", "type": "esriFieldTypeBigInteger"}]}}
+    class UnitSdk:
+        def __init__(self, corrupt=False):
+            self.batches = []
+            self.corrupt = corrupt
+        def call(self, operation, **kwargs):
+            ids = kwargs["query"]["objectIds"]
+            self.batches.append(ids)
+            features = [{"id": identity, "properties": {"gid": identity, "value": 9007199254740993},
+                         "geometry": {"type": "Point", "coordinates": [1.0, 2.0]}} for identity in ids]
+            if self.corrupt and len(self.batches) == 2:
+                features[-1] = features[0]
+            return {"type": "FeatureCollection", "features": features}
+    sdk = UnitSdk()
+    rows = producer.geojson_snapshot(sdk, "https://source.example/FeatureServer", 0, snapshot)
+    assert len(rows) == 251 and len(sdk.batches) == 2
+    assert [len(batch) for batch in sdk.batches] == [200, 51]
+    assert rows[-1]["properties"]["value"] == 9007199254740993
+    with pytest.raises(producer.ProducerError, match="repeated or omitted"):
+        producer.geojson_snapshot(UnitSdk(corrupt=True), "https://source.example/FeatureServer", 0, snapshot)

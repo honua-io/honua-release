@@ -1,0 +1,7 @@
+# Import qualification uses the supported default administrative import path. The separate
+# SDK-regression approval-policy and synthetic bearer scenarios are not import prerequisites.
+# Probe TCP readiness so PostgreSQL's temporary initialization socket cannot race migrations.
+services:
+  db:
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -h 127.0.0.1 -U honua -d honua"]
