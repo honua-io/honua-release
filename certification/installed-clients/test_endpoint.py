@@ -44,6 +44,13 @@ def inputs():
 
 
 class EndpointTests(unittest.TestCase):
+    def setUp(self):
+        # Direct runner calls below must use the same sibling-import boundary as
+        # the production prepare/run_cloud entrypoints, including lazy imports.
+        scope = endpoint.module_scope()
+        scope.__enter__()
+        self.addCleanup(scope.__exit__, None, None, None)
+
     def test_endpoint_imports_preserve_terminal_oracles_and_judge(self):
         original = {name: types.ModuleType("terminal_" + name) for name in ("oracles", "judge")}
         before = list(sys.path)
@@ -51,6 +58,7 @@ class EndpointTests(unittest.TestCase):
             with endpoint.module_scope():
                 self.assertEqual(HERE / "oracles.py", Path(sys.modules["oracles"].__file__))
                 self.assertIs(sys.modules["judge"].oracles, sys.modules["oracles"])
+                self.assertIs(run._regression().oracles, sys.modules["oracles"])
             self.assertIs(original["oracles"], sys.modules["oracles"])
             self.assertIs(original["judge"], sys.modules["judge"])
         self.assertEqual(before, sys.path)
@@ -231,6 +239,7 @@ class EndpointTests(unittest.TestCase):
         manifest, matrix, context, _ = inputs()
         matrix["cells"] = [cell for cell in matrix["cells"] if cell["driver"] == "pypi-sdk"]
         rx = run._regression()
+        self.assertEqual(HERE / "oracles.py", Path(rx.oracles.__file__))
         seen = []
 
         def install(driver, pins, work):
