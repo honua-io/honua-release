@@ -136,6 +136,8 @@ def test_seeded_baseline_metadata_and_data_faults_fail_named_cells(manifest):
     }
     class UnitSdk:
         def call(self, operation, **kwargs):
+            if operation == "layer":
+                return {"maxRecordCount": 1000}
             if operation == "StartGeoservicesImportAsync":
                 return {"jobId": "unit-job"}
             if operation == "GetGeoservicesImportJobStatusAsync":
@@ -263,10 +265,12 @@ def test_geojson_pages_all_rows_beyond_source_transfer_cap_and_rejects_repeated_
     snapshot = {"objectIdField": "gid", "ids": list(range(1, 252)), "metadata": {"fields": [
         {"name": "gid", "type": "esriFieldTypeOID"}, {"name": "value", "type": "esriFieldTypeBigInteger"}]}}
     class UnitSdk:
-        def __init__(self, corrupt=False):
+        def __init__(self, corrupt=False, cap=100):
             self.batches = []
-            self.corrupt = corrupt
+            self.corrupt, self.cap = corrupt, cap
         def call(self, operation, **kwargs):
+            if operation == "layer":
+                return {"maxRecordCount": self.cap}
             ids = kwargs["query"]["objectIds"]
             self.batches.append(ids)
             features = [{"id": identity, "properties": {"gid": identity, "value": 9007199254740993},
@@ -276,9 +280,12 @@ def test_geojson_pages_all_rows_beyond_source_transfer_cap_and_rejects_repeated_
             return {"type": "FeatureCollection", "features": features}
     sdk = UnitSdk()
     rows = producer.geojson_snapshot(sdk, "https://source.example/FeatureServer", 0, snapshot)
-    assert len(rows) == 251 and len(sdk.batches) == 2
-    assert [len(batch) for batch in sdk.batches] == [200, 51]
+    assert len(rows) == 251 and len(sdk.batches) == 3
+    assert [len(batch) for batch in sdk.batches] == [100, 100, 51]
     assert rows[-1]["properties"]["value"] == 9007199254740993
+    target = UnitSdk(cap=50)
+    producer.geojson_snapshot(target, "https://target.example/FeatureServer", 0, snapshot, candidate=True)
+    assert [len(batch) for batch in target.batches] == [50, 50, 50, 50, 50, 1]
     with pytest.raises(producer.ProducerError, match="repeated or omitted"):
         producer.geojson_snapshot(UnitSdk(corrupt=True), "https://source.example/FeatureServer", 0, snapshot)
 
