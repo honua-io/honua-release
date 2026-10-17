@@ -516,7 +516,9 @@ def bind_attestation(
             )
         runner = certificate.get("runnerEnvironment")
         if runner == "self-hosted":
-            failures.extend(admit_release_runner(certificate, report_path=runner_report))
+            report_path = (runner_report.with_name(f"{runner_report.stem}-{index}{runner_report.suffix}")
+                           if runner_report is not None else None)
+            failures.extend(admit_release_runner(certificate, report_path=report_path))
         elif runner != "github-hosted":
             failures.append(f"{label}: unknown runner environment; expected GitHub-hosted or approved dedicated runner")
         if certificate.get("runInvocationURI") != expected_run:

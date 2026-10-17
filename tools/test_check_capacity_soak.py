@@ -415,6 +415,19 @@ def test_approved_dedicated_runner_keeps_bundle_source_and_attempt_binding(tmp_p
         tmp_path))
 
 
+def test_each_dedicated_attestation_retains_its_own_admission_report(tmp_path, monkeypatch):
+    reports = []
+    def admitted(certificate, *, report_path):
+        reports.append(report_path)
+        return [] if len(reports) > 1 else ["first admission refused"]
+    monkeypatch.setattr(gate, "admit_release_runner", admitted)
+    result = gate.bind_attestation(
+        verification(runnerEnvironment="self-hosted") * 2,
+        BUNDLE_SHA, receipt(tmp_path), REVISION, runner_report=tmp_path / "runner-admission.json")
+    assert result == ["first admission refused"]
+    assert reports == [tmp_path / "runner-admission-0.json", tmp_path / "runner-admission-1.json"]
+
+
 def test_attestation_for_other_bytes_fails(tmp_path):
     assert any("subject" in item for item in bind(verification(), tmp_path, bundle_sha="e" * 64))
 

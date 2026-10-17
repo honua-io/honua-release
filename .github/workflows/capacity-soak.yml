@@ -95,6 +95,6 @@ jobs:
             ${{ runner.temp }}/capacity-evidence.zip
             ${{ runner.temp }}/capacity-evidence/
             ${{ runner.temp }}/attestation-verification.json
-            ${{ runner.temp }}/runner-admission.json
+            ${{ runner.temp }}/runner-admission*.json
           if-no-files-found: error
           retention-days: 90
