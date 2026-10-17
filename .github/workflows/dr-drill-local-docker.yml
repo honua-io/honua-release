@@ -164,7 +164,7 @@ jobs:
             --output artifacts/gp-candidate/receipt.json
       - name: Retain executed receipts and findings
         if: always()
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: gp-candidate-store
           path: |
@@ -218,7 +218,7 @@ jobs:
             --candidate platform-manifest.yaml \
             --receipt artifacts/dr-drill-full-platform/receipt.json
       - name: Upload immutable drill envelope
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: dr-drill-full-platform-${{ github.sha }}
           path: |
@@ -256,7 +256,7 @@ jobs:
       - name: Execute scoped PostgreSQL backup and restore drill
         run: bash e2e/dr-drill/run.sh
       - name: Upload immutable drill envelope
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: dr-drill-local-docker-${{ github.sha }}
           path: |
@@ -360,7 +360,7 @@ jobs:
           with open("receipt-location.json", "w") as stream:
               json.dump({"receipt_url": os.environ["RECEIPT_URL"]}, stream)
           PY
-      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: dr-receipt-location-${{ github.run_id }}-${{ github.run_attempt }}
           path: receipt-location.json

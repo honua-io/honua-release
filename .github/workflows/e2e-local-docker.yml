@@ -154,7 +154,7 @@ jobs:
       - name: Upload the fixture revision record
         if: ${{ !cancelled() }}
         continue-on-error: true
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: fixture-revisions-e2e-local-docker-seam
           path: ${{ runner.temp }}/fixture-revisions/fixture-revisions.json
@@ -198,7 +198,7 @@ jobs:
 
       - name: Upload gate-report.json
         if: always()
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: e2e-local-docker-gate-report
           path: e2e/gate-report.json
@@ -362,7 +362,7 @@ jobs:
       - name: Upload the fixture revision record
         if: ${{ !cancelled() }}
         continue-on-error: true
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: fixture-revisions-e2e-local-docker-slice1
           path: ${{ runner.temp }}/fixture-revisions/fixture-revisions.json
@@ -434,7 +434,7 @@ jobs:
 
       - name: Upload Slice-1 gate-report.json
         if: always()
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: e2e-slice1-gate-report
           path: e2e/gate-report.json
@@ -447,7 +447,7 @@ jobs:
       # have to download a Playwright trace bundle to read one JSON file.
       - name: Upload S4 console live-suite log + Playwright traces
         if: always()
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: e2e-slice1-console-live
           path: |
@@ -510,7 +510,7 @@ jobs:
 
       - name: Upload Slice-1 Redis-off gate-report.json
         if: always()
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: e2e-slice1-redis-off-gate-report
           path: e2e/gate-report.json
@@ -573,7 +573,7 @@ jobs:
         run: python certification/control-plane-parity/cleanup.py
       - name: Retain sanitized engineering receipts
         if: ${{ always() }}
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: control-plane-parity
           path: ${{ runner.temp }}/control-plane-parity-public
@@ -622,7 +622,7 @@ jobs:
         run: python certification/operate-joined/run.py --cleanup
       - name: Retain sanitized joined proof
         if: ${{ always() }}
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: operate-joined
           path: ${{ runner.temp }}/operate-joined-public
