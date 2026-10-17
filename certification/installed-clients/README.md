@@ -97,6 +97,12 @@ not-applicable requirements. A closed upstream issue cannot reactivate a row wit
 published-pin replay and reviewed matrix change. Missing fixture prerequisites report blocked,
 identity/install/oracle failures report fail, and neither outcome qualifies a cell.
 
+The image binding uses the existing per-cell resolver: ECS uses the generic server image;
+Lambda uses the dedicated Lambda artifact after its ECR mirror digest is read back and verified.
+The approved HTTP exception for an owned ALB remains a harness transport rule. Published CLI/MCP
+clients retain their HTTPS requirement, so such a cell reports an explicit missing HTTPS prerequisite
+before installing clients and emits no synthetic client receipt. Other HTTP hosts remain refused.
+
 ## SDK regression scenarios
 
 The matrix also holds one cell per published SDK (Python, JS, .NET) and scenario in `scenarios/*.json`:

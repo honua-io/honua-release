@@ -29,6 +29,20 @@ CLOUD_CREDENTIALS = {"AWS_ACCESS_KEY_ID", "AWS_SECRET_ACCESS_KEY", "AWS_SESSION_
                      "AWS_CONTAINER_CREDENTIALS_FULL_URI", "ACTIONS_ID_TOKEN_REQUEST_TOKEN"}
 
 
+class PrerequisiteUnavailable(ValueError):
+    """A recognized cell prerequisite is absent; no installed-client execution is claimed."""
+
+
+def cloud_policy():
+    name = "installed_endpoint_cloud_policy"
+    if name not in sys.modules:
+        spec = importlib.util.spec_from_file_location(name, HERE.parents[1] / "e2e/cloud_journey.py")
+        module = importlib.util.module_from_spec(spec)
+        sys.modules[name] = module
+        spec.loader.exec_module(module)
+    return sys.modules[name]
+
+
 def runner():
     name = "installed_client_endpoint_runner"
     if name not in sys.modules:
@@ -118,10 +132,11 @@ def validate_context(context, manifest, matrix, manifest_path):
         binding = context["binding"]
         parsed = urllib.parse.urlsplit(binding["endpoint"])
         server = manifest["components"]["honua-server"]
-        expected = {"sourceSha": server["sha"], "image": runner().server_image_ref(manifest)}
+        expected = {"sourceSha": server["sha"], "image": cloud_policy().candidate_image(binding["cell"], manifest)}
         prepared = datetime.fromisoformat(binding["preparedAt"].replace("Z", "+00:00"))
         age = datetime.now(timezone.utc) - prepared
-        valid = (context["schema"] == SCHEMA and parsed.scheme == "https" and parsed.hostname
+        valid = (context["schema"] == SCHEMA and parsed.hostname
+                 and (parsed.scheme == "https" or cloud_policy().http_cell_host(binding["endpoint"]) is not None)
                  and set(binding) == {"endpoint", "cell", "runId", "runAttempt", "candidateDigest", "server",
                                       "fixtureRevision", "matrixDigest", "suiteFixtureDigest", "interopFixtureDigest", "preparedAt"}
                  and not parsed.username and not parsed.password and not parsed.query and not parsed.fragment
@@ -183,6 +198,7 @@ def run_cloud(state, context, admin_key, output):
     validate_context(context, manifest, matrix, manifest_path)
     if any(context["binding"].get(name) != state.get(name) for name in ("endpoint", "cell", "runId", "runAttempt", "candidateDigest")):
         raise ValueError("installed-client fixture belongs to a different provisioned deployment")
+    require_client_transport(context)
     with client_environment(context, admin_key):
         verify_live_identity(context, manifest)
         receipt = run.execute(manifest, matrix,
@@ -194,6 +210,13 @@ def run_cloud(state, context, admin_key, output):
     if run.verify_receipt(matrix, receipt):
         raise ValueError("installed-client endpoint receipt violates the complete matrix")
     return receipt
+
+
+def require_client_transport(context):
+    if cloud_policy().http_cell_host(context["binding"]["endpoint"]):
+        # The approved ALB exception belongs to the harness. Published CLI/MCP clients retain
+        # their independent HTTPS policy (terminal-journey/probes.py CLIENT_HTTPS_REFUSAL).
+        raise PrerequisiteUnavailable("approved ALB HTTP cell needs HTTPS for the published-client workflow; no clients executed")
 
 
 @contextmanager

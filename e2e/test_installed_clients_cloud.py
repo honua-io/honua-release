@@ -41,3 +41,16 @@ def test_candidate_or_install_error_fails_without_echoing_secret():
     assert row.status == "fail"
     assert "ValueError" in row.why
     assert "fixture-password" not in row.why
+
+
+def test_approved_http_application_prerequisite_stays_blocked_without_fake_receipt():
+    class NeedsHttps(ValueError):
+        pass
+    with mock.patch.object(run_cloud, "installed_clients") as adapter:
+        adapter.return_value.PrerequisiteUnavailable = NeedsHttps
+        adapter.return_value.run_cloud.side_effect = NeedsHttps("sensitive details")
+        row = run_cloud.installed_client_row({"cell": "aws-ecs/redis-on"}, {"prepared": True}, "app-key")
+    assert row.status == "blocked"
+    assert "no clients executed" in row.why
+    assert "sensitive" not in row.why
+    assert not row.evidence

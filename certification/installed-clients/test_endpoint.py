@@ -60,7 +60,63 @@ class EndpointTests(unittest.TestCase):
         with mock.patch.dict(os.environ, {"GITHUB_RUN_ID": "123"}, clear=True):
             for cell in ("aws-ecs/redis-on", "aws-serverless/redis-on"):
                 context["binding"]["cell"] = cell
+                context["binding"]["server"]["image"] = endpoint.cloud_policy().candidate_image(cell, manifest)
                 endpoint.validate_context(context, manifest, matrix, path)
+
+    def test_generic_lambda_and_raw_mirror_images_cannot_substitute_for_each_other(self):
+        manifest, matrix, context, path = inputs()
+        policy = endpoint.cloud_policy()
+        generic = policy.candidate_image("aws-ecs/redis-on", manifest)
+        specific = policy.candidate_image("aws-serverless/redis-on", manifest)
+        self.assertNotEqual(generic, specific)
+        with mock.patch.dict(os.environ, {"GITHUB_RUN_ID": "123"}, clear=True):
+            for cell, wrong in (("aws-serverless/redis-on", generic), ("aws-ecs/redis-on", specific),
+                               ("aws-serverless/redis-on", "123456789012.dkr.ecr.us-east-1.amazonaws.com/mirror@" + manifest["components"]["honua-server"]["awsLambdaEcrDigest"])):
+                with self.subTest(cell=cell, image=wrong):
+                    context["binding"]["cell"] = cell
+                    context["binding"]["server"]["image"] = wrong
+                    with self.assertRaisesRegex(ValueError, "contract differs"):
+                        endpoint.validate_context(context, manifest, matrix, path)
+
+    def test_lambda_mirror_readback_requires_observed_ecr_digest_before_canonical_identity(self):
+        manifest, matrix, context, path = inputs()
+        target = mock.Mock(_workdir=Path("/isolated-iac"))
+        target._tf.return_value.stdout = "owned-function"
+        server = manifest["components"]["honua-server"]
+        context["binding"]["cell"] = "aws-serverless/redis-on"
+        for digest, passes in ((server["awsLambdaEcrDigest"], True), ("sha256:" + "0" * 64, False)):
+            observed = {"Code": {"RepositoryType": "ECR", "ResolvedImageUri": "123.dkr.ecr.us-east-1.amazonaws.com/mirror@" + digest},
+                        "Configuration": {"PackageType": "Image"}}
+            readback = mock.Mock(stdout=json.dumps(observed))
+            image = endpoint.cloud_policy().observed_lambda_image(target, manifest, run=mock.Mock(return_value=readback))
+            context["binding"]["server"]["image"] = image
+            with mock.patch.dict(os.environ, {"GITHUB_RUN_ID": "123"}, clear=True):
+                if passes:
+                    endpoint.validate_context(context, manifest, matrix, path)
+                    receipt = run.execute(manifest, {**matrix, "cells": []}, "urn:unit-control", endpoint_context=context)
+                    self.assertEqual(image, receipt["server"]["image"])
+                    self.assertEqual("fail", receipt["status"])
+                else:
+                    self.assertIsNone(image)
+                    with self.assertRaisesRegex(ValueError, "contract differs"):
+                        endpoint.validate_context(context, manifest, matrix, path)
+
+    def test_approved_alb_http_is_recognized_but_clients_wait_for_https(self):
+        manifest, matrix, context, path = inputs()
+        context["binding"]["endpoint"] = "http://owned-cell.us-east-1.elb.amazonaws.com"
+        state = {name: context["binding"][name] for name in ("endpoint", "cell", "runId", "runAttempt", "candidateDigest")}
+        with tempfile.TemporaryDirectory() as tmp, mock.patch.dict(os.environ, {"GITHUB_RUN_ID": "123"}, clear=True), \
+             mock.patch.object(run, "execute") as execute:
+            endpoint.validate_context(context, manifest, matrix, path)
+            with self.assertRaisesRegex(endpoint.PrerequisiteUnavailable, "needs HTTPS"):
+                endpoint.run_cloud(state, context, "app", Path(tmp) / "receipt.json")
+            execute.assert_not_called()
+            self.assertFalse((Path(tmp) / "receipt.json").exists())
+        for url in ("http://other.example", "http://owned-cell.elb.amazonaws.com.evil.example", "http://.elb.amazonaws.com"):
+            context["binding"]["endpoint"] = url
+            with mock.patch.dict(os.environ, {"GITHUB_RUN_ID": "123"}, clear=True):
+                with self.assertRaisesRegex(ValueError, "contract differs"):
+                    endpoint.validate_context(context, manifest, matrix, path)
 
     def test_wrong_artifact_deployment_fixture_and_stale_context_fail(self):
         manifest, matrix, original, path = inputs()

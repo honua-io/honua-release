@@ -284,14 +284,19 @@ def installed_client_row(state, context, admin_key):
     if not context:
         return CheckResult("S11-installed-clients", "blocked",
             "published-client endpoint fixture unavailable (honua-release#65); full suite was not qualified")
+    adapter = installed_clients()
     try:
-        receipt = installed_clients().run_cloud(state, context, admin_key, output)
+        receipt = adapter.run_cloud(state, context, admin_key, output)
         counts = {status: sum(result["status"] == status for result in receipt["results"])
                   for status in ("pass", "fail", "blocked")}
         return CheckResult("S11-installed-clients", receipt["status"],
             "published clients executed the complete installed-client matrix against this endpoint",
             {"receipt": str(output.relative_to(E2E_DIR)), "counts": counts})
     except Exception as error:
+        prerequisite = getattr(adapter, "PrerequisiteUnavailable", None)
+        if isinstance(prerequisite, type) and isinstance(error, prerequisite):
+            return CheckResult("S11-installed-clients", "blocked",
+                "approved ALB HTTP cell needs HTTPS for the published-client workflow; no clients executed (honua-release#65)")
         return CheckResult("S11-installed-clients", "fail",
             f"published-client endpoint qualification raised {type(error).__name__} (honua-release#65)")
 

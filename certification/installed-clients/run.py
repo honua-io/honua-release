@@ -1014,6 +1014,7 @@ def execute(
     receipt = make_receipt(manifest, matrix, results, evidence_uri)
     if endpoint_context is not None:
         receipt["deployment"] = endpoint_context["binding"]
+        receipt["server"] = dict(endpoint_context["binding"]["server"])
     return receipt
 
 
@@ -1075,6 +1076,7 @@ def main() -> int:
             import endpoint
             context = endpoint.read_context(args.endpoint_context)
             endpoint.validate_context(context, manifest, matrix, args.manifest)
+            endpoint.require_client_transport(context)
             with endpoint.client_environment(context):
                 endpoint.verify_live_identity(context, manifest)
                 receipt = execute(manifest, matrix, args.evidence_uri,
