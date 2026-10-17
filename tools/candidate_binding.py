@@ -30,7 +30,7 @@ LIVE_REPORT_MAX_AGE_HOURS = 24
 REQUIRED_RELEASE_GATES = frozenset({
     "manifest", "artifact-consume", "e2e", "cloud-parity", "build-test", "contract", "contract-live",
     "conformance", "security", "sbom", "observability", "docs", "upgrade", "evidence",
-    "protocol-certification", "dr",
+    "protocol-certification", "dr", "agent-e2e",
 })
 
 

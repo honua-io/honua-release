@@ -72,7 +72,7 @@ def _load(path: Path, field: str) -> dict[str, Any]:
 EVIDENCE_CLASSES = {
     **dict.fromkeys(("build-test", "contract", "sbom", "security", "upgrade",
                      "capacity-soak", "dr", "lambda-certification", "protocol-ledger",
-                     "deterministic-journey", "nightly-model-journey", "executable-docs", "installed-clients"), "nightly"),
+                     "deterministic-journey", "nightly-model-journey", "executable-docs", "installed-clients", "agent-e2e"), "nightly"),
     **dict.fromkeys(("genuine-model-journey", "update-rollback", "esri-bundle", "cite"), "qualifying"),
 }
 # Owner amendment 2026-10-16: ECS/Lambda are GA; EKS/Helm is informational Preview.
@@ -84,7 +84,7 @@ GA_CELLS = frozenset({"aws-ecs/redis-off", "aws-ecs/redis-on", "aws-serverless/r
 MAX_FRESHNESS = {
     **dict.fromkeys(("build-test", "contract", "sbom", "security", "upgrade",
                      "capacity-soak", "dr", "lambda-certification", "protocol-ledger",
-                     "deterministic-journey", "nightly-model-journey", "executable-docs", "installed-clients",
+                     "deterministic-journey", "nightly-model-journey", "executable-docs", "installed-clients", "agent-e2e",
                      "genuine-model-journey", "update-rollback"), timedelta(days=7)),
     **dict.fromkeys(("esri-bundle", "cite"), timedelta(days=14)),
 }
@@ -98,6 +98,43 @@ JOURNEYS = {
     "nightly-model-journey": ("genuine-model", frozenset({"aws-ecs/redis-off"})),
     "genuine-model-journey": ("genuine-model", GA_CELLS),
 }
+
+
+def valid_agent_pack(summary: Any, binding: str | None = None) -> bool:
+    """Validate retained authenticated gate output, never a raw model receipt.
+
+    Authenticity is established by gate-agent-e2e in the bound minting train;
+    promotion's fetcher authenticates that train and its immutable artifacts.
+    """
+    if not isinstance(summary, dict):
+        return False
+    try:
+        from decimal import Decimal
+        identity = summary['controller']
+        hashes = ('packDigest', 'corpusDigest', 'componentBindingDigest', 'qualificationLockDigest',
+                  'campaignDigest', 'inventoryDigest')
+        return (type(summary.get('schemaVersion')) is int and summary['schemaVersion'] == 1
+                and summary.get('status') == 'pass'
+                and type(summary.get('casesExpected')) is int and summary['casesExpected'] == 252
+                and type(summary.get('casesPassed')) is int and summary['casesPassed'] == 252
+                and type(summary.get('attempts')) is int and 252 <= summary['attempts'] <= 504
+                and type(summary.get('infrastructureRetries')) is int
+                and summary['infrastructureRetries'] == summary['attempts'] - 252
+                and _time(summary['completedAt'], 'agent campaign completion') <
+                    _time(summary['expiresAt'], 'agent campaign expiry')
+                and _time(summary['expiresAt'], 'agent campaign expiry') -
+                    _time(summary['completedAt'], 'agent campaign completion') <= timedelta(days=7)
+                and all(isinstance(summary.get(k), str) and SHA256_RE.fullmatch(summary[k]) for k in hashes)
+                and (binding is None or summary['componentBindingDigest'] == binding)
+                and identity['repository'] == 'honua-io/honua-release'
+                and identity['workflow'] == '.github/workflows/agent-e2e-campaign.yml'
+                and re.fullmatch(r'[0-9a-f]{40}', identity['sourceSha']) is not None
+                and all(type(identity[k]) is int and identity[k] > 0 for k in ('runId', 'runAttempt'))
+                and Decimal(str(summary['totalCostUsd'])).is_finite()
+                and Decimal(str(summary['candidateLiabilityUsd'])).is_finite()
+                and Decimal(0) <= Decimal(str(summary['totalCostUsd'])) <= Decimal(str(summary['candidateLiabilityUsd'])) <= 500)
+    except (ValueError, KeyError, TypeError, ArithmeticError):
+        return False
 
 
 def _journey(receipt: dict[str, Any], required: frozenset[str], mode: str,
@@ -337,7 +374,11 @@ def evaluate(
                 target_images = _update_rollback_target_images(
                     lock_path, evidence_dir / "trains" / rc_run_id / "platform-manifest.yaml")
                 ok &= _update_rollback(receipt, target_images)
-        except (ReadinessError, OSError, TypeError):
+            if name == 'agent-e2e':
+                from agent_e2e_gate import component_binding
+                ok &= valid_agent_pack(receipt.get('agentPack'), component_binding(_load(lock_path, 'platform lock')))
+                ok &= now <= _time(receipt['agentPack']['expiresAt'], 'agent campaign expiry')
+        except (ValueError, OSError, TypeError, KeyError):
             ok = False
         check(f"evidence:{name}", bool(ok), detail)
 

@@ -21,7 +21,7 @@ LAMBDA_IMAGE = "sha256:" + "c" * 64
 # dropping a class, journey or cell from the checker fails these tests.
 NIGHTLY_CLASSES = ("build-test", "contract", "sbom", "security", "upgrade", "capacity-soak", "dr",
                    "lambda-certification", "protocol-ledger", "deterministic-journey", "nightly-model-journey",
-                   "executable-docs", "installed-clients")
+                   "executable-docs", "installed-clients", "agent-e2e")
 QUALIFYING_CLASSES = ("genuine-model-journey", "update-rollback", "esri-bundle", "cite")
 CLASSES = {**dict.fromkeys(NIGHTLY_CLASSES, "nightly"), **dict.fromkeys(QUALIFYING_CLASSES, "qualifying")}
 GA_CELLS = ("aws-ecs/redis-off", "aws-ecs/redis-on", "aws-serverless/redis-off", "aws-serverless/redis-on")
@@ -64,7 +64,8 @@ def _fixture(tmp_path, *, age=54, minted=None):
     manifest_bytes = yaml.safe_dump(manifest).encode("utf-8")
     _write(lock, {"lockVersion": "platform-lock.v1",
                   "sourceInputs": {"platformManifest": {"sha256": "sha256:" + hashlib.sha256(manifest_bytes).hexdigest()}},
-                  "components": {"honua-server": {"artifacts": [{"kind": "image", "digest": ECS_IMAGE}]}}})
+                  "components": {"honua-server": {"artifacts": [{"kind": "image", "digest": ECS_IMAGE}]}},
+                  "contentDigests": {}, "fixtures": []})
     digest = "sha256:" + hashlib.sha256(lock.read_bytes()).hexdigest()
     burn = NOW - timedelta(hours=age)
     mint = NOW - timedelta(hours=age if minted is None else minted)
@@ -104,6 +105,9 @@ def _fixture(tmp_path, *, age=54, minted=None):
             receipt["cells"] = [{"cell": cell, "mode": mode, "attemptCount": 1,
                                  "attempts": [{"attempt": 1, "status": "pass", "lockDigest": digest,
                                                "completedAt": row["completedAt"]}]} for cell in cells]
+        if name == "agent-e2e":
+            from test_mint_nightly_lock import agent_summary
+            receipt["agentPack"] = agent_summary(lock, row["completedAt"])
         if name == "update-rollback":
             receipt.update(cells=[_update_cell(cell) for cell in GA_CELLS],
                            fromLockDigest=OTHER_LOCK, toLockDigest=digest,
@@ -359,8 +363,12 @@ def test_promotion_path_schema_and_readiness_agree_on_patch_rc(tmp_path, label, 
     # Execute the actual path admission condition without performing any GitHub calls.
     condition = next(line.strip().split(" ||", 1)[0] for line in command.splitlines()
                      if line.strip().startswith('[[ "$PROMOTION_RECORD"'))
-    result = subprocess.run(["bash", "-c", condition], env={**os.environ,
-                            "PROMOTION_RECORD": f"certification/promotions/{label}.json"})
+    # The Windows WSL launcher neither forwards arbitrary environment variables
+    # nor preserves bash -c positional parameters. Pipe a quoted, LF-only script
+    # while retaining the exact admission expression from the workflow.
+    import shlex
+    script = 'PROMOTION_RECORD=' + shlex.quote(f"certification/promotions/{label}.json") + '\n' + condition + '\n'
+    result = subprocess.run(["bash"], input=script.encode('utf-8'))
     assert (result.returncode == 0) == accepted
 
 

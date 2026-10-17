@@ -89,7 +89,8 @@
         "genuine-model-journey",
         "update-rollback",
         "esri-bundle",
-        "cite"
+        "cite",
+        "agent-e2e"
       ],
       "properties": {
         "build-test": {
@@ -139,6 +140,9 @@
         },
         "cite": {
           "const": "qualifying"
+        },
+        "agent-e2e": {
+          "const": "nightly"
         }
       }
     },
