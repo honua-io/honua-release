@@ -316,7 +316,7 @@ def _valid_client_package_digest(lane: str, value: object) -> bool:
         except ValueError:
             return False
         return len(raw) == 64 and value == "sha512-" + base64.b64encode(raw).decode()
-    return isinstance(value, str) and re.fullmatch(r"sha256:[0-9a-f]{64}", value) is not None
+    return lane in {"grpc-dotnet", "grpc-python"} and isinstance(value, str) and re.fullmatch(r"sha256:[0-9a-f]{64}", value) is not None
 
 
 def _valid_receipt(
@@ -334,7 +334,7 @@ def _valid_receipt(
             return False
         identity_fields.add("client_package_digest")
     elif "client_package_digest" in cell:
-        identity_fields.add("client_package_digest")
+        return False
     if isinstance(cell.get("test_ids"), list):
         identity_fields.add("test_ids")
     if cell.get("licensed"):
@@ -685,6 +685,8 @@ def evaluate(
         if isinstance(row, dict) and str(row.get("client_lane", "")).startswith("grpc-"):
             if not _valid_client_package_digest(row["client_lane"], row.get("client_package_digest")):
                 fail("requirements.client_package_digest", "gRPC requirements must bind a canonical published package digest")
+        elif isinstance(row, dict) and "client_package_digest" in row:
+            fail("requirements.client_package_digest", "package digest is only permitted for gRPC requirements")
     external_entitlement_policies = {
         row.get("entitlement_policy_revision") for row in owned_rows
         if isinstance(row, dict) and str(row.get("client_lane", "")).startswith("desktop-arcpy-")
@@ -788,6 +790,8 @@ def evaluate(
             raw["client_lane"], raw.get("client_package_digest")
         ):
             fail(prefix + ".client_package_digest", "gRPC cells must bind the installed published artifact digest")
+        elif not str(raw.get("client_lane", "")).startswith("grpc-") and "client_package_digest" in raw:
+            fail(prefix + ".client_package_digest", "package digest is only permitted for gRPC cells")
         execution_metadata_valid = _valid_execution_metadata(raw, candidate.get("cut_at"), owned_revision)
         if not execution_metadata_valid:
             fail(prefix, "execution metadata must be complete, bounded and bound to the canonical actor, lane, facets and request")

@@ -1715,3 +1715,62 @@ def test_grpc_digest_algorithm_and_canonical_encoding_are_not_interchangeable():
     assert not cert._valid_client_package_digest("grpc-dotnet", sri)
     assert not cert._valid_client_package_digest("grpc-typescript", "sha256:" + "a" * 64)
     assert not cert._valid_client_package_digest("grpc-typescript", sri + "\n")
+
+
+def test_non_grpc_package_digest_cannot_expand_closed_identity_or_requirements():
+    schema = json.loads((Path(__file__).parents[1] / 'certification/protocol-certification.v1.schema.json').read_text())
+    validator = Draft202012Validator(schema)
+    original = _cell()
+    assert cert._valid_receipt(original, requirements_revision='requirements-test-v1')
+    assert not list(validator.iter_errors(_ledger(original)))
+    for value in (None, 'sha256:' + 'a' * 64):
+        for target in ('cell', 'identity', 'both'):
+            changed = copy.deepcopy(original)
+            if target in ('cell', 'both'):
+                changed['client_package_digest'] = value
+            if target in ('identity', 'both'):
+                changed['evidence_receipt']['identity']['client_package_digest'] = value
+            assert not cert._valid_receipt(changed, requirements_revision='requirements-test-v1'), target
+            assert list(validator.iter_errors(_ledger(changed))), target
+            result = _evaluate(_ledger(changed), 'nightly', now=NOW, requirements=_requirements(original))
+            assert result['overall_status'] == 'fail', target
+        owned = _requirements(original)
+        owned['requirements'][0]['client_package_digest'] = value
+        result = _evaluate(_ledger(original), 'nightly', now=NOW, requirements=owned)
+        assert any(item['check'] == 'requirements.client_package_digest' for item in result['findings'])
+
+
+def test_published_schemas_enforce_each_grpc_digest_algorithm_and_encoding():
+    root = Path(__file__).parents[1] / 'certification'
+    ledger_validator = Draft202012Validator(json.loads((root / 'protocol-certification.v1.schema.json').read_text()))
+    requirement_validator = Draft202012Validator(json.loads((root / 'protocol-certification-requirements.v1.schema.json').read_text()))
+    governed = json.loads((root / 'protocol-certification-requirements.v1.json').read_text())
+    sha256 = 'sha256:' + 'a' * 64
+    sri = 'sha512-' + base64.b64encode(b'x' * 64).decode()
+    for lane in ('grpc-dotnet', 'grpc-python', 'grpc-typescript'):
+        good = sri if lane == 'grpc-typescript' else sha256
+        wrong_algorithm = sha256 if lane == 'grpc-typescript' else sri
+        cell = _cell(client_lane=lane, client_package_digest=good)
+        assert not list(ledger_validator.iter_errors(_ledger(cell))), lane
+        requirements = copy.deepcopy(governed)
+        requirements['requirements'] = _requirements(cell)['requirements']
+        assert not list(requirement_validator.iter_errors(requirements)), lane
+        # Noncanonical pad bits decode to the same bytes but must not identify the package.
+        bad_values = (wrong_algorithm, good + '\n', 'sha512-' + 'e' * 86 + '==')
+        for value in bad_values:
+            assert not cert._valid_client_package_digest(lane, value), (lane, value)
+            for target in ('cell', 'identity'):
+                changed = copy.deepcopy(cell)
+                destination = changed if target == 'cell' else changed['evidence_receipt']['identity']
+                destination['client_package_digest'] = value
+                assert list(ledger_validator.iter_errors(_ledger(changed))), (lane, target, value)
+            changed_requirements = copy.deepcopy(requirements)
+            changed_requirements['requirements'][0]['client_package_digest'] = value
+            assert list(requirement_validator.iter_errors(changed_requirements)), (lane, value)
+    ordinary = _cell(client_package_digest=sha256)
+    requirements = copy.deepcopy(governed)
+    requirements['requirements'] = _requirements(ordinary)['requirements']
+    assert list(requirement_validator.iter_errors(requirements))
+    unknown = _cell(client_lane='grpc-unknown')
+    assert not cert._valid_receipt(unknown, requirements_revision='requirements-test-v1')
+    assert list(ledger_validator.iter_errors(_ledger(unknown)))

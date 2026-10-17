@@ -177,8 +177,55 @@
         },
         "allOf": [
           {
+            "if": {
+              "properties": {
+                "client_lane": {
+                  "enum": [
+                    "grpc-dotnet",
+                    "grpc-python"
+                  ]
+                }
+              },
+              "required": [
+                "client_lane"
+              ]
+            },
+            "then": {
+              "properties": {
+                "client_package_digest": {
+                  "pattern": "^sha256:[0-9a-f]{64}$(?![\\s\\S])"
+                }
+              }
+            }
+          },
+          {
+            "if": {
+              "properties": {
+                "client_lane": {
+                  "enum": [
+                    "grpc-typescript"
+                  ]
+                }
+              },
+              "required": [
+                "client_lane"
+              ]
+            },
+            "then": {
+              "properties": {
+                "client_package_digest": {
+                  "pattern": "^sha512-[A-Za-z0-9+/]{85}[AQgw]==$(?![\\s\\S])"
+                }
+              }
+            }
+          },
+          {
             "if": { "properties": { "client_lane": { "pattern": "^grpc-" } }, "required": ["client_lane"] },
-            "then": { "required": ["client_package_digest"] }
+            "then": {
+              "required": ["client_package_digest"],
+              "properties": { "client_lane": { "enum": ["grpc-dotnet", "grpc-python", "grpc-typescript"] } }
+            },
+            "else": { "properties": { "client_package_digest": false } }
           },
           {
             "if": { "properties": { "licensed": { "const": true } }, "required": ["licensed"] },
