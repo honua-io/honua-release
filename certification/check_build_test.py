@@ -355,14 +355,14 @@ _ACTIONS_RUN_URL = re.compile(r"/actions/runs/(\d+)(?:/|$)")
 _GITHUB_PAGE_SIZE = 100
 
 
-def _fetch_paginated_collection(url: str, headers: dict[str, str], key: str) -> dict:
+def _fetch_paginated_collection(url: str, headers: dict[str, str], key: str, *, page_size: int = _GITHUB_PAGE_SIZE) -> dict:
     """Fetch every page of a GitHub REST collection, preserving first-page metadata."""
     items: list[dict] = []
     first_page: dict | None = None
     page = 1
     while True:
         separator = "&" if "?" in url else "?"
-        page_url = f"{url}{separator}per_page={_GITHUB_PAGE_SIZE}&page={page}"
+        page_url = f"{url}{separator}per_page={page_size}&page={page}"
         request = urllib.request.Request(page_url, headers=headers)
         with urllib.request.urlopen(request, timeout=20) as response:
             payload = json.loads(response.read().decode("utf-8", "replace"))
@@ -377,7 +377,7 @@ def _fetch_paginated_collection(url: str, headers: dict[str, str], key: str) -> 
             raise ValueError("GitHub response did not declare its collection count")
         if len(items) >= total:
             break
-        if len(batch) < _GITHUB_PAGE_SIZE:
+        if len(batch) < page_size:
             raise ValueError("GitHub collection ended before its declared count")
         page += 1
 
@@ -438,7 +438,7 @@ def _default_fetch(repo: str, sha: str) -> object:
         if e.code in (404, 403, 422):
             return NOT_FOUND
         raise
-    except (urllib.error.URLError, OSError):
+    except (urllib.error.URLError, OSError, ValueError):
         return NOT_FOUND
 
     # One additional request identifies the Actions workflow behind each job. This lets the

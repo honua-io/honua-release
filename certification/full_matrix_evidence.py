@@ -33,7 +33,7 @@ def collect(repo, sha, run, policy, headers, fetch_collection, fetch_json):
     if not positive(run.get('id')) or not positive(run.get('run_attempt')) or not positive(run.get('check_suite_id')):
         raise ValueError('missing authoritative Actions run/attempt/suite identity')
     base = f'https://api.github.com/repos/{repo}'
-    jobs = fetch_collection(f'{base}/actions/runs/{run["id"]}/jobs?filter=all', headers, 'jobs')['jobs']
+    jobs = fetch_collection(f'{base}/actions/runs/{run["id"]}/jobs?filter=all', headers, 'jobs', page_size=20)['jobs']
     registry = fetch_json(f'{base}/contents/{quote(policy["shardInventory"]["path"], safe="/")}?ref={sha}', headers)
     if registry.get('type') != 'file' or registry.get('encoding') != 'base64':
         raise ValueError('pinned shard inventory is not a GitHub file')
@@ -119,12 +119,13 @@ def verify(payload, run, policy, sha):
                              str(job.get('check_run_url', '')))
         check = checks.get(int(match.group(1))) if match else None
         if (not check or check.get('name') != name or check.get('head_sha') != sha
-                or check.get('app', {}).get('id') != ACTIONS_APP_ID or check.get('app', {}).get('slug') != 'github-actions'
-                or check.get('check_suite', {}).get('id') != run['check_suite_id']
+                or not isinstance(check.get('app'), dict) or check['app'].get('id') != ACTIONS_APP_ID
+                or check['app'].get('slug') != 'github-actions'
+                or not isinstance(check.get('check_suite'), dict) or check['check_suite'].get('id') != run['check_suite_id']
                 or check.get('status') != 'completed' or check.get('conclusion') != 'success'):
             problems.append('missing authentic Actions publisher/check suite: ' + name)
         if name in matrix:
-            steps = [s for s in job.get('steps', []) if isinstance(s, dict) and s.get('name') == policy['shardInventory']['testStep']]
+            steps = [s for s in (job.get('steps') if isinstance(job.get('steps'), list) else []) if isinstance(s, dict) and s.get('name') == policy['shardInventory']['testStep']]
             if len(steps) != 1 or steps[0].get('status') != 'completed' or steps[0].get('conclusion') != 'success':
                 problems.append('actual shard test step missing, skipped or failed: ' + name)
     return problems

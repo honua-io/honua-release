@@ -28,3 +28,8 @@ binds frozen source, command/selection, environment, exit/results and artifact h
 runner identity and attestation. Setting GITHUB_* variables or inventing an Actions URL is not
 that protocol. This change does not introduce a local attestation/import path or relax release
 qualification; that broader audit remains under #652/#376.
+
+A successful Actions step is execution provenance, not a test-count assertion. This gate does
+not yet ingest TRX counters. A server runner that exits successfully after matching zero tests
+can still produce a successful step; the separately tracked server zero-test guard must close
+that producer gap. This change does not claim measured test totals or local-result admission.

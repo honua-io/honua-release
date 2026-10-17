@@ -233,7 +233,7 @@ def test_default_adapter_collects_pinned_source_and_all_job_attempts(monkeypatch
     monkeypatch.setattr(bt.urllib.request, 'urlopen', urlopen)
     loaded = bt._default_fetch('honua-server', PINNED_SHA)
     assert bt.classify_full_matrix(loaded, bt.load_full_matrix()['honua-server'], PINNED_SHA)[0] == 'pass'
-    assert any('/actions/runs/12345/jobs?filter=all&per_page=100&page=1' in url for url in called)
+    assert any('/actions/runs/12345/jobs?filter=all&per_page=20&page=1' in url for url in called)
 
 
 @pytest.mark.parametrize('response', [{'jobs': []}, {'total_count': 2, 'jobs': [{}]}, {'total_count': 0, 'wrong': []}])
@@ -241,3 +241,13 @@ def test_incomplete_or_unbounded_job_api_collection_fails_closed(monkeypatch, re
     monkeypatch.setattr(bt.urllib.request, 'urlopen', lambda *a, **k: io.BytesIO(json.dumps(response).encode()))
     with pytest.raises(ValueError):
         bt._fetch_paginated_collection('https://api.github.com/repos/honua-io/honua-server/actions/runs/1/jobs', {}, 'jobs')
+
+
+@pytest.mark.parametrize('field,value', [('app', None), ('app', []), ('check_suite', None), ('check_suite', []), ('steps', None)])
+def test_malformed_publisher_or_steps_fails_without_exception(field, value):
+    payload = _full_matrix_payload()
+    if field == 'steps':
+        next(j for j in payload['_matrix_execution']['jobs'] if j['name'] == 'Server Tests (Core)')[field] = value
+    else:
+        payload['check_runs'][-1][field] = value
+    assert bt.classify_full_matrix(payload, FULL_MATRIX_POLICY, PINNED_SHA)[0] == 'fail'
