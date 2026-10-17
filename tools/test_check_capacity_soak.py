@@ -397,6 +397,24 @@ def test_missing_attestation_fails(tmp_path):
     assert bind(None, tmp_path)
 
 
+def test_approved_dedicated_runner_keeps_bundle_source_and_attempt_binding(tmp_path, monkeypatch):
+    calls = []
+    def admitted(certificate, **kwargs):
+        calls.append(certificate)
+        return []
+    monkeypatch.setattr(gate, "admit_release_runner", admitted)
+    approved = verification(runnerEnvironment="self-hosted")
+    assert bind(approved, tmp_path) == []
+    assert len(calls) == 1
+    assert any("subject" in item for item in bind(approved, tmp_path, bundle_sha="e" * 64))
+    assert any("not the candidate" in item for item in bind(
+        verification(runnerEnvironment="self-hosted", sourceRepositoryDigest="e" * 40), tmp_path))
+    assert any("producer run" in item for item in bind(
+        verification(runnerEnvironment="self-hosted",
+                     runInvocationURI="https://github.com/honua-io/honua-server/actions/runs/123456/attempts/2"),
+        tmp_path))
+
+
 def test_attestation_for_other_bytes_fails(tmp_path):
     assert any("subject" in item for item in bind(verification(), tmp_path, bundle_sha="e" * 64))
 
@@ -421,7 +439,8 @@ def test_attestation_from_other_workflow_repository_or_runner_fails(tmp_path):
     assert any("signer workflow" in item for item in bind(verification(buildSignerURI=nightly), tmp_path))
     other_ref = SIGNER.replace("refs/heads/trunk", "refs/heads/feature")
     assert any("signer workflow" in item for item in bind(verification(buildSignerURI=other_ref), tmp_path))
-    assert any("GitHub-hosted" in item for item in bind(verification(runnerEnvironment="self-hosted"), tmp_path))
+    assert any("no self-hosted release runner group is approved" in item
+               for item in bind(verification(runnerEnvironment="self-hosted"), tmp_path))
     fork = "https://github.com/someone/honua-server"
     assert any("source repository" in item for item in bind(verification(sourceRepositoryURI=fork), tmp_path))
 

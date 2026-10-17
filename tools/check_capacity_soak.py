@@ -13,6 +13,7 @@ from typing import Any
 from urllib.parse import urlparse
 
 from capacity_observations import validate_sources
+from release_runner_policy import admit as admit_release_runner
 
 
 APPROVED_PRODUCER_REPOSITORY = "honua-io/honua-server"
@@ -468,14 +469,16 @@ def evaluate(
 
 
 def bind_attestation(
-    verified: object, bundle_sha256: str, receipt: dict[str, Any], expected_revision: str
+    verified: object, bundle_sha256: str, receipt: dict[str, Any], expected_revision: str,
+    *, runner_report: Path | None = None,
 ) -> list[str]:
     """Bind `gh attestation verify --format json` output to the bundle and the receipt's producer.
 
     The workflow's `gh attestation verify` pins the signer workflow and source digest, but the
     receipt's own producer block (run id/attempt, workflow ref) is self-declared. Every verified
     attestation must sign exactly this bundle, come from the approved workflow on a GitHub-hosted
-    runner at the candidate source commit, and name the same run and workflow ref as the receipt.
+    or independently admitted dedicated runner at the candidate source commit, and name the same
+    run and workflow ref as the receipt. Dedicated admission reads GitHub metadata itself.
     """
     failures: list[str] = []
     if not isinstance(verified, list) or not verified:
@@ -511,8 +514,11 @@ def bind_attestation(
                 f"{label}: attested source commit {certificate.get('sourceRepositoryDigest')} is not the "
                 f"candidate {expected_revision}; the producer must run at the candidate revision"
             )
-        if certificate.get("runnerEnvironment") != "github-hosted":
-            failures.append(f"{label}: attestation was not produced on a GitHub-hosted runner")
+        runner = certificate.get("runnerEnvironment")
+        if runner == "self-hosted":
+            failures.extend(admit_release_runner(certificate, report_path=runner_report))
+        elif runner != "github-hosted":
+            failures.append(f"{label}: unknown runner environment; expected GitHub-hosted or approved dedicated runner")
         if certificate.get("runInvocationURI") != expected_run:
             failures.append(f"{label}: attested workflow run is not the receipt's producer run")
         build = _mapping(_mapping(statement.get("predicate")).get("buildDefinition"))
@@ -562,6 +568,7 @@ def main() -> int:
     parser.add_argument(
         "--attestation", type=Path, required=True, help="`gh attestation verify --format json` output for --bundle"
     )
+    parser.add_argument("--runner-report", type=Path, help="retain independently fetched runner admission metadata")
     args = parser.parse_args()
     try:
         lock = json.loads(args.lock.read_text(encoding="utf-8"))
@@ -575,6 +582,7 @@ def main() -> int:
                 hashlib.sha256(args.bundle.read_bytes()).hexdigest(),
                 receipt,
                 args.expected_revision,
+                runner_report=args.runner_report,
             )
         )
         for name, records in informational_dimensions(lock, receipt).items():
