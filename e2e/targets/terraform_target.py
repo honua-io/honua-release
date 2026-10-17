@@ -619,6 +619,57 @@ class TerraformTarget(DeployTarget):
             raise ProvisionError(f"{self.name}: terraform applied but {self.spec.endpoint_output} was empty")
         return url
 
+    def _exact_image_apply(self, image: str, *, redis_enabled: bool, extra_vars: tuple[str, ...] = ()) -> None:
+        """Apply the same restored cell, replacing only the reviewed immutable image/alias inputs."""
+        if not re.fullmatch(r"[a-z0-9][a-z0-9./_-]+@sha256:[0-9a-f]{64}", image):
+            raise ProvisionError("update image must be a digest-addressed untagged repository")
+        root = self._workdir or self._iac_root()
+        if root is None:
+            raise ProvisionError("update requires restored Terraform state")
+        if not (root / "terraform.tfstate").is_file():
+            raise ProvisionError("update refuses a missing local cell state")
+        variables = list(self._last_vars or self._vars(redis_enabled))
+        names = {self.spec.image_var, *(v.split("=", 2)[1] for v in extra_vars)}
+        variables = [v for v in variables if not any(v.startswith("-var=" + name + "=") for name in names)]
+        variables += ["-var=" + self.spec.image_var + "=" + image, *extra_vars]
+        try:
+            # Save and apply an exact plan; do not re-plan different inputs after preflight.
+            self._tf(root, "plan", "-input=false", "-out=honua-update.tfplan", *variables)
+            self._tf(root, "apply", "-input=false", "-auto-approve", "honua-update.tfplan")
+        except (OSError, subprocess.SubprocessError) as error:
+            raise ProvisionError("exact candidate Terraform transition failed") from error
+        finally:
+            (root / "honua-update.tfplan").unlink(missing_ok=True)
+        self._last_vars = variables
+        self._workdir = root
+
+    def update(self, image: str, *, redis_enabled: bool = False) -> None:
+        """ECS Redis-off's explicit Terraform actuator; never substitute it for a native backend."""
+        if self.name != "aws-ecs" or redis_enabled:
+            raise ProvisionError("exact Terraform update is only the ECS Redis-off actuator")
+        self._rollback_vars = list(self._last_vars or self._vars(False))
+        self._exact_image_apply(image, redis_enabled=False)
+
+    def rollback(self) -> None:
+        variables = getattr(self, "_rollback_vars", None)
+        if not variables:
+            raise ProvisionError("no retained exact Terraform baseline for rollback")
+        image = [value.split("=", 2)[2] for value in variables
+                 if value.startswith("-var=" + self.spec.image_var + "=")]
+        if len(image) != 1:
+            raise ProvisionError("retained Terraform baseline image is ambiguous")
+        self._last_vars = variables
+        self._exact_image_apply(image[0], redis_enabled=False)
+
+    def stage_lambda(self, image: str, previous_version: str, *, redis_enabled: bool) -> None:
+        """Publish B while live remains pinned to A; the supported alias backend performs exposure."""
+        if self.name != "aws-serverless" or not previous_version.isdigit() or int(previous_version) < 1:
+            raise ProvisionError("Lambda staging requires a published retained alias version")
+        if not self._root_declares("lambda_alias_version"):
+            raise ProvisionError("pinned Lambda root cannot retain the baseline alias during staging")
+        self._exact_image_apply(image, redis_enabled=redis_enabled,
+                                extra_vars=("-var=lambda_alias_version=" + previous_version,))
+
     def teardown(self, redis_enabled: bool | None = None) -> None:
         # Fail-closed: a destroy that does not complete has left real, billing AWS resources behind
         # (honua-iac#142), so it raises instead of being swallowed. The caller (run_cloud / the
