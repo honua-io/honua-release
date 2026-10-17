@@ -566,3 +566,36 @@ def test_cloudwatch_settle_never_turns_missing_or_duplicate_execution_into_succe
     else:
         result = runtime.execution_events("job", "start")
         assert result["started"] == (2 if mode == "duplicate" else 1) and len(reads) == 3
+
+
+@pytest.mark.parametrize("wrong_parent", [False, True])
+def test_ecs_readback_cannot_use_an_unrelated_parent_with_a_declared_child_digest(wrong_parent):
+    runtime = native.AwsRuntime.__new__(native.AwsRuntime)
+    build = release("b")
+    child = "sha256:" + "c" * 64
+    server = build.manifest["components"]["honua-server"]
+    server.update(awsEcsArchitecture="x86_64", platformDigests={"amd64": child}, contractVersions={"admin": "v1"})
+    runtime.cell = "aws-ecs/redis-off"; runtime.safety = None
+    runtime.output_value = lambda name: "owned-cluster" if name == "ecs_cluster_name" else "owned-service"
+    runtime.fixture = {"layerId": 1, "expectedFeatures": [{"id": "1", "name": "alpha", "geometry": {}}, {"id": "2", "name": "bravo", "geometry": {}}]}
+    runtime.journal = {"proof": "unchanged"}; runtime.schema_journal = lambda: dict(runtime.journal)
+    def aws(*args):
+        if args[1] == "list-tasks": return {"taskArns": ["owned-task"]}
+        return {"tasks": [{"lastStatus": "RUNNING", "containers": [{"lastStatus": "RUNNING", "imageDigest": child,
+            "image": "ghcr.io/honua-io/honua-server@sha256:" + "d" * 64 if wrong_parent else build.image}]}]}
+    runtime.aws = aws
+    runtime.api = FakeApi([(200, {"server": {"deploymentRevision": build.source, "deploymentRevisionSource": "commit-sha"}}),
+                          (200, {"data": {"contractVersions": {"admin": "v1"}, "schemaVersions": {"database": build.schema}}}),
+                          (200, {"features": [{"id": 1, "properties": {"name": "alpha"}, "geometry": {}},
+                                               {"id": 2, "properties": {"name": "bravo"}, "geometry": {}}]})])
+    if wrong_parent:
+        with pytest.raises(proof.ProofError, match="actual serving ECS image"): runtime.observe(build, "candidate")
+        assert runtime.api.calls == []
+    else: assert runtime.observe(build, "candidate")["sourceRevision"] == build.source
+
+
+@pytest.mark.parametrize("key", ["ControlPlane__DeployTargets__0__TargetId", "controlplane:deploytargets:0:targetid",
+                                 "CONTROLPLANE__PlatformRelease__Version", "aSpNeTcOrE_uRlS"])
+def test_protected_startup_override_guard_uses_dotnet_key_normalization(key):
+    normalized = native.env_key(key + "=untrusted")
+    assert normalized.startswith(("controlplane__deploytargets__", "controlplane__platformrelease__", "aspnetcore_urls"))

@@ -34,6 +34,11 @@ def centroid_workload(vertices=65536):
     return {"inputs": {"wkb": base64.b64encode(raw).decode(), "srid": "4326"}}
 
 
+def env_key(line):
+    """Match .NET's case-insensitive colon/double-underscore configuration names."""
+    return line.partition("=")[0].replace(":", "__").lower()
+
+
 class AwsRuntime:
     def __init__(self, target, state, *, admin_key, approval_key, serving_fixture, controller_env=None,
                  mirror_repository=None, vertices=65536, workload_path=None, run=subprocess.run, sleep=time.sleep):
@@ -170,8 +175,8 @@ class AwsRuntime:
                 rules.extend((group, identity) for identity in ids)
             lines = protected.read_text().splitlines()
             # Disable durable dispatch and do not connect to the operator controller's DB/Redis.
-            lines = [line for line in lines if not line.startswith(("ControlPlane__", "ConnectionStrings__", "HONUA_ADMIN_PASSWORD=",
-                     "Licensing__Mode=", "HONUA_SKIP_MIGRATIONS=", "ASPNETCORE_URLS=", "AWS_"))]
+            lines = [line for line in lines if not env_key(line).startswith(("controlplane__", "connectionstrings__", "honua_admin_password",
+                     "licensing__mode", "honua_skip_migrations", "aspnetcore_urls", "aws_"))]
             derived = {"ASPNETCORE_URLS": "http://127.0.0.1:18083", "HONUA_ADMIN_PASSWORD": self.api.credential,
                        "ConnectionStrings__DefaultConnection": connection, "HONUA_SKIP_MIGRATIONS": "true", "Licensing__Mode": "Disabled"}
             keys = self.target._state_secrets(("master_key",))
@@ -234,9 +239,10 @@ class AwsRuntime:
         require(not protected.is_symlink() and protected.stat().st_mode & 0o077 == 0, "controller env must be a private regular file")
         env = protected.read_text()
         require(self.api.credential and not self.api.credential.startswith("Bearer "), "controller bootstrap requires the owned API key")
-        require("ConnectionStrings__Redis=" in env and "ConnectionStrings__DefaultConnection=" in env,
+        entries = {env_key(line): line.split("=", 1)[1] for line in env.splitlines() if "=" in line and not line.startswith("#")}
+        require(entries.get("connectionstrings__redis") and entries.get("connectionstrings__defaultconnection"),
                 "retained controller requires its protected persistent database and Redis")
-        controller_redis = next(line.split("=", 1)[1] for line in env.splitlines() if line.startswith("ConnectionStrings__Redis="))
+        controller_redis = entries["connectionstrings__redis"]
         def redis_store(value):
             parts = value.split(",")
             options = dict(part.split("=", 1) for part in parts[1:] if "=" in part)
@@ -245,7 +251,7 @@ class AwsRuntime:
         for cell_redis in self.target._state_secrets(("redis_connection",)):
             require(redis_store(controller_redis) != redis_store(cell_redis),
                     "controller must use an independent durable Redis store, never the candidate execution queue")
-        require(not any(line.startswith(("ControlPlane__DeployTargets__", "ControlPlane__PlatformRelease__", "ASPNETCORE_URLS="))
+        require(not any(env_key(line).startswith(("controlplane__deploytargets__", "controlplane__platformrelease__", "aspnetcore_urls"))
                         for line in env.splitlines()), "protected controller env must not override derived target/release wiring")
         target_id = self.safety["target_id"] if self.safety else self.output_value("control_plane_target_id")
         target_name = (self.safety["parameters"]["aws.ecs.canary_service"] if self.safety
@@ -396,7 +402,8 @@ class AwsRuntime:
             for task in result["tasks"]:
                 containers = [c for c in task.get("containers", []) if c.get("image", "").split("@", 1)[0] == release.image.split("@", 1)[0]]
                 require(task.get("lastStatus") == "RUNNING" and len(containers) == 1
-                        and containers[0].get("lastStatus") == "RUNNING" and containers[0].get("imageDigest") in accepted,
+                        and containers[0].get("lastStatus") == "RUNNING" and containers[0].get("image") == release.image
+                        and containers[0].get("imageDigest") in accepted,
                         "actual serving ECS image differs from selected build")
             native = {"kind": "ecs-native-routing", "taskCount": len(arns), "imageDigest": server["digest"]}
         metadata = self.api.get("/api/v1/capabilities/manifest")
