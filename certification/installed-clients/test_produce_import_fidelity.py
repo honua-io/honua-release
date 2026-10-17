@@ -87,6 +87,23 @@ def test_partial_transfer_never_satisfies_value_parity():
         producer.feature_rows({"features": [{"attributes": {"gid": 1}}]}, ["gid", "name"], "gid")
 
 
+def test_sdk_failure_retains_structured_status_without_response_data():
+    sdk = object.__new__(producer.Sdk)
+    sdk.process = mock.Mock()
+    sdk.process.stdout.readline.return_value = json.dumps({
+        "ok": False, "errorType": "HonuaAdminApiException", "httpStatus": 400,
+        "problemType": "https://honua.io/problems/validation", "code": None,
+        "message": "sensitive occurrence details", "responseBody": "credential-value",
+    })
+    with mock.patch.object(producer.select, "select", return_value=([sdk.process.stdout], [], [])):
+        with pytest.raises(producer.ProducerError) as error:
+            sdk.call("StartGeoservicesImportAsync")
+    assert "httpStatus=400" in str(error.value)
+    assert "problemType=https://honua.io/problems/validation" in str(error.value)
+    assert "credential-value" not in str(error.value)
+    assert "sensitive occurrence details" not in str(error.value)
+
+
 def test_failed_check_is_executed_and_never_changes_denominator(manifest):
     score = producer.Scorecard(manifest, gate.load_requirements(), EVIDENCE)
     score.record("esri_census_states/all_fields_diff", lambda: producer.require_equal(
