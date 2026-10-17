@@ -19,7 +19,9 @@ refusals at A, B and restored A, independently confirmed by the capability manif
 cells explicitly record `executionOutcome: refused`, `functionalGpExecuted: false`, and have
 no in-flight-job record. Refusal never counts as GP completion.
 
-The pre-mutation guard currently admits only identical declared database schema versions.
+Before any cloud mutation, the admission job authenticates both immutable builds (and both
+signed locks in qualification mode) and admits only identical declared database schema versions.
+It has read-only repository/artifact permissions and no AWS identity.
 Before staging any B image, the producer starts its authenticated generic image against the
 actual cell database with `HONUA_SKIP_MIGRATIONS=true`, no Redis or deploy target catalog,
 and requires its supported deploy preflight to show zero pending and zero extra migrations.

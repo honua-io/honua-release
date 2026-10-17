@@ -574,12 +574,12 @@ class AwsRuntime:
                         self.sleep(2)
                     else:
                         raise ProofError("owned GP cancellation not confirmed")
-            except ProofError:
+            except Exception:
                 failures.append("owned-inflight-job")
         if self.controller_name:
             try:
                 checked(self.run, ["docker", "rm", "-f", self.controller_name], "retained controller cleanup failed", timeout=60)
-            except ProofError:
+            except Exception:
                 failures.append("retained-controller")
         # Only the exact baseline revisions created by this run are retained out of Terraform's
         # current resource state. All owned jobs are terminal before these are deregistered.
@@ -587,14 +587,14 @@ class AwsRuntime:
             for definition in self.retained_batch_definitions:
                 try:
                     self.aws("batch", "deregister-job-definition", "--job-definition", definition)
-                except ProofError:
+                except Exception:
                     failures.append("retained-batch-definition")
         elif self.retained_batch_definitions:
             failures.append("retained-batch-definition-awaiting-job")
         for task in self.registered_tasks:
             try:
                 self.aws("ecs", "deregister-task-definition", "--task-definition", task)
-            except ProofError:
+            except Exception:
                 failures.append("staged-task-definition")
         return failures
 

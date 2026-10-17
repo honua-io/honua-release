@@ -33,6 +33,11 @@ jobs:
   admit:
     if: github.ref == 'refs/heads/trunk'
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      actions: read
+      packages: read
+      attestations: read
     steps:
       - name: Refuse unapproved execution inputs before provisioning
         env:
@@ -53,6 +58,50 @@ jobs:
               assert re.fullmatch(r'[1-9][0-9]*',os.environ['BASELINE_RUN'])
               assert os.environ['BASELINE_RUN'] != os.environ['CANDIDATE_RUN']
           PY
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.12"
+      - run: python -m pip install -r e2e/requirements.txt
+      - name: Select the exact retained baseline inputs
+        if: inputs.mode == 'qualification'
+        uses: ./.github/actions/candidate-input
+        with:
+          candidate_ref: ${{ inputs.baseline_ref }}
+      - name: Select the reviewed unadmitted baseline inputs
+        if: inputs.mode == 'rehearsal'
+        uses: ./.github/actions/prepared-deployment-input
+        with:
+          prepared_ref: ${{ inputs.baseline_ref }}
+      - name: Authenticate both builds and refuse incompatible declarations before cloud mutation
+        env:
+          GH_TOKEN: ${{ github.token }}
+          MODE: ${{ inputs.mode }}
+          PRIOR_RUN: ${{ inputs.baseline_run_id }}
+          CANDIDATE_RUN: ${{ inputs.candidate_run_id }}
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/rollback-prior" "$RUNNER_TEMP/rollback-candidate"
+          if [ "$MODE" = qualification ]; then
+            gh run download "$PRIOR_RUN" --repo "$GITHUB_REPOSITORY" --name certified-candidate --dir "$RUNNER_TEMP/rollback-prior"
+            gh run download "$CANDIDATE_RUN" --repo "$GITHUB_REPOSITORY" --name certified-candidate --dir "$RUNNER_TEMP/rollback-candidate"
+            cmp platform-manifest.yaml "$RUNNER_TEMP/rollback-prior/platform-manifest.yaml"
+          else
+            cp platform-manifest.yaml "$RUNNER_TEMP/rollback-prior/"
+            gh run download "$CANDIDATE_RUN" --repo "$GITHUB_REPOSITORY" --name prepared-deployment --dir "$RUNNER_TEMP/rollback-candidate"
+          fi
+          python - <<'PYTHON'
+          import os,sys
+          from pathlib import Path
+          sys.path.insert(0,"e2e")
+          from runner.update_rollback import CELLS,load_release,preflight
+          root=Path(os.environ["RUNNER_TEMP"])
+          mode=os.environ["MODE"]
+          prior=load_release(root/"rollback-prior",mode)
+          candidate=load_release(root/"rollback-candidate",mode)
+          for cell in CELLS:
+              preflight(prior,candidate,cell,mode)
+          PYTHON
   cloud:
     needs: admit
     uses: ./.github/workflows/e2e-cloud-aws.yml

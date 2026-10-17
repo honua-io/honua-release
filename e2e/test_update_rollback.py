@@ -599,3 +599,34 @@ def test_ecs_readback_cannot_use_an_unrelated_parent_with_a_declared_child_diges
 def test_protected_startup_override_guard_uses_dotnet_key_normalization(key):
     normalized = native.env_key(key + "=untrusted")
     assert normalized.startswith(("controlplane__deploytargets__", "controlplane__platformrelease__", "aspnetcore_urls"))
+
+
+@pytest.mark.parametrize("broken", ["job-read", "controller", "batch"])
+def test_unexpected_adapter_failure_does_not_skip_independent_owned_cleanup(broken):
+    runtime = native.AwsRuntime.__new__(native.AwsRuntime)
+    runtime.probe_cleanup_failures = []; runtime.submitted_job = "owned-job"; runtime.controller_name = "owned-controller"
+    runtime.registered_tasks = ["owned-task-1", "owned-task-2"]
+    runtime.retained_batch_definitions = ["owned-batch-1", "owned-batch-2"]
+    runtime.sleep = lambda _: None
+    def job(identity):
+        if broken == "job-read": raise ValueError("PRIVATE-ADAPTER-DETAIL")
+        return {"status": "Succeeded"}
+    runtime.job = job
+    calls = []
+    def run(argv, **kwargs):
+        calls.append(tuple(argv))
+        if broken == "controller": raise ValueError("PRIVATE-ADAPTER-DETAIL")
+        return SimpleNamespace(stdout="", returncode=0)
+    runtime.run = run
+    def aws(*args):
+        calls.append(args)
+        if broken == "batch" and args[-1] == "owned-batch-1": raise ValueError("PRIVATE-ADAPTER-DETAIL")
+        return {}
+    runtime.aws = aws
+    failures = runtime.close()
+    assert failures and "PRIVATE-ADAPTER-DETAIL" not in json.dumps(failures)
+    assert ("docker", "rm", "-f", "owned-controller") in calls
+    assert ("ecs", "deregister-task-definition", "--task-definition", "owned-task-2") in calls
+    if broken == "job-read":
+        assert "owned-inflight-job" in failures and not any("batch" in c for c in calls)
+    else: assert ("batch", "deregister-job-definition", "--job-definition", "owned-batch-2") in calls
