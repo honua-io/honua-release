@@ -253,7 +253,8 @@
         "date": "2026-10-11",
         "evidence": "GP on Kubernetes job runners: honua-helm#98 merged (geoprocessing.kubernetesJobs.* values, job service account and RBAC; a kind smoke dispatched geometry.buffer as a batch/v1 Job) and honua-helm#99 merged (envFrom the runtime Secret and config ConfigMap); honua-server#5796 merged (Kubernetes Job envFrom/secretKeyRef/configMapKeyRef, ControlPlane:Kubernetes:DefaultEnvFromSecrets). honua-release#522 and #529 run the aws-eks cells with Pod Identity wiring. Root cause of the earlier EKS reds (run 38057015781): the release guardrail denies iam:CreateOpenIDConnectProvider and roles outside honuaeks*; honua-iac#233 (Pod Identity, honuaeks* names, RDS+PostGIS, ElastiCache, outputs) merged on 2026-10-11 (e6378d14) and is inside the pinned honua-iac e0dabe7.",
         "open": "No aws-eks run has used honua-iac#233 yet (planned after the ECS/Lambda final run); the pinned server carries honua-server#5780 and #5796 since the 2026-10-12 re-pin to 0e03bdd and the honua-helm pin is 5069bffb2, so GP Job completion in the chart awaits an aws-eks run; whether promotion readiness requires the EKS cells is still an owner question."
-      }
+      },
+      "superseded_by": "assisted-pilot-eks-preview-2026-10-16"
     },
     "instance-identity-2026-10-10": {
       "date": "2026-10-10",
@@ -528,6 +529,12 @@
       "basis": "Correction recorded 2026-10-12 from e2e-cloud-aws run 38192851328 during the rc.3 certification cycle",
       "evidence": "Run 38192851328, aws-serverless redis-off: the server queued the forced background import (HTTP 202, job 061103fa...) instead of returning the typed 503 the harness expected. honua-release#561 (J19b, merged 93325e639) makes Redis-off S10 follow the job like Redis-on (pass with executor in-process; typed 503 still passes) and reports a job-stalled detail (last transition, seconds since, answering Honua-Instance) on both topologies.",
       "open": "No Redis-off background import has completed on a cell yet; on aws-serverless the in-process job is subject to the same stall as Redis-on until honua-server#5916 lands."
+    },
+    "assisted-pilot-eks-preview-2026-10-16": {
+      "date": "2026-10-16",
+      "authority": "https://github.com/honua-io/honua-release/issues/376",
+      "ruling": "Owner-approved assisted pilot then GA. ECS and Lambda + Batch remain GA targets; Redis-on is recommended for full workflows, Redis-off is limited serving with typed refusals and never GP-executed evidence. EKS/Helm is Preview for 2026.1, superseding October 10 decisions 12/18. Studio is a usable self-hosted 2D Preview alongside full agent flows. Assisted supported-service migration and two existing JavaScript apps permit documented manual fixes. Clarification and at most one visible retry are allowed; silent wrong results, data loss, unauthorized actions and false success are unacceptable.",
+      "effect": "Four required ECS/Lambda journey cells; EKS remains informational with qualification pending. Preserve required correctness/security/catalog-GP denominator, immutable-image resolver rules, gate freeze before first rc.3, separate topology proofs, two signed-lock update/rollback and 48h/seven-canary burn. #619 does not gate RC; #613\u2013#617 remains 2026.2. Weekly outcome board and three fresh-start pilot observations remain in canonical #376; date windows are decision checkpoints, not guarantees."
     }
   },
   "security_findings": [

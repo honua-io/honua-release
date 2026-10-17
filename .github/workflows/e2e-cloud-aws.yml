@@ -1,6 +1,6 @@
-# AWS promise journeys: six required GA cells, {aws-ecs, aws-serverless, aws-eks} x Redis off/on, where
+# AWS promise journeys: four required GA cells, {aws-ecs, aws-serverless} x Redis off/on, plus EKS Preview, where
 # aws-serverless is Lambda + AWS Batch geoprocessing and aws-eks is the Helm chart on EKS (bring-your-own
-# Kubernetes, honua-release#203; owner decisions 12/18 of 2026-10-10 made it GA for 2026.1). The mixed
+# Kubernetes, honua-release#203; the 2026-10-16 owner amendment supersedes decisions 12/18). The mixed
 # ECS + Batch cell is out of the 2026.1 rc.3 matrix: its IaC root does not exist yet (restore it when
 # honua-iac#209 lands).
 # Every cell retains attempts, records its live cost estimate before teardown, and always runs its teardown job.
@@ -372,8 +372,8 @@ jobs:
       target: ${{ matrix.target }}
       redis: ${{ matrix.redis }}
       # A reusable-workflow call cannot carry continue-on-error; the cell's own jobs would, for a
-      # Preview cell. Every cell in this matrix is GA (aws-eks since honua-release#203), so none is.
-      preview: false
+      # Preview cell. EKS is informational under the explicit 2026-10-16 scope amendment.
+      preview: ${{ matrix.target == 'aws-eks' }}
       candidate_ref: ${{ inputs.candidate_ref }}
       prepared_ref: ${{ inputs.prepared_ref }}
       require_real: ${{ inputs.require_real || false }}

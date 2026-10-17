@@ -1550,18 +1550,18 @@ def _cloud_workflows():
             yaml.safe_load((workflows / "e2e-cloud-aws-cell.yml").read_text()))
 
 
-def test_cloud_workflow_requires_the_six_ga_cells_including_eks():
-    # honua-release#203 (owner decisions 12/18 of 2026-10-10): aws-eks is GA in 2026.1.
+def test_cloud_workflow_requires_four_ga_cells_and_keeps_eks_preview():
+    # October16 owner amendment explicitly supersedes the prior EKS GA scope.
     cj = run_cloud.cloud_journey
     workflow, cell = _cloud_workflows()
     job = workflow["jobs"]["parity"]
-    assert len(cj.GA_CELLS) == 6 and all("mixed" not in c for c in cj.GA_CELLS)
-    assert {"aws-eks/redis-off", "aws-eks/redis-on"} <= set(cj.GA_CELLS) and cj.PREVIEW_TARGETS == ()
+    assert set(cj.GA_CELLS) == {f"{target}/redis-{mode}" for target in ("aws-ecs", "aws-serverless") for mode in ("off", "on")}
+    assert cj.PREVIEW_TARGETS == ("aws-eks",)
     assert "aws-eks" in job["strategy"]["matrix"]["target"]
     # rc.3: examples/aws-mixed does not exist; the cell is out of the matrix until honua-iac#209.
     assert "aws-mixed" not in job["strategy"]["matrix"]["target"]
     assert "aws-mixed" not in workflow[True]["workflow_dispatch"]["inputs"]["target"]["options"]
-    assert job["with"]["preview"] is False
+    assert job["with"]["preview"] == "${{ matrix.target == 'aws-eks' }}"
     assert job["strategy"]["fail-fast"] is False and job["strategy"]["max-parallel"] == 1
     # Preview tolerance lives on the called cell's jobs; a reusable-workflow call cannot carry it.
     assert all(cell_job["continue-on-error"] == "${{ inputs.preview }}" for cell_job in cell["jobs"].values())
@@ -1609,8 +1609,7 @@ def test_cloud_full_scope_preview_failure_cannot_redden_a_passing_ga_run():
             subdir = root / cell.replace("/", "-")
             subdir.mkdir()
             reports.append(_cell_report(subdir, _ecs_receipt(cell)))
-        # No AWS target is Preview since honua-release#203 made aws-eks GA; any cell outside
-        # GA_CELLS is still informational, so a stand-in keeps the policy covered.
+        # EKS failures stay informational; required ECS/Lambda failures and cost ceilings still refuse.
         previews = [{"cell": f"{target}/redis-{redis}", "status": "fail"}
                     for target in (cj.PREVIEW_TARGETS or ("stub",)) for redis in ("off", "on")]
         with mock.patch.object(cj, "validate_attempt", return_value=True):

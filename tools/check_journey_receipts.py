@@ -23,14 +23,11 @@ import yaml
 from jsonschema import Draft202012Validator, FormatChecker
 
 ROOT = Path(__file__).resolve().parents[1]
-# aws-eks is a GA target for 2026.1 (honua-release#203; owner decisions 12/18 of 2026-10-10), so this
-# receipt gate requires all six cells. tools/check_promotion_readiness.py still requires only the four
-# ECS/Lambda cells: whether promotion also requires the EKS cells (and EKS update/rollback evidence) is
-# an open owner question, so an EKS receipt here never stands in for the promotion contract.
-GA_CELLS = tuple(f"{target}/redis-{redis}" for target in ("aws-ecs", "aws-serverless", "aws-eks")
+# Owner amendment 2026-10-16: EKS/Helm is informational Preview; ECS/Lambda retain their full required bill.
+GA_CELLS = tuple(f"{target}/redis-{redis}" for target in ("aws-ecs", "aws-serverless")
                  for redis in ("off", "on"))
 # aws-mixed is out for 2026.1 rc.3 (no examples/aws-mixed root); restore it when honua-iac#209 lands.
-PREVIEW_CELLS: tuple[str, ...] = ()
+PREVIEW_CELLS: tuple[str, ...] = ("aws-eks/redis-off", "aws-eks/redis-on")
 DRIVERS = ("deterministic", "genuine-model")
 MAX_AGE_SECONDS = 86400
 

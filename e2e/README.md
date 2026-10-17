@@ -170,9 +170,9 @@ reported there, never hidden.
 `python e2e/run_cloud.py --phase <provision|journey|admit|teardown> ...` runs one phase; without
 `--phase` all three run in one process.
 
-GA cells for 2026.1 are `{aws-ecs, aws-serverless, aws-eks} × {redis-off, redis-on}`: owner decisions
-12 and 18 of 2026-10-10 pulled honua-release#203 (bring-your-own Kubernetes) into 2026.1, so the EKS
-cells are no longer informational Preview and a red EKS cell reddens the full-scope cloud report. The
+GA cells for 2026.1 are `{aws-ecs, aws-serverless} × {redis-off, redis-on}` under the October 16
+owner amendment, superseding decisions 12/18. EKS is informational Preview: its raw failures remain
+visible and cannot replace required ECS/Lambda proofs. The
 mixed ECS + Batch cell is not in the rc.3 matrix: honua-iac has no
 `examples/aws-mixed` root yet, so the cell could only report a missing root. Restore it in
 `run_cloud.py` and `e2e-cloud-aws.yml` when honua-iac#209 lands.
@@ -204,7 +204,7 @@ step under `migration`. A server-side `HONUA_MIGRATE_ONLY` exit mode would repla
 tracked for 2026.1.x.
 
 ### The EKS cell (bring-your-own Kubernetes, honua-release#203)
-`aws-eks` is the 2026.1 Kubernetes GA cell (owner decisions 12/18 of 2026-10-10; GP on Kubernetes is
+`aws-eks` is an informational 2026.1 Preview cell (October 16 amendment supersedes decisions 12/18; GP on Kubernetes is
 honua-server#4719 and honua-helm#77). It runs the same provision → admit → journey → teardown chain as
 the ECS and Lambda cells. Provision applies `examples/aws-eks`, installs the manifest-pinned honua-helm
 chart with the manifest-pinned image by digest, and probes the Service's load balancer. Admit adds the

@@ -225,11 +225,14 @@ def test_candidate_phase_preserves_pending_and_does_not_qualify_ga_or_eks(manife
     candidate = vp.Findings()
     vp.check_deploy_qualification(manifest, matrix, candidate, exact_candidate=True,
                                  deployment_phase="candidate-precut", deployment_qualification=proof)
-    assert len(candidate.errors) == 1 and "awsEks" in candidate.errors[0]
+    assert candidate.ok, candidate.errors
+    eks = matrix["deploy"]["honua-helm"]["awsEks"]["architectures"]["x86_64"]
+    assert eks["status"] == "preview" and eks["qualification"] == "pending"
+    assert "qualificationReceipt" not in eks
     ga = vp.Findings()
     vp.check_deploy_qualification(manifest, matrix, ga, exact_candidate=True,
                                  deployment_qualification=proof)
-    assert len(ga.errors) == 2 and any("awsLambda" in error for error in ga.errors)
+    assert len(ga.errors) == 1 and "awsLambda" in ga.errors[0]
     assert matrix == original
 
 
