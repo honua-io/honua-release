@@ -28,6 +28,7 @@ from typing import Any
 import zipfile
 import xml.etree.ElementTree as ET
 from functools import cache
+from fractions import Fraction
 
 import yaml
 import dotnet_import_fidelity as gate
@@ -76,30 +77,7 @@ def install_consumer(manifest: dict, work: Path) -> tuple[list[str], dict[str, s
     assets = json.loads((project / "obj/project.assets.json").read_text())
     if any(value.get("type") == "project" for value in assets["libraries"].values()):
         raise ProducerError("consumer resolves a ProjectReference")
-    # Verify every Honua runtime dependency, not just the umbrella meta-package. A clean
-    # restore authenticates the dependency graph; each copied assembly must be in its nupkg.
-    assemblies = []
-    for key, value in assets["libraries"].items():
-        if not key.lower().startswith("honua."):
-            continue
-        package_path = work / "packages" / value["path"]
-        metadata = json.loads((package_path / ".nupkg.metadata").read_text())
-        if metadata.get("source") != gate.PUBLIC_REGISTRIES[0]:
-            raise ProducerError(f"{key} was not restored from public nuget.org")
-        archive_path = package_path / (key.lower().replace("/", ".") + ".nupkg")
-        with zipfile.ZipFile(archive_path) as archive:
-            for name in archive.namelist():
-                if not name.startswith("lib/") or not name.endswith(".dll"):
-                    continue
-                output = work / "out" / Path(name).name
-                if not output.exists():
-                    continue
-                digest = hashlib.sha256(archive.read(name)).hexdigest()
-                if hashlib.sha256(output.read_bytes()).hexdigest() != digest:
-                    raise ProducerError(f"consumer assembly differs from restored public {key}")
-                assemblies.append({"name": output.stem, "package": key, "sha256": digest})
-    if not {"Honua.Sdk.Admin", "Honua.Sdk.GeoServices"} <= {item["name"] for item in assemblies}:
-        raise ProducerError("public package did not supply the required runtime assemblies")
+    assemblies = verify_runtime_assets(assets, work / "packages", work / "out", framework)
     consumer = {
         "kind": "published-nuget", "packageId": pin["package"], "version": pin["version"],
         "digest": pin["digest"], "sourceSha": pin["sourceSha"], "registry": gate.PUBLIC_REGISTRIES[0], "sourceBuilt": False,
@@ -107,6 +85,49 @@ def install_consumer(manifest: dict, work: Path) -> tuple[list[str], dict[str, s
         "assemblies": assemblies,
     }
     return ["dotnet", str(work / "out/Consumer.dll")], env, consumer
+
+
+def verify_runtime_assets(assets: dict, packages: Path, output: Path, framework: str) -> list[dict]:
+    """Compare only the runtime member NuGet selected for this consumer's TFM.
+
+    Other TFMs and reference assemblies may legitimately have different bytes with
+    the same basename. They are not the assembly this executable loads.
+    """
+    candidates = (framework, f".NETCoreApp,Version=v{framework[3:]}")
+    targets = assets.get("targets", {})
+    selected = [name for name in candidates if name in targets]
+    if len(selected) != 1:
+        raise ProducerError("consumer assets do not identify exactly one target framework")
+    assemblies = []
+    for key, value in assets["libraries"].items():
+        if not key.lower().startswith("honua."):
+            continue
+        package_path = packages / value["path"]
+        metadata = json.loads((package_path / ".nupkg.metadata").read_text())
+        if metadata.get("source") != gate.PUBLIC_REGISTRIES[0]:
+            raise ProducerError(f"{key} was not restored from public nuget.org")
+        dependency = targets[selected[0]].get(key)
+        if dependency is None:
+            raise ProducerError(f"{key} has no selected target-framework assets")
+        archive_path = package_path / (key.lower().replace("/", ".") + ".nupkg")
+        with zipfile.ZipFile(archive_path) as archive:
+            for member in dependency.get("runtime", {}):
+                if not member.endswith(".dll"):
+                    continue
+                destination = output / Path(member).name
+                if not destination.is_file():
+                    raise ProducerError(f"selected runtime assembly from {key} is absent from the consumer output")
+                try:
+                    packaged = archive.read(member)
+                except KeyError as exc:
+                    raise ProducerError(f"selected runtime asset is absent from restored public {key}") from exc
+                digest = hashlib.sha256(packaged).hexdigest()
+                if hashlib.sha256(destination.read_bytes()).hexdigest() != digest:
+                    raise ProducerError(f"consumer assembly differs from selected runtime asset in public {key}")
+                assemblies.append({"name": destination.stem, "package": key, "asset": member, "sha256": digest})
+    if not {"Honua.Sdk.Admin", "Honua.Sdk.GeoServices"} <= {item["name"] for item in assemblies}:
+        raise ProducerError("public package did not supply the required runtime assemblies")
+    return assemblies
 
 
 class Sdk:
@@ -124,10 +145,13 @@ class Sdk:
 
     def call(self, operation: str, **arguments):
         request = {"operation": operation, **arguments}
+        remaining = min(310, max(0, getattr(self, "deadline", time.monotonic() + 310) - time.monotonic()))
+        if remaining <= 0:
+            raise ProducerError("live SDK execution exceeded its overall time bound")
         try:
             self.process.stdin.write(json.dumps(request) + "\n")
             self.process.stdin.flush()
-            if not select.select([self.process.stdout], [], [], 310)[0]:
+            if not select.select([self.process.stdout], [], [], remaining)[0]:
                 raise ProducerError("SDK operation exceeded its bounded execution time")
             response = json.loads(self.process.stdout.readline())
         except (BrokenPipeError, json.JSONDecodeError) as exc:
@@ -162,16 +186,16 @@ CASES = {
 }
 
 
-def equal(expected: Any, actual: Any, tolerance: float = 1e-8) -> bool:
+def equal(expected: Any, actual: Any, tolerance: float = 0) -> bool:
     """Preserve exact integral and null semantics; tolerate only floating coordinates/statistics."""
     if isinstance(expected, bool) or isinstance(actual, bool):
         return type(expected) is type(actual) and expected == actual
     if isinstance(expected, int) and isinstance(actual, int):
         return expected == actual
     if isinstance(expected, int) and isinstance(actual, float):
-        return math.isfinite(actual) and actual.is_integer() and expected == int(actual)
+        return math.isfinite(actual) and abs(Fraction(expected) - Fraction(actual)) <= Fraction(tolerance)
     if isinstance(expected, float) and isinstance(actual, int):
-        return math.isfinite(expected) and expected.is_integer() and int(expected) == actual
+        return math.isfinite(expected) and abs(Fraction(expected) - Fraction(actual)) <= Fraction(tolerance)
     if isinstance(expected, (float, int)) and isinstance(actual, (float, int)):
         return math.isfinite(expected) and math.isfinite(actual) and math.isclose(expected, actual, rel_tol=0, abs_tol=tolerance)
     if isinstance(expected, dict) and isinstance(actual, dict):
@@ -193,8 +217,8 @@ def feature_rows(document: dict, fields: list[str], oid: str) -> list:
     return sorted(rows, key=lambda row: json.dumps(row, sort_keys=True))
 
 
-def require_equal(expected: Any, actual: Any, message: str) -> str:
-    if not equal(expected, actual):
+def require_equal(expected: Any, actual: Any, message: str, tolerance: float = 0) -> str:
+    if not equal(expected, actual, tolerance):
         raise ProducerError(message)
     return message + ": equal"
 
@@ -292,6 +316,34 @@ def query_rows(sdk: Sdk, service: str, layer: int, query: dict, *, candidate: bo
                    for feature in result["features"]), key=lambda row: json.dumps(row, sort_keys=True))
 
 
+def geojson_snapshot(sdk: Sdk, service: str, layer: int, snapshot: dict, *, candidate: bool = False) -> list:
+    """Read bounded GeoJSON ID batches; a source transfer cap cannot omit later rows."""
+    oid = snapshot["objectIdField"].lower()
+    field_names = [field["name"].lower() for field in snapshot["metadata"]["fields"] if field["type"] != "esriFieldTypeGeometry"]
+    result = []
+    for offset in range(0, len(snapshot["ids"]), 200):
+        batch = snapshot["ids"][offset:offset + 200]
+        document = sdk.call("query", baseUrl=service, layerId=layer, candidate=candidate,
+                            query={"objectIds": batch, "outFields": "*", "format": "GeoJson", "outSR": 4326})
+        if (document.get("type") != "FeatureCollection" or document.get("exceededTransferLimit") is True
+                or len(document.get("features", [])) != len(batch)):
+            raise ProducerError("GeoJSON ID batch missing, truncated or wrong feature count")
+        found = []
+        for feature in document["features"]:
+            properties = {key.lower(): value for key, value in feature["properties"].items()}
+            if oid not in properties and "id" in feature:
+                properties[oid] = feature["id"]
+            if any(name not in properties for name in field_names):
+                raise ProducerError("GeoJSON dropped a source property")
+            identity = properties[oid]
+            found.append(identity)
+            result.append({"id": identity, "properties": {name: properties[name] for name in field_names},
+                           "geometry": {"present": "geometry" in feature, "value": feature.get("geometry")}})
+        if set(found) != set(batch) or len(found) != len(set(found)):
+            raise ProducerError("GeoJSON ID batch repeated or omitted source identities")
+    return sorted(result, key=lambda feature: feature["id"])
+
+
 def baseline_case(score: Scorecard, sdk: Sdk, compose: list[str], name: str, base: str, tag: str) -> None:
     source, source_layer, compare_field, numeric_field = CASES[name]
     prefix = name + "/"
@@ -352,9 +404,9 @@ def baseline_case(score: Scorecard, sdk: Sdk, compose: list[str], name: str, bas
     fields = [field["name"] for field in source_snapshot["metadata"]["fields"] if field["type"] != "esriFieldTypeGeometry"]
     source_doc, target_doc = {"features": source_snapshot["features"]}, {"features": target_snapshot["features"]}
 
-    def parity(query: dict):
+    def parity(query: dict, tolerance: float = 0):
         return require_equal(query_rows(sdk, source, source_layer, query),
-                             query_rows(sdk, state["targetUrl"], state["targetLayer"], query, candidate=True), "source/target query values")
+                             query_rows(sdk, state["targetUrl"], state["targetLayer"], query, candidate=True), "source/target query values", tolerance)
 
     def schema():
         target_fields = {field["name"].lower(): field for field in target_snapshot["metadata"]["fields"]}
@@ -378,7 +430,7 @@ def baseline_case(score: Scorecard, sdk: Sdk, compose: list[str], name: str, bas
         def geometries(snapshot):
             return sorted([[next(value for key, value in feature["attributes"].items() if key.lower() == oid), {"present": "geometry" in feature, "value": feature.get("geometry")}]
                            for feature in snapshot["features"]], key=lambda item: item[0])
-        return require_equal(geometries(source_snapshot), geometries(target_snapshot), "geometry identity and every XY/Z/M ordinate at 1e-8 tolerance")
+        return require_equal(geometries(source_snapshot), geometries(target_snapshot), "geometry identity and every XY/Z/M ordinate at 1e-8 tolerance", 1e-8)
     score.record(prefix + "geometry_parity", geometry)
     score.record(prefix + "distinct_parity", lambda: parity({"where": "1=1", "outFields": compare_field,
                  "returnGeometry": False, "returnDistinctValues": True, "resultRecordCount": 10000}))
@@ -386,12 +438,12 @@ def baseline_case(score: Scorecard, sdk: Sdk, compose: list[str], name: str, bas
                  "outFields": ",".join(fields), "returnGeometry": False, "resultRecordCount": 10000}))
     statistics = json.dumps([{"statisticType": kind, "onStatisticField": numeric_field, "outStatisticFieldName": "f_" + kind}
                              for kind in ("count", "min", "max", "sum", "avg")])
-    score.record(prefix + "statistics_parity", lambda: parity({"where": "1=1", "outStatistics": statistics, "returnGeometry": False}))
+    score.record(prefix + "statistics_parity", lambda: parity({"where": "1=1", "outStatistics": statistics, "returnGeometry": False}, 1e-8))
     score.record(prefix + "grouped_statistics_parity", lambda: parity({"where": "1=1", "outStatistics": statistics,
-                 "groupByFieldsForStatistics": compare_field, "returnGeometry": False, "resultRecordCount": 10000}))
+                 "groupByFieldsForStatistics": compare_field, "returnGeometry": False, "resultRecordCount": 10000}, 1e-8))
     score.record(prefix + "spatial_envelope_parity", lambda: require_equal(
         sdk.call("extent", baseUrl=source, layerId=source_layer, query={"where": "1=1", "outSR": 4326}),
-        sdk.call("extent", baseUrl=state["targetUrl"], layerId=state["targetLayer"], candidate=True, query={"where": "1=1", "outSR": 4326}), "source/target envelope"))
+        sdk.call("extent", baseUrl=state["targetUrl"], layerId=state["targetLayer"], candidate=True, query={"where": "1=1", "outSR": 4326}), "source/target envelope", 1e-8))
     def errors():
         documents = []
         for service, layer, candidate in ((source, source_layer, False), (state["targetUrl"], state["targetLayer"], True)):
@@ -411,14 +463,13 @@ def baseline_case(score: Scorecard, sdk: Sdk, compose: list[str], name: str, bas
     score.record(prefix + "error_shape_parity", errors)
     # GeoJSON and MapServer qualification require separate reads, never a renamed core-query pass.
     def geojson():
-        documents = [sdk.call("query", baseUrl=url, layerId=layer, candidate=candidate,
-                             query={"where": "1=1", "outFields": "*", "format": "GeoJson", "outSR": 4326, "resultRecordCount": 50000})
-                     for url, layer, candidate in ((source, source_layer, False), (state["targetUrl"], state["targetLayer"], True))]
-        for document in documents:
-            if document.get("type") != "FeatureCollection" or len(document.get("features", [])) != source_snapshot["count"]:
-                raise ProducerError("GeoJSON missing, truncated or wrong feature count")
-        return require_equal(sorted(documents[0]["features"], key=lambda item: json.dumps(item, sort_keys=True)),
-                             sorted(documents[1]["features"], key=lambda item: json.dumps(item, sort_keys=True)), "GeoJSON geometry and properties")
+        source_features = geojson_snapshot(sdk, source, source_layer, source_snapshot)
+        target_features = geojson_snapshot(sdk, state["targetUrl"], state["targetLayer"], source_snapshot, candidate=True)
+        for expected, observed in zip(source_features, target_features):
+            require_equal(expected["id"], observed["id"], "GeoJSON feature identity")
+            require_equal(expected["properties"], observed["properties"], "GeoJSON exact property values")
+            require_equal(expected["geometry"], observed["geometry"], "GeoJSON geometry", 1e-8)
+        return "every source GeoJSON property and geometry preserved across bounded, identity-checked ID batches"
     score.record(prefix + "geojson_query_parity", geojson)
     def mapserver():
         map_url = state["targetUrl"].replace("/FeatureServer", "/MapServer")
@@ -544,10 +595,14 @@ def main(argv=None) -> int:
     parser.add_argument("--evidence-uri", required=True)
     parser.add_argument("--live", action="store_true", help="boot a disposable candidate and real PostGIS; never use a shared server")
     parser.add_argument("--case", action="append", choices=sorted(CASES), help="diagnostic subset only; omitted requirements remain blocked")
+    parser.add_argument("--timeout-seconds", type=int, default=1800,
+                        help="bound live SDK execution after install/startup (60..3600 seconds)")
     parser.add_argument("--package-only", action="store_true", help="exercise the clean public install only; never qualification")
     args = parser.parse_args(argv)
     if not gate._valid_evidence(args.evidence_uri):
         parser.error("--evidence-uri must be a durable honua-io Actions/evidence URL")
+    if not 60 <= args.timeout_seconds <= 3600:
+        parser.error("--timeout-seconds must be between 60 and 3600")
     if not args.live and not args.package_only:
         parser.error("use --live or --package-only; shared candidate mutation is not supported")
     installed = installed_module()
@@ -573,7 +628,8 @@ def main(argv=None) -> int:
                 candidate_url = f"http://127.0.0.1:{port}"
                 for key in ("HONUA_SERVER_URL", "E2E_BASE", "HONUA_PUBLIC_BASE_URL"):
                     os.environ[key] = candidate_url
-                compose = installed.boot_candidate(manifest)
+                compose = installed.boot_candidate(manifest, overlay=HERE / "compose.import-fidelity.yml")
+                sdk.deadline = time.monotonic() + args.timeout_seconds
                 run_live(score, sdk, compose, args.case or sorted(CASES))
     except (ProducerError, OSError, subprocess.SubprocessError, installed.CertificationError) as exc:
         score.differences.append({"code": "producer-execution-incomplete", "severity": "blocking", "reason": str(exc)})

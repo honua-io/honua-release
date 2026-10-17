@@ -80,6 +80,7 @@ jobs:
       # Diagnostic qualification is explicit until every frozen requirement has a real producer.
       # Incomplete receipts are uploaded and fail; they never reactivate the blocked matrix row.
       - name: Produce published .NET SDK import-fidelity evidence
+        id: import_fidelity
         if: ${{ inputs.qualify_import_fidelity == true }}
         env:
           EVIDENCE_URI: https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}
@@ -88,7 +89,7 @@ jobs:
             --evidence-uri "$EVIDENCE_URI" \
             --output artifacts/dotnet-import-fidelity-receipt.json
       - name: Run the SDK regression suite against the candidate
-        if: ${{ !cancelled() }}
+        if: ${{ !cancelled() && (success() || steps.import_fidelity.outcome == 'failure') }}
         id: run
         env:
           EVIDENCE_URI: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
