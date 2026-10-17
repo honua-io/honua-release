@@ -138,6 +138,7 @@
           "canonical_client": { "type": "string", "minLength": 1 },
           "client_lane": { "type": "string", "minLength": 1 },
           "client_version": { "type": "string", "minLength": 1 },
+          "client_package_digest": { "type": "string", "pattern": "^(sha256:[0-9a-f]{64}|sha512-[A-Za-z0-9+/]{86}==)$" },
           "deployment_target": { "type": "string", "minLength": 1 },
           "required_tier": { "enum": ["pr", "nightly", "release"] },
           "licensed": { "type": "boolean" },
@@ -175,6 +176,10 @@
           }
         },
         "allOf": [
+          {
+            "if": { "properties": { "client_lane": { "pattern": "^grpc-" } }, "required": ["client_lane"] },
+            "then": { "required": ["client_package_digest"] }
+          },
           {
             "if": { "properties": { "licensed": { "const": true } }, "required": ["licensed"] },
             "then": {

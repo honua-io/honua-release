@@ -42,7 +42,7 @@ EXECUTION_FIELDS = {
     "client_id", "runner_lane", "protocol_version", "protocol_profile", "performed_by",
     "request_url", "exercised_capabilities",
 }
-OPTIONAL_CELL_FIELDS = {"test_ids", "client_version_observed", "release_bucket", "client_driver"} | EXECUTION_FIELDS
+OPTIONAL_CELL_FIELDS = {"client_package_digest", "test_ids", "client_version_observed", "release_bucket", "client_driver"} | EXECUTION_FIELDS
 SOURCE_HOST_CLIENT = "Honua server public protocol integration harness"
 SOURCE_HOST_LANE = "server-protocol-harness"
 SOURCE_HOST_PROFILE = "source-test-host-http-adapter"
@@ -94,7 +94,7 @@ REQUIREMENT_FIELDS = {
     "client_version", "deployment_target", "required_tier", "licensed", "entitlement_policy_revision", "addressable_by_client",
     "addressability_reason", "scenario_facets", "contract_revision", "auth_policy_revision",
     "fixture_revision", "test_ids",
-    "budget_expectations",
+    "budget_expectations", "client_package_digest",
 }
 
 
@@ -307,6 +307,18 @@ def _valid_producer_run(value: object) -> bool:
     )
 
 
+def _valid_client_package_digest(lane: str, value: object) -> bool:
+    if lane == "grpc-typescript":
+        if not isinstance(value, str) or not value.startswith("sha512-"):
+            return False
+        try:
+            raw = base64.b64decode(value[7:], validate=True)
+        except ValueError:
+            return False
+        return len(raw) == 64 and value == "sha512-" + base64.b64encode(raw).decode()
+    return isinstance(value, str) and re.fullmatch(r"sha256:[0-9a-f]{64}", value) is not None
+
+
 def _valid_receipt(
     cell: dict,
     candidate_cut_at: str | None = None,
@@ -317,6 +329,12 @@ def _valid_receipt(
     facet_results = cell.get("facet_results")
     receipt_fields = {"schema", "identity", "result", "facets", "payload_base64"}
     identity_fields = set(RECEIPT_ID_FIELDS)
+    if str(cell.get("client_lane", "")).startswith("grpc-"):
+        if not _valid_client_package_digest(cell["client_lane"], cell.get("client_package_digest")):
+            return False
+        identity_fields.add("client_package_digest")
+    elif "client_package_digest" in cell:
+        identity_fields.add("client_package_digest")
     if isinstance(cell.get("test_ids"), list):
         identity_fields.add("test_ids")
     if cell.get("licensed"):
@@ -361,6 +379,8 @@ def _valid_receipt(
         or not isinstance(identity, dict)
         or set(identity) != identity_fields
         or any(identity[field] != cell[field] for field in RECEIPT_ID_FIELDS)
+        or ("client_package_digest" in identity_fields
+            and identity.get("client_package_digest") != cell.get("client_package_digest"))
         or (
             (requires_candidate_cut or binds_candidate_cut)
             and identity.get("candidate_cut_at") != candidate_cut_at
@@ -661,6 +681,10 @@ def evaluate(
     if not isinstance(owned_rows, list) or not owned_rows:
         fail("requirements", "owned requirements must contain a non-empty requirements array")
         owned_rows = []
+    for row in owned_rows:
+        if isinstance(row, dict) and str(row.get("client_lane", "")).startswith("grpc-"):
+            if not _valid_client_package_digest(row["client_lane"], row.get("client_package_digest")):
+                fail("requirements.client_package_digest", "gRPC requirements must bind a canonical published package digest")
     external_entitlement_policies = {
         row.get("entitlement_policy_revision") for row in owned_rows
         if isinstance(row, dict) and str(row.get("client_lane", "")).startswith("desktop-arcpy-")
@@ -760,6 +784,10 @@ def evaluate(
             fail(prefix, f"unknown fields: {', '.join(extra)}")
         if missing:
             continue
+        if str(raw.get("client_lane", "")).startswith("grpc-") and not _valid_client_package_digest(
+            raw["client_lane"], raw.get("client_package_digest")
+        ):
+            fail(prefix + ".client_package_digest", "gRPC cells must bind the installed published artifact digest")
         execution_metadata_valid = _valid_execution_metadata(raw, candidate.get("cut_at"), owned_revision)
         if not execution_metadata_valid:
             fail(prefix, "execution metadata must be complete, bounded and bound to the canonical actor, lane, facets and request")

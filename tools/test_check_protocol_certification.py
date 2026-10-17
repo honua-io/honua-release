@@ -59,10 +59,15 @@ def _cell(**overrides):
         "budget_observations": None,
     }
     value.update(overrides)
+    if str(value.get("client_lane", "")).startswith("grpc-"):
+        value.setdefault("client_package_digest", "sha512-" + base64.b64encode(b"x" * 64).decode()
+                         if value["client_lane"] == "grpc-typescript" else "sha256:" + "f" * 64)
     if "evidence_receipt" not in overrides:
         identity = {
             field: value[field] for field in cert.RECEIPT_ID_FIELDS
         }
+        if "client_package_digest" in value:
+            identity["client_package_digest"] = value["client_package_digest"]
         if isinstance(value.get("test_ids"), list):
             identity["test_ids"] = value["test_ids"]
         value["evidence_receipt"] = {
@@ -1669,3 +1674,44 @@ def test_unproduced_wps_cite_required_skip_is_not_canonical_gp_evidence():
     )
     report = _evaluate(_ledger(cell), "nightly", now=NOW)
     assert report["overall_status"] == "fail"
+
+
+def test_grpc_package_digest_is_bound_to_receipt_and_requirement():
+    for lane in ("grpc-dotnet", "grpc-python", "grpc-typescript"):
+        cell = _cell(client_lane=lane)
+        assert cert._valid_receipt(cell, requirements_revision="requirements-test-v1")
+        for mutation in ("missing-observation", "wrong-observation", "missing-receipt", "wrong-receipt"):
+            changed = copy.deepcopy(cell)
+            if mutation == "missing-observation":
+                changed.pop("client_package_digest")
+            elif mutation == "wrong-observation":
+                changed["client_package_digest"] = "sha256:" + "0" * 64
+            elif mutation == "missing-receipt":
+                changed["evidence_receipt"]["identity"].pop("client_package_digest")
+            else:
+                changed["evidence_receipt"]["identity"]["client_package_digest"] = "sha256:" + "0" * 64
+            assert not cert._valid_receipt(changed, requirements_revision="requirements-test-v1"), mutation
+
+
+def test_grpc_repacked_identity_cannot_replace_the_governed_digest():
+    cell = _cell(client_lane="grpc-dotnet")
+    owned = _requirements(cell)
+    ledger = _ledger(cell)
+    changed = ledger["cells"][0]
+    changed["client_package_digest"] = "sha256:" + "0" * 64
+    changed["evidence_receipt"]["identity"]["client_package_digest"] = changed["client_package_digest"]
+    changed["evidence_digest"] = cert._receipt_digest(changed["evidence_receipt"])
+    changed["evidence_uri"] = "https://evidence.honua.io/data/sha256/" + changed["evidence_digest"][7:]
+    for value in changed["facet_results"].values():
+        value["evidence_digest"] = changed["evidence_digest"]
+    result = _evaluate(ledger, "nightly", requirements=owned)
+    assert result["overall_status"] == "fail"
+    assert any(item["check"] == "requirements_denominator" for item in result["findings"])
+
+
+def test_grpc_digest_algorithm_and_canonical_encoding_are_not_interchangeable():
+    sri = "sha512-" + base64.b64encode(b"x" * 64).decode()
+    assert cert._valid_client_package_digest("grpc-typescript", sri)
+    assert not cert._valid_client_package_digest("grpc-dotnet", sri)
+    assert not cert._valid_client_package_digest("grpc-typescript", "sha256:" + "a" * 64)
+    assert not cert._valid_client_package_digest("grpc-typescript", sri + "\n")
