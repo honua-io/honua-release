@@ -161,6 +161,11 @@ def validate(value, record, raw, raw_bytes, target_path, *, cell, digest, expect
         and value.get('status') == 'pass' and value.get('executionOutcome') == 'refused'
         and value.get('functionalGpExecuted') is False and value.get('cleanup') == 'pass',
         'invalid deterministic serving/refusal profile')
+    contract = json.loads((ROOT / 'certification/terminal-journey/journey.v1.json').read_bytes())
+    expected_stages = [(s['number'], s['id'], s['command']) for s in contract['stages']]
+    require(isinstance(raw.get('stages'), list)
+        and [(s.get('number'), s.get('stage'), s.get('command')) for s in raw['stages']] == expected_stages,
+        'profile source does not cover the complete ordered canonical journey')
     require(value.get('cell') == record['cell'] == cell and value.get('attempt') == record['number']
         and value.get('runId') == record['runId'] and value.get('runAttempt') == record['runAttempt']
         and value.get('candidateDigest') == record['candidateDigest'] == digest

@@ -39,6 +39,9 @@ def sample(tmp_path):
                        'evidence': {'uri': 'urn:actual#honua-run=123/2', 'source': 'live-aws-ecs',
                            'freshness': 'verified-current', 'completeness': 'complete', 'observedAt': STAMP}}
                       for n in range(1, 9)]}
+    contract = json.loads((profile.ROOT / 'certification/terminal-journey/journey.v1.json').read_bytes())
+    for stage, descriptor in zip(raw['stages'], contract['stages'], strict=True):
+        stage.update(stage=descriptor['id'], command=descriptor['command'])
     raw_bytes = json.dumps(raw).encode()
     raw_path = tmp_path / 'receipt-1.json'
     raw_path.write_bytes(raw_bytes)
@@ -175,3 +178,16 @@ def test_producer_fails_for_real_execution_security_or_cleanup_contradiction(sam
     result = produce(sample, adapter)
     assert result['status'] == 'fail'
     assert adapter.calls[-1][0] == 'teardown'
+
+
+@pytest.mark.parametrize('change', ['empty', 'short', 'reverse', 'wrong-id', 'wrong-command', 'wrong-number'])
+def test_standalone_validator_rejects_incomplete_or_relabelled_canonical_source(sample, change):
+    stages = sample[2]['stages']
+    if change == 'empty': stages.clear()
+    elif change == 'short': stages.pop()
+    elif change == 'reverse': stages.reverse()
+    elif change == 'wrong-id': stages[0]['stage'] = 'different'
+    elif change == 'wrong-command': stages[0]['command'] = 'different'
+    else: stages[0]['number'] = 7
+    with pytest.raises(ValueError, match='complete ordered canonical journey'):
+        validate(sample)
