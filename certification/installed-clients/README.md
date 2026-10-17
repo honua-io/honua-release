@@ -126,3 +126,38 @@ python -m pytest certification/installed-clients/test_regression.py \
 
 These self-tests inject faulty responses to verify that the gate rejects them.
 A passing self-test run does not replace the live installed-client release receipt.
+
+The producer for release [#418](https://github.com/honua-io/honua-release/issues/418)
+is `produce_import_fidelity.py`. It restores the exact manifest-pinned public
+`Honua.Sdk` into a fresh temporary consumer, checks the nupkg digest, public restore
+sources and copied/loaded assembly bytes, and uses the SDK for every operation
+under test. `--live` owns a disposable, uniquely named candidate/PostGIS/Redis
+stack; it never imports into a shared server. Candidate image, registry digest
+and image source revision are checked against the selected manifest. Baseline
+observations include actual source snapshots before/after import, target
+readback and independent PostGIS counts. Numeric checks preserve exact int64,
+null, empty and boolean semantics and bound geometry tolerance to `1e-8`.
+
+```sh
+python certification/installed-clients/produce_import_fidelity.py --live \
+  --evidence-uri "$EVIDENCE_URI" \
+  --output artifacts/dotnet-import-fidelity-receipt.json
+```
+
+The installed-client workflows expose `qualify_import_fidelity` for an explicit
+qualification attempt and forward the resulting receipt to
+`run.py --import-fidelity-receipt`. The default remains the existing #418 blocker.
+A requested qualification uploads its receipt and observations even when it
+fails. `--package-only` and `--case NAME` are diagnostic subsets: every unexecuted
+requirement remains blocked, and the producer exits nonzero. They cannot mint a
+passing certification.
+
+This is an incomplete producer, not completed release qualification. It executes
+the ten frozen public-service imports and separate complete-service
+inventory/selection/apply/wait/reconciliation operations. Cancellation/recovery,
+rollback/repoint, the authored journey fixtures, relationship/attachment hash
+cross-checks, reference-client cross-checks and server#4420 proof remain unimplemented
+and visible as blocked cells. The 142 supported and ten not-applicable cells are
+unchanged. No #341 source-client unsupported finding is a waiver of these target
+import requirements. The matrix row stays blocked until a complete passing
+receipt exists and is reviewed.
