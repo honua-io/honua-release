@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
 """Provision a cloud cell, run the imported pinned journey, meter cost and always tear down.
 
-GA: {aws-ecs, aws-serverless, aws-eks} x Redis off/on; aws-serverless is Lambda + AWS Batch
-geoprocessing, and aws-eks is the bring-your-own Kubernetes cell (Helm on EKS, honua-release#203, owner
-decisions 12/18 of 2026-10-10). The mixed ECS + Batch cell is out of the 2026.1 rc.3 matrix: its IaC
+GA: {aws-ecs, aws-serverless} x Redis off/on; aws-serverless is Lambda + AWS Batch
+geoprocessing. EKS is informational Preview under the 2026-10-16 owner amendment.
+Redis-on exercises full workflows; Redis-off requires explicitly bound serving/refusal proof. The mixed ECS + Batch cell is out of the 2026.1 rc.3 matrix: its IaC
 root does not exist yet (restore it when honua-iac#209 lands).
 Missing, blocked or invalid journey evidence cannot certify a GA cloud cell.
 """
