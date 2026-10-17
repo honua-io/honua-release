@@ -156,7 +156,7 @@ This is an incomplete producer, not completed release qualification. It executes
 the ten frozen public-service imports and separate complete-service
 inventory/selection/apply/wait/reconciliation operations. Cancellation/recovery,
 rollback/repoint, the authored journey fixtures, relationship/attachment hash
-cross-checks, Esri-client cross-checks and server#4420 proof remain unimplemented
+cross-checks, reference-client cross-checks and server#4420 proof remain unimplemented
 and visible as blocked cells. The 142 supported and ten not-applicable cells are
 unchanged. No #341 source-client unsupported finding is a waiver of these target
 import requirements. The matrix row stays blocked until a complete passing

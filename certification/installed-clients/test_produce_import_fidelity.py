@@ -262,3 +262,16 @@ def test_geojson_pages_all_rows_beyond_source_transfer_cap_and_rejects_repeated_
     assert rows[-1]["properties"]["value"] == 9007199254740993
     with pytest.raises(producer.ProducerError, match="repeated or omitted"):
         producer.geojson_snapshot(UnitSdk(corrupt=True), "https://source.example/FeatureServer", 0, snapshot)
+
+
+def test_mapserver_oid_fallback_requires_exactly_one_declared_identifier():
+    metadata = {"fields": [{"name": "gid", "type": "esriFieldTypeOID"}, {"name": "name", "type": "esriFieldTypeString"}]}
+    assert producer.object_id_field(metadata) == "gid"
+    assert producer.object_id_field({**metadata, "objectIdField": "gid"}) == "gid"
+    for invalid in (
+        {}, {"fields": []}, {"fields": [{"name": "gid", "type": "esriFieldTypeInteger"}]},
+        {"fields": [{"name": "gid", "type": "esriFieldTypeOID"}, {"name": "other", "type": "esriFieldTypeOID"}]},
+        {**metadata, "objectIdField": "other"}, {**metadata, "objectIdField": None},
+    ):
+        with pytest.raises(producer.ProducerError, match="declared|unambiguous|conflicts"):
+            producer.object_id_field(invalid)

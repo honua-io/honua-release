@@ -286,9 +286,25 @@ def candidate_identity(manifest: dict, compose: list[str]) -> dict:
     return {"imageId": info["Image"], "sourceSha": revision, "image": image}
 
 
+def object_id_field(metadata: dict) -> str:
+    """Resolve the single declared identifier, including MapServer metadata without a pointer."""
+    fields = metadata.get("fields")
+    if not isinstance(fields, list):
+        raise ProducerError("layer metadata omitted declared fields")
+    identifiers = [field.get("name") for field in fields if field.get("type") == "esriFieldTypeOID"]
+    if len(identifiers) != 1 or not isinstance(identifiers[0], str) or not identifiers[0]:
+        raise ProducerError("layer metadata must declare exactly one unambiguous OID field")
+    identifier = identifiers[0]
+    if "objectIdField" in metadata:
+        explicit = metadata["objectIdField"]
+        if not isinstance(explicit, str) or explicit.casefold() != identifier.casefold():
+            raise ProducerError("explicit objectIdField conflicts with the declared OID field")
+    return identifier
+
+
 def read_snapshot(sdk: Sdk, service: str, layer: int, *, candidate: bool = False, limit: int = 50000) -> dict:
     metadata = sdk.call("layer", baseUrl=service, layerId=layer, candidate=candidate)
-    oid = metadata["objectIdField"]
+    oid = object_id_field(metadata)
     count = sdk.call("count", baseUrl=service, layerId=layer, candidate=candidate, query={"where": "1=1"})
     ids = sdk.call("ids", baseUrl=service, layerId=layer, candidate=candidate, query={"where": "1=1"})
     if not 0 < count <= limit or len(ids) != count or len(set(ids)) != count:
@@ -451,15 +467,15 @@ def baseline_case(score: Scorecard, sdk: Sdk, compose: list[str], name: str, bas
                 document = sdk.call("query", baseUrl=service, layerId=layer, candidate=candidate, query={"where": "__missing_fidelity_column__ = 1"})
                 error = document.get("error")
                 if not isinstance(error, dict) or not isinstance(error.get("code"), int) or not error.get("message"):
-                    raise ProducerError("invalid-field query did not return an explicit Esri error envelope")
+                    raise ProducerError("invalid-field query did not return an explicit GeoServices error envelope")
                 documents.append(error["code"])
             except ProducerError as exc:
-                # Typed SDK exceptions preserve Esri error codes, including HTTP-200 envelopes.
+                # Typed SDK exceptions preserve GeoServices error codes, including HTTP-200 envelopes.
                 match = re.search(r"HonuaFeatureServerException code=(\d+)$", str(exc))
                 if not match:
                     raise
                 documents.append(int(match[1]))
-        return require_equal(documents[0], documents[1], "invalid-field Esri error codes")
+        return require_equal(documents[0], documents[1], "invalid-field GeoServices error codes")
     score.record(prefix + "error_shape_parity", errors)
     # GeoJSON and MapServer qualification require separate reads, never a renamed core-query pass.
     def geojson():
