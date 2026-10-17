@@ -5382,3 +5382,79 @@ def test_model_canary_never_reuses_old_output_when_current_process_writes_no_rec
         assert "before writing attempt" in report["why"]
     finally:
         shutil.rmtree(run_cloud.cloud_journey.EVIDENCE / "990009", ignore_errors=True)
+@pytest.mark.parametrize('matches', [True, False])
+def test_off_profile_native_after_observation_cannot_bypass_cost_or_teardown(monkeypatch, matches):
+    cj = run_cloud.cloud_journey
+    monkeypatch.setenv('GITHUB_RUN_ID', 'offline-run')
+    monkeypatch.setenv('GITHUB_RUN_ATTEMPT', '2')
+    cell = 'aws-ecs/redis-off'; directory = cj.cell_dir(cell)
+    directory.mkdir(parents=True, exist_ok=True)
+    events = []; sha, image = _manifest_server()
+    stub = _ServingStub()
+    monkeypatch.setattr(stub, 'teardown', lambda **kwargs: events.append('destroy'), raising=False)
+    monkeypatch.setattr(cj, 'cleanup', lambda cell: events.append('cleanup'))
+    monkeypatch.setattr(cj, 'check_cost', lambda *a, **k: (events.append('cost') or {'status': 'pass'}))
+    monkeypatch.setattr(cj, 'observe_ecs_image', lambda *a: (image if matches else 'wrong-image', 'native readback'))
+    monkeypatch.setattr(cj, 'server_identity', lambda endpoint: {'revision': sha, 'source': 'commit-sha'})
+    try:
+        record = _artifact(directory, _ecs_receipt())
+        record['receipt'] = str((directory / 'receipt-1.json').relative_to(E2E_DIR))
+        state = {'cell': cell, 'target': 'aws-ecs', 'redis': 'redis-off', 'runId': 'offline-run', 'runAttempt': '2',
+            'candidateDigest': cj.candidate_digest(), 'endpoint': 'https://cell.invalid', 'startedAt': cj.now(),
+            'provisionAttempted': True, 'observedServer': {'revision': sha, 'source': 'commit-sha'}, 'runningImage': image,
+            'servingFixtureSha256': record['profileObservation']['seedManifestSha256'],
+            'report': {'cell': cell, 'endpoint': 'https://cell.invalid', 'readiness': {'ready': True},
+                       'checks': [], 'canaryProbes': [], 'journeyAttempts': []}}
+        report = run_cloud.teardown_phase(state, {'journeyAttempts': [record]}, stub,
+            reference_endpoint=None, cost_report=directory / 'meter.json')
+        assert state['destroyed'] is True
+        assert events == ['cost', 'cleanup', 'destroy']
+        assert record['profileObservation']['source'] == 'aws-control-plane'
+        assert record['profileObservation']['after']['image'] == (image if matches else 'wrong-image')
+        if matches:
+            assert 'native observation rejected' not in report.get('why', '')
+        else:
+            assert report['status'] == 'fail' and 'native observation rejected' in report['why']
+    finally:
+        shutil.rmtree(cj.EVIDENCE / 'offline-run', ignore_errors=True)
+
+
+def test_off_profile_transient_failure_keeps_raw_block_and_spends_only_existing_retry(monkeypatch):
+    cj = run_cloud.cloud_journey
+    monkeypatch.setenv('GITHUB_RUN_ID', 'offline-run')
+    monkeypatch.setenv('GITHUB_RUN_ATTEMPT', '2')
+    calls = []; cell = 'aws-ecs/redis-off'
+    from test_deterministic_refusal_profile import attach_fixture_profile
+    def attempt(cell, number, endpoint, admin_key, running_image=None):
+        calls.append(number)
+        directory = cj.cell_dir(cell); directory.mkdir(parents=True, exist_ok=True)
+        raw = _ecs_receipt()
+        if number == 1:
+            raw['status'] = 'blocked'
+            for stage in raw['stages'][2:]:
+                stage.update(status='blocked', blockedBy=['honua-release#381'])
+                for check in stage['checks']: check.update(status='blocked', blockedBy=['honua-release#381'])
+                for key in ('jobId', 'operationId', 'operationInstanceId', 'resourceUri', 'jobStatus', 'jobCreatedAt'):
+                    stage[key] = None
+        record = _artifact(directory, raw, number=number)
+        path = directory / f'receipt-{number}.json'
+        path.write_bytes(attach_fixture_profile(directory, raw, record))
+        record['receipt'] = str(path.relative_to(E2E_DIR))
+        return record
+    monkeypatch.setattr(cj, 'attempt', attempt)
+    monkeypatch.setattr(cj, 'cleanup', lambda cell: None)
+    monkeypatch.setattr(run_cloud.large_import, 'run_scenario', lambda *a, **k: None)
+    monkeypatch.setattr(run_cloud, 'run_drivers', lambda *a, **k: [])
+    state = {'cell': cell, 'redis': 'redis-off', 'endpoint': 'https://cell.invalid', 'report': {},
+             'runId': 'offline-run', 'runAttempt': '2', 'candidateDigest': cj.candidate_digest()}
+    try:
+        journey = run_cloud.journey_phase(state, admin_key='private-app-key')
+        assert calls == [1, 2] and journey.get('status') != 'fail'
+        assert len(journey['journeyAttempts']) == 2
+        first = json.loads((E2E_DIR / journey['journeyAttempts'][0]['receipt']).read_bytes())
+        assert first['status'] == 'blocked' and first['stages'][4]['status'] == 'blocked'
+        final = journey['journeyAttempts'][-1]
+        proof = json.loads((cj.cell_dir(cell) / final['servingRefusal']['file']).read_bytes())
+        assert proof['status'] == 'pass' and proof['functionalGpExecuted'] is False
+    finally:
+        shutil.rmtree(cj.EVIDENCE / 'offline-run', ignore_errors=True)
