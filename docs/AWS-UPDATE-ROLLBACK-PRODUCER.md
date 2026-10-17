@@ -76,10 +76,16 @@ after checking every row against the source SQL oracle. Variable
 `HONUA_UPDATE_ROLLBACK_ECR_REPOSITORY` selects the existing approved same-region mirror
 repository. No role, secret, repository or telemetry connection is adopted by this source change.
 
+Original Terraform arguments, including protected input values, travel privately inside the
+existing encrypted and digest-authenticated state archive. Fresh controllers restore those exact
+arguments rather than reconstructing a different configuration from mutable workflow variables.
+Only the explicit image, alias and typed release identity fields change. No private input is
+included in a public receipt or artifact allowlist.
+
 The default real workload is a symmetric polygon centroid with an independent origin oracle.
 There is no synthetic hold hook: if it finishes too quickly, qualification fails honestly.
-For a sufficiently long reviewed workload, retain `update-rollback-workload.json` in B's prepared
-or certified bundle and bind its exact bytes in **both** retained manifests as
+For a sufficiently long reviewed workload, commit a reviewed `certification/update-rollback-workload.json` in the trusted workflow source
+(or retain `update-rollback-workload.json` in B's prepared/certified bundle) and bind its exact bytes in **both** retained manifests as
 `updateRollbackWorkload: {sha256: 'sha256:<digest>'}`. The pack has exactly `schema`
 (`honua.update-rollback-workload/v1`), `processId` (supported `geometry.*`), `execution`
 (with only `inputs`) and an independently authored literal `expectedFeature`.
@@ -99,3 +105,21 @@ boundary is approved inputs → reviewed trunk dispatch → actual four-cell pro
 and cost → signed candidate-bound receipt. The broader release/client, security, burn, Windows
 and promotion gates remain independently required. Refs #483 (governed proof and Lambda GA
 bill disposition remain) and #377 (other journey/operate scope remains).
+
+## Coverage and remaining qualification
+
+| Obligation | Local source controls | Actual execution still required |
+| --- | --- | --- |
+| Exact A/B provenance and lock identity | Real CLI adapters; attestation/index/lock mismatch negatives | Two approved attested builds; GA additionally two distinct certified signed locks |
+| Before-mutation schema refusal | Read-only B-image probe; both journal directions; incompatible-schema negatives | Actual B startup against each A database, with zero pending/extra scripts |
+| ECS/Lambda actuators | Supported API and saved Terraform-plan adapters; no fallback/backend-substitution controls | Real alias, ALB and task readbacks across A/B/A |
+| In-flight exactly-once GP | Separate per-switch Running/identity/attempt/event/output controls | A genuine workload stays Running across each real switch and completes once |
+| Redis-off nonexecution | Typed HTTP refusal, recursive hidden-job negatives, independent capability manifest | A/B/A refusals in both actual Redis-off topologies; never GP completion |
+| Authored serving data | Expected IDs/names/coordinates from retained seed source, not candidate parity | Exact published fixture rows at actual A/B/A endpoints |
+| Recovery and cleanup | Always-teardown controller; owned job cancellation/revision/probe cleanup; strict missing-cost refusal | No orphaned jobs, revisions, controllers or infrastructure; bounded real cost report |
+
+Local tests inject external I/O; their synthetic records are never release evidence. This PR
+implements the producer, but no actual AWS switch, fault/recovery run, real workload duration,
+operator role/approval/telemetry binding, cleanup or cost measurement has been executed here.
+Those remain owned by #483; broader journey/operate requirements remain in #377. The retained
+Batch source prerequisite is honua-iac#258, and the first-release coordination issue remains #376.

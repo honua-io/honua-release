@@ -413,3 +413,93 @@ def test_each_transition_has_independent_exactly_once_terminal_output_proof(tran
     result = run(runtime)
     assert result["status"] == "fail", result
     assert result["updateStatus"] == ("pass" if transition == "rollback" else "fail")
+
+
+def test_fresh_controller_uses_private_original_tf_inputs_not_mutable_environment(tmp_path, monkeypatch):
+    first = ecs(run_id="123")
+    prior = ["-input=false", "-var=honua_image=ghcr.io/honua-io/honua-server@sha256:" + "a" * 64,
+             "-var=protected_setting=Synthetic-test-secret", "-var=redis_enabled=false"]
+    first._write_transition_vars(tmp_path, prior, False)
+    private = tmp_path / first._TRANSITION_INPUTS
+    assert private.stat().st_mode & 0o777 == 0o600
+    target = ecs(run_id="123"); target._workdir = tmp_path; target.transition_release = release(mode="rehearsal")
+    (tmp_path / "terraform.tfstate").write_text("{}")
+    monkeypatch.setattr(target, "_vars", lambda *a, **k: pytest.fail("must not reconstruct changed operator inputs"))
+    calls = []
+    monkeypatch.setattr(target, "_tf", lambda root, *a, **k: calls.append(a) or SimpleNamespace(stdout="", returncode=0))
+    target.update("ghcr.io/honua-io/honua-server@sha256:" + "b" * 64)
+    assert "-var=protected_setting=Synthetic-test-secret" in calls[0]
+    target.rollback()
+    assert prior[1] in calls[2] and prior[2] in calls[2]
+    # A third process restores the updated private argv for unconditional destruction.
+    destroy = ecs(run_id="123"); destroy._workdir = tmp_path
+    monkeypatch.setattr(destroy, "_tf", lambda root, *a, **k: calls.append(a) or SimpleNamespace(stdout="", returncode=0))
+    monkeypatch.setattr(destroy, "_cell_dns_leftovers", lambda *a: None)
+    destroy.teardown(False)
+    assert calls[-1][0] == "destroy" and prior[1] in calls[-1] and prior[2] in calls[-1]
+
+
+@pytest.mark.parametrize("bad", ["missing", "wrong-run", "wrong-cell", "wrong-redis", "public", "symlink"])
+def test_private_transition_handoff_refuses_before_any_plan(tmp_path, monkeypatch, bad):
+    source = ecs(run_id="other" if bad == "wrong-run" else "123")
+    source._write_transition_vars(tmp_path, ["-var=honua_image=ghcr.io/honua-io/honua-server@sha256:" + "a" * 64], False)
+    private = tmp_path / source._TRANSITION_INPUTS
+    if bad == "missing": private.unlink()
+    elif bad == "wrong-cell":
+        data = json.loads(private.read_text()); data["target"] = "aws-serverless"; private.write_text(json.dumps(data))
+    elif bad == "wrong-redis":
+        data = json.loads(private.read_text()); data["redisEnabled"] = True; private.write_text(json.dumps(data))
+    elif bad == "public": private.chmod(0o644)
+    elif bad == "symlink":
+        saved = tmp_path / "other"; private.rename(saved); private.symlink_to(saved)
+    target = ecs(run_id="123"); target._workdir = tmp_path; target.transition_release = release(mode="rehearsal")
+    (tmp_path / "terraform.tfstate").write_text("{}")
+    monkeypatch.setattr(target, "_tf", lambda *a, **k: pytest.fail("invalid private handoff must fail before planning"))
+    with pytest.raises(Exception): target.update("ghcr.io/honua-io/honua-server@sha256:" + "b" * 64)
+
+
+@pytest.mark.parametrize("bad", [False, True])
+def test_actual_candidate_schema_probe_removes_only_owned_network_admission_and_never_migrates(tmp_path, monkeypatch, bad):
+    runtime = native.AwsRuntime.__new__(native.AwsRuntime)
+    config = tmp_path / "controller.env"
+    config.write_text("ConnectionStrings__DefaultConnection=operator-db\nConnectionStrings__Redis=operator-queue\nControlPlane__TelemetryConnections__0__ConnectionId=approved\n")
+    config.chmod(0o600)
+    runtime.controller_env = config; runtime.api = SimpleNamespace(credential="synthetic-admin")
+    runtime.probe_cleanup_failures = []; runtime.sleep = lambda _: None
+    runtime.journal = {"method": "live-bidirectional-migration-plan", "pendingScripts": 0, "extraScripts": 0, "readyForCoordinatedDeploy": True}
+    target = ecs(run_id="123"); target._workdir = tmp_path
+    monkeypatch.setattr(target, "_connection_string", lambda: "Host=cell-db;Port=5432;Database=honua;Password=synthetic")
+    monkeypatch.setattr(target, "_state_secrets", lambda *a: ["synthetic-master"])
+    state = {"values": {"root_module": {"resources": [{"type": "aws_db_instance", "values": {
+        "address": "cell-db", "publicly_accessible": True, "vpc_security_group_ids": ["owned-db-sg"]}}]}}}
+    monkeypatch.setattr(target, "_tf", lambda *a: SimpleNamespace(stdout=json.dumps(state)))
+    runtime.target = target
+    monkeypatch.setenv("HONUA_AWS_RUNNER_CIDR", "203.0.113.1/32")
+    monkeypatch.setattr(runtime, "controller_credentials", lambda: {"AWS_ACCESS_KEY_ID": "approved-controller-role"})
+    aws_calls, docker_calls = [], []
+    def aws(*args):
+        aws_calls.append(args)
+        if args[1] == "describe-security-group-rules": return {"SecurityGroupRules": []}
+        if args[1] == "authorize-security-group-ingress": return {"SecurityGroupRules": [{"SecurityGroupRuleId": "owned-rule"}]}
+        return {}
+    runtime.aws = aws
+    def runner(argv, **kwargs):
+        docker_calls.append(argv)
+        if argv[:2] == ["docker", "run"]:
+            env = Path(argv[argv.index("--env-file") + 1]).read_text()
+            assert "HONUA_SKIP_MIGRATIONS=true" in env and "Host=cell-db" in env
+            assert "operator-db" not in env and "operator-queue" not in env and "ControlPlane__" not in env
+            assert "AWS_ACCESS_KEY_ID=approved-controller-role" in env and argv[-1] == release("b").image
+        return SimpleNamespace(stdout="container", returncode=0)
+    runtime.run = runner
+    def journal(api):
+        if bad: raise proof.ProofError("schema incompatible")
+        return dict(runtime.journal)
+    monkeypatch.setattr(runtime, "schema_journal", journal)
+    if bad:
+        with pytest.raises(proof.ProofError, match="before deployment mutation"): runtime.schema_probe(release("b"))
+    else: runtime.schema_probe(release("b"))
+    assert any(c[:2] == ("ec2", "revoke-security-group-ingress") and c[-1] == "owned-rule" for c in aws_calls)
+    assert docker_calls[-1][:3] == ["docker", "rm", "-f"]
+    assert not any("apply" in c for c in aws_calls + [tuple(c) for c in docker_calls])
+    assert not runtime.probe_cleanup_failures

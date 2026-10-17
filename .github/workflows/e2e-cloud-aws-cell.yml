@@ -644,6 +644,11 @@ jobs:
               ;;
             *) exit 1 ;;
           esac
+          # A reviewed optional pack is tracked in the trusted workflow source. Its exact bytes
+          # must match BOTH retained manifest hashes before the runtime may use it.
+          if [ -f certification/update-rollback-workload.json ]; then
+            cp certification/update-rollback-workload.json "$RUNNER_TEMP/rollback-candidate/update-rollback-workload.json"
+          fi
           (umask 077; printf '%s' "$CONTROLLER_ENV" > "$RUNNER_TEMP/rollback-controller.env")
       - name: Prove actual AWS update and rollback after the baseline journey
         if: ${{ inputs.update_rollback_run_id != '' }}

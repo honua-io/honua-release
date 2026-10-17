@@ -99,7 +99,6 @@ class AwsRuntime:
             self.process_id, self.workload, self.expected_feature = fixture["processId"], fixture["execution"], fixture["expectedFeature"]
             self.workload_binding = digest(raw)
         self.journal = self.schema_journal()
-        self.schema_probe(candidate)
         if self.cell == "aws-ecs/redis-on":
             contract = self.output_value("operations_contract")
             self.safety = contract.get("resilience", {}).get("protection_profile", {}).get("execution")
@@ -110,6 +109,7 @@ class AwsRuntime:
             require(isinstance(self.safety, dict) and self.safety.get("backend_name") == "honua-aws-ecs-alb"
                     and self.safety.get("controller_topology") == "external-retained-controller",
                     "IaC retained ECS safety contract unavailable")
+        self.schema_probe(candidate)
         if self.cell != "aws-ecs/redis-off":
             require(self.controller_env and Path(self.controller_env).is_file(), "protected independent controller environment required")
             self.start_controller(prior, candidate)

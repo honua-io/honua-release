@@ -605,12 +605,44 @@ class TerraformTarget(DeployTarget):
             raise ProvisionError(f"ephemeral Terraform var file not found: {path}")
         return path
 
+    _TRANSITION_INPUTS = ".honua-transition-vars.json"
+
+    def _write_transition_vars(self, root: Path, variables, redis_enabled: bool) -> None:
+        """Private argv travels only inside the existing encrypted state archive, never a receipt."""
+        path = root / self._TRANSITION_INPUTS
+        if path.is_symlink():
+            raise ProvisionError("private transition inputs must not be a symlink")
+        document = {"schema": "honua.private-transition-inputs/v1", "runId": str(self.run_id),
+                    "target": self.name, "redisEnabled": redis_enabled, "variables": variables}
+        descriptor = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC | os.O_NOFOLLOW, 0o600)
+        with os.fdopen(descriptor, "w") as output:
+            os.fchmod(output.fileno(), 0o600)
+            json.dump(document, output)
+
+    def _read_transition_vars(self, root: Path, redis_enabled: bool, *, required=False):
+        path = root / self._TRANSITION_INPUTS
+        if not path.exists():
+            if required:
+                raise ProvisionError("exact transition inputs missing from the sealed provision state")
+            return None
+        if path.is_symlink() or path.stat().st_mode & 0o077:
+            raise ProvisionError("sealed transition inputs must remain private")
+        record = json.loads(path.read_text())
+        variables = record.get("variables")
+        if (record.get("schema") != "honua.private-transition-inputs/v1" or record.get("runId") != str(self.run_id)
+                or record.get("target") != self.name or record.get("redisEnabled") is not redis_enabled
+                or not isinstance(variables, list) or not variables or not all(isinstance(v, str) for v in variables)):
+            raise ProvisionError("sealed transition inputs belong to another run or topology")
+        return variables
+
     def provision(self, redis_enabled: bool = False) -> str:
         root = self._iac_root()
         if root is None:
             raise ProvisionError(f"{self.name}: honua-iac root not found (set HONUA_IAC_DIR)")
         self._workdir = root
         self._last_vars = self._vars(redis_enabled)
+        if getattr(self, "transition_release", None) is not None:
+            self._write_transition_vars(root, self._last_vars, redis_enabled)
         if self.spec.cell_domain:
             domain = self.cell_domain(redis_enabled)
             if domain is None:
@@ -641,7 +673,8 @@ class TerraformTarget(DeployTarget):
             raise ProvisionError("update requires restored Terraform state")
         if not (root / "terraform.tfstate").is_file():
             raise ProvisionError("update refuses a missing local cell state")
-        variables = list(self._last_vars or self._vars(redis_enabled))
+        variables = list(self._last_vars or self._read_transition_vars(root, redis_enabled,
+                         required=getattr(self, "transition_release", None) is not None) or self._vars(redis_enabled))
         names = {self.spec.image_var, *(v.split("=", 2)[1] for v in extra_vars)}
         variables = [v for v in variables if not any(v.startswith("-var=" + name + "=") for name in names)]
         variables += ["-var=" + self.spec.image_var + "=" + image, *extra_vars]
@@ -666,12 +699,16 @@ class TerraformTarget(DeployTarget):
             (root / "honua-update.tfplan").unlink(missing_ok=True)
         self._last_vars = variables
         self._workdir = root
+        if getattr(self, "transition_release", None) is not None or (root / self._TRANSITION_INPUTS).exists():
+            self._write_transition_vars(root, variables, redis_enabled)
 
     def update(self, image: str, *, redis_enabled: bool = False, release=None) -> None:
         """ECS Redis-off's explicit Terraform actuator; never substitute it for a native backend."""
         if self.name != "aws-ecs" or redis_enabled:
             raise ProvisionError("exact Terraform update is only the ECS Redis-off actuator")
-        self._rollback_vars = list(self._last_vars or self._vars(False))
+        root = self._workdir or self._iac_root()
+        self._rollback_vars = list(self._last_vars or self._read_transition_vars(root, False,
+                                   required=getattr(self, "transition_release", None) is not None) or self._vars(False))
         extra = () if release is None else ("-var=platform_release=" + json.dumps({"version": release.version,
             "serving_artifact_reference": image, "workers": [{"runtime_profile": "managed", "artifact_reference": release.image}]},
             separators=(",", ":")),)
@@ -712,6 +749,7 @@ class TerraformTarget(DeployTarget):
         if root is None:
             return
         mode = False if redis_enabled is None else redis_enabled
+        self._last_vars = self._last_vars or self._read_transition_vars(root, mode)
         try:
             destroy = self._tf(root, "destroy", "-auto-approve",
                                *(self._last_vars or self._vars(mode, destroy=True)), check=False)
