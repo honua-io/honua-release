@@ -251,3 +251,33 @@ def test_malformed_publisher_or_steps_fails_without_exception(field, value):
     else:
         payload['check_runs'][-1][field] = value
     assert bt.classify_full_matrix(payload, FULL_MATRIX_POLICY, PINNED_SHA)[0] == 'fail'
+
+
+@pytest.mark.parametrize('mutation', [None, 'publisher', 'missing-shard', 'incomplete-api', 'wrong-source'])
+def test_candidate_resolver_actual_github_adapter_collects_same_execution_contract(monkeypatch, mutation):
+    import resolve_trunk_candidate as resolver
+    payload = _full_matrix_payload()
+    if mutation == 'publisher': payload['check_runs'][0]['app']['id'] = 999
+    if mutation == 'wrong-source': payload['_matrix_execution']['jobs'][0]['head_sha'] = 'b' * 40
+    if mutation == 'missing-shard':
+        payload['_matrix_execution']['jobs'] = [j for j in payload['_matrix_execution']['jobs'] if j['name'] != 'Server Tests (Core)']
+    evidence = payload['_matrix_execution']
+    called = []
+    github = resolver.GitHub()
+    def api(path):
+        called.append(path)
+        if '/commits/' in path: return {'total_count': len(payload['check_runs']), 'check_runs': payload['check_runs']}
+        if '/actions/runs?' in path: return {'total_count': 1, 'workflow_runs': payload['_workflow_runs']}
+        if '/jobs?' in path:
+            assert 'filter=all&per_page=20&page=1' in path
+            return {'total_count': len(evidence['jobs']) + (1 if mutation == 'incomplete-api' else 0), 'jobs': evidence['jobs']}
+        if '/contents/' in path:
+            assert path.endswith('?ref=' + PINNED_SHA)
+            return {'type': 'file', 'encoding': 'base64', 'sha': evidence['registryBlobSha'],
+                    'content': base64.b64encode(evidence['registryContent'].encode()).decode()}
+        pytest.fail('unexpected actual resolver API route: ' + path)
+    monkeypatch.setattr(github, 'json', api)
+    passed, why = github.green('honua-server', 'honua-io/honua-server', PINNED_SHA)
+    assert passed is (mutation is None), why
+    assert any('/actions/runs/12345/jobs?' in path for path in called)
+    if mutation != 'incomplete-api': assert any('/contents/.github/ci-shards.json?ref=' in path for path in called)
