@@ -195,6 +195,13 @@ def _update_rollback(receipt: dict[str, Any], target_images: dict[str, str]) -> 
             or not _is_digest(from_lock) or not _is_digest(to_lock)
             or from_lock == to_lock or to_lock != receipt.get("lockDigest")):
         return False
+    return _update_rollback_cells(cells, target_images)
+
+
+def _update_rollback_cells(cells, target_images):
+    """Shared structural execution floor; a rehearsal has no lock-binding or promotion credit."""
+    if not isinstance(cells, list) or any(not isinstance(cell, dict) for cell in cells):
+        return False
     names = [cell.get("cell") for cell in cells]
     if (any(not isinstance(name, str) for name in names)
             or len(names) != len(set(names)) or set(names) != GA_CELLS):
@@ -218,7 +225,7 @@ def _update_rollback(receipt: dict[str, Any], target_images: dict[str, str]) -> 
             refusals = cell.get("refusals")
             allowed = {"status", "outcome", "functionalGpExecuted", "code", "capability", "missingDependency"}
             if (cell.get("executionOutcome") != "refused" or cell.get("functionalGpExecuted") is not False
-                    or any(key in cell for key in ("inFlightJob", "jobBeforeUpdate", "jobAfterUpdate", "jobBeforeRollback", "jobAfterRollback"))
+                    or any(key in cell for key in ("inFlightJob", "rollbackInFlightJob", "jobBeforeUpdate", "jobAfterUpdate", "jobBeforeRollback", "jobAfterRollback"))
                     or not isinstance(refusals, list) or len(refusals) != 3
                     or any(not isinstance(r, dict) or set(r) != allowed or r.get("status") != "pass"
                            or r.get("outcome") != "refused" or r.get("functionalGpExecuted") is not False
@@ -226,22 +233,27 @@ def _update_rollback(receipt: dict[str, Any], target_images: dict[str, str]) -> 
                            or r.get("missingDependency") != "redis" for r in refusals)):
                 return False
         else:
-            if not isinstance(job, dict):
+            if cell.get("executionOutcome") != "succeeded" or cell.get("functionalGpExecuted") is not True:
                 return False
-            states, events, output = job.get("terminalStates"), job.get("executionEvents"), job.get("output")
-            if (cell.get("executionOutcome") != "succeeded" or cell.get("functionalGpExecuted") is not True
-                    or not isinstance(job.get("jobId"), str) or not job["jobId"].strip()
-                    or job.get("initialState") != "running" or states != ["succeeded"]
-                    or type(job.get("attemptCount")) is not int or job["attemptCount"] != 1
-                    or not isinstance(events, dict) or events.get("started") != 1 or events.get("completed") != 1
-                    or not isinstance(output, dict) or not _is_digest(output.get("sha256"))
-                    or not _is_digest(output.get("fixtureSha256")) or not output.get("oracle")):
-                return False
-            for name in ("jobBeforeUpdate", "jobAfterUpdate", "jobBeforeRollback", "jobAfterRollback"):
-                seen = cell.get(name)
-                if (not isinstance(seen, dict) or seen.get("state") != "running"
-                        or seen.get("jobId") != job["jobId"] or seen.get("attemptCount") != 1):
+            for field, names in (("inFlightJob", ("jobBeforeUpdate", "jobAfterUpdate")),
+                                 ("rollbackInFlightJob", ("jobBeforeRollback", "jobAfterRollback"))):
+                job = cell.get(field)
+                if not isinstance(job, dict):
                     return False
+                states, events, output = job.get("terminalStates"), job.get("executionEvents"), job.get("output")
+                if (not isinstance(job.get("jobId"), str) or not job["jobId"].strip()
+                        or job.get("initialState") != "running" or states != ["succeeded"]
+                        or type(job.get("attemptCount")) is not int or job["attemptCount"] != 1
+                        or not isinstance(events, dict) or type(events.get("started")) is not int or type(events.get("completed")) is not int
+                        or events.get("started") != 1 or events.get("completed") != 1
+                        or not isinstance(output, dict) or not _is_digest(output.get("sha256"))
+                        or not _is_digest(output.get("fixtureSha256")) or not output.get("oracle")):
+                    return False
+                for name in names:
+                    seen = cell.get(name)
+                    if (not isinstance(seen, dict) or seen.get("state") != "running"
+                            or seen.get("jobId") != job["jobId"] or type(seen.get("attemptCount")) is not int or seen.get("attemptCount") != 1):
+                        return False
         if boundary["outcome"] == "refused-cleanly" and (
                 not isinstance(boundary.get("reasonCode"), str) or not boundary["reasonCode"].strip()):
             return False

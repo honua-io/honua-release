@@ -32,6 +32,7 @@ class Runtime:
         self.duplicate = False
         self.changed_output = False
         self.outputs = 0
+        self.job_reads = {}
 
     def record(self, name):
         self.calls.append(name)
@@ -43,10 +44,13 @@ class Runtime:
     def incompatible_target(self): self.record("negative"); return {"status": "pass"}
     def stage(self, *a): self.record("stage"); return {"previous": "1", "desired": "2"}
     def plan(self, *a): self.record("plan")
-    def submit_job(self): self.record("submit"); return {"jobID": "real-boundary-job"}
+    def submit_job(self):
+        self.record("submit")
+        return {"jobID": "real-boundary-job-" + str(self.calls.count("submit"))}
     def job(self, identity):
         self.reads += 1
-        state = "Succeeded" if self.reads >= 6 else "Running"
+        self.job_reads[identity] = self.job_reads.get(identity, 0) + 1
+        state = "Succeeded" if self.job_reads[identity] >= 4 else "Running"
         return {"jobId": identity, "status": state, "backend": "local", "claimedBy": "worker-1", "attemptCount": 1,
                 "providerOperationId": "provider-1", "completedAt": "2026-10-17T21:00:00Z" if state == "Succeeded" else None}
     def update(self, *a): self.record("update"); return {"status": "Succeeded"}
@@ -79,7 +83,10 @@ def test_real_adapters_are_required_for_every_topology(cell):
     else:
         assert result["functionalGpExecuted"] is True
         assert result["inFlightJob"]["terminalStates"] == ["succeeded"]
-        assert result["jobBeforeUpdate"]["jobId"] == result["jobAfterRollback"]["jobId"]
+        assert result["jobBeforeUpdate"]["jobId"] == result["jobAfterUpdate"]["jobId"]
+        assert result["jobBeforeRollback"]["jobId"] == result["jobAfterRollback"]["jobId"]
+        assert result["inFlightJob"]["jobId"] != result["rollbackInFlightJob"]["jobId"]
+        assert runtime.calls.count("submit") == 2
 
 
 @pytest.mark.parametrize("bad", ["same-build", "schema", "missing-lock", "same-lock", "preview"])
@@ -95,7 +102,7 @@ def test_preflight_refuses_before_any_adapter_mutation(bad):
     assert result["status"] == "fail" and runtime.calls == []
 
 
-@pytest.mark.parametrize("at", [1, 2, 3, 4, 5])
+@pytest.mark.parametrize("at", [1, 2, 3, 6, 7, 8])
 def test_job_must_be_still_running_at_every_switch_boundary(at):
     runtime = Runtime()
     original = runtime.job
@@ -106,7 +113,8 @@ def test_job_must_be_still_running_at_every_switch_boundary(at):
         return row
     runtime.job = job
     result = run(runtime)
-    assert result["status"] == "fail" and result["functionalGpExecuted"] is False
+    assert result["status"] == "fail"
+    assert result["functionalGpExecuted"] is (at >= 6)
 
 
 @pytest.mark.parametrize("field,value", [("jobId", "different"), ("providerOperationId", "different"),
@@ -229,3 +237,179 @@ def test_authored_workload_is_real_symmetric_wkb_with_independent_oracle():
     assert points[0] == points[-1]
     assert points[0] == (10, 0)
     assert payload["inputs"]["srid"] == "4326"
+
+
+def _attestation(source, subject):
+    return [{"verificationResult": {"statement": {"subject": [{"digest": {"sha256": subject.removeprefix("sha256:")}}],
+        "predicate": {"buildDefinition": {"resolvedDependencies": [{"digest": {"gitCommit": source}}]}}},
+        "signature": {"certificate": {"sourceRepositoryDigest": source, "sourceRepositoryRef": "refs/heads/trunk",
+            "buildSignerURI": "https://github.com/honua-io/honua-server/.github/workflows/nightly-container-build.yml@refs/heads/trunk"}}}}]
+
+
+def bundle(tmp_path):
+    import yaml
+    directory = tmp_path / "bundle"
+    directory.mkdir()
+    server = {"sha": "a" * 40, "image": "ghcr.io/honua-io/honua-server:nightly-a",
+              "digest": "sha256:" + "b" * 64, "dbSchema": "128",
+              "awsLambdaImage": "ghcr.io/honua-io/honua-server:nightly-lambda-aot-a-amd64",
+              "awsLambdaDigest": "sha256:" + "c" * 64, "awsLambdaEcrDigest": "sha256:" + "c" * 64,
+              "awsLambdaArchitecture": "x86_64"}
+    path = directory / "platform-manifest.yaml"
+    path.write_text(yaml.safe_dump({"platformRelease": "2026.1-rc.3", "components": {"honua-server": server}}))
+    return directory, server
+
+
+@pytest.mark.parametrize("negative", [None, "wrong-source", "unsigned", "wrong-child", "wrong-platform", "wrong-mirror"])
+def test_input_authentication_binds_real_attested_lambda_parent_to_selected_child(tmp_path, negative):
+    import yaml
+    directory, server = bundle(tmp_path)
+    if negative == "wrong-mirror":
+        server["awsLambdaEcrDigest"] = "sha256:" + "d" * 64
+        (directory / "platform-manifest.yaml").write_text(yaml.safe_dump({"components": {"honua-server": server}}))
+    calls = []
+    def runner(argv, **kwargs):
+        calls.append(argv)
+        if argv[:2] == ["docker", "buildx"]:
+            index = {"schemaVersion": 2, "manifests": [{"digest": "sha256:" + ("d" if negative == "wrong-child" else "c") * 64,
+                     "platform": {"os": "linux", "architecture": "arm64" if negative == "wrong-platform" else "amd64"}}]}
+            return SimpleNamespace(returncode=0, stdout=json.dumps(index))
+        subject = argv[3].rsplit("@", 1)[1]
+        source = "d" * 40 if negative == "wrong-source" else server["sha"]
+        return SimpleNamespace(returncode=1 if negative == "unsigned" else 0, stdout=json.dumps(_attestation(source, subject)))
+    if negative:
+        with pytest.raises(proof.ProofError): proof.load_release(directory, "rehearsal", run=runner)
+    else:
+        selected = proof.load_release(directory, "rehearsal", run=runner)
+        assert selected.lock_digest is None and selected.source == server["sha"]
+        assert selected.lambda_digest == server["awsLambdaDigest"]
+        gh = [c for c in calls if c[0] == "gh"]
+        assert len(gh) == 2 and all("--signer-workflow" in c and "--source-digest" in c for c in gh)
+        # The deployed child is authenticated through index membership; no fake child attestation.
+        assert gh[1][3] != "oci://" + selected.lambda_image
+
+
+@pytest.mark.parametrize("deregister", [True, None, False])
+def test_lambda_saved_plan_must_retain_prior_worker_revision_before_any_apply(tmp_path, monkeypatch, deregister):
+    target = serverless()
+    target._workdir = tmp_path
+    (tmp_path / "terraform.tfstate").write_text("{}")
+    monkeypatch.setattr(target, "_iac_root", lambda: tmp_path)
+    monkeypatch.setattr(target, "_root_declares", lambda _: True)
+    target._last_vars = ["-var=honua_image_uri=123.dkr.ecr.us-east-1.amazonaws.com/honua@sha256:" + "a" * 64]
+    calls = []
+    plan = {"resource_changes": [{"type": "aws_batch_job_definition", "change": {"actions": ["update"],
+        "before": {"container_properties": "old"}, "after": {"container_properties": "new", "deregister_on_new_revision": deregister}}}]}
+    def tf(_root, *args, **kw):
+        calls.append(args)
+        return SimpleNamespace(returncode=0, stdout=json.dumps(plan) if args[0] == "show" else "")
+    monkeypatch.setattr(target, "_tf", tf)
+    call = lambda: target.stage_lambda("123.dkr.ecr.us-east-1.amazonaws.com/honua@sha256:" + "b" * 64, "3", redis_enabled=True)
+    if deregister is False:
+        call()
+        assert calls[-1][0] == "apply"
+        assert "-var=lambda_alias_version=3" in calls[0]
+    else:
+        with pytest.raises(Exception, match="deregister_on_new_revision=false"): call()
+        assert not any(c[0] == "apply" for c in calls)
+
+
+def test_collector_rehearsal_and_qualification_share_execution_floor_without_invented_lock(tmp_path):
+    import collect_update_rollback as collector
+    for mode in ("rehearsal", "qualification"):
+        root = tmp_path / mode
+        for cell in proof.CELLS:
+            result = run(cell=cell, mode=mode)
+            result["cleanup"] = result["cost"] = {"status": "pass"}
+            path = root / cell / "update-rollback-cell.json"
+            path.parent.mkdir(parents=True)
+            path.write_text(json.dumps(result))
+        selected = collector.collect(root, release(mode=mode), release("b", mode=mode), mode, "123", "1")
+        assert selected["qualification"] is (mode == "qualification")
+        if mode == "rehearsal": assert "lockDigest" not in selected
+        else: assert selected["class"] == "update-rollback"
+        # A retained raw full GP completion claim must never substitute for an off refusal.
+        off = next(root.glob("*/redis-off/update-rollback-cell.json"))
+        value = json.loads(off.read_text()); value["functionalGpExecuted"] = True; off.write_text(json.dumps(value))
+        with pytest.raises(proof.ProofError): collector.collect(root, release(mode=mode), release("b", mode=mode), mode, "123", "1")
+
+
+@pytest.mark.parametrize("hidden", [{"resourceUri": "honua://jobs/accepted"}, {"nested": {"jobCreatedAt": "2026-10-17T21:00:00Z"}},
+                                    {"text": '{"jobId":"accepted"}'}, {"rows": [{"jobStatus": "running"}]}])
+def test_actual_off_http_boundary_rejects_hidden_execution_evidence(hidden):
+    runtime = native.AwsRuntime.__new__(native.AwsRuntime)
+    runtime.workload = native.centroid_workload(4)
+    runtime.api = FakeApi([(503, {"code": "dependency-unavailable", "capability": "jobs.runner", "missingDependency": "redis", **hidden})])
+    with pytest.raises(proof.ProofError, match="typed nonexecuted"): runtime.refusal()
+    assert len(runtime.api.calls) == 1
+
+
+def test_actual_off_http_refusal_needs_independent_manifest():
+    runtime = native.AwsRuntime.__new__(native.AwsRuntime)
+    runtime.workload = native.centroid_workload(4)
+    for available in (True, False):
+        runtime.api = FakeApi([(503, {"code": "dependency-unavailable", "capability": "jobs.runner", "missingDependency": "redis"}),
+                               (200, {"capabilities": [{"id": "jobs.runner", "available": available, "reasonCode": "dependency-unavailable"}]})])
+        if available:
+            with pytest.raises(proof.ProofError, match="corroborate"): runtime.refusal()
+        else: assert runtime.refusal()["functionalGpExecuted"] is False
+
+
+@pytest.mark.parametrize("mutation", [None, "pending", "extra", "not-ready", "no-plan", "error"])
+def test_real_schema_preflight_requires_both_live_set_differences_empty(mutation):
+    runtime = native.AwsRuntime.__new__(native.AwsRuntime)
+    view = {"readyForCoordinatedDeploy": True, "migration": {"planAvailable": True, "upgradeRequired": False,
+             "pendingScripts": [], "executedButNotDiscoveredScripts": []}}
+    if mutation == "pending": view["migration"]["pendingScripts"] = ["next.sql"]
+    if mutation == "extra": view["migration"]["executedButNotDiscoveredScripts"] = ["future.sql"]
+    if mutation == "not-ready": view["readyForCoordinatedDeploy"] = False
+    if mutation == "no-plan": view["migration"]["planAvailable"] = False
+    if mutation == "error": view["migration"]["planError"] = "unavailable"
+    runtime.api = FakeApi([(200, view)])
+    if mutation:
+        with pytest.raises(proof.ProofError): runtime.schema_journal()
+    else: assert runtime.schema_journal()["pendingScripts"] == 0
+    assert runtime.api.calls == [("GET", "/api/v1/admin/deploy/preflight?includeDiagnostics=true", None)]
+
+
+@pytest.mark.parametrize("bad", [None, "wrong-name", "wrong-geometry", "missing", "duplicate"])
+def test_native_serving_probe_compares_authored_literals_not_candidate_parity(bad):
+    fixture = {"expectedFeatures": [{"id": "1", "name": "alpha", "geometry": {"type": "Point", "coordinates": [-156.33, 20.75]}},
+                                   {"id": "2", "name": "bravo", "geometry": {"type": "Point", "coordinates": [-156.45, 20.88]}}]}
+    features = [{"id": int(f["id"]), "properties": {"name": f["name"]}, "geometry": copy.deepcopy(f["geometry"])} for f in fixture["expectedFeatures"]]
+    if bad == "wrong-name": features[0]["properties"]["name"] = "different"
+    if bad == "wrong-geometry": features[0]["geometry"]["coordinates"][0] += 1
+    if bad == "missing": features.pop()
+    if bad == "duplicate": features.append(copy.deepcopy(features[0]))
+    if bad:
+        with pytest.raises(proof.ProofError): native.prove_serving_features({"features": features}, fixture)
+    else: native.prove_serving_features({"features": features}, fixture)
+
+
+@pytest.mark.parametrize("transition", ["update", "rollback"])
+@pytest.mark.parametrize("corrupt", ["missing", "duplicate", "identity", "output"])
+def test_each_transition_has_independent_exactly_once_terminal_output_proof(transition, corrupt):
+    runtime = Runtime()
+    original_events, original_job, original_output = runtime.execution_events, runtime.job, runtime.output
+    selected = "real-boundary-job-" + ("1" if transition == "update" else "2")
+    if corrupt == "duplicate":
+        runtime.execution_events = lambda identity, *args: {"started": 1, "completed": 2} if identity == selected else original_events(identity, *args)
+    if corrupt == "identity":
+        def job(identity):
+            row = original_job(identity)
+            if identity == selected and runtime.job_reads[identity] >= 3: row["providerOperationId"] = "different"
+            return row
+        runtime.job = job
+    if corrupt == "missing":
+        runtime.job = lambda identity: {**original_job(identity), "status": "Failed"} if identity == selected else original_job(identity)
+    if corrupt == "output":
+        counts = {}
+        def output(identity):
+            counts[identity] = counts.get(identity, 0) + 1
+            value = original_output(identity)
+            if identity == selected and counts[identity] > 1: value["sha256"] = "sha256:" + "d" * 64
+            return value
+        runtime.output = output
+    result = run(runtime)
+    assert result["status"] == "fail", result
+    assert result["updateStatus"] == ("pass" if transition == "rollback" else "fail")

@@ -218,6 +218,9 @@ def provision_phase(target, target_name: str, *, require_real: bool, redis_enabl
         if serving_seed.is_file() and not serving_seed.is_symlink():
             # This digest enters the encrypted provision handoff before candidate packages run.
             state["servingFixtureSha256"] = hashlib.sha256(serving_seed.read_bytes()).hexdigest()
+        if (os.environ.get("HONUA_UPDATE_ROLLBACK_ENABLED") == "true" and target_name == "aws-ecs" and redis_enabled):
+            from runner.update_rollback_aws import configure_ecs_safety
+            configure_ecs_safety(target, endpoint, serving_seed)
         # S10 large-import (honua-release#548): stage the cell's pinned fixture in S3 while this job
         # holds the AWS credentials. Only a target that names an AWS region can stage.
         if getattr(target, "region", None):
@@ -567,6 +570,10 @@ def run(target_name: str, require_real: bool, reference_endpoint: str | None,
         return {"gate": "cloud-parity", "target": target_name, "status": "fail",
                 "why": f"unknown target {target_name!r}; known: {sorted(REGISTRY)}"}
     target = cls(run_id=os.environ.get("GITHUB_RUN_ID", "local"))
+    if os.environ.get("HONUA_UPDATE_ROLLBACK_ENABLED") == "true":
+        from runner.update_rollback import load_release
+        prior_inputs = Path(os.environ.get("HONUA_UPDATE_ROLLBACK_PRIOR_INPUTS", "."))
+        target.transition_release = load_release(prior_inputs, os.environ.get("HONUA_UPDATE_ROLLBACK_MODE", "rehearsal"))
     datasource: dict = {}
     state = provision_phase(target, target_name, require_real=require_real, redis_enabled=redis_enabled,
                             journey_datasource=datasource)
@@ -1463,13 +1470,16 @@ def _phase_update_rollback(args) -> int:
         verify_journey(state, journey, args.journey_dir or directory)
         target = _target(args.target)
         target._workdir = target._iac_root()
+        target.transition_release = prior
+        if args.target == "aws-ecs":
+            target.admit(state["endpoint"], os.environ.get("HONUA_AWS_RUNNER_CIDR", ""), redis_enabled=args.redis == "on")
         # Original application key stays in the owned Secrets Manager handoff; never persist it.
         admin_key, _ = cloud_journey.unpack_handoff(read_secret(app_key_secret_name(cell)))
         os.environ["HONUA_ADMIN_PASSWORD"] = admin_key
         runtime = AwsRuntime(target, state, admin_key=admin_key,
             approval_key=os.environ.get("HONUA_UPDATE_ROLLBACK_APPROVAL_KEY", ""),
             serving_fixture=args.serving_fixture, controller_env=args.controller_env,
-            mirror_repository=os.environ.get("HONUA_UPDATE_ROLLBACK_ECR_REPOSITORY"), vertices=args.gp_vertices)
+            mirror_repository=os.environ.get("HONUA_UPDATE_ROLLBACK_ECR_REPOSITORY"), vertices=args.gp_vertices, workload_path=args.gp_workload)
         receipt = run_cell(prior, candidate, cell, args.update_rollback_mode, runtime,
                            run_id=_run_identity()[0], run_attempt=_run_identity()[1])
     except ProofError as error:
@@ -1685,6 +1695,7 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--update-rollback-mode", choices=("rehearsal", "qualification"), default="rehearsal")
     ap.add_argument("--serving-fixture", type=Path, help="baseline extended/seed-manifest.json bound by sealed provision state")
     ap.add_argument("--controller-env", type=Path, help="protected independent controller startup configuration; never uploaded")
+    ap.add_argument("--gp-workload", type=Path, help="reviewed real GP execution+independent feature fixture bound by BOTH retained manifests")
     ap.add_argument("--gp-vertices", type=int, default=65536, help="reviewed symmetric centroid workload size; fast completion fails")
     ap.add_argument("--cost-ceiling-usd", default=os.environ.get("HONUA_CLOUD_COST_CEILING_USD", "20"))
     ap.add_argument("--cost-report", type=Path)

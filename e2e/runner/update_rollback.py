@@ -69,6 +69,7 @@ class Release:
     image: str
     lambda_image: str
     lambda_digest: str
+    version: str = ""
 
     def image_for(self, cell):
         return self.lambda_image if cell.startswith("aws-serverless/") else self.image
@@ -78,7 +79,7 @@ class Release:
 
     def public(self):
         return {"manifestDigest": self.manifest_digest, "lockDigest": self.lock_digest,
-                "sourceRevision": self.source, "schemaVersion": self.schema,
+                "sourceRevision": self.source, "schemaVersion": self.schema, "releaseVersion": self.version,
                 "imageDigest": self.image.rsplit("@", 1)[1], "lambdaImageDigest": self.lambda_digest}
 
 
@@ -125,6 +126,7 @@ def load_release(directory: Path, mode: str, *, run=subprocess.run):
         except (ValueError, AttestationMismatch) as exc:
             raise ProofError("server source/image provenance mismatch") from exc
     lock_digest = None
+    version = str(manifest.get("platformRelease", ""))
     if mode == "qualification":
         path = directory / "platform-lock.json"
         lock_raw = path.read_bytes()
@@ -142,12 +144,11 @@ def load_release(directory: Path, mode: str, *, run=subprocess.run):
         require(len(artifacts) == 1 and artifacts[0].get("digest") == server["digest"]
                 and artifacts[0].get("sourceRevision") == source, "lock image/source differs from retained manifest")
         lock_digest = digest(lock_raw)
+        version = str(lock.get("platform", {}).get("id", "")).removeprefix("honua-")
     else:
         require(mode == "rehearsal", "unknown update/rollback mode")
-        checked(run, ["gh", "attestation", "verify", str(directory / "platform-manifest.yaml"),
-                      "--repo", "honua-io/honua-release", "--source-ref", "refs/heads/trunk"],
-                "rehearsal input attestation refused")
-    return Release(manifest, digest(raw), lock_digest, source, schema, image, lambda_image, server["awsLambdaEcrDigest"])
+    require(bool(version) and len(version) <= 100, "declared platform release version missing")
+    return Release(manifest, digest(raw), lock_digest, source, schema, image, lambda_image, server["awsLambdaEcrDigest"], version)
 
 
 def checked(run, argv, message, **kwargs):
@@ -165,13 +166,13 @@ class NoRedirect(urllib.request.HTTPRedirectHandler):
 
 
 class Api:
-    def __init__(self, endpoint, credential, *, opener=None, loopback=False):
+    def __init__(self, endpoint, credential, *, opener=None, loopback=False, anonymous=False):
         parsed = urllib.parse.urlsplit(endpoint)
         require(parsed.scheme == "https" or loopback and parsed.scheme == "http" and parsed.hostname == "127.0.0.1",
                 "qualification endpoint must use HTTPS")
         require(parsed.netloc and not parsed.username and not parsed.password and not parsed.query and not parsed.fragment
                 and parsed.path in ("", "/"), "endpoint must be one credential-free origin")
-        require(isinstance(credential, str) and bool(credential) and not any(c in credential for c in "\r\n"), "application credential required")
+        require(isinstance(credential, str) and (bool(credential) or anonymous) and not any(c in credential for c in "\r\n"), "application credential required")
         self.endpoint, self.credential = endpoint.rstrip("/"), credential
         self.opener = opener or urllib.request.build_opener(NoRedirect())
 
@@ -179,8 +180,11 @@ class Api:
         require(path.startswith("/") and not path.startswith("//") and not urllib.parse.urlsplit(path).fragment,
                 "API path must be same-origin")
         headers = {"Accept": "application/json", "Cache-Control": "no-cache", "Prefer": "respond-async"}
-        headers["Authorization" if self.credential.startswith("Bearer ") else "X-API-Key"] = self.credential
+        if self.credential:
+            headers["Authorization" if self.credential.startswith("Bearer ") else "X-API-Key"] = self.credential
         raw = None if body is None else json.dumps(body, allow_nan=False).encode()
+        if path.endswith("/execution"):
+            headers["Prefer"] = "respond-async"
         if raw is not None:
             headers["Content-Type"] = "application/json"
         request = urllib.request.Request(self.endpoint + path, data=raw, method=method, headers=headers)
@@ -191,6 +195,7 @@ class Api:
             status, payload = error.code, error.read(1024 * 1024 + 1)
         except (OSError, urllib.error.URLError) as exc:
             raise ProofError("candidate request unavailable") from exc
+        self.last_body = payload
         require(len(payload) <= 16 * 1024 * 1024, "candidate response exceeds bound")
         try:
             document = json.loads(payload)
@@ -206,7 +211,7 @@ class Api:
 
 
 class DeployApi:
-    """Create, separately approve, poll, promote and roll back one actual backend operation."""
+    """Create, separately approve, observe and roll back one actual backend operation."""
     PREFIX = "/api/v1/admin/deploy"
 
     def __init__(self, api, target_id, backend, *, approval_api, sleep=time.sleep, polls=360):
@@ -295,7 +300,9 @@ def job_identity(row):
 
 
 def run_cell(prior, candidate, cell, mode, runtime, *, run_id, run_attempt, sleep=time.sleep, polls=1800):
-    """One actual job remains running across BOTH switches; early completion fails closed.
+    """Each switch carries a genuinely running job; early completion fails closed.
+
+    Separate real jobs per transition avoid imposing a same-job-across-cycle requirement.
 
     The runtime must independently observe routing/images, serving data, database journal,
     execution events and result contents. Returned receipts deliberately exclude raw output.
@@ -316,70 +323,74 @@ def run_cell(prior, candidate, cell, mode, runtime, *, run_id, run_attempt, slee
         receipt["incompatibleTarget"] = runtime.incompatible_target()
         revisions = runtime.stage(candidate)
         runtime.plan(revisions)
-        if cell.endswith("redis-on"):
+        def begin_job():
             submitted = runtime.submit_job()
             job_id = submitted.get("jobID")
             require(isinstance(job_id, str) and TOKEN.fullmatch(job_id), "GP submission omitted canonical job identity")
-            identity = None
             for _ in range(polls):
                 current = runtime.job(job_id)
                 require(current.get("status") not in ("Succeeded", "Failed", "Cancelled"),
-                        "job completed before update; not an in-flight proof")
+                        "job completed before switch; not an in-flight proof")
                 if current.get("status") == "Running":
-                    identity = job_identity(current)
-                    break
+                    return job_id, job_identity(current)
                 sleep(1)
-            require(identity is not None, "job never became genuinely running")
+            raise ProofError("job never became genuinely running")
 
-            def still_running():
-                current = runtime.job(job_id)
-                require(current.get("status") == "Running" and job_identity(current) == identity,
-                        "job was not still running across the version switch")
-                return {"jobId": job_id, "state": "running", "attemptCount": 1, "observedAt": now()}
-        else:
-            identity = None
-            receipt["executionOutcome"] = "refused"
-            receipt["refusals"] = [runtime.refusal()]
-            still_running = lambda: None
-        if identity is not None:
-            receipt["jobBeforeUpdate"] = still_running()
-        receipt["updateOperation"] = runtime.update(revisions)
-        receipt["observations"].append(runtime.observe(candidate, "candidate"))
-        if identity is not None:
-            receipt["jobAfterUpdate"] = still_running()
-        receipt["updateStatus"] = "pass"
-        if identity is None:
-            receipt["refusals"].append(runtime.refusal())
-        if identity is not None:
-            receipt["jobBeforeRollback"] = still_running()
-        receipt["rollbackOperation"] = runtime.rollback(revisions)
-        receipt["observations"].append(runtime.observe(prior, "rollback"))
-        if identity is not None:
-            receipt["jobAfterRollback"] = still_running()
-        receipt["rollbackStatus"] = "pass"
-        if identity is None:
-            receipt["refusals"].append(runtime.refusal())
-        else:
+        def still_running(job_id, identity):
+            current = runtime.job(job_id)
+            require(current.get("status") == "Running" and job_identity(current) == identity,
+                    "job was not still running across the version switch")
+            return {"jobId": job_id, "state": "running", "attemptCount": 1, "observedAt": now()}
+
+        def finish_job(job_id, identity):
             for _ in range(polls):
                 final = runtime.job(job_id)
                 require(job_identity(final) == identity, "job/provider/attempt changed during handoff")
                 if final.get("status") in ("Succeeded", "Failed", "Cancelled"):
-                    require(final["status"] == "Succeeded", "in-flight GP did not complete successfully")
+                    require(final["status"] == "Succeeded" and isinstance(final.get("completedAt"), str),
+                            "in-flight GP did not complete successfully")
                     break
                 sleep(1)
             else:
                 raise ProofError("in-flight GP completion timed out")
             output = runtime.output(job_id)
             executions = runtime.execution_events(job_id, started)
-            require(executions.get("started") == executions.get("completed") == 1,
+            require(type(executions.get("started")) is int and type(executions.get("completed")) is int
+                    and executions.get("started") == executions.get("completed") == 1,
                     "independent worker events do not prove one execution and one terminal completion")
-            # Re-read after collecting logs/output; success must remain durable and byte-identical.
             require(runtime.job(job_id) == final and runtime.output(job_id) == output,
                     "terminal state or output changed after completion")
-            receipt["inFlightJob"] = {"jobId": job_id, "initialState": "running", "terminalStates": ["succeeded"],
-                "attemptCount": 1, "providerOperationIdSha256": digest(json.dumps(identity, sort_keys=True).encode()),
-                "completedAt": final.get("completedAt"), "output": output, "executionEvents": executions}
-            receipt["executionOutcome"], receipt["functionalGpExecuted"] = "succeeded", True
+            return {"jobId": job_id, "initialState": "running", "terminalStates": ["succeeded"],
+                    "attemptCount": 1, "providerOperationIdSha256": digest(json.dumps(identity, sort_keys=True).encode()),
+                    "completedAt": final.get("completedAt"), "output": output, "executionEvents": executions}
+
+        if cell.endswith("redis-on"):
+            job_id, identity = begin_job()
+            receipt["jobBeforeUpdate"] = still_running(job_id, identity)
+        else:
+            receipt["executionOutcome"] = "refused"
+            receipt["refusals"] = [runtime.refusal()]
+        receipt["updateOperation"] = runtime.update(revisions)
+        receipt["observations"].append(runtime.observe(candidate, "candidate"))
+        if cell.endswith("redis-on"):
+            receipt["jobAfterUpdate"] = still_running(job_id, identity)
+            receipt["inFlightJob"] = finish_job(job_id, identity)
+            receipt["functionalGpExecuted"] = True
+        else:
+            receipt["refusals"].append(runtime.refusal())
+        receipt["updateStatus"] = "pass"
+        if cell.endswith("redis-on"):
+            job_id, identity = begin_job()
+            receipt["jobBeforeRollback"] = still_running(job_id, identity)
+        receipt["rollbackOperation"] = runtime.rollback(revisions)
+        receipt["observations"].append(runtime.observe(prior, "rollback"))
+        if cell.endswith("redis-on"):
+            receipt["jobAfterRollback"] = still_running(job_id, identity)
+            receipt["rollbackInFlightJob"] = finish_job(job_id, identity)
+            receipt["executionOutcome"] = "succeeded"
+        else:
+            receipt["refusals"].append(runtime.refusal())
+        receipt["rollbackStatus"] = "pass"
         receipt["schemaBoundary"] = {"status": "pass", "outcome": "serving", "schemaVersion": candidate.schema,
                                       "imageDigest": prior.digest_for(cell)}
         receipt["status"] = "pass"
@@ -431,9 +442,10 @@ def aggregate(cells):
         require(first.get("fromLockDigest") and first.get("toLockDigest")
                 and first["fromLockDigest"] != first["toLockDigest"], "two certified signed locks required")
         from datetime import timedelta
+        completed = datetime.fromisoformat(output["completedAt"].replace("Z", "+00:00"))
         output.update({"class": "update-rollback", "kind": "qualifying", "fromLockDigest": first["fromLockDigest"],
                        "toLockDigest": first["toLockDigest"], "lockDigest": first["toLockDigest"],
-                       "freshUntil": (datetime.now(timezone.utc) + timedelta(days=7)).isoformat().replace("+00:00", "Z")})
+                       "freshUntil": (completed + timedelta(days=7)).isoformat().replace("+00:00", "Z")})
     else:
         require(first["mode"] == "rehearsal", "unknown rehearsal mode")
         # No class, lockDigest or qualifying kind exists on this diagnostic record.

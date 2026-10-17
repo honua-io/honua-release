@@ -520,6 +520,9 @@
               }
             }
           }
+        },
+        "rollbackInFlightJob": {
+          "$ref": "#/$defs/updateRollbackCell/properties/inFlightJob"
         }
       },
       "allOf": [
@@ -604,7 +607,8 @@
               "jobBeforeUpdate",
               "jobAfterUpdate",
               "jobBeforeRollback",
-              "jobAfterRollback"
+              "jobAfterRollback",
+              "rollbackInFlightJob"
             ],
             "properties": {
               "executionOutcome": {
@@ -653,6 +657,11 @@
                   "required": [
                     "jobAfterRollback"
                   ]
+                },
+                {
+                  "required": [
+                    "rollbackInFlightJob"
+                  ]
                 }
               ]
             }
@@ -661,7 +670,7 @@
       ]
     },
     "updateRollbackReceipt": {
-      "description": "Actual four-cell AWS update/rollback proof. Redis-on requires the same real job running before and after both switches, one successful execution and stable independently verified output. Redis-off requires three explicit typed Redis refusals and never gets GP completion credit. Every cell retains exact image/schema/cleanup/cost proof. Rehearsal records have no qualifying evidence class or signed-lock credit.",
+      "description": "Actual four-cell AWS update/rollback proof. Redis-on requires a real job running before and after each switch, exactly one successful execution per transition and stable independently verified output. Redis-off requires three explicit typed Redis refusals and never gets GP completion credit. Every cell retains exact image/schema/cleanup/cost proof. Rehearsal records have no qualifying evidence class or signed-lock credit.",
       "type": "object",
       "required": [
         "class",

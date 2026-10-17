@@ -1,6 +1,7 @@
 import copy
 import hashlib
 import json
+import copy
 import os
 import subprocess
 from datetime import datetime, timedelta, timezone
@@ -61,8 +62,10 @@ def _update_cell(cell):
             "jobId": "gp-flight-1", "initialState": "running", "terminalStates": ["succeeded"], "attemptCount": 1,
             "executionEvents": {"started": 1, "completed": 1}, "output": {"sha256": "sha256:" + "1" * 64,
                 "fixtureSha256": "sha256:" + "2" * 64, "oracle": "independent-authored-output"}})
+        result["rollbackInFlightJob"] = copy.deepcopy(result["inFlightJob"])
+        result["rollbackInFlightJob"]["jobId"] = "gp-flight-2"
         for name in ("jobBeforeUpdate", "jobAfterUpdate", "jobBeforeRollback", "jobAfterRollback"):
-            result[name] = {"jobId": "gp-flight-1", "state": "running", "attemptCount": 1}
+            result[name] = {"jobId": "gp-flight-2" if "Rollback" in name else "gp-flight-1", "state": "running", "attemptCount": 1}
     return result
 
 
@@ -783,3 +786,16 @@ def test_update_rollback_on_requires_real_switch_and_unique_output_proof(tmp_pat
         else: cell["inFlightJob"]["output"]["sha256"] = "self-reported"
     _edit(_receipt(fixture, "update-rollback"), mutate)
     _failed(fixture, "evidence:update-rollback")
+
+
+@pytest.mark.parametrize("mutation", ["missing", "duplicate", "retry", "different-job", "bad-output"])
+def test_rollback_transition_needs_its_own_complete_execution_proof(mutation):
+    import check_promotion_readiness as checks
+    cells = [_update_cell(cell) for cell in checks.GA_CELLS]
+    cell = next(c for c in cells if c["cell"] == "aws-ecs/redis-on")
+    if mutation == "missing": del cell["rollbackInFlightJob"]
+    elif mutation == "duplicate": cell["rollbackInFlightJob"]["executionEvents"]["completed"] = 2
+    elif mutation == "retry": cell["rollbackInFlightJob"]["attemptCount"] = 2
+    elif mutation == "different-job": cell["jobAfterRollback"]["jobId"] = "different"
+    else: cell["rollbackInFlightJob"]["output"]["sha256"] = "declared"
+    assert not checks._update_rollback_cells(cells, {c["cell"]: c["toDigest"] for c in cells})

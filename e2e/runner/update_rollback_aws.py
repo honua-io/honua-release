@@ -36,18 +36,24 @@ def centroid_workload(vertices=65536):
 
 class AwsRuntime:
     def __init__(self, target, state, *, admin_key, approval_key, serving_fixture, controller_env=None,
-                 mirror_repository=None, vertices=65536, run=subprocess.run, sleep=time.sleep):
+                 mirror_repository=None, vertices=65536, workload_path=None, run=subprocess.run, sleep=time.sleep):
         self.target, self.state, self.run, self.sleep = target, state, run, sleep
         self.cell = state["cell"]
         self.api = Api(state["endpoint"], admin_key)
         self.approval_key, self.controller_env = approval_key, controller_env
         self.serving_fixture, self.mirror_repository = Path(serving_fixture), mirror_repository
         self.workload = centroid_workload(vertices)
+        self.process_id = "geometry.centroid"
+        self.workload_path, self.expected_feature = workload_path, None
+        self.workload_binding = digest(json.dumps(self.workload, sort_keys=True, separators=(",", ":")).encode())
+        self.submitted_job = None
         self.controller_name = None
         self.registered_tasks = []
+        self.retained_batch_definitions = []
         self.deploy = None
         self.safety = None
         self.updated = False
+        self.probe_cleanup_failures = []
 
     def aws(self, *argv):
         return json.loads(checked(self.run, ["aws", *argv, "--region", self.target.region, "--output", "json"], "AWS observation or actuator failed", timeout=180))
@@ -75,11 +81,25 @@ class AwsRuntime:
         expected = self.state.get("servingFixtureSha256")
         require(expected == hashlib.sha256(self.serving_fixture.read_bytes()).hexdigest(),
                 "serving fixture does not match the sealed provision handoff")
+        self.prior = prior
+        if self.workload_path is not None:
+            raw = Path(self.workload_path).read_bytes()
+            binding = {"sha256": digest(raw)}
+            require(prior.manifest.get("updateRollbackWorkload") == candidate.manifest.get("updateRollbackWorkload") == binding,
+                    "reviewed GP workload bytes are not bound by both retained manifests")
+            fixture = json.loads(raw)
+            require(set(fixture) == {"schema", "processId", "execution", "expectedFeature"}
+                    and fixture["schema"] == "honua.update-rollback-workload/v1"
+                    and isinstance(fixture["processId"], str) and fixture["processId"].startswith("geometry.")
+                    and all(c.islower() or c in ".-" for c in fixture["processId"])
+                    and len(raw) <= 16 * 1024 * 1024 and isinstance(fixture["execution"], dict)
+                    and set(fixture["execution"]) == {"inputs"} and isinstance(fixture["execution"]["inputs"], dict)
+                    and isinstance(fixture["expectedFeature"], dict) and fixture["expectedFeature"].get("type") == "Feature",
+                    "reviewed real GP workload contract is malformed")
+            self.process_id, self.workload, self.expected_feature = fixture["processId"], fixture["execution"], fixture["expectedFeature"]
+            self.workload_binding = digest(raw)
         self.journal = self.schema_journal()
-        declared = candidate.manifest["components"]["honua-server"].get("migrationJournalSha256")
-        previous = prior.manifest["components"]["honua-server"].get("migrationJournalSha256")
-        require(declared and declared == previous == self.journal["sha256"],
-                "actual migration journal is not bound to both compatible builds")
+        self.schema_probe(candidate)
         if self.cell == "aws-ecs/redis-on":
             contract = self.output_value("operations_contract")
             self.safety = contract.get("resilience", {}).get("protection_profile", {}).get("execution")
@@ -94,29 +114,121 @@ class AwsRuntime:
             require(self.controller_env and Path(self.controller_env).is_file(), "protected independent controller environment required")
             self.start_controller(prior, candidate)
 
-    def schema_journal(self):
-        # Read the cell's existing application datasource in memory. Never retain raw Terraform
-        # state, secret values, connection strings or provider output as proof artifacts.
+    def schema_journal(self, api=None):
+        # The supported preflight computes BOTH directions of the live database/embedded-script
+        # set difference. Empty pending + extra sets, with a successful plan, proves the database
+        # matches this booted immutable build's migration set without opening database ingress.
+        view = (api or self.api).get("/api/v1/admin/deploy/preflight?includeDiagnostics=true")
+        migration = view.get("migration", {})
+        require(view.get("readyForCoordinatedDeploy") is True and migration.get("planAvailable") is True
+                and migration.get("upgradeRequired") is False and migration.get("pendingScripts") == []
+                and migration.get("executedButNotDiscoveredScripts") == [] and not migration.get("planError"),
+                "live database/immutable build migration-set comparison refused or incomplete")
+        return {"method": "live-bidirectional-migration-plan", "pendingScripts": 0, "extraScripts": 0,
+                "readyForCoordinatedDeploy": True}
+
+    def schema_probe(self, candidate):
+        """Boot the authenticated B image against the actual cell DB with migrations disabled.
+
+        Only a /32 database ingress rule is added, never an image/alias/task/deploy mutation. The
+        rule and probe are owned here and removed even when the compatibility check fails. The
+        probe has no Redis/target catalog and receives no runner AWS credentials.
+        Startup secret resolution uses only the explicitly approved controller role.
+        """
+        require(self.controller_env and Path(self.controller_env).is_file(), "protected startup configuration required for schema preflight")
+        protected = Path(self.controller_env)
+        require(not protected.is_symlink() and protected.stat().st_mode & 0o077 == 0,
+                "schema probe configuration must be private")
         connection = self.target._connection_string()
-        parts = dict(part.split("=", 1) for part in connection.split(";") if "=" in part)
-        parts = {key.strip().lower(): value for key, value in parts.items()}
-        env = {key: os.environ[key] for key in ("PATH", "HOME", "LANG") if key in os.environ}
-        env.update(PGHOST=parts["host"], PGPORT=parts.get("port", "5432"), PGDATABASE=parts["database"],
-                   PGUSER=parts["username"], PGPASSWORD=parts["password"], PGSSLMODE="require", PGCONNECT_TIMEOUT="30")
-        sql = "SELECT COALESCE(json_agg(scriptname ORDER BY scriptname), '[]'::json) FROM public.schema_versions"
-        text = checked(self.run, ["psql", "-X", "-A", "-t", "-v", "ON_ERROR_STOP=1", "-c", sql],
-                       "database migration journal read failed", env=env, timeout=60)
-        from upgrade_lock_binding import canonical_journal_bytes
-        raw = canonical_journal_bytes(json.loads(text))
-        return {"sha256": digest(raw), "scriptCount": len(json.loads(text))}
+        parts = {k.strip().lower(): v.strip() for k, v in (p.split("=", 1) for p in connection.split(";") if "=" in p)}
+        host, port = parts.get("host"), int(parts.get("port", "5432"))
+        state = json.loads(self.target._tf(self.target._workdir, "show", "-json").stdout)
+        def resources(module):
+            yield from module.get("resources", [])
+            for child in module.get("child_modules", []):
+                yield from resources(child)
+        databases = [r["values"] for r in resources(state["values"]["root_module"])
+                     if r.get("type") == "aws_db_instance" and r.get("values", {}).get("address") == host]
+        require(len(databases) == 1 and databases[0].get("publicly_accessible") is True
+                and databases[0].get("vpc_security_group_ids"), "owned public cell database identity unavailable")
+        cidr = self.target._host_cidr(os.environ.get("HONUA_AWS_RUNNER_CIDR", ""), "schema probe runner CIDR")
+        rules, probe = [], "honua-schema-probe-" + str(os.getpid())
+        self.schema_probe_name = probe
+        try:
+            for group in databases[0]["vpc_security_group_ids"]:
+                # Do not revoke pre-existing admission. AWS rule IDs identify only rules this
+                # invocation actually created, and describe-before-create avoids duplicate writes.
+                existing = self.aws("ec2", "describe-security-group-rules", "--filters", "Name=group-id,Values=" + group).get("SecurityGroupRules", [])
+                if any(r.get("IsEgress") is False and r.get("IpProtocol") == "tcp" and r.get("FromPort") == port
+                       and r.get("ToPort") == port and r.get("CidrIpv4") == cidr for r in existing):
+                    continue
+                added = self.aws("ec2", "authorize-security-group-ingress", "--group-id", group,
+                                 "--ip-permissions", json.dumps([{"IpProtocol": "tcp", "FromPort": port, "ToPort": port,
+                                 "IpRanges": [{"CidrIp": cidr, "Description": "owned update rollback schema probe"}]}]))
+                ids = [r["SecurityGroupRuleId"] for r in added.get("SecurityGroupRules", [])]
+                require(bool(ids), "owned database admission identity unavailable")
+                rules.extend((group, identity) for identity in ids)
+            lines = protected.read_text().splitlines()
+            # Disable durable dispatch and do not connect to the operator controller's DB/Redis.
+            lines = [line for line in lines if not line.startswith(("ControlPlane__", "ConnectionStrings__", "HONUA_ADMIN_PASSWORD=",
+                     "Licensing__Mode=", "HONUA_SKIP_MIGRATIONS=", "ASPNETCORE_URLS=", "AWS_"))]
+            derived = {"ASPNETCORE_URLS": "http://127.0.0.1:18083", "HONUA_ADMIN_PASSWORD": self.api.credential,
+                       "ConnectionStrings__DefaultConnection": connection, "HONUA_SKIP_MIGRATIONS": "true", "Licensing__Mode": "Disabled"}
+            keys = self.target._state_secrets(("master_key",))
+            if len(keys) == 1:
+                derived["Security__ConnectionEncryption__MasterKey"] = keys[0]
+            derived.update(self.controller_credentials())
+            with tempfile.NamedTemporaryFile(mode="w", prefix="honua-schema-", delete=False) as temporary:
+                path = Path(temporary.name); path.chmod(0o600)
+                temporary.write("\n".join(lines + [key + "=" + str(value) for key, value in derived.items()]) + "\n")
+            try:
+                checked(self.run, ["docker", "run", "-d", "--name", probe, "--network", "host", "--env-file", str(path),
+                                  "--cap-drop", "ALL", "--security-opt", "no-new-privileges", candidate.image],
+                        "candidate read-only schema probe could not start", timeout=180)
+            finally:
+                path.unlink(missing_ok=True)
+            api = Api("http://127.0.0.1:18083", self.api.credential, loopback=True)
+            for _ in range(90):
+                try:
+                    view = self.schema_journal(api)
+                    require(view == self.journal, "candidate migration set differs from the actual baseline database")
+                    self.journal["candidateImageDigest"] = candidate.image.rsplit("@", 1)[1]
+                    return
+                except ProofError:
+                    self.sleep(2)
+            raise ProofError("candidate schema compatibility preflight refused before deployment mutation")
+        finally:
+            failures = []
+            try:
+                checked(self.run, ["docker", "rm", "-f", probe], "schema probe cleanup failed", timeout=60)
+            except ProofError:
+                failures.append("candidate-schema-probe")
+            for group, identity in rules:
+                try:
+                    self.aws("ec2", "revoke-security-group-ingress", "--group-id", group, "--security-group-rule-ids", identity)
+                except ProofError:
+                    failures.append("candidate-schema-probe-admission")
+            self.probe_cleanup_failures.extend(failures)
+            require(not failures, "candidate schema preflight cleanup incomplete")
+
+    def controller_credentials(self):
+        approved_role = os.environ.get("HONUA_UPDATE_ROLLBACK_CONTROLLER_ROLE_ARN", "")
+        require(approved_role.startswith("arn:aws:iam::") and ":role/" in approved_role,
+                "operator-approved independent controller role ARN required")
+        if self.safety:
+            require(approved_role == self.safety["controller_role_arn"], "approved controller role differs from maintained IaC safety output")
+        credentials = self.aws("sts", "assume-role", "--role-arn", approved_role,
+            "--role-session-name", "honua-update-rollback-controller", "--duration-seconds", "3600")["Credentials"]
+        return {"AWS_ACCESS_KEY_ID": credentials["AccessKeyId"], "AWS_SECRET_ACCESS_KEY": credentials["SecretAccessKey"],
+                "AWS_SESSION_TOKEN": credentials["SessionToken"], "AWS_REGION": self.target.region}
 
     def start_controller(self, prior, candidate):
         """Retain a separate server process/durable store for the entire switch and rollback.
 
         The protected env file supplies normal Production startup/audit/storage/Redis and telemetry
         configuration. Target identity/backend parameters come only from this restored IaC root.
-        The runner must already be using the approved independent controller role; no role adoption
-        or credential selection is inferred by this code.
+        An explicitly approved role ARN must match the maintained safety output; only that
+        controller assumes it. The runner keeps the provisioning identity for exact Terraform staging.
         """
         protected = Path(self.controller_env)
         require(not protected.is_symlink() and protected.stat().st_mode & 0o077 == 0, "controller env must be a private regular file")
@@ -124,6 +236,15 @@ class AwsRuntime:
         require(self.api.credential and not self.api.credential.startswith("Bearer "), "controller bootstrap requires the owned API key")
         require("ConnectionStrings__Redis=" in env and "ConnectionStrings__DefaultConnection=" in env,
                 "retained controller requires its protected persistent database and Redis")
+        controller_redis = next(line.split("=", 1)[1] for line in env.splitlines() if line.startswith("ConnectionStrings__Redis="))
+        def redis_store(value):
+            parts = value.split(",")
+            options = dict(part.split("=", 1) for part in parts[1:] if "=" in part)
+            database = next((v for k, v in options.items() if k.lower() == "defaultdatabase"), "0")
+            return parts[0].strip().lower(), database.strip()
+        for cell_redis in self.target._state_secrets(("redis_connection",)):
+            require(redis_store(controller_redis) != redis_store(cell_redis),
+                    "controller must use an independent durable Redis store, never the candidate execution queue")
         require(not any(line.startswith(("ControlPlane__DeployTargets__", "ControlPlane__PlatformRelease__", "ASPNETCORE_URLS="))
                         for line in env.splitlines()), "protected controller env must not override derived target/release wiring")
         target_id = self.safety["target_id"] if self.safety else self.output_value("control_plane_target_id")
@@ -133,22 +254,18 @@ class AwsRuntime:
         parameters = dict(self.safety["parameters"]) if self.safety else {
             "aws.lambda.function_name": self.output_value("lambda_function_name"), "aws.lambda.alias_name": "live",
             "aws.region": self.target.region}
-        if self.safety:
-            arn = self.aws("sts", "get-caller-identity")["Arn"]
-            role = self.safety["controller_role_arn"].rsplit("/", 1)[-1]
-            require(":assumed-role/" + role + "/" in arn, "runner does not hold the independent retained controller role")
         derived = {"ASPNETCORE_URLS": "http://127.0.0.1:18082", "HONUA_ADMIN_PASSWORD": self.api.credential,
             "Licensing__Mode": "Disabled", "HONUA_SKIP_MIGRATIONS": "true", "ControlPlane__DeployTargets__0__TargetId": target_id,
             "ControlPlane__DeployTargets__0__TargetKind": "AwsEcs" if self.safety else "AwsLambda",
             "ControlPlane__DeployTargets__0__Backend": backend, "ControlPlane__DeployTargets__0__TargetName": target_name,
             "ControlPlane__DeployTargets__0__Environment": "cert", "ControlPlane__DeployTargets__0__RequiresApproval": "true", "ControlPlane__PlatformRelease__Version":
-                str(candidate.manifest.get("platformRelease", "")),
-            "ControlPlane__PlatformRelease__ServingArtifactReference": candidate.image_for(self.cell)}
+                candidate.version,
+            "ControlPlane__PlatformRelease__ServingArtifactReference": candidate.image_for(self.cell),
+            "ControlPlane__PlatformRelease__Workers__0__RuntimeProfile": "managed",
+            "ControlPlane__PlatformRelease__Workers__0__ArtifactReference": candidate.image}
         for key, value in parameters.items():
             derived["ControlPlane__DeployTargets__0__Parameters__" + key] = str(value)
-        for key in ("AWS_ACCESS_KEY_ID", "AWS_SECRET_ACCESS_KEY", "AWS_SESSION_TOKEN", "AWS_REGION"):
-            if key in os.environ:
-                derived[key] = os.environ[key]
+        derived.update(self.controller_credentials())
         self.controller_name = "honua-rollback-" + hashlib.sha256((self.cell + str(os.getpid())).encode()).hexdigest()[:16]
         with tempfile.NamedTemporaryFile(mode="w", prefix="honua-controller-", delete=False) as temporary:
             path = Path(temporary.name)
@@ -202,6 +319,14 @@ class AwsRuntime:
             containers = [c for c in definition["containerDefinitions"] if c.get("essential") is True]
             require(len(containers) == 1, "ambiguous ECS server container")
             containers[0]["image"] = candidate.image
+            environment = [entry for entry in containers[0].get("environment", [])
+                           if not entry["name"].lower().startswith("controlplane__platformrelease__")]
+            environment.extend({"name": key, "value": value} for key, value in {
+                "ControlPlane__PlatformRelease__Version": candidate.version,
+                "ControlPlane__PlatformRelease__ServingArtifactReference": candidate.image,
+                "ControlPlane__PlatformRelease__Workers__0__RuntimeProfile": "managed",
+                "ControlPlane__PlatformRelease__Workers__0__ArtifactReference": candidate.image}.items())
+            containers[0]["environment"] = environment
             result = self.aws("ecs", "register-task-definition", "--cli-input-json", json.dumps(definition))
             desired = result["taskDefinition"]["taskDefinitionArn"]
             self.registered_tasks.append(desired)
@@ -210,7 +335,7 @@ class AwsRuntime:
             require(str(previous).isdigit() and int(previous) > 0, "published baseline Lambda version missing")
             require(self.mirror_repository, "approved same-region ECR mirror repository required")
             image = self.mirror_repository + "@" + candidate.lambda_digest
-            self.target.stage_lambda(image, str(previous), redis_enabled=self.cell.endswith("redis-on"))
+            self.target.stage_lambda(image, str(previous), redis_enabled=self.cell.endswith("redis-on"), release=candidate)
             desired = self.output_value("control_plane_desired_revision")
         require(desired != previous, "staged revision did not change")
         return {"previous": previous, "desired": desired}
@@ -223,7 +348,7 @@ class AwsRuntime:
         self.updated = True
         if self.deploy:
             return self.deploy.submit(revisions["previous"], revisions["desired"], self.controller_name + "-update")
-        self.target.update(self.candidate.image, redis_enabled=False)
+        self.target.update(self.candidate.image, redis_enabled=False, release=self.candidate)
         return {"actuator": "terraform-exact-apply"}
 
     def rollback(self, revisions):
@@ -234,7 +359,15 @@ class AwsRuntime:
 
     def observe(self, release, phase):
         if self.cell.startswith("aws-serverless/"):
-            function = self.output_value("lambda_function_name")
+            if self.cell.endswith("redis-on"):
+            require(self.output_value("gp_batch_prior_definitions_retained") is True,
+                    "maintained IaC must retain prior Batch revisions before worker image staging")
+            definitions = self.output_value("gp_job_definition_arns")
+            require(isinstance(definitions, dict) and set(definitions) == {"s", "m", "l", "xl"}
+                    and all(isinstance(value, str) and value.startswith("arn:aws:batch:") and ":job-definition/" in value
+                            for value in definitions.values()), "owned retained Batch revision identities missing")
+            self.retained_batch_definitions = list(definitions.values())
+        function = self.output_value("lambda_function_name")
             alias = self.aws("lambda", "get-alias", "--function-name", function, "--name", "live")
             require(not alias.get("RoutingConfig", {}).get("AdditionalVersionWeights"), "Lambda alias still splits candidate traffic")
             result = self.aws("lambda", "get-function", "--function-name", function, "--qualifier", alias["FunctionVersion"])
@@ -257,7 +390,9 @@ class AwsRuntime:
             result = self.aws("ecs", "describe-tasks", "--cluster", cluster, "--tasks", *arns)
             require(not result.get("failures") and len(result.get("tasks", [])) == len(arns), "incomplete native ECS task observation")
             server = release.manifest["components"]["honua-server"]
-            accepted = {server["digest"], *server.get("platformDigests", {}).values()}
+            architecture = {"x86_64": "amd64", "arm64": "arm64"}.get(server.get("awsEcsArchitecture"))
+            require(architecture is not None, "declared ECS architecture missing")
+            accepted = {server["digest"], server.get("platformDigests", {}).get(architecture)} - {None}
             for task in result["tasks"]:
                 containers = [c for c in task.get("containers", []) if c.get("image", "").split("@", 1)[0] == release.image.split("@", 1)[0]]
                 require(task.get("lastStatus") == "RUNNING" and len(containers) == 1
@@ -273,30 +408,43 @@ class AwsRuntime:
         capabilities = capabilities.get("data", capabilities)
         require(capabilities.get("contractVersions") == release.manifest["components"]["honua-server"].get("contractVersions"),
                 "booted contract versions differ from the retained input manifest")
+        require(str(capabilities.get("schemaVersions", {}).get("database")) == release.schema, "booted schema declaration differs from the retained build")
         query = urllib.parse.urlencode({"f": "geojson", "where": "1=1", "outFields": "*", "outSR": 4326, "returnGeometry": "true"})
         path = f"/rest/services/e2e/FeatureServer/{self.fixture['layerId']}/query?{query}"
         features = self.api.get(path).get("features")
         require(isinstance(features, list) and len(features) == 2, "authored serving fixture missing")
-        actual = sorted(({"id": str(f.get("id")), "name": f.get("properties", {}).get("name"), "geometry": f.get("geometry")} for f in features), key=lambda f: f["id"])
-        require(actual == self.fixture["expectedFeatures"], "served data differs from independent authored fixture")
-        require(self.schema_journal() == self.journal, "schema changed unexpectedly across image switch")
+        prove_serving_features({"features": features}, self.fixture)
+        require(self.schema_journal() == {k: v for k, v in self.journal.items() if k != "candidateImageDigest"}, "schema changed unexpectedly across image switch")
         return {"phase": phase, "observedAt": time.time(), "native": native, "sourceRevision": source,
                 "schemaJournal": self.journal, "servingFixture": {k: v for k, v in self.fixture.items() if k != "expectedFeatures"}}
 
     def submit_job(self):
-        status, result = self.api.request("POST", "/ogc/processes/processes/geometry.centroid/execution", self.workload)
+        status, result = self.api.request("POST", "/ogc/processes/processes/" + self.process_id + "/execution", self.workload)
         require(status == 201 and result.get("status") in ("accepted", "running"), "real durable centroid submission refused")
+        self.submitted_job = result.get("jobID")
         return result
 
     def job(self, identity):
         return self.api.get("/api/v1/admin/jobs/" + urllib.parse.quote(identity, safe=""))
 
     def refusal(self):
-        code, result = self.api.request("POST", "/ogc/processes/processes/geometry.centroid/execution", self.workload)
-        forbidden = {"jobId", "jobID", "operationId", "operationInstanceId", "resourceUri", "createdAt"}
+        code, result = self.api.request("POST", "/ogc/processes/processes/geometry.centroid/execution", centroid_workload(4))
+        forbidden = {"jobId", "jobID", "operationId", "operationInstanceId", "resourceUri", "jobCreatedAt", "jobStatus"}
+        def execution_evidence(value):
+            if isinstance(value, dict):
+                return any(key in forbidden and item or execution_evidence(item) for key, item in value.items())
+            if isinstance(value, list):
+                return any(execution_evidence(item) for item in value)
+            if isinstance(value, str):
+                try:
+                    parsed = json.loads(value)
+                except ValueError:
+                    return False
+                return isinstance(parsed, (dict, list)) and execution_evidence(parsed)
+            return False
         require(code == 503 and result.get("code") == "dependency-unavailable"
                 and result.get("capability") == "jobs.runner" and result.get("missingDependency") == "redis"
-                and not any(result.get(key) for key in forbidden), "Redis-off request did not return a typed nonexecuted Redis refusal")
+                and not execution_evidence(result), "Redis-off request did not return a typed nonexecuted Redis refusal")
         manifest = self.api.get("/api/v1/capabilities/manifest")
         rows = manifest.get("capabilities", [])
         runner = [row for row in rows if row.get("id") == "jobs.runner"]
@@ -318,15 +466,20 @@ class AwsRuntime:
                 feature = json.loads(base64.b64decode(href.split(",", 1)[1], validate=True))
             except (ValueError, TypeError) as exc:
                 raise ProofError("centroid artifact is invalid") from exc
-        geometry, properties = feature.get("geometry", {}), feature.get("properties", {})
-        xy = geometry.get("coordinates")
-        require(feature.get("type") == "Feature" and geometry.get("type") == "Point"
-                and isinstance(xy, list) and len(xy) == 2 and all(type(n) in (int, float) and math.isfinite(n) and abs(n) <= 1e-8 for n in xy)
-                and properties.get("processId") == "geometry.centroid" and properties.get("inputSrid") == 4326,
-                "centroid output differs from independently authored origin oracle")
+        if self.expected_feature is not None:
+            require(feature == self.expected_feature, "real GP output differs from the independently authored reviewed feature")
+            oracle = "retained-reviewed-feature"
+        else:
+            geometry, properties = feature.get("geometry", {}), feature.get("properties", {})
+            xy = geometry.get("coordinates")
+            require(feature.get("type") == "Feature" and geometry.get("type") == "Point"
+                    and isinstance(xy, list) and len(xy) == 2 and all(type(n) in (int, float) and math.isfinite(n) and abs(n) <= 1e-8 for n in xy)
+                    and properties.get("processId") == "geometry.centroid" and properties.get("inputSrid") == 4326,
+                    "centroid output differs from independently authored origin oracle")
+            oracle = "symmetric-polygon-centroid-origin"
         return {"sha256": digest(json.dumps(feature, sort_keys=True, separators=(",", ":"), allow_nan=False).encode()),
-                "fixtureSha256": digest(json.dumps(self.workload, sort_keys=True, separators=(",", ":")).encode()),
-                "oracle": "symmetric-polygon-centroid-origin", "featureCount": 1}
+                "fixtureSha256": self.workload_binding,
+                "oracle": oracle, "featureCount": 1}
 
     def execution_events(self, identity, started):
         # Query all streams in every declared worker log group, with AWS CLI automatic pagination.
@@ -384,15 +537,81 @@ class AwsRuntime:
                 "eventIdsSha256": digest(json.dumps(sorted(started_events | completed_events)).encode())}
 
     def close(self):
-        failures = []
+        failures = list(self.probe_cleanup_failures)
+        if self.submitted_job:
+            try:
+                row = self.job(self.submitted_job)
+                if row.get("status") not in ("Succeeded", "Failed", "Cancelled"):
+                    code, _ = self.api.request("DELETE", "/ogc/processes/jobs/" + urllib.parse.quote(self.submitted_job, safe=""))
+                    require(code in (200, 202), "owned GP cleanup cancellation refused")
+                    for _ in range(60):
+                        if self.job(self.submitted_job).get("status") in ("Succeeded", "Failed", "Cancelled"):
+                            break
+                        self.sleep(2)
+                    else:
+                        raise ProofError("owned GP cancellation not confirmed")
+            except ProofError:
+                failures.append("owned-inflight-job")
         if self.controller_name:
             try:
                 checked(self.run, ["docker", "rm", "-f", self.controller_name], "retained controller cleanup failed", timeout=60)
             except ProofError:
                 failures.append("retained-controller")
+        # Only the exact baseline revisions created by this run are retained out of Terraform's
+        # current resource state. All owned jobs are terminal before these are deregistered.
+        if "owned-inflight-job" not in failures:
+            for definition in self.retained_batch_definitions:
+                try:
+                    self.aws("batch", "deregister-job-definition", "--job-definition", definition)
+                except ProofError:
+                    failures.append("retained-batch-definition")
+        elif self.retained_batch_definitions:
+            failures.append("retained-batch-definition-awaiting-job")
         for task in self.registered_tasks:
             try:
                 self.aws("ecs", "deregister-task-definition", "--task-definition", task)
             except ProofError:
                 failures.append("staged-task-definition")
         return failures
+
+
+def serving_path(fixture):
+    query = urllib.parse.urlencode({"f": "geojson", "where": "1=1", "outFields": "*", "outSR": 4326, "returnGeometry": "true"})
+    return f"/rest/services/e2e/FeatureServer/{fixture['layerId']}/query?{query}"
+
+
+def prove_serving_features(document, fixture):
+    features = document.get("features")
+    require(isinstance(features, list) and len(features) == 2, "authored serving fixture missing")
+    actual = sorted(({"id": str(f.get("id")), "name": f.get("properties", {}).get("name"), "geometry": f.get("geometry")}
+                     for f in features), key=lambda f: f["id"])
+    require(actual == fixture["expectedFeatures"], "served data differs from independent authored fixture")
+
+
+def configure_ecs_safety(target, endpoint, serving_fixture):
+    """Wire the maintained root after seeding, before handing a baseline to any candidate client.
+
+    Role/telemetry identities and bounded timing policy are operator approved. The functional URL
+    targets this run's authored data; its expected body is captured from A only AFTER verifying
+    every feature against the independent source SQL oracle. It never trusts B to define success.
+    """
+    configured = os.environ.get("HONUA_UPDATE_ROLLBACK_ECS_SAFETY", "")
+    require(bool(configured), "operator-approved retained ECS safety/telemetry inputs required")
+    settings = json.loads(configured)
+    allowed = {"controller_role_name", "telemetry_connection_id", "prometheus_canary_job", "observation_window_seconds",
+               "recovery_timeout_seconds", "warmup_seconds", "evidence_grace_seconds", "max_staleness_seconds", "exposure_deadline_seconds"}
+    require(isinstance(settings, dict) and set(settings) <= allowed
+            and {"controller_role_name", "telemetry_connection_id", "prometheus_canary_job"} <= set(settings),
+            "operator ECS safety fields are incomplete or override derived functional proof")
+    import cloud_journey
+    cloud_journey.drivers()
+    import refusal_profile
+    fixture = refusal_profile.fixture_binding(serving_fixture)
+    anonymous = Api(endpoint, "", anonymous=True)
+    document = anonymous.get(serving_path(fixture))
+    prove_serving_features(document, fixture)
+    settings.update(functional_probe_url=endpoint.rstrip("/") + serving_path(fixture),
+                    functional_expected_sha256=hashlib.sha256(anonymous.last_body).hexdigest())
+    require(target._root_declares("deployment_safety"), "pinned ECS root lacks retained controller safety wiring")
+    target._exact_image_apply(os.environ[target.spec.image_env], redis_enabled=True,
+                             extra_vars=("-var=deployment_safety=" + json.dumps(settings, separators=(",", ":")),))

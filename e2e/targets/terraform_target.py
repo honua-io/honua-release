@@ -333,6 +333,11 @@ class TerraformTarget(DeployTarget):
                 raise ProvisionError(f"{self.name}: {self.spec.opt_in_env}=true but the pinned root does "
                                      f"not declare {', '.join(undeclared)}")
             values.extend(f"-var={v}" for v in self.spec.opt_in_vars)
+        if (redis_enabled and self.name == "aws-serverless" and getattr(self, "transition_release", None) is not None):
+            if not self._root_declares("gp_batch_retain_prior_definitions") and not destroy:
+                raise ProvisionError("update/rollback requires a root with explicit prior Batch revision retention")
+            if self._root_declares("gp_batch_retain_prior_definitions"):
+                values.append("-var=gp_batch_retain_prior_definitions=true")
         if redis_enabled:
             values.extend(self._redis_on_scale_vars(prefix))
             values.extend(self._file_storage_vars(prefix, destroy=destroy))
@@ -378,6 +383,14 @@ class TerraformTarget(DeployTarget):
                 "issuer": "https://terminal-journey.invalid", "audience": "terminal-journey",
                 "signing_key_secret_arn": fixture_secret["arn"],
                 "signing_key_secret_version_id": fixture_secret["versionId"]}, separators=(",", ":")))
+        release = getattr(self, "transition_release", None)
+        if release is not None and not destroy:
+            if not self._root_declares("platform_release"):
+                raise ProvisionError("transition baseline requires the maintained typed platform_release input")
+            serving = os.environ.get(self.spec.image_env, "")
+            values.append("-var=platform_release=" + json.dumps({"version": release.version,
+                "serving_artifact_reference": serving,
+                "workers": [{"runtime_profile": "managed", "artifact_reference": release.image}]}, separators=(",", ":")))
         return values
 
     def _tag_vars(self, redis_enabled: bool) -> list[str]:
@@ -635,6 +648,17 @@ class TerraformTarget(DeployTarget):
         try:
             # Save and apply an exact plan; do not re-plan different inputs after preflight.
             self._tf(root, "plan", "-input=false", "-out=honua-update.tfplan", *variables)
+            if self.name == "aws-serverless" and redis_enabled:
+                planned = json.loads(self._tf(root, "show", "-json", "honua-update.tfplan").stdout)
+                for resource in planned.get("resource_changes", []):
+                    change = resource.get("change", {})
+                    if resource.get("type") == "aws_batch_job_definition":
+                        if "delete" in change.get("actions", []):
+                            raise ProvisionError("Lambda rollback requires retained active prior Batch definitions; plan would deregister one")
+                        before, after = change.get("before") or {}, change.get("after") or {}
+                        if (before.get("container_properties") != after.get("container_properties")
+                                and after.get("deregister_on_new_revision") is not False):
+                            raise ProvisionError("Lambda rollback requires deregister_on_new_revision=false before worker revision staging")
             self._tf(root, "apply", "-input=false", "-auto-approve", "honua-update.tfplan")
         except (OSError, subprocess.SubprocessError) as error:
             raise ProvisionError("exact candidate Terraform transition failed") from error
@@ -643,12 +667,15 @@ class TerraformTarget(DeployTarget):
         self._last_vars = variables
         self._workdir = root
 
-    def update(self, image: str, *, redis_enabled: bool = False) -> None:
+    def update(self, image: str, *, redis_enabled: bool = False, release=None) -> None:
         """ECS Redis-off's explicit Terraform actuator; never substitute it for a native backend."""
         if self.name != "aws-ecs" or redis_enabled:
             raise ProvisionError("exact Terraform update is only the ECS Redis-off actuator")
         self._rollback_vars = list(self._last_vars or self._vars(False))
-        self._exact_image_apply(image, redis_enabled=False)
+        extra = () if release is None else ("-var=platform_release=" + json.dumps({"version": release.version,
+            "serving_artifact_reference": image, "workers": [{"runtime_profile": "managed", "artifact_reference": release.image}]},
+            separators=(",", ":")),)
+        self._exact_image_apply(image, redis_enabled=False, extra_vars=extra)
 
     def rollback(self) -> None:
         variables = getattr(self, "_rollback_vars", None)
@@ -661,14 +688,20 @@ class TerraformTarget(DeployTarget):
         self._last_vars = variables
         self._exact_image_apply(image[0], redis_enabled=False)
 
-    def stage_lambda(self, image: str, previous_version: str, *, redis_enabled: bool) -> None:
+    def stage_lambda(self, image: str, previous_version: str, *, redis_enabled: bool, release=None) -> None:
         """Publish B while live remains pinned to A; the supported alias backend performs exposure."""
         if self.name != "aws-serverless" or not previous_version.isdigit() or int(previous_version) < 1:
             raise ProvisionError("Lambda staging requires a published retained alias version")
         if not self._root_declares("lambda_alias_version"):
             raise ProvisionError("pinned Lambda root cannot retain the baseline alias during staging")
-        self._exact_image_apply(image, redis_enabled=redis_enabled,
-                                extra_vars=("-var=lambda_alias_version=" + previous_version,))
+        extra = ["-var=lambda_alias_version=" + previous_version]
+        if release is not None:
+            extra.append("-var=platform_release=" + json.dumps({"version": release.version,
+                "serving_artifact_reference": image, "workers": [{"runtime_profile": "managed", "artifact_reference": release.image}]},
+                separators=(",", ":")))
+            if redis_enabled:
+                extra.append("-var=gp_batch_image=" + release.image)
+        self._exact_image_apply(image, redis_enabled=redis_enabled, extra_vars=tuple(extra))
 
     def teardown(self, redis_enabled: bool | None = None) -> None:
         # Fail-closed: a destroy that does not complete has left real, billing AWS resources behind
