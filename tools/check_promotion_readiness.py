@@ -210,7 +210,8 @@ def _update_rollback_observations(cell):
     before, after = cell["fromDigest"], cell["toDigest"]
     image_key = "lambdaImageDigest" if cell["cell"].startswith("aws-serverless/") else "imageDigest"
     for release, expected in ((prior, before), (candidate, after)):
-        if (release.get(image_key) != expected or not _is_digest(release.get("manifestDigest"))
+        if (release.get(image_key) != expected or not _is_digest(release.get("imageDigest"))
+                or not _is_digest(release.get("lambdaImageDigest")) or not _is_digest(release.get("manifestDigest"))
                 or not isinstance(release.get("sourceRevision"), str)
                 or re.fullmatch(r"[0-9a-f]{40}", release["sourceRevision"]) is None
                 or release.get("schemaVersion") != cell["schemaBoundary"].get("schemaVersion")):

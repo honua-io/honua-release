@@ -825,7 +825,7 @@ def test_rollback_transition_needs_its_own_complete_execution_proof(mutation):
 @pytest.mark.parametrize('cell_name', GA_CELLS)
 @pytest.mark.parametrize('mutation', ['missing-observations', 'short-observations', 'reordered', 'same-time', 'wrong-source',
     'wrong-image', 'wrong-fixture', 'missing-fixture-hash', 'wrong-journal', 'missing-update', 'missing-rollback',
-    'status-only-update', 'status-only-rollback', 'wrong-operation', 'same-revision', 'wrong-release', 'same-source'])
+    'status-only-update', 'status-only-rollback', 'wrong-operation', 'same-revision', 'wrong-release', 'same-source', 'missing-journal-image', 'nonfinite-time'])
 def test_update_rollback_requires_retained_routing_and_concrete_actuator_proof(cell_name, mutation):
     cells = [_update_cell(name) for name in GA_CELLS]
     targets = {cell['cell']: cell['toDigest'] for cell in cells}
@@ -849,6 +849,10 @@ def test_update_rollback_requires_retained_routing_and_concrete_actuator_proof(c
     elif mutation == 'same-revision':
         if cell_name == 'aws-ecs/redis-off': cell['rollbackOperation']['planSha256'] = cell['updateOperation']['planSha256']
         else: cell['rollbackOperation']['observedRevision'] = cell['updateOperation']['observedRevision']
+    elif mutation == 'nonfinite-time': cell['observations'][1]['observedAt'] = float('nan')
+    elif mutation == 'missing-journal-image':
+        cell['candidate']['imageDigest'] = None
+        for row in cell['observations']: row['schemaJournal']['candidateImageDigest'] = None
     elif mutation == 'wrong-release': cell['candidate']['lambdaImageDigest' if cell_name.startswith('aws-serverless/') else 'imageDigest'] = cell['fromDigest']
     else: cell['candidate']['sourceRevision'] = cell['prior']['sourceRevision']
     assert not readiness._update_rollback_cells(cells, targets), (cell_name, mutation)
