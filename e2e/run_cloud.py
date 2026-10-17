@@ -403,7 +403,8 @@ def teardown_phase(state: dict, journey: dict, target, *, reference_endpoint: st
     # independent obligations. An error in any one must not bypass the following obligations.
     try:
         try:
-            if cell in ("aws-ecs/redis-off", "aws-serverless/redis-off") and report["journeyAttempts"]:
+            if cell in ("aws-ecs/redis-off", "aws-serverless/redis-off") and any(
+                    record.get("servingRefusal") for record in report["journeyAttempts"]):
                 try:
                     pinned = cloud_journey.manifest()
                     after_image = (cloud_journey.observe_ecs_image(target, pinned)[0] if state["target"] == "aws-ecs"

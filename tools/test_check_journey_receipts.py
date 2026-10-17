@@ -478,3 +478,48 @@ def test_promotion_still_requires_only_the_four_ecs_and_lambda_cells():
     # Both gates consume the explicitly reviewed ECS/Lambda scope; EKS stays visible as Preview.
     import check_promotion_readiness as promotion
     assert promotion.GA_CELLS == frozenset(c for c in checker.GA_CELLS if not c.startswith("aws-eks/"))
+
+
+def test_failed_raw_blocked_profile_then_success_survives_collection_mint_and_readiness(intake, tmp_path):
+    import mint_nightly_lock as mint
+    import check_promotion_readiness as readiness
+    cell = 'aws-ecs/redis-off'
+    first = receipt(cell); first['status'] = 'blocked'
+    for stage in first['stages'][2:]:
+        stage.update(status='blocked', blockedBy=['honua-release#381'])
+        for check in stage['checks']: check['status'] = 'blocked'
+        for key in ('jobId', 'operationId', 'operationInstanceId', 'resourceUri', 'jobStatus', 'jobCreatedAt'):
+            stage[key] = None
+    produced = intake.write(cell, [first, receipt(cell)], attributions=['infrastructure', None])
+    before = [(intake.directory(cell) / record['receipt']).read_bytes() for record in produced['journeyAttempts']]
+    collected = intake.evaluate()
+    assert collected['status'] == 'pass', collected['why']
+    attempts = collected['cells'][0]['attempts']
+    assert [a['status'] for a in attempts] == ['fail', 'pass']
+    assert attempts[0]['sourceStatus'] == 'blocked' and attempts[0]['failureAttribution'] == 'infrastructure'
+    assert attempts[1]['functionalGpExecuted'] is False and attempts[1]['executionOutcome'] == 'refused'
+    assert before == [(intake.directory(cell) / record['receipt']).read_bytes() for record in produced['journeyAttempts']]
+    lock = tmp_path / 'qualification-lock.json'; lock.write_text('{"testOnly":"bound-bytes"}')
+    report = {'generatedAt': NOW.isoformat(), 'gates': [{'gate': gate, 'status': 'pass'} for gate in set(mint.CLASS_GATES.values())],
+        'candidate': {'train': {'runId': RUN, 'runAttempt': int(RUN_ATTEMPT)},
+                      'artifacts': {'platform-manifest.yaml': {'sha256': intake.digest}}}}
+    declared = mint.declare_evidence(report, lock, [collected])['evidenceReceipts']['deterministic-journey']
+    assert declared['status'] == 'pass'
+    assert readiness._journey(declared, frozenset(checker.GA_CELLS), 'deterministic',
+        'sha256:' + hashlib.sha256(lock.read_bytes()).hexdigest(), timestamp(STAMP), NOW)
+    copied = copy.deepcopy(declared)
+    copied['cells'][0]['attempts'][-1]['functionalGpExecuted'] = True
+    assert not readiness._journey(copied, frozenset(checker.GA_CELLS), 'deterministic',
+        declared['lockDigest'], timestamp(STAMP), NOW)
+
+
+def test_legacy_off_receipt_without_explicit_profile_cannot_qualify(intake):
+    cell = 'aws-ecs/redis-off'
+    report = intake.write(cell)
+    report['journeyAttempts'][0].pop('servingRefusal')
+    intake.save(cell, report)
+    assert_red(intake, 'missing or changed serving/refusal')
+
+
+def timestamp(value):
+    return datetime.fromisoformat(value.replace('Z', '+00:00'))

@@ -223,7 +223,7 @@ def attach_fixture_profile(directory, raw, record):
     seed.write_text(json.dumps({'slice1': {'e2e_src_fs': {'service': 'e2e', 'layerId': 7}},
                                 'layers': {'e2e_src_fs': 7}}))
     fixture = profile.oracle().fixture_binding(seed)
-    raw['target'].update(baseUrl='https://cell.invalid', configSha256=profile.sha(target_path.read_bytes()))
+    raw['target'].update(baseUrl='https://cell.invalid', redisTopology='redis-off', configSha256=profile.sha(target_path.read_bytes()))
     if raw['status'] == 'pass':
         gp = raw['stages'][4]
         for key in ('jobId', 'operationId', 'operationInstanceId', 'jobStatus', 'resourceUri', 'jobCreatedAt'):
@@ -256,3 +256,77 @@ def attach_fixture_profile(directory, raw, record):
     {'encoded': json.dumps({'nested': {'resourceUri': 'honua://jobs/real-job'}})}])
 def test_refusal_rejects_nested_or_encoded_partial_job_evidence(extra):
     with pytest.raises(ValueError): profile.check_refusal({**REFUSAL, **extra})
+
+
+@pytest.mark.parametrize('artifact', ['receipt-1.json', 'target-1.json', 'serving-refusal-1.json', 'extended/seed-manifest.json'])
+def test_adjacent_profile_artifacts_cannot_be_symlinks(sample, artifact, tmp_path):
+    proof, record, raw, raw_bytes, target = sample
+    sidecar = tmp_path / 'serving-refusal-1.json'
+    sidecar.write_text(json.dumps(proof))
+    record['servingRefusal'] = {'file': sidecar.name, 'sha256': profile.sha(sidecar.read_bytes())}
+    file = tmp_path / artifact
+    outside = tmp_path.parent / (tmp_path.name + '-external.json')
+    outside.write_bytes(file.read_bytes()); file.unlink(); file.symlink_to(outside)
+    pinned = {'components': {'honua-server': {'sha': SERVER['sourceSha'],
+        'image': 'ghcr.io/honua/server', 'digest': 'sha256:' + 'b'*64}}}
+    try:
+        with pytest.raises(ValueError, match='unsafe or missing'):
+            profile.validate_record(record, raw, tmp_path / 'receipt-1.json', cell=record['cell'],
+                pinned=pinned, digest='c'*64, at=NOW)
+    finally: outside.unlink()
+
+
+def test_real_profile_driver_setup_and_execute_receive_only_private_tenant_context(tmp_path, monkeypatch):
+    import os
+    import cloud_journey as cloud
+    driver, adapter = cloud.drivers()
+    target = cloud.cloud_targets().build(json.loads(adapter.DEFAULT_TARGET.read_bytes()),
+        cell='aws-ecs/redis-off', endpoint='https://cell.example', tenant_fixture=True)
+    path = tmp_path / 'target.json'; path.write_text(json.dumps(target))
+    seed = tmp_path / 'extended/seed-manifest.json'; seed.parent.mkdir()
+    seed.write_text(json.dumps({'slice1': {'e2e_src_fs': {'service': 'e2e', 'layerId': 7}}, 'layers': {'e2e_src_fs': 7}}))
+    manifest = cloud.manifest(); image = cloud.candidate_image(target['id'], manifest)
+    deployment = tmp_path / 'deployment.json'
+    deployment.write_text(json.dumps({'status': 'pass', 'target': {'id': target['id'],
+        'baseUrl': target['replicaBaseUrl'], 'configSha256': profile.sha(path.read_bytes())},
+        'server': {'sourceSha': manifest['components']['honua-server']['sha'], 'image': image},
+        'stages': [{'number': 1, 'status': 'pass', 'checks': [{'id': '1.1-candidate-image', 'status': 'pass'}],
+                    'evidence': {'source': 'live-aws-ecs', 'freshness': 'verified-current'}}]}))
+    workspace = mock.Mock(status='pass', install_notes=[])
+    workspace.as_receipt.return_value = {'status': 'pass'}
+    stages = sys.modules['stages']
+    observation = stages.Observation(ready=True, setup_view_present=True)
+    key = 'a'*64; seen = []
+    def credentials(target, workdir, base_url, **kwargs):
+        assert target['tenantFixture']
+        assert kwargs.get('tenant_signing_key') == key
+        assert not any(name.startswith(('AWS_', 'ACTIONS_ID_TOKEN_REQUEST_', 'HONUA_AWS_'))
+                       or name in ('GH_TOKEN', 'GITHUB_TOKEN') for name in os.environ)
+        seen.append(kwargs.get('mint', False))
+        return {'operator': 'run-owned-operator'}
+    engine = mock.Mock()
+    engine.view.side_effect = RuntimeError('stop after real execution credential handoff')
+    monkeypatch.setenv('AWS_SECRET_ACCESS_KEY', 'must-strip')
+    monkeypatch.setenv('GH_TOKEN', 'must-strip')
+    monkeypatch.setenv('HONUA_CLOUD_JOURNEY_ADMIN', 'app-only-key')
+    with mock.patch.object(adapter, 'STATE_ROOT', tmp_path / 'sessions'), \
+         mock.patch.object(adapter.pins, 'resolve_client_workspace', return_value=workspace), \
+         mock.patch.object(adapter.pins, 'install_executables', return_value=(tmp_path / 'bin', '', [])), \
+         mock.patch.object(driver, 'observe', return_value=observation), \
+         mock.patch.object(adapter.local_fixture, 'credentials', side_effect=credentials), \
+         mock.patch.object(adapter, 'Transport'), \
+         mock.patch.object(adapter.executor, 'JourneyExecutor', return_value=engine), \
+         mock.patch.object(adapter.local_fixture, 'revoke', return_value=([], [])):
+        with driver.pins.candidate_sandbox(), cloud.tenant_application_key(key):
+            setup = adapter.op_setup({'target': str(path), 'profile': profile.PROFILE,
+                'deploymentReceipt': {'path': str(deployment), 'sha256': profile.sha(deployment.read_bytes())},
+                'servingFixture': {'path': str(seed), 'sha256': profile.sha(seed.read_bytes())}})
+            assert setup['status'] == 'ready'
+            with pytest.raises(RuntimeError, match='real execution credential handoff'):
+                adapter.op_execute({'workspaceId': setup['workspaceId'], 'profile': profile.PROFILE,
+                                    'stage': 'serving-read', 'action': {}})
+            state_bytes = adapter._state_path(setup['workspaceId']).read_bytes()
+            assert key.encode() not in state_bytes and b'must-strip' not in state_bytes
+            assert adapter.op_teardown({'workspaceId': setup['workspaceId']})['status'] == 'pass'
+        assert 'HONUA_CANARY_TENANT_SIGNING_KEY' not in os.environ
+    assert seen == [True, False]
