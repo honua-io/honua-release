@@ -4279,7 +4279,7 @@ def test_ecs_readiness_diagnostics_capture_stop_reasons_and_the_server_log_tail(
         return subprocess.CompletedProcess(argv, 0, json.dumps(payload), "")
 
     report = run_cloud.ecs_readiness_diagnostics(target, run=run, redact=run_cloud._redact_log)
-    assert run_cloud.cloud_journey.PREVIEW_TARGETS == ()
+    assert run_cloud.cloud_journey.PREVIEW_TARGETS == ("aws-eks",)
     assert report["cluster"] == "c1" and report["service"] == "s1"
     task = report["tasks"][0]
     assert task["stoppedReason"] == "Essential container in task exited"
