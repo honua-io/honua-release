@@ -102,7 +102,25 @@ while (await Console.In.ReadLineAsync() is { } line)
     catch (Exception error) when (error is not OutOfMemoryException)
     {
         var actual = error is TargetInvocationException invocation ? invocation.InnerException! : error;
-        var problemType = (actual as HonuaException)?.ProblemDetails?.Type;
+        var problem = (actual as HonuaException)?.ProblemDetails;
+        var problemType = problem?.Type;
+        // These local diagnostic labels classify fixed validation messages, never echo them.
+        var diagnosticReason = problem?.Detail switch
+        {
+            "Invalid request body" => "invalid-request-body",
+            "Request body is required" => "missing-request-body",
+            "ServiceUrl is required" => "missing-source-url",
+            "TableName is required" => "missing-target-table",
+            "Invalid table name. Use only letters, numbers, and underscores." => "invalid-target-table",
+            "Invalid target schema. Use only letters, numbers, and underscores." => "invalid-target-schema",
+            "ServiceUrl must be a valid HTTPS URL" => "invalid-source-https-url",
+            "ServiceUrl must not include embedded credentials." => "source-embedded-credentials",
+            "ServiceUrl must not include credential query parameters; use the credentials object instead." => "source-query-credentials",
+            "ServiceUrl resolves to a private, loopback, or unresolvable network address, which is not allowed." => "source-address-rejected",
+            "ServiceUrl host is not in the configured Migration:AllowedServiceHostSuffixes allowlist." => "source-host-not-allowed",
+            "Distributed import coordination is unavailable. Retry when Redis is healthy." => "import-coordination-unavailable",
+            _ => (string?)null
+        };
         // Keep bounded identifiers; response bodies, occurrence details and exception messages
         // may contain request data and never enter certification evidence.
         if (problemType is not { Length: > 0 and <= 160 } ||
@@ -113,6 +131,7 @@ while (await Console.In.ReadLineAsync() is { } line)
             ok = false, errorType = actual.GetType().Name,
             httpStatus = (actual as HonuaException)?.HttpStatus,
             problemType,
+            diagnosticReason,
             code = actual is HonuaFeatureServerException fs ? fs.GeoServicesErrorCode : null
         }, json));
     }
