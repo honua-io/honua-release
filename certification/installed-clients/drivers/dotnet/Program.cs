@@ -256,8 +256,8 @@ async Task RunAdmin(Dictionary<string, object> state)
             DatabaseName = db["databaseName"]!.GetValue<string>(),
             Username = db["username"]!.GetValue<string>(),
             Password = dbPassword,
-            SslRequired = false,
-            SslMode = "Disable",
+            SslRequired = db["sslRequired"]?.GetValue<bool>() ?? false,
+            SslMode = db["sslMode"]?.GetValue<string>() ?? "Disable",
         });
         state["connection"] = created.ConnectionId.ToString();
         return new JsonObject { ["connectionId"] = created.ConnectionId.ToString() };

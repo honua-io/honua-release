@@ -73,6 +73,36 @@ candidate PostgreSQL service, applies the shared seed once, then runs every inst
 against that same target before teardown. Omitting `--live` is an install-integrity preflight and
 cannot be used as release evidence.
 
+## Existing AWS endpoint
+
+The existing AWS cell workflow also invokes this complete suite on ECS/Redis-on and
+Lambda+Batch/Redis-on. Provisioning applies the same committed fixture SQL and publishes the
+fixture layers. Its application credentials, short-lived bearer and separate principals travel
+only in the encrypted handoff to the journey job. That job has no cloud role or OIDC exchange
+token; installers and drivers receive an allowlisted environment. Datasource clients honor the
+provisioned database's TLS settings.
+
+`run.py --endpoint-context <private-context.json> --subset all --evidence-uri <run-uri>` is the
+equivalent endpoint entrypoint. The context must be owner-readable only and prepared by the
+trusted provisioner; it is never an uploaded artifact. It binds the workflow run/attempt, endpoint,
+cell, manifest digest, observed running image and source revision, and committed fixture bytes.
+The endpoint independently advertises its exact source before and after execution. A supplied
+context alone is not cloud attestation; qualification comes from the trusted workflow's observed
+deployment and retained receipt. The receipt contains the nonsecret deployment binding only.
+
+Redis-off retains the existing serving and typed-refusal scenarios. It does not run or claim the
+full installed-client workflow suite. Both Redis-on runs retain all 41 matrix cells, including
+their blockers; missing import-fidelity proof retains all 142 supported requirements and ten
+not-applicable requirements. A closed upstream issue cannot reactivate a row without a real
+published-pin replay and reviewed matrix change. Missing fixture prerequisites report blocked,
+identity/install/oracle failures report fail, and neither outcome qualifies a cell.
+
+The image binding uses the existing per-cell resolver: ECS uses the generic server image;
+Lambda uses the dedicated Lambda artifact after its ECR mirror digest is read back and verified.
+The approved HTTP exception for an owned ALB remains a harness transport rule. Published CLI/MCP
+clients retain their HTTPS requirement, so such a cell reports an explicit missing HTTPS prerequisite
+before installing clients and emits no synthetic client receipt. Other HTTP hosts remain refused.
+
 ## SDK regression scenarios
 
 The matrix also holds one cell per published SDK (Python, JS, .NET) and scenario in `scenarios/*.json`:

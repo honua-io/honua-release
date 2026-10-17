@@ -69,11 +69,13 @@ def _load(path: Path, field: str) -> dict[str, Any]:
 
 # R21: required classes and their production tier. Additional consumed classes must
 # be explicitly declared too; declarations cannot change these mandated tiers.
+COMPATIBILITY_CERTIFICATE_CLASS = "esri-bundle"
+
 EVIDENCE_CLASSES = {
     **dict.fromkeys(("build-test", "contract", "sbom", "security", "upgrade",
                      "capacity-soak", "dr", "lambda-certification", "protocol-ledger",
                      "deterministic-journey", "nightly-model-journey", "executable-docs", "installed-clients"), "nightly"),
-    **dict.fromkeys(("genuine-model-journey", "update-rollback", "esri-bundle", "cite"), "qualifying"),
+    **dict.fromkeys(("genuine-model-journey", "update-rollback", COMPATIBILITY_CERTIFICATE_CLASS, "cite"), "qualifying"),
 }
 # Owner amendment 2026-10-16: ECS/Lambda are GA; EKS/Helm is informational Preview.
 # Preview evidence cannot replace any required cell or establish GP execution on Redis-off.
@@ -86,13 +88,12 @@ MAX_FRESHNESS = {
                      "capacity-soak", "dr", "lambda-certification", "protocol-ledger",
                      "deterministic-journey", "nightly-model-journey", "executable-docs", "installed-clients",
                      "genuine-model-journey", "update-rollback"), timedelta(days=7)),
-    **dict.fromkeys(("esri-bundle", "cite"), timedelta(days=14)),
+    **dict.fromkeys((COMPATIBILITY_CERTIFICATE_CLASS, "cite"), timedelta(days=14)),
 }
 CANARY_SLOT = timedelta(hours=6, minutes=30)
-# A journey cell counts only with status pass. On a Redis-off GA cell, stages 3 (owner extension of
-# decision 3, 2026-10-10) and 5-8 (decision 3, 2026-10-08) pass by the typed unavailable refusal; the
-# terminal-journey receipt schema enforces that per stage (topologyRefusal on Redis-off targets and
-# those stages only), so a cell status here already reflects it. See docs/BURN-IN-PROMOTION.md.
+# Redis-on retains the full journey. Redis-off requires explicit limited serving/refusal metadata;
+# its retained raw eight-stage receipt may remain blocked and never counts as completed GP.
+# See docs/BURN-IN-PROMOTION.md for the independently bound profile proof.
 JOURNEYS = {
     "deterministic-journey": ("deterministic", GA_CELLS),
     "nightly-model-journey": ("genuine-model", frozenset({"aws-ecs/redis-off"})),
@@ -131,6 +132,11 @@ def _journey(receipt: dict[str, Any], required: frozenset[str], mode: str,
                     return False
                 if index == len(attempts) and (attempt.get("executionOutcome") != expected_outcome
                         or attempt.get("functionalGpExecuted") is not expected_execution):
+                    return False
+            if mode == "deterministic" and cell["cell"].endswith("/redis-off"):
+                if (attempt.get("profile") != "redis-off-serving-refusal"
+                        or index == len(attempts) and (attempt.get("executionOutcome") != "refused"
+                            or attempt.get("functionalGpExecuted") is not False)):
                     return False
             if index == len(attempts):
                 if attempt.get("status") != "pass":
@@ -182,7 +188,8 @@ def _update_rollback_target_images(lock_path: Path, manifest_path: Path) -> dict
     return {cell: lambda_mirror if cell.startswith("aws-serverless/") else ecs for cell in GA_CELLS}
 
 
-def _update_rollback(receipt: dict[str, Any], target_images: dict[str, str]) -> bool:
+def _update_rollback(receipt: dict[str, Any], target_images: dict[str, str],
+                     baseline_images: dict[str, str] | None = None) -> bool:
     """Refuse status-only/self-rollback proof; every GA cell binds its real actuator.
 
     Lock signatures and retained workflow artifact integrity are checked by the
@@ -206,6 +213,7 @@ def _update_rollback(receipt: dict[str, Any], target_images: dict[str, str]) -> 
                 or cell.get("actuator") != UPDATE_ROLLBACK_ACTUATORS[cell["cell"]]
                 or not _is_digest(before) or not _is_digest(after) or before == after
                 or after != target_images.get(cell["cell"])
+                or (baseline_images is not None and before != baseline_images.get(cell["cell"]))
                 or not isinstance(job, dict) or not isinstance(boundary, dict)):
             return False
         states = job.get("terminalStates")
@@ -254,10 +262,12 @@ def evaluate(
     actual_digest = _digest(lock_path)
     check("lock-digest", isinstance(digest, str) and SHA256_RE.fullmatch(digest) is not None and digest == actual_digest,
           f"recorded={digest!r}; selected={actual_digest}")
+    from patch_promotion_policy import profile, reused_receipt
+    policy = profile(record, _load(lock_path, "selected lock"), evidence_dir)
     burn_start = _time(lock.get("burnStartedAt"), "lock.burnStartedAt")
     age = now - burn_start
-    check("burn-duration", age >= timedelta(hours=48),
-          f"lock burn age is {age.total_seconds() / 3600:.2f}h; required at least 48h")
+    check("burn-duration", age >= timedelta(hours=policy["hours"]),
+          f"lock burn age is {age.total_seconds() / 3600:.2f}h; required at least {policy['hours']}h")
 
     trains = record.get("strictTrains")
     rc_run_id = _run_id(record.get("rcTrainRunId"), "rcTrainRunId")
@@ -322,8 +332,10 @@ def evaluate(
             metadata = _load(root / "run.json", f"{name} metadata")
             expiry = _time(receipt.get("freshUntil"), f"{name} freshUntil")
             tier = declarations[name]
+            reused = reused_receipt(name, row, receipt, metadata, policy, now)
+            bound_digest = reused or digest
             ok &= (row.get("status") == receipt.get("status") == "pass"
-                   and row.get("lockDigest") == receipt.get("lockDigest") == digest
+                   and row.get("lockDigest") == receipt.get("lockDigest") == bound_digest
                    and receipt.get("class") == name and receipt.get("kind") == tier
                    and str(receipt.get("runId")) == run_id
                    and receipt.get("completedAt") == row.get("completedAt")
@@ -335,7 +347,7 @@ def evaluate(
                        <= completed <= _time(metadata.get("updated_at"), "run updated_at"))
                 earliest, latest = train_time - timedelta(hours=24), completed
             else:
-                ok &= burn_start <= completed <= now and row.get("completedAt") == metadata.get("updated_at")
+                ok &= (completed <= now if reused else burn_start <= completed <= now) and row.get("completedAt") == metadata.get("updated_at")
                 earliest, latest = burn_start, completed
             ok &= name in MAX_FRESHNESS and expiry - completed <= MAX_FRESHNESS.get(name, timedelta(0))
             if name in JOURNEYS:
@@ -344,7 +356,12 @@ def evaluate(
             if name == "update-rollback":
                 target_images = _update_rollback_target_images(
                     lock_path, evidence_dir / "trains" / rc_run_id / "platform-manifest.yaml")
-                ok &= _update_rollback(receipt, target_images)
+                baseline_images = None
+                if policy["name"] == "patch":
+                    baseline_images = _update_rollback_target_images(
+                        policy["baselineRoot"] / "platform-lock.json", policy["baselineRoot"] / "platform-manifest.yaml")
+                    ok &= receipt.get("fromLockDigest") == policy["baselineDigest"]
+                ok &= _update_rollback(receipt, target_images, baseline_images)
         except (ReadinessError, OSError, TypeError):
             ok = False
         check(f"evidence:{name}", bool(ok), detail)
@@ -352,7 +369,8 @@ def evaluate(
     canaries = record.get("demoCanaries")
     if not isinstance(canaries, list):
         raise ReadinessError("demoCanaries must be an array")
-    canary_ok = len(canaries) == 7
+    required_canaries = policy["canaries"]
+    canary_ok = len(canaries) == required_canaries
     times: list[datetime] = []
     ids: list[str] = []
     for row in canaries:
@@ -375,7 +393,7 @@ def evaluate(
         except (ReadinessError, AttributeError):
             canary_ok = False
     canary_ok &= len(set(ids)) == len(ids)
-    if len(times) == 7:
+    if len(times) == required_canaries:
         canary_ok &= times == sorted(times) and times[0] >= burn_start
         canary_ok &= all(timedelta(hours=5, minutes=30) <= b - a <= CANARY_SLOT
                          for a, b in zip(times, times[1:]))
@@ -415,7 +433,7 @@ def evaluate(
         observed_ids = [key[0] for key in observed]
         burn_ok &= len(set(observed_ids)) == len(observed_ids)
         selected = [_canary_key(row, "canary") for row in canaries if isinstance(row, dict)]
-        canary_ok &= len(observed) >= 7 and observed[-7:] == selected
+        canary_ok &= len(observed) >= required_canaries and observed[-required_canaries:] == selected
         # The lock is deployed when burn starts, so its first canary follows within one slot.
         # A burn start claimed earlier than that would shorten the real burn.
         start_ok = bool(observed) and observed[0][1] - burn_start <= CANARY_SLOT
@@ -426,10 +444,10 @@ def evaluate(
           "the lock's first observed canary completed no more than 6h30m after the recorded burn start")
     check("lock-burn-health", bool(burn_ok), burn_detail)
     check("demo-canaries", bool(canary_ok),
-          "seven consecutive passing lock-bound 6-hour canaries, latest no more than 6.5h old")
+          f"{required_canaries} consecutive passing lock-bound 6-hour canaries, latest no more than 6.5h old")
     decision = {
         "schemaVersion": "promotion-readiness.v1", "platformLabel": label,
-        "lockDigest": actual_digest, "rcTrainRunId": rc_run_id,
+        "lockDigest": actual_digest, "rcTrainRunId": rc_run_id, "profile": policy["name"],
         "evaluatedAt": now.isoformat().replace("+00:00", "Z"),
         "status": "pass" if not failures else "refused", "checks": checks,
     }
