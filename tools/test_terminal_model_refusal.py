@@ -438,3 +438,78 @@ def test_blocked_raw_gp_stage_cannot_hide_execution_behind_bounded_prerequisite(
     path.write_text(json.dumps(receipt))
     with pytest.raises(c.CanaryError, match='contradictory GP execution'):
         validate(path, tmp_path)
+
+
+def test_optional_nonobject_raw_stage_is_a_typed_prerequisite_rejection(tmp_path):
+    path, receipt = _prerequisite(tmp_path)
+    receipt['stages'][2] = None; path.write_text(json.dumps(receipt))
+    with pytest.raises(c.CanaryError, match='not complete and current'):
+        validate(path, tmp_path)
+
+
+@pytest.mark.parametrize("wire", ["jsonrpc", "mcp"])
+@pytest.mark.parametrize("extra", [None, {"resourceUri": "honua://jobs/private-job"},
+    {"jobCreatedAt": "2026-10-17T10:00:00Z"},
+    {"encoded": json.dumps({"nested": {"resourceUri": "honua://jobs/private-job"}})}])
+def test_actual_proxy_error_wire_cannot_mask_execution_into_refusal(tmp_path, monkeypatch, wire, extra):
+    import probes
+    from transport import Transport
+    driver, engine, state = _driver(problem=GP)
+    view = engine.view(); secret = 'private-application-key'
+    problem = {**GP, **(extra or {})}
+    response = ({"error": {"code": -32603, "message": 'refused for ' + secret, "data": problem}}
+                if wire == 'jsonrpc' else {"result": {"isError": True, "structuredContent": problem}})
+    class Session:
+        def __init__(self, *args): pass
+        def __enter__(self): return self
+        def __exit__(self, *args): return False
+        def initialize(self, **kwargs): return {}
+        def request(self, method, params):
+            return {"result": {"_meta": view['metadata'], "tools": view['tools']}} if method == 'tools/list' else response
+    monkeypatch.setattr(probes, 'McpProxySession', Session)
+    proxy = tmp_path / 'installed-proxy'; proxy.write_text('')
+    actual = Transport('http://127.0.0.1:8123', proxy, None, tmp_path, {'operator': secret, 'proposer': secret})
+    actual.get_json = mock.Mock(return_value={'capabilities': [{'id': 'jobs.runner', 'available': False,
+                                                             'reasonCode': 'dependency-unavailable'}]})
+    engine.transport = actual
+    request = {'profile': r.PROFILE, 'stage': 'durable-refusal', 'action': {'kind': 'tool_call',
+        'tool': 'honua_execute_plan', 'arguments': _plan_arguments()}}
+    if extra:
+        with pytest.raises(ExecutionError, match='contradictory execution') as raised:
+            profile.execute(driver, request)
+        assert not raised.value.problem
+        actual.get_json.assert_not_called()
+        assert state['modelRefusal']['refusal'] is None
+        assert 'private-job' not in str(raised.value) and secret not in str(raised.value)
+    else:
+        result = profile.execute(driver, request)['result']
+        assert result['executionOutcome'] == 'refused' and result['functionalGpExecuted'] is False
+        actual.get_json.assert_called_once()
+        assert secret not in json.dumps(state['modelRefusal']['refusal'])
+
+
+@pytest.mark.parametrize('marker', ['true', 'false', 1, None])
+@pytest.mark.parametrize('actual_transport', [True, False])
+def test_nonboolean_error_marker_cannot_become_typed_refusal(tmp_path, monkeypatch, marker, actual_transport):
+    import probes
+    from transport import Transport
+    driver, engine, state = _driver(problem=GP)
+    raw = {'isError': marker, 'structuredContent': GP}
+    if actual_transport:
+        view = engine.view()
+        class Session:
+            def __init__(self, *args): pass
+            def __enter__(self): return self
+            def __exit__(self, *args): return False
+            def initialize(self, **kwargs): return {}
+            def request(self, method, params):
+                return {'result': {'_meta': view['metadata'], 'tools': view['tools']}} if method == 'tools/list' else {'result': raw}
+        monkeypatch.setattr(probes, 'McpProxySession', Session)
+        proxy = tmp_path / 'installed-proxy'; proxy.write_text('')
+        engine.transport = Transport('http://127.0.0.1:8123', proxy, None, tmp_path,
+                                     {'operator': 'app-key', 'proposer': 'app-key'})
+    else: engine.transport.tool.return_value = raw
+    with pytest.raises(ExecutionError, match='nonboolean error marker'):
+        profile.execute(driver, {'profile': r.PROFILE, 'stage': 'durable-refusal',
+            'action': {'kind': 'tool_call', 'tool': 'honua_execute_plan', 'arguments': _plan_arguments()}})
+    assert state['modelRefusal']['refusal'] is None

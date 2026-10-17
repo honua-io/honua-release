@@ -82,6 +82,22 @@ def describe_fields(fields):
     return "; ".join(f"{name}={json.dumps(value) if name == 'message' else value}" for name, value in fields.items())
 
 
+def has_execution_evidence(value):
+    """Inspect private wire data before allowlisted error fields are masked for receipts."""
+    if isinstance(value, dict):
+        return any(key in {"jobId", "operationId", "operationInstanceId", "jobStatus", "resourceUri", "jobCreatedAt"}
+                   and item or has_execution_evidence(item) for key, item in value.items())
+    if isinstance(value, list):
+        return any(has_execution_evidence(item) for item in value)
+    if isinstance(value, str):
+        try:
+            parsed = json.loads(value)
+        except ValueError:
+            return False
+        return isinstance(parsed, (dict, list)) and has_execution_evidence(parsed)
+    return False
+
+
 def tool_error(result, secrets=()):
     """The typed problem a candidate tool error carries, masked; never raw tool output."""
     content = result.get("structuredContent")
@@ -201,10 +217,17 @@ class Transport:
                 # A JSON-RPC error carries the same typed problem in error.data; name it (masked).
                 error = response.get("error") if isinstance(response.get("error"), dict) else {}
                 data = error.get("data") if isinstance(error.get("data"), dict) else {}
+                if has_execution_evidence(data):
+                    # Fixed diagnostic only: private identities/output never enter the receipt.
+                    raise ExecutionError(name, "candidate error carries contradictory execution evidence")
                 fields = tool_error({"structuredContent": {"message": error.get("message"), **data}},
                                     self.secret_values())
                 raise ExecutionError(name, "candidate tool call refused"
                                      + (f" ({describe_fields(fields)})" if fields else ""), problem=fields)
+            if "isError" in result and type(result["isError"]) is not bool:
+                raise ExecutionError(name, "candidate tool result has a nonboolean error marker")
+            if result.get("isError") is True and has_execution_evidence(result):
+                raise ExecutionError(name, "candidate error carries contradictory execution evidence")
             return result
 
     def secret_values(self):

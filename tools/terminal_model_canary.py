@@ -241,7 +241,7 @@ def validate_deterministic_receipt(
     if not isinstance(stages, list) or len(stages) != len(journey["stages"]):
         raise CanaryError("deterministic #123 receipt does not cover the imported journey")
     for expected, actual in zip(journey["stages"], stages, strict=True):
-        required = not bounded_off or expected["number"] in (1, 2) or actual.get("status") == "pass"
+        required = not bounded_off or expected["number"] in (1, 2) or (isinstance(actual, dict) and actual.get("status") == "pass")
         evidence = actual.get("evidence") if isinstance(actual, dict) else None
         if (
             not isinstance(actual, dict)

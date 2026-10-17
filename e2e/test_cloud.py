@@ -1294,6 +1294,8 @@ def _ecs_receipt(cell="aws-ecs/redis-off"):
 def _artifact(directory, receipt, *, number=1):
     cj = run_cloud.cloud_journey
     path = directory / f"receipt-{number}.json"
+    # A new test producer invocation replaces this numbered artifact, including its sidecar.
+    (directory / f"serving-refusal-{number}.json").unlink(missing_ok=True)
     path.write_text(json.dumps(receipt))
     record = {"number": number, "cell": receipt["target"]["id"], "runId": "offline-run",
         "runAttempt": "2", "candidateDigest": cj.candidate_digest(), "receipt": path.name,
@@ -2704,7 +2706,8 @@ def test_teardown_reverifies_journey_receipts_and_adopts_no_claimed_verdict(monk
                                                 _journey_upload(upload, [unobserved, unobserved]), upload)
             assert verified["status"] == "fail" and "did not pass" in verified["why"]
             assert len(verified["journeyAttempts"]) == 2
-            # An upload that claims a pass with no attempt against the provisioned endpoint fails.
+            # An independent empty upload claims a pass without running against the endpoint.
+            _journey_upload(upload, [])
             for claimed in ({"status": "pass"}, {}):
                 empty = run_cloud.verify_journey({**state, "endpoint": "http://cell.invalid"},
                                                  {"cell": "aws-ecs/redis-off", "journeyAttempts": [],
