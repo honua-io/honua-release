@@ -176,7 +176,8 @@ def test_workflow_has_daily_monitoring_and_optional_six_hour_burn_without_arbitr
 
 
 @pytest.mark.parametrize('mutation', ['none', 'deployment-changed', 'source-sha', 'endpoint'])
-def test_final_binding_reobserves_real_identity_and_preserves_probe_verdict(tmp_path, monkeypatch, mutation):
+@pytest.mark.parametrize('status', ['pass', 'blocked', 'fail'])
+def test_final_binding_reobserves_real_identity_and_preserves_probe_verdict(tmp_path, monkeypatch, mutation, status):
     config, data = deployment(tmp_path)
     aws = lambda service, command, *args: data[command]
     resolve = lambda host: {'1.2.3.4'}
@@ -191,11 +192,15 @@ def test_final_binding_reobserves_real_identity_and_preserves_probe_verdict(tmp_
     if mutation == 'endpoint': envelope['targetUrl'] = 'https://other.test'
     if mutation == 'deployment-changed': data['describe-services']['services'][0]['serviceArn'] = 'arn:replaced'
     (e2e / 'live-canary-evidence.json').write_text(json.dumps(envelope))
-    (e2e / 'gate-report-demo-canary.json').write_text(json.dumps({'status': 'blocked'}))
+    (e2e / 'gate-report-demo-canary.json').write_text(json.dumps({'status': status}))
     if mutation == 'none':
-        binding.bind(tmp_path, BASE, config, aws=aws, resolve=resolve)
+        if status == 'pass':
+            binding.bind(tmp_path, BASE, config, aws=aws, resolve=resolve)
+        else:
+            with pytest.raises(binding.FetchError, match='burn is interrupted'):
+                binding.bind(tmp_path, BASE, config, aws=aws, resolve=resolve)
         result = json.loads((e2e / 'live-canary-evidence.json').read_text())
-        assert result['status'] == 'blocked' and result['candidateLock']['digest'] == A
+        assert result['status'] == status and result['candidateLock']['digest'] == A
         assert result['deploymentIdentity'] == before and result['runId'] == '202'
     else:
         with pytest.raises(binding.FetchError): binding.bind(tmp_path, BASE, config, aws=aws, resolve=resolve)

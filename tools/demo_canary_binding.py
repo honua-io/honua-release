@@ -190,6 +190,9 @@ def bind(root, base, config, **observations):
                     candidateLock={'path': binding['record'], 'digest': binding['digest']},
                     deploymentIdentity=after, mintingRunId=binding['runId'])
     envelope_path.write_text(json.dumps(envelope, indent=2) + '\n')
+    # The complete burn ledger reads the workflow conclusion, so an incomplete
+    # bound observation must also fail Actions after retaining its truthful receipt.
+    require(envelope['status'] == 'pass', 'bound canary did not pass; selected-lock burn is interrupted')
 
 
 def main():
