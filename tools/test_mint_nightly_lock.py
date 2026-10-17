@@ -75,6 +75,8 @@ def build_inputs(candidate, tmp_path, *, gate_fixtures=None, missing_post_gate=F
     for journey in journeys:
         for row in journey['cells']:
             for attempt in row['attempts']:
+                if attempt['driver'] == 'deterministic' and row['cell'].endswith('/redis-off'):
+                    attempt.update(profile='redis-off-serving-refusal', executionOutcome='refused', functionalGpExecuted=False)
                 if attempt['driver'] == 'genuine-model':
                     attempt['lockDigest'] = 'sha256:' + _sha256(qualification_lock)
                     attempt.update(profile='redis-off-serving-refusal', executionOutcome='refused', functionalGpExecuted=False)

@@ -53,17 +53,21 @@ GA cells are `aws-ecs/redis-off`, `aws-ecs/redis-on`, `aws-serverless/redis-off`
   rc.3 → rc.N → rc.3 locks, a GP job in flight that finishes exactly once, and the schema rollback
   boundary. Each cell records its own `updateStatus` and `rollbackStatus`, and both must pass.
 
-A Redis-off GA cell (`aws-ecs/redis-off`, `aws-serverless/redis-off`) passes its journey when every
-stage passes, where a stage that needs the governed control plane passes by recording the candidate's
-typed `unavailable` refusal (`missingDependency: redis`) with the manifest `dependency-unavailable`
-reasonCode: stages 5-8 under owner decision 3 (2026-10-08) and stage 3 (publish-service) under its
-2026-10-10 extension. The receipt schema enforces this per stage (`topologyRefusal`, Redis-off targets
-only, stages 3 and 5-8 only), so the checker reads it from the cell's `pass` status. Redis-on is recommended for full workflows and must execute every stage. A typed refusal
-is limited-serving evidence and never counts as GP executed. On a Production Redis-off cell stages 4 and 6-8 still have no published
-layer and stay blocked, so that cell does not yet pass. Owner decision 20 (2026-10-10) lets an
-admin-role caller's direct `service.publish` execute on Redis-off (honua-server#5792); once a lock
-carries it, stage 3 on a Redis-off cell must execute for the admin operator, stage 4 must execute,
-and only the stages that need the governed control plane keep the typed-refusal rule. Background file
+Redis-on GA cells execute the complete eight-stage workflow. Redis-off GA cells qualify through
+an explicit `redis-off-serving-refusal` profile: a nonempty feature query must match the authored
+cell seed data through independent serving adapters, and a valid authored durable buffer request
+must actually receive the typed Redis dependency refusal, corroborated by the live capability
+manifest. The profile also verifies authentication, anonymous/viewer denials, exact client catalog
+parity, and the candidate image before and after execution. The controller binds the seed manifest
+to its encrypted provision handoff before candidate packages run.
+
+The deterministic profile retains its original eight-stage receipt unchanged, including blocked
+stages. A separate hashed sidecar records `executionOutcome: refused` and
+`functionalGpExecuted: false`; it cannot supply genuine-model attribution or completed GP evidence.
+A failed first profile remains attributed history and may use the existing second attempt. Missing,
+failed, stale or mismatched sidecar, fixture, image, principal cleanup or run binding fails
+qualification. This limited serving/refusal proof does not establish persistence, publication or
+approval completion. Redis-on retains those full-workflow requirements. Background file
 imports are not a governed-control-plane capability (ruling `redis-off-background-import-follows-job-2026-10-12`,
 learned on run 38192851328): the import job service runs in-process without Redis, so the S10
 large-import scenario on a Redis-off cell follows the job like a Redis-on cell, and the typed 503

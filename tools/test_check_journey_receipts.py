@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import hashlib
+import copy
 import json
 import subprocess
 import sys
@@ -25,7 +26,8 @@ CLIENTS = {name: {"package": package, "version": "2026.1.0-rc.3",
                                  ("honua-mcp-server", "@honua/mcp-server"))}
 MANIFEST = {"platformRelease": "2026.1-rc.3", "clientArtifacts": CLIENTS,
             "components": {"honua-server": {"sha": "b" * 40,
-                            "image": "ghcr.io/honua/server", "digest": "sha256:" + "c" * 64}}}
+                            "image": "ghcr.io/honua/server", "digest": "sha256:" + "c" * 64,
+                            "awsLambdaImage": "ghcr.io/honua/lambda", "awsLambdaDigest": "sha256:" + "d" * 64}}}
 # Number, stage, command are written independently from the owned journey contract.
 STAGES = [
     (1, "installed-client-handoff", "install exact manifest clients; verify readiness, identity, auth, profiles and tools/list"),
@@ -51,7 +53,8 @@ def receipt(cell):
                               "integrityVerified": True, "tarballSha256": "e" * 64,
                               "bin": {"honua": "cli.js"}}],
                 "commandSurface": [], "installNotes": []},
-            "server": {"sourceSha": "b" * 40, "image": "ghcr.io/honua/server@sha256:" + "c" * 64},
+            "server": {"sourceSha": "b" * 40, "image": ("ghcr.io/honua/lambda@sha256:" + "d" * 64 if cell.startswith("aws-serverless/")
+                else "ghcr.io/honua/server@sha256:" + "c" * 64)},
             "fixtureRevision": "fixture-v1", "configRevision": "config-v1",
             "authPolicyRevision": "auth-v1", "roster": {"status": "pass"},
             "stages": [{"number": number, "stage": stage, "command": command,
@@ -62,7 +65,7 @@ def receipt(cell):
                 "auditId": "audit", "proposalId": "proposal", "jobId": "job", "resourceUri": "honua://jobs/job",
                 "jobStatus": "accepted", "jobCreatedAt": STAMP, "policyDecisionId": None, "approvalId": None,
                 "actuatorId": None, "verificationId": None,
-                "evidence": {"uri": "urn:hand-built:observation", "source": f"live-{cell.split('/')[0]}",
+                "evidence": {"uri": "urn:hand-built:observation#honua-run=12345/2", "source": f"live-{cell.split('/')[0]}",
                              "freshness": "verified-current", "completeness": "complete",
                              "observedAt": STAMP}} for number, stage, command in STAGES],
             "notices": [], "linkedEvidence": {"awsProvisioning": "honua-release#129",
@@ -106,6 +109,10 @@ class Intake:
                                              "infrastructure" if value["status"] != "pass" else None)}
             if drivers:
                 record["driver"] = drivers[i-1]
+            if cell.endswith("/redis-off"):
+                sys.path.insert(0, str(checker.ROOT / "e2e"))
+                from test_deterministic_refusal_profile import attach_fixture_profile
+                path.write_bytes(attach_fixture_profile(path.parent, value, record))
             attempts.append(record)
         report = {"cell": cell, "status": "pass", "journeyAttempts": attempts}
         self.save(cell, report)
@@ -143,14 +150,14 @@ def test_hand_built_fixtures_validate_against_owned_schema():
 
 
 def test_all_four_exact_candidate_cells_pass_and_record_driver(intake):
-    intake.write(checker.GA_CELLS[0], drivers=["genuine-model"])
+    intake.write(checker.GA_CELLS[1], drivers=["genuine-model"])
     result = intake.evaluate()
     assert result["status"] == "pass"
     ga = [r for r in result["cells"] if r["counted"]]
     assert len(ga) == 4
-    assert ga[0]["drivers"] == ["genuine-model"]
+    assert ga[0]["drivers"] == ["deterministic"]
     assert ga[0]["attempts"][0]["completedAt"] == STAMP
-    assert ga[1]["drivers"] == ["deterministic"]
+    assert ga[1]["drivers"] == ["genuine-model"]
     assert result["gates"][0]["decided"] == "pass"
 
 
@@ -217,7 +224,7 @@ def test_wrong_receipt_candidate_or_cell_is_red(intake, field):
         data[field] = json.loads(json.dumps(CLIENTS))
         data[field]["honua-sdk-js"]["version"] = "old"
     else:
-        data[field]["id"] = checker.GA_CELLS[1]
+        data[field]["id"] = checker.GA_CELLS[2]
     intake.write(cell, [data])
     assert_red(intake, "wrong candidate or receipt cell")
 
@@ -251,9 +258,9 @@ def test_attempt_after_pass_is_red(intake):
 
 def test_unrecorded_failed_receipt_cannot_be_hidden(intake):
     cell = checker.GA_CELLS[0]
-    report = intake.write(cell, [failed_receipt(cell), receipt(cell)])
-    report["journeyAttempts"] = [{**report["journeyAttempts"][1], "number": 1}]
-    intake.save(cell, report)
+    report = intake.write(cell)
+    source = intake.directory(cell) / report["journeyAttempts"][0]["receipt"]
+    source.with_name("receipt-unrecorded.json").write_text(json.dumps(failed_receipt(cell)))
     assert_red(intake, "omitted from recorded attempt history")
 
 
@@ -471,3 +478,80 @@ def test_promotion_still_requires_only_the_four_ecs_and_lambda_cells():
     # Both gates consume the explicitly reviewed ECS/Lambda scope; EKS stays visible as Preview.
     import check_promotion_readiness as promotion
     assert promotion.GA_CELLS == frozenset(c for c in checker.GA_CELLS if not c.startswith("aws-eks/"))
+
+
+@pytest.mark.parametrize("first_status", ["blocked", "pass"])
+def test_failed_profile_then_success_survives_collection_mint_and_readiness(intake, tmp_path, first_status):
+    import mint_nightly_lock as mint
+    import check_promotion_readiness as readiness
+    cell = 'aws-ecs/redis-off'
+    first = receipt(cell); first['status'] = first_status
+    for stage in first['stages'][2:] if first_status == 'blocked' else []:
+        stage.update(status='blocked', blockedBy=['honua-release#381'])
+        for check in stage['checks']: check.update(status='blocked', blockedBy=['honua-release#381'])
+        for key in ('jobId', 'operationId', 'operationInstanceId', 'resourceUri', 'jobStatus', 'jobCreatedAt'):
+            stage[key] = None
+    produced = intake.write(cell, [first, receipt(cell)], attributions=['infrastructure', None])
+    first_record = produced['journeyAttempts'][0]
+    sidecar = (intake.directory(cell) / first_record['receipt']).parent / first_record['servingRefusal']['file']
+    value = json.loads(sidecar.read_bytes()); value['status'] = 'fail'; sidecar.write_text(json.dumps(value))
+    first_record['servingRefusal']['sha256'] = hashlib.sha256(sidecar.read_bytes()).hexdigest()
+    intake.save(cell, produced)
+    before = [(intake.directory(cell) / record['receipt']).read_bytes() for record in produced['journeyAttempts']]
+    collected = intake.evaluate()
+    assert collected['status'] == 'pass', collected['why']
+    attempts = collected['cells'][0]['attempts']
+    assert [a['status'] for a in attempts] == ['fail', 'pass']
+    assert attempts[0]['sourceStatus'] == first_status and attempts[0]['failureAttribution'] == 'infrastructure'
+    assert attempts[1]['functionalGpExecuted'] is False and attempts[1]['executionOutcome'] == 'refused'
+    assert before == [(intake.directory(cell) / record['receipt']).read_bytes() for record in produced['journeyAttempts']]
+    lock = tmp_path / 'qualification-lock.json'; lock.write_text('{"testOnly":"bound-bytes"}')
+    report = {'generatedAt': NOW.isoformat(), 'gates': [{'gate': gate, 'status': 'pass'} for gate in set(mint.CLASS_GATES.values())],
+        'candidate': {'train': {'runId': RUN, 'runAttempt': int(RUN_ATTEMPT)},
+                      'artifacts': {'platform-manifest.yaml': {'sha256': intake.digest}}}}
+    declared = mint.declare_evidence(report, lock, [collected])['evidenceReceipts']['deterministic-journey']
+    assert declared['status'] == 'pass'
+    assert readiness._journey(declared, frozenset(checker.GA_CELLS), 'deterministic',
+        'sha256:' + hashlib.sha256(lock.read_bytes()).hexdigest(), timestamp(STAMP), NOW)
+    copied = copy.deepcopy(declared)
+    copied['cells'][0]['attempts'][-1]['functionalGpExecuted'] = True
+    assert not readiness._journey(copied, frozenset(checker.GA_CELLS), 'deterministic',
+        declared['lockDigest'], timestamp(STAMP), NOW)
+
+
+def test_legacy_off_receipt_without_explicit_profile_cannot_qualify(intake):
+    cell = 'aws-ecs/redis-off'
+    report = intake.write(cell)
+    report['journeyAttempts'][0].pop('servingRefusal')
+    intake.save(cell, report)
+    assert_red(intake, 'missing or changed serving/refusal')
+
+
+def timestamp(value):
+    return datetime.fromisoformat(value.replace('Z', '+00:00'))
+
+
+def test_removing_link_cannot_hide_a_produced_successful_profile(intake):
+    cell = 'aws-ecs/redis-off'
+    first = receipt(cell); first['status'] = 'blocked'
+    for stage in first['stages'][2:]:
+        stage.update(status='blocked', blockedBy=['honua-release#381'])
+        for check in stage['checks']: check.update(status='blocked', blockedBy=['honua-release#381'])
+        for key in ('jobId', 'operationId', 'operationInstanceId', 'resourceUri', 'jobStatus', 'jobCreatedAt'):
+            stage[key] = None
+    report = intake.write(cell, [first, receipt(cell)], attributions=['infrastructure', None])
+    record = report['journeyAttempts'][0]
+    path = (intake.directory(cell) / record['receipt']).parent / record['servingRefusal']['file']
+    value = json.loads(path.read_bytes()); value['status'] = 'pass'; path.write_text(json.dumps(value))
+    record['servingRefusal']['sha256'] = hashlib.sha256(path.read_bytes()).hexdigest()
+    intake.save(cell, report)
+    assert_red(intake, 'after passing receipt')
+    record.pop('servingRefusal'); intake.save(cell, report)
+    assert_red(intake, 'sidecar omitted from attempt history')
+
+
+def test_unreferenced_profile_artifact_cannot_be_omitted_from_history(intake):
+    cell = 'aws-ecs/redis-off'; report = intake.write(cell)
+    path = (intake.directory(cell) / report['journeyAttempts'][0]['receipt']).parent
+    (path / 'serving-refusal-unrecorded.json').write_text('{"status":"pass"}')
+    assert_red(intake, 'sidecar omitted from attempt history')

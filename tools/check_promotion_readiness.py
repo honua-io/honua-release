@@ -91,10 +91,9 @@ MAX_FRESHNESS = {
     **dict.fromkeys((COMPATIBILITY_CERTIFICATE_CLASS, "cite"), timedelta(days=14)),
 }
 CANARY_SLOT = timedelta(hours=6, minutes=30)
-# A journey cell counts only with status pass. On a Redis-off GA cell, stages 3 (owner extension of
-# decision 3, 2026-10-10) and 5-8 (decision 3, 2026-10-08) pass by the typed unavailable refusal; the
-# terminal-journey receipt schema enforces that per stage (topologyRefusal on Redis-off targets and
-# those stages only), so a cell status here already reflects it. See docs/BURN-IN-PROMOTION.md.
+# Redis-on retains the full journey. Redis-off requires explicit limited serving/refusal metadata;
+# its retained raw eight-stage receipt may remain blocked and never counts as completed GP.
+# See docs/BURN-IN-PROMOTION.md for the independently bound profile proof.
 JOURNEYS = {
     "deterministic-journey": ("deterministic", GA_CELLS),
     "nightly-model-journey": ("genuine-model", frozenset({"aws-ecs/redis-off"})),
@@ -133,6 +132,11 @@ def _journey(receipt: dict[str, Any], required: frozenset[str], mode: str,
                     return False
                 if index == len(attempts) and (attempt.get("executionOutcome") != expected_outcome
                         or attempt.get("functionalGpExecuted") is not expected_execution):
+                    return False
+            if mode == "deterministic" and cell["cell"].endswith("/redis-off"):
+                if (attempt.get("profile") != "redis-off-serving-refusal"
+                        or index == len(attempts) and (attempt.get("executionOutcome") != "refused"
+                            or attempt.get("functionalGpExecuted") is not False)):
                     return False
             if index == len(attempts):
                 if attempt.get("status") != "pass":

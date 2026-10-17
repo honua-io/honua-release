@@ -182,6 +182,25 @@ def unpack_handoff(value):
 
 
 @contextmanager
+def tenant_application_key(value):
+    """Expose only the sealed application fixture key after stripping cloud/CI credentials."""
+    name = "HONUA_CANARY_TENANT_SIGNING_KEY"
+    previous = os.environ.get(name)
+    try:
+        if value is not None:
+            _validate_tenant_signing_key(value)
+            os.environ[name] = value
+        else:
+            os.environ.pop(name, None)
+        yield
+    finally:
+        if previous is None:
+            os.environ.pop(name, None)
+        else:
+            os.environ[name] = previous
+
+
+@contextmanager
 def cell_datasource(datasource):
     """Expose the cell's datasource to the imported driver as its environment references.
 
@@ -710,11 +729,43 @@ def attempt(cell, number, endpoint, admin_key, running_image=None, *, image_deta
     driver.validate_receipt(receipt, HERE / "receipt.schema.json")
     path = directory / f"receipt-{number}.json"
     path.write_text(json.dumps(receipt, indent=2) + "\n")
-    return {"number": number, "runId": run_id, "runAttempt": run_attempt, "cell": cell,
+    record = {"number": number, "runId": run_id, "runAttempt": run_attempt, "cell": cell,
             "candidateDigest": candidate_digest(), "receipt": str(path.relative_to(ROOT / "e2e")),
             "receiptSha256": hashlib.sha256(path.read_bytes()).hexdigest(),
             "failureAttribution": attribution or ("infrastructure" if receipt["status"] != "pass" else None),
             "observedServer": identity}
+    if cell in ("aws-ecs/redis-off", "aws-serverless/redis-off") and endpoint is not None:
+        import deterministic_refusal_profile as profile
+        try:
+            with (admin_credential(admin_key), driver.probes.allow_http_cell(http_cell_host(endpoint)),
+                  driver.pins.candidate_sandbox(), tenant_application_key(tenant_signing_key)):
+                proof = profile.produce(record, path, target_path, adapter=adapter,
+                    pinned=pinned, digest=candidate_digest(), cell=cell)
+        except Exception as exc:
+            proof = {"status": "fail", "why": "profile prerequisite failed: " + type(exc).__name__}
+        sidecar = directory / f"serving-refusal-{number}.json"
+        sidecar.write_text(json.dumps(proof, indent=2) + "\n")
+        record["servingRefusal"] = {"file": sidecar.name, "sha256": hashlib.sha256(sidecar.read_bytes()).hexdigest()}
+        if proof.get("status") != "pass" and record["failureAttribution"] is None:
+            record["failureAttribution"] = "infrastructure"
+    return record
+
+
+def qualify_attempt(record, receipt, cell, *, raw_path, run_id, run_attempt,
+                    at=None, pinned_manifest=None, pinned_manifest_digest=None, require_observation=True):
+    """Preserve raw full-workflow verdict; admit only the explicit bounded off profile."""
+    passed = validate_attempt(record, receipt, cell, run_id=run_id, run_attempt=run_attempt,
+        at=at, pinned_manifest=pinned_manifest, pinned_manifest_digest=pinned_manifest_digest)
+    if cell not in ("aws-ecs/redis-off", "aws-serverless/redis-off"):
+        return passed
+    import deterministic_refusal_profile as profile
+    if profile.failed_record(record, receipt, Path(raw_path)):
+        return False
+    profile.validate_record(record, receipt, Path(raw_path), cell=cell,
+        pinned=manifest() if pinned_manifest is None else pinned_manifest,
+        digest=candidate_digest() if pinned_manifest_digest is None else pinned_manifest_digest,
+        at=at, require_observation=require_observation)
+    return True
 
 
 def validate_attempt(record, receipt, cell, *, run_id, run_attempt, at=None,
@@ -958,8 +1009,13 @@ def aggregate(reports, reports_root, *, require_real, full_scope, run_id, run_at
                 if passed:
                     raise ValueError("attempt recorded after a passing journey")
                 receipt = json.loads(data)
-                passed = validate_attempt(record, receipt, cell, run_id=run_id, run_attempt=run_attempt)
+                passed = qualify_attempt(record, receipt, cell, raw_path=path, run_id=run_id, run_attempt=run_attempt)
                 attempt_blockers.append(documented_blockers(receipt))
+            recorded_profiles = {(Path(report["artifactDirectory"]) / record["receipt"]).parent
+                / f"serving-refusal-{record['number']}.json" for record in attempts if record.get("servingRefusal")}
+            if any(path.resolve() not in {p.resolve() for p in recorded_profiles}
+                   for path in Path(report["artifactDirectory"]).rglob("serving-refusal-*.json")):
+                raise ValueError("produced serving/refusal sidecar omitted from attempt history")
             cost = report.get("cost", {})
             # Outside require_real a cell that is BLOCKED only by tracked, documented limitations
             # (journey receipts, scenarios, a missing run cost meter) is reported blocked, never
