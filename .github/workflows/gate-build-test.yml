@@ -56,6 +56,7 @@ on:
 
 permissions:
   contents: read
+  actions: read                   # authoritative component job/attempt execution inventories
   checks: read                    # read each component's check-runs on its pinned sha
 
 concurrency:
