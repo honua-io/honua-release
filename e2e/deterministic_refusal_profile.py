@@ -65,7 +65,7 @@ def plan(target, run_id, number):
 
 def no_execution(value):
     if isinstance(value, dict):
-        return all(not (key in {'jobId', 'operationId', 'operationInstanceId', 'jobStatus'} and item)
+        return all(not (key in {'jobId', 'operationId', 'operationInstanceId', 'jobStatus', 'resourceUri', 'jobCreatedAt'} and item)
                    and no_execution(item) for key, item in value.items())
     if isinstance(value, list):
         return all(no_execution(item) for item in value)
@@ -169,6 +169,7 @@ def validate(value, record, raw, raw_bytes, target_path, *, cell, digest, expect
     require(value.get('cell') == record['cell'] == cell and value.get('attempt') == record['number']
         and value.get('runId') == record['runId'] and value.get('runAttempt') == record['runAttempt']
         and value.get('candidateDigest') == record['candidateDigest'] == digest
+        and record.get('driver', 'deterministic') == 'deterministic'
         and value.get('server') == raw.get('server') == expected_server
         and raw.get('mode') == 'live' and raw.get('roster', {}).get('status') == 'pass'
         and raw.get('status') in {'pass', 'blocked'} and value.get('sourceStatus') == raw['status']
@@ -186,6 +187,10 @@ def validate(value, record, raw, raw_bytes, target_path, *, cell, digest, expect
             and evidence.get('freshness') == 'verified-current' and evidence.get('completeness') == 'complete'
             and 0 <= (instant(raw['generatedAt']) - instant(evidence['observedAt'])).total_seconds() <= 86400,
             'profile setup/auth prerequisite is not current complete live evidence')
+    authored = json.loads((ROOT / 'certification/terminal-journey/targets/local-docker.json').read_bytes())
+    require(target.get('execution', {}).get('buffer') == authored['execution']['buffer'],
+            'profile buffer input is not the authored candidate fixture')
+    require(no_execution(raw['stages'][4]), 'raw GP stage contradicts refused execution')
     require(target.get('id') == cell and target.get('kind') == cell.split('/')[0]
         and str(target.get('replicaBaseUrl', '')).rstrip('/') == str(raw['target'].get('baseUrl', '')).rstrip('/'),
         'profile target endpoint mismatch')
@@ -206,19 +211,38 @@ def validate(value, record, raw, raw_bytes, target_path, *, cell, digest, expect
         observation = record.get('profileObservation', {})
         require(observation.get('source') == 'aws-control-plane'
             and observation.get('before') == observation.get('after') == expected_server
+            and observation.get('seedManifestSha256') == public['seedManifestSha256']
             and generated <= instant(observation['observedAt']) <= at,
             'profile lacks matching native image observations before and after execution')
-    return {'profile': PROFILE, 'executionOutcome': 'refused', 'functionalGpExecuted': False}
+    return {'profile': PROFILE, 'executionOutcome': 'refused', 'functionalGpExecuted': False,
+            'completedAt': value['generatedAt']}
 
 
 def validate_record(record, raw, raw_path, *, cell, pinned, digest, at=None, require_observation=True):
     """Only fixed adjacent hashed sidecars are eligible; raw receipts remain untouched."""
     path = raw_path.parent / f"serving-refusal-{record['number']}.json"
     proof = record.get('servingRefusal', {})
-    require(proof.get('file') == path.name and proof.get('sha256') == sha(path.read_bytes()),
+    directory = raw_path.parent.resolve()
+    for file in (raw_path, path, raw_path.parent / f"target-{record['number']}.json",
+                 raw_path.parent / 'extended/seed-manifest.json'):
+        require(file.is_file() and not file.is_symlink() and file.resolve().is_relative_to(directory),
+                'unsafe or missing serving/refusal artifact')
+    require(isinstance(proof, dict) and proof.get('file') == path.name and proof.get('sha256') == sha(path.read_bytes()),
             'missing or changed serving/refusal sidecar')
     from cloud_journey import candidate_image
     server = {'sourceSha': pinned['components']['honua-server']['sha'], 'image': candidate_image(cell, pinned)}
     return validate(json.loads(path.read_bytes()), record, raw, raw_path.read_bytes(),
         raw_path.parent / f"target-{record['number']}.json", cell=cell, digest=digest,
         expected_server=server, at=at, require_observation=require_observation)
+
+
+def failed_record(record, raw, raw_path):
+    """A failed attempt remains attributed history; it cannot satisfy a required success."""
+    if raw.get('status') != 'pass' and not record.get('servingRefusal'):
+        return True
+    path = raw_path.parent / f"serving-refusal-{record['number']}.json"
+    proof = record.get('servingRefusal', {})
+    require(isinstance(proof, dict) and proof.get('file') == path.name
+        and path.is_file() and not path.is_symlink()
+        and proof.get('sha256') == sha(path.read_bytes()), 'missing or changed serving/refusal sidecar')
+    return json.loads(path.read_bytes()).get('status') == 'fail'

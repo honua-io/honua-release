@@ -180,6 +180,25 @@ def unpack_handoff(value):
 
 
 @contextmanager
+def tenant_application_key(value):
+    """Expose only the sealed application fixture key after stripping cloud/CI credentials."""
+    name = "HONUA_CANARY_TENANT_SIGNING_KEY"
+    previous = os.environ.get(name)
+    try:
+        if value is not None:
+            _validate_tenant_signing_key(value)
+            os.environ[name] = value
+        else:
+            os.environ.pop(name, None)
+        yield
+    finally:
+        if previous is None:
+            os.environ.pop(name, None)
+        else:
+            os.environ[name] = previous
+
+
+@contextmanager
 def cell_datasource(datasource):
     """Expose the cell's datasource to the imported driver as its environment references.
 
@@ -717,7 +736,7 @@ def attempt(cell, number, endpoint, admin_key, running_image=None, *, image_deta
         import deterministic_refusal_profile as profile
         try:
             with (admin_credential(admin_key), driver.probes.allow_http_cell(http_cell_host(endpoint)),
-                  driver.pins.candidate_sandbox()):
+                  driver.pins.candidate_sandbox(), tenant_application_key(tenant_signing_key)):
                 proof = profile.produce(record, path, target_path, adapter=adapter,
                     pinned=pinned, digest=candidate_digest(), cell=cell)
         except Exception as exc:
@@ -736,8 +755,7 @@ def qualify_attempt(record, receipt, cell, *, raw_path, run_id, run_attempt,
     if cell not in ("aws-ecs/redis-off", "aws-serverless/redis-off"):
         return passed
     import deterministic_refusal_profile as profile
-    sidecar = Path(raw_path).parent / f"serving-refusal-{record['number']}.json"
-    if receipt["status"] == "fail" or (sidecar.is_file() and json.loads(sidecar.read_bytes()).get("status") == "fail"):
+    if profile.failed_record(record, receipt, Path(raw_path)):
         return False
     profile.validate_record(record, receipt, Path(raw_path), cell=cell,
         pinned=manifest() if pinned_manifest is None else pinned_manifest,

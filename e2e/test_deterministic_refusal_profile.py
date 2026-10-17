@@ -24,7 +24,7 @@ REFUSAL = {'topology': 'redis-off', 'rulingStatus': 'ruled', 'tool': 'honua_exec
 @pytest.fixture
 def sample(tmp_path):
     target = {'id': 'aws-ecs/redis-off', 'kind': 'aws-ecs', 'replicaBaseUrl': 'https://cell.example',
-              'execution': {'buffer': {'point': [-156.33, 20.75], 'srid': 4326, 'distance': 100}}}
+              'execution': {'buffer': {'point': [0, 0], 'srid': 3857, 'distance': 2}}}
     target_path = tmp_path / 'target-1.json'
     target_path.write_text(json.dumps(target))
     seed = tmp_path / 'extended/seed-manifest.json'
@@ -48,7 +48,7 @@ def sample(tmp_path):
     record = {'cell': 'aws-ecs/redis-off', 'number': 1, 'runId': '123', 'runAttempt': '2',
               'candidateDigest': 'c' * 64, 'receiptSha256': profile.sha(raw_bytes),
               'profileObservation': {'source': 'aws-control-plane', 'before': SERVER, 'after': SERVER,
-                                     'observedAt': AFTER}}
+                                     'observedAt': AFTER, 'seedManifestSha256': fixture['seedManifestSha256']}}
     public_fixture = {k: v for k, v in fixture.items() if k != 'expectedFeatures'}
     proof = {'schemaVersion': 'deterministic-redis-off-serving-refusal.v1', 'profile': profile.PROFILE,
         'mode': 'deterministic', 'status': 'pass', 'executionOutcome': 'refused', 'functionalGpExecuted': False,
@@ -71,7 +71,7 @@ def validate(sample, **kwargs):
 def test_blocked_raw_is_preserved_and_never_claims_gp_execution(sample):
     before = copy.deepcopy(sample)
     assert validate(sample) == {'profile': 'redis-off-serving-refusal', 'executionOutcome': 'refused',
-                                'functionalGpExecuted': False}
+                                'functionalGpExecuted': False, 'completedAt': AFTER}
     assert sample == before
     assert sample[2]['status'] == 'blocked'
     assert sample[2]['stages'][4]['status'] == 'blocked'
@@ -164,7 +164,7 @@ def test_producer_issues_authored_serving_and_valid_durable_request_then_cleans_
     assert [action['tool'] for action in actions] == ['honua_query_features', 'honua_execute_plan', 'honua_list_capabilities']
     assert actions[0]['arguments']['serviceId'] == 'e2e' and actions[0]['arguments']['layerId'] == 7
     assert actions[1]['arguments']['plan']['steps'][0]['inputs'] == {
-        'wkb': 'AQEAAADD9Shcj4pjwAAAAAAAwDRA', 'srid': '4326', 'distance': '100', 'geodesic': 'false'}
+        'wkb': 'AQEAAAAAAAAAAAAAAAAAAAAAAAAA', 'srid': '3857', 'distance': '2', 'geodesic': 'false'}
     assert adapter.calls[-1] == ('teardown', {'workspaceId': 'owned'})
 
 
@@ -191,3 +191,68 @@ def test_standalone_validator_rejects_incomplete_or_relabelled_canonical_source(
     else: stages[0]['number'] = 7
     with pytest.raises(ValueError, match='complete ordered canonical journey'):
         validate(sample)
+
+
+@pytest.mark.parametrize('mutation', ['driver', 'raw-job', 'seed-handoff', 'wrong-buffer'])
+def test_refusal_cannot_claim_model_credit_or_forge_fixture_execution(sample, mutation):
+    proof, record, raw, _, target = sample
+    if mutation == 'driver': record['driver'] = 'genuine-model'
+    elif mutation == 'raw-job': raw['stages'][4]['jobId'] = 'actually-executed'
+    elif mutation == 'seed-handoff': record['profileObservation']['seedManifestSha256'] = 'e' * 64
+    else:
+        value = json.loads(target.read_bytes()); value['execution']['buffer']['distance'] = 200
+        target.write_text(json.dumps(value))
+        proof['targetConfigSha256'] = raw['target']['configSha256'] = profile.sha(target.read_bytes())
+        proof['planSha256'] = profile.sha(profile.canonical(profile.plan(value, '123', 1)))
+    with pytest.raises(ValueError): validate(sample)
+
+
+def attach_fixture_profile(directory, raw, record):
+    """Explicit test-only modernization of legacy full-journey fixture inputs.
+
+    No production/recorded evidence is rewritten. Each sidecar is a hand-authored proof for
+    the maintained fixture; negative tests mutate those bytes or identity fields afterwards.
+    """
+    number, cell = record['number'], record['cell']
+    target = {'id': cell, 'kind': cell.split('/')[0], 'replicaBaseUrl': 'https://cell.invalid',
+              'execution': {'buffer': {'point': [0, 0], 'srid': 3857, 'distance': 2}}}
+    target_path = directory / f'target-{number}.json'
+    target_path.write_text(json.dumps(target))
+    seed = directory / 'extended/seed-manifest.json'
+    seed.parent.mkdir(exist_ok=True)
+    seed.write_text(json.dumps({'slice1': {'e2e_src_fs': {'service': 'e2e', 'layerId': 7}},
+                                'layers': {'e2e_src_fs': 7}}))
+    fixture = profile.oracle().fixture_binding(seed)
+    raw['target'].update(baseUrl='https://cell.invalid', configSha256=profile.sha(target_path.read_bytes()))
+    if raw['status'] == 'pass':
+        gp = raw['stages'][4]
+        for key in ('jobId', 'operationId', 'operationInstanceId', 'jobStatus', 'resourceUri', 'jobCreatedAt'):
+            gp[key] = None
+        gp['topologyRefusal'] = {**REFUSAL, 'ruling': 'redis-governed-control-plane-2026-10-08',
+                                 'deploymentEnvironment': 'test'}
+    raw_bytes = json.dumps(raw).encode()
+    record['receiptSha256'] = profile.sha(raw_bytes)
+    proof = {'schemaVersion': 'deterministic-redis-off-serving-refusal.v1', 'profile': profile.PROFILE,
+        'mode': 'deterministic', 'cell': cell, 'runId': record['runId'], 'runAttempt': record['runAttempt'],
+        'attempt': number, 'candidateDigest': record['candidateDigest'], 'server': raw['server'],
+        'status': 'pass' if raw['status'] == 'pass' else 'fail', 'sourceStatus': raw['status'],
+        'executionOutcome': 'refused', 'functionalGpExecuted': False, 'cleanup': 'pass',
+        'generatedAt': raw['generatedAt'], 'rawReceiptSha256': profile.sha(raw_bytes),
+        'targetConfigSha256': profile.sha(target_path.read_bytes()),
+        'planSha256': profile.sha(profile.canonical(profile.plan(target, record['runId'], number))),
+        'assertions': dict.fromkeys(profile.ASSERTIONS, 'pass'), 'refusalProof': REFUSAL,
+        'servingProof': {'fixtureBinding': {k:v for k,v in fixture.items() if k != 'expectedFeatures'},
+                        'featureCount': 2, 'featureIds': ['1','2'], 'independentReadMatches': True,
+                        'featuresSha256': 'd'*64}}
+    path = directory / f'serving-refusal-{number}.json'
+    path.write_text(json.dumps(proof))
+    record['servingRefusal'] = {'file': path.name, 'sha256': profile.sha(path.read_bytes())}
+    record['profileObservation'] = {'source': 'aws-control-plane', 'before': raw['server'], 'after': raw['server'],
+        'observedAt': raw['generatedAt'], 'seedManifestSha256': fixture['seedManifestSha256']}
+    return raw_bytes
+
+
+@pytest.mark.parametrize('extra', [{'resourceUri': 'honua://jobs/real-job'}, {'jobCreatedAt': STAMP},
+    {'encoded': json.dumps({'nested': {'resourceUri': 'honua://jobs/real-job'}})}])
+def test_refusal_rejects_nested_or_encoded_partial_job_evidence(extra):
+    with pytest.raises(ValueError): profile.check_refusal({**REFUSAL, **extra})

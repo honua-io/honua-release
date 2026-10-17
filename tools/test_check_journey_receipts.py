@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import hashlib
+import copy
 import json
 import subprocess
 import sys
@@ -25,7 +26,8 @@ CLIENTS = {name: {"package": package, "version": "2026.1.0-rc.3",
                                  ("honua-mcp-server", "@honua/mcp-server"))}
 MANIFEST = {"platformRelease": "2026.1-rc.3", "clientArtifacts": CLIENTS,
             "components": {"honua-server": {"sha": "b" * 40,
-                            "image": "ghcr.io/honua/server", "digest": "sha256:" + "c" * 64}}}
+                            "image": "ghcr.io/honua/server", "digest": "sha256:" + "c" * 64,
+                            "awsLambdaImage": "ghcr.io/honua/lambda", "awsLambdaDigest": "sha256:" + "d" * 64}}}
 # Number, stage, command are written independently from the owned journey contract.
 STAGES = [
     (1, "installed-client-handoff", "install exact manifest clients; verify readiness, identity, auth, profiles and tools/list"),
@@ -51,7 +53,8 @@ def receipt(cell):
                               "integrityVerified": True, "tarballSha256": "e" * 64,
                               "bin": {"honua": "cli.js"}}],
                 "commandSurface": [], "installNotes": []},
-            "server": {"sourceSha": "b" * 40, "image": "ghcr.io/honua/server@sha256:" + "c" * 64},
+            "server": {"sourceSha": "b" * 40, "image": ("ghcr.io/honua/lambda@sha256:" + "d" * 64 if cell.startswith("aws-serverless/")
+                else "ghcr.io/honua/server@sha256:" + "c" * 64)},
             "fixtureRevision": "fixture-v1", "configRevision": "config-v1",
             "authPolicyRevision": "auth-v1", "roster": {"status": "pass"},
             "stages": [{"number": number, "stage": stage, "command": command,
@@ -62,7 +65,7 @@ def receipt(cell):
                 "auditId": "audit", "proposalId": "proposal", "jobId": "job", "resourceUri": "honua://jobs/job",
                 "jobStatus": "accepted", "jobCreatedAt": STAMP, "policyDecisionId": None, "approvalId": None,
                 "actuatorId": None, "verificationId": None,
-                "evidence": {"uri": "urn:hand-built:observation", "source": f"live-{cell.split('/')[0]}",
+                "evidence": {"uri": "urn:hand-built:observation#honua-run=12345/2", "source": f"live-{cell.split('/')[0]}",
                              "freshness": "verified-current", "completeness": "complete",
                              "observedAt": STAMP}} for number, stage, command in STAGES],
             "notices": [], "linkedEvidence": {"awsProvisioning": "honua-release#129",
@@ -106,6 +109,10 @@ class Intake:
                                              "infrastructure" if value["status"] != "pass" else None)}
             if drivers:
                 record["driver"] = drivers[i-1]
+            if cell.endswith("/redis-off"):
+                sys.path.insert(0, str(checker.ROOT / "e2e"))
+                from test_deterministic_refusal_profile import attach_fixture_profile
+                path.write_bytes(attach_fixture_profile(path.parent, value, record))
             attempts.append(record)
         report = {"cell": cell, "status": "pass", "journeyAttempts": attempts}
         self.save(cell, report)
@@ -143,14 +150,14 @@ def test_hand_built_fixtures_validate_against_owned_schema():
 
 
 def test_all_four_exact_candidate_cells_pass_and_record_driver(intake):
-    intake.write(checker.GA_CELLS[0], drivers=["genuine-model"])
+    intake.write(checker.GA_CELLS[1], drivers=["genuine-model"])
     result = intake.evaluate()
     assert result["status"] == "pass"
     ga = [r for r in result["cells"] if r["counted"]]
     assert len(ga) == 4
-    assert ga[0]["drivers"] == ["genuine-model"]
+    assert ga[0]["drivers"] == ["deterministic"]
     assert ga[0]["attempts"][0]["completedAt"] == STAMP
-    assert ga[1]["drivers"] == ["deterministic"]
+    assert ga[1]["drivers"] == ["genuine-model"]
     assert result["gates"][0]["decided"] == "pass"
 
 

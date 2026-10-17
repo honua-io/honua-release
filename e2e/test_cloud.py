@@ -1299,6 +1299,9 @@ def _artifact(directory, receipt, *, number=1):
         "runAttempt": "2", "candidateDigest": cj.candidate_digest(), "receipt": path.name,
         "receiptSha256": hashlib.sha256(path.read_bytes()).hexdigest(),
         "failureAttribution": None if receipt["status"] == "pass" else "infrastructure"}
+    if receipt["target"]["id"].endswith("/redis-off") and receipt["status"] == "pass":
+        from test_deterministic_refusal_profile import attach_fixture_profile
+        path.write_bytes(attach_fixture_profile(directory, receipt, record))
     return record
 
 
@@ -1614,7 +1617,7 @@ def test_cloud_full_scope_preview_failure_cannot_redden_a_passing_ga_run():
         # EKS failures stay informational; required ECS/Lambda failures and cost ceilings still refuse.
         previews = [{"cell": f"{target}/redis-{redis}", "status": "fail", "provisionAttempted": False}
                     for target in (cj.PREVIEW_TARGETS or ("stub",)) for redis in ("off", "on")]
-        with mock.patch.object(cj, "validate_attempt", return_value=True):
+        with mock.patch.object(cj, "qualify_attempt", return_value=True):
             result = _aggregate_fixture([*reports, *previews], root, full_scope=True)
             assert result["status"] == "pass" and result["certifying"] is True
             previews[0]["cost"] = {**reports[0]["cost"], "status": "fail", "amountUsd": "20.01"}
@@ -1639,7 +1642,7 @@ def test_cloud_full_scope_requires_a_final_run_cost_reading_after_every_cloud_jo
             subdir = root / cell.replace("/", "-")
             subdir.mkdir()
             reports.append(_cell_report(subdir, _ecs_receipt(cell)))
-        with mock.patch.object(cj, "validate_attempt", return_value=True):
+        with mock.patch.object(cj, "qualify_attempt", return_value=True):
             # Every per-cell reading is under the ceiling; the later whole-run reading is not.
             over = cj.aggregate(reports, root, require_real=True, full_scope=True,
                                 run_id="offline-run", run_attempt="2",
@@ -2644,6 +2647,9 @@ def _journey_upload(directory, receipts, *, run_id="offline-run", run_attempt="2
             "receipt": str((cell_dir / f"receipt-{number}.json").relative_to(E2E_DIR)),
             "receiptSha256": hashlib.sha256(data).hexdigest(),
             "failureAttribution": None if receipt["status"] == "pass" else "infrastructure"})
+        if cell.endswith("/redis-off") and receipt["status"] == "pass":
+            from test_deterministic_refusal_profile import attach_fixture_profile
+            (directory / f"receipt-{number}.json").write_bytes(attach_fixture_profile(directory, receipt, records[-1]))
     return {"cell": cell, "status": "pass", "journeyAttempts": records}
 
 
@@ -2654,7 +2660,9 @@ def test_teardown_reverifies_journey_receipts_and_adopts_no_claimed_verdict(monk
     monkeypatch.setenv("GITHUB_RUN_ATTEMPT", "2")
     sha, image = _manifest_server()
     state = {"cell": "aws-ecs/redis-off", "observedServer": {"revision": sha, "source": "commit-sha"},
-             "runningImage": image}
+             "runningImage": image, "servingFixtureSha256": hashlib.sha256(json.dumps({
+                 "slice1": {"e2e_src_fs": {"service": "e2e", "layerId": 7}},
+                 "layers": {"e2e_src_fs": 7}}).encode()).hexdigest()}
     failed = _ecs_receipt()
     failed["status"] = "fail"
     failed["stages"][0]["status"] = "fail"
@@ -2805,7 +2813,7 @@ def test_journey_job_stops_on_a_documented_block_and_reports_it(monkeypatch):
         return {"number": number, "receipt": str(path.relative_to(E2E_DIR))}
 
     monkeypatch.setattr(cj, "attempt", attempt)
-    monkeypatch.setattr(cj, "validate_attempt", lambda *a, **k: False)
+    monkeypatch.setattr(cj, "qualify_attempt", lambda *a, **k: False)
     _patch_seam(monkeypatch, lambda *a, **k: [cc.CheckResult("top-demo", "blocked", "honua-release#450 CSP")])
     try:
         for require_real, status in ((False, "blocked"), (True, "fail")):

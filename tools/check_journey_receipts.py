@@ -152,12 +152,16 @@ def validate_cell(report, directory, cell, manifest, digest, run_id, run_attempt
             if str(ROOT / "e2e") not in sys.path:
                 sys.path.insert(0, str(ROOT / "e2e"))
             import deterministic_refusal_profile
-            profile_metadata = deterministic_refusal_profile.validate_record(record, receipt, path,
-                cell=cell, pinned=manifest, digest=digest, at=at)
-            passed = True
-        history.append({"number": record["number"], "status": "pass" if passed else receipt["status"],
+            if deterministic_refusal_profile.failed_record(record, receipt, path):
+                profile_metadata = {"profile": "redis-off-serving-refusal"}
+                passed = False
+            else:
+                profile_metadata = deterministic_refusal_profile.validate_record(record, receipt, path,
+                    cell=cell, pinned=manifest, digest=digest, at=at)
+                passed = True
+        history.append({"number": record["number"], "status": "pass" if passed else "fail",
                         "sourceStatus": receipt["status"], **profile_metadata,
-                        "completedAt": receipt["generatedAt"],
+                        "completedAt": profile_metadata.get("completedAt", receipt["generatedAt"]),
                         "driver": driver, "failureAttribution": attribution,
                         "receipt": record["receipt"]})
     if any(path.resolve() not in recorded_paths for path in directory.rglob("receipt-*.json")):

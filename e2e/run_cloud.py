@@ -214,6 +214,10 @@ def provision_phase(target, target_name: str, *, require_real: bool, redis_enabl
         seed_kwargs = {} if journey_datasource is None else {"datasource": journey_datasource}
         state["seedError"] = seed_cell(endpoint, target=target,
                                        out=cloud_journey.cell_dir(cell) / "extended", **seed_kwargs)
+        serving_seed = cloud_journey.cell_dir(cell) / "extended/seed-manifest.json"
+        if serving_seed.is_file() and not serving_seed.is_symlink():
+            # This digest enters the encrypted provision handoff before candidate packages run.
+            state["servingFixtureSha256"] = hashlib.sha256(serving_seed.read_bytes()).hexdigest()
         # S10 large-import (honua-release#548): stage the cell's pinned fixture in S3 while this job
         # holds the AWS credentials. Only a target that names an AWS region can stage.
         if getattr(target, "region", None):
@@ -325,8 +329,8 @@ def journey_phase(state: dict, *, admin_key: str, max_attempts: int = 2,
             if passed:
                 break
             blockers.append(cloud_journey.documented_blockers(receipt))
-            if blockers[-1]:
-                break  # a documented limitation is deterministic; another attempt cannot lift it
+            if blockers[-1] and not record.get("servingRefusal"):
+                break  # only the explicit profile gets the existing retry budget past a raw block
         else:
             journey["status"] = "fail"
             journey["why"] = "journey did not pass within the recorded attempt budget"
@@ -408,7 +412,8 @@ def teardown_phase(state: dict, journey: dict, target, *, reference_endpoint: st
                     before = cloud_journey.observed_server(state.get("observedServer"), state.get("runningImage"))
                     for record in report["journeyAttempts"]:
                         record["profileObservation"] = {"source": "aws-control-plane", "before": before,
-                            "after": after, "observedAt": cloud_journey.now()}
+                            "after": after, "observedAt": cloud_journey.now(),
+                            "seedManifestSha256": state.get("servingFixtureSha256")}
                         path = E2E_DIR / record["receipt"]
                         accepted = cloud_journey.qualify_attempt(record, json.loads(path.read_bytes()), cell, raw_path=path,
                             run_id=state["runId"], run_attempt=state["runAttempt"])
@@ -830,6 +835,11 @@ def verify_journey(state: dict, journey: dict, journey_dir: Path) -> dict:
                 config_bytes is None or hashlib.sha256(config_bytes).hexdigest() != receipt["target"]["configSha256"]):
             raise ValueError("journey target config digest mismatch")
         record.pop("profileObservation", None)
+        if record.get("servingRefusal"):
+            seed = journey_dir / "extended/seed-manifest.json"
+            if (not seed.is_file() or seed.is_symlink() or not state.get("servingFixtureSha256")
+                    or hashlib.sha256(seed.read_bytes()).hexdigest() != state["servingFixtureSha256"]):
+                raise ValueError("journey serving fixture differs from the sealed provision handoff")
         passed = cloud_journey.qualify_attempt(record, receipt, cell,
             raw_path=journey_dir / f"receipt-{number}.json", run_id=run_id, run_attempt=run_attempt,
             require_observation=False)
