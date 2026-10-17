@@ -2,7 +2,7 @@
 """Execute a clean public-NuGet consumer; retain the complete frozen scorecard.
 
 No test report, old source-client receipt, or user-supplied verdict is accepted as
-input. Unimplemented qualification remains blocked in the emitted receipt. The
+input. Unexecuted qualification remains blocked in the emitted receipt. The
 existing consumer remains the authority and rejects every incomplete receipt.
 """
 from __future__ import annotations
@@ -238,7 +238,7 @@ class Scorecard:
         self.cells = {cell["id"]: {
             "id": cell["id"], "verdict": "not-applicable" if cell["kind"] == "not-applicable" else "blocked",
             "executed": False, "stale": False, "sourceBuilt": False,
-            "reason": "frozen baseline excludes time queries" if cell["kind"] == "not-applicable" else "qualification not implemented by this producer",
+            "reason": "frozen baseline excludes time queries" if cell["kind"] == "not-applicable" else "not executed in this attempt; live qualification remains required",
         } for cell in requirements["cells"]}
         self.differences = []
         self.postgis = False
