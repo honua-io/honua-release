@@ -226,6 +226,7 @@ jobs:
             ${{ env.CELL_DIR }}/extended/seed-manifest.json
             ${{ env.CELL_DIR }}/receipt-*.json
             ${{ env.CELL_DIR }}/target-*.json
+            ${{ env.CELL_DIR }}/serving-refusal-*.json
           if-no-files-found: warn
           retention-days: 1
 
@@ -420,8 +421,10 @@ jobs:
             ${{ env.CELL_DIR }}/journey.json
             ${{ env.CELL_DIR }}/receipt-*.json
             ${{ env.CELL_DIR }}/target-*.json
+            ${{ env.CELL_DIR }}/serving-refusal-*.json
             ${{ env.CELL_DIR }}/setup-discovery-*.json
             ${{ env.CELL_DIR }}/extended/gate-report.json
+            ${{ env.CELL_DIR }}/extended/seed-manifest.json
           if-no-files-found: warn
           retention-days: 1
 
@@ -677,6 +680,8 @@ jobs:
             e2e/cloud-evidence/**/extended/gate-report.json
             e2e/cloud-evidence/**/receipt-*.json
             e2e/cloud-evidence/**/target-*.json
+            e2e/cloud-evidence/**/serving-refusal-*.json
+            e2e/cloud-evidence/**/extended/seed-manifest.json
             e2e/cloud-evidence/**/diagnostics-*.json
             e2e/cloud-evidence/**/deployment-execution-inputs.json
             e2e/cloud-evidence/**/deployment-terraform-inputs.json

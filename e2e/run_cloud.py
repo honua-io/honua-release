@@ -314,8 +314,9 @@ def journey_phase(state: dict, *, admin_key: str, max_attempts: int = 2,
             journey["journeyAttempts"].append(record)
             receipt = json.loads((E2E_DIR / record["receipt"]).read_text())
             try:
-                passed = cloud_journey.validate_attempt(record, receipt, cell,
-                                                        run_id=run_id, run_attempt=run_attempt)
+                passed = cloud_journey.qualify_attempt(record, receipt, cell,
+                    raw_path=E2E_DIR / record["receipt"], run_id=run_id, run_attempt=run_attempt,
+                    require_observation=False)
             except ValueError as error:
                 # validate_attempt's reasons are fixed strings; they carry no receipt content.
                 journey["status"] = "fail"
@@ -398,6 +399,23 @@ def teardown_phase(state: dict, journey: dict, target, *, reference_endpoint: st
     # independent obligations. An error in any one must not bypass the following obligations.
     try:
         try:
+            if cell in ("aws-ecs/redis-off", "aws-serverless/redis-off") and report["journeyAttempts"]:
+                try:
+                    pinned = cloud_journey.manifest()
+                    after_image = (cloud_journey.observe_ecs_image(target, pinned)[0] if state["target"] == "aws-ecs"
+                                   else cloud_journey.observed_lambda_image(target, pinned))
+                    after = cloud_journey.observed_server(cloud_journey.server_identity(state["endpoint"]), after_image)
+                    before = cloud_journey.observed_server(state.get("observedServer"), state.get("runningImage"))
+                    for record in report["journeyAttempts"]:
+                        record["profileObservation"] = {"source": "aws-control-plane", "before": before,
+                            "after": after, "observedAt": cloud_journey.now()}
+                        path = E2E_DIR / record["receipt"]
+                        accepted = cloud_journey.qualify_attempt(record, json.loads(path.read_bytes()), cell, raw_path=path,
+                            run_id=state["runId"], run_attempt=state["runAttempt"])
+                        if record is report["journeyAttempts"][-1] and not accepted:
+                            raise ValueError("final serving/refusal profile did not qualify")
+                except Exception as exc:
+                    report.update(status="fail", why="serving/refusal native observation rejected: " + type(exc).__name__)
             if not report["journeyAttempts"]:
                 report["journeyAttempts"].append(cloud_journey.attempt(cell, 1, None, ""))
         except Exception as e:
@@ -811,7 +829,18 @@ def verify_journey(state: dict, journey: dict, journey_dir: Path) -> dict:
         if receipt["target"].get("configSha256") and (
                 config_bytes is None or hashlib.sha256(config_bytes).hexdigest() != receipt["target"]["configSha256"]):
             raise ValueError("journey target config digest mismatch")
-        passed = cloud_journey.validate_attempt(record, receipt, cell, run_id=run_id, run_attempt=run_attempt)
+        record.pop("profileObservation", None)
+        passed = cloud_journey.qualify_attempt(record, receipt, cell,
+            raw_path=journey_dir / f"receipt-{number}.json", run_id=run_id, run_attempt=run_attempt,
+            require_observation=False)
+        if record.get("servingRefusal"):
+            for source in (journey_dir / f"serving-refusal-{number}.json",
+                           journey_dir / "extended/seed-manifest.json"):
+                relative = source.relative_to(journey_dir)
+                destination = directory / relative
+                destination.parent.mkdir(parents=True, exist_ok=True)
+                if source.resolve() != destination.resolve():
+                    destination.write_bytes(source.read_bytes())
         if not passed:
             blockers.append(cloud_journey.documented_blockers(receipt))
         verified.append((number, data, config_bytes))

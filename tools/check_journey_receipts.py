@@ -16,6 +16,7 @@ import argparse
 import hashlib
 import json
 import re
+import sys
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -87,7 +88,9 @@ def validate_cell(report, directory, cell, manifest, digest, run_id, run_attempt
     contract = load_json(ROOT / "certification/terminal-journey/journey.v1.json")
     expected_stages = [(s["number"], s["id"], s["command"]) for s in contract["stages"]]
     server = manifest["components"]["honua-server"]
-    expected_server = {"sourceSha": server["sha"], "image": f"{server['image']}@{server['digest']}"}
+    image_name, digest_name = (("awsLambdaImage", "awsLambdaDigest") if cell.startswith("aws-serverless/")
+                               else ("image", "digest"))
+    expected_server = {"sourceSha": server["sha"], "image": f"{server[image_name].split('@', 1)[0]}@{server[digest_name]}"}
     expected_clients = {name: {key: pin.get(key) for key in
                         ("package", "version", "integrity", "digest", "sourceSha")}
                         for name, pin in manifest["clientArtifacts"].items()
@@ -144,7 +147,16 @@ def validate_cell(report, directory, cell, manifest, digest, run_id, run_attempt
                 require_current(evidence.get("observedAt"), at)
                 if timestamp(evidence["observedAt"]) > timestamp(receipt["generatedAt"]):
                     raise ValueError("stage observation postdates receipt")
-        history.append({"number": record["number"], "status": receipt["status"],
+        profile_metadata = {}
+        if cell.endswith("/redis-off"):
+            if str(ROOT / "e2e") not in sys.path:
+                sys.path.insert(0, str(ROOT / "e2e"))
+            import deterministic_refusal_profile
+            profile_metadata = deterministic_refusal_profile.validate_record(record, receipt, path,
+                cell=cell, pinned=manifest, digest=digest, at=at)
+            passed = True
+        history.append({"number": record["number"], "status": "pass" if passed else receipt["status"],
+                        "sourceStatus": receipt["status"], **profile_metadata,
                         "completedAt": receipt["generatedAt"],
                         "driver": driver, "failureAttribution": attribution,
                         "receipt": record["receipt"]})

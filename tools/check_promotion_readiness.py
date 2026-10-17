@@ -132,6 +132,11 @@ def _journey(receipt: dict[str, Any], required: frozenset[str], mode: str,
                 if index == len(attempts) and (attempt.get("executionOutcome") != expected_outcome
                         or attempt.get("functionalGpExecuted") is not expected_execution):
                     return False
+            if mode == "deterministic" and cell["cell"].endswith("/redis-off"):
+                if (attempt.get("profile") != "redis-off-serving-refusal"
+                        or index == len(attempts) and (attempt.get("executionOutcome") != "refused"
+                            or attempt.get("functionalGpExecuted") is not False)):
+                    return False
             if index == len(attempts):
                 if attempt.get("status") != "pass":
                     return False
