@@ -69,11 +69,13 @@ def _load(path: Path, field: str) -> dict[str, Any]:
 
 # R21: required classes and their production tier. Additional consumed classes must
 # be explicitly declared too; declarations cannot change these mandated tiers.
+COMPATIBILITY_CERTIFICATE_CLASS = "esri-bundle"
+
 EVIDENCE_CLASSES = {
     **dict.fromkeys(("build-test", "contract", "sbom", "security", "upgrade",
                      "capacity-soak", "dr", "lambda-certification", "protocol-ledger",
                      "deterministic-journey", "nightly-model-journey", "executable-docs", "installed-clients"), "nightly"),
-    **dict.fromkeys(("genuine-model-journey", "update-rollback", "esri-bundle", "cite"), "qualifying"),
+    **dict.fromkeys(("genuine-model-journey", "update-rollback", COMPATIBILITY_CERTIFICATE_CLASS, "cite"), "qualifying"),
 }
 # Owner amendment 2026-10-16: ECS/Lambda are GA; EKS/Helm is informational Preview.
 # Preview evidence cannot replace any required cell or establish GP execution on Redis-off.
@@ -86,7 +88,7 @@ MAX_FRESHNESS = {
                      "capacity-soak", "dr", "lambda-certification", "protocol-ledger",
                      "deterministic-journey", "nightly-model-journey", "executable-docs", "installed-clients",
                      "genuine-model-journey", "update-rollback"), timedelta(days=7)),
-    **dict.fromkeys(("esri-bundle", "cite"), timedelta(days=14)),
+    **dict.fromkeys((COMPATIBILITY_CERTIFICATE_CLASS, "cite"), timedelta(days=14)),
 }
 CANARY_SLOT = timedelta(hours=6, minutes=30)
 # A journey cell counts only with status pass. On a Redis-off GA cell, stages 3 (owner extension of

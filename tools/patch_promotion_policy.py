@@ -4,11 +4,13 @@ from __future__ import annotations
 from datetime import datetime
 import re
 
+from check_promotion_readiness import COMPATIBILITY_CERTIFICATE_CLASS
+
 # Reuse is conservative: whole-platform/security/journey/rollback evidence is never reused.
 # These certificate classes cover the named runtime/client identities plus all shared fixtures.
 REUSE_COMPONENTS = {
     "cite": frozenset({"honua-server"}),
-    "esri-bundle": frozenset({"honua-server", "honua-sdk-js", "honua-sdk-dotnet", "honua-sdk-python"}),
+    COMPATIBILITY_CERTIFICATE_CLASS: frozenset({"honua-server", "honua-sdk-js", "honua-sdk-dotnet", "honua-sdk-python"}),
 }
 
 
