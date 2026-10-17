@@ -294,3 +294,21 @@ def test_mapserver_oid_fallback_requires_exactly_one_declared_identifier():
     ):
         with pytest.raises(producer.ProducerError, match="declared|unambiguous|conflicts"):
             producer.object_id_field(invalid)
+
+
+def test_github_and_cloud_credentials_never_enter_the_sdk_consumer_environment():
+    consumer = {"assemblies": [{"name": name, "sha256": "a" * 64}
+                               for name in ("Honua.Sdk.Admin", "Honua.Sdk.GeoServices")]}
+    loaded = [{"name": item["name"], "sha256": item["sha256"]} for item in consumer["assemblies"]]
+    environment = {"PATH": "/runtime", "HOME": "/clean-home", "DOTNET_ROOT": "/runtime",
+                   "GH_TOKEN": "private-native-read-token", "GITHUB_TOKEN": "github-token",
+                   "AWS_ACCESS_KEY_ID": "cloud-identity", "AWS_SECRET_ACCESS_KEY": "cloud-secret",
+                   "IMPORT_FIDELITY_API_KEY": "candidate-application-key"}
+    process = mock.Mock()
+    process.poll.return_value = 0
+    with mock.patch.object(producer.subprocess, "Popen", return_value=process) as launch, mock.patch.object(
+            producer.Sdk, "call", return_value=loaded):
+        producer.Sdk(["unit-consumer"], environment, consumer)
+    actual = launch.call_args.kwargs["env"]
+    assert not {"GH_TOKEN", "GITHUB_TOKEN", "AWS_ACCESS_KEY_ID", "AWS_SECRET_ACCESS_KEY"} & actual.keys()
+    assert actual["IMPORT_FIDELITY_API_KEY"] == "candidate-application-key"

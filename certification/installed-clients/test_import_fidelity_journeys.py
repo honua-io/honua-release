@@ -237,3 +237,23 @@ def test_fixture_export_writes_real_bytes_and_full_bounded_dataset_without_a_ver
         assert len(raw) == item["size"] and hashlib.sha256(raw).hexdigest() == item["sha256"]
     with pytest.raises(ValueError, match="already exist"):
         export_import_fixtures.export(destination)
+
+
+@pytest.mark.parametrize("fault", ["missing", "empty", "truncated"])
+def test_gdal_success_exit_cannot_hide_missing_or_truncated_measured_output(score, tmp_path, fault):
+    lane = lane_with_points(score)
+    score.capture_directory = tmp_path
+    features = [{"id": i, "properties": {"objectid": i}, "geometry": {"present": True, "value": {"type": "Point", "coordinates": [i, i]}}} for i in (1, 2)]
+    def reader(command, **kwargs):
+        output = tmp_path / "gdal-readback.geojson"
+        if fault == "empty":
+            output.write_text("")
+        elif fault == "truncated":
+            output.write_text(json.dumps({"type": "FeatureCollection", "features": []}))
+        return mock.Mock(returncode=0)
+    with mock.patch.object(lane, "independent_geometry"), mock.patch.object(journeys.shutil, "which", return_value="/usr/bin/ogr2ogr"), mock.patch.object(
+            producer, "geojson_snapshot", return_value=features), mock.patch.object(journeys.subprocess, "run", side_effect=reader):
+        score.record("dependency.server-4420", lane.dependency_evidence)
+    cell = score.cells["dependency.server-4420"]
+    assert cell["verdict"] == "fail" and cell["executed"] is True
+    assert "absent, empty or failed" in cell["reason"] or "every imported feature" in cell["reason"]
