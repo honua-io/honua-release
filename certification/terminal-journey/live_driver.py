@@ -238,6 +238,16 @@ def op_setup(request: dict[str, Any]) -> dict[str, Any]:
         deployment_image, deployment_detail = _cloud_image(target, manifest,
             hashlib.sha256(target_bytes).hexdigest(), request.get("deploymentReceipt"), profile=request.get("profile"))
 
+    serving_fixture = None
+    if request.get("profile") == "redis-off-serving-refusal":
+        import refusal_profile
+        fixture_proof = request.get("servingFixture") or {}
+        fixture_path = target_path.parent / "extended/seed-manifest.json"
+        if (not cloud or Path(fixture_proof.get("path", "")).resolve() != fixture_path.resolve()
+                or hashlib.sha256(fixture_path.read_bytes()).hexdigest() != fixture_proof.get("sha256")):
+            raise DriverError("model serving fixture is not this cell's retained hashed seed manifest")
+        serving_fixture = refusal_profile.fixture_binding(fixture_path)
+
     workspace_id = f"tj-{uuid.uuid4().hex[:12]}"
     workdir = STATE_ROOT.parent / workspace_id
     workspace = pins.resolve_client_workspace(manifest, workdir / "clients")
@@ -274,6 +284,8 @@ def op_setup(request: dict[str, Any]) -> dict[str, Any]:
         "targetPath": str(target_path),
         "targetSha256": hashlib.sha256(target_bytes).hexdigest(),
         "targetConfig": target,
+        "servingFixtureBinding": serving_fixture,
+        "servingFixturePath": str(fixture_path) if serving_fixture else None,
         "workdir": str(workdir),
         "baseUrl": base_url,
         "stackUp": stack_up,
@@ -336,6 +348,10 @@ def _rehydrate(request: dict[str, Any]) -> tuple[dict[str, Any], dict[str, Any],
     target_bytes = Path(state["targetPath"]).read_bytes()
     if state.get("targetSha256") and hashlib.sha256(target_bytes).hexdigest() != state["targetSha256"]:
         raise DriverError("target config changed after setup")
+    if state.get("servingFixtureBinding"):
+        import refusal_profile
+        if refusal_profile.fixture_binding(Path(state["servingFixturePath"])) != state["servingFixtureBinding"]:
+            raise DriverError("serving fixture source or retained manifest changed after setup")
     target = json.loads(target_bytes)
     manifest = _load_yaml(ROOT / "platform-manifest.yaml")
     workdir = Path(state["workdir"])

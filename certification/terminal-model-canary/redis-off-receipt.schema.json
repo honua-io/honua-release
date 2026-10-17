@@ -131,7 +131,8 @@
             "featureCount",
             "featureIds",
             "featuresSha256",
-            "independentReadMatches"
+            "independentReadMatches",
+            "fixtureBinding"
           ],
           "properties": {
             "modelActionSequence": {
@@ -159,6 +160,43 @@
             },
             "independentReadMatches": {
               "const": true
+            },
+            "fixtureBinding": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "serviceId",
+                "layerId",
+                "seedManifestSha256",
+                "seedScriptSha256",
+                "seedSqlSha256",
+                "expectedFeaturesSha256"
+              ],
+              "properties": {
+                "serviceId": {
+                  "const": "e2e"
+                },
+                "layerId": {
+                  "type": "integer",
+                  "minimum": 0
+                },
+                "seedManifestSha256": {
+                  "type": "string",
+                  "pattern": "^[0-9a-f]{64}$"
+                },
+                "seedScriptSha256": {
+                  "type": "string",
+                  "pattern": "^[0-9a-f]{64}$"
+                },
+                "seedSqlSha256": {
+                  "type": "string",
+                  "pattern": "^[0-9a-f]{64}$"
+                },
+                "expectedFeaturesSha256": {
+                  "type": "string",
+                  "pattern": "^[0-9a-f]{64}$"
+                }
+              }
             }
           }
         }
@@ -322,7 +360,8 @@
       "additionalProperties": false,
       "required": [
         "deterministicJourney",
-        "deterministicReceipt"
+        "deterministicReceipt",
+        "servingFixture"
       ],
       "properties": {
         "deterministicJourney": {
@@ -376,6 +415,31 @@
                     "pass",
                     "blocked"
                   ]
+                }
+              }
+            }
+          ]
+        },
+        "servingFixture": {
+          "oneOf": [
+            {
+              "type": "null"
+            },
+            {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "path",
+                "sha256"
+              ],
+              "properties": {
+                "path": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "sha256": {
+                  "type": "string",
+                  "pattern": "^[0-9a-f]{64}$"
                 }
               }
             }

@@ -28,6 +28,7 @@ class RefusalReceiptBuilder(c.ReceiptBuilder):
             raise c.CanaryError("Redis-off serving/refusal profile requires an approved Redis-off AWS cell")
         super().__init__(**kwargs, journey=c.load_journey(PLAN), journey_path=PLAN, injection_stage="serving-read")
         self.receipt.pop("errorInjection")
+        self.receipt["linkedEvidence"]["servingFixture"] = None
         self.receipt.update(receiptSchema="terminal-model-redis-off-receipt-v1",
             evidenceKey="release.e2e.terminal-model-redis-off", profile=PROFILE,
             executionOutcome="not-attempted", functionalGpExecuted=False,
@@ -72,6 +73,12 @@ class RefusalReceiptBuilder(c.ReceiptBuilder):
         serving, refusal = r["servingProof"] or {}, r["refusalProof"] or {}
         sequences = [serving.get("modelActionSequence"), refusal.get("modelActionSequence"),
                      refusal.get("acknowledgementActionSequence")]
+        fixture = serving.get("fixtureBinding") or {}
+        linked_fixture = r["linkedEvidence"].get("servingFixture") or {}
+        if (fixture.get("serviceId") != "e2e" or type(fixture.get("layerId")) is not int
+                or fixture.get("seedManifestSha256") != linked_fixture.get("sha256")
+                or serving.get("featureCount") != 2 or len(serving.get("featureIds") or []) != 2):
+            raise c.CanaryError("serving proof lacks the exact authored seed fixture binding")
         if (any(type(n) is not int or n not in selected or selected[n]["status"] != "pass" for n in sequences)
                 or sequences != sorted(set(sequences))
                 or selected[sequences[0]]["stageId"] != "serving-read"
@@ -115,7 +122,9 @@ def execute_live(builder, *, endpoint, driver_command, max_actions_per_stage, ta
                 or deterministic.get("target", {}).get("configSha256") != c._sha256(target_path)
                 or c._origin(str(target.get("replicaBaseUrl", ""))) != c._origin(endpoint.validated_base_url())):
             raise c.CanaryError("refusal target is not bound to this cell, candidate endpoint and deterministic receipt")
-        setup_request = {"candidate": r["candidate"], "journeyContract": r["journeyContract"],
+        fixture_path = target_path.parent / "extended/seed-manifest.json"
+        r["linkedEvidence"]["servingFixture"] = {"path": str(fixture_path.resolve()), "sha256": c._sha256(fixture_path)}
+        setup_request = {"servingFixture": {"path": str(fixture_path.resolve()), "sha256": c._sha256(fixture_path)}, "candidate": r["candidate"], "journeyContract": r["journeyContract"],
                          "target": str(target_path.resolve()), "deploymentReceipt": linked, "profile": PROFILE}
         setup = builder.redactor.value(driver.invoke("setup", setup_request))
         workspace = setup.get("workspaceId")

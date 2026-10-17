@@ -150,13 +150,18 @@ Harness fixture resets are recorded separately from model actions.
 Redis-on uses `--profile full-workflow` and retains all eight stages, actual model-selected calls,
 recoverable-error recovery, independent approval, security checks, pixel proof and final-URL proof.
 Redis-off uses the separately authored `redis-off-serving-refusal` profile and receipt schema. The model
-must select a nonempty serving query that matches an independent GeoServices read, attempt a valid buffer
+must select a serving query of the cell's authored `e2e_src_fs` publication that matches an independent
+GeoServices read and both exact seed rows (IDs, names and geometries), attempt a valid buffer
 plan, observe the actual typed `unavailable`/`missingDependency=redis` refusal, then select a subsequent
 capability read acknowledging that refusal. The independent oracle requires `jobs.runner` unavailable
 with `reasonCode=dependency-unavailable`. Authentication, anonymous/viewer denial and exact HTTP/proxy
 catalog checks must pass. Every model action still requires the same signed, non-replayed candidate
 transcript provenance. The profile reports `executionOutcome: refused` and `functionalGpExecuted: false`;
 it makes no GP-completion, map persistence, publication, approval or final-URL claim.
+
+The retained `extended/seed-manifest.json` resolves the allocated layer ID. Its SHA-256, the maintained
+seed-script and extracted-SQL hashes, and the expected fixture-data digest are chained into setup state
+and serving proof; later source/manifest changes are refused. Two equal but wrong adapters cannot qualify.
 
 The explicit Redis-off prerequisite accepts a fresh, same-candidate deterministic receipt whose stages
 1–2 passed and whose stage 5 records the actual typed dependency refusal. No failed stage is allowed.

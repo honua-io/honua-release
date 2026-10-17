@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import re
 import urllib.error
 import urllib.parse
 import urllib.request
@@ -26,6 +27,33 @@ def _digest(value):
     return hashlib.sha256(json.dumps(value, sort_keys=True, separators=(",", ":"), allow_nan=False).encode()).hexdigest()
 
 
+def fixture_binding(path):
+    """Bind resolved publication IDs to the independent maintained seed SQL, never either response."""
+    raw = Path(path).read_bytes()
+    manifest = json.loads(raw)
+    publication = manifest.get("slice1", {}).get("e2e_src_fs", {})
+    layer = publication.get("layerId")
+    if (publication.get("service") != "e2e" or type(layer) is not int or layer < 0
+            or manifest.get("layers", {}).get("e2e_src_fs") != layer):
+        raise ExecutionError("serving fixture", "retained seed manifest does not bind the authored e2e publication")
+    seed = (PLAN.parents[2] / "e2e/harness/seed/seed.sh").read_bytes()
+    sql = seed.decode("utf-8").split("psql_apply <<'SQL'\n", 1)[1].split("\nSQL\n", 1)[0]
+    match = re.search(r"INSERT INTO honua_data.e2e_src_fs \(name, geom\) VALUES\s*(.*?);", sql, re.S)
+    if match is None or "gid   serial PRIMARY KEY" not in sql or "DROP TABLE IF EXISTS honua_data.e2e_src_fs;" not in sql:
+        raise ExecutionError("serving fixture", "maintained seed SQL no longer matches the reviewed serial Point fixture")
+    values = match.group(1)
+    row = re.compile(r"\('((?:[^']|'')*)',\s*ST_SetSRID\(ST_MakePoint\((-?[0-9.]+),\s*(-?[0-9.]+)\),4326\)\)")
+    rows = list(row.finditer(values))
+    if len(rows) != 2 or row.sub("", values).strip(" ,\r\n\t"):
+        raise ExecutionError("serving fixture", "maintained seed Point rows require a reviewed fixture update")
+    expected = [{"id": str(index), "name": m[1].replace("''", "'"),
+                 "geometry": {"type": "Point", "coordinates": [float(m[2]), float(m[3])]}}
+                for index, m in enumerate(rows, 1)]
+    return {"serviceId": "e2e", "layerId": layer, "seedManifestSha256": hashlib.sha256(raw).hexdigest(),
+            "seedScriptSha256": hashlib.sha256(seed).hexdigest(), "seedSqlSha256": hashlib.sha256(sql.encode()).hexdigest(),
+            "expectedFeaturesSha256": _digest(expected), "expectedFeatures": expected}
+
+
 def _stage(request):
     if request.get("profile") != PROFILE:
         raise ExecutionError("model profile", "unknown model profile")
@@ -42,6 +70,8 @@ def _context(driver, request):
     state, target, manifest, observation, workspace = driver._rehydrate(request)
     if executor.declared_redis_topology(target) != "redis-off":
         raise ExecutionError("model profile", "refusal profile requires a declared Redis-off cell")
+    if not state.get("servingFixtureBinding"):
+        raise ExecutionError("serving fixture", "profile requires the retained authored serving-fixture binding")
     engine = driver._executor(state, target, observation)
     profile = state.setdefault("modelRefusal", {"serving": None, "refusal": None, "acknowledged": False,
                                               "lastResult": None, "executionOutcome": "not-attempted"})
@@ -59,6 +89,7 @@ def observe(driver, request):
                 "checks": [{"status": "pass", "invocation": stage["command"], "detail": "independent profile oracle passed"}] if complete else []},
             "observation": {**driver._observation_payload(observation),
                 "profile": PROFILE, "lastActionResult": profile["lastResult"],
+                "servingFixture": {key: state["servingFixtureBinding"][key] for key in ("serviceId", "layerId")},
                 "requiredOutcome": {"executionOutcome": "refused", "functionalGpExecuted": False},
                 "bufferFixture": {**((engine.fixture or {}).get("buffer") or {}),
                     "wkb": executor.oracles.point_wkb(*engine.fixture["buffer"]["point"])} if engine.fixture.get("buffer") else None},
@@ -97,7 +128,7 @@ def _reference_features(transport, arguments):
     return json.loads(raw)
 
 
-def serving_proof(output, reference):
+def serving_proof(output, reference, fixture):
     actual = output.get("geojson", output.get("geoJson"))
     if isinstance(actual, str):
         actual = json.loads(actual)
@@ -120,7 +151,13 @@ def serving_proof(output, reference):
                 or feature.get("properties") != expected.get("properties")):
             raise ExecutionError("serving oracle", "model-selected feature read disagrees with the independent adapter")
         seen.add(key)
-    return {"featureCount": len(features), "featureIds": sorted(seen), "featuresSha256": _digest(features),
+    expected = fixture["expectedFeatures"]
+    normalized = [{"id": str(f["id"]), "name": (f.get("properties") or {}).get("name"), "geometry": f["geometry"]}
+                  for f in sorted(features, key=lambda f: str(f["id"]))]
+    if normalized != expected or _digest(normalized) != fixture["expectedFeaturesSha256"]:
+        raise ExecutionError("serving fixture", "both adapters disagree with the independently authored fixture data")
+    return {"fixtureBinding": {key: value for key, value in fixture.items() if key != "expectedFeatures"},
+            "featureCount": len(features), "featureIds": sorted(seen), "featuresSha256": _digest(features),
             "independentReadMatches": True}
 
 
@@ -192,7 +229,10 @@ def execute(driver, request):
             driver._write_state(state["workspaceId"], state)
             return {"status": "pass", "stageStatus": stage, "result": result, "canonicalIds": {}, "blockedBy": []}
         if name == "honua_query_features":
-            profile["serving"] = serving_proof(output, _reference_features(engine.transport, arguments))
+            fixture = state["servingFixtureBinding"]
+            if any(arguments.get(key) != fixture[key] for key in ("serviceId", "layerId")):
+                raise ExecutionError("serving fixture", "model-selected query addresses another service or layer")
+            profile["serving"] = serving_proof(output, _reference_features(engine.transport, arguments), fixture)
             result = {"accepted": True, "servingProof": profile["serving"]}
         elif name == "honua_list_capabilities" and profile["refusal"]:
             assessment = action.get("assessment")

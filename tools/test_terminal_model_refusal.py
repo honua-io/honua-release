@@ -4,6 +4,7 @@ from __future__ import annotations
 import copy
 import json
 import sys
+import tempfile
 from datetime import datetime, timezone
 from pathlib import Path
 from types import SimpleNamespace
@@ -99,9 +100,19 @@ def test_cell_specific_lambda_and_ecs_image_pins_are_not_interchangeable(tmp_pat
     with pytest.raises(c.CanaryError,match="candidate pins"):validate(path,tmp_path,cell)
 
 
+def _seed_manifest():
+    return {"slice1":{"e2e_src_fs":{"service":"e2e","layerId":9}},"layers":{"e2e_src_fs":9}}
+
+
+def _fixture():
+    with tempfile.TemporaryDirectory() as directory:
+        path=Path(directory)/"seed-manifest.json";path.write_text(json.dumps(_seed_manifest()))
+        return profile.fixture_binding(path)
+
+
 def _features():
-    return {"type":"FeatureCollection","features":[{"type":"Feature","id":1,
-            "properties":{"name":"published"},"geometry":{"type":"Point","coordinates":[1,2]}}]}
+    return {"type":"FeatureCollection","features":[{"type":"Feature","id":int(f["id"]),
+            "properties":{"name":f["name"]},"geometry":f["geometry"]} for f in _fixture()["expectedFeatures"]]}
 
 
 @pytest.mark.parametrize("mutation", [None,"empty","geometry","properties","identity","duplicate","count"])
@@ -114,14 +125,14 @@ def test_serving_read_requires_independent_geometry_properties_and_identity(muta
     if mutation=="duplicate":actual["features"]*=2;reference["features"]*=2
     if mutation=="count":reference["features"]*=2
     if mutation:
-        with pytest.raises(ExecutionError):profile.serving_proof({"geoJson":actual},reference)
+        with pytest.raises(ExecutionError):profile.serving_proof({"geoJson":actual},reference,_fixture())
     else:
-        proof=profile.serving_proof({"geoJson":actual},reference)
-        assert proof["featureCount"]==1 and proof["independentReadMatches"] is True
+        proof=profile.serving_proof({"geoJson":actual},reference,_fixture())
+        assert proof["featureCount"]==2 and proof["independentReadMatches"] is True
 
 
 def _driver(*,cell="aws-ecs/redis-off",problem=None,available=False):
-    state={"workspaceId":"w","stackUp":True}
+    state={"workspaceId":"w","stackUp":True,"servingFixtureBinding":_fixture()}
     target={"id":cell,"kind":"aws-ecs", "execution":{"buffer":{"point":[1,2],"srid":4326,"distance":10}}}
     observation=stages.Observation(ready=True,setup_view_present=True,proxy_available=True,
         setup_discovery={"metadata":{"view":"bounded"},"tools":[{"name":name,"inputSchema":{"type":"object"}}
@@ -216,8 +227,11 @@ def _runner(tmp_path,monkeypatch,*,mutation=None):
     target=tmp_path/"target.json";target.write_text(json.dumps({"id":"aws-ecs/redis-off","replicaBaseUrl":endpoint.base_url}))
     receipt=tmp_path/"receipt.json";receipt.write_text(json.dumps({"target":{"id":"aws-ecs/redis-off","configSha256":c._sha256(target)}}))
     b.receipt["linkedEvidence"]["deterministicReceipt"]["path"]=str(receipt)
+    (tmp_path/"extended").mkdir()
+    (tmp_path/"extended/seed-manifest.json").write_text(json.dumps(_seed_manifest()))
     state={"serving":False,"refused":False,"ack":False,"calls":0,"teardown":False,"bindings":[]}
-    serving={"featureCount":1,"featureIds":["1"],"featuresSha256":"a"*64,"independentReadMatches":True}
+    serving={"featureCount":2,"featureIds":["1","2"],"featuresSha256":"a"*64,"independentReadMatches":True,
+             "fixtureBinding":{k:v for k,v in _fixture().items() if k!="expectedFeatures"}}
     refused={"topology":"redis-off","ruling":"redis-off","rulingStatus":"ruled","tool":"honua_validate_plan",
              **GP,"manifestCapability":"jobs.runner","manifestReasonCode":"dependency-unavailable"}
     class Driver:
@@ -346,3 +360,53 @@ def test_independent_serving_oracle_uses_same_fixed_candidate_and_encoded_servic
     request=transport.opener.open.call_args.args[0]
     assert request.full_url.startswith("https://candidate.example/rest/services/https%3A%2F%2Fother.example%2Fx/FeatureServer/1/query?")
     assert request.get_header("X-api-key")=="private-application-key"
+
+
+def test_fixture_binding_uses_retained_allocated_ids_and_maintained_seed_bytes(tmp_path):
+    path=tmp_path/"seed-manifest.json";path.write_text(json.dumps(_seed_manifest()))
+    fixture=profile.fixture_binding(path)
+    assert fixture["serviceId"]=="e2e" and fixture["layerId"]==9
+    assert [(f["id"],f["name"],f["geometry"]["coordinates"]) for f in fixture["expectedFeatures"]]==[
+        ("1","alpha",[-156.33,20.75]),("2","bravo",[-156.45,20.88])]
+    for key in ("seedManifestSha256","seedScriptSha256","seedSqlSha256","expectedFeaturesSha256"):
+        assert len(fixture[key])==64
+    for patch in ({"slice1":{"e2e_src_fs":{"service":"other","layerId":9}}},{"layers":{"e2e_src_fs":8}}):
+        path.write_text(json.dumps({**_seed_manifest(),**patch}))
+        with pytest.raises(ExecutionError):profile.fixture_binding(path)
+
+
+@pytest.mark.parametrize("mutation",["name","geometry","id","extra","empty"])
+def test_two_equal_adapters_cannot_qualify_the_wrong_authored_fixture(mutation):
+    actual=_features()
+    if mutation=="name":actual["features"][0]["properties"]["name"]="irrelevant"
+    if mutation=="geometry":actual["features"][0]["geometry"]["coordinates"]=[0,0]
+    if mutation=="id":actual["features"][0]["id"]=100
+    if mutation=="extra":actual["features"].append(copy.deepcopy(actual["features"][0]))
+    if mutation=="empty":actual["features"]=[]
+    with pytest.raises(ExecutionError):profile.serving_proof({"geoJson":actual},copy.deepcopy(actual),_fixture())
+
+
+@pytest.mark.parametrize("mutation",["service","layer"])
+def test_model_selected_query_cannot_qualify_an_unrelated_publication(mutation):
+    driver,engine,_=_driver()
+    engine.observation.setup_discovery["tools"].append({"name":"honua_query_features","inputSchema":{"type":"object"}})
+    engine.transport.tool.return_value={"structuredContent":{"geoJson":_features()}}
+    args={"serviceId":"e2e","layerId":9}
+    args["serviceId" if mutation=="service" else "layerId"]="other" if mutation=="service" else 123
+    with pytest.raises(ExecutionError,match="another service or layer"):
+        profile.execute(driver,{"profile":r.PROFILE,"stage":"serving-read","action":{
+            "kind":"tool_call","tool":"honua_query_features","arguments":args}})
+    engine.transport.opener.open.assert_not_called()
+
+
+def test_driver_rejects_a_retained_seed_manifest_changed_after_setup(tmp_path,monkeypatch):
+    import live_driver
+    target=tmp_path/"target.json";target.write_text("{}")
+    fixture=tmp_path/"seed-manifest.json";fixture.write_text(json.dumps(_seed_manifest()))
+    binding=profile.fixture_binding(fixture)
+    monkeypatch.setattr(live_driver,"STATE_ROOT",tmp_path/"sessions")
+    live_driver._write_state("unit",{"workspaceId":"unit","targetPath":str(target),
+        "servingFixturePath":str(fixture),"servingFixtureBinding":binding})
+    fixture.write_text(json.dumps({**_seed_manifest(),"changed":True}))
+    with pytest.raises(live_driver.DriverError,match="serving fixture"):
+        live_driver._rehydrate({"workspaceId":"unit"})
