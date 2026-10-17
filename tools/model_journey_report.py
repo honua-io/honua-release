@@ -47,7 +47,14 @@ def _attempt(path: Path, number: int, cell: str, lock_digest: str | None) -> dic
         raise ValueError(f"attempt {number}: receipt is bound to another lock digest")
     status = receipt.get("status")
     attribution = receipt.get("failureAttribution")
+    profile = receipt.get("profile")
+    outcome, executed = receipt.get("executionOutcome"), receipt.get("functionalGpExecuted")
+    expected = ("redis-off-serving-refusal", "refused", False) if cell.endswith("/redis-off") else ("full-workflow", "completed", True)
+    if profile != expected[0]:
+        raise ValueError(f"attempt {number}: model profile does not match the declared topology")
     if status == "pass":
+        if (profile, outcome, executed) != expected or type(executed) is not bool:
+            raise ValueError(f"attempt {number}: model outcome does not qualify the declared profile")
         if attribution is not None:
             raise ValueError(f"attempt {number}: a pass carries a failure attribution")
     elif attribution not in ("model", "infrastructure"):
@@ -57,7 +64,8 @@ def _attempt(path: Path, number: int, cell: str, lock_digest: str | None) -> dic
         raise ValueError(f"attempt {number}: completedAt must be an RFC3339 UTC timestamp")
     datetime.fromisoformat(completed[:-1] + "+00:00")
     return {"number": number, "status": "pass" if status == "pass" else "fail", "driver": DRIVER,
-            "failureAttribution": attribution, "completedAt": completed, "lockDigest": receipt["lockDigest"],
+            "failureAttribution": attribution, "profile": profile, "executionOutcome": outcome,
+            "functionalGpExecuted": executed, "completedAt": completed, "lockDigest": receipt["lockDigest"],
             "receipt": path.name, "receiptSha256": hashlib.sha256(data).hexdigest()}
 
 

@@ -1313,7 +1313,7 @@ MODEL_JOURNEY_DIR = "model-journey"
 LOCK_DIGEST = re.compile(r"sha256:[0-9a-f]{64}")
 
 
-def _passing_deterministic_receipt(cell_directory: Path) -> Path | None:
+def _passing_deterministic_receipt(cell_directory: Path, *, prerequisite_profile: str | None = None) -> Path | None:
     """The cell journey's passing receipt from this job, which the canary protocol requires."""
     journey = _read_json(cell_directory / JOURNEY_NAME) or {}
     records = journey.get("journeyAttempts")
@@ -1327,7 +1327,7 @@ def _passing_deterministic_receipt(cell_directory: Path) -> Path | None:
                 or not re.fullmatch(r"receipt-[12]\.json", path.name)):
             continue
         receipt = _read_json(path) if path.is_file() else None
-        if receipt and receipt.get("status") == "pass":
+        if receipt and receipt.get("status") in ({"pass", "blocked"} if prerequisite_profile == "redis-off-serving-refusal" else {"pass"}):
             return path
     return None
 
@@ -1358,7 +1358,8 @@ def model_canary_phase(state: dict, *, admin_key: str, lock_digest: str | None, 
         why = f"{cell} is not an approved genuine-model GA cell"
     elif not state.get("endpoint") or not admin_key:
         why = "the cell has no endpoint or application key for the canary"
-    deterministic = _passing_deterministic_receipt(directory) if why is None else None
+    profile = "redis-off-serving-refusal" if cell.endswith("/redis-off") else "full-workflow"
+    deterministic = _passing_deterministic_receipt(directory, prerequisite_profile=profile) if why is None else None
     if why is None and deterministic is None:
         why = "the cell's deterministic journey did not pass in this job; the canary is refused"
     target = (deterministic.with_name(deterministic.name.replace("receipt-", "target-"))
@@ -1404,7 +1405,7 @@ def model_canary_phase(state: dict, *, admin_key: str, lock_digest: str | None, 
                     # Owner ruling canary-http-cell-2026-10-08: plain HTTP only to this cell's own
                     # harness-provisioned ALB host, never to any other non-loopback host.
                     "--allow-http-cell", urllib.parse.urlsplit(endpoint).hostname or "",
-                    "--require-api-key", "--cell", cell, "--attempt", str(number),
+                    "--require-api-key", "--profile", profile, "--cell", cell, "--attempt", str(number),
                     "--driver-command", str(E2E_DIR.parent / "certification" / "terminal-journey" / "live_driver.py"),
                     "--target", str(target),
                     *binding,

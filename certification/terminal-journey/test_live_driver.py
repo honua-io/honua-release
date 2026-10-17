@@ -199,9 +199,11 @@ def test_driver_refuses_target_changed_after_setup(tmp_path):
 def _cloud_deployment_receipt(path, target, target_path):
     manifest = live_driver._load_yaml(live_driver.ROOT / "platform-manifest.yaml")
     server = manifest["components"]["honua-server"]
+    image_name, digest_name = (("awsLambdaImage", "awsLambdaDigest") if target["kind"] == "aws-serverless"
+                               else ("image", "digest"))
     receipt = {"status": "pass", "target": {"id": target["id"], "baseUrl": target["replicaBaseUrl"],
         "configSha256": live_driver.hashlib.sha256(target_path.read_bytes()).hexdigest()},
-        "server": {"sourceSha": server["sha"], "image": f"{server['image']}@{server['digest']}"},
+        "server": {"sourceSha": server["sha"], "image": f"{server[image_name].split('@', 1)[0]}@{server[digest_name]}"},
         "stages": [{"number": 1, "status": "pass", "checks": [{"id": "1.1-candidate-image", "status": "pass"}],
             "evidence": {"source": "live-" + target["kind"], "freshness": "verified-current"}}]}
     path.write_text(json.dumps(receipt))

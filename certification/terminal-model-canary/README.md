@@ -140,20 +140,36 @@ Terraform target adapters require the pinned root to declare the provider inputs
 The journey worker receives application credentials, datasource references and the run-owned tenant
 fixture through its sealed handoff; it receives no cloud or CI token environment.
 
-Each cloud canary passes `--target` with the same retained target configuration used by its passing
-deterministic journey. Its cell, SHA-256 and endpoint origin must agree. The driver checks the linked
-receipt digest and its verified deployment-image observation instead of inferring a cloud image from
-manifest pins, then retains that provenance while it observes the external endpoint, mints separate bounded application principals, and revokes them after the attempt.
-It never starts local Docker or destroys the provisioned cell. Target changes and stale attempt files
-cannot stand in for current execution. Harness fixture resets are recorded separately from model actions.
+Each cloud canary passes `--target` with the same retained target configuration used by its deterministic
+journey. Its cell, SHA-256 and endpoint origin must agree. The driver verifies the linked receipt digest
+and deployment-image observation; ECS uses the generic server image and Lambda uses the distinct pinned
+`awsLambdaImage`/`awsLambdaDigest`. It observes the external endpoint, mints bounded application principals,
+and revokes them after the attempt. Target changes and stale attempt files cannot replace current execution.
+Harness fixture resets are recorded separately from model actions.
 
-Redis-on qualification still requires actual model-selected calls, error recovery, independent approval,
-pixel proof and final-URL proof. Redis-off model qualification remains unresolved: deterministic
-Redis-off journeys have explicit typed dependency-refusal rules, while this genuine-model contract
-retains its full-workflow assertions. A refusal is never recorded as functional GP execution or as a
-successful genuine-model journey. A separate topology-specific refusal journey must prove actual model
-observation of serving behavior and typed refusal, with an explicit refused execution outcome.
-Unit and workflow tests establish wiring only; fresh exact-candidate, signed model receipts remain required.
+Redis-on uses `--profile full-workflow` and retains all eight stages, actual model-selected calls,
+recoverable-error recovery, independent approval, security checks, pixel proof and final-URL proof.
+Redis-off uses the separately authored `redis-off-serving-refusal` profile and receipt schema. The model
+must select a nonempty serving query that matches an independent GeoServices read, attempt a valid buffer
+plan, observe the actual typed `unavailable`/`missingDependency=redis` refusal, then select a subsequent
+capability read acknowledging that refusal. The independent oracle requires `jobs.runner` unavailable
+with `reasonCode=dependency-unavailable`. Authentication, anonymous/viewer denial and exact HTTP/proxy
+catalog checks must pass. Every model action still requires the same signed, non-replayed candidate
+transcript provenance. The profile reports `executionOutcome: refused` and `functionalGpExecuted: false`;
+it makes no GP-completion, map persistence, publication, approval or final-URL claim.
+
+The explicit Redis-off prerequisite accepts a fresh, same-candidate deterministic receipt whose stages
+1–2 passed and whose stage 5 records the actual typed dependency refusal. No failed stage is allowed.
+Later blocked full-workflow stages retain their raw status: the linked proof names the bounded profile
+and `sourceStatus`, and never changes the raw deterministic receipt to pass. Other profiles continue to
+require the entire deterministic journey green. The report, nightly evidence declaration and promotion
+consumer preserve and check the profile/outcome for each attempt. The broader deterministic cloud gate's
+handling of blocked Redis-off full journeys remains a separate qualification boundary.
+
+Unit and workflow tests establish these contracts only. Fresh exact-candidate signed model receipts are
+still required. AWS candidates also need the maintained signing-secret wiring in honua-iac#256, the
+server AWS signing-reference validator in honua-server#6292, reviewed operator key/ARN bindings and the
+published signing-manifest trust anchor. A public manifest hash does not supply a private signing key.
 
 ### Repository settings the owner configures
 

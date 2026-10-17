@@ -182,7 +182,7 @@ def _stage_status(journey: dict[str, Any], observation: stagelib.Observation, wo
 # ---------------------------------------------------------------------------
 # Operations
 # ---------------------------------------------------------------------------
-def _cloud_image(target, manifest, target_digest, proof):
+def _cloud_image(target, manifest, target_digest, proof, *, profile=None):
     """Reuse the same-job deployment readback; never infer an external image from manifest pins."""
     if not isinstance(proof, dict) or not proof.get("path") or not proof.get("sha256"):
         raise DriverError("cloud setup requires the verified deterministic deployment receipt")
@@ -192,11 +192,29 @@ def _cloud_image(target, manifest, target_digest, proof):
         raise DriverError("deterministic deployment receipt digest changed")
     receipt = json.loads(data)
     server = manifest["components"]["honua-server"]
-    expected = {"sourceSha": server["sha"], "image": f"{server['image']}@{server['digest']}"}
+    image_name, digest_name = (("awsLambdaImage", "awsLambdaDigest") if target["kind"] == "aws-serverless"
+                               else ("image", "digest"))
+    if not server.get(image_name) or not server.get(digest_name):
+        raise DriverError("the declared cell has no pinned candidate image")
+    expected = {"sourceSha": server["sha"],
+                "image": f"{server[image_name].split('@', 1)[0]}@{server[digest_name]}"}
     recorded = receipt.get("target") or {}
     first = next((stage for stage in receipt.get("stages", []) if stage.get("number") == 1), {})
     image = next((check for check in first.get("checks", []) if check.get("id") == "1.1-candidate-image"), {})
-    if (receipt.get("status") != "pass" or receipt.get("server") != expected
+    bounded_off = proof.get("prerequisiteProfile") == "redis-off-serving-refusal"
+    if bounded_off:
+        if profile != "redis-off-serving-refusal":
+            raise DriverError("bounded prerequisite requires the explicit Redis-off model profile")
+        from tools.terminal_model_canary import validate_deterministic_receipt, load_journey, CanaryError
+        try:
+            validated = validate_deterministic_receipt(path, manifest=manifest,
+                journey=load_journey(HERE / "journey.v1.json"), cell=target["id"],
+                prerequisite_profile="redis-off-serving-refusal")
+        except CanaryError as exc:
+            raise DriverError("invalid bounded Redis-off deployment prerequisite") from exc
+        if proof != validated:
+            raise DriverError("bounded prerequisite metadata changed")
+    if (receipt.get("status") not in ({"pass", "blocked"} if bounded_off else {"pass"}) or receipt.get("server") != expected
             or recorded.get("id") != target["id"] or recorded.get("configSha256") != target_digest
             or str(recorded.get("baseUrl", "")).rstrip("/") != target["replicaBaseUrl"].rstrip("/")
             or first.get("status") != "pass" or image.get("status") != "pass"
@@ -218,7 +236,7 @@ def op_setup(request: dict[str, Any]) -> dict[str, Any]:
     deployment_image, deployment_detail = (None, None)
     if cloud:
         deployment_image, deployment_detail = _cloud_image(target, manifest,
-            hashlib.sha256(target_bytes).hexdigest(), request.get("deploymentReceipt"))
+            hashlib.sha256(target_bytes).hexdigest(), request.get("deploymentReceipt"), profile=request.get("profile"))
 
     workspace_id = f"tj-{uuid.uuid4().hex[:12]}"
     workdir = STATE_ROOT.parent / workspace_id
@@ -342,6 +360,9 @@ def _rehydrate(request: dict[str, Any]) -> tuple[dict[str, Any], dict[str, Any],
 
 
 def op_observe(request: dict[str, Any]) -> dict[str, Any]:
+    if request.get("profile") is not None:
+        import refusal_profile
+        return refusal_profile.observe(sys.modules[__name__], request)
     state, _target, _manifest, observation, workspace = _rehydrate(request)
     journey = json.loads((HERE / "journey.v1.json").read_text())
     stage_ref = request.get("stage") or request.get("stageId") or request.get("stageNumber")
@@ -398,6 +419,9 @@ def op_observe(request: dict[str, Any]) -> dict[str, Any]:
 
 def op_execute(request: dict[str, Any]) -> dict[str, Any]:
     """Execute the selected bounded call and retain only observed identities."""
+    if request.get("profile") is not None:
+        import refusal_profile
+        return refusal_profile.execute(sys.modules[__name__], request)
     state, _target, _manifest, observation, workspace = _rehydrate(request)
     journey = json.loads((HERE / "journey.v1.json").read_text())
     stage_ref = request.get("stage") or request.get("stageId") or request.get("stageNumber")
@@ -512,6 +536,9 @@ def op_approve(request: dict[str, Any]) -> dict[str, Any]:
 
 
 def op_verify(request: dict[str, Any]) -> dict[str, Any]:
+    if request.get("profile") is not None:
+        import refusal_profile
+        return refusal_profile.verify(sys.modules[__name__], request)
     from tools.terminal_model_canary import ASSERTION_NAMES
 
     state, target, _manifest, observation, workspace = _rehydrate(request)

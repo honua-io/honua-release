@@ -103,7 +103,10 @@ def _fixture(tmp_path, *, age=54, minted=None):
             mode, cells = JOURNEYS[name]
             receipt["cells"] = [{"cell": cell, "mode": mode, "attemptCount": 1,
                                  "attempts": [{"attempt": 1, "status": "pass", "lockDigest": digest,
-                                               "completedAt": row["completedAt"]}]} for cell in cells]
+                                               "completedAt": row["completedAt"],
+                                               **({"profile": "redis-off-serving-refusal" if cell.endswith("/redis-off") else "full-workflow",
+                                                   "executionOutcome": "refused" if cell.endswith("/redis-off") else "completed",
+                                                   "functionalGpExecuted": not cell.endswith("/redis-off")} if mode == "genuine-model" else {})}]} for cell in cells]
         if name == "update-rollback":
             receipt.update(cells=[_update_cell(cell) for cell in GA_CELLS],
                            fromLockDigest=OTHER_LOCK, toLockDigest=digest,

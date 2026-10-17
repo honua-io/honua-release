@@ -176,6 +176,8 @@ def validate_deterministic_receipt(
     repo_root: Path = ROOT,
     now: datetime | None = None,
     max_age_hours: int = 24,
+    cell: str = "local-docker",
+    prerequisite_profile: str | None = None,
 ) -> dict[str, Any]:
     """Validate #123's green receipt and bind it to this exact candidate."""
     root = repo_root.resolve()
@@ -187,9 +189,13 @@ def validate_deterministic_receipt(
     receipt = _load_json(resolved)
     if receipt.get("schemaVersion") != 1 or receipt.get("evidenceKey") != journey.get("evidenceKey"):
         raise CanaryError("deterministic #123 receipt schema or evidence key is invalid")
+    bounded_off = prerequisite_profile == "redis-off-serving-refusal"
+    if prerequisite_profile is not None and (not bounded_off or cell not in
+            {"aws-ecs/redis-off", "aws-serverless/redis-off"}):
+        raise CanaryError("the bounded prerequisite is only for the explicit Redis-off profile")
     roster = receipt.get("roster")
     if (
-        receipt.get("status") != "pass"
+        receipt.get("status") not in ({"pass", "blocked"} if bounded_off else {"pass"})
         or not isinstance(roster, dict)
         or roster.get("status") != "pass"
     ):
@@ -210,10 +216,12 @@ def validate_deterministic_receipt(
         )
 
     server = manifest["components"]["honua-server"]
-    expected_server = {
-        "sourceSha": server["sha"],
-        "image": f"{server['image']}@{server['digest']}",
-    }
+    image_name, digest_name = (("awsLambdaImage", "awsLambdaDigest") if cell.startswith("aws-serverless/")
+                               else ("image", "digest"))
+    if not server.get(image_name) or not server.get(digest_name):
+        raise CanaryError("the declared cell has no pinned candidate image")
+    expected_server = {"sourceSha": server["sha"],
+                       "image": f"{server[image_name].split('@', 1)[0]}@{server[digest_name]}"}
     expected_artifacts = {
         name: {
             key: pin.get(key)
@@ -233,26 +241,38 @@ def validate_deterministic_receipt(
     if not isinstance(stages, list) or len(stages) != len(journey["stages"]):
         raise CanaryError("deterministic #123 receipt does not cover the imported journey")
     for expected, actual in zip(journey["stages"], stages, strict=True):
+        required = not bounded_off or expected["number"] in (1, 2, 5)
         evidence = actual.get("evidence") if isinstance(actual, dict) else None
         if (
             not isinstance(actual, dict)
             or actual.get("number") != expected["number"]
             or actual.get("stage") != expected["id"]
             or actual.get("command") != expected["command"]
-            or actual.get("status") != "pass"
-            or not isinstance(evidence, dict)
-            or evidence.get("freshness") != "verified-current"
-            or evidence.get("completeness") != "complete"
-            or not evidence.get("uri")
+            or actual.get("status") not in ({"pass"} if required else {"pass", "blocked"})
+            or (required and (not isinstance(evidence, dict)
+                or evidence.get("freshness") != "verified-current"
+                or evidence.get("completeness") != "complete" or not evidence.get("uri")))
+            or (bounded_off and required and evidence.get("source") != "live-" + cell.split("/")[0])
         ):
             raise CanaryError(
                 f"deterministic #123 receipt stage {expected['id']} is not complete and current"
             )
+    if bounded_off:
+        refusal = stages[4].get("topologyRefusal") or {}
+        if (refusal.get("topology") != "redis-off" or refusal.get("code") != "unavailable"
+                or refusal.get("missingDependency") != "redis"
+                or refusal.get("manifestCapability") != "jobs.runner"
+                or refusal.get("manifestReasonCode") != "dependency-unavailable"
+                or refusal.get("rulingStatus") != "ruled"
+                or refusal.get("tool") not in {"honua_validate_plan", "honua_dry_run_plan", "honua_execute_plan"}
+                or any(stages[4].get(key) for key in ("jobId", "operationId", "operationInstanceId", "jobStatus"))):
+            raise CanaryError("Redis-off prerequisite lacks the actual typed jobs.runner dependency refusal")
     return {
         "path": relative_path,
         "sha256": _sha256(resolved),
         "generatedAt": generated,
         "status": "pass",
+        **({"prerequisiteProfile": prerequisite_profile, "sourceStatus": receipt["status"]} if bounded_off else {}),
         "candidateVerified": True,
         "freshnessVerified": True,
     }
@@ -469,6 +489,9 @@ class ReceiptBuilder:
             "completedAt": None,
             "status": "blocked",
             "mode": JOURNEY_MODE,
+            "profile": "full-workflow",
+            "executionOutcome": "not-completed",
+            "functionalGpExecuted": None,
             "cell": cell,
             "attempt": attempt,
             "lockDigest": lock_digest,
@@ -1406,6 +1429,7 @@ def execute_live(
             # Verification itself answered, so the final state the model produced is what failed.
             raise ModelFailure("one or more required final assertions failed")
         receipt["status"] = "pass"
+        receipt.update(executionOutcome="completed", functionalGpExecuted=True)
         receipt["scope"]["executionToGreen"] = "pass"
     except (CanaryError, subprocess.TimeoutExpired, OSError, ValueError, TypeError, KeyError) as exc:
         detail = (str(exc) if isinstance(exc, CanaryError)
@@ -1467,6 +1491,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--lock-digest", help="sha256:<hex> of the exact platform-lock.json under certification")
     parser.add_argument("--lock", type=Path, help="platform-lock.json whose bytes must hash to --lock-digest")
     parser.add_argument("--cell", choices=CELLS, default="local-docker")
+    parser.add_argument("--profile", choices=("full-workflow", "redis-off-serving-refusal"), default="full-workflow")
     parser.add_argument("--target", type=Path, help="the reviewed target config chained to this cell's deterministic receipt")
     parser.add_argument("--attempt", type=int, choices=(1, 2), default=1)
     parser.add_argument("--allow-http-cell", metavar="HOSTNAME",
@@ -1491,6 +1516,9 @@ def main(argv: list[str] | None = None) -> int:
         signing_manifest_sha256=args.signing_manifest_sha256,
         allow_http_cell=args.allow_http_cell,
     )
+    if args.profile == "redis-off-serving-refusal":
+        import terminal_model_refusal
+        return terminal_model_refusal.main_from_args(args, endpoint)
     try:
         builder = build_receipt_builder(
             manifest_path=args.manifest,
@@ -1514,6 +1542,7 @@ def main(argv: list[str] | None = None) -> int:
                         args.deterministic_receipt,
                         manifest=load_manifest(args.manifest),
                         journey=builder.journey,
+                        cell=args.cell,
                     )
                 )
             except CanaryError as exc:

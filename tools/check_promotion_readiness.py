@@ -124,6 +124,14 @@ def _journey(receipt: dict[str, Any], required: frozenset[str], mode: str,
             if (type(attempt.get("attempt")) is not int or attempt["attempt"] != index
                     or attempt.get("lockDigest") != digest or not earliest <= completed <= latest):
                 return False
+            if mode == "genuine-model":
+                expected_profile, expected_outcome, expected_execution = (("redis-off-serving-refusal", "refused", False)
+                    if cell["cell"].endswith("/redis-off") else ("full-workflow", "completed", True))
+                if attempt.get("profile") != expected_profile:
+                    return False
+                if index == len(attempts) and (attempt.get("executionOutcome") != expected_outcome
+                        or attempt.get("functionalGpExecuted") is not expected_execution):
+                    return False
             if index == len(attempts):
                 if attempt.get("status") != "pass":
                     return False

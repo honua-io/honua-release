@@ -4710,6 +4710,9 @@ def _model_cell(monkeypatch, run_id, *, deterministic_status, cell="aws-ecs/redi
 def _canary_receipt(attempt, status, attribution, cell="aws-ecs/redis-off"):
     return {"mode": "genuine-model", "cell": cell, "attempt": attempt, "lockDigest": LOCK,
             "status": status, "failureAttribution": attribution,
+            "profile": "redis-off-serving-refusal" if cell.endswith("/redis-off") else "full-workflow",
+            "executionOutcome": "refused" if cell.endswith("/redis-off") else "completed",
+            "functionalGpExecuted": not cell.endswith("/redis-off"),
             "completedAt": f"2026-10-08T12:0{attempt}:00.000000Z"}
 
 
@@ -4751,6 +4754,7 @@ def test_model_canary_binds_each_attempt_to_the_lock_and_reports_the_nightly_row
         argv, env = calls[0]
         assert argv[argv.index("--lock-digest") + 1] == LOCK
         assert argv[argv.index("--cell") + 1] == cell
+        assert argv[argv.index("--profile") + 1] == ("redis-off-serving-refusal" if cell.endswith("/redis-off") else "full-workflow")
         assert argv[argv.index("--target") + 1] == str(directory / "target-1.json")
         assert "AWS_SECRET_ACCESS_KEY" not in env and "GITHUB_TOKEN" not in env
         assert env["HONUA_CLOUD_JOURNEY_ADMIN"] == "cell-key"

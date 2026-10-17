@@ -1259,6 +1259,7 @@ def test_model_journey_report_counts_only_attempts_bound_to_the_lock(tmp_path: P
         path = tmp_path / f"model-canary-{len(written)}-{number}.json"
         path.write_text(json.dumps({"mode": "genuine-model", "cell": "aws-ecs/redis-off", "attempt": number,
                                     "lockDigest": lock, "status": status, "failureAttribution": attribution,
+                                    "profile": "redis-off-serving-refusal", "executionOutcome": "refused", "functionalGpExecuted": False,
                                     "completedAt": f"2026-10-08T12:0{number}:00Z"}), encoding="utf-8")
         return path
 
@@ -1285,6 +1286,7 @@ def test_model_journey_report_records_an_unbound_run_as_blocked_never_pass(tmp_p
     builder = canary.build_receipt_builder(manifest_path=MANIFEST, journey_path=JOURNEY, protocol_path=PROTOCOL,
                                            endpoint=endpoint, driver_command=canary.DEFAULT_DRIVER,
                                            cell="aws-ecs/redis-off")
+    builder.receipt.update(profile="redis-off-serving-refusal", executionOutcome="refused", functionalGpExecuted=False)
     builder.receipt["linkedEvidence"]["deterministicReceipt"] = {"status": "pass"}
     canary.unavailable_receipt(builder, endpoint, canary.DEFAULT_DRIVER)
     builder.receipt["completedAt"] = "2026-10-08T12:01:00Z"
