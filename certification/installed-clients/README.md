@@ -155,11 +155,14 @@ passing certification.
 The producer also executes authored-source roles through
 `import_fidelity_journeys.py`: whole-service relationship application and physical
 join-edge checks, attachment downloads and hashes, cancel/retry with prior-row
-fingerprints, a failed overwrite, client URL/layer repoint and rollback to a
-retained publication, and committed geometry/value/time-metadata fault controls
+fingerprints, a failed overwrite, and committed geometry/value/time-metadata fault controls
 with SDK restoration. The server#4420 cell measures actual PostGIS vectors and
 fresh GDAL-decoded SDK GeoJSON outputs; a missing output never substitutes the
 baseline. Install `gdal-bin` for this independent reader.
+
+The frozen repoint/rollback cell remains blocked: a supported client configuration
+operation with readbacks through the same configured endpoint is not implemented.
+Reading two retained publication URLs cannot qualify that operation.
 
 These executable paths are **not a completed qualification receipt**. Real
 rich-source fixtures, native observations, a suitable published SDK and the

@@ -511,28 +511,12 @@ class Journeys:
         return "a real source query fault failed without false publication or loss of the complete prior target"
 
     def rollback(self):
-        prior = self.ready("points")
-        # Retain both immutable publications. Repoint the client configuration to v2 and
-        # roll it back to v1, reading all records after each switch. No route alias is claimed.
-        oid = prior["source"]["objectIdField"]
-        require(re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*", oid) and type(prior["source"]["ids"][0]) is int,
-                "rollback fixture needs a declared numeric OID")
-        where = f"{oid} = {prior['source']['ids'][0]}"
-        forward_source = self.p.read_snapshot(self.sdk, prior["spec"]["serviceUrl"], prior["spec"]["layerId"], where=where)
-        require(forward_source["count"] == 1 and prior["source"]["count"] > 1,
-                "forward and rollback publications must have distinguishable actual records")
-        second = self.complete(self.request(prior["spec"], "repoint_" + self.tag, "repoint-" + self.tag, whereClause=where))
-        before = self.fingerprint(prior["request"]["tableName"])
-        configuration = {"serviceUrl": second["targetUrl"], "layerId": second["targetLayer"]}
-        for target, expected in ((configuration, forward_source), ({"serviceUrl": prior["targetUrl"], "layerId": prior["targetLayer"]}, prior["source"])):
-            fresh = self.p.read_snapshot(self.sdk, target["serviceUrl"], target["layerId"], candidate=True)
-            self.p.require_equal(rows(expected), rows(fresh), "client repoint/rollback attributes")
-            self.p.require_equal(shapes(expected), shapes(fresh), "client repoint/rollback geometry", 1e-8)
-        self.p.require_equal(before, self.fingerprint(prior["request"]["tableName"]), "rollback preserved prior physical publication")
-        self.score.provenance["rollbackRepoint"] = {"forward": configuration,
-            "rollback": {"serviceUrl": prior["targetUrl"], "layerId": prior["targetLayer"]}, "priorFingerprint": before,
-            "forwardSourceDigest": digest(forward_source), "rollbackSourceDigest": digest(prior["source"])}
-        return "client URL/layer repointed to a fresh publication and rolled back to retained v1 with exact data and geometry"
+        # Direct reads of two retained publications do not exercise an actual configuration
+        # switch. Keep this frozen requirement blocked until a supported client operation
+        # can be applied and observed through the same configured client endpoint.
+        raise PrerequisiteMissing(
+            "supported client configuration repoint/rollback operation and stable-client readback are not implemented; "
+            "reading two publication URLs cannot qualify rollback")
 
     def independent_geometry(self):
         state = self.ready("points")

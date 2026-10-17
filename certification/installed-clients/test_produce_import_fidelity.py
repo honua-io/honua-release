@@ -362,3 +362,90 @@ def test_snapshot_respects_real_source_cap_below_default_batch_size():
 def test_unknown_or_invalid_declared_transfer_caps_are_not_silently_replaced(cap):
     with pytest.raises(producer.ProducerError, match="invalid transfer cap"):
         producer.query_batch_size({"maxRecordCount": cap})
+
+
+def service_inventory_fixture():
+    raw = {"layers": [{"id": 0}], "tables": [{"id": 1}]}
+    resources = [{"id": "resource:fixture:layer:0", "kind": "layer"},
+                 {"id": "resource:fixture:table:1", "kind": "table"}]
+    return raw, resources
+
+
+def test_service_inventory_matches_exact_layer_and_table_identities():
+    raw, resources = service_inventory_fixture()
+    producer.validate_service_inventory(raw, list(reversed(resources)))
+
+
+@pytest.mark.parametrize("fault", ["duplicate", "substitute", "wrong-kind", "metadata-conflict", "duplicate-raw", "boolean-id"])
+def test_service_inventory_rejects_count_preserving_identity_faults(fault):
+    raw, resources = service_inventory_fixture()
+    if fault == "duplicate":
+        resources[1] = copy.deepcopy(resources[0])
+    elif fault == "substitute":
+        resources[1]["id"] = "resource:fixture:table:2"
+    elif fault == "wrong-kind":
+        resources[1]["kind"] = "layer"
+    elif fault == "metadata-conflict":
+        resources[1]["metadata"] = {"layerId": 2}
+    elif fault == "duplicate-raw":
+        raw["layers"].append({"id": 0})
+        resources.append({"id": "resource:other:layer:0", "kind": "layer"})
+    else:
+        raw["tables"][0]["id"] = True
+    with pytest.raises(producer.ProducerError):
+        producer.validate_service_inventory(raw, resources)
+
+
+def service_batch_fixture():
+    _, resources = service_inventory_fixture()
+    layers = [{"sourceResourceId": resource["id"]} for resource in resources]
+    batch = {"status": "succeeded", "children": [
+        {"sourceResourceId": layer["sourceResourceId"], "status": "succeeded", "jobId": f"job-{index}", "publishedLayerId": index}
+        for index, layer in enumerate(layers)]}
+    return layers, batch
+
+
+def test_service_children_match_every_selected_resource_once_independent_of_order():
+    layers, batch = service_batch_fixture()
+    batch["children"].reverse()
+    producer.validate_service_children(batch, layers)
+
+
+@pytest.mark.parametrize("fault", ["duplicate", "substitute", "missing", "job-reuse", "publication-reuse", "failed"])
+def test_service_children_reject_incomplete_or_duplicate_success(fault):
+    layers, batch = service_batch_fixture()
+    second = batch["children"][1]
+    if fault == "duplicate":
+        second["sourceResourceId"] = batch["children"][0]["sourceResourceId"]
+    elif fault == "substitute":
+        second["sourceResourceId"] = "resource:fixture:table:2"
+    elif fault == "missing":
+        del second["sourceResourceId"]
+    elif fault == "job-reuse":
+        second["jobId"] = batch["children"][0]["jobId"]
+    elif fault == "publication-reuse":
+        second["publishedLayerId"] = batch["children"][0]["publishedLayerId"]
+    else:
+        second["status"] = "needsreview"
+    with pytest.raises(producer.ProducerError):
+        producer.validate_service_children(batch, layers)
+
+
+def test_invalid_service_child_set_cannot_earn_reconciliation_pass(manifest):
+    raw, resources = service_inventory_fixture()
+    _, batch = service_batch_fixture()
+    batch["children"][1]["sourceResourceId"] = batch["children"][0]["sourceResourceId"]
+    score = producer.Scorecard(manifest, gate.load_requirements(), EVIDENCE)
+    def call(method, **kwargs):
+        if method == "ScanMigrationSourceAsync":
+            return {"resources": resources}
+        if method == "service":
+            return raw
+        if method == "StartMigrationBatchAsync":
+            return {"batchId": "batch-1", "totalChildren": 2}
+        if method == "GetMigrationBatchAsync":
+            return batch
+        pytest.fail("unvalidated service child reached reconciliation")
+    producer.service_journey(score, mock.Mock(call=call), "http://candidate", "control")
+    assert score.cells["journey.wait"]["verdict"] == "fail"
+    assert score.cells["journey.reconciliation"]["verdict"] == "fail"

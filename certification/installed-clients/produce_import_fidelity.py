@@ -523,6 +523,48 @@ def baseline_case(score: Scorecard, sdk: Sdk, compose: list[str], name: str, bas
     score.record(prefix + "mapserver_featureserver_parity", mapserver)
 
 
+def source_resource_identity(resource: dict) -> tuple[str, int]:
+    """Bind the SDK's stable resource identifier to its declared source kind/id."""
+    identifier = resource.get("id")
+    match = re.fullmatch(r"resource:.+:(layer|table):(\d+)", identifier or "")
+    if not match or resource.get("kind") != match[1]:
+        raise ProducerError("inventory has no consistent source layer/table identity")
+    source_id = int(match[2])
+    declared = (resource.get("metadata") or {}).get("layerId", source_id)
+    if type(declared) is not int or declared != source_id:
+        raise ProducerError("inventory metadata conflicts with its source layer/table identity")
+    return match[1], source_id
+
+
+def validate_service_inventory(raw: dict, resources: list[dict]) -> None:
+    expected = []
+    for collection, kind in (("layers", "layer"), ("tables", "table")):
+        for resource in raw.get(collection, []):
+            identifier = resource.get("id")
+            if type(identifier) is not int or identifier < 0:
+                raise ProducerError("source service has an invalid layer/table identifier")
+            expected.append((kind, identifier))
+    observed = [source_resource_identity(resource) for resource in resources]
+    stable_ids = [resource["id"] for resource in resources]
+    if (not expected or len(set(expected)) != len(expected) or len(set(observed)) != len(observed)
+            or len(set(stable_ids)) != len(stable_ids) or set(observed) != set(expected)):
+        raise ProducerError("inventory must identify every source layer/table exactly once")
+
+
+def validate_service_children(batch: dict, layers: list[dict]) -> None:
+    expected = [layer["sourceResourceId"] for layer in layers]
+    children = batch.get("children", [])
+    actual = [child.get("sourceResourceId") for child in children]
+    jobs = [child.get("jobId") for child in children]
+    publications = [child.get("publishedLayerId") for child in children]
+    if (batch.get("status") != "succeeded" or not expected or len(set(expected)) != len(expected)
+            or len(actual) != len(expected) or set(actual) != set(expected) or len(set(actual)) != len(actual)
+            or any(child.get("status") != "succeeded" for child in children)
+            or any(not isinstance(job, str) or not job for job in jobs) or len(set(jobs)) != len(jobs)
+            or any(type(layer) is not int for layer in publications) or len(set(publications)) != len(publications)):
+        raise ProducerError("complete service lacks one successful child/publication per selected source identity")
+
+
 def service_journey(score: Scorecard, sdk: Sdk, base: str, tag: str) -> None:
     # USA is a real external service with three small layers. Select the entire discovered
     # service; omitting a table/layer or treating needs-review as success is forbidden.
@@ -532,10 +574,8 @@ def service_journey(score: Scorecard, sdk: Sdk, base: str, tag: str) -> None:
         value = sdk.call("ScanMigrationSourceAsync", baseUrl=base, candidate=True, arguments=[{
             "sourceKind": "arcgis-geoservices-rest", "sourceUrl": source, "timeoutSeconds": 60}])
         raw = sdk.call("service", baseUrl=source)
-        discovered = list(raw.get("layers", [])) + list(raw.get("tables", []))
         resources = value.get("resources", [])
-        if len(resources) != len(discovered) or not resources:
-            raise ProducerError("inventory omitted a source layer/table")
+        validate_service_inventory(raw, resources)
         state["inventory"] = value
         state["resources"] = resources
         return "SDK scan accounted for every live source layer and table"
@@ -543,15 +583,7 @@ def service_journey(score: Scorecard, sdk: Sdk, base: str, tag: str) -> None:
     def select_service():
         layers = []
         for index, resource in enumerate(state["resources"]):
-            # The inventory's own source layer id is authoritative. Do not infer ids from order.
-            metadata = resource.get("metadata") or {}
-            source_id = metadata.get("layerId")
-            if source_id is None:
-                match = re.search(r":(?:layer|table):(\d+)$", resource["id"])
-                if match:
-                    source_id = int(match[1])
-            if source_id is None:
-                raise ProducerError("inventory has no unambiguous source layer id")
+            _, source_id = source_resource_identity(resource)
             layers.append({"sourceResourceId": resource["id"], "serviceUrl": source,
                 "layerId": source_id, "tableName": f"journey_{tag}_{index}", "targetSchema": "import_fidelity",
                 "serviceName": f"fidelity-journey-{tag}"})
@@ -582,10 +614,8 @@ def service_journey(score: Scorecard, sdk: Sdk, base: str, tag: str) -> None:
             if time.monotonic() > deadline:
                 raise ProducerError("service migration exceeded 300-second bound")
             time.sleep(1)
+        validate_service_children(batch, state["layers"])
         state["batch"] = batch
-        if batch["status"] != "succeeded" or len(batch.get("children", [])) != len(state["layers"]) or any(
-                child["status"] != "succeeded" or child.get("publishedLayerId") is None for child in batch.get("children", [])):
-            raise ProducerError("complete service was not losslessly published: " + batch["status"])
         return "SDK polled all service children to succeeded, with published target mappings"
     score.record("journey.wait", wait)
     def reconcile():

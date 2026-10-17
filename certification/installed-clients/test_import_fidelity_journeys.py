@@ -187,19 +187,16 @@ def test_vector_geometry_tolerance_never_applies_to_attributes(score):
         lane.geojson_equal(expected, observed, "vector readback")
 
 
-def test_client_repoint_must_read_distinct_forward_data_then_complete_prior_publication(score):
+def test_direct_publication_reads_cannot_qualify_unimplemented_client_repoint(score):
     lane = lane_with_points(score)
-    prior = lane.states["points"]["source"]
-    subset = deepcopy(prior)
-    subset.update(count=1, ids=[1], features=prior["features"][:1])
-    target = {"targetUrl": "http://localhost/rest/services/repoint-unit/FeatureServer", "targetLayer": 2}
-    # The final read is deliberately still on the one-row forward publication.
-    # A count-only/no-op repoint must fail the complete rollback data assertion.
-    with mock.patch.object(producer, "read_snapshot", side_effect=[subset, subset, subset]), mock.patch.object(
-            lane, "complete", return_value=target), mock.patch.object(lane, "fingerprint", return_value="2:preserved"):
+    with mock.patch.object(producer, "read_snapshot") as read, mock.patch.object(lane, "complete") as complete:
         score.record("evidence.rollback-repoint", lane.rollback)
-    assert score.cells["evidence.rollback-repoint"]["verdict"] == "fail"
-    assert "rollback attributes" in score.cells["evidence.rollback-repoint"]["reason"]
+    assert score.cells["evidence.rollback-repoint"]["verdict"] == "blocked"
+    assert "stable-client readback" in score.cells["evidence.rollback-repoint"]["reason"]
+    assert "rollbackRepoint" not in score.provenance
+    assert score.receipt()["summary"]["denominator"] == 142
+    read.assert_not_called()
+    complete.assert_not_called()
 
 
 def test_unavailable_gdal_never_substitutes_baseline(score):
