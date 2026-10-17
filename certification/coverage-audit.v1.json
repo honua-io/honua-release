@@ -1,0 +1,481 @@
+{
+  "schema": "honua.coverage-audit-input/v1",
+  "revision": "2026-10-17.1",
+  "tracking_issue": "https://github.com/honua-io/honua-release/issues/652",
+  "scope": "All governed rows inventoried; licensed desktop implementation remains external. Source review does not qualify a candidate or change supported scope.",
+  "reviewed_sources": {
+    "server": {
+      "repository": "honua-io/honua-server",
+      "commit": "9277d29ffbe4bfb954d59c4755b21d1ccefb9cbc"
+    },
+    "sdk-js": {
+      "repository": "honua-io/honua-sdk-js",
+      "commit": "e2c736fba682118b5c595ceb76c621f7ab70b6be"
+    },
+    "sdk-dotnet": {
+      "repository": "honua-io/honua-sdk-dotnet",
+      "commit": "5a57e5f2611ec874283d5637c2204551f6e1aeff"
+    },
+    "sdk-python": {
+      "repository": "honua-io/honua-sdk-python",
+      "commit": "e1f3cd7163392bbb5abf7d1a21123e953a4e7c53"
+    },
+    "esri-compat": {
+      "repository": "honua-io/honua-esri-compat",
+      "commit": "a795f5b019974804c4eca978651af9c03caf79dc"
+    },
+    "geospatial-mcp": {
+      "repository": "honua-io/geospatial-mcp",
+      "commit": "cc3940826a23b2bc9394fcff8bdec25788393fb7"
+    },
+    "geospatial-grpc": {
+      "repository": "honua-io/geospatial-grpc",
+      "commit": "b916e2123dcd60d93918d11b2750527565fb2224"
+    }
+  },
+  "findings": [
+    {
+      "id": "NC-01",
+      "priority": "P1",
+      "title": "MCP error and cancellation negative controls accept unexpected success",
+      "owner": "honua-io/geospatial-mcp",
+      "issue": "https://github.com/honua-io/geospatial-mcp/issues/95",
+      "status": "implementation-in-progress",
+      "selectors": {
+        "client_lane": [
+          "mcp-*"
+        ]
+      },
+      "sources": [
+        "https://github.com/honua-io/geospatial-mcp/blob/cc3940826a23b2bc9394fcff8bdec25788393fb7/certification/run-sdk.mjs#L60"
+      ],
+      "impact": "Both checks catch their own unexpected-success exceptions. Controlled broken client yielded pass and process exit 0. Other missing operation receipts still prevent full release acceptance.",
+      "acceptance": "Keep success-path failure outside catch; assert the expected protocol/abort error and prove the controls fail against deliberately broken behavior.",
+      "verification_receipt": null,
+      "dimension": "assertions",
+      "implementation_prs": [
+        "https://github.com/honua-io/geospatial-mcp/pull/101"
+      ]
+    },
+    {
+      "id": "NC-02",
+      "priority": "P1",
+      "title": "OpenLayers line and polygon certification uses point marker pixels",
+      "owner": "honua-io/honua-server",
+      "issue": "https://github.com/honua-io/honua-server/issues/6298",
+      "status": "implementation-in-progress",
+      "selectors": {
+        "surface": [
+          "mvt"
+        ]
+      },
+      "sources": [
+        "https://github.com/honua-io/honua-server/blob/9277d29ffbe4bfb954d59c4755b21d1ccefb9cbc/tests/js/openlayers/rendering/render.spec.ts#L203"
+      ],
+      "impact": "Line and fill certificate IDs can pass without LineString or Polygon rendering.",
+      "acceptance": "Add actual line and polygon fixtures with distinct colors and independent pixel/geometry assertions; keep the corresponding facets incomplete until exercised.",
+      "verification_receipt": null,
+      "dimension": "assertions"
+    },
+    {
+      "id": "NC-03",
+      "priority": "P1",
+      "title": "Python client append certification reuses applyEdits; edit checks lack readback",
+      "owner": "honua-io/honua-esri-compat",
+      "issue": "https://github.com/honua-io/honua-esri-compat/issues/339",
+      "status": "implementation-in-progress",
+      "selectors": {
+        "client_lane": [
+          "arcgis-python-*"
+        ]
+      },
+      "sources": [
+        "https://github.com/honua-io/honua-esri-compat/blob/a795f5b019974804c4eca978651af9c03caf79dc/src/honua_esri_compat/lanes/arcgis_python.py#L1181"
+      ],
+      "impact": "Append can pass without calling append. Edit success booleans cannot detect acknowledged but unpersisted writes.",
+      "acceptance": "Call the actual supported append API or classify its client applicability honestly; independently query added/updated/deleted state.",
+      "verification_receipt": null,
+      "dimension": "assertions",
+      "delivery_pr": "https://github.com/honua-io/honua-esri-compat/pull/340"
+    },
+    {
+      "id": "NC-04",
+      "priority": "P1",
+      "title": "MCP and .NET producer receipt schemas do not meet release v2 contract",
+      "owner": "honua-io/honua-release",
+      "issue": "https://github.com/honua-io/honua-release/issues/182",
+      "status": "implementation-in-progress",
+      "selectors": {
+        "client_lane": [
+          "mcp-*",
+          "sdk-dotnet-certification"
+        ]
+      },
+      "sources": [
+        "https://github.com/honua-io/honua-release/blob/a5296ff13f34c6dd1a2109d1d31ad5c8d0e80935/tools/check_protocol_certification.py#L352",
+        "https://github.com/honua-io/geospatial-mcp/blob/cc3940826a23b2bc9394fcff8bdec25788393fb7/certification/build-fragment.mjs#L42",
+        "https://github.com/honua-io/honua-sdk-dotnet/blob/5a57e5f2611ec874283d5637c2204551f6e1aeff/scripts/generate-sdk-certification.py#L970"
+      ],
+      "impact": "Successful execution still emits v1 receipts rejected by the current release consumer.",
+      "acceptance": "Emit v2 governed requirement context from producers and run a real producer-to-consumer contract check; do not loosen consumer validation.",
+      "verification_receipt": null,
+      "dimension": "receipt-contract",
+      "related_issues": [
+        "https://github.com/honua-io/honua-sdk-dotnet/issues/323",
+        "https://github.com/honua-io/geospatial-mcp/issues/81"
+      ],
+      "implementation_prs": [
+        "https://github.com/honua-io/geospatial-mcp/pull/101",
+        "https://github.com/honua-io/honua-sdk-dotnet/pull/435"
+      ]
+    },
+    {
+      "id": "NC-05",
+      "priority": "P1",
+      "title": "Canonical producer registry is incomplete and partially stale",
+      "owner": "honua-io/honua-release",
+      "issue": "https://github.com/honua-io/honua-release/issues/181",
+      "status": "open",
+      "selectors": {
+        "client_lane": [
+          "*"
+        ]
+      },
+      "sources": [
+        "https://github.com/honua-io/honua-release/blob/a5296ff13f34c6dd1a2109d1d31ad5c8d0e80935/certification/sources/protocol-certification-production.v1.json#L94"
+      ],
+      "impact": "General interop nightly builds its own image; the exact-image 52-cell bounded roster is not registered here. SDK-JS candidate inputs now exist despite an unproduced disposition saying they do not. Catalog counts measure registration, not executed coverage or approved release scope.",
+      "acceptance": "Reconcile the approved .1 roster, dispatch existing exact-image harnesses, and join their actual receipts. Explicitly adjudicate aliases/non-addressable rows instead of treating all catalog rows as new implementation work.",
+      "verification_receipt": null,
+      "dimension": "producer-registration"
+    },
+    {
+      "id": "NC-06",
+      "priority": "P1",
+      "title": "Executable breadth remains incomplete for MCP and Python SDK",
+      "owner": "honua-io/geospatial-mcp",
+      "issue": "https://github.com/honua-io/geospatial-mcp/issues/78",
+      "status": "implementation-in-progress",
+      "selectors": {
+        "client_lane": [
+          "mcp-*",
+          "sdk-python-certification"
+        ]
+      },
+      "sources": [
+        "https://github.com/honua-io/geospatial-mcp/blob/cc3940826a23b2bc9394fcff8bdec25788393fb7/certification/build-fragment.mjs#L32",
+        "https://github.com/honua-io/honua-sdk-python/blob/e1f3cd7163392bbb5abf7d1a21123e953a4e7c53/scripts/_conformance.py#L1289"
+      ],
+      "impact": "Current MCP builder permits only four operations per client; synthetic all-success transport controls produce eight pass and 76 skip rows. Python trunk still declares missing required gRPC unary/streaming and FeatureServer edits.",
+      "acceptance": "Complete required semantic workflows with typed outputs, auth denial, cancellation and readback. Python operation implementation is already assigned to the active release agent.",
+      "verification_receipt": null,
+      "dimension": "operation-coverage",
+      "related_issues": [
+        "https://github.com/honua-io/honua-sdk-python/issues/282"
+      ],
+      "implementation_prs": [
+        "https://github.com/honua-io/geospatial-mcp/pull/101",
+        "https://github.com/honua-io/honua-sdk-python/pull/302"
+      ]
+    },
+    {
+      "id": "NC-07",
+      "priority": "P2",
+      "title": "OWSLib expired-token expectation contradicts current WMS auth formatter",
+      "owner": "honua-io/honua-server",
+      "issue": "https://github.com/honua-io/honua-server/issues/6298",
+      "status": "implementation-in-progress",
+      "selectors": {
+        "surface": [
+          "wms",
+          "wms-1-3",
+          "ogc-wms",
+          "ogc-api-features"
+        ]
+      },
+      "sources": [
+        "https://github.com/honua-io/honua-server/blob/9277d29ffbe4bfb954d59c4755b21d1ccefb9cbc/tests/python/owslib_client/test_auth_breadth.py#L200"
+      ],
+      "impact": "Latest inspected run expected HTTP 200 InvalidParameterValue while current formatter intentionally returns HTTP 401 AccessDenied. The separately adjudicated DuckDB CRS issue is tracked as NC-12.",
+      "acceptance": "Update to the intended authentication contract while retaining challenge and no-data assertions; DuckDB storage-versus-wire semantics remain independently tracked by NC-12.",
+      "verification_receipt": null,
+      "dimension": "assertions",
+      "related_issues": [
+        "https://github.com/honua-io/honua-server/issues/6300"
+      ]
+    },
+    {
+      "id": "NC-08",
+      "priority": "P1",
+      "title": "Interop lane omits the dedicated rendering command and discards test exit codes",
+      "owner": "honua-io/honua-server",
+      "issue": "https://github.com/honua-io/honua-server/issues/6298",
+      "status": "implementation-in-progress",
+      "selectors": {
+        "surface": [
+          "mvt"
+        ]
+      },
+      "sources": [
+        "https://github.com/honua-io/honua-server/blob/9277d29ffbe4bfb954d59c4755b21d1ccefb9cbc/docker/client-compat/openlayers/run.sh#L20"
+      ],
+      "impact": "Dedicated OpenLayers rendering runs in full CI, but the separate interop lane runs only Vitest and a different browser suite and masks nonzero test exits.",
+      "acceptance": "Run actual rendering in interop, preserve evidence, and return failure when any suite fails.",
+      "verification_receipt": null,
+      "dimension": "test-selection"
+    },
+    {
+      "id": "NC-09",
+      "priority": "P1",
+      "title": "Full-matrix gate trusts a public run URL without authenticating the check publisher or executed jobs",
+      "owner": "honua-io/honua-release",
+      "issue": "https://github.com/honua-io/honua-release/issues/655",
+      "status": "implementation-in-progress",
+      "selectors": {
+        "client_lane": [
+          "*"
+        ]
+      },
+      "sources": [
+        "https://github.com/honua-io/honua-release/blob/a5296ff13f34c6dd1a2109d1d31ad5c8d0e80935/certification/check_build_test.py#L329-L376"
+      ],
+      "impact": "A controlled skipped Python job failed as intended, but appending an unrelated-app check with the expected name and the same public Actions URL changed the verdict to pass. This does not establish that a real candidate was accepted incorrectly.",
+      "acceptance": "Require authentic Actions app and selected check suite, exact source identity, actual required jobs and successful test steps. Retain provenance across failed-job reruns and reject unrelated publishers, skipped execution and incomplete shard coverage.",
+      "verification_receipt": null,
+      "dimension": "gate-trust",
+      "delivery_pr": "https://github.com/honua-io/honua-release/pull/656"
+    },
+    {
+      "id": "NC-10",
+      "priority": "P1",
+      "title": "A selected server shard can report success after executing no tests",
+      "owner": "honua-io/honua-server",
+      "issue": "https://github.com/honua-io/honua-server/issues/6301",
+      "status": "implementation-in-progress",
+      "selectors": {
+        "client_lane": [
+          "*"
+        ]
+      },
+      "sources": [
+        "https://github.com/honua-io/honua-server/blob/9277d29ffbe4bfb954d59c4755b21d1ccefb9cbc/scripts/ci/run-server-test-shard.sh#L111",
+        "https://github.com/honua-io/honua-server/blob/9277d29ffbe4bfb954d59c4755b21d1ccefb9cbc/scripts/ci/run-server-test-shard.sh#L259"
+      ],
+      "impact": "The shard runner propagates the test process exit code without requiring a positive executed-test count. A successful job or step alone cannot distinguish execution from an unmatched filter.",
+      "acceptance": "Reject missing, empty, all-skipped and stale TRX results, enable no-match failure, preserve executed counters and digest, and verify a real unmatched filter exits nonzero.",
+      "verification_receipt": null,
+      "dimension": "test-selection"
+    },
+    {
+      "id": "NC-11",
+      "priority": "P1",
+      "title": "MCP cancellation notifications do not cancel an in-flight server request",
+      "owner": "honua-io/honua-server",
+      "issue": "https://github.com/honua-io/honua-server/issues/6299",
+      "status": "open",
+      "selectors": {
+        "client_lane": [
+          "mcp-*"
+        ]
+      },
+      "sources": [
+        "https://github.com/honua-io/honua-server/blob/9277d29ffbe4bfb954d59c4755b21d1ccefb9cbc/src/Honua.Ai/Features/Protocols/Mcp/Mcp/McpDataAccessSurface.cs#L130-L146"
+      ],
+      "impact": "The dispatcher returns without acting on notifications/cancelled. A client-side aborted ping cannot prove server cessation. Stateless clients, request-ID collisions and multi-replica delivery need explicit semantics.",
+      "acceptance": "Implement safe principal/session/request-scoped cancellation and prove actual server work stops while unrelated requests continue. Preserve race/cleanup safety and multi-replica guarantees; durable GP cancellation remains a separate workflow proof.",
+      "related_issues": [
+        "https://github.com/honua-io/geospatial-mcp/issues/95",
+        "https://github.com/honua-io/honua-release/issues/123"
+      ],
+      "verification_receipt": null,
+      "dimension": "operation-coverage"
+    },
+    {
+      "id": "NC-12",
+      "priority": "P2",
+      "title": "DuckDB metadata assertions confuse published CRS84 with the physical PostGIS SRID",
+      "owner": "honua-io/honua-server",
+      "issue": "https://github.com/honua-io/honua-server/issues/6300",
+      "status": "implementation-in-progress",
+      "selectors": {
+        "surface": [
+          "ogc-api-features"
+        ]
+      },
+      "sources": [
+        "https://github.com/honua-io/honua-server/blob/9277d29ffbe4bfb954d59c4755b21d1ccefb9cbc/tests/python/duckdb_client/test_ogc_features.py#L408-L417",
+        "https://github.com/honua-io/honua-server/blob/9277d29ffbe4bfb954d59c4755b21d1ccefb9cbc/tests/python/duckdb_client/test_ogc_features.py#L654-L687",
+        "https://github.com/honua-io/honua-server/blob/9277d29ffbe4bfb954d59c4755b21d1ccefb9cbc/src/Honua.Protocols.OgcApi/Features/CollectionsEndpoints.cs#L740-L750"
+      ],
+      "impact": "Nightly 39028726113 reports two failures because the fixture publishes CRS84 and the real client reports OGC:CRS84 while assertions insist on EPSG:4326. Other axis-order tests remain discriminating.",
+      "acceptance": "Assert exact CRS84 metadata and typed geometry with known longitude/latitude anchor; preserve explicit EPSG:4326 axis and projected-coordinate checks and reject wrong-CRS or swapped-coordinate controls.",
+      "verification_receipt": null,
+      "dimension": "assertions"
+    }
+  ],
+  "workstreams": [
+    {
+      "id": "protocol-data",
+      "owner": "honua-io/honua-server",
+      "surfaces": [
+        "GeoServices REST",
+        "OData",
+        "OGC APIs",
+        "WFS/WMS/WMTS/WCS/WPS",
+        "STAC",
+        "gRPC"
+      ],
+      "required_audit_dimensions": [
+        "filter/projection/count/paging",
+        "empty and boundary data",
+        "CRS/axis/Z/M",
+        "transactions and concurrency",
+        "auth/error/media negotiation",
+        "selector and test-discovery completeness"
+      ],
+      "status": "partial-source-review",
+      "remaining": "Complete test selection, assertion and live-evidence review; this inventory is not an exhaustive audit."
+    },
+    {
+      "id": "render-formats",
+      "owner": "honua-io/honua-server",
+      "surfaces": [
+        "MVT/TileJSON",
+        "maps/styles",
+        "raster/COG",
+        "cloud-native formats"
+      ],
+      "required_audit_dimensions": [
+        "real decoded geometry",
+        "independent pixels",
+        "nodata/reprojection",
+        "range budgets",
+        "independent canonical readers"
+      ],
+      "status": "partial-source-review",
+      "remaining": "Complete test selection, assertion and live-evidence review; this inventory is not an exhaustive audit."
+    },
+    {
+      "id": "clients",
+      "owner": "honua-io/honua-release",
+      "surfaces": [
+        "published JavaScript/Python/.NET packages",
+        "independent ecosystem clients",
+        "license-free vendor SDKs"
+      ],
+      "required_audit_dimensions": [
+        "installed artifact identity",
+        "readback after writes",
+        "stream disposal/cancellation",
+        "version compatibility",
+        "canonical client attribution"
+      ],
+      "status": "partial-source-review",
+      "remaining": "Complete test selection, assertion and live-evidence review; this inventory is not an exhaustive audit."
+    },
+    {
+      "id": "ai-gp",
+      "owner": "honua-io/geospatial-mcp",
+      "surfaces": [
+        "MCP",
+        "Studio",
+        "GP",
+        "approval workflows"
+      ],
+      "required_audit_dimensions": [
+        "actual tool execution",
+        "typed outputs",
+        "auth denial",
+        "approval binding",
+        "genuine model journey",
+        "worker restart/duplicate delivery/cancellation/output readback"
+      ],
+      "status": "partial-source-review",
+      "remaining": "Complete test selection, assertion and live-evidence review; this inventory is not an exhaustive audit."
+    },
+    {
+      "id": "migration",
+      "owner": "honua-io/honua-migrate",
+      "surfaces": [
+        "service/data/code import",
+        "application migration"
+      ],
+      "required_audit_dimensions": [
+        "schema/geometry/attachments/relationships",
+        "interrupted-copy prior data preservation",
+        "retry no duplicates",
+        "published SDK readback",
+        "application replay"
+      ],
+      "status": "partial-source-review",
+      "remaining": "Complete test selection, assertion and live-evidence review; this inventory is not an exhaustive audit."
+    },
+    {
+      "id": "deploy-policy",
+      "owner": "honua-io/honua-release",
+      "surfaces": [
+        "AWS ECS",
+        "AWS serverless",
+        "Redis on/off",
+        "operations"
+      ],
+      "required_audit_dimensions": [
+        "fresh install",
+        "signed-in administration",
+        "telemetry/approved change",
+        "update/rollback/schema refusal",
+        "restore/capacity/teardown",
+        "tenant/key/cache isolation",
+        "read-only provider refusal"
+      ],
+      "status": "partial-source-review",
+      "remaining": "Complete test selection, assertion and live-evidence review; this inventory is not an exhaustive audit."
+    }
+  ],
+  "gate_sequence": [
+    {
+      "stage": "implementation",
+      "requirement": "Required behavioral fixes and producer contracts delivered; open findings retain owner and issue."
+    },
+    {
+      "stage": "full-build",
+      "requirement": "Exact-source full required matrix, architecture, providers, browser/Python, AOT and packaging; selective checks are insufficient."
+    },
+    {
+      "stage": "frozen-artifacts",
+      "requirement": "Immutable image/package identities, signatures, SBOM/security and platform pins."
+    },
+    {
+      "stage": "candidate-certification",
+      "requirement": "Registered canonical clients, published SDKs, bounded roster, CITE, formats, docs and migration against the same artifacts."
+    },
+    {
+      "stage": "aws-acceptance",
+      "requirement": "ECS and serverless crossed with Redis on/off; real durable workflows on, only declared typed refusals off. EKS/Helm Preview cannot substitute."
+    },
+    {
+      "stage": "strict-mint",
+      "requirement": "Existing strict AND gate; missing/stale/blocked/skipped required evidence prevents minting."
+    },
+    {
+      "stage": "qualification-promotion",
+      "requirement": "Existing qualifying evidence and 48-hour burn with seven consecutive six-hour canaries; promote unchanged artifacts."
+    }
+  ],
+  "local_execution": {
+    "rule": "Same commands and identities; retained logs and all attempts. Existing authenticated consumers remain authoritative.",
+    "remaining": "A local runner may substitute only where the trusted receipt contract supports it; never fabricate Actions run IDs or replace real AWS proofs with container results."
+  },
+  "observed_source_checks": [
+    {
+      "source": "https://github.com/honua-io/honua-server/blob/9277d29ffbe4bfb954d59c4755b21d1ccefb9cbc/docs/gis/data/feature-catalog.json#L1",
+      "method": "Catalog proving_tests evaluated through scripts/ci/capability-impact.py shard_names_for_test against .github/ci-shards.json at the same source revision.",
+      "catalog_entries": 1391,
+      "implemented_entries": 1073,
+      "distinct_proving_tests": 6187,
+      "entries_without_proving_tests": 0,
+      "unmapped_proving_tests": 0,
+      "limit": "Static declared references only; does not prove runtime discovery, trait selection, assertion quality or execution."
+    }
+  ]
+}

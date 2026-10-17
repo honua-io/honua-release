@@ -1,0 +1,123 @@
+{
+  "schema": "honua.coverage-audit-summary/v1",
+  "meaning": "Inventory and source-review status only; never an executed pass rate or release verdict.",
+  "requirements_revision": "2026-10-08-complete.23",
+  "requirements_digest": "sha256:ee6863ad46cd10317824ae748bc58c8f391652201ea113214f05fb9f0cad74ad",
+  "production_digest": "sha256:cb71f546d61260881e3d798be0bd08b5c03ea59fe58745268136c68f693f21d1",
+  "audit_digest": "sha256:5a73331a3e0f8123ad113fa4bc7d03838cb0335224c8a6c485bc12347d7b31d6",
+  "rows_digest": "sha256:e36828758bcc71ae0b23503a409f5c4c771ae2e6077ae9ceb099fadb92e8b956",
+  "rows": 3008,
+  "non_licensed_rows": 2668,
+  "external_licensed_rows": 340,
+  "non_licensed_registration": {
+    "not-addressable": 495,
+    "registered": 1246,
+    "unproduced": 927
+  },
+  "non_licensed_assertion_review": {
+    "findings-recorded": 377,
+    "not-reviewed": 2291
+  },
+  "finding_matches": {
+    "NC-01": 82,
+    "NC-02": 1,
+    "NC-03": 255,
+    "NC-04": 367,
+    "NC-05": 3008,
+    "NC-06": 92,
+    "NC-07": 51,
+    "NC-08": 1,
+    "NC-09": 3008,
+    "NC-10": 3008,
+    "NC-11": 82,
+    "NC-12": 16
+  },
+  "source_comparison": [
+    {
+      "source": "esri-compat",
+      "reviewed": {
+        "repository": "honua-io/honua-esri-compat",
+        "commit": "a795f5b019974804c4eca978651af9c03caf79dc"
+      },
+      "governed": {
+        "repository": "honua-io/honua-esri-compat",
+        "commit": "ece4c3a2f68557fe8329e9932de36193d0732894"
+      },
+      "same_revision": false
+    },
+    {
+      "source": "geospatial-grpc",
+      "reviewed": {
+        "repository": "honua-io/geospatial-grpc",
+        "commit": "b916e2123dcd60d93918d11b2750527565fb2224"
+      },
+      "governed": {
+        "repository": "honua-io/geospatial-grpc",
+        "commit": "d20abf2f1a0069e333c8bdf13b0096e915accbab"
+      },
+      "same_revision": false
+    },
+    {
+      "source": "geospatial-mcp",
+      "reviewed": {
+        "repository": "honua-io/geospatial-mcp",
+        "commit": "cc3940826a23b2bc9394fcff8bdec25788393fb7"
+      },
+      "governed": {
+        "repository": "honua-io/geospatial-mcp",
+        "commit": "d5a09d13c4ad541c05702e598c3679c0f42db7af"
+      },
+      "same_revision": false
+    },
+    {
+      "source": "sdk-dotnet",
+      "reviewed": {
+        "repository": "honua-io/honua-sdk-dotnet",
+        "commit": "5a57e5f2611ec874283d5637c2204551f6e1aeff"
+      },
+      "governed": {
+        "repository": "honua-io/honua-sdk-dotnet",
+        "commit": "8e4dd3d9d23f86b7f07d946ef0736d4529d332b6"
+      },
+      "same_revision": false
+    },
+    {
+      "source": "sdk-js",
+      "reviewed": {
+        "repository": "honua-io/honua-sdk-js",
+        "commit": "e2c736fba682118b5c595ceb76c621f7ab70b6be"
+      },
+      "governed": {
+        "repository": "honua-io/honua-sdk-js",
+        "commit": "c99e71197dd940ed952aecb024c6de273456f2ae"
+      },
+      "same_revision": false
+    },
+    {
+      "source": "sdk-python",
+      "reviewed": {
+        "repository": "honua-io/honua-sdk-python",
+        "commit": "e1f3cd7163392bbb5abf7d1a21123e953a4e7c53"
+      },
+      "governed": {
+        "repository": "honua-io/honua-sdk-python",
+        "commit": "516c727dc03cae3b6b312595a9f4bfcee5f34cad"
+      },
+      "same_revision": false
+    },
+    {
+      "source": "server",
+      "reviewed": {
+        "repository": "honua-io/honua-server",
+        "commit": "9277d29ffbe4bfb954d59c4755b21d1ccefb9cbc"
+      },
+      "governed": {
+        "repository": "honua-io/honua-server",
+        "commit": "ac30266fbd153363bebdbed13130accc8ab0c94a"
+      },
+      "same_revision": false
+    }
+  ],
+  "execution": "not-evaluated",
+  "qualification": "not-evaluated"
+}

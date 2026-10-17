@@ -219,6 +219,30 @@
       "reason": "Exact existing upstream repository and pinned matrix path identify the source ownership and unchanged operation set. This exception covers these two source identifiers only; desktop implementation details remain in the private source repository.",
       "owner": "@mikemcdougall",
       "issue": "honua-io/honua-release#576"
+    },
+    {
+      "repo": "honua-release",
+      "paths": [
+        "certification/coverage-audit.v1.json",
+        "certification/coverage-audit-summary.v1.json"
+      ],
+      "tokens": [
+        "esri",
+        "arcgis",
+        "honua_esri_compat",
+        "arcgis_python"
+      ],
+      "identifiers": [
+        "esri-compat",
+        "honua-io/honua-esri-compat",
+        "//github.com/honua-io/honua-esri-compat/issues/339",
+        "//github.com/honua-io/honua-esri-compat/pull/340",
+        "arcgis-python-",
+        "//github.com/honua-io/honua-esri-compat/blob/a795f5b019974804c4eca978651af9c03caf79dc/src/honua_esri_compat/lanes/arcgis_python.py"
+      ],
+      "reason": "Exact existing repository/source-key, client-lane and immutable source-path identifiers are needed to join the coverage audit to governed producers. Prose remains neutral; this does not admit licensed desktop detail or expand the baseline.",
+      "owner": "@mikemcdougall",
+      "issue": "honua-io/honua-release#652"
     }
   ]
 }
