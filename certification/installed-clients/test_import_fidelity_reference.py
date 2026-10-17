@@ -144,3 +144,13 @@ def test_authenticated_native_identity_does_not_hide_measured_data_loss(check, f
         target["schema"]["fields"] = []
     with pytest.raises(producer.ProducerError):
         reference.crosscheck(check, response, request, states, producer.require_equal)
+
+
+def test_open_desktop_lane_is_optional_without_waiving_required_licensed_reference():
+    import produce_import_fidelity as producer
+    response, request, states = crosscheck_fixture()
+    response["fixtures"]["points"]["observations"].pop("open-desktop")
+    reference.crosscheck("honua-and-esri-clients", response, request, states, producer.require_equal)
+    response["fixtures"]["points"]["observations"] = {"open-desktop": response["fixtures"]["points"]["observations"].pop("licensed-desktop")}
+    with pytest.raises(reference.ReferenceError, match="licensed reference"):
+        reference.crosscheck("honua-and-esri-clients", response, request, states, producer.require_equal)

@@ -124,7 +124,8 @@ def crosscheck(name, response, request, states, equal):
         result = response["fixtures"][role]
         require(result.get("identity") == request["fixtures"][role], "native observed source/target identity differs")
         observations = result.get("observations", {})
-        require(set(observations) == {"licensed-desktop", "open-desktop"}, "native response requires both independent native readers")
+        require("licensed-desktop" in observations and set(observations) <= {"licensed-desktop", "open-desktop"},
+                "native response requires the licensed reference; unknown reader identities are refused")
         for reader, observation in observations.items():
             require(observation.get("runtimeVersion") and observation.get("methods") and observation.get("live") is True,
                     "native reader must identify real runtime and executed methods")

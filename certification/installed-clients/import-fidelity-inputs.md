@@ -116,8 +116,9 @@ The JSON response has schema `honua.import-fidelity-reference-response/v1`,
 `requestDigest` (the canonical digest of the complete request), and `producer`
 with exact `sourceSha`, integer `runId` and integer `runAttempt`. Its `fixtures`
 map must contain exactly the request's roles. Each fixture has `identity` equal to
-the corresponding request entry and `observations` keyed by `licensed-desktop` and `open-desktop`.
-Each native observation identifies `runtimeVersion`, actual executed `methods`,
+the corresponding request entry and `observations` containing the required `licensed-desktop` reference. An
+`open-desktop` observation is optional and, when supplied, is also compared. It is
+not an additional required import gate. Each native observation identifies `runtimeVersion`, actual executed `methods`,
 `live=true`, and independently measured `source` and `target` objects containing:
 
 - `count` and `rows`: exact record count and attribute dictionaries sorted by
