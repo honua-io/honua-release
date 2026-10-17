@@ -230,7 +230,12 @@
         "executionOutcome",
         "functionalGpExecuted",
         "cleanup",
-        "cost"
+        "cost",
+        "prior",
+        "candidate",
+        "observations",
+        "updateOperation",
+        "rollbackOperation"
       ],
       "properties": {
         "cell": {
@@ -523,6 +528,40 @@
         },
         "rollbackInFlightJob": {
           "$ref": "#/$defs/updateRollbackCell/properties/inFlightJob"
+        },
+        "prior": {
+          "$ref": "#/$defs/updateRollbackRelease"
+        },
+        "candidate": {
+          "$ref": "#/$defs/updateRollbackRelease"
+        },
+        "observations": {
+          "type": "array",
+          "minItems": 3,
+          "maxItems": 3,
+          "items": {
+            "$ref": "#/$defs/updateRollbackObservation"
+          }
+        },
+        "updateOperation": {
+          "oneOf": [
+            {
+              "$ref": "#/$defs/updateRollbackNativeOperation"
+            },
+            {
+              "$ref": "#/$defs/updateRollbackTerraformOperation"
+            }
+          ]
+        },
+        "rollbackOperation": {
+          "oneOf": [
+            {
+              "$ref": "#/$defs/updateRollbackNativeOperation"
+            },
+            {
+              "$ref": "#/$defs/updateRollbackTerraformOperation"
+            }
+          ]
         }
       },
       "allOf": [
@@ -666,6 +705,35 @@
               ]
             }
           }
+        },
+        {
+          "if": {
+            "properties": {
+              "actuator": {
+                "const": "terraform-exact-apply"
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "updateOperation": {
+                "$ref": "#/$defs/updateRollbackTerraformOperation"
+              },
+              "rollbackOperation": {
+                "$ref": "#/$defs/updateRollbackTerraformOperation"
+              }
+            }
+          },
+          "else": {
+            "properties": {
+              "updateOperation": {
+                "$ref": "#/$defs/updateRollbackNativeOperation"
+              },
+              "rollbackOperation": {
+                "$ref": "#/$defs/updateRollbackNativeOperation"
+              }
+            }
+          }
         }
       ]
     },
@@ -727,6 +795,227 @@
         },
         "freshUntil": {
           "$ref": "#/$defs/time"
+        }
+      }
+    },
+    "updateRollbackRelease": {
+      "type": "object",
+      "required": [
+        "manifestDigest",
+        "sourceRevision",
+        "schemaVersion",
+        "imageDigest",
+        "lambdaImageDigest"
+      ],
+      "properties": {
+        "manifestDigest": {
+          "$ref": "#/$defs/digest"
+        },
+        "sourceRevision": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{40}$"
+        },
+        "schemaVersion": {
+          "type": "string",
+          "pattern": "\\S"
+        },
+        "imageDigest": {
+          "$ref": "#/$defs/digest"
+        },
+        "lambdaImageDigest": {
+          "$ref": "#/$defs/digest"
+        }
+      }
+    },
+    "updateRollbackObservation": {
+      "type": "object",
+      "required": [
+        "phase",
+        "observedAt",
+        "sourceRevision",
+        "native",
+        "schemaJournal",
+        "servingFixture"
+      ],
+      "properties": {
+        "phase": {
+          "enum": [
+            "baseline",
+            "candidate",
+            "rollback"
+          ]
+        },
+        "observedAt": {
+          "type": "number",
+          "exclusiveMinimum": 0
+        },
+        "sourceRevision": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{40}$"
+        },
+        "native": {
+          "type": "object",
+          "required": [
+            "kind",
+            "imageDigest"
+          ],
+          "properties": {
+            "kind": {
+              "enum": [
+                "ecs-native-routing",
+                "lambda-alias"
+              ]
+            },
+            "imageDigest": {
+              "$ref": "#/$defs/digest"
+            },
+            "version": {
+              "type": "string",
+              "pattern": "^[1-9][0-9]*$"
+            },
+            "taskCount": {
+              "type": "integer",
+              "minimum": 1
+            }
+          },
+          "allOf": [
+            {
+              "if": {
+                "properties": {
+                  "kind": {
+                    "const": "lambda-alias"
+                  }
+                }
+              },
+              "then": {
+                "required": [
+                  "version"
+                ]
+              },
+              "else": {
+                "required": [
+                  "taskCount"
+                ]
+              }
+            }
+          ]
+        },
+        "schemaJournal": {
+          "type": "object",
+          "required": [
+            "method",
+            "pendingScripts",
+            "extraScripts",
+            "readyForCoordinatedDeploy",
+            "candidateImageDigest"
+          ],
+          "properties": {
+            "method": {
+              "const": "live-bidirectional-migration-plan"
+            },
+            "pendingScripts": {
+              "const": 0
+            },
+            "extraScripts": {
+              "const": 0
+            },
+            "readyForCoordinatedDeploy": {
+              "const": true
+            },
+            "candidateImageDigest": {
+              "$ref": "#/$defs/digest"
+            }
+          }
+        },
+        "servingFixture": {
+          "type": "object",
+          "required": [
+            "serviceId",
+            "layerId",
+            "seedManifestSha256",
+            "seedScriptSha256",
+            "seedSqlSha256",
+            "expectedFeaturesSha256"
+          ],
+          "properties": {
+            "serviceId": {
+              "const": "e2e"
+            },
+            "layerId": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "seedManifestSha256": {
+              "type": "string",
+              "pattern": "^[0-9a-f]{64}$"
+            },
+            "seedScriptSha256": {
+              "type": "string",
+              "pattern": "^[0-9a-f]{64}$"
+            },
+            "seedSqlSha256": {
+              "type": "string",
+              "pattern": "^[0-9a-f]{64}$"
+            },
+            "expectedFeaturesSha256": {
+              "type": "string",
+              "pattern": "^[0-9a-f]{64}$"
+            }
+          }
+        }
+      }
+    },
+    "updateRollbackNativeOperation": {
+      "type": "object",
+      "required": [
+        "operationId",
+        "status",
+        "observedRevision",
+        "providerOperationIdSha256"
+      ],
+      "properties": {
+        "operationId": {
+          "type": "string",
+          "pattern": "\\S"
+        },
+        "status": {
+          "enum": [
+            "Succeeded",
+            "Observing",
+            "Protected",
+            "Reconciling",
+            "RolledBack"
+          ]
+        },
+        "observedRevision": {
+          "type": "string",
+          "pattern": "\\S"
+        },
+        "providerOperationIdSha256": {
+          "$ref": "#/$defs/digest"
+        }
+      }
+    },
+    "updateRollbackTerraformOperation": {
+      "type": "object",
+      "required": [
+        "actuator",
+        "status",
+        "planSha256",
+        "imageDigest"
+      ],
+      "properties": {
+        "actuator": {
+          "const": "terraform-exact-apply"
+        },
+        "status": {
+          "const": "applied"
+        },
+        "planSha256": {
+          "$ref": "#/$defs/digest"
+        },
+        "imageDigest": {
+          "$ref": "#/$defs/digest"
         }
       }
     }

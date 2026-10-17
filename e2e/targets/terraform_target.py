@@ -664,7 +664,7 @@ class TerraformTarget(DeployTarget):
             raise ProvisionError(f"{self.name}: terraform applied but {self.spec.endpoint_output} was empty")
         return url
 
-    def _exact_image_apply(self, image: str, *, redis_enabled: bool, extra_vars: tuple[str, ...] = ()) -> None:
+    def _exact_image_apply(self, image: str, *, redis_enabled: bool, extra_vars: tuple[str, ...] = (), capture_evidence: bool = False):
         """Apply the same restored cell, replacing only the reviewed immutable image/alias inputs."""
         if not re.fullmatch(r"[a-z0-9][a-z0-9./_-]+@sha256:[0-9a-f]{64}", image):
             raise ProvisionError("update image must be a digest-addressed untagged repository")
@@ -680,7 +680,13 @@ class TerraformTarget(DeployTarget):
         variables += ["-var=" + self.spec.image_var + "=" + image, *extra_vars]
         try:
             # Save and apply an exact plan; do not re-plan different inputs after preflight.
+            (root / "honua-update.tfplan").unlink(missing_ok=True)
             self._tf(root, "plan", "-input=false", "-out=honua-update.tfplan", *variables)
+            if capture_evidence:
+                plan = root / "honua-update.tfplan"
+                if not plan.is_file() or plan.is_symlink() or not plan.stat().st_size:
+                    raise ProvisionError("exact transition plan identity missing")
+                plan_digest = "sha256:" + hashlib.sha256(plan.read_bytes()).hexdigest()
             if self.name == "aws-serverless" and redis_enabled:
                 planned = json.loads(self._tf(root, "show", "-json", "honua-update.tfplan").stdout)
                 for resource in planned.get("resource_changes", []):
@@ -701,8 +707,11 @@ class TerraformTarget(DeployTarget):
         self._workdir = root
         if getattr(self, "transition_release", None) is not None or (root / self._TRANSITION_INPUTS).exists():
             self._write_transition_vars(root, variables, redis_enabled)
+        if capture_evidence:
+            return {"actuator": "terraform-exact-apply", "status": "applied", "planSha256": plan_digest,
+                    "imageDigest": image.rsplit("@", 1)[1]}
 
-    def update(self, image: str, *, redis_enabled: bool = False, release=None) -> None:
+    def update(self, image: str, *, redis_enabled: bool = False, release=None, capture_evidence: bool = False):
         """ECS Redis-off's explicit Terraform actuator; never substitute it for a native backend."""
         if self.name != "aws-ecs" or redis_enabled:
             raise ProvisionError("exact Terraform update is only the ECS Redis-off actuator")
@@ -712,9 +721,9 @@ class TerraformTarget(DeployTarget):
         extra = () if release is None else ("-var=platform_release=" + json.dumps({"version": release.version,
             "serving_artifact_reference": image, "workers": [{"runtime_profile": "managed", "artifact_reference": release.image}]},
             separators=(",", ":")),)
-        self._exact_image_apply(image, redis_enabled=False, extra_vars=extra)
+        return self._exact_image_apply(image, redis_enabled=False, extra_vars=extra, capture_evidence=capture_evidence)
 
-    def rollback(self) -> None:
+    def rollback(self, *, capture_evidence: bool = False):
         variables = getattr(self, "_rollback_vars", None)
         if not variables:
             raise ProvisionError("no retained exact Terraform baseline for rollback")
@@ -723,7 +732,7 @@ class TerraformTarget(DeployTarget):
         if len(image) != 1:
             raise ProvisionError("retained Terraform baseline image is ambiguous")
         self._last_vars = variables
-        self._exact_image_apply(image[0], redis_enabled=False)
+        return self._exact_image_apply(image[0], redis_enabled=False, capture_evidence=capture_evidence)
 
     def stage_lambda(self, image: str, previous_version: str, *, redis_enabled: bool, release=None) -> None:
         """Publish B while live remains pinned to A; the supported alias backend performs exposure."""

@@ -125,3 +125,12 @@ implements the producer, but no actual AWS switch, fault/recovery run, real work
 operator role/approval/telemetry binding, cleanup or cost measurement has been executed here.
 Those remain owned by #483; broader journey/operate requirements remain in #377. The retained
 Batch source prerequisite is honua-iac#258, and the first-release coordination issue remains #376.
+
+The promotion consumer also requires the three ordered baseline/candidate/rollback
+observations, bound to distinct authenticated source/manifest identities, A/B/A native
+image readback and one stable authored serving-fixture/schema-journal binding. Native
+switches retain the actual deployment operation, observed revision and provider identity
+hash; Lambda observations must match those exact versions. The explicit ECS Redis-off
+Terraform actuator retains the SHA-256 of each exact saved plan actually applied and its
+image digest. Update and rollback must use different plans. Plan bytes remain private and
+are removed after application; status-only operation summaries cannot qualify.

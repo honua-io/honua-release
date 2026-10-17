@@ -6,6 +6,7 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import math
 import re
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -195,7 +196,80 @@ def _update_rollback(receipt: dict[str, Any], target_images: dict[str, str]) -> 
             or not _is_digest(from_lock) or not _is_digest(to_lock)
             or from_lock == to_lock or to_lock != receipt.get("lockDigest")):
         return False
+    if any(not isinstance(cell.get("prior"), dict) or not isinstance(cell.get("candidate"), dict)
+           or cell["prior"].get("lockDigest") != from_lock or cell["candidate"].get("lockDigest") != to_lock for cell in cells):
+        return False
     return _update_rollback_cells(cells, target_images)
+
+
+def _update_rollback_observations(cell):
+    """Require actual ordered A/B/A readback plus the concrete actuator identities."""
+    prior, candidate, rows = cell.get("prior"), cell.get("candidate"), cell.get("observations")
+    if not isinstance(prior, dict) or not isinstance(candidate, dict) or not isinstance(rows, list) or len(rows) != 3:
+        return False
+    before, after = cell["fromDigest"], cell["toDigest"]
+    image_key = "lambdaImageDigest" if cell["cell"].startswith("aws-serverless/") else "imageDigest"
+    for release, expected in ((prior, before), (candidate, after)):
+        if (release.get(image_key) != expected or not _is_digest(release.get("manifestDigest"))
+                or not isinstance(release.get("sourceRevision"), str)
+                or re.fullmatch(r"[0-9a-f]{40}", release["sourceRevision"]) is None
+                or release.get("schemaVersion") != cell["schemaBoundary"].get("schemaVersion")):
+            return False
+    if prior["sourceRevision"] == candidate["sourceRevision"] or prior["manifestDigest"] == candidate["manifestDigest"]:
+        return False
+    last_time, fixture, journal = None, None, None
+    for row, phase, release, image in zip(rows, ("baseline", "candidate", "rollback"),
+                                         (prior, candidate, prior), (before, after, before)):
+        if not isinstance(row, dict):
+            return False
+        native, serving, schema = row.get("native"), row.get("servingFixture"), row.get("schemaJournal")
+        timestamp = row.get("observedAt")
+        if (row.get("phase") != phase or row.get("sourceRevision") != release["sourceRevision"]
+                or type(timestamp) not in (int, float) or not math.isfinite(timestamp) or timestamp <= 0
+                or last_time is not None and timestamp <= last_time
+                or not isinstance(native, dict) or native.get("imageDigest") != image
+                or native.get("kind") != ("lambda-alias" if cell["cell"].startswith("aws-serverless/") else "ecs-native-routing")
+                or not isinstance(serving, dict) or serving.get("serviceId") != "e2e"
+                or type(serving.get("layerId")) is not int or serving["layerId"] < 0
+                or any(not isinstance(serving.get(key), str) or re.fullmatch(r"[0-9a-f]{64}", serving[key]) is None
+                       for key in ("seedManifestSha256", "seedScriptSha256", "seedSqlSha256", "expectedFeaturesSha256"))
+                or not isinstance(schema, dict) or schema.get("method") != "live-bidirectional-migration-plan"
+                or type(schema.get("pendingScripts")) is not int or type(schema.get("extraScripts")) is not int
+                or schema.get("pendingScripts") != 0 or schema.get("extraScripts") != 0
+                or schema.get("readyForCoordinatedDeploy") is not True
+                or schema.get("candidateImageDigest") != candidate.get("imageDigest")):
+            return False
+        if cell["cell"].startswith("aws-serverless/"):
+            if not isinstance(native.get("version"), str) or not native["version"].isdigit() or int(native["version"]) < 1:
+                return False
+        elif type(native.get("taskCount")) is not int or native["taskCount"] < 1:
+            return False
+        if fixture is not None and (fixture != serving or journal != schema):
+            return False
+        last_time, fixture, journal = timestamp, serving, schema
+    update, rollback = cell.get("updateOperation"), cell.get("rollbackOperation")
+    if not isinstance(update, dict) or not isinstance(rollback, dict):
+        return False
+    if cell["actuator"] == "terraform-exact-apply":
+        for operation, image in ((update, after), (rollback, before)):
+            if (operation.get("actuator") != "terraform-exact-apply" or operation.get("status") != "applied"
+                    or operation.get("imageDigest") != image or not _is_digest(operation.get("planSha256"))):
+                return False
+        return update["planSha256"] != rollback["planSha256"]
+    for operation in (update, rollback):
+        if (not isinstance(operation.get("operationId"), str) or not operation["operationId"].strip()
+                or not isinstance(operation.get("observedRevision"), str) or not operation["observedRevision"].strip()
+                or not _is_digest(operation.get("providerOperationIdSha256"))):
+            return False
+    if (update["operationId"] != rollback["operationId"] or update["observedRevision"] == rollback["observedRevision"]
+            or update.get("status") not in ("Succeeded", "Observing", "Protected", "Reconciling")
+            or rollback.get("status") != "RolledBack"):
+        return False
+    if cell["cell"].startswith("aws-serverless/"):
+        versions = [r["native"]["version"] for r in rows]
+        if versions != [rollback["observedRevision"], update["observedRevision"], rollback["observedRevision"]]:
+            return False
+    return True
 
 
 def _update_rollback_cells(cells, target_images):
@@ -254,6 +328,8 @@ def _update_rollback_cells(cells, target_images):
                     if (not isinstance(seen, dict) or seen.get("state") != "running"
                             or seen.get("jobId") != job["jobId"] or type(seen.get("attemptCount")) is not int or seen.get("attemptCount") != 1):
                         return False
+        if not _update_rollback_observations(cell):
+            return False
         if boundary["outcome"] == "refused-cleanly" and (
                 not isinstance(boundary.get("reasonCode"), str) or not boundary["reasonCode"].strip()):
             return False

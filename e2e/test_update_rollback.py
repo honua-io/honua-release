@@ -39,8 +39,18 @@ class Runtime:
         if name == self.fail_at:
             raise proof.ProofError("injected " + name)
 
-    def prerequisites(self, *a): self.record("prerequisites")
-    def observe(self, build, phase): self.record(phase); return {"phase": phase, "image": build.image}
+    def prerequisites(self, prior, candidate):
+        self.candidate_build = candidate
+        self.record("prerequisites")
+    def observe(self, build, phase):
+        self.record(phase)
+        return {"phase": phase, "observedAt": len(self.calls), "sourceRevision": build.source,
+                "native": {"kind": "lambda-alias" if self.cell.startswith("aws-serverless/") else "ecs-native-routing",
+                           "imageDigest": build.digest_for(self.cell), "taskCount": 1, "version": "2" if phase == "candidate" else "1"},
+                "schemaJournal": {"method": "live-bidirectional-migration-plan", "pendingScripts": 0, "extraScripts": 0,
+                                  "readyForCoordinatedDeploy": True, "candidateImageDigest": self.candidate_build.image.rsplit("@", 1)[1]},
+                "servingFixture": {"serviceId": "e2e", "layerId": 7, **dict.fromkeys(
+                    ("seedManifestSha256", "seedScriptSha256", "seedSqlSha256", "expectedFeaturesSha256"), "1" * 64)}}
     def incompatible_target(self): self.record("negative"); return {"status": "pass"}
     def stage(self, *a): self.record("stage"); return {"previous": "1", "desired": "2"}
     def plan(self, *a): self.record("plan")
@@ -53,8 +63,16 @@ class Runtime:
         state = "Succeeded" if self.job_reads[identity] >= 4 else "Running"
         return {"jobId": identity, "status": state, "backend": "local", "claimedBy": "worker-1", "attemptCount": 1,
                 "providerOperationId": "provider-1", "completedAt": "2026-10-17T21:00:00Z" if state == "Succeeded" else None}
-    def update(self, *a): self.record("update"); return {"status": "Succeeded"}
-    def rollback(self, *a): self.record("rollback-op"); return {"status": "RolledBack"}
+    def update(self, *a):
+        self.record("update")
+        if self.cell == "aws-ecs/redis-off":
+            return {"actuator": "terraform-exact-apply", "status": "applied", "planSha256": "sha256:"+"3"*64, "imageDigest": self.candidate_build.digest_for(self.cell)}
+        return {"operationId": "op-1", "status": "Succeeded", "observedRevision": "2", "providerOperationIdSha256": "sha256:"+"3"*64}
+    def rollback(self, *a):
+        self.record("rollback-op")
+        if self.cell == "aws-ecs/redis-off":
+            return {"actuator": "terraform-exact-apply", "status": "applied", "planSha256": "sha256:"+"4"*64, "imageDigest": "sha256:"+"a"*64}
+        return {"operationId": "op-1", "status": "RolledBack", "observedRevision": "1", "providerOperationIdSha256": "sha256:"+"4"*64}
     def refusal(self): self.record("refusal"); return {"status": "pass", "outcome": "refused", "code": "dependency-unavailable", "capability": "jobs.runner", "missingDependency": "redis", "functionalGpExecuted": False}
     def output(self, *a):
         self.outputs += 1
@@ -64,7 +82,9 @@ class Runtime:
 
 
 def run(runtime=None, cell="aws-ecs/redis-on", mode="qualification", prior=None, candidate=None):
-    return proof.run_cell(prior or release(mode=mode), candidate or release("b", mode=mode), cell, mode, runtime or Runtime(),
+    runtime = runtime or Runtime()
+    runtime.cell = cell
+    return proof.run_cell(prior or release(mode=mode), candidate or release("b", mode=mode), cell, mode, runtime,
                           run_id="123", run_attempt="1", sleep=lambda _: None, polls=8)
 
 
@@ -630,3 +650,39 @@ def test_unexpected_adapter_failure_does_not_skip_independent_owned_cleanup(brok
     if broken == "job-read":
         assert "owned-inflight-job" in failures and not any("batch" in c for c in calls)
     else: assert ("batch", "deregister-job-definition", "--job-definition", "owned-batch-2") in calls
+
+
+@pytest.mark.parametrize('capture', [False, True])
+def test_terraform_concrete_operation_hashes_only_the_actual_applied_plan(tmp_path, monkeypatch, capture):
+    target = ecs(run_id='123'); target._workdir = tmp_path
+    (tmp_path / 'terraform.tfstate').write_text('{}')
+    target._last_vars = ['-var=honua_image=ghcr.io/honua-io/honua-server@sha256:' + 'a' * 64]
+    plans, applied = [], []
+    def tf(root, *args):
+        if args[0] == 'plan':
+            raw = ('synthetic private plan containing secret=' + repr(args)).encode()
+            plans.append(raw); (root / 'honua-update.tfplan').write_bytes(raw)
+        elif args[0] == 'apply': applied.append((root / args[-1]).read_bytes())
+        return SimpleNamespace(stdout='', returncode=0)
+    monkeypatch.setattr(target, '_tf', tf)
+    update = target.update('ghcr.io/honua-io/honua-server@sha256:'+'b'*64, capture_evidence=capture)
+    rollback = target.rollback(capture_evidence=capture)
+    assert plans == applied and len(plans) == 2
+    assert not (tmp_path / 'honua-update.tfplan').exists()
+    if capture:
+        assert update['planSha256'] == proof.digest(plans[0]) and rollback['planSha256'] == proof.digest(plans[1])
+        assert update['planSha256'] != rollback['planSha256']
+        assert update['imageDigest'] == 'sha256:'+'b'*64 and rollback['imageDigest'] == 'sha256:'+'a'*64
+        assert 'secret' not in json.dumps([update, rollback])
+    else: assert update is None and rollback is None
+
+
+def test_terraform_proof_refuses_missing_saved_plan_before_apply(tmp_path, monkeypatch):
+    target = ecs(run_id='123'); target._workdir = tmp_path
+    (tmp_path / 'terraform.tfstate').write_text('{}')
+    target._last_vars = ['-var=honua_image=ghcr.io/honua-io/honua-server@sha256:'+'a'*64]
+    calls = []
+    monkeypatch.setattr(target, '_tf', lambda root, *args: calls.append(args) or SimpleNamespace(stdout='', returncode=0))
+    with pytest.raises(Exception, match='plan identity missing'):
+        target.update('ghcr.io/honua-io/honua-server@sha256:'+'b'*64, capture_evidence=True)
+    assert not any(args[0] == 'apply' for args in calls)

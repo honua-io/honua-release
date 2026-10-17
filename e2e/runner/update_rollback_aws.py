@@ -362,14 +362,12 @@ class AwsRuntime:
         self.updated = True
         if self.deploy:
             return self.deploy.submit(revisions["previous"], revisions["desired"], self.controller_name + "-update")
-        self.target.update(self.candidate.image, redis_enabled=False, release=self.candidate)
-        return {"actuator": "terraform-exact-apply"}
+        return self.target.update(self.candidate.image, redis_enabled=False, release=self.candidate, capture_evidence=True)
 
     def rollback(self, revisions):
         if self.deploy:
             return self.deploy.rollback(revisions["previous"])
-        self.target.rollback()
-        return {"actuator": "terraform-exact-apply"}
+        return self.target.rollback(capture_evidence=True)
 
     def observe(self, release, phase):
         if self.cell.startswith("aws-serverless/"):
