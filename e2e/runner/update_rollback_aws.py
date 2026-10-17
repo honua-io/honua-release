@@ -335,6 +335,14 @@ class AwsRuntime:
             require(str(previous).isdigit() and int(previous) > 0, "published baseline Lambda version missing")
             require(self.mirror_repository, "approved same-region ECR mirror repository required")
             image = self.mirror_repository + "@" + candidate.lambda_digest
+            if self.cell.endswith("redis-on"):
+                require(self.output_value("gp_batch_prior_definitions_retained") is True,
+                        "maintained IaC must retain prior Batch revisions before worker image staging")
+                definitions = self.output_value("gp_job_definition_arns")
+                require(isinstance(definitions, dict) and set(definitions) == {"s", "m", "l", "xl"}
+                        and all(isinstance(value, str) and value.startswith("arn:aws:batch:") and ":job-definition/" in value
+                                for value in definitions.values()), "owned retained Batch revision identities missing")
+                self.retained_batch_definitions = list(definitions.values())
             self.target.stage_lambda(image, str(previous), redis_enabled=self.cell.endswith("redis-on"), release=candidate)
             desired = self.output_value("control_plane_desired_revision")
         require(desired != previous, "staged revision did not change")
@@ -359,15 +367,7 @@ class AwsRuntime:
 
     def observe(self, release, phase):
         if self.cell.startswith("aws-serverless/"):
-            if self.cell.endswith("redis-on"):
-            require(self.output_value("gp_batch_prior_definitions_retained") is True,
-                    "maintained IaC must retain prior Batch revisions before worker image staging")
-            definitions = self.output_value("gp_job_definition_arns")
-            require(isinstance(definitions, dict) and set(definitions) == {"s", "m", "l", "xl"}
-                    and all(isinstance(value, str) and value.startswith("arn:aws:batch:") and ":job-definition/" in value
-                            for value in definitions.values()), "owned retained Batch revision identities missing")
-            self.retained_batch_definitions = list(definitions.values())
-        function = self.output_value("lambda_function_name")
+            function = self.output_value("lambda_function_name")
             alias = self.aws("lambda", "get-alias", "--function-name", function, "--name", "live")
             require(not alias.get("RoutingConfig", {}).get("AdditionalVersionWeights"), "Lambda alias still splits candidate traffic")
             result = self.aws("lambda", "get-function", "--function-name", function, "--qualifier", alias["FunctionVersion"])
