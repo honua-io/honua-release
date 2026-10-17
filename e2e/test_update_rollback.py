@@ -51,10 +51,11 @@ class Runtime:
                 "providerOperationId": "provider-1", "completedAt": "2026-10-17T21:00:00Z" if state == "Succeeded" else None}
     def update(self, *a): self.record("update"); return {"status": "Succeeded"}
     def rollback(self, *a): self.record("rollback-op"); return {"status": "RolledBack"}
-    def refusal(self): self.record("refusal"); return {"code": "dependency-unavailable", "missingDependency": "redis", "functionalGpExecuted": False}
+    def refusal(self): self.record("refusal"); return {"status": "pass", "outcome": "refused", "code": "dependency-unavailable", "capability": "jobs.runner", "missingDependency": "redis", "functionalGpExecuted": False}
     def output(self, *a):
         self.outputs += 1
-        return {"sha256": "sha256:" + ("b" if self.changed_output and self.outputs > 1 else "a") * 64}
+        return {"sha256": "sha256:" + ("b" if self.changed_output and self.outputs > 1 else "a") * 64,
+                "fixtureSha256": "sha256:" + "c" * 64, "oracle": "independent-origin"}
     def execution_events(self, *a): return {"started": 2 if self.duplicate else 1, "completed": 1}
 
 

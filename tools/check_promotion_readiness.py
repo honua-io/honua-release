@@ -206,18 +206,42 @@ def _update_rollback(receipt: dict[str, Any], target_images: dict[str, str]) -> 
                 or cell.get("actuator") != UPDATE_ROLLBACK_ACTUATORS[cell["cell"]]
                 or not _is_digest(before) or not _is_digest(after) or before == after
                 or after != target_images.get(cell["cell"])
-                or not isinstance(job, dict) or not isinstance(boundary, dict)):
+                or not isinstance(boundary, dict)):
             return False
-        states = job.get("terminalStates")
-        if (not isinstance(job.get("jobId"), str) or not job["jobId"].strip()
-                or job.get("initialState") != "running"
-                or not isinstance(states, list) or len(states) != 1
-                or any(state not in ("succeeded", "failed", "cancelled") for state in states)
+        if (cell.get("cleanup", {}).get("status") != "pass" or cell.get("cost", {}).get("status") != "pass"
                 or boundary.get("status") != "pass"
                 or boundary.get("outcome") not in ("serving", "refused-cleanly")
                 or not isinstance(boundary.get("schemaVersion"), str) or not boundary["schemaVersion"].strip()
                 or boundary.get("imageDigest") != before):
             return False
+        if cell["cell"].endswith("redis-off"):
+            refusals = cell.get("refusals")
+            allowed = {"status", "outcome", "functionalGpExecuted", "code", "capability", "missingDependency"}
+            if (cell.get("executionOutcome") != "refused" or cell.get("functionalGpExecuted") is not False
+                    or any(key in cell for key in ("inFlightJob", "jobBeforeUpdate", "jobAfterUpdate", "jobBeforeRollback", "jobAfterRollback"))
+                    or not isinstance(refusals, list) or len(refusals) != 3
+                    or any(not isinstance(r, dict) or set(r) != allowed or r.get("status") != "pass"
+                           or r.get("outcome") != "refused" or r.get("functionalGpExecuted") is not False
+                           or r.get("code") != "dependency-unavailable" or r.get("capability") != "jobs.runner"
+                           or r.get("missingDependency") != "redis" for r in refusals)):
+                return False
+        else:
+            if not isinstance(job, dict):
+                return False
+            states, events, output = job.get("terminalStates"), job.get("executionEvents"), job.get("output")
+            if (cell.get("executionOutcome") != "succeeded" or cell.get("functionalGpExecuted") is not True
+                    or not isinstance(job.get("jobId"), str) or not job["jobId"].strip()
+                    or job.get("initialState") != "running" or states != ["succeeded"]
+                    or type(job.get("attemptCount")) is not int or job["attemptCount"] != 1
+                    or not isinstance(events, dict) or events.get("started") != 1 or events.get("completed") != 1
+                    or not isinstance(output, dict) or not _is_digest(output.get("sha256"))
+                    or not _is_digest(output.get("fixtureSha256")) or not output.get("oracle")):
+                return False
+            for name in ("jobBeforeUpdate", "jobAfterUpdate", "jobBeforeRollback", "jobAfterRollback"):
+                seen = cell.get(name)
+                if (not isinstance(seen, dict) or seen.get("state") != "running"
+                        or seen.get("jobId") != job["jobId"] or seen.get("attemptCount") != 1):
+                    return False
         if boundary["outcome"] == "refused-cleanly" and (
                 not isinstance(boundary.get("reasonCode"), str) or not boundary["reasonCode"].strip()):
             return False

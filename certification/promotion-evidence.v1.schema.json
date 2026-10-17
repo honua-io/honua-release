@@ -226,8 +226,11 @@
         "actuator",
         "fromDigest",
         "toDigest",
-        "inFlightJob",
-        "schemaBoundary"
+        "schemaBoundary",
+        "executionOutcome",
+        "functionalGpExecuted",
+        "cleanup",
+        "cost"
       ],
       "properties": {
         "cell": {
@@ -262,7 +265,10 @@
           "required": [
             "jobId",
             "initialState",
-            "terminalStates"
+            "terminalStates",
+            "attemptCount",
+            "executionEvents",
+            "output"
           ],
           "properties": {
             "jobId": {
@@ -276,13 +282,47 @@
               "type": "array",
               "minItems": 1,
               "items": {
-                "enum": [
-                  "succeeded",
-                  "failed",
-                  "cancelled"
-                ]
+                "const": "succeeded"
               },
               "maxItems": 1
+            },
+            "attemptCount": {
+              "const": 1
+            },
+            "executionEvents": {
+              "type": "object",
+              "required": [
+                "started",
+                "completed"
+              ],
+              "properties": {
+                "started": {
+                  "const": 1
+                },
+                "completed": {
+                  "const": 1
+                }
+              }
+            },
+            "output": {
+              "type": "object",
+              "required": [
+                "sha256",
+                "fixtureSha256",
+                "oracle"
+              ],
+              "properties": {
+                "sha256": {
+                  "$ref": "#/$defs/digest"
+                },
+                "fixtureSha256": {
+                  "$ref": "#/$defs/digest"
+                },
+                "oracle": {
+                  "type": "string",
+                  "minLength": 1
+                }
+              }
             }
           }
         },
@@ -332,6 +372,154 @@
               }
             }
           ]
+        },
+        "executionOutcome": {
+          "enum": [
+            "succeeded",
+            "refused"
+          ]
+        },
+        "functionalGpExecuted": {
+          "type": "boolean"
+        },
+        "cleanup": {
+          "type": "object",
+          "required": [
+            "status"
+          ],
+          "properties": {
+            "status": {
+              "const": "pass"
+            }
+          }
+        },
+        "cost": {
+          "type": "object",
+          "required": [
+            "status"
+          ],
+          "properties": {
+            "status": {
+              "const": "pass"
+            }
+          }
+        },
+        "jobBeforeUpdate": {
+          "type": "object",
+          "required": [
+            "jobId",
+            "state",
+            "attemptCount"
+          ],
+          "properties": {
+            "jobId": {
+              "type": "string",
+              "pattern": "\\S"
+            },
+            "state": {
+              "const": "running"
+            },
+            "attemptCount": {
+              "const": 1
+            }
+          }
+        },
+        "jobAfterUpdate": {
+          "type": "object",
+          "required": [
+            "jobId",
+            "state",
+            "attemptCount"
+          ],
+          "properties": {
+            "jobId": {
+              "type": "string",
+              "pattern": "\\S"
+            },
+            "state": {
+              "const": "running"
+            },
+            "attemptCount": {
+              "const": 1
+            }
+          }
+        },
+        "jobBeforeRollback": {
+          "type": "object",
+          "required": [
+            "jobId",
+            "state",
+            "attemptCount"
+          ],
+          "properties": {
+            "jobId": {
+              "type": "string",
+              "pattern": "\\S"
+            },
+            "state": {
+              "const": "running"
+            },
+            "attemptCount": {
+              "const": 1
+            }
+          }
+        },
+        "jobAfterRollback": {
+          "type": "object",
+          "required": [
+            "jobId",
+            "state",
+            "attemptCount"
+          ],
+          "properties": {
+            "jobId": {
+              "type": "string",
+              "pattern": "\\S"
+            },
+            "state": {
+              "const": "running"
+            },
+            "attemptCount": {
+              "const": 1
+            }
+          }
+        },
+        "refusals": {
+          "type": "array",
+          "minItems": 3,
+          "maxItems": 3,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "status",
+              "outcome",
+              "functionalGpExecuted",
+              "code",
+              "capability",
+              "missingDependency"
+            ],
+            "properties": {
+              "status": {
+                "const": "pass"
+              },
+              "outcome": {
+                "const": "refused"
+              },
+              "functionalGpExecuted": {
+                "const": false
+              },
+              "code": {
+                "const": "dependency-unavailable"
+              },
+              "capability": {
+                "const": "jobs.runner"
+              },
+              "missingDependency": {
+                "const": "redis"
+              }
+            }
+          }
         }
       },
       "allOf": [
@@ -398,11 +586,82 @@
               }
             }
           }
+        },
+        {
+          "if": {
+            "properties": {
+              "cell": {
+                "enum": [
+                  "aws-ecs/redis-on",
+                  "aws-serverless/redis-on"
+                ]
+              }
+            }
+          },
+          "then": {
+            "required": [
+              "inFlightJob",
+              "jobBeforeUpdate",
+              "jobAfterUpdate",
+              "jobBeforeRollback",
+              "jobAfterRollback"
+            ],
+            "properties": {
+              "executionOutcome": {
+                "const": "succeeded"
+              },
+              "functionalGpExecuted": {
+                "const": true
+              }
+            }
+          },
+          "else": {
+            "required": [
+              "refusals"
+            ],
+            "properties": {
+              "executionOutcome": {
+                "const": "refused"
+              },
+              "functionalGpExecuted": {
+                "const": false
+              }
+            },
+            "not": {
+              "anyOf": [
+                {
+                  "required": [
+                    "inFlightJob"
+                  ]
+                },
+                {
+                  "required": [
+                    "jobBeforeUpdate"
+                  ]
+                },
+                {
+                  "required": [
+                    "jobAfterUpdate"
+                  ]
+                },
+                {
+                  "required": [
+                    "jobBeforeRollback"
+                  ]
+                },
+                {
+                  "required": [
+                    "jobAfterRollback"
+                  ]
+                }
+              ]
+            }
+          }
         }
       ]
     },
     "updateRollbackReceipt": {
-      "description": "Retained update-rollback class receipt, separate from the promotion record references. The checker also requires different from/to locks and image digests, toLockDigest == lockDigest, each target image matching the selected lock and its retained hash-bound manifest, one of each GA cell, and schemaBoundary.imageDigest == fromDigest. Standard JSON Schema cannot compare arbitrary sibling values. Exactly-once remains a separate runtime proof, not inferred from a terminal state.",
+      "description": "Actual four-cell AWS update/rollback proof. Redis-on requires the same real job running before and after both switches, one successful execution and stable independently verified output. Redis-off requires three explicit typed Redis refusals and never gets GP completion credit. Every cell retains exact image/schema/cleanup/cost proof. Rehearsal records have no qualifying evidence class or signed-lock credit.",
       "type": "object",
       "required": [
         "class",

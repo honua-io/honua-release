@@ -99,7 +99,23 @@ def load_release(directory: Path, mode: str, *, run=subprocess.run):
     schema = str(server.get("dbSchema", ""))
     require(re.fullmatch(r"[1-9][0-9]*", schema) is not None, "exact database schema required")
     from check_image_attestation import check, AttestationMismatch
-    for reference in (image, lambda_image):
+    # Lambda is deployed as a single-architecture child. The maintained build attests the
+    # parent index; authenticate it and prove the child membership instead of demanding an
+    # attestation for a subject the producer never signs.
+    lambda_tag = lambda_image.split("@", 1)[0] + ":nightly-lambda-aot-" + source[:7]
+    index_raw = checked(run, ["docker", "buildx", "imagetools", "inspect", lambda_tag, "--raw"],
+                        "Lambda attested parent index unavailable")
+    try:
+        index = json.loads(index_raw)
+        architecture = {"x86_64": "amd64", "arm64": "arm64"}[server["awsLambdaArchitecture"]]
+        children = [child for child in index.get("manifests", [])
+                    if child.get("platform", {}).get("os") == "linux" and child.get("platform", {}).get("architecture") == architecture]
+        require(len(children) == 1 and children[0].get("digest") == server["awsLambdaDigest"],
+                "Lambda child is not a member of the attested source index")
+    except (ValueError, KeyError, TypeError) as exc:
+        raise ProofError("Lambda attested parent index is invalid") from exc
+    lambda_parent = lambda_image.split("@", 1)[0] + "@" + digest(index_raw.encode())
+    for reference in (image, lambda_parent):
         verification = checked(run, ["gh", "attestation", "verify", "oci://" + reference,
                       "--repo", "honua-io/honua-server", "--format", "json", "--source-digest", source,
                       "--signer-workflow", "honua-io/honua-server/.github/workflows/nightly-container-build.yml"],
@@ -325,17 +341,21 @@ def run_cell(prior, candidate, cell, mode, runtime, *, run_id, run_attempt, slee
             receipt["executionOutcome"] = "refused"
             receipt["refusals"] = [runtime.refusal()]
             still_running = lambda: None
-        receipt["jobBeforeUpdate"] = still_running()
+        if identity is not None:
+            receipt["jobBeforeUpdate"] = still_running()
         receipt["updateOperation"] = runtime.update(revisions)
         receipt["observations"].append(runtime.observe(candidate, "candidate"))
-        receipt["jobAfterUpdate"] = still_running()
+        if identity is not None:
+            receipt["jobAfterUpdate"] = still_running()
         receipt["updateStatus"] = "pass"
         if identity is None:
             receipt["refusals"].append(runtime.refusal())
-        receipt["jobBeforeRollback"] = still_running()
+        if identity is not None:
+            receipt["jobBeforeRollback"] = still_running()
         receipt["rollbackOperation"] = runtime.rollback(revisions)
         receipt["observations"].append(runtime.observe(prior, "rollback"))
-        receipt["jobAfterRollback"] = still_running()
+        if identity is not None:
+            receipt["jobAfterRollback"] = still_running()
         receipt["rollbackStatus"] = "pass"
         if identity is None:
             receipt["refusals"].append(runtime.refusal())
