@@ -51,7 +51,10 @@ def test_capacity_soak_consumes_the_frozen_lock_and_cannot_neutralize_failure():
     assert '--attestation "$RUNNER_TEMP/attestation-verification.json"' in commands
     assert '--bundle "$RUNNER_TEMP/capacity-evidence.zip"' in commands
     assert "--source-digest" in commands
-    assert "--deny-self-hosted-runners" in commands
+    # Dedicated producers require live runner-group/job admission in check_capacity_soak;
+    # removal of gh's blanket rejection is never itself an admission.
+    assert "--runner-report" in commands
+    assert "RELEASE_RUNNER_READ_TOKEN" in str(job)
     assert "--predicate-type https://slsa.dev/provenance/v1" in commands
     assert "continue-on-error" not in str(job)
 
