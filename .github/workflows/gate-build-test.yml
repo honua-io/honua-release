@@ -20,6 +20,7 @@ on:
   pull_request:
     paths:
       - "certification/check_build_test.py"
+      - "certification/full_matrix_evidence.py"
       - "certification/test_build_test.py"
       - "tools/test_build_test_full_matrix.py"
       - "certification/advisory-checks.yaml"
