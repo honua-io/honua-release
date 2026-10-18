@@ -204,6 +204,7 @@ class ConfiguredSdk:
         self.require_configuration(self.configuration, self.original, 1)
         self.configuration_id = self.configuration["configurationId"]
         self.observations = []
+        self.selected_candidate = None
 
     @staticmethod
     def target(sdk, service, layer, candidate):
@@ -221,6 +222,7 @@ class ConfiguredSdk:
 
     def repoint(self, service, layer):
         target = self.target(self.sdk, service, layer, True)
+        self.selected_candidate = target
         changed = self.sdk.call("repoint-readback", configurationId=self.configuration_id,
                                 revision=self.configuration["revision"], **target)
         self.require_configuration(changed, target, self.configuration["revision"] + 1, self.configuration_id)
@@ -231,6 +233,30 @@ class ConfiguredSdk:
                                  revision=self.configuration["revision"])
         self.require_configuration(restored, self.original, self.configuration["revision"] + 1, self.configuration_id)
         self.configuration = restored
+
+    def reconcile_restore(self):
+        observed = self.sdk.call("readback-status", configurationId=self.configuration_id)
+        require(isinstance(observed, dict) and type(observed.get("revision")) is int,
+                "application configuration cleanup status is unavailable")
+        revision = observed["revision"]
+        if revision in {1, 3}:
+            self.require_configuration(observed, self.original, revision, self.configuration_id)
+            self.configuration = observed
+        elif revision == 2 and self.selected_candidate is not None:
+            self.require_configuration(observed, self.selected_candidate, 2, self.configuration_id)
+            self.configuration = observed
+            try:
+                self.restore()
+            except Exception:
+                # Acknowledgement is not execution state. Observe the exact original
+                # revision after a lost/malformed restore reply, never retry stale CAS.
+                restored = self.sdk.call("readback-status", configurationId=self.configuration_id)
+                self.require_configuration(restored, self.original, 3, self.configuration_id)
+                self.configuration = restored
+        else:
+            raise ValueError("application configuration cleanup state is unknown")
+        return {"configurationStatus": "confirmed-original", "configurationId": self.configuration_id,
+                "revision": self.configuration["revision"]}
 
     def call(self, operation, **arguments):
         expected = self.target(self.sdk, arguments.pop("baseUrl"), arguments.pop("layerId"), arguments.pop("candidate", False))
@@ -587,29 +613,27 @@ class Journeys:
         for feature in expected["features"]:
             feature["attributes"]["label"] = marker
         require(rows(expected) != rows(original), "rollback target must discriminate source from candidate")
-        switched = False
-        restored_client = False
         try:
             self.p.sql(self.compose, f"""UPDATE import_fidelity."{table}" SET "label"='{marker}';""")
             client.repoint(state["targetUrl"], state["targetLayer"])
-            switched = True
             fresh = self.p.read_snapshot(client, state["targetUrl"], state["targetLayer"], candidate=True)
             self.p.require_equal(expected, fresh, "configured candidate exact readback after repoint")
             require(rows(fresh) != rows(original), "configured candidate returned the original cached source")
             client.restore()
-            restored_client = True
             reverted = self.p.read_snapshot(client, source_url, source_layer)
             self.p.require_equal(original, reverted, "same configured client readback after rollback")
             self.p.require_equal(state["source"], self.p.read_snapshot(self.sdk, source_url, source_layer), "original source remained unchanged")
         finally:
             try:
-                if switched and not restored_client:
-                    client.restore()
+                cleanup = {"configurationStatus": "unconfirmed", "fixtureRestoration": "unconfirmed", "configurationId": client.configuration_id}
+                self.score.provenance["rollbackRepointCleanup"] = cleanup
+                cleanup.update(client.reconcile_restore())
             finally:
                 restored = self.complete({**state["request"], "overwriteExisting": True})
                 restored.update(source=state["source"], spec=state["spec"])
                 self.parity(restored)
                 self.states["points"] = restored
+                cleanup["fixtureRestoration"] = "confirmed"
         self.score.provenance["rollbackRepoint"] = {
             "configurationId": client.configuration_id, "configurationRevisions": [1, 2, 3],
             "sourceUrl": source_url, "sourceLayer": source_layer,

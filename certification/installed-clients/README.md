@@ -174,7 +174,11 @@ The journey changes only its owned imported text-label fixture to a discriminati
 marker, checks complete fresh target values/schema/geometry, rolls the configured
 application back to the unchanged original source, and restores the imported
 fixture through the SDK even on failure. A no-op switch or cached source response
-cannot pass. Missing authored input, unsuitable published SDK bytes, failed
+cannot pass. Transition replies are correlated in the private consumer pipe. After
+an uncertain switch/restore acknowledgement, a fresh status read reconciles the
+actual slot and restores it if necessary; an already restored revision is never
+blindly retried. Unknown cleanup state and the original failed observation remain
+failures, with configuration and fixture cleanup recorded separately. Missing authored input, unsuitable published SDK bytes, failed
 readback or failed restoration remains non-pass; the matrix stays blocked.
 
 `check_import_client_readback.py` is an existing-job PR control: it restores the

@@ -23,15 +23,17 @@ var adminMethods = new HashSet<string>(StringComparer.Ordinal)
 };
 while (await Console.In.ReadLineAsync() is { } line)
 {
+    string? requestId = null;
     try
     {
         using var document = JsonDocument.Parse(line);
         var request = document.RootElement;
+        requestId = request.TryGetProperty("requestId", out var correlation) ? correlation.GetString() : null;
         var operation = request.GetProperty("operation").GetString()!;
-        if (operation is "configure-readback" or "repoint-readback" or "rollback-readback")
+        if (operation is "configure-readback" or "repoint-readback" or "rollback-readback" or "readback-status")
         {
-            var configuration = readback.Change(operation, request);
-            Console.WriteLine(JsonSerializer.Serialize(new { ok = true, result = configuration }, json));
+            var configuration = operation == "readback-status" ? readback.Status(request) : readback.Change(operation, request);
+            Console.WriteLine(JsonSerializer.Serialize(new { ok = true, result = configuration, requestId }, json));
             await Console.Out.FlushAsync();
             continue;
         }
@@ -160,7 +162,7 @@ while (await Console.In.ReadLineAsync() is { } line)
         }
         if (configuredRead)
             result = new { configuration = readback.Describe(), observedRequests, value = result };
-        Console.WriteLine(JsonSerializer.Serialize(new { ok = true, result }, json));
+        Console.WriteLine(JsonSerializer.Serialize(new { ok = true, result, requestId }, json));
     }
     catch (Exception error) when (error is not OutOfMemoryException)
     {
@@ -193,7 +195,7 @@ while (await Console.In.ReadLineAsync() is { } line)
             problemType = null;
         Console.WriteLine(JsonSerializer.Serialize(new
         {
-            ok = false, errorType = actual.GetType().Name,
+            ok = false, requestId, errorType = actual.GetType().Name,
             httpStatus = (actual as HonuaException)?.HttpStatus,
             problemType,
             diagnosticReason,
@@ -241,7 +243,7 @@ internal sealed class ConfiguredReadback
             {
                 if (_revision != 2 || _original == _current)
                     throw new ArgumentException("configuration has no switched version to restore");
-                if (request.EnumerateObject().Any(item => item.Name is not ("operation" or "configurationId" or "revision")))
+                if (request.EnumerateObject().Any(item => item.Name is not ("operation" or "configurationId" or "revision" or "requestId")))
                     throw new ArgumentException("rollback cannot override the original configuration");
                 _current = _original;
             }
@@ -259,6 +261,14 @@ internal sealed class ConfiguredReadback
         return Describe();
     }
 
+    public object Status(JsonElement request)
+    {
+        if (_current is null || request.GetProperty("configurationId").GetString() != _id ||
+            request.EnumerateObject().Any(item => item.Name is not ("operation" or "configurationId" or "requestId")))
+            throw new ArgumentException("status must observe the same configuration");
+        return Describe();
+    }
+
     private void CheckVersion(JsonElement request)
     {
         if (_current is null || request.GetProperty("configurationId").GetString() != _id ||
@@ -269,7 +279,7 @@ internal sealed class ConfiguredReadback
     public JsonElement Resolve(JsonElement request)
     {
         CheckVersion(request);
-        if (request.EnumerateObject().Any(item => item.Name is not ("operation" or "configurationId" or "revision" or "readOperation" or "query")))
+        if (request.EnumerateObject().Any(item => item.Name is not ("operation" or "configurationId" or "revision" or "readOperation" or "query" or "requestId")))
             throw new ArgumentException("configured read cannot override its endpoint");
         var operation = request.GetProperty("readOperation").GetString();
         if (operation is not ("layer" or "count" or "ids" or "query"))

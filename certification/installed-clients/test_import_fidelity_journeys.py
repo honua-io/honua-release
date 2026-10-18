@@ -325,14 +325,20 @@ class ConfiguredConsumerControl:
                                   "configurationId": "a" * 32, "revision": 1}
             self.original = deepcopy(self.configuration)
             return deepcopy(self.configuration)
+        if operation == "readback-status":
+            if self.fault == "cleanup-unavailable":
+                raise producer.ProducerError("configuration state unavailable")
+            return deepcopy(self.configuration)
         if operation == "repoint-readback":
             if self.fault != "ignored-switch":
                 self.configuration.update({key: arguments[key] for key in ("baseUrl", "layerId", "candidate", "sourceAuth")})
                 self.configuration["revision"] += 1
-            return deepcopy(self.configuration)
+            if self.fault == "lost-repoint-ack":
+                raise producer.ProducerError("configuration acknowledgement lost")
+            return {**self.configuration, "configurationId": "bad"} if self.fault == "corrupt-repoint-ack" else deepcopy(self.configuration)
         if operation == "rollback-readback":
             self.configuration = {**self.original, "revision": 3}
-            return deepcopy(self.configuration)
+            return {**self.configuration, "revision": 2} if self.fault == "corrupt-restore-ack" else deepcopy(self.configuration)
         assert operation == "configured-read"
         path = self.configuration["baseUrl"] + "/" + str(self.configuration["layerId"])
         if arguments["readOperation"] != "layer":
@@ -365,7 +371,7 @@ def test_configured_reads_never_send_an_endpoint_override_and_restore_same_ident
     assert set(rollback) == {"configurationId", "revision"}
 
 
-@pytest.mark.parametrize("fault", [None, "cached-source", "wrong-restored-values", "fixture-restore-failure"])
+@pytest.mark.parametrize("fault", [None, "cached-source", "wrong-restored-values", "fixture-restore-failure", "corrupt-repoint-ack", "lost-repoint-ack", "corrupt-restore-ack", "cleanup-unavailable"])
 def test_real_rollback_orchestration_requires_discriminating_readback_and_cleanup(score, fault):
     lane = lane_with_points(score)
     for feature in lane.states["points"]["source"]["features"]:
@@ -393,7 +399,13 @@ def test_real_rollback_orchestration_requires_discriminating_readback_and_cleanu
     else:
         assert score.cells["evidence.rollback-repoint"]["verdict"] == "fail"
         assert "rollbackRepoint" not in score.provenance
-    assert any(operation == "rollback-readback" for operation, _ in child.commands)
+    if fault == "cleanup-unavailable":
+        assert score.provenance["rollbackRepointCleanup"]["configurationStatus"] == "unconfirmed"
+    else:
+        assert score.provenance["rollbackRepointCleanup"]["configurationStatus"] == "confirmed-original"
+    assert score.provenance["rollbackRepointCleanup"]["fixtureRestoration"] == ("unconfirmed" if fault == "fixture-restore-failure" else "confirmed")
+    assert sum(operation == "rollback-readback" for operation, _ in child.commands) == 1
+    assert child.configuration["revision"] == 3
 
 
 def test_public_process_configuration_controls_are_in_the_existing_pr_lane():

@@ -150,18 +150,39 @@ class Sdk:
         consumer["assemblyMatchesPackage"] = True
         consumer["loadedAssemblies"] = identity
 
+    def read_response(self, expires):
+        # Retain complete lines ourselves so a late acknowledgement and the next
+        # status response arriving in one pipe read cannot hide in TextIO buffering.
+        pending = getattr(self, "response_buffer", b"")
+        while b"\n" not in pending:
+            if not select.select([self.process.stdout], [], [], max(0, expires - time.monotonic()))[0]:
+                raise ProducerError("SDK operation exceeded its bounded execution time")
+            data = os.read(self.process.stdout.fileno(), 65536)
+            if not data:
+                raise ProducerError("SDK consumer exited before its response")
+            pending += data
+        line, self.response_buffer = pending.split(b"\n", 1)
+        return json.loads(line)
+
     def call(self, operation: str, **arguments):
         request = {"operation": operation, **arguments}
+        correlated = operation in {"configure-readback", "repoint-readback", "rollback-readback", "readback-status", "configured-read"}
+        if correlated:
+            request["requestId"] = secrets.token_hex(16)
         remaining = min(310, max(0, getattr(self, "deadline", time.monotonic() + 310) - time.monotonic()))
         if remaining <= 0:
             raise ProducerError("live SDK execution exceeded its overall time bound")
         try:
             self.process.stdin.write(json.dumps(request) + "\n")
             self.process.stdin.flush()
-            if not select.select([self.process.stdout], [], [], remaining)[0]:
-                raise ProducerError("SDK operation exceeded its bounded execution time")
-            response = json.loads(self.process.stdout.readline())
-        except (BrokenPipeError, json.JSONDecodeError) as exc:
+            expires = time.monotonic() + remaining
+            for _ in range(8):
+                response = self.read_response(expires)
+                if not correlated or response.get("requestId") == request["requestId"]:
+                    break
+            else:
+                raise ProducerError("SDK private response correlation is incomplete")
+        except (OSError, json.JSONDecodeError) as exc:
             raise ProducerError("SDK consumer exited or returned invalid JSON") from exc
         if not response.get("ok"):
             raise ProducerError(f"{operation}: {response.get('errorType')} httpStatus={response.get('httpStatus')} "

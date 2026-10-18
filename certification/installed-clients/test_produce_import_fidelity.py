@@ -90,13 +90,14 @@ def test_partial_transfer_never_satisfies_value_parity():
 def test_sdk_failure_retains_structured_status_without_response_data():
     sdk = object.__new__(producer.Sdk)
     sdk.process = mock.Mock()
-    sdk.process.stdout.readline.return_value = json.dumps({
+    response_bytes = (json.dumps({
         "ok": False, "errorType": "HonuaAdminApiException", "httpStatus": 400,
         "problemType": "https://honua.io/problems/validation", "code": None,
         "diagnosticReason": "source-address-rejected",
         "message": "sensitive occurrence details", "responseBody": "credential-value",
-    })
-    with mock.patch.object(producer.select, "select", return_value=([sdk.process.stdout], [], [])):
+    }) + "\n").encode()
+    with mock.patch.object(producer.select, "select", return_value=([sdk.process.stdout], [], [])), mock.patch.object(
+            producer.os, "read", return_value=response_bytes):
         with pytest.raises(producer.ProducerError) as error:
             sdk.call("StartGeoservicesImportAsync")
     assert "httpStatus=400" in str(error.value)
@@ -449,3 +450,31 @@ def test_invalid_service_child_set_cannot_earn_reconciliation_pass(manifest):
     producer.service_journey(score, mock.Mock(call=call), "http://candidate", "control")
     assert score.cells["journey.wait"]["verdict"] == "fail"
     assert score.cells["journey.reconciliation"]["verdict"] == "fail"
+
+
+@pytest.mark.parametrize("stale", ["old-request", None])
+def test_private_configuration_status_correlates_late_acknowledgements_in_one_pipe_read(stale):
+    sdk = object.__new__(producer.Sdk)
+    sdk.process = mock.Mock()
+    data = (json.dumps({"ok": True, "requestId": stale, "result": "stale-configuration"}) + "\n"
+            + json.dumps({"ok": True, "requestId": "b" * 32, "result": "fresh-status"}) + "\n").encode()
+    with mock.patch.object(producer.select, "select", return_value=([sdk.process.stdout], [], [])) as ready, mock.patch.object(
+            producer.os, "read", return_value=data) as read, mock.patch.object(producer.secrets, "token_hex", return_value="b" * 32):
+        assert sdk.call("readback-status", configurationId="a" * 32) == "fresh-status"
+    assert read.call_count == ready.call_count == 1
+    request = json.loads(sdk.process.stdin.write.call_args.args[0])
+    assert request["requestId"] == "b" * 32
+
+
+def test_private_configuration_status_never_accepts_unmatched_or_eof_responses():
+    sdk = object.__new__(producer.Sdk)
+    sdk.process = mock.Mock()
+    data = ((json.dumps({"ok": True, "requestId": "other", "result": "not-current"}) + "\n") * 8).encode()
+    with mock.patch.object(producer.select, "select", return_value=([sdk.process.stdout], [], [])), mock.patch.object(
+            producer.os, "read", return_value=data):
+        with pytest.raises(producer.ProducerError, match="correlation is incomplete"):
+            sdk.call("readback-status", configurationId="a" * 32)
+    with mock.patch.object(producer.select, "select", return_value=([sdk.process.stdout], [], [])), mock.patch.object(
+            producer.os, "read", return_value=b""):
+        with pytest.raises(producer.ProducerError, match="exited before"):
+            sdk.call("readback-status", configurationId="a" * 32)
