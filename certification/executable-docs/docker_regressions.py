@@ -280,6 +280,20 @@ class DockerRegressions(unittest.TestCase):
             "s.destroy(); resolve('unexpected'); }); }));", "javascript", 20)
         self.assertEqual(attempt.stdout, "ECONNREFUSED\n")
         controls.append("prelistenUnrefInactiveAndRelistenRefStatePreserved")
+        repeat = healthy.run_js("let inactiveCloses = 0; const userClose = () => inactiveCloses++; "
+            "const repeatedInactive = require('node:net').createServer(); "
+            "repeatedInactive.on('close', userClose);", "javascript", 20)
+        self.assertEqual(repeat.status, "pass", repeat)
+        for _ in range(12):
+            completed = healthy.run_js("repeatedInactive.unref();", "javascript", 20)
+            self.assertEqual(completed.status, "pass", completed)
+            self.assertEqual(completed.stderr, "")
+            observed = healthy.run_js("console.log(repeatedInactive.listenerCount('close'), "
+                "repeatedInactive.listeners('close')[0] === userClose, inactiveCloses);", "javascript", 20)
+            self.assertEqual(observed.status, "pass", observed)
+            self.assertEqual(observed.stdout, "1 true 0\n")
+            self.assertEqual(observed.stderr, "")
+        controls.append("inactiveUnrefRepeatedOwnedObserverRemovedUserListenerPreserved")
         healthy.put("node", Path(healthy.cwd, "watched"), "initial")
         watcher = healthy.run_js("const watcher = require('node:fs').watch('watched', {persistent:false}, "
             "() => require('node:fs').writeFileSync('watch-stale', 'bad'));", "javascript", 20)

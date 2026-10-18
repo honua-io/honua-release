@@ -440,6 +440,28 @@ def test_native_prelisten_unref_and_reused_server_keep_public_ref_state(reader, 
     assert result.status == 'pass' and result.stdout == 'ECONNREFUSED\n', result
 
 
+@pytest.mark.parametrize('user_listener', [False, True])
+def test_repeated_inactive_unref_does_not_retain_owned_listeners_or_remove_user_listener(reader, user_listener):
+    setup = "let inactiveCloseEffects = 0; const inactiveUserClose = () => inactiveCloseEffects++; " \
+        "const repeatedInactive = require('node:net').createServer(); "
+    if user_listener:
+        setup += "repeatedInactive.on('close', inactiveUserClose); "
+    inspect = "console.log(repeatedInactive.listenerCount('close'), " \
+        "repeatedInactive.listeners('close').includes(inactiveUserClose), inactiveCloseEffects);"
+    native = Path(reader.cwd, 'native.mjs')
+    native.write_text("import {createRequire} from 'node:module'; const require=createRequire(import.meta.url);\n"
+        + setup + "for (let i = 0; i < 12; i++) { repeatedInactive.unref(); " + inspect + " }")
+    oracle = subprocess.run(['node', str(native)], cwd=reader.cwd, capture_output=True, text=True, timeout=5)
+    expected = f"{int(user_listener)} {str(user_listener).lower()} 0\n"
+    assert oracle.returncode == 0 and oracle.stdout == expected * 12 and oracle.stderr == '', oracle
+    assert run(reader, setup).status == 'pass'
+    for _ in range(12):
+        completed = run(reader, "repeatedInactive.unref();")
+        assert completed.status == 'pass' and completed.stderr == '', completed
+        observed = run(reader, inspect)
+        assert observed.status == 'pass' and observed.stdout == expected and observed.stderr == '', observed
+
+
 def test_owned_unref_message_ports_close_before_next_block(reader):
     first = run(reader, "const channel = new (require('node:worker_threads').MessageChannel)(); "
         "channel.port1.on('message', () => require('node:fs').writeFileSync('port-stale', 'bad')); "

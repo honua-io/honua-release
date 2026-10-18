@@ -20,6 +20,9 @@ export function ownResources(scope) {
     return record;
   }
   function forget(record) {
+    const release = record.release;
+    record.release = undefined;
+    release?.();
     record.closed = true;
     if (records.get(record.resource) === record) records.delete(record.resource);
     byFile.get(record.file)?.delete(record);
@@ -95,7 +98,11 @@ export function ownResources(scope) {
       if (server.listening) server.close();
       else forget(record); // an inactive server has no listening handle to stop
     }, serverRefState.get(server) === true);
-    if (record) server.once('close', () => forget(record));
+    if (record) {
+      const closed = () => forget(record);
+      record.release = () => server.removeListener('close', closed);
+      server.once('close', closed);
+    }
     return record;
   }
   channel('tracing:net.server.listen:asyncStart').subscribe(({ server }) => ownServer(server));
