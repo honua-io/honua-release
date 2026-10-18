@@ -41,6 +41,7 @@ NIGHTLY_CLASSES = ("build-test", "contract", "sbom", "security", "upgrade", "cap
 # update-rollback, esri-bundle, cite) are added here as they land (#386/#381); until then those
 # classes, and any other declared class, have no producer and refuse.
 RECEIPT_PRODUCERS: dict[str, tuple[tuple[str, ...], tuple[str, ...]]] = {
+    "update-rollback": ((".github/workflows/aws-update-rollback.yml",), ("workflow_dispatch",)),
     **dict.fromkeys(NIGHTLY_CLASSES, (MINTING_WORKFLOWS, MINTING_EVENTS)),
 }
 RUN_ID_RE = re.compile(r"^[1-9][0-9]*$")
