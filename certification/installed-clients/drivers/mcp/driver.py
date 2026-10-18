@@ -13,7 +13,6 @@ import base64
 import copy
 import json
 import os
-import struct
 import sys
 import time
 import traceback
@@ -169,10 +168,6 @@ def anonymous_full_view(mcp: probes.McpProxySession) -> dict[str, Any]:
     """Only the first full-view page. A refusal raises; any page returned is a disclosure the oracle fails."""
     result = result_of(mcp.request("tools/list", {"view": "full"}))
     return {"names": [tool.get("name") for tool in result.get("tools") or []], "pages": 1}
-
-
-def point_wkb(x: float, y: float) -> str:
-    return base64.b64encode(struct.pack("<BIdd", 1, 1, x, y)).decode()
 
 
 

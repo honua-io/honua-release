@@ -16,8 +16,8 @@ FIXTURE = (HERE / "fixture.v1.json").read_bytes()
 def observations():
     value = PLAN.scenario(FIXTURE)
     outputs = [
-        {"isExecutable": True, "requiresApproval": False, "violations": []},
-        {"isExecutable": False, "requiresApproval": False, "violations": [
+        {"isExecutable": True, "requiresApproval": False, "violations": [], "warnings": []},
+        {"isExecutable": False, "requiresApproval": False, "warnings": [], "violations": [
             {"code": "INVALID_PARAMETER_VALUE", "fieldPath": "steps[buffer].inputs.wkb", "message": "Invalid base64 WKB"}]}]
     return {"schema": value["schema"], "fixtureSha256": value["fixtureSha256"],
             "cases": [{**case, "result": {"isError": False, "structuredContent": output}}
@@ -71,3 +71,31 @@ def test_retained_observations_fail_closed(mutation):
     elif mutation == "missing-violations": negative.pop("violations")
     with pytest.raises(ValueError):
         PLAN.judge(FIXTURE, value)
+
+
+@pytest.mark.parametrize("index", [0, 1])
+@pytest.mark.parametrize("mutation", [
+    "missing-approval", "nonbool-approval", "missing-warnings", "null-warnings", "warning-item",
+    "null-violations", "violation-item", "missing-code", "nonstr-code", "missing-message",
+    "nonstr-message", "nonstr-fieldpath"])
+def test_every_response_obeys_the_published_output_schema(index, mutation):
+    value = observations()
+    output = value["cases"][index]["result"]["structuredContent"]
+    # Include an otherwise schema-valid entry on the positive response, so an
+    # invalid item cannot be hidden by relying only on the negative predicate.
+    if mutation in {"violation-item", "missing-code", "nonstr-code", "missing-message", "nonstr-message", "nonstr-fieldpath"}:
+        output["violations"] = [{"code": "INVALID_PARAMETER_VALUE", "message": "Invalid base64", "fieldPath": "steps[buffer].inputs.wkb"}]
+    if mutation == "missing-approval": output.pop("requiresApproval")
+    elif mutation == "nonbool-approval": output["requiresApproval"] = 0
+    elif mutation == "missing-warnings": output.pop("warnings")
+    elif mutation == "null-warnings": output["warnings"] = None
+    elif mutation == "warning-item": output["warnings"] = [1]
+    elif mutation == "null-violations": output["violations"] = None
+    elif mutation == "violation-item": output["violations"] = ["not-an-object"]
+    elif mutation == "missing-code": output["violations"][0].pop("code")
+    elif mutation == "nonstr-code": output["violations"][0]["code"] = 1
+    elif mutation == "missing-message": output["violations"][0].pop("message")
+    elif mutation == "nonstr-message": output["violations"][0]["message"] = False
+    elif mutation == "nonstr-fieldpath": output["violations"][0]["fieldPath"] = []
+    with pytest.raises(ValueError):
+        PLAN.tool_output(value["cases"][index]["result"])

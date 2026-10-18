@@ -59,10 +59,22 @@ def tool_output(result):
     output = result.get("structuredContent")
     if output is None:
         content = result.get("content")
-        if not isinstance(content, list) or len(content) != 1 or content[0].get("type") != "text":
+        if (not isinstance(content, list) or len(content) != 1 or not isinstance(content[0], dict)
+                or content[0].get("type") != "text"):
             raise ValueError("plan validation lacks unique structured output")
         output = json.loads(content[0]["text"])
-    if not isinstance(output, dict) or type(output.get("isExecutable")) is not bool or not isinstance(output.get("violations"), list):
+    # Matches ValidatePlanOutputSchema and ValidationViolationDef, including
+    # required fields on both the executable and rejected-plan responses.
+    if (not isinstance(output, dict) or type(output.get("isExecutable")) is not bool
+            or type(output.get("requiresApproval")) is not bool
+            or not isinstance(output.get("violations"), list)
+            or not isinstance(output.get("warnings"), list)
+            or any(not isinstance(warning, str) for warning in output["warnings"])
+            or any(not isinstance(violation, dict)
+                   or not isinstance(violation.get("code"), str)
+                   or not isinstance(violation.get("message"), str)
+                   or (violation.get("fieldPath") is not None and not isinstance(violation["fieldPath"], str))
+                   for violation in output["violations"])):
         raise ValueError("plan validation output has an invalid schema")
     return output
 
