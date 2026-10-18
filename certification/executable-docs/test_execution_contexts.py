@@ -17,7 +17,7 @@ from run import Outcome, RunError, Session, run_document  # noqa: E402
 
 
 def declaration(text, groups):
-    blocks = extract(text)
+    blocks = extract(text, "markdown")
     return {"repo": "test/docs", "path": "guide.md", "revision": {"checkout": True}, "runtime": "node",
             "executionContexts": [{"name": name, "runtime": runtime, "documentedAt": "guide.md: language example",
                 "blocks": [{"index": i, "sha256": blocks[i].sha256} for i in indices]}
@@ -42,16 +42,16 @@ def gp_source():
 
 def test_actual_guide_binds_all_six_frozen_blocks_and_only_documented_key():
     doc, text = gp_source()
-    plan = compile_plan(doc, extract(text))
+    plan = compile_plan(doc, extract(text, "markdown"))
     frozen = json.loads((HERE / "inventory.json").read_text())
     row = next(d for d in frozen["documents"] if d["id"] == "honua-site-docs-geoprocessing-index")
     assert row["revision"] == "a0999823f6fd397769d9f780f3df6726f0ddd585"
-    assert [b.sha256 for b in extract(text)] == [b["sha256"] for b in row["blocks"]]
+    assert [b.sha256 for b in extract(text, "markdown")] == [b["sha256"] for b in row["blocks"]]
     assert [plan[i]["runtime"] for i in range(6)] == ["node", "node", "python", "python", "dotnet", "dotnet"]
     variables = load_vars(HERE / "vars", row["id"])
     assert set(variables["substitute"]) == {"<your-api-key>"}
     assert render(variables["substitute"]["<your-api-key>"]["value"], {"candidate.apiKey": "owned"}) == "owned"
-    assert {p for b in extract(text) for p in needs(b, set())["placeholders"]} == {"<your-api-key>"}
+    assert {p for b in extract(text, "markdown") for p in needs(b, set())["placeholders"]} == {"<your-api-key>"}
     assert len(frozen["documents"]) == 35
 
 
@@ -78,7 +78,7 @@ def test_invalid_contexts_refuse_before_runtime_and_inventory(mutation):
     if mutation == "binding-type": first["blocks"][0] = []
     if mutation == "declaration-type": entries[0] = []
     if mutation in {"session", "checkout", "sourceBuild", "docker"}: doc[mutation] = True
-    with pytest.raises(ContextError): compile_plan(doc, extract(text))
+    with pytest.raises(ContextError): compile_plan(doc, extract(text, "markdown"))
     with pytest.raises(InventoryError): document_record(doc, "a" * 40, text)
 
 

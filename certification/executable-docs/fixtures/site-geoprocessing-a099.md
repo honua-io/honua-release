@@ -1,43 +1,6 @@
----
-type: slice
-title: "Run a geoprocessing job"
-description: "Run a geoprocessing job — over OGC API - Processes, from JavaScript, Python and .NET."
-resource: "https://honua.io/docs/geoprocessing/"
-tags: ["shape:map", "task:geoprocessing", "protocol:ogc-api-processes", "capability:process.ogc-api-processes", "capability:process.geoprocessing", "sdk:js", "sdk:python", "sdk:dotnet", "sample:gp-runner"]
-generated: "2026-08-27"
----
-
-# Run a geoprocessing job
-
-Run a geoprocessing job — over OGC API - Processes, from JavaScript, Python and .NET.
-
-## See it run
-
-[Run a geoprocessing job](../../demo-geoprocessing.html) — Submit, poll, inspect, and cancel an asynchronous process.
-
-## What it is
-
-**OGC API Processes.** Submit and poll jobs through OGC API - Processes.
-
-**Geoprocessing Task Execution.** Submit and poll geoprocessing tasks through the Esri GeoServices GPServer surface. Print/export-specific tasks are gated by printing.* entitlement keys.
-
-## Set it up
-
-### Console
-
-> Not in the Console yet — [track it here](https://github.com/honua-io/honua-site/issues/219).
-
-### CLI
-
-> Not in the CLI yet — [track it here](https://github.com/honua-io/honua-sdk-js/issues/1424).
-
-### Admin API
-
-> Not in the Admin API yet — [track it here](https://github.com/honua-io/honua-site/issues/235).
-
-## Use it
-
-### JavaScript
+<!-- Exact six code blocks, in order, from https://github.com/honua-io/honua-site/blob/a0999823f6fd397769d9f780f3df6726f0ddd585/docs/geoprocessing/index.md
+Original UTF-8 source SHA256: ddb529d19ed48f1de609befba1c1f08d476a2bca4a577498baf1605eba4edcdb
+The original guide is authoritative for prose/citations. Every block hash is checked against the frozen inventory. -->
 
 ```bash
 npm install @honua/sdk-js@0.1.16
@@ -57,10 +20,6 @@ stopWatching();
 console.log(output.outputs.outputFeatureLayer.value.geometry.type);
 ```
 
-### Python
-
-> Partly there in the Python SDK — [track the rest here](https://github.com/honua-io/honua-sdk-python/issues/196).
-
 ```bash
 python3 -m pip install honua-sdk==0.1.16
 ```
@@ -77,10 +36,6 @@ terminal = gp.wait(job, poll_interval=0.5, timeout=30.0)
 output = gp.results(terminal.job_id)
 print(output['outputFeatureLayer']['value']['geometry']['type'])
 ```
-
-### .NET
-
-> Partly there in the .NET SDK — [track the rest here](https://github.com/honua-io/honua-sdk-dotnet/issues/293).
 
 ```bash
 dotnet new console -o geoprocessing && cd geoprocessing
@@ -111,21 +66,3 @@ while (job.Status is "accepted" or "running")
 var output = await processes.GetJobResultsAsync(job.JobId, cancellationToken);
 Console.WriteLine(job.Status);
 ```
-
-### Mobile
-
-> Not in the mobile SDKs yet — [track it here](https://github.com/honua-io/honua-server/issues/2448).
-
-## Ask it
-
-### MCP
-
-> Not in the MCP server yet — [track it here](https://github.com/honua-io/honua-server/issues/3269).
-
-## Underneath
-
-Protocols: `OGC API - Processes`
-
-Capability keys: [process.ogc-api-processes](../../evidence-process-ogc-api-processes.html), [process.geoprocessing](../../evidence-process-geoprocessing.html)
-
-[How this is checked](../../evidence-process-ogc-api-processes.html)
