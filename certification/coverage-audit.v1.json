@@ -60,7 +60,7 @@
       "title": "MCP error and cancellation negative controls accept unexpected success",
       "owner": "honua-io/geospatial-mcp",
       "issue": "https://github.com/honua-io/geospatial-mcp/issues/95",
-      "status": "implementation-in-progress",
+      "status": "implementation-landed",
       "selectors": {
         "client_lane": [
           "mcp-*"
@@ -75,7 +75,8 @@
       "dimension": "assertions",
       "implementation_prs": [
         "https://github.com/honua-io/geospatial-mcp/pull/101"
-      ]
+      ],
+      "delivery_pr": "https://github.com/honua-io/geospatial-mcp/pull/101"
     },
     {
       "id": "NC-02",
@@ -259,7 +260,7 @@
       "title": "Full-matrix gate trusts a public run URL without authenticating the check publisher or executed jobs",
       "owner": "honua-io/honua-release",
       "issue": "https://github.com/honua-io/honua-release/issues/655",
-      "status": "implementation-in-progress",
+      "status": "implementation-landed",
       "selectors": {
         "client_lane": [
           "*"
@@ -328,7 +329,7 @@
       "title": "DuckDB metadata assertions confuse published CRS84 with the physical PostGIS SRID",
       "owner": "honua-io/honua-server",
       "issue": "https://github.com/honua-io/honua-server/issues/6300",
-      "status": "implementation-in-progress",
+      "status": "implementation-landed",
       "selectors": {
         "surface": [
           "ogc-api-features"
@@ -345,7 +346,8 @@
       "dimension": "assertions",
       "implementation_prs": [
         "https://github.com/honua-io/honua-server/pull/6303"
-      ]
+      ],
+      "delivery_pr": "https://github.com/honua-io/honua-server/pull/6303"
     },
     {
       "id": "NC-13",
@@ -485,8 +487,8 @@
       "priority": "P2",
       "title": "Generic Python FeatureServer filter cases often assert only HTTP200",
       "owner": "honua-io/honua-server",
-      "issue": "https://github.com/honua-io/honua-release/issues/652",
-      "status": "open",
+      "issue": "https://github.com/honua-io/honua-server/issues/6314",
+      "status": "implementation-in-progress",
       "selectors": {
         "surface": [
           "feature-server",
