@@ -4,7 +4,7 @@
   "requirements_revision": "2026-10-17-complete.24",
   "requirements_digest": "sha256:af796046e9c8662e1d788898080b4dabbd371828113625d2526988bfc97d709d",
   "production_digest": "sha256:cb71f546d61260881e3d798be0bd08b5c03ea59fe58745268136c68f693f21d1",
-  "audit_digest": "sha256:be76fe6c5c2bc2e3546286aa5f94f192bc963e17f66d0600e0b3862873e277a6",
+  "audit_digest": "sha256:c2f1ce567292b88778e03c4ebcc41f5cf6fb16a008d4550a79deba3bc769982d",
   "rows_digest": "sha256:0653d8cf9efb225fcf74f964931c9894585acea465d4027c4ea18d707ae62b07",
   "rows": 3008,
   "non_licensed_rows": 2668,
