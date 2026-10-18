@@ -45,6 +45,8 @@ PROVE = DESKTOP["buckets"]["prove"]
 
 def python_wheel_identity(manifest: dict, version: str, source_sha: str) -> dict:
     """Only independently selected published bytes can govern a Python receipt."""
+    if not isinstance(source_sha, str) or not re.fullmatch(r"[0-9a-f]{40}", source_sha):
+        raise ValueError("selected manifest requires an exact Python source SHA")
     component = manifest.get("components", {}).get("honua-sdk-python", {})
     artifact = manifest.get("clientArtifacts", {}).get("honua-sdk-python-wheel", {})
     if (component.get("sha") != source_sha or component.get("version") != version

@@ -51,3 +51,12 @@ def test_generated_python_identity_preserves_every_other_requirement(monkeypatch
             changed += 1
         assert old == new
     assert changed > 0
+
+
+@pytest.mark.parametrize("source", ["trunk", "a" * 39, "A" * 40])
+def test_matching_manifest_fields_cannot_substitute_mutable_or_malformed_source(source):
+    selected = manifest()
+    selected["components"]["honua-sdk-python"]["sha"] = source
+    selected["clientArtifacts"]["honua-sdk-python-wheel"]["sourceSha"] = source
+    with pytest.raises(ValueError, match="exact Python source SHA"):
+        GEN.python_wheel_identity(selected, "0.1.16", source)
