@@ -57,6 +57,10 @@ missing imports as actual errors.
 Injected environment keys removed by a later block restore the container baseline,
 including the candidate registry after temporary source-build admission. Unrelated
 interpreter environment mutations survive.
+Blocks selected by the existing CommonJS `require(...)` rule retain their `.cjs` filename
+and get a fresh owned `module.exports` object and initial `exports` alias per block.
+Replacing `module.exports` does not rebind `exports`; saved lexical references survive
+while later blocks receive their own module object. ESM blocks do not gain those globals.
 Completion uses Node's `beforeExit` event with only the worker's input pipe temporarily
 unreferenced. Referenced async work and its callbacks must finish before the block passes;
 late errors remain errors even after evaluation returns. Unsettled top-level await at idle

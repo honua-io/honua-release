@@ -70,6 +70,29 @@ def test_real_document_earlier_write_occurs_once(reader):
     assert not any("continues-earlier-blocks" in row.get("mode", "") for row in result["blocks"])
 
 
+def test_commonjs_exports_alias_replacement_and_fresh_per_block_module(reader):
+    source = "require('node:fs'); module.exports.answer = 42; exports.named = 'yes'; " \
+        "console.log(module.exports.answer, exports.named, exports === module.exports); " \
+        "module.exports = { replacement: true }; exports.legacy = 'old'; " \
+        "console.log(module.exports.replacement, module.exports.legacy, exports.legacy, exports === module.exports);"
+    native = Path(reader.cwd, 'native.cjs')
+    native.write_text(source)
+    oracle = subprocess.run(['node', str(native)], cwd=reader.cwd, capture_output=True, text=True, timeout=5)
+    assert oracle.returncode == 0
+    result = run(reader, source + ' const previousModule = module; const previousExports = exports;')
+    assert result.status == 'pass', result
+    assert result.stdout == oracle.stdout
+    next_block = run(reader, "require('node:fs'); console.log(previousModule.exports.replacement, "
+        "previousExports.legacy, previousModule !== module, exports === module.exports, Object.keys(exports).length);")
+    assert next_block.status == 'pass' and next_block.stdout == 'true old true true 0\n'
+
+
+def test_esm_blocks_do_not_gain_commonjs_module_or_exports_globals(reader):
+    assert run(reader, "require('node:fs'); module.exports.value = 42;").status == 'pass'
+    result = run(reader, "console.log(typeof module, typeof exports);")
+    assert result.status == 'pass' and result.stdout == 'undefined undefined\n'
+
+
 def test_partial_failure_is_retained_without_replaying_either_write(reader):
     text = "```js\nrequire('node:fs').appendFileSync('effects', 'first\\n'); const client = 42;\n```\n" \
            "```js\nrequire('node:fs').appendFileSync('effects', 'partial\\n'); missingClient.value;\n```\n"

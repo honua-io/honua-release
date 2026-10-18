@@ -468,7 +468,9 @@ class Session:
                 # Removing this context's owned container kills the worker and its children,
                 # including synchronous loops. Killing only docker exec loses that guarantee.
                 lambda: docker("rm", "-f", name, check=True))
-        path = self.next_path(".mts" if language == "typescript" else ".mjs", self.cwd)
+        uses_require = "require(" in code and not re.search(r"^\s*import\s", code, re.M)
+        suffix = ".cjs" if uses_require else (".mts" if language == "typescript" else ".mjs")
+        path = self.next_path(suffix, self.cwd)
         self.put("node", path, code)
         started = time.monotonic()
         try:

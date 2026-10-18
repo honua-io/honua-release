@@ -83,6 +83,16 @@ class DockerRegressions(unittest.TestCase):
         self.assertEqual(restored.stdout, self.session.baselines["node"]["npm_config_registry"] + "\n")
         version = self.session.run_js("console.log(process.version);", "javascript", 20)
         self.assertEqual(version.status, "pass", version.stderr)
+        commonjs = self.session.run_js("require('node:fs'); exports.original = true; "
+            "const earlierModule = module; const earlierExports = exports; module.exports = {answer: 42}; "
+            "console.log(module.exports.answer, exports.original, exports === module.exports);", "javascript", 20)
+        self.assertEqual(commonjs.status, "pass", commonjs.stderr)
+        self.assertEqual(commonjs.stdout, "42 true false\n")
+        next_module = self.session.run_js("require('node:fs'); console.log(earlierModule.exports.answer, "
+            "earlierExports.original, earlierModule !== module, exports === module.exports, Object.keys(exports).length);",
+            "javascript", 20)
+        self.assertEqual(next_module.status, "pass", next_module.stderr)
+        self.assertEqual(next_module.stdout, "42 true true true 0\n")
         native_fds = self.session.run_js("require('node:fs').writeSync(1, 'direct-output\\n'); "
             "require('node:fs').writeSync(2, 'direct-error\\n');", "javascript", 20)
         self.assertEqual(native_fds.status, "pass", native_fds.stderr)
@@ -183,6 +193,7 @@ class DockerRegressions(unittest.TestCase):
             "controls": {name: "pass" for name in ["persistentStateOnce", "currentCwdStaticDynamicImports",
                 "nativeFdOutputCaptured", "inheritedChildOutputCaptured",
                 "fullImportPrefixLinkedBeforeEffects", "nonzeroExitStatusRetained",
+                "commonJsExportsAliasReplacementAndFreshModule",
                 "temporarySourceEnvRestored", "unawaitedCompletionOnce", "lateErrorRetained", "failedContextStopped", "otherContextHealthy",
                 "missingNamedExportRefused", "missingDefaultExportRefused", "timeoutChildContainerStopped",
                 "timeoutRestartRefused", "allOwnedContainersAbsent"]}}

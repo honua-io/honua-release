@@ -119,7 +119,7 @@ for await (const line of createInterface({ input: process.stdin, crlfDelay: Infi
   writeFileSync(file + '.out', '');
   writeFileSync(file + '.err', '');
   await output.run(file, async () => {
-    let error;
+    let error, commonjsModule;
     try {
       // Redirect the actual descriptors too: inherited child stdio and native
       // fs.writeSync(1/2) bypass stream.write. Completion uses a separate file.
@@ -141,7 +141,16 @@ for await (const line of createInterface({ input: process.stdin, crlfDelay: Infi
       }
       Object.assign(process.env, request.env);
       injectedEnvironment = { ...request.env };
-      server.context.require = createRequire(path.join(request.cwd, '__doc_reader.cjs'));
+      server.context.require = createRequire(file);
+      if (file.endsWith('.cjs')) {
+        commonjsModule = { id: '.', filename: file, path: path.dirname(file), exports: {}, loaded: false,
+          require: server.context.require };
+        server.context.module = commonjsModule;
+        server.context.exports = commonjsModule.exports;
+      } else {
+        delete server.context.module;
+        delete server.context.exports;
+      }
       server.context.__dirname = request.cwd;
       server.context.__filename = file;
       let source = readFileSync(file, 'utf8');
@@ -172,6 +181,7 @@ for await (const line of createInterface({ input: process.stdin, crlfDelay: Infi
           completion.reject(failure);
         }
       });
+      if (commonjsModule) commonjsModule.loaded = true;
     } catch (failure) {
       error = failure?.stack || String(failure);
       process.stderr.write(error + '\n');
