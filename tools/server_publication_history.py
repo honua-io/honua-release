@@ -216,10 +216,15 @@ def verify(receipt: Any, repository: str = REPOSITORY, *, now: datetime | None =
     # Both tag namespaces must be fully accounted for by the anchors; a count the classified refs
     # do not explain is a tag nobody classified.
     for endpoint in ("tags", REF_NAMESPACE_ENDPOINT):
-        if observed_counts[endpoint] != len(anchor_refs):
-            raise ValueError(f"{repository} has {observed_counts[endpoint]} {endpoint} ref(s) but "
-                             f"only {len(anchor_refs)} dispatch anchor(s); an unclassified ref is a "
-                             "prior publication ref and the first-release model does not apply")
+        extra = observed_counts[endpoint] - len(anchor_refs)
+        if extra > 0:
+            raise ValueError(f"{repository} has {extra} prior publication ref(s) in {endpoint} that "
+                             "are not dispatch anchors; an unclassified ref withdraws the "
+                             "first-release model")
+        if extra < 0:
+            raise ValueError(f"{endpoint} lists {observed_counts[endpoint]} ref(s) but the receipt "
+                             f"claims {len(anchor_refs)} dispatch anchor(s); the unclassified ref "
+                             "accounting is inconsistent")
     return repository
 
 
