@@ -684,15 +684,16 @@ def test_container_runs_as_host_user_with_writable_home(tmp_path, monkeypatch):
     assert (session.home / ".nuget/NuGet/NuGet.Config").exists()
 
 
-@pytest.mark.parametrize("playbook,expected_packages", [
-    ("install-with-docker", []), ("publish-a-service", ["jq"]),
+@pytest.mark.parametrize("repository,path,expected_packages", [
+    ("honua-io/honua-site", "docs/playbooks/install-with-docker/index.md", []),
+    ("honua-io/honua-site", "docs/playbooks/publish-a-service/index.md", ["jq"]),
+    ("honua-io/honua-sdk-python", "README.md", []),
 ])
-def test_site_playbook_declared_tools_reach_its_python_session(tmp_path, monkeypatch, playbook, expected_packages):
+def test_document_declared_tools_reach_its_python_session(tmp_path, monkeypatch, repository, path, expected_packages):
     import subprocess
     import run
     sources = json.loads((HERE / "sources.json").read_text())
-    doc = next(d for d in sources["documents"] if d["repo"] == "honua-io/honua-site"
-               and d["path"] == f"docs/playbooks/{playbook}/index.md")
+    doc = next(d for d in sources["documents"] if d["repo"] == repository and d["path"] == path)
     calls = []
     def docker(*args, **kwargs):
         calls.append(args)
