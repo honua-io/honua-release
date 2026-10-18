@@ -83,6 +83,18 @@ class DockerRegressions(unittest.TestCase):
         self.assertEqual(restored.stdout, self.session.baselines["node"]["npm_config_registry"] + "\n")
         version = self.session.run_js("console.log(process.version);", "javascript", 20)
         self.assertEqual(version.status, "pass", version.stderr)
+        native_fds = self.session.run_js("require('node:fs').writeSync(1, 'direct-output\\n'); "
+            "require('node:fs').writeSync(2, 'direct-error\\n');", "javascript", 20)
+        self.assertEqual(native_fds.status, "pass", native_fds.stderr)
+        self.assertEqual(native_fds.stdout, "direct-output\n")
+        self.assertEqual(native_fds.stderr, "direct-error\n")
+        inherited = self.session.run_js("require('node:child_process').spawn(process.execPath, ['-e', "
+            "\"console.log('child-output'); console.error('child-error')\"], {stdio: 'inherit'});",
+            "javascript", 20)
+        self.assertEqual(inherited.status, "pass", inherited.stderr)
+        self.assertEqual(inherited.stdout, "child-output\n")
+        self.assertEqual(inherited.stderr, "child-error\n")
+        self.assertEqual(self.session.run_js("console.log(client.value);", "javascript", 20).stdout, "42\n")
 
         shell = self.session.run_shell("mkdir later; echo \"export default 'later';\" > later/local.mjs; cd later",
                                        "node", 20, False)
@@ -147,6 +159,7 @@ class DockerRegressions(unittest.TestCase):
             "status": "pass", "sourceHashes": {name: hashlib.sha256((run.HERE / name).read_bytes()).hexdigest()
                 for name in ["jssession.mjs", "jssession.py", "run.py", "docker_regressions.py"]},
             "controls": {name: "pass" for name in ["persistentStateOnce", "currentCwdStaticDynamicImports",
+                "nativeFdOutputCaptured", "inheritedChildOutputCaptured",
                 "temporarySourceEnvRestored", "unawaitedCompletionOnce", "lateErrorRetained", "failedContextStopped", "otherContextHealthy",
                 "missingNamedExportRefused", "missingDefaultExportRefused", "timeoutChildContainerStopped",
                 "timeoutRestartRefused", "allOwnedContainersAbsent"]}}

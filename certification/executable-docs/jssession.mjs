@@ -3,12 +3,11 @@ import repl from 'node:repl';
 import { PassThrough, Writable } from 'node:stream';
 import { createInterface } from 'node:readline';
 import { builtinModules, createRequire, stripTypeScriptTypes } from 'node:module';
-import { readFileSync, writeFileSync, appendFileSync } from 'node:fs';
+import { readFileSync, writeFileSync, appendFileSync, closeSync, openSync, renameSync } from 'node:fs';
 import { AsyncLocalStorage } from 'node:async_hooks';
 import path from 'node:path';
 import { Console } from 'node:console';
 
-const reply = process.stdout.write.bind(process.stdout);
 const output = new AsyncLocalStorage();
 const initialEnvironment = { ...process.env };
 let injectedEnvironment = {};
@@ -126,6 +125,12 @@ for await (const line of createInterface({ input: process.stdin, crlfDelay: Infi
   await output.run(file, async () => {
     let error;
     try {
+      // Redirect the actual descriptors too: inherited child stdio and native
+      // fs.writeSync(1/2) bypass stream.write. Completion uses a separate file.
+      for (const [fd, suffix] of [[1, '.out'], [2, '.err']]) {
+        closeSync(fd);
+        if (openSync(file + suffix, 'a') !== fd) throw new Error(`could not redirect reader fd ${fd}`);
+      }
       process.chdir(request.cwd);
       // A worker may start during temporary source-registry admission. Restore
       // removed injected keys from the container baseline, not that temporary
@@ -176,8 +181,13 @@ for await (const line of createInterface({ input: process.stdin, crlfDelay: Infi
     } finally {
       evaluations.delete(file);
     }
-    reply(JSON.stringify({ file, ok: error === undefined, lost: error !== undefined,
-      error: error?.slice(-4000) || '' }) + '\n');
+    const response = JSON.stringify({ file, id: request.id, ok: error === undefined,
+      lost: error !== undefined, error: error?.slice(-4000) || '' });
+    writeFileSync(request.response + '.tmp', response);
+    renameSync(request.response + '.tmp', request.response);
+    // A failed ESM script terminates rather than running later event-loop turns.
+    // The rejection's already-queued microtasks have retained their native effects.
+    if (error !== undefined) process.exit(1);
   });
 }
 server.close();

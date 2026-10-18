@@ -156,6 +156,59 @@ def test_last_block_waits_for_unawaited_query_output_and_effect_once(reader):
 
 
 @pytest.mark.parametrize("source", [
+    "require('node:fs').writeSync(1, 'direct-output\\n'); require('node:fs').writeSync(2, 'direct-error\\n');",
+    "require('node:child_process').spawn(process.execPath, ['-e', "
+    "\"console.log('child-output'); console.error('child-error')\"], {stdio: 'inherit'});",
+])
+def test_native_fd_and_inherited_child_output_do_not_share_control_channel(reader, source):
+    native = Path(reader.cwd, 'native.mjs')
+    native.write_text("import { createRequire } from 'node:module'; const require = createRequire(import.meta.url);\n" + source)
+    oracle = subprocess.run(['node', str(native)], cwd=reader.cwd, capture_output=True, text=True, timeout=5)
+    assert oracle.returncode == 0
+    result = run(reader, source)
+    assert result.status == 'pass', result
+    assert result.stdout == oracle.stdout and result.stderr == oracle.stderr
+    assert run(reader, "const stillHealthy = 42; console.log(stillHealthy);").stdout == '42\n'
+
+
+@pytest.mark.parametrize('schedule,expected_effect', [
+    ('Promise.resolve().then', True), ('setImmediate', False), ('setTimeout', False),
+])
+def test_sync_error_retains_native_microtasks_but_stops_later_turns(reader, schedule, expected_effect):
+    source = f"{schedule}(() => require('node:fs').writeFileSync('effect', 'once')); throw new Error('sync failure');"
+    native = Path(reader.cwd, 'native.mjs')
+    native.write_text("import { createRequire } from 'node:module'; const require = createRequire(import.meta.url);\n" + source)
+    oracle = subprocess.run(['node', str(native)], cwd=reader.cwd, capture_output=True, text=True, timeout=5)
+    effect = Path(reader.cwd, 'effect')
+    assert oracle.returncode != 0 and effect.exists() is expected_effect
+    effect.unlink(missing_ok=True)
+    result = run(reader, source)
+    assert result.status == 'fail' and result.command_failed
+    assert reader.js.broken and reader.js.proc.poll() is not None
+    assert effect.exists() is expected_effect
+
+
+@pytest.mark.parametrize('corruption', ['stale-id', 'wrong-file', 'partial-json'])
+def test_completion_response_must_be_atomic_and_match_this_request(tmp_path, corruption):
+    script = """const fs = require('node:fs'); process.stdin.once('data', chunk => {
+      const request = JSON.parse(chunk); const kind = process.argv[1];
+      const answer = {file: request.file, id: request.id, ok: true, lost: false, error: ''};
+      if (kind === 'stale-id') answer.id = 'stale';
+      if (kind === 'wrong-file') answer.file = 'another-block';
+      fs.writeFileSync(request.response, kind === 'partial-json' ? '{' : JSON.stringify(answer));
+    });"""
+    stopped = []
+    worker = JavaScriptSession(['node', '-e', script, corruption], lambda: stopped.append(True))
+    path = tmp_path / 'block.mjs'
+    path.write_text('console.log(42);')
+    # A stale prior completion must be removed before the request is sent.
+    Path(str(path) + '.response.json').write_text('{"ok":true}')
+    with pytest.raises((ValueError, RuntimeError)):
+        worker.execute(path, str(tmp_path), {}, 'javascript', 5)
+    assert worker.broken and stopped == [True] and worker.proc.poll() is not None
+
+
+@pytest.mark.parametrize("source", [
     "setTimeout(() => require('node:fs').writeFileSync('late', 'bad'), 800); await new Promise(() => {});",
     "setTimeout(() => require('node:fs').writeFileSync('late', 'bad'), 800); while (true) {}",
     "require('node:child_process').spawn(process.execPath, ['-e', "

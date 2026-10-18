@@ -60,6 +60,12 @@ unreferenced. Referenced async work and its callbacks must finish before the blo
 late errors remain errors even after evaluation returns. Unsettled top-level await at idle
 fails and stops the context. Referenced long-running work remains subject to the caller's
 timeout. No quiet-period sleep is used as a completion oracle.
+Completion records use atomically published files with a unique request identity on the
+shared reader workdir. They never share stdout with snippet output. Actual descriptors
+1 and 2 point to each block's capture files, including native writes and inherited child
+stdio; stale, partial or wrong-block records fail closed. On failure the worker publishes
+the error and exits before another event-loop turn, retaining microtask effects that a
+native Node ESM script also performs before failing.
 The live Docker regression retains `artifacts/executable-docs/node-context-rehearsal.json`
 with source hashes, the pinned runtime image, actual Node version and owned-cleanup controls.
 These offline controls do not establish candidate execution or change any required row's status.
