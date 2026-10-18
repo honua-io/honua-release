@@ -59,10 +59,15 @@ def _cell(**overrides):
         "budget_observations": None,
     }
     value.update(overrides)
+    if str(value.get("client_lane", "")).startswith("grpc-"):
+        value.setdefault("client_package_digest", "sha512-" + base64.b64encode(b"x" * 64).decode()
+                         if value["client_lane"] == "grpc-typescript" else "sha256:" + "f" * 64)
     if "evidence_receipt" not in overrides:
         identity = {
             field: value[field] for field in cert.RECEIPT_ID_FIELDS
         }
+        if "client_package_digest" in value:
+            identity["client_package_digest"] = value["client_package_digest"]
         if isinstance(value.get("test_ids"), list):
             identity["test_ids"] = value["test_ids"]
         value["evidence_receipt"] = {
@@ -1669,3 +1674,103 @@ def test_unproduced_wps_cite_required_skip_is_not_canonical_gp_evidence():
     )
     report = _evaluate(_ledger(cell), "nightly", now=NOW)
     assert report["overall_status"] == "fail"
+
+
+def test_grpc_package_digest_is_bound_to_receipt_and_requirement():
+    for lane in ("grpc-dotnet", "grpc-python", "grpc-typescript"):
+        cell = _cell(client_lane=lane)
+        assert cert._valid_receipt(cell, requirements_revision="requirements-test-v1")
+        for mutation in ("missing-observation", "wrong-observation", "missing-receipt", "wrong-receipt"):
+            changed = copy.deepcopy(cell)
+            if mutation == "missing-observation":
+                changed.pop("client_package_digest")
+            elif mutation == "wrong-observation":
+                changed["client_package_digest"] = "sha256:" + "0" * 64
+            elif mutation == "missing-receipt":
+                changed["evidence_receipt"]["identity"].pop("client_package_digest")
+            else:
+                changed["evidence_receipt"]["identity"]["client_package_digest"] = "sha256:" + "0" * 64
+            assert not cert._valid_receipt(changed, requirements_revision="requirements-test-v1"), mutation
+
+
+def test_grpc_repacked_identity_cannot_replace_the_governed_digest():
+    cell = _cell(client_lane="grpc-dotnet")
+    owned = _requirements(cell)
+    ledger = _ledger(cell)
+    changed = ledger["cells"][0]
+    changed["client_package_digest"] = "sha256:" + "0" * 64
+    changed["evidence_receipt"]["identity"]["client_package_digest"] = changed["client_package_digest"]
+    changed["evidence_digest"] = cert._receipt_digest(changed["evidence_receipt"])
+    changed["evidence_uri"] = "https://evidence.honua.io/data/sha256/" + changed["evidence_digest"][7:]
+    for value in changed["facet_results"].values():
+        value["evidence_digest"] = changed["evidence_digest"]
+    result = _evaluate(ledger, "nightly", requirements=owned)
+    assert result["overall_status"] == "fail"
+    assert any(item["check"] == "requirements_denominator" for item in result["findings"])
+
+
+def test_grpc_digest_algorithm_and_canonical_encoding_are_not_interchangeable():
+    sri = "sha512-" + base64.b64encode(b"x" * 64).decode()
+    assert cert._valid_client_package_digest("grpc-typescript", sri)
+    assert not cert._valid_client_package_digest("grpc-dotnet", sri)
+    assert not cert._valid_client_package_digest("grpc-typescript", "sha256:" + "a" * 64)
+    assert not cert._valid_client_package_digest("grpc-typescript", sri + "\n")
+
+
+def test_non_grpc_package_digest_cannot_expand_closed_identity_or_requirements():
+    schema = json.loads((Path(__file__).parents[1] / 'certification/protocol-certification.v1.schema.json').read_text())
+    validator = Draft202012Validator(schema)
+    original = _cell()
+    assert cert._valid_receipt(original, requirements_revision='requirements-test-v1')
+    assert not list(validator.iter_errors(_ledger(original)))
+    for value in (None, 'sha256:' + 'a' * 64):
+        for target in ('cell', 'identity', 'both'):
+            changed = copy.deepcopy(original)
+            if target in ('cell', 'both'):
+                changed['client_package_digest'] = value
+            if target in ('identity', 'both'):
+                changed['evidence_receipt']['identity']['client_package_digest'] = value
+            assert not cert._valid_receipt(changed, requirements_revision='requirements-test-v1'), target
+            assert list(validator.iter_errors(_ledger(changed))), target
+            result = _evaluate(_ledger(changed), 'nightly', now=NOW, requirements=_requirements(original))
+            assert result['overall_status'] == 'fail', target
+        owned = _requirements(original)
+        owned['requirements'][0]['client_package_digest'] = value
+        result = _evaluate(_ledger(original), 'nightly', now=NOW, requirements=owned)
+        assert any(item['check'] == 'requirements.client_package_digest' for item in result['findings'])
+
+
+def test_published_schemas_enforce_each_grpc_digest_algorithm_and_encoding():
+    root = Path(__file__).parents[1] / 'certification'
+    ledger_validator = Draft202012Validator(json.loads((root / 'protocol-certification.v1.schema.json').read_text()))
+    requirement_validator = Draft202012Validator(json.loads((root / 'protocol-certification-requirements.v1.schema.json').read_text()))
+    governed = json.loads((root / 'protocol-certification-requirements.v1.json').read_text())
+    sha256 = 'sha256:' + 'a' * 64
+    sri = 'sha512-' + base64.b64encode(b'x' * 64).decode()
+    for lane in ('grpc-dotnet', 'grpc-python', 'grpc-typescript'):
+        good = sri if lane == 'grpc-typescript' else sha256
+        wrong_algorithm = sha256 if lane == 'grpc-typescript' else sri
+        cell = _cell(client_lane=lane, client_package_digest=good)
+        assert not list(ledger_validator.iter_errors(_ledger(cell))), lane
+        requirements = copy.deepcopy(governed)
+        requirements['requirements'] = _requirements(cell)['requirements']
+        assert not list(requirement_validator.iter_errors(requirements)), lane
+        # Noncanonical pad bits decode to the same bytes but must not identify the package.
+        bad_values = (wrong_algorithm, good + '\n', 'sha512-' + 'e' * 86 + '==')
+        for value in bad_values:
+            assert not cert._valid_client_package_digest(lane, value), (lane, value)
+            for target in ('cell', 'identity'):
+                changed = copy.deepcopy(cell)
+                destination = changed if target == 'cell' else changed['evidence_receipt']['identity']
+                destination['client_package_digest'] = value
+                assert list(ledger_validator.iter_errors(_ledger(changed))), (lane, target, value)
+            changed_requirements = copy.deepcopy(requirements)
+            changed_requirements['requirements'][0]['client_package_digest'] = value
+            assert list(requirement_validator.iter_errors(changed_requirements)), (lane, value)
+    ordinary = _cell(client_package_digest=sha256)
+    requirements = copy.deepcopy(governed)
+    requirements['requirements'] = _requirements(ordinary)['requirements']
+    assert list(requirement_validator.iter_errors(requirements))
+    unknown = _cell(client_lane='grpc-unknown')
+    assert not cert._valid_receipt(unknown, requirements_revision='requirements-test-v1')
+    assert list(ledger_validator.iter_errors(_ledger(unknown)))
