@@ -149,3 +149,21 @@ def test_signed_manifest_contract_binds_source_and_image_without_inventing_a_loc
             patch.object(recovery, "registry_image_platform_digests", side_effect=lambda coordinate, digest: platforms[digest]):
         with pytest.raises(recovery.QualificationError, match="source binding differs"):
             recovery.provenance(value)
+
+
+@pytest.mark.parametrize("mutation", [
+    lambda definition: definition.update(cpu="4096"),
+    lambda definition: definition["containerDefinitions"][0].update(image="public.ecr.aws/nginx/nginx:stable-alpine"),
+    lambda definition: definition["containerDefinitions"][0].update(secrets=[]),
+])
+def test_candidate_task_definition_is_checked_before_any_proposal(mutation):
+    value = scope()
+    definition = {"taskDefinitionArn": value["candidate"]["taskDefinition"], "requiresCompatibilities": ["FARGATE"],
+                  "cpu": "256", "memory": "512", "runtimePlatform": {"cpuArchitecture": "X86_64"},
+                  "containerDefinitions": [{"name": value["honuaContainerName"], "image": value["candidate"]["image"],
+                    "secrets": [{"name": value["dataset"]["connectionSecretName"], "valueFrom": value["dataset"]["connectionSecretArn"]}]}]}
+    with patch.object(recovery, "aws", return_value={"taskDefinition": definition}):
+        assert recovery.task_definition(value, "candidate")["databaseReferenceMatched"] is True
+        mutation(definition)
+        with pytest.raises(recovery.QualificationError):
+            recovery.task_definition(value, "candidate")

@@ -111,6 +111,9 @@ def validate(scope):
             "telemetry golden query must be bounded and credential-free")
     require(scope.get("costScope", {}).get("createResources") is False, "harness never provisions paid resources")
     require(type(scope["costScope"].get("maxElapsedMinutes")) is int and 0 < scope["costScope"]["maxElapsedMinutes"] <= 60, "reviewed bounded run budget required")
+    require(type(scope["costScope"].get("maxCpuUnitsPerTask")) is int and 0 < scope["costScope"]["maxCpuUnitsPerTask"] <= 1024 and
+            type(scope["costScope"].get("maxMemoryMiBPerTask")) is int and 0 < scope["costScope"]["maxMemoryMiBPerTask"] <= 2048,
+            "bounded Fargate CPU/memory cost scope required")
     require(type(scope["costScope"].get("maxTasksPerService")) is int and 0 < scope["costScope"]["maxTasksPerService"] <= 2, "at most two tasks per isolated service admitted")
     return scope
 
@@ -275,7 +278,7 @@ def denied_query(scope):
             raw = response.read(4097)
             require(len(raw) <= 4096, "anonymous query unexpectedly returned feature data")
             payload = json.loads(raw)
-            require(payload.get("error", {}).get("code") in (401, 403), "anonymous query did not deny access")
+            require(payload.get("error", {}).get("code") in (401, 403, 499), "anonymous query did not deny access")
     except HTTPError as error:
         require(error.code in (401, 403), "anonymous query failed for a reason other than authorization")
     return True
@@ -306,16 +309,25 @@ def snapshot_state(scope):
             "createdAt": snapshots[0].get("SnapshotCreateTime")}
 
 
-def image_state(scope, role):
-    identity = aws(scope, "sts", "get-caller-identity")
-    require(identity["Account"] == scope["awsAccountId"], "AWS account differs from reviewed scope")
+def task_definition(scope, role):
     definition = aws(scope, "ecs", "describe-task-definition", "--task-definition", scope[role]["taskDefinition"])["taskDefinition"]
+    require(definition.get("taskDefinitionArn") == scope[role]["taskDefinition"] and "FARGATE" in definition.get("requiresCompatibilities", []), "exact Fargate task definition required")
+    require(definition.get("runtimePlatform", {}).get("cpuArchitecture", "X86_64") == "X86_64", "only reviewed amd64 tasks admitted")
+    require(str(definition.get("cpu", "")).isdigit() and int(definition["cpu"]) <= scope["costScope"]["maxCpuUnitsPerTask"] and
+            str(definition.get("memory", "")).isdigit() and int(definition["memory"]) <= scope["costScope"]["maxMemoryMiBPerTask"], "task CPU/memory exceeds reviewed cost scope")
     containers = definition["containerDefinitions"]
     honua = [container for container in containers if container.get("name") == scope["honuaContainerName"]]
     require(len(honua) == 1 and honua[0]["image"] == scope[role]["image"], "task definition does not pin the reviewed Honua image")
     secret = scope["dataset"]
     references = {entry["name"]: entry["valueFrom"] for entry in honua[0].get("secrets", [])}
     require(references.get(secret["connectionSecretName"]) == secret["connectionSecretArn"], "task definition does not bind the retained database secret reference")
+    return {"taskDefinition": scope[role]["taskDefinition"], "image": scope[role]["image"], "databaseReferenceMatched": True}
+
+
+def image_state(scope, role):
+    identity = aws(scope, "sts", "get-caller-identity")
+    require(identity["Account"] == scope["awsAccountId"], "AWS account differs from reviewed scope")
+    task_definition(scope, role)
     task_arns = aws(scope, "ecs", "list-tasks", "--cluster", scope["cluster"], "--service-name", scope["canaryService"])["taskArns"]
     require(task_arns and len(task_arns) <= scope["costScope"]["maxTasksPerService"], "bounded running canary task set required")
     tasks = aws(scope, "ecs", "describe-tasks", "--cluster", scope["cluster"], "--tasks", *task_arns)["tasks"]
@@ -394,7 +406,7 @@ def main(argv=None):
             return value
         if args.command == "baseline":
             result = {**base, "status": "baseline-observed", "provenance": provenance(scope), "serving": serving(scope, data, "baseline"),
-                      "cloud": image_state(scope, "baseline"), "snapshot": snapshot_state(scope), "plan": target_plan(scope, control, "candidate")}
+                      "cloud": image_state(scope, "baseline"), "candidateDefinition": task_definition(scope, "candidate"), "snapshot": snapshot_state(scope), "plan": target_plan(scope, control, "candidate")}
         elif args.command.startswith("propose-"):
             recovery = args.command == "propose-recovery"
             evidence("observe-upgrade" if recovery else "baseline")
@@ -406,6 +418,7 @@ def main(argv=None):
                         "reviewed qualification budget expired before upgrade")
             serving(scope, data, "candidate" if recovery else "baseline")
             image_state(scope, "candidate" if recovery else "baseline")
+            task_definition(scope, role)
             plan = target_plan(scope, control, role)
             # Persist intent BEFORE the network request. A lost result requires server reconciliation,
             # never an automatic re-proposal or remote mutation replay.

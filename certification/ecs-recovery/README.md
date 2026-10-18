@@ -60,7 +60,10 @@ names/ARNs, public HTTPS serving/control origins, database/snapshot references,
 signed artifact provenance, seeded query/count/checksum, schema compatibility review and cost
 budget. Proposed run scope creates zero new resources; owner provisioning and
 cleanup require their own reviewed plan. Bound desired/concurrent task counts,
-maximum run duration and cleanup ownership in that plan. The example scope is
+maximum run duration and cleanup ownership in that plan. The template bounds
+one task per service at 256 CPU units/512 MiB; actual adequate sizing must be reviewed
+before use. Both immutable task definitions are checked for amd64, CPU/memory,
+exact image and retained database secret reference before any proposal. The example scope is
 intentionally incomplete and cannot authorize execution.
 
 ## Run sequence after scope approval

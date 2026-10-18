@@ -22,7 +22,9 @@
     "maxElapsedMinutes": 30,
     "provisioningApproved": false,
     "cleanupOwner": "REVIEW-REQUIRED",
-    "maxTasksPerService": 1
+    "maxTasksPerService": 1,
+    "maxCpuUnitsPerTask": 256,
+    "maxMemoryMiBPerTask": 512
   },
   "dataset": {
     "databaseIdentity": "REVIEW-REQUIRED",
