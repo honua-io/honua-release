@@ -10,6 +10,7 @@ from pathlib import Path
 
 import run
 from context_rehearsal import rehearse
+from resource_rehearsal import published_sdk_pool_control, socket_after_pass_control
 
 
 class DockerRegressions(unittest.TestCase):
@@ -189,7 +190,7 @@ class DockerRegressions(unittest.TestCase):
             "sourceRevision": subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=run.ROOT, text=True).strip(),
             "runtimeImage": self.session.runtimes["node"], "nodeVersion": version.stdout.strip(),
             "status": "pass", "sourceHashes": {name: hashlib.sha256((run.HERE / name).read_bytes()).hexdigest()
-                for name in ["jssession.mjs", "jssession.py", "run.py", "docker_regressions.py"]},
+                for name in ["jssession.mjs", "jsresources.mjs", "jssession.py", "run.py", "docker_regressions.py"]},
             "controls": {name: "pass" for name in ["persistentStateOnce", "currentCwdStaticDynamicImports",
                 "nativeFdOutputCaptured", "inheritedChildOutputCaptured",
                 "fullImportPrefixLinkedBeforeEffects", "nonzeroExitStatusRetained",
@@ -198,6 +199,127 @@ class DockerRegressions(unittest.TestCase):
                 "missingNamedExportRefused", "missingDefaultExportRefused", "timeoutChildContainerStopped",
                 "timeoutRestartRefused", "allOwnedContainersAbsent"]}}
         path = run.ROOT / "artifacts/executable-docs/node-context-rehearsal.json"
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(json.dumps(report, indent=2) + "\n")
+
+    def test_node_owned_resources_finish_before_publication(self):
+        healthy = self.session.execution_context("resource-healthy", "node")
+        controls = []
+        for index, schedule in enumerate(["setTimeout(effect, 20).unref();",
+                "setInterval(effect, 20).unref();", "setImmediate(effect).unref();",
+                "require('node:timers/promises').setTimeout(20, undefined, {ref:false}).then(effect);"]):
+            context = self.session.execution_context(f"resource-timer-{index}", "node")
+            first = context.run_js("const effect = () => require('node:fs').appendFileSync('stale', 'bad'); "
+                                   + schedule, "javascript", 20)
+            self.assertEqual(first.status, "pass", first)
+            path = Path(context.cwd, "stale")
+            before = path.read_bytes() if path.exists() else b""
+            self.assertEqual(context.run_js("await new Promise(resolve => setTimeout(resolve, 80)); "
+                "console.log('healthy');", "javascript", 20).stdout, "healthy\n")
+            self.assertEqual(path.read_bytes() if path.exists() else b"", before)
+            if "Immediate" not in schedule:
+                self.assertEqual(before, b"")
+            controls.append(["timeout", "interval", "immediate", "promiseTimer"][index] + "NoAfterPassEffects")
+        refreshed = healthy.run_js("let fires = 0; const reusable = setTimeout(() => fires++, 5); "
+            "await new Promise(resolve => setTimeout(resolve, 10)); console.log(fires);", "javascript", 20)
+        self.assertEqual(refreshed.stdout, "1\n")
+        self.assertEqual(healthy.run_js("reusable.refresh().unref();", "javascript", 20).status, "pass")
+        self.assertEqual(healthy.run_js("await new Promise(resolve => setTimeout(resolve, 40)); "
+            "console.log(fires);", "javascript", 20).stdout, "1\n")
+        controls.append("refreshedTimeoutFreshOwnership")
+        healthy.put("node", Path(healthy.cwd, "scheduler.mjs"), "import {writeFileSync} from 'node:fs'; "
+            "setInterval(() => writeFileSync('import-stale', 'bad'), 20).unref(); export const value = 42;")
+        imported = healthy.run_js("import {value} from './scheduler.mjs'; console.log(value);", "javascript", 20)
+        self.assertEqual(imported.stdout, "42\n")
+        self.assertEqual(healthy.run_js("await new Promise(resolve => setTimeout(resolve, 80)); "
+            "console.log(value);", "javascript", 20).stdout, "42\n")
+        self.assertFalse(Path(healthy.cwd, "import-stale").exists())
+        controls.append("moduleImportSchedulingOwned")
+        socket_after_pass_control(healthy)
+        controls.append("nativeSocketAfterPassDeliveryStopped")
+        port = healthy.run_js("const channel = new (require('node:worker_threads').MessageChannel)(); "
+            "channel.port1.on('message', () => require('node:fs').writeFileSync('port-stale', 'bad')); "
+            "channel.port1.unref(); channel.port2.unref();", "javascript", 20)
+        self.assertEqual(port.status, "pass", port)
+        self.assertEqual(healthy.run_js("channel.port2.postMessage('late'); "
+            "await new Promise(resolve => setTimeout(resolve, 30)); console.log('healthy');",
+            "javascript", 20).stdout, "healthy\n")
+        self.assertFalse(Path(healthy.cwd, "port-stale").exists())
+        controls.append("messagePortsClosedBeforePass")
+        listener = healthy.run_js("const listener = require('node:net').createServer(socket => { "
+            "require('node:fs').writeFileSync('server-stale', 'bad'); socket.end(); }); "
+            "await new Promise(resolve => listener.listen(0, '127.0.0.1', resolve)); "
+            "const listenPort = listener.address().port; listener.on('close', () => console.log('owned-close')); "
+            "listener.unref();", "javascript", 20)
+        self.assertEqual(listener.status, "pass", listener)
+        self.assertEqual(listener.stdout, "owned-close\n")
+        attempt = healthy.run_js("console.log(await new Promise(resolve => { "
+            "const s = require('node:net').connect(listenPort, '127.0.0.1'); "
+            "s.on('error', error => resolve(error.code)); s.on('connect', () => { "
+            "s.destroy(); resolve('unexpected'); }); }));", "javascript", 20)
+        self.assertEqual(attempt.stdout, "ECONNREFUSED\n")
+        self.assertFalse(Path(healthy.cwd, "server-stale").exists())
+        controls.append("listeningServerClosedBeforePass")
+        controls.append("cleanupOutputAttributedToOriginalBlock")
+        healthy.put("node", Path(healthy.cwd, "watched"), "initial")
+        watcher = healthy.run_js("const watcher = require('node:fs').watch('watched', {persistent:false}, "
+            "() => require('node:fs').writeFileSync('watch-stale', 'bad'));", "javascript", 20)
+        self.assertEqual(watcher.status, "pass", watcher)
+        self.assertEqual(healthy.run_js("require('node:fs').writeFileSync('watched', 'later'); "
+            "await new Promise(resolve => setTimeout(resolve, 30)); console.log('healthy');",
+            "javascript", 20).stdout, "healthy\n")
+        self.assertFalse(Path(healthy.cwd, "watch-stale").exists())
+        controls.append("watcherClosedBeforePass")
+        for name, callback, expected in [("cleanup-error", "throw new Error('cleanup failure');", "cleanup failure"),
+                ("cleanup-timeout", "setInterval(() => {}, 1000);", "timed out")]:
+            context = self.session.execution_context(name, "node")
+            result = context.run_js("const s = require('node:net').createServer(); "
+                "await new Promise(resolve => s.listen(0, '127.0.0.1', resolve)); "
+                f"s.on('close', () => {{ {callback} }}); s.unref();", "javascript", 2)
+            self.assertEqual(result.status, "fail", result)
+            self.assertIn(expected, result.stderr + result.detail)
+            self.assertNotEqual(run.docker("inspect", context.containers["node"]).returncode, 0)
+            controls.append(name + "OriginalBlockFailedAndStopped")
+        refused = self.session.execution_context("unsupported-udp", "node")
+        self.assertEqual(refused.run_js("const udp = require('node:dgram').createSocket('udp4');",
+            "javascript", 20).status, "pass")
+        udp = refused.run_js("await new Promise(resolve => udp.bind(0, '127.0.0.1', resolve)); udp.unref();",
+            "javascript", 20)
+        self.assertEqual(udp.status, "fail", udp)
+        self.assertIn("unsupported owned unref resource: UDP", udp.stderr)
+        self.assertNotEqual(run.docker("inspect", refused.containers["node"]).returncode, 0)
+        controls.append("unsupportedOwnedUnrefRefused")
+        for index, (source, kind) in enumerate([
+                ("require('node:fs').watchFile('watched', {persistent:false}, () => {});", "StatWatcher"),
+                ("require('node:fs/promises').watch('watched', {persistent:false});", "FSWatchIterator"),
+                ("require('node:child_process').spawn(process.execPath, ['-e', 'setInterval(() => {}, 1000)'], "
+                 "{stdio:'ignore'}).unref();", "ChildProcess"),
+                ("new (require('node:worker_threads').Worker)('setInterval(() => {}, 1000)', {eval:true}).unref();", "Worker")]):
+            context = self.session.execution_context(f"unsupported-unref-{index}", "node")
+            context.put("node", Path(context.cwd, "watched"), "initial")
+            result = context.run_js(source, "javascript", 20)
+            self.assertEqual(result.status, "fail", result)
+            self.assertIn(f"unsupported owned unref resource: {kind}", result.stderr)
+            self.assertNotEqual(run.docker("inspect", context.containers["node"]).returncode, 0)
+            controls.append(f"unsupported{kind}UnrefRefused")
+        sdk = self.session.execution_context("published-sdk-pool", "node")
+        artifact = published_sdk_pool_control(sdk, run.ROOT)
+        controls.append("publishedSdkNativeAndPersistentPoolReuse")
+        self.assertEqual(healthy.run_js("console.log(value);", "javascript", 20).stdout, "42\n")
+        controls.append("otherContextHealthyAfterCleanupFailures")
+        owned = [name for context in [self.session, *self.session.contexts.values()]
+                 for name in context.containers.values()]
+        self.session.close()
+        self.assertTrue(all(run.docker("inspect", name).returncode != 0 for name in owned))
+        controls.append("allOwnedContainersAbsent")
+        report = {"schemaVersion": "executable-docs-node-resource-rehearsal.v1", "qualification": False,
+            "sourceRevision": subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=run.ROOT, text=True).strip(),
+            "runtimeImage": self.session.runtimes["node"], "status": "pass", "publicSdkArtifact": artifact,
+            "controls": {name: "pass" for name in controls},
+            "sourceHashes": {name: hashlib.sha256((run.HERE / name).read_bytes()).hexdigest()
+                for name in ["jssession.mjs", "jsresources.mjs", "jssession.py", "run.py",
+                             "resource_rehearsal.py", "docker_regressions.py"]}}
+        path = run.ROOT / "artifacts/executable-docs/node-resource-rehearsal.json"
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text(json.dumps(report, indent=2) + "\n")
 

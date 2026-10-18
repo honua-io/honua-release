@@ -8,6 +8,7 @@ import { AsyncLocalStorage } from 'node:async_hooks';
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { Console } from 'node:console';
+import { ownResources } from './jsresources.mjs';
 
 const output = new AsyncLocalStorage();
 const initialEnvironment = { ...process.env };
@@ -25,6 +26,7 @@ const input = new PassThrough();
 const evaluations = new Map();
 const refInput = process.stdin.ref.bind(process.stdin);
 const unrefInput = process.stdin.unref.bind(process.stdin);
+const resources = ownResources(output);
 let active;
 // With only our input pipe unreferenced, beforeExit is Node's own completion
 // oracle: referenced timers, I/O and their promise callbacks have drained.
@@ -32,11 +34,21 @@ let active;
 process.on('beforeExit', code => {
   if (!active) return;
   const completion = active;
-  active = undefined;
-  refInput();
-  if ((code & 255) !== 0) completion.reject(new Error(`Node script completed with exit code ${code & 255}`));
-  else if (completion.evaluated) completion.resolve();
-  else completion.reject(new Error('top-level evaluation did not settle before Node became idle'));
+  if ((code & 255) !== 0) return completion.reject(new Error(`Node script completed with exit code ${code & 255}`));
+  if (!completion.evaluated) return completion.reject(new Error('top-level evaluation did not settle before Node became idle'));
+  try {
+    if (output.run(completion.file, () => resources.dispose(completion.file))) {
+      // A referenced event-loop checkpoint lets public close callbacks drain.
+      // The next beforeExit, not a guessed quiet period, decides completion.
+      output.exit(() => setImmediate(() => {}));
+      return;
+    }
+    active = undefined;
+    refInput();
+    completion.resolve();
+  } catch (failure) {
+    completion.reject(failure);
+  }
 });
 process.on('unhandledRejection', reason => {
   const reject = evaluations.get(output.getStore());
@@ -159,6 +171,7 @@ for await (const line of createInterface({ input: process.stdin, crlfDelay: Infi
       await new Promise((resolve, reject) => {
         let finished = false;
         const completion = {
+          file,
           evaluated: false,
           resolve() { if (!finished) { finished = true; resolve(); } },
           reject(failure) {

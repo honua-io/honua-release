@@ -237,6 +237,7 @@ class Session:
         shutil.copy2(nuget / "NuGet.Config", home_nuget / "NuGet.Config")
         shutil.copy2(HERE / "pysession.py", self.state / "pysession.py")
         shutil.copy2(HERE / "jssession.mjs", self.state / "jssession.mjs")
+        shutil.copy2(HERE / "jsresources.mjs", self.state / "jsresources.mjs")
 
     # container lifecycle
     def container(self, runtime: str) -> str:

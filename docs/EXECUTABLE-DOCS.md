@@ -105,6 +105,14 @@ The final native exit status also remains authoritative; nonzero `process.exitCo
 and loses the context rather than passing because the interpreter stays alive.
 Top-level await that cannot settle at idle fails and stops the context; referenced work
 that never completes hits the caller's timeout. The oracle uses no guessed quiet interval.
+Before reporting completion, owned unreferenced timers/immediates are cancelled and owned
+unreferenced sockets, listening servers, message ports and `fs.watch` watchers are closed
+through public APIs. Close callbacks remain captured by their original block; errors or
+cleanup that exceeds that block's timeout fail the context. Idle SDK connections close
+without removing listeners, and a later query by the same client must reconnect. Unsupported
+owned unreferenced UDP/child/worker/stat-watcher/promise-watch resources fail before pass.
+This bounded cleanup can run close callbacks that native process exit would omit. It is
+not full native exit fidelity, which remains open under #683 along with the ESM limitations.
 
 ## Results
 

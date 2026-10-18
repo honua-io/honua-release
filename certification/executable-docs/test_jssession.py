@@ -362,6 +362,150 @@ def test_unsettled_top_level_await_at_quiescence_stops_context(reader):
     assert "refusing to restart" in run(reader, "console.log(priorState);").detail
 
 
+@pytest.mark.parametrize('schedule', [
+    "setTimeout(effect, 20).unref();",
+    "setInterval(effect, 20).unref();",
+    "setImmediate(effect).unref();",
+    "require('node:timers/promises').setTimeout(20, undefined, {ref:false}).then(effect);",
+])
+def test_owned_unref_schedulers_cannot_mutate_after_completion(reader, schedule):
+    first = run(reader, "const effect = () => require('node:fs').appendFileSync('stale', 'bad'); " + schedule)
+    assert first.status == 'pass', first
+    # Immediates can run before quiescence, depending on the native event-loop
+    # phase. The invariant here is no further effects AFTER the published pass.
+    path = Path(reader.cwd, 'stale')
+    before = path.read_bytes() if path.exists() else b''
+    later = run(reader, "await new Promise(resolve => setTimeout(resolve, 80)); console.log('healthy');")
+    assert later.status == 'pass' and later.stdout == 'healthy\n'
+    assert (path.read_bytes() if path.exists() else b'') == before
+    if 'Immediate' not in schedule:
+        assert before == b''
+
+
+def test_fired_timeout_refresh_gets_fresh_block_ownership(reader):
+    first = run(reader, "let fired = 0; const reusable = setTimeout(() => fired++, 5); "
+                "await new Promise(resolve => setTimeout(resolve, 10)); console.log(fired);")
+    assert first.status == 'pass' and first.stdout == '1\n'
+    refreshed = run(reader, "reusable.refresh().unref();")
+    assert refreshed.status == 'pass', refreshed
+    later = run(reader, "await new Promise(resolve => setTimeout(resolve, 40)); console.log(fired);")
+    assert later.status == 'pass' and later.stdout == '1\n'
+
+
+def test_module_import_scheduled_unref_work_is_owned(reader):
+    Path(reader.cwd, 'scheduler.mjs').write_text("import {writeFileSync} from 'node:fs'; "
+        "setInterval(() => writeFileSync('import-stale', 'bad'), 20).unref(); export const value = 42;")
+    first = run(reader, "import {value} from './scheduler.mjs'; console.log(value);")
+    assert first.status == 'pass' and first.stdout == '42\n'
+    assert run(reader, "await new Promise(resolve => setTimeout(resolve, 80)); console.log(value);").stdout == '42\n'
+    assert not Path(reader.cwd, 'import-stale').exists()
+
+
+def test_owned_unref_listening_server_closes_before_publication(reader):
+    first = run(reader, "const listener = require('node:net').createServer(socket => { "
+        "require('node:fs').writeFileSync('accepted-stale', 'bad'); socket.end(); }); "
+        "await new Promise(resolve => listener.listen(0, '127.0.0.1', resolve)); "
+        "const listenerPort = listener.address().port; listener.unref();")
+    assert first.status == 'pass', first
+    result = run(reader, "console.log(await new Promise(resolve => { "
+        "const attempted = require('node:net').connect(listenerPort, '127.0.0.1'); "
+        "attempted.on('error', error => resolve(error.code)); attempted.on('connect', () => { "
+        "attempted.destroy(); resolve('unexpected-connect'); }); }));")
+    assert result.status == 'pass' and result.stdout == 'ECONNREFUSED\n'
+    assert not Path(reader.cwd, 'accepted-stale').exists()
+
+
+def test_owned_unref_message_ports_close_before_next_block(reader):
+    first = run(reader, "const channel = new (require('node:worker_threads').MessageChannel)(); "
+        "channel.port1.on('message', () => require('node:fs').writeFileSync('port-stale', 'bad')); "
+        "channel.port1.unref(); channel.port2.unref();")
+    assert first.status == 'pass', first
+    next_block = run(reader, "channel.port2.postMessage('late'); "
+        "await new Promise(resolve => setTimeout(resolve, 30)); console.log('healthy');")
+    assert next_block.status == 'pass' and next_block.stdout == 'healthy\n'
+    assert not Path(reader.cwd, 'port-stale').exists()
+
+
+def test_owned_unref_watcher_closes_before_later_file_change(reader):
+    Path(reader.cwd, 'watched').write_text('initial')
+    first = run(reader, "const watchHandle = require('node:fs').watch('watched', {persistent:false}, "
+        "() => require('node:fs').writeFileSync('watch-stale', 'bad'));")
+    assert first.status == 'pass', first
+    next_block = run(reader, "require('node:fs').writeFileSync('watched', 'later'); "
+        "await new Promise(resolve => setTimeout(resolve, 30)); console.log('healthy');")
+    assert next_block.status == 'pass' and next_block.stdout == 'healthy\n'
+    assert not Path(reader.cwd, 'watch-stale').exists()
+
+
+def test_owned_unref_socket_cannot_receive_native_io_after_pass(reader):
+    from resource_rehearsal import socket_after_pass_control
+    socket_after_pass_control(reader)
+
+
+def test_cleanup_callbacks_are_captured_before_pass_with_explicit_native_difference(reader):
+    source = "const s = require('node:net').createServer(); " \
+        "await new Promise(resolve => s.listen(0, '127.0.0.1', resolve)); " \
+        "s.on('close', () => console.log('cleanup-close')); s.unref();"
+    native = Path(reader.cwd, 'native.mjs')
+    native.write_text("import {createRequire} from 'node:module'; const require=createRequire(import.meta.url);\n" + source)
+    oracle = subprocess.run(['node', str(native)], cwd=reader.cwd, capture_output=True, text=True, timeout=5)
+    assert oracle.returncode == 0 and oracle.stdout == ''
+    result = run(reader, source)
+    # Deliberate bounded cleanup contract, NOT preservation of native process exit.
+    assert result.status == 'pass' and result.stdout == 'cleanup-close\n'
+
+
+@pytest.mark.parametrize('callback,expected', [
+    ("throw new Error('cleanup failure');", 'cleanup failure'),
+    ("setInterval(() => {}, 1000);", 'timed out'),
+])
+def test_cleanup_errors_or_nondraining_callbacks_fail_original_block(reader, callback, expected):
+    result = run(reader, "const s = require('node:net').createServer(); "
+        "await new Promise(resolve => s.listen(0, '127.0.0.1', resolve)); "
+        f"s.on('close', () => {{ {callback} }}); s.unref();", timeout=0.5)
+    assert result.status == 'fail' and expected in result.stderr + result.detail
+    assert reader.js.broken and reader.js.proc.poll() is not None
+    assert 'refusing to restart' in run(reader, "console.log('bad');").detail
+
+
+def test_unsupported_owned_unref_udp_refuses_completion(reader):
+    result = run(reader, "const udp = require('node:dgram').createSocket('udp4'); "
+        "await new Promise(resolve => udp.bind(0, '127.0.0.1', resolve)); udp.unref();")
+    assert result.status == 'fail' and 'unsupported owned unref resource: UDP' in result.stderr
+    assert reader.js.broken
+
+
+@pytest.mark.parametrize('source,kind', [
+    ("require('node:fs').watchFile('watched', {persistent:false}, () => {});", 'StatWatcher'),
+    ("const stat = require('node:fs').watchFile('watched', () => {}); stat.unref();", 'StatWatcher'),
+    ("require('node:fs/promises').watch('watched', {persistent:false});", 'FSWatchIterator'),
+])
+def test_unsupported_unref_watcher_forms_fail_even_when_caught(reader, source, kind):
+    Path(reader.cwd, 'watched').write_text('initial')
+    result = run(reader, "try { " + source + " } catch (error) { console.log('caught'); } "
+        "require('node:fs').unwatchFile('watched');")
+    assert result.status == 'fail' and f'unsupported owned unref resource: {kind}' in result.stderr
+    assert reader.js.broken
+
+
+def test_inactive_udp_unref_in_later_block_is_owned_by_that_block(reader):
+    assert run(reader, "const inactive = require('node:dgram').createSocket('udp4');").status == 'pass'
+    result = run(reader, "await new Promise(resolve => inactive.bind(0, '127.0.0.1', resolve)); inactive.unref();")
+    assert result.status == 'fail' and 'unsupported owned unref resource: UDP' in result.stderr
+    assert reader.js.broken
+
+
+@pytest.mark.parametrize('source,kind', [
+    ("require('node:child_process').spawn(process.execPath, ['-e', 'setInterval(() => {}, 1000)'], "
+     "{stdio:'ignore'}).unref();", 'ChildProcess'),
+    ("new (require('node:worker_threads').Worker)('setInterval(() => {}, 1000)', {eval:true}).unref();", 'Worker'),
+])
+def test_unsupported_owned_unref_children_and_workers_fail_before_pass(reader, source, kind):
+    result = run(reader, source)
+    assert result.status == 'fail' and f'unsupported owned unref resource: {kind}' in result.stderr
+    assert reader.js.broken and reader.js.proc.poll() is not None
+
+
 @pytest.mark.parametrize("declaration,module_source", [
     ("import { missing } from './exports.mjs';", "export const present = 42;"),
     ("import { missing as unused } from './exports.mjs';", "export const present = 42;"),

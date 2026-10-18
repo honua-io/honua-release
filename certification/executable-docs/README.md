@@ -66,6 +66,19 @@ unreferenced. Referenced async work and its callbacks must finish before the blo
 late errors remain errors even after evaluation returns. Unsettled top-level await at idle
 fails and stops the context. Referenced long-running work remains subject to the caller's
 timeout. No quiet-period sleep is used as a completion oracle.
+Before publishing completion, the reader cancels its owned unreferenced timers/immediates
+and closes owned unreferenced sockets, listening servers, message ports and `fs.watch`
+watchers through their public lifecycle APIs. Refreshed timers acquire the refreshing
+block's ownership. Capture remains active while close callbacks drain; a cleanup error
+or work that cannot drain within the original timeout fails and stops that context.
+An idle SDK pool connection is closed without removing its listeners; the installed
+public SDK must reconnect when the same client is used by a later block. There are no
+trusted-dependency exemptions. Unsupported owned unreferenced UDP sockets, child processes,
+workers, stat watchers and promise-watch iterators fail explicitly before completion.
+This is bounded resource cleanup, not native process-exit fidelity: cleanup may invoke
+user close callbacks that native process exit would not invoke. Paired native-oracle
+controls retain that difference under open #683. Arbitrary native-addon schedulers and
+the full Node Module API are not established by this slice.
 The final `process.exitCode` is checked at completion, with Node's native 8-bit exit status
 retained; a nonzero status fails and loses the context. Each block starts with a fresh exit status.
 Completion records use atomically published files with a unique request identity on the
@@ -82,7 +95,10 @@ slice does not complete that requirement. The paired native-oracle controls reta
 expected refusal as a known limitation, never as a successful document execution or skip.
 The live Docker regression retains `artifacts/executable-docs/node-context-rehearsal.json`
 with source hashes, the pinned runtime image, actual Node version and owned-cleanup controls.
-These offline controls do not establish candidate execution or change any required row's status.
+Its separate `node-resource-rehearsal.json` binds the public SDK pool control to the
+manifest's package version, integrity and source revision, while native socket fixtures
+exercise delivery after completion. These controls do not establish candidate execution
+or change any required row's status.
 
 
 ## Immutable source builds
