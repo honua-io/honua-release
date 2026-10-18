@@ -223,7 +223,8 @@ NIGHT = json.loads((ROOT / "tools/fixtures/protocol-ledger/night.json").read_tex
 
 
 def night():
-    return json.loads(json.dumps(NIGHT))
+    # Runtime binding tests need the current explicit contract; retained NIGHT bytes stay historical.
+    return synthetic_modern_night()
 
 
 def resolved_manifest() -> dict:
@@ -247,7 +248,7 @@ def candidate_root(tmp_path, manifest=None) -> Path:
     root.mkdir(parents=True, exist_ok=True)
     (root / MODULE.MANIFEST).write_text(yaml.safe_dump(manifest or resolved_manifest(), sort_keys=False), encoding="utf-8")
     (root / "certification").mkdir(exist_ok=True)
-    (root / MODULE.CATALOG).write_text(json.dumps(NIGHT["catalog"], indent=2) + "\n", encoding="utf-8")
+    (root / MODULE.CATALOG).write_text(json.dumps(night()["catalog"], indent=2) + "\n", encoding="utf-8")
     return root
 
 
@@ -290,7 +291,7 @@ def rehash(cell: dict) -> dict:
 
 def synthetic_modern_night():
     """Explicit test-only current wire shape; never change the retained historical bytes."""
-    value = night()
+    value = json.loads(json.dumps(NIGHT))
     for cell in value["ledger"]["cells"]:
         if cell.get("client_lane") != "sdk-python-certification":
             continue
@@ -658,3 +659,29 @@ def test_plan_reports_source_derived_official_client_version_changes(tmp_path):
         "source": "sdk-js", "name": "@honua/sdk-js", "current": "0.1.9-beta.0", "proposed": "0.2.0",
     }]
     assert "sdk-js (@honua/sdk-js): 0.1.9-beta.0 -> 0.2.0" in MODULE.human(plan, root)
+
+
+@pytest.mark.parametrize("field,value", [("sha256", "e" * 64), ("source", "local"),
+    ("filename", "honua_sdk-0.1.99-py3-none-any.whl"), ("extra", True)])
+def test_nightly_binding_refuses_rehashed_python_wheel_swap(field, value):
+    recorded = night()
+    cell = next(row for row in recorded["ledger"]["cells"]
+                if row.get("client_lane") == "sdk-python-certification" and row["result"] in ("pass", "fail"))
+    cell["client_package"][field] = value
+    cell["evidence_receipt"]["identity"]["client_package"] = dict(cell["client_package"])
+    rehash(cell)
+    assert "Python wheel differs from governed published artifact" in refusal(
+        ledger=recorded["ledger"], catalog=recorded["catalog"])
+
+
+@pytest.mark.parametrize("location", ["catalog", "cell", "receipt"])
+def test_nightly_binding_refuses_missing_governed_or_measured_python_wheel(location):
+    recorded = night()
+    cell = next(row for row in recorded["ledger"]["cells"]
+                if row.get("client_lane") == "sdk-python-certification" and row["result"] in ("pass", "fail"))
+    requirement = next(row for row in recorded["catalog"]["requirements"]
+                       if all(row.get(key) == cell.get(key) for key in MODULE.LEDGER_IDENTITY))
+    {"catalog": requirement, "cell": cell, "receipt": cell["evidence_receipt"]["identity"]}[location].pop("client_package")
+    rehash(cell)
+    assert "Python wheel differs from governed published artifact" in refusal(
+        ledger=recorded["ledger"], catalog=recorded["catalog"])
