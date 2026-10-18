@@ -1,5 +1,6 @@
 """The devkit gate must reject substituted bytes and incomplete execution evidence."""
 import hashlib
+import copy
 import json
 from pathlib import Path
 import sys
@@ -67,6 +68,29 @@ def test_binds_both_language_outputs_and_package(evidence):
     assert candidate["package"]["sha256"] == gate.sha256(package)
     assert candidate["imageConfigDigest"] == IMAGE
     assert {a["language"] for a in candidate["qualification"]["geoJsonArtifacts"]} == {"python", "dotnet"}
+
+
+def test_requires_the_reviewed_python_digest_not_just_any_digest(evidence):
+    root, package = evidence
+    expected = "python@sha256:" + "5" * 64
+    assert gate.qualify(root, package, SOURCE, expected_python_image=expected)["pythonBase"] == expected
+    with pytest.raises(gate.ArtifactError, match="reviewed workflow input"):
+        gate.qualify(root, package, SOURCE, expected_python_image="python@sha256:" + "6" * 64)
+
+
+@pytest.mark.parametrize("receipt_name", ["failed", "corrected", "cancelled", "all"])
+def test_rejects_relabelled_or_partly_reused_language_executions(evidence, receipt_name):
+    root, package = evidence
+    path = root / "fixture-qualification/qualification.json"
+    fixtures = gate.load(path)
+    python_run, dotnet_run = fixtures["runs"]
+    if receipt_name == "all":
+        fixtures["runs"][1] = copy.deepcopy(python_run) | {"language": "dotnet"}
+    else:
+        dotnet_run[receipt_name] = copy.deepcopy(python_run[receipt_name])
+    write(path, fixtures)
+    with pytest.raises(gate.ArtifactError, match="distinct across both languages"):
+        gate.qualify(root, package, SOURCE)
 
 
 @pytest.mark.parametrize("file, mutate, error", [

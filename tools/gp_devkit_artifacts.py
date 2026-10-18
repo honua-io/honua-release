@@ -54,7 +54,7 @@ def package_identity(path, source_sha):
         return version, hashlib.sha256(assembly).hexdigest()
 
 
-def qualify(root, package, source_sha):
+def qualify(root, package, source_sha, *, expected_python_image=None):
     root, package = Path(root), Path(package)
     require(re.fullmatch(r"[0-9a-f]{40}", source_sha), "Full server source SHA required")
     version, assembly_hash = package_identity(package, source_sha)
@@ -70,6 +70,9 @@ def qualify(root, package, source_sha):
             re.fullmatch(r"[0-9a-f]{64}", sdk.get("archiveSha256", "")), "Complete pinned .NET SDK archive identity required")
     require(re.fullmatch(r"(?:docker\.io/library/)?python@sha256:[0-9a-f]{64}", prepared.get("pythonBase", "")),
             "Reviewed immutable Python base required")
+    if expected_python_image is not None:
+        require(prepared["pythonBase"] == expected_python_image,
+                "Assembled Python base differs from the reviewed workflow input")
     installed = load(root / "installed-qualification/qualification.json")
     required_checks = {"installed-bootstrap", "payload-hashes", "installed-serve", "human-binding", "delegated-bind-denied",
                        "workspace-grant", "immutable-source", "conditional-source", "run-discovery", "sigterm-shutdown"}
@@ -89,6 +92,7 @@ def qualify(root, package, source_sha):
     require(len(runs) == 2 and {run.get("language") for run in runs} == {"python", "dotnet"},
             "Both Python and .NET execution qualifications are required")
     artifacts = []
+    execution_ids = set()
     for run in runs:
         receipts = [run.get(name, {}) for name in ("failed", "corrected", "cancelled")]
         require([receipt.get("status") for receipt in receipts] == ["failed", "succeeded", "cancelled"],
@@ -96,6 +100,10 @@ def qualify(root, package, source_sha):
         require(len({receipt.get("runId") for receipt in receipts}) == 3 and
                 all(re.fullmatch(r"[0-9a-f]{32}", receipt.get("runId", "")) for receipt in receipts),
                 "Distinct actual execution identities required")
+        current_ids = {receipt["runId"] for receipt in receipts}
+        require(execution_ids.isdisjoint(current_ids),
+                "Execution identities must be distinct across both languages")
+        execution_ids.update(current_ids)
         require(all(receipt.get("schema") == "honua.gp.workspace-run/v1" and receipt.get("network") == "none" and
                     receipt.get("image") == image and re.fullmatch(r"[0-9a-f]{64}", receipt.get("snapshotDigest", "")) for receipt in receipts),
                 "Execution receipts must bind immutable snapshots and the exact image")

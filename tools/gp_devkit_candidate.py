@@ -76,7 +76,7 @@ def prepare(options):
                     "--sdk-archive", str(sdk), "--sdk-sha512", sdk_receipt["sha512"], "--sdk-version", sdk_receipt["version"],
                     "--python-image", options.python_image, "--root", str(assembly)],
                    cwd=initial, env=env, check=True, timeout=3000)
-    candidate = gate.qualify(assembly, package, options.source_sha)
+    candidate = gate.qualify(assembly, package, options.source_sha, expected_python_image=options.python_image)
     (root / "devkit-candidate.json").write_text(json.dumps(candidate, indent=2) + "\n")
     export = root / "export"
     export.mkdir()
@@ -97,7 +97,8 @@ def prepare(options):
         destination = proof / relative
         destination.parent.mkdir(parents=True, exist_ok=True)
         shutil.copy2(assembly / relative, destination)
-    gate.require(gate.qualify(proof, export / package.name, options.source_sha) == candidate,
+    gate.require(gate.qualify(proof, export / package.name, options.source_sha,
+                             expected_python_image=options.python_image) == candidate,
                  "Exported evidence no longer qualifies the candidate")
     return candidate
 
