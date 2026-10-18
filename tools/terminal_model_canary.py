@@ -241,7 +241,7 @@ def validate_deterministic_receipt(
     if not isinstance(stages, list) or len(stages) != len(journey["stages"]):
         raise CanaryError("deterministic #123 receipt does not cover the imported journey")
     for expected, actual in zip(journey["stages"], stages, strict=True):
-        required = not bounded_off or expected["number"] in (1, 2, 5)
+        required = not bounded_off or expected["number"] in (1, 2) or (isinstance(actual, dict) and actual.get("status") == "pass")
         evidence = actual.get("evidence") if isinstance(actual, dict) else None
         if (
             not isinstance(actual, dict)
@@ -257,7 +257,13 @@ def validate_deterministic_receipt(
             raise CanaryError(
                 f"deterministic #123 receipt stage {expected['id']} is not complete and current"
             )
-    if bounded_off:
+    if bounded_off and any(stages[4].get(key) for key in (
+            "jobId", "operationId", "operationInstanceId", "jobStatus", "resourceUri", "jobCreatedAt")):
+        raise CanaryError("Redis-off prerequisite carries contradictory GP execution evidence")
+    if bounded_off and stages[4]["status"] == "pass":
+        # A raw full journey can stop before GP on Redis-off. This prerequisite establishes
+        # setup/auth only; the separate explicit profile must actually issue and verify refusal.
+        # If the raw journey claims GP passed, its own typed refusal remains mandatory.
         refusal = stages[4].get("topologyRefusal") or {}
         if (refusal.get("topology") != "redis-off" or refusal.get("code") != "unavailable"
                 or refusal.get("missingDependency") != "redis"

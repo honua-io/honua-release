@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
 """Provision a cloud cell, run the imported pinned journey, meter cost and always tear down.
 
-GA: {aws-ecs, aws-serverless, aws-eks} x Redis off/on; aws-serverless is Lambda + AWS Batch
-geoprocessing, and aws-eks is the bring-your-own Kubernetes cell (Helm on EKS, honua-release#203, owner
-decisions 12/18 of 2026-10-10). The mixed ECS + Batch cell is out of the 2026.1 rc.3 matrix: its IaC
+GA: {aws-ecs, aws-serverless} x Redis off/on; aws-serverless is Lambda + AWS Batch
+geoprocessing. EKS is informational Preview under the 2026-10-16 owner amendment.
+Redis-on exercises full workflows; Redis-off requires explicitly bound serving/refusal proof. The mixed ECS + Batch cell is out of the 2026.1 rc.3 matrix: its IaC
 root does not exist yet (restore it when honua-iac#209 lands).
 Missing, blocked or invalid journey evidence cannot certify a GA cloud cell.
 """
@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import argparse
 import hashlib
+import importlib.util
 import json
 import os
 import re
@@ -117,8 +118,20 @@ def _results(rows) -> list[CheckResult]:
             for row in rows or []]
 
 
+def installed_clients():
+    """The published-client endpoint adapter, kept separate from the terminal journey driver."""
+    name = "installed_client_endpoint"
+    if name not in sys.modules:
+        path = E2E_DIR.parent / "certification/installed-clients/endpoint.py"
+        spec = importlib.util.spec_from_file_location(name, path)
+        module = importlib.util.module_from_spec(spec)
+        sys.modules[name] = module
+        spec.loader.exec_module(module)
+    return sys.modules[name]
+
+
 def provision_phase(target, target_name: str, *, require_real: bool, redis_enabled: bool,
-                    journey_datasource: dict | None = None) -> dict:
+                    journey_datasource: dict | None = None, installed_context: dict | None = None) -> dict:
     """Credentialed half: provision, probe and seed the cell. Nothing third-party runs here.
 
     Returns the handoff the credential-free journey job and the teardown job consume. The handoff
@@ -253,6 +266,16 @@ def provision_phase(target, target_name: str, *, require_real: bool, redis_enabl
             except Exception:
                 state["runningImage"] = None
         state.update(endpoint=endpoint, ready=ready)
+        if installed_context is not None and redis_enabled:
+            state["installedClients"] = {"enabled": True, "prepared": False}
+            try:
+                installed_context.update(installed_clients().prepare(target, state, cloud_journey.manifest(),
+                    E2E_DIR.parent / "platform-manifest.yaml", admin_key=target.admin_api_key,
+                    signing_key=getattr(target, "journey_signing_key", None)))
+                state["installedClients"]["prepared"] = True
+            except Exception as error:
+                # A seed/client exception may carry database coordinates. Only the type is public.
+                state["installedClients"]["why"] = f"installed-client fixture preparation raised {type(error).__name__}"
     except ProvisionError as e:
         report["status"] = "fail"
         report["why"] = f"provision failed: {e}"
@@ -262,8 +285,32 @@ def provision_phase(target, target_name: str, *, require_real: bool, redis_enabl
     return state
 
 
+def installed_client_row(state, context, admin_key):
+    """The existing matrix is the denominator; missing prerequisites remain visibly blocked."""
+    output = cloud_journey.cell_dir(state["cell"]) / "installed-clients/receipt.json"
+    if not context:
+        return CheckResult("S11-installed-clients", "blocked",
+            "published-client endpoint fixture unavailable (honua-release#65); full suite was not qualified")
+    adapter = installed_clients()
+    try:
+        receipt = adapter.run_cloud(state, context, admin_key, output)
+        counts = {status: sum(result["status"] == status for result in receipt["results"])
+                  for status in ("pass", "fail", "blocked")}
+        return CheckResult("S11-installed-clients", receipt["status"],
+            "published clients executed the complete installed-client matrix against this endpoint",
+            {"receipt": str(output.relative_to(E2E_DIR)), "counts": counts})
+    except Exception as error:
+        prerequisite = getattr(adapter, "PrerequisiteUnavailable", None)
+        if isinstance(prerequisite, type) and isinstance(error, prerequisite):
+            return CheckResult("S11-installed-clients", "blocked",
+                "approved ALB HTTP cell needs HTTPS for the published-client workflow; no clients executed (honua-release#65)")
+        return CheckResult("S11-installed-clients", "fail",
+            f"published-client endpoint qualification raised {type(error).__name__} (honua-release#65)")
+
+
 def journey_phase(state: dict, *, admin_key: str, max_attempts: int = 2,
-                  s10_source_url: str | None = None, tenant_signing_key: str | None = None) -> dict:
+                  s10_source_url: str | None = None, tenant_signing_key: str | None = None,
+                  installed_context: dict | None = None) -> dict:
     """Credential-free half: the npm/browser seam drivers and the manifest-pinned journey.
 
     The workflow runs this in a job with no id-token permission and no AWS credential, so nothing a
@@ -311,6 +358,8 @@ def journey_phase(state: dict, *, admin_key: str, max_attempts: int = 2,
             redis_enabled=state.get("redis") == "redis-on", seed_error=state.get("seedError"))
         if s10 is not None:
             extended = [*extended, s10]
+        if state.get("installedClients", {}).get("enabled"):
+            extended = [*extended, installed_client_row(state, installed_context, admin_key)]
         journey["scenarioCoverage"] = _check_dicts(extended)
         blockers: list[list[str]] = []
         for number in range(1, max_attempts + 1):
@@ -321,8 +370,9 @@ def journey_phase(state: dict, *, admin_key: str, max_attempts: int = 2,
             journey["journeyAttempts"].append(record)
             receipt = json.loads((E2E_DIR / record["receipt"]).read_text())
             try:
-                passed = cloud_journey.validate_attempt(record, receipt, cell,
-                                                        run_id=run_id, run_attempt=run_attempt)
+                passed = cloud_journey.qualify_attempt(record, receipt, cell,
+                    raw_path=E2E_DIR / record["receipt"], run_id=run_id, run_attempt=run_attempt,
+                    require_observation=False)
             except ValueError as error:
                 # validate_attempt's reasons are fixed strings; they carry no receipt content.
                 journey["status"] = "fail"
@@ -331,8 +381,8 @@ def journey_phase(state: dict, *, admin_key: str, max_attempts: int = 2,
             if passed:
                 break
             blockers.append(cloud_journey.documented_blockers(receipt))
-            if blockers[-1]:
-                break  # a documented limitation is deterministic; another attempt cannot lift it
+            if blockers[-1] and not record.get("servingRefusal"):
+                break  # only the explicit profile gets the existing retry budget past a raw block
         else:
             journey["status"] = "fail"
             journey["why"] = "journey did not pass within the recorded attempt budget"
@@ -405,6 +455,25 @@ def teardown_phase(state: dict, journey: dict, target, *, reference_endpoint: st
     # independent obligations. An error in any one must not bypass the following obligations.
     try:
         try:
+            if cell in ("aws-ecs/redis-off", "aws-serverless/redis-off") and any(
+                    record.get("servingRefusal") for record in report["journeyAttempts"]):
+                try:
+                    pinned = cloud_journey.manifest()
+                    after_image = (cloud_journey.observe_ecs_image(target, pinned)[0] if state["target"] == "aws-ecs"
+                                   else cloud_journey.observed_lambda_image(target, pinned))
+                    after = cloud_journey.observed_server(cloud_journey.server_identity(state["endpoint"]), after_image)
+                    before = cloud_journey.observed_server(state.get("observedServer"), state.get("runningImage"))
+                    for record in report["journeyAttempts"]:
+                        record["profileObservation"] = {"source": "aws-control-plane", "before": before,
+                            "after": after, "observedAt": cloud_journey.now(),
+                            "seedManifestSha256": state.get("servingFixtureSha256")}
+                        path = E2E_DIR / record["receipt"]
+                        accepted = cloud_journey.qualify_attempt(record, json.loads(path.read_bytes()), cell, raw_path=path,
+                            run_id=state["runId"], run_attempt=state["runAttempt"])
+                        if record is report["journeyAttempts"][-1] and not accepted:
+                            raise ValueError("final serving/refusal profile did not qualify")
+                except Exception as exc:
+                    report.update(status="fail", why="serving/refusal native observation rejected: " + type(exc).__name__)
             if not report["journeyAttempts"]:
                 report["journeyAttempts"].append(cloud_journey.attempt(cell, 1, None, ""))
         except Exception as e:
@@ -802,6 +871,11 @@ def verify_journey(state: dict, journey: dict, journey_dir: Path) -> dict:
             or [r.get("number") for r in records] != list(range(1, len(records) + 1))):
         raise ValueError("journey attempt history is not 1..n within two attempts")
     expected = cloud_journey.observed_server(state.get("observedServer"), state.get("runningImage"))
+    expected_receipts = {f"receipt-{record['number']}.json" for record in records}
+    expected_profiles = {f"serving-refusal-{record['number']}.json" for record in records if record.get("servingRefusal")}
+    if (any(path.name not in expected_receipts for path in journey_dir.glob("receipt-*.json"))
+            or any(path.name not in expected_profiles for path in journey_dir.glob("serving-refusal-*.json"))):
+        raise ValueError("produced journey/profile artifact omitted from attempt history")
     verified: list[tuple[int, bytes, bytes | None]] = []
     blockers: list[list[str]] = []
     passed = False
@@ -822,7 +896,23 @@ def verify_journey(state: dict, journey: dict, journey_dir: Path) -> dict:
         if receipt["target"].get("configSha256") and (
                 config_bytes is None or hashlib.sha256(config_bytes).hexdigest() != receipt["target"]["configSha256"]):
             raise ValueError("journey target config digest mismatch")
-        passed = cloud_journey.validate_attempt(record, receipt, cell, run_id=run_id, run_attempt=run_attempt)
+        record.pop("profileObservation", None)
+        if record.get("servingRefusal"):
+            seed = journey_dir / "extended/seed-manifest.json"
+            if (not seed.is_file() or seed.is_symlink() or not state.get("servingFixtureSha256")
+                    or hashlib.sha256(seed.read_bytes()).hexdigest() != state["servingFixtureSha256"]):
+                raise ValueError("journey serving fixture differs from the sealed provision handoff")
+        passed = cloud_journey.qualify_attempt(record, receipt, cell,
+            raw_path=journey_dir / f"receipt-{number}.json", run_id=run_id, run_attempt=run_attempt,
+            require_observation=False)
+        if record.get("servingRefusal"):
+            for source in (journey_dir / f"serving-refusal-{number}.json",
+                           journey_dir / "extended/seed-manifest.json"):
+                relative = source.relative_to(journey_dir)
+                destination = directory / relative
+                destination.parent.mkdir(parents=True, exist_ok=True)
+                if source.resolve() != destination.resolve():
+                    destination.write_bytes(source.read_bytes())
         if not passed:
             blockers.append(cloud_journey.documented_blockers(receipt))
         verified.append((number, data, config_bytes))
@@ -1266,8 +1356,10 @@ def _phase_provision(args) -> int:
     # It reaches the journey job only sealed to that runner's own public key.
     os.environ.setdefault("HONUA_ADMIN_PASSWORD", f"Honua-Gate-Aa1!{secrets.token_urlsafe(32)}")
     datasource: dict = {}
+    client_context = ({} if os.environ.get("HONUA_CLOUD_INSTALLED_CLIENTS") == "true"
+                      and args.redis == "on" and args.target in ("aws-ecs", "aws-serverless") else None)
     state = provision_phase(target, args.target, require_real=args.require_real,
-                            redis_enabled=args.redis == "on", journey_datasource=datasource)
+                            redis_enabled=args.redis == "on", journey_datasource=datasource, installed_context=client_context)
     if state["endpoint"]:
         # The admit job seals this to the journey runner's public key (seal_key). With a seeded
         # cell it also carries the seed's connection: the terminal journey's datasource
@@ -1275,7 +1367,8 @@ def _phase_provision(args) -> int:
         try:
             store_secret(app_key_secret_name(cell),
                          cloud_journey.pack_handoff(target.admin_api_key, datasource or None,
-                             tenant_signing_key=getattr(target, "journey_signing_key", None)),
+                             tenant_signing_key=getattr(target, "journey_signing_key", None),
+                             installed_clients=client_context or None),
                          "Ephemeral cloud-cell application key; deleted by teardown")
         except Exception as error:
             state["report"].update(status="fail", why="could not hand the cell's application key to "
@@ -1303,11 +1396,14 @@ def _phase_journey(args) -> int:
             admin_key, datasource = cloud_journey.unpack_handoff(handoff)
             s10_url = cloud_journey.handoff_source_url(handoff)
             tenant_key = cloud_journey.handoff_tenant_signing_key(handoff)
+            client_context = json.loads(handoff).get("installedClients") if handoff.startswith("{") else None
         except Exception:
             admin_key, datasource, s10_url, tenant_key = "", None, None, None
+            client_context = None
         with cloud_journey.cell_datasource(datasource):
             journey = journey_phase(state, admin_key=admin_key, max_attempts=args.max_attempts,
-                                    s10_source_url=s10_url, tenant_signing_key=tenant_key)
+                                    s10_source_url=s10_url, tenant_signing_key=tenant_key,
+                                    installed_context=client_context)
     _write_json(cloud_journey.cell_dir(cell) / JOURNEY_NAME, journey)
     print(f"== cloud-journey :: {cell} -> {journey.get('status', 'recorded').upper()} ==")
     for c in journey.get("scenarioCoverage", []):
