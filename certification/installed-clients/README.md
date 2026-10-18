@@ -11,7 +11,7 @@ cell with `status: blocked` must name the issue that blocks it in `blockedBy`. I
 every execution and is reported `blocked` only when its specific named blocker is observed.
 Installation, integrity, infrastructure, handshake, and supplied-evidence validation failures
 remain fatal. The setup-view blocker requires a valid complete 12-tool `default.v1` catalog;
-the import-fidelity blocker requires an absent receipt because no producer exists yet. If a blocked cell starts
+the import-fidelity blocker requires an absent complete passing receipt until live qualification finishes. If a blocked cell starts
 passing, it is reported as a failure until the matrix row is set back to `active`, so a fix is
 observed rather than assumed. `run.py` exits 0 only when every active cell passes and no blocked
 cell passes silently or fails for an unexpected reason. `run.py --verify-receipt <receipt>` checks a receipt against the matrix, and
@@ -126,3 +126,52 @@ python -m pytest certification/installed-clients/test_regression.py \
 
 These self-tests inject faulty responses to verify that the gate rejects them.
 A passing self-test run does not replace the live installed-client release receipt.
+
+The producer for release [#418](https://github.com/honua-io/honua-release/issues/418)
+is `produce_import_fidelity.py`. It restores the exact manifest-pinned public
+`Honua.Sdk` into a fresh temporary consumer, checks the nupkg digest, public restore
+sources and copied/loaded assembly bytes, and uses the SDK for every operation
+under test. `--live` owns a disposable, uniquely named candidate/PostGIS/Redis
+stack; it never imports into a shared server. Candidate image, registry digest
+and image source revision are checked against the selected manifest. Baseline
+observations include actual source snapshots before/after import, target
+readback and independent PostGIS counts. Numeric checks preserve exact int64,
+null, empty and boolean semantics and bound geometry tolerance to `1e-8`.
+
+```sh
+python certification/installed-clients/produce_import_fidelity.py --live \
+  --evidence-uri "$EVIDENCE_URI" \
+  --output artifacts/dotnet-import-fidelity-receipt.json
+```
+
+The installed-client workflows expose `qualify_import_fidelity` for an explicit
+qualification attempt and forward the resulting receipt to
+`run.py --import-fidelity-receipt`. The default remains the existing #418 blocker.
+A requested qualification uploads its receipt and observations even when it
+fails. `--package-only` and `--case NAME` are diagnostic subsets: every unexecuted
+requirement remains blocked, and the producer exits nonzero. They cannot mint a
+passing certification.
+
+The producer also executes authored-source roles through
+`import_fidelity_journeys.py`: whole-service relationship application and physical
+join-edge checks, attachment downloads and hashes, cancel/retry with prior-row
+fingerprints, a failed overwrite, and committed geometry/value/time-metadata fault controls
+with SDK restoration. The server#4420 cell measures actual PostGIS vectors and
+fresh GDAL-decoded SDK GeoJSON outputs; a missing output never substitutes the
+baseline. Install `gdal-bin` for this independent reader.
+
+The frozen repoint/rollback cell remains blocked: a supported client configuration
+operation with readbacks through the same configured endpoint is not implemented.
+Reading two retained publication URLs cannot qualify that operation.
+
+These executable paths are **not a completed qualification receipt**. Real
+rich-source fixtures, native observations, a suitable published SDK and the
+fixed immutable candidate must be available before every path can pass. The
+142 supported and ten not-applicable cells are unchanged. Source-client
+limitations never waive a target import requirement. The matrix row stays
+blocked until a complete passing receipt exists and is reviewed.
+
+See [the authored-source and native-reference contract](import-fidelity-inputs.md)
+for exact inputs and owner handoff. The existing native certification owner
+retains its Windows execution lane; this producer consumes authenticated raw
+observations and never adopts a native client's reported verdict.

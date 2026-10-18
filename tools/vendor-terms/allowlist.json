@@ -219,6 +219,98 @@
       "reason": "Exact existing upstream repository and pinned matrix path identify the source ownership and unchanged operation set. This exception covers these two source identifiers only; desktop implementation details remain in the private source repository.",
       "owner": "@mikemcdougall",
       "issue": "honua-io/honua-release#576"
+    },
+    {
+      "repo": "honua-release",
+      "paths": [
+        "certification/installed-clients/produce_import_fidelity.py"
+      ],
+      "identifiers": [
+        "esri_census_states",
+        "esri_military_ops_area_z",
+        "esri_military_ops_line_zm",
+        "esri_usa_cities",
+        "esri_usa_highways",
+        "esri_wildfire_lines",
+        "//sampleserver6.arcgisonline.com/arcgis/rest/services/Census/MapServer",
+        "//sampleserver6.arcgisonline.com/arcgis/rest/services/Military/FeatureServer",
+        "//sampleserver6.arcgisonline.com/arcgis/rest/services/USA/MapServer",
+        "//sampleserver6.arcgisonline.com/arcgis/rest/services/Wildfire/FeatureServer",
+        "//geodata.hawaii.gov/arcgis/rest/services/HistoricCultural/MapServer",
+        "//geodata.hawaii.gov/arcgis/rest/services/Infrastructure/MapServer",
+        "arcgis-geoservices-rest"
+      ],
+      "reason": "Exact frozen source-case IDs and public source URLs from the server import-fidelity baseline, plus the published migration sourceKind wire value. Renaming these selects different source data or changes the SDK request contract. This exception covers only these exact upstream references in the producer; prose and new identifiers remain counted.",
+      "owner": "@mikemcdougall",
+      "issue": "honua-io/honua-release#418"
+    },
+    {
+      "repo": "honua-release",
+      "paths": [
+        "certification/installed-clients/test_produce_import_fidelity.py"
+      ],
+      "identifiers": [
+        "esri_census_states",
+        "esri_census_states/all_fields_diff",
+        "esri_census_states/core_query_parity"
+      ],
+      "reason": "The negative controls address these exact frozen baseline case/cell IDs from dotnet-import-fidelity.requirements.v1.json. Renaming them would stop testing the governed scorecard cells. Other test names, prose and identifiers remain counted.",
+      "owner": "@mikemcdougall",
+      "issue": "honua-io/honua-release#418"
+    },
+    {
+      "repo": "honua-release",
+      "paths": [
+        "certification/installed-clients/import-fidelity-consumer/Program.cs"
+      ],
+      "identifiers": [
+        "ArcGisServiceRoot.Parse",
+        "ArcGisSourceCredentialHandler",
+        "ArcGisSourceCredential",
+        "ArcGisCredentialMode.Token"
+      ],
+      "reason": "Exact public Honua.Sdk.GeoServices 1.11.0 service-root and source-credential API members. Their names belong to the manifest-pinned published package; renaming them invents an API or bypasses SDK credential handling. No prose or other consumer identifiers are covered.",
+      "owner": "@mikemcdougall",
+      "issue": "honua-io/honua-release#418"
+    },
+    {
+      "repo": "honua-release",
+      "paths": [
+        "certification/installed-clients/import_fidelity_journeys.py"
+      ],
+      "identifiers": [
+        "arcgis-geoservices-rest"
+      ],
+      "reason": "Exact published migration sourceKind wire value used by the SDK batch/scan APIs; changing it selects a different source family. No prose or other identifiers are covered.",
+      "owner": "@mikemcdougall",
+      "issue": "honua-io/honua-release#418"
+    },
+    {
+      "repo": "honua-release",
+      "paths": [
+        "certification/installed-clients/import_fidelity_reference.py",
+        "certification/installed-clients/import-fidelity-inputs.md"
+      ],
+      "identifiers": [
+        "honua-io/honua-esri-compat",
+        ".github/workflows/esri-sdk-certification.yml"
+      ],
+      "reason": "Exact existing owning repository and workflow path bind authenticated reference evidence to its actual producer. These names are identity checks, not new product terminology. Native desktop implementation details stay in the private producer repository.",
+      "owner": "@mikemcdougall",
+      "issue": "honua-io/honua-release#418"
+    },
+    {
+      "repo": "honua-release",
+      "paths": [
+        "certification/installed-clients/import_fidelity_reference.py",
+        "certification/installed-clients/test_import_fidelity_reference.py"
+      ],
+      "identifiers": [
+        "honua-and-esri-clients"
+      ],
+      "reason": "Exact frozen requirement ID crosscheck.honua-and-esri-clients from the unchanged requirements file; the consumer and negative control must address that governed cell. Other identifiers and prose remain checked.",
+      "owner": "@mikemcdougall",
+      "issue": "honua-io/honua-release#418"
     }
   ]
 }
