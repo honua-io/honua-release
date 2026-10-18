@@ -142,7 +142,8 @@ def _fixture(tmp_path, *, age=54, minted=None):
                                                "completedAt": row["completedAt"],
                                                **({"profile": "redis-off-serving-refusal" if cell.endswith("/redis-off") else "full-workflow",
                                                    "executionOutcome": "refused" if cell.endswith("/redis-off") else "completed",
-                                                   "functionalGpExecuted": not cell.endswith("/redis-off")} if mode == "genuine-model" else {})}]} for cell in cells]
+                                                   "functionalGpExecuted": not cell.endswith("/redis-off")} if mode == "genuine-model"
+                                                   or cell.endswith("/redis-off") else {})}]} for cell in cells]
         if name == "update-rollback":
             receipt.update(cells=[_update_cell(cell, digest) for cell in GA_CELLS],
                            fromLockDigest=OTHER_LOCK, toLockDigest=digest,

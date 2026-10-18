@@ -1,6 +1,6 @@
 {
   "schema": "honua.coverage-audit-input/v1",
-  "revision": "2026-10-17.2",
+  "revision": "2026-10-18.2",
   "tracking_issue": "https://github.com/honua-io/honua-release/issues/652",
   "scope": "All governed rows inventoried; licensed desktop implementation remains external. Source review does not qualify a candidate or change supported scope. The bounded deeper reviews remain partial-source-review: sampled source assertions and existing proof obligations only, not exhaustive execution, AWS qualification or a new release gate.",
   "reviewed_sources": {
@@ -172,7 +172,13 @@
       "impact": "General interop nightly builds its own image; the exact-image 52-cell bounded roster is not registered here. SDK-JS candidate inputs now exist despite an unproduced disposition saying they do not. Catalog counts measure registration, not executed coverage or approved release scope.",
       "acceptance": "Reconcile the approved .1 roster, dispatch existing exact-image harnesses, and join their actual receipts. Explicitly adjudicate aliases/non-addressable rows instead of treating all catalog rows as new implementation work.",
       "verification_receipt": null,
-      "dimension": "producer-registration"
+      "dimension": "producer-registration",
+      "implementation_prs": [
+        "https://github.com/honua-io/honua-sdk-python/pull/303",
+        "https://github.com/honua-io/honua-release/pull/663",
+        "https://github.com/honua-io/honua-evidence/pull/62"
+      ],
+      "implementation_note": "Python receipt-v2 producer and both consumer source contracts have merged with actual producer/consumer seam validation. Publication, governed pins/catalog adoption, roster reconciliation and actual joined receipts remain; NC-05 stays open."
     },
     {
       "id": "NC-06",
@@ -309,7 +315,7 @@
       "title": "MCP cancellation notifications do not cancel an in-flight server request",
       "owner": "honua-io/honua-server",
       "issue": "https://github.com/honua-io/honua-server/issues/6299",
-      "status": "open",
+      "status": "implementation-landed",
       "selectors": {
         "client_lane": [
           "mcp-*"
@@ -325,7 +331,11 @@
         "https://github.com/honua-io/honua-release/issues/123"
       ],
       "verification_receipt": null,
-      "dimension": "operation-coverage"
+      "dimension": "operation-coverage",
+      "delivery_pr": "https://github.com/honua-io/honua-server/pull/6325",
+      "delivery_commit": "e2376456f58bc790de29220003fd0e67eecd04cb",
+      "ownership_note": "Source implementation merged and changed content checked through server trunk e4a973997e4444e8c0f97d2cb6a62a0a5825c5e9. Current-candidate qualification remains unverified; this disposition grants no execution credit.",
+      "remaining": "Canonical installed-client producer ownership follow-up server6333 and geospatial-mcp102 remains open. Component/provider cancellation passes do not establish exact-candidate installed-client cessation. Durable GP is tracked separately by NC-20."
     },
     {
       "id": "NC-12",
@@ -426,7 +436,7 @@
       "title": "OWSLib WMTS positive rendering receipt accepts a correctly sized blank PNG",
       "owner": "honua-io/honua-server",
       "issue": "https://github.com/honua-io/honua-server/issues/6306",
-      "status": "implementation-in-progress",
+      "status": "implementation-landed",
       "selectors": {
         "client_lane": [
           "py-owslib"
@@ -452,8 +462,10 @@
         "https://github.com/honua-io/honua-server/issues/2945"
       ],
       "implementation_owner": "honua-io/honua-server",
-      "ownership_note": "Exact follow-up server#6306 owns canonical WMTS pixels/auth, coordinated under release#652. No claim or implementation yet. Closed2945/4388 remain strong server-level coverage, not completed canonical-client proof.",
-      "catalog_gap_reason": "Current governed catalog has no WMTS requirement rows under py-owslib. Preserve this exact canonical-client finding without crediting other WMTS clients or changing supported scope."
+      "ownership_note": "Source implementation merged and changed content checked through server trunk e4a973997e4444e8c0f97d2cb6a62a0a5825c5e9. Current-candidate qualification remains unverified; this disposition grants no execution credit.",
+      "catalog_gap_reason": "Current governed catalog has no WMTS requirement rows under py-owslib. Preserve this exact canonical-client finding without crediting other WMTS clients or changing supported scope.",
+      "delivery_pr": "https://github.com/honua-io/honua-server/pull/6312",
+      "delivery_commit": "760502f1e9756c5924b94fd765dbafd3fd90f32a"
     },
     {
       "id": "NC-16",
@@ -461,7 +473,7 @@
       "title": "OWSLib WMTS AUTH receipts substantiate an admin route rather than protected tile access",
       "owner": "honua-io/honua-server",
       "issue": "https://github.com/honua-io/honua-server/issues/6306",
-      "status": "implementation-in-progress",
+      "status": "implementation-landed",
       "selectors": {
         "client_lane": [
           "py-owslib"
@@ -485,8 +497,10 @@
         "https://github.com/honua-io/honua-server/issues/4388"
       ],
       "implementation_owner": "honua-io/honua-server",
-      "ownership_note": "Exact follow-up server#6306 owns canonical WMTS pixels/auth, coordinated under release#652. No claim or implementation yet. Closed2945/4388 remain strong server-level coverage, not completed canonical-client proof.",
-      "catalog_gap_reason": "Current governed catalog has no WMTS requirement rows under py-owslib. Preserve this exact canonical-client finding without crediting other WMTS clients or changing supported scope."
+      "ownership_note": "Source implementation merged and changed content checked through server trunk e4a973997e4444e8c0f97d2cb6a62a0a5825c5e9. Current-candidate qualification remains unverified; this disposition grants no execution credit.",
+      "catalog_gap_reason": "Current governed catalog has no WMTS requirement rows under py-owslib. Preserve this exact canonical-client finding without crediting other WMTS clients or changing supported scope.",
+      "delivery_pr": "https://github.com/honua-io/honua-server/pull/6312",
+      "delivery_commit": "760502f1e9756c5924b94fd765dbafd3fd90f32a"
     },
     {
       "id": "NC-17",
@@ -494,7 +508,7 @@
       "title": "Generic Python FeatureServer filter cases often assert only HTTP200",
       "owner": "honua-io/honua-server",
       "issue": "https://github.com/honua-io/honua-server/issues/6314",
-      "status": "implementation-in-progress",
+      "status": "implementation-landed",
       "selectors": {
         "surface": [
           "feature-server",
@@ -513,8 +527,10 @@
       "verification_receipt": null,
       "dimension": "assertions",
       "implementation_owner": "honua-io/honua-server",
-      "ownership_note": "No exact open implementation child found in bounded review; coordinate server work under release#652. No issue or lease was created.",
-      "selector_scope": "Affected protocol rows only; the reviewed weakness is limited to the named Python or GDAL source cases, and selection does not claim that every matching client shares it or was audited."
+      "ownership_note": "Source implementation merged and changed content checked through server trunk e4a973997e4444e8c0f97d2cb6a62a0a5825c5e9. Current-candidate qualification remains unverified; this disposition grants no execution credit.",
+      "selector_scope": "Affected protocol rows only; the reviewed weakness is limited to the named Python or GDAL source cases, and selection does not claim that every matching client shares it or was audited.",
+      "delivery_pr": "https://github.com/honua-io/honua-server/pull/6315",
+      "delivery_commit": "4abed713751dbb9b966a047866e2cf6f098101a5"
     },
     {
       "id": "NC-18",
@@ -522,7 +538,7 @@
       "title": "GDAL WFS client filter and positive bbox checks allow over-return",
       "owner": "honua-io/honua-server",
       "issue": "https://github.com/honua-io/honua-server/issues/6310",
-      "status": "implementation-in-progress",
+      "status": "implementation-landed",
       "selectors": {
         "client_lane": [
           "gdal"
@@ -544,8 +560,10 @@
       "verification_receipt": null,
       "dimension": "assertions",
       "implementation_owner": "honua-io/honua-server",
-      "ownership_note": "No exact open implementation child found in bounded review; coordinate server work under release#652. No issue or lease was created.",
-      "selector_scope": "Affected protocol rows only; the reviewed weakness is limited to the named Python or GDAL source cases, and selection does not claim that every matching client shares it or was audited."
+      "ownership_note": "Source implementation merged and changed content checked through server trunk e4a973997e4444e8c0f97d2cb6a62a0a5825c5e9. Current-candidate qualification remains unverified; this disposition grants no execution credit.",
+      "selector_scope": "Affected protocol rows only; the reviewed weakness is limited to the named Python or GDAL source cases, and selection does not claim that every matching client shares it or was audited.",
+      "delivery_pr": "https://github.com/honua-io/honua-server/pull/6313",
+      "delivery_commit": "fc8139b581a686b582aab429ba3d85a6189854a7"
     },
     {
       "id": "NC-19",
@@ -631,7 +649,7 @@
       "title": "Fresh migrated-app qualification remains distinct from synthetic browser and static cohort checks",
       "owner": "honua-io/honua-migrate",
       "issue": "https://github.com/honua-io/honua-migrate/issues/152",
-      "status": "open",
+      "status": "implementation-in-progress",
       "selectors": {
         "capability_key": [
           "import.geoservices"
@@ -650,7 +668,11 @@
       "related_issues": [
         "https://github.com/honua-io/honua-release/issues/325"
       ],
-      "scope_note": "Existing application-migration qualification obligation; useful codemod/synthetic browser coverage is retained. No licensed licensed desktop or 2026.2 broad-migration scope is added."
+      "scope_note": "Existing application-migration qualification obligation; useful codemod/synthetic browser coverage is retained. No licensed licensed desktop or 2026.2 broad-migration scope is added.",
+      "implementation_prs": [
+        "https://github.com/honua-io/honua-migrate/pull/203"
+      ],
+      "implementation_note": "Independent Chromium observer merged at206fbc84e53b552945186e6339ce51006a4cff9a; final19observer controls and402existing migration tests passed. It binds actual app requests to an import receipt and frozen behavior input, and rejects fallback, cross-step and unfinished requests. Synthetic control fixtures are not actual admitted-app execution; the required fresh apps, package identities and qualification remain."
     }
   ],
   "workstreams": [
@@ -676,7 +698,8 @@
       "status": "partial-source-review",
       "remaining": "Complete test selection, assertion and live-evidence review; this inventory is not an exhaustive audit.",
       "source_review_artifacts": [
-        "certification/audits/2026-10-17/protocol-data.json"
+        "certification/audits/2026-10-17/protocol-data.json",
+        "certification/audits/2026-10-18/protocol-data-supplement.json"
       ],
       "strong_coverage": [
         {
@@ -799,10 +822,16 @@
       },
       "review_limits": [
         "No runtime defect reproduced or new issue filed. Prior closed regression issue references are context, not current unassigned implementation claims.",
-        "Existing NC01–12 are not refiled; in particular OWSLib expired-token NC07, DuckDB CRS NC12 and shard no-test NC10 retain their owners.",
+        "Existing NC01\u201312 are not refiled; in particular OWSLib expired-token NC07, DuckDB CRS NC12 and shard no-test NC10 retain their owners.",
         "No complete claim for all CRS/Z/M shapes, true-curve preservation, concurrency races, canonical-client writes, media variants, or tenant isolation follows from the sampled tests.",
-        "No fresh candidate or AWS qualification; no current CITE rate inferred from source. STAC/gRPC not expanded in this bounded pass."
-      ]
+        "No fresh candidate or AWS qualification; no current CITE rate inferred from source. The 2026-10-18 supplement extends the bounded review to WCS/WPS/STAC/gRPC; source review remains partial."
+      ],
+      "supplemental_review": {
+        "server_revision": "e4a973997e4444e8c0f97d2cb6a62a0a5825c5e9",
+        "artifact": "certification/audits/2026-10-18/protocol-data-supplement.json",
+        "sha256": "5e0ba49d238f50378d9ca9cf5821551058d6d778f0bbca3186b651c0cc0d571d",
+        "scope": "WCS/WPS/STAC/gRPC assertion and selector review; adapter/native boundaries and four improvement candidates. No exhaustive execution or qualification claim."
+      }
     },
     {
       "id": "render-formats",
@@ -1271,20 +1300,21 @@
     ],
     "coordination": {
       "issue": "https://github.com/honua-io/honua-release/issues/652",
-      "unowned_server_followups": [
-        "NC-17 generic FeatureServer semantic filters",
-        "NC-18 GDAL actual-client filter/bbox exact sets"
-      ],
+      "unowned_server_followups": [],
       "wmts_followup": {
         "issue": "https://github.com/honua-io/honua-server/issues/6306",
         "findings": [
           "NC-15",
           "NC-16"
         ],
-        "status": "open; no claim or implementation yet"
+        "status": "Source implementation landed in server6312; current-candidate proof remains unverified."
       },
       "implementation_owner": "honua-io/honua-server",
-      "no_new_issue_or_lease_created": false
+      "no_new_issue_or_lease_created": false,
+      "delivered_server_followups": [
+        "NC-17: server6315",
+        "NC-18: server6313"
+      ]
     },
     "limits": [
       "No exhaustive semantic, protocol, CRS/Z/M, tenancy, migration or deployment coverage claim.",
@@ -1307,13 +1337,13 @@
         "source_finding": "PD-02",
         "consolidated_finding": "NC-15",
         "issue": "https://github.com/honua-io/honua-server/issues/6306",
-        "status": "open; no claim or implementation yet"
+        "status": "Source implementation landed in server6312; current-candidate canonical-client qualification remains unverified."
       },
       {
         "source_finding": "PD-03",
         "consolidated_finding": "NC-16",
         "issue": "https://github.com/honua-io/honua-server/issues/6306",
-        "status": "open; no claim or implementation yet"
+        "status": "Source implementation landed in server6312; current-candidate canonical-client qualification remains unverified."
       }
     ]
   }

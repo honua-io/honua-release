@@ -85,3 +85,22 @@ can name the expected archive without claiming that those bytes were observed.
 Only an actual producer-owned measured digest may enter an executed receipt.
 The existing 14 RPCs across three clients (42 cells) and explicit 198 exclusions
 remain unchanged. Actual immutable-candidate execution is still required.
+
+
+## Installed Python SDK wheel
+
+The `sdk-python-certification` lane binds `client_package` in both observation and
+v2 receipt identity. Its closed object contains exactly `filename`, lowercase
+SHA256 hex `sha256`, and `source: pypi`. The current published universal-wheel
+profile is exactly `honua_sdk-<client_version>-py3-none-any.whl`.
+
+Future catalog regeneration derives this identity only from the independently
+selected manifest's published `honua-sdk-python-wheel`: package, repository,
+ecosystem, exact version, source SHA and digest must match its SDK component and
+catalog source. Receipt/row self-consistency cannot establish governed identity.
+The existing mixed historical cohort remains unchanged and has no invented wheel
+binding. Executed Python rows without a governed binding remain non-passing.
+Unexecuted rows remain explicit skips; they do not claim measured package bytes.
+
+This code prerequisite does not select or publish packages, regenerate governed
+outputs, activate a ledger, or complete [the atomic rebind](https://github.com/honua-io/honua-release/issues/181).

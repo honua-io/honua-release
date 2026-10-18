@@ -1,0 +1,27 @@
+{
+  "schema": "honua.ecs-recovery-artifact-discovery/v1",
+  "status": "registry-identity-only-not-execution-qualified",
+  "artifacts": [
+    {
+      "role": "baseline",
+      "image": "ghcr.io/honua-io/honua-server@sha256:273b4c616e806b8ac2809946659986960a1803e55bda79d99db5f3955b6c30b9",
+      "amd64Digest": "sha256:72875b0c943660152be4c000a129ff3709454fef80cf22a234453c426bcf2dd6",
+      "sourceSha": "5a657b9eaed7cdeac915d584ad58c028a52ca61e",
+      "releaseLockAttestation": "not-provided",
+      "publishedRegistryBytesVerified": true
+    },
+    {
+      "role": "candidate",
+      "image": "ghcr.io/honua-io/honua-server@sha256:069f196bfa5c7201223d4d89868934242c4ace8805a6e48c122a88d84fa6eb1a",
+      "amd64Digest": "sha256:c47a3276609c85cd81f919fa1983c69bf83232dc75c6cfc6e6ca6453a4a9da93",
+      "sourceSha": "87966c3f7b6c840ffc4d4da0b451714ab717b18a",
+      "releaseLockAttestation": "not-provided",
+      "publishedRegistryBytesVerified": true
+    }
+  ],
+  "observedAt": "2026-10-18T00:43:58.672838+00:00",
+  "sourceReferences": [
+    "customer-install-manifest.json@e4f9334b",
+    "platform-manifest.yaml@e4f9334b"
+  ]
+}

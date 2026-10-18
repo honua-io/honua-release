@@ -73,6 +73,36 @@ candidate PostgreSQL service, applies the shared seed once, then runs every inst
 against that same target before teardown. Omitting `--live` is an install-integrity preflight and
 cannot be used as release evidence.
 
+## Existing AWS endpoint
+
+The existing AWS cell workflow also invokes this complete suite on ECS/Redis-on and
+Lambda+Batch/Redis-on. Provisioning applies the same committed fixture SQL and publishes the
+fixture layers. Its application credentials, short-lived bearer and separate principals travel
+only in the encrypted handoff to the journey job. That job has no cloud role or OIDC exchange
+token; installers and drivers receive an allowlisted environment. Datasource clients honor the
+provisioned database's TLS settings.
+
+`run.py --endpoint-context <private-context.json> --subset all --evidence-uri <run-uri>` is the
+equivalent endpoint entrypoint. The context must be owner-readable only and prepared by the
+trusted provisioner; it is never an uploaded artifact. It binds the workflow run/attempt, endpoint,
+cell, manifest digest, observed running image and source revision, and committed fixture bytes.
+The endpoint independently advertises its exact source before and after execution. A supplied
+context alone is not cloud attestation; qualification comes from the trusted workflow's observed
+deployment and retained receipt. The receipt contains the nonsecret deployment binding only.
+
+Redis-off retains the existing serving and typed-refusal scenarios. It does not run or claim the
+full installed-client workflow suite. Both Redis-on runs retain all 41 matrix cells, including
+their blockers; missing import-fidelity proof retains all 142 supported requirements and ten
+not-applicable requirements. A closed upstream issue cannot reactivate a row without a real
+published-pin replay and reviewed matrix change. Missing fixture prerequisites report blocked,
+identity/install/oracle failures report fail, and neither outcome qualifies a cell.
+
+The image binding uses the existing per-cell resolver: ECS uses the generic server image;
+Lambda uses the dedicated Lambda artifact after its ECR mirror digest is read back and verified.
+The approved HTTP exception for an owned ALB remains a harness transport rule. Published CLI/MCP
+clients retain their HTTPS requirement, so such a cell reports an explicit missing HTTPS prerequisite
+before installing clients and emits no synthetic client receipt. Other HTTP hosts remain refused.
+
 ## SDK regression scenarios
 
 The matrix also holds one cell per published SDK (Python, JS, .NET) and scenario in `scenarios/*.json`:
@@ -160,9 +190,34 @@ with SDK restoration. The server#4420 cell measures actual PostGIS vectors and
 fresh GDAL-decoded SDK GeoJSON outputs; a missing output never substitutes the
 baseline. Install `gdal-bin` for this independent reader.
 
-The frozen repoint/rollback cell remains blocked: a supported client configuration
-operation with readbacks through the same configured endpoint is not implemented.
-Reading two retained publication URLs cannot qualify that operation.
+The frozen repoint/rollback cell now exercises one application configuration slot
+inside the persistent clean public-SDK consumer. Original-source reads, a switch
+to the imported candidate, and restoration use the same consumer-issued identity
+and revisions 1/2/3. Read commands cannot supply endpoint overrides. Actual SDK
+request paths are observed without retaining queries, headers or bodies. The SDK
+captures constructor options: each read creates the supported client from the
+stored application configuration; this makes no claim of hot mutation of a single
+SDK object. This producer currently owns a disposable local candidate, so a
+credential-bearing candidate configuration must be loopback.
+
+The journey changes only its owned imported text-label fixture to a discriminating
+marker, checks complete fresh target values/schema/geometry, rolls the configured
+application back to the unchanged original source, and restores the imported
+fixture through the SDK even on failure. A no-op switch or cached source response
+cannot pass. Transition replies are correlated in the private consumer pipe. After
+an uncertain switch/restore acknowledgement, a fresh status read reconciles the
+actual slot and restores it if necessary; an already restored revision is never
+blindly retried. Unknown cleanup state and the original failed observation remain
+failures, with configuration and fixture cleanup recorded separately. Missing authored input, unsuitable published SDK bytes, failed
+readback or failed restoration remains non-pass; the matrix stays blocked.
+
+`check_import_client_readback.py` is an existing-job PR control: it restores the
+exact public NuGet package, verifies loaded assembly bytes, and uses the actual
+consumer process against controlled loopback HTTP fixtures. It checks distinct
+original/imported data, actual requests, credential isolation, stale/wrong
+configuration and override refusals. It emits `qualification: false`, no import
+receipt. Controlled fixtures do not replace an actual authored-source import,
+PostGIS readback or candidate qualification.
 
 These executable paths are **not a completed qualification receipt**. Real
 rich-source fixtures, native observations, a suitable published SDK and the
