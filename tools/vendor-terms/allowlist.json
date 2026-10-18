@@ -187,6 +187,22 @@
     {
       "repo": "honua-release",
       "paths": [
+        "docs/platform-lock.v1.draft.yaml",
+        "docs/SDK-SERVER-COMPATIBILITY.md"
+      ],
+      "tokens": [
+        "esri"
+      ],
+      "identifiers": [
+        "@honua/sdk-esri-compat"
+      ],
+      "reason": "Generated from platform-manifest.yaml by generate_platform_lock.py and generate_compatibility_table.py, which copy each locked artifact's exact npm coordinate. Renaming it here would name a package the lock does not pin. Other identifiers and prose in these files remain checked.",
+      "owner": "@mikemcdougall",
+      "issue": "honua-io/honua-release#233"
+    },
+    {
+      "repo": "honua-release",
+      "paths": [
         "certification/sdk-publication-replay/sdk-022/default-vanilla-ts/sdk-package-lock.json",
         "certification/sdk-publication-replay/sdk-022/default-react-ts/sdk-package-lock.json"
       ],

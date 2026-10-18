@@ -103,7 +103,7 @@ That is a derivation, not a guess, and it fails closed on every side:
   release, so nothing resolves;
 - a capability may not carry both the model and a different number.
 
-**Dispatch anchors are not publications.** Since 2026-10 the nightly creates
+**Dispatch anchors are not publications.** Since the 2026-09-26 receipt the nightly creates
 `nightly-candidate-<sha7>` and `nightly-candidate/<sha40>` tags on honua-server so that gated
 workflows (nightly-container-build, capacity-soak-candidate, the DR drill, the attestation signer
 identity) can run at a non-head trunk commit. Such a tag's name is the commit it points at; it
@@ -228,8 +228,13 @@ with `release/sdk-capability-baseline.json`:
 
 Each SDK owns a drift test that reads its baseline file and fails when the runtime constant,
 the public API snapshot or a published compatibility document disagrees with this mapping.
-`1.0.0` (JavaScript, Python) and `0.1.0` (.NET) were not derived from any capability and are
-replaced by the mapped value in the SDK PRs linked from #233.
+`1.0.0` (JavaScript, Python) and `0.1.0` (.NET) were not derived from any capability. Each SDK
+replaces its constant with the mapped value in its own repository, on branch
+`fix/233-runtime-server-floor` of honua-sdk-js, honua-sdk-dotnet and honua-sdk-python (linked
+from #233). geospatial-mcp and `@honua/mcp-server` enforce no numeric server floor, so their
+baseline file is their only declaration. Builds from before honua-server#4693 gave the server a
+version identity report `1.0.0+<sha>`; they are not release identities, and the SDKs now refuse
+them.
 
 ## Current state (2026-10-18)
 
