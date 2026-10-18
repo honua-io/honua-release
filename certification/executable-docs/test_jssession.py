@@ -102,6 +102,42 @@ def test_shell_environment_and_cwd_changes_reach_existing_worker(reader):
     assert result.stdout == "2 later-shell-export later\n"
 
 
+def test_static_and_dynamic_imports_follow_shell_cwd_change(reader):
+    Path(reader.cwd, "local.mjs").write_text("export default 'original';")
+    assert run(reader, "import original from './local.mjs'; console.log(original);").stdout == "original\n"
+    later = Path(reader.cwd, "later")
+    later.mkdir()
+    (later / "local.mjs").write_text("export default 'later';")
+    reader.cwd = str(later)
+    result = run(reader, "import current from './local.mjs';\n"
+                 "const dynamic = await import('./local.mjs'); console.log(original, current, dynamic.default);")
+    assert result.status == "pass", result.stderr
+    assert result.stdout == "original later later\n"
+
+
+@pytest.mark.parametrize("source", [
+    "setTimeout(() => { throw new Error('late failure'); }, 10);",
+    "Promise.reject(new Error('late failure'));",
+])
+def test_last_block_async_failure_cannot_be_reported_as_pass(reader, source):
+    text = "```js\n" + source + "\n```\n"
+    result, _ = run_document({"runtime": "node"}, text, reader, {"_pins": {}},
+                             {"env": {}, "substitute": {}}, "sha256:test", [], set())
+    assert result["status"] == "fail", result
+    assert result["blocks"][0]["status"] == "fail"
+    assert "late failure" in result["blocks"][0]["stderrTail"]
+
+
+def test_last_block_waits_for_unawaited_query_output_and_effect_once(reader):
+    text = "```js\nconst query = () => new Promise(resolve => setTimeout(() => resolve(42), 10));\n" \
+           "query().then(value => { require('node:fs').appendFileSync('query-effects', 'once'); console.log(value); });\n```\n" \
+           "It prints:\n\n```text\n42\n```\n"
+    result, _ = run_document({"runtime": "node"}, text, reader, {"_pins": {}},
+                             {"env": {}, "substitute": {}}, "sha256:test", [], set())
+    assert result["status"] == "pass", result
+    assert Path(reader.cwd, "query-effects").read_text() == "once"
+
+
 @pytest.mark.parametrize("source", [
     "setTimeout(() => require('node:fs').writeFileSync('late', 'bad'), 800); await new Promise(() => {});",
     "setTimeout(() => require('node:fs').writeFileSync('late', 'bad'), 800); while (true) {}",
