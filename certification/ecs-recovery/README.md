@@ -8,6 +8,20 @@ amd64 manifests, configuration hashes and source revision labels in
 identity only. They do not prove signed release provenance, compatibility,
 installation, serving, upgrade, or recovery.
 
+Read-only AWS discovery on October 18, 2026 is recorded in
+[`environment-discovery.json`](environment-discovery.json). In the inspected
+account and `us-east-1`, no `honua-qual-*` cluster exists. The cutover service's
+actual task definition runs nginx. The downloaded `honua-2026.1` manifest and
+bundle hashes are retained, but their signatures were not verified and the
+manifest's server digest matches neither proposed recovery image. This record
+does not authorize repurposing the fixture or qualify any recovery scenario.
+
+Here nginx is the placeholder application behind the AWS ALB, not Honua's
+reverse-proxy architecture. The ECS deployment path uses the ALB; the separate
+self-hosted rolling deployment path uses embedded YARP. The qualification gap is
+running and recovering real Honua versions through the ECS/ALB path. Replacing
+the load balancer or adding nginx to Honua is not part of this work.
+
 `tools/ecs_honua_recovery.py` acts only on an existing, explicitly reviewed
 `honua-qual-*` substrate. It has no Terraform apply, ECS update/register, ALB
 modify, approval, arbitrary process, or resource deletion command. Its only
