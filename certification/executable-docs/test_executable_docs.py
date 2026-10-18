@@ -684,6 +684,79 @@ def test_container_runs_as_host_user_with_writable_home(tmp_path, monkeypatch):
     assert (session.home / ".nuget/NuGet/NuGet.Config").exists()
 
 
+@pytest.mark.parametrize("playbook,expected_packages", [
+    ("install-with-docker", []), ("publish-a-service", ["jq"]),
+])
+def test_site_playbook_declared_tools_reach_its_python_session(tmp_path, monkeypatch, playbook, expected_packages):
+    import subprocess
+    import run
+    sources = json.loads((HERE / "sources.json").read_text())
+    doc = next(d for d in sources["documents"] if d["repo"] == "honua-io/honua-site"
+               and d["path"] == f"docs/playbooks/{playbook}/index.md")
+    calls = []
+    def docker(*args, **kwargs):
+        calls.append(args)
+        return subprocess.CompletedProcess(args, 0, "", "")
+    monkeypatch.setattr(run, "docker", docker)
+    session = run.Session("playbook", tmp_path, sources["runtimes"], "http://guard", tmp_path / "tools",
+                          False, "host", "test", sources["toolchain"]["typescript"],
+                          prerequisites=set(doc.get("prerequisites", {})))
+    name = session.container(doc["runtime"])
+    invocation = next(args for args in calls if args[0] == "run")
+    assert invocation[-3:] == (sources["runtimes"]["python"], "sleep", "infinity")
+    assert f"{session.tools / 'node'}:/opt/node:ro" in invocation
+    assert any(arg.startswith("PATH=/opt/node/bin:") for arg in invocation)
+    assert "npm_config_registry=http://guard/npm/" in invocation
+    installs = [args[-1] for args in calls if args[:3] == ("exec", "--user", "0")]
+    assert installs == (["apt-get update -qq && DEBIAN_FRONTEND=noninteractive apt-get install -y -qq jq"]
+                        if expected_packages else [])
+    assert all(doc["path"] in citation for citation in doc["prerequisites"].values())
+    session.close()
+    assert calls[-1] == ("rm", "-f", name)
+
+
+def test_undeclared_tools_are_not_injected_into_other_python_documents(tmp_path, monkeypatch):
+    import subprocess
+    import run
+    sources = json.loads((HERE / "sources.json").read_text())
+    doc = next(d for d in sources["documents"] if d["repo"] == "honua-io/honua-site"
+               and d["path"] == "docs/playbooks/run-a-bounded-gp-job/index.md")
+    calls = []
+    def docker(*args, **kwargs):
+        calls.append(args)
+        return subprocess.CompletedProcess(args, 0, "", "")
+    monkeypatch.setattr(run, "docker", docker)
+    session = run.Session("bounded-gp", tmp_path, sources["runtimes"], "http://guard", tmp_path / "tools",
+                          False, "host", "test", sources["toolchain"]["typescript"],
+                          prerequisites=set(doc.get("prerequisites", {})))
+    session.container(doc["runtime"])
+    assert not any("/opt/node" in arg for args in calls for arg in args)
+    assert not any(args[:3] == ("exec", "--user", "0") for args in calls)
+
+
+def test_declared_tool_install_failure_remains_fatal_and_cleanup_is_retained(tmp_path, monkeypatch):
+    import subprocess
+    import run
+    sources = json.loads((HERE / "sources.json").read_text())
+    doc = next(d for d in sources["documents"] if d["repo"] == "honua-io/honua-site"
+               and d["path"] == "docs/playbooks/publish-a-service/index.md")
+    calls = []
+    def docker(*args, **kwargs):
+        calls.append(args)
+        return subprocess.CompletedProcess(args, 1 if args[:3] == ("exec", "--user", "0") else 0,
+                                           "", "package archive unavailable")
+    monkeypatch.setattr(run, "docker", docker)
+    session = run.Session("publish", tmp_path, sources["runtimes"], "http://guard", tmp_path / "tools",
+                          False, "host", "test", sources["toolchain"]["typescript"],
+                          prerequisites=set(doc.get("prerequisites", {})))
+    with pytest.raises(run.RunError, match="could not install the documented prerequisites"):
+        session.container(doc["runtime"])
+    assert "python" not in session.baselines
+    name = session.containers["python"]
+    session.close()
+    assert calls[-1] == ("rm", "-f", name)
+
+
 def test_inventory_check_exits_one_on_revision_drift(tmp_path, monkeypatch):
     import inventory
     committed = {"documents": [{"id": "doc", "revision": "a" * 40, "blocks": []}]}
