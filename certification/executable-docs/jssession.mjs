@@ -10,6 +10,8 @@ import { Console } from 'node:console';
 
 const reply = process.stdout.write.bind(process.stdout);
 const output = new AsyncLocalStorage();
+const initialEnvironment = { ...process.env };
+let injectedEnvironment = {};
 for (const [stream, suffix] of [[process.stdout, '.out'], [process.stderr, '.err']]) {
   stream.write = (chunk, encoding, callback) => {
     const file = output.getStore();
@@ -118,7 +120,18 @@ for await (const line of createInterface({ input: process.stdin, crlfDelay: Infi
     let error;
     try {
       process.chdir(request.cwd);
+      // A worker may start during temporary source-registry admission. Restore
+      // removed injected keys from the container baseline, not that temporary
+      // startup environment, without erasing unrelated interpreter mutations.
+      const baseline = request.baselineEnv || initialEnvironment;
+      for (const key of Object.keys(injectedEnvironment)) {
+        if (!Object.hasOwn(request.env, key)) {
+          if (Object.hasOwn(baseline, key)) process.env[key] = baseline[key];
+          else delete process.env[key];
+        }
+      }
       Object.assign(process.env, request.env);
+      injectedEnvironment = { ...request.env };
       server.context.require = createRequire(path.join(request.cwd, '__doc_reader.cjs'));
       server.context.__dirname = request.cwd;
       server.context.__filename = file;

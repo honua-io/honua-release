@@ -475,7 +475,7 @@ class Session:
             env = dict(self.env)
             if "node" in self.paths:
                 env["PATH"] = self.paths["node"]
-            answer = self.js.execute(path, self.cwd, env, language, timeout)
+            answer = self.js.execute(path, self.cwd, env, language, timeout, self.baselines.get("node"))
         except (OSError, ValueError, RuntimeError) as exc:
             return Outcome("fail", str(exc), _read(path, ".out"), _read(path, ".err"),
                            None, time.monotonic() - started)

@@ -35,13 +35,14 @@ class JavaScriptSession:
                 self.proc.kill()
             self.proc.wait()
 
-    def execute(self, path: Path, cwd: str, env: dict[str, str], language: str, timeout: float) -> dict:
+    def execute(self, path: Path, cwd: str, env: dict[str, str], language: str, timeout: float,
+                baseline: dict[str, str] | None = None) -> dict:
         if self.broken:
             raise RuntimeError("JavaScript context was lost; refusing to restart or replay earlier blocks")
         try:
             assert self.proc.stdin is not None
             self.proc.stdin.write(json.dumps({"file": str(path), "cwd": cwd, "env": env,
-                                             "language": language}) + "\n")
+                                             "language": language, "baselineEnv": baseline}) + "\n")
             self.proc.stdin.flush()
             line = self.lines.get(timeout=timeout)
             if line is None:

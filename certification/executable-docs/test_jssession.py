@@ -102,6 +102,22 @@ def test_shell_environment_and_cwd_changes_reach_existing_worker(reader):
     assert result.stdout == "2 later-shell-export later\n"
 
 
+def test_temporary_source_environment_restores_container_baseline_and_removes_new_keys(reader, monkeypatch):
+    # The real worker can start while an admitted source block overrides the
+    # container's registry. Its startup environment is not the baseline.
+    monkeypatch.setenv("DOC_REGISTRY_CONTROL", "source-only-startup")
+    reader.baselines["node"] = {"DOC_REGISTRY_CONTROL": "candidate-baseline"}
+    reader.env.update({"DOC_REGISTRY_CONTROL": "source-only", "DOC_TEMP_CONTROL": "temporary"})
+    first = run(reader, "process.env.DOC_INTERPRETER_STATE = 'kept'; "
+                "console.log(process.env.DOC_REGISTRY_CONTROL, process.env.DOC_TEMP_CONTROL);")
+    assert first.status == "pass" and first.stdout == "source-only temporary\n"
+    reader.env.clear()
+    second = run(reader, "console.log(process.env.DOC_REGISTRY_CONTROL, "
+                 "typeof process.env.DOC_TEMP_CONTROL, process.env.DOC_INTERPRETER_STATE);")
+    assert second.status == "pass", second.stderr
+    assert second.stdout == "candidate-baseline undefined kept\n"
+
+
 def test_static_and_dynamic_imports_follow_shell_cwd_change(reader):
     Path(reader.cwd, "local.mjs").write_text("export default 'original';")
     assert run(reader, "import original from './local.mjs'; console.log(original);").stdout == "original\n"

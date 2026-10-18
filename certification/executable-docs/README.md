@@ -49,11 +49,16 @@ resolves from the reader's current directory. TypeScript uses the pinned Node ru
 type transformation; the separate explicit typecheck path still uses the configured compiler.
 Strict evaluation and removal of REPL-only built-in globals keep undeclared names and
 missing imports as actual errors.
+Injected environment keys removed by a later block restore the container baseline,
+including the candidate registry after temporary source-build admission. Unrelated
+interpreter environment mutations survive.
 Completion uses Node's `beforeExit` event with only the worker's input pipe temporarily
 unreferenced. Referenced async work and its callbacks must finish before the block passes;
 late errors remain errors even after evaluation returns. Unsettled top-level await at idle
 fails and stops the context. Referenced long-running work remains subject to the caller's
 timeout. No quiet-period sleep is used as a completion oracle.
+The live Docker regression retains `artifacts/executable-docs/node-context-rehearsal.json`
+with source hashes, the pinned runtime image, actual Node version and owned-cleanup controls.
 These offline controls do not establish candidate execution or change any required row's status.
 
 

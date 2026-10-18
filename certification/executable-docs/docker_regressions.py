@@ -1,7 +1,9 @@
 #!/usr/bin/env python3
 """Live Docker regressions; run before the full gate (no document or test exclusions)."""
+import hashlib
 import json
 import os
+import subprocess
 import tempfile
 import unittest
 from pathlib import Path
@@ -64,6 +66,7 @@ class DockerRegressions(unittest.TestCase):
     def test_node_context_once_completion_imports_and_owned_cleanup(self):
         # Actual digest-pinned Docker transport; these local controls do not
         # qualify public packages or a candidate server.
+        self.session.env["npm_config_registry"] = "http://source-admission.invalid/npm/"
         first = self.session.run_js(
             "const client = {value: 42}; require('node:fs').appendFileSync('effects', 'first\\n');",
             "javascript", 20)
@@ -72,6 +75,14 @@ class DockerRegressions(unittest.TestCase):
         self.assertEqual(second.status, "pass", second.stderr)
         self.assertEqual(second.stdout, "42\n")
         self.assertEqual((self.work / "app/effects").read_text(), "first\n")
+        injected = self.session.run_js("console.log(process.env.npm_config_registry);", "javascript", 20)
+        self.assertEqual(injected.stdout, "http://source-admission.invalid/npm/\n")
+        self.session.env.pop("npm_config_registry")
+        restored = self.session.run_js("console.log(process.env.npm_config_registry);", "javascript", 20)
+        self.assertEqual(restored.status, "pass", restored.stderr)
+        self.assertEqual(restored.stdout, self.session.baselines["node"]["npm_config_registry"] + "\n")
+        version = self.session.run_js("console.log(process.version);", "javascript", 20)
+        self.assertEqual(version.status, "pass", version.stderr)
 
         shell = self.session.run_shell("mkdir later; echo \"export default 'later';\" > later/local.mjs; cd later",
                                        "node", 20, False)
@@ -114,6 +125,20 @@ class DockerRegressions(unittest.TestCase):
         self.assertIn("refusing to restart", timed.run_js("console.log(established);", "javascript", 20).detail)
         self.assertFalse(Path(timed.cwd, "late").exists())
         self.assertEqual(healthy.run_js("console.log(owned);", "javascript", 20).stdout, "healthy\n")
+        owned = [failed_name, timed_name, healthy.containers["node"]]
+        self.session.close()
+        self.assertTrue(all(run.docker("inspect", name).returncode != 0 for name in owned))
+        report = {"schemaVersion": "executable-docs-node-context-rehearsal.v1", "qualification": False,
+            "sourceRevision": subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=run.ROOT, text=True).strip(),
+            "runtimeImage": self.session.runtimes["node"], "nodeVersion": version.stdout.strip(),
+            "status": "pass", "sourceHashes": {name: hashlib.sha256((run.HERE / name).read_bytes()).hexdigest()
+                for name in ["jssession.mjs", "jssession.py", "run.py", "docker_regressions.py"]},
+            "controls": {name: "pass" for name in ["persistentStateOnce", "currentCwdStaticDynamicImports",
+                "temporarySourceEnvRestored", "unawaitedCompletionOnce", "lateErrorRetained", "failedContextStopped", "otherContextHealthy",
+                "timeoutChildContainerStopped", "timeoutRestartRefused", "allOwnedContainersAbsent"]}}
+        path = run.ROOT / "artifacts/executable-docs/node-context-rehearsal.json"
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(json.dumps(report, indent=2) + "\n")
 
     def test_live_readiness_and_timer_without_oracle(self):
         previous = run.SERVE_WINDOW
