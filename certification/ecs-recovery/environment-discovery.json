@@ -1,0 +1,63 @@
+{
+  "schema": "honua.ecs-recovery-environment-discovery/v1",
+  "observedAt": "2026-10-18T05:51:01Z",
+  "status": "read-only-discovery-not-execution-qualified",
+  "scope": {
+    "accountId": "585192672263",
+    "principalArn": "arn:aws:iam::585192672263:user/gh-tf-test",
+    "region": "us-east-1",
+    "otherAccountsOrRegionsInspected": false
+  },
+  "clusterNames": [
+    "honua-cert-cert-gp-ce_Batch_bc399ded-64bf-3de9-a28a-0e251259e3e8",
+    "honua-cert-cert-cutover-cluster"
+  ],
+  "qualificationClusterFound": false,
+  "existingCutoverFixture": {
+    "cluster": "honua-cert-cert-cutover-cluster",
+    "service": "honua-cert-cert-cutover-service",
+    "desiredCount": 1,
+    "runningCount": 1,
+    "pendingCount": 0,
+    "taskDefinition": "arn:aws:ecs:us-east-1:585192672263:task-definition/honua-cert-cert-cutover-task:2",
+    "cpu": 256,
+    "memoryMiB": 512,
+    "containers": [
+      { "name": "web", "image": "public.ecr.aws/nginx/nginx:stable-alpine" }
+    ],
+    "qualifiesHonuaRecovery": false
+  },
+  "publishedManifest": {
+    "repository": "honua-io/honua-release",
+    "release": "honua-2026.1",
+    "asset": "platform-manifest.yaml",
+    "sha256": "c8bb765e981fc942e3422cbede490417fb627df8814b159430e4c6c94dade6eb",
+    "bundleAsset": "platform-manifest.yaml.bundle",
+    "bundleSha256": "1c88925fb3e5291cfb8dc7510cff0d9e60a5ccdbc1db8261610a56320b1623b3",
+    "cryptographicVerificationPerformed": false,
+    "server": {
+      "sourceSha": "f897700159e2791c9468c6ca85bb4e2a3a8d8433",
+      "image": "ghcr.io/honua-io/honua-server:nightly-aot-f897700",
+      "digest": "sha256:78e3088d64d832d3e2752c87d80bfcad201b414f4525989ca5d9a242cd5fee8a",
+      "awsEcsArchitecture": "x86_64",
+      "dbSchema": "106"
+    },
+    "matchesProposedBaseline": false,
+    "matchesProposedCandidate": false
+  },
+  "evidenceMethods": [
+    "AWS STS GetCallerIdentity",
+    "AWS ECS ListClusters in us-east-1",
+    "AWS ECS ListServices and DescribeServices for the cutover fixture",
+    "AWS ECS DescribeTaskDefinition for the exact service revision; only sizing, image and container name retained",
+    "GitHub release asset download; local SHA-256 and YAML parse"
+  ],
+  "cloudWritesPerformed": false,
+  "recoveryHarnessExecuted": false,
+  "remainingInputs": [
+    "Dedicated reviewed Honua qualification substrate and bounded cost/cleanup scope",
+    "Matching verified signed baseline and candidate provenance",
+    "Canonical approval-required target and telemetry bindings",
+    "Protected proposer/data credentials, seeded private and public queries, restorable database snapshot"
+  ]
+}
