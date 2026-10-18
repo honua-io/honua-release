@@ -42,7 +42,7 @@ EXECUTION_FIELDS = {
     "client_id", "runner_lane", "protocol_version", "protocol_profile", "performed_by",
     "request_url", "exercised_capabilities",
 }
-OPTIONAL_CELL_FIELDS = {"client_package_digest", "test_ids", "client_version_observed", "release_bucket", "client_driver"} | EXECUTION_FIELDS
+OPTIONAL_CELL_FIELDS = {"client_package", "client_package_digest", "test_ids", "client_version_observed", "release_bucket", "client_driver"} | EXECUTION_FIELDS
 SOURCE_HOST_CLIENT = "Honua server public protocol integration harness"
 SOURCE_HOST_LANE = "server-protocol-harness"
 SOURCE_HOST_PROFILE = "source-test-host-http-adapter"
@@ -94,7 +94,7 @@ REQUIREMENT_FIELDS = {
     "client_version", "deployment_target", "required_tier", "licensed", "entitlement_policy_revision", "addressable_by_client",
     "addressability_reason", "scenario_facets", "contract_revision", "auth_policy_revision",
     "fixture_revision", "test_ids",
-    "budget_expectations", "client_package_digest",
+    "budget_expectations", "client_package_digest", "client_package",
 }
 
 
@@ -168,7 +168,7 @@ def load_ledger(path: str | Path) -> tuple[dict | None, str | None]:
 def _requirement_signature(value: dict) -> tuple[object, ...]:
     return tuple(
         tuple(value[field]) if field in {"scenario_facets", "test_ids"} and isinstance(value.get(field), list)
-        else json.dumps(value[field], sort_keys=True) if field == "budget_expectations" and isinstance(value.get(field), dict)
+        else json.dumps(value[field], sort_keys=True) if field in {"budget_expectations", "client_package"} and isinstance(value.get(field), dict)
         else value.get(field)
         for field in sorted(REQUIREMENT_ID_FIELDS)
     )
@@ -307,6 +307,17 @@ def _valid_producer_run(value: object) -> bool:
     )
 
 
+def _valid_python_wheel(value: object, version: object) -> bool:
+    """The governed Python SDK publishes this exact universal-wheel profile."""
+    return (
+        isinstance(value, dict) and set(value) == {"filename", "sha256", "source"}
+        and isinstance(version, str) and bool(re.fullmatch(r"[0-9]+\.[0-9]+\.[0-9]+", version))
+        and value.get("filename") == f"honua_sdk-{version}-py3-none-any.whl"
+        and isinstance(value.get("sha256"), str) and bool(re.fullmatch(r"[0-9a-f]{64}", value["sha256"]))
+        and value.get("source") == "pypi"
+    )
+
+
 def _valid_client_package_digest(lane: str, value: object) -> bool:
     if lane == "grpc-typescript":
         if not isinstance(value, str) or not value.startswith("sha512-"):
@@ -334,6 +345,12 @@ def _valid_receipt(
             return False
         identity_fields.add("client_package_digest")
     elif "client_package_digest" in cell:
+        return False
+    if cell.get("client_lane") == "sdk-python-certification":
+        if not _valid_python_wheel(cell.get("client_package"), cell.get("client_version")):
+            return False
+        identity_fields.add("client_package")
+    elif "client_package" in cell:
         return False
     if isinstance(cell.get("test_ids"), list):
         identity_fields.add("test_ids")
@@ -379,6 +396,7 @@ def _valid_receipt(
         or not isinstance(identity, dict)
         or set(identity) != identity_fields
         or any(identity[field] != cell[field] for field in RECEIPT_ID_FIELDS)
+        or ("client_package" in identity_fields and identity.get("client_package") != cell.get("client_package"))
         or ("client_package_digest" in identity_fields
             and identity.get("client_package_digest") != cell.get("client_package_digest"))
         or (
@@ -687,6 +705,12 @@ def evaluate(
                 fail("requirements.client_package_digest", "gRPC requirements must bind a canonical published package digest")
         elif isinstance(row, dict) and "client_package_digest" in row:
             fail("requirements.client_package_digest", "package digest is only permitted for gRPC requirements")
+    for row in owned_rows:
+        if isinstance(row, dict) and "client_package" in row and (
+            row.get("client_lane") != "sdk-python-certification"
+            or not _valid_python_wheel(row["client_package"], row.get("client_version"))
+        ):
+            fail("requirements.client_package", "governed Python wheel identity is malformed or on another lane")
     external_entitlement_policies = {
         row.get("entitlement_policy_revision") for row in owned_rows
         if isinstance(row, dict) and str(row.get("client_lane", "")).startswith("desktop-arcpy-")
@@ -846,6 +870,13 @@ def evaluate(
                 "client_version_observed from its receipt",
             )
         owned_requirement = owned_by_signature.get(_requirement_signature(raw))
+        if raw.get("client_lane") == "sdk-python-certification" and raw.get("result") in {"pass", "fail"}:
+            expected_wheel = owned_requirement.get("client_package") if isinstance(owned_requirement, dict) else None
+            if (not _valid_python_wheel(expected_wheel, raw.get("client_version"))
+                    or raw.get("client_package") != expected_wheel):
+                fail(prefix + ".client_package", "executed Python evidence lacks or differs from the governed published wheel")
+        elif "client_package" in raw and raw.get("client_lane") != "sdk-python-certification":
+            fail(prefix + ".client_package", "wheel identity is only permitted for the Python certification lane")
         required_bucket = owned_requirement.get("release_bucket") if isinstance(owned_requirement, dict) else None
         if required_bucket is not None and "release_bucket" not in raw:
             fail(prefix, f"release_bucket is required: the owned requirement is {required_bucket!r}")
