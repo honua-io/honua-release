@@ -141,8 +141,8 @@ def test_signed_manifest_contract_binds_source_and_image_without_inventing_a_loc
     for call in verify.call_args_list:
         arguments = call.args[0]
         assert arguments[0:2] == ["cosign", "verify-blob"]
-        assert "https://token.actions.githubusercontent.com" in arguments
-        assert "https://github.com/honua-io/honua-release/.github/workflows/promote.yml@refs/heads/trunk" in arguments
+        assert arguments[arguments.index("--certificate-oidc-issuer") + 1] == "https://token.actions.githubusercontent.com"
+        assert arguments[arguments.index("--certificate-identity") + 1] == "https://github.com/honua-io/honua-release/.github/workflows/promote.yml@refs/heads/trunk"
         assert "--certificate-github-workflow-sha" in arguments
     value["candidate"]["sourceSha"] = "b" * 40
     with patch.object(recovery.subprocess, "run", return_value=type("Verified", (), {"returncode": 0})()), \
