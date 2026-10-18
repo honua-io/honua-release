@@ -8,6 +8,7 @@ import { MessagePort } from 'node:worker_threads';
 
 export function ownResources(scope) {
   const byFile = new Map(), records = new WeakMap(), lifetimes = new Map(), refused = new Map();
+  const serverRefState = new WeakMap();
   function track(resource, kind, dispose, unreferenced = false) {
     const file = scope.getStore();
     if (!file || records.has(resource)) return;
@@ -25,7 +26,7 @@ export function ownResources(scope) {
   }
   function mark(record, unreferenced) {
     const file = scope.getStore();
-    if (unreferenced && file && file !== record.file) {
+    if (file && file !== record.file) {
       byFile.get(record.file)?.delete(record);
       const entries = byFile.get(file) || new Set();
       byFile.set(file, entries);
@@ -39,10 +40,12 @@ export function ownResources(scope) {
     refused.set(scope.getStore(), error);
     throw error;
   }
-  function wrapRef(prototype, name, unreferenced) {
+  function wrapRef(prototype, name, unreferenced, adopt, states) {
     const original = prototype[name];
     prototype[name] = function (...args) {
-      const record = records.get(this);
+      let record = records.get(this);
+      if (!record && unreferenced && scope.getStore() && adopt) record = adopt(this);
+      if (states) states.set(this, unreferenced);
       if (record) mark(record, unreferenced);
       else if (unreferenced && scope.getStore()) {
         const error = new Error('cannot unref a resource not owned by this reader block');
@@ -82,14 +85,27 @@ export function ownResources(scope) {
   };
   channel('net.client.socket').subscribe(connected);
   channel('net.server.socket').subscribe(connected);
-  channel('tracing:net.server.listen:asyncStart').subscribe(({ server }) => {
-    const record = track(server, 'Server', () => server.close());
+  function ownServer(server) {
+    const existing = records.get(server);
+    if (existing) {
+      mark(existing, serverRefState.get(server) === true);
+      return existing;
+    }
+    const record = track(server, 'Server', () => {
+      if (server.listening) server.close();
+      else forget(record); // an inactive server has no listening handle to stop
+    }, serverRefState.get(server) === true);
     if (record) server.once('close', () => forget(record));
-  });
+    return record;
+  }
+  channel('tracing:net.server.listen:asyncStart').subscribe(({ server }) => ownServer(server));
   wrapRef(net.Socket.prototype, 'unref', true);
   wrapRef(net.Socket.prototype, 'ref', false);
-  wrapRef(net.Server.prototype, 'unref', true);
-  wrapRef(net.Server.prototype, 'ref', false);
+  // Unlike stdin's Socket, the isolated worker has no harness-owned Server.
+  // A reader's explicit unref can precede listen; retain that public state for
+  // subsequent listen calls on the same server after cleanup has closed it.
+  wrapRef(net.Server.prototype, 'unref', true, ownServer, serverRefState);
+  wrapRef(net.Server.prototype, 'ref', false, undefined, serverRefState);
   wrapRef(MessagePort.prototype, 'unref', true);
   wrapRef(MessagePort.prototype, 'ref', false);
 

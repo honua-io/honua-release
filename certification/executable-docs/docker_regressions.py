@@ -261,6 +261,25 @@ class DockerRegressions(unittest.TestCase):
         self.assertFalse(Path(healthy.cwd, "server-stale").exists())
         controls.append("listeningServerClosedBeforePass")
         controls.append("cleanupOutputAttributedToOriginalBlock")
+        inactive = healthy.run_js("let prelistenCloses = 0; const prelisten = require('node:net').createServer().unref(); "
+            "prelisten.on('close', () => prelistenCloses++); console.log('inactive');", "javascript", 20)
+        self.assertEqual(inactive.status, "pass", inactive)
+        self.assertEqual(inactive.stdout, "inactive\n")
+        prelisten = healthy.run_js(
+            "await new Promise(resolve => prelisten.listen(0, '127.0.0.1', resolve)); "
+            "console.log('prepared', prelistenCloses);", "javascript", 20)
+        self.assertEqual(prelisten.status, "pass", prelisten)
+        self.assertEqual(prelisten.stdout, "prepared 0\n")
+        reused = healthy.run_js("await new Promise(resolve => prelisten.listen(0, '127.0.0.1', resolve)); "
+            "const reusedPort = prelisten.address().port; console.log('reused', prelistenCloses);", "javascript", 20)
+        self.assertEqual(reused.status, "pass", reused)
+        self.assertEqual(reused.stdout, "reused 1\n")
+        attempt = healthy.run_js("console.log(await new Promise(resolve => { "
+            "const s = require('node:net').connect(reusedPort, '127.0.0.1'); "
+            "s.on('error', error => resolve(error.code)); s.on('connect', () => { "
+            "s.destroy(); resolve('unexpected'); }); }));", "javascript", 20)
+        self.assertEqual(attempt.stdout, "ECONNREFUSED\n")
+        controls.append("prelistenUnrefInactiveAndRelistenRefStatePreserved")
         healthy.put("node", Path(healthy.cwd, "watched"), "initial")
         watcher = healthy.run_js("const watcher = require('node:fs').watch('watched', {persistent:false}, "
             "() => require('node:fs').writeFileSync('watch-stale', 'bad'));", "javascript", 20)

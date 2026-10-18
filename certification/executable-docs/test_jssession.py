@@ -415,6 +415,31 @@ def test_owned_unref_listening_server_closes_before_publication(reader):
     assert not Path(reader.cwd, 'accepted-stale').exists()
 
 
+@pytest.mark.parametrize('listen_first', [False, True])
+def test_native_prelisten_unref_and_reused_server_keep_public_ref_state(reader, listen_first):
+    setup = "let prelistenCloses = 0; const prelisten = require('node:net').createServer().unref(); " \
+        "prelisten.on('close', () => prelistenCloses++); "
+    listening = "await new Promise(resolve => prelisten.listen(0, '127.0.0.1', resolve)); "
+    source = setup + (listening if listen_first else '') + "console.log('prepared');"
+    native = Path(reader.cwd, 'native.mjs')
+    native.write_text("import {createRequire} from 'node:module'; const require=createRequire(import.meta.url);\n" + source
+        + ("await new Promise(resolve => prelisten.close(resolve)); " if listen_first else '')
+        + listening + "console.log('native-reused', prelistenCloses);")
+    oracle = subprocess.run(['node', str(native)], cwd=reader.cwd, capture_output=True, text=True, timeout=5)
+    assert oracle.returncode == 0 and oracle.stdout == f'prepared\nnative-reused {int(listen_first)}\n', oracle
+    first = run(reader, source)
+    assert first.status == 'pass' and first.stdout == 'prepared\n', first
+    # Native Server retains unref across close/listen. No second unref call may
+    # be required to stop this newly listening server before another pass.
+    reused = run(reader, listening + "const reusedPort = prelisten.address().port; console.log('reused', prelistenCloses);")
+    assert reused.status == 'pass' and reused.stdout == f'reused {int(listen_first)}\n', reused
+    result = run(reader, "console.log(await new Promise(resolve => { "
+        "const s = require('node:net').connect(reusedPort, '127.0.0.1'); "
+        "s.on('error', error => resolve(error.code)); s.on('connect', () => { "
+        "s.destroy(); resolve('unexpected-connect'); }); }));")
+    assert result.status == 'pass' and result.stdout == 'ECONNREFUSED\n', result
+
+
 def test_owned_unref_message_ports_close_before_next_block(reader):
     first = run(reader, "const channel = new (require('node:worker_threads').MessageChannel)(); "
         "channel.port1.on('message', () => require('node:fs').writeFileSync('port-stale', 'bad')); "
