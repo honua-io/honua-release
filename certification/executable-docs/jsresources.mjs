@@ -175,6 +175,17 @@ export function ownResources(scope) {
   }
 
   return {
+    idleFailure(file) {
+      // Native beforeExit can occur with an unbound UDP socket even though the
+      // public active-resource list still includes UDPWrap. Do not subtract a
+      // resource type or turn that ambiguity into a false completion.
+      for (const record of byFile.get(file) || []) {
+        if (!record.closed && record.kind === 'UDP') {
+          const state = record.unreferenced ? 'unref' : 'dormant';
+          return new Error(`unsupported owned ${state} resource: UDP`);
+        }
+      }
+    },
     dispose(file) {
       if (refused.has(file)) throw refused.get(file);
       let pending = false;

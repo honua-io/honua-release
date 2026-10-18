@@ -83,6 +83,12 @@ This is bounded resource cleanup, not native process-exit fidelity: cleanup may 
 user close callbacks that native process exit would not invoke. Paired native-oracle
 controls retain that difference under open #683. Arbitrary native-addon schedulers and
 the full Node Module API are not established by this slice.
+Dormant, unbound UDP sockets also fail explicitly before completion, although native
+Node permits that script to exit successfully. Node's public active-resource list still
+reports `UDPWrap` at native idle in this case; the runner does not subtract resource
+types or claim native-equivalent support. This temporary limitation remains under open
+[#683](https://github.com/honua-io/honua-release/issues/683); no governed document or
+acceptance row is waived by it.
 The final `process.exitCode` is checked at completion, with Node's native 8-bit exit status
 retained; a nonzero status fails and loses the context. Each block starts with a fresh exit status.
 Completion records use atomically published files with a unique request identity on the

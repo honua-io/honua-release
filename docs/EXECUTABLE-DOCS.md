@@ -106,6 +106,12 @@ nested nextTick/Promise jobs and later idle events caused by their referenced wo
 An owned checkpoint checks public `process.getActiveResourcesInfo()` after those jobs;
 only the exact harness I/O and checkpoint handles are unreferenced. Resource types are
 never ignored, and cleanup bookkeeping does not create extra reader idle events.
+Dormant, unbound UDP sockets also fail explicitly before completion, although native
+Node permits that script to exit successfully. Node's public active-resource list still
+reports `UDPWrap` at native idle in this case; the runner does not subtract resource
+types or claim native-equivalent support. This temporary limitation remains under open
+[#683](https://github.com/honua-io/honua-release/issues/683); no governed document or
+acceptance row is waived by it.
 The final native exit status also remains authoritative; nonzero `process.exitCode` fails
 and loses the context rather than passing because the interpreter stays alive.
 Top-level await that cannot settle at idle fails and stops the context; referenced work

@@ -386,14 +386,20 @@ class DockerRegressions(unittest.TestCase):
             self.assertNotEqual(run.docker("inspect", context.containers["node"]).returncode, 0)
             controls.append(name + "OriginalBlockFailedAndStopped")
         refused = self.session.execution_context("unsupported-udp", "node")
-        self.assertEqual(refused.run_js("const udp = require('node:dgram').createSocket('udp4');",
-            "javascript", 20).status, "pass")
-        udp = refused.run_js("await new Promise(resolve => udp.bind(0, '127.0.0.1', resolve)); udp.unref();",
+        udp = refused.run_js("const udp = require('node:dgram').createSocket('udp4'); "
+            "await new Promise(resolve => udp.bind(0, '127.0.0.1', resolve)); udp.unref();",
             "javascript", 20)
         self.assertEqual(udp.status, "fail", udp)
         self.assertIn("unsupported owned unref resource: UDP", udp.stderr)
         self.assertNotEqual(run.docker("inspect", refused.containers["node"]).returncode, 0)
         controls.append("unsupportedOwnedUnrefRefused")
+        dormant = self.session.execution_context("unsupported-dormant-udp", "node")
+        result = dormant.run_js("const dormantUdp = require('node:dgram').createSocket('udp4');",
+            "javascript", 20)
+        self.assertEqual(result.status, "fail", result)
+        self.assertIn("unsupported owned dormant resource: UDP", result.stderr)
+        self.assertNotEqual(run.docker("inspect", dormant.containers["node"]).returncode, 0)
+        controls.append("nativeValidDormantUdpExplicitlyUnsupported")
         for index, (source, kind) in enumerate([
                 ("require('node:fs').watchFile('watched', {persistent:false}, () => {});", "StatWatcher"),
                 ("require('node:fs/promises').watch('watched', {persistent:false});", "FSWatchIterator"),

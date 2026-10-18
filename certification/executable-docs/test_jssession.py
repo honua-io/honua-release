@@ -649,11 +649,17 @@ def test_unsupported_unref_watcher_forms_fail_even_when_caught(reader, source, k
     assert reader.js.broken
 
 
-def test_inactive_udp_unref_in_later_block_is_owned_by_that_block(reader):
-    assert run(reader, "const inactive = require('node:dgram').createSocket('udp4');").status == 'pass'
-    result = run(reader, "await new Promise(resolve => inactive.bind(0, '127.0.0.1', resolve)); inactive.unref();")
-    assert result.status == 'fail' and 'unsupported owned unref resource: UDP' in result.stderr
-    assert reader.js.broken
+def test_native_valid_dormant_udp_is_explicitly_unsupported_not_a_false_pass(reader):
+    source = "const inactive = require('node:dgram').createSocket('udp4');"
+    native = Path(reader.cwd, 'native.cjs')
+    native.write_text(source)
+    oracle = subprocess.run(['node', str(native)], cwd=reader.cwd, capture_output=True, text=True, timeout=5)
+    assert oracle.returncode == 0 and oracle.stdout == '' and oracle.stderr == ''
+    # Temporary partial-support limitation, not native-equivalent execution.
+    result = run(reader, source)
+    assert result.status == 'fail' and 'unsupported owned dormant resource: UDP' in result.stderr
+    assert reader.js.broken and reader.js.proc.poll() is not None
+    assert 'refusing to restart' in run(reader, "console.log('bad');").detail
 
 
 @pytest.mark.parametrize('source,kind', [

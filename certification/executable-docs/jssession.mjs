@@ -37,6 +37,9 @@ let active;
 const emit = process.emit;
 process.emit = function (event, ...args) {
   if (this === process && event === 'beforeExit' && active) {
+    // Snapshot at the actual native idle event, before listeners can start new
+    // work. Dormant UDP completion remains an explicit partial-support refusal.
+    active.idleFailure = resources.idleFailure(active.file);
     return output.run(active.file, () => emit.call(this, event, ...args));
   }
   return emit.call(this, event, ...args);
@@ -54,6 +57,7 @@ function checkpoint() {
         try {
           // All beforeExit listeners and their nextTick/Promise jobs have run.
           // Reader reference work requires the next natural beforeExit event.
+          if (completion.idleFailure) throw completion.idleFailure;
           if (activeResources().length) return;
           const code = Number(process.exitCode) & 255;
           if (code) return completion.reject(new Error(`Node script completed with exit code ${code}`));
