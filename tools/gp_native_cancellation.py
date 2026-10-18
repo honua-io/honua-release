@@ -25,6 +25,9 @@ from runner.update_rollback import Api, ProofError, checked, require
 
 SCHEMA = "honua.aws-native-gp-cancellation/v1"
 TOKEN = re.compile(r"[A-Za-z0-9][A-Za-z0-9_-]{0,127}\Z")
+# GeoprocessingOutputStagingOptions.StoreReference is an opaque store identity,
+# not a job or worker token. Keep its production character and length contract.
+STORE_REFERENCE = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]{0,159}\Z")
 HEX = re.compile(r"[a-f0-9]{64}\Z")
 CLIENT_LOCK = "f2d66687dd7c31b6620d1417cabaa367da9b56bed7bcb00f56aabcf96e789192"
 
@@ -163,7 +166,8 @@ class AwsObserver:
         require(re.fullmatch(r"[^\s@]+@sha256:[a-f0-9]{64}", str(config.get("workerImage"))), "immutable native image required")
         require(HEX.fullmatch(str(config.get("policySha256"))) and isinstance(config.get("store"), dict)
                 and set(config["store"]) == {"reference", "configurationDigest", "attestationSha256"}
-                and TOKEN.fullmatch(str(config["store"]["reference"]))
+                and isinstance(config["store"]["reference"], str)
+                and STORE_REFERENCE.fullmatch(config["store"]["reference"])
                 and all(HEX.fullmatch(str(config["store"][k])) for k in ("configurationDigest", "attestationSha256")),
                 "governed observer policy/store binding required")
         self.expected_digest = config["workerImage"].rsplit("@", 1)[1]
