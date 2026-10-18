@@ -111,6 +111,19 @@ class DockerRegressions(unittest.TestCase):
         self.assertIn("refusing to restart", self.session.run_js("console.log(client);", "javascript", 20).detail)
         self.assertEqual(healthy.run_js("console.log(owned);", "javascript", 20).stdout, "healthy\n")
 
+        missing_names = []
+        for binding, declaration in [("named", "{ missing }"), ("default", "missing")]:
+            missing = self.session.execution_context(f"missing-{binding}", "node")
+            missing.put("node", Path(missing.cwd, "exports.mjs"), "export const present = 42;")
+            missing_names.append(missing.containers["node"])
+            result = missing.run_js(f"import {declaration} from './exports.mjs';\n"
+                "(await import('node:fs')).writeFileSync('invalid-export-effect', 'bad');", "javascript", 20)
+            self.assertEqual(result.status, "fail")
+            self.assertTrue(result.command_failed)
+            self.assertIn("SyntaxError", result.stderr)
+            self.assertFalse(Path(missing.cwd, "invalid-export-effect").exists())
+            self.assertNotEqual(run.docker("inspect", missing_names[-1]).returncode, 0)
+
         timed = self.session.execution_context("timed", "node")
         self.assertEqual(timed.run_js("const established = 1;", "javascript", 20).status, "pass")
         timed_name = timed.containers["node"]
@@ -125,7 +138,7 @@ class DockerRegressions(unittest.TestCase):
         self.assertIn("refusing to restart", timed.run_js("console.log(established);", "javascript", 20).detail)
         self.assertFalse(Path(timed.cwd, "late").exists())
         self.assertEqual(healthy.run_js("console.log(owned);", "javascript", 20).stdout, "healthy\n")
-        owned = [failed_name, timed_name, healthy.containers["node"]]
+        owned = [failed_name, timed_name, healthy.containers["node"], *missing_names]
         self.session.close()
         self.assertTrue(all(run.docker("inspect", name).returncode != 0 for name in owned))
         report = {"schemaVersion": "executable-docs-node-context-rehearsal.v1", "qualification": False,
@@ -135,7 +148,8 @@ class DockerRegressions(unittest.TestCase):
                 for name in ["jssession.mjs", "jssession.py", "run.py", "docker_regressions.py"]},
             "controls": {name: "pass" for name in ["persistentStateOnce", "currentCwdStaticDynamicImports",
                 "temporarySourceEnvRestored", "unawaitedCompletionOnce", "lateErrorRetained", "failedContextStopped", "otherContextHealthy",
-                "timeoutChildContainerStopped", "timeoutRestartRefused", "allOwnedContainersAbsent"]}}
+                "missingNamedExportRefused", "missingDefaultExportRefused", "timeoutChildContainerStopped",
+                "timeoutRestartRefused", "allOwnedContainersAbsent"]}}
         path = run.ROOT / "artifacts/executable-docs/node-context-rehearsal.json"
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text(json.dumps(report, indent=2) + "\n")

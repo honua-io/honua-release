@@ -47,6 +47,9 @@ The reader REPL adapts leading static imports (side-effect, default, named and n
 to dynamic imports. Unsupported import syntax fails before evaluation. CommonJS `require`
 resolves from the reader's current directory. TypeScript uses the pinned Node runtime's
 type transformation; the separate explicit typecheck path still uses the configured compiler.
+Every requested static export must exist as an own module export before binding; an
+existing export whose value is `undefined` remains valid. Leading dynamic imports retain
+native parsing, including whitespace and comments before the argument.
 Strict evaluation and removal of REPL-only built-in globals keep undeclared names and
 missing imports as actual errors.
 Injected environment keys removed by a later block restore the container baseline,

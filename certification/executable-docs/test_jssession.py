@@ -1,6 +1,7 @@
 """Execute real Node controls: persistent state, once-only effects and owned cleanup."""
 import os
 import signal
+import subprocess
 import sys
 import time
 from pathlib import Path
@@ -227,3 +228,46 @@ def test_unsettled_top_level_await_at_quiescence_stops_context(reader):
     assert result.status == "fail" and "did not settle" in result.stderr
     assert reader.js.broken and reader.js.proc.poll() is not None
     assert "refusing to restart" in run(reader, "console.log(priorState);").detail
+
+
+@pytest.mark.parametrize("declaration,module_source", [
+    ("import { missing } from './exports.mjs';", "export const present = 42;"),
+    ("import { missing as unused } from './exports.mjs';", "export const present = 42;"),
+    ("import absent from './exports.mjs';", "export const present = 42;"),
+    ("import absent, * as namespace from './exports.mjs';", "export const present = 42;"),
+    ("import { toString } from './exports.mjs';", "export const present = 42;"),
+    ("import present, { missing } from './exports.mjs';", "export default 42;"),
+])
+def test_absent_static_exports_fail_like_native_esm_before_reader_effects(reader, declaration, module_source):
+    Path(reader.cwd, "exports.mjs").write_text(module_source)
+    native = Path(reader.cwd, "native.mjs")
+    native.write_text(declaration + "\n(await import('node:fs')).writeFileSync('native-effect', 'bad');")
+    oracle = subprocess.run(["node", str(native)], cwd=reader.cwd, capture_output=True, text=True, timeout=5)
+    assert oracle.returncode != 0 and "SyntaxError" in oracle.stderr
+    assert not Path(reader.cwd, "native-effect").exists()
+    result = run(reader, declaration + "\n(await import('node:fs')).writeFileSync('worker-effect', 'bad');")
+    assert result.status == "fail" and result.command_failed
+    assert "SyntaxError" in result.stderr and "export" in result.stderr
+    assert not Path(reader.cwd, "worker-effect").exists()
+
+
+def test_existing_undefined_exports_and_namespace_default_are_valid(reader):
+    Path(reader.cwd, "exports.mjs").write_text("export const value = undefined; export default undefined;")
+    result = run(reader, "import first, { value as named } from './exports.mjs';\n"
+                 "import second, * as namespace from './exports.mjs';\n"
+                 "console.log(first, named, second, namespace.value);")
+    assert result.status == "pass", result.stderr
+    assert result.stdout == "undefined undefined undefined undefined\n"
+
+
+@pytest.mark.parametrize("separator", [" ", "\n", " /* comment */ ", "\n// comment\n"])
+def test_leading_dynamic_import_whitespace_matches_native_esm(reader, separator):
+    Path(reader.cwd, "plugin.mjs").write_text("export const value = 42;")
+    code = "import" + separator + "('./plugin.mjs').then(module => console.log(module.value));"
+    native = Path(reader.cwd, "native.mjs")
+    native.write_text(code)
+    oracle = subprocess.run(["node", str(native)], cwd=reader.cwd, capture_output=True, text=True, timeout=5)
+    assert oracle.returncode == 0 and oracle.stdout == "42\n", oracle.stderr
+    result = run(reader, code)
+    assert result.status == "pass", result.stderr
+    assert result.stdout == oracle.stdout

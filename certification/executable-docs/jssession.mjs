@@ -77,20 +77,26 @@ function imports(source) {
     prefix += whitespace;
     rest = rest.slice(whitespace.length);
     if (!/^import\s/.test(rest)) break;
+    if (rest.slice('import'.length).replace(trivia, '').startsWith('(')) break;
     const match = rest.match(declaration);
     if (!match) throw new SyntaxError('unsupported static import in reader REPL');
     let binding = match[1]?.trim();
-    const expression = `await import(${match[2]})`;
-    if (!binding) prefix += `${expression};`;
+    const required = [];
+    const expression = () => required.length === 0 ? `await import(${match[2]})` :
+      `((module) => { for (const name of ${JSON.stringify(required)}) { ` +
+      `if (!Object.hasOwn(module, name)) throw new SyntaxError(` +
+      `'The requested module does not provide an export named ' + name); } ` +
+      `return module; })(await import(${match[2]}))`;
+    if (!binding) prefix += `${expression()};`;
     else {
       let defaultName;
       const defaultMatch = binding.match(new RegExp(`^(${id})(?:\\s*,\\s*([\\s\\S]+))?$`));
       if (defaultMatch) { defaultName = defaultMatch[1]; binding = defaultMatch[2] || ''; }
       const entries = [];
-      if (defaultName) entries.push(`default: ${defaultName}`);
+      if (defaultName) { entries.push(`default: ${defaultName}`); required.push('default'); }
       const namespace = binding.match(new RegExp(`^\\*\\s+as\\s+(${id})$`));
       if (namespace) {
-        prefix += `const ${namespace[1]} = ${expression};`;
+        prefix += `const ${namespace[1]} = ${expression()};`;
         if (defaultName) prefix += `const { default: ${defaultName} } = ${namespace[1]};`;
       } else {
         if (binding) {
@@ -101,9 +107,10 @@ function imports(source) {
             const named = name.match(new RegExp(`^(${id})(?:\\s+as\\s+(${id}))?$`));
             if (!named) throw new SyntaxError('unsupported named import binding');
             entries.push(`${named[1]}: ${named[2] || named[1]}`);
+            required.push(named[1]);
           }
         }
-        prefix += `const { ${entries.join(', ')} } = ${expression};`;
+        prefix += `const { ${entries.join(', ')} } = ${expression()};`;
       }
     }
     rest = rest.slice(match[0].length);
