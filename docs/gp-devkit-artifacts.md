@@ -52,3 +52,13 @@ The compatible platform manifest and workflow knowledge may advertise the
 artifacts only after the separate public-consumption and integrated GIS journey
 checks succeed. The current candidate workflow is not evidence that a public
 GP package or image has already been released.
+
+`gp_devkit_public_consumption.py` is the separate anonymous consumption gate.
+It revalidates the retained candidate evidence and registry manifest, downloads
+the versioned package without authentication, verifies its exact bytes, and
+installs it from an isolated local feed using the independently verified Microsoft
+SDK. The installed bootstrap must match the qualified payload. It then pulls the
+immutable image with an empty Docker credential configuration and checks its
+platform and image configuration digest. A receipt is written only after all
+steps succeed. This gate does not rebuild the image or qualify the subsequent
+server import, map, and audience-access journey.

@@ -46,9 +46,9 @@ def prepare(options):
         archive.extractall(dotnet_root, filter="data")
     env = {key: os.environ[key] for key in ("PATH", "LANG", "LC_ALL", "TMPDIR") if key in os.environ}
     env |= {"DOTNET_ROOT": str(dotnet_root), "PATH": str(dotnet_root) + os.pathsep + env.get("PATH", ""),
-            "HOME": str(initial / "home"), "DOTNET_CLI_HOME": str(initial / "home"),
+            "DOTNET_CLI_HOME": str(initial / "cli-home"),
             "NUGET_PACKAGES": str(initial / "packages"), "DOTNET_CLI_TELEMETRY_OPTOUT": "1", "DOTNET_NOLOGO": "1"}
-    Path(env["HOME"]).mkdir()
+    Path(env["DOTNET_CLI_HOME"]).mkdir()
     feed = initial / "feed"
     feed.mkdir()
     shutil.copy2(package, feed / package.name)
