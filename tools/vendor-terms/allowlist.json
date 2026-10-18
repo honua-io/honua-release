@@ -311,6 +311,23 @@
       "reason": "Exact frozen requirement ID crosscheck.honua-and-esri-clients from the unchanged requirements file; the consumer and negative control must address that governed cell. Other identifiers and prose remain checked.",
       "owner": "@mikemcdougall",
       "issue": "honua-io/honua-release#418"
+    },
+    {
+      "repo": "honua-release",
+      "paths": [
+        "certification/sdk-publication-replay/fixtures/reviewed-clients.yaml"
+      ],
+      "tokens": [
+        "esri"
+      ],
+      "identifiers": [
+        "honua-sdk-esri-compat",
+        "@honua/sdk-esri-compat",
+        "sdk-esri-compat-0.2.2.tgz"
+      ],
+      "reason": "This fixed historical SDK cohort fixture preserves the exact required manifest key, published npm coordinate and tarball filename. Substituting neutral names would stop exercising the real publication selector identity. Only these three lexical identifiers in this one fixture are covered; no prose, other paths or confidential terms are admitted. Revisit when the published package is renamed.",
+      "owner": "@mikemcdougall",
+      "issue": "honua-io/honua-release#181"
     }
   ]
 }
