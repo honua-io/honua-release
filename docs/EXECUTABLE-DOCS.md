@@ -77,9 +77,9 @@ missing, changed, duplicate, reordered or language-incompatible bindings fail be
 execution. Runtime selection never guesses from the command text.
 
 Each context has its own persistent container, HOME, working directory, exported
-variables, PATH and interpreter/project state. A Python install and its later snippet
-therefore use the same Python environment; a .NET snippet must use the project its
-setup actually created, rather than a runner-generated substitute. Contexts inherit
+variables and PATH, plus Python interpreter or .NET project state. A Python install
+and its later snippet therefore use the same Python environment. A .NET snippet
+must use the project its setup actually created. Contexts inherit
 the document's declared prerequisite tools, pinned images, registry guard and package
 audit. An unsuccessful context block fails its later blocks, while other contexts
 still run. Receipts retain the explicit context name/runtime for every assigned block.
@@ -89,6 +89,8 @@ contexts currently fail closed. Existing documents without contexts retain their
 original session behavior. The GP guide's package versions and actual GP behavior
 remain independently checked; context routing does not make unavailable packages or
 failed operations pass.
+JavaScript/TypeScript retains the continuation replay described below; it does not
+provide once-only lexical execution across separate snippets.
 
 ## Results
 
