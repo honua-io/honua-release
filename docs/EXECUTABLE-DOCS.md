@@ -77,7 +77,7 @@ missing, changed, duplicate, reordered or language-incompatible bindings fail be
 execution. Runtime selection never guesses from the command text.
 
 Each context has its own persistent container, HOME, working directory, exported
-variables and PATH, plus Python interpreter or .NET project state. A Python install
+variables and PATH, plus Node/Python interpreter or .NET project state. A Python install
 and its later snippet therefore use the same Python environment. A .NET snippet
 must use the project its setup actually created. Contexts inherit
 the document's declared prerequisite tools, pinned images, registry guard and package
@@ -85,12 +85,16 @@ audit. An unsuccessful context block fails its later blocks, while other context
 still run. Receipts retain the explicit context name/runtime for every assigned block.
 This bounded mechanism supports standalone documents; grouped document sessions,
 source-build admission, checkout and Docker orchestration combined with explicit
-contexts currently fail closed. Existing documents without contexts retain their
-original session behavior. The GP guide's package versions and actual GP behavior
+contexts currently fail closed. Documents without explicit contexts keep one
+document-wide session. The GP guide's package versions and actual GP behavior
 remain independently checked; context routing does not make unavailable packages or
 failed operations pass.
-JavaScript/TypeScript retains the continuation replay described below; it does not
-provide once-only lexical execution across separate snippets.
+JavaScript/TypeScript keeps lexical declarations, imports and top-level `await` state
+in one Node reader interpreter per context. Each snippet executes once, even if it
+writes something before failing. Leading static imports use a bounded REPL adapter;
+unsupported import syntax fails before evaluation. Timeout or worker exit loses that
+context, stops its owned container and children, and fails subsequent snippets without
+restarting or replaying earlier code. This does not change Python ownership or C# replay.
 
 ## Results
 
@@ -103,9 +107,10 @@ are not meant to run are reported as `not-run` with their intent.
   asserted. The full output must match with whitespace normalized; numbers remain exact and
   only a documented `...` or `…` elides. JSON is compared recursively, including values, types,
   array lengths and the complete set of keys. Extra output fails.
-- **Continuations.** A C# or JS/TS block that fails only because it uses a name from an earlier
-  block (`CS0103`, `ReferenceError`, `TS2304`) is re-run appended to the document's earlier passing
-  blocks of that language, and the result is marked `+continues-earlier-blocks`.
+- **Continuations.** A C# block that fails because it uses a name from an earlier
+  block (`CS0103`) is re-run appended to the document's earlier passing C# blocks,
+  and the result is marked `+continues-earlier-blocks`. JavaScript/TypeScript uses
+  its persistent interpreter and never retries by concatenating prior snippets.
 - **Long-running commands.** `npm run dev`, `docker compose up` without `-d` and the like need
   readiness evidence stated in the document. A `doc-run: run ready-url="http://localhost:3000/"`
   marker requires a successful HTTP response while the command runs; `ready-log="Ready"` requires

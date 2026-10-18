@@ -35,6 +35,20 @@ Run `python3 -m pytest certification/executable-docs -q` for offline regressions
 `python3 certification/executable-docs/docker_regressions.py` for live Docker checks.
 Runtime evidence under root `out/` is ignored and must not be committed.
 
+JavaScript and TypeScript snippets use one Node interpreter per declared reader context.
+Lexical declarations, imported clients and top-level `await` survive into later blocks;
+each block runs once, including blocks that write something before throwing. A failed
+block retains its actual error and is never retried with earlier blocks. Separate contexts
+have separate interpreters, working directories and environments. Timeout or worker exit
+loses that context permanently for the run: the runner kills its owned container, refuses
+to restart it and reports failure. This also stops child processes started by that context.
+
+The reader REPL adapts leading static imports (side-effect, default, named and namespace)
+to dynamic imports. Unsupported import syntax fails before evaluation. CommonJS `require`
+resolves from the reader's current directory. TypeScript uses the pinned Node runtime's
+type transformation; the separate explicit typecheck path still uses the configured compiler.
+These offline controls do not establish candidate execution or change any required row's status.
+
 
 ## Immutable source builds
 
