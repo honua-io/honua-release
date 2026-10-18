@@ -182,17 +182,17 @@ def test_missing_live_flag_writes_blocked_receipt_and_nonzero(tmp_path):
         "candidateQualified": False, "reason": "native-cancellation-proof-incomplete"}
 
 
-def observer_fixture():
+def observer_fixture(reference="qualification"):
     config = {"cell": "aws-ecs/redis-on", "source": "f" * 40, "region": "us-west-2", "cluster": "cluster",
               "workerImage": "worker@sha256:" + "a" * 64, "workerTask": "task", "workerContainer": "worker",
               "observerTask": "task", "observerContainer": "diagnostic", "policySha256": "e" * 64,
-              "store": STORE.copy(), "barrierRoot": "/barriers", "scratchRoot": "/scratch",
+              "store": {**STORE, "reference": reference}, "barrierRoot": "/barriers", "scratchRoot": "/scratch",
               "outputRoot": "/outputs", "keyPrefix": "gp/outputs"}
     worker = {"name": "worker", "image": config["workerImage"], "readonlyRootFilesystem": True,
               "environment": [{"name": k, "value": v} for k, v in {
                   "HONUA_GP_QUALIFICATION_BARRIER_ROOT": "/barriers", "HONUA_GP_QUALIFICATION_PAUSE_AT": "native-process-started",
                   "Geoprocessing__OutputStaging__Provider": "local", "Geoprocessing__OutputStaging__LocalRootPath": "/outputs",
-                  "Geoprocessing__OutputStaging__KeyPrefix": "gp/outputs", "Geoprocessing__OutputStaging__StoreReference": "qualification",
+                  "Geoprocessing__OutputStaging__KeyPrefix": "gp/outputs", "Geoprocessing__OutputStaging__StoreReference": reference,
                   "Geoprocessing__OutputStaging__PersistenceClass": "shared-persistent", "GdalWorker__ScratchRoot": "/scratch"}.items()],
               "mountPoints": [{"containerPath": path, "sourceVolume": name, "readOnly": False}
                               for path, name in (("/outputs", "output"), ("/barriers", "barrier"), ("/scratch", "scratch"))]}
@@ -220,6 +220,23 @@ def test_actual_task_definition_admission_preserves_worker_readonly_root():
     assert admitted["worker"]["runtimeId"] == "worker-runtime"
     assert admitted["observer"]["runtimeId"] == "diagnostic-runtime"
     assert admitted["volumes"]["/outputs"]["accessPointId"] == "fsap-output"
+
+
+@pytest.mark.parametrize("reference", ["gp.outputs", "s" * 160, "gp..outputs"])
+def test_production_store_reference_contract_preserves_exact_worker_identity(reference):
+    observer, _, _, worker, _ = observer_fixture(reference)
+    assert observer.preflight()["worker"]["runtimeId"] == "worker-runtime"
+    entry = next(item for item in worker["environment"]
+                 if item["name"] == "Geoprocessing__OutputStaging__StoreReference")
+    entry["value"] = "another-valid-store"
+    with pytest.raises(ProofError, match="does not match independent mount scope"):
+        observer.preflight()
+
+
+@pytest.mark.parametrize("reference", ["s" * 161, "store/name", ".store", "", None, 0, True])
+def test_invalid_store_reference_is_refused_before_provider_queries(reference):
+    with pytest.raises(ProofError, match="governed observer policy/store binding required"):
+        observer_fixture(reference)
 
 
 @pytest.mark.parametrize("fault", ["agent", "worker-root", "pid-mode", "writable-policy", "shared-policy", "writable-output",
