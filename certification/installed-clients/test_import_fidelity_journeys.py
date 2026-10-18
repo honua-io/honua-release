@@ -383,7 +383,7 @@ def test_real_rollback_orchestration_requires_discriminating_readback_and_cleanu
         feature["attributes"]["label"] = "repoint_unit"
     reads = [deepcopy(original), deepcopy(original if fault == "cached-source" else marked),
              deepcopy(marked if fault == "wrong-restored-values" else original), deepcopy(original)]
-    child = ConfiguredConsumerControl()
+    child = ConfiguredConsumerControl(fault)
     lane.sdk = child
     with mock.patch.object(producer, "read_snapshot", side_effect=reads), mock.patch.object(producer, "sql") as mutate, mock.patch.object(
             lane, "complete", return_value=deepcopy(lane.states["points"])) as restore, mock.patch.object(lane, "parity") as parity:

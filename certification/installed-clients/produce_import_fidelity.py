@@ -132,6 +132,11 @@ def verify_runtime_assets(assets: dict, packages: Path, output: Path, framework:
     return assemblies
 
 
+# The SDK bounds each raw response at 64 MiB. Permit worst-case JSON character
+# escaping (sixfold), configuration/receipt envelopes and bounded transport overlap.
+MAX_SDK_RESPONSE_BYTES = 512 * 1024 * 1024
+
+
 class Sdk:
     def __init__(self, command: list[str], env: dict[str, str], consumer: dict):
         # Registry/runtime configuration and explicit application credentials only. GitHub,
@@ -154,15 +159,24 @@ class Sdk:
         # Retain complete lines ourselves so a late acknowledgement and the next
         # status response arriving in one pipe read cannot hide in TextIO buffering.
         pending = getattr(self, "response_buffer", b"")
-        while b"\n" not in pending:
+        while True:
+            if time.monotonic() >= expires:
+                raise ProducerError("SDK operation exceeded its bounded execution time")
+            boundary = pending.find(b"\n")
+            if (boundary if boundary >= 0 else len(pending)) > MAX_SDK_RESPONSE_BYTES:
+                raise ProducerError("SDK consumer response exceeds its byte bound")
+            if boundary >= 0:
+                line, self.response_buffer = pending.split(b"\n", 1)
+                value = json.loads(line)
+                if not isinstance(value, dict):
+                    raise ProducerError("SDK consumer returned a malformed response envelope")
+                return value
             if not select.select([self.process.stdout], [], [], max(0, expires - time.monotonic()))[0]:
                 raise ProducerError("SDK operation exceeded its bounded execution time")
             data = os.read(self.process.stdout.fileno(), 65536)
             if not data:
                 raise ProducerError("SDK consumer exited before its response")
             pending += data
-        line, self.response_buffer = pending.split(b"\n", 1)
-        return json.loads(line)
 
     def call(self, operation: str, **arguments):
         request = {"operation": operation, **arguments}

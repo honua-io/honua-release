@@ -478,3 +478,34 @@ def test_private_configuration_status_never_accepts_unmatched_or_eof_responses()
             producer.os, "read", return_value=b""):
         with pytest.raises(producer.ProducerError, match="exited before"):
             sdk.call("readback-status", configurationId="a" * 32)
+
+
+@pytest.mark.parametrize("newline", [False, True])
+def test_private_sdk_response_has_a_byte_bound_with_or_without_a_newline(newline):
+    sdk = object.__new__(producer.Sdk)
+    sdk.process = mock.Mock()
+    data = b"x" * 33 + (b"\n" if newline else b"")
+    with mock.patch.object(producer, "MAX_SDK_RESPONSE_BYTES", 32), mock.patch.object(
+            producer.select, "select", return_value=([sdk.process.stdout], [], [])), mock.patch.object(producer.os, "read", return_value=data):
+        with pytest.raises(producer.ProducerError, match="byte bound"):
+            sdk.read_response(producer.time.monotonic() + 30)
+    assert producer.MAX_SDK_RESPONSE_BYTES >= 6 * 64 * 1024 * 1024
+
+
+def test_continuously_readable_unterminated_sdk_response_cannot_outlive_expiry():
+    sdk = object.__new__(producer.Sdk)
+    sdk.process = mock.Mock()
+    with mock.patch.object(producer.time, "monotonic", side_effect=[0, 0, 1, 1, 3]), mock.patch.object(
+            producer.select, "select", return_value=([sdk.process.stdout], [], [])), mock.patch.object(producer.os, "read", return_value=b"x") as read:
+        with pytest.raises(producer.ProducerError, match="bounded execution time"):
+            sdk.read_response(2)
+    assert read.call_count == 2
+
+
+@pytest.mark.parametrize("scalar", [None, [], "not-an-envelope", 1, True])
+def test_private_sdk_response_rejects_scalars_before_correlation(scalar):
+    sdk = object.__new__(producer.Sdk)
+    sdk.process = mock.Mock()
+    sdk.response_buffer = json.dumps(scalar).encode() + b"\n"
+    with pytest.raises(producer.ProducerError, match="malformed response envelope"):
+        sdk.call("readback-status", configurationId="a" * 32)
