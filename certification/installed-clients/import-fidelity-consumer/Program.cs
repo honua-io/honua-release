@@ -13,6 +13,7 @@ using Honua.Sdk.GeoServices.FeatureServer.Models;
 // This consumer has no HTTP request implementation: every service operation uses the public SDK.
 var json = new JsonSerializerOptions(JsonSerializerDefaults.Web);
 json.Converters.Add(new JsonStringEnumConverter());
+var readback = new ConfiguredReadback();
 var adminMethods = new HashSet<string>(StringComparer.Ordinal)
 {
     "DiscoverGeoservicesServiceAsync", "ScanMigrationSourceAsync", "StartGeoservicesImportAsync",
@@ -22,11 +23,27 @@ var adminMethods = new HashSet<string>(StringComparer.Ordinal)
 };
 while (await Console.In.ReadLineAsync() is { } line)
 {
+    string? requestId = null;
     try
     {
         using var document = JsonDocument.Parse(line);
         var request = document.RootElement;
+        requestId = request.TryGetProperty("requestId", out var correlation) ? correlation.GetString() : null;
         var operation = request.GetProperty("operation").GetString()!;
+        if (operation is "configure-readback" or "repoint-readback" or "rollback-readback" or "readback-status")
+        {
+            var configuration = operation == "readback-status" ? readback.Status(request) : readback.Change(operation, request);
+            Console.WriteLine(JsonSerializer.Serialize(new { ok = true, result = configuration, requestId }, json));
+            await Console.Out.FlushAsync();
+            continue;
+        }
+        var configuredRead = operation == "configured-read";
+        var observedRequests = new List<string>();
+        if (configuredRead)
+        {
+            request = readback.Resolve(request);
+            operation = request.GetProperty("operation").GetString()!;
+        }
         object? result;
         using var timeout = new CancellationTokenSource(TimeSpan.FromMinutes(5));
         if (operation == "identity")
@@ -58,6 +75,8 @@ while (await Console.In.ReadLineAsync() is { } line)
                     throw new ArgumentException("source token missing");
                 handler = new ArcGisSourceCredentialHandler(new ArcGisSourceCredential { Mode = ArcGisCredentialMode.Token, Token = token }, transport);
             }
+            if (configuredRead)
+                handler = new ReadbackRequestObserver(handler, observedRequests);
             using var http = new HttpClient(handler)
             {
                 BaseAddress = address,
@@ -141,7 +160,9 @@ while (await Console.In.ReadLineAsync() is { } line)
                 }
             }
         }
-        Console.WriteLine(JsonSerializer.Serialize(new { ok = true, result }, json));
+        if (configuredRead)
+            result = new { configuration = readback.Describe(), observedRequests, value = result };
+        Console.WriteLine(JsonSerializer.Serialize(new { ok = true, result, requestId }, json));
     }
     catch (Exception error) when (error is not OutOfMemoryException)
     {
@@ -174,7 +195,7 @@ while (await Console.In.ReadLineAsync() is { } line)
             problemType = null;
         Console.WriteLine(JsonSerializer.Serialize(new
         {
-            ok = false, errorType = actual.GetType().Name,
+            ok = false, requestId, errorType = actual.GetType().Name,
             httpStatus = (actual as HonuaException)?.HttpStatus,
             problemType,
             diagnosticReason,
@@ -182,4 +203,130 @@ while (await Console.In.ReadLineAsync() is { } line)
         }, json));
     }
     await Console.Out.FlushAsync();
+}
+
+
+// Application configuration belongs to this clean consumer process. The SDK captures
+// constructor options, so each fresh read opens the supported client from the stored
+// slot. Reads cannot supply a URL/layer/auth override or recreate the slot on rollback.
+internal sealed class ConfiguredReadback
+{
+    private readonly string _id = Guid.NewGuid().ToString("N");
+    private ReadbackTarget? _original;
+    private ReadbackTarget? _current;
+    private int _revision;
+
+    public object Describe()
+    {
+        var current = _current ?? throw new InvalidOperationException("configuration is not initialized");
+        return new
+        {
+            configurationId = _id, revision = _revision,
+            baseUrl = current.BaseUrl, layerId = current.LayerId,
+            candidate = current.Candidate, sourceAuth = current.SourceAuth
+        };
+    }
+
+    public object Change(string operation, JsonElement request)
+    {
+        if (operation == "configure-readback")
+        {
+            if (_current is not null || request.GetProperty("revision").GetInt32() != 0)
+                throw new ArgumentException("configuration already initialized");
+            _current = ReadbackTarget.Parse(request);
+            _original = _current;
+        }
+        else
+        {
+            CheckVersion(request);
+            if (operation == "rollback-readback")
+            {
+                if (_revision != 2 || _original == _current)
+                    throw new ArgumentException("configuration has no switched version to restore");
+                if (request.EnumerateObject().Any(item => item.Name is not ("operation" or "configurationId" or "revision" or "requestId")))
+                    throw new ArgumentException("rollback cannot override the original configuration");
+                _current = _original;
+            }
+            else
+            {
+                if (_revision != 1)
+                    throw new ArgumentException("only one repoint is supported by this frozen journey");
+                var next = ReadbackTarget.Parse(request);
+                if (next == _current)
+                    throw new ArgumentException("repoint must change the configured endpoint");
+                _current = next;
+            }
+        }
+        _revision++;
+        return Describe();
+    }
+
+    public object Status(JsonElement request)
+    {
+        if (_current is null || request.GetProperty("configurationId").GetString() != _id ||
+            request.EnumerateObject().Any(item => item.Name is not ("operation" or "configurationId" or "requestId")))
+            throw new ArgumentException("status must observe the same configuration");
+        return Describe();
+    }
+
+    private void CheckVersion(JsonElement request)
+    {
+        if (_current is null || request.GetProperty("configurationId").GetString() != _id ||
+            request.GetProperty("revision").GetInt32() != _revision)
+            throw new ArgumentException("stale or different application configuration");
+    }
+
+    public JsonElement Resolve(JsonElement request)
+    {
+        CheckVersion(request);
+        if (request.EnumerateObject().Any(item => item.Name is not ("operation" or "configurationId" or "revision" or "readOperation" or "query" or "requestId")))
+            throw new ArgumentException("configured read cannot override its endpoint");
+        var operation = request.GetProperty("readOperation").GetString();
+        if (operation is not ("layer" or "count" or "ids" or "query"))
+            throw new ArgumentException("unsupported configured read");
+        var current = _current ?? throw new InvalidOperationException("configuration is not initialized");
+        var resolved = new Dictionary<string, object?>
+        {
+            ["operation"] = operation, ["baseUrl"] = current.BaseUrl,
+            ["layerId"] = current.LayerId, ["candidate"] = current.Candidate,
+            ["sourceAuth"] = current.SourceAuth
+        };
+        if (request.TryGetProperty("query", out var query))
+            resolved["query"] = query.Clone();
+        return JsonSerializer.SerializeToElement(resolved);
+    }
+}
+
+internal sealed record ReadbackTarget(string BaseUrl, int LayerId, bool Candidate, bool SourceAuth)
+{
+    public static ReadbackTarget Parse(JsonElement request)
+    {
+        var address = new Uri(request.GetProperty("baseUrl").GetString()!);
+        var layer = request.GetProperty("layerId").GetInt32();
+        var candidate = request.GetProperty("candidate").GetBoolean();
+        var sourceAuth = request.GetProperty("sourceAuth").GetBoolean();
+        if (layer < 0 || address.UserInfo.Length != 0 || address.Query.Length != 0 || address.Fragment.Length != 0 ||
+            (address.Scheme != "https" && !(address.Scheme == "http" && address.IsLoopback)))
+            throw new ArgumentException("invalid configured service");
+        // This producer owns a disposable local candidate, not an arbitrary credential destination.
+        if (candidate && (!address.IsLoopback || sourceAuth))
+            throw new ArgumentException("candidate configuration must name the owned local stack");
+        if (sourceAuth && (address.Scheme != "https" ||
+            address.AbsoluteUri.TrimEnd('/') != Environment.GetEnvironmentVariable("IMPORT_FIDELITY_AUTH_SOURCE_URL")?.TrimEnd('/')))
+            throw new ArgumentException("configured source credential destination mismatch");
+        ArcGisServiceRoot.Parse(address);
+        return new ReadbackTarget(address.AbsoluteUri.TrimEnd('/'), layer, candidate, sourceAuth);
+    }
+}
+
+internal sealed class ReadbackRequestObserver(HttpMessageHandler inner, List<string> requests) : DelegatingHandler(inner)
+{
+    protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
+    {
+        if (request.RequestUri is null || requests.Count >= 32)
+            throw new InvalidOperationException("configured read request observation is incomplete");
+        // Never retain query parameters, headers or bodies. Responses remain SDK-owned.
+        requests.Add(request.RequestUri.GetLeftPart(UriPartial.Path));
+        return base.SendAsync(request, cancellationToken);
+    }
 }

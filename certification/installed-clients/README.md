@@ -160,9 +160,34 @@ with SDK restoration. The server#4420 cell measures actual PostGIS vectors and
 fresh GDAL-decoded SDK GeoJSON outputs; a missing output never substitutes the
 baseline. Install `gdal-bin` for this independent reader.
 
-The frozen repoint/rollback cell remains blocked: a supported client configuration
-operation with readbacks through the same configured endpoint is not implemented.
-Reading two retained publication URLs cannot qualify that operation.
+The frozen repoint/rollback cell now exercises one application configuration slot
+inside the persistent clean public-SDK consumer. Original-source reads, a switch
+to the imported candidate, and restoration use the same consumer-issued identity
+and revisions 1/2/3. Read commands cannot supply endpoint overrides. Actual SDK
+request paths are observed without retaining queries, headers or bodies. The SDK
+captures constructor options: each read creates the supported client from the
+stored application configuration; this makes no claim of hot mutation of a single
+SDK object. This producer currently owns a disposable local candidate, so a
+credential-bearing candidate configuration must be loopback.
+
+The journey changes only its owned imported text-label fixture to a discriminating
+marker, checks complete fresh target values/schema/geometry, rolls the configured
+application back to the unchanged original source, and restores the imported
+fixture through the SDK even on failure. A no-op switch or cached source response
+cannot pass. Transition replies are correlated in the private consumer pipe. After
+an uncertain switch/restore acknowledgement, a fresh status read reconciles the
+actual slot and restores it if necessary; an already restored revision is never
+blindly retried. Unknown cleanup state and the original failed observation remain
+failures, with configuration and fixture cleanup recorded separately. Missing authored input, unsuitable published SDK bytes, failed
+readback or failed restoration remains non-pass; the matrix stays blocked.
+
+`check_import_client_readback.py` is an existing-job PR control: it restores the
+exact public NuGet package, verifies loaded assembly bytes, and uses the actual
+consumer process against controlled loopback HTTP fixtures. It checks distinct
+original/imported data, actual requests, credential isolation, stale/wrong
+configuration and override refusals. It emits `qualification: false`, no import
+receipt. Controlled fixtures do not replace an actual authored-source import,
+PostGIS readback or candidate qualification.
 
 These executable paths are **not a completed qualification receipt**. Real
 rich-source fixtures, native observations, a suitable published SDK and the
