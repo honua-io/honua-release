@@ -485,7 +485,7 @@ class Session:
                            0, time.monotonic() - started)
         last = answer["error"].strip().splitlines()
         return Outcome("fail", last[0][:300] if last else "exception", stdout, stderr,
-                       1, time.monotonic() - started, command_failed=True)
+                       answer["exitCode"], time.monotonic() - started, command_failed=True)
 
     def run_compile(self, code: str, timeout: int) -> Outcome:
         name = self.container("node")

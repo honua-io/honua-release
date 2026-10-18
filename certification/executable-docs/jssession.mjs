@@ -6,6 +6,7 @@ import { builtinModules, createRequire, stripTypeScriptTypes } from 'node:module
 import { readFileSync, writeFileSync, appendFileSync, closeSync, openSync, renameSync } from 'node:fs';
 import { AsyncLocalStorage } from 'node:async_hooks';
 import path from 'node:path';
+import { pathToFileURL } from 'node:url';
 import { Console } from 'node:console';
 
 const output = new AsyncLocalStorage();
@@ -28,12 +29,13 @@ let active;
 // With only our input pipe unreferenced, beforeExit is Node's own completion
 // oracle: referenced timers, I/O and their promise callbacks have drained.
 // Re-reference the pipe before replying so the next block can arrive normally.
-process.on('beforeExit', () => {
+process.on('beforeExit', code => {
   if (!active) return;
   const completion = active;
   active = undefined;
   refInput();
-  if (completion.evaluated) completion.resolve();
+  if ((code & 255) !== 0) completion.reject(new Error(`Node script completed with exit code ${code & 255}`));
+  else if (completion.evaluated) completion.resolve();
   else completion.reject(new Error('top-level evaluation did not settle before Node became idle'));
 });
 process.on('unhandledRejection', reason => {
@@ -62,11 +64,13 @@ delete server.context._;
 delete server.context._error;
 server.context.console = new Console(process.stdout, process.stderr);
 
-// REPLs accept dynamic imports. Adapt the leading static import declarations that
-// reader snippets use, retaining lexical bindings. Unrecognised syntax fails
-// before evaluation; it is never guessed, concatenated or retried.
-function imports(source) {
+// Link the complete leading static-import prefix as one native ESM module before
+// any dependency evaluates, then retain its local bindings in the reader REPL.
+// Unrecognised syntax fails before evaluation; nothing is replayed.
+function imports(source, file) {
   let prefix = '', rest = source;
+  const locals = [];
+  let count = 0;
   const trivia = /^(?:\s+|\/\/[^\n]*(?:\n|$)|\/\*[\s\S]*?\*\/)+/;
   const quoted = `(?:"(?:[^"\\\\\n]|\\\\.)*"|'(?:[^'\\\\\n]|\\\\.)*')`;
   const declaration = new RegExp(`^import\\s+(?:([^;]*?)\\s+from\\s+)?(${quoted})[ \\t]*(?:;|(?=\\r?\\n|$))`);
@@ -80,24 +84,12 @@ function imports(source) {
     const match = rest.match(declaration);
     if (!match) throw new SyntaxError('unsupported static import in reader REPL');
     let binding = match[1]?.trim();
-    const required = [];
-    const expression = () => required.length === 0 ? `await import(${match[2]})` :
-      `((module) => { for (const name of ${JSON.stringify(required)}) { ` +
-      `if (!Object.hasOwn(module, name)) throw new SyntaxError(` +
-      `'The requested module does not provide an export named ' + name); } ` +
-      `return module; })(await import(${match[2]}))`;
-    if (!binding) prefix += `${expression()};`;
-    else {
-      let defaultName;
+    if (binding) {
       const defaultMatch = binding.match(new RegExp(`^(${id})(?:\\s*,\\s*([\\s\\S]+))?$`));
-      if (defaultMatch) { defaultName = defaultMatch[1]; binding = defaultMatch[2] || ''; }
-      const entries = [];
-      if (defaultName) { entries.push(`default: ${defaultName}`); required.push('default'); }
+      if (defaultMatch) { locals.push(defaultMatch[1]); binding = defaultMatch[2] || ''; }
       const namespace = binding.match(new RegExp(`^\\*\\s+as\\s+(${id})$`));
-      if (namespace) {
-        prefix += `const ${namespace[1]} = ${expression()};`;
-        if (defaultName) prefix += `const { default: ${defaultName} } = ${namespace[1]};`;
-      } else {
+      if (namespace) locals.push(namespace[1]);
+      else {
         if (binding) {
           if (!/^\{[\s\S]*\}$/.test(binding)) throw new SyntaxError('unsupported import binding');
           const names = binding.slice(1, -1).split(',').map(x => x.trim());
@@ -105,16 +97,20 @@ function imports(source) {
           for (const name of names) {
             const named = name.match(new RegExp(`^(${id})(?:\\s+as\\s+(${id}))?$`));
             if (!named) throw new SyntaxError('unsupported named import binding');
-            entries.push(`${named[1]}: ${named[2] || named[1]}`);
-            required.push(named[1]);
+            locals.push(named[2] || named[1]);
           }
         }
-        prefix += `const { ${entries.join(', ')} } = ${expression()};`;
       }
     }
+    prefix += match[0] + '\n';
+    count++;
     rest = rest.slice(match[0].length);
   }
-  return prefix + rest;
+  if (count === 0) return source;
+  const bridge = file + '.imports.mjs';
+  writeFileSync(bridge, prefix + `\nexport { ${locals.join(', ')} };\n`);
+  const expression = `await import(${JSON.stringify(pathToFileURL(bridge).href)})`;
+  return (locals.length ? `const { ${locals.join(', ')} } = ${expression};` : `${expression};`) + rest;
 }
 
 for await (const line of createInterface({ input: process.stdin, crlfDelay: Infinity })) {
@@ -132,6 +128,7 @@ for await (const line of createInterface({ input: process.stdin, crlfDelay: Infi
         if (openSync(file + suffix, 'a') !== fd) throw new Error(`could not redirect reader fd ${fd}`);
       }
       process.chdir(request.cwd);
+      process.exitCode = undefined;
       // A worker may start during temporary source-registry admission. Restore
       // removed injected keys from the container baseline, not that temporary
       // startup environment, without erasing unrelated interpreter mutations.
@@ -149,7 +146,7 @@ for await (const line of createInterface({ input: process.stdin, crlfDelay: Infi
       server.context.__filename = file;
       let source = readFileSync(file, 'utf8');
       if (request.language === 'typescript') source = stripTypeScriptTypes(source, { mode: 'transform' });
-      source = imports(source);
+      source = imports(source, file);
       await new Promise((resolve, reject) => {
         let finished = false;
         const completion = {
@@ -182,7 +179,8 @@ for await (const line of createInterface({ input: process.stdin, crlfDelay: Infi
       evaluations.delete(file);
     }
     const response = JSON.stringify({ file, id: request.id, ok: error === undefined,
-      lost: error !== undefined, error: error?.slice(-4000) || '' });
+      lost: error !== undefined, error: error?.slice(-4000) || '',
+      exitCode: error === undefined ? 0 : (Number(process.exitCode) & 255) || 1 });
     writeFileSync(request.response + '.tmp', response);
     renameSync(request.response + '.tmp', request.response);
     // A failed ESM script terminates rather than running later event-loop turns.

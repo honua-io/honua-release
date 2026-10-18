@@ -91,12 +91,18 @@ remain independently checked; context routing does not make unavailable packages
 failed operations pass.
 JavaScript/TypeScript keeps lexical declarations, imports and top-level `await` state
 in one Node reader interpreter per context. Each snippet executes once, even if it
-writes something before failing. Leading static imports use a bounded REPL adapter;
-unsupported import syntax fails before evaluation. Uncaught errors, timeout or worker exit lose that
+writes something before failing. Leading static imports link together in one native ESM
+bridge before any dependency evaluates; shared dependencies are not replayed. Unsupported
+import syntax fails before evaluation. Snippet-body `import.meta.url`/`import.meta.resolve`
+remain a known native-ESM regression that fails explicitly; [#683](https://github.com/honua-io/honua-release/issues/683)
+stays open for that ESM fidelity requirement. The once-only slice does not establish full
+ESM support or waive a required execution. Uncaught errors, timeout or worker exit lose that
 context, stops its owned container and children, and fails subsequent snippets without
 restarting or replaying earlier code. This does not change Python ownership or C# replay.
 Node's event-loop idle signal establishes block completion after referenced asynchronous
 work drains, including unawaited promise callbacks. A late error still fails that block.
+The final native exit status also remains authoritative; nonzero `process.exitCode` fails
+and loses the context rather than passing because the interpreter stays alive.
 Top-level await that cannot settle at idle fails and stops the context; referenced work
 that never completes hits the caller's timeout. The oracle uses no guessed quiet interval.
 

@@ -136,6 +136,28 @@ class DockerRegressions(unittest.TestCase):
             self.assertFalse(Path(missing.cwd, "invalid-export-effect").exists())
             self.assertNotEqual(run.docker("inspect", missing_names[-1]).returncode, 0)
 
+        linking = self.session.execution_context("linking", "node")
+        linking_names = []
+        for module in ["first", "second"]:
+            linking.put("node", Path(linking.cwd, module + ".mjs"),
+                f"import {{ writeFileSync }} from 'node:fs'; writeFileSync('{module}-effect', 'bad'); export const present = 42;")
+        linking_names.append(linking.containers["node"])
+        linked = linking.run_js("import './first.mjs';\nimport { missing } from './second.mjs';", "javascript", 20)
+        self.assertEqual(linked.status, "fail")
+        self.assertIn("SyntaxError", linked.stderr)
+        self.assertFalse(any(Path(linking.cwd, module + "-effect").exists() for module in ["first", "second"]))
+        self.assertNotEqual(run.docker("inspect", linking_names[-1]).returncode, 0)
+
+        exit_status = self.session.execution_context("exit-status", "node")
+        self.assertEqual(exit_status.run_js("const alive = 1;", "javascript", 20).status, "pass")
+        exit_name = exit_status.containers["node"]
+        nonzero = exit_status.run_js("process.exitCode = 7;", "javascript", 20)
+        self.assertEqual(nonzero.status, "fail")
+        self.assertEqual(nonzero.exit_code, 7)
+        self.assertTrue(nonzero.command_failed)
+        self.assertNotEqual(run.docker("inspect", exit_name).returncode, 0)
+        self.assertIn("refusing to restart", exit_status.run_js("console.log(alive);", "javascript", 20).detail)
+
         timed = self.session.execution_context("timed", "node")
         self.assertEqual(timed.run_js("const established = 1;", "javascript", 20).status, "pass")
         timed_name = timed.containers["node"]
@@ -150,7 +172,7 @@ class DockerRegressions(unittest.TestCase):
         self.assertIn("refusing to restart", timed.run_js("console.log(established);", "javascript", 20).detail)
         self.assertFalse(Path(timed.cwd, "late").exists())
         self.assertEqual(healthy.run_js("console.log(owned);", "javascript", 20).stdout, "healthy\n")
-        owned = [failed_name, timed_name, healthy.containers["node"], *missing_names]
+        owned = [failed_name, timed_name, healthy.containers["node"], *missing_names, *linking_names, exit_name]
         self.session.close()
         self.assertTrue(all(run.docker("inspect", name).returncode != 0 for name in owned))
         report = {"schemaVersion": "executable-docs-node-context-rehearsal.v1", "qualification": False,
@@ -160,6 +182,7 @@ class DockerRegressions(unittest.TestCase):
                 for name in ["jssession.mjs", "jssession.py", "run.py", "docker_regressions.py"]},
             "controls": {name: "pass" for name in ["persistentStateOnce", "currentCwdStaticDynamicImports",
                 "nativeFdOutputCaptured", "inheritedChildOutputCaptured",
+                "fullImportPrefixLinkedBeforeEffects", "nonzeroExitStatusRetained",
                 "temporarySourceEnvRestored", "unawaitedCompletionOnce", "lateErrorRetained", "failedContextStopped", "otherContextHealthy",
                 "missingNamedExportRefused", "missingDefaultExportRefused", "timeoutChildContainerStopped",
                 "timeoutRestartRefused", "allOwnedContainersAbsent"]}}

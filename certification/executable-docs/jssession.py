@@ -56,7 +56,8 @@ class JavaScriptSession:
             if (not isinstance(answer, dict) or answer.get("file") != str(path)
                     or answer.get("id") != request_id or type(answer.get("ok")) is not bool
                     or type(answer.get("lost")) is not bool or not isinstance(answer.get("error"), str)
-                    or answer["lost"] == answer["ok"]):
+                    or answer["lost"] == answer["ok"] or type(answer.get("exitCode")) is not int
+                    or not 0 <= answer["exitCode"] <= 255 or (answer["exitCode"] == 0) != answer["ok"]):
                 raise RuntimeError("invalid JavaScript worker response; context was lost")
             if answer.get("lost"):
                 self.close()

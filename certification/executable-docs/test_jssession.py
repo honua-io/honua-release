@@ -192,7 +192,7 @@ def test_sync_error_retains_native_microtasks_but_stops_later_turns(reader, sche
 def test_completion_response_must_be_atomic_and_match_this_request(tmp_path, corruption):
     script = """const fs = require('node:fs'); process.stdin.once('data', chunk => {
       const request = JSON.parse(chunk); const kind = process.argv[1];
-      const answer = {file: request.file, id: request.id, ok: true, lost: false, error: ''};
+      const answer = {file: request.file, id: request.id, ok: true, lost: false, error: '', exitCode: 0};
       if (kind === 'stale-id') answer.id = 'stale';
       if (kind === 'wrong-file') answer.file = 'another-block';
       fs.writeFileSync(request.response, kind === 'partial-json' ? '{' : JSON.stringify(answer));
@@ -206,6 +206,62 @@ def test_completion_response_must_be_atomic_and_match_this_request(tmp_path, cor
     with pytest.raises((ValueError, RuntimeError)):
         worker.execute(path, str(tmp_path), {}, 'javascript', 5)
     assert worker.broken and stopped == [True] and worker.proc.poll() is not None
+
+
+@pytest.mark.parametrize('declaration', ["import { missing } from './second.mjs';", "import absent from './second.mjs';"])
+def test_all_static_imports_link_before_any_dependency_effect(reader, declaration):
+    for name in ['first', 'second']:
+        Path(reader.cwd, name + '.mjs').write_text(
+            f"import {{ writeFileSync }} from 'node:fs'; writeFileSync('{name}-effect', 'bad'); export const present = 42;")
+    source = "import './first.mjs';\n" + declaration + "\nconsole.log('body');"
+    native = Path(reader.cwd, 'native.mjs')
+    native.write_text(source)
+    oracle = subprocess.run(['node', str(native)], cwd=reader.cwd, capture_output=True, text=True, timeout=5)
+    assert oracle.returncode != 0 and 'SyntaxError' in oracle.stderr
+    assert not any(Path(reader.cwd, name + '-effect').exists() for name in ['first', 'second'])
+    result = run(reader, source)
+    assert result.status == 'fail' and 'SyntaxError' in result.stderr
+    assert not any(Path(reader.cwd, name + '-effect').exists() for name in ['first', 'second'])
+
+
+def test_native_import_bridge_evaluates_shared_dependency_once_across_blocks(reader):
+    Path(reader.cwd, 'shared.mjs').write_text(
+        "import { appendFileSync } from 'node:fs'; appendFileSync('dependency-effects', 'once'); "
+        "export const value = 42; export default undefined;")
+    first = run(reader, "import './shared.mjs';\nimport absent, {value} from './shared.mjs'; console.log(value, absent);")
+    assert first.status == 'pass' and first.stdout == '42 undefined\n'
+    second = run(reader, "import * as shared from './shared.mjs'; console.log(value, shared.value);")
+    assert second.status == 'pass' and second.stdout == '42 42\n'
+    assert Path(reader.cwd, 'dependency-effects').read_text() == 'once'
+
+
+@pytest.mark.parametrize('code', ["process.exitCode = 7;", "process.exitCode = '9';", "process.exitCode = -1;",
+    "process.exitCode = 256;", "process.exitCode = 7; process.exitCode = 0;"])
+def test_final_exit_status_matches_native_esm_completion(reader, code):
+    native = Path(reader.cwd, 'native.mjs')
+    native.write_text(code)
+    oracle = subprocess.run(['node', str(native)], cwd=reader.cwd, capture_output=True, text=True, timeout=5)
+    result = run(reader, code)
+    assert result.exit_code == oracle.returncode
+    assert (result.status == 'pass') is (oracle.returncode == 0)
+    if oracle.returncode:
+        assert result.command_failed and reader.js.broken
+        assert 'refusing to restart' in run(reader, 'console.log(42);').detail
+    else:
+        assert run(reader, 'console.log(process.exitCode);').stdout == 'undefined\n'
+
+
+@pytest.mark.parametrize('language', ['javascript', 'typescript'])
+def test_import_meta_remains_explicit_failed_esm_fidelity_requirement(reader, language):
+    source = "console.log(import.meta.url); console.log(import.meta.resolve('./local.mjs'));"
+    native = Path(reader.cwd, 'native.mjs')
+    native.write_text(source)
+    oracle = subprocess.run(['node', str(native)], cwd=reader.cwd, capture_output=True, text=True, timeout=5)
+    assert oracle.returncode == 0 and native.as_uri() in oracle.stdout
+    result = run(reader, source, language)
+    assert result.status == 'fail' and result.command_failed
+    assert "Cannot use 'import.meta' outside a module" in result.stderr
+    assert reader.js.broken
 
 
 @pytest.mark.parametrize("source", [

@@ -43,12 +43,14 @@ have separate interpreters, working directories and environments. An uncaught er
 loses that context permanently for the run: the runner kills its owned container, refuses
 to restart it and reports failure. This also stops child processes started by that context.
 
-The reader REPL adapts leading static imports (side-effect, default, named and namespace)
-to dynamic imports. Unsupported import syntax fails before evaluation. CommonJS `require`
+The reader links leading static imports (side-effect, default, named and namespace)
+through one native ESM bridge before evaluating any dependency. Its local bindings then
+remain in the reader REPL; Node's module cache prevents replaying shared dependencies.
+Unsupported import syntax fails before evaluation. CommonJS `require`
 resolves from the reader's current directory. TypeScript uses the pinned Node runtime's
 type transformation; the separate explicit typecheck path still uses the configured compiler.
-Every requested static export must exist as an own module export before binding; an
-existing export whose value is `undefined` remains valid. Leading dynamic imports retain
+Native linking checks every requested static export across the whole prefix before any
+dependency body runs; an existing export whose value is `undefined` remains valid. Leading dynamic imports retain
 native parsing, including whitespace and comments before the argument.
 Strict evaluation and removal of REPL-only built-in globals keep undeclared names and
 missing imports as actual errors.
@@ -60,12 +62,20 @@ unreferenced. Referenced async work and its callbacks must finish before the blo
 late errors remain errors even after evaluation returns. Unsettled top-level await at idle
 fails and stops the context. Referenced long-running work remains subject to the caller's
 timeout. No quiet-period sleep is used as a completion oracle.
+The final `process.exitCode` is checked at completion, with Node's native 8-bit exit status
+retained; a nonzero status fails and loses the context. Each block starts with a fresh exit status.
 Completion records use atomically published files with a unique request identity on the
 shared reader workdir. They never share stdout with snippet output. Actual descriptors
 1 and 2 point to each block's capture files, including native writes and inherited child
 stdio; stale, partial or wrong-block records fail closed. On failure the worker publishes
 the error and exits before another event-loop turn, retaining microtask effects that a
 native Node ESM script also performs before failing.
+
+Full ESM fidelity remains open in [#683](https://github.com/honua-io/honua-release/issues/683).
+In particular, snippet-body `import.meta.url` and `import.meta.resolve` currently fail
+with the REPL's explicit syntax error even though native ESM accepts them. The once-only
+slice does not complete that requirement. The paired native-oracle controls retain this
+expected refusal as a known limitation, never as a successful document execution or skip.
 The live Docker regression retains `artifacts/executable-docs/node-context-rehearsal.json`
 with source hashes, the pinned runtime image, actual Node version and owned-cleanup controls.
 These offline controls do not establish candidate execution or change any required row's status.
