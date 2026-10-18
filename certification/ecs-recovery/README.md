@@ -16,6 +16,12 @@ bundle hashes are retained, but their signatures were not verified and the
 manifest's server digest matches neither proposed recovery image. This record
 does not authorize repurposing the fixture or qualify any recovery scenario.
 
+Here nginx is the placeholder application behind the AWS ALB, not Honua's
+reverse-proxy architecture. The ECS deployment path uses the ALB; the separate
+self-hosted rolling deployment path uses embedded YARP. The qualification gap is
+running and recovering real Honua versions through the ECS/ALB path. Replacing
+the load balancer or adding nginx to Honua is not part of this work.
+
 `tools/ecs_honua_recovery.py` acts only on an existing, explicitly reviewed
 `honua-qual-*` substrate. It has no Terraform apply, ECS update/register, ALB
 modify, approval, arbitrary process, or resource deletion command. Its only

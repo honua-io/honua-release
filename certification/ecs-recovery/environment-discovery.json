@@ -14,6 +14,7 @@
   ],
   "qualificationClusterFound": false,
   "existingCutoverFixture": {
+    "applicationRole": "nginx-placeholder-for-ALB-control-plane-certification",
     "cluster": "honua-cert-cert-cutover-cluster",
     "service": "honua-cert-cert-cutover-service",
     "desiredCount": 1,
