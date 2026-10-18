@@ -6,11 +6,11 @@
       "id": "honua-sdk-js-readme",
       "repo": "honua-io/honua-sdk-js",
       "path": "README.md",
-      "revision": "076b4218f832725d57a8e23745fae75aeb9f4e5a",
+      "revision": "32ab864720d3cd2e3a00827ed942b1c2ebdd8d44",
       "revisionRule": {
         "clientArtifact": "honua-sdk-js"
       },
-      "url": "https://github.com/honua-io/honua-sdk-js/blob/076b4218f832725d57a8e23745fae75aeb9f4e5a/README.md",
+      "url": "https://github.com/honua-io/honua-sdk-js/blob/32ab864720d3cd2e3a00827ed942b1c2ebdd8d44/README.md",
       "runtime": "node",
       "docker": false,
       "session": null,
@@ -133,11 +133,11 @@
       "id": "honua-sdk-js-install",
       "repo": "honua-io/honua-sdk-js",
       "path": "INSTALL.md",
-      "revision": "076b4218f832725d57a8e23745fae75aeb9f4e5a",
+      "revision": "32ab864720d3cd2e3a00827ed942b1c2ebdd8d44",
       "revisionRule": {
         "clientArtifact": "honua-sdk-js"
       },
-      "url": "https://github.com/honua-io/honua-sdk-js/blob/076b4218f832725d57a8e23745fae75aeb9f4e5a/INSTALL.md",
+      "url": "https://github.com/honua-io/honua-sdk-js/blob/32ab864720d3cd2e3a00827ed942b1c2ebdd8d44/INSTALL.md",
       "runtime": "node",
       "docker": false,
       "session": null,
@@ -181,11 +181,11 @@
       "id": "honua-sdk-js-docs-quickstart",
       "repo": "honua-io/honua-sdk-js",
       "path": "docs/quickstart.md",
-      "revision": "076b4218f832725d57a8e23745fae75aeb9f4e5a",
+      "revision": "32ab864720d3cd2e3a00827ed942b1c2ebdd8d44",
       "revisionRule": {
         "clientArtifact": "honua-sdk-js"
       },
-      "url": "https://github.com/honua-io/honua-sdk-js/blob/076b4218f832725d57a8e23745fae75aeb9f4e5a/docs/quickstart.md",
+      "url": "https://github.com/honua-io/honua-sdk-js/blob/32ab864720d3cd2e3a00827ed942b1c2ebdd8d44/docs/quickstart.md",
       "runtime": "node",
       "docker": false,
       "session": null,
@@ -226,7 +226,7 @@
           "infoString": "bash",
           "intent": "run",
           "intentSource": "marker",
-          "sha256": "b6b04aa5893d5420a92a0aceda29cec24510ec9e5bc339de4f88b7896e9dec50"
+          "sha256": "fd5a60f01aa1a9006295f97ac8e64a5a91721a88858a7b161a478e2638b0cad4"
         },
         {
           "index": 4,
@@ -252,11 +252,11 @@
       "id": "honua-sdk-js-mcp-readme",
       "repo": "honua-io/honua-sdk-js",
       "path": "mcp/README.md",
-      "revision": "6601a8d12c971b8916679ea7cbbb0290fd1ad78c",
+      "revision": "d9fb8dbd9218958a16678a73e46523562afbe872",
       "revisionRule": {
         "clientArtifact": "honua-mcp-server"
       },
-      "url": "https://github.com/honua-io/honua-sdk-js/blob/6601a8d12c971b8916679ea7cbbb0290fd1ad78c/mcp/README.md",
+      "url": "https://github.com/honua-io/honua-sdk-js/blob/d9fb8dbd9218958a16678a73e46523562afbe872/mcp/README.md",
       "runtime": "node",
       "docker": false,
       "session": null,
@@ -2139,11 +2139,11 @@
       "id": "honua-samples-readme",
       "repo": "honua-io/honua-samples",
       "path": "README.md",
-      "revision": "5aacea5b14a32ecad71cab0bd5738fb9440b912f",
+      "revision": "65253c959a97ad4ed39cc2a45c85a14a5a34cfac",
       "revisionRule": {
         "defaultBranch": true
       },
-      "url": "https://github.com/honua-io/honua-samples/blob/5aacea5b14a32ecad71cab0bd5738fb9440b912f/README.md",
+      "url": "https://github.com/honua-io/honua-samples/blob/65253c959a97ad4ed39cc2a45c85a14a5a34cfac/README.md",
       "runtime": "node",
       "docker": true,
       "session": null,
@@ -2284,11 +2284,11 @@
       "id": "honua-samples-samples-browser-featureserver-query-readme",
       "repo": "honua-io/honua-samples",
       "path": "samples/browser-featureserver-query/README.md",
-      "revision": "5aacea5b14a32ecad71cab0bd5738fb9440b912f",
+      "revision": "65253c959a97ad4ed39cc2a45c85a14a5a34cfac",
       "revisionRule": {
         "defaultBranch": true
       },
-      "url": "https://github.com/honua-io/honua-samples/blob/5aacea5b14a32ecad71cab0bd5738fb9440b912f/samples/browser-featureserver-query/README.md",
+      "url": "https://github.com/honua-io/honua-samples/blob/65253c959a97ad4ed39cc2a45c85a14a5a34cfac/samples/browser-featureserver-query/README.md",
       "runtime": "node",
       "docker": false,
       "session": null,
@@ -2311,11 +2311,11 @@
       "id": "honua-samples-samples-geocode-single-line-readme",
       "repo": "honua-io/honua-samples",
       "path": "samples/geocode-single-line/README.md",
-      "revision": "5aacea5b14a32ecad71cab0bd5738fb9440b912f",
+      "revision": "65253c959a97ad4ed39cc2a45c85a14a5a34cfac",
       "revisionRule": {
         "defaultBranch": true
       },
-      "url": "https://github.com/honua-io/honua-samples/blob/5aacea5b14a32ecad71cab0bd5738fb9440b912f/samples/geocode-single-line/README.md",
+      "url": "https://github.com/honua-io/honua-samples/blob/65253c959a97ad4ed39cc2a45c85a14a5a34cfac/samples/geocode-single-line/README.md",
       "runtime": "node",
       "docker": false,
       "session": null,
@@ -2348,11 +2348,11 @@
       "id": "honua-samples-samples-hello-featureserver-rest-readme",
       "repo": "honua-io/honua-samples",
       "path": "samples/hello-featureserver-rest/README.md",
-      "revision": "5aacea5b14a32ecad71cab0bd5738fb9440b912f",
+      "revision": "65253c959a97ad4ed39cc2a45c85a14a5a34cfac",
       "revisionRule": {
         "defaultBranch": true
       },
-      "url": "https://github.com/honua-io/honua-samples/blob/5aacea5b14a32ecad71cab0bd5738fb9440b912f/samples/hello-featureserver-rest/README.md",
+      "url": "https://github.com/honua-io/honua-samples/blob/65253c959a97ad4ed39cc2a45c85a14a5a34cfac/samples/hello-featureserver-rest/README.md",
       "runtime": "node",
       "docker": false,
       "session": null,
@@ -2394,11 +2394,11 @@
       "id": "honua-samples-samples-odata-query-rest-readme",
       "repo": "honua-io/honua-samples",
       "path": "samples/odata-query-rest/README.md",
-      "revision": "5aacea5b14a32ecad71cab0bd5738fb9440b912f",
+      "revision": "65253c959a97ad4ed39cc2a45c85a14a5a34cfac",
       "revisionRule": {
         "defaultBranch": true
       },
-      "url": "https://github.com/honua-io/honua-samples/blob/5aacea5b14a32ecad71cab0bd5738fb9440b912f/samples/odata-query-rest/README.md",
+      "url": "https://github.com/honua-io/honua-samples/blob/65253c959a97ad4ed39cc2a45c85a14a5a34cfac/samples/odata-query-rest/README.md",
       "runtime": "node",
       "docker": false,
       "session": null,
@@ -2421,11 +2421,11 @@
       "id": "honua-samples-samples-ogc-features-python-readme",
       "repo": "honua-io/honua-samples",
       "path": "samples/ogc-features-python/README.md",
-      "revision": "5aacea5b14a32ecad71cab0bd5738fb9440b912f",
+      "revision": "65253c959a97ad4ed39cc2a45c85a14a5a34cfac",
       "revisionRule": {
         "defaultBranch": true
       },
-      "url": "https://github.com/honua-io/honua-samples/blob/5aacea5b14a32ecad71cab0bd5738fb9440b912f/samples/ogc-features-python/README.md",
+      "url": "https://github.com/honua-io/honua-samples/blob/65253c959a97ad4ed39cc2a45c85a14a5a34cfac/samples/ogc-features-python/README.md",
       "runtime": "python",
       "docker": false,
       "session": null,
@@ -2448,11 +2448,11 @@
       "id": "honua-samples-samples-stac-search-rest-readme",
       "repo": "honua-io/honua-samples",
       "path": "samples/stac-search-rest/README.md",
-      "revision": "5aacea5b14a32ecad71cab0bd5738fb9440b912f",
+      "revision": "65253c959a97ad4ed39cc2a45c85a14a5a34cfac",
       "revisionRule": {
         "defaultBranch": true
       },
-      "url": "https://github.com/honua-io/honua-samples/blob/5aacea5b14a32ecad71cab0bd5738fb9440b912f/samples/stac-search-rest/README.md",
+      "url": "https://github.com/honua-io/honua-samples/blob/65253c959a97ad4ed39cc2a45c85a14a5a34cfac/samples/stac-search-rest/README.md",
       "runtime": "node",
       "docker": false,
       "session": null,
@@ -2475,11 +2475,11 @@
       "id": "honua-samples-samples-wms-getmap-check-readme",
       "repo": "honua-io/honua-samples",
       "path": "samples/wms-getmap-check/README.md",
-      "revision": "5aacea5b14a32ecad71cab0bd5738fb9440b912f",
+      "revision": "65253c959a97ad4ed39cc2a45c85a14a5a34cfac",
       "revisionRule": {
         "defaultBranch": true
       },
-      "url": "https://github.com/honua-io/honua-samples/blob/5aacea5b14a32ecad71cab0bd5738fb9440b912f/samples/wms-getmap-check/README.md",
+      "url": "https://github.com/honua-io/honua-samples/blob/65253c959a97ad4ed39cc2a45c85a14a5a34cfac/samples/wms-getmap-check/README.md",
       "runtime": "node",
       "docker": true,
       "session": null,
@@ -2517,11 +2517,11 @@
       "id": "honua-site-docs",
       "repo": "honua-io/honua-site",
       "path": "docs.html",
-      "revision": "bee278714a0f3411fb5ff9aad8fe28ec2eb2ba6e",
+      "revision": "a0999823f6fd397769d9f780f3df6726f0ddd585",
       "revisionRule": {
         "defaultBranch": true
       },
-      "url": "https://github.com/honua-io/honua-site/blob/bee278714a0f3411fb5ff9aad8fe28ec2eb2ba6e/docs.html",
+      "url": "https://github.com/honua-io/honua-site/blob/a0999823f6fd397769d9f780f3df6726f0ddd585/docs.html",
       "runtime": "python",
       "docker": true,
       "session": null,
@@ -2547,11 +2547,11 @@
       "id": "honua-site-docs-playbooks-install-with-docker-index",
       "repo": "honua-io/honua-site",
       "path": "docs/playbooks/install-with-docker/index.md",
-      "revision": "bee278714a0f3411fb5ff9aad8fe28ec2eb2ba6e",
+      "revision": "a0999823f6fd397769d9f780f3df6726f0ddd585",
       "revisionRule": {
         "defaultBranch": true
       },
-      "url": "https://github.com/honua-io/honua-site/blob/bee278714a0f3411fb5ff9aad8fe28ec2eb2ba6e/docs/playbooks/install-with-docker/index.md",
+      "url": "https://github.com/honua-io/honua-site/blob/a0999823f6fd397769d9f780f3df6726f0ddd585/docs/playbooks/install-with-docker/index.md",
       "runtime": "python",
       "docker": true,
       "session": null,
@@ -2700,11 +2700,11 @@
       "id": "honua-site-docs-playbooks-publish-a-service-index",
       "repo": "honua-io/honua-site",
       "path": "docs/playbooks/publish-a-service/index.md",
-      "revision": "bee278714a0f3411fb5ff9aad8fe28ec2eb2ba6e",
+      "revision": "a0999823f6fd397769d9f780f3df6726f0ddd585",
       "revisionRule": {
         "defaultBranch": true
       },
-      "url": "https://github.com/honua-io/honua-site/blob/bee278714a0f3411fb5ff9aad8fe28ec2eb2ba6e/docs/playbooks/publish-a-service/index.md",
+      "url": "https://github.com/honua-io/honua-site/blob/a0999823f6fd397769d9f780f3df6726f0ddd585/docs/playbooks/publish-a-service/index.md",
       "runtime": "python",
       "docker": false,
       "session": null,
@@ -2835,11 +2835,11 @@
       "id": "honua-site-docs-playbooks-run-a-bounded-gp-job-index",
       "repo": "honua-io/honua-site",
       "path": "docs/playbooks/run-a-bounded-gp-job/index.md",
-      "revision": "bee278714a0f3411fb5ff9aad8fe28ec2eb2ba6e",
+      "revision": "a0999823f6fd397769d9f780f3df6726f0ddd585",
       "revisionRule": {
         "defaultBranch": true
       },
-      "url": "https://github.com/honua-io/honua-site/blob/bee278714a0f3411fb5ff9aad8fe28ec2eb2ba6e/docs/playbooks/run-a-bounded-gp-job/index.md",
+      "url": "https://github.com/honua-io/honua-site/blob/a0999823f6fd397769d9f780f3df6726f0ddd585/docs/playbooks/run-a-bounded-gp-job/index.md",
       "runtime": "python",
       "docker": false,
       "session": null,
@@ -2906,11 +2906,11 @@
       "id": "honua-site-docs-geoprocessing-index",
       "repo": "honua-io/honua-site",
       "path": "docs/geoprocessing/index.md",
-      "revision": "bee278714a0f3411fb5ff9aad8fe28ec2eb2ba6e",
+      "revision": "a0999823f6fd397769d9f780f3df6726f0ddd585",
       "revisionRule": {
         "defaultBranch": true
       },
-      "url": "https://github.com/honua-io/honua-site/blob/bee278714a0f3411fb5ff9aad8fe28ec2eb2ba6e/docs/geoprocessing/index.md",
+      "url": "https://github.com/honua-io/honua-site/blob/a0999823f6fd397769d9f780f3df6726f0ddd585/docs/geoprocessing/index.md",
       "runtime": "node",
       "docker": false,
       "session": null,
