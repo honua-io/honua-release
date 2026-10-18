@@ -2,10 +2,13 @@
 import copy
 import importlib.util
 import json
+import os
 import shutil
+import subprocess
 from pathlib import Path
 
 import pytest
+import yaml
 
 ROOT = Path(__file__).resolve().parents[1]
 SPEC = importlib.util.spec_from_file_location("mcp_requirements_generator", ROOT / "certification/generate-protocol-requirements.py")
@@ -106,3 +109,58 @@ def test_convergence_fetches_both_literal_files_at_selected_mcp_sha(snapshots):
     ]
     for name in ("package.json", "package-lock.json"):
         assert payloads[f"certification/sources/geospatial-mcp/{name}"] == (directory / name).read_bytes()
+
+
+@pytest.mark.parametrize("case", ["unchanged", "package.json", "package-lock.json", "consistent-version-change", "fetch-failure", "invalid-pin"])
+def test_required_workflow_authenticates_dependency_snapshots(tmp_path, case):
+    """Execute the required shell step; internally coherent edits must still fail."""
+    workflow = yaml.safe_load((ROOT / ".github/workflows/manifest-validate.yml").read_text())
+    step = next(step for step in workflow["jobs"]["validate"]["steps"]
+                if step.get("name") == "Authenticate selected MCP client dependency snapshots")
+    selected = tmp_path / "certification/sources"
+    shutil.copytree(ROOT / "certification/sources/geospatial-mcp", selected / "geospatial-mcp")
+    shutil.copy(ROOT / "certification/sources/source-revisions.v1.json", selected / "source-revisions.v1.json")
+    upstream = tmp_path / "upstream"
+    shutil.copytree(selected / "geospatial-mcp", upstream)
+    if case in ("package.json", "package-lock.json"):
+        # Even a parse-equivalent byte change must fail source authentication.
+        with (selected / "geospatial-mcp" / case).open("a") as stream:
+            stream.write("\n")
+    elif case == "consistent-version-change":
+        for filename in ("package.json", "package-lock.json"):
+            path = selected / "geospatial-mcp" / filename
+            path.write_text(path.read_text().replace("2.3.0", "2.10.1"))
+    elif case == "invalid-pin":
+        path = selected / "source-revisions.v1.json"
+        data = json.loads(path.read_text())
+        data["sources"]["geospatial-mcp"]["commit"] = "trunk"
+        path.write_text(json.dumps(data))
+    shim = tmp_path / "bin"
+    shim.mkdir()
+    curl = shim / "curl"
+    curl.write_text("""#!/usr/bin/env python3
+import json, os, pathlib, sys
+args = sys.argv[1:]
+pin = json.loads(pathlib.Path(os.environ['MCP_REAL_REVISIONS']).read_text())['sources']['geospatial-mcp']['commit']
+urls = [arg for arg in args if arg.startswith('https://')]
+names = ['package.json', 'package-lock.json']
+name = next((name for name in names if urls == [f'https://api.github.com/repos/honua-io/geospatial-mcp/contents/certification/{name}?ref={pin}']), None)
+if name is None or os.environ['MCP_CASE'] == 'fetch-failure':
+    sys.exit(22)
+with pathlib.Path(os.environ['MCP_FETCH_LOG']).open('a') as stream:
+    stream.write(name + '\\n')
+pathlib.Path(args[args.index('-o') + 1]).write_bytes((pathlib.Path(os.environ['MCP_UPSTREAM']) / name).read_bytes())
+""")
+    curl.chmod(0o755)
+    fetch_log = tmp_path / "fetch.log"
+    result = subprocess.run(["bash", "-c", step["run"]], cwd=tmp_path, capture_output=True, text=True,
+                            env={**os.environ, "PATH": f"{shim}{os.pathsep}{os.environ['PATH']}",
+                                 "RUNNER_TEMP": str(tmp_path), "GH_TOKEN": "test-token",
+                                 "MCP_REAL_REVISIONS": str(ROOT / "certification/sources/source-revisions.v1.json"),
+                                 "MCP_UPSTREAM": str(upstream), "MCP_CASE": case, "MCP_FETCH_LOG": str(fetch_log)},
+                            timeout=15)
+    if case == "unchanged":
+        assert result.returncode == 0, result.stderr
+        assert fetch_log.read_text().splitlines() == ["package.json", "package-lock.json"]
+    else:
+        assert result.returncode != 0, "required source authentication accepted tampering or missing proof"

@@ -152,6 +152,23 @@ jobs:
           raise SystemExit(1)
           PY
 
+      - name: Authenticate selected MCP client dependency snapshots
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          mcp_sha="$(jq -r '.sources["geospatial-mcp"].commit' certification/sources/source-revisions.v1.json)"
+          [[ "$mcp_sha" =~ ^[0-9a-f]{40}$ ]]
+          for filename in package.json package-lock.json; do
+            curl --fail --silent --show-error \
+              --proto '=https' --tlsv1.2 \
+              -H "Authorization: Bearer $GH_TOKEN" \
+              -H 'Accept: application/vnd.github.raw+json' \
+              "https://api.github.com/repos/honua-io/geospatial-mcp/contents/certification/$filename?ref=$mcp_sha" \
+              -o "$RUNNER_TEMP/mcp-$filename"
+            cmp "certification/sources/geospatial-mcp/$filename" "$RUNNER_TEMP/mcp-$filename"
+          done
+
       - name: Validate complete protocol certification denominator
         env:
           GH_TOKEN: ${{ github.token }}
