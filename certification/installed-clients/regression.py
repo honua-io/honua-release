@@ -250,7 +250,7 @@ def publish_harness(api: AdminApi, fixture: dict[str, Any], slugs: list[str], db
     """Create the harness datasource and publish the shared and per-client layers."""
     database = fixture["lifecycle"]["database"]
     connection = api.request("POST", "/api/v1/admin/connections/", {
-        "name": "sdkreg-harness", **database, "password": db_password, "sslRequired": False, "sslMode": "Disable"})
+        "name": "sdkreg-harness", "sslRequired": False, "sslMode": "Disable", **database, "password": db_password})
     connection_id = connection.get("connectionId") or connection.get("id")
     if not connection_id:
         raise RegressionError("harness datasource has no id")
@@ -296,13 +296,14 @@ def mint_principals(api: AdminApi, tag: str) -> dict[str, dict[str, str]]:
     return principals
 
 
-def mint_bearer(signing_key: str, *, lifetime: int = 3600) -> str:
+def mint_bearer(signing_key: str, *, lifetime: int = 3600, issuer: str = BEARER_ISSUER,
+                audience: str = BEARER_AUDIENCE) -> str:
     """An HS256 operator token for the candidate's generic OIDC issuer (per-run key)."""
     def encode(value: dict[str, Any]) -> bytes:
         return base64.urlsafe_b64encode(json.dumps(value, separators=(",", ":")).encode()).rstrip(b"=")
     now = int(time.time())
     body = encode({"alg": "HS256", "typ": "JWT"}) + b"." + encode({
-        "iss": BEARER_ISSUER, "aud": BEARER_AUDIENCE, "sub": "sdk-regression-operator", "tenant_id": BEARER_TENANT,
+        "iss": issuer, "aud": audience, "sub": "sdk-regression-operator", "tenant_id": BEARER_TENANT,
         "role": "admin", "roles": ["admin"], "iat": now, "nbf": now, "exp": now + lifetime, "jti": secrets.token_hex(16)})
     signature = base64.urlsafe_b64encode(hmac.new(signing_key.encode(), body, hashlib.sha256).digest()).rstrip(b"=")
     return (body + b"." + signature).decode()

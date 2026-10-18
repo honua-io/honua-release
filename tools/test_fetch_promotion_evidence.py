@@ -401,10 +401,11 @@ def test_recorded_minting_run_uploads_fetch_into_a_complete_layout(inputs, tmp_p
     # these synthetic in-memory fields exercise bundle layout, never live qualification.
     legacy = nightly.declare_evidence(report, lock, journeys)
     assert legacy['evidenceReceipts']['nightly-model-journey']['status'] == 'fail'
+    assert legacy['evidenceReceipts']['deterministic-journey']['status'] == 'fail'
     for journey in journeys:
         for row in journey['cells']:
             for attempt in row['attempts']:
-                if attempt.get('driver') == 'genuine-model':
+                if attempt.get('driver') == 'genuine-model' or row['cell'].endswith('/redis-off'):
                     attempt.update(profile='redis-off-serving-refusal', executionOutcome='refused',
                                    functionalGpExecuted=False)
     report = nightly.declare_evidence(report, lock, journeys)

@@ -16,6 +16,7 @@ import argparse
 import hashlib
 import json
 import re
+import sys
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -87,7 +88,9 @@ def validate_cell(report, directory, cell, manifest, digest, run_id, run_attempt
     contract = load_json(ROOT / "certification/terminal-journey/journey.v1.json")
     expected_stages = [(s["number"], s["id"], s["command"]) for s in contract["stages"]]
     server = manifest["components"]["honua-server"]
-    expected_server = {"sourceSha": server["sha"], "image": f"{server['image']}@{server['digest']}"}
+    image_name, digest_name = (("awsLambdaImage", "awsLambdaDigest") if cell.startswith("aws-serverless/")
+                               else ("image", "digest"))
+    expected_server = {"sourceSha": server["sha"], "image": f"{server[image_name].split('@', 1)[0]}@{server[digest_name]}"}
     expected_clients = {name: {key: pin.get(key) for key in
                         ("package", "version", "integrity", "digest", "sourceSha")}
                         for name, pin in manifest["clientArtifacts"].items()
@@ -96,6 +99,7 @@ def validate_cell(report, directory, cell, manifest, digest, run_id, run_attempt
         raise ValueError("candidate lacks required client pins")
     history = []
     recorded_paths = set()
+    recorded_profiles = set()
     passed = False
     for record in attempts:
         if passed:
@@ -144,12 +148,31 @@ def validate_cell(report, directory, cell, manifest, digest, run_id, run_attempt
                 require_current(evidence.get("observedAt"), at)
                 if timestamp(evidence["observedAt"]) > timestamp(receipt["generatedAt"]):
                     raise ValueError("stage observation postdates receipt")
-        history.append({"number": record["number"], "status": receipt["status"],
-                        "completedAt": receipt["generatedAt"],
+        profile_metadata = {}
+        if cell.endswith("/redis-off"):
+            if str(ROOT / "e2e") not in sys.path:
+                sys.path.insert(0, str(ROOT / "e2e"))
+            import deterministic_refusal_profile
+            if record.get("servingRefusal"):
+                recorded_profiles.add((path.parent / f"serving-refusal-{record['number']}.json").resolve())
+            if deterministic_refusal_profile.failed_record(record, receipt, path):
+                profile_metadata = {"profile": "redis-off-serving-refusal"}
+                passed = False
+            else:
+                profile_metadata = deterministic_refusal_profile.validate_record(record, receipt, path,
+                    cell=cell, pinned=manifest, digest=digest, at=at)
+                passed = True
+        if not passed and attribution not in ("model", "infrastructure"):
+            raise ValueError("failed profile attempt is unattributed")
+        history.append({"number": record["number"], "status": "pass" if passed else "fail",
+                        "sourceStatus": receipt["status"], **profile_metadata,
+                        "completedAt": profile_metadata.get("completedAt", receipt["generatedAt"]),
                         "driver": driver, "failureAttribution": attribution,
                         "receipt": record["receipt"]})
     if any(path.resolve() not in recorded_paths for path in directory.rglob("receipt-*.json")):
         raise ValueError("receipt file omitted from recorded attempt history")
+    if any(path.resolve() not in recorded_profiles for path in directory.rglob("serving-refusal-*.json")):
+        raise ValueError("produced serving/refusal sidecar omitted from attempt history")
     if not passed or report.get("status") != "pass":
         raise ValueError("cell missing a passing receipt within 2 attempts, or cell skipped/failed")
     return history

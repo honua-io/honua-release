@@ -14,7 +14,7 @@ import urllib.request
 from pathlib import Path
 
 import executor
-from transport import ExecutionError
+from transport import ExecutionError, has_execution_evidence
 
 PROFILE = "redis-off-serving-refusal"
 PLAN = Path(__file__).resolve().parents[1] / "terminal-model-canary/redis-off-serving-refusal.v1.json"
@@ -199,19 +199,9 @@ def execute(driver, request):
         validate_durable_plan(arguments, engine.fixture)
     try:
         raw = engine.transport.tool(name, arguments, view, "operator")
-        # An error containing a job or operation identity is contradictory evidence, not refusal.
-        def has_execution_id(value):
-            if isinstance(value, dict):
-                return any(key in {"jobId", "operationId", "operationInstanceId", "jobStatus"} and item
-                           or has_execution_id(item) for key, item in value.items())
-            if isinstance(value, str):
-                try:
-                    parsed = json.loads(value)
-                except (ValueError, TypeError):
-                    return False
-                return isinstance(parsed, (dict, list)) and has_execution_id(parsed)
-            return isinstance(value, list) and any(has_execution_id(item) for item in value)
-        if raw.get("isError") is True and has_execution_id(raw):
+        if "isError" in raw and type(raw["isError"]) is not bool:
+            raise ExecutionError("model action", "candidate tool result has a nonboolean error marker")
+        if raw.get("isError") is True and has_execution_evidence(raw):
             raise ExecutionError("model action", "typed refusal carries contradictory execution evidence")
         output = executor.structured(raw, name, executor.credential_values(engine.transport.credentials))
     except ExecutionError as exc:
