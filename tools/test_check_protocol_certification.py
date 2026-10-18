@@ -62,10 +62,15 @@ def _cell(**overrides):
     if str(value.get("client_lane", "")).startswith("grpc-"):
         value.setdefault("client_package_digest", "sha512-" + base64.b64encode(b"x" * 64).decode()
                          if value["client_lane"] == "grpc-typescript" else "sha256:" + "f" * 64)
+    if value.get("client_lane") == "sdk-python-certification":
+        value.setdefault("client_package", {"filename": f"honua_sdk-{value['client_version']}-py3-none-any.whl",
+                                            "sha256": "e" * 64, "source": "pypi"})
     if "evidence_receipt" not in overrides:
         identity = {
             field: value[field] for field in cert.RECEIPT_ID_FIELDS
         }
+        if "client_package" in value:
+            identity["client_package"] = copy.deepcopy(value["client_package"])
         if "client_package_digest" in value:
             identity["client_package_digest"] = value["client_package_digest"]
         if isinstance(value.get("test_ids"), list):
@@ -1774,3 +1779,37 @@ def test_published_schemas_enforce_each_grpc_digest_algorithm_and_encoding():
     unknown = _cell(client_lane='grpc-unknown')
     assert not cert._valid_receipt(unknown, requirements_revision='requirements-test-v1')
     assert list(ledger_validator.iter_errors(_ledger(unknown)))
+
+
+def test_python_wheel_identity_is_governed_not_just_self_consistent():
+    cell = _cell(canonical_client="Honua SDK Python", client_lane="sdk-python-certification",
+                 client_version="0.1.10", contract_revision="sdk-python-certification@" + SHA)
+    cell["evidence_receipt"]["identity"]["candidate_cut_at"] = CUT
+    _rehash_python_wheel(cell)
+    owned = _requirements(cell)
+    assert _evaluate(_ledger(cell), "nightly", requirements=owned, now=NOW)["overall_status"] == "pass"
+    for field, value in (("filename", "other-0.1.10-py3-none-any.whl"),
+                         ("filename", "honua_sdk-0.1.11-py3-none-any.whl"),
+                         ("sha256", "f" * 64), ("sha256", "F" * 64),
+                         ("source", "local-build"), ("extra", "unowned")):
+        changed = copy.deepcopy(cell)
+        changed["client_package"][field] = value
+        changed["evidence_receipt"]["identity"]["client_package"] = copy.deepcopy(changed["client_package"])
+        _rehash_python_wheel(changed)
+        assert _evaluate(_ledger(changed), "nightly", requirements=owned, now=NOW)["overall_status"] == "fail"
+    for target in ("cell", "identity", "governed"):
+        changed, requirements = copy.deepcopy(cell), copy.deepcopy(owned)
+        destination = changed if target == "cell" else changed["evidence_receipt"]["identity"]
+        if target == "governed":
+            requirements["requirements"][0].pop("client_package")
+        else:
+            destination.pop("client_package")
+        _rehash_python_wheel(changed)
+        assert _evaluate(_ledger(changed), "nightly", requirements=requirements, now=NOW)["overall_status"] == "fail"
+
+
+def _rehash_python_wheel(cell):
+    cell["evidence_digest"] = cert._receipt_digest(cell["evidence_receipt"])
+    cell["evidence_uri"] = "https://evidence.honua.io/data/sha256/" + cell["evidence_digest"][7:]
+    for facet in cell["facet_results"].values():
+        facet["evidence_digest"] = cell["evidence_digest"]

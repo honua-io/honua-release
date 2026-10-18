@@ -4,6 +4,7 @@
   "title": "Honua protocol certification requirements",
   "type": "object",
   "additionalProperties": false,
+  "$defs": { "pythonWheel": {"type": "object", "additionalProperties": false, "required": ["filename", "sha256", "source"], "properties": {"filename": {"type": "string", "pattern": "^honua_sdk-[0-9]+\\.[0-9]+\\.[0-9]+-py3-none-any\\.whl$"}, "sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"}, "source": {"const": "pypi"}}} },
   "required": ["schema", "revision", "receipt_schema_min", "complete", "scope_notes", "source_revisions", "desktop_driver_summary", "production", "requirements"],
   "$defs": {
     "driverCounts": {
@@ -139,6 +140,7 @@
           "client_lane": { "type": "string", "minLength": 1 },
           "client_version": { "type": "string", "minLength": 1 },
           "client_package_digest": { "type": "string", "pattern": "^(sha256:[0-9a-f]{64}|sha512-[A-Za-z0-9+/]{86}==)$" },
+          "client_package": { "$ref": "#/$defs/pythonWheel" },
           "deployment_target": { "type": "string", "minLength": 1 },
           "required_tier": { "enum": ["pr", "nightly", "release"] },
           "licensed": { "type": "boolean" },
@@ -176,6 +178,7 @@
           }
         },
         "allOf": [
+          {"if": {"properties": {"client_lane": {"const": "sdk-python-certification"}}, "required": ["client_lane"]}, "else": {"properties": {"client_package": false, "evidence_receipt": {"properties": {"identity": {"properties": {"client_package": false}}}}}}},
           {
             "if": {
               "properties": {

@@ -4,6 +4,7 @@
   "title": "Honua protocol certification ledger",
   "type": "object",
   "additionalProperties": false,
+  "$defs": { "pythonWheel": {"type": "object", "additionalProperties": false, "required": ["filename", "sha256", "source"], "properties": {"filename": {"type": "string", "pattern": "^honua_sdk-[0-9]+\\.[0-9]+\\.[0-9]+-py3-none-any\\.whl$"}, "sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"}, "source": {"const": "pypi"}}} },
   "required": ["schema", "requirements_revision", "requirements_source_revision", "requirements_complete", "generated_at", "candidate", "cells"],
   "properties": {
     "schema": { "const": "honua.protocol-certification/v1" },
@@ -57,6 +58,7 @@
         "client_lane": { "type": "string", "minLength": 1 },
         "client_version": { "type": "string", "minLength": 1 },
           "client_package_digest": { "type": "string", "pattern": "^(sha256:[0-9a-f]{64}|sha512-[A-Za-z0-9+/]{86}==)$" },
+          "client_package": { "$ref": "#/$defs/pythonWheel" },
         "client_version_observed": {
           "description": "The exact client version a receipt observed, when client_version names a release line <major>.<minor>.x (R38, honua-release#376).",
           "type": "string",
@@ -119,6 +121,7 @@
                     "canonical_client": { "type": "string" },
                     "client_version": { "type": "string" },
                     "client_package_digest": { "type": "string", "pattern": "^(sha256:[0-9a-f]{64}|sha512-[A-Za-z0-9+/]{86}==)$" },
+                    "client_package": { "$ref": "#/$defs/pythonWheel" },
                     "client_version_observed": { "type": "string" },
                     "client_driver": { "type": "string", "minLength": 1, "pattern": "^[a-z0-9-]{1,32}$" },
                     "deployment_target": { "type": "string" },
@@ -232,6 +235,7 @@
         "exercised_capabilities": ["client_id", "runner_lane", "protocol_version", "protocol_profile", "performed_by", "request_url"]
       },
       "allOf": [
+        {"if": {"properties": {"client_lane": {"const": "sdk-python-certification"}}, "required": ["client_lane"]}, "else": {"properties": {"client_package": false, "evidence_receipt": {"properties": {"identity": {"properties": {"client_package": false}}}}}}, "then": {"if": {"properties": {"result": {"enum": ["pass", "fail"]}}, "required": ["result"]}, "then": {"required": ["client_package"], "properties": {"evidence_receipt": {"properties": {"identity": {"required": ["client_package"]}}}}}}},
         {
           "if": {
             "properties": {

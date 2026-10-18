@@ -43,6 +43,36 @@ MUST_FIX = DESKTOP["buckets"]["must_fix"]
 PROVE = DESKTOP["buckets"]["prove"]
 
 
+def python_wheel_identity(manifest: dict, version: str, source_sha: str) -> dict:
+    """Only independently selected published bytes can govern a Python receipt."""
+    component = manifest.get("components", {}).get("honua-sdk-python", {})
+    artifact = manifest.get("clientArtifacts", {}).get("honua-sdk-python-wheel", {})
+    if (component.get("sha") != source_sha or component.get("version") != version
+            or artifact.get("sourceSha") != source_sha or artifact.get("version") != version
+            or artifact.get("repository") != "honua-io/honua-sdk-python"
+            or artifact.get("package") != "honua-sdk" or artifact.get("ecosystem") != "pypi"
+            or artifact.get("publicationState") != "published"
+            or artifact.get("filename") != f"honua_sdk-{version}-py3-none-any.whl"
+            or not isinstance(artifact.get("digest"), str)
+            or not re.fullmatch(r"sha256:[0-9a-f]{64}", artifact["digest"])):
+        raise ValueError("selected manifest does not bind a coherent published Python SDK wheel")
+    return {"filename": artifact["filename"], "sha256": artifact["digest"][7:], "source": "pypi"}
+
+
+def selected_python_wheel(revisions: dict) -> dict | None:
+    # Historical mixed cohorts remain unchanged and cannot qualify executed
+    # Python rows. The existing rebind refuses their component/artifact split.
+    # Only a coherent future selection adds governed bytes during regeneration.
+    import yaml
+    manifest = yaml.safe_load((ROOT.parent / "platform-manifest.yaml").read_text(encoding="utf-8"))
+    source = revisions["sdk-python"]["commit"]
+    component = manifest.get("components", {}).get("honua-sdk-python", {})
+    artifact = manifest.get("clientArtifacts", {}).get("honua-sdk-python-wheel", {})
+    if component.get("sha") != source or artifact.get("sourceSha") != source:
+        return None
+    return python_wheel_identity(manifest, source_sdk_version("sdk-python"), source)
+
+
 def source_sdk_version(source: str) -> str:
     """Read the declared version at the catalog's pinned source, never registry latest.
 
@@ -371,6 +401,7 @@ def production(requirements: list[dict[str, Any]], revisions: dict[str, Any]) ->
 
 def main() -> None:
     revisions = load(SOURCES / "source-revisions.v1.json")["sources"]
+    python_wheel = selected_python_wheel(revisions)
     bounded_roster = load(SOURCES / "bounded-client-roster.v1.json")
     bounded_cells = {
         (cell["canonical_client"], cell["surface"], cell["operation"]): cell
@@ -507,6 +538,8 @@ def main() -> None:
         }
         if client_package_digest is not None:
             row["client_package_digest"] = client_package_digest
+        if lane == "sdk-python-certification" and python_wheel is not None:
+            row["client_package"] = dict(python_wheel)
         if test_ids is not None:
             row["test_ids"] = test_ids
         if release_bucket is not None:
