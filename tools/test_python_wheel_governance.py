@@ -60,3 +60,16 @@ def test_matching_manifest_fields_cannot_substitute_mutable_or_malformed_source(
     selected["clientArtifacts"]["honua-sdk-python-wheel"]["sourceSha"] = source
     with pytest.raises(ValueError, match="exact Python source SHA"):
         GEN.python_wheel_identity(selected, "0.1.16", source)
+
+
+def test_wheel_schema_definitions_do_not_shadow_existing_json_keys():
+    def unique(pairs):
+        result = {}
+        for key, value in pairs:
+            assert key not in result, f"duplicate schema key: {key}"
+            result[key] = value
+        return result
+    for name in ("protocol-certification.v1.schema.json", "protocol-certification-requirements.v1.schema.json"):
+        data = json.loads((Path(__file__).parents[1] / "certification" / name).read_text(), object_pairs_hook=unique)
+        assert "pythonWheel" in data["$defs"]
+        assert len(data["$defs"]) > 1

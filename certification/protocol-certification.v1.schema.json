@@ -4,7 +4,6 @@
   "title": "Honua protocol certification ledger",
   "type": "object",
   "additionalProperties": false,
-  "$defs": { "pythonWheel": {"type": "object", "additionalProperties": false, "required": ["filename", "sha256", "source"], "properties": {"filename": {"type": "string", "pattern": "^honua_sdk-[0-9]+\\.[0-9]+\\.[0-9]+-py3-none-any\\.whl$"}, "sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"}, "source": {"const": "pypi"}}} },
   "required": ["schema", "requirements_revision", "requirements_source_revision", "requirements_complete", "generated_at", "candidate", "cells"],
   "properties": {
     "schema": { "const": "honua.protocol-certification/v1" },
@@ -29,6 +28,7 @@
     }
   },
   "$defs": {
+    "pythonWheel": {"type": "object", "additionalProperties": false, "required": ["filename", "sha256", "source"], "properties": {"filename": {"type": "string", "pattern": "^honua_sdk-[0-9]+\\.[0-9]+\\.[0-9]+-py3-none-any\\.whl$"}, "sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"}, "source": {"const": "pypi"}}},
     "cell": {
       "type": "object",
       "additionalProperties": false,
