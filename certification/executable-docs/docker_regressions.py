@@ -61,6 +61,60 @@ class DockerRegressions(unittest.TestCase):
         self.assertEqual((self.work / "app/child/file").stat().st_uid, os.getuid())
         (self.work / "app/child/file").write_text("host can update it")
 
+    def test_node_context_once_completion_imports_and_owned_cleanup(self):
+        # Actual digest-pinned Docker transport; these local controls do not
+        # qualify public packages or a candidate server.
+        first = self.session.run_js(
+            "const client = {value: 42}; require('node:fs').appendFileSync('effects', 'first\\n');",
+            "javascript", 20)
+        self.assertEqual(first.status, "pass", first.stderr)
+        second = self.session.run_js("console.log(client.value);", "javascript", 20)
+        self.assertEqual(second.status, "pass", second.stderr)
+        self.assertEqual(second.stdout, "42\n")
+        self.assertEqual((self.work / "app/effects").read_text(), "first\n")
+
+        shell = self.session.run_shell("mkdir later; echo \"export default 'later';\" > later/local.mjs; cd later",
+                                       "node", 20, False)
+        self.assertEqual(shell.status, "pass", shell.stderr)
+        imported = self.session.run_js("import current from './local.mjs';\n"
+            "const dynamic = await import('./local.mjs'); console.log(current, dynamic.default);", "javascript", 20)
+        self.assertEqual(imported.status, "pass", imported.stderr)
+        self.assertEqual(imported.stdout, "later later\n")
+        completed = self.session.run_js("new Promise(resolve => setTimeout(() => resolve(42), 10))"
+            ".then(value => { require('node:fs').appendFileSync('query-effect', 'once'); console.log(value); });",
+            "javascript", 20)
+        self.assertEqual(completed.status, "pass", completed.stderr)
+        self.assertEqual(completed.stdout, "42\n")
+        self.assertEqual((self.work / "app/later/query-effect").read_text(), "once")
+
+        healthy = self.session.execution_context("healthy", "node")
+        self.assertEqual(healthy.run_js("const owned = 'healthy';", "javascript", 20).status, "pass")
+        failed_name = self.session.containers["node"]
+        failure = self.session.run_js("setTimeout(() => { throw new Error('late Docker failure'); }, 10);",
+                                      "javascript", 20)
+        self.assertEqual(failure.status, "fail")
+        self.assertTrue(failure.command_failed)
+        self.assertIn("late Docker failure", failure.stderr)
+        self.assertTrue(self.session.js.broken)
+        self.assertNotEqual(run.docker("inspect", failed_name).returncode, 0)
+        self.assertIn("refusing to restart", self.session.run_js("console.log(client);", "javascript", 20).detail)
+        self.assertEqual(healthy.run_js("console.log(owned);", "javascript", 20).stdout, "healthy\n")
+
+        timed = self.session.execution_context("timed", "node")
+        self.assertEqual(timed.run_js("const established = 1;", "javascript", 20).status, "pass")
+        timed_name = timed.containers["node"]
+        timeout = timed.run_js("require('node:fs').writeFileSync('started', 'yes'); "
+            "require('node:child_process').spawn(process.execPath, ['-e', "
+            "\"setTimeout(() => require('node:fs').writeFileSync('late', 'bad'), 3000)\"], {stdio:'ignore'}); "
+            "await new Promise(() => {});", "javascript", 1)
+        self.assertEqual(timeout.status, "fail")
+        self.assertIn("timed out", timeout.detail)
+        self.assertEqual(Path(timed.cwd, "started").read_text(), "yes")
+        self.assertNotEqual(run.docker("inspect", timed_name).returncode, 0)
+        self.assertIn("refusing to restart", timed.run_js("console.log(established);", "javascript", 20).detail)
+        self.assertFalse(Path(timed.cwd, "late").exists())
+        self.assertEqual(healthy.run_js("console.log(owned);", "javascript", 20).stdout, "healthy\n")
+
     def test_live_readiness_and_timer_without_oracle(self):
         previous = run.SERVE_WINDOW
         run.SERVE_WINDOW = 2

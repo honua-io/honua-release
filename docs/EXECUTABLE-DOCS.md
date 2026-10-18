@@ -92,9 +92,13 @@ failed operations pass.
 JavaScript/TypeScript keeps lexical declarations, imports and top-level `await` state
 in one Node reader interpreter per context. Each snippet executes once, even if it
 writes something before failing. Leading static imports use a bounded REPL adapter;
-unsupported import syntax fails before evaluation. Timeout or worker exit loses that
+unsupported import syntax fails before evaluation. Uncaught errors, timeout or worker exit lose that
 context, stops its owned container and children, and fails subsequent snippets without
 restarting or replaying earlier code. This does not change Python ownership or C# replay.
+Node's event-loop idle signal establishes block completion after referenced asynchronous
+work drains, including unawaited promise callbacks. A late error still fails that block.
+Top-level await that cannot settle at idle fails and stops the context; referenced work
+that never completes hits the caller's timeout. The oracle uses no guessed quiet interval.
 
 ## Results
 

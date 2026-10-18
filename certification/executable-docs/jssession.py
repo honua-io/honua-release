@@ -49,6 +49,8 @@ class JavaScriptSession:
             answer = json.loads(line)
             if answer.get("file") != str(path) or type(answer.get("ok")) is not bool:
                 raise RuntimeError("invalid JavaScript worker response; context was lost")
+            if answer.get("lost"):
+                self.close()
             return answer
         except queue.Empty:
             self.close()

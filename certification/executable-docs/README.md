@@ -39,7 +39,7 @@ JavaScript and TypeScript snippets use one Node interpreter per declared reader 
 Lexical declarations, imported clients and top-level `await` survive into later blocks;
 each block runs once, including blocks that write something before throwing. A failed
 block retains its actual error and is never retried with earlier blocks. Separate contexts
-have separate interpreters, working directories and environments. Timeout or worker exit
+have separate interpreters, working directories and environments. An uncaught error, timeout or worker exit
 loses that context permanently for the run: the runner kills its owned container, refuses
 to restart it and reports failure. This also stops child processes started by that context.
 
@@ -49,6 +49,11 @@ resolves from the reader's current directory. TypeScript uses the pinned Node ru
 type transformation; the separate explicit typecheck path still uses the configured compiler.
 Strict evaluation and removal of REPL-only built-in globals keep undeclared names and
 missing imports as actual errors.
+Completion uses Node's `beforeExit` event with only the worker's input pipe temporarily
+unreferenced. Referenced async work and its callbacks must finish before the block passes;
+late errors remain errors even after evaluation returns. Unsettled top-level await at idle
+fails and stops the context. Referenced long-running work remains subject to the caller's
+timeout. No quiet-period sleep is used as a completion oracle.
 These offline controls do not establish candidate execution or change any required row's status.
 
 

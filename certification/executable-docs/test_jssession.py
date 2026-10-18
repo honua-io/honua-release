@@ -198,7 +198,16 @@ def test_missing_builtin_import_is_an_actual_error_not_repl_auto_loading(reader)
 
 @pytest.mark.parametrize("source", ["implicitReaderValue = 42;", "await Promise.resolve(); implicitReaderValue = 42;"])
 def test_strict_mode_does_not_silently_create_an_undeclared_variable(reader, source):
-    result = run(reader, source)
+    result = run(reader, source + " require('node:fs').writeFileSync('implicit-variable', 'bad');")
     assert result.status == "fail" and result.command_failed
     assert "ReferenceError" in result.stderr
-    assert run(reader, "console.log(typeof implicitReaderValue);").stdout == "undefined\n"
+    assert not Path(reader.cwd, "implicit-variable").exists()
+    assert "refusing to restart" in run(reader, "console.log(typeof implicitReaderValue);").detail
+
+
+def test_unsettled_top_level_await_at_quiescence_stops_context(reader):
+    assert run(reader, "const priorState = 42;").status == "pass"
+    result = run(reader, "await new Promise(() => {});")
+    assert result.status == "fail" and "did not settle" in result.stderr
+    assert reader.js.broken and reader.js.proc.poll() is not None
+    assert "refusing to restart" in run(reader, "console.log(priorState);").detail
