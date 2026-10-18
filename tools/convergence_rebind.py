@@ -66,6 +66,7 @@ SDK_PRODUCERS = (
 )
 
 VENDORED: dict[str, tuple[tuple[str, str], ...]] = {
+    "geospatial-mcp": (("certification/package.json", "certification/sources/geospatial-mcp/package.json"), ("certification/package-lock.json", "certification/sources/geospatial-mcp/package-lock.json")),
     "server": (("docs/gis/data/capability-matrix.v1.json", "certification/sources/server/capability-matrix.v1.json"),),
     "server-certification": (("docs/gis/data/protocol-harness-assignments.v1.json", "certification/sources/server/protocol-harness-assignments.v1.json"),),
     "sdk-js": (("config/protocol-certification.v1.json", "certification/sources/sdk-js/protocol-certification.v1.json"), ("config/sdk-coverage.v1.json", "certification/sources/sdk-js/sdk-coverage.v1.json")),
