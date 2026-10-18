@@ -1,0 +1,14 @@
+{
+  "name": "geospatial-mcp-protocol-certification",
+  "private": true,
+  "type": "module",
+  "engines": { "node": ">=22.19.0" },
+  "scripts": {
+    "test": "node --test test/*.test.mjs",
+    "run:sdk": "node run-sdk.mjs"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/inspector": "2.3.0",
+    "@modelcontextprotocol/sdk": "1.30.0"
+  }
+}
