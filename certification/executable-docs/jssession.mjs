@@ -2,7 +2,7 @@
 import repl from 'node:repl';
 import { PassThrough, Writable } from 'node:stream';
 import { createInterface } from 'node:readline';
-import { createRequire, stripTypeScriptTypes } from 'node:module';
+import { builtinModules, createRequire, stripTypeScriptTypes } from 'node:module';
 import { readFileSync, writeFileSync, appendFileSync } from 'node:fs';
 import { AsyncLocalStorage } from 'node:async_hooks';
 import path from 'node:path';
@@ -21,8 +21,9 @@ for (const [stream, suffix] of [[process.stdout, '.out'], [process.stderr, '.err
 }
 const input = new PassThrough();
 const evaluations = new Map();
+const standardGlobals = new Set(Object.getOwnPropertyNames(globalThis));
 const server = repl.start({ input, output: new Writable({ write(_chunk, _enc, done) { done(); } }),
-  terminal: false, prompt: '', ignoreUndefined: true,
+  terminal: false, prompt: '', ignoreUndefined: true, replMode: repl.REPL_MODE_STRICT,
   // The default evaluator sends runtime exceptions through the REPL's writer,
   // not always its callback. Capture that public hook rather than swallowing
   // the error output and eventually misclassifying it as a timeout.
@@ -32,6 +33,13 @@ const server = repl.start({ input, output: new Writable({ write(_chunk, _enc, do
     else process.exit(1); // an unowned/background error loses the interpreter
     return '';
   } });
+// Interactive Node preloads names such as `fs` on first use. Reader snippets
+// must supply their own imports, as their original modules did.
+for (const name of builtinModules) {
+  if (!standardGlobals.has(name)) delete server.context[name];
+}
+delete server.context._;
+delete server.context._error;
 server.context.console = new Console(process.stdout, process.stderr);
 
 // REPLs accept dynamic imports. Adapt the leading static import declarations that

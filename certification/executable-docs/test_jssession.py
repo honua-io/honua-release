@@ -151,3 +151,18 @@ def test_import_parser_does_not_rewrite_template_text_and_rejects_unknown_syntax
                   "require('node:fs').writeFileSync('bad-import', 'bad');")
     assert invalid.status == "fail" and invalid.command_failed
     assert not Path(reader.cwd, "bad-import").exists()
+
+
+def test_missing_builtin_import_is_an_actual_error_not_repl_auto_loading(reader):
+    result = run(reader, "fs.writeFileSync('implicit-import', 'bad');")
+    assert result.status == "fail" and result.command_failed
+    assert "ReferenceError" in result.stderr and "fs is not defined" in result.stderr
+    assert not Path(reader.cwd, "implicit-import").exists()
+
+
+@pytest.mark.parametrize("source", ["implicitReaderValue = 42;", "await Promise.resolve(); implicitReaderValue = 42;"])
+def test_strict_mode_does_not_silently_create_an_undeclared_variable(reader, source):
+    result = run(reader, source)
+    assert result.status == "fail" and result.command_failed
+    assert "ReferenceError" in result.stderr
+    assert run(reader, "console.log(typeof implicitReaderValue);").stdout == "undefined\n"
