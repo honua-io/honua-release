@@ -81,7 +81,11 @@ command requires that exact digest as `--reviewed-scope-digest`.
    readiness/revision, retained query checksum/count, actual running ECS image
    digests, stable baseline, ALB traffic and health, and canonical target/telemetry
    binding, including a genuine anonymous query denial. Evidence contains
-   hashes/counts rather than row values or task secrets.
+   hashes/counts rather than row values or task secrets. Both services must have a single
+   completed deployment at the reviewed revision, matching nonzero desired and
+   running counts, and no pending tasks. Target health must match each service's
+   Honua container binding and the exact Fargate task IPs and port; unrelated
+   healthy registrations cannot satisfy the check.
 2. `propose-upgrade`: recheck provenance and the approval-required candidate plan,
    recheck live baseline/data/cloud state, persist an exclusive local intent,
    then create the canonical proposal. Lost

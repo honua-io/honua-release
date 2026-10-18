@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import argparse
 import hashlib
+import ipaddress
 import json
 import os
 from pathlib import Path
@@ -341,11 +342,70 @@ def running_tasks(scope, service, role):
     return tasks
 
 
+def converged_service(scope, service_name, role):
+    response = aws(scope, "ecs", "describe-services", "--cluster", scope["cluster"], "--services", service_name)
+    services = response.get("services", [])
+    require(not response.get("failures") and len(services) == 1, "exact reviewed ECS service required")
+    service = services[0]
+    desired = service.get("desiredCount")
+    require(service.get("serviceName") == service_name and service.get("status") == "ACTIVE" and
+            service.get("taskDefinition") == scope[role]["taskDefinition"] and
+            type(desired) is int and 0 < desired <= scope["costScope"]["maxTasksPerService"] and
+            service.get("runningCount") == desired and service.get("pendingCount") == 0,
+            "ECS service desired state has not converged to the reviewed revision")
+    deployments = service.get("deployments", [])
+    require(len(deployments) == 1 and deployments[0].get("status") == "PRIMARY" and
+            deployments[0].get("taskDefinition") == scope[role]["taskDefinition"] and
+            deployments[0].get("desiredCount") == desired and deployments[0].get("runningCount") == desired and
+            deployments[0].get("pendingCount") == 0 and deployments[0].get("rolloutState") == "COMPLETED",
+            "ECS service still has an incomplete or competing deployment")
+    tasks = running_tasks(scope, service_name, role)
+    require(len(tasks) == desired and all(task.get("launchType") == "FARGATE" and
+            task.get("desiredStatus") == "RUNNING" for task in tasks),
+            "reviewed service task count or Fargate desired state differs")
+    return service, tasks
+
+
+def service_target_health(scope, service, tasks, target_group):
+    bindings = [binding for binding in service.get("loadBalancers", []) if binding.get("targetGroupArn") == target_group]
+    require(len(bindings) == 1 and bindings[0].get("containerName") == scope["honuaContainerName"] and
+            type(bindings[0].get("containerPort")) is int and 0 < bindings[0]["containerPort"] <= 65535,
+            "target group is not bound to the reviewed Honua service container")
+    port = bindings[0]["containerPort"]
+    task_addresses = []
+    for task in tasks:
+        containers = [container for container in task.get("containers", []) if container.get("name") == scope["honuaContainerName"]]
+        require(len(containers) == 1, "exact Honua task container required")
+        addresses = {interface.get(field) for interface in containers[0].get("networkInterfaces", [])
+                     for field in ("privateIpv4Address", "ipv6Address") if interface.get(field)}
+        require(addresses, "Fargate task network identity is missing")
+        try:
+            task_addresses.append({str(ipaddress.ip_address(address)) for address in addresses})
+        except ValueError:
+            raise QualificationError("invalid Fargate task network identity") from None
+    health = aws(scope, "elbv2", "describe-target-health", "--target-group-arn", target_group).get("TargetHealthDescriptions", [])
+    require(len(health) == len(tasks) and all(item.get("TargetHealth", {}).get("State") == "healthy" for item in health),
+            "reviewed service target health has not converged")
+    matched_tasks = set()
+    for item in health:
+        target = item.get("Target", {})
+        require(target.get("Port") == port, "healthy target port differs from the service container binding")
+        try:
+            address = str(ipaddress.ip_address(target.get("Id", "")))
+        except ValueError:
+            raise QualificationError("Fargate target must have an IP identity") from None
+        matches = [index for index, addresses in enumerate(task_addresses) if address in addresses]
+        require(len(matches) == 1 and matches[0] not in matched_tasks, "healthy target does not uniquely identify a reviewed service task")
+        matched_tasks.add(matches[0])
+    require(len(matched_tasks) == len(tasks), "healthy targets do not cover the reviewed service tasks")
+
+
 def image_state(scope, role):
     identity = aws(scope, "sts", "get-caller-identity")
     require(identity["Account"] == scope["awsAccountId"], "AWS account differs from reviewed scope")
     task_definition(scope, role)
-    tasks = running_tasks(scope, scope["canaryService"], role)
+    canary, tasks = converged_service(scope, scope["canaryService"], role)
+    stable, stable_tasks = converged_service(scope, scope["stableService"], "baseline")
     rule = aws(scope, "elbv2", "describe-rules", "--rule-arns", scope["listenerRuleArn"])["Rules"]
     require(len(rule) == 1 and rule[0].get("IsDefault") is False, "exact non-default certification rule required")
     forwards = [action for action in rule[0]["Actions"] if action["Type"] == "forward"]
@@ -354,16 +414,8 @@ def image_state(scope, role):
     expected = {scope["canaryTargetGroupArn"]: 100, scope["stableTargetGroupArn"]: 0}
     baseline = {scope["canaryTargetGroupArn"]: 0, scope["stableTargetGroupArn"]: 100}
     require(groups == expected or (role == "baseline" and groups == baseline), "unexpected traffic group/weights")
-    active_group = scope["canaryTargetGroupArn"] if groups == expected else scope["stableTargetGroupArn"]
-    health = aws(scope, "elbv2", "describe-target-health", "--target-group-arn", active_group)["TargetHealthDescriptions"]
-    require(health and all(item["TargetHealth"]["State"] == "healthy" for item in health), "serving target health has not converged")
-    stable = aws(scope, "ecs", "describe-services", "--cluster", scope["cluster"], "--services", scope["stableService"])
-    stable_services = stable.get("services", [])
-    require(not stable.get("failures") and len(stable_services) == 1 and
-            stable_services[0]["taskDefinition"] == scope["baseline"]["taskDefinition"] and
-            stable_services[0]["runningCount"] > 0 and stable_services[0]["pendingCount"] == 0,
-            "stable service no longer retains the reviewed baseline task definition")
-    running_tasks(scope, scope["stableService"], "baseline")
+    service_target_health(scope, canary, tasks, scope["canaryTargetGroupArn"])
+    service_target_health(scope, stable, stable_tasks, scope["stableTargetGroupArn"])
     return {"taskDefinition": scope[role]["taskDefinition"], "runningTaskCount": len(tasks),
             "imageDigest": scope[role]["amd64Digest"], "trafficWeightsDigest": digest(groups), "servingTargetsHealthy": True}
 

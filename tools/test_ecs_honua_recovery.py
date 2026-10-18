@@ -189,3 +189,125 @@ def test_runtime_task_evidence_requires_complete_exact_service_membership(servic
     with patch.object(recovery, "aws", side_effect=[{"taskArns": ["reviewed-task"]}, response]):
         with pytest.raises(recovery.QualificationError):
             recovery.running_tasks(value, value[service], role)
+
+
+def runtime_service(value, role="candidate", service_field="canaryService"):
+    task = {"taskArn": "reviewed-task", "taskDefinitionArn": value[role]["taskDefinition"],
+            "group": "service:" + value[service_field], "lastStatus": "RUNNING", "desiredStatus": "RUNNING",
+            "launchType": "FARGATE", "containers": [{"name": value["honuaContainerName"],
+            "imageDigest": value[role]["amd64Digest"], "networkInterfaces": [{"privateIpv4Address": "10.0.1.7"}]}]}
+    service = {"serviceName": value[service_field], "status": "ACTIVE",
+               "taskDefinition": value[role]["taskDefinition"], "desiredCount": 1, "runningCount": 1, "pendingCount": 0,
+               "deployments": [{"status": "PRIMARY", "taskDefinition": value[role]["taskDefinition"],
+                                "desiredCount": 1, "runningCount": 1, "pendingCount": 0, "rolloutState": "COMPLETED"}],
+               "loadBalancers": [{"targetGroupArn": value["canaryTargetGroupArn"],
+                                  "containerName": value["honuaContainerName"], "containerPort": 8080}]}
+    return service, task
+
+
+@pytest.mark.parametrize("mutation", [
+    lambda service: service.update(taskDefinition="another-revision"),
+    lambda service: service.update(desiredCount=0),
+    lambda service: service.update(desiredCount=2),
+    lambda service: service.update(pendingCount=1),
+    lambda service: service.update(status="DRAINING"),
+    lambda service: service.update(serviceName="another-service"),
+    lambda service: service["deployments"][0].update(taskDefinition="another-revision"),
+    lambda service: service["deployments"][0].update(rolloutState="IN_PROGRESS"),
+    lambda service: service["deployments"][0].update(pendingCount=1),
+    lambda service: service["deployments"].append(dict(service["deployments"][0])),
+])
+def test_old_running_tasks_cannot_certify_divergent_service_desired_state(mutation):
+    value = scope()
+    service, task = runtime_service(value)
+    responses = [{"services": [service]}, {"taskArns": [task["taskArn"]]}, {"tasks": [task]}]
+    with patch.object(recovery, "aws", side_effect=responses):
+        assert recovery.converged_service(value, value["canaryService"], "candidate") == (service, [task])
+    mutation(service)
+    with patch.object(recovery, "aws", side_effect=responses):
+        with pytest.raises(recovery.QualificationError):
+            recovery.converged_service(value, value["canaryService"], "candidate")
+
+
+@pytest.mark.parametrize("mutation", [
+    lambda service, task, health: service.update(loadBalancers=[]),
+    lambda service, task, health: service["loadBalancers"][0].update(targetGroupArn="another-group"),
+    lambda service, task, health: service["loadBalancers"][0].update(containerName="sidecar"),
+    lambda service, task, health: service["loadBalancers"][0].update(containerPort=9090),
+    lambda service, task, health: task["containers"][0].update(networkInterfaces=[]),
+    lambda service, task, health: health[0]["Target"].update(Id="10.0.9.99"),
+    lambda service, task, health: health[0]["Target"].update(Id="i-unrelated-instance"),
+    lambda service, task, health: health[0]["Target"].update(Port=9090),
+    lambda service, task, health: health[0]["TargetHealth"].update(State="draining"),
+    lambda service, task, health: health.append(dict(health[0])),
+])
+def test_healthy_targets_must_identify_the_reviewed_service_tasks(mutation):
+    value = scope()
+    service, task = runtime_service(value)
+    health = [{"Target": {"Id": "10.0.1.7", "Port": 8080}, "TargetHealth": {"State": "healthy"}}]
+    with patch.object(recovery, "aws", return_value={"TargetHealthDescriptions": health}):
+        recovery.service_target_health(value, service, [task], value["canaryTargetGroupArn"])
+        mutation(service, task, health)
+        with pytest.raises(recovery.QualificationError):
+            recovery.service_target_health(value, service, [task], value["canaryTargetGroupArn"])
+
+
+def test_duplicate_healthy_address_cannot_hide_missing_second_task():
+    value = scope()
+    service, task = runtime_service(value)
+    _, other = runtime_service(value)
+    other["taskArn"] = "second-task"
+    other["containers"][0]["networkInterfaces"] = [{"privateIpv4Address": "10.0.1.8"}]
+    health = [{"Target": {"Id": "10.0.1.7", "Port": 8080}, "TargetHealth": {"State": "healthy"}}] * 2
+    with patch.object(recovery, "aws", return_value={"TargetHealthDescriptions": health}):
+        with pytest.raises(recovery.QualificationError, match="uniquely"):
+            recovery.service_target_health(value, service, [task, other], value["canaryTargetGroupArn"])
+
+
+def test_ipv6_targets_are_joined_by_address_value():
+    value = scope()
+    service, task = runtime_service(value)
+    task["containers"][0]["networkInterfaces"] = [{"ipv6Address": "fd00:0:0:0:0:0:0:7"}]
+    health = [{"Target": {"Id": "fd00::7", "Port": 8080}, "TargetHealth": {"State": "healthy"}}]
+    with patch.object(recovery, "aws", return_value={"TargetHealthDescriptions": health}):
+        recovery.service_target_health(value, service, [task], value["canaryTargetGroupArn"])
+
+
+@pytest.mark.parametrize("role,canary_weight", [("candidate", 100), ("baseline", 100), ("baseline", 0)])
+def test_image_state_checks_both_converged_services_and_their_actual_targets(role, canary_weight):
+    value = scope()
+    canary, task = runtime_service(value, role)
+    stable, stable_task = runtime_service(value, "baseline", "stableService")
+    stable["loadBalancers"][0]["targetGroupArn"] = value["stableTargetGroupArn"]
+    stable_task["taskArn"] = "stable-task"
+    stable_task["containers"][0]["networkInterfaces"] = [{"privateIpv4Address": "10.0.1.8"}]
+    services = {value["canaryService"]: (canary, task), value["stableService"]: (stable, stable_task)}
+    groups = {value["canaryTargetGroupArn"]: "10.0.1.7", value["stableTargetGroupArn"]: "10.0.1.8"}
+    inspected_groups = []
+    def provider(_scope, *args):
+        command = args[:2]
+        if command == ("sts", "get-caller-identity"):
+            return {"Account": value["awsAccountId"]}
+        if command == ("ecs", "describe-services"):
+            return {"services": [services[args[-1]][0]]}
+        if command == ("ecs", "list-tasks"):
+            return {"taskArns": [services[args[-1]][1]["taskArn"]]}
+        if command == ("ecs", "describe-tasks"):
+            return {"tasks": [task if args[-1] == task["taskArn"] else stable_task]}
+        if command == ("elbv2", "describe-rules"):
+            return {"Rules": [{"IsDefault": False, "Actions": [{"Type": "forward", "ForwardConfig": {
+                "TargetGroups": [{"TargetGroupArn": value["canaryTargetGroupArn"], "Weight": canary_weight},
+                                 {"TargetGroupArn": value["stableTargetGroupArn"], "Weight": 100 - canary_weight}]}}]}]}
+        if command == ("elbv2", "describe-target-health"):
+            inspected_groups.append(args[-1])
+            return {"TargetHealthDescriptions": [{"Target": {"Id": groups[args[-1]], "Port": 8080},
+                                                   "TargetHealth": {"State": "healthy"}}]}
+        raise AssertionError(command)
+    with patch.object(recovery, "aws", side_effect=provider), patch.object(recovery, "task_definition"):
+        result = recovery.image_state(value, role)
+        assert result["servingTargetsHealthy"] is True
+        assert set(inspected_groups) == set(groups)
+        # Retained baseline tasks alone cannot disguise a pending replacement.
+        stable["desiredCount"] = 2
+        with pytest.raises(recovery.QualificationError, match="desired state"):
+            recovery.image_state(value, role)
