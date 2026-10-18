@@ -84,7 +84,7 @@
       "title": "OpenLayers line and polygon certification uses point marker pixels",
       "owner": "honua-io/honua-server",
       "issue": "https://github.com/honua-io/honua-server/issues/6298",
-      "status": "implementation-in-progress",
+      "status": "implementation-landed",
       "selectors": {
         "surface": [
           "mvt"
@@ -99,7 +99,8 @@
       "dimension": "assertions",
       "implementation_prs": [
         "https://github.com/honua-io/honua-server/pull/6308"
-      ]
+      ],
+      "delivery_pr": "https://github.com/honua-io/honua-server/pull/6308"
     },
     {
       "id": "NC-03",
@@ -208,7 +209,7 @@
       "title": "OWSLib expired-token expectation contradicts current WMS auth formatter",
       "owner": "honua-io/honua-server",
       "issue": "https://github.com/honua-io/honua-server/issues/6298",
-      "status": "implementation-in-progress",
+      "status": "implementation-landed",
       "selectors": {
         "surface": [
           "wms",
@@ -229,7 +230,8 @@
       ],
       "implementation_prs": [
         "https://github.com/honua-io/honua-server/pull/6308"
-      ]
+      ],
+      "delivery_pr": "https://github.com/honua-io/honua-server/pull/6308"
     },
     {
       "id": "NC-08",
@@ -237,7 +239,7 @@
       "title": "Interop lane omits the dedicated rendering command and discards test exit codes",
       "owner": "honua-io/honua-server",
       "issue": "https://github.com/honua-io/honua-server/issues/6298",
-      "status": "implementation-in-progress",
+      "status": "implementation-landed",
       "selectors": {
         "surface": [
           "mvt"
@@ -252,7 +254,8 @@
       "dimension": "test-selection",
       "implementation_prs": [
         "https://github.com/honua-io/honua-server/pull/6308"
-      ]
+      ],
+      "delivery_pr": "https://github.com/honua-io/honua-server/pull/6308"
     },
     {
       "id": "NC-09",
@@ -281,7 +284,7 @@
       "title": "A selected server shard can report success after executing no tests",
       "owner": "honua-io/honua-server",
       "issue": "https://github.com/honua-io/honua-server/issues/6301",
-      "status": "implementation-in-progress",
+      "status": "implementation-landed",
       "selectors": {
         "client_lane": [
           "*"
@@ -297,7 +300,8 @@
       "dimension": "test-selection",
       "implementation_prs": [
         "https://github.com/honua-io/honua-server/pull/6302"
-      ]
+      ],
+      "delivery_pr": "https://github.com/honua-io/honua-server/pull/6302"
     },
     {
       "id": "NC-11",
@@ -355,7 +359,7 @@
       "title": "OWSLib transport probes cannot run against HTTPS despite documenting the same release lane",
       "owner": "honua-io/honua-server",
       "issue": "https://github.com/honua-io/honua-server/issues/6305",
-      "status": "implementation-in-progress",
+      "status": "implementation-landed",
       "selectors": {
         "client_lane": [
           "py-owslib"
@@ -387,7 +391,8 @@
       "catalog_gap_reason": "The current governed catalog has no WFS/WMS/WMTS rows under py-owslib. This precise selector records the canonical-lane gap without attributing the same flaw to other clients or changing the denominator; registry reconciliation remains NC-05.",
       "implementation_prs": [
         "https://github.com/honua-io/honua-server/pull/6307"
-      ]
+      ],
+      "delivery_pr": "https://github.com/honua-io/honua-server/pull/6307"
     },
     {
       "id": "NC-14",
@@ -395,7 +400,7 @@
       "title": "OpenLayers can credit empty/overlapping pages and unfiltered WFS retrieval",
       "owner": "honua-io/honua-server",
       "issue": "https://github.com/honua-io/honua-server/issues/6304",
-      "status": "implementation-in-progress",
+      "status": "implementation-landed",
       "selectors": {
         "client_lane": [
           "openlayers*"
@@ -412,7 +417,8 @@
       "related_issues": [
         "https://github.com/honua-io/honua-release/issues/652"
       ],
-      "catalog_gap_reason": "No OpenLayers client_lane exists in the current catalog. Do not silently alias it to js or SDK/CITE rows or create new requirements as part of this source audit; reconcile registration under NC-05."
+      "catalog_gap_reason": "No OpenLayers client_lane exists in the current catalog. Do not silently alias it to js or SDK/CITE rows or create new requirements as part of this source audit; reconcile registration under NC-05.",
+      "delivery_pr": "https://github.com/honua-io/honua-server/pull/6309"
     },
     {
       "id": "NC-15",
@@ -793,7 +799,7 @@
       },
       "review_limits": [
         "No runtime defect reproduced or new issue filed. Prior closed regression issue references are context, not current unassigned implementation claims.",
-        "Existing NC01\u201312 are not refiled; in particular OWSLib expired-token NC07, DuckDB CRS NC12 and shard no-test NC10 retain their owners.",
+        "Existing NC01–12 are not refiled; in particular OWSLib expired-token NC07, DuckDB CRS NC12 and shard no-test NC10 retain their owners.",
         "No complete claim for all CRS/Z/M shapes, true-curve preservation, concurrency races, canonical-client writes, media variants, or tenant isolation follows from the sampled tests.",
         "No fresh candidate or AWS qualification; no current CITE rate inferred from source. STAC/gRPC not expanded in this bounded pass."
       ]
