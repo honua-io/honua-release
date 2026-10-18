@@ -17,7 +17,7 @@ from run import HERE, ROOT, Session, docker, prepare_tools, run_document
 
 def _document(text: str, groups: list[tuple[str, str, list[int]]]) -> dict:
     blocks = extract(text)
-    return {"runtime": "node", "executionContexts": [
+    return {"runtime": "node", "timeout": 120, "executionContexts": [
         {"name": name, "runtime": runtime, "documentedAt": "controlled context rehearsal; not a public SDK example",
          "blocks": [{"index": i, "sha256": blocks[i].sha256} for i in indices]}
         for name, runtime, indices in groups]}
