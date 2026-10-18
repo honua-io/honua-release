@@ -100,7 +100,7 @@ def test_prepare_never_uses_credentials_network_or_cloud_and_reports_unrun(tmp_p
 
 def test_target_approval_is_preserved_rather_than_disabled_for_a_green_run():
     value = scope()
-    parameters = {"aws.ecs.cluster": value["cluster"], "aws.ecs.canary_service": value["canaryService"],
+    parameters = {"aws.region": value["region"], "aws.ecs.canary_weight_percentage": str(value["canaryWeightPercent"]), "aws.ecs.cluster": value["cluster"], "aws.ecs.canary_service": value["canaryService"],
                   "aws.ecs.stable_service": value["stableService"], "aws.alb.listener_rule_arn": value["listenerRuleArn"],
                   "aws.alb.canary_target_group_arn": value["canaryTargetGroupArn"], "aws.alb.stable_target_group_arn": value["stableTargetGroupArn"],
                   "telemetry.connection": value["telemetryConnection"],

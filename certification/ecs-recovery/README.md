@@ -33,7 +33,8 @@ this scope or receipts. No resource creation is authorized by this harness.
 
 The cell needs an actual stored AwsEcs target using backend `honua-aws-ecs-alb`,
 qualification environment, exact cluster/canary/stable/listener/group parameters,
-server-owned telemetry connection, exact stable/canary metrics jobs and
+explicit AWS region and staged canary percentage, server-owned telemetry
+connection, exact stable/canary metrics jobs and
 credential-free public synthetic golden query/response checksum bound to this
 serving origin, **and its real RequiresApproval=true target
 policy preserved**. The existing server intentionally has two independent actions:

@@ -58,6 +58,7 @@ def validate(scope):
     for field in ("cluster", "canaryService", "stableService"):
         require(scope[field].startswith("honua-qual-"), "only explicitly named honua-qual-* substrate is admitted")
     require(scope["canaryService"] != scope["stableService"], "separate stable/canary services required")
+    require(type(scope.get("canaryWeightPercent")) is int and 0 < scope["canaryWeightPercent"] < 100, "reviewed staged canary percentage required")
     require(re.fullmatch(r"\d{12}", scope.get("awsAccountId", "")), "explicit AWS account required")
     require(re.fullmatch(r"[a-z]{2}-[a-z]+-\d", scope.get("region", "")), "explicit AWS region required")
     require(re.fullmatch(r"apikey:api-key:[0-9a-f-]{36}", scope.get("proposerPrincipalId", "")), "exact stored proposer principal required")
@@ -203,7 +204,7 @@ def target_plan(scope, control, role):
     require(target["targetId"] == scope["deployTargetId"] and target["targetKind"] == "AwsEcs" and target["backend"] == "honua-aws-ecs-alb"
             and target["environment"] == scope["environment"] and target["desiredRevision"] == artifact["taskDefinition"], "canonical target identity mismatch")
     parameters = target["parameters"]
-    expected = {"aws.ecs.cluster": scope["cluster"], "aws.ecs.canary_service": scope["canaryService"],
+    expected = {"aws.region": scope["region"], "aws.ecs.canary_weight_percentage": str(scope["canaryWeightPercent"]), "aws.ecs.cluster": scope["cluster"], "aws.ecs.canary_service": scope["canaryService"],
                 "aws.ecs.stable_service": scope["stableService"], "aws.alb.listener_rule_arn": scope["listenerRuleArn"],
                 "aws.alb.canary_target_group_arn": scope["canaryTargetGroupArn"], "aws.alb.stable_target_group_arn": scope["stableTargetGroupArn"],
                 "telemetry.connection": scope["telemetryConnection"],

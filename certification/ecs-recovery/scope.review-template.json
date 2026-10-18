@@ -68,5 +68,6 @@
     "canaryMetricsJob": "honua-qual-recovery-canary",
     "goldenQueryPath": "/rest/services/qualification-public/FeatureServer/0/query?where=1%3D1&outFields=*&orderByFields=objectid&resultRecordCount=256&f=json",
     "goldenQueryResponseSha256": "REVIEW-REQUIRED"
-  }
+  },
+  "canaryWeightPercent": 10
 }
