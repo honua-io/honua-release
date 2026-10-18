@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import fnmatch
+import base64
 import json
 import re
 from pathlib import Path
@@ -115,6 +116,50 @@ def sdk_js_version() -> str:
     if contract.get("canonicalClient") != "@honua/sdk-js" or contract.get("clientVersion") != version:
         raise ValueError("pinned sdk-js coverage and protocol contract must declare the same client and version")
     return version
+def mcp_clients() -> list[tuple[str, str, str]]:
+    """Read literal manifests fetched from the selected producer; never execute it.
+
+    Names/lanes remain release policy. Versions must agree across the producer's
+    exact direct dependency declaration, lock root, and installed package entry.
+    Nightly staging refreshes both snapshots at the same selected source SHA.
+    """
+    package = load(SOURCES / "geospatial-mcp" / "package.json")
+    lock = load(SOURCES / "geospatial-mcp" / "package-lock.json")
+    name = "geospatial-mcp-protocol-certification"
+    if (package.get("name") != name or lock.get("name") != name
+            or lock.get("lockfileVersion") != 3):
+        raise ValueError("pinned MCP certification package/lock identity is invalid")
+    packages = lock.get("packages") or {}
+    root = packages.get("") or {}
+    if root.get("name") != name:
+        raise ValueError("pinned MCP lock root identity is invalid")
+    clients = []
+    for client, lane, dependency in (
+        ("Official MCP TypeScript SDK", "mcp-typescript-sdk", "@modelcontextprotocol/sdk"),
+        ("MCP Inspector", "mcp-inspector", "@modelcontextprotocol/inspector"),
+    ):
+        version = (package.get("dependencies") or {}).get(dependency)
+        numeric = r"(?:0|[1-9][0-9]*)"
+        identifier = rf"(?:{numeric}|[0-9]*[A-Za-z-][0-9A-Za-z-]*)"
+        semver = rf"{numeric}\.{numeric}\.{numeric}(?:-{identifier}(?:\.{identifier})*)?(?:\+[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?"
+        entry = packages.get("node_modules/" + dependency) or {}
+        if (not isinstance(version, str) or not re.fullmatch(semver, version)
+                or (root.get("dependencies") or {}).get(dependency) != version
+                or entry.get("version") != version
+                or entry.get("resolved") != f"https://registry.npmjs.org/{dependency}/-/{dependency.rsplit('/', 1)[1]}-{version}.tgz"):
+            raise ValueError(f"pinned MCP {dependency} must have matching exact package/lock versions and registry identity")
+        integrity = entry.get("integrity")
+        try:
+            digest = (base64.b64decode(integrity.removeprefix("sha512-"), validate=True)
+                      if isinstance(integrity, str) and integrity.startswith("sha512-") else b"")
+        except ValueError:
+            digest = b""
+        if len(digest) != 64:
+            raise ValueError(f"pinned MCP {dependency} requires SHA512 package integrity")
+        clients.append((client, lane, version))
+    return clients
+
+
 def protocol_clients() -> list[tuple]:
     """Authoritative protocol client declarations, shared by generation and validation."""
     return [
@@ -694,12 +739,9 @@ def main() -> None:
             )
 
     mcp = load(SOURCES / "geospatial-mcp" / "operations.v1.json")
-    mcp_clients = (
-        ("Official MCP TypeScript SDK", "mcp-typescript-sdk", "1.30.0"),
-        ("MCP Inspector", "mcp-inspector", "2.3.0"),
-    )
+    selected_mcp_clients = mcp_clients()
     for entry in mcp["operations"]:
-        for client, lane, version in mcp_clients:
+        for client, lane, version in selected_mcp_clients:
             add(
                 capability=f"mcp.{entry['kind']}", surface="mcp", operation=entry["operation"],
                 client=client, lane=lane, version=version,
