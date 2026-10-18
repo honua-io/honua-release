@@ -56,6 +56,7 @@
         "canonical_client": { "type": "string", "minLength": 1 },
         "client_lane": { "type": "string", "minLength": 1 },
         "client_version": { "type": "string", "minLength": 1 },
+          "client_package_digest": { "type": "string", "pattern": "^(sha256:[0-9a-f]{64}|sha512-[A-Za-z0-9+/]{86}==)$" },
         "client_version_observed": {
           "description": "The exact client version a receipt observed, when client_version names a release line <major>.<minor>.x (R38, honua-release#376).",
           "type": "string",
@@ -117,6 +118,7 @@
                     "operation": { "type": "string" },
                     "canonical_client": { "type": "string" },
                     "client_version": { "type": "string" },
+                    "client_package_digest": { "type": "string", "pattern": "^(sha256:[0-9a-f]{64}|sha512-[A-Za-z0-9+/]{86}==)$" },
                     "client_version_observed": { "type": "string" },
                     "client_driver": { "type": "string", "minLength": 1, "pattern": "^[a-z0-9-]{1,32}$" },
                     "deployment_target": { "type": "string" },
@@ -230,6 +232,85 @@
         "exercised_capabilities": ["client_id", "runner_lane", "protocol_version", "protocol_profile", "performed_by", "request_url"]
       },
       "allOf": [
+        {
+          "if": {
+            "properties": {
+              "client_lane": {
+                "enum": [
+                  "grpc-dotnet",
+                  "grpc-python"
+                ]
+              }
+            },
+            "required": [
+              "client_lane"
+            ]
+          },
+          "then": {
+            "properties": {
+              "client_package_digest": {
+                "pattern": "^sha256:[0-9a-f]{64}$(?![\\s\\S])"
+              },
+              "evidence_receipt": {
+                "properties": {
+                  "identity": {
+                    "properties": {
+                      "client_package_digest": {
+                        "pattern": "^sha256:[0-9a-f]{64}$(?![\\s\\S])"
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "client_lane": {
+                "enum": [
+                  "grpc-typescript"
+                ]
+              }
+            },
+            "required": [
+              "client_lane"
+            ]
+          },
+          "then": {
+            "properties": {
+              "client_package_digest": {
+                "pattern": "^sha512-[A-Za-z0-9+/]{85}[AQgw]==$(?![\\s\\S])"
+              },
+              "evidence_receipt": {
+                "properties": {
+                  "identity": {
+                    "properties": {
+                      "client_package_digest": {
+                        "pattern": "^sha512-[A-Za-z0-9+/]{85}[AQgw]==$(?![\\s\\S])"
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        {
+          "if": { "properties": { "client_lane": { "pattern": "^grpc-" } }, "required": ["client_lane"] },
+          "then": {
+            "required": ["client_package_digest"],
+            "properties": {
+              "client_lane": { "enum": ["grpc-dotnet", "grpc-python", "grpc-typescript"] },
+              "evidence_receipt": { "properties": { "identity": { "required": ["client_package_digest"] } } }
+            }
+          },
+          "else": { "properties": {
+            "client_package_digest": false,
+            "evidence_receipt": { "properties": { "identity": { "properties": { "client_package_digest": false } } } }
+          } }
+        },
         {
           "if": {
             "required": ["canonical_client", "client_lane", "deployment_target"],

@@ -289,10 +289,26 @@ def grpc_client_version(published: dict[str, Any], lane: str) -> str:
     version = client.get("version")
     if not isinstance(version, str) or not re.fullmatch(r"[0-9]+\.[0-9]+\.[0-9]+", version):
         raise ValueError(f"geospatial-grpc published_clients[{lane}] needs a released version, not {version!r}")
-    if not any(isinstance(client.get(field), str) and client[field].startswith(("sha256:", "sha512-"))
-               for field in ("digest", "integrity")):
-        raise ValueError(f"geospatial-grpc published_clients[{lane}] needs the published artifact digest")
+    grpc_client_digest(published, lane)
     return version
+
+
+def grpc_client_digest(published: dict[str, Any], lane: str) -> str:
+    """Exact public archive identity, preserving npm's canonical SHA-512 SRI."""
+    client = published.get(lane, {})
+    value = client.get("integrity") if lane == "grpc-typescript" else client.get("digest")
+    if lane == "grpc-typescript":
+        import base64
+        try:
+            raw = base64.b64decode(value.removeprefix("sha512-"), validate=True) if isinstance(value, str) and value.startswith("sha512-") else b""
+        except ValueError:
+            raw = b""
+        valid = len(raw) == 64 and value == "sha512-" + base64.b64encode(raw).decode()
+    else:
+        valid = isinstance(value, str) and re.fullmatch(r"sha256:[0-9a-f]{64}", value) is not None
+    if not valid:
+        raise ValueError(f"geospatial-grpc published_clients[{lane}] needs the exact published artifact digest")
+    return value
 
 
 PRODUCTION_PLACEHOLDERS = ("{server_image}", "{server_sha}", "{cut_at}")
@@ -458,7 +474,8 @@ def main() -> None:
             addressability_reason: str | None = None,
             test_ids: list[str] | None = None,
             release_bucket: str | None = None,
-            client_driver: str | None = None) -> None:
+            client_driver: str | None = None,
+            client_package_digest: str | None = None) -> None:
         # The preview-surfaces ruling (release#351) covers every client driver (R40), not only
         # the bounded roster: an addressable driver row on a Preview capability would be a
         # supported requirement the release gate demands. PyQGIS keeps its not-applicable grid row.
@@ -488,6 +505,8 @@ def main() -> None:
             "fixture_revision": fixture,
             "budget_expectations": None,
         }
+        if client_package_digest is not None:
+            row["client_package_digest"] = client_package_digest
         if test_ids is not None:
             row["test_ids"] = test_ids
         if release_bucket is not None:
@@ -633,6 +652,7 @@ def main() -> None:
             add(
                 capability=f"grpc.{slug(rpc['service'])}", surface="grpc", operation=operation,
                 client=client, lane=lane, version=grpc_client_version(grpc_published, lane),
+                client_package_digest=grpc_client_digest(grpc_published, lane),
                 contract=f"geospatial-grpc@{grpc['source_sha']}", auth_policy="anonymous-public-v1",
                 fixture=grpc_fixture,
                 facets=["positive", "negative", "media-schema"],
@@ -995,7 +1015,7 @@ def main() -> None:
     ))
     output = {
         "schema": "honua.protocol-certification-requirements/v1",
-        "revision": "2026-10-08-complete.23",
+        "revision": "2026-10-17-complete.24",
         "trademarkNotice": DESKTOP["trademarkNotice"],
         "receipt_schema_min": "v2",
         "complete": True,
