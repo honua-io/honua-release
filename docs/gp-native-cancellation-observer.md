@@ -47,6 +47,10 @@ is insufficient. The observer includes `nativeEntryBoundary`, `nativeExecutable`
 ready and native-entry receipts. ECS observations must preserve the entire
 barrier identity through cancellation and late readback. This proves cancellation
 at native entry; the broader mid-operation fault and lifecycle obligations remain.
+The resolved executable must be `/usr/bin/ogr2ogr` or `/usr/local/bin/ogr2ogr`
+inside the authenticated image's protected roots. A different executable or a
+copy on a mounted directory cannot satisfy the `gdal.ogr2ogr` workload. Images
+using another resolved layout require a reviewed contract change before admission.
 
 For persistent ECS workers, place a separate diagnostic container in that same
 `pidMode: task` task. Pin it to the same native image, override its entry point

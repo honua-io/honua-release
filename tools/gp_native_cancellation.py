@@ -29,6 +29,10 @@ TOKEN = re.compile(r"[A-Za-z0-9][A-Za-z0-9_-]{0,127}\Z")
 # not a job or worker token. Keep its production character and length contract.
 STORE_REFERENCE = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]{0,159}\Z")
 HEX = re.compile(r"[a-f0-9]{64}\Z")
+# The reviewed native image provides this workload in protected image roots.
+# Neither operator configuration nor an observer-selected arbitrary path may
+# redefine the executable that satisfies the gdal.ogr2ogr qualification cell.
+NATIVE_OGR_EXECUTABLES = frozenset(("/usr/bin/ogr2ogr", "/usr/local/bin/ogr2ogr"))
 CLIENT_LOCK = "f2d66687dd7c31b6620d1417cabaa367da9b56bed7bcb00f56aabcf96e789192"
 
 
@@ -95,6 +99,8 @@ def observation(value, *, job, nonce, phase, start, end, policy_sha, store):
                 and ".." not in executable.split("/") and str(PurePosixPath(executable)) == executable
                 and PurePosixPath(executable).name,
                 "native executable identity missing/noncanonical")
+        require(executable in NATIVE_OGR_EXECUTABLES,
+                "native entry executable is not the image-bound ogr2ogr workload")
         require(barrier["sha256"] == sha((barrier["readySha256"] + "\n" + barrier["nativeEntrySha256"]).encode("ascii")),
                 "native entry and ready receipts are not jointly bound")
     if phase in ("before", "started"):

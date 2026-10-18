@@ -97,6 +97,25 @@ def test_native_entry_boundary_path_and_both_receipt_hashes_are_required(field, 
         validate(candidate)
 
 
+@pytest.mark.parametrize("phase", ["before", "started", "after"])
+@pytest.mark.parametrize("executable", ["/bin/true", "/usr/bin/gdalinfo", "/mounted/ogr2ogr", "/opt/other/ogr2ogr"])
+def test_canonical_but_wrong_or_mounted_native_binary_cannot_satisfy_ogr2ogr(phase, executable):
+    value = record(phase)
+    value["barrier"]["nativeExecutable"] = executable
+    if phase == "after":
+        value["process"]["childAbsent"] = True
+    with pytest.raises(ProofError, match="image-bound ogr2ogr"):
+        observation(value, job="job-1", nonce="d" * 32, phase=phase, start=NOW * 10**9,
+                    end=NOW * 10**9 + 10**9, policy_sha="e" * 64, store=STORE)
+
+
+@pytest.mark.parametrize("executable", ["/usr/bin/ogr2ogr", "/usr/local/bin/ogr2ogr"])
+def test_only_supported_image_ogr2ogr_locations_are_accepted(executable):
+    value = record()
+    value["barrier"]["nativeExecutable"] = executable
+    assert validate(value)["barrier"]["nativeExecutable"] == executable
+
+
 class ObserverControl:
     def __init__(self, mode="positive"):
         self.mode, self.phases, self.authenticated = mode, [], False
