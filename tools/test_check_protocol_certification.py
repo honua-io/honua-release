@@ -1813,3 +1813,28 @@ def _rehash_python_wheel(cell):
     cell["evidence_uri"] = "https://evidence.honua.io/data/sha256/" + cell["evidence_digest"][7:]
     for facet in cell["facet_results"].values():
         facet["evidence_digest"] = cell["evidence_digest"]
+
+
+def test_shared_actual_python_producer_bytes_pass_the_release_consumer_and_reject_rebinding():
+    bundle = json.loads((Path(__file__).parent / "fixtures/python-receipt-v2-seam.json").read_text())
+    observation = bundle["fragment"]["observations"][0]
+    cell = {**bundle["requirements"]["requirements"][0], **observation, "budget_observations": None}
+    ledger = _ledger(cell)
+    ledger["requirements_revision"] = bundle["requirements"]["revision"]
+    assert bundle["fragment"]["operation_scope"]["complete"] is False
+    report = _evaluate(ledger, "nightly", requirements=bundle["requirements"], now=NOW)
+    assert report["overall_status"] == "pass", report["findings"]
+    for field, value in (("client_package", {"filename": "honua_sdk-9.9.9-py3-none-any.whl", "sha256": "e" * 64, "source": "pypi"}),
+                         ("producer_source_sha", "e" * 40), ("client_version", "9.9.8")):
+        changed = copy.deepcopy(ledger)
+        changed["cells"][0][field] = value
+        changed["cells"][0]["evidence_receipt"]["identity"][field] = value
+        _rehash_python_wheel(changed["cells"][0])
+        assert _evaluate(changed, "nightly", requirements=bundle["requirements"], now=NOW)["overall_status"] == "fail"
+
+
+def test_python_wheel_schema_is_closed_and_other_lanes_cannot_claim_it():
+    schema = json.loads((Path(__file__).parents[1] / "certification/protocol-certification.v1.schema.json").read_text())
+    cell = _cell(client_package={"filename": "honua_sdk-1.4.3-py3-none-any.whl", "sha256": "e" * 64, "source": "pypi"})
+    assert list(Draft202012Validator(schema).iter_errors(_ledger(cell)))
+    assert _evaluate(_ledger(cell), "nightly", now=NOW)["overall_status"] == "fail"
