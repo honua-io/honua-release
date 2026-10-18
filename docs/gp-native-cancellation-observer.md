@@ -38,6 +38,20 @@ definition/launch overrides must explicitly declare:
 - `GdalWorker__ScratchRoot` matching its mounted scratch directory. The deliberate
   ignore-cancellation mode is refused.
 
+The image must include the native-entry hold delivered by server6352. With the
+explicit pause selector, the worker holds the actual ELF executable at entry
+using the fixed, image-bound shim and verifies its PID, executable and fresh
+handshake before publishing readiness. An older managed-only readiness marker
+is insufficient. The observer includes `nativeEntryBoundary`, `nativeExecutable`,
+`readySha256` and `nativeEntrySha256`; its combined barrier hash binds the exact
+ready and native-entry receipts. ECS observations must preserve the entire
+barrier identity through cancellation and late readback. This proves cancellation
+at native entry; the broader mid-operation fault and lifecycle obligations remain.
+The resolved executable must be `/usr/bin/ogr2ogr` or `/usr/local/bin/ogr2ogr`
+inside the authenticated image's protected roots. A different executable or a
+copy on a mounted directory cannot satisfy the `gdal.ogr2ogr` workload. Images
+using another resolved layout require a reviewed contract change before admission.
+
 For persistent ECS workers, place a separate diagnostic container in that same
 `pidMode: task` task. Pin it to the same native image, override its entry point
 to `["/usr/bin/python3"]` and command to
@@ -115,9 +129,9 @@ same barrier/output roots and prefix and null scratch root.
 
 The reviewed plan file is an MCP `honua_execute_plan` argument containing
 exactly one `Geoprocess` step with `processId: gdal.ogr2ogr`. Use actual source
-bytes and choose a real workload long enough for native observations. Early
-completion or absence of a live child fails the ECS proof; no simulated delay,
-PID substitution or relaxed assertion makes that failure pass. Workloads with
+bytes. The reviewed native-entry hold makes observation independent of workload
+duration. Early completion, an absent live child or missing handshake fails the
+ECS proof. Workloads with
 database or external sink effects need additional independent target oracles
 and cannot qualify through this filesystem-only producer.
 

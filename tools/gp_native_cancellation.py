@@ -29,6 +29,10 @@ TOKEN = re.compile(r"[A-Za-z0-9][A-Za-z0-9_-]{0,127}\Z")
 # not a job or worker token. Keep its production character and length contract.
 STORE_REFERENCE = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]{0,159}\Z")
 HEX = re.compile(r"[a-f0-9]{64}\Z")
+# The reviewed native image provides this workload in protected image roots.
+# Neither operator configuration nor an observer-selected arbitrary path may
+# redefine the executable that satisfies the gdal.ogr2ogr qualification cell.
+NATIVE_OGR_EXECUTABLES = frozenset(("/usr/bin/ogr2ogr", "/usr/local/bin/ogr2ogr"))
 CLIENT_LOCK = "f2d66687dd7c31b6620d1417cabaa367da9b56bed7bcb00f56aabcf96e789192"
 
 
@@ -82,6 +86,23 @@ def observation(value, *, job, nonce, phase, start, end, policy_sha, store):
     require(value.get("policySha256") == policy_sha and value.get("store") == store,
             "observer policy/store identity changed")
     inventory(value.get("outputInventory"))
+    if phase in ("before", "started", "after"):
+        barrier = value.get("barrier", {})
+        require(isinstance(barrier, dict)
+                and barrier.get("nativeEntryBoundary") == "native-exec-entry-paused"
+                and all(isinstance(barrier.get(key), str) and HEX.fullmatch(barrier[key])
+                        for key in ("sha256", "readySha256", "nativeEntrySha256")),
+                "actual native executable entry evidence missing")
+        executable = barrier.get("nativeExecutable")
+        require(isinstance(executable, str) and executable.startswith("/")
+                and not executable.startswith("//") and "\x00" not in executable
+                and ".." not in executable.split("/") and str(PurePosixPath(executable)) == executable
+                and PurePosixPath(executable).name,
+                "native executable identity missing/noncanonical")
+        require(executable in NATIVE_OGR_EXECUTABLES,
+                "native entry executable is not the image-bound ogr2ogr workload")
+        require(barrier["sha256"] == sha((barrier["readySha256"] + "\n" + barrier["nativeEntrySha256"]).encode("ascii")),
+                "native entry and ready receipts are not jointly bound")
     if phase in ("before", "started"):
         barrier = value.get("barrier", {})
         require(barrier.get("operationId") == job and HEX.fullmatch(str(barrier.get("sha256")))
@@ -466,6 +487,7 @@ def run_cell(config, observer, api, mcp, plan, *, sleep=time.sleep, clock=time.t
             sleep(1)
     require(after is not None, "native cessation/effects never independently observed")
     if config["cell"] == "aws-ecs/redis-on":
+        require(after.get("barrier") == before.get("barrier"), "native entry receipt changed after cancellation")
         require(after.get("process") == {**before["process"], "childAbsent": True}, "original native identity did not cease")
         inventory(after.get("scratchInventory"))
     for stage in ("terminal", "late"):
@@ -484,6 +506,7 @@ def run_cell(config, observer, api, mcp, plan, *, sleep=time.sleep, clock=time.t
             late = observer.observe(job, "after" if config["cell"] == "aws-ecs/redis-on" else "store", before.get("process"))
             require(late.get("store") == after.get("store"), "late store identity changed")
             if config["cell"] == "aws-ecs/redis-on":
+                require(late.get("barrier") == before.get("barrier"), "late native entry receipt changed")
                 require(late.get("process") == after.get("process"), "late native process identity changed")
                 inventory(late.get("scratchInventory"))
             else:

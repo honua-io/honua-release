@@ -1,6 +1,7 @@
 """Producer refusal controls; these are never AWS qualification evidence."""
 import copy
 from datetime import datetime, timezone
+import hashlib
 import json
 from pathlib import Path
 import subprocess
@@ -15,9 +16,12 @@ NOW = 1792350000
 STAMP = datetime.fromtimestamp(NOW, timezone.utc).isoformat()
 STORE = {"reference": "qualification", "configurationDigest": "a" * 64, "attestationSha256": "b" * 64}
 EMPTY = {"state": "absent", "files": [], "bytes": 0}
+READY_SHA = "c" * 64
+ENTRY_SHA = "1" * 64
+BARRIER_SHA = hashlib.sha256((READY_SHA + "\n" + ENTRY_SHA).encode("ascii")).hexdigest()
 PROCESS = {"workerId": "worker-1", "worker": {"pid": 100, "parentPid": 1, "startTicks": 10},
            "child": {"pid": 200, "parentPid": 100, "startTicks": 20}, "bootId": "12345678-1234-1234-1234-123456789abc", "pidNamespace": 1,
-           "barrierSha256": "c" * 64, "scratchRelative": "job-1"}
+           "barrierSha256": BARRIER_SHA, "scratchRelative": "job-1"}
 
 
 def record(phase="before"):
@@ -25,7 +29,9 @@ def record(phase="before"):
             "jobId": "job-1", "nonce": "d" * 32, "phase": phase, "observedAtUnixNs": NOW * 10**9,
             "policySha256": "e" * 64, "store": STORE.copy(), "outputInventory": EMPTY.copy(),
             "scratchInventory": {"state": "present", "files": [], "bytes": 0, "device": 1, "inode": 2}, "barrier": {"operationId": "job-1", "workerId": "worker-1",
-            "childProcessId": 200, "workerProcessId": 100, "readyAt": STAMP, "sha256": "c" * 64},
+            "childProcessId": 200, "workerProcessId": 100, "readyAt": STAMP, "sha256": BARRIER_SHA,
+            "readySha256": READY_SHA, "nativeEntrySha256": ENTRY_SHA,
+            "nativeEntryBoundary": "native-exec-entry-paused", "nativeExecutable": "/usr/bin/ogr2ogr"},
             "process": copy.deepcopy(PROCESS)}
 
 
@@ -49,6 +55,65 @@ def test_observation_missing_stale_partial_wrong_identity_and_orphans_fail(field
 
 def test_observation_accepts_complete_exact_fresh_record_only():
     assert validate(record())["jobId"] == "job-1"
+
+
+@pytest.mark.parametrize("phase", ["started", "after", "store"])
+def test_native_entry_is_retained_for_process_phases_but_store_only_needs_inventory(phase):
+    value = record(phase)
+    if phase == "after":
+        value["process"]["childAbsent"] = True
+    elif phase == "store":
+        del value["barrier"]
+        del value["process"]
+    assert observation(value, job="job-1", nonce="d" * 32, phase=phase, start=NOW * 10**9,
+                       end=NOW * 10**9 + 10**9, policy_sha="e" * 64, store=STORE)["phase"] == phase
+
+
+@pytest.mark.parametrize("phase", ["before", "started", "after"])
+@pytest.mark.parametrize("field", ["readySha256", "nativeEntrySha256", "nativeEntryBoundary", "nativeExecutable"])
+def test_managed_only_or_partial_native_entry_records_cannot_qualify(phase, field):
+    value = record(phase)
+    del value["barrier"][field]
+    if phase == "after":
+        value["process"]["childAbsent"] = True
+    with pytest.raises(ProofError, match="native"):
+        observation(value, job="job-1", nonce="d" * 32, phase=phase, start=NOW * 10**9,
+                    end=NOW * 10**9 + 10**9, policy_sha="e" * 64, store=STORE)
+
+
+@pytest.mark.parametrize("field,value", [
+    ("nativeEntryBoundary", "managed-process-started"), ("nativeEntryBoundary", True),
+    ("readySha256", "0" * 64), ("nativeEntrySha256", "0" * 64), ("sha256", READY_SHA),
+    ("nativeEntrySha256", 123), ("nativeEntrySha256", "bad"),
+    ("nativeExecutable", None), ("nativeExecutable", "ogr2ogr"),
+    ("nativeExecutable", "//usr/bin/ogr2ogr"), ("nativeExecutable", "/usr/../bin/ogr2ogr"),
+    ("nativeExecutable", "/usr/./bin/ogr2ogr"), ("nativeExecutable", "/usr//bin/ogr2ogr"),
+    ("nativeExecutable", "/"),
+])
+def test_native_entry_boundary_path_and_both_receipt_hashes_are_required(field, value):
+    candidate = record()
+    candidate["barrier"][field] = value
+    with pytest.raises(ProofError, match="native"):
+        validate(candidate)
+
+
+@pytest.mark.parametrize("phase", ["before", "started", "after"])
+@pytest.mark.parametrize("executable", ["/bin/true", "/usr/bin/gdalinfo", "/mounted/ogr2ogr", "/opt/other/ogr2ogr"])
+def test_canonical_but_wrong_or_mounted_native_binary_cannot_satisfy_ogr2ogr(phase, executable):
+    value = record(phase)
+    value["barrier"]["nativeExecutable"] = executable
+    if phase == "after":
+        value["process"]["childAbsent"] = True
+    with pytest.raises(ProofError, match="image-bound ogr2ogr"):
+        observation(value, job="job-1", nonce="d" * 32, phase=phase, start=NOW * 10**9,
+                    end=NOW * 10**9 + 10**9, policy_sha="e" * 64, store=STORE)
+
+
+@pytest.mark.parametrize("executable", ["/usr/bin/ogr2ogr", "/usr/local/bin/ogr2ogr"])
+def test_only_supported_image_ogr2ogr_locations_are_accepted(executable):
+    value = record()
+    value["barrier"]["nativeExecutable"] = executable
+    assert validate(value)["barrier"]["nativeExecutable"] == executable
 
 
 class ObserverControl:
@@ -75,6 +140,9 @@ class ObserverControl:
             value["barrier"]["workerId"] = "other"
         if self.mode == "scratch" and phase == "after":
             value["scratchInventory"] = {"state": "present", "files": [{"path": "orphan"}], "bytes": 4}
+        if phase == "after" and (self.mode == "changed-entry" or
+                                  self.mode == "late-changed-entry" and self.phases.count("after") > 1):
+            value["barrier"]["nativeExecutable"] = "/usr/local/bin/ogr2ogr"
         return value
 
     def bind_batch(self, job, provider):
@@ -136,7 +204,7 @@ def test_both_required_cells_submit_cancel_and_observe_late_without_qualificatio
         assert result["batchAfter"]["status"] == "FAILED"
 
 
-@pytest.mark.parametrize("mode", ["preflight", "live-child", "partial-after", "wrong-claim", "scratch", "wrong-job", "succeeded", "retry", "false-ack", "ogc-success", "readable", "late-result"])
+@pytest.mark.parametrize("mode", ["preflight", "live-child", "partial-after", "wrong-claim", "scratch", "wrong-job", "succeeded", "retry", "false-ack", "ogc-success", "readable", "late-result", "changed-entry", "late-changed-entry"])
 def test_ecs_faults_never_get_pass_receipt(mode):
     with pytest.raises(ProofError):
         run_control(mode=mode)
