@@ -1,0 +1,48 @@
+name: Native GP cancellation producer controls
+on:
+  pull_request:
+    paths:
+      - 'tools/gp_native_cancellation.py'
+      - 'tools/test_gp_native_cancellation.py'
+      - 'tools/gp_native_mcp*.mjs'
+      - 'certification/sources/geospatial-mcp/package*.json'
+      - '.github/workflows/gp-native-cancellation-controls.yml'
+  push:
+    branches: [trunk]
+    paths:
+      - 'tools/gp_native_cancellation.py'
+      - 'tools/test_gp_native_cancellation.py'
+      - 'tools/gp_native_mcp*.mjs'
+      - 'certification/sources/geospatial-mcp/package*.json'
+      - '.github/workflows/gp-native-cancellation-controls.yml'
+permissions:
+  contents: read
+jobs:
+  controls:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: '3.12'
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: '22.19.0'
+      - run: python -m pip install -r e2e/requirements.txt pytest
+      - run: npm ci --ignore-scripts
+        working-directory: certification/sources/geospatial-mcp
+      - name: Exercise producer refusals and installed SDK wire controls
+        run: |
+          set -euo pipefail
+          mkdir -p artifacts/gp-native-controls
+          python -m pytest tools/test_gp_native_cancellation.py -q 2>&1 | tee artifacts/gp-native-controls/producer.log
+          node --test tools/gp_native_mcp.test.mjs 2>&1 | tee artifacts/gp-native-controls/sdk.tap
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.0
+        if: always()
+        with:
+          name: native-gp-producer-controls-${{ github.sha }}
+          path: artifacts/gp-native-controls/
+          if-no-files-found: error
