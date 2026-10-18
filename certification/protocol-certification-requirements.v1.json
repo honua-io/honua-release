@@ -1,6 +1,6 @@
 {
   "schema": "honua.protocol-certification-requirements/v1",
-  "revision": "2026-10-08-complete.23",
+  "revision": "2026-10-17-complete.24",
   "trademarkNotice": "Esri, ArcGIS, and the Esri product names used here are trademarks, registered trademarks, or service marks of Esri in the United States and other countries. They identify the products Honua is compatible with; Honua is not affiliated with, sponsored by, or endorsed by Esri.",
   "receipt_schema_min": "v2",
   "complete": true,
@@ -29872,7 +29872,8 @@
       "contract_revision": "geospatial-grpc@00fca4de0334c6e2304354df7b367faeec5780d6",
       "auth_policy_revision": "anonymous-public-v1",
       "fixture_revision": "geospatial-grpc-conformance@1.0.5+18e609cfa23d20ba4f0aa9b3db7ee67f6c451d95",
-      "budget_expectations": null
+      "budget_expectations": null,
+      "client_package_digest": "sha256:8b26754f72487978759a0f5bc2703f5eff4cf43a77a301943cb6e2328df49b14"
     },
     {
       "capability_key": "grpc.elevationservice",
@@ -29896,7 +29897,8 @@
       "contract_revision": "geospatial-grpc@00fca4de0334c6e2304354df7b367faeec5780d6",
       "auth_policy_revision": "anonymous-public-v1",
       "fixture_revision": "geospatial-grpc-conformance@1.0.5+18e609cfa23d20ba4f0aa9b3db7ee67f6c451d95",
-      "budget_expectations": null
+      "budget_expectations": null,
+      "client_package_digest": "sha256:9c225843767d60bb82a24a35fc7e4de24299530d24ab4fdb709b6c093a366ebb"
     },
     {
       "capability_key": "grpc.elevationservice",
@@ -29920,7 +29922,8 @@
       "contract_revision": "geospatial-grpc@00fca4de0334c6e2304354df7b367faeec5780d6",
       "auth_policy_revision": "anonymous-public-v1",
       "fixture_revision": "geospatial-grpc-conformance@1.0.5+18e609cfa23d20ba4f0aa9b3db7ee67f6c451d95",
-      "budget_expectations": null
+      "budget_expectations": null,
+      "client_package_digest": "sha512-5Ugjvk89MSgdJ52+bGv6nB7AWhAjTLo0JLmxoWDtbNhK8aYN7lQP9nNpQKI4Y2Hi4T8nPNWhtp+pNs74rE488Q=="
     },
     {
       "capability_key": "grpc.elevationservice",
@@ -29944,7 +29947,8 @@
       "contract_revision": "geospatial-grpc@00fca4de0334c6e2304354df7b367faeec5780d6",
       "auth_policy_revision": "anonymous-public-v1",
       "fixture_revision": "geospatial-grpc-conformance@1.0.5+18e609cfa23d20ba4f0aa9b3db7ee67f6c451d95",
-      "budget_expectations": null
+      "budget_expectations": null,
+      "client_package_digest": "sha256:8b26754f72487978759a0f5bc2703f5eff4cf43a77a301943cb6e2328df49b14"
     },
     {
       "capability_key": "grpc.elevationservice",
@@ -29968,7 +29972,8 @@
       "contract_revision": "geospatial-grpc@00fca4de0334c6e2304354df7b367faeec5780d6",
       "auth_policy_revision": "anonymous-public-v1",
       "fixture_revision": "geospatial-grpc-conformance@1.0.5+18e609cfa23d20ba4f0aa9b3db7ee67f6c451d95",
-      "budget_expectations": null
+      "budget_expectations": null,
+      "client_package_digest": "sha256:9c225843767d60bb82a24a35fc7e4de24299530d24ab4fdb709b6c093a366ebb"
     },
     {
       "capability_key": "grpc.elevationservice",
@@ -29992,7 +29997,8 @@
       "contract_revision": "geospatial-grpc@00fca4de0334c6e2304354df7b367faeec5780d6",
       "auth_policy_revision": "anonymous-public-v1",
       "fixture_revision": "geospatial-grpc-conformance@1.0.5+18e609cfa23d20ba4f0aa9b3db7ee67f6c451d95",
-      "budget_expectations": null
+      "budget_expectations": null,
+      "client_package_digest": "sha512-5Ugjvk89MSgdJ52+bGv6nB7AWhAjTLo0JLmxoWDtbNhK8aYN7lQP9nNpQKI4Y2Hi4T8nPNWhtp+pNs74rE488Q=="
     },
     {
       "capability_key": "grpc.featureservice",
@@ -30016,7 +30022,8 @@
       "contract_revision": "geospatial-grpc@00fca4de0334c6e2304354df7b367faeec5780d6",
       "auth_policy_revision": "anonymous-public-v1",
       "fixture_revision": "geospatial-grpc-conformance@1.0.5+18e609cfa23d20ba4f0aa9b3db7ee67f6c451d95",
-      "budget_expectations": null
+      "budget_expectations": null,
+      "client_package_digest": "sha256:8b26754f72487978759a0f5bc2703f5eff4cf43a77a301943cb6e2328df49b14"
     },
     {
       "capability_key": "grpc.featureservice",
@@ -30040,7 +30047,8 @@
       "contract_revision": "geospatial-grpc@00fca4de0334c6e2304354df7b367faeec5780d6",
       "auth_policy_revision": "anonymous-public-v1",
       "fixture_revision": "geospatial-grpc-conformance@1.0.5+18e609cfa23d20ba4f0aa9b3db7ee67f6c451d95",
-      "budget_expectations": null
+      "budget_expectations": null,
+      "client_package_digest": "sha256:9c225843767d60bb82a24a35fc7e4de24299530d24ab4fdb709b6c093a366ebb"
     },
     {
       "capability_key": "grpc.featureservice",
@@ -30064,7 +30072,8 @@
       "contract_revision": "geospatial-grpc@00fca4de0334c6e2304354df7b367faeec5780d6",
       "auth_policy_revision": "anonymous-public-v1",
       "fixture_revision": "geospatial-grpc-conformance@1.0.5+18e609cfa23d20ba4f0aa9b3db7ee67f6c451d95",
-      "budget_expectations": null
+      "budget_expectations": null,
+      "client_package_digest": "sha512-5Ugjvk89MSgdJ52+bGv6nB7AWhAjTLo0JLmxoWDtbNhK8aYN7lQP9nNpQKI4Y2Hi4T8nPNWhtp+pNs74rE488Q=="
     },
     {
       "capability_key": "grpc.featureservice",
@@ -30088,7 +30097,8 @@
       "contract_revision": "geospatial-grpc@00fca4de0334c6e2304354df7b367faeec5780d6",
       "auth_policy_revision": "anonymous-public-v1",
       "fixture_revision": "geospatial-grpc-conformance@1.0.5+18e609cfa23d20ba4f0aa9b3db7ee67f6c451d95",
-      "budget_expectations": null
+      "budget_expectations": null,
+      "client_package_digest": "sha256:8b26754f72487978759a0f5bc2703f5eff4cf43a77a301943cb6e2328df49b14"
     },
     {
       "capability_key": "grpc.featureservice",
@@ -30112,7 +30122,8 @@
       "contract_revision": "geospatial-grpc@00fca4de0334c6e2304354df7b367faeec5780d6",
       "auth_policy_revision": "anonymous-public-v1",
       "fixture_revision": "geospatial-grpc-conformance@1.0.5+18e609cfa23d20ba4f0aa9b3db7ee67f6c451d95",
-      "budget_expectations": null
+      "budget_expectations": null,
+      "client_package_digest": "sha256:9c225843767d60bb82a24a35fc7e4de24299530d24ab4fdb709b6c093a366ebb"
     },
     {
       "capability_key": "grpc.featureservice",
@@ -30136,7 +30147,8 @@
       "contract_revision": "geospatial-grpc@00fca4de0334c6e2304354df7b367faeec5780d6",
       "auth_policy_revision": "anonymous-public-v1",
       "fixture_revision": "geospatial-grpc-conformance@1.0.5+18e609cfa23d20ba4f0aa9b3db7ee67f6c451d95",
-      "budget_expectations": null
+      "budget_expectations": null,
+      "client_package_digest": "sha512-5Ugjvk89MSgdJ52+bGv6nB7AWhAjTLo0JLmxoWDtbNhK8aYN7lQP9nNpQKI4Y2Hi4T8nPNWhtp+pNs74rE488Q=="
     },
     {
       "capability_key": "grpc.featureservice",
@@ -30160,7 +30172,8 @@
       "contract_revision": "geospatial-grpc@00fca4de0334c6e2304354df7b367faeec5780d6",
       "auth_policy_revision": "anonymous-public-v1",
       "fixture_revision": "geospatial-grpc-conformance@1.0.5+18e609cfa23d20ba4f0aa9b3db7ee67f6c451d95",
-      "budget_expectations": null
+      "budget_expectations": null,
+      "client_package_digest": "sha256:8b26754f72487978759a0f5bc2703f5eff4cf43a77a301943cb6e2328df49b14"
     },
     {
       "capability_key": "grpc.featureservice",
@@ -30184,7 +30197,8 @@
       "contract_revision": "geospatial-grpc@00fca4de0334c6e2304354df7b367faeec5780d6",
       "auth_policy_revision": "anonymous-public-v1",
       "fixture_revision": "geospatial-grpc-conformance@1.0.5+18e609cfa23d20ba4f0aa9b3db7ee67f6c451d95",
-      "budget_expectations": null
+      "budget_expectations": null,
+      "client_package_digest": "sha256:9c225843767d60bb82a24a35fc7e4de24299530d24ab4fdb709b6c093a366ebb"
     },
     {
       "capability_key": "grpc.featureservice",
@@ -30208,7 +30222,8 @@
       "contract_revision": "geospatial-grpc@00fca4de0334c6e2304354df7b367faeec5780d6",
       "auth_policy_revision": "anonymous-public-v1",
       "fixture_revision": "geospatial-grpc-conformance@1.0.5+18e609cfa23d20ba4f0aa9b3db7ee67f6c451d95",
-      "budget_expectations": null
+      "budget_expectations": null,
+      "client_package_digest": "sha512-5Ugjvk89MSgdJ52+bGv6nB7AWhAjTLo0JLmxoWDtbNhK8aYN7lQP9nNpQKI4Y2Hi4T8nPNWhtp+pNs74rE488Q=="
     },
     {
       "capability_key": "grpc.processservice",
@@ -30232,7 +30247,8 @@
       "contract_revision": "geospatial-grpc@00fca4de0334c6e2304354df7b367faeec5780d6",
       "auth_policy_revision": "anonymous-public-v1",
       "fixture_revision": "geospatial-grpc-conformance@1.0.5+18e609cfa23d20ba4f0aa9b3db7ee67f6c451d95",
-      "budget_expectations": null
+      "budget_expectations": null,
+      "client_package_digest": "sha256:8b26754f72487978759a0f5bc2703f5eff4cf43a77a301943cb6e2328df49b14"
     },
     {
       "capability_key": "grpc.processservice",
@@ -30256,7 +30272,8 @@
       "contract_revision": "geospatial-grpc@00fca4de0334c6e2304354df7b367faeec5780d6",
       "auth_policy_revision": "anonymous-public-v1",
       "fixture_revision": "geospatial-grpc-conformance@1.0.5+18e609cfa23d20ba4f0aa9b3db7ee67f6c451d95",
-      "budget_expectations": null
+      "budget_expectations": null,
+      "client_package_digest": "sha256:9c225843767d60bb82a24a35fc7e4de24299530d24ab4fdb709b6c093a366ebb"
     },
     {
       "capability_key": "grpc.processservice",
@@ -30280,7 +30297,8 @@
       "contract_revision": "geospatial-grpc@00fca4de0334c6e2304354df7b367faeec5780d6",
       "auth_policy_revision": "anonymous-public-v1",
       "fixture_revision": "geospatial-grpc-conformance@1.0.5+18e609cfa23d20ba4f0aa9b3db7ee67f6c451d95",
-      "budget_expectations": null
+      "budget_expectations": null,
+      "client_package_digest": "sha512-5Ugjvk89MSgdJ52+bGv6nB7AWhAjTLo0JLmxoWDtbNhK8aYN7lQP9nNpQKI4Y2Hi4T8nPNWhtp+pNs74rE488Q=="
     },
     {
       "capability_key": "grpc.processservice",
@@ -30304,7 +30322,8 @@
       "contract_revision": "geospatial-grpc@00fca4de0334c6e2304354df7b367faeec5780d6",
       "auth_policy_revision": "anonymous-public-v1",
       "fixture_revision": "geospatial-grpc-conformance@1.0.5+18e609cfa23d20ba4f0aa9b3db7ee67f6c451d95",
-      "budget_expectations": null
+      "budget_expectations": null,
+      "client_package_digest": "sha256:8b26754f72487978759a0f5bc2703f5eff4cf43a77a301943cb6e2328df49b14"
     },
     {
       "capability_key": "grpc.processservice",
@@ -30328,7 +30347,8 @@
       "contract_revision": "geospatial-grpc@00fca4de0334c6e2304354df7b367faeec5780d6",
       "auth_policy_revision": "anonymous-public-v1",
       "fixture_revision": "geospatial-grpc-conformance@1.0.5+18e609cfa23d20ba4f0aa9b3db7ee67f6c451d95",
-      "budget_expectations": null
+      "budget_expectations": null,
+      "client_package_digest": "sha256:9c225843767d60bb82a24a35fc7e4de24299530d24ab4fdb709b6c093a366ebb"
     },
     {
       "capability_key": "grpc.processservice",
@@ -30352,7 +30372,8 @@
       "contract_revision": "geospatial-grpc@00fca4de0334c6e2304354df7b367faeec5780d6",
       "auth_policy_revision": "anonymous-public-v1",
       "fixture_revision": "geospatial-grpc-conformance@1.0.5+18e609cfa23d20ba4f0aa9b3db7ee67f6c451d95",
-      "budget_expectations": null
+      "budget_expectations": null,
+      "client_package_digest": "sha512-5Ugjvk89MSgdJ52+bGv6nB7AWhAjTLo0JLmxoWDtbNhK8aYN7lQP9nNpQKI4Y2Hi4T8nPNWhtp+pNs74rE488Q=="
     },
     {
       "capability_key": "grpc.processservice",
@@ -30376,7 +30397,8 @@
       "contract_revision": "geospatial-grpc@00fca4de0334c6e2304354df7b367faeec5780d6",
       "auth_policy_revision": "anonymous-public-v1",
       "fixture_revision": "geospatial-grpc-conformance@1.0.5+18e609cfa23d20ba4f0aa9b3db7ee67f6c451d95",
-      "budget_expectations": null
+      "budget_expectations": null,
+      "client_package_digest": "sha256:8b26754f72487978759a0f5bc2703f5eff4cf43a77a301943cb6e2328df49b14"
     },
     {
       "capability_key": "grpc.processservice",
@@ -30400,7 +30422,8 @@
       "contract_revision": "geospatial-grpc@00fca4de0334c6e2304354df7b367faeec5780d6",
       "auth_policy_revision": "anonymous-public-v1",
       "fixture_revision": "geospatial-grpc-conformance@1.0.5+18e609cfa23d20ba4f0aa9b3db7ee67f6c451d95",
-      "budget_expectations": null
+      "budget_expectations": null,
+      "client_package_digest": "sha256:9c225843767d60bb82a24a35fc7e4de24299530d24ab4fdb709b6c093a366ebb"
     },
     {
       "capability_key": "grpc.processservice",
@@ -30424,7 +30447,8 @@
       "contract_revision": "geospatial-grpc@00fca4de0334c6e2304354df7b367faeec5780d6",
       "auth_policy_revision": "anonymous-public-v1",
       "fixture_revision": "geospatial-grpc-conformance@1.0.5+18e609cfa23d20ba4f0aa9b3db7ee67f6c451d95",
-      "budget_expectations": null
+      "budget_expectations": null,
+      "client_package_digest": "sha512-5Ugjvk89MSgdJ52+bGv6nB7AWhAjTLo0JLmxoWDtbNhK8aYN7lQP9nNpQKI4Y2Hi4T8nPNWhtp+pNs74rE488Q=="
     },
     {
       "capability_key": "grpc.processservice",
@@ -30448,7 +30472,8 @@
       "contract_revision": "geospatial-grpc@00fca4de0334c6e2304354df7b367faeec5780d6",
       "auth_policy_revision": "anonymous-public-v1",
       "fixture_revision": "geospatial-grpc-conformance@1.0.5+18e609cfa23d20ba4f0aa9b3db7ee67f6c451d95",
-      "budget_expectations": null
+      "budget_expectations": null,
+      "client_package_digest": "sha256:8b26754f72487978759a0f5bc2703f5eff4cf43a77a301943cb6e2328df49b14"
     },
     {
       "capability_key": "grpc.processservice",
@@ -30472,7 +30497,8 @@
       "contract_revision": "geospatial-grpc@00fca4de0334c6e2304354df7b367faeec5780d6",
       "auth_policy_revision": "anonymous-public-v1",
       "fixture_revision": "geospatial-grpc-conformance@1.0.5+18e609cfa23d20ba4f0aa9b3db7ee67f6c451d95",
-      "budget_expectations": null
+      "budget_expectations": null,
+      "client_package_digest": "sha256:9c225843767d60bb82a24a35fc7e4de24299530d24ab4fdb709b6c093a366ebb"
     },
     {
       "capability_key": "grpc.processservice",
@@ -30496,7 +30522,8 @@
       "contract_revision": "geospatial-grpc@00fca4de0334c6e2304354df7b367faeec5780d6",
       "auth_policy_revision": "anonymous-public-v1",
       "fixture_revision": "geospatial-grpc-conformance@1.0.5+18e609cfa23d20ba4f0aa9b3db7ee67f6c451d95",
-      "budget_expectations": null
+      "budget_expectations": null,
+      "client_package_digest": "sha512-5Ugjvk89MSgdJ52+bGv6nB7AWhAjTLo0JLmxoWDtbNhK8aYN7lQP9nNpQKI4Y2Hi4T8nPNWhtp+pNs74rE488Q=="
     },
     {
       "capability_key": "grpc.processservice",
@@ -30520,7 +30547,8 @@
       "contract_revision": "geospatial-grpc@00fca4de0334c6e2304354df7b367faeec5780d6",
       "auth_policy_revision": "anonymous-public-v1",
       "fixture_revision": "geospatial-grpc-conformance@1.0.5+18e609cfa23d20ba4f0aa9b3db7ee67f6c451d95",
-      "budget_expectations": null
+      "budget_expectations": null,
+      "client_package_digest": "sha256:8b26754f72487978759a0f5bc2703f5eff4cf43a77a301943cb6e2328df49b14"
     },
     {
       "capability_key": "grpc.processservice",
@@ -30544,7 +30572,8 @@
       "contract_revision": "geospatial-grpc@00fca4de0334c6e2304354df7b367faeec5780d6",
       "auth_policy_revision": "anonymous-public-v1",
       "fixture_revision": "geospatial-grpc-conformance@1.0.5+18e609cfa23d20ba4f0aa9b3db7ee67f6c451d95",
-      "budget_expectations": null
+      "budget_expectations": null,
+      "client_package_digest": "sha256:9c225843767d60bb82a24a35fc7e4de24299530d24ab4fdb709b6c093a366ebb"
     },
     {
       "capability_key": "grpc.processservice",
@@ -30568,7 +30597,8 @@
       "contract_revision": "geospatial-grpc@00fca4de0334c6e2304354df7b367faeec5780d6",
       "auth_policy_revision": "anonymous-public-v1",
       "fixture_revision": "geospatial-grpc-conformance@1.0.5+18e609cfa23d20ba4f0aa9b3db7ee67f6c451d95",
-      "budget_expectations": null
+      "budget_expectations": null,
+      "client_package_digest": "sha512-5Ugjvk89MSgdJ52+bGv6nB7AWhAjTLo0JLmxoWDtbNhK8aYN7lQP9nNpQKI4Y2Hi4T8nPNWhtp+pNs74rE488Q=="
     },
     {
       "capability_key": "grpc.processservice",
@@ -30592,7 +30622,8 @@
       "contract_revision": "geospatial-grpc@00fca4de0334c6e2304354df7b367faeec5780d6",
       "auth_policy_revision": "anonymous-public-v1",
       "fixture_revision": "geospatial-grpc-conformance@1.0.5+18e609cfa23d20ba4f0aa9b3db7ee67f6c451d95",
-      "budget_expectations": null
+      "budget_expectations": null,
+      "client_package_digest": "sha256:8b26754f72487978759a0f5bc2703f5eff4cf43a77a301943cb6e2328df49b14"
     },
     {
       "capability_key": "grpc.processservice",
@@ -30616,7 +30647,8 @@
       "contract_revision": "geospatial-grpc@00fca4de0334c6e2304354df7b367faeec5780d6",
       "auth_policy_revision": "anonymous-public-v1",
       "fixture_revision": "geospatial-grpc-conformance@1.0.5+18e609cfa23d20ba4f0aa9b3db7ee67f6c451d95",
-      "budget_expectations": null
+      "budget_expectations": null,
+      "client_package_digest": "sha256:9c225843767d60bb82a24a35fc7e4de24299530d24ab4fdb709b6c093a366ebb"
     },
     {
       "capability_key": "grpc.processservice",
@@ -30640,7 +30672,8 @@
       "contract_revision": "geospatial-grpc@00fca4de0334c6e2304354df7b367faeec5780d6",
       "auth_policy_revision": "anonymous-public-v1",
       "fixture_revision": "geospatial-grpc-conformance@1.0.5+18e609cfa23d20ba4f0aa9b3db7ee67f6c451d95",
-      "budget_expectations": null
+      "budget_expectations": null,
+      "client_package_digest": "sha512-5Ugjvk89MSgdJ52+bGv6nB7AWhAjTLo0JLmxoWDtbNhK8aYN7lQP9nNpQKI4Y2Hi4T8nPNWhtp+pNs74rE488Q=="
     },
     {
       "capability_key": "grpc.specservice",
@@ -30664,7 +30697,8 @@
       "contract_revision": "geospatial-grpc@00fca4de0334c6e2304354df7b367faeec5780d6",
       "auth_policy_revision": "anonymous-public-v1",
       "fixture_revision": "geospatial-grpc-conformance@1.0.5+18e609cfa23d20ba4f0aa9b3db7ee67f6c451d95",
-      "budget_expectations": null
+      "budget_expectations": null,
+      "client_package_digest": "sha256:8b26754f72487978759a0f5bc2703f5eff4cf43a77a301943cb6e2328df49b14"
     },
     {
       "capability_key": "grpc.specservice",
@@ -30688,7 +30722,8 @@
       "contract_revision": "geospatial-grpc@00fca4de0334c6e2304354df7b367faeec5780d6",
       "auth_policy_revision": "anonymous-public-v1",
       "fixture_revision": "geospatial-grpc-conformance@1.0.5+18e609cfa23d20ba4f0aa9b3db7ee67f6c451d95",
-      "budget_expectations": null
+      "budget_expectations": null,
+      "client_package_digest": "sha256:9c225843767d60bb82a24a35fc7e4de24299530d24ab4fdb709b6c093a366ebb"
     },
     {
       "capability_key": "grpc.specservice",
@@ -30712,7 +30747,8 @@
       "contract_revision": "geospatial-grpc@00fca4de0334c6e2304354df7b367faeec5780d6",
       "auth_policy_revision": "anonymous-public-v1",
       "fixture_revision": "geospatial-grpc-conformance@1.0.5+18e609cfa23d20ba4f0aa9b3db7ee67f6c451d95",
-      "budget_expectations": null
+      "budget_expectations": null,
+      "client_package_digest": "sha512-5Ugjvk89MSgdJ52+bGv6nB7AWhAjTLo0JLmxoWDtbNhK8aYN7lQP9nNpQKI4Y2Hi4T8nPNWhtp+pNs74rE488Q=="
     },
     {
       "capability_key": "grpc.specservice",
@@ -30736,7 +30772,8 @@
       "contract_revision": "geospatial-grpc@00fca4de0334c6e2304354df7b367faeec5780d6",
       "auth_policy_revision": "anonymous-public-v1",
       "fixture_revision": "geospatial-grpc-conformance@1.0.5+18e609cfa23d20ba4f0aa9b3db7ee67f6c451d95",
-      "budget_expectations": null
+      "budget_expectations": null,
+      "client_package_digest": "sha256:8b26754f72487978759a0f5bc2703f5eff4cf43a77a301943cb6e2328df49b14"
     },
     {
       "capability_key": "grpc.specservice",
@@ -30760,7 +30797,8 @@
       "contract_revision": "geospatial-grpc@00fca4de0334c6e2304354df7b367faeec5780d6",
       "auth_policy_revision": "anonymous-public-v1",
       "fixture_revision": "geospatial-grpc-conformance@1.0.5+18e609cfa23d20ba4f0aa9b3db7ee67f6c451d95",
-      "budget_expectations": null
+      "budget_expectations": null,
+      "client_package_digest": "sha256:9c225843767d60bb82a24a35fc7e4de24299530d24ab4fdb709b6c093a366ebb"
     },
     {
       "capability_key": "grpc.specservice",
@@ -30784,7 +30822,8 @@
       "contract_revision": "geospatial-grpc@00fca4de0334c6e2304354df7b367faeec5780d6",
       "auth_policy_revision": "anonymous-public-v1",
       "fixture_revision": "geospatial-grpc-conformance@1.0.5+18e609cfa23d20ba4f0aa9b3db7ee67f6c451d95",
-      "budget_expectations": null
+      "budget_expectations": null,
+      "client_package_digest": "sha512-5Ugjvk89MSgdJ52+bGv6nB7AWhAjTLo0JLmxoWDtbNhK8aYN7lQP9nNpQKI4Y2Hi4T8nPNWhtp+pNs74rE488Q=="
     },
     {
       "capability_key": "grpc.specservice",
@@ -30808,7 +30847,8 @@
       "contract_revision": "geospatial-grpc@00fca4de0334c6e2304354df7b367faeec5780d6",
       "auth_policy_revision": "anonymous-public-v1",
       "fixture_revision": "geospatial-grpc-conformance@1.0.5+18e609cfa23d20ba4f0aa9b3db7ee67f6c451d95",
-      "budget_expectations": null
+      "budget_expectations": null,
+      "client_package_digest": "sha256:8b26754f72487978759a0f5bc2703f5eff4cf43a77a301943cb6e2328df49b14"
     },
     {
       "capability_key": "grpc.specservice",
@@ -30832,7 +30872,8 @@
       "contract_revision": "geospatial-grpc@00fca4de0334c6e2304354df7b367faeec5780d6",
       "auth_policy_revision": "anonymous-public-v1",
       "fixture_revision": "geospatial-grpc-conformance@1.0.5+18e609cfa23d20ba4f0aa9b3db7ee67f6c451d95",
-      "budget_expectations": null
+      "budget_expectations": null,
+      "client_package_digest": "sha256:9c225843767d60bb82a24a35fc7e4de24299530d24ab4fdb709b6c093a366ebb"
     },
     {
       "capability_key": "grpc.specservice",
@@ -30856,7 +30897,8 @@
       "contract_revision": "geospatial-grpc@00fca4de0334c6e2304354df7b367faeec5780d6",
       "auth_policy_revision": "anonymous-public-v1",
       "fixture_revision": "geospatial-grpc-conformance@1.0.5+18e609cfa23d20ba4f0aa9b3db7ee67f6c451d95",
-      "budget_expectations": null
+      "budget_expectations": null,
+      "client_package_digest": "sha512-5Ugjvk89MSgdJ52+bGv6nB7AWhAjTLo0JLmxoWDtbNhK8aYN7lQP9nNpQKI4Y2Hi4T8nPNWhtp+pNs74rE488Q=="
     },
     {
       "capability_key": "grpc.web",

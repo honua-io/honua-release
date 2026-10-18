@@ -1379,3 +1379,17 @@ def test_manifest_validate_verifies_all_required_npm_artifacts_after_anonymous_p
     assert preflight < verifier
     assert not _neutralised(job)
     assert not _neutralised(step)
+
+
+def test_update_rollback_authentication_admits_both_builds_before_cloud_identity_or_provision():
+    workflow = _workflow("aws-update-rollback.yml")
+    admit = workflow["jobs"]["admit"]
+    assert admit["if"] == "github.ref == 'refs/heads/trunk'"
+    assert admit["permissions"] == {"contents": "read", "actions": "read", "packages": "read", "attestations": "read"}
+    assert not any("configure-aws-credentials" in step.get("uses", "") for step in admit["steps"])
+    guard = next(step for step in admit["steps"] if step.get("name", "").startswith("Authenticate both builds"))
+    assert 'prior=load_release(root/"rollback-prior",mode)' in guard["run"]
+    assert 'candidate=load_release(root/"rollback-candidate",mode)' in guard["run"]
+    assert "for cell in CELLS:" in guard["run"] and "preflight(prior,candidate,cell,mode)" in guard["run"]
+    cloud = workflow["jobs"]["cloud"]
+    assert cloud["needs"] == "admit" and cloud["with"]["target"] == "all" and cloud["with"]["redis_mode"] == "both"
