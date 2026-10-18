@@ -132,6 +132,11 @@ def verify_runtime_assets(assets: dict, packages: Path, output: Path, framework:
     return assemblies
 
 
+# The SDK bounds each raw response at 64 MiB. Permit worst-case JSON character
+# escaping (sixfold), configuration/receipt envelopes and bounded transport overlap.
+MAX_SDK_RESPONSE_BYTES = 512 * 1024 * 1024
+
+
 class Sdk:
     def __init__(self, command: list[str], env: dict[str, str], consumer: dict):
         # Registry/runtime configuration and explicit application credentials only. GitHub,
@@ -150,18 +155,48 @@ class Sdk:
         consumer["assemblyMatchesPackage"] = True
         consumer["loadedAssemblies"] = identity
 
+    def read_response(self, expires):
+        # Retain complete lines ourselves so a late acknowledgement and the next
+        # status response arriving in one pipe read cannot hide in TextIO buffering.
+        pending = getattr(self, "response_buffer", b"")
+        while True:
+            if time.monotonic() >= expires:
+                raise ProducerError("SDK operation exceeded its bounded execution time")
+            boundary = pending.find(b"\n")
+            if (boundary if boundary >= 0 else len(pending)) > MAX_SDK_RESPONSE_BYTES:
+                raise ProducerError("SDK consumer response exceeds its byte bound")
+            if boundary >= 0:
+                line, self.response_buffer = pending.split(b"\n", 1)
+                value = json.loads(line)
+                if not isinstance(value, dict):
+                    raise ProducerError("SDK consumer returned a malformed response envelope")
+                return value
+            if not select.select([self.process.stdout], [], [], max(0, expires - time.monotonic()))[0]:
+                raise ProducerError("SDK operation exceeded its bounded execution time")
+            data = os.read(self.process.stdout.fileno(), 65536)
+            if not data:
+                raise ProducerError("SDK consumer exited before its response")
+            pending += data
+
     def call(self, operation: str, **arguments):
         request = {"operation": operation, **arguments}
+        correlated = operation in {"configure-readback", "repoint-readback", "rollback-readback", "readback-status", "configured-read"}
+        if correlated:
+            request["requestId"] = secrets.token_hex(16)
         remaining = min(310, max(0, getattr(self, "deadline", time.monotonic() + 310) - time.monotonic()))
         if remaining <= 0:
             raise ProducerError("live SDK execution exceeded its overall time bound")
         try:
             self.process.stdin.write(json.dumps(request) + "\n")
             self.process.stdin.flush()
-            if not select.select([self.process.stdout], [], [], remaining)[0]:
-                raise ProducerError("SDK operation exceeded its bounded execution time")
-            response = json.loads(self.process.stdout.readline())
-        except (BrokenPipeError, json.JSONDecodeError) as exc:
+            expires = time.monotonic() + remaining
+            for _ in range(8):
+                response = self.read_response(expires)
+                if not correlated or response.get("requestId") == request["requestId"]:
+                    break
+            else:
+                raise ProducerError("SDK private response correlation is incomplete")
+        except (OSError, json.JSONDecodeError) as exc:
             raise ProducerError("SDK consumer exited or returned invalid JSON") from exc
         if not response.get("ok"):
             raise ProducerError(f"{operation}: {response.get('errorType')} httpStatus={response.get('httpStatus')} "
