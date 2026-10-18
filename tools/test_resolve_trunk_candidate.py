@@ -1962,8 +1962,8 @@ def test_an_unreadable_server_vocabulary_refuses(body, message):
         resolver.advertised_capabilities(Server(), candidate)
 
 
-def test_green_passes_advisory_and_accepts_the_server_fixture_sha():
-    """c19f29d is green only when the resolver hands the advisory list to the evaluator."""
+def test_green_passes_advisory_but_refuses_historical_server_without_actual_job_observations():
+    """Keep captured bytes intact; an old name-only fixture cannot certify current execution."""
     captured = json.loads((
         resolver.ROOT / 'tools' / 'fixtures' / 'candidate-resolution-2026-10-06' / 'honua-server-c19f29d.json'
     ).read_text())
@@ -1985,13 +1985,14 @@ def test_green_passes_advisory_and_accepts_the_server_fixture_sha():
         raise AssertionError(path)
 
     github.pages = pages
+    github.json = lambda path: pytest.fail('historical fixture has no authoritative source/job observations')
     resolver.ci.evaluate = evaluate
     try:
         ok, why = github.green('honua-server', 'honua-io/honua-server', captured['sha'])
     finally:
         resolver.ci.evaluate = original
-    assert ok, why
-    assert 'full-matrix run 37435142851 completed successfully' in why
+    assert not ok
+    assert 'missing actual Actions job and pinned shard selection evidence' in why
     workflows = seen['advisory']['honua-server']['workflows']
     assert '.github/workflows/server-test-prebuild-observe.yml' in workflows
     assert '.github/workflows/ci.yml' not in workflows

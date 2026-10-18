@@ -333,6 +333,11 @@ class TerraformTarget(DeployTarget):
                 raise ProvisionError(f"{self.name}: {self.spec.opt_in_env}=true but the pinned root does "
                                      f"not declare {', '.join(undeclared)}")
             values.extend(f"-var={v}" for v in self.spec.opt_in_vars)
+        if (redis_enabled and self.name == "aws-serverless" and getattr(self, "transition_release", None) is not None):
+            if not self._root_declares("gp_batch_retain_prior_definitions") and not destroy:
+                raise ProvisionError("update/rollback requires a root with explicit prior Batch revision retention")
+            if self._root_declares("gp_batch_retain_prior_definitions"):
+                values.append("-var=gp_batch_retain_prior_definitions=true")
         if redis_enabled:
             values.extend(self._redis_on_scale_vars(prefix))
             values.extend(self._file_storage_vars(prefix, destroy=destroy))
@@ -378,6 +383,14 @@ class TerraformTarget(DeployTarget):
                 "issuer": "https://terminal-journey.invalid", "audience": "terminal-journey",
                 "signing_key_secret_arn": fixture_secret["arn"],
                 "signing_key_secret_version_id": fixture_secret["versionId"]}, separators=(",", ":")))
+        release = getattr(self, "transition_release", None)
+        if release is not None and not destroy:
+            if not self._root_declares("platform_release"):
+                raise ProvisionError("transition baseline requires the maintained typed platform_release input")
+            serving = os.environ.get(self.spec.image_env, "")
+            values.append("-var=platform_release=" + json.dumps({"version": release.version,
+                "serving_artifact_reference": serving,
+                "workers": [{"runtime_profile": "managed", "artifact_reference": release.image}]}, separators=(",", ":")))
         return values
 
     def _tag_vars(self, redis_enabled: bool) -> list[str]:
@@ -592,12 +605,44 @@ class TerraformTarget(DeployTarget):
             raise ProvisionError(f"ephemeral Terraform var file not found: {path}")
         return path
 
+    _TRANSITION_INPUTS = ".honua-transition-vars.json"
+
+    def _write_transition_vars(self, root: Path, variables, redis_enabled: bool) -> None:
+        """Private argv travels only inside the existing encrypted state archive, never a receipt."""
+        path = root / self._TRANSITION_INPUTS
+        if path.is_symlink():
+            raise ProvisionError("private transition inputs must not be a symlink")
+        document = {"schema": "honua.private-transition-inputs/v1", "runId": str(self.run_id),
+                    "target": self.name, "redisEnabled": redis_enabled, "variables": variables}
+        descriptor = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC | os.O_NOFOLLOW, 0o600)
+        with os.fdopen(descriptor, "w") as output:
+            os.fchmod(output.fileno(), 0o600)
+            json.dump(document, output)
+
+    def _read_transition_vars(self, root: Path, redis_enabled: bool, *, required=False):
+        path = root / self._TRANSITION_INPUTS
+        if not path.exists():
+            if required:
+                raise ProvisionError("exact transition inputs missing from the sealed provision state")
+            return None
+        if path.is_symlink() or path.stat().st_mode & 0o077:
+            raise ProvisionError("sealed transition inputs must remain private")
+        record = json.loads(path.read_text())
+        variables = record.get("variables")
+        if (record.get("schema") != "honua.private-transition-inputs/v1" or record.get("runId") != str(self.run_id)
+                or record.get("target") != self.name or record.get("redisEnabled") is not redis_enabled
+                or not isinstance(variables, list) or not variables or not all(isinstance(v, str) for v in variables)):
+            raise ProvisionError("sealed transition inputs belong to another run or topology")
+        return variables
+
     def provision(self, redis_enabled: bool = False) -> str:
         root = self._iac_root()
         if root is None:
             raise ProvisionError(f"{self.name}: honua-iac root not found (set HONUA_IAC_DIR)")
         self._workdir = root
         self._last_vars = self._vars(redis_enabled)
+        if getattr(self, "transition_release", None) is not None:
+            self._write_transition_vars(root, self._last_vars, redis_enabled)
         if self.spec.cell_domain:
             domain = self.cell_domain(redis_enabled)
             if domain is None:
@@ -619,6 +664,91 @@ class TerraformTarget(DeployTarget):
             raise ProvisionError(f"{self.name}: terraform applied but {self.spec.endpoint_output} was empty")
         return url
 
+    def _exact_image_apply(self, image: str, *, redis_enabled: bool, extra_vars: tuple[str, ...] = (), capture_evidence: bool = False):
+        """Apply the same restored cell, replacing only the reviewed immutable image/alias inputs."""
+        if not re.fullmatch(r"[a-z0-9][a-z0-9./_-]+@sha256:[0-9a-f]{64}", image):
+            raise ProvisionError("update image must be a digest-addressed untagged repository")
+        root = self._workdir or self._iac_root()
+        if root is None:
+            raise ProvisionError("update requires restored Terraform state")
+        if not (root / "terraform.tfstate").is_file():
+            raise ProvisionError("update refuses a missing local cell state")
+        variables = list(self._last_vars or self._read_transition_vars(root, redis_enabled,
+                         required=getattr(self, "transition_release", None) is not None) or self._vars(redis_enabled))
+        names = {self.spec.image_var, *(v.split("=", 2)[1] for v in extra_vars)}
+        variables = [v for v in variables if not any(v.startswith("-var=" + name + "=") for name in names)]
+        variables += ["-var=" + self.spec.image_var + "=" + image, *extra_vars]
+        try:
+            # Save and apply an exact plan; do not re-plan different inputs after preflight.
+            (root / "honua-update.tfplan").unlink(missing_ok=True)
+            self._tf(root, "plan", "-input=false", "-out=honua-update.tfplan", *variables)
+            if capture_evidence:
+                plan = root / "honua-update.tfplan"
+                if not plan.is_file() or plan.is_symlink() or not plan.stat().st_size:
+                    raise ProvisionError("exact transition plan identity missing")
+                plan_digest = "sha256:" + hashlib.sha256(plan.read_bytes()).hexdigest()
+            if self.name == "aws-serverless" and redis_enabled:
+                planned = json.loads(self._tf(root, "show", "-json", "honua-update.tfplan").stdout)
+                for resource in planned.get("resource_changes", []):
+                    change = resource.get("change", {})
+                    if resource.get("type") == "aws_batch_job_definition":
+                        if "delete" in change.get("actions", []):
+                            raise ProvisionError("Lambda rollback requires retained active prior Batch definitions; plan would deregister one")
+                        before, after = change.get("before") or {}, change.get("after") or {}
+                        if (before.get("container_properties") != after.get("container_properties")
+                                and after.get("deregister_on_new_revision") is not False):
+                            raise ProvisionError("Lambda rollback requires deregister_on_new_revision=false before worker revision staging")
+            self._tf(root, "apply", "-input=false", "-auto-approve", "honua-update.tfplan")
+        except (OSError, subprocess.SubprocessError) as error:
+            raise ProvisionError("exact candidate Terraform transition failed") from error
+        finally:
+            (root / "honua-update.tfplan").unlink(missing_ok=True)
+        self._last_vars = variables
+        self._workdir = root
+        if getattr(self, "transition_release", None) is not None or (root / self._TRANSITION_INPUTS).exists():
+            self._write_transition_vars(root, variables, redis_enabled)
+        if capture_evidence:
+            return {"actuator": "terraform-exact-apply", "status": "applied", "planSha256": plan_digest,
+                    "imageDigest": image.rsplit("@", 1)[1]}
+
+    def update(self, image: str, *, redis_enabled: bool = False, release=None, capture_evidence: bool = False):
+        """ECS Redis-off's explicit Terraform actuator; never substitute it for a native backend."""
+        if self.name != "aws-ecs" or redis_enabled:
+            raise ProvisionError("exact Terraform update is only the ECS Redis-off actuator")
+        root = self._workdir or self._iac_root()
+        self._rollback_vars = list(self._last_vars or self._read_transition_vars(root, False,
+                                   required=getattr(self, "transition_release", None) is not None) or self._vars(False))
+        extra = () if release is None else ("-var=platform_release=" + json.dumps({"version": release.version,
+            "serving_artifact_reference": image, "workers": [{"runtime_profile": "managed", "artifact_reference": release.image}]},
+            separators=(",", ":")),)
+        return self._exact_image_apply(image, redis_enabled=False, extra_vars=extra, capture_evidence=capture_evidence)
+
+    def rollback(self, *, capture_evidence: bool = False):
+        variables = getattr(self, "_rollback_vars", None)
+        if not variables:
+            raise ProvisionError("no retained exact Terraform baseline for rollback")
+        image = [value.split("=", 2)[2] for value in variables
+                 if value.startswith("-var=" + self.spec.image_var + "=")]
+        if len(image) != 1:
+            raise ProvisionError("retained Terraform baseline image is ambiguous")
+        self._last_vars = variables
+        return self._exact_image_apply(image[0], redis_enabled=False, capture_evidence=capture_evidence)
+
+    def stage_lambda(self, image: str, previous_version: str, *, redis_enabled: bool, release=None) -> None:
+        """Publish B while live remains pinned to A; the supported alias backend performs exposure."""
+        if self.name != "aws-serverless" or not previous_version.isdigit() or int(previous_version) < 1:
+            raise ProvisionError("Lambda staging requires a published retained alias version")
+        if not self._root_declares("lambda_alias_version"):
+            raise ProvisionError("pinned Lambda root cannot retain the baseline alias during staging")
+        extra = ["-var=lambda_alias_version=" + previous_version]
+        if release is not None:
+            extra.append("-var=platform_release=" + json.dumps({"version": release.version,
+                "serving_artifact_reference": image, "workers": [{"runtime_profile": "managed", "artifact_reference": release.image}]},
+                separators=(",", ":")))
+            if redis_enabled:
+                extra.append("-var=gp_batch_image=" + release.image)
+        self._exact_image_apply(image, redis_enabled=redis_enabled, extra_vars=tuple(extra))
+
     def teardown(self, redis_enabled: bool | None = None) -> None:
         # Fail-closed: a destroy that does not complete has left real, billing AWS resources behind
         # (honua-iac#142), so it raises instead of being swallowed. The caller (run_cloud / the
@@ -628,6 +758,7 @@ class TerraformTarget(DeployTarget):
         if root is None:
             return
         mode = False if redis_enabled is None else redis_enabled
+        self._last_vars = self._last_vars or self._read_transition_vars(root, mode)
         try:
             destroy = self._tf(root, "destroy", "-auto-approve",
                                *(self._last_vars or self._vars(mode, destroy=True)), check=False)

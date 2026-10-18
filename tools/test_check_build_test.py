@@ -142,8 +142,10 @@ def test_server_prebuild_observer_is_advisory_only_with_its_workflow_path():
         bt.load_advisory(),
     )
     row = report["components"][0]
-    assert row["decided"] == "pass"
-    assert "full-matrix run 37435142851 completed successfully with all expected lanes" in row["why"]
+    # Preserve historical captured bytes. They contain check metadata but no authoritative
+    # job/attempt + immutable shard inventory observations required by the strengthened gate.
+    assert row["decided"] == "fail"
+    assert "missing actual Actions job and pinned shard selection evidence" in row["why"]
 
 
 def test_prebuild_checks_stay_core_when_the_workflow_path_was_not_recorded():

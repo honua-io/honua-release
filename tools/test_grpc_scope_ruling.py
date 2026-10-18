@@ -114,3 +114,23 @@ def test_an_unpublished_client_identity_fails_generation(mutation, message):
     with pytest.raises(ValueError, match=message):
         for lane in ("grpc-dotnet", "grpc-python", "grpc-typescript"):
             generator.grpc_client_version(clients, lane)
+
+
+def test_every_governed_grpc_row_retains_exact_published_archive_digest():
+    rows = [row for row in REQUIREMENTS["requirements"] if row["client_lane"].startswith("grpc-")]
+    assert len(rows) == 42
+    for row in rows:
+        assert row["client_package_digest"] == generator.grpc_client_digest(INVENTORY["published_clients"], row["client_lane"])
+
+
+@pytest.mark.parametrize("lane,field,value", [
+    ("grpc-dotnet", "digest", "sha256:bad"),
+    ("grpc-python", "digest", "sha256:" + "A" * 64),
+    ("grpc-typescript", "integrity", "sha512-bad"),
+    ("grpc-typescript", "integrity", "sha256:" + "a" * 64),
+])
+def test_malformed_or_wrong_algorithm_published_identity_is_refused(lane, field, value):
+    clients = copy.deepcopy(INVENTORY["published_clients"])
+    clients[lane][field] = value
+    with pytest.raises(ValueError, match="published artifact digest"):
+        generator.grpc_client_digest(clients, lane)

@@ -41,6 +41,8 @@ from typing import Any, Protocol
 
 import yaml
 
+from check_protocol_certification import _valid_python_wheel
+
 ROOT = Path(__file__).resolve().parents[1]
 REVISIONS = Path("certification/sources/source-revisions.v1.json")
 CATALOG = Path("certification/protocol-certification-requirements.v1.json")
@@ -682,6 +684,13 @@ def verify_nightly_ledger(ledger: dict[str, Any], catalog: dict[str, Any], manif
     actual = sorted(tuple(str(cell.get(key)) for key in LEDGER_IDENTITY) for cell in cells)
     if actual != expected:
         problems.append(f"cells do not match the staged catalog ({len(actual)} cells for {len(expected)} requirements)")
+    requirement_by_identity = {
+        tuple(str(row.get(key)) for key in LEDGER_IDENTITY): row for row in catalog["requirements"]
+    }
+    for row in catalog["requirements"]:
+        if "client_package" in row and (row.get("client_lane") != "sdk-python-certification"
+                or not _valid_python_wheel(row["client_package"], row.get("client_version"))):
+            problems.append("catalog has malformed or wrong-lane governed Python wheel identity")
     counts: dict[str, int] = {}
     observed: set[str] = set()
     for cell in cells:
@@ -709,6 +718,14 @@ def verify_nightly_ledger(ledger: dict[str, Any], catalog: dict[str, Any], manif
         if not isinstance(identity, dict) or "producer_run" not in identity:
             problems.append(f"{label}: {result} carries no producer run identity")
             continue
+        requirement = requirement_by_identity.get(tuple(str(cell.get(key)) for key in LEDGER_IDENTITY), {})
+        if cell.get("client_lane") == "sdk-python-certification":
+            wheel = requirement.get("client_package")
+            if (not _valid_python_wheel(wheel, requirement.get("client_version"))
+                    or cell.get("client_package") != wheel or identity.get("client_package") != wheel):
+                problems.append(f"{label}: executed Python wheel differs from governed published artifact")
+        elif "client_package" in cell or "client_package" in identity:
+            problems.append(f"{label}: wheel identity is only permitted for the Python certification lane")
         if identity.get("client_driver") != cell.get("client_driver"):
             problems.append(f"{label}: receipt driver {identity.get('client_driver')!r} is not the cell driver "
                             f"{cell.get('client_driver')!r}")

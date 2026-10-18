@@ -1031,6 +1031,8 @@ def _run_quickstart(tmp_path, monkeypatch, image: str, context: dict, variables:
     # the channel tag executes as the candidate digest...
     ("ghcr.io/honua-io/honua-server:2026.1-rc", True, CANDIDATE_IMAGE, "pass"),
     ("ghcr.io/honua-io/honua-server:2026.1", True, CANDIDATE_IMAGE, "pass"),
+    ("ghcr.io/honua-io/honua-server:nightly-0e03bdd", True, CANDIDATE_IMAGE, "pass"),
+    ("ghcr.io/honua-io/honua-server:nightly-0e03bdd", False, "ghcr.io/honua-io/honua-server:nightly-0e03bdd", "fail"),
     # ...and without the substitution the floating tag is not the candidate: boots-candidate-image fails
     ("ghcr.io/honua-io/honua-server:2026.1-rc", False, "ghcr.io/honua-io/honua-server:2026.1-rc", "fail"),
     # the legacy hand-copied digest form runs unchanged: the candidate digest passes, any other fails
@@ -1050,11 +1052,12 @@ def test_quickstart_channel_tag_executes_the_candidate_digest(tmp_path, monkeypa
     assert f"HONUA_IMAGE={documented}" in result["blocks"][0]["command"]
 
 
-def test_channel_substitution_without_a_candidate_image_fails_closed(tmp_path, monkeypatch):
+@pytest.mark.parametrize("tag", ["2026.1-rc", "nightly-0e03bdd"])
+def test_channel_substitution_without_a_candidate_image_fails_closed(tmp_path, monkeypatch, tag):
     import run
     variables = load_vars(HERE / "vars", QUICKSTART_ID)
     with pytest.raises(run.RunError, match=r"candidate\.image"):
-        _run_quickstart(tmp_path, monkeypatch, "ghcr.io/honua-io/honua-server:2026.1-rc", {}, variables)
+        _run_quickstart(tmp_path, monkeypatch, f"ghcr.io/honua-io/honua-server:{tag}", {}, variables)
 
 
 @pytest.mark.parametrize("server", [

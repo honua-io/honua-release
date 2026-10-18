@@ -158,9 +158,9 @@ def validate_cell(cell: dict[str, Any]) -> None:
             raise CertificationError(f"{cell_id}: setup-view cells must expect a workflowView and a positive toolCount")
 
 
-def boot_candidate(manifest: dict[str, Any]) -> list[str]:
+def boot_candidate(manifest: dict[str, Any], *, overlay: Path | None = None) -> list[str]:
     """Boot the exact candidate image@digest the way e2e-local-docker does (local Docker,
-    licensing disabled, no AWS), plus the SDK regression overlay. Returns the compose command."""
+    licensing disabled, no AWS), with the selected overlay (SDK regression by default)."""
     port = os.environ.get("E2E_SERVER_PORT", "8080")
     server = os.environ.setdefault("HONUA_SERVER_URL", f"http://localhost:{port}")
     os.environ.setdefault("E2E_BASE", server)
@@ -169,7 +169,7 @@ def boot_candidate(manifest: dict[str, Any]) -> list[str]:
     os.environ["HONUA_SERVER_IMAGE"] = server_image_ref(manifest)
     # A per-run issuer key for the operator-bearer scenarios; it never outlives the stack.
     os.environ.setdefault("SDKREG_SIGNING_KEY", secrets.token_urlsafe(48))
-    compose = ["docker", "compose", "-f", str(COMPOSE_BASE), "-f", str(COMPOSE_OVERLAY)]
+    compose = ["docker", "compose", "-f", str(COMPOSE_BASE), "-f", str(overlay or COMPOSE_OVERLAY)]
     os.environ["SDKREG_COMPOSE"] = " ".join(compose)
     if subprocess.run([*compose, "pull", "server"], cwd=ROOT).returncode:
         raise CertificationError(f"could not pull {os.environ['HONUA_SERVER_IMAGE']}")

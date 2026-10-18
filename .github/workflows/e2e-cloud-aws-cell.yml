@@ -14,6 +14,9 @@ name: e2e-cloud-aws-cell
 on:
   workflow_call:
     inputs:
+      update_rollback_run_id: { required: false, type: string, default: "" }
+      update_rollback_mode: { required: false, type: string, default: "rehearsal" }
+      update_rollback_prior_run_id: { required: false, type: string, default: "" }
       target: { required: true, type: string }
       redis: { required: true, type: string }
       preview: { required: true, type: boolean }
@@ -36,6 +39,8 @@ on:
       # manual dispatch: the canary then records an unbound `blocked` row.
       lock_digest: { required: false, type: string, default: "" }
     secrets:
+      UPDATE_ROLLBACK_CONTROLLER_ENV: { required: false }
+      UPDATE_ROLLBACK_APPROVAL_KEY: { required: false }
       RELEASE_GH_TOKEN:
         required: false
 
@@ -65,6 +70,7 @@ jobs:
     continue-on-error: ${{ inputs.preview }}
     permissions:
       contents: read
+      actions: read
       id-token: write                 # OIDC -> AWS (no static creds)
     # Identifiers only. Job outputs and step env are printed in the public job log, so the cell's
     # application key goes to Secrets Manager and reaches the journey sealed to its own key.
@@ -152,11 +158,36 @@ jobs:
 
       # Provision, readiness, canonical + canary probes and the database seed. No pinned client,
       # npm package or browser runs in this job.
+      - name: Authenticate transition baseline before any AWS provisioning
+        if: ${{ inputs.update_rollback_run_id != '' }}
+        env:
+          GH_TOKEN: ${{ secrets.RELEASE_GH_TOKEN || github.token }}
+          PRIOR_RUN: ${{ inputs.update_rollback_prior_run_id }}
+          PROOF_MODE: ${{ inputs.update_rollback_mode }}
+          ENABLED: ${{ vars.HONUA_AWS_UPDATE_ROLLBACK_ENABLED }}
+        run: |
+          set -euo pipefail
+          test "$GITHUB_REF" = refs/heads/trunk
+          test "$ENABLED" = true
+          mkdir -p "$RUNNER_TEMP/rollback-prior"
+          if [ "$PROOF_MODE" = qualification ]; then
+            python3 -c 'import re,sys; assert re.fullmatch(r"[1-9][0-9]*",sys.argv[1])' "$PRIOR_RUN"
+            gh run download "$PRIOR_RUN" --repo "$GITHUB_REPOSITORY" --name certified-candidate --dir "$RUNNER_TEMP/rollback-prior"
+            cmp platform-manifest.yaml "$RUNNER_TEMP/rollback-prior/platform-manifest.yaml"
+          else
+            test "$PROOF_MODE" = rehearsal
+            cp platform-manifest.yaml "$RUNNER_TEMP/rollback-prior/"
+          fi
+          echo "HONUA_UPDATE_ROLLBACK_PRIOR_INPUTS=$RUNNER_TEMP/rollback-prior" >> "$GITHUB_ENV"
       - name: "Provision ${{ inputs.target }} / redis-${{ inputs.redis }}"
         id: provision
         env:
           # Full SDK workflows run on the Redis-on GA cells, with the SQL prepared here.
           HONUA_CLOUD_INSTALLED_CLIENTS: "true"
+          GH_TOKEN: ${{ secrets.RELEASE_GH_TOKEN || github.token }}
+          HONUA_UPDATE_ROLLBACK_ENABLED: ${{ inputs.update_rollback_run_id != '' }}
+          HONUA_UPDATE_ROLLBACK_ECS_SAFETY: ${{ vars.HONUA_UPDATE_ROLLBACK_ECS_SAFETY }}
+          HONUA_UPDATE_ROLLBACK_MODE: ${{ inputs.update_rollback_mode }}
           HONUA_IAC_DIR: ${{ github.workspace }}/_honua-iac
           HONUA_HELM_DIR: ${{ github.workspace }}/_honua-helm
           HONUA_CLOUD_PROVISION_MARKER: ${{ runner.temp }}/honua-cloud-provision-attempted
@@ -468,7 +499,7 @@ jobs:
           path: ${{ env.CELL_DIR }}
       - name: Wait for the journey runner's introduction
         env:
-          GH_TOKEN: ${{ github.token }}
+          GH_TOKEN: ${{ secrets.RELEASE_GH_TOKEN || github.token }}
           NAME: cloud-cell-journey-hello-${{ env.CELL_ARTIFACT }}
         run: |
           set -euo pipefail
@@ -514,6 +545,7 @@ jobs:
     continue-on-error: false
     permissions:
       contents: read
+      actions: read
       id-token: write
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -593,6 +625,69 @@ jobs:
           else
             echo "no sealed state — provisioning never started or its state was lost (teardown decides)"
           fi
+      - name: Prepare authenticated transition bundles and protected controller inputs
+        if: ${{ inputs.update_rollback_run_id != '' }}
+        env:
+          GH_TOKEN: ${{ secrets.RELEASE_GH_TOKEN || github.token }}
+          TRANSITION_RUN: ${{ inputs.update_rollback_run_id }}
+          PRIOR_RUN: ${{ inputs.update_rollback_prior_run_id }}
+          PROOF_MODE: ${{ inputs.update_rollback_mode }}
+          CONTROLLER_ENV: ${{ secrets.UPDATE_ROLLBACK_CONTROLLER_ENV }}
+          ENABLED: ${{ vars.HONUA_AWS_UPDATE_ROLLBACK_ENABLED }}
+        run: |
+          set -euo pipefail
+          test "$GITHUB_REF" = refs/heads/trunk
+          test "$ENABLED" = true
+          mkdir -p "$RUNNER_TEMP/rollback-prior" "$RUNNER_TEMP/rollback-candidate"
+          python3 -c 'import re,sys; assert re.fullmatch(r"[1-9][0-9]*",sys.argv[1])' "$TRANSITION_RUN"
+          case "$PROOF_MODE" in
+            rehearsal)
+              cp platform-manifest.yaml "$RUNNER_TEMP/rollback-prior/"
+              gh run download "$TRANSITION_RUN" --repo "$GITHUB_REPOSITORY" --name prepared-deployment --dir "$RUNNER_TEMP/rollback-candidate"
+              ;;
+            qualification)
+              python3 -c 'import re,sys; assert re.fullmatch(r"[1-9][0-9]*",sys.argv[1])' "$PRIOR_RUN"
+              gh run download "$PRIOR_RUN" --repo "$GITHUB_REPOSITORY" --name certified-candidate --dir "$RUNNER_TEMP/rollback-prior"
+              gh run download "$TRANSITION_RUN" --repo "$GITHUB_REPOSITORY" --name certified-candidate --dir "$RUNNER_TEMP/rollback-candidate"
+              ;;
+            *) exit 1 ;;
+          esac
+          # A reviewed optional pack is tracked in the trusted workflow source. Its exact bytes
+          # must match BOTH retained manifest hashes before the runtime may use it.
+          if [ -f certification/update-rollback-workload.json ]; then
+            cp certification/update-rollback-workload.json "$RUNNER_TEMP/rollback-candidate/update-rollback-workload.json"
+          fi
+          (umask 077; printf '%s' "$CONTROLLER_ENV" > "$RUNNER_TEMP/rollback-controller.env")
+      - name: Prove actual AWS update and rollback after the baseline journey
+        if: ${{ inputs.update_rollback_run_id != '' }}
+        env:
+          GH_TOKEN: ${{ secrets.RELEASE_GH_TOKEN || github.token }}
+          HONUA_IAC_DIR: ${{ github.workspace }}/_honua-iac
+          CELL_TARGET: ${{ inputs.target }}
+          CELL_REDIS: ${{ inputs.redis }}
+          PROOF_MODE: ${{ inputs.update_rollback_mode }}
+          HONUA_UPDATE_ROLLBACK_APPROVAL_KEY: ${{ secrets.UPDATE_ROLLBACK_APPROVAL_KEY }}
+          HONUA_UPDATE_ROLLBACK_CONTROLLER_ROLE_ARN: ${{ vars.HONUA_UPDATE_ROLLBACK_CONTROLLER_ROLE_ARN }}
+          HONUA_UPDATE_ROLLBACK_ECR_REPOSITORY: ${{ vars.HONUA_UPDATE_ROLLBACK_ECR_REPOSITORY }}
+        run: |
+          set -euo pipefail
+          case "$CELL_TARGET" in
+            aws-ecs) ROOT=examples/aws ;;
+            aws-serverless) ROOT=examples/aws-serverless ;;
+            *) exit 1 ;;
+          esac
+          terraform -chdir="$HONUA_IAC_DIR/infrastructure/terraform/$ROOT" init -input=false -no-color >/dev/null
+          WORKLOAD_ARGS=()
+          if [ -f "$RUNNER_TEMP/rollback-candidate/update-rollback-workload.json" ]; then
+            WORKLOAD_ARGS=(--gp-workload "$RUNNER_TEMP/rollback-candidate/update-rollback-workload.json")
+          fi
+          python e2e/run_cloud.py --phase update-rollback --target "$CELL_TARGET" --redis "$CELL_REDIS" "${WORKLOAD_ARGS[@]}" \
+            --prior-inputs "$RUNNER_TEMP/rollback-prior" --transition-inputs "$RUNNER_TEMP/rollback-candidate" \
+            --update-rollback-mode "$PROOF_MODE" --controller-env "$RUNNER_TEMP/rollback-controller.env" \
+            --serving-fixture "$RUNNER_TEMP/journey-upload/extended/seed-manifest.json" --journey-dir "$RUNNER_TEMP/journey-upload"
+      - name: Remove private controller startup input
+        if: ${{ always() && inputs.update_rollback_run_id != '' }}
+        run: rm -f "$RUNNER_TEMP/rollback-controller.env"
       # J6: an ECS cell leaves its tasks' exit cause in the cell artifact and this job log — every
       # task's stoppedReason, the last 300 CloudWatch log lines of each stopped task's containers
       # (and the newest task's), credentials redacted, and each task definition's environment
@@ -659,6 +754,11 @@ jobs:
           if [ "${{ inputs.require_real }}" = "true" ]; then ARGS+=(--require-real); fi
           python e2e/run_cloud.py "${ARGS[@]}"
 
+      - name: Bind transition proof to actual cleanup and metered cost
+        if: ${{ always() && inputs.update_rollback_run_id != '' }}
+        run: |
+          python tools/collect_update_rollback.py --cell "$CELL_DIR/update-rollback-cell.json" \
+            --cloud-report e2e/gate-report-cloud.json --output "$CELL_DIR/update-rollback-cell.json"
       - name: Refuse incomplete cleanup on every topology
         if: always()
         run: |
@@ -683,6 +783,7 @@ jobs:
           name: e2e-cloud-aws-gate-report-${{ inputs.target }}-redis-${{ inputs.redis }}
           path: |
             e2e/gate-report-cloud.json
+            e2e/cloud-evidence/**/update-rollback-cell.json
             e2e/cloud-evidence/**/extended/gate-report.json
             e2e/cloud-evidence/**/receipt-*.json
             e2e/cloud-evidence/**/target-*.json

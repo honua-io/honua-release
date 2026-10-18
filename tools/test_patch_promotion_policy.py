@@ -59,6 +59,15 @@ def patch_fixture(tmp_path, age=12, *, server_changed=True):
     for cell in value['cells']:
         source = baseline_manifest['components']['honua-server']['awsLambdaEcrDigest' if cell['cell'].startswith('aws-serverless/') else 'digest']
         cell['fromDigest'] = cell['schemaBoundary']['imageDigest'] = source
+        cell['prior'].update(lockDigest=baseline_digest,
+            manifestDigest='sha256:' + hashlib.sha256(payload).hexdigest(),
+            imageDigest=baseline_manifest['components']['honua-server']['digest'],
+            lambdaImageDigest=baseline_manifest['components']['honua-server']['awsLambdaEcrDigest'])
+        for observation in cell['observations']:
+            if observation['phase'] in ('baseline', 'rollback'):
+                observation['native']['imageDigest'] = source
+        if cell['actuator'] == 'terraform-exact-apply':
+            cell['rollbackOperation']['imageDigest'] = source
     _write(rollback, value)
     return record, lock, evidence, fixture[3]
 
@@ -211,6 +220,16 @@ def test_patch_rollback_must_use_each_baseline_image_pin(tmp_path, cell):
     def forge(d):
         row = next(r for r in d['cells'] if r['cell'] == cell)
         # Internally consistent claimed source/schema image still must match the authenticated baseline.
-        row['fromDigest'] = row['schemaBoundary']['imageDigest'] = 'sha256:' + 'f' * 64
+        forged = 'sha256:' + 'f' * 64
+        row['fromDigest'] = row['schemaBoundary']['imageDigest'] = forged
+        row['prior']['lambdaImageDigest' if cell.startswith('aws-serverless/') else 'imageDigest'] = forged
+        for observation in row['observations']:
+            if observation['phase'] in ('baseline', 'rollback'):
+                observation['native']['imageDigest'] = forged
+        if row['actuator'] == 'terraform-exact-apply':
+            row['rollbackOperation']['imageDigest'] = forged
+        # The stronger trunk observation contract must still pass without baseline binding.
+        # Otherwise this negative would no longer prove the patch-specific requirement.
+        assert readiness._update_rollback(d, {r['cell']: r['toDigest'] for r in d['cells']})
     _edit(_receipt(f, 'update-rollback'), forge)
     assert _decision(f)['checks']['evidence:update-rollback']['status'] == 'fail'
