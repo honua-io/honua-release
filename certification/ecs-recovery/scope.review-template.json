@@ -1,0 +1,72 @@
+{
+  "schema": "honua.ecs-recovery-scope/v1",
+  "runId": "honua-qual-REVIEW-REQUIRED",
+  "awsAccountId": "REVIEW-REQUIRED",
+  "region": "us-east-1",
+  "controlOrigin": "https://REVIEW-REQUIRED.invalid",
+  "servingOrigin": "https://REVIEW-REQUIRED.invalid",
+  "deployTargetId": "REVIEW-REQUIRED",
+  "environment": "qualification",
+  "cluster": "honua-qual-recovery-cluster",
+  "canaryService": "honua-qual-recovery-canary",
+  "stableService": "honua-qual-recovery-stable",
+  "honuaContainerName": "honua",
+  "listenerRuleArn": "REVIEW-REQUIRED",
+  "canaryTargetGroupArn": "REVIEW-REQUIRED",
+  "stableTargetGroupArn": "REVIEW-REQUIRED",
+  "proposerPrincipalId": "REVIEW-REQUIRED",
+  "telemetryConnection": "REVIEW-REQUIRED",
+  "schemaCompatibilityReview": "REVIEW-REQUIRED",
+  "costScope": {
+    "createResources": false,
+    "maxElapsedMinutes": 30,
+    "provisioningApproved": false,
+    "cleanupOwner": "REVIEW-REQUIRED",
+    "maxTasksPerService": 1
+  },
+  "dataset": {
+    "databaseIdentity": "REVIEW-REQUIRED",
+    "snapshotReference": "REVIEW-REQUIRED",
+    "connectionSecretArn": "REVIEW-REQUIRED",
+    "connectionSecretName": "ConnectionStrings__DefaultConnection",
+    "queryPath": "/rest/services/qualification/FeatureServer/0/query?where=1%3D1&outFields=*&orderByFields=objectid&resultRecordCount=256&f=json",
+    "expectedCount": null,
+    "expectedFeaturesDigest": "REVIEW-REQUIRED"
+  },
+  "baseline": {
+    "image": "ghcr.io/honua-io/honua-server@sha256:273b4c616e806b8ac2809946659986960a1803e55bda79d99db5f3955b6c30b9",
+    "sourceSha": "5a657b9eaed7cdeac915d584ad58c028a52ca61e",
+    "amd64Digest": "sha256:72875b0c943660152be4c000a129ff3709454fef80cf22a234453c426bcf2dd6",
+    "taskDefinition": "REVIEW-REQUIRED",
+    "provenance": {
+      "kind": "platform-manifest",
+      "path": "REVIEW-REQUIRED",
+      "bundlePath": "REVIEW-REQUIRED",
+      "digest": "REVIEW-REQUIRED",
+      "workflow": "promote.yml",
+      "sourceSha": "REVIEW-REQUIRED",
+      "sourceRef": "REVIEW-REQUIRED"
+    }
+  },
+  "candidate": {
+    "image": "ghcr.io/honua-io/honua-server@sha256:069f196bfa5c7201223d4d89868934242c4ace8805a6e48c122a88d84fa6eb1a",
+    "sourceSha": "87966c3f7b6c840ffc4d4da0b451714ab717b18a",
+    "amd64Digest": "sha256:c47a3276609c85cd81f919fa1983c69bf83232dc75c6cfc6e6ca6453a4a9da93",
+    "taskDefinition": "REVIEW-REQUIRED",
+    "provenance": {
+      "kind": "platform-manifest",
+      "path": "REVIEW-REQUIRED",
+      "bundlePath": "REVIEW-REQUIRED",
+      "digest": "REVIEW-REQUIRED",
+      "workflow": "promote.yml",
+      "sourceSha": "REVIEW-REQUIRED",
+      "sourceRef": "REVIEW-REQUIRED"
+    }
+  },
+  "telemetry": {
+    "stableMetricsJob": "honua-qual-recovery-stable",
+    "canaryMetricsJob": "honua-qual-recovery-canary",
+    "goldenQueryPath": "/rest/services/qualification-public/FeatureServer/0/query?where=1%3D1&outFields=*&orderByFields=objectid&resultRecordCount=256&f=json",
+    "goldenQueryResponseSha256": "REVIEW-REQUIRED"
+  }
+}
