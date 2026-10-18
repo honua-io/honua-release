@@ -167,3 +167,25 @@ def test_candidate_task_definition_is_checked_before_any_proposal(mutation):
         mutation(definition)
         with pytest.raises(recovery.QualificationError):
             recovery.task_definition(value, "candidate")
+
+
+@pytest.mark.parametrize("service,role", [("canaryService", "candidate"), ("stableService", "baseline")])
+@pytest.mark.parametrize("mutation", [
+    lambda response: response.update(tasks=[]),
+    lambda response: response.update(failures=[{"reason": "MISSING"}]),
+    lambda response: response["tasks"][0].update(taskArn="unlisted-task"),
+    lambda response: response["tasks"][0].update(group="service:another-service"),
+    lambda response: response["tasks"][0].update(lastStatus="STOPPED"),
+])
+def test_runtime_task_evidence_requires_complete_exact_service_membership(service, role, mutation):
+    value = scope()
+    task = {"taskArn": "reviewed-task", "taskDefinitionArn": value[role]["taskDefinition"],
+            "group": "service:" + value[service], "lastStatus": "RUNNING",
+            "containers": [{"name": value["honuaContainerName"], "imageDigest": value[role]["amd64Digest"]}]}
+    response = {"tasks": [task], "failures": []}
+    with patch.object(recovery, "aws", side_effect=[{"taskArns": ["reviewed-task"]}, response]):
+        assert recovery.running_tasks(value, value[service], role) == [task]
+    mutation(response)
+    with patch.object(recovery, "aws", side_effect=[{"taskArns": ["reviewed-task"]}, response]):
+        with pytest.raises(recovery.QualificationError):
+            recovery.running_tasks(value, value[service], role)

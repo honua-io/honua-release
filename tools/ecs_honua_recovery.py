@@ -324,15 +324,28 @@ def task_definition(scope, role):
     return {"taskDefinition": scope[role]["taskDefinition"], "image": scope[role]["image"], "databaseReferenceMatched": True}
 
 
+def running_tasks(scope, service, role):
+    listed = aws(scope, "ecs", "list-tasks", "--cluster", scope["cluster"], "--service-name", service)
+    task_arns = listed.get("taskArns", [])
+    require(task_arns and len(task_arns) == len(set(task_arns)) and
+            len(task_arns) <= scope["costScope"]["maxTasksPerService"], "bounded unique running task set required")
+    described = aws(scope, "ecs", "describe-tasks", "--cluster", scope["cluster"], "--tasks", *task_arns)
+    tasks = described.get("tasks", [])
+    require(not described.get("failures") and len(tasks) == len(task_arns) and
+            {task.get("taskArn") for task in tasks} == set(task_arns), "ECS did not describe the exact listed task set")
+    require(all(task["taskDefinitionArn"] == scope[role]["taskDefinition"] and task.get("lastStatus") == "RUNNING"
+                and task.get("group") == "service:" + service for task in tasks), "ECS task service/revision has not converged")
+    require(all(any(container.get("name") == scope["honuaContainerName"] and
+                    container.get("imageDigest") == scope[role]["amd64Digest"] for container in task["containers"])
+                for task in tasks), "ECS runnable image digest mismatch")
+    return tasks
+
+
 def image_state(scope, role):
     identity = aws(scope, "sts", "get-caller-identity")
     require(identity["Account"] == scope["awsAccountId"], "AWS account differs from reviewed scope")
     task_definition(scope, role)
-    task_arns = aws(scope, "ecs", "list-tasks", "--cluster", scope["cluster"], "--service-name", scope["canaryService"])["taskArns"]
-    require(task_arns and len(task_arns) <= scope["costScope"]["maxTasksPerService"], "bounded running canary task set required")
-    tasks = aws(scope, "ecs", "describe-tasks", "--cluster", scope["cluster"], "--tasks", *task_arns)["tasks"]
-    require(all(task["taskDefinitionArn"] == scope[role]["taskDefinition"] and task.get("lastStatus") == "RUNNING" for task in tasks), "ECS task revision has not converged")
-    require(all(any(container.get("name") == scope["honuaContainerName"] and container.get("imageDigest") == scope[role]["amd64Digest"] for container in task["containers"]) for task in tasks), "ECS runnable image digest mismatch")
+    tasks = running_tasks(scope, scope["canaryService"], role)
     rule = aws(scope, "elbv2", "describe-rules", "--rule-arns", scope["listenerRuleArn"])["Rules"]
     require(len(rule) == 1 and rule[0].get("IsDefault") is False, "exact non-default certification rule required")
     forwards = [action for action in rule[0]["Actions"] if action["Type"] == "forward"]
@@ -350,12 +363,7 @@ def image_state(scope, role):
             stable_services[0]["taskDefinition"] == scope["baseline"]["taskDefinition"] and
             stable_services[0]["runningCount"] > 0 and stable_services[0]["pendingCount"] == 0,
             "stable service no longer retains the reviewed baseline task definition")
-    stable_arns = aws(scope, "ecs", "list-tasks", "--cluster", scope["cluster"], "--service-name", scope["stableService"])["taskArns"]
-    require(stable_arns and len(stable_arns) <= scope["costScope"]["maxTasksPerService"], "bounded retained stable task set required")
-    stable_tasks = aws(scope, "ecs", "describe-tasks", "--cluster", scope["cluster"], "--tasks", *stable_arns)["tasks"]
-    require(all(task["taskDefinitionArn"] == scope["baseline"]["taskDefinition"] and task.get("lastStatus") == "RUNNING" and
-                any(container.get("name") == scope["honuaContainerName"] and container.get("imageDigest") == scope["baseline"]["amd64Digest"]
-                    for container in task["containers"]) for task in stable_tasks), "retained stable runnable baseline image differs")
+    running_tasks(scope, scope["stableService"], "baseline")
     return {"taskDefinition": scope[role]["taskDefinition"], "runningTaskCount": len(tasks),
             "imageDigest": scope[role]["amd64Digest"], "trafficWeightsDigest": digest(groups), "servingTargetsHealthy": True}
 
