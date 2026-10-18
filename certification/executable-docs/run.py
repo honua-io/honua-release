@@ -39,6 +39,7 @@ sys.path.insert(0, str(HERE))
 
 from blocks import Block, extract  # noqa: E402
 import grpc_tls  # noqa: E402
+from execution_contexts import RUNTIMES, compile_plan  # noqa: E402
 from inputs import assigned_names, doc_id, load_vars, needs, render  # noqa: E402
 from inventory import InventoryError, Resolver, document_record, drift  # noqa: E402
 from registry_guard import pins_from_manifest, NPM_HONUA, pypi_normalize  # noqa: E402
@@ -230,6 +231,8 @@ class Session:
     dotnet_project: bool = False
     servers_seen: dict[str, dict[str, Any]] = field(default_factory=dict)
     counter: int = 0
+    contexts: dict[str, "Session"] = field(default_factory=dict)
+    require_reader_project: bool = False
 
     def __post_init__(self) -> None:
         self.state = self.workdir / ".docrun"
@@ -302,12 +305,30 @@ class Session:
         return name
 
     def close(self) -> None:
+        for session in self.contexts.values():
+            session.close()
+        self.contexts.clear()
         if self.py is not None:
             self.py.kill()
             self.py = None
         for name in self.containers.values():
             docker("rm", "-f", name)
         self.containers.clear()
+
+    def execution_context(self, name: str, runtime: str) -> "Session":
+        """A context owns its interpreter, project, cwd, HOME and exported state."""
+        if (not isinstance(name, str) or re.fullmatch(r"[a-z][a-z0-9-]{0,39}", name) is None
+                or not isinstance(runtime, str) or runtime not in RUNTIMES or runtime not in self.runtimes):
+            raise RunError("invalid or unavailable execution context runtime/name")
+        if name not in self.contexts:
+            self.contexts[name] = Session(f"{self.name}-{name}", self.state / "contexts" / name,
+                {runtime: self.runtimes[runtime]}, self.guard_base, self.tools, False, self.network,
+                self.run_id, self.typescript, prerequisites=set(self.prerequisites),
+                require_reader_project=runtime == "dotnet")
+        child = self.contexts[name]
+        if set(child.runtimes) != {runtime}:
+            raise RunError("an execution context cannot change its runtime")
+        return child
 
     def exec_env(self, runtime: str | None = None) -> list[str]:
         out = []
@@ -469,6 +490,8 @@ class Session:
         projects = sorted(Path(self.cwd).glob("*.csproj")) if Path(self.cwd).is_dir() else []
         if len(projects) == 1:
             project_dir, mode = Path(self.cwd), "reader-project"
+        elif self.require_reader_project:
+            return Outcome("fail", "explicit .NET context requires exactly one project created by its documented setup")
         else:
             self.counter += 1
             project_dir, mode = self.state / f"cs-{self.counter:03d}", "scaffolded-console"
@@ -678,6 +701,8 @@ def summarize(result: dict[str, Any]) -> None:
 
 def run_teardowns(session: Session, secrets: list[str]) -> None:
     """Run what each document said to run when the reader is done, after the whole session."""
+    for child in getattr(session, "contexts", {}).values():
+        run_teardowns(child, secrets)
     for row, code, runtime, result in session.teardowns:
         try:
             outcome = session.run_shell(code, runtime, DEFAULT_TIMEOUT, False)
@@ -697,8 +722,10 @@ def run_document(doc: dict[str, Any], text: str, session: Session, context: dict
                  defined: set[str], revision: str = "", token: str | None = None,
                  report_row: dict[str, Any] | None = None) -> tuple[dict[str, Any], set[str]]:
     blocks = extract(text, "html" if doc.get("format") == "html" else "markdown")
+    plan = compile_plan(doc, blocks)
+    default_session = session
     context = {**context, "session.appDir": str(session.workdir / "app")}
-    if (doc["runtime"] == "dotnet" and not doc.get("checkout")
+    if (not plan and doc["runtime"] == "dotnet" and not doc.get("checkout")
             and not any(re.search(r"\bdotnet\s+new\b", b.code) for b in blocks)):
         session.ensure_dotnet_project()
     env_values = {k: render(str(v["value"]), context) for k, v in variables["env"].items()}
@@ -710,6 +737,23 @@ def run_document(doc: dict[str, Any], text: str, session: Session, context: dict
         # document's own text, e.g. a floating release-channel tag) because the run has no value for it.
         raise RunError("variables reference values this run does not have: " + "; ".join(unresolved))
     session.env.update(env_values)
+    initialized_contexts: set[str] = set()
+    failed_contexts: set[str] = set()
+    context_defined: dict[str, set[str]] = {}
+
+    def select_context(block: Block) -> None:
+        nonlocal session
+        if block.index not in plan:
+            session = default_session
+            return
+        binding = plan[block.index]
+        session = default_session.execution_context(binding["name"], binding["runtime"])
+        if binding["name"] not in initialized_contexts:
+            session.env.update(env_values)
+            initialized_contexts.add(binding["name"])
+
+    def runtime_for(block: Block) -> str:
+        return plan.get(block.index, {}).get("runtime", LANGUAGE_RUNTIME.get(block.language, doc["runtime"]))
     packages = [(m.group(1), m.group(2)) for b in blocks if b.language == "shell"
                 for m in DOTNET_ADD.finditer(b.code)]
     rows: list[dict[str, Any]] = []
@@ -719,12 +763,15 @@ def run_document(doc: dict[str, Any], text: str, session: Session, context: dict
     pinned_versions = {k.lower() if not k.startswith("@") else k: v for k, v in (context.get("_pins") or {}).items()}
     before = snapshot_containers() if doc.get("docker") else set()
     servers_seen = {cid: meta for cid, meta in getattr(session, "servers_seen", {}).items() if cid in before}
-    later_text = {b.index: "\n".join(x.code for x in blocks[b.index + 1:]) for b in blocks}
+    later_text = {b.index: "\n".join(x.code for x in blocks[b.index + 1:]
+                                   if not plan or plan.get(x.index) == plan.get(b.index)) for b in blocks}
 
     def record(block: Block, outcome: Outcome | None, status: str, detail: str, extra: dict | None = None) -> None:
         row = {"index": block.index, "line": block.line, "language": block.language, "intent": block.intent,
                "status": status, "detail": scrub(detail, secrets), "sha256": block.sha256,
                "command": scrub(tail(block.code, 600), secrets)}
+        if block.index in plan:
+            row["executionContext"] = dict(plan[block.index])
         if block.reason:
             row["reason"] = block.reason
         if block.marker_error:
@@ -760,6 +807,8 @@ def run_document(doc: dict[str, Any], text: str, session: Session, context: dict
             row["sourceDependencyAudit"] = source_dependency_audit
         row.update(extra or {})
         rows.append(row)
+        if block.index in plan and row["status"] not in {"pass", "pending", "not-run"}:
+            failed_contexts.add(plan[block.index]["name"])
 
     active_source = None
     retained_source = None
@@ -817,17 +866,20 @@ def run_document(doc: dict[str, Any], text: str, session: Session, context: dict
             readiness = {k: substitute(v, subst) for k, v in (block.marker or {}).items()
                          if k in {"ready-url", "ready-log"}}
             if serve and readiness:
-                return session.run_shell(code, doc["runtime"], timeout, True,
+                return session.run_shell(code, runtime_for(block), timeout, True,
                                          {k.removeprefix("ready-"): v for k, v in readiness.items()})
-            return session.run_shell(code, doc["runtime"], timeout, serve)
+            return session.run_shell(code, runtime_for(block), timeout, serve)
         if lang == "python":
             return session.run_python(code, timeout)
         if lang in {"javascript", "typescript"}:
             return session.run_js(code, lang, timeout)
         if lang == "csharp":
-            return session.run_csharp(code, packages, timeout)
+            selected_packages = ([(m.group(1), m.group(2)) for b in blocks
+                                  if b.language == "shell" and plan.get(b.index) == plan[block.index]
+                                  for m in DOTNET_ADD.finditer(b.code)] if plan else packages)
+            return session.run_csharp(code, selected_packages, timeout)
         if lang == "http":
-            return session.run_http(code, doc["runtime"], context["candidate.baseUrl"], timeout)
+            return session.run_http(code, runtime_for(block), context["candidate.baseUrl"], timeout)
         return Outcome("fail", f"no executor for {lang}")
 
     def execute(block: Block, code: str) -> Outcome:
@@ -862,6 +914,7 @@ def run_document(doc: dict[str, Any], text: str, session: Session, context: dict
         block_inventory = []
         source_dependency_audit = None
         try:
+            select_context(block)
             if ((block.marker_error or "").startswith("doc-run: run on a language") and block.intent == "run"
                     or (block.marker_error or "").startswith("doc-run: blocked on a language")):
                 record(block, None, "fail", block.marker_error)
@@ -875,10 +928,14 @@ def run_document(doc: dict[str, Any], text: str, session: Session, context: dict
             if block.intent == "compile":
                 deferred.append(block)
                 continue
-            need = needs(block, defined | set(session.env))
+            if block.index in plan and plan[block.index]["name"] in failed_contexts:
+                record(block, None, "fail", "an earlier block in this execution context did not succeed")
+                continue
+            current_defined = context_defined.setdefault(plan[block.index]["name"], set()) if plan else defined
+            need = needs(block, current_defined | set(session.env))
             missing_env = [n for n in need["env"] if n not in session.env]
             missing_ph = [p for p in need["placeholders"] if p not in subst]
-            defined |= assigned_names(block)
+            current_defined.update(assigned_names(block))
             if missing_env or missing_ph:
                 parts = []
                 if missing_env:
@@ -899,13 +956,13 @@ def run_document(doc: dict[str, Any], text: str, session: Session, context: dict
                 source_root = Path(session.cwd) / "honua-sdk-js"
             if block.intent == "file":
                 target = Path(session.cwd) / block.file if not block.file.startswith("/") else Path(block.file)
-                session.put(doc["runtime"], target, code)
+                session.put(plan.get(block.index, {}).get("runtime", doc["runtime"]), target, code)
                 # A .cs file belongs to the reader's project: a later `dotnet run` builds it, it never runs alone.
                 runnable = block.language in {"python", "javascript", "typescript", "shell"}
                 if not runnable or Path(block.file).name in later_text[block.index]:
                     record(block, None, "pass", f"saved as {block.file} for the steps that use it", {"file": block.file})
                     continue
-                outcome = audit(execute(block, code), LANGUAGE_RUNTIME.get(block.language, doc["runtime"]))
+                outcome = audit(execute(block, code), runtime_for(block))
                 record(block, outcome, outcome.status, f"saved as {block.file}; no later step runs it, so run it: "
                        + outcome.detail, {"file": block.file})
                 continue
@@ -934,7 +991,7 @@ def run_document(doc: dict[str, Any], text: str, session: Session, context: dict
             if doc.get("docker") and block.language == "shell":
                 observe_servers({c for c in snapshot_containers() - before if started_from(c, session.workdir)},
                                 servers_seen, candidate_digest)
-            outcome = audit(outcome, LANGUAGE_RUNTIME.get(block.language, doc["runtime"]))
+            outcome = audit(outcome, runtime_for(block))
             record(block, outcome, outcome.status, outcome.detail)
         except Exception:
             outcome = exception_outcome()
@@ -944,6 +1001,10 @@ def run_document(doc: dict[str, Any], text: str, session: Session, context: dict
         block_inventory = []
         source_dependency_audit = None
         try:
+            select_context(block)
+            if block.index in plan and plan[block.index]["name"] in failed_contexts:
+                record(block, None, "fail", "an earlier block in this execution context did not succeed")
+                continue
             verify_retained_source()
             outcome = session.run_compile(substitute(block.code, subst), int(doc.get("timeout", DEFAULT_TIMEOUT)))
             outcome = audit(outcome, "node")
@@ -952,8 +1013,10 @@ def run_document(doc: dict[str, Any], text: str, session: Session, context: dict
         record(block, outcome, outcome.status, "doc-test=compile; typechecked after the document's install steps: "
                + outcome.detail)
     for block, code in pending_teardowns:
+        select_context(block)
         record(block, None, "pending", "teardown; runs when the session's documents are done")
-        session.teardowns.append((rows[-1], code, doc["runtime"], report_row if report_row is not None else {}))
+        session.teardowns.append((rows[-1], code, runtime_for(block), report_row if report_row is not None else {}))
+    session = default_session
     rows.sort(key=lambda r: r["index"])
     checks = []
     if doc.get("docker"):

@@ -49,7 +49,61 @@
     {"repo": "honua-io/honua-site", "path": "docs/playbooks/install-with-docker/index.md", "revision": {"defaultBranch": true}, "runtime": "python", "docker": true},
     {"repo": "honua-io/honua-site", "path": "docs/playbooks/publish-a-service/index.md", "revision": {"defaultBranch": true}, "runtime": "python"},
     {"repo": "honua-io/honua-site", "path": "docs/playbooks/run-a-bounded-gp-job/index.md", "revision": {"defaultBranch": true}, "runtime": "python"},
-    {"repo": "honua-io/honua-site", "path": "docs/geoprocessing/index.md", "revision": {"defaultBranch": true}, "runtime": "node"}
+    {
+      "repo": "honua-io/honua-site",
+      "path": "docs/geoprocessing/index.md",
+      "revision": {
+        "defaultBranch": true
+      },
+      "runtime": "node",
+      "executionContexts": [
+        {
+          "name": "javascript",
+          "runtime": "node",
+          "documentedAt": "docs/geoprocessing/index.md:40-58 \u2014 JavaScript installation and example",
+          "blocks": [
+            {
+              "index": 0,
+              "sha256": "b1c8f96fd6bd3f526df4cad98ca6425d25d851b562925fc8f11777835fb26949"
+            },
+            {
+              "index": 1,
+              "sha256": "10f8a4781ce78bb7a64c022815995367f0d64cbd77170e3074fa06fe667a3cd4"
+            }
+          ]
+        },
+        {
+          "name": "python",
+          "runtime": "python",
+          "documentedAt": "docs/geoprocessing/index.md:60-80 \u2014 Python installation and example",
+          "blocks": [
+            {
+              "index": 2,
+              "sha256": "69ee3f174432db0d79299ffa36f98e3a7dbdfbfb3b1836d135bd908c1cf9f0cf"
+            },
+            {
+              "index": 3,
+              "sha256": "85cc85b51f5e9933fee19d503d9dbf3fcc80b1bc38f21745bc9967f1ce540e6d"
+            }
+          ]
+        },
+        {
+          "name": "dotnet",
+          "runtime": "dotnet",
+          "documentedAt": "docs/geoprocessing/index.md:82-115 \u2014 .NET console project, package and example",
+          "blocks": [
+            {
+              "index": 4,
+              "sha256": "83582ed96ca1bb6fd4879c05d9bc031c34a70bbb4d93a45adad160318f928b17"
+            },
+            {
+              "index": 5,
+              "sha256": "a6a40657f9043f4434098e022bcdba0f0c503b2ade2bc3600a44e9f877f7ddf9"
+            }
+          ]
+        }
+      ]
+    }
   ],
   "outOfScope": [
     {"repo": "honua-io/honua-server", "path": "docs/get-started/linux-packages.md", "reason": "installs a native .deb/.rpm as a systemd service; a container has no init system, so this lane cannot be the clean machine. The native-package lane owns it."},

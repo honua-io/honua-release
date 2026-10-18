@@ -7,9 +7,19 @@ import unittest
 from pathlib import Path
 
 import run
+from context_rehearsal import rehearse
 
 
 class DockerRegressions(unittest.TestCase):
+    def test_explicit_context_package_and_project_state(self):
+        # Local third-party fixture packages and a BCL project exercise the real
+        # runner. They cannot produce a public-package/candidate qualification.
+        with tempfile.TemporaryDirectory(prefix="execdocs-context-") as directory:
+            report = rehearse(Path(directory), run.ROOT / "artifacts/executable-docs/context-rehearsal.json")
+            self.assertEqual(report["status"], "pass")
+            self.assertFalse(report["qualification"])
+            self.assertEqual(len(report["controls"]), 4)
+
     def setUp(self):
         self.directory = tempfile.TemporaryDirectory(prefix="execdocs-regression-")
         self.work = Path(self.directory.name)
