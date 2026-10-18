@@ -418,7 +418,7 @@
       "title": "OWSLib WMTS positive rendering receipt accepts a correctly sized blank PNG",
       "owner": "honua-io/honua-server",
       "issue": "https://github.com/honua-io/honua-server/issues/6306",
-      "status": "open",
+      "status": "implementation-in-progress",
       "selectors": {
         "client_lane": [
           "py-owslib"
@@ -453,7 +453,7 @@
       "title": "OWSLib WMTS AUTH receipts substantiate an admin route rather than protected tile access",
       "owner": "honua-io/honua-server",
       "issue": "https://github.com/honua-io/honua-server/issues/6306",
-      "status": "open",
+      "status": "implementation-in-progress",
       "selectors": {
         "client_lane": [
           "py-owslib"
@@ -513,8 +513,8 @@
       "priority": "P2",
       "title": "GDAL WFS client filter and positive bbox checks allow over-return",
       "owner": "honua-io/honua-server",
-      "issue": "https://github.com/honua-io/honua-release/issues/652",
-      "status": "open",
+      "issue": "https://github.com/honua-io/honua-server/issues/6310",
+      "status": "implementation-in-progress",
       "selectors": {
         "client_lane": [
           "gdal"
