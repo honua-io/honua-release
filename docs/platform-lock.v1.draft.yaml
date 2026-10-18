@@ -9,7 +9,7 @@ sourceInputs:
     sha256: sha256:6b4f857fa51c711c1769c1b52b0def15d25919694ea6249406add0de30681c62
   compatibilityMatrix:
     path: compatibility-matrix.yaml
-    sha256: sha256:5c075edf9d1d2ea2723bfe78d9762db2df5a1d11b66122c858381bbc59b1f860
+    sha256: sha256:7453e9e5528adff5c264a253b0879a38677fc43a5b48ab4a512f03ecf887b50a
 components:
   honua-server:
     source:
