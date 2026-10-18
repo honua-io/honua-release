@@ -6,6 +6,7 @@ Missing external prerequisites remain blocked in the unchanged frozen scorecard.
 """
 from __future__ import annotations
 
+from copy import deepcopy
 import hashlib
 import json
 import os
@@ -189,6 +190,64 @@ class SourceSdk:
         if self.authenticated_url and arguments.get("baseUrl") == self.authenticated_url and not arguments.get("candidate"):
             arguments["sourceAuth"] = True
         return self.sdk.call(operation, **arguments)
+
+
+class ConfiguredSdk:
+    """One named configuration in the actual persistent public-package consumer.
+
+    Snapshot helpers still state their expected endpoint, but that address is only
+    checked here; configured-read never sends an endpoint override to the child.
+    """
+    def __init__(self, sdk, service, layer):
+        self.sdk, self.original = sdk, self.target(sdk, service, layer, False)
+        self.configuration = sdk.call("configure-readback", revision=0, **self.original)
+        self.require_configuration(self.configuration, self.original, 1)
+        self.configuration_id = self.configuration["configurationId"]
+        self.observations = []
+
+    @staticmethod
+    def target(sdk, service, layer, candidate):
+        return {"baseUrl": service.rstrip("/"), "layerId": layer, "candidate": candidate,
+                "sourceAuth": not candidate and service == getattr(sdk, "authenticated_url", None)}
+
+    @staticmethod
+    def require_configuration(value, target, revision, configuration_id=None):
+        require(isinstance(value, dict) and set(value) == {*target, "configurationId", "revision"}
+                and isinstance(value.get("configurationId"), str) and re.fullmatch(r"[0-9a-f]{32}", value["configurationId"])
+                and type(value.get("revision")) is int and value["revision"] == revision
+                and all(type(value.get(key)) is type(expected) and value[key] == expected for key, expected in target.items())
+                and (configuration_id is None or value["configurationId"] == configuration_id),
+                "consumer did not retain the exact named application configuration")
+
+    def repoint(self, service, layer):
+        target = self.target(self.sdk, service, layer, True)
+        changed = self.sdk.call("repoint-readback", configurationId=self.configuration_id,
+                                revision=self.configuration["revision"], **target)
+        self.require_configuration(changed, target, self.configuration["revision"] + 1, self.configuration_id)
+        self.configuration = changed
+
+    def restore(self):
+        restored = self.sdk.call("rollback-readback", configurationId=self.configuration_id,
+                                 revision=self.configuration["revision"])
+        self.require_configuration(restored, self.original, self.configuration["revision"] + 1, self.configuration_id)
+        self.configuration = restored
+
+    def call(self, operation, **arguments):
+        expected = self.target(self.sdk, arguments.pop("baseUrl"), arguments.pop("layerId"), arguments.pop("candidate", False))
+        self.require_configuration(self.configuration, expected, self.configuration["revision"], self.configuration_id)
+        require(operation in {"layer", "count", "ids", "query"} and set(arguments) <= {"query"},
+                "configured read is outside the frozen public SDK readback surface")
+        observed = self.sdk.call("configured-read", configurationId=self.configuration_id,
+                                 revision=self.configuration["revision"], readOperation=operation, **arguments)
+        require(isinstance(observed, dict) and set(observed) == {"configuration", "observedRequests", "value"}
+                and observed["configuration"] == self.configuration, "read used another application configuration")
+        paths = observed["observedRequests"]
+        root = expected["baseUrl"] + "/" + str(expected["layerId"])
+        path = root if operation == "layer" else root + "/query"
+        require(isinstance(paths, list) and 0 < len(paths) <= 32 and all(value == path for value in paths),
+                "actual SDK request did not use the configured service and layer")
+        self.observations.append({"revision": self.configuration["revision"], "operation": operation, "requestPaths": paths})
+        return observed["value"]
 
 
 class Journeys:
@@ -511,12 +570,53 @@ class Journeys:
         return "a real source query fault failed without false publication or loss of the complete prior target"
 
     def rollback(self):
-        # Direct reads of two retained publications do not exercise an actual configuration
-        # switch. Keep this frozen requirement blocked until a supported client operation
-        # can be applied and observed through the same configured client endpoint.
-        raise PrerequisiteMissing(
-            "supported client configuration repoint/rollback operation and stable-client readback are not implemented; "
-            "reading two publication URLs cannot qualify rollback")
+        state = self.ready("points")
+        source_url, source_layer = state["spec"]["serviceUrl"], state["spec"]["layerId"]
+        client = ConfiguredSdk(self.sdk, source_url, source_layer)
+        original = self.p.read_snapshot(client, source_url, source_layer)
+        self.p.require_equal(state["source"], original, "configured original source snapshot")
+        # A discriminating target value makes a no-op switch or cached source response fail.
+        # Mutate only the owned imported fixture, never the external original source.
+        table, oid = state["request"]["tableName"], original["objectIdField"]
+        require(all(re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*", value) for value in (table, oid)), "unsafe rollback fixture identifier")
+        require(re.fullmatch(r"[A-Za-z0-9_]+", self.tag), "unsafe rollback fixture marker")
+        require(all(isinstance(feature["attributes"].get("label"), str) for feature in original["features"]),
+                "rollback requires the authored nonempty text-label fixture")
+        marker = "repoint_" + self.tag
+        expected = deepcopy(state["target"])
+        for feature in expected["features"]:
+            feature["attributes"]["label"] = marker
+        require(rows(expected) != rows(original), "rollback target must discriminate source from candidate")
+        switched = False
+        restored_client = False
+        try:
+            self.p.sql(self.compose, f"""UPDATE import_fidelity."{table}" SET "label"='{marker}';""")
+            client.repoint(state["targetUrl"], state["targetLayer"])
+            switched = True
+            fresh = self.p.read_snapshot(client, state["targetUrl"], state["targetLayer"], candidate=True)
+            self.p.require_equal(expected, fresh, "configured candidate exact readback after repoint")
+            require(rows(fresh) != rows(original), "configured candidate returned the original cached source")
+            client.restore()
+            restored_client = True
+            reverted = self.p.read_snapshot(client, source_url, source_layer)
+            self.p.require_equal(original, reverted, "same configured client readback after rollback")
+            self.p.require_equal(state["source"], self.p.read_snapshot(self.sdk, source_url, source_layer), "original source remained unchanged")
+        finally:
+            try:
+                if switched and not restored_client:
+                    client.restore()
+            finally:
+                restored = self.complete({**state["request"], "overwriteExisting": True})
+                restored.update(source=state["source"], spec=state["spec"])
+                self.parity(restored)
+                self.states["points"] = restored
+        self.score.provenance["rollbackRepoint"] = {
+            "configurationId": client.configuration_id, "configurationRevisions": [1, 2, 3],
+            "sourceUrl": source_url, "sourceLayer": source_layer,
+            "candidateUrl": state["targetUrl"], "candidateLayer": state["targetLayer"],
+            "originalDigest": digest(original), "switchedDigest": digest(fresh), "restoredDigest": digest(reverted),
+            "actualSdkRequests": client.observations, "ownedFixtureRestored": True}
+        return "one persistent published-SDK application configuration switched to discriminating imported data and restored exact original readback; fixture restored"
 
     def independent_geometry(self):
         state = self.ready("points")

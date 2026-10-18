@@ -187,16 +187,12 @@ def test_vector_geometry_tolerance_never_applies_to_attributes(score):
         lane.geojson_equal(expected, observed, "vector readback")
 
 
-def test_direct_publication_reads_cannot_qualify_unimplemented_client_repoint(score):
-    lane = lane_with_points(score)
-    with mock.patch.object(producer, "read_snapshot") as read, mock.patch.object(lane, "complete") as complete:
-        score.record("evidence.rollback-repoint", lane.rollback)
+def test_missing_authored_fixture_cannot_qualify_client_repoint(score):
+    lane = journeys.Journeys(producer, score, mock.Mock(), [], "http://localhost", "unit")
+    score.record("evidence.rollback-repoint", lane.rollback)
     assert score.cells["evidence.rollback-repoint"]["verdict"] == "blocked"
-    assert "stable-client readback" in score.cells["evidence.rollback-repoint"]["reason"]
     assert "rollbackRepoint" not in score.provenance
     assert score.receipt()["summary"]["denominator"] == 142
-    read.assert_not_called()
-    complete.assert_not_called()
 
 
 def test_unavailable_gdal_never_substitutes_baseline(score):
@@ -314,3 +310,98 @@ def test_worker_lease_probe_is_bounded_and_unknown_results_fail(score):
     with mock.patch.object(producer, "sql", return_value="unknown"):
         with pytest.raises(ValueError, match="unknown result"):
             lane.lease_free("authored_points_unit")
+
+
+class ConfiguredConsumerControl:
+    """Independent command-boundary fault double; never release evidence."""
+    def __init__(self, fault=None):
+        self.fault, self.commands = fault, []
+        self.configuration = None
+
+    def call(self, operation, **arguments):
+        self.commands.append((operation, deepcopy(arguments)))
+        if operation == "configure-readback":
+            self.configuration = {**{key: arguments[key] for key in ("baseUrl", "layerId", "candidate", "sourceAuth")},
+                                  "configurationId": "a" * 32, "revision": 1}
+            self.original = deepcopy(self.configuration)
+            return deepcopy(self.configuration)
+        if operation == "repoint-readback":
+            if self.fault != "ignored-switch":
+                self.configuration.update({key: arguments[key] for key in ("baseUrl", "layerId", "candidate", "sourceAuth")})
+                self.configuration["revision"] += 1
+            return deepcopy(self.configuration)
+        if operation == "rollback-readback":
+            self.configuration = {**self.original, "revision": 3}
+            return deepcopy(self.configuration)
+        assert operation == "configured-read"
+        path = self.configuration["baseUrl"] + "/" + str(self.configuration["layerId"])
+        if arguments["readOperation"] != "layer":
+            path += "/query"
+        return {"configuration": deepcopy(self.configuration), "observedRequests": [] if self.fault == "no-request" else [
+                    "https://other.example/FeatureServer/1/query" if self.fault == "wrong-route" else path], "value": {"actual": True}}
+
+
+@pytest.mark.parametrize("fault", ["ignored-switch", "no-request", "wrong-route"])
+def test_configured_sdk_refuses_noop_switch_or_unobserved_actual_route(fault):
+    child = ConfiguredConsumerControl(fault)
+    client = journeys.ConfiguredSdk(child, "https://source.example/FeatureServer", 1)
+    with pytest.raises(ValueError, match="application configuration|actual SDK request"):
+        client.repoint("http://localhost/rest/services/imported/FeatureServer", 2)
+        client.call("query", baseUrl="http://localhost/rest/services/imported/FeatureServer", layerId=2, candidate=True)
+
+
+def test_configured_reads_never_send_an_endpoint_override_and_restore_same_identity():
+    child = ConfiguredConsumerControl()
+    client = journeys.ConfiguredSdk(child, "https://source.example/FeatureServer", 1)
+    client.call("layer", baseUrl="https://source.example/FeatureServer", layerId=1)
+    client.repoint("http://localhost/rest/services/imported/FeatureServer", 2)
+    client.call("query", baseUrl="http://localhost/rest/services/imported/FeatureServer", layerId=2, candidate=True, query={"where": "1=1"})
+    client.restore()
+    client.call("layer", baseUrl="https://source.example/FeatureServer", layerId=1)
+    assert client.configuration_id == "a" * 32 and client.configuration["revision"] == 3
+    reads = [arguments for operation, arguments in child.commands if operation == "configured-read"]
+    assert len(reads) == 3 and all(not {"baseUrl", "layerId", "candidate", "sourceAuth"} & arguments.keys() for arguments in reads)
+    rollback = next(arguments for operation, arguments in child.commands if operation == "rollback-readback")
+    assert set(rollback) == {"configurationId", "revision"}
+
+
+@pytest.mark.parametrize("fault", [None, "cached-source", "wrong-restored-values", "fixture-restore-failure"])
+def test_real_rollback_orchestration_requires_discriminating_readback_and_cleanup(score, fault):
+    lane = lane_with_points(score)
+    for feature in lane.states["points"]["source"]["features"]:
+        feature["attributes"]["label"] = "original_" + str(feature["attributes"]["OBJECTID"])
+    lane.states["points"]["target"] = deepcopy(lane.states["points"]["source"])
+    original = deepcopy(lane.states["points"]["source"])
+    marked = deepcopy(original)
+    for feature in marked["features"]:
+        feature["attributes"]["label"] = "repoint_unit"
+    reads = [deepcopy(original), deepcopy(original if fault == "cached-source" else marked),
+             deepcopy(marked if fault == "wrong-restored-values" else original), deepcopy(original)]
+    child = ConfiguredConsumerControl()
+    lane.sdk = child
+    with mock.patch.object(producer, "read_snapshot", side_effect=reads), mock.patch.object(producer, "sql") as mutate, mock.patch.object(
+            lane, "complete", return_value=deepcopy(lane.states["points"])) as restore, mock.patch.object(lane, "parity") as parity:
+        if fault == "fixture-restore-failure":
+            restore.side_effect = producer.ProducerError("fixture restoration failed")
+        score.record("evidence.rollback-repoint", lane.rollback)
+    assert mutate.call_count == 1 and restore.call_count == 1
+    if fault is None:
+        assert score.cells["evidence.rollback-repoint"]["verdict"] == "pass"
+        assert score.provenance["rollbackRepoint"]["originalDigest"] == score.provenance["rollbackRepoint"]["restoredDigest"]
+        assert score.provenance["rollbackRepoint"]["switchedDigest"] != score.provenance["rollbackRepoint"]["originalDigest"]
+        parity.assert_called_once()
+    else:
+        assert score.cells["evidence.rollback-repoint"]["verdict"] == "fail"
+        assert "rollbackRepoint" not in score.provenance
+    assert any(operation == "rollback-readback" for operation, _ in child.commands)
+
+
+def test_public_process_configuration_controls_are_in_the_existing_pr_lane():
+    text = (HERE.parents[1] / ".github/workflows/installed-client-certification.yml").read_text()
+    command = "python certification/installed-clients/check_import_client_readback.py"
+    assert command in text
+    assert text.index(command) < text.index("# Qualification is explicit")
+    controls = (HERE / "check_import_client_readback.py").read_text()
+    assert "producer.install_consumer" in controls and "producer.Sdk" in controls
+    assert '"qualification": False' in controls
+    assert "score.receipt" not in controls and "sourceBuilt" not in controls
