@@ -219,6 +219,23 @@
       "reason": "Exact existing upstream repository and pinned matrix path identify the source ownership and unchanged operation set. This exception covers these two source identifiers only; desktop implementation details remain in the private source repository.",
       "owner": "@mikemcdougall",
       "issue": "honua-io/honua-release#576"
+    },
+    {
+      "repo": "honua-release",
+      "paths": [
+        "certification/sdk-publication-replay/fixtures/reviewed-clients.yaml"
+      ],
+      "tokens": [
+        "esri"
+      ],
+      "identifiers": [
+        "honua-sdk-esri-compat",
+        "@honua/sdk-esri-compat",
+        "sdk-esri-compat-0.2.2.tgz"
+      ],
+      "reason": "This fixed historical SDK cohort fixture preserves the exact required manifest key, published npm coordinate and tarball filename. Substituting neutral names would stop exercising the real publication selector identity. Only these three lexical identifiers in this one fixture are covered; no prose, other paths or confidential terms are admitted. Revisit when the published package is renamed.",
+      "owner": "@mikemcdougall",
+      "issue": "honua-io/honua-release#181"
     }
   ]
 }
