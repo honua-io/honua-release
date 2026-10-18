@@ -294,6 +294,78 @@ class DockerRegressions(unittest.TestCase):
             self.assertEqual(observed.stdout, "1 true 0\n")
             self.assertEqual(observed.stderr, "")
         controls.append("inactiveUnrefRepeatedOwnedObserverRemovedUserListenerPreserved")
+        cleanup_output = healthy.run_js("const idleCleanup = require('node:net').createServer(); "
+            "idleCleanup.on('removeListener', kind => { if (kind === 'close') setTimeout(() => { "
+            "require('node:fs').appendFileSync('cleanup-once', 'once'); console.log('cleanup-output'); "
+            "}, 10); }); idleCleanup.unref();", "javascript", 20)
+        self.assertEqual(cleanup_output.status, "pass", cleanup_output)
+        self.assertEqual(cleanup_output.stdout, "cleanup-output\n")
+        self.assertEqual(Path(healthy.cwd, "cleanup-once").read_text(), "once")
+        self.assertEqual(healthy.run_js("console.log('healthy');", "javascript", 20).stdout, "healthy\n")
+        self.assertEqual(Path(healthy.cwd, "cleanup-once").read_text(), "once")
+        controls.append("synchronousCleanupNewAsyncOutputRetainedOnce")
+        for name, callback, expected in [
+                ("sync-cleanup-error", "setTimeout(() => { throw new Error('cleanup-async-error'); }, 10);", "cleanup-async-error"),
+                ("sync-cleanup-timeout", "setInterval(() => {}, 1000);", "timed out")]:
+            context = self.session.execution_context(name, "node")
+            result = context.run_js("const s = require('node:net').createServer(); "
+                "s.on('removeListener', kind => { if (kind === 'close') { " + callback + " } }); s.unref();",
+                "javascript", 2)
+            self.assertEqual(result.status, "fail", result)
+            self.assertIn(expected, result.stderr + result.detail)
+            self.assertNotEqual(run.docker("inspect", context.containers["node"]).returncode, 0)
+            controls.append(name + "OriginalBlockFailedAndStopped")
+        idle = self.session.execution_context("before-exit", "node")
+        ordered = idle.run_js("const normalIdle = () => console.log('normal'); "
+            "process.on('beforeExit', normalIdle); process.once('beforeExit', () => console.log('once')); "
+            "process.prependOnceListener('beforeExit', () => console.log('prepend'));", "javascript", 20)
+        self.assertEqual(ordered.status, "pass", ordered)
+        self.assertEqual(ordered.stdout, "prepend\nnormal\nonce\n")
+        controls.append("beforeExitNativeListenerOrder")
+        nested = idle.run_js("process.removeListener('beforeExit', normalIdle); "
+            "process.once('beforeExit', () => process.nextTick(() => Promise.resolve().then(() => setTimeout(() => { "
+            "require('node:fs').appendFileSync('idle-effect', 'once'); console.log('nested-output'); }, 10))));",
+            "javascript", 20)
+        self.assertEqual(nested.status, "pass", nested)
+        self.assertEqual(nested.stdout, "nested-output\n")
+        self.assertEqual(Path(idle.cwd, "idle-effect").read_text(), "once")
+        controls.append("beforeExitNestedNextTickPromiseTimerOutputOnce")
+        repeated = idle.run_js("let idleEvents = 0; const repeatIdle = () => { "
+            "console.log('idle', ++idleEvents); if (idleEvents < 3) "
+            "setTimeout(() => console.log('work', idleEvents), 10); }; process.on('beforeExit', repeatIdle);",
+            "javascript", 20)
+        self.assertEqual(repeated.status, "pass", repeated)
+        self.assertEqual(repeated.stdout, "idle 1\nwork 1\nidle 2\nwork 2\nidle 3\n")
+        controls.append("beforeExitRealReferencedEventsRetained")
+        unref = idle.run_js("process.removeListener('beforeExit', repeatIdle); let idleUnrefEvents = 0; "
+            "const unrefIdle = () => { console.log('idle', ++idleUnrefEvents); "
+            "setTimeout(() => require('node:fs').writeFileSync('idle-stale', 'bad'), 20).unref(); }; "
+            "process.on('beforeExit', unrefIdle);", "javascript", 20)
+        self.assertEqual(unref.status, "pass", unref)
+        self.assertEqual(unref.stdout, "idle 1\n")
+        later = idle.run_js("process.removeListener('beforeExit', unrefIdle); "
+            "await new Promise(resolve => setTimeout(resolve, 60)); console.log(idleUnrefEvents);", "javascript", 20)
+        self.assertEqual(later.stdout, "1\n")
+        self.assertFalse(Path(idle.cwd, "idle-stale").exists())
+        controls.append("beforeExitUnrefOwnedWithoutArtificialEvents")
+        settled = idle.run_js("let resolveAtExit; const atExit = new Promise(resolve => { resolveAtExit = resolve; }); "
+            "process.once('beforeExit', () => resolveAtExit(42)); console.log(await atExit);", "javascript", 20)
+        self.assertEqual(settled.status, "pass", settled)
+        self.assertEqual(settled.stdout, "42\n")
+        controls.append("beforeExitCanSettleTopLevelAwait")
+        for name, source, expected in [
+                ("before-exit-error", "process.once('beforeExit', () => setTimeout(() => { "
+                 "throw new Error('before-exit-late'); }, 10));", "before-exit-late"),
+                ("before-exit-timeout", "process.on('beforeExit', () => setTimeout(() => {}, 10));", "timed out"),
+                ("before-exit-status", "process.once('beforeExit', () => { process.exitCode = 7; });", "exit code 7")]:
+            context = self.session.execution_context(name, "node")
+            result = context.run_js(source, "javascript", 2)
+            self.assertEqual(result.status, "fail", result)
+            self.assertIn(expected, result.stderr + result.detail)
+            if name == "before-exit-status":
+                self.assertEqual(result.exit_code, 7)
+            self.assertNotEqual(run.docker("inspect", context.containers["node"]).returncode, 0)
+            controls.append(name + "OriginalBlockFailedAndStopped")
         healthy.put("node", Path(healthy.cwd, "watched"), "initial")
         watcher = healthy.run_js("const watcher = require('node:fs').watch('watched', {persistent:false}, "
             "() => require('node:fs').writeFileSync('watch-stale', 'bad'));", "javascript", 20)

@@ -21,35 +21,61 @@ for (const [stream, suffix] of [[process.stdout, '.out'], [process.stderr, '.err
     else if (callback) callback();
     return true;
   };
+  // Only these harness-owned output streams are excluded from liveness. Their
+  // actual writes are synchronous, including the redirected descriptors below.
+  stream.unref?.();
 }
 const input = new PassThrough();
 const evaluations = new Map();
 const refInput = process.stdin.ref.bind(process.stdin);
 const unrefInput = process.stdin.unref.bind(process.stdin);
 const resources = ownResources(output);
+const activeResources = process.getActiveResourcesInfo.bind(process);
 let active;
-// With only our input pipe unreferenced, beforeExit is Node's own completion
-// oracle: referenced timers, I/O and their promise callbacks have drained.
-// Re-reference the pipe before replying so the next block can arrive normally.
-process.on('beforeExit', code => {
-  if (!active) return;
-  const completion = active;
-  if ((code & 255) !== 0) return completion.reject(new Error(`Node script completed with exit code ${code & 255}`));
-  if (!completion.evaluated) return completion.reject(new Error('top-level evaluation did not settle before Node became idle'));
-  try {
-    if (output.run(completion.file, () => resources.dispose(completion.file))) {
-      // A referenced event-loop checkpoint lets public close callbacks drain.
-      // The next beforeExit, not a guessed quiet period, decides completion.
-      output.exit(() => setImmediate(() => {}));
-      return;
-    }
-    active = undefined;
-    refInput();
-    completion.resolve();
-  } catch (failure) {
-    completion.reject(failure);
+// Node emits beforeExit outside the snippet's async scope. Keep every reader
+// listener and the work it schedules attributed to this block, in native order.
+const emit = process.emit;
+process.emit = function (event, ...args) {
+  if (this === process && event === 'beforeExit' && active) {
+    return output.run(active.file, () => emit.call(this, event, ...args));
   }
-});
+  return emit.call(this, event, ...args);
+};
+function checkpoint() {
+  const completion = active;
+  if (!completion || completion.checkpoint) return;
+  completion.checkpoint = true;
+  output.exit(() => {
+    const handle = setImmediate(() => {
+      handle.unref(); // exclude this exact owned checkpoint, never a type filter
+      completion.checkpoint = false;
+      if (active !== completion) return;
+      output.run(completion.file, () => {
+        try {
+          // All beforeExit listeners and their nextTick/Promise jobs have run.
+          // Reader reference work requires the next natural beforeExit event.
+          if (activeResources().length) return;
+          const code = Number(process.exitCode) & 255;
+          if (code) return completion.reject(new Error(`Node script completed with exit code ${code}`));
+          if (!completion.evaluated) return completion.reject(new Error('top-level evaluation did not settle before Node became idle'));
+          if (resources.dispose(completion.file)) {
+            // Cleanup alone must not manufacture another reader beforeExit.
+            // Chain a checkpoint; actual new reference work waits naturally.
+            checkpoint();
+            return;
+          }
+          if (activeResources().length) return;
+          active = undefined;
+          refInput();
+          completion.resolve();
+        } catch (failure) {
+          completion.reject(failure);
+        }
+      });
+    });
+  });
+}
+process.on('beforeExit', checkpoint);
 process.on('unhandledRejection', reason => {
   const reject = evaluations.get(output.getStore());
   if (reject) reject(reason);

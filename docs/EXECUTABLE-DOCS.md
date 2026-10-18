@@ -101,6 +101,11 @@ context, stops its owned container and children, and fails subsequent snippets w
 restarting or replaying earlier code. This does not change Python ownership or C# replay.
 Node's event-loop idle signal establishes block completion after referenced asynchronous
 work drains, including unawaited promise callbacks. A late error still fails that block.
+Reader `beforeExit` listeners retain native order and current-block capture, including
+nested nextTick/Promise jobs and later idle events caused by their referenced work.
+An owned checkpoint checks public `process.getActiveResourcesInfo()` after those jobs;
+only the exact harness I/O and checkpoint handles are unreferenced. Resource types are
+never ignored, and cleanup bookkeeping does not create extra reader idle events.
 The final native exit status also remains authoritative; nonzero `process.exitCode` fails
 and loses the context rather than passing because the interpreter stays alive.
 Top-level await that cannot settle at idle fails and stops the context; referenced work

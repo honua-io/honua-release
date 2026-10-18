@@ -61,8 +61,12 @@ Blocks selected by the existing CommonJS `require(...)` rule retain their `.cjs`
 and get a fresh owned `module.exports` object and initial `exports` alias per block.
 Replacing `module.exports` does not rebind `exports`; saved lexical references survive
 while later blocks receive their own module object. ESM blocks do not gain those globals.
-Completion uses Node's `beforeExit` event with only the worker's input pipe temporarily
-unreferenced. Referenced async work and its callbacks must finish before the block passes;
+Completion uses Node's `beforeExit` lifecycle with only the owned harness input/output
+pipes excluded from liveness. Reader listeners run in native order under the current
+block's capture scope. After their nextTick/Promise jobs drain, an owned event-loop
+checkpoint checks the stable public `process.getActiveResourcesInfo()` API. Referenced
+reader work waits for the next natural `beforeExit`; cleanup checkpoints do not manufacture
+extra reader events. No resource types are ignored. Referenced async work must finish before the block passes;
 late errors remain errors even after evaluation returns. Unsettled top-level await at idle
 fails and stops the context. Referenced long-running work remains subject to the caller's
 timeout. No quiet-period sleep is used as a completion oracle.
@@ -84,9 +88,11 @@ retained; a nonzero status fails and loses the context. Each block starts with a
 Completion records use atomically published files with a unique request identity on the
 shared reader workdir. They never share stdout with snippet output. Actual descriptors
 1 and 2 point to each block's capture files, including native writes and inherited child
-stdio; stale, partial or wrong-block records fail closed. On failure the worker publishes
-the error and exits before another event-loop turn, retaining microtask effects that a
-native Node ESM script also performs before failing.
+stdio; stale, partial or wrong-block records fail closed. On caught failure the worker
+publishes the error and exits before another event-loop turn, retaining microtask effects
+that a native Node ESM script also performs before failing. A native fatal exit loses
+the interpreter with its captured stderr and fails the original request before any
+success is published.
 
 Full ESM fidelity remains open in [#683](https://github.com/honua-io/honua-release/issues/683).
 In particular, snippet-body `import.meta.url` and `import.meta.resolve` currently fail

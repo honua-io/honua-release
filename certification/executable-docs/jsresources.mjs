@@ -190,7 +190,9 @@ export function ownResources(scope) {
           record.dispose();
           if (timer) forget(record);
         }
-        pending ||= !record.closed;
+        // Even synchronous cleanup can invoke a reader callback which creates
+        // new referenced work. Require a fresh native idle event before pass.
+        pending = true;
       }
       return pending;
     },

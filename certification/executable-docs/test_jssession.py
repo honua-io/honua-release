@@ -462,6 +462,120 @@ def test_repeated_inactive_unref_does_not_retain_owned_listeners_or_remove_user_
         assert observed.status == 'pass' and observed.stdout == expected and observed.stderr == '', observed
 
 
+@pytest.mark.parametrize('mode', ['output', 'error', 'timeout'])
+def test_synchronous_cleanup_new_referenced_work_stays_in_original_block(reader, mode):
+    callbacks = {
+        'output': "setTimeout(() => { require('node:fs').appendFileSync('cleanup-once', 'once'); "
+                  "console.log('cleanup-output'); }, 10);",
+        'error': "setTimeout(() => { throw new Error('cleanup-async-error'); }, 10);",
+        'timeout': "setInterval(() => {}, 1000);",
+    }
+    source = "const idleCleanup = require('node:net').createServer(); " \
+        "idleCleanup.on('removeListener', kind => { if (kind === 'close') { " \
+        + callbacks[mode] + " } }); idleCleanup.unref();"
+    result = run(reader, source, timeout=0.5)
+    if mode == 'output':
+        assert result.status == 'pass' and result.stdout == 'cleanup-output\n', result
+        assert Path(reader.cwd, 'cleanup-once').read_text() == 'once'
+        later = run(reader, "console.log('healthy');")
+        assert later.status == 'pass' and later.stdout == 'healthy\n'
+        assert Path(reader.cwd, 'cleanup-once').read_text() == 'once'
+    else:
+        expected = 'cleanup-async-error' if mode == 'error' else 'timed out'
+        assert result.status == 'fail' and expected in result.stderr + result.detail, result
+        assert reader.js.broken and reader.js.proc.poll() is not None
+        assert 'refusing to restart' in run(reader, "console.log('bad');").detail
+
+
+def native_before_exit(reader, source):
+    native = Path(reader.cwd, 'native-before-exit.mjs')
+    native.write_text("import {createRequire} from 'node:module'; const require=createRequire(import.meta.url);\n" + source)
+    return subprocess.run(['node', str(native)], cwd=reader.cwd, capture_output=True, text=True, timeout=5)
+
+
+def test_before_exit_listener_order_matches_native(reader):
+    source = "process.on('beforeExit', () => console.log('normal')); " \
+        "process.once('beforeExit', () => console.log('once')); " \
+        "process.prependOnceListener('beforeExit', () => console.log('prepend'));"
+    oracle = native_before_exit(reader, source)
+    assert oracle.returncode == 0 and oracle.stdout == 'prepend\nnormal\nonce\n', oracle
+    result = run(reader, source)
+    assert result.status == 'pass' and result.stdout == oracle.stdout, result
+
+
+def test_before_exit_nested_nexttick_promise_timer_output_and_effect_are_retained_once(reader):
+    source = "process.once('beforeExit', () => process.nextTick(() => Promise.resolve().then(() => " \
+        "setTimeout(() => { require('node:fs').appendFileSync('before-exit-effect', 'once'); " \
+        "console.log('nested-output'); }, 10))));"
+    oracle = native_before_exit(reader, source)
+    path = Path(reader.cwd, 'before-exit-effect')
+    assert oracle.returncode == 0 and oracle.stdout == 'nested-output\n' and path.read_text() == 'once'
+    path.unlink()
+    result = run(reader, source)
+    assert result.status == 'pass' and result.stdout == oracle.stdout and path.read_text() == 'once', result
+    assert run(reader, "console.log('healthy');").stdout == 'healthy\n'
+    assert path.read_text() == 'once'
+
+
+def test_before_exit_repeats_for_real_referenced_work_without_extra_harness_events(reader):
+    source = "let idleEvents = 0; const idleListener = () => { idleEvents++; console.log('idle', idleEvents); " \
+        "if (idleEvents < 3) setTimeout(() => console.log('work', idleEvents), 10); }; " \
+        "process.on('beforeExit', idleListener);"
+    oracle = native_before_exit(reader, source)
+    assert oracle.returncode == 0 and oracle.stdout == 'idle 1\nwork 1\nidle 2\nwork 2\nidle 3\n', oracle
+    result = run(reader, source)
+    assert result.status == 'pass' and result.stdout == oracle.stdout, result
+    later = run(reader, "process.removeListener('beforeExit', idleListener); console.log(idleEvents);")
+    assert later.status == 'pass' and later.stdout == '3\n'
+
+
+def test_before_exit_unref_work_is_owned_without_artificial_extra_events(reader):
+    source = "let idleEvents = 0; const idleListener = () => { console.log('idle', ++idleEvents); " \
+        "setTimeout(() => require('node:fs').writeFileSync('idle-stale', 'bad'), 20).unref(); }; " \
+        "process.on('beforeExit', idleListener);"
+    oracle = native_before_exit(reader, source)
+    assert oracle.returncode == 0 and oracle.stdout == 'idle 1\n' and not Path(reader.cwd, 'idle-stale').exists()
+    result = run(reader, source)
+    assert result.status == 'pass' and result.stdout == oracle.stdout, result
+    later = run(reader, "process.removeListener('beforeExit', idleListener); "
+        "await new Promise(resolve => setTimeout(resolve, 60)); console.log(idleEvents);")
+    assert later.status == 'pass' and later.stdout == '1\n'
+    assert not Path(reader.cwd, 'idle-stale').exists()
+
+
+def test_before_exit_late_error_fails_original_block_like_native(reader):
+    source = "process.once('beforeExit', () => setTimeout(() => { throw new Error('before-exit-late'); }, 10));"
+    oracle = native_before_exit(reader, source)
+    assert oracle.returncode == 1 and 'before-exit-late' in oracle.stderr
+    result = run(reader, source)
+    assert result.status == 'fail' and 'before-exit-late' in result.stderr, result
+    assert reader.js.broken and reader.js.proc.poll() is not None
+    assert 'refusing to restart' in run(reader, "console.log('bad');").detail
+
+
+def test_before_exit_repeated_reference_work_obeys_original_timeout(reader):
+    result = run(reader, "process.on('beforeExit', () => setTimeout(() => {}, 10));", timeout=0.5)
+    assert result.status == 'fail' and 'timed out' in result.detail, result
+    assert reader.js.broken and reader.js.proc.poll() is not None
+
+
+def test_before_exit_final_exit_status_matches_native(reader):
+    source = "process.once('beforeExit', () => { process.exitCode = 7; });"
+    oracle = native_before_exit(reader, source)
+    assert oracle.returncode == 7
+    result = run(reader, source)
+    assert result.status == 'fail' and result.exit_code == 7 and reader.js.broken, result
+
+
+def test_before_exit_can_settle_top_level_await_before_completion(reader):
+    source = "let resolveAtExit; const atExit = new Promise(resolve => { resolveAtExit = resolve; }); " \
+        "process.once('beforeExit', () => resolveAtExit(42)); console.log(await atExit);"
+    oracle = native_before_exit(reader, source)
+    assert oracle.returncode == 0 and oracle.stdout == '42\n', oracle
+    result = run(reader, source)
+    assert result.status == 'pass' and result.stdout == oracle.stdout, result
+
+
 def test_owned_unref_message_ports_close_before_next_block(reader):
     first = run(reader, "const channel = new (require('node:worker_threads').MessageChannel)(); "
         "channel.port1.on('message', () => require('node:fs').writeFileSync('port-stale', 'bad')); "
