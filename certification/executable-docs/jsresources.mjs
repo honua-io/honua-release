@@ -7,7 +7,7 @@ import { syncBuiltinESMExports } from 'node:module';
 import { MessagePort } from 'node:worker_threads';
 
 export function ownResources(scope) {
-  const byFile = new Map(), records = new WeakMap(), timers = new Map(), refused = new Map();
+  const byFile = new Map(), records = new WeakMap(), lifetimes = new Map(), refused = new Map();
   function track(resource, kind, dispose, unreferenced = false) {
     const file = scope.getStore();
     if (!file || records.has(resource)) return;
@@ -56,7 +56,9 @@ export function ownResources(scope) {
     init(id, kind, _trigger, resource) {
       if (kind === 'MESSAGEPORT' && resource instanceof MessagePort) {
         const record = track(resource, 'MessagePort', () => resource.close());
-        if (record) resource.once('close', () => forget(record));
+        // init runs before MessagePort's EventTarget construction completes.
+        // Observe identity only; public destroy follows its close lifecycle.
+        if (record) lifetimes.set(id, record);
         return;
       }
       if (kind !== 'Timeout' && kind !== 'Immediate') return;
@@ -64,11 +66,11 @@ export function ownResources(scope) {
       if (previous) forget(previous); // refresh() can reactivate the same public Timeout
       const record = track(resource, kind, () =>
         kind === 'Timeout' ? clearTimeout(resource) : clearImmediate(resource));
-      if (record) timers.set(id, record);
+      if (record) lifetimes.set(id, record);
     },
     destroy(id) {
-      const record = timers.get(id);
-      if (record) { forget(record); timers.delete(id); }
+      const record = lifetimes.get(id);
+      if (record) { forget(record); lifetimes.delete(id); }
     },
   }).enable();
 
