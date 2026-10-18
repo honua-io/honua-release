@@ -69,3 +69,19 @@ compliance.
 The governing rollout decision is
 [honua-release#182](https://github.com/honua-io/honua-release/issues/182), with the structural v2
 landing in [honua-release#208](https://github.com/honua-io/honua-release/pull/208).
+
+## Published generated gRPC client archives
+
+The existing `grpc-dotnet`, `grpc-python` and `grpc-typescript` requirements also
+bind `client_package_digest`. Their observations and receipt identities carry the
+measured archive digest. NuGet and PyPI use lowercase `sha256:<hex>`; npm retains
+its existing canonical `sha512-<base64>` integrity value. Algorithms cannot be
+substituted between lanes. The requirement signature and receipt bytes bind the
+same value, so internally consistent repacked receipts still fail the governed
+comparison. A version or source revision cannot substitute for package bytes.
+
+An unexecuted required row remains a skip with no receipt. Its normalized policy
+can name the expected archive without claiming that those bytes were observed.
+Only an actual producer-owned measured digest may enter an executed receipt.
+The existing 14 RPCs across three clients (42 cells) and explicit 198 exclusions
+remain unchanged. Actual immutable-candidate execution is still required.
