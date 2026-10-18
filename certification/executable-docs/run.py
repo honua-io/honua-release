@@ -14,6 +14,7 @@ document is red when any block fails; the run is red when any document is.
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import os
 import queue
@@ -321,7 +322,10 @@ class Session:
                 or not isinstance(runtime, str) or runtime not in RUNTIMES or runtime not in self.runtimes):
             raise RunError("invalid or unavailable execution context runtime/name")
         if name not in self.contexts:
-            self.contexts[name] = Session(f"{self.name}-{name}", self.state / "contexts" / name,
+            identity = hashlib.sha256(f"{self.workdir.resolve()}\0{name}".encode()).hexdigest()
+            # The legacy Docker name truncates Session.name to 40 characters.
+            # Put the context identity first so long shared prefixes cannot collide.
+            self.contexts[name] = Session(f"context-{identity}", self.state / "contexts" / name,
                 {runtime: self.runtimes[runtime]}, self.guard_base, self.tools, False, self.network,
                 self.run_id, self.typescript, prerequisites=set(self.prerequisites),
                 require_reader_project=runtime == "dotnet")

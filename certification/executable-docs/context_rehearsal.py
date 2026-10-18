@@ -45,11 +45,12 @@ def rehearse(work: Path, output: Path) -> dict:
     images = sources["runtimes"]
     guard = Guard({"npm": {}, "pypi": {}, "nuget": {}}).start()
     parents: list[Session] = []
+    owned_names: list[str] = []
     record = {"schemaVersion": "executable-docs-context-rehearsal.v1", "qualification": False,
               "purpose": "Production runner state/routing controls with local non-Honua fixture packages and a BCL project",
               "sourceRevision": subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=ROOT, text=True).strip(),
               "sourceDirty": bool(subprocess.check_output(["git", "status", "--porcelain", "--untracked-files=no"], cwd=ROOT, text=True).strip()),
-              "runtimeImages": images, "controls": {}, "cleanup": [], "status": "fail"}
+              "runtimeImages": images, "controls": {}, "cleanup": [], "peakOwnedContextContainers": 0, "status": "fail"}
     work.mkdir(parents=True, exist_ok=True)
     try:
         tools = prepare_tools(images, work)
@@ -59,6 +60,11 @@ def rehearse(work: Path, output: Path) -> dict:
         def run(text, groups, owner):
             return run_document(_document(text, groups), text, owner, {"_pins": {}},
                 {"env": {}, "substitute": {}}, "sha256:controlled-no-candidate", [], set())[0]
+        def retire(owner):
+            active = [name for p in parents for child in p.contexts.values() for name in child.containers.values()]
+            record["peakOwnedContextContainers"] = max(record["peakOwnedContextContainers"], len(active))
+            owned_names.extend(name for child in owner.contexts.values() for name in child.containers.values())
+            owner.close()
         positive = parent("positive")
         node = positive.execution_context("javascript", "node")
         fixture = Path(node.cwd) / "probe"; fixture.mkdir()
@@ -119,31 +125,61 @@ Console.WriteLine("dotnet project readback: project-state");
         record["positive"] = result
         assert result["status"] == "pass" and len(result["blocks"]) == 6, result
         record["controls"]["actualPackageProjectReadback"] = "pass"
+        retire(positive)
         negative = "```sh\nONLY_OTHER_CONTEXT=owned\n```\n```sh\necho $ONLY_OTHER_CONTEXT\n```\n"
-        result = run(negative, [("node", "node", [0]), ("python", "python", [1])], parent("separate-env"))
+        owner = parent("separate-env")
+        result = run(negative, [("node", "node", [0]), ("python", "python", [1])], owner)
         assert [b["status"] for b in result["blocks"]] == ["pass", "needs-input"], result
         record["controls"]["crossContextInputRefused"] = "pass"
+        retire(owner)
         negative = "```bash\nfalse\n```\n```python\nraise RuntimeError('must never execute after failed setup')\n```\n"
-        result = run(negative, [("python", "python", [0, 1])], parent("failed-setup"))
+        owner = parent("failed-setup")
+        result = run(negative, [("python", "python", [0, 1])], owner)
         assert [b["status"] for b in result["blocks"]] == ["fail", "fail"] and "earlier block" in result["blocks"][1]["detail"], result
         record["controls"]["failedSetupCannotPassLater"] = "pass"
+        retire(owner)
         negative = "```csharp\nConsole.WriteLine(1);\n```\n"
         owner = parent("absent-project")
         result = run(negative, [("dotnet", "dotnet", [0])], owner)
         assert result["status"] == "fail" and "exactly one project" in result["blocks"][0]["detail"], result
         assert not list(owner.workdir.rglob("*.csproj"))
         record["controls"]["missingProjectCannotBeFabricated"] = "pass"
+        retire(owner)
+        owner = parent("same-runtime-" + "shared-prefix-" * 5)
+        text = '''```bash
+export CONTEXT_VALUE=first
+printf '%s' first > marker
+```
+```bash
+export CONTEXT_VALUE=second
+printf '%s' second > marker
+```
+```js
+import { readFileSync } from 'node:fs';
+if (readFileSync('marker', 'utf8') !== 'first' || process.env.CONTEXT_VALUE !== 'first') throw new Error('first context lost');
+```
+```js
+import { readFileSync } from 'node:fs';
+if (readFileSync('marker', 'utf8') !== 'second' || process.env.CONTEXT_VALUE !== 'second') throw new Error('second context lost');
+```
+'''
+        result = run(text, [("shared-prefix-first", "node", [0, 2]), ("shared-prefix-second", "node", [1, 3])], owner)
+        record["interleavedSameRuntime"] = result
+        assert result["status"] == "pass" and len(result["blocks"]) == 4, result
+        record["controls"]["sameRuntimeLongNamesRemainIsolated"] = "pass"
+        retire(owner)
         assert not guard.refusals, guard.refusals
         record["status"] = "pass"
     finally:
-        names = [name for owner in parents for child in owner.contexts.values() for name in child.containers.values()]
-        for owner in parents: owner.close()
+        for owner in parents: retire(owner)
         guard.stop()
-        for name in names:
+        for name in dict.fromkeys(owned_names):
             absent = docker("inspect", name).returncode != 0
             record["cleanup"].append({"container": name, "absent": absent})
             if not absent: record["status"] = "fail"
+        if record["peakOwnedContextContainers"] > 3: record["status"] = "fail"
         output.parent.mkdir(parents=True, exist_ok=True)
         output.write_text(json.dumps(record, indent=2) + "\n")
-    assert record["status"] == "pass" and all(c["absent"] for c in record["cleanup"]), record
+    assert (record["status"] == "pass" and record["peakOwnedContextContainers"] <= 3
+            and all(c["absent"] for c in record["cleanup"])), record
     return record

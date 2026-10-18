@@ -18,7 +18,8 @@ class DockerRegressions(unittest.TestCase):
             report = rehearse(Path(directory), run.ROOT / "artifacts/executable-docs/context-rehearsal.json")
             self.assertEqual(report["status"], "pass")
             self.assertFalse(report["qualification"])
-            self.assertEqual(len(report["controls"]), 4)
+            self.assertEqual(len(report["controls"]), 5)
+            self.assertLessEqual(report["peakOwnedContextContainers"], 3)
 
     def setUp(self):
         self.directory = tempfile.TemporaryDirectory(prefix="execdocs-regression-")

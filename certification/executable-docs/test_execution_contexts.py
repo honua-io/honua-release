@@ -195,3 +195,21 @@ def test_other_context_filename_cannot_suppress_file_execution(tmp_path, monkeyp
     monkeypatch.setattr(Session, "run_shell", lambda *args: Outcome("pass", "shell"))
     parent = session(tmp_path); result = execute(doc, text, parent)
     assert result["status"] == "pass" and ran == [parent.contexts["python"]]
+
+
+def test_long_parent_and_same_runtime_contexts_have_distinct_actual_container_names(tmp_path, monkeypatch):
+    import subprocess
+    import run
+    parent = session(tmp_path); parent.name = "shared-parent-prefix-" * 6
+    first = parent.execution_context("shared-prefix-first", "python")
+    second = parent.execution_context("shared-prefix-second", "python")
+    calls = []
+    def docker(*args, **kwargs):
+        calls.append(args); return subprocess.CompletedProcess(args, 0, "", "")
+    monkeypatch.setattr(run, "docker", docker)
+    a, b = first.container("python"), second.container("python")
+    assert a != b and first.container("python") == a
+    starts = [args[args.index("--name") + 1] for args in calls if args[0] == "run"]
+    assert starts == [a, b]
+    # Startup of the second context must never delete the first's container.
+    assert [args for args in calls if args[0] == "rm"] == [("rm", "-f", a), ("rm", "-f", b)]
