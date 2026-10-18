@@ -77,7 +77,7 @@ npm install --offline --no-audit --no-fund --ignore-scripts ../probe
 import {{ value }} from 'docs-context-node-probe';
 import {{ basename }} from 'node:path';
 if (value !== 7 || process.env.CONTEXT_TOKEN !== 'node' || basename(process.cwd()) !== 'node-project'
-    || process.env.npm_config_registry !== '{guard.base}/npm/') throw new Error('node context/state/registry mismatch');
+    || (process.env.npm_config_registry ?? '') !== '{guard.base}/npm/') throw new Error('node context/state/registry mismatch');
 console.log('node package readback: 7');
 ```
 ```bash
@@ -94,7 +94,7 @@ from docs_context_python_probe import VALUE
 assert VALUE == 7 and os.environ['CONTEXT_TOKEN'] == 'python'
 assert 'NODE_ONLY' not in os.environ and Path.cwd().name == 'python-project'
 assert sys.prefix.endswith('/python-project/.venv')
-assert os.environ['PIP_INDEX_URL'] == '{guard.base}/pypi/simple/'
+assert os.environ.get('PIP_INDEX_URL', '') == '{guard.base}/pypi/simple/'
 print('python installed wheel readback: 7')
 ```
 ```bash
@@ -106,10 +106,10 @@ printf '%s' project-state > marker
 using System;
 using System.IO;
 if (Environment.GetEnvironmentVariable("CONTEXT_TOKEN") != "dotnet"
-    || Environment.GetEnvironmentVariable("NODE_ONLY") != null
+    || (Environment.GetEnvironmentVariable("NODE_ONLY") ?? "absent") != "absent"
     || new DirectoryInfo(Environment.CurrentDirectory).Name != "geoprocessing"
     || File.ReadAllText("marker") != "project-state"
-    || !File.ReadAllText(Path.Combine(Environment.GetEnvironmentVariable("HOME")!, ".nuget", "NuGet", "NuGet.Config"))
+    || !File.ReadAllText(Path.Combine(Environment.GetEnvironmentVariable("HOME") ?? "", ".nuget", "NuGet", "NuGet.Config"))
         .Contains("{guard.base}/nuget/v3/index.json")) throw new Exception("dotnet context/state/registry mismatch");
 Console.WriteLine("dotnet project readback: project-state");
 ```
