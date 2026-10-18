@@ -1160,3 +1160,22 @@ def test_channel_substitution_prefers_the_longer_tag():
     assert substitute(code, table) == f"a={CANDIDATE_IMAGE}\nb={CANDIDATE_IMAGE}\n"
     legacy = f"HONUA_IMAGE=ghcr.io/honua-io/honua-server@sha256:{'a' * 64}\n"
     assert substitute(legacy, table) == legacy
+
+
+def test_public_feature_sample_binds_its_exact_documented_service_token():
+    ident = "honua-samples-samples-hello-featureserver-rest-readme"
+    inventory = json.loads((HERE / "inventory.json").read_text())
+    document = next(d for d in inventory["documents"] if d["id"] == ident)
+    code = "export HONUA_BASE_URL=http://localhost:8080\nexport HONUA_SAMPLE_SERVICE=your-feature-service\n"
+    block = extract("```bash\n" + code + "```\n", "markdown")[0]
+    assert document["revision"] == "65253c959a97ad4ed39cc2a45c85a14a5a34cfac"
+    assert block.sha256 == document["blocks"][0]["sha256"]
+    variables = load_vars(HERE / "vars", ident)
+    assert set(variables["substitute"]) == {"your-feature-service"}
+    entry = variables["substitute"]["your-feature-service"]
+    assert entry["documentedAt"].startswith("samples/hello-featureserver-rest/README.md:13")
+    table = {key: render(value["value"], {"fixture.featureService": "maui-zoning"})
+             for key, value in variables["substitute"].items()}
+    assert substitute(code, table) == code.replace("your-feature-service", "maui-zoning")
+    # The former bracketed key left the actual reader input untouched.
+    assert substitute(code, {"<your-feature-service>": "maui-zoning"}) == code
