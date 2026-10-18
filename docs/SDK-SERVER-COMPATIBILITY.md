@@ -5,7 +5,7 @@
 2026.1 uses `Licensing__Mode=Disabled`: all catalog entitlements active; no edition gating,
 license enforcement or serving-unit metering. Maturity and safety limits still apply.
 
-Platform: `honua-2026.1-rc.2`. Lock canonical SHA-256: `sha256:70aa29da09dc8b9bbeb2632ddbda50c589b2f1554870c1452102bf8a1d734b71`.
+Platform: `honua-2026.1-rc.2`. Lock canonical SHA-256: `sha256:b557372ce065d6b3e409bbaae21f6d08f8f1e9d3baf1b4f732feebad1b1dc3bd`.
 
 Lock completeness: **unqualified — incomplete draft; not a certified release lock.**
 
@@ -16,9 +16,9 @@ SDK/server pairing. Certification requires an exact artifact-pair receipt in the
 
 | SDK / protocol | Locked artifact | Minimum server | Qualification |
 | --- | --- | --- | --- |
-| honua-sdk-js | @honua/sdk-js 0.1.9-beta.0; @honua/mcp-server 0.1.4-beta.0 | unqualified | unqualified: no consumed protocol/capability manifest is pinned |
-| honua-sdk-dotnet | Honua.Sdk 1.6.2 | unqualified | unqualified: no consumed protocol/capability manifest is pinned |
-| honua-sdk-python | honua-sdk 0.1.11; honua-admin 0.1.8 | unqualified | unqualified: no consumed protocol/capability manifest is pinned |
+| honua-sdk-js | @honua/sdk-js 0.2.3; @honua/mcp-server 0.2.3; @honua/sdk 0.2.2; @honua/sdk-esri-compat 0.2.2; @honua/react 0.2.2; @honua/geometry 0.2.2; @honua/app-platform 0.2.2; create-honua-app 0.2.2 | unqualified | unqualified: no consumed protocol/capability manifest is pinned |
+| honua-sdk-dotnet | Honua.Sdk 1.11.0 | unqualified | unqualified: no consumed protocol/capability manifest is pinned |
+| honua-sdk-python | honua-sdk 0.1.16; honua-admin 0.1.12 | unqualified | unqualified: no consumed protocol/capability manifest is pinned |
 | geospatial-mcp | https://github.com/honua-io/geospatial-mcp/blob/d5a09d13c4ad541c05702e598c3679c0f42db7af/spec/schemas/index.json 1.0.0+d5a09d13 | unqualified | unqualified: no consumed protocol/capability manifest is pinned |
 
 The JavaScript repository also owns `@honua/mcp-server`; its Honua attachment must
@@ -29,7 +29,9 @@ require a Honua Server. `geospatial-mcp` is the protocol specification, not an S
 
 | From server / schema | To server / schema | Supported edge | Previous server reads migrated schema / application rollback | Database rollback | Restore backup required | Evidence |
 | --- | --- | --- | --- | --- | --- | --- |
-| unqualified | unqualified | unqualified | unqualified | unqualified | unqualified | No qualified edge is pinned in this lock |
+| unqualified | unqualified | unqualified | unqualified | unqualified | unqualified | No locked honua-server artifact carries the first release version |
+| pre-release build (nightly or earlier candidate) | unqualified | unqualified | unqualified | unqualified | unqualified | No edge receipt is pinned; pre-release builds are not release identities |
+| unqualified | next honua-server release | unqualified | unqualified | unqualified | unqualified | No later release is locked; each column needs its own receipt |
 
 Application rollback reinstalls the previous server against the migrated database.
 Database rollback restores the previous schema and data state. They require separate evidence.
