@@ -1,0 +1,9 @@
+{
+  "env": {},
+  "substitute": {
+    "<your-api-key>": {
+      "value": "{candidate.apiKey}",
+      "documentedAt": "docs/geoprocessing/index.md:49,71,96 \u2014 each language example asks for <your-api-key>"
+    }
+  }
+}

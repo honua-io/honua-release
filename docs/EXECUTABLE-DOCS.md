@@ -69,6 +69,29 @@ A mismatch, or registry metadata without the hash, is a refusal. Closure package
 manifest hash, so only their version is checked. A doc that installs an old scope, a beta or an unpinned package
 fails at install, and the report lists the refusal under `guardRefusals`.
 
+**Mixed-language contexts.** A guide with independent language examples may declare
+`executionContexts` in `sources.json`. Each named context has one supported runtime
+(`node`, `python` or `dotnet`), a source citation, and the exact index/SHA256 of every
+setup and snippet block it owns. All executable blocks must be assigned exactly once;
+missing, changed, duplicate, reordered or language-incompatible bindings fail before
+execution. Runtime selection never guesses from the command text.
+
+Each context has its own persistent container, HOME, working directory, exported
+variables and PATH, plus Python interpreter or .NET project state. A Python install
+and its later snippet therefore use the same Python environment. A .NET snippet
+must use the project its setup actually created. Contexts inherit
+the document's declared prerequisite tools, pinned images, registry guard and package
+audit. An unsuccessful context block fails its later blocks, while other contexts
+still run. Receipts retain the explicit context name/runtime for every assigned block.
+This bounded mechanism supports standalone documents; grouped document sessions,
+source-build admission, checkout and Docker orchestration combined with explicit
+contexts currently fail closed. Existing documents without contexts retain their
+original session behavior. The GP guide's package versions and actual GP behavior
+remain independently checked; context routing does not make unavailable packages or
+failed operations pass.
+JavaScript/TypeScript retains the continuation replay described below; it does not
+provide once-only lexical execution across separate snippets.
+
 ## Results
 
 Per block: `pass`, `fail` (with the stdout and stderr tails), `needs-input`, or `blocked`. Blocks that
