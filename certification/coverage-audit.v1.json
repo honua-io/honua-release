@@ -1,6 +1,6 @@
 {
   "schema": "honua.coverage-audit-input/v1",
-  "revision": "2026-10-18.1",
+  "revision": "2026-10-18.2",
   "tracking_issue": "https://github.com/honua-io/honua-release/issues/652",
   "scope": "All governed rows inventoried; licensed desktop implementation remains external. Source review does not qualify a candidate or change supported scope. The bounded deeper reviews remain partial-source-review: sampled source assertions and existing proof obligations only, not exhaustive execution, AWS qualification or a new release gate.",
   "reviewed_sources": {
@@ -698,7 +698,8 @@
       "status": "partial-source-review",
       "remaining": "Complete test selection, assertion and live-evidence review; this inventory is not an exhaustive audit.",
       "source_review_artifacts": [
-        "certification/audits/2026-10-17/protocol-data.json"
+        "certification/audits/2026-10-17/protocol-data.json",
+        "certification/audits/2026-10-18/protocol-data-supplement.json"
       ],
       "strong_coverage": [
         {
@@ -823,8 +824,14 @@
         "No runtime defect reproduced or new issue filed. Prior closed regression issue references are context, not current unassigned implementation claims.",
         "Existing NC01\u201312 are not refiled; in particular OWSLib expired-token NC07, DuckDB CRS NC12 and shard no-test NC10 retain their owners.",
         "No complete claim for all CRS/Z/M shapes, true-curve preservation, concurrency races, canonical-client writes, media variants, or tenant isolation follows from the sampled tests.",
-        "No fresh candidate or AWS qualification; no current CITE rate inferred from source. STAC/gRPC not expanded in this bounded pass."
-      ]
+        "No fresh candidate or AWS qualification; no current CITE rate inferred from source. The 2026-10-18 supplement extends the bounded review to WCS/WPS/STAC/gRPC; source review remains partial."
+      ],
+      "supplemental_review": {
+        "server_revision": "e4a973997e4444e8c0f97d2cb6a62a0a5825c5e9",
+        "artifact": "certification/audits/2026-10-18/protocol-data-supplement.json",
+        "sha256": "5e0ba49d238f50378d9ca9cf5821551058d6d778f0bbca3186b651c0cc0d571d",
+        "scope": "WCS/WPS/STAC/gRPC assertion and selector review; adapter/native boundaries and four improvement candidates. No exhaustive execution or qualification claim."
+      }
     },
     {
       "id": "render-formats",
