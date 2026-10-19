@@ -147,3 +147,23 @@ still observe its installed dependencies. Those observations receive a separate
 and every package inside that checkout must match the exact admitted path and link inventory.
 This does not grant those blocks access to the source registry or change their documented
 commands. Packages outside the checkout remain subject to the candidate version audit.
+
+### Python environment inventory
+
+After Python blocks, the runner inventories Honua distribution metadata with the
+runtime's original interpreter in isolated mode. It inspects the reader's user
+site explicitly and discovers virtualenvs under the bounded document workspace,
+HOME and container `/tmp`, including environments that were never activated.
+Literal interpreter paths known to the execution wrappers are retained and must
+be inspectable. The probe reads metadata without executing virtualenv programs
+or their startup hooks. Reports retain environment/site-package paths alongside
+all simultaneous installed versions. Missing environments, malformed Honua
+metadata, escaping site-package/metadata links and the directory bound refuse
+qualification. Normal virtualenv interpreter links to system Python remain valid.
+
+Installed Honua versions must match the governed package cohort in every audited
+environment. Known local-directory and VCS origins recorded by pip are refused
+even when their version matches. This metadata audit does not prove installed
+wheel-byte identity; the registry download guard separately binds admitted wheel
+hashes. These controls do not update the cohort or turn historical document
+failures into passes.

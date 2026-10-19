@@ -899,13 +899,14 @@ def test_python_audit_uses_metadata_without_requiring_pip(tmp_path, monkeypatch)
     calls = []
     def docker(*args, **kwargs):
         calls.append((args, kwargs))
-        return subprocess.CompletedProcess(args, 0, '[{"name":"Honua_Sdk","version":"0.1.11"}]', "")
+        return subprocess.CompletedProcess(args, 0, '{"environments":[],"packages":[{"name":"Honua_Sdk","version":"0.1.11"}]}', "")
     monkeypatch.setattr(run, "docker", docker)
     session = run.Session("metadata", tmp_path, {"python": "python-pinned"}, "http://guard", tmp_path,
                           False, "host", "metadata", "5.9.3")
     session.containers["python"] = "python-container"
     assert session.installed_honua("python") == [{"name": "honua-sdk", "version": "0.1.11", "ecosystem": "pypi"}]
-    assert "importlib.metadata" in calls[0][0][-1]
+    assert "python_environment_audit.py" in calls[0][0][-4]
+    assert calls[0][0][-3:] == (str(tmp_path), str(session.home), "/tmp")
     assert calls[0][1]["check"] is True
 
 
