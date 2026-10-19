@@ -486,6 +486,23 @@ def test_fired_timeout_refresh_gets_fresh_block_ownership(reader):
     assert Path(reader.cwd, 'fires').read_bytes() == before
 
 
+def test_refreshed_unref_timeout_is_disposed_before_pass(reader):
+    # Leave a long enough native window that a missing refresh ownership record
+    # would fire during the next block, rather than racing this block's pass.
+    first = run(reader, "const delayed = setTimeout(() => "
+                "require('node:fs').appendFileSync('delayed', 'x'), 500); "
+                "await new Promise(resolve => setTimeout(resolve, 525));")
+    assert first.status == 'pass', first
+    path = Path(reader.cwd, 'delayed')
+    assert path.read_bytes() == b'x'
+    refreshed = run(reader, "delayed.refresh().unref();")
+    assert refreshed.status == 'pass', refreshed
+    assert path.read_bytes() == b'x'
+    later = run(reader, "await new Promise(resolve => setTimeout(resolve, 600));")
+    assert later.status == 'pass', later
+    assert path.read_bytes() == b'x'
+
+
 def test_module_import_scheduled_unref_work_is_owned(reader):
     Path(reader.cwd, 'scheduler.mjs').write_text("import {writeFileSync} from 'node:fs'; "
         "setInterval(() => writeFileSync('import-stale', 'bad'), 20).unref(); export const value = 42;")
