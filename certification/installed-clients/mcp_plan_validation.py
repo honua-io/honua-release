@@ -91,10 +91,13 @@ def tool_output(result):
 
 def judge(fixture_bytes, observations):
     authored = scenario(fixture_bytes)
-    if not isinstance(observations, dict) or set(observations) != {"schema", "fixtureSha256", "cases"}:
+    base_fields = {"schema", "fixtureSha256", "cases"}
+    if not isinstance(observations, dict) or set(observations) not in (base_fields, base_fields | {"operation", "tool"}):
         raise ValueError("plan observations must contain the bound scenario and both cases")
     if observations["schema"] != SCHEMA or observations["fixtureSha256"] != authored["fixtureSha256"]:
         raise ValueError("plan observations differ from the authored fixture")
+    if any(key in observations and observations[key] != authored[key] for key in ("operation", "tool")):
+        raise ValueError("plan observation metadata differs from the authored operation")
     cases = observations["cases"]
     if not isinstance(cases, list) or len(cases) != 2:
         raise ValueError("plan observations are missing or duplicated")

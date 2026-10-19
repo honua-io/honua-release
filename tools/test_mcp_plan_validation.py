@@ -3,6 +3,8 @@ import copy
 import importlib.util
 import json
 from pathlib import Path
+import subprocess
+import sys
 
 import pytest
 
@@ -128,4 +130,27 @@ def test_expected_wkb_violation_cannot_hide_an_unrelated_diagnosis(violation):
     value = observations()
     value["cases"][1]["result"]["structuredContent"]["violations"].append(violation)
     with pytest.raises(ValueError, match="unrelated"):
+        PLAN.judge(FIXTURE, value)
+
+
+def test_emitted_cli_scenario_roundtrips_with_only_retained_results_added(tmp_path):
+    command = [sys.executable, "-I", "-B", str(HERE / "mcp_plan_validation.py"), "--fixture", str(HERE / "fixture.v1.json")]
+    emitted = json.loads(subprocess.run(command, check=True, capture_output=True, text=True).stdout)
+    for case, observed in zip(emitted["cases"], observations()["cases"], strict=True):
+        case["result"] = observed["result"]
+    path = tmp_path / "retained.json"
+    path.write_text(json.dumps(emitted))
+    judged = json.loads(subprocess.run(command + ["--observations", str(path)], check=True, capture_output=True, text=True).stdout)
+    assert judged["positive"] is True and judged["negative"] is True and judged["mediaSchema"] is True
+
+
+@pytest.mark.parametrize("mutation", ["wrong-operation", "wrong-tool", "partial-metadata"])
+def test_roundtrip_metadata_cannot_redirect_the_authored_scenario(mutation):
+    value = PLAN.scenario(FIXTURE)
+    for case, observed in zip(value["cases"], observations()["cases"], strict=True):
+        case["result"] = observed["result"]
+    if mutation == "wrong-operation": value["operation"] = "tools/call:execute_plan"
+    elif mutation == "wrong-tool": value["tool"] = "honua_execute_plan"
+    else: value.pop("operation")
+    with pytest.raises(ValueError):
         PLAN.judge(FIXTURE, value)
