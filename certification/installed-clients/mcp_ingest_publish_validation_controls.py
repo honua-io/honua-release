@@ -22,19 +22,22 @@ def rebind(value):
 
 def controls():
     authored = validation.scenario(FIXTURE, bootstrap(), "abcdef123456", "Official MCP TypeScript SDK")
-    ingested = {"success": True, "datasetName": authored["datasetName"], "rowCount": 6, "connectionId": "allocated-connection",
+    ingested = {"success": True, "datasetName": authored["datasetName"], "rowCount": 6, "connectionId": "22222222-2222-4222-8222-222222222222",
         "schema": "honua_data", "table": "imported_" + authored["datasetName"], "srid": 4326, "geometryColumn": "geometry",
         "primaryKey": "id", "warnings": [], "rowErrors": [], "errorCode": None, "errorMessage": None}
     args = validation.publish_arguments(ingested, authored)
     published = {"status": "Completed", "requiresApproval": False, "operationId": "service.publish", "serviceName": authored["serviceName"],
         "serviceUri": "honua://published-services/" + authored["serviceName"], "layerId": "741", "metadataRevision": 123,
-        "operationInstanceId": "controlled-operation", "handleId": "controlled-handle"}
+        "operationInstanceId": "controlled-operation", "handleId": "controlled-operation"}
     rows = [{"id": index + 11, **row, "srid": 4326} for index, row in enumerate(authored["expectedRows"])]
     persisted = {"schema": "honua.mcp-ingest-persisted/v1", "tuple": {key: ingested[key] for key in ("connectionId", "schema", "table", "geometryColumn", "primaryKey")},
         "rows": rows, "publication": {"serviceId": "metadata-service-7", "serviceName": published["serviceName"], "layerId": 0,
             "storageLayerId": 741, "locator": "honua_data." + ingested["table"], "connectionId": ingested["connectionId"]}, "revision": 123}
     invalid = envelope({"status": "error", "code": "invalid_argument", "message": "Controlled invalid ingest"}, True)
-    notfound = envelope({"status": "error", "code": "not_found", "message": "Controlled missing table"}, True)
+    notfound = envelope({"status": "Failed", "requiresApproval": False, "operationId": "service.publish",
+        "operationInstanceId": "controlled-missing-operation", "handleId": "controlled-missing-operation", "correlationId": "controlled-missing-correlation",
+        "message": "Error: Table 'honua_data.__missing_" + authored["datasetName"] + "' was not found.",
+        "resourceIds": {}, "details": {}})
     denied = envelope({"status": "error", "code": "unauthenticated", "message": "Controlled unauthenticated",
         "requiresReauthentication": True, "error": {"kind": "AuthorizationDenied", "message": "Controlled unauthenticated"}}, True)
     cases = []
@@ -94,6 +97,14 @@ class IngestPublishControls(unittest.TestCase):
             "replacement-publish-tuple": lambda x: x["cases"][2]["params"]["arguments"].update(table="working_replacement"),
             "invalid-ingest-success": lambda x: x["cases"][1].update(result=copy.deepcopy(x["cases"][0]["result"])),
             "invalid-publish-success": lambda x: x["cases"][3].update(result=copy.deepcopy(x["cases"][2]["result"])),
+            "failed-publish-reused-id": lambda x: replace_output(x["cases"][3], lambda y: y.update(operationInstanceId="controlled-operation", handleId="controlled-operation")),
+            "failed-publish-wrong-reason": lambda x: replace_output(x["cases"][3], lambda y: y.update(message="Unrelated authorization refusal")),
+            "failed-publish-created-layer": lambda x: replace_output(x["cases"][3], lambda y: y.update(layerId="741")),
+            "failed-publish-proposal": lambda x: replace_output(x["cases"][3], lambda y: y.update(proposalId="unexpected-proposal")),
+            "failed-publish-job": lambda x: replace_output(x["cases"][3], lambda y: y.update(jobId="unexpected-job")),
+            "failed-publish-revision": lambda x: replace_output(x["cases"][3], lambda y: y.update(metadataRevision=124)),
+            "failed-publish-resources": lambda x: replace_output(x["cases"][3], lambda y: y.update(resourceIds={"serviceName":"unexpected"})),
+            "replaced-ingest-table": lambda x: replace_output(x["cases"][0], lambda y: y.update(table="other_existing_table")),
             "anonymous-ingest-success": lambda x: x["cases"][4].update(result=copy.deepcopy(x["cases"][0]["result"])),
             "anonymous-publish-success": lambda x: x["cases"][5].update(result=copy.deepcopy(x["cases"][2]["result"])),
             "missing-read": lambda x: x["reads"].pop(1),
@@ -122,6 +133,20 @@ class IngestPublishControls(unittest.TestCase):
                 with self.assertRaises(ValueError):
                     validation.judge(FIXTURE, bootstrap(), value)
 
+    def test_named_selector_with_null_canonical_binding_stays_unproved(self):
+        value = controls()
+        authored = validation.scenario(FIXTURE, bootstrap(), value["nonce"], value["canonicalClient"])
+        ingested = value["cases"][0]["result"]["structuredContent"]
+        published = value["cases"][2]["result"]["structuredContent"]
+        ingested["connectionId"] = "valid-caller-connection-name"
+        snapshot = value["snapshots"]["before"]
+        snapshot["tuple"]["connectionId"] = ingested["connectionId"]
+        snapshot["publication"]["connectionId"] = None
+        # The caller selector is preserved; a known harness GUID is not used
+        # to manufacture a persisted binding the server did not return/store.
+        with self.assertRaisesRegex(ValueError, "named connection selector"):
+            validation.snapshot_output(snapshot, ingested, published, authored)
+
     def test_observer_keeps_storage_and_public_ids_distinct_in_one_snapshot(self):
         value = controls()
         expected = value["snapshots"]["before"]
@@ -136,6 +161,7 @@ class IngestPublishControls(unittest.TestCase):
         self.assertIn("active.revision", calls[0])
         self.assertNotIn("SELECT DISTINCT", calls[0])
         self.assertIn("pub->>'publicationType'='esri-feature-layer'", calls[0])
+        self.assertIn("pub->>'resourceId'=binding->>'resourceId'", calls[0])
         self.assertIn("ST_AsGeoJSON", calls[0])
         self.assertEqual(observed, expected)
 

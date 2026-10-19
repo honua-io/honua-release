@@ -63,3 +63,19 @@ credentials must advertise the target exactly once before its real tools/call.
 Missing/unsupported views and local discovery refusal remain nonpass. The producer
 never substitutes a catalog or borrows the authenticated full export for anonymous
 invocation. Existing map-package anonymous discovery behavior is unchanged.
+
+
+Missing-table publication is checked as its own typed Failed operation handle
+inside a successful MCP tool-result envelope. Its reason must identify the actual
+missing source table, its handle must be distinct from the completed operation,
+and it must carry no created layer/service/revision, proposal, approval or job
+identity. A transport-success/CLI0 outcome cannot make Failed mean Completed.
+Short owned import names must retain their actual imported_ table identity.
+
+Connection names are valid caller selectors; they are not registry GUIDs.
+The positive persisted-binding control uses an actual GUID. A named selector with
+no independently resolved canonical/default-catalog binding remains explicitly
+unproved; the producer does not substitute the bootstrap connection ID or call
+that missing observer proof a runtime regression. Actual returned selectors and
+partial results remain retained. Independent alias/default-catalog provenance,
+queued publication and exact-candidate qualification remain open under issue699.

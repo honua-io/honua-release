@@ -40,7 +40,8 @@ def snapshot(fixture_bytes, bootstrap, observations, *, execute):
         "CROSS JOIN LATERAL jsonb_array_elements(snapshot.document->'storageBindings') binding "
         "WHERE svc#>>'{metadata,name}'=" + literal(published["serviceName"]) + " AND pub->>'serviceId'=svc#>>'{metadata,id}' "
         "AND pub->>'publicationType'='esri-feature-layer' AND pub->>'isPrimary'='true' "
-        "AND pub->>'storageBindingId'=binding#>>'{metadata,id}'), "
+        "AND pub->>'storageBindingId'=binding#>>'{metadata,id}' "
+        "AND pub->>'resourceId'=binding->>'resourceId'), "
         f'rows AS (SELECT "{primary}" AS id, properties, ST_AsGeoJSON("{geometry}")::json AS geometry, '
         f'ST_SRID("{geometry}") AS srid FROM "{schema}"."{table}") '
         "SELECT json_build_object('rows',COALESCE((SELECT json_agg(row_to_json(rows) ORDER BY id) FROM rows),'[]'::json),"

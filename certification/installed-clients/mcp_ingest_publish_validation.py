@@ -52,6 +52,8 @@ def ingest_output(result, authored):
     if (value.get("success") is not True or value.get("datasetName") != authored["datasetName"]
             or type(value.get("rowCount")) is not int or value["rowCount"] != len(authored["expectedRows"])
             or value.get("srid") != 4326 or type(value.get("srid")) is not int
+            or value.get("table") != "imported_" + authored["datasetName"]
+            or value.get("geometryColumn") != "geometry" or value.get("primaryKey") != "id"
             or value.get("warnings") != [] or value.get("rowErrors") != []
             or value.get("errorCode") is not None or value.get("errorMessage") is not None
             or not isinstance(value.get("connectionId"), str) or not value["connectionId"]
@@ -76,8 +78,27 @@ def publish_output(result, authored):
             or not isinstance(value.get("layerId"), str) or not re.fullmatch(r"0|[1-9][0-9]{0,9}", value["layerId"])
             or int(value["layerId"]) >= 2147483647
             or type(value.get("metadataRevision")) is not int or value["metadataRevision"] <= 0
-            or any(not isinstance(value.get(key), str) or not value[key] for key in ("operationInstanceId", "handleId"))):
+            or any(not isinstance(value.get(key), str) or not value[key] for key in ("operationInstanceId", "handleId"))
+            or value["handleId"] != value["operationInstanceId"]):
         raise ValueError("publication is incomplete, queued, approval-pending, or lost its exact returned identity")
+    return value
+
+
+def failed_publication(result, arguments, completed):
+    # service.publish validation returns a Failed operation handle inside a
+    # successful MCP transport result. It is not a resource RPC/tool error.
+    value = json_tool_output(result)
+    if (value.get("status") != "Failed" or value.get("requiresApproval") is not False
+            or value.get("operationId") != "service.publish"
+            or any(not isinstance(value.get(key), str) or not value[key] for key in ("operationInstanceId", "handleId", "correlationId"))
+            or value["handleId"] != value["operationInstanceId"]
+            or value["operationInstanceId"] == completed["operationInstanceId"]
+            or not isinstance(value.get("message"), str)
+            or arguments["schema"] + "." + arguments["table"] not in value["message"]
+            or "not found" not in value["message"].lower()
+            or any(value.get(key) is not None for key in ("serviceName", "serviceUri", "layerId", "metadataRevision", "proposalId", "jobId", "approvalLane"))
+            or value.get("resourceIds") != {} or value.get("details") not in ({}, {"errorKind": "not-found"})):
+        raise ValueError("invalid publication lacks its own Failed handle or carries a created/proposed/queued identity")
     return value
 
 
@@ -134,6 +155,11 @@ def snapshot_output(value, ingested, published, authored):
     if not same_json(by_gid, expected):
         raise ValueError("persisted attributes or geometry differ from the authored source")
     pub = value["publication"]
+    # Names are supported caller selectors, not canonical registry GUIDs. Until
+    # independent alias/default-catalog resolution is retained, that path is
+    # unproved; never substitute the bootstrap's known connection identity.
+    if not re.fullmatch(r"[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}", ingested["connectionId"]):
+        raise ValueError("named connection selector needs independent canonical/default-catalog binding proof")
     if (not isinstance(pub, dict) or set(pub) != {"serviceId", "serviceName", "layerId", "storageLayerId", "locator", "connectionId"}
             or pub["serviceName"] != published["serviceName"] or pub["storageLayerId"] != int(published["layerId"])
             or type(pub["layerId"]) is not int or not 0 <= pub["layerId"] < 2147483647 or type(pub["storageLayerId"]) is not int
@@ -290,7 +316,7 @@ def judge(fixture_bytes, bootstrap, observations):
     args = publish_arguments(ingested, authored)
     published = publish_output(tool(cases[2], "honua_publish_service", args), authored)
     bad = {**args, "table": "__missing_" + authored["datasetName"]}
-    negative_output(tool(cases[3], "honua_publish_service", bad), "not_found")
+    failed_publication(tool(cases[3], "honua_publish_service", bad), bad, published)
     for case, name, arguments in ((cases[4], "honua_ingest_dataset", authored["ingestArguments"]), (cases[5], "honua_publish_service", args)):
         anonymous_tool_refusal(tool(case, name, arguments, False))
     snapshots = observations["snapshots"]
