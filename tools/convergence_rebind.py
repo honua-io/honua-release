@@ -342,6 +342,52 @@ def project_canonical_client_applicability(root: Path) -> tuple[str, bytes]:
     return path, (json.dumps(policy, indent=2) + "\n").encode()
 
 
+def project_h3_production_gap(root: Path) -> tuple[str, bytes]:
+    """Own the reviewed H3 HTTP source gap without inventing a producer or algorithm gate."""
+    path = "certification/sources/protocol-certification-production.v1.json"
+    original = (root / path).read_bytes()
+    production = json.loads(original)
+    matrix = load_json(root, Path("certification/sources/server/capability-matrix.v1.json"))
+    capabilities = [row for row in matrix["capabilities"] if row["key"] == "analytics.h3"]
+    if len(capabilities) > 1:
+        raise Finding("candidate matrix repeats analytics.h3")
+    if (not capabilities or not capabilities[0].get("maturity", {}).get("implemented")
+            or capabilities[0].get("status") in {"preview", "roadmap", "experimental", "internal"}):
+        return path, original
+    if capabilities[0].get("status") not in {None, "supported", "implemented", "deprecated"}:
+        raise Finding("H3 HTTP source maturity has no reviewed production disposition")
+    harness = load_json(root, Path("certification/sources/server/protocol-harness-assignments.v1.json"))
+    if any(row["capability_key"] == "analytics.h3" for row in harness["assignments"]):
+        return path, original
+    lane = "protocol-harness-gap-analytics-h3"
+    expected = {
+        "client_lanes": [lane], "owner": "honua-io/honua-release",
+        "issue": "https://github.com/honua-io/honua-release/issues/360",
+        "missing_producer": (
+            "The selected source lacks an H3 HTTP adapter assignment for candidate-bound production. "
+            "https://github.com/honua-io/honua-server/issues/6042 supplies source-host evidence for four "
+            "existing public HTTP adapters, not execution against this candidate image. Normal source "
+            "convergence and actual candidate receipts remain required. This disposition does not add "
+            "h3-pg computation, warehouse pushdown or other Later/2026.2 algorithms to the release gate."
+        ),
+    }
+    owners = []
+    for kind in ("producers", "unproduced"):
+        for entry in production[kind]:
+            if any(fnmatch.fnmatchcase(lane, pattern) for pattern in entry.get("except_client_lanes", [])):
+                continue
+            if (any(fnmatch.fnmatchcase(lane, pattern) for pattern in entry.get("client_lanes", []))
+                    or "local-docker" in entry.get("deployment_targets", [])):
+                owners.append((kind, entry))
+    if owners:
+        if owners != [("unproduced", expected)]:
+            raise Finding("H3 HTTP gap conflicts with reviewed unproduced production ownership")
+        return path, original
+    production["unproduced"].append(expected)
+    production["revision"] += "+h3-http-gap-v1"
+    return path, (json.dumps(production, indent=2) + "\n").encode()
+
+
 def run_catalog(root: Path, receipt_min: str) -> None:
     generator = root / "certification/generate-protocol-requirements.py"
     text = generator.read_text(encoding="utf-8")
@@ -377,6 +423,8 @@ def prepare(root: Path, gh: GitHub, receipt_min_arg: str) -> tuple[dict[str, Any
         (trial / assignments_path).write_bytes(assignments_bytes)
         applicability_path, applicability_bytes = project_canonical_client_applicability(trial)
         (trial / applicability_path).write_bytes(applicability_bytes)
+        production_path, production_bytes = project_h3_production_gap(trial)
+        (trial / production_path).write_bytes(production_bytes)
         run_catalog(trial, receipt_min)
         new_catalog_bytes = (trial / CATALOG).read_bytes()
         new_generator_bytes = (trial / "certification/generate-protocol-requirements.py").read_bytes()
@@ -423,9 +471,16 @@ def prepare(root: Path, gh: GitHub, receipt_min_arg: str) -> tuple[dict[str, Any
         "removed": [row for row in load_json(root, Path(applicability_path))["decisions"]
                     if row not in json.loads(applicability_bytes)["decisions"]],
     }
+    plan["production_gap_ownership"] = {
+        "path": production_path,
+        "added": [row for row in json.loads(production_bytes)["unproduced"]
+                  if row not in load_json(root, Path(production_path))["unproduced"]],
+        "meaning": "Unproduced source/candidate convergence only; never a producer or pass receipt",
+    }
     payloads = dict(snapshots)
     payloads[assignments_path] = assignments_bytes
     payloads[applicability_path] = applicability_bytes
+    payloads[production_path] = production_bytes
     revised = copy.deepcopy(source_doc)
     for name, pin in pins.items(): revised["sources"][name]["commit"] = pin
     payloads[str(REVISIONS)] = (json.dumps(revised, indent=2) + "\n").encode()
@@ -455,6 +510,11 @@ def human(plan: dict[str, Any], root: Path = ROOT) -> str:
         lines += ["", f"Canonical client applicability: {applicability['path']}",
                   f"  added decisions: {json.dumps(applicability['added'], sort_keys=True)}",
                   f"  removed decisions: {json.dumps(applicability['removed'], sort_keys=True)}"]
+    ownership = plan.get("production_gap_ownership")
+    if ownership:
+        lines += ["", f"Production gap ownership: {ownership['path']}",
+                  f"  added unproduced dispositions: {json.dumps(ownership['added'], sort_keys=True)}",
+                  f"  {ownership['meaning']}"]
     lines += ["", "Apply mode stages the catalog; the workflow then aggregates, verifies, and finalizes one review PR. Repository variables activate automatically only after merge."]
     return "\n".join(lines)
 
