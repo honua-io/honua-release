@@ -12,6 +12,28 @@ Implementation status, remaining runtime work and operational commands are in
 [IMPLEMENTATION.md](IMPLEMENTATION.md). The active pack and receipt contracts are
 v2; historical v1 files remain for inspection and do not qualify a v2 campaign.
 
+## Controller fixture setup transport
+
+`tools/agent_e2e_setup_http.py` supplies bounded JSON requests and create-only
+GeoJSON uploads for controller fixture setup. It is separate from the worker's
+MCP transport and must never be included in a worker's exported material.
+
+The caller supplies the candidate/attempt identity, current lease and budget
+authorization, and durable create-only retention. Retention must reject an
+existing step key, including identical intent bytes, and acknowledge each exact
+value with a nonempty `key` and its canonical `sha256`. Persisted intent prevents
+resending after a lost HTTP reply or retention acknowledgement; a fresh controller
+must reconcile the observed resource instead. Setup never provisions infrastructure
+or overwrites an existing import target. The caller enforces its hard action
+deadline around the transport's bounded I/O.
+
+Credentials are environment references, never retained request URL parameters.
+Responses are bounded and checked for raw/escaped private values before retaining
+their exact bytes and digest. Redirects and ambient proxy settings are refused.
+The component's loopback transport tests run in the existing agent-contract CI
+suite. They do not qualify a live scenario: backend orchestration, independent
+observations, cleanup and campaign evidence remain tracked by issue 623.
+
 ## Custody and exposure
 
 Never mount this directory, the release checkout, or a controller evidence directory
