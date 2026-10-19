@@ -39,6 +39,8 @@ on:
   pull_request:
     paths:
       - "certification/executable-docs/**"
+      - "docs/INSTALL-2026.1.md"
+      - "docs/CUSTOMER-INSTALL.md"
       - "certification/sdk-publication-replay/**"
       - ".github/workflows/gate-executable-docs.yml"
       - "e2e/harness/boot.sh"
