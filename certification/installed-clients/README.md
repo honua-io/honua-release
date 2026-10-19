@@ -242,3 +242,12 @@ existing executable/no-approval and actionable invalid-WKB oracles. It performs
 no transport calls or job submission and emits no certification receipt itself.
 Client, candidate, source, tier and global behavior admission remain the caller's
 responsibility; proxy observations cannot substitute for canonical-client proof.
+
+The release-owned `mcp_plan_validation.mjs` module executes the authored
+valid/invalid plan pair through a caller-provided installed-client callback. It
+retains raw observations even when the transport or pure Python oracle refuses,
+rechecks helper/fixture SHA256 before every oracle execution, and rejudges proof
+against the exact candidate source. Canonical producers fetch all three files
+from protected immutable release history; the specification repository only
+bridges its existing client adapters and consumes this resulting evidence.
+This scenario validates a plan and never submits a geoprocessing job.
