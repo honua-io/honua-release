@@ -145,10 +145,25 @@ def snapshot_output(value, ingested, published, authored):
 
 
 def query_output(result, published, snapshot):
-    value = json_tool_output(result)
+    # QueryFeaturesTool deliberately puts a prose summary in text content and
+    # the complete typed feature representations in structuredContent.
+    if (not isinstance(result, dict) or result.get("isError", False) is not False
+            or not isinstance(result.get("structuredContent"), dict)
+            or not isinstance(result.get("content"), list) or len(result["content"]) != 1):
+        raise ValueError("fresh query lacks its structured result and text summary")
+    value = result["structuredContent"]
+    text = result["content"][0]
+    if (not isinstance(text, dict) or set(text) != {"type", "text"} or text["type"] != "text"
+            or not isinstance(text["text"], str) or not 0 < len(text["text"]) <= 16384):
+        raise ValueError("fresh query contains unrelated or missing summary media")
+    if text["text"].lstrip().startswith(("{", "[")) and not same_json(strict_json(text["text"]), value):
+        raise ValueError("fresh query has conflicting JSON/text representations")
+    if "geojson" in value and "geoJson" in value and not same_json(value["geojson"], value["geoJson"]):
+        raise ValueError("fresh query has conflicting GeoJSON aliases")
     collection = value.get("geojson", value.get("geoJson"))
     if (not isinstance(collection, dict) or collection.get("type") != "FeatureCollection"
             or not isinstance(collection.get("features"), list)
+            or value.get("serviceId") != snapshot["publication"]["serviceId"]
             or type(value.get("layerId")) is not int or value["layerId"] != snapshot["publication"]["layerId"]
             or value.get("returnedCount") != len(snapshot["rows"]) or type(value.get("returnedCount")) is not int
             or value.get("exceededTransferLimit") is not False or len(collection["features"]) != len(snapshot["rows"])):
@@ -166,6 +181,19 @@ def query_output(result, published, snapshot):
                 or not same_json(feature.get("geometry"), row["geometry"])):
             raise ValueError("fresh query changed an authored feature, attribute or geometry")
         seen.add(identifier)
+    projected = value.get("features")
+    if not isinstance(projected, list) or len(projected) != len(expected):
+        raise ValueError("fresh query lacks its second typed feature representation")
+    seen = set()
+    for feature in projected:
+        if not isinstance(feature, dict) or set(feature) != {"id", "attributes", "geometry"} or type(feature["id"]) is not int:
+            raise ValueError("fresh query second feature representation is malformed")
+        row = expected.get(feature["id"])
+        if (row is None or feature["id"] in seen or not isinstance(feature["attributes"], dict)
+                or any(not same_json(feature["attributes"].get(key), item) for key, item in row["properties"].items())
+                or not same_json(feature["geometry"], row["geometry"])):
+            raise ValueError("fresh query typed attributes/geometry conflict with the persisted authored feature")
+        seen.add(feature["id"])
 
 
 def invocation_wire(wire, method, params, authenticated, canonical_client):
