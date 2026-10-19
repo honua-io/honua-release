@@ -221,6 +221,49 @@ class IngestPublishControls(unittest.TestCase):
                     with self.assertRaises(ValueError):
                         validation.invocation_wire(changed, "tools/call", entry["params"], authenticated, "MCP Inspector")
 
+    def test_complete_bounded_catalog_chain_and_limit_controls(self):
+        entry = controls()["cases"][0]
+        def observed(count):
+            wire = copy.deepcopy(entry["wire"])
+            pages = []
+            for index in range(count):
+                params = {"_meta": {"honua.io/workflow-view": "full"}}
+                if index:
+                    params["cursor"] = f"cursor-{index}"
+                result = {"tools": [{"name": "honua_ingest_dataset" if index == count - 1 else f"other-{index}",
+                                     "inputSchema": {"type": "object"}}]}
+                if index < count - 1:
+                    result["nextCursor"] = f"cursor-{index + 1}"
+                catalog, _, _ = control_wire("tools/list", params, result, 99, True)
+                page = catalog["invocation"]
+                page["request"].update(id=index + 2, sessionSha256=wire["initialize"]["response"]["sessionSha256"])
+                page["request"].update(encoded_body({key: page["request"][key] for key in ("jsonrpc", "id", "method", "params")}))
+                page["response"].update(encoded_body({"jsonrpc": "2.0", "id": index + 2, "result": result}))
+                pages.append(page)
+            wire["discovery"] = pages
+            return wire
+        for count in (9, 32):
+            validation.invocation_wire(observed(count), "tools/call", entry["params"], True, "MCP Inspector")
+        for mutation in ("limit", "wrong-cursor", "repeated-cursor", "duplicate-id", "terminal-then-more", "truncated"):
+            with self.subTest(mutation=mutation):
+                wire = observed(33 if mutation == "limit" else 9)
+                page = wire["discovery"][1]
+                if mutation == "wrong-cursor":
+                    page["request"]["params"]["cursor"] = "unrelated"
+                elif mutation == "duplicate-id":
+                    page["request"]["id"] = wire["discovery"][0]["request"]["id"]
+                if mutation in ("wrong-cursor", "duplicate-id"):
+                    page["request"].update(encoded_body({key: page["request"][key] for key in ("jsonrpc", "id", "method", "params")}))
+                elif mutation in ("repeated-cursor", "terminal-then-more", "truncated"):
+                    index = -1 if mutation == "truncated" else 1
+                    page = wire["discovery"][index]
+                    result = {"tools": [{"name": "honua_ingest_dataset" if index == -1 else "other", "inputSchema": {}}]}
+                    if mutation != "terminal-then-more":
+                        result["nextCursor"] = "cursor-1" if mutation == "repeated-cursor" else "not-followed"
+                    page["response"].update(encoded_body({"jsonrpc": "2.0", "id": page["request"]["id"], "result": result}))
+                with self.assertRaises(ValueError):
+                    validation.invocation_wire(wire, "tools/call", entry["params"], True, "MCP Inspector")
+
     def test_actual_wire_auth_session_launch_and_response_controls(self):
         mutations = {
             "missing-observation": lambda x: x["reads"][0].update(wire=None),

@@ -64,6 +64,15 @@ Missing/unsupported views and local discovery refusal remain nonpass. The produc
 never substitutes a catalog or borrows the authenticated full export for anonymous
 invocation. Existing map-package anonymous discovery behavior is unchanged.
 
+Retained real run39221223302 showed that the historical server's authenticated
+full catalog continues after eight 12-tool pages. Inspector must finish its own
+catalog traversal before invoking a tool. The observer therefore retains at most
+32 pages, with the existing 2MiB per-response and 8MiB total byte limits unchanged.
+The pure judge requires a complete cursor chain, distinct request IDs, no repeated
+cursor, the same session/credential/view and exactly one advertised target. A
+33rd page, an unfinished chain or a discovery refusal earns no invocation credit.
+Offline forwarding and oracle controls are not installed-client qualification.
+
 
 Missing-table publication is checked as its own typed Failed operation handle
 inside a successful MCP tool-result envelope. Its reason must identify the actual

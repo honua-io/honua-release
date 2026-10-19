@@ -6,6 +6,9 @@ import { isDeepStrictEqual } from "node:util";
 import { gunzipSync, inflateSync } from "node:zlib";
 
 const LIMIT = 2 * 1024 * 1024;
+// The real full catalog already exceeds eight 12-tool pages. Keep its
+// observation bounded independently of the unchanged per/total byte limits.
+const DISCOVERY_PAGES = 32;
 const upstream = new URL("http://127.0.0.1:8080/mcp");
 const hash = (bytes) => `sha256:${createHash("sha256").update(bytes).digest("hex")}`;
 const id = (value) => (typeof value === "string" && value.length > 0 && value.length <= 256)
@@ -60,7 +63,7 @@ export async function observeCandidateRequest({ method, params, authenticated, c
             || incoming.headers["mcp-session-id"] !== undefined) refusal();
         record = observed.initialize = retained(body, message, incoming);
       } else if (observeDiscovery && message?.method === "tools/list") {
-        if (!observed.initialize || observed.invocation || !id(message.id) || message.jsonrpc !== "2.0" || observed.discovery.length >= 8) refusal();
+        if (!observed.initialize || observed.invocation || !id(message.id) || message.jsonrpc !== "2.0" || observed.discovery.length >= DISCOVERY_PAGES) refusal();
         record = retained(body, message, incoming); observed.discovery.push(record);
       } else if (message?.method === method) {
         if (observed.invocation || !id(message.id) || message.jsonrpc !== "2.0" || !observed.initialize
