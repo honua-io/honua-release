@@ -18,6 +18,10 @@ The local provider supports EPSG:4326 only. Batch geocoding checks ordered,
 trimmed inputs, a duplicate input, a real unmatched address, per-item failures,
 and exact success/failure counts. It refuses omitted entries and external or
 mock provider output.
+Single-address calls also check included, excluded and mixed-case multiple
+country restrictions before the one-result bound; the batch exclusion must
+retain four clean per-item failures. An accepted but ignored `countryCodes`
+parameter is a qualification failure, even if the other positive calls work.
 
 Routing requires the pgRouting provider and three ordered stops along the
 reviewed lattice. The oracle checks four real legal edges, the intermediate

@@ -32,17 +32,21 @@ def responses(operation):
                      {"address": "1 Microsoft Way, Redmond, WA 98052", "x": -122.1298, "y": 47.6396,
                       "score": 95, "srid": 4326, "matchLevel": "approximate", "addressType": "PointAddress"}][index]
             result.append(output({"provider": "local", "candidates": [value]}))
-        elif kind == "batch":
+        elif kind == "single-empty":
+            result.append(output({"provider": "local", "candidates": []}))
+        elif kind in ("batch", "batch-empty"):
             entries = []
             expected = [("1 Microsoft Way, Redmond, WA 98052", -122.1298, 47.6396), None,
                         ("380 New York St, Redlands, CA 92373", -117.1956, 34.0566),
                         ("1 Microsoft Way, Redmond, WA 98052", -122.1298, 47.6396)]
+            if kind == "batch-empty": expected = [None] * 4
             for query, found in zip(case["arguments"]["addresses"], expected, strict=True):
                 entries.append({"input": query.strip(), "ok": found is not None, "error": None if found else "No match found for the address.",
                     "location": {"x": found[1], "y": found[2], "srid": 4326} if found else None,
                     "matchedAddress": found[0] if found else None, "score": 95 if found else None,
                     "provider": "local" if found else None, "matchLevel": "approximate" if found else None})
-            result.append(output({"results": entries, "succeeded": 3, "failed": 1, "srid": 4326}))
+            result.append(output({"results": entries, "succeeded": 0 if kind == "batch-empty" else 3,
+                                  "failed": 4 if kind == "batch-empty" else 1, "srid": 4326}))
         elif kind == "route":
             path = [[0, 0], [0.01, 0], [0.02, 0], [0.02, 0.01], [0.02, 0.02]]
             if case["arguments"]["outSrid"] == 3857:
@@ -118,6 +122,18 @@ class LocationControls(unittest.TestCase):
                 else: rows[0]["provider"] = "nominatim"
                 sync(item)
                 with self.assertRaises(ValueError): validation.judge(FIXTURE, bootstrap(), bind(value), operation)
+
+    def test_accepted_but_ignored_country_filter_is_not_success(self):
+        for operation in validation.OPERATIONS[:2]:
+            with self.subTest(operation=operation):
+                value = observations(operation)
+                excluded = next(c for c in value["cases"] if c["id"] == "excluded-country")
+                excluded["result"] = copy.deepcopy(value["cases"][0]["result"])
+                with self.assertRaises(ValueError): validation.judge(FIXTURE, bootstrap(), bind(value), operation)
+        value = observations(validation.OPERATIONS[0])
+        included = next(c for c in value["cases"] if c["id"] == "included-country")
+        included["result"] = output({"provider": "local", "candidates": []})
+        with self.assertRaises(ValueError): validation.judge(FIXTURE, bootstrap(), bind(value), validation.OPERATIONS[0])
 
     def test_route_network_cost_crs_direction_and_distance_refuse(self):
         operation = validation.OPERATIONS[2]

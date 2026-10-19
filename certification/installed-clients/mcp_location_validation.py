@@ -58,6 +58,9 @@ def scenario(fixture, bootstrap, operation):
         base = {"address": ADDRESSES[0]["query"], "provider": "local", "maxResults": 1, "outSrid": 4326}
         case("redlands", base, "single:0")
         case("redmond", base | {"address": ADDRESSES[1]["query"]}, "single:1")
+        case("included-country", base | {"countryCodes": "US"}, "single:0")
+        case("mixed-countries", base | {"countryCodes": "ca, US"}, "single:0")
+        case("excluded-country", base | {"countryCodes": "CA"}, "single-empty")
         case("zero-limit", base | {"maxResults": 0})
         case("above-limit", base | {"maxResults": 51})
         case("empty-address", base | {"address": "  "})
@@ -67,6 +70,7 @@ def scenario(fixture, bootstrap, operation):
                               ADDRESSES[0]["query"], ADDRESSES[1]["query"]],
                 "provider": "local", "outSrid": 4326}
         case("ordered-partial", base, "batch")
+        case("excluded-country", base | {"countryCodes": "CA"}, "batch-empty")
         case("empty-batch", base | {"addresses": []})
         case("above-limit", base | {"addresses": [ADDRESSES[0]["query"]] * 101})
         case("empty-item", base | {"addresses": [ADDRESSES[0]["query"], " "]})
@@ -113,13 +117,14 @@ def single_output(result, index):
     number(actual.get("score"), 1, 100)
 
 
-def batch_output(result, arguments):
+def batch_output(result, arguments, excluded=False):
     output = common.json_tool_output(result)
-    if (not common.same_json(output.get("succeeded"), 3) or not common.same_json(output.get("failed"), 1)
+    if (not common.same_json(output.get("succeeded"), 0 if excluded else 3)
+            or not common.same_json(output.get("failed"), 4 if excluded else 1)
             or not common.same_json(output.get("srid"), 4326)
             or not isinstance(output.get("results"), list) or len(output["results"]) != 4):
         raise ValueError("batch geocoding lost partial-failure counts or ordered entries")
-    for actual, query, index in zip(output["results"], arguments["addresses"], (1, None, 0, 1), strict=True):
+    for actual, query, index in zip(output["results"], arguments["addresses"], (None,)*4 if excluded else (1, None, 0, 1), strict=True):
         if not isinstance(actual, dict) or actual.get("input") != query.strip():
             raise ValueError("batch geocoding reordered, omitted or failed to trim an input")
         if index is None:
@@ -201,7 +206,11 @@ def judge(fixture, bootstrap, observed, operation):
         common.client_observation(actual["client"], frame, actual["wire"], observed["canonicalClient"], observed["clientVersion"])
         kind = expected["kind"]
         if kind.startswith("single:"): single_output(result, int(kind[-1]))
-        elif kind == "batch": batch_output(result, expected["arguments"])
+        elif kind == "single-empty":
+            output = common.json_tool_output(result)
+            if output.get("provider") != "local" or output.get("candidates") != []:
+                raise ValueError("local geocoding ignored excluded-country restriction")
+        elif kind in ("batch", "batch-empty"): batch_output(result, expected["arguments"], kind == "batch-empty")
         elif kind == "route": route_output(result, expected["arguments"])
         elif kind == "anonymous": common.anonymous_tool_refusal(result)
         else: negative_output(result, "invalid_argument")
