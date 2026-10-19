@@ -32,6 +32,13 @@ export function verifyInstalledClient(installationRoot, selector) {
     packageJsonSha256: `sha256:${files["package.json"]}`, entry: selected.entry, entrySha256: `sha256:${files[selected.entry]}` } };
 }
 
+export function inspectorToolArguments(name, arguments_) {
+  const pairs = Object.entries(arguments_).map(([key, value]) => `${key}=${JSON.stringify(value)}`);
+  // The public CLI requires at least one pair after --tool-arg; otherwise it
+  // consumes the following option (such as --metadata) as an invalid pair.
+  return ["--tool-name", name, ...(pairs.length ? ["--tool-arg", ...pairs] : [])];
+}
+
 export async function launchCanonicalClient({ installationRoot, selector, endpoint, method, params, authenticated, credential }) {
   const url = new URL(endpoint);
   if (url.protocol !== "http:" || url.hostname !== "127.0.0.1" || !url.port || url.pathname !== "/mcp"
@@ -44,7 +51,7 @@ export async function launchCanonicalClient({ installationRoot, selector, endpoi
   if (selector === "inspector") {
     args.push("--cli", url.href, "--transport", "http", "--method", method, "--format", "json", "--stored-auth-only");
     if (method === "tools/call") {
-      args.push("--tool-name", params.name, "--tool-arg", ...Object.entries(params.arguments).map(([key, value]) => `${key}=${JSON.stringify(value)}`));
+      args.push(...inspectorToolArguments(params.name, params.arguments));
       if (authenticated) args.push("--metadata", 'honua.io/workflow-view="full"');
       else if (["honua_ingest_dataset", "honua_publish_service", "honua_get_style", "honua_apply_style_preset"].includes(params.name)) {
         // These operations are explicitly advertised by the selected server's

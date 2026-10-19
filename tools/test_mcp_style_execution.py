@@ -12,6 +12,7 @@ def test_release_owned_style_semantics():
 
 
 def test_release_owned_style_source_and_rejudge_binding():
-    result = subprocess.run(["node", "--test", "certification/installed-clients/mcp_style_validation.test.mjs"],
+    result = subprocess.run(["node", "--test", "certification/installed-clients/mcp_style_validation.test.mjs",
+                             "certification/installed-clients/mcp_fixed_client_arguments.test.mjs"],
                             cwd=ROOT, capture_output=True, text=True, timeout=120)
     assert result.returncode == 0, result.stdout + result.stderr
