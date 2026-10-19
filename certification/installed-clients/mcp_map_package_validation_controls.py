@@ -270,7 +270,7 @@ class MapPackageControls(unittest.TestCase):
                 else: case["client"]["output"] = {"error": {"message": "local catalog refusal"}}
                 with self.assertRaises(ValueError): validation.judge(FIXTURE, bootstrap(), value)
 
-    def test_anonymous_tool_denial_refuses_success_unrelated_error_and_creation_effects(self):
+    def test_anonymous_tool_denial_refuses_success_unrelated_error_and_creation_fields_or_data(self):
         for name in ("success-flag", "wrong-code", "missing-reauth", "false-reauth", "creation-id", "creation-body", "nested-effect", "unrelated-error", "rpc-refusal"):
             with self.subTest(name=name):
                 value = observations(); result = value["cases"][3]["result"]; output = result["structuredContent"]

@@ -79,7 +79,9 @@ Anonymous `tools/call` creation must return the canonical tool result with
 `requiresReauthentication: true`, without package identity or creation data.
 Its text and structured representations must agree. This differs from the
 JSON-RPC refusal used by `resources/read`; neither can be substituted for the
-other or for local Inspector discovery failure.
+other or for local Inspector discovery failure. Refusing creation fields in a
+denied result does not prove absence of hidden persisted side effects; an
+independent state census or readback is a separate qualification obligation.
 
 The pure oracle correlates public client output with the original server wire
 response. Inspector 2.10.1 replaces numeric JSON-RPC error code/data with its
