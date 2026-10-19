@@ -2,6 +2,9 @@
 from __future__ import annotations
 
 import json
+import base64
+import hashlib
+import copy
 from pathlib import Path
 import subprocess
 import sys
@@ -11,6 +14,52 @@ import mcp_map_package_validation as validation
 from mcp_render_validation_controls import FIXTURE, bootstrap, runtime
 
 HERE = Path(__file__).resolve().parent
+CREDENTIAL = "controlled-private-key"
+
+
+def encoded_body(value):
+    body = json.dumps(value).encode()
+    return {"bodyBase64": base64.b64encode(body).decode(), "bodySha256": "sha256:" + hashlib.sha256(body).hexdigest()}
+
+
+def control_wire(method, params, result, position, authenticated):
+    fingerprint = "sha256:" + hashlib.sha256(CREDENTIAL.encode()).hexdigest()
+    session = "sha256:" + hashlib.sha256(f"controlled-session-{position}".encode()).hexdigest()
+    def request(identifier, selected, arguments, fresh):
+        frame = {"jsonrpc": "2.0", "id": identifier, "method": selected, "params": arguments}
+        return {**frame, **encoded_body(frame), "sessionSha256": None if fresh else session,
+                "credentialPresent": authenticated, "credentialSha256": fingerprint if authenticated else None,
+                "authorizationPresent": False, "cookiePresent": False}
+    def response(frame, initialize=False):
+        return {"status": 200, "contentType": "application/json", "contentEncoding": "", "sessionSha256": session if initialize else None,
+                "complete": True, "delivered": True, **encoded_body(frame)}
+    frame = {"jsonrpc": "2.0", "id": 1}
+    # Preserve even forbidden outer data in a controlled refusal: the semantic
+    # judge must reject it, rather than the fixture silently deleting the leak.
+    frame.update(copy.deepcopy(result) if isinstance(result, dict) and "error" in result else {"result": result})
+    wire = {"schema": "honua.mcp-candidate-wire/v1", "upstream": "http://127.0.0.1:8080/mcp", "listener": "http://127.0.0.1:43123/mcp",
+            "method": method, "expectedParams": params, "authenticated": authenticated, "expectedCredentialSha256": fingerprint,
+            "invalid": False, "completed": True,
+            "initialize": {"request": request(0, "initialize", {"protocolVersion": "2025-06-18", "capabilities": {},
+                "clientInfo": {"name": "controlled-installed-sdk", "version": "1.32.1"}}, True),
+                "response": response({"jsonrpc": "2.0", "id": 0, "result": {"protocolVersion": "2025-06-18", "capabilities": {},
+                    "serverInfo": {"name": "controlled", "version": "0.0.0"}}}, True)},
+            "invocation": {"request": request(1, method, params, False), "response": response(frame)}}
+    public = {"error": copy.deepcopy(frame["error"])} if "error" in frame else copy.deepcopy(frame["result"])
+    client = {"kind": "sdk", "canonicalClient": "Official MCP TypeScript SDK", "version": "1.32.1", "processId": 123,
+              "requestUrl": wire["listener"], "sessionSha256": session, "output": public}
+    return wire, client, frame if "error" in frame else frame["result"]
+
+
+def bind_controls(value):
+    """Make changed controlled server output agree with wire/client, so the
+    authored semantic oracle—not an earlier copied-response check—rejects it."""
+    value["canonicalClient"], value["clientVersion"] = "Official MCP TypeScript SDK", "1.32.1"
+    for position, case in enumerate(value["cases"]):
+        case["wire"], case["client"], case["result"] = control_wire("tools/call", {"name": "honua_create_map_package", "arguments": case["arguments"]}, case["result"], position, True)
+    for position, read in enumerate(value["reads"], 3):
+        read["wire"], read["client"], read["result"] = control_wire("resources/read", {"uri": read["uri"]}, read["result"], position, read["authenticated"])
+    return value
 
 
 def responses():
@@ -54,7 +103,7 @@ def observations():
                       for (name, selected, authenticated), result in zip([
                           ("fresh-created", uri, True), ("unknown-package", uri + "-uncreated", True),
                           ("anonymous-created", uri, False)], reads(), strict=True)]
-    return value
+    return bind_controls(value)
 
 
 def sync_text(value):
@@ -87,7 +136,7 @@ class MapPackageControls(unittest.TestCase):
                 elif name == "template": package["templateId"] = "ignored"
                 else: package["status"] = "Ready"
                 sync_text(value)
-                with self.assertRaises(ValueError): validation.judge(FIXTURE, bootstrap(), value)
+                with self.assertRaises(ValueError): validation.judge(FIXTURE, bootstrap(), bind_controls(value))
 
     def test_missing_conflicting_or_unrelated_success_media_refuses(self):
         for name in ("missing", "conflict", "image", "array", "not-json"):
@@ -98,7 +147,7 @@ class MapPackageControls(unittest.TestCase):
                 elif name == "image": result["content"].append({"type": "image", "data": "AA==", "mimeType": "image/png"})
                 elif name == "array": result["structuredContent"] = []
                 else: result["content"][0]["text"] = "not JSON"
-                with self.assertRaises(ValueError): validation.judge(FIXTURE, bootstrap(), value)
+                with self.assertRaises(ValueError): validation.judge(FIXTURE, bootstrap(), bind_controls(value))
 
     def test_new_uri_must_resolve_the_same_draft_with_no_deployment_credit(self):
         for name in ("missing", "id", "uri", "mime", "status", "count", "boolean-count", "edges", "kind"):
@@ -114,7 +163,7 @@ class MapPackageControls(unittest.TestCase):
                 elif name == "edges": payload["deploymentResourceUris"] = ["honua://deployments/imaginary"]
                 else: payload["packageKind"] = "app_package"
                 item["text"] = json.dumps(payload)
-                with self.assertRaises(ValueError): validation.judge(FIXTURE, bootstrap(), value)
+                with self.assertRaises(ValueError): validation.judge(FIXTURE, bootstrap(), bind_controls(value))
 
     def test_resource_refusals_require_server_codes_and_no_data(self):
         for index in (1, 2):
@@ -129,7 +178,7 @@ class MapPackageControls(unittest.TestCase):
                     elif name == "leak": result["contents"] = [{"text": "secret"}]
                     elif name == "nested-leak": result["error"]["data"]["record"] = {"secret": "row"}
                     else: result["error"]["data"]["requiresReauthentication"] = False
-                    with self.assertRaises(ValueError): validation.judge(FIXTURE, bootstrap(), value)
+                    with self.assertRaises(ValueError): validation.judge(FIXTURE, bootstrap(), bind_controls(value))
 
     def test_bad_identity_timestamp_or_success_envelope_refuses(self):
         for name in ("id", "uri", "created", "naive", "warnings", "failed"):
@@ -142,7 +191,59 @@ class MapPackageControls(unittest.TestCase):
                 elif name == "warnings": output["warnings"] = [{"code": "sourceNotResolved", "path": "source", "message": "unresolved"}]
                 else: value["cases"][0]["result"]["isError"] = True
                 sync_text(value)
+                with self.assertRaises(ValueError): validation.judge(FIXTURE, bootstrap(), bind_controls(value))
+
+    def test_resource_error_identifier_cannot_hide_arbitrary_data(self):
+        valid = reads()[1]
+        validation.resource_refusal(valid, -32002, "not_found")
+        for identifier in ({"record": {"secret": "row"}}, ["secret"], True, "", 9007199254740992):
+            with self.subTest(identifier=identifier):
+                value = copy.deepcopy(valid); value["id"] = identifier
+                with self.assertRaises(ValueError): validation.resource_refusal(value, -32002, "not_found")
+
+    def test_wire_response_id_must_match_the_actual_request_even_when_scalar(self):
+        for identifier in ({"secret": "row"}, ["secret"], True, 2, "1", None):
+            with self.subTest(identifier=identifier):
+                value = observations(); record = value["reads"][1]["wire"]["invocation"]["response"]
+                frame = json.loads(base64.b64decode(record["bodyBase64"])); frame["id"] = identifier
+                record.update(encoded_body(frame)); value["reads"][1]["result"] = frame
                 with self.assertRaises(ValueError): validation.judge(FIXTURE, bootstrap(), value)
+
+    def test_missing_wrong_uri_session_authority_candidate_or_response_observation_refuses(self):
+        for name in ("missing", "uri", "method", "session", "reused", "credential", "anonymous-inherited", "authorization", "candidate", "response", "missing-delivery", "raw-header"):
+            with self.subTest(name=name):
+                value = observations(); wire = value["reads"][0]["wire"]
+                if name == "missing": value["reads"][0]["wire"] = None
+                elif name == "uri": wire["expectedParams"]["uri"] += "-other"
+                elif name == "method": wire["method"] = "tools/list"
+                elif name == "session": wire["invocation"]["request"]["sessionSha256"] = "sha256:" + "0" * 64
+                elif name == "reused":
+                    previous = value["cases"][0]["wire"]["initialize"]["response"]["sessionSha256"]
+                    wire["initialize"]["response"]["sessionSha256"] = wire["invocation"]["request"]["sessionSha256"] = previous
+                    value["reads"][0]["client"]["sessionSha256"] = previous
+                elif name == "credential": wire["invocation"]["request"]["credentialSha256"] = "sha256:" + "0" * 64
+                elif name == "anonymous-inherited": value["reads"][2]["wire"]["initialize"]["request"]["credentialPresent"] = True
+                elif name == "authorization": wire["invocation"]["request"]["authorizationPresent"] = True
+                elif name == "candidate": wire["upstream"] = "http://127.0.0.1:8081/mcp"
+                elif name == "response": wire["invocation"]["response"]["bodyBase64"] = base64.b64encode(b"{}").decode()
+                elif name == "missing-delivery": wire["invocation"]["response"]["delivered"] = False
+                else: wire["invocation"]["request"]["Authorization"] = "secret"
+                with self.assertRaises(ValueError): validation.judge(FIXTURE, bootstrap(), value)
+
+    def test_inspector_lossy_diagnostics_are_distinct_from_original_server_error(self):
+        value = observations(); value["canonicalClient"], value["clientVersion"] = "MCP Inspector", "2.10.1"
+        for item in value["cases"] + value["reads"]:
+            _, frame = validation.wire_frame(item["wire"]["invocation"])
+            error = frame.get("error")
+            item["client"] = {"kind": "inspector-cli", "canonicalClient": "MCP Inspector", "version": "2.10.1", "processId": 456,
+                "requestUrl": item["wire"]["listener"], "exitCode": 2 if error else 5 if frame["result"].get("isError") else 0,
+                "exitSignal": None, "timedOut": False, "stdout": "" if error else json.dumps({"result": frame["result"]}),
+                "stderr": json.dumps({"error": {"code": "error", "message": error["message"]}}) if error else ""}
+        self.assertTrue(validation.judge(FIXTURE, bootstrap(), value)["freshReadback"])
+        changed = copy.deepcopy(value); changed["reads"][1]["client"]["stderr"] = json.dumps({"error": {"code": "error", "message": "unrelated local failure"}})
+        with self.assertRaises(ValueError): validation.judge(FIXTURE, bootstrap(), changed)
+        changed = copy.deepcopy(value); changed["reads"][1]["wire"] = None
+        with self.assertRaises(ValueError): validation.judge(FIXTURE, bootstrap(), changed)
 
     def test_missing_raw_changed_request_bootstrap_or_runtime_refuses(self):
         for name in ("missing", "request", "source", "fixture", "bootstrap", "runtime-before", "runtime-after", "anonymous-auth"):
@@ -165,7 +266,7 @@ class MapPackageControls(unittest.TestCase):
                     if name == "accepted": result["isError"] = False
                     elif name == "wrong-code": result["structuredContent"]["code"] = "internal"
                     else: result["content"][0]["text"] = "{}"
-                    with self.assertRaises(ValueError): validation.judge(FIXTURE, bootstrap(), value)
+                    with self.assertRaises(ValueError): validation.judge(FIXTURE, bootstrap(), bind_controls(value))
 
 
 if __name__ == "__main__":
