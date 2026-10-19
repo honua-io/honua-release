@@ -1,0 +1,281 @@
+"""Authored inline-ingest/publication/readback oracle, with no client transport.
+
+Execution stays in the protected release producer. Retained JSON is evidence
+under that producer/workflow trust boundary, not process or database attestation.
+"""
+from __future__ import annotations
+import argparse
+import copy
+from datetime import datetime
+import json
+from pathlib import Path
+import re
+import sys
+from urllib.parse import quote
+
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from mcp_render_validation import scenario as fixture_binding, negative_output
+from mcp_map_package_validation import (strict_json, same_json, json_tool_output,
+    observed_wire, client_observation, anonymous_tool_refusal, resource_refusal)
+
+OPERATIONS = ["tools/call:ingest_dataset", "tools/call:publish_service", "resources/read:Published service"]
+SCHEMA = "honua.mcp-ingest-publish-scenario/v1"
+IDENTIFIER = re.compile(r"[a-z_][a-z0-9_]{0,62}")
+
+
+def scenario(fixture_bytes, bootstrap, nonce, canonical_client):
+    binding = fixture_binding(fixture_bytes, bootstrap)
+    if not isinstance(nonce, str) or not re.fullmatch(r"[a-f0-9]{12}", nonce):
+        raise ValueError("ingest journey requires a bounded owned run identity")
+    if canonical_client not in ("Official MCP TypeScript SDK", "MCP Inspector"):
+        raise ValueError("ingest journey requires an actual canonical client")
+    slug = "sdk" if canonical_client == "Official MCP TypeScript SDK" else "inspector"
+    dataset = f"mcp_{slug}_{nonce}"
+    service = f"mcp-{slug}-{nonce}"
+    rows = json.loads(fixture_bytes)["sites"]["features"]
+    expected = [{"properties": {key: row[key] for key in ("gid", "name", "rank")},
+                 "geometry": {"type": "Point", "coordinates": [row["x"], row["y"]]}} for row in rows]
+    if len(expected) < 3 or len({row["properties"]["gid"] for row in expected}) != len(expected):
+        raise ValueError("authored ingest fixture lacks discriminating independent rows")
+    geojson = {"type": "FeatureCollection", "features": [{"type": "Feature", **row} for row in expected]}
+    return {key: binding[key] for key in ("fixtureSha256", "bootstrapSha256", "candidateSourceSha", "candidateImage")} | {
+        "schema": SCHEMA, "nonce": nonce, "canonicalClient": canonical_client,
+        "datasetName": dataset, "serviceName": service, "expectedRows": expected,
+        "ingestArguments": {"format": "geojson", "datasetName": dataset, "sourceSrid": 4326,
+                            "data": json.dumps(geojson, separators=(",", ":"))},
+        "invalidIngestArguments": {"format": "unsupported", "datasetName": dataset + "_bad", "data": "{}"},
+        "runtimeBinding": binding["runtimeBinding"]}
+
+
+def ingest_output(result, authored):
+    value = json_tool_output(result)
+    if (value.get("success") is not True or value.get("datasetName") != authored["datasetName"]
+            or type(value.get("rowCount")) is not int or value["rowCount"] != len(authored["expectedRows"])
+            or value.get("srid") != 4326 or type(value.get("srid")) is not int
+            or value.get("warnings") != [] or value.get("rowErrors") != []
+            or value.get("errorCode") is not None or value.get("errorMessage") is not None
+            or not isinstance(value.get("connectionId"), str) or not value["connectionId"]
+            or any(not isinstance(value.get(key), str) or not IDENTIFIER.fullmatch(value[key]) for key in ("schema", "table", "geometryColumn", "primaryKey"))):
+        raise ValueError("ingest did not return the complete successful authored dataset and publish tuple")
+    # Physical import names may be hashed by the server. The independent DB
+    # readback validates their contents; never replace a returned identifier.
+    return value
+
+
+def publish_arguments(ingested, authored):
+    return {**{key: ingested[key] for key in ("connectionId", "schema", "table", "geometryColumn", "primaryKey")},
+            "serviceName": authored["serviceName"], "layerName": "authored-ingest", "srid": 4326, "geometryType": "Point"}
+
+
+def publish_output(result, authored):
+    value = json_tool_output(result)
+    if (value.get("status") != "Completed" or value.get("requiresApproval") is not False
+            or value.get("operationId") != "service.publish"
+            or value.get("serviceName") != authored["serviceName"]
+            or value.get("serviceUri") != "honua://published-services/" + quote(authored["serviceName"], safe="")
+            or not isinstance(value.get("layerId"), str) or not re.fullmatch(r"0|[1-9][0-9]{0,9}", value["layerId"])
+            or int(value["layerId"]) >= 2147483647
+            or type(value.get("metadataRevision")) is not int or value["metadataRevision"] <= 0
+            or any(not isinstance(value.get(key), str) or not value[key] for key in ("operationInstanceId", "handleId"))):
+        raise ValueError("publication is incomplete, queued, approval-pending, or lost its exact returned identity")
+    return value
+
+
+def resource_output(result, published, snapshot):
+    content = result.get("contents") if isinstance(result, dict) else None
+    if (not isinstance(content, list) or len(content) != 1 or not isinstance(content[0], dict)
+            or content[0].get("uri") != published["serviceUri"] or content[0].get("mimeType") != "application/json"
+            or not isinstance(content[0].get("text"), str)):
+        raise ValueError("fresh published resource did not return the exact requested JSON URI")
+    value = strict_json(content[0]["text"])
+    if (not isinstance(value, dict) or value.get("serviceId") != published["serviceName"]
+            or value.get("resourceUri") != published["serviceUri"]
+            or value.get("metadataServiceId") != snapshot["publication"]["serviceId"]
+            or value.get("sourceId") != snapshot["publication"]["serviceId"]
+            or value.get("sourceKind") != "MetadataV2Graph" or value.get("targetKind") != "FeatureService"
+            or not same_json(value.get("layerIds"), [snapshot["publication"]["layerId"]])
+            or not same_json(value.get("servingLayerIds"), [snapshot["publication"]["layerId"]])
+            or value.get("featureServerEnabled") is not True or value.get("serving") is not True
+            or value.get("status") != "Active"):
+        raise ValueError("fresh resource identity/routability differs from independently persisted publication")
+    return value
+
+
+def query_arguments(published, resource):
+    # Service routes use the PUBLIC index exposed by the actual resource read;
+    # publish_service layerId identifies physical storage and remains distinct.
+    return {"serviceId": published["serviceName"], "layerId": resource["servingLayerIds"][0], "where": "1=1",
+            "outFields": ["*"], "outSrid": 4326, "returnGeometry": True, "limit": 20}
+
+
+def snapshot_output(value, ingested, published, authored):
+    if not isinstance(value, dict) or set(value) != {"schema", "tuple", "rows", "publication", "revision"}:
+        raise ValueError("independent persisted readback is missing")
+    expected_tuple = {key: ingested[key] for key in ("connectionId", "schema", "table", "geometryColumn", "primaryKey")}
+    if value["schema"] != "honua.mcp-ingest-persisted/v1" or not same_json(value["tuple"], expected_tuple):
+        raise ValueError("persisted readback used a replacement import tuple")
+    rows = value["rows"]
+    if not isinstance(rows, list) or len(rows) != len(authored["expectedRows"]):
+        raise ValueError("persisted ingest is partial or has extra rows")
+    by_gid = {}
+    ids = set()
+    for row in rows:
+        if (not isinstance(row, dict) or set(row) != {"id", "properties", "geometry", "srid"}
+                or type(row["id"]) is not int or row["id"] <= 0 or row["id"] in ids
+                or type(row["srid"]) is not int or row["srid"] != 4326
+                or not isinstance(row["properties"], dict) or type(row["properties"].get("gid")) is not int):
+            raise ValueError("persisted feature identity/schema/SRID is invalid")
+        gid = row["properties"]["gid"]
+        if gid in by_gid:
+            raise ValueError("persisted attributes are duplicated")
+        by_gid[gid] = {key: row[key] for key in ("properties", "geometry")}
+        ids.add(row["id"])
+    expected = {row["properties"]["gid"]: row for row in authored["expectedRows"]}
+    if not same_json(by_gid, expected):
+        raise ValueError("persisted attributes or geometry differ from the authored source")
+    pub = value["publication"]
+    if (not isinstance(pub, dict) or set(pub) != {"serviceId", "serviceName", "layerId", "storageLayerId", "locator", "connectionId"}
+            or pub["serviceName"] != published["serviceName"] or pub["storageLayerId"] != int(published["layerId"])
+            or type(pub["layerId"]) is not int or not 0 <= pub["layerId"] < 2147483647 or type(pub["storageLayerId"]) is not int
+            or not isinstance(pub["serviceId"], str) or not pub["serviceId"]
+            or pub["locator"] != ingested["schema"] + "." + ingested["table"]
+            or pub["connectionId"] != ingested["connectionId"]
+            or type(value["revision"]) is not int or value["revision"] < published["metadataRevision"]):
+        raise ValueError("returned service/layer is not bound to the exact persisted imported source")
+
+
+def query_output(result, published, snapshot):
+    value = json_tool_output(result)
+    collection = value.get("geojson", value.get("geoJson"))
+    if (not isinstance(collection, dict) or collection.get("type") != "FeatureCollection"
+            or not isinstance(collection.get("features"), list)
+            or type(value.get("layerId")) is not int or value["layerId"] != snapshot["publication"]["layerId"]
+            or value.get("returnedCount") != len(snapshot["rows"]) or type(value.get("returnedCount")) is not int
+            or value.get("exceededTransferLimit") is not False or len(collection["features"]) != len(snapshot["rows"])):
+        raise ValueError("fresh query envelope is partial or addresses a different layer")
+    expected = {row["id"]: row for row in snapshot["rows"]}
+    seen = set()
+    for feature in collection["features"]:
+        if not isinstance(feature, dict) or feature.get("type") != "Feature" or type(feature.get("id")) is not int:
+            raise ValueError("query lacks exact allocated feature IDs")
+        identifier = feature["id"]
+        row = expected.get(identifier)
+        props = feature.get("properties")
+        if (row is None or identifier in seen or not isinstance(props, dict)
+                or any(not same_json(props.get(key), value) for key, value in row["properties"].items())
+                or not same_json(feature.get("geometry"), row["geometry"])):
+            raise ValueError("fresh query changed an authored feature, attribute or geometry")
+        seen.add(identifier)
+
+
+def judge(fixture_bytes, bootstrap, observations):
+    if not isinstance(observations, dict):
+        raise ValueError("ingest journey observations missing")
+    authored = scenario(fixture_bytes, bootstrap, observations.get("nonce"), observations.get("canonicalClient"))
+    required = {"schema", "nonce", "canonicalClient", "clientVersion", "candidateSourceSha", "candidateImage", "cases", "reads", "queries", "snapshots", "runtimeBefore", "runtimeRestarted", "runtimeAfter"}
+    if set(observations) != required or observations["schema"] != SCHEMA:
+        raise ValueError("ingest journey schema differs")
+    for key in ("candidateSourceSha", "candidateImage"):
+        if observations[key] != authored[key]:
+            raise ValueError("ingest journey belongs to another candidate")
+    canonical, version = observations["canonicalClient"], observations["clientVersion"]
+    expected_runtime = copy.deepcopy(authored["runtimeBinding"])
+    before, restarted, after = (observations[key] for key in ("runtimeBefore", "runtimeRestarted", "runtimeAfter"))
+    if not isinstance(before, dict) or not isinstance(restarted, dict) or not isinstance(after, dict):
+        raise ValueError("candidate restart identities missing")
+    for runtime in (before, restarted, after):
+        comparable = copy.deepcopy(runtime)
+        comparable["startedAt"] = expected_runtime["startedAt"]
+        if not same_json(comparable, expected_runtime):
+            raise ValueError("restart changed candidate container/image/source or safe identity")
+    try:
+        before_time = datetime.fromisoformat(before["startedAt"].replace("Z", "+00:00"))
+        restarted_time = datetime.fromisoformat(restarted["startedAt"].replace("Z", "+00:00"))
+        if before_time.tzinfo is None or restarted_time.tzinfo is None or restarted_time <= before_time:
+            raise ValueError("restart did not advance the actual start timestamp")
+    except (TypeError, AttributeError):
+        raise ValueError("candidate restart timestamps invalid") from None
+    if not same_json(restarted, after):
+        raise ValueError("candidate was not independently observed restarted and stable through fresh reads")
+    sessions, fingerprints = set(), set()
+    def call(entry, method, params, authenticated):
+        if not isinstance(entry, dict) or set(entry) != {"id", "method", "params", "authenticated", "result", "wire", "client"} or entry["method"] != method or entry["authenticated"] is not authenticated or not same_json(entry["params"], params):
+            raise ValueError("actual operation differs from authored request")
+        frame, session = observed_wire(entry["wire"], method, params, authenticated)
+        if session in sessions or not same_json(entry["result"], frame if "error" in frame else frame["result"]):
+            raise ValueError("actual operation reused a session or changed the original response")
+        sessions.add(session); fingerprints.add(entry["wire"]["expectedCredentialFingerprint"])
+        client_observation(entry["client"], frame, entry["wire"], canonical, version)
+        return entry["result"]
+    def tool(entry, name, args, authenticated=True):
+        return call(entry, "tools/call", {"name": name, "arguments": args}, authenticated)
+    cases = observations["cases"]
+    if not isinstance(cases, list) or [case.get("id") for case in cases] != ["ingest", "invalid-ingest", "publish", "invalid-publish", "anonymous-ingest", "anonymous-publish"]:
+        raise ValueError("ingest/publish positive and refusal cases missing")
+    ingested = ingest_output(tool(cases[0], "honua_ingest_dataset", authored["ingestArguments"]), authored)
+    negative_output(tool(cases[1], "honua_ingest_dataset", authored["invalidIngestArguments"]), "invalid_argument")
+    args = publish_arguments(ingested, authored)
+    published = publish_output(tool(cases[2], "honua_publish_service", args), authored)
+    bad = {**args, "table": "__missing_" + authored["datasetName"]}
+    negative_output(tool(cases[3], "honua_publish_service", bad), "not_found")
+    for case, name, arguments in ((cases[4], "honua_ingest_dataset", authored["ingestArguments"]), (cases[5], "honua_publish_service", args)):
+        anonymous_tool_refusal(tool(case, name, arguments, False))
+    snapshots = observations["snapshots"]
+    if not isinstance(snapshots, dict) or set(snapshots) != {"before", "after"}:
+        raise ValueError("persisted restart snapshots missing")
+    for snapshot in snapshots.values():
+        snapshot_output(snapshot, ingested, published, authored)
+    if not same_json({key: value for key, value in snapshots["before"].items() if key != "revision"},
+                     {key: value for key, value in snapshots["after"].items() if key != "revision"}):
+        raise ValueError("restart changed persisted imported data or publication mapping")
+    reads = observations["reads"]
+    wanted = [("fresh-created", published["serviceUri"], True), ("restarted-created", published["serviceUri"], True),
+              ("unknown", published["serviceUri"] + "-uncreated", True), ("anonymous", published["serviceUri"], False)]
+    if not isinstance(reads, list) or len(reads) != len(wanted):
+        raise ValueError("fresh resource/restart/refusal reads missing")
+    resource = None
+    for entry, (identifier, uri, authenticated) in zip(reads, wanted, strict=True):
+        if entry.get("id") != identifier:
+            raise ValueError("fresh read order differs")
+        result = call(entry, "resources/read", {"uri": uri}, authenticated)
+        if identifier in ("fresh-created", "restarted-created"):
+            view = resource_output(result, published, snapshots["before" if identifier == "fresh-created" else "after"])
+            if resource is None:
+                resource = view
+            elif not same_json(resource.get("servingLayerIds"), view.get("servingLayerIds")):
+                raise ValueError("restart changed the publicly exposed service address")
+        else:
+            resource_refusal(result, -32002 if authenticated else -32000, "not_found" if authenticated else "unauthenticated")
+    queries = observations["queries"]
+    if not isinstance(queries, list) or [entry.get("id") for entry in queries] != ["before", "after"]:
+        raise ValueError("fresh queried geometry before/after restart missing")
+    for entry in queries:
+        query_output(tool(entry, "honua_query_features", query_arguments(published, resource)), published, snapshots[entry["id"]])
+    if len(fingerprints) != 1:
+        raise ValueError("probes changed expected caller authority")
+    return {key: authored[key] for key in ("candidateSourceSha", "candidateImage", "fixtureSha256", "bootstrapSha256")} | {
+        "canonicalClient": canonical, "clientVersion": version, "operations": OPERATIONS,
+        "positive": True, "negative": True, "mediaSchema": True, "persistedReadback": True, "restartReadback": True,
+        "anonymousInvocationRefusal": True, "queuedPublishExercised": False}
+
+
+def main():
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--fixture", type=Path, required=True)
+    parser.add_argument("--bootstrap", type=Path, required=True)
+    parser.add_argument("--observations", type=Path)
+    parser.add_argument("--nonce")
+    parser.add_argument("--canonical-client")
+    args = parser.parse_args()
+    try:
+        fixture = args.fixture.read_bytes(); bootstrap = strict_json(args.bootstrap.read_bytes())
+        output = judge(fixture, bootstrap, strict_json(args.observations.read_bytes())) if args.observations else scenario(fixture, bootstrap, args.nonce, args.canonical_client)
+        print(json.dumps(output, allow_nan=False))
+    except (ValueError, KeyError, TypeError, OSError, OverflowError):
+        print("authored ingest/publication oracle refused observations or candidate binding", file=sys.stderr)
+        return 1
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
