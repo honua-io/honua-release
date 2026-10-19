@@ -56,27 +56,37 @@ def scenario(fixture_bytes):
 def tool_output(result):
     if not isinstance(result, dict) or result.get("isError", False) is not False:
         raise ValueError("plan validation call did not return a successful tool envelope")
-    output = result.get("structuredContent")
-    if output is None:
-        content = result.get("content")
-        if (not isinstance(content, list) or len(content) != 1 or not isinstance(content[0], dict)
-                or content[0].get("type") != "text"):
-            raise ValueError("plan validation lacks unique structured output")
-        output = json.loads(content[0]["text"])
-    # Matches ValidatePlanOutputSchema and ValidationViolationDef, including
-    # required fields on both the executable and rejected-plan responses.
-    if (not isinstance(output, dict) or type(output.get("isExecutable")) is not bool
-            or type(output.get("requiresApproval")) is not bool
-            or not isinstance(output.get("violations"), list)
-            or not isinstance(output.get("warnings"), list)
-            or any(not isinstance(warning, str) for warning in output["warnings"])
-            or any(not isinstance(violation, dict)
-                   or not isinstance(violation.get("code"), str)
-                   or not isinstance(violation.get("message"), str)
-                   or (violation.get("fieldPath") is not None and not isinstance(violation["fieldPath"], str))
-                   for violation in output["violations"])):
-        raise ValueError("plan validation output has an invalid schema")
-    return output
+    outputs = []
+    if "structuredContent" in result:
+        outputs.append(result["structuredContent"])
+    if "content" in result:
+        content = result["content"]
+        if not isinstance(content, list):
+            raise ValueError("plan validation content is not an array")
+        for item in content:
+            if not isinstance(item, dict) or item.get("type") != "text" or not isinstance(item.get("text"), str):
+                raise ValueError("plan validation contains unrelated output media")
+            outputs.append(json.loads(item["text"]))
+    if not outputs:
+        raise ValueError("plan validation lacks structured or JSON text output")
+    for output in outputs:
+        # Matches ValidatePlanOutputSchema and ValidationViolationDef, including
+        # required fields on both the executable and rejected-plan responses.
+        if (not isinstance(output, dict) or type(output.get("isExecutable")) is not bool
+                or type(output.get("requiresApproval")) is not bool
+                or not isinstance(output.get("violations"), list)
+                or not isinstance(output.get("warnings"), list)
+                or any(not isinstance(warning, str) for warning in output["warnings"])
+                or any(not isinstance(violation, dict)
+                       or not isinstance(violation.get("code"), str)
+                       or not isinstance(violation.get("message"), str)
+                       or (violation.get("fieldPath") is not None and not isinstance(violation["fieldPath"], str))
+                       for violation in output["violations"])):
+            raise ValueError("plan validation output has an invalid schema")
+    canonical = [json.dumps(output, sort_keys=True, allow_nan=False) for output in outputs]
+    if any(value != canonical[0] for value in canonical[1:]):
+        raise ValueError("plan validation output representations conflict")
+    return outputs[0]
 
 
 def judge(fixture_bytes, observations):
@@ -91,9 +101,16 @@ def judge(fixture_bytes, observations):
     for expected, actual, oracle in zip(authored["cases"], cases, (oracle_mcp_plan_valid, oracle_mcp_plan_invalid), strict=True):
         if not isinstance(actual, dict) or set(actual) != {"id", "arguments", "result"} or actual["id"] != expected["id"] or actual["arguments"] != expected["arguments"]:
             raise ValueError("observed plan request differs from the independent authored case")
-        passed, summary = oracle(tool_output(actual["result"]))
+        output = tool_output(actual["result"])
+        passed, summary = oracle(output)
         if not passed:
             raise ValueError(summary)
+        # The authored pair changes only WKB: an additional diagnosis of an
+        # unchanged field must not hide behind the expected WKB violation.
+        if expected["id"] == "invalid-wkb" and any(
+                not oracle_mcp_plan_invalid({**output, "violations": [violation]})[0]
+                for violation in output["violations"]):
+            raise ValueError("invalid WKB produced an unrelated validation violation")
     return {"schema": SCHEMA, "fixtureSha256": authored["fixtureSha256"],
             "positive": True, "negative": True, "mediaSchema": True}
 

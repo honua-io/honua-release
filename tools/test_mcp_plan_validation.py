@@ -41,6 +41,9 @@ def test_structured_and_public_text_tool_results_share_the_existing_oracle():
     value = observations()
     assert PLAN.judge(FIXTURE, value)["positive"] is True
     for case in value["cases"]:
+        case["result"]["content"] = [{"type": "text", "text": json.dumps(case["result"]["structuredContent"])}]
+    assert PLAN.judge(FIXTURE, value)["mediaSchema"] is True
+    for case in value["cases"]:
         case["result"] = {"content": [{"type": "text", "text": json.dumps(case["result"]["structuredContent"])}]}
     assert PLAN.judge(FIXTURE, value)["negative"] is True
 
@@ -99,3 +102,30 @@ def test_every_response_obeys_the_published_output_schema(index, mutation):
     elif mutation == "nonstr-fieldpath": output["violations"][0]["fieldPath"] = []
     with pytest.raises(ValueError):
         PLAN.tool_output(value["cases"][index]["result"])
+
+
+@pytest.mark.parametrize("index", [0, 1])
+@pytest.mark.parametrize("mutation", ["conflicting-json", "malformed-json", "nonobject-json", "extra-media", "nonarray-content", "extra-text"])
+def test_all_available_public_representations_must_be_consistent(index, mutation):
+    value = observations()
+    result = value["cases"][index]["result"]
+    output = copy.deepcopy(result["structuredContent"])
+    if mutation == "conflicting-json": output["isExecutable"] = not output["isExecutable"]
+    text = "broken JSON" if mutation == "malformed-json" else "[]" if mutation == "nonobject-json" else json.dumps(output)
+    result["content"] = [{"type": "text", "text": text}]
+    if mutation == "extra-media": result["content"].append({"type": "image", "data": "AA==", "mimeType": "image/png"})
+    elif mutation == "nonarray-content": result["content"] = {}
+    elif mutation == "extra-text": result["content"].append({"type": "text", "text": "an unrelated message"})
+    with pytest.raises(ValueError):
+        PLAN.judge(FIXTURE, value)
+
+
+@pytest.mark.parametrize("violation", [
+    {"code": "UNKNOWN_PROCESS", "fieldPath": "steps[buffer].processId", "message": "Unknown process"},
+    {"code": "INVALID_PARAMETER_VALUE", "fieldPath": "steps[buffer].inputs.distance", "message": "Invalid distance"},
+    {"code": "INVALID_PARAMETER_VALUE", "fieldPath": "steps[buffer].inputs.wkb", "message": "Unrelated diagnosis"}])
+def test_expected_wkb_violation_cannot_hide_an_unrelated_diagnosis(violation):
+    value = observations()
+    value["cases"][1]["result"]["structuredContent"]["violations"].append(violation)
+    with pytest.raises(ValueError, match="unrelated"):
+        PLAN.judge(FIXTURE, value)
