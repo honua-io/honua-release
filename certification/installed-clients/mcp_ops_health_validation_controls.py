@@ -177,6 +177,25 @@ class OpsHealthControls(unittest.TestCase):
                 entry["result"]["contents"][0]["text"] = json.dumps(body)
         self.assertTrue(validation.judge(FIXTURE, bootstrap(), rebind(value))["positive"])
 
+    def test_concurrent_alert_poll_uses_server_skew_and_actual_read_bracket(self):
+        def move_poll(body, delta):
+            stamp = (validation.instant(body["generatedAt"]) + validation.timedelta(seconds=delta)).isoformat()
+            source = next(row for row in body["evidencePosture"]["sources"] if row["sourceId"] == "honua_ops_health.alert_dispatch")
+            source.update(observedAt=stamp, lastSuccessfulAt=stamp,
+                          validUntil=(validation.instant(stamp) + validation.timedelta(seconds=120)).isoformat())
+            body["alertDispatch"].update(lastPollAt=stamp, backlogObservedAt=stamp)
+            aggregate = body["evidencePosture"]["sources"][0]
+            aggregate.update(observedAt=body["generatedAt"], lastSuccessfulAt=body["generatedAt"],
+                             validUntil=(validation.instant(body["generatedAt"]) + validation.timedelta(seconds=120)).isoformat())
+        positive = mutate_payload(controls(), lambda body: move_poll(body, 0.25))
+        self.assertTrue(validation.judge(FIXTURE, bootstrap(), positive)["positive"])
+        outside_bracket = mutate_payload(controls(), lambda body: move_poll(body, 3))
+        self.refused(outside_bracket)
+        outside_skew = controls()
+        outside_skew["calls"][0]["after"] = independent(130)
+        mutate_payload(outside_skew, lambda body: move_poll(body, 61))
+        self.refused(outside_skew)
+
     def test_independent_database_timing_is_telemetry_not_a_new_latency_gate(self):
         value = controls()
         for entry in value["calls"]:

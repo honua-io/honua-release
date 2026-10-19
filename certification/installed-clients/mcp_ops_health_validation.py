@@ -2,7 +2,7 @@
 from __future__ import annotations
 import argparse
 from collections import Counter
-from datetime import datetime
+from datetime import datetime, timedelta
 import json
 import math
 from pathlib import Path
@@ -90,7 +90,7 @@ def census(value, bootstrap):
     return [{"status": status, "backend": backend, "count": count} for (status, backend), count in sorted(counts.items())]
 
 
-def posture(value, generated):
+def posture(value, generated, observation_end):
     if not isinstance(value, dict) or set(value) != {"schemaVersion", "status", "sources"} or value["schemaVersion"] != "1.0" or not isinstance(value["sources"], list):
         raise ValueError("health evidence posture missing")
     sources = value["sources"]
@@ -117,7 +117,7 @@ def posture(value, generated):
                     or not isinstance(source.get("backendId"), str) or not source["backendId"]):
                 raise ValueError("health claims complete without actionable evidence")
             observed, expiry = instant(source["observedAt"]), instant(source.get("validUntil"))
-            if instant(source["lastSuccessfulAt"]) != observed or observed > generated or expiry < generated or (expiry - observed).total_seconds() != number(source["maximumAgeSeconds"], lower=1):
+            if instant(source["lastSuccessfulAt"]) != observed or observed > min(generated + timedelta(minutes=1), observation_end) or expiry < generated or (expiry - observed).total_seconds() != number(source["maximumAgeSeconds"], lower=1):
                 raise ValueError("health claims stale/future evidence complete")
             if source["sourceId"] != "honua_ops_health": actionable.append(source["sourceId"])
         elif complete in ("unavailable", "notConfigured") and not source["reasonCodes"]:
@@ -246,7 +246,7 @@ def health_output(result, method, before, after, bootstrap):
             if type(alert[key]) is not int: raise ValueError("alert backlog counter malformed")
             number(alert[key])
     for key in ("lastPollAt", "backlogObservedAt"):
-        if alert.get(key) is not None and instant(alert[key]) > generated: raise ValueError("alert observation is in future")
+        if alert.get(key) is not None and instant(alert[key]) > min(generated + timedelta(minutes=1), instant(after["startedAt"])): raise ValueError("alert observation is in future")
     if not isinstance(alert.get("channels"), list): raise ValueError("alert channel projection missing")
     channels = set()
     for channel in alert["channels"]:
@@ -275,7 +275,7 @@ def health_output(result, method, before, after, bootstrap):
         raise ValueError("declared release posture malformed")
     if set(release) - {"releaseVersion", "releaseDeclared", "isCoVersioned", "skewedIds"}:
         raise ValueError("release posture schema fields differ")
-    sources = posture(value["evidencePosture"], generated)
+    sources = posture(value["evidencePosture"], generated, instant(after["startedAt"]))
     for suffix, backend, identifier in (("health_checks", "inProcess", "aspnet-health-checks"),
             ("serving_latency", "inProcess", "honua-telemetry"), ("gp_queue", "durableStore", "execution-job-store"),
             ("alert_dispatch", "durableStore", "alert-dispatch-store"), ("deploy_release", "configProjection", "control-plane-options"),
