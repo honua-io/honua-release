@@ -55,3 +55,31 @@ dependency-update PRs cannot establish a coherent selected producer cohort.
 Historical SDK 1.30.0 / Inspector 2.3.0 requirements do not admit observations
 from SDK 1.32.1 / Inspector 2.10.1. Adding an auth policy does not change that
 rule, advance a candidate pin or confer release credit on older receipts.
+
+## Prepare a source-context review
+
+When the producer's default requirements source predates the authorization
+policy, actual certification stops before client execution. Prepare a separate
+review directory from an exact protected MCP producer revision:
+
+```sh
+python3 tools/prepare_mcp_source_context.py \
+  --producer-source FULL_PROTECTED_MCP_COMMIT \
+  --output /tmp/honua-mcp-source-context-review
+```
+
+The command authenticates protected trunk history and fetches literal package
+and lock bytes from that same commit. It uses the existing release generator
+and validator, preserving all original requirements and all 82 MCP rows. Only
+the MCP source revision and canonical client versions may change. The review
+retains the ordinary strict CI verdict and actual check conclusions, including
+failures. Package declarations and lock integrity are source inputs; installed
+registry bytes and actual client observations remain required.
+
+The output includes generated catalog/source payloads, the unchanged policy and
+checker, and a hash inventory. It does not write source files, a platform
+manifest, a candidate or a ledger. Review those payloads through a normal
+protected PR before using its exact release commit and requirements revision
+in the producer's existing certification inputs. Final source/cohort adoption
+and actual qualification remain under #181 and #695. The normal resolver still
+refuses a failing source; preparation does not establish candidate admission.
