@@ -203,7 +203,7 @@ def _verify_npm_provenance(name: str, artifact: dict, data: bytes) -> None:
     except (KeyError, TypeError, ValueError, subprocess.CalledProcessError) as exc:
         raise VerificationError(f'{name}: npm publisher provenance verification failed: {exc}') from exc
 
-def _pypi_source(name: str, artifact: dict) -> str:
+def _pypi_published_source(name: str, artifact: dict) -> str:
     """Bind PyPI's registry-validated publish attestation to bytes and source.
 
     Trust PyPI over HTTPS for certificate/log validation, as for registry digests.
@@ -252,9 +252,16 @@ def _pypi_source(name: str, artifact: dict) -> str:
                 revisions.add(revision)
     except (KeyError, TypeError, ValueError, AttributeError, x509.ExtensionNotFound, InvalidSignature) as exc:
         raise VerificationError(f"{name}: invalid PyPI provenance: {exc}") from exc
-    if len(revisions) != 1 or artifact["sourceSha"] not in revisions:
-        raise VerificationError(f"{name}: PyPI provenance is absent or does not match manifest sourceSha")
+    if len(revisions) != 1:
+        raise VerificationError(f"{name}: PyPI provenance is absent or ambiguous")
     return revisions.pop()
+
+
+def _pypi_source(name: str, artifact: dict) -> str:
+    source = _pypi_published_source(name, artifact)
+    if source != artifact["sourceSha"]:
+        raise VerificationError(f"{name}: PyPI provenance does not match manifest sourceSha")
+    return source
 
 
 def _verify_pypi(name: str, artifact: dict) -> tuple[str, str]:
