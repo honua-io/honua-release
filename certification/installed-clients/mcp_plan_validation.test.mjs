@@ -55,15 +55,37 @@ for (const mode of ["valid", "invalid-accepted", "wrong-path", "missing-schema",
     } finally { rmSync(directory, { recursive: true, force: true }); }
   });
 }
-test("source binding refuses changed helper/fixture before any callback", () => {
+test("source binding refuses changed helper/fixture before any callback", async () => {
   for (const key of ["helperSha256", "fixtureSha256", "sourceSha"]) {
     assert.throws(() => createPlanValidation({ ...context, [key]: "0".repeat(64) }));
   }
-  const directory = mkdtempSync(join(tmpdir(), "release-plan-integrity-"));
-  try {
-    for (const name of ["mcp_plan_validation.py", "fixture.v1.json"]) copyFileSync(join(original, name), join(directory, name));
-    const api = createPlanValidation({ ...context, directory });
-    writeFileSync(join(directory, "mcp_plan_validation.py"), "raise Exception('changed helper must not execute')");
-    assert.equal(api.verifyPlanProof({}, candidateSourceSha), false);
-  } finally { rmSync(directory, { recursive: true, force: true }); }
+  for (const name of ["mcp_plan_validation.py", "fixture.v1.json"]) {
+    const directory = mkdtempSync(join(tmpdir(), "release-plan-integrity-"));
+    try {
+      for (const file of ["mcp_plan_validation.py", "fixture.v1.json"]) copyFileSync(join(original, file), join(directory, file));
+      const api = createPlanValidation({ ...context, directory });
+      let proof;
+      await api.planScenarios(async (_tool, arguments_) => response(arguments_, "valid"),
+        async (_name, run) => { proof = await run(); }, { candidateSourceSha, results: join(directory, "before.json") });
+      assert.equal(api.verifyPlanProof(proof, candidateSourceSha), true);
+      const marker = join(directory, "untrusted-helper-ran");
+      if (name.endsWith(".py")) {
+        const helper = readFileSync(join(directory, name), "utf8");
+        writeFileSync(join(directory, name), helper.replace("from __future__ import annotations",
+          `from __future__ import annotations\nfrom pathlib import Path\nPath(${JSON.stringify(marker)}).write_text("executed")`));
+      } else {
+        const fixture = JSON.parse(readFileSync(join(directory, name), "utf8"));
+        fixture.processes.point[0] += 1;
+        writeFileSync(join(directory, name), JSON.stringify(fixture));
+      }
+      assert.equal(api.verifyPlanProof(proof, candidateSourceSha), false, name);
+      let calls = 0, refusal;
+      await api.planScenarios(async () => { calls += 1; }, async (_name, run) => {
+        try { await run(); } catch (error) { refusal = error; }
+      }, { candidateSourceSha, results: join(directory, "after.json") });
+      assert.match(String(refusal), /bytes differ from reviewed pins/);
+      assert.equal(calls, 0, "changed authored bytes must refuse before any real client call");
+      assert.throws(() => readFileSync(marker), { code: "ENOENT" });
+    } finally { rmSync(directory, { recursive: true, force: true }); }
+  }
 });
