@@ -133,6 +133,10 @@ class DockerRegressions(unittest.TestCase):
         self.assertEqual(live.stdout, "1\n")
         self.assertEqual(self.session.run_js("increment(); console.log(value);", "javascript", 20).stdout,
                          "2\n")
+        hashbang = self.session.run_js("#!/usr/bin/env node\n"
+                                       "console.log(eval?.('typeof value'), value);", "javascript", 20)
+        self.assertEqual(hashbang.status, "pass", hashbang.stderr)
+        self.assertEqual(hashbang.stdout, "undefined 2\n")
         completed = self.session.run_js("new Promise(resolve => setTimeout(() => resolve(42), 10))"
             ".then(value => { require('node:fs').appendFileSync('query-effect', 'once'); console.log(value); });",
             "javascript", 20)

@@ -8,14 +8,18 @@ export class ImportBindings {
   prepare(source,file) {
     const ts=this.ts, f=ts.factory;
     const prefix=[...this.bindings].map(([name,b])=>`import { ${name} } from ${JSON.stringify(b.url)};`).join('\n');
-    const combined=prefix+'\n'+source;
+    const hashbangEnd=source.startsWith('#!')?source.indexOf('\n'):-1;
+    const hashbang=source.startsWith('#!')?source.slice(0,hashbangEnd<0?source.length:hashbangEnd+1):'';
+    const hashbangLineBreak=hashbang&&!hashbang.endsWith('\n')?'\n':'';
+    const bodySource=hashbang?source.slice(hashbang.length):source;
+    const combined=hashbang+hashbangLineBreak+prefix+(prefix?'\n':'')+bodySource;
     const virtual=file+'.mts';
     const sf=ts.createSourceFile(virtual,combined,ts.ScriptTarget.Latest,true,ts.ScriptKind.JS);
     const opts={noLib:true,noResolve:true,target:ts.ScriptTarget.ESNext,module:ts.ModuleKind.ESNext};
     const host={getSourceFile:n=>n===virtual?sf:undefined,getDefaultLibFileName:()=>'',writeFile(){},getCurrentDirectory:()=>process.cwd(),getDirectories:()=>[],fileExists:n=>n===virtual,readFile:n=>n===virtual?combined:undefined,getCanonicalFileName:n=>n,useCaseSensitiveFileNames:()=>true,getNewLine:()=> '\n'};
     const checker=ts.createProgram([virtual],opts,host).getTypeChecker();
     const aliases=new Map(), imports=[], fresh=[];
-    const prefixEnd=prefix.length;
+    const prefixEnd=hashbang.length+hashbangLineBreak.length+prefix.length;
     function names(node){const c=node.importClause;if(!c)return [];return [...(c.name?[c.name]:[]),...(c.namedBindings?(ts.isNamespaceImport(c.namedBindings)?[c.namedBindings.name]:c.namedBindings.elements.map(x=>x.name)):[])];}
     for(const s of sf.statements) {
       if(!ts.isImportDeclaration(s))continue;
@@ -66,7 +70,7 @@ export class ImportBindings {
         if(ts.isExportDeclaration(n)||ts.isExportAssignment(n))throw new SyntaxError('unsupported export declaration in reader context');
         if(metadataIdentifier&&ts.isMetaProperty(n)&&n.keywordToken===ts.SyntaxKind.ImportKeyword
             &&n.name.text==='meta')return f.createIdentifier(metadataIdentifier);
-        if(ts.isCallExpression(n)&&ts.isIdentifier(unparen(n.expression))&&unparen(n.expression).text==='eval'&&!checker.getSymbolAtLocation(unparen(n.expression)))throw new SyntaxError('direct eval with persistent imports is unsupported');
+        if(ts.isCallExpression(n)&&!n.questionDotToken&&ts.isIdentifier(unparen(n.expression))&&unparen(n.expression).text==='eval'&&!checker.getSymbolAtLocation(unparen(n.expression)))throw new SyntaxError('direct eval with persistent imports is unsupported');
         if(ts.isShorthandPropertyAssignment(n)){
           const binding=aliases.get(checker.getShorthandAssignmentValueSymbol(n));
           if(binding){let value=access(binding);if(n.objectAssignmentInitializer)value=f.createBinaryExpression(value,f.createToken(ts.SyntaxKind.EqualsToken),ts.visitNode(n.objectAssignmentInitializer,visit));return f.createPropertyAssignment(n.name,value);}
@@ -86,7 +90,11 @@ export class ImportBindings {
         return ts.visitEachChild(n,visit,ctx);
       };return n=>ts.visitNode(n,visit);
     }]);
-    const body=ts.createPrinter().printFile(transformed.transformed[0]);transformed.dispose();
+    let body=ts.createPrinter().printFile(transformed.transformed[0]);transformed.dispose();
+    if(body.startsWith('#!')){
+      const lineEnd=body.indexOf('\n');
+      body=lineEnd<0?'':body.slice(lineEnd+1);
+    }
     for(const name of fresh)this.bindings.set(name,{url:bridgeUrl});
     for(const symbol of checker.getSymbolsInScope(sf,ts.SymbolFlags.Value|ts.SymbolFlags.Alias))this.declared.add(symbol.name);
     return {code: loads.join('\n')+'\n'+body, metadataIdentifier};

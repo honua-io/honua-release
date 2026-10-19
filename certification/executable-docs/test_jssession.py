@@ -93,6 +93,23 @@ def test_imported_values_remain_live_across_blocks_and_lexical_closures(reader):
     assert third.stdout == "2 2\n"
 
 
+def test_hashbang_import_and_optional_indirect_eval_match_native_node(reader):
+    Path(reader.cwd, "hashbang.mjs").write_text("export const value = 1;\n")
+    source = "#!/usr/bin/env node\nimport {value} from './hashbang.mjs'; " \
+             "console.log(eval?.('typeof value'), value);"
+    native = Path(reader.cwd, "native-hashbang.mjs")
+    native.write_text(source)
+    oracle = subprocess.run(["node", str(native)], cwd=reader.cwd,
+                            capture_output=True, text=True, timeout=5)
+    assert oracle.returncode == 0 and oracle.stdout == "undefined 1\n", oracle.stderr
+    first = run(reader, source)
+    assert first.status == "pass", first.stderr
+    assert first.stdout == oracle.stdout
+    retained = run(reader, "#!/usr/bin/env node\nconsole.log(value);")
+    assert retained.status == "pass", retained.stderr
+    assert retained.stdout == "1\n"
+
+
 def test_import_meta_uses_native_filename_and_resolution_without_replaying_body(reader):
     source = "const retainedMeta = () => import.meta; " \
              "console.log(import.meta.url, import.meta.filename, import.meta.dirname, " \
