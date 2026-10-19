@@ -8,6 +8,7 @@ from pathlib import Path
 import subprocess
 import sys
 import time
+from urllib.parse import unquote_plus
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from mcp_style_validation import scenario, snapshot_output, setup_output, strict_json
@@ -82,8 +83,19 @@ def create_styles(authored, credential, receipt, *, connect=HTTPConnection):
             pending = [body]
             while pending:
                 value = pending.pop()
-                if isinstance(value, str) and credential in value:
-                    raise ValueError("style setup response contains private credential")
+                if isinstance(value, str):
+                    decoded = value
+                    for _ in range(5):
+                        if credential in decoded:
+                            raise ValueError("style setup response contains private credential")
+                        expanded = unquote_plus(decoded, encoding="utf-8", errors="strict")
+                        if expanded == decoded:
+                            break
+                        decoded = expanded
+                    else:
+                        # Do not retain deeper obfuscation after the bounded
+                        # decoder budget, even when no raw credential matched.
+                        raise ValueError("style setup response encoding exceeds safe bound")
                 if isinstance(value, dict):
                     pending.extend(value.keys()); pending.extend(value.values())
                 elif isinstance(value, list):

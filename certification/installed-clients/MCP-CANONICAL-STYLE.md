@@ -80,7 +80,9 @@ boundary. JSON does not independently attest a process, socket or database.
 Diagnostics must contain no raw credential or session headers. Setup response
 Location and body remain local until the Location equals the exact owned style
 URI, the accepted body names that style, and every decoded JSON key/value passes
-the private-credential check. Rejected responses retain only the bounded status
+the private-credential check, including each bounded URL-decoding step.
+Percent-encoded body-link credentials are rejected before retaining the body;
+values that do not stabilize within the decoding bound are refused, not retained. Rejected responses retain only the bounded status
 and empty Location/body fields, so finally-path receipt retention cannot leak a
 header echo or JSON-escaped nested credential. The accepted safe original parsed body
 is retained without fabricating a positive response. Partial refusal

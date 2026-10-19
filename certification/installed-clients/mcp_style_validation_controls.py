@@ -389,7 +389,7 @@ class StyleControls(unittest.TestCase):
             def request(self, *args, **kwargs): pass
             def getresponse(self): return self.response
             def close(self): pass
-        for mutation in ("clean", "location-echo", "location-encoded", "raw-body-echo", "escaped-body-value", "escaped-body-key", "wrong-id", "rejected-status"):
+        for mutation in ("clean", "location-echo", "location-encoded", "raw-body-echo", "escaped-body-value", "escaped-body-key", "encoded-body-link", "double-encoded-body-link", "overbound-body-link", "wrong-id", "rejected-status"):
             with self.subTest(mutation=mutation):
                 responses = []
                 for style in authored["styles"]:
@@ -400,6 +400,13 @@ class StyleControls(unittest.TestCase):
                     elif mutation == "location-encoded": location += "?credential=" + "".join("%" + format(ord(char), "02X") for char in credential)
                     elif mutation in ("raw-body-echo", "escaped-body-value"): body["links"].append({"nested": [credential]})
                     elif mutation == "escaped-body-key": body[credential] = "unsafe key"
+                    elif mutation in ("encoded-body-link", "double-encoded-body-link", "overbound-body-link"):
+                        encoded = "".join("%" + format(ord(char), "02X") for char in credential)
+                        if mutation == "double-encoded-body-link": encoded = encoded.replace("%", "%25")
+                        if mutation == "overbound-body-link":
+                            encoded = "safe"
+                            for _ in range(6): encoded = "".join("%" + format(ord(char), "02X") for char in encoded)
+                        body["links"][0]["href"] += "?credential=" + encoded
                     elif mutation == "wrong-id": body["id"] = "another-style"
                     elif mutation == "rejected-status": status = 500
                     raw = json.dumps(body).encode()
