@@ -274,6 +274,27 @@ class IngestPublishControls(unittest.TestCase):
         self.assertIn("ST_AsGeoJSON", calls[0])
         self.assertEqual(observed, expected)
 
+    def test_registry_sql_limits_both_selector_forms_to_active_rows(self):
+        # Query construction is the control here, not a simulated SQL engine.
+        # The maintained registry has UNIQUE(name); a historical same-name row
+        # is not claimed as a constructible current-schema runtime fixture.
+        for selector in ("22222222-2222-4222-8222-222222222222", "sdkreg-harness"):
+            with self.subTest(selector=selector):
+                value = controls()
+                replace_output(value["cases"][0], lambda result: result.update(connectionId=selector))
+                expected = value["snapshots"]["before"]
+                expected["tuple"]["connectionId"] = selector
+                expected["connection"] = connection_control(selector)
+                queries = []
+                def execute(query):
+                    queries.append(query)
+                    return json.dumps({"rows": expected["rows"], "mappings": [{"publication": expected["publication"], "revision": expected["revision"]}],
+                        "registry": expected["connection"]["registry"], "catalog": expected["connection"]["catalog"]})
+                state.snapshot(FIXTURE, bootstrap(), value, execute=execute,
+                    inspect_target=lambda _: ("127.0.0.1", expected["connection"]["target"]))
+                predicate = "connection_id='" + selector + "'::uuid" if selector.startswith("2222") else "name='sdkreg-harness'"
+                self.assertIn("FROM honua.data_connections WHERE is_active AND " + predicate, queries[0])
+
     def test_observer_refuses_ambiguous_mapping_and_unsafe_tuple_without_sql(self):
         value = controls()
         expected = value["snapshots"]["before"]

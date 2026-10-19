@@ -88,7 +88,7 @@ def snapshot(fixture_bytes, bootstrap, observations, *, execute, inspect_target)
         "AND pub->>'resourceId'=binding->>'resourceId'), "
         "registry AS (SELECT json_build_object('connectionId',connection_id::text,'name',name,'host',host,'port',port,"
         "'databaseName',database_name,'username',username,'provider',provider_name,'sslRequired',ssl_required,"
-        "'sslMode',ssl_mode,'isActive',is_active) AS safe FROM honua.data_connections WHERE " + registry_predicate + "), "
+        "'sslMode',ssl_mode,'isActive',is_active) AS safe FROM honua.data_connections WHERE is_active AND " + registry_predicate + "), "
         f'rows AS (SELECT "{primary}" AS id, properties, ST_AsGeoJSON("{geometry}")::json AS geometry, '
         f'ST_SRID("{geometry}") AS srid FROM "{schema}"."{table}") '
         "SELECT json_build_object('rows',COALESCE((SELECT json_agg(row_to_json(rows) ORDER BY id) FROM rows),'[]'::json),"
