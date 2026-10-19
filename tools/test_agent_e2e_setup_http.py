@@ -163,7 +163,8 @@ def test_redirect_never_forwards_setup_identity(wiring, server):
 
 
 @pytest.mark.parametrize('endpoint', ['http://remote.invalid', 'https://user:password@example.test',
-                                    'https://example.test?token=x', 'https://example.test/base'])
+                                    'https://example.test?token=x', 'https://example.test/base',
+                                    'https://example.test?', 'https://example.test#'])
 def test_bad_endpoint_rejected_before_authorization_or_retention(wiring, endpoint):
     with pytest.raises(PackError):
         SetupHttp(endpoint,'SETUP_TEST_TOKEN',identity=IDENTITY,authorize=lambda:None,retain=wiring.retain)
@@ -212,3 +213,49 @@ def test_response_byte_limit_preserves_intent_without_success(wiring, server, mo
     with pytest.raises(PackError, match='bound'):
         wiring.client().json('read', 'GET', '/read')
     assert ('intent', 'read') in wiring.records and ('response', 'read') not in wiring.records
+
+
+@pytest.mark.parametrize('token', ['quoted"token', 'back\\slash-token'])
+def test_json_special_credentials_cannot_hide_in_retention_keys(wiring, server, monkeypatch, token):
+    monkeypatch.setenv('SETUP_TEST_TOKEN', token)
+    def retain(kind, step, value):
+        return {'key':'retained/'+token, 'sha256':canonical_digest(value)}
+    with pytest.raises(PackError, match='credential'):
+        wiring.client(retain=retain).json('read', 'GET', '/read')
+    assert not server.seen
+
+
+@pytest.mark.parametrize('field', ['endpoint', 'step', 'identity'])
+def test_all_intent_metadata_is_checked_before_retention(wiring, monkeypatch, field):
+    client = wiring.client()
+    step = 'read'
+    if field == 'endpoint': client.endpoint = 'https://private-setup-token.example'
+    elif field == 'step': step = 'private-setup-token'
+    else: client.identity['attemptId'] = 'private-setup-token'
+    monkeypatch.setattr(client.opener, 'open', lambda *args, **kwargs: pytest.fail('HTTP must not be attempted'))
+    with pytest.raises(PackError, match='credential'):
+        client.json(step, 'GET', '/read')
+    assert not wiring.records
+
+
+@pytest.mark.parametrize('path', ['/api/v1/admin/import/upload', '/API/v1/admin/import/upload/',
+                                 '/api/v1/admin/import/%75pload', '/api/v1/admin/./import/upload'])
+def test_json_import_cannot_bypass_create_only_upload(wiring, server, path):
+    with pytest.raises(PackError, match='guarded upload'):
+        wiring.client().json('upload', 'POST', path, {'OverwriteExisting': True})
+    assert not wiring.records and not server.seen
+
+
+@pytest.mark.parametrize('path', ['/read\x7f', '/r\u00e9ad'])
+def test_unencodable_request_path_is_rejected_before_retention(wiring, server, path):
+    with pytest.raises(PackError, match='invalid setup request'):
+        wiring.client().json('read', 'GET', path)
+    assert not wiring.records and not server.seen
+
+
+def test_bearer_credential_is_header_only(wiring, server):
+    wiring.client(credential_kind='bearer').json('read', 'GET', '/read')
+    headers = server.seen[0][2]
+    assert headers['Authorization'] == 'Bearer private-setup-token'
+    assert 'X-Api-Key' not in headers
+    assert 'private-setup-token' not in json.dumps(list(wiring.records.values()))

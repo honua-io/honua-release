@@ -42,14 +42,14 @@ class SetupHttp:
             url.port
         except ValueError:
             raise PackError('invalid setup endpoint') from None
-        require(url.hostname and not url.username and not url.password and not url.query and not url.fragment
+        require(url.hostname and not url.username and not url.password and '?' not in endpoint and '#' not in endpoint
                 and url.path in ('', '/') and (url.scheme == 'https' or
                 url.scheme == 'http' and url.hostname in ('localhost', '127.0.0.1', '::1')),
                 'setup endpoint requires pinned TLS origin or loopback')
         require(isinstance(credential_env, str) and re.fullmatch(r'[A-Za-z_][A-Za-z0-9_]*', credential_env)
                 and credential_kind in ('api-key', 'bearer'), 'invalid setup credential reference')
         token = os.environ.get(credential_env)
-        require(isinstance(token, str) and 0 < len(token) <= 8192 and all(ord(c) >= 32 and ord(c) != 127 for c in token),
+        require(isinstance(token, str) and 0 < len(token) <= 8192 and all(33 <= ord(c) <= 126 for c in token),
                 'missing or invalid setup credential')
         require(isinstance(identity, dict) and set(identity) == {'candidateKey', 'attemptId'}
                 and isinstance(identity['candidateKey'], str) and re.fullmatch(r'sha256:[0-9a-f]{64}', identity['candidateKey'])
@@ -78,19 +78,33 @@ class SetupHttp:
                 and all(ord(c) >= 32 and ord(c) != 127 for c in reference['key'])
                 and reference.get('sha256') == canonical_digest(value),
                 'invalid setup retention acknowledgement')
-        try:
-            text = json.dumps(reference, ensure_ascii=False, allow_nan=False)
-        except (TypeError, ValueError):
-            raise PackError('invalid setup retention acknowledgement') from None
-        require(all(secret not in text and secret not in urllib.parse.unquote(text)
-                    for secret in self.private_values), 'retention acknowledgement disclosed credential')
+        self.check_private_metadata(reference)
         return reference
 
-    def request(self, step, method, path, *, body=None, content_type='application/json'):
+    def check_private_metadata(self, value):
+        try:
+            raw = json.dumps(value, ensure_ascii=False, allow_nan=False).encode()
+            for secret in self.private_values:
+                parse(raw, secret=secret)
+        except (TypeError, ValueError):
+            raise PackError('setup metadata invalid or disclosed credential') from None
+        pending = [value]
+        while pending:
+            item = pending.pop()
+            if isinstance(item, dict):
+                pending.extend(item.keys())
+                pending.extend(item.values())
+            elif isinstance(item, list):
+                pending.extend(item)
+            elif isinstance(item, str):
+                require(all(secret not in urllib.parse.unquote(item) for secret in self.private_values),
+                        'setup metadata disclosed credential')
+
+    def _request(self, step, method, path, *, body=None, content_type='application/json'):
         require(isinstance(step, str) and re.fullmatch(r'[a-z0-9-]{1,80}', step), 'invalid setup step identity')
         require(method in ('GET', 'POST', 'PUT') and isinstance(path, str) and path.startswith('/')
                 and not path.startswith('//') and '\\' not in path and '#' not in path
-                and all(ord(c) > 32 for c in path), 'invalid setup request')
+                and all(33 <= ord(c) <= 126 for c in path), 'invalid setup request')
         decoded_path = urllib.parse.unquote(path)
         require(all(secret not in path and secret not in decoded_path for secret in self.private_values),
                 'setup request URL disclosed credential')
@@ -105,6 +119,7 @@ class SetupHttp:
         intent = {'schemaVersion': 1, **self.identity, 'step': step, 'endpoint': self.endpoint,
                   'method': method, 'path': path, 'contentType': content_type,
                   'requestBodyDigest': digest_bytes(body or b'')}
+        self.check_private_metadata(intent)
         self.attempted.add(step)
         # Required to reject every pre-existing key, even identical intent bytes.
         intent_ref = self.retention_ack(self.retain('intent', step, intent), intent)
@@ -142,8 +157,12 @@ class SetupHttp:
         return {'observation': observation, 'reference': response_ref}
 
     def json(self, step, method, path, body=None):
+        require(isinstance(path, str), 'invalid setup request')
+        normalized = urllib.parse.unquote(urllib.parse.urlsplit(path).path).casefold().rstrip('/')
+        require(not any(part in ('.', '..') for part in normalized.split('/'))
+                and normalized != '/api/v1/admin/import/upload', 'fixture import requires guarded upload')
         encoded = None if body is None else json.dumps(body, allow_nan=False, separators=(',', ':')).encode()
-        return self.request(step, method, path, body=encoded)
+        return self._request(step, method, path, body=encoded)
 
     def upload(self, step, raw, *, table, schema, srid):
         require(type(raw) is bytes and len(raw) <= MAX_RESPONSE_BYTES-4096, 'oversized fixture upload')
@@ -157,5 +176,5 @@ class SetupHttp:
                  for key, value in fields.items()]
         parts += [f'--{boundary}\r\nContent-Disposition: form-data; name="file"; filename="fixture.geojson"\r\nContent-Type: application/geo+json\r\n\r\n'.encode(),
                   raw, f'\r\n--{boundary}--\r\n'.encode()]
-        return self.request(step, 'POST', '/api/v1/admin/import/upload', body=b''.join(parts),
+        return self._request(step, 'POST', '/api/v1/admin/import/upload', body=b''.join(parts),
                             content_type='multipart/form-data; boundary='+boundary)
