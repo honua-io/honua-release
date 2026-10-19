@@ -59,6 +59,7 @@ export function createPlanValidation({ directory, sourceSha, helperSha256, fixtu
       if (typeof candidateSourceSha !== "string" || !/^[a-f0-9]{40}$/.test(candidateSourceSha)
           || typeof proof?.candidateSourceSha !== "string" || !/^[a-f0-9]{40}$/.test(proof.candidateSourceSha)
           || proof?.schema !== "honua.mcp-plan-validation-proof/v1" || proof.candidateSourceSha !== candidateSourceSha
+          || proof.observations === null || typeof proof.observations !== "object" || Array.isArray(proof.observations)
           || proof.helperSourceSha !== pins.sourceSha || proof.helperSha256 !== `sha256:${pins.sha256.helper}`
           || proof.fixtureSha256 !== `sha256:${pins.sha256.fixture}`
           || ![proof.positive, proof.negative, proof.mediaSchema].every((value) => value === true)) return false;

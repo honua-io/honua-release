@@ -51,6 +51,12 @@ for (const mode of ["valid", "invalid-accepted", "wrong-path", "missing-schema",
         broken.observations.cases[1].result.structuredContent.isExecutable = true;
         assert.equal(api.verifyPlanProof(broken, candidateSourceSha), false);
         assert.equal(api.verifyPlanProof(proof, "c".repeat(40)), false);
+        for (const value of [undefined, null, false, 0, "", [], {}]) {
+          const unobserved = structuredClone(proof);
+          if (value === undefined) delete unobserved.observations;
+          else unobserved.observations = value;
+          assert.equal(api.verifyPlanProof(unobserved, candidateSourceSha), false, `raw observations ${String(value)}`);
+        }
         for (const value of [undefined, null, "", "b".repeat(39), "B".repeat(40), "z".repeat(40), [candidateSourceSha], {}]) {
           const unbound = structuredClone(proof);
           if (value === undefined) delete unbound.candidateSourceSha;
