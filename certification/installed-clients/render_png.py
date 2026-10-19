@@ -119,7 +119,11 @@ def decode_png(data: bytes) -> tuple[int, int, Callable[[int, int], tuple[int, i
         raise PngError("zlib") from exc
     if len(raw) > expected:
         raise PngError("inflate-limit")
-    if len(raw) != expected or not inflater.eof or inflater.unused_data:
+    # PNG Third Edition permits unused bytes inside the final IDAT chunk only.
+    # The enclosing PNG framing is still checked through IEND and rejects bytes after it.
+    if len(inflater.unused_data) > len(idat[-1]):
+        raise PngError("idat-padding-order")
+    if len(raw) != expected or not inflater.eof:
         raise PngError("inflate-length")
 
     rows: list[bytes] = []
@@ -167,10 +171,11 @@ def decode_png(data: bytes) -> tuple[int, int, Callable[[int, int], tuple[int, i
             return *palette[index * 3:index * 3 + 3], alpha
         if color == 2:
             rgb = tuple(row[start:start + 3])
-            transparent = transparency is not None and rgb == struct.unpack(">HHH", transparency)
+            transparent = transparency is not None and rgb == tuple(
+                sample & 0xFF for sample in struct.unpack(">HHH", transparency))
             return *rgb, 0 if transparent else 255
         gray = row[start]
-        transparent = transparency is not None and gray == struct.unpack(">H", transparency)[0]
+        transparent = transparency is not None and gray == (struct.unpack(">H", transparency)[0] & 0xFF)
         return gray, gray, gray, 0 if transparent else 255
 
     return width, height, pixel

@@ -8,6 +8,7 @@ receipt: it never carries a response body, a credential or a message the server 
 from __future__ import annotations
 
 import base64
+import binascii
 import math
 from typing import Any
 
@@ -317,7 +318,7 @@ def oracle_raster_tile(observed: dict[str, Any], fixture: dict[str, Any]) -> tup
     try:
         data = base64.b64decode(observed.get("bytes") or "", validate=True)
         width, height, pixel = decode_png(data)
-    except ValueError as exc:
+    except (binascii.Error, ValueError) as exc:
         return False, f"the tile is not a decodable PNG ({type(exc).__name__}); content type {observed.get('contentType')!r}"
     if (width, height) != (256, 256):
         return False, f"tile is {width}x{height}, WebMercatorQuad tiles are 256x256"
