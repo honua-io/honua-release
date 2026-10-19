@@ -411,9 +411,9 @@
       ],
       "identifiers": [
         "esri-drawing-info",
-        "application/vnd.esri.drawinginfo+json"
+        "application/vnd.esri.drawinginfo"
       ],
-      "reason": "Exact encoding and media-type identifiers advertised by GetStyleTool.SupportedEncodings in honua-server3ecd214c1ce20e96ad4911b6f8447055dee9089d (https://github.com/honua-io/honua-server/blob/3ecd214c1ce20e96ad4911b6f8447055dee9089d/src/Honua.Ai/Features/Protocols/Mcp/Mcp/MapTools/GetStyleTool.cs). The canonical style oracle must compare all advertised encoding/media identities exactly; neutralizing these wire bytes would silently weaken schema checks. Only these two complete identifiers in this one file are covered, without a compatibility claim, baseline increase or unrelated prose exception. Revisit if the upstream encoding contract changes.",
+      "reason": "Exact encoding and media-type identifiers advertised by GetStyleTool.SupportedEncodings in honua-server3ecd214c1ce20e96ad4911b6f8447055dee9089d (https://github.com/honua-io/honua-server/blob/3ecd214c1ce20e96ad4911b6f8447055dee9089d/src/Honua.Ai/Features/Protocols/Mcp/Mcp/MapTools/GetStyleTool.cs). The canonical style oracle must compare all advertised encoding/media identities exactly; neutralizing these wire bytes would silently weaken schema checks. Only these two complete identifiers in this one file are covered, without a compatibility claim, baseline increase or unrelated prose exception. Revisit if the upstream encoding contract changes. The existing classifier lexical boundary stops before the MIME plus suffix, so its exact lexical identifier is application/vnd.esri.drawinginfo; the complete +json wire value remains mandatory in the oracle. No classifier rule or baseline is changed.",
       "owner": "@mikemcdougall",
       "issue": "honua-io/honua-release#705"
     }

@@ -46,6 +46,12 @@ def rendered(authored, color=(29, 123, 201, 255)):
         {"type": "image", "mimeType": "image/png", "data": encoded}]}
 
 
+def catalog_record(identifier, document, version=1):
+    return {"styleId": identifier, "title": identifier, "description": None, "document": copy.deepcopy(document),
+        "drawingInfo": None, "version": version, "createdAt": "2026-10-19T00:01:00+00:00", "updatedAt": "2026-10-19T00:01:00+00:00",
+        "revisedBy": None, "changeSummary": None}
+
+
 def rebind(value):
     for position, entry in enumerate(value["calls"]):
         entry["wire"], entry["client"], entry["result"] = control_wire(entry["method"], entry["params"], entry["result"], position, entry["authenticated"])
@@ -56,19 +62,19 @@ def controls():
     authored = validation.scenario(FIXTURE, bootstrap(), "abcdef123456", "Official MCP TypeScript SDK")
     a, b = authored["styles"]; address = authored["address"]
     def got():
-        return envelope({"styleId": a["id"], "styleVersion": 1, "encodings": [{"encoding": key, "mediaType": media,
+        return envelope({"styleId": a["id"], "title": a["id"], "styleVersion": 1, "encodings": [{"encoding": key, "mediaType": media,
             **({"inlineBody": json.dumps(a["document"])} if key == "mapbox-style" else {"storageRef": "honua://styles/" + a["id"]})}
             for key, media in validation.ENCODINGS.items()]})
     def applied(dry=False):
         return envelope({"status": "Completed", "operationId": "style.apply-preset", "operationInstanceId": "controlled-style-op",
             "handleId": "controlled-style-op", "correlationId": "controlled-correlation", **address,
-            "styleId": (b if dry else a)["id"], "styleVersion": 1, "dryRun": dry, "applied": not dry})
+            "styleId": (b if dry else a)["id"], "title": (b if dry else a)["id"], "styleVersion": 1, "dryRun": dry, "applied": not dry})
     def error(code):
         return envelope({"status": "error", "code": code, "message": "Controlled authored refusal"}, True)
     denial = error("unauthenticated")
     denial["structuredContent"].update(requiresReauthentication=True, error={"kind": "AuthorizationDenied", "message": "Controlled authored refusal"})
     denial["content"][0]["text"] = json.dumps(denial["structuredContent"])
-    selected = [("catalog", "honua_get_style", {}, True, envelope({"styles": [{"styleId": style["id"], "uri": "honua://styles/" + style["id"]} for style in (a, b)]})),
+    selected = [("catalog", "honua_get_style", {}, True, envelope({"styles": [{"styleId": style["id"], "title": style["id"], "uri": "honua://styles/" + style["id"]} for style in (a, b)]})),
         ("direct", "honua_get_style", {"styleId": a["id"], "includeStylesheet": True}, True, got()),
         ("dry-run", "honua_apply_style_preset", {**address, "styleId": b["id"], "dryRun": True}, True, applied(True)),
         ("apply", "honua_apply_style_preset", {**address, "styleId": a["id"]}, True, applied()),
@@ -84,7 +90,7 @@ def controls():
         ("restarted-render", "honua_render_map", authored["renderArguments"], True, rendered(authored))]
     calls = [{"id": identifier, "method": "tools/call", "params": {"name": name, "arguments": args}, "authenticated": auth, "result": result}
              for identifier, name, args, auth, result in selected]
-    initial = {"schema": "honua.mcp-style-persisted/v1", "styles": [{"styleId": style["id"], "document": style["document"], "version": 1} for style in (a, b)],
+    initial = {"schema": "honua.mcp-style-persisted/v1", "styles": [catalog_record(style["id"], style["document"]) for style in (a, b)],
         "refs": [], "rows": [{key: row[key] for key in ("gid", "name", "envelope")} | {"srid": 4326, "geometry": {"type": "Polygon", "coordinates": [[
             [row["envelope"][0], row["envelope"][1]], [row["envelope"][0], row["envelope"][3]],
             [row["envelope"][2], row["envelope"][3]], [row["envelope"][2], row["envelope"][1]],
@@ -101,6 +107,23 @@ def controls():
         "candidateSourceSha": SOURCE, "candidateImage": IMAGE, "setup": [{"id": style["id"], "method": "POST", "path": "/ogc/styles", "document": style["document"],
             "status": 201, "location": "http://127.0.0.1:8080/ogc/styles/" + style["id"], "body": {"id": style["id"]}} for style in (a, b)],
         "calls": calls, "snapshots": snapshots, "runtimeBefore": runtime(), "runtimeRestarted": restarted, "runtimeAfter": copy.deepcopy(restarted)})
+
+
+def existing_primary_controls():
+    value = controls()
+    identifier = "previous-catalog-style"
+    document = {"version": 8, "sources": {}, "layers": [{"id": "old-fill", "type": "fill", "paint": {"fill-color": "#00aa11"}}]}
+    resource = {"id": "style-" + identifier, "name": identifier, "style": {"styleVersion": 7, "encodings": [
+        {"encoding": "mapbox-style", "contentType": "application/vnd.mapbox.style+json", "body": json.dumps(document)}]}}
+    for name, snapshot in value["snapshots"].items():
+        snapshot["styles"].append(catalog_record(identifier, document, 7))
+        snapshot["styles"].sort(key=lambda row: row["styleId"])
+        initial = name in ("initial", "dry-run")
+        snapshot["refs"].append({"styleId": identifier, "ordinal": 0 if initial else 1})
+        snapshot["mappings"][0]["styleResourceIds"].append(resource["id"])
+        snapshot["mappings"][0]["styleResources"].append(copy.deepcopy(resource))
+        snapshot["mappings"][0]["styleResources"].sort(key=lambda row: row["id"])
+    return value
 
 
 def change_output(entry, **values):
@@ -123,7 +146,7 @@ class StyleControls(unittest.TestCase):
             "physical-id-as-public": lambda x: change_output(x["calls"][3], layerId=17),
             "approval-pending": lambda x: change_output(x["calls"][3], status="RequiresApproval"),
             "reconciliation-pending": lambda x: change_output(x["calls"][3], warning="reconciliation pending"),
-            "non-durable-handle": lambda x: change_output(x["calls"][3], durable=False),
+            "malformed-handle-persistence": lambda x: change_output(x["calls"][3], durable="false"),
             "dry-run-claimed-applied": lambda x: change_output(x["calls"][2], applied=True),
             "dry-run-mutated-catalog": lambda x: x["snapshots"]["dry-run"]["styles"][0].update(version=2),
             "dry-run-mutated-ref": lambda x: x["snapshots"]["dry-run"]["refs"].append({"styleId": x["setup"][1]["id"], "ordinal": 0}),
@@ -154,6 +177,28 @@ class StyleControls(unittest.TestCase):
                 with self.assertRaises((ValueError, KeyError)):
                     validation.judge(FIXTURE, bootstrap(), value)
 
+    def test_ephemeral_handle_does_not_erase_real_persisted_binding_proof(self):
+        value = controls()
+        for index in (2, 3, 6):
+            change_output(value["calls"][index], durable=False)
+        proof = validation.judge(FIXTURE, bootstrap(), rebind(value))
+        self.assertEqual({"dry-run": False, "apply": False, "replay": False}, proof["operationHandleDeclaredDurability"])
+        self.assertTrue(proof["persistedReadback"] and proof["restartReadback"])
+        value["snapshots"]["restarted"]["refs"] = []
+        with self.assertRaises(ValueError):
+            validation.judge(FIXTURE, bootstrap(), value)
+
+    def test_handle_durability_disclosure_is_boolean_if_present(self):
+        for declaration in (True, False):
+            value = controls(); change_output(value["calls"][3], durable=declaration)
+            proof = validation.judge(FIXTURE, bootstrap(), rebind(value))
+            self.assertIs(proof["operationHandleDeclaredDurability"]["apply"], declaration)
+        for malformed in (None, 0, 1, "false", {}, []):
+            with self.subTest(malformed=malformed):
+                value = controls(); change_output(value["calls"][3], durable=malformed)
+                with self.assertRaises(ValueError):
+                    validation.judge(FIXTURE, bootstrap(), rebind(value))
+
     def test_only_successful_replay_may_advance_graph_revision(self):
         value = controls()
         for name in ("replay", "unknown-style", "invalid-encoding", "unknown-layer", "anonymous-get", "anonymous-apply", "restarted", "restarted-readback"):
@@ -161,6 +206,80 @@ class StyleControls(unittest.TestCase):
         self.assertTrue(validation.judge(FIXTURE, bootstrap(), value)["negativeNonmutation"])
         value["snapshots"]["anonymous-apply"]["mappings"][0]["revision"] = 48
         with self.assertRaisesRegex(ValueError, "metadata revision"):
+            validation.judge(FIXTURE, bootstrap(), value)
+
+    def test_referenced_secondary_graph_resources_are_complete_and_catalog_bound(self):
+        self.assertTrue(validation.judge(FIXTURE, bootstrap(), existing_primary_controls())["persistedReadback"])
+        for mutation in ("missing-secondary", "duplicate-secondary", "wrong-secondary-body", "wrong-secondary-version", "wrong-secondary-name", "unexpected-resource"):
+            with self.subTest(mutation=mutation):
+                value = existing_primary_controls()
+                # Change all post-apply checkpoints consistently so equality
+                # alone cannot catch the incomplete/wrong graph projection.
+                for name, snapshot in value["snapshots"].items():
+                    if name in ("initial", "dry-run"): continue
+                    mapping = snapshot["mappings"][0]
+                    selected = next(row for row in mapping["styleResources"] if row["name"] == "previous-catalog-style")
+                    if mutation == "missing-secondary": mapping["styleResources"].remove(selected)
+                    elif mutation == "duplicate-secondary": mapping["styleResources"].append(copy.deepcopy(selected))
+                    elif mutation == "wrong-secondary-body": selected["style"]["encodings"][0]["body"] = '{}'
+                    elif mutation == "wrong-secondary-version": selected["style"]["styleVersion"] = 8
+                    elif mutation == "wrong-secondary-name": selected["name"] = "other-catalog-style"
+                    else: mapping["styleResources"].append({**copy.deepcopy(selected), "id": "style-unreferenced"})
+                with self.assertRaisesRegex(ValueError, "referenced"):
+                    validation.judge(FIXTURE, bootstrap(), value)
+
+    def test_successful_apply_preserves_existing_catalog_and_associations(self):
+        for mutation in ("coherent-drop", "coherent-body-mutation", "metadata-mutation", "wrong-demotion"):
+            with self.subTest(mutation=mutation):
+                value = existing_primary_controls()
+                for name, snapshot in value["snapshots"].items():
+                    if name in ("initial", "dry-run"): continue
+                    legacy = next(row for row in snapshot["styles"] if row["styleId"] == "previous-catalog-style")
+                    graph = next(row for row in snapshot["mappings"][0]["styleResources"] if row["name"] == "previous-catalog-style")
+                    if mutation == "coherent-drop":
+                        snapshot["styles"].remove(legacy)
+                        snapshot["refs"] = [row for row in snapshot["refs"] if row["styleId"] != "previous-catalog-style"]
+                        snapshot["mappings"][0]["styleResourceIds"].remove("style-previous-catalog-style")
+                        snapshot["mappings"][0]["styleResources"].remove(graph)
+                    elif mutation == "coherent-body-mutation":
+                        legacy["document"]["layers"][0]["paint"]["fill-color"] = "#123456"
+                        graph["style"]["encodings"][0]["body"] = json.dumps(legacy["document"])
+                    elif mutation == "metadata-mutation": legacy["description"] = "unexpected catalog edit"
+                    else: snapshot["refs"][1]["ordinal"] = 3
+                with self.assertRaisesRegex(ValueError, "catalog records|prior associations"):
+                    validation.judge(FIXTURE, bootstrap(), value)
+
+    def test_apply_preserves_existing_alternate_ordinal_and_demotes_after_maximum(self):
+        value = existing_primary_controls()
+        document = {"version": 8, "layers": []}
+        for name, snapshot in value["snapshots"].items():
+            snapshot["styles"].append(catalog_record("retained-alternate", document, 3))
+            snapshot["styles"].sort(key=lambda row: row["styleId"])
+            initial = name in ("initial", "dry-run")
+            if not initial: next(row for row in snapshot["refs"] if row["styleId"] == "previous-catalog-style")["ordinal"] = 5
+            snapshot["refs"].append({"styleId": "retained-alternate", "ordinal": 4})
+            snapshot["refs"].sort(key=lambda row: (row["ordinal"], row["styleId"]))
+            snapshot["mappings"][0]["styleResourceIds"] = ["style-" + row["styleId"] for row in snapshot["refs"]]
+            snapshot["mappings"][0]["styleResources"].append({"id": "style-retained-alternate", "name": "retained-alternate",
+                "style": {"styleVersion": 3, "encodings": [{"encoding": "mapbox-style", "contentType": "application/vnd.mapbox.style+json", "body": json.dumps(document)}]}})
+            snapshot["mappings"][0]["styleResources"].sort(key=lambda row: row["id"])
+        self.assertTrue(validation.judge(FIXTURE, bootstrap(), value)["persistedReadback"])
+        for name, snapshot in value["snapshots"].items():
+            if name in ("initial", "dry-run"): continue
+            next(row for row in snapshot["refs"] if row["styleId"] == "retained-alternate")["ordinal"] = 2
+        with self.assertRaisesRegex(ValueError, "prior associations"):
+            validation.judge(FIXTURE, bootstrap(), value)
+
+    def test_apply_preserves_unrelated_catalog_records(self):
+        value = controls()
+        for snapshot in value["snapshots"].values():
+            snapshot["styles"].append(catalog_record("unrelated-retained", {"version": 8, "layers": []}, 2))
+            snapshot["styles"].sort(key=lambda row: row["styleId"])
+        self.assertTrue(validation.judge(FIXTURE, bootstrap(), value)["persistedReadback"])
+        for name, snapshot in value["snapshots"].items():
+            if name not in ("initial", "dry-run"):
+                snapshot["styles"] = [row for row in snapshot["styles"] if row["styleId"] != "unrelated-retained"]
+        with self.assertRaisesRegex(ValueError, "catalog records"):
             validation.judge(FIXTURE, bootstrap(), value)
 
     def test_missing_observation_wrong_session_auth_and_body_refuse(self):

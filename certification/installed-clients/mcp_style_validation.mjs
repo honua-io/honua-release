@@ -140,7 +140,8 @@ export function createStyleValidation({ directory, sourceSha, sha256, bootstrapP
             proof.anonymousInvocationRefusal, proof.negativeNonmutation, proof.coloredRender].every(value => value === true)
           || proof.observations === null || typeof proof.observations !== "object" || Array.isArray(proof.observations)) return false;
       const judged = python("mcp_style_validation.py", [], proof.observations);
-      return ["candidateSourceSha", "candidateImage", "fixtureSha256", "bootstrapSha256", "canonicalClient", "clientVersion"].every(key => proof[key] === judged[key]);
+      return ["candidateSourceSha", "candidateImage", "fixtureSha256", "bootstrapSha256", "canonicalClient", "clientVersion"].every(key => proof[key] === judged[key])
+        && isDeepStrictEqual(proof.operationHandleDeclaredDurability, judged.operationHandleDeclaredDurability);
     } catch { return false; }
   }
   return { styleScenarios, verifyStyleProof };

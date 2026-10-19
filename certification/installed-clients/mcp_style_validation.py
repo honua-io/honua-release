@@ -72,7 +72,8 @@ def setup_output(setup, authored):
 
 def get_output(result, style, *, inline=True):
     value = tool_output(result)
-    if value.get("styleId") != style["id"] or type(value.get("styleVersion")) is not int or value["styleVersion"] != 1:
+    if (value.get("styleId") != style["id"] or type(value.get("styleVersion")) is not int or value["styleVersion"] != 1
+            or value.get("title") != style["id"] or value.get("description") is not None):
         raise ValueError("get_style selected another catalog style/version")
     encodings = value.get("encodings")
     if not isinstance(encodings, list) or len(encodings) != len(ENCODINGS):
@@ -99,10 +100,16 @@ def apply_output(result, authored, *, dry_run):
             or value.get("serviceId") != authored["address"]["serviceId"]
             or type(value.get("layerId")) is not int or value["layerId"] != authored["address"]["layerId"]
             or value.get("styleId") != authored["styles"][1 if dry_run else 0]["id"]
+            or value.get("title") != authored["styles"][1 if dry_run else 0]["id"]
             or type(value.get("styleVersion")) is not int or value["styleVersion"] != 1
             or value.get("dryRun") is not dry_run or value.get("applied") is not (not dry_run)
-            or value.get("warning") is not None or value.get("durable") is False):
-        raise ValueError("style application is pending, non-durable, inconsistent or not the authored operation")
+            or value.get("warning") is not None
+            or ("durable" in value and type(value["durable"]) is not bool)):
+        raise ValueError("style application is pending, inconsistent or not the authored operation")
+    # This field describes operation-instance persistence, not catalog/binding
+    # persistence. Redis-off direct style is supported with durable=false; only
+    # independent SQL/fresh reads/restart can prove the association persisted.
+    return value
 
 
 def snapshot_output(value, authored, fixture_bytes, *, applied):
@@ -110,9 +117,31 @@ def snapshot_output(value, authored, fixture_bytes, *, applied):
             or value["schema"] != "honua.mcp-style-persisted/v1"):
         raise ValueError("independent style state missing")
     catalog = value["styles"]
-    expected_styles = [{"styleId": style["id"], "document": style["document"], "version": 1} for style in authored["styles"]]
-    if not same_json(catalog, expected_styles):
-        raise ValueError("persisted styles differ from authored catalog")
+    if not isinstance(catalog, list):
+        raise ValueError("persisted style catalog missing")
+    catalog_by_id = {}
+    for row in catalog:
+        if (not isinstance(row, dict) or set(row) != {"styleId", "title", "description", "document", "drawingInfo", "version", "createdAt", "updatedAt", "revisedBy", "changeSummary"}
+                or not isinstance(row["styleId"], str) or not re.fullmatch(r"[A-Za-z0-9_.-]{1,200}", row["styleId"])
+                or row["styleId"] in catalog_by_id or not isinstance(row["document"], dict)
+                or type(row["version"]) is not int or row["version"] < 1):
+            raise ValueError("persisted style catalog has duplicate/invalid entries")
+        if any(row[key] is not None and not isinstance(row[key], str) for key in ("title", "description", "revisedBy", "changeSummary")):
+            raise ValueError("persisted catalog metadata value types differ")
+        if row["drawingInfo"] is not None and not isinstance(row["drawingInfo"], dict):
+            raise ValueError("persisted catalog drawing metadata malformed")
+        for key in ("createdAt", "updatedAt"):
+            if not isinstance(row[key], str) or datetime.fromisoformat(row[key].replace("Z", "+00:00")).tzinfo is None:
+                raise ValueError("persisted catalog timestamp missing or timezone-free")
+        catalog_by_id[row["styleId"]] = row
+    if catalog != sorted(catalog, key=lambda row: row["styleId"]):
+        raise ValueError("persisted style catalog order differs")
+    for style in authored["styles"]:
+        actual = catalog_by_id.get(style["id"])
+        expected = {"styleId": style["id"], "title": style["id"], "description": None, "document": style["document"],
+                    "drawingInfo": None, "version": 1, "revisedBy": None, "changeSummary": None}
+        if actual is None or not same_json({key: actual[key] for key in expected}, expected):
+            raise ValueError("persisted styles differ from authored catalog")
     expected_rows = [{"gid": row["gid"], "name": row["name"], "envelope": row["envelope"], "srid": 4326}
                      for row in json.loads(fixture_bytes)["area"]["features"]]
     rows = value["rows"]
@@ -164,21 +193,32 @@ def snapshot_output(value, authored, fixture_bytes, *, applied):
         raise ValueError("dry-run alternate style was persisted")
     if applied and (not refs or refs[0] != {"styleId": authored["styles"][0]["id"], "ordinal": 0}):
         raise ValueError("authored applied style is not the sole primary")
-    expected_ids = ["style-" + ref["styleId"] for ref in refs]
-    if not same_json(mapping["styleResourceIds"], expected_ids):
+    if not ids.issubset(catalog_by_id):
+        raise ValueError("catalog census omits an associated style")
+    # ASCII identifiers here use the exact MetadataV2StyleResourceFactory rule:
+    # preserve letters/digits/underscore/dot/hyphen, then trim outer hyphens.
+    expected_ids = ["style-" + (ref["styleId"].strip("-") or "default") for ref in refs]
+    if len(set(expected_ids)) != len(expected_ids) or not same_json(mapping["styleResourceIds"], expected_ids):
         raise ValueError("active metadata graph disagrees with catalog associations")
-    if not isinstance(mapping["styleResources"], list):
-        raise ValueError("graph style projection missing")
-    if applied:
-        selected = [row for row in mapping["styleResources"] if isinstance(row, dict) and row.get("id") == expected_ids[0]]
-        if (len(selected) != 1 or selected[0].get("name") != authored["styles"][0]["id"]
-                or not isinstance(selected[0].get("style"), dict) or selected[0]["style"].get("styleVersion") != 1):
-            raise ValueError("applied style graph resource missing")
-        encoding = [row for row in selected[0]["style"].get("encodings", []) if row.get("encoding") == "mapbox-style"]
+    resources = mapping["styleResources"]
+    if (not isinstance(resources, list) or len(resources) != len(expected_ids)
+            or any(not isinstance(row, dict) or set(row) != {"id", "name", "style"} for row in resources)
+            or len({row["id"] for row in resources if isinstance(row["id"], str)}) != len(resources)
+            or {row["id"] for row in resources if isinstance(row["id"], str)} != set(expected_ids)):
+        raise ValueError("graph must retain exactly one resource for every referenced style")
+    by_id = {row["id"]: row for row in resources}
+    for ref, identifier in zip(refs, expected_ids, strict=True):
+        resource = by_id[identifier]; stored = catalog_by_id[ref["styleId"]]
+        style = resource["style"]
+        if (resource["name"] != ref["styleId"] or not isinstance(style, dict)
+                or type(style.get("styleVersion")) is not int or style["styleVersion"] != stored["version"]
+                or not isinstance(style.get("encodings"), list)):
+            raise ValueError("referenced graph style identity/version differs from the real catalog")
+        encoding = [row for row in style["encodings"] if isinstance(row, dict) and row.get("encoding") == "mapbox-style"]
         if (len(encoding) != 1 or encoding[0].get("contentType") != ENCODINGS["mapbox-style"]
                 or not isinstance(encoding[0].get("body"), str)
-                or not same_json(strict_json(encoding[0]["body"]), authored["styles"][0]["document"])):
-            raise ValueError("applied graph stylesheet differs from authored body")
+                or not same_json(strict_json(encoding[0]["body"]), stored["document"])):
+            raise ValueError("referenced graph stylesheet differs from the real catalog")
 
 
 def stable_state(value):
@@ -264,13 +304,14 @@ def judge(fixture_bytes, bootstrap, observed):
         raise ValueError("style catalog list missing")
     for style in (a, b):
         matches = [row for row in listed if isinstance(row, dict) and row.get("styleId") == style["id"]]
-        if len(matches) != 1 or matches[0].get("uri") != "honua://styles/" + style["id"]:
+        if len(matches) != 1 or matches[0].get("uri") != "honua://styles/" + style["id"] or matches[0].get("title") != style["id"]:
             raise ValueError("authored style missing/duplicated in actual catalog")
     for identifier in ("direct", "fresh", "restarted-fresh"):
         get_output(outcomes[identifier], a)
+    handle_persistence = {}
     for identifier in ("apply", "replay"):
-        apply_output(outcomes[identifier], authored, dry_run=False)
-    apply_output(outcomes["dry-run"], authored, dry_run=True)
+        handle_persistence[identifier] = apply_output(outcomes[identifier], authored, dry_run=False).get("durable")
+    handle_persistence["dry-run"] = apply_output(outcomes["dry-run"], authored, dry_run=True).get("durable")
     for identifier, code in (("unknown-style", "invalid_argument"), ("invalid-encoding", "invalid_argument"), ("unknown-layer", "not_found")):
         negative_output(outcomes[identifier], code)
     for identifier in ("anonymous-get", "anonymous-apply"):
@@ -285,6 +326,18 @@ def judge(fixture_bytes, bootstrap, observed):
         snapshot_output(snapshots[name], authored, fixture_bytes, applied=name not in ("initial", "dry-run"))
     if not same_json(snapshots["initial"], snapshots["dry-run"]):
         raise ValueError("style dry run mutated committed state")
+    if not same_json(snapshots["initial"]["styles"], snapshots["applied"]["styles"]):
+        raise ValueError("style apply changed pre-existing or authored catalog records")
+    old_refs = snapshots["initial"]["refs"]
+    authored_ids = {style["id"] for style in authored["styles"]}
+    if any(ref["styleId"] in authored_ids for ref in old_refs):
+        raise ValueError("authored preset was associated before the tested application")
+    maximum = max((ref["ordinal"] for ref in old_refs), default=0)
+    expected_refs = [{"styleId": authored["styles"][0]["id"], "ordinal": 0}]
+    expected_refs += [{"styleId": ref["styleId"], "ordinal": maximum + 1 if ref["ordinal"] == 0 else ref["ordinal"]} for ref in old_refs]
+    expected_refs.sort(key=lambda ref: (ref["ordinal"], ref["styleId"]))
+    if not same_json(snapshots["applied"]["refs"], expected_refs):
+        raise ValueError("style apply did not preserve/demote prior associations exactly")
     if not same_json(snapshots["applied"], snapshots["readback"]):
         raise ValueError("fresh read/render changed committed state or metadata revision")
     # Current executor reconciles the graph on every successful apply, including
@@ -303,7 +356,7 @@ def judge(fixture_bytes, bootstrap, observed):
     return {key: authored[key] for key in ("fixtureSha256", "bootstrapSha256", "candidateSourceSha", "candidateImage")} | {
         "canonicalClient": observed["canonicalClient"], "clientVersion": observed["clientVersion"], "operations": OPERATIONS,
         "positive": True, "negative": True, "mediaSchema": True, "persistedReadback": True,
-        "restartReadback": True, "anonymousInvocationRefusal": True, "negativeNonmutation": True, "coloredRender": True}
+        "restartReadback": True, "anonymousInvocationRefusal": True, "negativeNonmutation": True, "coloredRender": True, "operationHandleDeclaredDurability": handle_persistence}
 
 
 def main():

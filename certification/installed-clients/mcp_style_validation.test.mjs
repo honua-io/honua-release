@@ -42,6 +42,9 @@ test("both style operations require complete authored persisted/render/restart o
     for (const operation of operations) assert.equal(control.verify(control.proof, control.proof.candidateSourceSha, control.proof.candidateImage, operation), true);
     const changed = structuredClone(control.proof); changed.observations.snapshots["anonymous-apply"].refs.push({styleId:"hidden-mutation",ordinal:1});
     assert.equal(control.verify(changed), false);
+    const changedHandle = structuredClone(control.proof);
+    changedHandle.operationHandleDeclaredDurability = { "dry-run": true, apply: true, replay: true };
+    assert.equal(control.verify(changedHandle), false);
     assert.equal(control.verify(control.proof, "f".repeat(40)), false);
     assert.equal(control.verify(control.proof, control.proof.candidateSourceSha, control.proof.candidateImage, "tools/call:publish_result"), false);
     for (const value of [null, [], {}, { ...control.proof, observations: null }, { ...control.proof, restartReadback: false }, { ...control.proof, coloredRender: false }]) assert.equal(control.verify(value), false);

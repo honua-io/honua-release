@@ -26,8 +26,14 @@ Source contract checked at server `3c5250084957fae0187aa1933509c7e2d2a9cc82`:
 
 Historical server `3ecd214c1ce20e96ad4911b6f8447055dee9089d` has the same
 apply/read/persistence contract, but omits the later optional `durable` output.
-Missing/null durable is never treated as durability proof. No selected image has
-yet established this new journey.
+An omitted durable field is unknown operation-instance persistence, and `durable=false`
+explicitly identifies the supported Redis-off direct handle whose status cannot be
+read back. This field does not describe catalog association persistence. The proof
+retains the actual disclosure for dry-run/apply/replay without inferring a durable
+handle. Association durability is established only by the independent committed
+state, fresh read/render and restart observations. See `McpApplyStylePresetOutput.Durable`
+and `RedisOffDirectStylePresetHostTests` at the source revision above. No selected
+image has yet established this new journey.
 
 The sequence retains setup, initial state, catalog/read, dry run, unchanged state,
 apply, independent committed state, fresh layer read and colored render, replay,
@@ -36,6 +42,16 @@ operation with state census, exact owned-container restart, final independent
 state and fresh client read/render. Every invocation uses a new actual client
 process/session. The public Inspector must discover the real supported setup view
 without credentials; local tool-not-found cannot stand in for a server refusal.
+
+The catalog census includes every catalog record, including both authored entries,
+existing associated styles and unrelated entries. Every referenced graph style must have exactly one resource object whose
+name, version and canonical MapLibre body match its independently observed catalog
+row, including a primary demoted to secondary by the new application. The full
+catalog record census (title/description/body/drawing metadata/version/timestamps/
+revision attribution/summary) must remain unchanged from initial state through
+apply. Pre-existing refs must survive; nonprimary ordinals remain unchanged and
+an old ordinal-zero primary moves to the previous maximum ordinal plus one.
+Neither authored style may be associated before the tested application.
 
 All SQL reads of catalog, associations, metadata mapping/revision and authored
 area rows including full GeoJSON geometry use one statement/MVCC snapshot. The independent rectangle oracle permits ring start/orientation changes only, with no extra vertices, holes or same-bbox distortions. Every negative compares full relevant
