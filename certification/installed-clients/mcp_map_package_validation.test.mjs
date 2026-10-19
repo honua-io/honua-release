@@ -67,15 +67,15 @@ for (const mode of ["valid", "ignored-view", "wrong-readback", "negative-accepte
         catch (error) { checks[name] = { result: "fail", error: String(error) }; }
       }, { ...identity, results });
       assert.deepEqual(Object.keys(checks), operations);
-      assert.equal(tools.length, mode === "tool-transport" ? 3 : 4);
+      assert.equal(tools.length, ["tool-transport", "read-transport"].includes(mode) ? 3 : 4);
       assert.ok(tools.every(({ tool }) => tool === "honua_create_map_package"));
       assert.deepEqual(tools[0].arguments_.initialView, { bbox: [-90, 0, -45, 60], crs: 4326 });
       assert.equal(tools[0].arguments_.sourceBindings[0].layerId, "3");
       const raw = JSON.parse(readFileSync(`${results}.map-package.raw.json`));
-      assert.equal(raw.cases.length, mode === "tool-transport" ? 3 : 4);
-      assert.equal(raw.cases.filter((item) => item.result !== null).length, mode === "tool-transport" ? 2 : mode === "anonymous-tool-forwarded-auth" ? 3 : 4);
-      assert.equal(raw.reads.length, ["tool-transport", "anonymous-tool-forwarded-auth"].includes(mode) ? 0 : mode === "read-transport" ? 2 : 3);
-      assert.equal(raw.reads.filter((item) => item.result !== null).length, ["tool-transport", "anonymous-tool-forwarded-auth"].includes(mode) ? 0 : mode === "read-transport" ? 1 : 3);
+      assert.equal(raw.cases.length, ["tool-transport", "read-transport"].includes(mode) ? 3 : 4);
+      assert.equal(raw.cases.filter((item) => item.result !== null).length, mode === "tool-transport" ? 2 : ["read-transport", "anonymous-tool-forwarded-auth"].includes(mode) ? 3 : 4);
+      assert.equal(raw.reads.length, mode === "tool-transport" ? 0 : mode === "read-transport" ? 2 : 3);
+      assert.equal(raw.reads.filter((item) => item.result !== null).length, mode === "tool-transport" ? 0 : mode === "read-transport" ? 1 : 3);
       if (mode === "anonymous-tool-reused-session") {
         const sessions = raw.cases.map((item) => item.wire.initialize.response.sessionSha256);
         assert.equal(new Set(sessions.slice(0, 3)).size, 3);

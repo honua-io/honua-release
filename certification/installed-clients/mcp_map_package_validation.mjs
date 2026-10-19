@@ -67,7 +67,7 @@ export function createMapPackageValidation({ directory, sourceSha, sha256, boots
       try {
         observed.runtimeBefore = inspectRuntime(candidateSourceSha, candidateImage);
         if (!isDeepStrictEqual(observed.runtimeBefore, authored.runtimeBinding)) throw new Error("map candidate changed since fixture bootstrap");
-        for (const item of authored.cases) {
+        const toolCase = async (item) => {
           const entry = { id: item.id, arguments: item.arguments, authenticated: item.authenticated, result: null, wire: null, client: null };
           observed.cases.push(entry);
           verifyBytes();
@@ -79,7 +79,8 @@ export function createMapPackageValidation({ directory, sourceSha, sha256, boots
           entry.client = probe.client;
           const frame = observedResponse(probe.wire.invocation);
           entry.result = Object.hasOwn(frame, "error") ? frame : frame.result;
-        }
+        };
+        for (const item of authored.cases.filter((item) => item.authenticated)) await toolCase(item);
         // Extracting the returned URI selects what to read; only the independent
         // Python oracle may credit its identity, selectors and actual readback.
         const first = observed.cases[0].result;
@@ -98,6 +99,10 @@ export function createMapPackageValidation({ directory, sourceSha, sha256, boots
           const frame = observedResponse(probe.wire.invocation);
           entry.result = Object.hasOwn(frame, "error") ? frame : frame.result;
         }
+        // The public Inspector can reject a long-tail name locally. Keep the
+        // independently executable resource observations before that refusal;
+        // missing actual anonymous tools/call wire still cannot produce proof.
+        for (const item of authored.cases.filter((item) => !item.authenticated)) await toolCase(item);
       } finally {
         try {
           observed.runtimeAfter = inspectRuntime(candidateSourceSha, candidateImage);
