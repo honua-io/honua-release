@@ -877,12 +877,55 @@ class WorkflowTests(unittest.TestCase):
         samples = oracles.render_expectations(FIXTURE)
         self.assertEqual(sum(1 for *_, inside in samples if inside), 3)
         self.assertEqual(len(samples), 8)
-        encode = lambda data: {"png": base64.b64encode(data).decode()}  # noqa: E731
+        encode = lambda data: {"png": base64.b64encode(data).decode(), "mimeType": "image/png"}  # noqa: E731
         self.assertTrue(oracles.oracle_map_render(encode(png(spec["width"], spec["height"], lambda x, y: 40 <= x < 220 and 40 <= y < 280)), FIXTURE)[0])
         self.assertFalse(oracles.oracle_map_render(encode(png(spec["width"], spec["height"], lambda x, y: False)), FIXTURE)[0])
         self.assertFalse(oracles.oracle_map_render(encode(png(spec["width"], spec["height"], lambda x, y: True)), FIXTURE)[0])
+        self.assertEqual(oracles.oracle_map_render(encode(png(spec["width"], spec["height"],
+            lambda x, y: 0 <= x < 180 and 40 <= y < 280)), FIXTURE)[1].split(":")[0], "alpha-mismatch")
         self.assertFalse(oracles.oracle_map_render(encode(png(64, 64, lambda x, y: True)), FIXTURE)[0])
-        self.assertFalse(oracles.oracle_map_render({"png": "not-base64!"}, FIXTURE)[0])
+        self.assertEqual(oracles.oracle_map_render(encode(b"not a PNG"), FIXTURE)[1], "invalid-png:signature")
+        self.assertEqual(oracles.oracle_map_render({"png": "not-base64!", "mimeType": "image/png"}, FIXTURE)[1],
+                         "invalid-png:base64")
+        self.assertEqual(oracles.oracle_map_render({**encode(png(1, 1, lambda x, y: True)),
+                                                    "mimeType": "application/octet-stream"}, FIXTURE)[1],
+                         "invalid-media-type: expected image/png")
+
+    def test_png_container_and_inflate_refusals_are_typed(self):
+        def chunk(kind, payload):
+            return struct.pack(">I", len(payload)) + kind + payload + struct.pack(">I", zlib.crc32(kind + payload))
+
+        def image(raw, width=1, height=1, color=6, before_idat=b""):
+            return b"\x89PNG\r\n\x1a\n" + chunk(b"IHDR", struct.pack(">IIBBBBB", width, height, 8, color, 0, 0, 0)) + \
+                   before_idat + chunk(b"IDAT", zlib.compress(raw)) + chunk(b"IEND", b"")
+
+        valid = image(b"\x00\0\0\xff\xff")
+        width, height, pixel = oracles.decode_png(valid)
+        self.assertEqual((width, height, pixel(0, 0)), (1, 1, (0, 0, 255, 255)))
+        for filter_type in range(1, 5):
+            self.assertEqual(oracles.decode_png(image(bytes((filter_type, 0, 0, 255, 255))))[:2], (1, 1))
+        rgb_transparent = image(b"\x00\0\0\xff", color=2,
+                                before_idat=chunk(b"tRNS", struct.pack(">HHH", 0, 0, 255)))
+        self.assertEqual(oracles.decode_png(rgb_transparent)[2](0, 0), (0, 0, 255, 0))
+        indexed = image(b"\x00\x00", color=3,
+                        before_idat=chunk(b"PLTE", b"\xff\0\0") + chunk(b"tRNS", b"\x80"))
+        self.assertEqual(oracles.decode_png(indexed)[2](0, 0), (255, 0, 0, 128))
+        bad_crc = bytearray(valid)
+        bad_crc[-17] ^= 1
+        cases = {
+            "crc": bytes(bad_crc),
+            "missing-iend": valid[:-12],
+            "trailing-data": valid + b"x",
+            "truncated-chunk": valid[:-2],
+            "filter": image(b"\x05\0\0\xff\xff"),
+            "inflate-limit": image(b"\x00\0\0\xff\xff" + b"x" * 1024),
+            "inflate-length": image(b"\x00\0\0\xff"),
+            "dimensions": image(b"\x00\0\0\xff\xff", width=5000),
+            "critical-chunk": valid[:33] + chunk(b"ABCD", b"x") + valid[33:],
+        }
+        for expected, payload in cases.items():
+            with self.subTest(expected=expected), self.assertRaisesRegex(ValueError, f"^{expected}$"):
+                oracles.decode_png(payload)
 
     def test_mcp_job_oracles(self):
         self.assertTrue(oracles.oracle_mcp_job_accepted({"jobId": "gp-1", "status": "Queued"})[0])

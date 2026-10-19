@@ -129,6 +129,16 @@ every step names the client and API that performed it. The four hand-offs are:
 A failing hand-off names its seam (the producing client and API, and the consuming client and API) in the
 receipt.
 
+The installed MCP render step sends `honua_render_map` through the installed proxy for the
+`sdkreg_area` polygon that `regression.seed_sql` creates and `publish_harness` publishes on the
+candidate. Its pure [`render_png.py`](render_png.py) oracle requires `image/png`, a complete
+CRC-checked, size-bounded PNG, the requested 260×320 dimensions, and painted/transparent
+alpha at geographic-coordinate samples authored in `fixture.v1.json`. Malformed media,
+containers and pixels fail with typed reasons. A canonical client may import that helper
+from a protected immutable release revision with the matching fixture digest, but must
+retain its own raw proxy response and genuine candidate seed/publication identity. A
+helper-only test does not qualify a client or change any governed row.
+
 ### GP release hardening
 
 The MCP workflow requires five preflight/retry observations in addition to execution:
