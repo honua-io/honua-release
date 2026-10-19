@@ -8,7 +8,7 @@ import { join, dirname } from "node:path";
 export const controlCredential = "controlled-private-key";
 const hash = (value) => `sha256:${createHash("sha256").update(value).digest("hex")}`;
 
-export async function startControlledCandidate(responses, reads, { responseMutation, reuseSessions = false, reuseAnonymousSession = false, toolTransport = false, readTransport = false, onRead } = {}) {
+export async function startControlledCandidate(responses, reads, { responseMutation, reuseSessions = false, reuseAnonymousSession = false, toolTransport = false, readTransport = false, onRead, sessionPrefix = "controlled-session" } = {}) {
   const sessions = new Set();
   let sequence = 0, toolCall = 0, firstAuthenticatedSession;
   const seen = [];
@@ -19,7 +19,7 @@ export async function startControlledCandidate(responses, reads, { responseMutat
       const message = JSON.parse(Buffer.concat(bytes));
       if (message.method === "initialize") {
         const session = reuseAnonymousSession && incoming.headers["x-api-key"] === undefined ? firstAuthenticatedSession
-          : `controlled-session-${reuseSessions ? "reused" : ++sequence}`;
+          : `${sessionPrefix}-${reuseSessions ? "reused" : ++sequence}`;
         if (incoming.headers["x-api-key"] === controlCredential) firstAuthenticatedSession ??= session;
         sessions.add(session);
         outgoing.writeHead(200, { "content-type": "application/json", "mcp-session-id": session });
