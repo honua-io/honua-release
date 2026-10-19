@@ -230,11 +230,12 @@ def invocation_wire(wire, method, params, authenticated, canonical_client):
     original = {key: value for key, value in wire.items() if key != "discovery"}
     frame, session = observed_wire(original, method, params, authenticated)
     pages = wire["discovery"]
-    if not isinstance(pages, list) or not 1 <= len(pages) <= 8:
+    if not isinstance(pages, list) or not 1 <= len(pages) <= 32:
         raise ValueError("actual Inspector discovery pages missing or unbounded")
     view = "full" if authenticated else "setup"
     identifiers = {("id", type(original[part]["request"]["id"]), original[part]["request"]["id"]) for part in ("initialize", "invocation")}
     cursor = None
+    cursors = set()
     tools = []
     for position, page in enumerate(pages):
         request, response = wire_frame(page)
@@ -257,8 +258,10 @@ def invocation_wire(wire, method, params, authenticated, canonical_client):
             raise ValueError("Inspector catalog inherited or changed session/credential authority")
         tools.extend(response["result"]["tools"])
         cursor = response["result"].get("nextCursor")
-        if cursor is not None and (not isinstance(cursor, str) or not cursor or position == len(pages) - 1):
+        if cursor is not None and (not isinstance(cursor, str) or not cursor or cursor in cursors or position == len(pages) - 1):
             raise ValueError("Inspector did not retain complete actual catalog pagination")
+        if cursor is not None:
+            cursors.add(cursor)
         if cursor is None and position != len(pages) - 1:
             raise ValueError("unrelated Inspector catalog pages followed a terminal page")
     matches = [tool for tool in tools if isinstance(tool, dict) and tool.get("name") == params["name"]]

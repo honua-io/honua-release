@@ -6,7 +6,9 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { spawnSync } from "node:child_process";
+import { createServer } from "node:http";
 import { createIngestPublishValidation } from "./mcp_ingest_publish_validation.mjs";
+import { observeCandidateRequest } from "./mcp_candidate_wire.mjs";
 
 const original = fileURLToPath(new URL("./", import.meta.url));
 const names = ["mcp_ingest_publish_validation.py", "mcp_ingest_publish_state.py", "mcp_map_package_validation.py",
@@ -72,4 +74,56 @@ test("execution refuses absent disposable ownership before any installed client 
     assert.match(entries[0][1], /explicitly owned disposable candidate/);
     assert.ok(entries.every(([, status]) => status !== "pass"));
   } finally { control.close(); }
+});
+
+// Explicit offline forwarding controls. This callback is not a canonical-client
+// producer and cannot create any client, tool or candidate qualification receipt.
+for (const count of [32, 33]) test(`catalog forwarding keeps a finite ${count}-page boundary`, async () => {
+  let forwardedPages = 0, targetCalls = 0, wire;
+  const peer = createServer(async (request, response) => {
+    const chunks = []; for await (const chunk of request) chunks.push(chunk);
+    const message = JSON.parse(Buffer.concat(chunks));
+    let result;
+    if (message.method === "initialize") {
+      response.setHeader("mcp-session-id", "explicit-offline-catalog-session");
+      result = { protocolVersion: "2025-06-18", capabilities: { tools: {} }, serverInfo: { name: "offline", version: "0" } };
+    } else if (message.method === "tools/list") {
+      const index = forwardedPages++;
+      assert.equal(message.params.cursor, index ? `page-${index}` : undefined);
+      result = { tools: [{ name: index === count - 1 ? "honua_ingest_dataset" : `other-${index}`, inputSchema: { type: "object" } }],
+        ...(index < count - 1 ? { nextCursor: `page-${index + 1}` } : {}) };
+    } else { targetCalls++; result = { content: [{ type: "text", text: "explicit offline forwarding only" }] }; }
+    response.writeHead(200, { "content-type": "application/json" }).end(JSON.stringify({ jsonrpc: "2.0", id: message.id, result }));
+  });
+  await new Promise((resolve, reject) => { peer.once("error", reject); peer.listen(8080, "127.0.0.1", resolve); });
+  try {
+    const params = { name: "honua_ingest_dataset", arguments: { explicitOfflineControl: true } };
+    const execute = () => observeCandidateRequest({ method: "tools/call", params, authenticated: true,
+      credential: "explicit-offline-key", credentialSalt: "a".repeat(32), observeDiscovery: true,
+      onObservation: value => { wire = value; }, invoke: async endpoint => {
+        let nextId = 0, session;
+        const send = async (method, params) => {
+          const response = await fetch(endpoint, { method: "POST", headers: { "content-type": "application/json", "x-api-key": "explicit-offline-key",
+            ...(session ? { "mcp-session-id": session } : {}) }, body: JSON.stringify({ jsonrpc: "2.0", id: nextId++, method, params }) });
+          session ??= response.headers.get("mcp-session-id");
+          if (response.status !== 200) return null;
+          return (await response.json()).result;
+        };
+        await send("initialize", {});
+        let cursor;
+        for (let index = 0; index < count; index++) {
+          const page = await send("tools/list", { _meta: { "honua.io/workflow-view": "full" }, ...(cursor ? { cursor } : {}) });
+          if (!page) return { processId: 123, kind: "explicit-offline-control", exitCode: 1 };
+          cursor = page.nextCursor;
+        }
+        await send("tools/call", params);
+        return { processId: 123, kind: "explicit-offline-control", exitCode: 0 };
+      } });
+    if (count === 32) { const result = await execute(); assert.equal(result.wire.completed, true); }
+    else await assert.rejects(execute, /wire observation refused/);
+    assert.equal(forwardedPages, 32);
+    assert.equal(targetCalls, count === 32 ? 1 : 0);
+    assert.equal(wire.discovery.length, 32);
+    assert.equal(wire.invalid, count === 33);
+  } finally { peer.closeAllConnections(); await new Promise(resolve => peer.close(resolve)); }
 });
