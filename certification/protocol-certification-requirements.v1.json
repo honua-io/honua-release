@@ -1,6 +1,6 @@
 {
   "schema": "honua.protocol-certification-requirements/v1",
-  "revision": "2026-10-17-complete.24",
+  "revision": "2026-10-19-complete.25",
   "trademarkNotice": "Esri, ArcGIS, and the Esri product names used here are trademarks, registered trademarks, or service marks of Esri in the United States and other countries. They identify the products Honua is compatible with; Honua is not affiliated with, sponsored by, or endorsed by Esri.",
   "receipt_schema_min": "v2",
   "complete": true,
@@ -34141,10 +34141,11 @@
       "scenario_facets": [
         "positive",
         "negative",
-        "media-schema"
+        "media-schema",
+        "auth"
       ],
       "contract_revision": "geospatial-mcp@5e052a76b6485edbe78c3482488c58f66700bd59",
-      "auth_policy_revision": "anonymous-public-v1",
+      "auth_policy_revision": "mcp-protected-operation-v1",
       "fixture_revision": "conformance@5e052a76b6485edbe78c3482488c58f66700bd59",
       "budget_expectations": null
     },
@@ -34165,10 +34166,11 @@
       "scenario_facets": [
         "positive",
         "negative",
-        "media-schema"
+        "media-schema",
+        "auth"
       ],
       "contract_revision": "geospatial-mcp@5e052a76b6485edbe78c3482488c58f66700bd59",
-      "auth_policy_revision": "anonymous-public-v1",
+      "auth_policy_revision": "mcp-protected-operation-v1",
       "fixture_revision": "conformance@5e052a76b6485edbe78c3482488c58f66700bd59",
       "budget_expectations": null
     },
@@ -34189,10 +34191,11 @@
       "scenario_facets": [
         "positive",
         "negative",
-        "media-schema"
+        "media-schema",
+        "auth"
       ],
       "contract_revision": "geospatial-mcp@5e052a76b6485edbe78c3482488c58f66700bd59",
-      "auth_policy_revision": "anonymous-public-v1",
+      "auth_policy_revision": "mcp-protected-operation-v1",
       "fixture_revision": "conformance@5e052a76b6485edbe78c3482488c58f66700bd59",
       "budget_expectations": null
     },
@@ -34213,10 +34216,11 @@
       "scenario_facets": [
         "positive",
         "negative",
-        "media-schema"
+        "media-schema",
+        "auth"
       ],
       "contract_revision": "geospatial-mcp@5e052a76b6485edbe78c3482488c58f66700bd59",
-      "auth_policy_revision": "anonymous-public-v1",
+      "auth_policy_revision": "mcp-protected-operation-v1",
       "fixture_revision": "conformance@5e052a76b6485edbe78c3482488c58f66700bd59",
       "budget_expectations": null
     },
@@ -34237,10 +34241,11 @@
       "scenario_facets": [
         "positive",
         "negative",
-        "media-schema"
+        "media-schema",
+        "auth"
       ],
       "contract_revision": "geospatial-mcp@5e052a76b6485edbe78c3482488c58f66700bd59",
-      "auth_policy_revision": "anonymous-public-v1",
+      "auth_policy_revision": "mcp-protected-operation-v1",
       "fixture_revision": "conformance@5e052a76b6485edbe78c3482488c58f66700bd59",
       "budget_expectations": null
     },
@@ -34261,10 +34266,11 @@
       "scenario_facets": [
         "positive",
         "negative",
-        "media-schema"
+        "media-schema",
+        "auth"
       ],
       "contract_revision": "geospatial-mcp@5e052a76b6485edbe78c3482488c58f66700bd59",
-      "auth_policy_revision": "anonymous-public-v1",
+      "auth_policy_revision": "mcp-protected-operation-v1",
       "fixture_revision": "conformance@5e052a76b6485edbe78c3482488c58f66700bd59",
       "budget_expectations": null
     },
@@ -34285,10 +34291,11 @@
       "scenario_facets": [
         "positive",
         "negative",
-        "media-schema"
+        "media-schema",
+        "auth"
       ],
       "contract_revision": "geospatial-mcp@5e052a76b6485edbe78c3482488c58f66700bd59",
-      "auth_policy_revision": "anonymous-public-v1",
+      "auth_policy_revision": "mcp-protected-operation-v1",
       "fixture_revision": "conformance@5e052a76b6485edbe78c3482488c58f66700bd59",
       "budget_expectations": null
     },
@@ -34309,10 +34316,11 @@
       "scenario_facets": [
         "positive",
         "negative",
-        "media-schema"
+        "media-schema",
+        "auth"
       ],
       "contract_revision": "geospatial-mcp@5e052a76b6485edbe78c3482488c58f66700bd59",
-      "auth_policy_revision": "anonymous-public-v1",
+      "auth_policy_revision": "mcp-protected-operation-v1",
       "fixture_revision": "conformance@5e052a76b6485edbe78c3482488c58f66700bd59",
       "budget_expectations": null
     },
@@ -34333,10 +34341,11 @@
       "scenario_facets": [
         "positive",
         "negative",
-        "media-schema"
+        "media-schema",
+        "auth"
       ],
       "contract_revision": "geospatial-mcp@5e052a76b6485edbe78c3482488c58f66700bd59",
-      "auth_policy_revision": "anonymous-public-v1",
+      "auth_policy_revision": "mcp-protected-operation-v1",
       "fixture_revision": "conformance@5e052a76b6485edbe78c3482488c58f66700bd59",
       "budget_expectations": null
     },
@@ -34357,10 +34366,11 @@
       "scenario_facets": [
         "positive",
         "negative",
-        "media-schema"
+        "media-schema",
+        "auth"
       ],
       "contract_revision": "geospatial-mcp@5e052a76b6485edbe78c3482488c58f66700bd59",
-      "auth_policy_revision": "anonymous-public-v1",
+      "auth_policy_revision": "mcp-protected-operation-v1",
       "fixture_revision": "conformance@5e052a76b6485edbe78c3482488c58f66700bd59",
       "budget_expectations": null
     },
@@ -34381,10 +34391,11 @@
       "scenario_facets": [
         "positive",
         "negative",
-        "media-schema"
+        "media-schema",
+        "auth"
       ],
       "contract_revision": "geospatial-mcp@5e052a76b6485edbe78c3482488c58f66700bd59",
-      "auth_policy_revision": "anonymous-public-v1",
+      "auth_policy_revision": "mcp-protected-operation-v1",
       "fixture_revision": "conformance@5e052a76b6485edbe78c3482488c58f66700bd59",
       "budget_expectations": null
     },
@@ -34405,10 +34416,11 @@
       "scenario_facets": [
         "positive",
         "negative",
-        "media-schema"
+        "media-schema",
+        "auth"
       ],
       "contract_revision": "geospatial-mcp@5e052a76b6485edbe78c3482488c58f66700bd59",
-      "auth_policy_revision": "anonymous-public-v1",
+      "auth_policy_revision": "mcp-protected-operation-v1",
       "fixture_revision": "conformance@5e052a76b6485edbe78c3482488c58f66700bd59",
       "budget_expectations": null
     },
@@ -34429,10 +34441,11 @@
       "scenario_facets": [
         "positive",
         "negative",
-        "media-schema"
+        "media-schema",
+        "auth"
       ],
       "contract_revision": "geospatial-mcp@5e052a76b6485edbe78c3482488c58f66700bd59",
-      "auth_policy_revision": "anonymous-public-v1",
+      "auth_policy_revision": "mcp-protected-operation-v1",
       "fixture_revision": "conformance@5e052a76b6485edbe78c3482488c58f66700bd59",
       "budget_expectations": null
     },
@@ -34453,10 +34466,11 @@
       "scenario_facets": [
         "positive",
         "negative",
-        "media-schema"
+        "media-schema",
+        "auth"
       ],
       "contract_revision": "geospatial-mcp@5e052a76b6485edbe78c3482488c58f66700bd59",
-      "auth_policy_revision": "anonymous-public-v1",
+      "auth_policy_revision": "mcp-protected-operation-v1",
       "fixture_revision": "conformance@5e052a76b6485edbe78c3482488c58f66700bd59",
       "budget_expectations": null
     },
@@ -34477,10 +34491,11 @@
       "scenario_facets": [
         "positive",
         "negative",
-        "media-schema"
+        "media-schema",
+        "auth"
       ],
       "contract_revision": "geospatial-mcp@5e052a76b6485edbe78c3482488c58f66700bd59",
-      "auth_policy_revision": "anonymous-public-v1",
+      "auth_policy_revision": "mcp-protected-operation-v1",
       "fixture_revision": "conformance@5e052a76b6485edbe78c3482488c58f66700bd59",
       "budget_expectations": null
     },
@@ -34501,10 +34516,11 @@
       "scenario_facets": [
         "positive",
         "negative",
-        "media-schema"
+        "media-schema",
+        "auth"
       ],
       "contract_revision": "geospatial-mcp@5e052a76b6485edbe78c3482488c58f66700bd59",
-      "auth_policy_revision": "anonymous-public-v1",
+      "auth_policy_revision": "mcp-protected-operation-v1",
       "fixture_revision": "conformance@5e052a76b6485edbe78c3482488c58f66700bd59",
       "budget_expectations": null
     },
@@ -34525,10 +34541,11 @@
       "scenario_facets": [
         "positive",
         "negative",
-        "media-schema"
+        "media-schema",
+        "auth"
       ],
       "contract_revision": "geospatial-mcp@5e052a76b6485edbe78c3482488c58f66700bd59",
-      "auth_policy_revision": "anonymous-public-v1",
+      "auth_policy_revision": "mcp-protected-operation-v1",
       "fixture_revision": "conformance@5e052a76b6485edbe78c3482488c58f66700bd59",
       "budget_expectations": null
     },
@@ -34549,10 +34566,11 @@
       "scenario_facets": [
         "positive",
         "negative",
-        "media-schema"
+        "media-schema",
+        "auth"
       ],
       "contract_revision": "geospatial-mcp@5e052a76b6485edbe78c3482488c58f66700bd59",
-      "auth_policy_revision": "anonymous-public-v1",
+      "auth_policy_revision": "mcp-protected-operation-v1",
       "fixture_revision": "conformance@5e052a76b6485edbe78c3482488c58f66700bd59",
       "budget_expectations": null
     },
@@ -34573,10 +34591,11 @@
       "scenario_facets": [
         "positive",
         "negative",
-        "media-schema"
+        "media-schema",
+        "auth"
       ],
       "contract_revision": "geospatial-mcp@5e052a76b6485edbe78c3482488c58f66700bd59",
-      "auth_policy_revision": "anonymous-public-v1",
+      "auth_policy_revision": "mcp-protected-operation-v1",
       "fixture_revision": "conformance@5e052a76b6485edbe78c3482488c58f66700bd59",
       "budget_expectations": null
     },
@@ -34597,10 +34616,11 @@
       "scenario_facets": [
         "positive",
         "negative",
-        "media-schema"
+        "media-schema",
+        "auth"
       ],
       "contract_revision": "geospatial-mcp@5e052a76b6485edbe78c3482488c58f66700bd59",
-      "auth_policy_revision": "anonymous-public-v1",
+      "auth_policy_revision": "mcp-protected-operation-v1",
       "fixture_revision": "conformance@5e052a76b6485edbe78c3482488c58f66700bd59",
       "budget_expectations": null
     },
@@ -34621,10 +34641,11 @@
       "scenario_facets": [
         "positive",
         "negative",
-        "media-schema"
+        "media-schema",
+        "auth"
       ],
       "contract_revision": "geospatial-mcp@5e052a76b6485edbe78c3482488c58f66700bd59",
-      "auth_policy_revision": "anonymous-public-v1",
+      "auth_policy_revision": "mcp-protected-operation-v1",
       "fixture_revision": "conformance@5e052a76b6485edbe78c3482488c58f66700bd59",
       "budget_expectations": null
     },
@@ -34645,10 +34666,11 @@
       "scenario_facets": [
         "positive",
         "negative",
-        "media-schema"
+        "media-schema",
+        "auth"
       ],
       "contract_revision": "geospatial-mcp@5e052a76b6485edbe78c3482488c58f66700bd59",
-      "auth_policy_revision": "anonymous-public-v1",
+      "auth_policy_revision": "mcp-protected-operation-v1",
       "fixture_revision": "conformance@5e052a76b6485edbe78c3482488c58f66700bd59",
       "budget_expectations": null
     },
@@ -34669,10 +34691,11 @@
       "scenario_facets": [
         "positive",
         "negative",
-        "media-schema"
+        "media-schema",
+        "auth"
       ],
       "contract_revision": "geospatial-mcp@5e052a76b6485edbe78c3482488c58f66700bd59",
-      "auth_policy_revision": "anonymous-public-v1",
+      "auth_policy_revision": "mcp-protected-operation-v1",
       "fixture_revision": "conformance@5e052a76b6485edbe78c3482488c58f66700bd59",
       "budget_expectations": null
     },
@@ -34693,10 +34716,11 @@
       "scenario_facets": [
         "positive",
         "negative",
-        "media-schema"
+        "media-schema",
+        "auth"
       ],
       "contract_revision": "geospatial-mcp@5e052a76b6485edbe78c3482488c58f66700bd59",
-      "auth_policy_revision": "anonymous-public-v1",
+      "auth_policy_revision": "mcp-protected-operation-v1",
       "fixture_revision": "conformance@5e052a76b6485edbe78c3482488c58f66700bd59",
       "budget_expectations": null
     },
@@ -34717,10 +34741,11 @@
       "scenario_facets": [
         "positive",
         "negative",
-        "media-schema"
+        "media-schema",
+        "auth"
       ],
       "contract_revision": "geospatial-mcp@5e052a76b6485edbe78c3482488c58f66700bd59",
-      "auth_policy_revision": "anonymous-public-v1",
+      "auth_policy_revision": "mcp-protected-operation-v1",
       "fixture_revision": "conformance@5e052a76b6485edbe78c3482488c58f66700bd59",
       "budget_expectations": null
     },
@@ -34741,10 +34766,11 @@
       "scenario_facets": [
         "positive",
         "negative",
-        "media-schema"
+        "media-schema",
+        "auth"
       ],
       "contract_revision": "geospatial-mcp@5e052a76b6485edbe78c3482488c58f66700bd59",
-      "auth_policy_revision": "anonymous-public-v1",
+      "auth_policy_revision": "mcp-protected-operation-v1",
       "fixture_revision": "conformance@5e052a76b6485edbe78c3482488c58f66700bd59",
       "budget_expectations": null
     },
@@ -34765,10 +34791,11 @@
       "scenario_facets": [
         "positive",
         "negative",
-        "media-schema"
+        "media-schema",
+        "auth"
       ],
       "contract_revision": "geospatial-mcp@5e052a76b6485edbe78c3482488c58f66700bd59",
-      "auth_policy_revision": "anonymous-public-v1",
+      "auth_policy_revision": "mcp-protected-operation-v1",
       "fixture_revision": "conformance@5e052a76b6485edbe78c3482488c58f66700bd59",
       "budget_expectations": null
     },
@@ -34789,10 +34816,11 @@
       "scenario_facets": [
         "positive",
         "negative",
-        "media-schema"
+        "media-schema",
+        "auth"
       ],
       "contract_revision": "geospatial-mcp@5e052a76b6485edbe78c3482488c58f66700bd59",
-      "auth_policy_revision": "anonymous-public-v1",
+      "auth_policy_revision": "mcp-protected-operation-v1",
       "fixture_revision": "conformance@5e052a76b6485edbe78c3482488c58f66700bd59",
       "budget_expectations": null
     },
@@ -34813,10 +34841,11 @@
       "scenario_facets": [
         "positive",
         "negative",
-        "media-schema"
+        "media-schema",
+        "auth"
       ],
       "contract_revision": "geospatial-mcp@5e052a76b6485edbe78c3482488c58f66700bd59",
-      "auth_policy_revision": "anonymous-public-v1",
+      "auth_policy_revision": "mcp-protected-operation-v1",
       "fixture_revision": "conformance@5e052a76b6485edbe78c3482488c58f66700bd59",
       "budget_expectations": null
     },
@@ -34837,10 +34866,11 @@
       "scenario_facets": [
         "positive",
         "negative",
-        "media-schema"
+        "media-schema",
+        "auth"
       ],
       "contract_revision": "geospatial-mcp@5e052a76b6485edbe78c3482488c58f66700bd59",
-      "auth_policy_revision": "anonymous-public-v1",
+      "auth_policy_revision": "mcp-protected-operation-v1",
       "fixture_revision": "conformance@5e052a76b6485edbe78c3482488c58f66700bd59",
       "budget_expectations": null
     },
@@ -34861,10 +34891,11 @@
       "scenario_facets": [
         "positive",
         "negative",
-        "media-schema"
+        "media-schema",
+        "auth"
       ],
       "contract_revision": "geospatial-mcp@5e052a76b6485edbe78c3482488c58f66700bd59",
-      "auth_policy_revision": "anonymous-public-v1",
+      "auth_policy_revision": "mcp-protected-operation-v1",
       "fixture_revision": "conformance@5e052a76b6485edbe78c3482488c58f66700bd59",
       "budget_expectations": null
     },
@@ -34885,10 +34916,11 @@
       "scenario_facets": [
         "positive",
         "negative",
-        "media-schema"
+        "media-schema",
+        "auth"
       ],
       "contract_revision": "geospatial-mcp@5e052a76b6485edbe78c3482488c58f66700bd59",
-      "auth_policy_revision": "anonymous-public-v1",
+      "auth_policy_revision": "mcp-protected-operation-v1",
       "fixture_revision": "conformance@5e052a76b6485edbe78c3482488c58f66700bd59",
       "budget_expectations": null
     },
@@ -34909,10 +34941,11 @@
       "scenario_facets": [
         "positive",
         "negative",
-        "media-schema"
+        "media-schema",
+        "auth"
       ],
       "contract_revision": "geospatial-mcp@5e052a76b6485edbe78c3482488c58f66700bd59",
-      "auth_policy_revision": "anonymous-public-v1",
+      "auth_policy_revision": "mcp-protected-operation-v1",
       "fixture_revision": "conformance@5e052a76b6485edbe78c3482488c58f66700bd59",
       "budget_expectations": null
     },
@@ -34933,10 +34966,11 @@
       "scenario_facets": [
         "positive",
         "negative",
-        "media-schema"
+        "media-schema",
+        "auth"
       ],
       "contract_revision": "geospatial-mcp@5e052a76b6485edbe78c3482488c58f66700bd59",
-      "auth_policy_revision": "anonymous-public-v1",
+      "auth_policy_revision": "mcp-protected-operation-v1",
       "fixture_revision": "conformance@5e052a76b6485edbe78c3482488c58f66700bd59",
       "budget_expectations": null
     },
@@ -34957,10 +34991,11 @@
       "scenario_facets": [
         "positive",
         "negative",
-        "media-schema"
+        "media-schema",
+        "auth"
       ],
       "contract_revision": "geospatial-mcp@5e052a76b6485edbe78c3482488c58f66700bd59",
-      "auth_policy_revision": "anonymous-public-v1",
+      "auth_policy_revision": "mcp-protected-operation-v1",
       "fixture_revision": "conformance@5e052a76b6485edbe78c3482488c58f66700bd59",
       "budget_expectations": null
     },
@@ -34981,10 +35016,11 @@
       "scenario_facets": [
         "positive",
         "negative",
-        "media-schema"
+        "media-schema",
+        "auth"
       ],
       "contract_revision": "geospatial-mcp@5e052a76b6485edbe78c3482488c58f66700bd59",
-      "auth_policy_revision": "anonymous-public-v1",
+      "auth_policy_revision": "mcp-protected-operation-v1",
       "fixture_revision": "conformance@5e052a76b6485edbe78c3482488c58f66700bd59",
       "budget_expectations": null
     },
@@ -35005,10 +35041,11 @@
       "scenario_facets": [
         "positive",
         "negative",
-        "media-schema"
+        "media-schema",
+        "auth"
       ],
       "contract_revision": "geospatial-mcp@5e052a76b6485edbe78c3482488c58f66700bd59",
-      "auth_policy_revision": "anonymous-public-v1",
+      "auth_policy_revision": "mcp-protected-operation-v1",
       "fixture_revision": "conformance@5e052a76b6485edbe78c3482488c58f66700bd59",
       "budget_expectations": null
     },
@@ -35029,10 +35066,11 @@
       "scenario_facets": [
         "positive",
         "negative",
-        "media-schema"
+        "media-schema",
+        "auth"
       ],
       "contract_revision": "geospatial-mcp@5e052a76b6485edbe78c3482488c58f66700bd59",
-      "auth_policy_revision": "anonymous-public-v1",
+      "auth_policy_revision": "mcp-protected-operation-v1",
       "fixture_revision": "conformance@5e052a76b6485edbe78c3482488c58f66700bd59",
       "budget_expectations": null
     },
@@ -35053,10 +35091,11 @@
       "scenario_facets": [
         "positive",
         "negative",
-        "media-schema"
+        "media-schema",
+        "auth"
       ],
       "contract_revision": "geospatial-mcp@5e052a76b6485edbe78c3482488c58f66700bd59",
-      "auth_policy_revision": "anonymous-public-v1",
+      "auth_policy_revision": "mcp-protected-operation-v1",
       "fixture_revision": "conformance@5e052a76b6485edbe78c3482488c58f66700bd59",
       "budget_expectations": null
     },
@@ -35077,10 +35116,11 @@
       "scenario_facets": [
         "positive",
         "negative",
-        "media-schema"
+        "media-schema",
+        "auth"
       ],
       "contract_revision": "geospatial-mcp@5e052a76b6485edbe78c3482488c58f66700bd59",
-      "auth_policy_revision": "anonymous-public-v1",
+      "auth_policy_revision": "mcp-protected-operation-v1",
       "fixture_revision": "conformance@5e052a76b6485edbe78c3482488c58f66700bd59",
       "budget_expectations": null
     },
@@ -35101,10 +35141,11 @@
       "scenario_facets": [
         "positive",
         "negative",
-        "media-schema"
+        "media-schema",
+        "auth"
       ],
       "contract_revision": "geospatial-mcp@5e052a76b6485edbe78c3482488c58f66700bd59",
-      "auth_policy_revision": "anonymous-public-v1",
+      "auth_policy_revision": "mcp-protected-operation-v1",
       "fixture_revision": "conformance@5e052a76b6485edbe78c3482488c58f66700bd59",
       "budget_expectations": null
     },
@@ -35125,10 +35166,11 @@
       "scenario_facets": [
         "positive",
         "negative",
-        "media-schema"
+        "media-schema",
+        "auth"
       ],
       "contract_revision": "geospatial-mcp@5e052a76b6485edbe78c3482488c58f66700bd59",
-      "auth_policy_revision": "anonymous-public-v1",
+      "auth_policy_revision": "mcp-protected-operation-v1",
       "fixture_revision": "conformance@5e052a76b6485edbe78c3482488c58f66700bd59",
       "budget_expectations": null
     },
@@ -35149,10 +35191,11 @@
       "scenario_facets": [
         "positive",
         "negative",
-        "media-schema"
+        "media-schema",
+        "auth"
       ],
       "contract_revision": "geospatial-mcp@5e052a76b6485edbe78c3482488c58f66700bd59",
-      "auth_policy_revision": "anonymous-public-v1",
+      "auth_policy_revision": "mcp-protected-operation-v1",
       "fixture_revision": "conformance@5e052a76b6485edbe78c3482488c58f66700bd59",
       "budget_expectations": null
     },
@@ -35173,10 +35216,11 @@
       "scenario_facets": [
         "positive",
         "negative",
-        "media-schema"
+        "media-schema",
+        "auth"
       ],
       "contract_revision": "geospatial-mcp@5e052a76b6485edbe78c3482488c58f66700bd59",
-      "auth_policy_revision": "anonymous-public-v1",
+      "auth_policy_revision": "mcp-protected-operation-v1",
       "fixture_revision": "conformance@5e052a76b6485edbe78c3482488c58f66700bd59",
       "budget_expectations": null
     },
@@ -35197,10 +35241,11 @@
       "scenario_facets": [
         "positive",
         "negative",
-        "media-schema"
+        "media-schema",
+        "auth"
       ],
       "contract_revision": "geospatial-mcp@5e052a76b6485edbe78c3482488c58f66700bd59",
-      "auth_policy_revision": "anonymous-public-v1",
+      "auth_policy_revision": "mcp-protected-operation-v1",
       "fixture_revision": "conformance@5e052a76b6485edbe78c3482488c58f66700bd59",
       "budget_expectations": null
     },
@@ -35221,10 +35266,11 @@
       "scenario_facets": [
         "positive",
         "negative",
-        "media-schema"
+        "media-schema",
+        "auth"
       ],
       "contract_revision": "geospatial-mcp@5e052a76b6485edbe78c3482488c58f66700bd59",
-      "auth_policy_revision": "anonymous-public-v1",
+      "auth_policy_revision": "mcp-protected-operation-v1",
       "fixture_revision": "conformance@5e052a76b6485edbe78c3482488c58f66700bd59",
       "budget_expectations": null
     },
@@ -35245,10 +35291,11 @@
       "scenario_facets": [
         "positive",
         "negative",
-        "media-schema"
+        "media-schema",
+        "auth"
       ],
       "contract_revision": "geospatial-mcp@5e052a76b6485edbe78c3482488c58f66700bd59",
-      "auth_policy_revision": "anonymous-public-v1",
+      "auth_policy_revision": "mcp-protected-operation-v1",
       "fixture_revision": "conformance@5e052a76b6485edbe78c3482488c58f66700bd59",
       "budget_expectations": null
     },
@@ -35269,10 +35316,11 @@
       "scenario_facets": [
         "positive",
         "negative",
-        "media-schema"
+        "media-schema",
+        "auth"
       ],
       "contract_revision": "geospatial-mcp@5e052a76b6485edbe78c3482488c58f66700bd59",
-      "auth_policy_revision": "anonymous-public-v1",
+      "auth_policy_revision": "mcp-protected-operation-v1",
       "fixture_revision": "conformance@5e052a76b6485edbe78c3482488c58f66700bd59",
       "budget_expectations": null
     },
@@ -35293,10 +35341,11 @@
       "scenario_facets": [
         "positive",
         "negative",
-        "media-schema"
+        "media-schema",
+        "auth"
       ],
       "contract_revision": "geospatial-mcp@5e052a76b6485edbe78c3482488c58f66700bd59",
-      "auth_policy_revision": "anonymous-public-v1",
+      "auth_policy_revision": "mcp-protected-operation-v1",
       "fixture_revision": "conformance@5e052a76b6485edbe78c3482488c58f66700bd59",
       "budget_expectations": null
     },
@@ -35317,10 +35366,11 @@
       "scenario_facets": [
         "positive",
         "negative",
-        "media-schema"
+        "media-schema",
+        "auth"
       ],
       "contract_revision": "geospatial-mcp@5e052a76b6485edbe78c3482488c58f66700bd59",
-      "auth_policy_revision": "anonymous-public-v1",
+      "auth_policy_revision": "mcp-protected-operation-v1",
       "fixture_revision": "conformance@5e052a76b6485edbe78c3482488c58f66700bd59",
       "budget_expectations": null
     },
@@ -35341,10 +35391,11 @@
       "scenario_facets": [
         "positive",
         "negative",
-        "media-schema"
+        "media-schema",
+        "auth"
       ],
       "contract_revision": "geospatial-mcp@5e052a76b6485edbe78c3482488c58f66700bd59",
-      "auth_policy_revision": "anonymous-public-v1",
+      "auth_policy_revision": "mcp-protected-operation-v1",
       "fixture_revision": "conformance@5e052a76b6485edbe78c3482488c58f66700bd59",
       "budget_expectations": null
     },
@@ -35365,10 +35416,11 @@
       "scenario_facets": [
         "positive",
         "negative",
-        "media-schema"
+        "media-schema",
+        "auth"
       ],
       "contract_revision": "geospatial-mcp@5e052a76b6485edbe78c3482488c58f66700bd59",
-      "auth_policy_revision": "anonymous-public-v1",
+      "auth_policy_revision": "mcp-protected-operation-v1",
       "fixture_revision": "conformance@5e052a76b6485edbe78c3482488c58f66700bd59",
       "budget_expectations": null
     },
@@ -35389,10 +35441,11 @@
       "scenario_facets": [
         "positive",
         "negative",
-        "media-schema"
+        "media-schema",
+        "auth"
       ],
       "contract_revision": "geospatial-mcp@5e052a76b6485edbe78c3482488c58f66700bd59",
-      "auth_policy_revision": "anonymous-public-v1",
+      "auth_policy_revision": "mcp-protected-operation-v1",
       "fixture_revision": "conformance@5e052a76b6485edbe78c3482488c58f66700bd59",
       "budget_expectations": null
     },
@@ -35413,10 +35466,11 @@
       "scenario_facets": [
         "positive",
         "negative",
-        "media-schema"
+        "media-schema",
+        "auth"
       ],
       "contract_revision": "geospatial-mcp@5e052a76b6485edbe78c3482488c58f66700bd59",
-      "auth_policy_revision": "anonymous-public-v1",
+      "auth_policy_revision": "mcp-protected-operation-v1",
       "fixture_revision": "conformance@5e052a76b6485edbe78c3482488c58f66700bd59",
       "budget_expectations": null
     },
@@ -35437,10 +35491,11 @@
       "scenario_facets": [
         "positive",
         "negative",
-        "media-schema"
+        "media-schema",
+        "auth"
       ],
       "contract_revision": "geospatial-mcp@5e052a76b6485edbe78c3482488c58f66700bd59",
-      "auth_policy_revision": "anonymous-public-v1",
+      "auth_policy_revision": "mcp-protected-operation-v1",
       "fixture_revision": "conformance@5e052a76b6485edbe78c3482488c58f66700bd59",
       "budget_expectations": null
     },
@@ -35461,10 +35516,11 @@
       "scenario_facets": [
         "positive",
         "negative",
-        "media-schema"
+        "media-schema",
+        "auth"
       ],
       "contract_revision": "geospatial-mcp@5e052a76b6485edbe78c3482488c58f66700bd59",
-      "auth_policy_revision": "anonymous-public-v1",
+      "auth_policy_revision": "mcp-protected-operation-v1",
       "fixture_revision": "conformance@5e052a76b6485edbe78c3482488c58f66700bd59",
       "budget_expectations": null
     },
@@ -35485,10 +35541,11 @@
       "scenario_facets": [
         "positive",
         "negative",
-        "media-schema"
+        "media-schema",
+        "auth"
       ],
       "contract_revision": "geospatial-mcp@5e052a76b6485edbe78c3482488c58f66700bd59",
-      "auth_policy_revision": "anonymous-public-v1",
+      "auth_policy_revision": "mcp-protected-operation-v1",
       "fixture_revision": "conformance@5e052a76b6485edbe78c3482488c58f66700bd59",
       "budget_expectations": null
     },
@@ -35509,10 +35566,11 @@
       "scenario_facets": [
         "positive",
         "negative",
-        "media-schema"
+        "media-schema",
+        "auth"
       ],
       "contract_revision": "geospatial-mcp@5e052a76b6485edbe78c3482488c58f66700bd59",
-      "auth_policy_revision": "anonymous-public-v1",
+      "auth_policy_revision": "mcp-protected-operation-v1",
       "fixture_revision": "conformance@5e052a76b6485edbe78c3482488c58f66700bd59",
       "budget_expectations": null
     },
@@ -35533,10 +35591,11 @@
       "scenario_facets": [
         "positive",
         "negative",
-        "media-schema"
+        "media-schema",
+        "auth"
       ],
       "contract_revision": "geospatial-mcp@5e052a76b6485edbe78c3482488c58f66700bd59",
-      "auth_policy_revision": "anonymous-public-v1",
+      "auth_policy_revision": "mcp-protected-operation-v1",
       "fixture_revision": "conformance@5e052a76b6485edbe78c3482488c58f66700bd59",
       "budget_expectations": null
     },
@@ -35557,10 +35616,11 @@
       "scenario_facets": [
         "positive",
         "negative",
-        "media-schema"
+        "media-schema",
+        "auth"
       ],
       "contract_revision": "geospatial-mcp@5e052a76b6485edbe78c3482488c58f66700bd59",
-      "auth_policy_revision": "anonymous-public-v1",
+      "auth_policy_revision": "mcp-protected-operation-v1",
       "fixture_revision": "conformance@5e052a76b6485edbe78c3482488c58f66700bd59",
       "budget_expectations": null
     },
@@ -35581,10 +35641,11 @@
       "scenario_facets": [
         "positive",
         "negative",
-        "media-schema"
+        "media-schema",
+        "auth"
       ],
       "contract_revision": "geospatial-mcp@5e052a76b6485edbe78c3482488c58f66700bd59",
-      "auth_policy_revision": "anonymous-public-v1",
+      "auth_policy_revision": "mcp-protected-operation-v1",
       "fixture_revision": "conformance@5e052a76b6485edbe78c3482488c58f66700bd59",
       "budget_expectations": null
     },
@@ -35605,10 +35666,11 @@
       "scenario_facets": [
         "positive",
         "negative",
-        "media-schema"
+        "media-schema",
+        "auth"
       ],
       "contract_revision": "geospatial-mcp@5e052a76b6485edbe78c3482488c58f66700bd59",
-      "auth_policy_revision": "anonymous-public-v1",
+      "auth_policy_revision": "mcp-protected-operation-v1",
       "fixture_revision": "conformance@5e052a76b6485edbe78c3482488c58f66700bd59",
       "budget_expectations": null
     },
@@ -35629,10 +35691,11 @@
       "scenario_facets": [
         "positive",
         "negative",
-        "media-schema"
+        "media-schema",
+        "auth"
       ],
       "contract_revision": "geospatial-mcp@5e052a76b6485edbe78c3482488c58f66700bd59",
-      "auth_policy_revision": "anonymous-public-v1",
+      "auth_policy_revision": "mcp-protected-operation-v1",
       "fixture_revision": "conformance@5e052a76b6485edbe78c3482488c58f66700bd59",
       "budget_expectations": null
     },
@@ -35653,10 +35716,11 @@
       "scenario_facets": [
         "positive",
         "negative",
-        "media-schema"
+        "media-schema",
+        "auth"
       ],
       "contract_revision": "geospatial-mcp@5e052a76b6485edbe78c3482488c58f66700bd59",
-      "auth_policy_revision": "anonymous-public-v1",
+      "auth_policy_revision": "mcp-protected-operation-v1",
       "fixture_revision": "conformance@5e052a76b6485edbe78c3482488c58f66700bd59",
       "budget_expectations": null
     },
@@ -35677,10 +35741,11 @@
       "scenario_facets": [
         "positive",
         "negative",
-        "media-schema"
+        "media-schema",
+        "auth"
       ],
       "contract_revision": "geospatial-mcp@5e052a76b6485edbe78c3482488c58f66700bd59",
-      "auth_policy_revision": "anonymous-public-v1",
+      "auth_policy_revision": "mcp-protected-operation-v1",
       "fixture_revision": "conformance@5e052a76b6485edbe78c3482488c58f66700bd59",
       "budget_expectations": null
     },
@@ -35701,10 +35766,11 @@
       "scenario_facets": [
         "positive",
         "negative",
-        "media-schema"
+        "media-schema",
+        "auth"
       ],
       "contract_revision": "geospatial-mcp@5e052a76b6485edbe78c3482488c58f66700bd59",
-      "auth_policy_revision": "anonymous-public-v1",
+      "auth_policy_revision": "mcp-protected-operation-v1",
       "fixture_revision": "conformance@5e052a76b6485edbe78c3482488c58f66700bd59",
       "budget_expectations": null
     },
@@ -35725,10 +35791,11 @@
       "scenario_facets": [
         "positive",
         "negative",
-        "media-schema"
+        "media-schema",
+        "auth"
       ],
       "contract_revision": "geospatial-mcp@5e052a76b6485edbe78c3482488c58f66700bd59",
-      "auth_policy_revision": "anonymous-public-v1",
+      "auth_policy_revision": "mcp-protected-operation-v1",
       "fixture_revision": "conformance@5e052a76b6485edbe78c3482488c58f66700bd59",
       "budget_expectations": null
     },
@@ -35749,10 +35816,11 @@
       "scenario_facets": [
         "positive",
         "negative",
-        "media-schema"
+        "media-schema",
+        "auth"
       ],
       "contract_revision": "geospatial-mcp@5e052a76b6485edbe78c3482488c58f66700bd59",
-      "auth_policy_revision": "anonymous-public-v1",
+      "auth_policy_revision": "mcp-protected-operation-v1",
       "fixture_revision": "conformance@5e052a76b6485edbe78c3482488c58f66700bd59",
       "budget_expectations": null
     },
@@ -35773,10 +35841,11 @@
       "scenario_facets": [
         "positive",
         "negative",
-        "media-schema"
+        "media-schema",
+        "auth"
       ],
       "contract_revision": "geospatial-mcp@5e052a76b6485edbe78c3482488c58f66700bd59",
-      "auth_policy_revision": "anonymous-public-v1",
+      "auth_policy_revision": "mcp-protected-operation-v1",
       "fixture_revision": "conformance@5e052a76b6485edbe78c3482488c58f66700bd59",
       "budget_expectations": null
     },
@@ -35797,10 +35866,11 @@
       "scenario_facets": [
         "positive",
         "negative",
-        "media-schema"
+        "media-schema",
+        "auth"
       ],
       "contract_revision": "geospatial-mcp@5e052a76b6485edbe78c3482488c58f66700bd59",
-      "auth_policy_revision": "anonymous-public-v1",
+      "auth_policy_revision": "mcp-protected-operation-v1",
       "fixture_revision": "conformance@5e052a76b6485edbe78c3482488c58f66700bd59",
       "budget_expectations": null
     },
@@ -35821,10 +35891,11 @@
       "scenario_facets": [
         "positive",
         "negative",
-        "media-schema"
+        "media-schema",
+        "auth"
       ],
       "contract_revision": "geospatial-mcp@5e052a76b6485edbe78c3482488c58f66700bd59",
-      "auth_policy_revision": "anonymous-public-v1",
+      "auth_policy_revision": "mcp-protected-operation-v1",
       "fixture_revision": "conformance@5e052a76b6485edbe78c3482488c58f66700bd59",
       "budget_expectations": null
     },
@@ -35845,10 +35916,11 @@
       "scenario_facets": [
         "positive",
         "negative",
-        "media-schema"
+        "media-schema",
+        "auth"
       ],
       "contract_revision": "geospatial-mcp@5e052a76b6485edbe78c3482488c58f66700bd59",
-      "auth_policy_revision": "anonymous-public-v1",
+      "auth_policy_revision": "mcp-protected-operation-v1",
       "fixture_revision": "conformance@5e052a76b6485edbe78c3482488c58f66700bd59",
       "budget_expectations": null
     },
@@ -35869,10 +35941,11 @@
       "scenario_facets": [
         "positive",
         "negative",
-        "media-schema"
+        "media-schema",
+        "auth"
       ],
       "contract_revision": "geospatial-mcp@5e052a76b6485edbe78c3482488c58f66700bd59",
-      "auth_policy_revision": "anonymous-public-v1",
+      "auth_policy_revision": "mcp-protected-operation-v1",
       "fixture_revision": "conformance@5e052a76b6485edbe78c3482488c58f66700bd59",
       "budget_expectations": null
     },
@@ -35893,10 +35966,11 @@
       "scenario_facets": [
         "positive",
         "negative",
-        "media-schema"
+        "media-schema",
+        "auth"
       ],
       "contract_revision": "geospatial-mcp@5e052a76b6485edbe78c3482488c58f66700bd59",
-      "auth_policy_revision": "anonymous-public-v1",
+      "auth_policy_revision": "mcp-protected-operation-v1",
       "fixture_revision": "conformance@5e052a76b6485edbe78c3482488c58f66700bd59",
       "budget_expectations": null
     },
@@ -35917,7 +35991,8 @@
       "scenario_facets": [
         "positive",
         "negative",
-        "media-schema"
+        "media-schema",
+        "auth"
       ],
       "contract_revision": "geospatial-mcp@5e052a76b6485edbe78c3482488c58f66700bd59",
       "auth_policy_revision": "anonymous-public-v1",
@@ -35941,7 +36016,8 @@
       "scenario_facets": [
         "positive",
         "negative",
-        "media-schema"
+        "media-schema",
+        "auth"
       ],
       "contract_revision": "geospatial-mcp@5e052a76b6485edbe78c3482488c58f66700bd59",
       "auth_policy_revision": "anonymous-public-v1",
@@ -35965,7 +36041,8 @@
       "scenario_facets": [
         "positive",
         "negative",
-        "media-schema"
+        "media-schema",
+        "auth"
       ],
       "contract_revision": "geospatial-mcp@5e052a76b6485edbe78c3482488c58f66700bd59",
       "auth_policy_revision": "anonymous-public-v1",
@@ -35989,7 +36066,8 @@
       "scenario_facets": [
         "positive",
         "negative",
-        "media-schema"
+        "media-schema",
+        "auth"
       ],
       "contract_revision": "geospatial-mcp@5e052a76b6485edbe78c3482488c58f66700bd59",
       "auth_policy_revision": "anonymous-public-v1",
@@ -36013,7 +36091,8 @@
       "scenario_facets": [
         "positive",
         "negative",
-        "media-schema"
+        "media-schema",
+        "auth"
       ],
       "contract_revision": "geospatial-mcp@5e052a76b6485edbe78c3482488c58f66700bd59",
       "auth_policy_revision": "anonymous-public-v1",
@@ -36037,7 +36116,8 @@
       "scenario_facets": [
         "positive",
         "negative",
-        "media-schema"
+        "media-schema",
+        "auth"
       ],
       "contract_revision": "geospatial-mcp@5e052a76b6485edbe78c3482488c58f66700bd59",
       "auth_policy_revision": "anonymous-public-v1",
@@ -36061,7 +36141,8 @@
       "scenario_facets": [
         "positive",
         "negative",
-        "media-schema"
+        "media-schema",
+        "auth"
       ],
       "contract_revision": "geospatial-mcp@5e052a76b6485edbe78c3482488c58f66700bd59",
       "auth_policy_revision": "anonymous-public-v1",
@@ -36085,7 +36166,8 @@
       "scenario_facets": [
         "positive",
         "negative",
-        "media-schema"
+        "media-schema",
+        "auth"
       ],
       "contract_revision": "geospatial-mcp@5e052a76b6485edbe78c3482488c58f66700bd59",
       "auth_policy_revision": "anonymous-public-v1",
