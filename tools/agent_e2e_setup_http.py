@@ -8,6 +8,7 @@ digest of the exact value. The controller must enforce its hard action deadline.
 """
 from __future__ import annotations
 
+import copy
 import json
 import os
 import re
@@ -122,7 +123,7 @@ class SetupHttp:
         self.check_private_metadata(intent)
         self.attempted.add(step)
         # Required to reject every pre-existing key, even identical intent bytes.
-        intent_ref = self.retention_ack(self.retain('intent', step, intent), intent)
+        intent_ref = self.retention_ack(self.retain('intent', step, copy.deepcopy(intent)), intent)
         self.authorize()
         timeout = self.remaining()
         headers = {'Content-Type': content_type, 'Accept': 'application/json'}
@@ -153,7 +154,8 @@ class SetupHttp:
             raise PackError('setup request failed; retain intent and reconcile without replay') from None
         record = {'schemaVersion': 1, **self.identity, 'step': step, 'intentDigest': canonical_digest(intent),
                   'intentReference': intent_ref, 'response': observation}
-        response_ref = self.retention_ack(self.retain('response', step, record), record)
+        self.check_private_metadata(record)
+        response_ref = self.retention_ack(self.retain('response', step, copy.deepcopy(record)), record)
         return {'observation': observation, 'reference': response_ref}
 
     def json(self, step, method, path, body=None):

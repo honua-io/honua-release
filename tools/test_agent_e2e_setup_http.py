@@ -120,6 +120,20 @@ def test_lost_authority_after_retention_blocks_request(wiring, server):
     assert not server.seen and ('intent','publish') in wiring.records
 
 
+def test_initial_authorization_denial_prevents_retention_and_http(wiring, server):
+    allowed = [False]
+    def authorize():
+        if not allowed[0]:
+            raise PackError('lease denied')
+    client = wiring.client(authorize=authorize)
+    with pytest.raises(PackError, match='lease denied'):
+        client.json('publish', 'POST', '/publish', {})
+    assert not wiring.records and not server.seen
+    allowed[0] = True
+    client.json('publish', 'POST', '/publish', {})
+    assert len(server.seen) == 1
+
+
 def test_expired_after_retention_cannot_send(wiring, server):
     now = [0]
     def retain(*args):
@@ -132,6 +146,7 @@ def test_expired_after_retention_cannot_send(wiring, server):
 
 
 @pytest.mark.parametrize('raw', [b'{"token":"private-setup-token"}', b'{"token":"private-setup-\\u0074oken"}',
+                               b'{"token":"private-setup-%74oken"}',
                                b'{"x":1,"x":2}', b'{"x":NaN}'])
 def test_unsafe_or_ambiguous_response_is_not_retained(wiring, server, raw):
     server.respond = lambda *args: (200, {}, raw)
@@ -184,6 +199,17 @@ def test_retention_acknowledgement_must_bind_exact_content(wiring, server, kind,
     def retain(actual_kind, step, value):
         reference = wiring.retain(actual_kind, step, value)
         return ack if actual_kind == kind else reference
+    with pytest.raises(PackError, match='retention acknowledgement'):
+        wiring.client(retain=retain).json('read', 'GET', '/read')
+    assert len(server.seen) == (0 if kind == 'intent' else 1)
+
+
+@pytest.mark.parametrize('kind', ['intent', 'response'])
+def test_retention_cannot_change_the_acknowledged_content(wiring, server, kind):
+    def retain(actual_kind, step, value):
+        if actual_kind == kind:
+            value['step'] = 'different-step'
+        return wiring.retain(actual_kind, step, value)
     with pytest.raises(PackError, match='retention acknowledgement'):
         wiring.client(retain=retain).json('read', 'GET', '/read')
     assert len(server.seen) == (0 if kind == 'intent' else 1)
@@ -258,4 +284,12 @@ def test_bearer_credential_is_header_only(wiring, server):
     headers = server.seen[0][2]
     assert headers['Authorization'] == 'Bearer private-setup-token'
     assert 'X-Api-Key' not in headers
+    assert 'private-setup-token' not in json.dumps(list(wiring.records.values()))
+
+
+def test_api_key_credential_is_header_only(wiring, server):
+    wiring.client().json('read', 'GET', '/read')
+    headers = server.seen[0][2]
+    assert headers['X-Api-Key'] == 'private-setup-token'
+    assert 'Authorization' not in headers
     assert 'private-setup-token' not in json.dumps(list(wiring.records.values()))
