@@ -50,7 +50,17 @@ def rpc_id(value):
 
 
 def same_json(left, right):
-    return json.dumps(left, sort_keys=True, allow_nan=False) == json.dumps(right, sort_keys=True, allow_nan=False)
+    # JSON has one number kind. JS parses integral floats as numbers and
+    # serializes -90.0 as -90; compare their value without equating false/0.
+    if type(left) in (int, float) and type(right) in (int, float):
+        return (not isinstance(left, float) or math.isfinite(left)) and (not isinstance(right, float) or math.isfinite(right)) and left == right
+    if type(left) is not type(right):
+        return False
+    if isinstance(left, dict):
+        return left.keys() == right.keys() and all(same_json(value, right[key]) for key, value in left.items())
+    if isinstance(left, list):
+        return len(left) == len(right) and all(same_json(a, b) for a, b in zip(left, right, strict=True))
+    return left == right
 
 
 def wire_bytes(value):
@@ -168,7 +178,7 @@ def client_observation(client, frame, wire, canonical_client, version):
                     or not same_json(error.get("data"), frame["error"].get("data")) or not isinstance(error.get("message"), str)
                     or frame["error"]["message"] not in error["message"]):
                 raise ValueError("SDK server error differs from the independently observed response")
-        elif json.dumps(output, sort_keys=True, allow_nan=False) != json.dumps(frame["result"], sort_keys=True, allow_nan=False):
+        elif not same_json(output, frame["result"]):
             raise ValueError("SDK result differs from independently observed response")
     elif canonical_client == "MCP Inspector":
         if (client.get("kind") != "inspector-cli" or client.get("exitSignal") is not None or client.get("timedOut") is not False
@@ -191,7 +201,7 @@ def client_observation(client, frame, wire, canonical_client, version):
             output = output.get("result", output) if isinstance(output, dict) else output
             expected = 5 if frame["result"].get("isError") is True else 0
             if (client["exitCode"] != expected
-                    or json.dumps(output, sort_keys=True, allow_nan=False) != json.dumps(frame["result"], sort_keys=True, allow_nan=False)):
+                    or not same_json(output, frame["result"])):
                 raise ValueError("Inspector result/outcome differs from observed server response")
     else:
         raise ValueError("map journey requires one of the actual canonical clients")
@@ -240,8 +250,7 @@ def json_tool_output(result):
         values.append(strict_json(item["text"]))
     if not values or any(not isinstance(value, dict) for value in values):
         raise ValueError("map composition lacks JSON object output")
-    canonical = [json.dumps(value, sort_keys=True, allow_nan=False) for value in values]
-    if any(value != canonical[0] for value in canonical[1:]):
+    if any(not same_json(value, values[0]) for value in values[1:]):
         raise ValueError("map composition representations conflict")
     return values[0]
 

@@ -115,6 +115,17 @@ def sync_text(value):
 
 
 class MapPackageControls(unittest.TestCase):
+    def test_json_numeric_round_trip_preserves_value_but_never_boolean_identity(self):
+        self.assertTrue(validation.same_json({"bbox": [-90.0, 0.0, -45.0, 60.0]}, {"bbox": [-90, 0, -45, 60]}))
+        self.assertFalse(validation.same_json({"bbox": [-90, False, -45, 60]}, {"bbox": [-90.0, 0.0, -45.0, 60.0]}))
+        self.assertFalse(validation.same_json(1, True))
+        self.assertFalse(validation.same_json(float("nan"), float("nan")))
+        value = observations()
+        # This is the real JSON number normalization performed by JS, not a
+        # copied expected scenario; unchanged wire/client outputs stay bound.
+        value["cases"][0]["arguments"]["initialView"]["bbox"] = [-90, 0, -45, 60]
+        self.assertTrue(validation.judge(FIXTURE, bootstrap(), value)["freshReadback"])
+
     def test_authored_composition_and_actual_resource_contract(self):
         judged = validation.judge(FIXTURE, bootstrap(), observations())
         self.assertTrue(all(judged[key] for key in ("positive", "negative", "mediaSchema", "freshReadback", "scratchOnly")))
