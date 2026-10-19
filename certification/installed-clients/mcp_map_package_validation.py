@@ -328,7 +328,7 @@ def created_package(result, arguments):
     return output
 
 
-def resource_output(result, uri, identifier):
+def resource_output(result, uri, identifier, package_kind="map_package"):
     if not isinstance(result, dict) or "error" in result or not isinstance(result.get("contents"), list) or len(result["contents"]) != 1:
         raise ValueError("fresh package read did not return one resource")
     item = result["contents"][0]
@@ -336,7 +336,7 @@ def resource_output(result, uri, identifier):
             or not isinstance(item.get("text"), str) or "blob" in item):
         raise ValueError("fresh package read lacks bound JSON resource media")
     value = strict_json(item["text"])
-    if (not isinstance(value, dict) or value.get("packageKind") != "map_package" or value.get("packageId") != identifier
+    if (not isinstance(value, dict) or value.get("packageKind") != package_kind or value.get("packageId") != identifier
             or value.get("resourceUri") != uri or value.get("packageStatus") != "draft"
             or type(value.get("deploymentCount")) is not int or value["deploymentCount"] != 0
             or value.get("deploymentResourceUris") != [] or not isinstance(value.get("provenance"), dict)):
