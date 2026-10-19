@@ -7,11 +7,13 @@ from __future__ import annotations
 import argparse
 import copy
 from datetime import datetime
+import ipaddress
 import json
 from pathlib import Path
 import re
 import sys
 from urllib.parse import quote
+from uuid import UUID
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from mcp_render_validation import scenario as fixture_binding, negative_output
@@ -21,10 +23,65 @@ from mcp_map_package_validation import (strict_json, same_json, json_tool_output
 OPERATIONS = ["tools/call:ingest_dataset", "tools/call:publish_service", "resources/read:Published service"]
 SCHEMA = "honua.mcp-ingest-publish-scenario/v1"
 IDENTIFIER = re.compile(r"[a-z_][a-z0-9_]{0,62}")
+OWNED_DATABASE = {"host": "localhost", "port": 5432, "databaseName": "honua_test", "username": "honua", "provider": "PostGIS"}
+
+
+def selector_guid(value):
+    # Match the ordinary D/N/B/P Guid forms, preserving the caller's text in
+    # evidence. Other strings remain names; no bootstrap identity is selected.
+    selected = value
+    if len(value) > 1 and (value[0], value[-1]) in (("{", "}"), ("(", ")")):
+        selected = value[1:-1]
+    if re.fullmatch(r"[a-fA-F0-9]{32}|[a-fA-F0-9]{8}-[a-fA-F0-9]{4}-[a-fA-F0-9]{4}-[a-fA-F0-9]{4}-[a-fA-F0-9]{12}", selected):
+        return str(UUID(selected))
+    return None
+
+
+def registry_output(rows, selector, owned_database):
+    if (not same_json(owned_database, OWNED_DATABASE) or not isinstance(selector, str) or not 0 < len(selector) <= 64
+            or any(ord(char) < 32 for char in selector) or not isinstance(rows, list) or len(rows) != 1):
+        raise ValueError("actual selector lacks one owned active registry identity")
+    row = rows[0]
+    keys = {"connectionId", "name", "host", "port", "databaseName", "username", "provider", "sslRequired", "sslMode", "isActive"}
+    if (not isinstance(row, dict) or set(row) != keys or not isinstance(row["connectionId"], str)
+            or selector_guid(row["connectionId"]) != row["connectionId"]
+            or not isinstance(row["name"], str) or not 0 < len(row["name"]) <= 64
+            or row["host"] not in ("localhost", "127.0.0.1", "::1")
+            or type(row["port"]) is not int or row["port"] != owned_database["port"]
+            or row["databaseName"] != owned_database["databaseName"] or row["username"] != owned_database["username"]
+            or row["provider"] != "postgis" or row["sslRequired"] is not False
+            or row["sslMode"] != "disable" or row["isActive"] is not True):
+        raise ValueError("registry destination is not the positively verified owned database")
+    guid = selector_guid(selector)
+    if (guid is not None and guid != row["connectionId"]) or (guid is None and selector != row["name"]):
+        raise ValueError("registry identity replaced the actual returned connection selector")
+    return row
+
+
+def connection_provenance(value, selector, owned_database):
+    if (not isinstance(value, dict) or set(value) != {"selector", "registry", "catalog", "target", "verifiedAddress"}
+            or value["selector"] != selector):
+        raise ValueError("independent connection provenance is missing")
+    row = registry_output(value["registry"], selector, owned_database)
+    address = value["verifiedAddress"]
+    if not isinstance(address, str) or not ipaddress.ip_address(address).is_loopback:
+        raise ValueError("registry credential destination was not owned loopback")
+    if row["host"] != "localhost" and address != row["host"]:
+        raise ValueError("observed connection changed its literal target address")
+    catalog = value["catalog"]
+    if (not isinstance(catalog, dict) or set(catalog) != {"clusterId", "database", "user"}
+            or not isinstance(catalog["clusterId"], str) or not re.fullmatch(r"[1-9][0-9]{0,19}", catalog["clusterId"])
+            or int(catalog["clusterId"]) > 18446744073709551615
+            or catalog["database"] != owned_database["databaseName"] or catalog["user"] != owned_database["username"]
+            or not same_json(value["target"], catalog)):
+        raise ValueError("registry target and owned catalog have different real database identities")
+    return row["connectionId"]
 
 
 def scenario(fixture_bytes, bootstrap, nonce, canonical_client):
     binding = fixture_binding(fixture_bytes, bootstrap)
+    if not same_json(bootstrap.get("database"), OWNED_DATABASE):
+        raise ValueError("ingest observation requires the exact owned bootstrap database")
     if not isinstance(nonce, str) or not re.fullmatch(r"[a-f0-9]{12}", nonce):
         raise ValueError("ingest journey requires a bounded owned run identity")
     if canonical_client not in ("Official MCP TypeScript SDK", "MCP Inspector"):
@@ -44,7 +101,7 @@ def scenario(fixture_bytes, bootstrap, nonce, canonical_client):
         "ingestArguments": {"format": "geojson", "datasetName": dataset, "sourceSrid": 4326,
                             "data": json.dumps(geojson, separators=(",", ":"))},
         "invalidIngestArguments": {"format": "unsupported", "datasetName": dataset + "_bad", "data": "{}"},
-        "runtimeBinding": binding["runtimeBinding"]}
+        "runtimeBinding": binding["runtimeBinding"], "ownedDatabase": copy.deepcopy(bootstrap["database"])}
 
 
 def ingest_output(result, authored):
@@ -59,8 +116,8 @@ def ingest_output(result, authored):
             or not isinstance(value.get("connectionId"), str) or not value["connectionId"]
             or any(not isinstance(value.get(key), str) or not IDENTIFIER.fullmatch(value[key]) for key in ("schema", "table", "geometryColumn", "primaryKey"))):
         raise ValueError("ingest did not return the complete successful authored dataset and publish tuple")
-    # Physical import names may be hashed by the server. The independent DB
-    # readback validates their contents; never replace a returned identifier.
+    # These owned short names must retain their real physical identity. The
+    # independent DB readback also validates the complete authored contents.
     return value
 
 
@@ -130,10 +187,10 @@ def query_arguments(published, resource):
 
 
 def snapshot_output(value, ingested, published, authored):
-    if not isinstance(value, dict) or set(value) != {"schema", "tuple", "rows", "publication", "revision"}:
+    if not isinstance(value, dict) or set(value) != {"schema", "tuple", "rows", "publication", "revision", "connection"}:
         raise ValueError("independent persisted readback is missing")
     expected_tuple = {key: ingested[key] for key in ("connectionId", "schema", "table", "geometryColumn", "primaryKey")}
-    if value["schema"] != "honua.mcp-ingest-persisted/v1" or not same_json(value["tuple"], expected_tuple):
+    if value["schema"] != "honua.mcp-ingest-persisted/v2" or not same_json(value["tuple"], expected_tuple):
         raise ValueError("persisted readback used a replacement import tuple")
     rows = value["rows"]
     if not isinstance(rows, list) or len(rows) != len(authored["expectedRows"]):
@@ -155,17 +212,13 @@ def snapshot_output(value, ingested, published, authored):
     if not same_json(by_gid, expected):
         raise ValueError("persisted attributes or geometry differ from the authored source")
     pub = value["publication"]
-    # Names are supported caller selectors, not canonical registry GUIDs. Until
-    # independent alias/default-catalog resolution is retained, that path is
-    # unproved; never substitute the bootstrap's known connection identity.
-    if not re.fullmatch(r"[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}", ingested["connectionId"]):
-        raise ValueError("named connection selector needs independent canonical/default-catalog binding proof")
+    canonical = connection_provenance(value["connection"], ingested["connectionId"], authored["ownedDatabase"])
     if (not isinstance(pub, dict) or set(pub) != {"serviceId", "serviceName", "layerId", "storageLayerId", "locator", "connectionId"}
             or pub["serviceName"] != published["serviceName"] or pub["storageLayerId"] != int(published["layerId"])
             or type(pub["layerId"]) is not int or not 0 <= pub["layerId"] < 2147483647 or type(pub["storageLayerId"]) is not int
             or not isinstance(pub["serviceId"], str) or not pub["serviceId"]
             or pub["locator"] != ingested["schema"] + "." + ingested["table"]
-            or pub["connectionId"] != ingested["connectionId"]
+            or (pub["connectionId"] != canonical and not (pub["connectionId"] is None and selector_guid(ingested["connectionId"]) is None))
             or type(value["revision"]) is not int or value["revision"] < published["metadataRevision"]):
         raise ValueError("returned service/layer is not bound to the exact persisted imported source")
 
