@@ -99,12 +99,14 @@ class RenderControls(unittest.TestCase):
         self.assertTrue(all(result[key] for key in ("positive", "negative", "mediaSchema")))
 
     def test_corrupt_png_conflicting_representations_and_missing_media_refuse(self):
-        for mutation in ("corrupt", "mime", "missing", "wrong-size", "wrong-bbox", "wrong-layer", "json-conflict", "bad-byte-length"):
+        for mutation in ("corrupt", "oversized", "mime", "missing", "wrong-size", "wrong-bbox", "wrong-layer", "json-conflict", "bad-byte-length"):
             with self.subTest(mutation=mutation):
                 value = observations()
                 result = value["cases"][0]["result"]
                 if mutation == "corrupt":
                     result["content"][1]["data"] = result["structuredContent"]["image"]["base64"] = base64.b64encode(b"not PNG").decode()
+                elif mutation == "oversized":
+                    result["content"][1]["data"] = result["structuredContent"]["image"]["base64"] = "A" * 1500000
                 elif mutation == "mime": result["content"][1]["mimeType"] = "image/jpeg"
                 elif mutation == "missing": result["content"].pop()
                 elif mutation == "wrong-size": result["structuredContent"]["image"]["width"] += 1

@@ -118,7 +118,10 @@ def positive_output(result, arguments):
     if not isinstance(layer, dict) or any(layer.get(key) != expected for key, expected in arguments["layers"][0].items()):
         raise ValueError("render returned another layer")
     import base64
-    data = base64.b64decode(image.get("base64", ""), validate=True)
+    encoded = image.get("base64")
+    if not isinstance(encoded, str) or len(encoded) > 4 * ((arguments["maxInlineBytes"] + 2) // 3):
+        raise ValueError("render encoded image exceeds the authored inline byte bound")
+    data = base64.b64decode(encoded, validate=True)
     if not data or len(data) != image["byteLength"] or len(data) > arguments["maxInlineBytes"]:
         raise ValueError("render byte length differs from actual image")
     return {"png": image["base64"], "mimeType": images[0]["mimeType"]}
