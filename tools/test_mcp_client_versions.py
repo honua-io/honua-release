@@ -36,6 +36,22 @@ def write(snapshots):
     (directory / "package-lock.json").write_text(json.dumps(lock))
 
 
+def different_version(version):
+    major, minor, patch = version.split("-", 1)[0].split("+", 1)[0].split(".")
+    changed = f"{major}.{minor}.{int(patch) + 1}"
+    assert changed != version
+    return changed
+
+
+def select_versions(package, lock, versions):
+    for name, version in versions.items():
+        package["dependencies"][name] = version
+        lock["packages"][""]["dependencies"][name] = version
+        entry = lock["packages"]["node_modules/" + name]
+        entry["version"] = version
+        entry["resolved"] = f"https://registry.npmjs.org/{name}/-/{name.rsplit('/', 1)[1]}-{version}.tgz"
+
+
 def test_frozen_mcp_versions_reproduce_entire_catalog(snapshots):
     GENERATOR.main()
     assert GENERATOR.OUTPUT.read_bytes() == (ROOT / "certification/protocol-certification-requirements.v1.json").read_bytes()
@@ -45,12 +61,8 @@ def test_selected_versions_change_only_mcp_versions_preserving_every_required_ro
     GENERATOR.main()
     before = json.loads(GENERATOR.OUTPUT.read_text())
     _, package, lock = snapshots
-    for name, version in ((SDK, "1.32.1"), (INSPECTOR, "2.10.1")):
-        package["dependencies"][name] = version
-        lock["packages"][""]["dependencies"][name] = version
-        entry = lock["packages"]["node_modules/" + name]
-        entry["version"] = version
-        entry["resolved"] = f"https://registry.npmjs.org/{name}/-/{name.rsplit('/', 1)[1]}-{version}.tgz"
+    versions = {name: different_version(package["dependencies"][name]) for name in (SDK, INSPECTOR)}
+    select_versions(package, lock, versions)
     # Controlled future selection; these modified lock bytes are not published evidence.
     write(snapshots)
     GENERATOR.main()
@@ -60,7 +72,7 @@ def test_selected_versions_change_only_mcp_versions_preserving_every_required_ro
     for row in expected["requirements"]:
         if row["client_lane"] in counts:
             counts[row["client_lane"]] += 1
-            row["client_version"] = "1.32.1" if row["client_lane"] == "mcp-typescript-sdk" else "2.10.1"
+            row["client_version"] = versions[SDK if row["client_lane"] == "mcp-typescript-sdk" else INSPECTOR]
     assert all(counts.values()) and counts["mcp-typescript-sdk"] == counts["mcp-inspector"]
     assert after == expected  # No dropped facets, operations, producers, tiers or source pins.
 
@@ -69,10 +81,11 @@ def test_selected_versions_change_only_mcp_versions_preserving_every_required_ro
 def test_invalid_selected_dependency_refuses_generation(snapshots, mutation):
     _, package, lock = snapshots
     entry = lock["packages"]["node_modules/" + INSPECTOR]
-    if mutation == "range": package["dependencies"][INSPECTOR] = "^2.3.0"
+    changed = different_version(package["dependencies"][INSPECTOR])
+    if mutation == "range": package["dependencies"][INSPECTOR] = "^" + package["dependencies"][INSPECTOR]
     if mutation == "missing": del package["dependencies"][INSPECTOR]
-    if mutation == "root-version": lock["packages"][""]["dependencies"][INSPECTOR] = "2.10.1"
-    if mutation == "installed-version": entry["version"] = "2.10.1"
+    if mutation == "root-version": lock["packages"][""]["dependencies"][INSPECTOR] = changed
+    if mutation == "installed-version": entry["version"] = changed
     if mutation == "registry": entry["resolved"] = "https://other.example/inspector-2.3.0.tgz"
     if mutation == "integrity": entry["integrity"] = "sha512-invalid"
     if mutation == "lock-version": lock["lockfileVersion"] = 2
@@ -127,9 +140,14 @@ def test_required_workflow_authenticates_dependency_snapshots(tmp_path, case):
         with (selected / "geospatial-mcp" / case).open("a") as stream:
             stream.write("\n")
     elif case == "consistent-version-change":
-        for filename in ("package.json", "package-lock.json"):
-            path = selected / "geospatial-mcp" / filename
-            path.write_text(path.read_text().replace("2.3.0", "2.10.1"))
+        directory = selected / "geospatial-mcp"
+        package = json.loads((directory / "package.json").read_text())
+        lock = json.loads((directory / "package-lock.json").read_text())
+        select_versions(package, lock, {INSPECTOR: different_version(package["dependencies"][INSPECTOR])})
+        (directory / "package.json").write_text(json.dumps(package))
+        (directory / "package-lock.json").write_text(json.dumps(lock))
+        assert all((directory / name).read_bytes() != (upstream / name).read_bytes()
+                   for name in ("package.json", "package-lock.json"))
     elif case == "invalid-pin":
         path = selected / "source-revisions.v1.json"
         data = json.loads(path.read_text())
