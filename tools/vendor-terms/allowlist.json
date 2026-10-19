@@ -416,6 +416,23 @@
       "reason": "Exact encoding and media-type identifiers advertised by GetStyleTool.SupportedEncodings in honua-server3ecd214c1ce20e96ad4911b6f8447055dee9089d (https://github.com/honua-io/honua-server/blob/3ecd214c1ce20e96ad4911b6f8447055dee9089d/src/Honua.Ai/Features/Protocols/Mcp/Mcp/MapTools/GetStyleTool.cs). The canonical style oracle must compare all advertised encoding/media identities exactly; neutralizing these wire bytes would silently weaken schema checks. Only these two complete identifiers in this one file are covered, without a compatibility claim, baseline increase or unrelated prose exception. Revisit if the upstream encoding contract changes. The existing classifier lexical boundary stops before the MIME plus suffix, so its exact lexical identifier is application/vnd.esri.drawinginfo; the complete +json wire value remains mandatory in the oracle. No classifier rule or baseline is changed.",
       "owner": "@mikemcdougall",
       "issue": "honua-io/honua-release#705"
+    },
+    {
+      "repo": "honua-release",
+      "paths": [
+        "certification/installed-clients/mcp_publish_result_state.py",
+        "certification/installed-clients/mcp_publish_result_validation.py",
+        "certification/installed-clients/mcp_publish_result_validation_controls.py"
+      ],
+      "tokens": [
+        "esri"
+      ],
+      "identifiers": [
+        "esri-feature-layer"
+      ],
+      "reason": "Exact persisted publicationType discriminator declared by JsonStringEnumMemberName in immutable honua-server ce5bcccecdb64dcff4094a0982d95eea875bad7f, src/Honua.Core.Abstractions/Features/Metadata/Domain/V2/MetadataV2Enums.cs (https://github.com/honua-io/honua-server/blob/ce5bcccecdb64dcff4094a0982d95eea875bad7f/src/Honua.Core.Abstractions/Features/Metadata/Domain/V2/MetadataV2Enums.cs). The independent worker-result publication observer and oracle must retain this exact stored discriminator to bind public routing to physical storage. Only this complete wire identifier in these three files is covered; no unrelated prose, compatibility claim, classifier or baseline change. Revisit if the persisted contract changes.",
+      "owner": "@mikemcdougall",
+      "issue": "honua-io/honua-release#710"
     }
   ]
 }
