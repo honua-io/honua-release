@@ -1520,11 +1520,11 @@
       "id": "honua-release-docs-install-2026-1",
       "repo": "honua-io/honua-release",
       "path": "docs/INSTALL-2026.1.md",
-      "revision": "cc58ee6804057f20b7a16c01a4ab83b6ab6004b9",
+      "revision": "f435a48c1bb9225940b6e0738d25b6b7898e8e74",
       "revisionRule": {
         "checkout": true
       },
-      "url": "https://github.com/honua-io/honua-release/blob/cc58ee6804057f20b7a16c01a4ab83b6ab6004b9/docs/INSTALL-2026.1.md",
+      "url": "https://github.com/honua-io/honua-release/blob/f435a48c1bb9225940b6e0738d25b6b7898e8e74/docs/INSTALL-2026.1.md",
       "runtime": "python",
       "docker": true,
       "session": null,
@@ -1537,7 +1537,7 @@
           "infoString": "yaml",
           "intent": "file",
           "intentSource": "marker",
-          "sha256": "e47dd980e2c85f6c008fd4ed9b866fab684aff7a7e9849058761585060b936cb",
+          "sha256": "4877d1512e3dfa487adc32bade34a2c305056d5117b3b8d183733141bd172624",
           "file": "compose.yaml"
         },
         {
@@ -1574,11 +1574,11 @@
       "id": "honua-release-docs-customer-install",
       "repo": "honua-io/honua-release",
       "path": "docs/CUSTOMER-INSTALL.md",
-      "revision": "cdd2bb7c52969f8d163cabbd6cc874a29116541c",
+      "revision": "f435a48c1bb9225940b6e0738d25b6b7898e8e74",
       "revisionRule": {
         "checkout": true
       },
-      "url": "https://github.com/honua-io/honua-release/blob/cdd2bb7c52969f8d163cabbd6cc874a29116541c/docs/CUSTOMER-INSTALL.md",
+      "url": "https://github.com/honua-io/honua-release/blob/f435a48c1bb9225940b6e0738d25b6b7898e8e74/docs/CUSTOMER-INSTALL.md",
       "runtime": "python",
       "docker": true,
       "session": null,
@@ -1591,7 +1591,7 @@
           "infoString": "yaml",
           "intent": "file",
           "intentSource": "marker",
-          "sha256": "492e226eb01dda56175297e69e3e8a3c653f9684ab34e607e060a71b018dd854",
+          "sha256": "df233ddeeb38ddaae0c8555c593817fe65171ca8f380e5299920cd3110a14f67",
           "file": "compose.yaml"
         },
         {
