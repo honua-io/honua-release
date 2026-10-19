@@ -31,8 +31,9 @@ variables value that cannot be rendered (no candidate image) fails the document 
 floating tag, the legacy hand-copied `@sha256:` form runs unchanged, and `boots-candidate-image` still fails
 whenever the stack ran any image other than the candidate digest.
 
-Run `python3 -m pytest certification/executable-docs -q` for offline regressions and
-`python3 certification/executable-docs/docker_regressions.py` for live Docker checks.
+Run `python3 -m pytest certification/executable-docs -q` for offline regressions.
+The live Docker controls are `python3 certification/executable-docs/docker_regressions.py`
+and `python3 -m pytest certification/executable-docs/install_healthcheck_docker.py -q`.
 Runtime evidence under root `out/` is ignored and must not be committed.
 
 JavaScript and TypeScript snippets use one Node interpreter per declared reader context.
