@@ -9,6 +9,29 @@ const digest = (bytes) => createHash("sha256").update(bytes).digest("hex");
 const immutableSha = (value) => typeof value === "string" && /^[a-f0-9]{40}$/.test(value);
 const imageDigest = (value) => typeof value === "string" && /^[^\s]+@sha256:[a-f0-9]{64}$/.test(value);
 const required = ["mcp_render_validation.py", "render_png.py", "fixture.v1.json"];
+const setupFiles = ["mcp_render_bootstrap.py", "regression.py", "oracles.py", "mcp_plan_validation.py", "render_png.py", "fixture.v1.json"];
+
+export function createRenderBootstrap({ directory, sourceSha, sha256 }) {
+  if (!immutableSha(sourceSha) || !sha256 || typeof sha256 !== "object"
+      || setupFiles.toSorted().join() !== Object.keys(sha256).toSorted().join()) throw new Error("render bootstrap requires immutable complete setup source");
+  sha256 = Object.freeze({ ...sha256 });
+  return function bootstrapRender({ candidateSourceSha, candidateImage, receipt }) {
+    if (!immutableSha(candidateSourceSha) || !imageDigest(candidateImage) || typeof receipt !== "string" || !receipt) throw new Error("render bootstrap requires exact candidate identity and receipt path");
+    for (const name of setupFiles) {
+      if (typeof sha256[name] !== "string" || !/^[a-f0-9]{64}$/.test(sha256[name])
+          || digest(readFileSync(join(directory, name))) !== sha256[name]) throw new Error("shared render setup bytes differ from reviewed pins");
+    }
+    const result = spawnSync("python3", ["-I", "-B", join(directory, "mcp_render_bootstrap.py"),
+      "--fixture", join(directory, "fixture.v1.json"), "--candidate-source-sha", candidateSourceSha,
+      "--candidate-image", candidateImage, "--owned-disposable-candidate", "--receipt", resolve(receipt)],
+    { encoding: "utf8", timeout: 600_000, maxBuffer: 4 * 1024 * 1024 });
+    if (result.error || result.signal || result.status !== 0) throw new Error("shared render bootstrap refused the owned candidate; inspect retained phase/error type");
+    const binding = JSON.parse(readFileSync(resolve(receipt), "utf8"));
+    if (binding.status !== "provisioned" || binding.candidateSourceSha !== candidateSourceSha
+        || binding.candidateImage !== candidateImage) throw new Error("shared render bootstrap returned an incomplete candidate binding");
+    return binding;
+  };
+}
 
 export function createRenderValidation({ directory, sourceSha, sha256, bootstrapPath }) {
   if (!immutableSha(sourceSha) || !sha256 || typeof sha256 !== "object"

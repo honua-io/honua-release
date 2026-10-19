@@ -32,6 +32,10 @@ The database password and candidate API key come only from
 receipt. Failed setup retains its phase and safe error type and must stop render
 execution; there is no fallback to a discovered or preexisting layer.
 
+The release-owned `createRenderBootstrap` entry point verifies every setup
+dependency immediately before invoking that CLI. The consumer bridge delegates
+to this entry point instead of owning a second setup implementation.
+
 The release-owned `createRenderValidation` module receives a verified source
 directory, immutable source SHA, the three runtime file digests, and the retained
 bootstrap path. Its callback invokes `honua_render_map` through the actual
@@ -46,6 +50,8 @@ length, bbox and allocated layer before the strict PNG oracle checks pixels
 derived from authored coordinates. Negative judgment requires the matching typed
 `invalid_argument` or `not_found` refusal and consistent error representations.
 Style discovery and preset persistence remain separate operations.
+The default `resource_link` response and subsequent artifact fetch are not
+exercised by these inline opt-in requests and remain an explicit coverage gap.
 
 The full required pytest floor runs the offline Python and Node controls through
 `tools/test_mcp_render_execution.py`. Controlled synthetic PNGs are generated

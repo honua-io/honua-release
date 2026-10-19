@@ -6,7 +6,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { spawnSync } from "node:child_process";
-import { createRenderValidation } from "./mcp_render_validation.mjs";
+import { createRenderValidation, createRenderBootstrap } from "./mcp_render_validation.mjs";
 
 const original = fileURLToPath(new URL("./", import.meta.url));
 const names = ["mcp_render_validation.py", "render_png.py", "fixture.v1.json"];
@@ -94,6 +94,32 @@ test("valid proof then source mutation refuses before callbacks or Python execut
         { candidateSourceSha, candidateImage, results: join(directory, "after.json") });
       assert.match(String(error), /bytes differ from reviewed pins/);
       assert.equal(count, 0);
+    } finally { rmSync(directory, { recursive: true, force: true }); }
+  }
+});
+
+test("bootstrap delegates only after every setup dependency is verified", () => {
+  const files = ["mcp_render_bootstrap.py", "regression.py", "oracles.py", "mcp_plan_validation.py", "render_png.py", "fixture.v1.json"];
+  for (const changed of files) {
+    const directory = mkdtempSync(join(tmpdir(), "release-render-bootstrap-source-"));
+    try {
+      const marker = join(directory, "executed"), receipt = join(directory, "receipt.json");
+      // Explicit controlled executable fixture. It is never fetched or used by
+      // a canonical producer, and makes no oracle or qualification assertion.
+      const fixture = `import argparse,json\nfrom pathlib import Path\np=argparse.ArgumentParser()\np.add_argument('--fixture')\np.add_argument('--candidate-source-sha')\np.add_argument('--candidate-image')\np.add_argument('--owned-disposable-candidate',action='store_true')\np.add_argument('--receipt')\na=p.parse_args()\nPath(${JSON.stringify(marker)}).write_text('executed')\nPath(a.receipt).write_text(json.dumps({'status':'provisioned','candidateSourceSha':a.candidate_source_sha,'candidateImage':a.candidate_image}))\n`;
+      for (const name of files) writeFileSync(join(directory, name), name === "mcp_render_bootstrap.py" ? fixture : "# controlled setup dependency\n");
+      const pins = Object.fromEntries(files.map((name) => [name, createHash("sha256").update(readFileSync(join(directory, name))).digest("hex")]));
+      const setup = createRenderBootstrap({ directory, sourceSha: "a".repeat(40), sha256: pins });
+      const proof = setup({ candidateSourceSha, candidateImage, receipt });
+      assert.equal(proof.candidateSourceSha, candidateSourceSha);
+      assert.equal(readFileSync(marker, "utf8"), "executed");
+      rmSync(marker);
+      writeFileSync(join(directory, changed), "untrusted changed dependency\n");
+      assert.throws(() => setup({ candidateSourceSha, candidateImage, receipt }), /bytes differ from reviewed pins/);
+      assert.throws(() => readFileSync(marker), { code: "ENOENT" });
+      assert.throws(() => createRenderBootstrap({ directory, sourceSha: "trunk", sha256: pins }));
+      const incomplete = { ...pins }; delete incomplete[files[0]];
+      assert.throws(() => createRenderBootstrap({ directory, sourceSha: "a".repeat(40), sha256: incomplete }));
     } finally { rmSync(directory, { recursive: true, force: true }); }
   }
 });
