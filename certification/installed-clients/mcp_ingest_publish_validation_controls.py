@@ -6,8 +6,20 @@ from pathlib import Path
 import unittest
 import mcp_ingest_publish_validation as validation
 import mcp_ingest_publish_state as state
-from mcp_render_validation_controls import FIXTURE, bootstrap, runtime, SOURCE, IMAGE
+from mcp_render_validation_controls import FIXTURE, bootstrap as render_bootstrap, runtime, SOURCE, IMAGE
 from mcp_map_package_validation_controls import control_wire, encoded_body
+
+
+def bootstrap():
+    return {**render_bootstrap(), "database": copy.deepcopy(validation.OWNED_DATABASE)}
+
+
+def connection_control(selector="22222222-2222-4222-8222-222222222222"):
+    identity = {"clusterId": "7352416435566778899", "database": "honua_test", "user": "honua"}
+    return {"selector": selector, "registry": [{"connectionId": "22222222-2222-4222-8222-222222222222",
+        "name": "sdkreg-harness", "host": "localhost", "port": 5432, "databaseName": "honua_test", "username": "honua",
+        "provider": "postgis", "sslRequired": False, "sslMode": "disable", "isActive": True}],
+        "catalog": identity, "target": copy.deepcopy(identity), "verifiedAddress": "127.0.0.1"}
 
 
 def envelope(value, error=False):
@@ -30,9 +42,10 @@ def controls():
         "serviceUri": "honua://published-services/" + authored["serviceName"], "layerId": "741", "metadataRevision": 123,
         "operationInstanceId": "controlled-operation", "handleId": "controlled-operation"}
     rows = [{"id": index + 11, **row, "srid": 4326} for index, row in enumerate(authored["expectedRows"])]
-    persisted = {"schema": "honua.mcp-ingest-persisted/v1", "tuple": {key: ingested[key] for key in ("connectionId", "schema", "table", "geometryColumn", "primaryKey")},
+    persisted = {"schema": "honua.mcp-ingest-persisted/v2", "tuple": {key: ingested[key] for key in ("connectionId", "schema", "table", "geometryColumn", "primaryKey")},
         "rows": rows, "publication": {"serviceId": "metadata-service-7", "serviceName": published["serviceName"], "layerId": 0,
-            "storageLayerId": 741, "locator": "honua_data." + ingested["table"], "connectionId": ingested["connectionId"]}, "revision": 123}
+            "storageLayerId": 741, "locator": "honua_data." + ingested["table"], "connectionId": ingested["connectionId"]}, "revision": 123,
+        "connection": connection_control()}
     invalid = envelope({"status": "error", "code": "invalid_argument", "message": "Controlled invalid ingest"}, True)
     notfound = envelope({"status": "Failed", "requiresApproval": False, "operationId": "service.publish",
         "operationInstanceId": "controlled-missing-operation", "handleId": "controlled-missing-operation", "correlationId": "controlled-missing-correlation",
@@ -133,19 +146,105 @@ class IngestPublishControls(unittest.TestCase):
                 with self.assertRaises(ValueError):
                     validation.judge(FIXTURE, bootstrap(), value)
 
-    def test_named_selector_with_null_canonical_binding_stays_unproved(self):
+    def test_named_selector_requires_independent_registry_and_real_database_binding(self):
+        for stored in (None, "22222222-2222-4222-8222-222222222222"):
+            value = controls()
+            authored = validation.scenario(FIXTURE, bootstrap(), value["nonce"], value["canonicalClient"])
+            ingested = value["cases"][0]["result"]["structuredContent"]
+            published = value["cases"][2]["result"]["structuredContent"]
+            ingested["connectionId"] = "sdkreg-harness"
+            snapshot = value["snapshots"]["before"]
+            snapshot["tuple"]["connectionId"] = ingested["connectionId"]
+            snapshot["publication"]["connectionId"] = stored
+            snapshot["connection"] = connection_control("sdkreg-harness")
+            validation.snapshot_output(snapshot, ingested, published, authored)
+            for mutation in ("missing", "unresolved-name", "wrong-guid", "wrong-cluster", "wrong-database", "wrong-user"):
+                with self.subTest(stored=stored, mutation=mutation):
+                    changed = copy.deepcopy(snapshot)
+                    if mutation == "missing": changed.pop("connection")
+                    elif mutation == "unresolved-name": changed["connection"]["registry"][0]["name"] = "other-name"
+                    elif mutation == "wrong-guid": changed["publication"]["connectionId"] = "f" * 36
+                    else:
+                        key = {"wrong-cluster": "clusterId", "wrong-database": "database", "wrong-user": "user"}[mutation]
+                        changed["connection"]["target"][key] = "unrelated"
+                    with self.assertRaises(ValueError):
+                        validation.snapshot_output(changed, ingested, published, authored)
+
+    def test_guid_binding_cannot_be_replaced_with_null_or_known_bootstrap_guid(self):
         value = controls()
         authored = validation.scenario(FIXTURE, bootstrap(), value["nonce"], value["canonicalClient"])
         ingested = value["cases"][0]["result"]["structuredContent"]
         published = value["cases"][2]["result"]["structuredContent"]
-        ingested["connectionId"] = "valid-caller-connection-name"
-        snapshot = value["snapshots"]["before"]
-        snapshot["tuple"]["connectionId"] = ingested["connectionId"]
-        snapshot["publication"]["connectionId"] = None
-        # The caller selector is preserved; a known harness GUID is not used
-        # to manufacture a persisted binding the server did not return/store.
-        with self.assertRaisesRegex(ValueError, "named connection selector"):
-            validation.snapshot_output(snapshot, ingested, published, authored)
+        for replacement in (None, bootstrap()["connectionId"]):
+            snapshot = copy.deepcopy(value["snapshots"]["before"])
+            snapshot["publication"]["connectionId"] = replacement
+            with self.assertRaises(ValueError):
+                validation.snapshot_output(snapshot, ingested, published, authored)
+
+    def test_complete_named_journey_keeps_canonical_or_proven_default_binding(self):
+        for stored in (None, "22222222-2222-4222-8222-222222222222"):
+            value = controls()
+            replace_output(value["cases"][0], lambda result: result.update(connectionId="sdkreg-harness"))
+            for index in (2, 3, 5): value["cases"][index]["params"]["arguments"]["connectionId"] = "sdkreg-harness"
+            for snapshot in value["snapshots"].values():
+                snapshot["tuple"]["connectionId"] = "sdkreg-harness"
+                snapshot["publication"]["connectionId"] = stored
+                snapshot["connection"] = connection_control("sdkreg-harness")
+            self.assertTrue(validation.judge(FIXTURE, bootstrap(), rebind(value))["restartReadback"])
+            value["snapshots"]["after"]["connection"]["registry"][0]["name"] = "changed"
+            with self.assertRaises(ValueError): validation.judge(FIXTURE, bootstrap(), value)
+
+    def test_unowned_inactive_or_ambiguous_registry_never_reaches_credential_boundary(self):
+        value = controls(); expected = value["snapshots"]["before"]
+        for mutation in ("missing", "duplicate", "inactive", "host", "port", "databaseName", "username", "provider", "sslRequired", "sslMode"):
+            with self.subTest(mutation=mutation):
+                registry = copy.deepcopy(expected["connection"]["registry"])
+                if mutation == "missing": registry = []
+                elif mutation == "duplicate": registry *= 2
+                elif mutation == "inactive": registry[0]["isActive"] = False
+                else: registry[0][mutation] = 5433 if mutation == "port" else True if mutation == "sslRequired" else "unowned"
+                def execute(query):
+                    return json.dumps({"rows": expected["rows"], "mappings": [{"publication": expected["publication"], "revision": expected["revision"]}],
+                        "registry": registry, "catalog": expected["connection"]["catalog"]})
+                with self.assertRaises(ValueError):
+                    state.snapshot(FIXTURE, bootstrap(), value, execute=execute,
+                        inspect_target=lambda row: self.fail("unsafe or ambiguous destination must not receive fixture credentials"))
+
+    def test_target_dns_and_process_environment_are_owned_before_credential_use(self):
+        row = connection_control()["registry"][0]
+        calls = []
+        def execute(query, password, **target):
+            calls.append(target)
+            self.assertIn("pg_control_system()", query)
+            self.assertEqual(password, "explicit-offline-password")
+            return json.dumps(connection_control()["target"])
+        def resolve(host, port, **kwargs):
+            return [(2, 1, 6, "", ("127.0.0.1", port)), (10, 1, 6, "", ("::1", port, 0, 0))]
+        address, identity = state.observe_target(row, "explicit-offline-password", resolve=resolve, execute=execute)
+        self.assertEqual(address, "127.0.0.1"); self.assertEqual(identity, connection_control()["target"])
+        self.assertEqual(calls, [{"host": "127.0.0.1", "port": 5432, "database": "honua_test", "username": "honua"}])
+        for host, addresses in (("localhost", ["127.0.0.1", "203.0.113.9"]), ("127.0.0.1", ["::1"])):
+            changed = {**row, "host": host}
+            with self.assertRaises(ValueError):
+                state.observe_target(changed, "explicit-offline-password",
+                    resolve=lambda *args, **kwargs: [(2, 1, 6, "", (item, 5432)) for item in addresses],
+                    execute=lambda *args, **kwargs: self.fail("unverified DNS target must not receive credentials"))
+        import os
+        from types import SimpleNamespace
+        from unittest.mock import patch
+        captured = []
+        def run(command, **options):
+            captured.append((command, options))
+            return SimpleNamespace(returncode=0, stdout="controlled")
+        with patch.dict(os.environ, {"PGSERVICE": "unowned", "PGHOSTADDR": "203.0.113.9", "PGOPTIONS": "unowned"}):
+            self.assertEqual(state.database_query("SELECT 1;", "explicit-offline-password", run=run), "controlled")
+        command, options = captured[0]
+        self.assertIn("-X", command); self.assertIn("--no-password", command)
+        self.assertEqual(set(options["env"]), {"PATH", "PGPASSWORD", "PGSSLMODE", "PGCONNECT_TIMEOUT"})
+        self.assertEqual(options["env"]["PGSSLMODE"], "disable")
+        for target in ({"host": "203.0.113.9"}, {"port": True}, {"database": "unowned"}, {"username": "unowned"}):
+            with self.assertRaises(ValueError):
+                state.database_query("SELECT 1;", "explicit-offline-password", run=lambda *a, **k: self.fail("must refuse before process spawn"), **target)
 
     def test_observer_keeps_storage_and_public_ids_distinct_in_one_snapshot(self):
         value = controls()
@@ -153,11 +252,21 @@ class IngestPublishControls(unittest.TestCase):
         calls = []
         def execute(query):
             calls.append(query)
-            return json.dumps({"rows": expected["rows"], "mappings": [{"publication": expected["publication"], "revision": expected["revision"]}]})
-        observed = state.snapshot(FIXTURE, bootstrap(), value, execute=execute)
+            return json.dumps({"rows": expected["rows"], "mappings": [{"publication": expected["publication"], "revision": expected["revision"]}],
+                "registry": expected["connection"]["registry"], "catalog": expected["connection"]["catalog"]})
+        target_calls = []
+        def inspect_target(row):
+            target_calls.append(row)
+            return "127.0.0.1", expected["connection"]["target"]
+        observed = state.snapshot(FIXTURE, bootstrap(), value, execute=execute, inspect_target=inspect_target)
         self.assertEqual(observed["publication"]["storageLayerId"], 741)
         self.assertEqual(observed["publication"]["layerId"], 0)
         self.assertEqual(len(calls), 1)
+        self.assertEqual(target_calls, expected["connection"]["registry"])
+        self.assertIn("pg_control_system()", calls[0])
+        self.assertIn("FROM honua.data_connections", calls[0])
+        for secret in ("connection_string_encrypted", "secret_ref", "encryption_key_version", "secret_type"):
+            self.assertNotIn(secret, calls[0])
         self.assertIn("active.revision", calls[0])
         self.assertNotIn("SELECT DISTINCT", calls[0])
         self.assertIn("pub->>'publicationType'='esri-feature-layer'", calls[0])
@@ -170,14 +279,16 @@ class IngestPublishControls(unittest.TestCase):
         expected = value["snapshots"]["before"]
         def ambiguous(query):
             mapping = {"publication": expected["publication"], "revision": expected["revision"]}
-            return json.dumps({"rows": expected["rows"], "mappings": [mapping, mapping]})
+            return json.dumps({"rows": expected["rows"], "mappings": [mapping, mapping],
+                "registry": expected["connection"]["registry"], "catalog": expected["connection"]["catalog"]})
         with self.assertRaises(ValueError):
-            state.snapshot(FIXTURE, bootstrap(), value, execute=ambiguous)
+            state.snapshot(FIXTURE, bootstrap(), value, execute=ambiguous, inspect_target=lambda row: self.fail("ambiguous snapshot must not connect"))
         value = controls()
         replace_output(value["cases"][0], lambda result: result.update(table='unsafe";DROP TABLE x;--'))
         called = []
         with self.assertRaises(ValueError):
-            state.snapshot(FIXTURE, bootstrap(), value, execute=lambda query: called.append(query))
+            state.snapshot(FIXTURE, bootstrap(), value, execute=lambda query: called.append(query),
+                inspect_target=lambda row: self.fail("unsafe tuple must not connect"))
         self.assertEqual(called, [])
 
     def test_inspector_requires_actual_advertisement_from_supported_view(self):

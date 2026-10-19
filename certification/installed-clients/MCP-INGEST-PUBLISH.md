@@ -81,10 +81,32 @@ and it must carry no created layer/service/revision, proposal, approval or job
 identity. A transport-success/CLI0 outcome cannot make Failed mean Completed.
 Short owned import names must retain their actual imported_ table identity.
 
-Connection names are valid caller selectors; they are not registry GUIDs.
-The positive persisted-binding control uses an actual GUID. A named selector with
-no independently resolved canonical/default-catalog binding remains explicitly
-unproved; the producer does not substitute the bootstrap connection ID or call
-that missing observer proof a runtime regression. Actual returned selectors and
-partial results remain retained. Independent alias/default-catalog provenance,
-queued publication and exact-candidate qualification remain open under issue699.
+Connection names are valid caller selectors; they are not registry GUIDs. The
+persisted-v2 observer resolves the actual returned selector to exactly one active
+`honua.data_connections` row, retaining only public destination and identity
+fields. It never selects encrypted credentials, encryption keys or secret-manager
+metadata. The allocated bootstrap connection ID is not a replacement selector.
+
+Before using the private fixture password, both the observer and its process
+launcher require the owned loopback destination, port5432, databasehonua_test,
+principalhonua, PostGIS provider and disabled fixture TLS. DNS must resolve only to
+loopback; the child connects a verified numeric address with no inherited
+PGSERVICE/PGHOSTADDR/PGOPTIONS or psql startup file. An unowned/ambiguous/inactive
+target is refused before a credential-bearing connection to that target starts.
+
+Registry fields, owned catalog cluster/database/principal, imported rows and
+publication graph/revision share one SQL statement/MVCC snapshot. A second real
+connection through the resolved safe registry target independently reads
+`pg_control_system().system_identifier`, `current_database()` and `current_user`.
+These real database identities must agree; matching connection-string text or a
+known GUID cannot supply that proof. The fixture role needs permission to inspect
+its owned PostgreSQL cluster identity; refusal is nonpass with no identity fallback.
+
+A GUID publication binding must match the resolved canonical registry ID. A
+returned name remains unchanged in the publication request and evidence; a null
+default binding is admissible only with the independent target/catalog identity
+proof. Registry identity and both database identities must remain stable across
+restart, alongside complete fresh canonical resource/query readback. These are
+trusted producer/workflow/database observations, not JSON attestation. Missing
+returned hints, queued publication and exact-candidate qualification remain open
+under issue699; source controls alone prove none of them.
