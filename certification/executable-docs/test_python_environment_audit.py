@@ -164,7 +164,7 @@ def test_trusted_cli_positive_inventory_executes(tmp_path):
 def test_same_version_known_source_origin_refuses_without_exposing_url(tmp_path, admitted_default, origin):
     _, distribution = environment(tmp_path / ".venv-source", "0.1.16")
     (distribution / "direct_url.json").write_text(json.dumps(origin))
-    with pytest.raises(ValueError, match="local/VCS installation") as captured:
+    with pytest.raises(ValueError, match="direct-origin installation") as captured:
         probe.inventory([tmp_path])
     assert "SECRET" not in str(captured.value)
     assert origin["url"] not in str(captured.value)
@@ -201,5 +201,42 @@ def build_wheel(wheel_directory, config_settings=None, metadata_directory=None):
     assert result.returncode == 0, result.stdout + result.stderr
     origin = next((root / "lib").glob("python*/site-packages/honua_sdk-0.1.16.dist-info/direct_url.json"))
     assert "dir_info" in json.loads(origin.read_text())
-    with pytest.raises(ValueError, match="local/VCS installation"):
+    with pytest.raises(ValueError, match="direct-origin installation"):
         probe.inventory([tmp_path], [str(root / "bin/python")])
+
+
+def test_real_offline_same_version_direct_wheel_cannot_bypass_registry_guard(tmp_path, admitted_default):
+    import zipfile
+    root = tmp_path / ".venv-wheel"
+    venv.EnvBuilder(with_pip=False, symlinks=True).create(root)
+    wheel = tmp_path / "honua_sdk-0.1.16-py3-none-any.whl"
+    with zipfile.ZipFile(wheel, "w") as archive:
+        archive.writestr("honua_sdk/__init__.py", "ARBITRARY_CONTENT = True\n")
+        archive.writestr("honua_sdk-0.1.16.dist-info/METADATA", "Metadata-Version: 2.1\nName: honua-sdk\nVersion: 0.1.16\n")
+        archive.writestr("honua_sdk-0.1.16.dist-info/WHEEL", "Wheel-Version: 1.0\nGenerator: offline-control\nRoot-Is-Purelib: true\nTag: py3-none-any\n")
+        archive.writestr("honua_sdk-0.1.16.dist-info/RECORD", "")
+    result = subprocess.run([sys.executable, "-m", "pip", "--python", str(root / "bin/python"), "install",
+                             "--no-index", "--no-deps", str(wheel)], text=True, capture_output=True)
+    assert result.returncode == 0, result.stdout + result.stderr
+    origin = next((root / "lib").glob("python*/site-packages/honua_sdk-0.1.16.dist-info/direct_url.json"))
+    assert "archive_info" in json.loads(origin.read_text())
+    with pytest.raises(ValueError, match="direct-origin installation"):
+        probe.inventory([tmp_path], [str(root / "bin/python")])
+
+
+def test_https_archive_origin_refuses_without_exposing_credentials(tmp_path, admitted_default):
+    _, distribution = environment(tmp_path / ".venv-wheel", "0.1.16")
+    (distribution / "direct_url.json").write_text(json.dumps({
+        "url": "https://reader:SECRET@example.invalid/honua.whl", "archive_info": {"hash": "sha256=unadmitted"}}))
+    with pytest.raises(ValueError, match="direct-origin installation") as captured:
+        probe.inventory([tmp_path])
+    assert "SECRET" not in str(captured.value)
+    assert "https://" not in str(captured.value)
+
+
+@pytest.mark.parametrize("origin", [{}, {"url": "file:///unknown", "future_origin_info": {}}, {"url": "https://example.invalid/wheel"}])
+def test_unknown_direct_origin_shapes_refuse(tmp_path, admitted_default, origin):
+    _, distribution = environment(tmp_path / ".venv-source", "0.1.16")
+    (distribution / "direct_url.json").write_text(json.dumps(origin))
+    with pytest.raises(ValueError, match="direct-origin installation"):
+        probe.inventory([tmp_path])

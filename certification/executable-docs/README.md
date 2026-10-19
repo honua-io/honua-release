@@ -162,8 +162,10 @@ metadata, escaping site-package/metadata links and the directory bound refuse
 qualification. Normal virtualenv interpreter links to system Python remain valid.
 
 Installed Honua versions must match the governed package cohort in every audited
-environment. Known local-directory and VCS origins recorded by pip are refused
-even when their version matches. This metadata audit does not prove installed
+environment. Every direct_url.json origin recorded by pip is refused (including local-directory,
+VCS, direct-archive and unknown origin shapes)
+even when their version matches; direct wheel URLs and local wheel files must not
+bypass the guarded package index. This metadata audit does not prove installed
 wheel-byte identity; the registry download guard separately binds admitted wheel
 hashes. These controls do not update the cohort or turn historical document
 failures into passes.

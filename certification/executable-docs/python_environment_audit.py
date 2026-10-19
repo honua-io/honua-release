@@ -60,9 +60,8 @@ def inspect_honua_metadata(site_path: Path) -> None:
                 raise ValueError(f"Honua origin metadata cannot be inspected: {entry}") from None
             if not isinstance(origin, dict):
                 raise ValueError(f"Honua origin metadata is malformed: {entry}")
-            # Never include origin URLs: they can contain registry credentials.
-            if "dir_info" in origin or "vcs_info" in origin:
-                raise ValueError(f"Honua local/VCS installation is not an admitted published artifact: {entry}")
+            # Guarded-index installs have no PEP610 direct origin. Never log its URL.
+            raise ValueError(f"Honua direct-origin installation bypasses the guarded package index: {entry}")
         name, version = canonical_name(names[0].strip()), versions[0].strip()
         stem = entry.name[:-len(suffix)]
         matches = False
