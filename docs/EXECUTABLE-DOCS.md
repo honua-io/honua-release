@@ -238,6 +238,7 @@ report. The right fix is a document a reader can follow.
 pip install "pyyaml>=6.0" pytest
 python -m pytest certification/executable-docs -q            # offline self-tests
 python certification/executable-docs/docker_regressions.py  # live ownership and readiness regressions
+python -m pytest certification/executable-docs/install_healthcheck_docker.py -q  # live Compose healthcheck control
 
 # regenerate / check the committed inventory (reads the docs at their release revisions)
 GH_TOKEN=$(gh auth token) python certification/executable-docs/inventory.py --write

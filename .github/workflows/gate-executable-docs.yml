@@ -39,6 +39,8 @@ on:
   pull_request:
     paths:
       - "certification/executable-docs/**"
+      - "docs/INSTALL-2026.1.md"
+      - "docs/CUSTOMER-INSTALL.md"
       - "certification/sdk-publication-replay/**"
       - ".github/workflows/gate-executable-docs.yml"
       - "e2e/harness/boot.sh"
@@ -103,7 +105,7 @@ jobs:
       - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
         with:
           python-version: "3.12"
-      - run: python -m pip install "pyyaml>=6.0"
+      - run: python -m pip install "pyyaml>=6.0" pytest
       - name: Log in to ghcr
         uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4.6.0
         with:
@@ -113,6 +115,8 @@ jobs:
         continue-on-error: true
       - name: Live Docker runner regressions
         run: python certification/executable-docs/docker_regressions.py
+      - name: Verify documented Compose healthchecks
+        run: python -m pytest certification/executable-docs/install_healthcheck_docker.py -q
       - name: Run every getting-started block against the candidate
         env:
           GH_TOKEN: ${{ github.token }}
