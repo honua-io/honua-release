@@ -261,3 +261,39 @@ against the exact candidate source. Canonical producers fetch all three files
 from protected immutable release history; the specification repository only
 bridges its existing client adapters and consumes this resulting evidence.
 This scenario validates a plan and never submits a geoprocessing job.
+
+### Canonical plan execution and durable results
+
+`mcp_execute_plan_validation.mjs` owns the actual installed SDK/public Inspector
+execution journey for `tools/call:execute_plan` (release #708). Its pure Python
+oracle rederives a single `Geoprocess` / `geometry.buffer` plan from the authored
+metric point fixture. This is authored execution, not real-model planning.
+
+The producer retains the invalid-WKB and fresh anonymous tool refusals before
+submitting work. It uses the actual returned job URI for fresh-session terminal
+polling and result reads, replays the same idempotency key, then restarts only the
+explicitly owned disposable candidate and reads the same job/results again.
+Every request is launched by the verified installed-package launcher, with raw
+wire and separate client diagnostics. Inspector uses the server's actual public
+`setup` discovery view for anonymous execution; missing advertisement or absent
+invocation remains a failure. It never substitutes a raw transport for the CLI.
+
+The independent state observer takes one bounded read-only Redis Lua snapshot of
+job and result records, checks Redis key types, and excludes only the verified
+store-owned coordination namespaces. Malformed durable records fail closed.
+Complete bytes are hashed, while only this run's public job/result binding is
+retained. Invalid/anonymous calls, replay, fresh reads and restart must preserve
+the applicable committed census exactly; the positive submission adds exactly
+one job and result without changing prior records. Result resources must match
+the durable package. The oracle independently checks the authored circle's
+center, radius, area, centroid, chord coverage, convex traversal, CRS and process
+provenance, without asking the server geometry engine for expected output.
+
+The required self-test floor runs pure semantic and source-binding controls.
+`execute-plan-redis-controls` also runs the actual Lua against its own isolated
+Redis service, including real active/index/lease/log key types, malformed record
+refusal, and changes outside the projected fields. These are offline controls;
+only retained actual installed-client evidence against the selected immutable
+candidate can qualify the operation. All 82 governed rows, per-operation auth,
+frozen client cohort and global gates remain required. Native/cloud parity,
+cancellation/worker cessation and `publish_result` remain separate obligations.

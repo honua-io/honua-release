@@ -53,7 +53,7 @@ export async function launchCanonicalClient({ installationRoot, selector, endpoi
     if (method === "tools/call") {
       args.push(...inspectorToolArguments(params.name, params.arguments));
       if (authenticated) args.push("--metadata", 'honua.io/workflow-view="full"');
-      else if (["honua_ingest_dataset", "honua_publish_service", "honua_get_style", "honua_apply_style_preset"].includes(params.name)) {
+      else if (["honua_ingest_dataset", "honua_publish_service", "honua_get_style", "honua_apply_style_preset", "honua_execute_plan"].includes(params.name)) {
         // These operations are explicitly advertised by the selected server's
         // public setup view. Discovery narrows the catalog; it grants no auth.
         args.push("--metadata", 'honua.io/workflow-view="setup"');
