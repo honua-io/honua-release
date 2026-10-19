@@ -43,15 +43,21 @@ have separate interpreters, working directories and environments. An uncaught er
 loses that context permanently for the run: the runner kills its owned container, refuses
 to restart it and reports failure. This also stops child processes started by that context.
 
-The reader links leading static imports (side-effect, default, named and namespace)
-through one native ESM bridge before evaluating any dependency. Its local bindings then
-remain in the reader REPL; Node's module cache prevents replaying shared dependencies.
-Unsupported import syntax fails before evaluation. CommonJS `require`
+The reader links static imports (side-effect, default, named and namespace)
+through one native ESM bridge before evaluating any dependency. Named and default
+references read the bridge's live exports across later blocks and retained closures.
+Node's module cache prevents replaying shared dependencies. The runner bootstraps
+TypeScript 5.9.3 once from its committed integrity-locked npm package using the owned
+Node/npm toolchain and mounts the compiler read-only into each Node context. The
+bootstrap has a separate bounded timeout and a version/hash receipt; failure stops
+the run before document execution. Unsupported import syntax fails before evaluation. CommonJS `require`
 resolves from the reader's current directory. TypeScript uses the pinned Node runtime's
 type transformation; the separate explicit typecheck path still uses the configured compiler.
-Native linking checks every requested static export across the whole prefix before any
-dependency body runs; an existing export whose value is `undefined` remains valid. Leading dynamic imports retain
+Native linking checks every requested static export before any dependency body runs;
+an existing export whose value is `undefined` remains valid. Dynamic imports retain
 native parsing, including whitespace and comments before the argument.
+Snippet-body `import.meta` uses native Node module metadata anchored to the snippet's
+file, including `url`, `filename`, `dirname`, `main` and `resolve`.
 Strict evaluation and removal of REPL-only built-in globals keep undeclared names and
 missing imports as actual errors.
 Injected environment keys removed by a later block restore the container baseline,
@@ -100,11 +106,10 @@ that a native Node ESM script also performs before failing. A native fatal exit 
 the interpreter with its captured stderr and fails the original request before any
 success is published.
 
-Full ESM fidelity remains open in [#683](https://github.com/honua-io/honua-release/issues/683).
-In particular, snippet-body `import.meta.url` and `import.meta.resolve` currently fail
-with the REPL's explicit syntax error even though native ESM accepts them. The once-only
-slice does not complete that requirement. The paired native-oracle controls retain this
-expected refusal as a known limitation, never as a successful document execution or skip.
+This bounded reader does not implement every Node module feature. Unsupported module
+exports and arbitrary native-addon schedulers fail the affected block; the gate does
+not convert such failures into a pass or skip. Native-oracle controls cover live bindings,
+metadata, once-only execution and the stated resource limitations.
 The live Docker regression retains `artifacts/executable-docs/node-context-rehearsal.json`
 with source hashes, the pinned runtime image, actual Node version and owned-cleanup controls.
 Its separate `node-resource-rehearsal.json` binds the public SDK pool control to the

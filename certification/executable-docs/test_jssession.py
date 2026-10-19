@@ -1,5 +1,6 @@
 """Execute real Node controls: persistent state, once-only effects and owned cleanup."""
 import os
+import shutil
 import signal
 import subprocess
 import sys
@@ -12,11 +13,24 @@ HERE = Path(__file__).resolve().parent
 sys.path.insert(0, str(HERE))
 
 from jssession import JavaScriptSession  # noqa: E402
+from compiler_bootstrap import bootstrap as bootstrap_compiler  # noqa: E402
 from run import Session, run_document  # noqa: E402
 
 
+@pytest.fixture(scope="session")
+def compiler(tmp_path_factory):
+    tools = tmp_path_factory.mktemp("execdocs-compiler-tools")
+    node = Path(shutil.which("node") or "")
+    npm_cli = Path(shutil.which("npm") or "").resolve()
+    receipt = bootstrap_compiler(tools, node, npm_cli)
+    assert receipt["status"] == "pass"
+    return tools
+
+
 @pytest.fixture
-def reader(tmp_path, monkeypatch):
+def reader(tmp_path, monkeypatch, compiler):
+    monkeypatch.setenv("HONUA_EXECDOCS_COMPILER",
+                       str(compiler / "compiler/node_modules/typescript/lib/typescript.js"))
     workers = []
     def worker(command, stop):
         # Only the transport changes: run the exact in-container worker on real Node.
@@ -32,7 +46,7 @@ def reader(tmp_path, monkeypatch):
     monkeypatch.setattr(Session, "container", lambda self, runtime: "owned-test-context")
     monkeypatch.setattr(Session, "put", lambda self, runtime, path, code: path.write_text(code))
     monkeypatch.setattr(Session, "installed_honua", lambda *args: {})
-    session = Session("javascript", tmp_path, {"node": "controlled"}, "http://guard", tmp_path,
+    session = Session("javascript", tmp_path, {"node": "controlled"}, "http://guard", compiler,
                       False, "host", "once", "5.9.3")
     yield session
     session.close()
@@ -41,7 +55,7 @@ def reader(tmp_path, monkeypatch):
             process.close()
 
 
-def run(reader, code, language="javascript", timeout=5):
+def run(reader, code, language="javascript", timeout=15):
     return reader.run_js(code, language, timeout)
 
 
@@ -58,6 +72,42 @@ def test_lexical_state_imports_await_require_and_typescript_share_one_context(re
     third = run(reader, "const typed: number = client.value; console.log(typed, ++count);", "typescript")
     assert third.status == "pass", third.stderr
     assert third.stdout == "42 2\n"
+
+
+def test_imported_values_remain_live_across_blocks_and_lexical_closures(reader):
+    module = Path(reader.cwd, "live.mjs")
+    module.write_text("export let value = 0; export { value as default }; "
+                      "export function increment() { value++; return this; }\n")
+    first = run(reader, "import current, {value, increment} from './live.mjs'; "
+                "const retained = () => ({current, value}); "
+                "console.log(increment() === undefined, current, value, retained().value);")
+    assert first.status == "pass", first.stderr
+    assert first.stdout == "true 1 1 1\n"
+    second = run(reader, "increment(); const object = {value}; "
+                 "console.log(current, value, object.value, retained().current); "
+                 "function shadow(value) { return value; } console.log(shadow(42));")
+    assert second.status == "pass", second.stderr
+    assert second.stdout == "2 2 2 2\n42\n"
+    third = run(reader, "const typed: number = value; console.log(typed, retained().value);", "typescript")
+    assert third.status == "pass", third.stderr
+    assert third.stdout == "2 2\n"
+
+
+def test_import_meta_uses_native_filename_and_resolution_without_replaying_body(reader):
+    source = "const retainedMeta = () => import.meta; " \
+             "console.log(import.meta.url, import.meta.filename, import.meta.dirname, " \
+             "import.meta.main, import.meta.resolve('./missing.mjs'));"
+    result = run(reader, source, timeout=20)
+    assert result.status == "pass", (result.detail, result.stderr)
+    native_file = sorted(Path(reader.cwd).glob("docrun-*.mjs"))[-1]
+    native = subprocess.run(["node", str(native_file)], cwd=reader.cwd,
+                            capture_output=True, text=True, timeout=5)
+    assert native.returncode == 0, native.stderr
+    assert result.stdout == native.stdout
+    retained = run(reader, "console.log(retainedMeta().url, retainedMeta().resolve('./missing.mjs'));")
+    assert retained.status == "pass", retained.stderr
+    assert retained.stdout == " ".join(result.stdout.strip().split(" ")[:1] +
+                                      [result.stdout.strip().split(" ")[-1]]) + "\n"
 
 
 def test_real_document_earlier_write_occurs_once(reader):
@@ -275,16 +325,16 @@ def test_final_exit_status_matches_native_esm_completion(reader, code):
 
 
 @pytest.mark.parametrize('language', ['javascript', 'typescript'])
-def test_import_meta_remains_explicit_failed_esm_fidelity_requirement(reader, language):
+def test_import_meta_matches_native_url_and_resolution(reader, language):
     source = "console.log(import.meta.url); console.log(import.meta.resolve('./local.mjs'));"
     native = Path(reader.cwd, 'native.mjs')
     native.write_text(source)
     oracle = subprocess.run(['node', str(native)], cwd=reader.cwd, capture_output=True, text=True, timeout=5)
     assert oracle.returncode == 0 and native.as_uri() in oracle.stdout
     result = run(reader, source, language)
-    assert result.status == 'fail' and result.command_failed
-    assert "Cannot use 'import.meta' outside a module" in result.stderr
-    assert reader.js.broken
+    assert result.status == 'pass', result.stderr
+    worker_file = Path(reader.cwd, 'docrun-001.mts' if language == 'typescript' else 'docrun-001.mjs')
+    assert result.stdout == oracle.stdout.replace(native.as_uri(), worker_file.as_uri())
 
 
 @pytest.mark.parametrize("source", [

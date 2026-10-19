@@ -2,13 +2,21 @@
 import repl from 'node:repl';
 import { PassThrough, Writable } from 'node:stream';
 import { createInterface } from 'node:readline';
-import { builtinModules, createRequire, stripTypeScriptTypes } from 'node:module';
-import { readFileSync, writeFileSync, appendFileSync, closeSync, openSync, renameSync } from 'node:fs';
+import { builtinModules, createRequire, registerHooks, stripTypeScriptTypes } from 'node:module';
+import { readFileSync, writeFileSync, appendFileSync, closeSync, openSync, renameSync, realpathSync } from 'node:fs';
 import { AsyncLocalStorage } from 'node:async_hooks';
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { Console } from 'node:console';
+import { randomUUID } from 'node:crypto';
 import { ownResources } from './jsresources.mjs';
+import { ImportBindings } from './jsimports.mjs';
+
+const compilerPath = process.env.HONUA_EXECDOCS_COMPILER;
+if (!compilerPath) throw new Error('pinned TypeScript parser was not bootstrapped');
+const ts = createRequire(import.meta.url)(compilerPath);
+if (ts.version !== '5.9.3') throw new Error(`unexpected TypeScript parser ${ts.version}`);
+const importedBindings = new ImportBindings(ts);
 
 const output = new AsyncLocalStorage();
 const initialEnvironment = { ...process.env };
@@ -106,53 +114,27 @@ delete server.context._;
 delete server.context._error;
 server.context.console = new Console(process.stdout, process.stderr);
 
-// Link the complete leading static-import prefix as one native ESM module before
-// any dependency evaluates, then retain its local bindings in the reader REPL.
-// Unrecognised syntax fails before evaluation; nothing is replayed.
-function imports(source, file) {
-  let prefix = '', rest = source;
-  const locals = [];
-  let count = 0;
-  const trivia = /^(?:\s+|\/\/[^\n]*(?:\n|$)|\/\*[\s\S]*?\*\/)+/;
-  const quoted = `(?:"(?:[^"\\\\\n]|\\\\.)*"|'(?:[^'\\\\\n]|\\\\.)*')`;
-  const declaration = new RegExp(`^import\\s+(?:([^;]*?)\\s+from\\s+)?(${quoted})[ \\t]*(?:;|(?=\\r?\\n|$))`);
-  const id = '[A-Za-z_$][\\w$]*';
-  while (true) {
-    const whitespace = rest.match(trivia)?.[0] || '';
-    prefix += whitespace;
-    rest = rest.slice(whitespace.length);
-    if (!/^import\s/.test(rest)) break;
-    if (rest.slice('import'.length).replace(trivia, '').startsWith('(')) break;
-    const match = rest.match(declaration);
-    if (!match) throw new SyntaxError('unsupported static import in reader REPL');
-    let binding = match[1]?.trim();
-    if (binding) {
-      const defaultMatch = binding.match(new RegExp(`^(${id})(?:\\s*,\\s*([\\s\\S]+))?$`));
-      if (defaultMatch) { locals.push(defaultMatch[1]); binding = defaultMatch[2] || ''; }
-      const namespace = binding.match(new RegExp(`^\\*\\s+as\\s+(${id})$`));
-      if (namespace) locals.push(namespace[1]);
-      else {
-        if (binding) {
-          if (!/^\{[\s\S]*\}$/.test(binding)) throw new SyntaxError('unsupported import binding');
-          const names = binding.slice(1, -1).split(',').map(x => x.trim());
-          if (!names.at(-1)) names.pop();
-          for (const name of names) {
-            const named = name.match(new RegExp(`^(${id})(?:\\s+as\\s+(${id}))?$`));
-            if (!named) throw new SyntaxError('unsupported named import binding');
-            locals.push(named[2] || named[1]);
-          }
-        }
+// Load only a module's native metadata. The loader hook never evaluates the reader
+// body, so later snippets still execute it exactly once in their owned REPL.
+async function nativeMetadata(file) {
+  const url = pathToFileURL(realpathSync(file)).href;
+  const privateUrl = url + '?honua-execdocs-metadata=' + randomUUID();
+  const hook = registerHooks({
+    load(request, context, next) {
+      if (request === privateUrl) {
+        return { format: 'module', shortCircuit: true, source: 'export default import.meta;' };
       }
-    }
-    prefix += match[0] + '\n';
-    count++;
-    rest = rest.slice(match[0].length);
+      return next(request, context);
+    },
+  });
+  try {
+    const meta = (await import(privateUrl)).default;
+    meta.url = url;
+    meta.main = true;
+    return meta;
+  } finally {
+    hook.deregister();
   }
-  if (count === 0) return source;
-  const bridge = file + '.imports.mjs';
-  writeFileSync(bridge, prefix + `\nexport { ${locals.join(', ')} };\n`);
-  const expression = `await import(${JSON.stringify(pathToFileURL(bridge).href)})`;
-  return (locals.length ? `const { ${locals.join(', ')} } = ${expression};` : `${expression};`) + rest;
 }
 
 for await (const line of createInterface({ input: process.stdin, crlfDelay: Infinity })) {
@@ -197,7 +179,11 @@ for await (const line of createInterface({ input: process.stdin, crlfDelay: Infi
       server.context.__filename = file;
       let source = readFileSync(file, 'utf8');
       if (request.language === 'typescript') source = stripTypeScriptTypes(source, { mode: 'transform' });
-      source = imports(source, file);
+      const prepared = importedBindings.prepare(source, file);
+      if (prepared.metadataIdentifier) {
+        server.context[prepared.metadataIdentifier] = await nativeMetadata(file);
+      }
+      source = prepared.code;
       await new Promise((resolve, reject) => {
         let finished = false;
         const completion = {

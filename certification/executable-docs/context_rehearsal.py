@@ -40,7 +40,7 @@ def _wheel(path: Path) -> str:
     return hashlib.sha256(path.read_bytes()).hexdigest()
 
 
-def rehearse(work: Path, output: Path) -> dict:
+def rehearse(work: Path, output: Path, tools: Path | None = None) -> dict:
     sources = json.loads((HERE / "sources.json").read_text())
     images = sources["runtimes"]
     guard = Guard({"npm": {}, "pypi": {}, "nuget": {}}).start()
@@ -53,7 +53,8 @@ def rehearse(work: Path, output: Path) -> dict:
               "runtimeImages": images, "controls": {}, "cleanup": [], "peakOwnedContextContainers": 0, "status": "fail"}
     work.mkdir(parents=True, exist_ok=True)
     try:
-        tools = prepare_tools(images, work)
+        if tools is None:
+            tools = prepare_tools(images, work)
         def parent(name):
             value = Session(name, work / name, images, guard.base, tools, False, "host", work.name, "5.9.3")
             parents.append(value); return value

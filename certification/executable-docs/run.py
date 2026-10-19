@@ -43,6 +43,7 @@ import grpc_tls  # noqa: E402
 from execution_contexts import RUNTIMES, compile_plan  # noqa: E402
 from inputs import assigned_names, doc_id, load_vars, needs, render  # noqa: E402
 from jssession import JavaScriptSession  # noqa: E402
+from compiler_bootstrap import bootstrap as bootstrap_compiler  # noqa: E402
 from inventory import InventoryError, Resolver, document_record, drift  # noqa: E402
 from registry_guard import pins_from_manifest, NPM_HONUA, pypi_normalize  # noqa: E402
 import source_build  # noqa: E402
@@ -237,6 +238,7 @@ class Session:
         shutil.copy2(nuget / "NuGet.Config", home_nuget / "NuGet.Config")
         shutil.copy2(HERE / "pysession.py", self.state / "pysession.py")
         shutil.copy2(HERE / "jssession.mjs", self.state / "jssession.mjs")
+        shutil.copy2(HERE / "jsimports.mjs", self.state / "jsimports.mjs")
         shutil.copy2(HERE / "jsresources.mjs", self.state / "jsresources.mjs")
 
     # container lifecycle
@@ -260,6 +262,9 @@ class Session:
         if "node" in self.prerequisites and runtime != "node":
             args += ["-v", f"{self.tools / 'node'}:/opt/node:ro"]
             path = "/opt/node/bin:" + path
+        if runtime == "node":
+            args += ["-v", f"{self.tools / 'compiler'}:/opt/honua-execdocs-compiler:ro",
+                     "-e", "HONUA_EXECDOCS_COMPILER=/opt/honua-execdocs-compiler/node_modules/typescript/lib/typescript.js"]
         if runtime == "dotnet":
             path += f":{self.home}/.dotnet/tools"
         if path != "/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin":
@@ -1066,6 +1071,7 @@ def prepare_tools(runtimes: dict[str, str], work: Path) -> Path:
             docker("rm", "-f", cid)
         for command, target in (("npm", "npm-cli.js"), ("npx", "npx-cli.js")):
             (node / "bin" / command).symlink_to(f"../lib/node_modules/npm/bin/{target}")
+    bootstrap_compiler(tools, node / "bin" / "node", node / "lib" / "node_modules/npm/bin/npm-cli.js")
     docker("pull", runtimes["dockerCli"], timeout=900, check=True)
     cid = docker("create", runtimes["dockerCli"], check=True).stdout.strip()
     try:
@@ -1417,6 +1423,9 @@ def main() -> int:
         "guardAdmittedClosure": closure,
         "inventoryDrift": drift_lines,
     }
+    compiler_receipt = work / "tools" / "compiler-bootstrap.json"
+    if compiler_receipt.exists():
+        report["compilerBootstrap"] = json.loads(compiler_receipt.read_text())
     args.output.parent.mkdir(parents=True, exist_ok=True)
     args.output.write_text(json.dumps(report, indent=2) + "\n", encoding="utf-8")
     summary = markdown_summary(report)

@@ -14,11 +14,22 @@ from resource_rehearsal import published_sdk_pool_control, socket_after_pass_con
 
 
 class DockerRegressions(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        cls.shared = tempfile.TemporaryDirectory(prefix="execdocs-regression-tools-")
+        images = json.loads((run.HERE / "sources.json").read_text())["runtimes"]
+        cls.tools = run.prepare_tools(images, Path(cls.shared.name))
+
+    @classmethod
+    def tearDownClass(cls):
+        cls.shared.cleanup()
+
     def test_explicit_context_package_and_project_state(self):
         # Local third-party fixture packages and a BCL project exercise the real
         # runner. They cannot produce a public-package/candidate qualification.
         with tempfile.TemporaryDirectory(prefix="execdocs-context-") as directory:
-            report = rehearse(Path(directory), run.ROOT / "artifacts/executable-docs/context-rehearsal.json")
+            report = rehearse(Path(directory), run.ROOT / "artifacts/executable-docs/context-rehearsal.json",
+                              self.tools)
             self.assertEqual(report["status"], "pass")
             self.assertFalse(report["qualification"])
             self.assertEqual(len(report["controls"]), 5)
@@ -28,7 +39,7 @@ class DockerRegressions(unittest.TestCase):
         self.directory = tempfile.TemporaryDirectory(prefix="execdocs-regression-")
         self.work = Path(self.directory.name)
         runtimes = json.loads((run.HERE / "sources.json").read_text())["runtimes"]
-        self.session = run.Session("regression", self.work, runtimes, "http://127.0.0.1:1", self.work,
+        self.session = run.Session("regression", self.work, runtimes, "http://127.0.0.1:1", self.tools,
                                    False, "host", f"regression-{os.getpid()}", "5.9.3")
 
     def tearDown(self):
@@ -114,6 +125,14 @@ class DockerRegressions(unittest.TestCase):
             "const dynamic = await import('./local.mjs'); console.log(current, dynamic.default);", "javascript", 20)
         self.assertEqual(imported.status, "pass", imported.stderr)
         self.assertEqual(imported.stdout, "later later\n")
+        self.session.put("node", Path(self.session.cwd, "live.mjs"),
+                         "export let value = 0; export function increment() { value++; }\n")
+        live = self.session.run_js("import {value, increment} from './live.mjs'; "
+                                   "increment(); console.log(value);", "javascript", 20)
+        self.assertEqual(live.status, "pass", live.stderr)
+        self.assertEqual(live.stdout, "1\n")
+        self.assertEqual(self.session.run_js("increment(); console.log(value);", "javascript", 20).stdout,
+                         "2\n")
         completed = self.session.run_js("new Promise(resolve => setTimeout(() => resolve(42), 10))"
             ".then(value => { require('node:fs').appendFileSync('query-effect', 'once'); console.log(value); });",
             "javascript", 20)

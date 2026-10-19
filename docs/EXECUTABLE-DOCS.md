@@ -91,12 +91,14 @@ remain independently checked; context routing does not make unavailable packages
 failed operations pass.
 JavaScript/TypeScript keeps lexical declarations, imports and top-level `await` state
 in one Node reader interpreter per context. Each snippet executes once, even if it
-writes something before failing. Leading static imports link together in one native ESM
-bridge before any dependency evaluates; shared dependencies are not replayed. Unsupported
-import syntax fails before evaluation. Snippet-body `import.meta.url`/`import.meta.resolve`
-remain a known native-ESM regression that fails explicitly; [#683](https://github.com/honua-io/honua-release/issues/683)
-stays open for that ESM fidelity requirement. The once-only slice does not establish full
-ESM support or waive a required execution. Uncaught errors, timeout or worker exit lose that
+writes something before failing. Static imports link together in one native ESM
+bridge before any dependency evaluates; shared dependencies are not replayed. Imported
+values remain live across later blocks and retained closures. Snippet-body `import.meta`
+uses native metadata for the snippet file, including `url` and `resolve`. A single
+integrity-locked TypeScript compiler bootstrap supplies import analysis to isolated
+readers; its timeout and receipt are separate from block execution. Unsupported
+module syntax fails the affected block. The bounded reader does not establish full
+Node module support or waive a required execution. Uncaught errors, timeout or worker exit lose that
 context, stops its owned container and children, and fails subsequent snippets without
 restarting or replaying earlier code. This does not change Python ownership or C# replay.
 Node's event-loop idle signal establishes block completion after referenced asynchronous
