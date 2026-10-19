@@ -8,7 +8,7 @@ import { spawnSync } from "node:child_process";
 const digest = (bytes) => createHash("sha256").update(bytes).digest("hex");
 
 export function createPlanValidation({ directory, sourceSha, helperSha256, fixtureSha256 }) {
-  if (!/^[a-f0-9]{40}$/.test(sourceSha ?? "")) throw new Error("plan scenario requires immutable helper source");
+  if (typeof sourceSha !== "string" || !/^[a-f0-9]{40}$/.test(sourceSha)) throw new Error("plan scenario requires immutable helper source");
   const pins = { sourceSha, sha256: { helper: helperSha256, fixture: fixtureSha256 } };
   const verifyBytes = () => {
     for (const [name, expected] of [["mcp_plan_validation.py", helperSha256], ["fixture.v1.json", fixtureSha256]]) {
@@ -56,7 +56,8 @@ export function createPlanValidation({ directory, sourceSha, helperSha256, fixtu
 
   function verifyPlanProof(proof, candidateSourceSha) {
     try {
-      if (!/^[a-f0-9]{40}$/.test(candidateSourceSha ?? "") || !/^[a-f0-9]{40}$/.test(proof?.candidateSourceSha ?? "")
+      if (typeof candidateSourceSha !== "string" || !/^[a-f0-9]{40}$/.test(candidateSourceSha)
+          || typeof proof?.candidateSourceSha !== "string" || !/^[a-f0-9]{40}$/.test(proof.candidateSourceSha)
           || proof?.schema !== "honua.mcp-plan-validation-proof/v1" || proof.candidateSourceSha !== candidateSourceSha
           || proof.helperSourceSha !== pins.sourceSha || proof.helperSha256 !== `sha256:${pins.sha256.helper}`
           || proof.fixtureSha256 !== `sha256:${pins.sha256.fixture}`

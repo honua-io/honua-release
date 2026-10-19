@@ -51,7 +51,7 @@ for (const mode of ["valid", "invalid-accepted", "wrong-path", "missing-schema",
         broken.observations.cases[1].result.structuredContent.isExecutable = true;
         assert.equal(api.verifyPlanProof(broken, candidateSourceSha), false);
         assert.equal(api.verifyPlanProof(proof, "c".repeat(40)), false);
-        for (const value of [undefined, null, "", "b".repeat(39), "B".repeat(40), "z".repeat(40)]) {
+        for (const value of [undefined, null, "", "b".repeat(39), "B".repeat(40), "z".repeat(40), [candidateSourceSha], {}]) {
           const unbound = structuredClone(proof);
           if (value === undefined) delete unbound.candidateSourceSha;
           else unbound.candidateSourceSha = value;
@@ -64,6 +64,7 @@ for (const mode of ["valid", "invalid-accepted", "wrong-path", "missing-schema",
   });
 }
 test("source binding refuses changed helper/fixture before any callback", async () => {
+  assert.throws(() => createPlanValidation({ ...context, sourceSha: [context.sourceSha] }));
   for (const key of ["helperSha256", "fixtureSha256", "sourceSha"]) {
     assert.throws(() => createPlanValidation({ ...context, [key]: "0".repeat(64) }));
   }
