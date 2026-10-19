@@ -97,3 +97,38 @@ def test_unknown_source_maturity_requires_review(tmp_path):
     source(tmp_path, {'key': 'analytics.h3', 'status': 'unreviewed-future', 'maturity': {'implemented': 4}})
     with pytest.raises(convergence.Finding, match='no reviewed production disposition'):
         convergence.project_h3_production_gap(tmp_path)
+
+
+def test_wps_historical_gap_has_exact_reviewed_owner_and_no_producer_credit(tmp_path):
+    original = source(tmp_path, {'key': 'serve.wps', 'status': None, 'maturity': {'implemented': 3}})
+    path, data = convergence.project_wps_production_gap(tmp_path)
+    [entry] = json.loads(data)['unproduced']
+    assert entry['client_lanes'] == ['protocol-harness-gap-serve-wps']
+    assert entry['issue'] == 'https://github.com/honua-io/honua-release/issues/360'
+    assert '/honua-server/issues/6036' in entry['missing_producer']
+    assert '/honua-server/issues/6043' in entry['missing_producer']
+    assert 'Neither is execution against this candidate image' in entry['missing_producer']
+    assert not json.loads(data)['producers']
+    assert json.loads((tmp_path / path).read_bytes()) == original[PRODUCTION]
+    (tmp_path / path).write_bytes(data)
+    assert convergence.project_wps_production_gap(tmp_path) == (path, data)
+
+
+def test_wps_current_five_real_assignments_cannot_inherit_historical_gap(tmp_path):
+    source(tmp_path, {'key': 'serve.wps', 'status': None, 'maturity': {'implemented': 3}})
+    (tmp_path / HARNESS).write_text(json.dumps({'assignments': [
+        {'capability_key': 'serve.wps', 'operation': operation}
+        for operation in ('GetCapabilities', 'DescribeProcess', 'Execute', 'GetStatus', 'GetResult')]}))
+    original = (tmp_path / PRODUCTION).read_bytes()
+    assert convergence.project_wps_production_gap(tmp_path)[1] == original
+
+
+def test_wps_unknown_or_conflicting_ownership_requires_review(tmp_path):
+    production = {'revision': 'fixture', 'producers': [], 'unproduced': [
+        {'client_lanes': ['protocol-harness-gap-serve-wps'], 'owner': 'other'}]}
+    source(tmp_path, {'key': 'serve.wps', 'status': None, 'maturity': {'implemented': 3}}, production)
+    with pytest.raises(convergence.Finding, match='WPS HTTP gap conflicts'):
+        convergence.project_wps_production_gap(tmp_path)
+    source(tmp_path, {'key': 'serve.wps', 'status': 'unreviewed-future', 'maturity': {'implemented': 3}})
+    with pytest.raises(convergence.Finding, match='WPS HTTP source maturity'):
+        convergence.project_wps_production_gap(tmp_path)

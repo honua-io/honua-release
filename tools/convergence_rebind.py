@@ -342,35 +342,24 @@ def project_canonical_client_applicability(root: Path) -> tuple[str, bytes]:
     return path, (json.dumps(policy, indent=2) + "\n").encode()
 
 
-def project_h3_production_gap(root: Path) -> tuple[str, bytes]:
-    """Own the reviewed H3 HTTP source gap without inventing a producer or algorithm gate."""
+def _project_reviewed_http_gap(root: Path, capability: str, expected: dict[str, Any], label: str, revision: str) -> tuple[str, bytes]:
+    """Project one reviewed source gap; existing assignments and future scope stay untouched."""
     path = "certification/sources/protocol-certification-production.v1.json"
     original = (root / path).read_bytes()
     production = json.loads(original)
     matrix = load_json(root, Path("certification/sources/server/capability-matrix.v1.json"))
-    capabilities = [row for row in matrix["capabilities"] if row["key"] == "analytics.h3"]
+    capabilities = [row for row in matrix["capabilities"] if row["key"] == capability]
     if len(capabilities) > 1:
-        raise Finding("candidate matrix repeats analytics.h3")
+        raise Finding(f"candidate matrix repeats {capability}")
     if (not capabilities or not capabilities[0].get("maturity", {}).get("implemented")
             or capabilities[0].get("status") in {"preview", "roadmap", "experimental", "internal"}):
         return path, original
     if capabilities[0].get("status") not in {None, "supported", "implemented", "deprecated"}:
-        raise Finding("H3 HTTP source maturity has no reviewed production disposition")
+        raise Finding(f"{label} source maturity has no reviewed production disposition")
     harness = load_json(root, Path("certification/sources/server/protocol-harness-assignments.v1.json"))
-    if any(row["capability_key"] == "analytics.h3" for row in harness["assignments"]):
+    if any(row["capability_key"] == capability for row in harness["assignments"]):
         return path, original
-    lane = "protocol-harness-gap-analytics-h3"
-    expected = {
-        "client_lanes": [lane], "owner": "honua-io/honua-release",
-        "issue": "https://github.com/honua-io/honua-release/issues/360",
-        "missing_producer": (
-            "The selected source lacks an H3 HTTP adapter assignment for candidate-bound production. "
-            "https://github.com/honua-io/honua-server/issues/6042 supplies source-host evidence for four "
-            "existing public HTTP adapters, not execution against this candidate image. Normal source "
-            "convergence and actual candidate receipts remain required. This disposition does not add "
-            "h3-pg computation, warehouse pushdown or other Later/2026.2 algorithms to the release gate."
-        ),
-    }
+    lane = expected["client_lanes"][0]
     owners = []
     for kind in ("producers", "unproduced"):
         for entry in production[kind]:
@@ -381,11 +370,43 @@ def project_h3_production_gap(root: Path) -> tuple[str, bytes]:
                 owners.append((kind, entry))
     if owners:
         if owners != [("unproduced", expected)]:
-            raise Finding("H3 HTTP gap conflicts with reviewed unproduced production ownership")
+            raise Finding(f"{label} gap conflicts with reviewed unproduced production ownership")
         return path, original
     production["unproduced"].append(expected)
-    production["revision"] += "+h3-http-gap-v1"
+    production["revision"] += revision
     return path, (json.dumps(production, indent=2) + "\n").encode()
+
+
+def project_h3_production_gap(root: Path) -> tuple[str, bytes]:
+    expected = {
+        "client_lanes": ["protocol-harness-gap-analytics-h3"], "owner": "honua-io/honua-release",
+        "issue": "https://github.com/honua-io/honua-release/issues/360",
+        "missing_producer": (
+            "The selected source lacks an H3 HTTP adapter assignment for candidate-bound production. "
+            "https://github.com/honua-io/honua-server/issues/6042 supplies source-host evidence for four "
+            "existing public HTTP adapters, not execution against this candidate image. Normal source "
+            "convergence and actual candidate receipts remain required. This disposition does not add "
+            "h3-pg computation, warehouse pushdown or other Later/2026.2 algorithms to the release gate."
+        ),
+    }
+    return _project_reviewed_http_gap(root, "analytics.h3", expected, "H3 HTTP", "+h3-http-gap-v1")
+
+
+def project_wps_production_gap(root: Path) -> tuple[str, bytes]:
+    expected = {
+        "client_lanes": ["protocol-harness-gap-serve-wps"], "owner": "honua-io/honua-release",
+        "issue": "https://github.com/honua-io/honua-release/issues/360",
+        "missing_producer": (
+            "The selected historical source lacks a WPS HTTP assignment for candidate-bound production. "
+            "https://github.com/honua-io/honua-server/issues/6036 supplies the maintained GetCapabilities, "
+            "DescribeProcess, Execute, GetStatus and GetResult assignments; "
+            "https://github.com/honua-io/honua-server/issues/6043 supplies source CITE normalization. "
+            "Neither is execution against this candidate image. Normal source convergence and actual "
+            "candidate receipts remain required. This disposition covers existing public WPS HTTP "
+            "scope only; it grants no producer credit or new algorithm scope."
+        ),
+    }
+    return _project_reviewed_http_gap(root, "serve.wps", expected, "WPS HTTP", "+wps-http-gap-v1")
 
 
 def run_catalog(root: Path, receipt_min: str) -> None:
@@ -424,6 +445,8 @@ def prepare(root: Path, gh: GitHub, receipt_min_arg: str) -> tuple[dict[str, Any
         applicability_path, applicability_bytes = project_canonical_client_applicability(trial)
         (trial / applicability_path).write_bytes(applicability_bytes)
         production_path, production_bytes = project_h3_production_gap(trial)
+        (trial / production_path).write_bytes(production_bytes)
+        production_path, production_bytes = project_wps_production_gap(trial)
         (trial / production_path).write_bytes(production_bytes)
         run_catalog(trial, receipt_min)
         new_catalog_bytes = (trial / CATALOG).read_bytes()
