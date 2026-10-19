@@ -37,7 +37,7 @@ def gp_source():
     sources = json.loads((HERE / "sources.json").read_text())
     doc = next(d for d in sources["documents"] if d["repo"] == "honua-io/honua-site"
                and d["path"] == "docs/geoprocessing/index.md")
-    return doc, (HERE / "fixtures/site-geoprocessing-a099.md").read_text()
+    return doc, (HERE / "fixtures/site-geoprocessing-4327.md").read_text()
 
 
 def test_actual_guide_binds_all_six_frozen_blocks_and_only_documented_key():
@@ -45,7 +45,7 @@ def test_actual_guide_binds_all_six_frozen_blocks_and_only_documented_key():
     plan = compile_plan(doc, extract(text, "markdown"))
     frozen = json.loads((HERE / "inventory.json").read_text())
     row = next(d for d in frozen["documents"] if d["id"] == "honua-site-docs-geoprocessing-index")
-    assert row["revision"] == "a0999823f6fd397769d9f780f3df6726f0ddd585"
+    assert row["revision"] == "4327a1ec8e4000556d57122b50c30f428868b4b3"
     assert [b.sha256 for b in extract(text, "markdown")] == [b["sha256"] for b in row["blocks"]]
     assert [plan[i]["runtime"] for i in range(6)] == ["node", "node", "python", "python", "dotnet", "dotnet"]
     variables = load_vars(HERE / "vars", row["id"])

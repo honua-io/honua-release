@@ -69,6 +69,9 @@ jobs:
       - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
         with:
           python-version: "3.12"
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: "22.23.3"
       - run: python -m pip install "pyyaml>=6.0" "jsonschema>=4.23" pytest
       # An untested gate can stop gating silently: extraction, classification, needs-input
       # detection, the output oracle and the registry guard's pin filters are unit-tested offline.
@@ -108,12 +111,13 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
         continue-on-error: true
+      - name: Live Docker runner regressions
+        run: python certification/executable-docs/docker_regressions.py
       - name: Run every getting-started block against the candidate
         env:
           GH_TOKEN: ${{ github.token }}
           EVIDENCE_URI: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
         run: |
-          python certification/executable-docs/docker_regressions.py
           python certification/executable-docs/run.py --boot --network candidate \
             --evidence-uri "$EVIDENCE_URI" \
             --workdir "$RUNNER_TEMP/executable-docs" \

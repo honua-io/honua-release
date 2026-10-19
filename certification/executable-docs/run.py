@@ -42,6 +42,8 @@ from blocks import Block, extract  # noqa: E402
 import grpc_tls  # noqa: E402
 from execution_contexts import RUNTIMES, compile_plan  # noqa: E402
 from inputs import assigned_names, doc_id, load_vars, needs, render  # noqa: E402
+from jssession import JavaScriptSession  # noqa: E402
+from compiler_bootstrap import bootstrap as bootstrap_compiler  # noqa: E402
 from inventory import InventoryError, Resolver, document_record, drift  # noqa: E402
 from registry_guard import pins_from_manifest, NPM_HONUA, pypi_normalize  # noqa: E402
 import source_build  # noqa: E402
@@ -157,26 +159,8 @@ def combine_csharp(codes: list[str]) -> str:
     return "\n".join(usings + [""] + statements + [""] + types) + "\n"
 
 
-JS_IMPORT = re.compile(r"^\s*import\s[^;]*?from\s+['\"][^'\"]+['\"]\s*;?\s*$|^\s*import\s+['\"][^'\"]+['\"]\s*;?\s*$")
-
-
-def combine_js(codes: list[str]) -> str:
-    imports: list[str] = []
-    body: list[str] = []
-    for code in codes:
-        for line in code.splitlines():
-            if JS_IMPORT.match(line):
-                if line.strip() not in imports:
-                    imports.append(line.strip())
-            else:
-                body.append(line)
-    return "\n".join(imports + body) + "\n"
-
-
 def continuation_error(language: str, text: str) -> bool:
-    if language == "csharp":
-        return "CS0103" in text
-    return bool(re.search(r"ReferenceError: \w+ is not defined|TS2304|TS2552", text))
+    return language == "csharp" and "CS0103" in text
 
 
 # ── containers ───────────────────────────────────────────────────────────────────────────────────
@@ -226,6 +210,7 @@ class Session:
     py: subprocess.Popen | None = None
     py_lines: "queue.Queue[str]" = field(default_factory=queue.Queue)
     py_path: str | None = None
+    js: JavaScriptSession | None = None
     paths: dict[str, str] = field(default_factory=dict)   # PATH per runtime (venv activation, npm -g)
     prerequisites: set[str] = field(default_factory=set)  # tools the session's documents say to have
     teardowns: list[tuple[dict[str, Any], str, str, dict[str, Any]]] = field(default_factory=list)
@@ -252,6 +237,9 @@ class Session:
         home_nuget.mkdir(parents=True, exist_ok=True)
         shutil.copy2(nuget / "NuGet.Config", home_nuget / "NuGet.Config")
         shutil.copy2(HERE / "pysession.py", self.state / "pysession.py")
+        shutil.copy2(HERE / "jssession.mjs", self.state / "jssession.mjs")
+        shutil.copy2(HERE / "jsimports.mjs", self.state / "jsimports.mjs")
+        shutil.copy2(HERE / "jsresources.mjs", self.state / "jsresources.mjs")
 
     # container lifecycle
     def container(self, runtime: str) -> str:
@@ -274,6 +262,9 @@ class Session:
         if "node" in self.prerequisites and runtime != "node":
             args += ["-v", f"{self.tools / 'node'}:/opt/node:ro"]
             path = "/opt/node/bin:" + path
+        if runtime == "node":
+            args += ["-v", f"{self.tools / 'compiler'}:/opt/honua-execdocs-compiler:ro",
+                     "-e", "HONUA_EXECDOCS_COMPILER=/opt/honua-execdocs-compiler/node_modules/typescript/lib/typescript.js"]
         if runtime == "dotnet":
             path += f":{self.home}/.dotnet/tools"
         if path != "/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin":
@@ -309,6 +300,9 @@ class Session:
         for session in self.contexts.values():
             session.close()
         self.contexts.clear()
+        if self.js is not None:
+            self.js.close()
+            self.js = None
         if self.py is not None:
             self.py.kill()
             self.py = None
@@ -470,13 +464,36 @@ class Session:
         return Outcome("fail", last[-1][:300] if last else "exception", stdout, stderr, 1, duration, command_failed=True)
 
     def run_js(self, code: str, language: str, timeout: int) -> Outcome:
+        if self.js is not None and self.js.broken:
+            return Outcome("fail", "JavaScript context was lost; refusing to restart or replay earlier blocks")
         name = self.container("node")
+        if self.js is None:
+            self.js = JavaScriptSession(
+                ["docker", "exec", "-i", *self.exec_env("node"), name, "node", "--no-warnings",
+                 str(self.state / "jssession.mjs")],
+                # Removing this context's owned container kills the worker and its children,
+                # including synchronous loops. Killing only docker exec loses that guarantee.
+                lambda: docker("rm", "-f", name, check=True))
         uses_require = "require(" in code and not re.search(r"^\s*import\s", code, re.M)
         suffix = ".cjs" if uses_require else (".mts" if language == "typescript" else ".mjs")
         path = self.next_path(suffix, self.cwd)
         self.put("node", path, code)
-        flags = ["--experimental-transform-types", "--no-warnings"] if suffix == ".mts" else []
-        return self._exec(name, ["node", *flags, path.name], timeout)
+        started = time.monotonic()
+        try:
+            env = dict(self.env)
+            if "node" in self.paths:
+                env["PATH"] = self.paths["node"]
+            answer = self.js.execute(path, self.cwd, env, language, timeout, self.baselines.get("node"))
+        except (OSError, ValueError, RuntimeError) as exc:
+            return Outcome("fail", str(exc), _read(path, ".out"), _read(path, ".err"),
+                           None, time.monotonic() - started)
+        stdout, stderr = _read(path, ".out"), _read(path, ".err")
+        if answer["ok"]:
+            return Outcome("pass", "completed without an exception", stdout, stderr,
+                           0, time.monotonic() - started)
+        last = answer["error"].strip().splitlines()
+        return Outcome("fail", last[0][:300] if last else "exception", stdout, stderr,
+                       answer["exitCode"], time.monotonic() - started, command_failed=True)
 
     def run_compile(self, code: str, timeout: int) -> Outcome:
         name = self.container("node")
@@ -976,14 +993,14 @@ def run_document(doc: dict[str, Any], text: str, session: Session, context: dict
                 outcome.status, outcome.detail = "pass", f"exit code {outcome.exit_code}, as the document says it should fail"
             elif block.expect_failure and outcome.status == "pass":
                 outcome.status, outcome.detail = "fail", "exit code 0, but the document says this command fails"
-            if (outcome.status == "fail" and lang in {"csharp", "javascript", "typescript"}
+            if (outcome.status == "fail" and lang == "csharp"
                     and session.passed.get(lang) and continuation_error(lang, outcome.stdout + outcome.stderr)):
-                combined = (combine_csharp if lang == "csharp" else combine_js)(session.passed[lang] + [code])
+                combined = combine_csharp(session.passed[lang] + [code])
                 retry = execute(block, combined)
                 retry.mode = (retry.mode or "") + "+continues-earlier-blocks"
                 outcome = retry
             if outcome.status == "pass":
-                if lang in {"csharp", "javascript", "typescript"}:
+                if lang == "csharp":
                     session.passed.setdefault(lang, []).append(code)
                 if block.expected_output:
                     ok, why = assert_output(block.expected_output, outcome.stdout)
@@ -1054,6 +1071,7 @@ def prepare_tools(runtimes: dict[str, str], work: Path) -> Path:
             docker("rm", "-f", cid)
         for command, target in (("npm", "npm-cli.js"), ("npx", "npx-cli.js")):
             (node / "bin" / command).symlink_to(f"../lib/node_modules/npm/bin/{target}")
+    bootstrap_compiler(tools, node / "bin" / "node", node / "lib" / "node_modules/npm/bin/npm-cli.js")
     docker("pull", runtimes["dockerCli"], timeout=900, check=True)
     cid = docker("create", runtimes["dockerCli"], check=True).stdout.strip()
     try:
@@ -1405,6 +1423,9 @@ def main() -> int:
         "guardAdmittedClosure": closure,
         "inventoryDrift": drift_lines,
     }
+    compiler_receipt = work / "tools" / "compiler-bootstrap.json"
+    if compiler_receipt.exists():
+        report["compilerBootstrap"] = json.loads(compiler_receipt.read_text())
     args.output.parent.mkdir(parents=True, exist_ok=True)
     args.output.write_text(json.dumps(report, indent=2) + "\n", encoding="utf-8")
     summary = markdown_summary(report)
