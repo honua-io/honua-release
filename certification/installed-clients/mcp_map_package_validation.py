@@ -347,12 +347,13 @@ def anonymous_tool_refusal(result):
     # tools/call reports execution denial as an isError result; resources/read
     # uses a JSON-RPC error. Both must retain their actual wire representation.
     if (not isinstance(result, dict) or result.get("isError") is not True
-            or set(result) - {"isError", "structuredContent", "content"}):
+            or set(result) != {"isError", "structuredContent", "content"}
+            or not isinstance(result.get("structuredContent"), dict)):
         raise ValueError("anonymous creation requires a typed tool-error result without data")
-    outputs = [result["structuredContent"]] if "structuredContent" in result else []
-    content = result.get("content", [])
-    if not isinstance(content, list):
-        raise ValueError("anonymous tool refusal has invalid content")
+    outputs = [result["structuredContent"]]
+    content = result["content"]
+    if not isinstance(content, list) or not content:
+        raise ValueError("anonymous tool refusal requires text and structured content")
     for item in content:
         if not isinstance(item, dict) or set(item) != {"type", "text"} or item["type"] != "text" or not isinstance(item["text"], str):
             raise ValueError("anonymous tool refusal contains unrelated media")

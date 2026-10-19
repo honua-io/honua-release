@@ -271,7 +271,7 @@ class MapPackageControls(unittest.TestCase):
                 with self.assertRaises(ValueError): validation.judge(FIXTURE, bootstrap(), value)
 
     def test_anonymous_tool_denial_refuses_success_unrelated_error_and_creation_fields_or_data(self):
-        for name in ("success-flag", "wrong-code", "missing-reauth", "false-reauth", "creation-id", "creation-body", "nested-effect", "unrelated-error", "rpc-refusal"):
+        for name in ("success-flag", "wrong-code", "missing-reauth", "false-reauth", "creation-id", "creation-body", "nested-effect", "unrelated-error", "missing-structured", "missing-text", "empty-text", "rpc-refusal"):
             with self.subTest(name=name):
                 value = observations(); result = value["cases"][3]["result"]; output = result["structuredContent"]
                 if name == "success-flag": result["isError"] = False
@@ -282,9 +282,12 @@ class MapPackageControls(unittest.TestCase):
                 elif name == "creation-body": output["package"] = {"mapPackageId": "map_unexpected"}
                 elif name == "nested-effect": output["error"]["resourceUri"] = "honua://map-packages/map_unexpected"
                 elif name == "unrelated-error": output["error"]["kind"] = "UnknownDataset"
+                elif name == "missing-structured": result.pop("structuredContent")
+                elif name == "missing-text": result.pop("content")
+                elif name == "empty-text": result["content"] = []
                 else: value["cases"][3]["result"] = {"error": {"code": -32000, "message": "Controlled unauthenticated creation",
                     "data": {"code": "unauthenticated", "requiresReauthentication": True}}}
-                if name != "rpc-refusal": result["content"][0]["text"] = json.dumps(output)
+                if name not in ("rpc-refusal", "missing-text", "empty-text"): result["content"][0]["text"] = json.dumps(output)
                 bind_controls(value)
                 with self.assertRaises(ValueError): validation.judge(FIXTURE, bootstrap(), value)
 
