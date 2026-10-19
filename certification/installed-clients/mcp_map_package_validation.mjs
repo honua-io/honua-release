@@ -1,5 +1,5 @@
 // Release-owned executable composition journey. Callbacks use real clients.
-import { createHash } from "node:crypto";
+import { createHash, randomBytes } from "node:crypto";
 import { readFileSync, writeFileSync, mkdtempSync, mkdirSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve, dirname } from "node:path";
@@ -60,6 +60,7 @@ export function createMapPackageValidation({ directory, sourceSha, sha256, boots
           || typeof credential !== "string" || !credential || credential.length > 8192) throw new Error("map composition requires actual installed client and private expected credential");
       const authored = run();
       if (authored.candidateSourceSha !== candidateSourceSha || authored.candidateImage !== candidateImage) throw new Error("map fixture belongs to another candidate");
+      const credentialSalt = randomBytes(16).toString("hex");
       const observed = { ...authored, canonicalClient, clientVersion, cases: [], reads: [], runtimeBefore: null, runtimeAfter: null };
       const retained = `${resolve(results)}.map-package.raw.json`;
       mkdirSync(dirname(retained), { recursive: true });
@@ -71,7 +72,7 @@ export function createMapPackageValidation({ directory, sourceSha, sha256, boots
           observed.cases.push(entry);
           verifyBytes();
           const probe = await observeCandidateRequest({ method: "tools/call", params: { name: authored.tool, arguments: item.arguments },
-            authenticated: true, credential,
+            authenticated: true, credential, credentialSalt,
             invoke: (endpoint) => call(authored.tool, structuredClone(item.arguments), { endpoint }),
             onObservation: (wire) => { entry.wire = wire; } });
           entry.client = probe.client;
@@ -88,7 +89,7 @@ export function createMapPackageValidation({ directory, sourceSha, sha256, boots
           const entry = { id, uri: selected, authenticated, result: null, wire: null, client: null };
           observed.reads.push(entry);
           verifyBytes();
-          const probe = await observeCandidateRequest({ method: "resources/read", params: { uri: selected }, authenticated, credential,
+          const probe = await observeCandidateRequest({ method: "resources/read", params: { uri: selected }, authenticated, credential, credentialSalt,
             invoke: (endpoint) => readFresh(selected, { authenticated, endpoint }),
             onObservation: (wire) => { entry.wire = wire; } });
           entry.client = probe.client;

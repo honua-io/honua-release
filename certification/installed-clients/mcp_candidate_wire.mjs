@@ -1,7 +1,7 @@
 // Observe actual installed-client requests. Never manufacture an MCP request,
 // response, server error or session. Only this probe's connections are owned.
 import { createServer, request } from "node:http";
-import { createHash } from "node:crypto";
+import { createHash, scryptSync } from "node:crypto";
 import { isDeepStrictEqual } from "node:util";
 import { gunzipSync, inflateSync } from "node:zlib";
 
@@ -10,21 +10,23 @@ const upstream = new URL("http://127.0.0.1:8080/mcp");
 const hash = (bytes) => `sha256:${createHash("sha256").update(bytes).digest("hex")}`;
 const id = (value) => (typeof value === "string" && value.length > 0 && value.length <= 256)
   || (typeof value === "number" && Number.isSafeInteger(value));
-const auth = (headers) => ({
+const credentialHash = (value, salt) => `scrypt:${salt}:${scryptSync(value, Buffer.from(salt, "hex"), 32).toString("hex")}`;
+const auth = (headers, salt) => ({
   credentialPresent: typeof headers["x-api-key"] === "string" && headers["x-api-key"].length > 0,
-  credentialSha256: typeof headers["x-api-key"] === "string" ? hash(headers["x-api-key"]) : null,
+  credentialFingerprint: typeof headers["x-api-key"] === "string" ? credentialHash(headers["x-api-key"], salt) : null,
   authorizationPresent: headers.authorization !== undefined,
   cookiePresent: headers.cookie !== undefined,
 });
 const session = (value) => typeof value === "string" && value ? hash(value) : null;
 
-export async function observeCandidateRequest({ method, params, authenticated, credential, invoke, onObservation }) {
+export async function observeCandidateRequest({ method, params, authenticated, credential, credentialSalt, invoke, onObservation }) {
   if (!["tools/call", "resources/read"].includes(method) || !params || typeof params !== "object"
-      || typeof authenticated !== "boolean" || typeof credential !== "string" || !credential || typeof invoke !== "function") {
+      || typeof authenticated !== "boolean" || typeof credential !== "string" || !credential || typeof invoke !== "function"
+      || typeof credentialSalt !== "string" || !/^[a-f0-9]{32}$/.test(credentialSalt)) {
     throw new Error("candidate observation requires a fixed owned request and expected credential");
   }
   const observed = { schema: "honua.mcp-candidate-wire/v1", upstream: upstream.href,
-    method, expectedParams: structuredClone(params), authenticated, expectedCredentialSha256: hash(credential),
+    method, expectedParams: structuredClone(params), authenticated, expectedCredentialFingerprint: credentialHash(credential, credentialSalt),
     listener: null, initialize: null, invocation: null, invalid: false, completed: false };
   const active = new Set();
   const sockets = new Set();
@@ -34,13 +36,13 @@ export async function observeCandidateRequest({ method, params, authenticated, c
   const retained = (body, message, incoming) => ({ request: {
     jsonrpc: message.jsonrpc, id: message.id, method: message.method,
     params: message.params, bodyBase64: body.toString("base64"), bodySha256: hash(body),
-    sessionSha256: session(incoming.headers["mcp-session-id"]), ...auth(incoming.headers),
+    sessionSha256: session(incoming.headers["mcp-session-id"]), ...auth(incoming.headers, credentialSalt),
   }, response: null });
   const proxy = createServer(async (incoming, outgoing) => {
     let forwarded;
     try {
       if (incoming.url !== "/mcp" || !["GET", "POST", "DELETE"].includes(incoming.method)) refusal();
-      const credentials = auth(incoming.headers);
+      const credentials = auth(incoming.headers, credentialSalt);
       if (credentials.authorizationPresent || credentials.cookiePresent
           || (authenticated ? incoming.headers["x-api-key"] !== credential : incoming.headers["x-api-key"] !== undefined)) refusal();
       const chunks = [];

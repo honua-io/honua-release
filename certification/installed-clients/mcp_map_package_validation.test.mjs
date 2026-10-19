@@ -142,7 +142,7 @@ for (const mode of ["valid", "missing-observation", "wrong-uri", "wrong-method",
     try {
       let result, error;
       try {
-        result = await observeCandidateRequest({ method: "resources/read", params: { uri }, authenticated, credential: controlCredential,
+        result = await observeCandidateRequest({ method: "resources/read", params: { uri }, authenticated, credential: controlCredential, credentialSalt: "a".repeat(32),
           invoke: (endpoint) => mode === "missing-observation" ? { noRequestWasSent: true }
             : controlledClient(endpoint, mode === "wrong-method" ? "resources/list" : "resources/read",
               { uri: mode === "wrong-uri" ? uri + "-other" : uri }, authenticated,

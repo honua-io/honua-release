@@ -69,7 +69,7 @@ def wire_frame(record):
     request, response = record.get("request"), record.get("response")
     if not isinstance(request, dict) or not isinstance(response, dict):
         raise ValueError("wire request/response missing")
-    if (set(request) != {"jsonrpc", "id", "method", "params", "bodyBase64", "bodySha256", "sessionSha256", "credentialPresent", "credentialSha256", "authorizationPresent", "cookiePresent"}
+    if (set(request) != {"jsonrpc", "id", "method", "params", "bodyBase64", "bodySha256", "sessionSha256", "credentialPresent", "credentialFingerprint", "authorizationPresent", "cookiePresent"}
             or set(response) != {"status", "contentType", "contentEncoding", "sessionSha256", "complete", "delivered", "bodyBase64", "bodySha256"}
             or not isinstance(response["contentType"], str) or not isinstance(response["contentEncoding"], str)):
         raise ValueError("wire observation contains unknown fields or media")
@@ -112,10 +112,10 @@ def observed_wire(wire, method, params, authenticated):
             or wire.get("upstream") != "http://127.0.0.1:8080/mcp" or wire.get("method") != method
             or not same_json(wire.get("expectedParams"), params) or wire.get("authenticated") is not authenticated
             or wire.get("invalid") is not False or wire.get("completed") is not True
-            or not isinstance(wire.get("expectedCredentialSha256"), str)
-            or not re.fullmatch(r"sha256:[a-f0-9]{64}", wire["expectedCredentialSha256"])):
+            or not isinstance(wire.get("expectedCredentialFingerprint"), str)
+            or not re.fullmatch(r"scrypt:[a-f0-9]{32}:[a-f0-9]{64}", wire["expectedCredentialFingerprint"])):
         raise ValueError("wire observation is missing or bound to another request/candidate")
-    if set(wire) != {"schema", "upstream", "listener", "method", "expectedParams", "authenticated", "expectedCredentialSha256", "initialize", "invocation", "invalid", "completed"}:
+    if set(wire) != {"schema", "upstream", "listener", "method", "expectedParams", "authenticated", "expectedCredentialFingerprint", "initialize", "invocation", "invalid", "completed"}:
         raise ValueError("wire observation contains unrelated retained fields")
     listener = urlsplit(wire.get("listener", ""))
     if (listener.scheme != "http" or listener.hostname != "127.0.0.1" or listener.username or listener.password
@@ -147,7 +147,7 @@ def observed_wire(wire, method, params, authenticated):
         actual = record["request"]
         if (actual.get("credentialPresent") is not authenticated or actual.get("authorizationPresent") is not False
                 or actual.get("cookiePresent") is not False
-                or actual.get("credentialSha256") != (wire["expectedCredentialSha256"] if authenticated else None)):
+                or actual.get("credentialFingerprint") != (wire["expectedCredentialFingerprint"] if authenticated else None)):
             raise ValueError("actual request inherited or changed credential authority")
     return response, fresh
 
@@ -333,7 +333,7 @@ def judge(fixture_bytes, bootstrap, observations):
         frame, fresh = observed_wire(actual["wire"], "tools/call", {"name": authored["tool"], "arguments": expected["arguments"]}, True)
         if "error" in frame or not same_json(actual["result"], frame["result"]) or fresh in sessions:
             raise ValueError("map tool response or fresh client session differs from wire")
-        sessions.add(fresh); credentials.add(actual["wire"]["expectedCredentialSha256"])
+        sessions.add(fresh); credentials.add(actual["wire"]["expectedCredentialFingerprint"])
         client_observation(actual["client"], frame, actual["wire"], canonical, version)
         if expected["id"] == "authored-composition":
             created = created_package(actual["result"], expected["arguments"])
@@ -351,7 +351,7 @@ def judge(fixture_bytes, bootstrap, observations):
         frame, fresh = observed_wire(actual["wire"], "resources/read", {"uri": expected_uri}, authenticated)
         if fresh in sessions or not same_json(actual["result"], (frame if "error" in frame else frame["result"])):
             raise ValueError("resource response was not read in its distinct fresh session")
-        sessions.add(fresh); credentials.add(actual["wire"]["expectedCredentialSha256"])
+        sessions.add(fresh); credentials.add(actual["wire"]["expectedCredentialFingerprint"])
         client_observation(actual["client"], frame, actual["wire"], canonical, version)
         if case == "fresh-created":
             resource_output(actual["result"], uri, identifier)

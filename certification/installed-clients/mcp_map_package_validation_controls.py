@@ -15,6 +15,9 @@ from mcp_render_validation_controls import FIXTURE, bootstrap, runtime
 
 HERE = Path(__file__).resolve().parent
 CREDENTIAL = "controlled-private-key"
+CONTROL_SALT = bytes.fromhex("a" * 32)
+CONTROL_FINGERPRINT = "scrypt:" + CONTROL_SALT.hex() + ":" + hashlib.scrypt(
+    CREDENTIAL.encode(), salt=CONTROL_SALT, n=16384, r=8, p=1, dklen=32).hex()
 
 
 def encoded_body(value):
@@ -23,12 +26,12 @@ def encoded_body(value):
 
 
 def control_wire(method, params, result, position, authenticated):
-    fingerprint = "sha256:" + hashlib.sha256(CREDENTIAL.encode()).hexdigest()
+    fingerprint = CONTROL_FINGERPRINT
     session = "sha256:" + hashlib.sha256(f"controlled-session-{position}".encode()).hexdigest()
     def request(identifier, selected, arguments, fresh):
         frame = {"jsonrpc": "2.0", "id": identifier, "method": selected, "params": arguments}
         return {**frame, **encoded_body(frame), "sessionSha256": None if fresh else session,
-                "credentialPresent": authenticated, "credentialSha256": fingerprint if authenticated else None,
+                "credentialPresent": authenticated, "credentialFingerprint": fingerprint if authenticated else None,
                 "authorizationPresent": False, "cookiePresent": False}
     def response(frame, initialize=False):
         return {"status": 200, "contentType": "application/json", "contentEncoding": "", "sessionSha256": session if initialize else None,
@@ -38,7 +41,7 @@ def control_wire(method, params, result, position, authenticated):
     # judge must reject it, rather than the fixture silently deleting the leak.
     frame.update(copy.deepcopy(result) if isinstance(result, dict) and "error" in result else {"result": result})
     wire = {"schema": "honua.mcp-candidate-wire/v1", "upstream": "http://127.0.0.1:8080/mcp", "listener": "http://127.0.0.1:43123/mcp",
-            "method": method, "expectedParams": params, "authenticated": authenticated, "expectedCredentialSha256": fingerprint,
+            "method": method, "expectedParams": params, "authenticated": authenticated, "expectedCredentialFingerprint": fingerprint,
             "invalid": False, "completed": True,
             "initialize": {"request": request(0, "initialize", {"protocolVersion": "2025-06-18", "capabilities": {},
                 "clientInfo": {"name": "controlled-installed-sdk", "version": "1.32.1"}}, True),
@@ -221,7 +224,7 @@ class MapPackageControls(unittest.TestCase):
                     previous = value["cases"][0]["wire"]["initialize"]["response"]["sessionSha256"]
                     wire["initialize"]["response"]["sessionSha256"] = wire["invocation"]["request"]["sessionSha256"] = previous
                     value["reads"][0]["client"]["sessionSha256"] = previous
-                elif name == "credential": wire["invocation"]["request"]["credentialSha256"] = "sha256:" + "0" * 64
+                elif name == "credential": wire["invocation"]["request"]["credentialFingerprint"] = "sha256:" + "0" * 64
                 elif name == "anonymous-inherited": value["reads"][2]["wire"]["initialize"]["request"]["credentialPresent"] = True
                 elif name == "authorization": wire["invocation"]["request"]["authorizationPresent"] = True
                 elif name == "candidate": wire["upstream"] = "http://127.0.0.1:8081/mcp"

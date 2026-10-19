@@ -40,8 +40,10 @@ The release-owned transparent observer listens on a fresh IPv4 loopback port
 and forwards actual client traffic only to `http://127.0.0.1:8080/mcp`. It
 retains original bounded JSON/SSE request/response bytes and their hashes,
 exact JSON-RPC IDs, method and URI/arguments, fresh initialization and session
-hashes, and credential presence/hash. Raw API keys, Authorization, cookies and
-session headers are never retained. Anonymous calls must have none of these
+hashes, and credential presence plus salted scrypt fingerprint. Raw API keys, Authorization, cookies and
+session headers are never retained. One random salt per journey permits
+expected/actual credential comparison without retaining the credential or a fast
+password hash. Anonymous calls must have none of these
 credentials; all six sessions must be distinct, including the creator and
 fresh readers. Before/after actual container identity checks bind that fixed
 upstream to the owned candidate.
