@@ -1520,11 +1520,11 @@
       "id": "honua-release-docs-install-2026-1",
       "repo": "honua-io/honua-release",
       "path": "docs/INSTALL-2026.1.md",
-      "revision": "f435a48c1bb9225940b6e0738d25b6b7898e8e74",
+      "revision": "3e0617bea59d33b532a47482b4eded2527567743",
       "revisionRule": {
         "checkout": true
       },
-      "url": "https://github.com/honua-io/honua-release/blob/f435a48c1bb9225940b6e0738d25b6b7898e8e74/docs/INSTALL-2026.1.md",
+      "url": "https://github.com/honua-io/honua-release/blob/3e0617bea59d33b532a47482b4eded2527567743/docs/INSTALL-2026.1.md",
       "runtime": "python",
       "docker": true,
       "session": null,
@@ -1574,11 +1574,11 @@
       "id": "honua-release-docs-customer-install",
       "repo": "honua-io/honua-release",
       "path": "docs/CUSTOMER-INSTALL.md",
-      "revision": "f435a48c1bb9225940b6e0738d25b6b7898e8e74",
+      "revision": "3e0617bea59d33b532a47482b4eded2527567743",
       "revisionRule": {
         "checkout": true
       },
-      "url": "https://github.com/honua-io/honua-release/blob/f435a48c1bb9225940b6e0738d25b6b7898e8e74/docs/CUSTOMER-INSTALL.md",
+      "url": "https://github.com/honua-io/honua-release/blob/3e0617bea59d33b532a47482b4eded2527567743/docs/CUSTOMER-INSTALL.md",
       "runtime": "python",
       "docker": true,
       "session": null,
