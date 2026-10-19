@@ -1,4 +1,4 @@
-// Release-owned executable composition journey. Callbacks use real clients.
+// Release-owned executable journey and fixed installed-client launch boundary.
 import { createHash, randomBytes } from "node:crypto";
 import { readFileSync, writeFileSync, mkdtempSync, mkdirSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -6,8 +6,9 @@ import { join, resolve, dirname } from "node:path";
 import { spawnSync } from "node:child_process";
 import { isDeepStrictEqual } from "node:util";
 import { observeCandidateRequest, observedResponse } from "./mcp_candidate_wire.mjs";
+import { pathToFileURL } from "node:url";
 
-const required = ["mcp_map_package_validation.py", "mcp_render_validation.py", "render_png.py", "fixture.v1.json", "mcp_candidate_wire.mjs"];
+const required = ["mcp_map_package_validation.py", "mcp_render_validation.py", "render_png.py", "fixture.v1.json", "mcp_candidate_wire.mjs", "mcp_fixed_client_launcher.mjs", "mcp_fixed_sdk_runner.mjs", "mcp_fixed_client_manifest.v1.json"];
 const operations = ["tools/call:create_map_package", "resources/read:Map package"];
 const immutable = (value) => typeof value === "string" && /^[a-f0-9]{40}$/.test(value);
 const image = (value) => typeof value === "string" && /^[^\s]+@sha256:[a-f0-9]{64}$/.test(value);
@@ -50,14 +51,16 @@ export function createMapPackageValidation({ directory, sourceSha, sha256, boots
     } finally { rmSync(work, { recursive: true, force: true }); }
   };
 
-  async function mapPackageScenarios(call, readFresh, record, { candidateSourceSha, candidateImage, canonicalClient,
+  async function mapPackageScenarios(record, { candidateSourceSha, candidateImage, canonicalClient, installationRoot,
     clientVersion, credential, results = "results.json" }) {
     let proof;
     await record(operations[0], async () => {
       if (!immutable(candidateSourceSha) || !image(candidateImage)) throw new Error("map composition requires exact candidate source/image");
       if (!["Official MCP TypeScript SDK", "MCP Inspector"].includes(canonicalClient)
-          || typeof clientVersion !== "string" || !/^\d+\.\d+\.\d+$/.test(clientVersion)
+          || typeof installationRoot !== "string" || !installationRoot || typeof clientVersion !== "string" || !/^\d+\.\d+\.\d+$/.test(clientVersion)
           || typeof credential !== "string" || !credential || credential.length > 8192) throw new Error("map composition requires actual installed client and private expected credential");
+      verifyBytes();
+      const { launchCanonicalClient } = await import(pathToFileURL(join(directory, "mcp_fixed_client_launcher.mjs")).href);
       const authored = run();
       if (authored.candidateSourceSha !== candidateSourceSha || authored.candidateImage !== candidateImage) throw new Error("map fixture belongs to another candidate");
       const credentialSalt = randomBytes(16).toString("hex");
@@ -73,7 +76,8 @@ export function createMapPackageValidation({ directory, sourceSha, sha256, boots
           verifyBytes();
           const probe = await observeCandidateRequest({ method: "tools/call", params: { name: authored.tool, arguments: item.arguments },
             authenticated: item.authenticated, credential, credentialSalt,
-            invoke: (endpoint) => call(authored.tool, structuredClone(item.arguments), { endpoint, authenticated: item.authenticated }),
+            invoke: (endpoint) => launchCanonicalClient({ installationRoot, selector: canonicalClient === "MCP Inspector" ? "inspector" : "sdk",
+              endpoint, method: "tools/call", params: { name: authored.tool, arguments: item.arguments }, authenticated: item.authenticated, credential }),
             onClient: (client) => { entry.client = client; },
             onObservation: (wire) => { entry.wire = wire; } });
           entry.client = probe.client;
@@ -92,7 +96,8 @@ export function createMapPackageValidation({ directory, sourceSha, sha256, boots
           observed.reads.push(entry);
           verifyBytes();
           const probe = await observeCandidateRequest({ method: "resources/read", params: { uri: selected }, authenticated, credential, credentialSalt,
-            invoke: (endpoint) => readFresh(selected, { authenticated, endpoint }),
+            invoke: (endpoint) => launchCanonicalClient({ installationRoot, selector: canonicalClient === "MCP Inspector" ? "inspector" : "sdk",
+              endpoint, method: "resources/read", params: { uri: selected }, authenticated, credential }),
             onClient: (client) => { entry.client = client; },
             onObservation: (wire) => { entry.wire = wire; } });
           entry.client = probe.client;

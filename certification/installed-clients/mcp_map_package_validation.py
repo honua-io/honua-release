@@ -125,7 +125,7 @@ def observed_wire(wire, method, params, authenticated):
             or not isinstance(wire.get("expectedCredentialFingerprint"), str)
             or not re.fullmatch(r"scrypt:[a-f0-9]{32}:[a-f0-9]{64}", wire["expectedCredentialFingerprint"])):
         raise ValueError("wire observation is missing or bound to another request/candidate")
-    if set(wire) != {"schema", "upstream", "listener", "method", "expectedParams", "authenticated", "expectedCredentialFingerprint", "initialize", "invocation", "invalid", "completed"}:
+    if set(wire) != {"schema", "upstream", "listener", "method", "expectedParams", "authenticated", "expectedCredentialFingerprint", "initialize", "invocation", "invalid", "completed", "clientProcessId"}:
         raise ValueError("wire observation contains unrelated retained fields")
     listener = urlsplit(wire.get("listener", ""))
     if (listener.scheme != "http" or listener.hostname != "127.0.0.1" or listener.username or listener.password
@@ -162,10 +162,52 @@ def observed_wire(wire, method, params, authenticated):
     return response, fresh
 
 
+def client_launch(client, wire, canonical_client, version):
+    """Validate the trusted producer's retained launch record, not JSON attestation.
+
+    The immutable source/workflow/artifact boundary authenticates the producer;
+    neither this JSON nor a wire clientInfo fingerprint proves a process ran.
+    """
+    here = Path(__file__).resolve().parent
+    manifest_bytes = (here / "mcp_fixed_client_manifest.v1.json").read_bytes()
+    manifest = strict_json(manifest_bytes)
+    selector = "sdk" if canonical_client == "Official MCP TypeScript SDK" else "inspector" if canonical_client == "MCP Inspector" else None
+    if manifest.get("schema") != "honua.mcp-fixed-client-manifest/v1" or selector is None:
+        raise ValueError("protected client manifest missing")
+    selected = manifest["clients"][selector]
+    launch = client.get("launch")
+    def digest(data):
+        return "sha256:" + hashlib.sha256(data).hexdigest()
+    files = selected["files"]
+    package = {"name": selected["name"], "version": selected["version"], "integrity": selected["integrity"],
+               "fileCount": len(files), "filesSha256": digest(json.dumps(files, sort_keys=True, separators=(",", ":")).encode()),
+               "packageJsonSha256": "sha256:" + files["package.json"], "entry": selected["entry"], "entrySha256": "sha256:" + files[selected["entry"]]}
+    expected = {"schema": "honua.mcp-fixed-client-launch/v1", "selector": selector, "package": package,
+                "manifestSha256": digest(manifest_bytes), "launcherSha256": digest((here / "mcp_fixed_client_launcher.mjs").read_bytes()),
+                "sdkRunnerSha256": digest((here / "mcp_fixed_sdk_runner.mjs").read_bytes()),
+                "request": {"endpoint": wire["listener"], "method": wire["method"], "params": wire["expectedParams"], "authenticated": wire["authenticated"]},
+                **{key: client.get(key) for key in ("processId", "exitCode", "exitSignal", "timedOut")},
+                "stdoutSha256": digest(client.get("stdout", "").encode()), "stderrSha256": digest(client.get("stderr", "").encode())}
+    initial, _ = wire_frame(wire["initialize"])
+    if (not same_json(launch, expected) or selected["canonicalClient"] != canonical_client or selected["version"] != version
+            or wire.get("clientProcessId") != client.get("processId") or type(wire.get("clientProcessId")) is not int
+            or client.get("exitSignal") is not None or client.get("timedOut") is not False or type(client.get("exitCode")) is not int
+            or not same_json(initial["params"].get("clientInfo"), selected["clientInfo"])):
+        raise ValueError("installed client launch/package/output binding differs from protected source")
+    if selector == "sdk":
+        child = strict_json(client["stdout"])
+        if (client["exitCode"] != 0 or client["stderr"] or not same_json(child, {"processId": client["processId"],
+                "sessionSha256": client.get("sessionSha256"), "output": client.get("output")})):
+            raise ValueError("fixed SDK child output or exit differs from launch observation")
+
+
 def client_observation(client, frame, wire, canonical_client, version):
     if (not isinstance(client, dict) or client.get("canonicalClient") != canonical_client or client.get("version") != version
             or client.get("requestUrl") != wire["listener"] or type(client.get("processId")) is not int or client["processId"] <= 0):
         raise ValueError("actual installed-client invocation diagnostics missing or mismatched")
+    if not isinstance(client.get("stdout"), str) or not isinstance(client.get("stderr"), str):
+        raise ValueError("fixed client output missing")
+    client_launch(client, wire, canonical_client, version)
     if "result" in frame and not isinstance(frame["result"], dict):
         raise ValueError("actual client requires an object resource/tool result")
     if canonical_client == "Official MCP TypeScript SDK":

@@ -25,6 +25,35 @@ def encoded_body(value):
     return {"bodyBase64": base64.b64encode(body).decode(), "bodySha256": "sha256:" + hashlib.sha256(body).hexdigest()}
 
 
+def bind_launch(client, wire, selector="sdk"):
+    """Explicit synthetic launch records for pure-judge negatives only.
+
+    These fixtures never supply actual-client execution credit.
+    """
+    manifest_bytes = (HERE / "mcp_fixed_client_manifest.v1.json").read_bytes()
+    selected = json.loads(manifest_bytes)["clients"][selector]
+    files = selected["files"]
+    digest = lambda data: "sha256:" + hashlib.sha256(data).hexdigest()
+    client.update(exitCode=client.get("exitCode", 0), exitSignal=None, timedOut=False)
+    if selector == "sdk":
+        client["stdout"] = json.dumps({"processId": client["processId"], "sessionSha256": client["sessionSha256"], "output": client["output"]})
+        client["stderr"] = ""
+    wire["clientProcessId"] = client["processId"]
+    initial = wire["initialize"]["request"]
+    initial["params"]["clientInfo"] = selected["clientInfo"]
+    initial.update(encoded_body({key: initial[key] for key in ("jsonrpc", "id", "method", "params")}))
+    client["launch"] = {"schema": "honua.mcp-fixed-client-launch/v1", "selector": selector,
+        "package": {"name": selected["name"], "version": selected["version"], "integrity": selected["integrity"], "fileCount": len(files),
+            "filesSha256": digest(json.dumps(files, sort_keys=True, separators=(",", ":")).encode()),
+            "packageJsonSha256": "sha256:"+files["package.json"], "entry": selected["entry"], "entrySha256": "sha256:"+files[selected["entry"]]},
+        "manifestSha256": digest(manifest_bytes), "launcherSha256": digest((HERE/"mcp_fixed_client_launcher.mjs").read_bytes()),
+        "sdkRunnerSha256": digest((HERE/"mcp_fixed_sdk_runner.mjs").read_bytes()),
+        "request": {"endpoint": wire["listener"], "method": wire["method"], "params": wire["expectedParams"], "authenticated": wire["authenticated"]},
+        **{key: client[key] for key in ("processId", "exitCode", "exitSignal", "timedOut")},
+        "stdoutSha256": digest(client["stdout"].encode()), "stderrSha256": digest(client["stderr"].encode())}
+    return client
+
+
 def control_wire(method, params, result, position, authenticated):
     fingerprint = CONTROL_FINGERPRINT
     session = "sha256:" + hashlib.sha256(f"controlled-session-{position}".encode()).hexdigest()
@@ -51,6 +80,7 @@ def control_wire(method, params, result, position, authenticated):
     public = {"error": copy.deepcopy(frame["error"])} if "error" in frame else copy.deepcopy(frame["result"])
     client = {"kind": "sdk", "canonicalClient": "Official MCP TypeScript SDK", "version": "1.32.1", "processId": 123,
               "requestUrl": wire["listener"], "sessionSha256": session, "output": public}
+    bind_launch(client, wire)
     return wire, client, frame if "error" in frame else frame["result"]
 
 
@@ -276,11 +306,33 @@ class MapPackageControls(unittest.TestCase):
                 "requestUrl": item["wire"]["listener"], "exitCode": 2 if error else 5 if frame["result"].get("isError") else 0,
                 "exitSignal": None, "timedOut": False, "stdout": "" if error else json.dumps({"result": frame["result"]}),
                 "stderr": json.dumps({"error": {"code": "error", "message": error["message"]}}) if error else ""}
+            bind_launch(item["client"], item["wire"], "inspector")
         self.assertTrue(validation.judge(FIXTURE, bootstrap(), value)["freshReadback"])
         changed = copy.deepcopy(value); changed["reads"][1]["client"]["stderr"] = json.dumps({"error": {"code": "error", "message": "unrelated local failure"}})
         with self.assertRaises(ValueError): validation.judge(FIXTURE, bootstrap(), changed)
         changed = copy.deepcopy(value); changed["reads"][1]["wire"] = None
         with self.assertRaises(ValueError): validation.judge(FIXTURE, bootstrap(), changed)
+
+    def test_launch_package_process_output_and_request_identity_cannot_be_self_reported(self):
+        for field in ("missing", "manifest", "package", "launcher", "runner", "pid", "wire-pid", "endpoint", "request", "exit", "stdout", "client-info"):
+            with self.subTest(field=field):
+                value = observations(); item = value["cases"][0]; client = item["client"]; launch = client["launch"]
+                if field == "missing": client.pop("launch")
+                elif field == "manifest": launch["manifestSha256"] = "sha256:" + "f" * 64
+                elif field == "package": launch["package"]["entrySha256"] = "sha256:" + "f" * 64
+                elif field == "launcher": launch["launcherSha256"] = "sha256:" + "f" * 64
+                elif field == "runner": launch["sdkRunnerSha256"] = "sha256:" + "f" * 64
+                elif field == "pid": launch["processId"] += 1
+                elif field == "wire-pid": item["wire"]["clientProcessId"] += 1
+                elif field == "endpoint": launch["request"]["endpoint"] = "http://127.0.0.1:12345/mcp"
+                elif field == "request": launch["request"]["method"] = "resources/read"
+                elif field == "exit": client["exitCode"] = launch["exitCode"] = 1
+                elif field == "stdout": client["stdout"] = "{}"
+                else:
+                    initial = item["wire"]["initialize"]["request"]
+                    initial["params"]["clientInfo"] = {"name": "controlled-installed-client", "version": "1.32.1"}
+                    initial.update(encoded_body({key: initial[key] for key in ("jsonrpc", "id", "method", "params")}))
+                with self.assertRaises(ValueError): validation.judge(FIXTURE, bootstrap(), value)
 
     def test_missing_raw_changed_request_bootstrap_or_runtime_refuses(self):
         for name in ("missing", "request", "source", "fixture", "bootstrap", "runtime-before", "runtime-after", "anonymous-auth"):

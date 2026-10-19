@@ -8,11 +8,10 @@ import { fileURLToPath } from "node:url";
 import { spawnSync } from "node:child_process";
 import { createMapPackageValidation } from "./mcp_map_package_validation.mjs";
 import { observeCandidateRequest } from "./mcp_candidate_wire.mjs";
-import { startControlledCandidate, controlledClient, controlCredential } from "./mcp_map_package_wire_controls.mjs";
+import { startControlledCandidate, controlledClient, controlCredential, prepareControlledInstallation } from "./mcp_map_package_wire_controls.mjs";
 
 const original = fileURLToPath(new URL("./", import.meta.url));
-const names = ["mcp_map_package_validation.py", "mcp_render_validation.py", "render_png.py", "fixture.v1.json", "mcp_candidate_wire.mjs"];
-const sha256 = Object.fromEntries(names.map((name) => [name, createHash("sha256").update(readFileSync(join(original, name))).digest("hex")]));
+const names = ["mcp_map_package_validation.py", "mcp_render_validation.py", "render_png.py", "fixture.v1.json", "mcp_candidate_wire.mjs", "mcp_fixed_client_launcher.mjs", "mcp_fixed_sdk_runner.mjs", "mcp_fixed_client_manifest.v1.json"];
 const candidateSourceSha = "b".repeat(40), candidateImage = `ghcr.io/honua-io/honua-server@sha256:${"c".repeat(64)}`;
 const operations = ["tools/call:create_map_package", "resources/read:Map package"];
 const identity = { candidateSourceSha, candidateImage, canonicalClient: "Official MCP TypeScript SDK", clientVersion: "1.32.1", credential: controlCredential };
@@ -24,21 +23,27 @@ async function setup(options = {}) {
   const built = spawnSync("python3", [join(original, "mcp_map_package_validation_controls.py"), "--write-controls", directory],
     { encoding: "utf8", timeout: 10_000 });
   assert.equal(built.status, 0, built.stderr);
-  const context = { directory: original, sourceSha: "a".repeat(40), sha256, bootstrapPath: join(directory, "bootstrap.json") };
+  for (const name of names) copyFileSync(join(original, name), join(directory, name));
+  const installationRoot = prepareControlledInstallation(directory, join(directory, "mcp_fixed_client_manifest.v1.json"), options);
+  const context = { directory, sourceSha: "a".repeat(40), sha256: Object.fromEntries(names.map((name) => [name, createHash("sha256").update(readFileSync(join(directory, name))).digest("hex")])), bootstrapPath: join(directory, "bootstrap.json") };
   const responses = JSON.parse(readFileSync(join(directory, "responses.json"))), reads = JSON.parse(readFileSync(join(directory, "reads.json")));
   const previousPath = process.env.PATH;
   process.env.PATH = directory + delimiter + previousPath;
-  const candidate = await startControlledCandidate(responses, reads, options);
-  return { directory, context, responses, reads, candidate, restore: async () => {
+  const candidate = await startControlledCandidate(responses, reads, { ...options, onRead: options.replaceRuntime ? () => {
+    const path = join(directory, "runtime-control.json"), state = JSON.parse(readFileSync(path));
+    state.imageReadback.sourceSha = "f".repeat(40); writeFileSync(path, JSON.stringify(state));
+  } : undefined });
+  return { directory, context, installationRoot, responses, reads, candidate, restore: async () => {
     await candidate.close(); process.env.PATH = previousPath; rmSync(directory, { recursive: true, force: true });
   } };
 }
 
 for (const mode of ["valid", "ignored-view", "wrong-readback", "negative-accepted", "anonymous-accepted", "tool-transport", "read-transport", "runtime-replaced", "reused-session", "anonymous-tool-forwarded-auth", "anonymous-tool-reused-session"]) {
-  test(`release-owned map composition and fresh-resource callbacks: ${mode}`, async () => {
-    const { directory, context, responses, reads, restore } = await setup({ reuseSessions: mode === "reused-session", reuseAnonymousSession: mode === "anonymous-tool-reused-session" });
+  test(`release-owned map composition and fresh-resource fixed processes: ${mode}`, async () => {
+    const { directory, context, installationRoot, responses, reads, candidate, restore } = await setup({ reuseSessions: mode === "reused-session", reuseAnonymousSession: mode === "anonymous-tool-reused-session",
+      toolTransport: mode === "tool-transport", readTransport: mode === "read-transport", forwardedAnonymousAuth: mode === "anonymous-tool-forwarded-auth", replaceRuntime: mode === "runtime-replaced" });
     try {
-      const api = createMapPackageValidation(context), tools = [], resourceCalls = [], checks = {};
+      const api = createMapPackageValidation(context), checks = {};
       const results = join(directory, "result.json");
       if (mode === "ignored-view") {
         responses[0].structuredContent.package.initialView.bbox = [0, 0, 1, 1];
@@ -49,29 +54,14 @@ for (const mode of ["valid", "ignored-view", "wrong-readback", "negative-accepte
         const value = JSON.parse(reads[0].contents[0].text); value.packageId = "map_other"; reads[0].contents[0].text = JSON.stringify(value);
       }
       if (mode === "anonymous-accepted") reads[2].error.data.requiresReauthentication = false;
-      await api.mapPackageScenarios(async (tool, arguments_, { endpoint, authenticated }) => {
-        const index = tools.length; tools.push({ tool, arguments_ });
-        if (mode === "tool-transport" && index === 2) throw new Error("controlled actual-client transport failure");
-        return controlledClient(endpoint, "tools/call", { name: tool, arguments: arguments_ }, mode === "anonymous-tool-forwarded-auth" ? true : authenticated);
-      }, async (uri, { authenticated, endpoint }) => {
-        const index = resourceCalls.length; resourceCalls.push({ uri, authenticated });
-        if (mode === "read-transport" && index === 1) throw new Error("controlled fresh client read failure");
-        const result = await controlledClient(endpoint, "resources/read", { uri }, authenticated);
-        if (index === 0 && mode === "runtime-replaced") {
-          const path = join(directory, "runtime-control.json"), state = JSON.parse(readFileSync(path));
-          state.imageReadback.sourceSha = "f".repeat(40); writeFileSync(path, JSON.stringify(state));
-        }
-        return result;
-      }, async (name, run) => {
+      await api.mapPackageScenarios(async (name, run) => {
         try { checks[name] = { result: "pass", value: await run() }; }
         catch (error) { checks[name] = { result: "fail", error: String(error) }; }
-      }, { ...identity, results });
+      }, { ...identity, installationRoot, results });
       assert.deepEqual(Object.keys(checks), operations);
-      assert.equal(tools.length, ["tool-transport", "read-transport"].includes(mode) ? 3 : 4);
-      assert.ok(tools.every(({ tool }) => tool === "honua_create_map_package"));
-      assert.deepEqual(tools[0].arguments_.initialView, { bbox: [-90, 0, -45, 60], crs: 4326 });
-      assert.equal(tools[0].arguments_.sourceBindings[0].layerId, "3");
       const raw = JSON.parse(readFileSync(`${results}.map-package.raw.json`));
+      assert.deepEqual(raw.cases[0].arguments.initialView, { bbox: [-90, 0, -45, 60], crs: 4326 });
+      assert.equal(raw.cases[0].arguments.sourceBindings[0].layerId, "3");
       assert.equal(raw.cases.length, ["tool-transport", "read-transport"].includes(mode) ? 3 : 4);
       assert.equal(raw.cases.filter((item) => item.result !== null).length, mode === "tool-transport" ? 2 : ["read-transport", "anonymous-tool-forwarded-auth"].includes(mode) ? 3 : 4);
       assert.equal(raw.reads.length, mode === "tool-transport" ? 0 : mode === "read-transport" ? 2 : 3);
@@ -84,7 +74,7 @@ for (const mode of ["valid", "ignored-view", "wrong-readback", "negative-accepte
       }
       if (mode === "anonymous-tool-forwarded-auth") assert.equal(raw.cases[3].wire.invalid, true);
       if (mode === "valid") {
-        assert.deepEqual(resourceCalls, [
+        assert.deepEqual(raw.reads.map(({ uri, authenticated }) => ({ uri, authenticated })), [
           { uri: "honua://map-packages/map_controlled", authenticated: true },
           { uri: "honua://map-packages/map_controlled-uncreated", authenticated: true },
           { uri: "honua://map-packages/map_controlled", authenticated: false }]);
@@ -116,30 +106,42 @@ for (const mode of ["valid", "ignored-view", "wrong-readback", "negative-accepte
   });
 }
 
-test("valid proof before dependency mutation refuses rejudge and prevents any callbacks", async () => {
+test("valid proof before dependency mutation refuses rejudge and prevents any child requests", async () => {
   for (const changed of names) {
-    const { directory, context, restore } = await setup();
+    const { directory, context, installationRoot, candidate, restore } = await setup();
     try {
-      for (const name of names) copyFileSync(join(original, name), join(directory, name));
       const api = createMapPackageValidation({ ...context, directory });
-      let call = 0, read = 0, proof;
-      await api.mapPackageScenarios(async (tool, arguments_, { endpoint, authenticated }) => {
-        call += 1; return controlledClient(endpoint, "tools/call", { name: tool, arguments: arguments_ }, authenticated);
-      }, async (uri, { endpoint, authenticated }) => {
-        read += 1; return controlledClient(endpoint, "resources/read", { uri }, authenticated);
-      }, async (_name, run) => { proof = await run(); }, { ...identity, results: join(directory, "before.json") });
+      let proof;
+      await api.mapPackageScenarios(async (_name, run) => { proof = await run(); },
+        { ...identity, installationRoot, results: join(directory, "before.json") });
       assert.equal(verify(api, proof), true);
       writeFileSync(join(directory, changed), "untrusted changed helper/fixture bytes\n");
       assert.equal(verify(api, proof), false, changed);
-      call = 0; read = 0;
-      const errors = [];
-      await api.mapPackageScenarios(async () => { call += 1; }, async () => { read += 1; },
-        async (_name, run) => { try { await run(); } catch (error) { errors.push(String(error)); } },
-        { ...identity, results: join(directory, "after.json") });
-      assert.equal(call, 0); assert.equal(read, 0);
+      const errors = [], before = candidate.seen.length;
+      await api.mapPackageScenarios(async (_name, run) => { try { await run(); } catch (error) { errors.push(String(error)); } },
+        { ...identity, installationRoot, results: join(directory, "after.json") });
       assert.match(errors[0], /dependency bytes differ from reviewed pins/);
+      assert.equal(candidate.seen.length, before, "changed dependency must prevent every child request");
     } finally { await restore(); }
   }
+});
+
+test("protected real manifest rejects controlled alternate HTTP package before any child request", async () => {
+  const { directory, context, installationRoot, candidate, restore } = await setup();
+  try {
+    const name = "mcp_fixed_client_manifest.v1.json";
+    copyFileSync(join(original, name), join(directory, name));
+    context.sha256[name] = createHash("sha256").update(readFileSync(join(directory, name))).digest("hex");
+    const checks = [];
+    await createMapPackageValidation(context).mapPackageScenarios(async (_name, run) => {
+      try { await run(); checks.push("unexpected success"); } catch (error) { checks.push(String(error)); }
+    }, { ...identity, installationRoot, results: join(directory, "refused.json") });
+    assert.match(checks[0], /package bytes differ/);
+    assert.equal(candidate.seen.length, 0);
+    const raw = JSON.parse(readFileSync(join(directory, "refused.json.map-package.raw.json")));
+    assert.equal(raw.cases[0].client, null);
+    assert.equal(raw.cases[0].wire.initialize, null);
+  } finally { await restore(); }
 });
 
 for (const mode of ["valid", "missing-observation", "wrong-uri", "wrong-method", "wrong-session", "wrong-response-id", "nested-response-id", "anonymous-inherited-auth"]) {

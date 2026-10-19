@@ -127,6 +127,7 @@ export async function observeCandidateRequest({ method, params, authenticated, c
         || `${typeof initialize.request.id}:${initialize.request.id}` === `${typeof invocation.request.id}:${invocation.request.id}`) refusal();
     observedResponse(initialize);
     observedResponse(invocation);
+    observed.clientProcessId = client?.processId;
     observed.completed = true;
     return { wire: observed, client };
   } finally {
