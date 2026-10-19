@@ -51,6 +51,14 @@ for (const mode of ["valid", "invalid-accepted", "wrong-path", "missing-schema",
         broken.observations.cases[1].result.structuredContent.isExecutable = true;
         assert.equal(api.verifyPlanProof(broken, candidateSourceSha), false);
         assert.equal(api.verifyPlanProof(proof, "c".repeat(40)), false);
+        for (const value of [undefined, null, "", "b".repeat(39), "B".repeat(40), "z".repeat(40)]) {
+          const unbound = structuredClone(proof);
+          if (value === undefined) delete unbound.candidateSourceSha;
+          else unbound.candidateSourceSha = value;
+          assert.equal(api.verifyPlanProof(unbound, value), false, `expected/proof candidate ${String(value)}`);
+          assert.equal(api.verifyPlanProof(proof, value), false, `expected candidate ${String(value)}`);
+          assert.equal(api.verifyPlanProof(unbound, candidateSourceSha), false, `proof candidate ${String(value)}`);
+        }
       }
     } finally { rmSync(directory, { recursive: true, force: true }); }
   });
