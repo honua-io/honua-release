@@ -97,7 +97,10 @@ class ExecutionControls(unittest.TestCase):
 
     def test_missing_or_changed_runtime_restart(self):
         for key in ("runtimeBefore", "runtimeRestarted", "runtimeAfter"):
-            value = controls(); value[key]["containerId"] = "e"*64; self.assert_refused(value)
+            value = controls(); original = value[key]["containerId"]
+            value[key]["containerId"] = ("a" if original[0] != "a" else "b") + original[1:]
+            self.assertNotEqual(value[key]["containerId"], original)
+            self.assert_refused(value)
         value = controls(); value["runtimeRestarted"] = value["runtimeAfter"] = runtime(); self.assert_refused(value)
 
     def test_replay_and_job_identity_are_actual(self):
