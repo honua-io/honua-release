@@ -79,7 +79,7 @@ def _created_healthcheck(directory: Path) -> str:
     assert imported.returncode == 0, "could not import the local scratch probe image"
     compose = ("compose", "--project-name", project, "-f", "compose.yaml")
     try:
-        created = docker(*compose, "create", "--no-deps", "--pull", "never", "honua")
+        created = docker(*compose, "up", "--no-start", "--no-deps", "--pull", "never", "honua")
         assert created.returncode == 0, "Compose could not create the documented Honua service"
         container = docker(*compose, "ps", "-aq", "honua")
         assert container.returncode == 0 and container.stdout.strip(), "Compose created no Honua container"
