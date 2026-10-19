@@ -53,3 +53,13 @@ Refs honua-release699 (full scoped execution and queued path remain),
 honua-server6379 (product publication readback and tenant reconciliation),
 honua-release695 (auth/cohort adoption), honua-release181 (frozen cohort convergence),
 and honua-release652 (full augmentation and exact-candidate qualification).
+
+
+Inspector anonymous ingest/publication selects the supported public `setup` view
+through actual CLI metadata. The selected historical server source3ecd includes
+both operations in setup.v3; discovery grants no invocation authority. Original
+tools/list request/response bytes, pagination, same fresh session and absent
+credentials must advertise the target exactly once before its real tools/call.
+Missing/unsupported views and local discovery refusal remain nonpass. The producer
+never substitutes a catalog or borrows the authenticated full export for anonymous
+invocation. Existing map-package anonymous discovery behavior is unchanged.

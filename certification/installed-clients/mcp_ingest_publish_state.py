@@ -28,8 +28,8 @@ def snapshot(fixture_bytes, bootstrap, observations, *, execute):
         return "'" + value.replace("'", "''") + "'"
     schema, table, geometry, primary = (ingested[key] for key in ("schema", "table", "geometryColumn", "primaryKey"))
     # One SQL statement gives rows, mapping and its revision one MVCC snapshot.
-    # Distinct environments or duplicate primary mappings remain ambiguous.
-    observed = strict_json(execute("WITH mappings AS (SELECT DISTINCT active.revision, jsonb_build_object("
+    # Different environments or duplicate primary mappings remain ambiguous.
+    observed = strict_json(execute("WITH mappings AS (SELECT active.revision, jsonb_build_object("
         "'serviceId',svc#>>'{metadata,id}','serviceName',svc#>>'{metadata,name}',"
         "'layerId',(pub#>>'{identifier,value}')::integer,'storageLayerId',(binding->>'storageLayerId')::integer,"
         "'locator',binding->>'locator','connectionId',binding->>'connectionId') AS publication "
@@ -39,7 +39,8 @@ def snapshot(fixture_bytes, bootstrap, observations, *, execute):
         "CROSS JOIN LATERAL jsonb_array_elements(snapshot.document->'publications') pub "
         "CROSS JOIN LATERAL jsonb_array_elements(snapshot.document->'storageBindings') binding "
         "WHERE svc#>>'{metadata,name}'=" + literal(published["serviceName"]) + " AND pub->>'serviceId'=svc#>>'{metadata,id}' "
-        "AND pub->>'isPrimary'='true' AND pub->>'storageBindingId'=binding#>>'{metadata,id}'), "
+        "AND pub->>'publicationType'='esri-feature-layer' AND pub->>'isPrimary'='true' "
+        "AND pub->>'storageBindingId'=binding#>>'{metadata,id}'), "
         f'rows AS (SELECT "{primary}" AS id, properties, ST_AsGeoJSON("{geometry}")::json AS geometry, '
         f'ST_SRID("{geometry}") AS srid FROM "{schema}"."{table}") '
         "SELECT json_build_object('rows',COALESCE((SELECT json_agg(row_to_json(rows) ORDER BY id) FROM rows),'[]'::json),"

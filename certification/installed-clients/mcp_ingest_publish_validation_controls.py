@@ -7,7 +7,7 @@ import unittest
 import mcp_ingest_publish_validation as validation
 import mcp_ingest_publish_state as state
 from mcp_render_validation_controls import FIXTURE, bootstrap, runtime, SOURCE, IMAGE
-from mcp_map_package_validation_controls import control_wire
+from mcp_map_package_validation_controls import control_wire, encoded_body
 
 
 def envelope(value, error=False):
@@ -129,6 +129,8 @@ class IngestPublishControls(unittest.TestCase):
         self.assertEqual(observed["publication"]["layerId"], 0)
         self.assertEqual(len(calls), 1)
         self.assertIn("active.revision", calls[0])
+        self.assertNotIn("SELECT DISTINCT", calls[0])
+        self.assertIn("pub->>'publicationType'='esri-feature-layer'", calls[0])
         self.assertIn("ST_AsGeoJSON", calls[0])
         self.assertEqual(observed, expected)
 
@@ -146,6 +148,47 @@ class IngestPublishControls(unittest.TestCase):
         with self.assertRaises(ValueError):
             state.snapshot(FIXTURE, bootstrap(), value, execute=lambda query: called.append(query))
         self.assertEqual(called, [])
+
+    def test_inspector_requires_actual_advertisement_from_supported_view(self):
+        value = controls()
+        for authenticated in (True, False):
+            entry = value["cases"][0 if authenticated else 4]
+            wire = copy.deepcopy(entry["wire"])
+            selected = {"_meta": {"honua.io/workflow-view": "full" if authenticated else "setup"}}
+            catalog, _, _ = control_wire("tools/list", selected,
+                {"tools": [{"name": "honua_ingest_dataset", "inputSchema": {"type": "object"}}]}, 99, authenticated)
+            page = catalog["invocation"]
+            session = wire["initialize"]["response"]["sessionSha256"]
+            page["request"].update(id=2, sessionSha256=session)
+            page["request"].update(encoded_body({key: page["request"][key] for key in ("jsonrpc", "id", "method", "params")}))
+            page["response"].update(encoded_body({"jsonrpc": "2.0", "id": 2,
+                "result": {"tools": [{"name": "honua_ingest_dataset", "inputSchema": {"type": "object"}}]}}))
+            wire["discovery"] = [page]
+            validation.invocation_wire(wire, "tools/call", entry["params"], authenticated, "MCP Inspector")
+            for mutation in ("missing", "unsupported-view", "missing-tool", "borrowed-session", "forwarded-auth", "truncated-pages", "duplicate-id"):
+                with self.subTest(authenticated=authenticated, mutation=mutation):
+                    changed = copy.deepcopy(wire)
+                    if mutation == "missing":
+                        changed.pop("discovery")
+                    elif mutation == "unsupported-view":
+                        request = changed["discovery"][0]["request"]
+                        request["params"]["_meta"]["honua.io/workflow-view"] = "unsupported"
+                        request.update(encoded_body({key: request[key] for key in ("jsonrpc", "id", "method", "params")}))
+                    elif mutation in ("missing-tool", "truncated-pages"):
+                        result = {"tools": []} if mutation == "missing-tool" else {"tools": [{"name": "honua_ingest_dataset", "inputSchema": {}}], "nextCursor": "not-followed"}
+                        changed["discovery"][0]["response"].update(encoded_body({"jsonrpc": "2.0", "id": 2, "result": result}))
+                    elif mutation == "borrowed-session":
+                        changed["discovery"][0]["request"]["sessionSha256"] = "sha256:" + "f" * 64
+                    elif mutation == "forwarded-auth":
+                        changed["discovery"][0]["request"]["authorizationPresent"] = True
+                    else:
+                        request = changed["discovery"][0]["request"]
+                        request["id"] = changed["invocation"]["request"]["id"]
+                        request.update(encoded_body({key: request[key] for key in ("jsonrpc", "id", "method", "params")}))
+                        changed["discovery"][0]["response"].update(encoded_body({"jsonrpc": "2.0", "id": request["id"],
+                            "result": {"tools": [{"name": "honua_ingest_dataset", "inputSchema": {}}]}}))
+                    with self.assertRaises(ValueError):
+                        validation.invocation_wire(changed, "tools/call", entry["params"], authenticated, "MCP Inspector")
 
     def test_actual_wire_auth_session_launch_and_response_controls(self):
         mutations = {

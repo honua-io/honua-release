@@ -74,6 +74,7 @@ export function createIngestPublishValidation({ directory, sourceSha, sha256, bo
           const entry = { id, method, params, authenticated, result: null, wire: null, client: null }; collection.push(entry);
           verifyBytes();
           const probe = await observeCandidateRequest({ method, params, authenticated, credential, credentialSalt,
+            observeDiscovery: canonicalClient === "MCP Inspector" && method === "tools/call",
             invoke: endpoint => launchCanonicalClient({ installationRoot, selector: canonicalClient === "MCP Inspector" ? "inspector" : "sdk",
               endpoint, method, params, authenticated, credential }),
             onClient: client => { entry.client = client; }, onObservation: wire => { entry.wire = wire; } });

@@ -16,7 +16,7 @@ from urllib.parse import quote
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from mcp_render_validation import scenario as fixture_binding, negative_output
 from mcp_map_package_validation import (strict_json, same_json, json_tool_output,
-    observed_wire, client_observation, anonymous_tool_refusal, resource_refusal)
+    observed_wire, client_observation, anonymous_tool_refusal, resource_refusal, wire_frame)
 
 OPERATIONS = ["tools/call:ingest_dataset", "tools/call:publish_service", "resources/read:Published service"]
 SCHEMA = "honua.mcp-ingest-publish-scenario/v1"
@@ -168,6 +168,51 @@ def query_output(result, published, snapshot):
         seen.add(identifier)
 
 
+def invocation_wire(wire, method, params, authenticated, canonical_client):
+    if canonical_client != "MCP Inspector" or method != "tools/call":
+        return observed_wire(wire, method, params, authenticated)
+    if not isinstance(wire, dict) or "discovery" not in wire:
+        raise ValueError("actual Inspector catalog request/response missing")
+    original = {key: value for key, value in wire.items() if key != "discovery"}
+    frame, session = observed_wire(original, method, params, authenticated)
+    pages = wire["discovery"]
+    if not isinstance(pages, list) or not 1 <= len(pages) <= 8:
+        raise ValueError("actual Inspector discovery pages missing or unbounded")
+    view = "full" if authenticated else "setup"
+    identifiers = {("id", type(original[part]["request"]["id"]), original[part]["request"]["id"]) for part in ("initialize", "invocation")}
+    cursor = None
+    tools = []
+    for position, page in enumerate(pages):
+        request, response = wire_frame(page)
+        selected = request.get("params")
+        request_id = ("id", type(request["id"]), request["id"])
+        if (request.get("method") != "tools/list" or request_id in identifiers
+                or not isinstance(selected, dict) or set(selected) - {"cursor", "_meta"}
+                or not isinstance(selected.get("_meta"), dict)
+                or selected["_meta"].get("honua.io/workflow-view") != view
+                or selected.get("cursor") != cursor or (position == 0 and "cursor" in selected)
+                or "error" in response or not isinstance(response.get("result"), dict)
+                or not isinstance(response["result"].get("tools"), list)):
+            raise ValueError("Inspector discovery changed view, cursor, request identity or server result")
+        identifiers.add(request_id)
+        actual = page["request"]
+        if (actual["sessionSha256"] != session or page["response"]["sessionSha256"] not in (None, session)
+                or actual["credentialPresent"] is not authenticated or actual["authorizationPresent"] is not False
+                or actual["cookiePresent"] is not False
+                or actual["credentialFingerprint"] != (wire["expectedCredentialFingerprint"] if authenticated else None)):
+            raise ValueError("Inspector catalog inherited or changed session/credential authority")
+        tools.extend(response["result"]["tools"])
+        cursor = response["result"].get("nextCursor")
+        if cursor is not None and (not isinstance(cursor, str) or not cursor or position == len(pages) - 1):
+            raise ValueError("Inspector did not retain complete actual catalog pagination")
+        if cursor is None and position != len(pages) - 1:
+            raise ValueError("unrelated Inspector catalog pages followed a terminal page")
+    matches = [tool for tool in tools if isinstance(tool, dict) and tool.get("name") == params["name"]]
+    if len(matches) != 1 or not isinstance(matches[0].get("inputSchema"), dict):
+        raise ValueError("actual selected candidate catalog did not advertise the invoked tool exactly once")
+    return frame, session
+
+
 def judge(fixture_bytes, bootstrap, observations):
     if not isinstance(observations, dict):
         raise ValueError("ingest journey observations missing")
@@ -201,7 +246,7 @@ def judge(fixture_bytes, bootstrap, observations):
     def call(entry, method, params, authenticated):
         if not isinstance(entry, dict) or set(entry) != {"id", "method", "params", "authenticated", "result", "wire", "client"} or entry["method"] != method or entry["authenticated"] is not authenticated or not same_json(entry["params"], params):
             raise ValueError("actual operation differs from authored request")
-        frame, session = observed_wire(entry["wire"], method, params, authenticated)
+        frame, session = invocation_wire(entry["wire"], method, params, authenticated, canonical)
         if session in sessions or not same_json(entry["result"], frame if "error" in frame else frame["result"]):
             raise ValueError("actual operation reused a session or changed the original response")
         sessions.add(session); fingerprints.add(entry["wire"]["expectedCredentialFingerprint"])
