@@ -3,7 +3,7 @@ import test from "node:test";
 import { createHash } from "node:crypto";
 import { readFileSync, mkdtempSync, rmSync, copyFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { join, delimiter } from "node:path";
 import { fileURLToPath } from "node:url";
 import { spawnSync } from "node:child_process";
 import { createRenderValidation, createRenderBootstrap } from "./mcp_render_validation.mjs";
@@ -20,12 +20,14 @@ function setup() {
   const bootstrapPath = join(directory, "bootstrap.json");
   const context = { directory: original, sourceSha: "a".repeat(40), sha256, bootstrapPath };
   const responses = JSON.parse(readFileSync(join(directory, "responses.json")));
-  return { directory, context, responses };
+  const previousPath = process.env.PATH;
+  process.env.PATH = directory + delimiter + previousPath;
+  return { directory, context, responses, restore: () => { process.env.PATH = previousPath; } };
 }
 
 for (const mode of ["valid", "conflicting-image", "wrong-mime", "wrong-layer", "negative-accepted", "wrong-error", "transport-failure"]) {
   test(`release-owned actual-client callback and retained proof: ${mode}`, async () => {
-    const { directory, context, responses } = setup();
+    const { directory, context, responses, restore } = setup();
     try {
       const api = createRenderValidation(context), calls = [];
       let proof, error;
@@ -72,13 +74,13 @@ for (const mode of ["valid", "conflicting-image", "wrong-mime", "wrong-layer", "
         writeFileSync(context.bootstrapPath, JSON.stringify(bootstrap));
         assert.equal(api.verifyRenderProof(proof, candidateSourceSha, candidateImage), false);
       }
-    } finally { rmSync(directory, { recursive: true, force: true }); }
+    } finally { restore(); rmSync(directory, { recursive: true, force: true }); }
   });
 }
 
 test("valid proof then source mutation refuses before callbacks or Python execution", async () => {
   for (const name of names) {
-    const { directory, context, responses } = setup();
+    const { directory, context, responses, restore } = setup();
     try {
       for (const file of names) copyFileSync(join(original, file), join(directory, file));
       const api = createRenderValidation({ ...context, directory });
@@ -94,12 +96,12 @@ test("valid proof then source mutation refuses before callbacks or Python execut
         { candidateSourceSha, candidateImage, results: join(directory, "after.json") });
       assert.match(String(error), /bytes differ from reviewed pins/);
       assert.equal(count, 0);
-    } finally { rmSync(directory, { recursive: true, force: true }); }
+    } finally { restore(); rmSync(directory, { recursive: true, force: true }); }
   }
 });
 
 test("bootstrap delegates only after every setup dependency is verified", () => {
-  const files = ["mcp_render_bootstrap.py", "regression.py", "oracles.py", "mcp_plan_validation.py", "render_png.py", "fixture.v1.json"];
+  const files = ["mcp_render_bootstrap.py", "regression.py", "oracles.py", "mcp_plan_validation.py", "render_png.py", "fixture.v1.json", "mcp_render_validation.py"];
   for (const changed of files) {
     const directory = mkdtempSync(join(tmpdir(), "release-render-bootstrap-source-"));
     try {
@@ -121,5 +123,34 @@ test("bootstrap delegates only after every setup dependency is verified", () => 
       const incomplete = { ...pins }; delete incomplete[files[0]];
       assert.throws(() => createRenderBootstrap({ directory, sourceSha: "a".repeat(40), sha256: incomplete }));
     } finally { rmSync(directory, { recursive: true, force: true }); }
+  }
+});
+
+test("candidate replacement before or during calls cannot qualify and raw runtime readback survives", async () => {
+  for (const when of ["before", "during"]) {
+    const { directory, context, responses, restore } = setup();
+    try {
+      const api = createRenderValidation(context);
+      const control = join(directory, "runtime-control.json");
+      const replace = () => {
+        const state = JSON.parse(readFileSync(control));
+        state.startedAt = "2026-10-19T00:01:00Z";
+        writeFileSync(control, JSON.stringify(state));
+      };
+      if (when === "before") replace();
+      let calls = 0, error;
+      const results = join(directory, "runtime-result.json");
+      await api.renderScenarios(async () => {
+        const result = structuredClone(responses[calls++]);
+        if (when === "during" && calls === 1) replace();
+        return result;
+      }, async (_name, run) => { try { await run(); } catch (failure) { error = failure; } },
+      { candidateSourceSha, candidateImage, results });
+      assert.match(String(error), /candidate changed/);
+      assert.equal(calls, when === "before" ? 0 : 3);
+      const raw = JSON.parse(readFileSync(`${results}.render-validation.raw.json`));
+      assert.equal(raw.runtimeAfter.startedAt, "2026-10-19T00:01:00Z");
+      assert.equal(raw.cases.length, calls);
+    } finally { restore(); rmSync(directory, { recursive: true, force: true }); }
   }
 });

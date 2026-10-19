@@ -12,6 +12,7 @@ import json
 from pathlib import Path
 import re
 import sys
+import subprocess
 
 # Python isolated mode omits this directory. The caller verifies every imported
 # source file before starting this interpreter.
@@ -20,6 +21,38 @@ from render_png import oracle_map_render
 
 SCHEMA = "honua.mcp-render-scenario/v1"
 BOOTSTRAP = "honua.mcp-render-bootstrap/v1"
+
+
+def inspect_candidate(candidate_source_sha, candidate_image, *, run=subprocess.run):
+    """Read only selected safe Docker fields; never retain container env/secrets."""
+    if (not isinstance(candidate_source_sha, str) or not re.fullmatch(r"[a-f0-9]{40}", candidate_source_sha)
+            or not isinstance(candidate_image, str) or not re.fullmatch(r"[^\s]+@sha256:[a-f0-9]{64}", candidate_image)):
+        raise ValueError("runtime inspection requires the exact candidate source/image")
+    container_format = ('{"running":{{json .State.Running}},"imageId":{{json .Image}},'
+                        '"imageReference":{{json .Config.Image}},"startedAt":{{json .State.StartedAt}},'
+                        '"containerId":{{json .Id}}}')
+    image_format = ('{"imageId":{{json .Id}},"repoDigests":{{json .RepoDigests}},'
+                    '"sourceSha":{{json (index .Config.Labels "org.opencontainers.image.revision")}}}')
+
+    def inspect(arguments):
+        result = run(arguments, text=True, capture_output=True, timeout=30)
+        if result.returncode:
+            raise ValueError("owned candidate Docker identity inspection failed")
+        return json.loads(result.stdout)
+
+    container = inspect(["docker", "inspect", "--format", container_format, "honua-server"])
+    if (not isinstance(container, dict) or container.get("running") is not True
+            or container.get("imageReference") != candidate_image
+            or not isinstance(container.get("imageId"), str) or not re.fullmatch(r"sha256:[a-f0-9]{64}", container["imageId"])):
+        raise ValueError("running owned container differs from the intended exact image")
+    image = inspect(["docker", "image", "inspect", "--format", image_format, container["imageId"]])
+    if (not isinstance(image, dict) or image.get("imageId") != container["imageId"]
+            or image.get("sourceSha") != candidate_source_sha
+            or not isinstance(image.get("repoDigests"), list) or candidate_image not in image["repoDigests"]):
+        raise ValueError("started image lacks the exact digest and OCI source binding")
+    return {"schema": "honua.mcp-render-runtime/v1", "candidateSourceSha": candidate_source_sha,
+            "candidateImage": candidate_image, **container}
+
 
 
 def scenario(fixture_bytes, bootstrap):
@@ -71,7 +104,7 @@ def scenario(fixture_bytes, bootstrap):
     return {"schema": SCHEMA, "fixtureSha256": fixture_sha,
             "bootstrapSha256": "sha256:" + hashlib.sha256(json.dumps(bootstrap, sort_keys=True, allow_nan=False).encode()).hexdigest(),
             "candidateSourceSha": bootstrap["candidateSourceSha"], "candidateImage": bootstrap["candidateImage"],
-            "operation": "tools/call:render_map", "tool": "honua_render_map", "cases": [
+            "runtimeBinding": runtime, "operation": "tools/call:render_map", "tool": "honua_render_map", "cases": [
                 {"id": "authored-polygon", "arguments": arguments},
                 {"id": "invalid-bbox", "arguments": invalid},
                 {"id": "unknown-owned-layer", "arguments": missing}]}
@@ -150,10 +183,12 @@ def negative_output(result, code):
 
 def judge(fixture_bytes, bootstrap, observations):
     authored = scenario(fixture_bytes, bootstrap)
-    if not isinstance(observations, dict) or set(observations) != set(authored):
+    if not isinstance(observations, dict) or set(observations) != set(authored) | {"runtimeBefore", "runtimeAfter"}:
         raise ValueError("render observations lack the complete bound scenario")
     if any(observations[key] != value for key, value in authored.items() if key != "cases"):
         raise ValueError("render observations differ from authored fixture/candidate/bootstrap")
+    if any(observations[key] != authored["runtimeBinding"] for key in ("runtimeBefore", "runtimeAfter")):
+        raise ValueError("render running candidate changed before or during the client calls")
     if not isinstance(observations["cases"], list) or len(observations["cases"]) != 3:
         raise ValueError("render observations are incomplete or duplicated")
     for expected, actual in zip(authored["cases"], observations["cases"], strict=True):
@@ -173,15 +208,25 @@ def judge(fixture_bytes, bootstrap, observations):
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--fixture", type=Path, required=True)
-    parser.add_argument("--bootstrap", type=Path, required=True)
+    parser.add_argument("--fixture", type=Path)
+    parser.add_argument("--bootstrap", type=Path)
     parser.add_argument("--observations", type=Path)
+    parser.add_argument("--inspect-runtime", action="store_true")
+    parser.add_argument("--candidate-source-sha")
+    parser.add_argument("--candidate-image")
     args = parser.parse_args()
     try:
-        fixture, bootstrap = args.fixture.read_bytes(), json.loads(args.bootstrap.read_bytes())
-        output = judge(fixture, bootstrap, json.loads(args.observations.read_bytes())) if args.observations else scenario(fixture, bootstrap)
+        if args.inspect_runtime:
+            if args.fixture or args.bootstrap or args.observations:
+                raise ValueError("runtime inspection cannot select scenario generation/judgment")
+            output = inspect_candidate(args.candidate_source_sha, args.candidate_image)
+        else:
+            if not args.fixture or not args.bootstrap or args.candidate_source_sha or args.candidate_image:
+                raise ValueError("render judgment requires fixture/bootstrap only")
+            fixture, bootstrap = args.fixture.read_bytes(), json.loads(args.bootstrap.read_bytes())
+            output = judge(fixture, bootstrap, json.loads(args.observations.read_bytes())) if args.observations else scenario(fixture, bootstrap)
         print(json.dumps(output, sort_keys=True, allow_nan=False))
-    except (KeyError, TypeError, ValueError, OSError) as exc:
+    except (KeyError, TypeError, ValueError, OSError, subprocess.SubprocessError) as exc:
         parser.exit(1, f"render validation refused: {type(exc).__name__}\n")
 
 

@@ -18,34 +18,7 @@ from urllib.parse import urlsplit
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import regression
-
-
-def inspect_candidate(candidate_source_sha, candidate_image, *, run=subprocess.run):
-    """Read only selected safe Docker fields; never retain container env/secrets."""
-    container_format = ('{"running":{{json .State.Running}},"imageId":{{json .Image}},'
-                        '"imageReference":{{json .Config.Image}},"startedAt":{{json .State.StartedAt}},'
-                        '"containerId":{{json .Id}}}')
-    image_format = ('{"imageId":{{json .Id}},"repoDigests":{{json .RepoDigests}},'
-                    '"sourceSha":{{json (index .Config.Labels "org.opencontainers.image.revision")}}}')
-
-    def inspect(arguments):
-        result = run(arguments, text=True, capture_output=True, timeout=30)
-        if result.returncode:
-            raise ValueError("owned candidate Docker identity inspection failed")
-        return json.loads(result.stdout)
-
-    container = inspect(["docker", "inspect", "--format", container_format, "honua-server"])
-    if (not isinstance(container, dict) or container.get("running") is not True
-            or container.get("imageReference") != candidate_image
-            or not isinstance(container.get("imageId"), str) or not re.fullmatch(r"sha256:[a-f0-9]{64}", container["imageId"])):
-        raise ValueError("running owned container differs from the intended exact image")
-    image = inspect(["docker", "image", "inspect", "--format", image_format, container["imageId"]])
-    if (not isinstance(image, dict) or image.get("imageId") != container["imageId"]
-            or image.get("sourceSha") != candidate_source_sha
-            or not isinstance(image.get("repoDigests"), list) or candidate_image not in image["repoDigests"]):
-        raise ValueError("started image lacks the exact digest and OCI source binding")
-    return {"schema": "honua.mcp-render-runtime/v1", "candidateSourceSha": candidate_source_sha,
-            "candidateImage": candidate_image, **container}
+from mcp_render_validation import inspect_candidate
 
 
 def provision(fixture_bytes, *, candidate_source_sha, candidate_image, database_password,

@@ -44,6 +44,12 @@ render, reversed bbox, and an unknown layer within the allocated owned service.
 It retains the complete raw results, including partial results after transport
 failure. `verifyRenderProof` reruns the pinned oracle against those observations,
 the original bootstrap and the candidate source/image identity.
+The release-owned scenario independently inspects the running container
+immediately before and after each client's authored calls. Both safe runtime
+observations are retained and must match the original container ID, image ID,
+digest, source revision and start time. Restart or replacement after bootstrap
+fails closed. Offline controls use explicit controlled Docker executables;
+canonical consumers use the actual running-container inspection.
 
 Positive judgment checks both image representations, MIME, dimensions, byte
 length, bbox and allocated layer before the strict PNG oracle checks pixels

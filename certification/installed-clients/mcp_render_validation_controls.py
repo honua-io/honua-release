@@ -88,6 +88,7 @@ def responses():
 
 def observations():
     value = validation.scenario(FIXTURE, bootstrap())
+    value["runtimeBefore"], value["runtimeAfter"] = runtime(), runtime()
     for case, result in zip(value["cases"], responses(), strict=True):
         case["result"] = result
     return value
@@ -118,7 +119,7 @@ class RenderControls(unittest.TestCase):
                     validation.judge(FIXTURE, bootstrap(), value)
 
     def test_negative_type_and_authored_requests_cannot_be_substituted(self):
-        for mutation in ("typed", "accepted", "conflict", "arguments", "missing-case", "duplicate-case", "bootstrap", "readback"):
+        for mutation in ("typed", "accepted", "conflict", "arguments", "missing-case", "duplicate-case", "bootstrap", "readback", "runtime-before", "runtime-after"):
             with self.subTest(mutation=mutation):
                 value, binding = observations(), bootstrap()
                 if mutation == "typed": value["cases"][1]["result"]["structuredContent"]["code"] = "internal"
@@ -128,7 +129,8 @@ class RenderControls(unittest.TestCase):
                 elif mutation == "missing-case": value["cases"].pop()
                 elif mutation == "duplicate-case": value["cases"][2] = copy.deepcopy(value["cases"][1])
                 elif mutation == "bootstrap": binding["candidateSourceSha"] = "d" * 40
-                else: binding["areaReadback"][0]["envelope"][0] -= 1
+                elif mutation == "readback": binding["areaReadback"][0]["envelope"][0] -= 1
+                else: value["runtimeBefore" if mutation == "runtime-before" else "runtimeAfter"]["startedAt"] = "changed"
                 with self.assertRaises((ValueError, TypeError)):
                     validation.judge(FIXTURE, binding, value)
 
@@ -212,5 +214,14 @@ if __name__ == "__main__":
         directory = Path(sys.argv[2])
         (directory / "bootstrap.json").write_text(json.dumps(bootstrap()))
         (directory / "responses.json").write_text(json.dumps(responses()))
+        control = directory / "runtime-control.json"
+        control.write_text(json.dumps(runtime()))
+        docker = directory / "docker"
+        docker.write_text("#!/usr/bin/env python3\nimport json,sys\nfrom pathlib import Path\n"
+            f"state=json.loads(Path({str(control)!r}).read_text())\n"
+            "value={'imageId':state['imageId'],'sourceSha':state['candidateSourceSha'],'repoDigests':[state['candidateImage']]} if sys.argv[1]=='image' "
+            "else {key:state[key] for key in ['running','imageId','imageReference','startedAt','containerId']}\n"
+            "print(json.dumps(value))\n")
+        docker.chmod(0o755)
     else:
         unittest.main()

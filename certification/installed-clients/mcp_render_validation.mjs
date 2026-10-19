@@ -4,12 +4,13 @@ import { readFileSync, mkdtempSync, writeFileSync, rmSync, mkdirSync } from "nod
 import { tmpdir } from "node:os";
 import { join, resolve, dirname } from "node:path";
 import { spawnSync } from "node:child_process";
+import { isDeepStrictEqual } from "node:util";
 
 const digest = (bytes) => createHash("sha256").update(bytes).digest("hex");
 const immutableSha = (value) => typeof value === "string" && /^[a-f0-9]{40}$/.test(value);
 const imageDigest = (value) => typeof value === "string" && /^[^\s]+@sha256:[a-f0-9]{64}$/.test(value);
 const required = ["mcp_render_validation.py", "render_png.py", "fixture.v1.json"];
-const setupFiles = ["mcp_render_bootstrap.py", "regression.py", "oracles.py", "mcp_plan_validation.py", "render_png.py", "fixture.v1.json"];
+const setupFiles = ["mcp_render_bootstrap.py", "regression.py", "oracles.py", "mcp_plan_validation.py", "render_png.py", "fixture.v1.json", "mcp_render_validation.py"];
 
 export function createRenderBootstrap({ directory, sourceSha, sha256 }) {
   if (!immutableSha(sourceSha) || !sha256 || typeof sha256 !== "object"
@@ -45,6 +46,14 @@ export function createRenderValidation({ directory, sourceSha, sha256, bootstrap
     }
   };
   verifyBytes();
+  const inspectRuntime = (candidateSourceSha, candidateImage) => {
+    verifyBytes();
+    const result = spawnSync("python3", ["-I", "-B", join(directory, "mcp_render_validation.py"), "--inspect-runtime",
+      "--candidate-source-sha", candidateSourceSha, "--candidate-image", candidateImage],
+    { encoding: "utf8", timeout: 65_000, maxBuffer: 1024 * 1024 });
+    if (result.error || result.signal || result.status !== 0) throw new Error("live render candidate identity inspection refused");
+    return JSON.parse(result.stdout);
+  };
   const run = (observations) => {
     verifyBytes();
     const work = mkdtempSync(join(tmpdir(), "mcp-render-oracle-"));
@@ -67,15 +76,22 @@ export function createRenderValidation({ directory, sourceSha, sha256, bootstrap
       if (!immutableSha(candidateSourceSha) || !imageDigest(candidateImage)) throw new Error("render requires exact candidate source and image");
       const authored = run();
       if (authored.candidateSourceSha !== candidateSourceSha || authored.candidateImage !== candidateImage) throw new Error("render bootstrap belongs to another candidate");
-      const observations = { ...authored, cases: [] };
+      const observations = { ...authored, cases: [], runtimeBefore: null, runtimeAfter: null };
       const retained = `${resolve(results)}.render-validation.raw.json`;
       mkdirSync(dirname(retained), { recursive: true });
       try {
+        observations.runtimeBefore = inspectRuntime(candidateSourceSha, candidateImage);
+        if (!isDeepStrictEqual(observations.runtimeBefore, authored.runtimeBinding)) throw new Error("render candidate changed since bootstrap");
         for (const item of authored.cases) {
           const result = await call(authored.tool, structuredClone(item.arguments));
           observations.cases.push({ id: item.id, arguments: item.arguments, result });
         }
-      } finally { writeFileSync(retained, `${JSON.stringify(observations, null, 2)}\n`); }
+      } finally {
+        try {
+          observations.runtimeAfter = inspectRuntime(candidateSourceSha, candidateImage);
+          if (!isDeepStrictEqual(observations.runtimeAfter, authored.runtimeBinding)) throw new Error("render candidate changed during client calls");
+        } finally { writeFileSync(retained, `${JSON.stringify(observations, null, 2)}\n`); }
+      }
       return { ...run(observations), schema: "honua.mcp-render-proof/v1", helperSourceSha: sourceSha,
         helperSha256: `sha256:${sha256["mcp_render_validation.py"]}`,
         pngOracleSha256: `sha256:${sha256["render_png.py"]}`, observations };
