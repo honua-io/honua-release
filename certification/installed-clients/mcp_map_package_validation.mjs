@@ -68,12 +68,13 @@ export function createMapPackageValidation({ directory, sourceSha, sha256, boots
         observed.runtimeBefore = inspectRuntime(candidateSourceSha, candidateImage);
         if (!isDeepStrictEqual(observed.runtimeBefore, authored.runtimeBinding)) throw new Error("map candidate changed since fixture bootstrap");
         for (const item of authored.cases) {
-          const entry = { id: item.id, arguments: item.arguments, result: null, wire: null, client: null };
+          const entry = { id: item.id, arguments: item.arguments, authenticated: item.authenticated, result: null, wire: null, client: null };
           observed.cases.push(entry);
           verifyBytes();
           const probe = await observeCandidateRequest({ method: "tools/call", params: { name: authored.tool, arguments: item.arguments },
-            authenticated: true, credential, credentialSalt,
-            invoke: (endpoint) => call(authored.tool, structuredClone(item.arguments), { endpoint }),
+            authenticated: item.authenticated, credential, credentialSalt,
+            invoke: (endpoint) => call(authored.tool, structuredClone(item.arguments), { endpoint, authenticated: item.authenticated }),
+            onClient: (client) => { entry.client = client; },
             onObservation: (wire) => { entry.wire = wire; } });
           entry.client = probe.client;
           const frame = observedResponse(probe.wire.invocation);
@@ -91,6 +92,7 @@ export function createMapPackageValidation({ directory, sourceSha, sha256, boots
           verifyBytes();
           const probe = await observeCandidateRequest({ method: "resources/read", params: { uri: selected }, authenticated, credential, credentialSalt,
             invoke: (endpoint) => readFresh(selected, { authenticated, endpoint }),
+            onClient: (client) => { entry.client = client; },
             onObservation: (wire) => { entry.wire = wire; } });
           entry.client = probe.client;
           const frame = observedResponse(probe.wire.invocation);
@@ -122,7 +124,7 @@ export function createMapPackageValidation({ directory, sourceSha, sha256, boots
           || proof.helperSha256 !== `sha256:${sha256["mcp_map_package_validation.py"]}`
           || proof.fixtureSha256 !== `sha256:${sha256["fixture.v1.json"]}`
           || !isDeepStrictEqual(proof.operations, operations)
-          || ![proof.positive, proof.negative, proof.mediaSchema, proof.freshReadback, proof.scratchOnly].every((value) => value === true)
+          || ![proof.positive, proof.negative, proof.mediaSchema, proof.freshReadback, proof.scratchOnly, proof.anonymousToolRefusal].every((value) => value === true)
           || proof.observations === null || typeof proof.observations !== "object" || Array.isArray(proof.observations)) return false;
       const judged = run(proof.observations);
       return ["candidateSourceSha", "candidateImage", "fixtureSha256", "bootstrapSha256", "canonicalClient", "clientVersion"]

@@ -19,7 +19,9 @@ five runtime hashes (`mcp_map_package_validation.py`, `mcp_render_validation.py`
 `mapPackageScenarios(call, readFresh, record, identity)` calls actual
 `honua_create_map_package` with explicit authored bindings, selector IDs, filter,
 metadata and the polygon's world-coordinate envelope. It also sends a reversed
-view and duplicate binding and requires typed invalid-argument refusals.
+view and duplicate binding and requires typed invalid-argument refusals. A
+separate fresh anonymous creation call must reach the actual tools/call wire
+request and return typed unauthenticated refusal without data.
 
 The returned package must retain all authored selectors and geometry, normalize
 integer EPSG4326, supply server-owned format/draft discriminators, and carry a
@@ -27,7 +29,7 @@ matching package ID/URI and aware creation timestamp. Template/style/theme IDs
 are selector references only: this proves neither registry resolution nor style
 application.
 
-Both `call(tool, arguments, {endpoint})` and
+Both `call(tool, arguments, {endpoint, authenticated})` and
 `readFresh(uri, {authenticated, endpoint})` MUST create a new session using the
 real installed SDK, or a new public Inspector CLI process, at the supplied
 observer endpoint for every call. The identity includes the canonical client
@@ -44,7 +46,7 @@ hashes, and credential presence plus salted scrypt fingerprint. Raw API keys, Au
 session headers are never retained. One random salt per journey permits
 expected/actual credential comparison without retaining the credential or a fast
 password hash. Anonymous calls must have none of these
-credentials; all six sessions must be distinct, including the creator and
+credentials; all seven sessions must be distinct, including the creator and
 fresh readers. Before/after actual container identity checks bind that fixed
 upstream to the owned candidate.
 

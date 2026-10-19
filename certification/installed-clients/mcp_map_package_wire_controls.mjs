@@ -6,9 +6,9 @@ import { createHash } from "node:crypto";
 export const controlCredential = "controlled-private-key";
 const hash = (value) => `sha256:${createHash("sha256").update(value).digest("hex")}`;
 
-export async function startControlledCandidate(responses, reads, { responseMutation, reuseSessions = false } = {}) {
+export async function startControlledCandidate(responses, reads, { responseMutation, reuseSessions = false, reuseAnonymousSession = false } = {}) {
   const sessions = new Set();
-  let sequence = 0, toolCall = 0;
+  let sequence = 0, toolCall = 0, firstAuthenticatedSession;
   const seen = [];
   const server = createServer(async (incoming, outgoing) => {
     try {
@@ -16,7 +16,9 @@ export async function startControlledCandidate(responses, reads, { responseMutat
       for await (const chunk of incoming) bytes.push(chunk);
       const message = JSON.parse(Buffer.concat(bytes));
       if (message.method === "initialize") {
-        const session = `controlled-session-${reuseSessions ? "reused" : ++sequence}`;
+        const session = reuseAnonymousSession && incoming.headers["x-api-key"] === undefined ? firstAuthenticatedSession
+          : `controlled-session-${reuseSessions ? "reused" : ++sequence}`;
+        if (incoming.headers["x-api-key"] === controlCredential) firstAuthenticatedSession ??= session;
         sessions.add(session);
         outgoing.writeHead(200, { "content-type": "application/json", "mcp-session-id": session });
         outgoing.end(JSON.stringify({ jsonrpc: "2.0", id: message.id, result: {

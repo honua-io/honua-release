@@ -230,9 +230,10 @@ def scenario(fixture_bytes, bootstrap):
     duplicate["sourceBindings"].append(copy.deepcopy(duplicate["sourceBindings"][0]))
     return {key: binding[key] for key in ("fixtureSha256", "bootstrapSha256", "candidateSourceSha", "candidateImage", "runtimeBinding")} | {
         "schema": SCHEMA, "operations": OPERATIONS, "tool": "honua_create_map_package", "cases": [
-            {"id": "authored-composition", "arguments": arguments},
-            {"id": "invalid-view", "arguments": reversed_bbox},
-            {"id": "duplicate-binding", "arguments": duplicate}]}
+            {"id": "authored-composition", "arguments": arguments, "authenticated": True},
+            {"id": "invalid-view", "arguments": reversed_bbox, "authenticated": True},
+            {"id": "duplicate-binding", "arguments": duplicate, "authenticated": True},
+            {"id": "anonymous-composition", "arguments": copy.deepcopy(arguments), "authenticated": False}]}
 
 
 def json_tool_output(result):
@@ -332,19 +333,23 @@ def judge(fixture_bytes, bootstrap, observations):
     if any(observations[key] != authored["runtimeBinding"] for key in ("runtimeBefore", "runtimeAfter")):
         raise ValueError("candidate changed around actual map client calls")
     actual_cases = observations["cases"]
-    if not isinstance(actual_cases, list) or len(actual_cases) != 3:
+    if not isinstance(actual_cases, list) or len(actual_cases) != 4:
         raise ValueError("map composition is missing authored positive/negative cases")
     created, sessions, credentials = None, set(), set()
     for expected, actual in zip(authored["cases"], actual_cases, strict=True):
-        if (not isinstance(actual, dict) or set(actual) != {"id", "arguments", "result", "wire", "client"}
-                or any(not same_json(actual[key], expected[key]) for key in ("id", "arguments"))):
+        if (not isinstance(actual, dict) or set(actual) != {"id", "arguments", "authenticated", "result", "wire", "client"}
+                or any(not same_json(actual[key], expected[key]) for key in ("id", "arguments", "authenticated"))):
             raise ValueError("map request differs from the independent authored case")
-        frame, fresh = observed_wire(actual["wire"], "tools/call", {"name": authored["tool"], "arguments": expected["arguments"]}, True)
-        if "error" in frame or not same_json(actual["result"], frame["result"]) or fresh in sessions:
+        frame, fresh = observed_wire(actual["wire"], "tools/call", {"name": authored["tool"], "arguments": expected["arguments"]}, expected["authenticated"])
+        if not same_json(actual["result"], (frame if "error" in frame else frame["result"])) or fresh in sessions:
             raise ValueError("map tool response or fresh client session differs from wire")
         sessions.add(fresh); credentials.add(actual["wire"]["expectedCredentialFingerprint"])
         client_observation(actual["client"], frame, actual["wire"], canonical, version)
-        if expected["id"] == "authored-composition":
+        if expected["id"] == "anonymous-composition":
+            resource_refusal(actual["result"], -32000, "unauthenticated")
+        elif "error" in frame:
+            raise ValueError("authenticated map tool returned an RPC refusal")
+        elif expected["id"] == "authored-composition":
             created = created_package(actual["result"], expected["arguments"])
         else:
             negative_output(actual["result"], "invalid_argument")
@@ -370,7 +375,7 @@ def judge(fixture_bytes, bootstrap, observations):
         raise ValueError("actual probes changed the expected creator credential")
     return {key: authored[key] for key in ("fixtureSha256", "bootstrapSha256", "candidateSourceSha", "candidateImage")} | {
         "positive": True, "negative": True, "mediaSchema": True, "freshReadback": True,
-        "scratchOnly": True, "operations": OPERATIONS, "canonicalClient": canonical, "clientVersion": version}
+        "scratchOnly": True, "anonymousToolRefusal": True, "operations": OPERATIONS, "canonicalClient": canonical, "clientVersion": version}
 
 
 def main():

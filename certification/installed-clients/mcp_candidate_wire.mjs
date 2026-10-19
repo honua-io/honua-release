@@ -19,7 +19,7 @@ const auth = (headers, salt) => ({
 });
 const session = (value) => typeof value === "string" && value ? hash(value) : null;
 
-export async function observeCandidateRequest({ method, params, authenticated, credential, credentialSalt, invoke, onObservation }) {
+export async function observeCandidateRequest({ method, params, authenticated, credential, credentialSalt, invoke, onObservation, onClient }) {
   if (!["tools/call", "resources/read"].includes(method) || !params || typeof params !== "object"
       || typeof authenticated !== "boolean" || typeof credential !== "string" || !credential || typeof invoke !== "function"
       || typeof credentialSalt !== "string" || !/^[a-f0-9]{32}$/.test(credentialSalt)) {
@@ -115,6 +115,9 @@ export async function observeCandidateRequest({ method, params, authenticated, c
     const client = await Promise.race([invoke(endpoint), new Promise((_, reject) => {
       timer = setTimeout(() => reject(new Error("candidate wire observation deadline exceeded")), 40_000);
     })]);
+    // Keep real public CLI diagnostics even when it refuses locally and sends
+    // no target request. Such diagnostics never replace missing wire proof.
+    if (onClient) onClient(structuredClone(client));
     // Delivery is recorded by the forwarding response, not by caller strings.
     await new Promise((resolve) => setImmediate(resolve));
     const initialize = observed.initialize, invocation = observed.invocation;

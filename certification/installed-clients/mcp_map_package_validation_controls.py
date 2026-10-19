@@ -59,8 +59,8 @@ def bind_controls(value):
     authored semantic oracle—not an earlier copied-response check—rejects it."""
     value["canonicalClient"], value["clientVersion"] = "Official MCP TypeScript SDK", "1.32.1"
     for position, case in enumerate(value["cases"]):
-        case["wire"], case["client"], case["result"] = control_wire("tools/call", {"name": "honua_create_map_package", "arguments": case["arguments"]}, case["result"], position, True)
-    for position, read in enumerate(value["reads"], 3):
+        case["wire"], case["client"], case["result"] = control_wire("tools/call", {"name": "honua_create_map_package", "arguments": case["arguments"]}, case["result"], position, case["authenticated"])
+    for position, read in enumerate(value["reads"], 4):
         read["wire"], read["client"], read["result"] = control_wire("resources/read", {"uri": read["uri"]}, read["result"], position, read["authenticated"])
     return value
 
@@ -83,7 +83,9 @@ def responses():
     def error():
         item = {"status": "error", "code": "invalid_argument", "message": "Controlled authored invalid selector"}
         return {"isError": True, "structuredContent": item, "content": [{"type": "text", "text": json.dumps(item)}]}
-    return [{"isError": False, "structuredContent": value, "content": [{"type": "text", "text": json.dumps(value)}]}, error(), error()]
+    return [{"isError": False, "structuredContent": value, "content": [{"type": "text", "text": json.dumps(value)}]}, error(), error(),
+            {"error": {"code": -32000, "message": "Controlled unauthenticated creation", "data": {
+                "code": "unauthenticated", "requiresReauthentication": True}}}]
 
 
 def reads():
@@ -214,6 +216,27 @@ class MapPackageControls(unittest.TestCase):
             with self.subTest(identifier=identifier):
                 value = copy.deepcopy(valid); value["id"] = identifier
                 with self.assertRaises(ValueError): validation.resource_refusal(value, -32002, "not_found")
+
+    def test_anonymous_creation_requires_refusal_no_forwarded_authority_or_creator_session(self):
+        for name in ("accepted", "wrong-code", "forwarded-auth", "creator-session", "missing-wire", "local-error"):
+            with self.subTest(name=name):
+                value = observations(); case = value["cases"][3]
+                if name == "accepted":
+                    case["result"] = responses()[0]; bind_controls(value)
+                elif name == "wrong-code":
+                    case["result"]["error"]["data"]["code"] = "not_found"; bind_controls(value)
+                elif name == "forwarded-auth":
+                    for record in (case["wire"]["initialize"], case["wire"]["invocation"]):
+                        record["request"]["credentialPresent"] = True
+                        record["request"]["credentialFingerprint"] = CONTROL_FINGERPRINT
+                elif name == "creator-session":
+                    creator = value["cases"][0]["wire"]["initialize"]["response"]["sessionSha256"]
+                    case["wire"]["initialize"]["response"]["sessionSha256"] = creator
+                    case["wire"]["invocation"]["request"]["sessionSha256"] = creator
+                    case["client"]["sessionSha256"] = creator
+                elif name == "missing-wire": case["wire"] = None
+                else: case["client"]["output"] = {"error": {"message": "local catalog refusal"}}
+                with self.assertRaises(ValueError): validation.judge(FIXTURE, bootstrap(), value)
 
     def test_wire_response_id_must_match_the_actual_request_even_when_scalar(self):
         for identifier in ({"secret": "row"}, ["secret"], True, 2, "1", None):

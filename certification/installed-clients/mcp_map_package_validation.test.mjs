@@ -34,9 +34,9 @@ async function setup(options = {}) {
   } };
 }
 
-for (const mode of ["valid", "ignored-view", "wrong-readback", "negative-accepted", "anonymous-accepted", "tool-transport", "read-transport", "runtime-replaced", "reused-session"]) {
+for (const mode of ["valid", "ignored-view", "wrong-readback", "negative-accepted", "anonymous-accepted", "tool-transport", "read-transport", "runtime-replaced", "reused-session", "anonymous-tool-forwarded-auth", "anonymous-tool-reused-session"]) {
   test(`release-owned map composition and fresh-resource callbacks: ${mode}`, async () => {
-    const { directory, context, responses, reads, restore } = await setup({ reuseSessions: mode === "reused-session" });
+    const { directory, context, responses, reads, restore } = await setup({ reuseSessions: mode === "reused-session", reuseAnonymousSession: mode === "anonymous-tool-reused-session" });
     try {
       const api = createMapPackageValidation(context), tools = [], resourceCalls = [], checks = {};
       const results = join(directory, "result.json");
@@ -49,10 +49,10 @@ for (const mode of ["valid", "ignored-view", "wrong-readback", "negative-accepte
         const value = JSON.parse(reads[0].contents[0].text); value.packageId = "map_other"; reads[0].contents[0].text = JSON.stringify(value);
       }
       if (mode === "anonymous-accepted") reads[2].error.data.requiresReauthentication = false;
-      await api.mapPackageScenarios(async (tool, arguments_, { endpoint }) => {
+      await api.mapPackageScenarios(async (tool, arguments_, { endpoint, authenticated }) => {
         const index = tools.length; tools.push({ tool, arguments_ });
         if (mode === "tool-transport" && index === 2) throw new Error("controlled actual-client transport failure");
-        return controlledClient(endpoint, "tools/call", { name: tool, arguments: arguments_ }, true);
+        return controlledClient(endpoint, "tools/call", { name: tool, arguments: arguments_ }, mode === "anonymous-tool-forwarded-auth" ? true : authenticated);
       }, async (uri, { authenticated, endpoint }) => {
         const index = resourceCalls.length; resourceCalls.push({ uri, authenticated });
         if (mode === "read-transport" && index === 1) throw new Error("controlled fresh client read failure");
@@ -67,15 +67,22 @@ for (const mode of ["valid", "ignored-view", "wrong-readback", "negative-accepte
         catch (error) { checks[name] = { result: "fail", error: String(error) }; }
       }, { ...identity, results });
       assert.deepEqual(Object.keys(checks), operations);
-      assert.equal(tools.length, 3);
+      assert.equal(tools.length, mode === "tool-transport" ? 3 : 4);
       assert.ok(tools.every(({ tool }) => tool === "honua_create_map_package"));
       assert.deepEqual(tools[0].arguments_.initialView, { bbox: [-90, 0, -45, 60], crs: 4326 });
       assert.equal(tools[0].arguments_.sourceBindings[0].layerId, "3");
       const raw = JSON.parse(readFileSync(`${results}.map-package.raw.json`));
-      assert.equal(raw.cases.length, 3);
-      assert.equal(raw.cases.filter((item) => item.result !== null).length, mode === "tool-transport" ? 2 : 3);
-      assert.equal(raw.reads.length, mode === "tool-transport" ? 0 : mode === "read-transport" ? 2 : 3);
-      assert.equal(raw.reads.filter((item) => item.result !== null).length, mode === "tool-transport" ? 0 : mode === "read-transport" ? 1 : 3);
+      assert.equal(raw.cases.length, mode === "tool-transport" ? 3 : 4);
+      assert.equal(raw.cases.filter((item) => item.result !== null).length, mode === "tool-transport" ? 2 : mode === "anonymous-tool-forwarded-auth" ? 3 : 4);
+      assert.equal(raw.reads.length, ["tool-transport", "anonymous-tool-forwarded-auth"].includes(mode) ? 0 : mode === "read-transport" ? 2 : 3);
+      assert.equal(raw.reads.filter((item) => item.result !== null).length, ["tool-transport", "anonymous-tool-forwarded-auth"].includes(mode) ? 0 : mode === "read-transport" ? 1 : 3);
+      if (mode === "anonymous-tool-reused-session") {
+        const sessions = raw.cases.map((item) => item.wire.initialize.response.sessionSha256);
+        assert.equal(new Set(sessions.slice(0, 3)).size, 3);
+        assert.equal(sessions[3], sessions[0], "anonymous initialization deliberately reuses only the creator session");
+        assert.match(checks[operations[0]].error, /oracle refused/);
+      }
+      if (mode === "anonymous-tool-forwarded-auth") assert.equal(raw.cases[3].wire.invalid, true);
       if (mode === "valid") {
         assert.deepEqual(resourceCalls, [
           { uri: "honua://map-packages/map_controlled", authenticated: true },
@@ -84,6 +91,8 @@ for (const mode of ["valid", "ignored-view", "wrong-readback", "negative-accepte
         for (const operation of operations) {
           const proof = checks[operation].value;
           assert.equal(checks[operation].result, "pass");
+          assert.equal(proof.anonymousToolRefusal, true);
+          assert.equal(verify(api, { ...proof, anonymousToolRefusal: false }, candidateSourceSha, candidateImage, operation), false);
           assert.equal(verify(api, proof, candidateSourceSha, candidateImage, operation), true);
           for (const observation of [undefined, null, false, 0, "", [], {}]) {
             assert.equal(verify(api, { ...proof, observations: observation }, candidateSourceSha, candidateImage, operation), false);
@@ -114,8 +123,8 @@ test("valid proof before dependency mutation refuses rejudge and prevents any ca
       for (const name of names) copyFileSync(join(original, name), join(directory, name));
       const api = createMapPackageValidation({ ...context, directory });
       let call = 0, read = 0, proof;
-      await api.mapPackageScenarios(async (tool, arguments_, { endpoint }) => {
-        call += 1; return controlledClient(endpoint, "tools/call", { name: tool, arguments: arguments_ }, true);
+      await api.mapPackageScenarios(async (tool, arguments_, { endpoint, authenticated }) => {
+        call += 1; return controlledClient(endpoint, "tools/call", { name: tool, arguments: arguments_ }, authenticated);
       }, async (uri, { endpoint, authenticated }) => {
         read += 1; return controlledClient(endpoint, "resources/read", { uri }, authenticated);
       }, async (_name, run) => { proof = await run(); }, { ...identity, results: join(directory, "before.json") });
@@ -137,7 +146,7 @@ for (const mode of ["valid", "missing-observation", "wrong-uri", "wrong-method",
   test(`transparent candidate observer binds actual request/session/response: ${mode}`, async () => {
     const { candidate, restore } = await setup({ responseMutation: mode === "wrong-response-id" ? (frame) => ({ ...frame, id: 2 })
       : mode === "nested-response-id" ? (frame) => ({ ...frame, id: { secret: "row" } }) : undefined });
-    let wire;
+    let wire, client;
     const uri = "honua://map-packages/map_controlled", authenticated = mode !== "anonymous-inherited-auth";
     try {
       let result, error;
@@ -147,10 +156,11 @@ for (const mode of ["valid", "missing-observation", "wrong-uri", "wrong-method",
             : controlledClient(endpoint, mode === "wrong-method" ? "resources/list" : "resources/read",
               { uri: mode === "wrong-uri" ? uri + "-other" : uri }, authenticated,
               { wrongSession: mode === "wrong-session", inheritedAuthorization: mode === "anonymous-inherited-auth" }),
-          onObservation: (observed) => { wire = observed; } });
+          onObservation: (observed) => { wire = observed; }, onClient: (outcome) => { client = outcome; } });
       } catch (failure) { error = failure; }
       assert.equal(Boolean(error), mode !== "valid");
       assert.ok(wire, "partial observation must survive refusal");
+      if (mode === "missing-observation") assert.deepEqual(client, { noRequestWasSent: true });
       const serialized = JSON.stringify(wire);
       assert.equal(serialized.includes(controlCredential), false);
       assert.equal(serialized.includes("controlled-inherited-token"), false);
