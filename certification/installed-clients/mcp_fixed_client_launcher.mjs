@@ -46,6 +46,11 @@ export async function launchCanonicalClient({ installationRoot, selector, endpoi
     if (method === "tools/call") {
       args.push("--tool-name", params.name, "--tool-arg", ...Object.entries(params.arguments).map(([key, value]) => `${key}=${JSON.stringify(value)}`));
       if (authenticated) args.push("--metadata", 'honua.io/workflow-view="full"');
+      else if (["honua_ingest_dataset", "honua_publish_service"].includes(params.name)) {
+        // Both operations are explicitly advertised by the selected server's
+        // public setup view. Discovery narrows the catalog; it grants no auth.
+        args.push("--metadata", 'honua.io/workflow-view="setup"');
+      }
     } else args.push("--uri", params.uri);
     if (authenticated) args.push("--header", `X-API-Key: ${credential}`);
   }

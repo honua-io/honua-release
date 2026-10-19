@@ -19,15 +19,16 @@ const auth = (headers, salt) => ({
 });
 const session = (value) => typeof value === "string" && value ? hash(value) : null;
 
-export async function observeCandidateRequest({ method, params, authenticated, credential, credentialSalt, invoke, onObservation, onClient }) {
+export async function observeCandidateRequest({ method, params, authenticated, credential, credentialSalt, invoke, onObservation, onClient, observeDiscovery = false }) {
   if (!["tools/call", "resources/read"].includes(method) || !params || typeof params !== "object"
       || typeof authenticated !== "boolean" || typeof credential !== "string" || !credential || typeof invoke !== "function"
-      || typeof credentialSalt !== "string" || !/^[a-f0-9]{32}$/.test(credentialSalt)) {
+      || typeof observeDiscovery !== "boolean" || typeof credentialSalt !== "string" || !/^[a-f0-9]{32}$/.test(credentialSalt)) {
     throw new Error("candidate observation requires a fixed owned request and expected credential");
   }
   const observed = { schema: "honua.mcp-candidate-wire/v1", upstream: upstream.href,
     method, expectedParams: structuredClone(params), authenticated, expectedCredentialFingerprint: credentialHash(credential, credentialSalt),
     listener: null, initialize: null, invocation: null, invalid: false, completed: false };
+  if (observeDiscovery) observed.discovery = [];
   const active = new Set();
   const sockets = new Set();
   let total = 0;
@@ -58,6 +59,9 @@ export async function observeCandidateRequest({ method, params, authenticated, c
         if (observed.initialize || !id(message.id) || message.jsonrpc !== "2.0"
             || incoming.headers["mcp-session-id"] !== undefined) refusal();
         record = observed.initialize = retained(body, message, incoming);
+      } else if (observeDiscovery && message?.method === "tools/list") {
+        if (!observed.initialize || observed.invocation || !id(message.id) || message.jsonrpc !== "2.0" || observed.discovery.length >= 8) refusal();
+        record = retained(body, message, incoming); observed.discovery.push(record);
       } else if (message?.method === method) {
         if (observed.invocation || !id(message.id) || message.jsonrpc !== "2.0" || !observed.initialize
             || (method === "resources/read" ? message.params?.uri !== params.uri
