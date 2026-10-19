@@ -230,3 +230,15 @@ See [the authored-source and native-reference contract](import-fidelity-inputs.m
 for exact inputs and owner handoff. The existing native certification owner
 retains its Windows execution lane; this producer consumes authenticated raw
 observations and never adopts a native client's reported verdict.
+
+The MCP plan-validation requests and semantic oracles are shared in
+`mcp_plan_validation.py`. The installed proxy imports that pure helper. Canonical
+client producers can fetch the helper and `fixture.v1.json` from one authenticated
+immutable protected release revision, invoke its JSON CLI to obtain the valid and
+invalid-WKB request pair, execute those calls through their own public clients,
+and submit retained raw tool envelopes back to the same helper for judgment.
+The helper binds the request arguments and fixture digest before applying the
+existing executable/no-approval and actionable invalid-WKB oracles. It performs
+no transport calls or job submission and emits no certification receipt itself.
+Client, candidate, source, tier and global behavior admission remain the caller's
+responsibility; proxy observations cannot substitute for canonical-client proof.

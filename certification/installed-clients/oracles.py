@@ -13,6 +13,8 @@ import struct
 import zlib
 from typing import Any, Callable
 
+from mcp_plan_validation import oracle_mcp_plan_invalid, oracle_mcp_plan_valid
+
 COORDINATE_TOLERANCE = 1e-9
 REFUSED_STATUSES = {401, 403, 499}
 
@@ -655,22 +657,6 @@ def oracle_mcp_process_catalog(observed: dict[str, Any], fixture: dict[str, Any]
     ok = (selected.get("executionKind") == "Job" and "Async" in (selected.get("supportedExecutionModes") or [])
           and {"wkb", "srid", "distance", "geodesic"} <= names)
     return ok, "catalog must describe the fixture buffer's asynchronous entry point and inputs"
-
-
-def oracle_mcp_plan_valid(observed: dict[str, Any]) -> tuple[bool, str]:
-    ok = (observed.get("isExecutable") is True and observed.get("requiresApproval") is False
-          and observed.get("violations") == [])
-    return ok, "bounded buffer must validate without violations or approval"
-
-
-def oracle_mcp_plan_invalid(observed: dict[str, Any]) -> tuple[bool, str]:
-    violations = observed.get("violations")
-    actionable = isinstance(violations, list) and any(
-        isinstance(v, dict) and v.get("code") == "INVALID_PARAMETER_VALUE"
-        and v.get("fieldPath") == "steps[buffer].inputs.wkb"
-        and isinstance(v.get("message"), str) and "base64" in v["message"].lower()
-        for v in violations)
-    return observed.get("isExecutable") is False and actionable, "invalid WKB must be refused with an actionable parameter violation"
 
 
 def oracle_mcp_dry_run(observed: dict[str, Any]) -> tuple[bool, str]:

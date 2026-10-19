@@ -13,7 +13,6 @@ import base64
 import copy
 import json
 import os
-import struct
 import sys
 import time
 import traceback
@@ -24,6 +23,9 @@ ROOT = Path(__file__).resolve().parents[4]
 # The shared stdio MCP session the installed-client MCP cells use.
 sys.path.insert(0, str(ROOT / "certification" / "terminal-journey"))
 import probes  # noqa: E402
+
+sys.path.insert(0, str(ROOT / "certification" / "installed-clients"))
+from mcp_plan_validation import buffer_plan  # noqa: E402
 
 PLAN = json.loads(open(os.environ["SDKREG_PLAN"], encoding="utf-8").read())
 BASE = PLAN["baseUrl"]
@@ -167,20 +169,6 @@ def anonymous_full_view(mcp: probes.McpProxySession) -> dict[str, Any]:
     result = result_of(mcp.request("tools/list", {"view": "full"}))
     return {"names": [tool.get("name") for tool in result.get("tools") or []], "pages": 1}
 
-
-def point_wkb(x: float, y: float) -> str:
-    return base64.b64encode(struct.pack("<BIdd", 1, 1, x, y)).decode()
-
-
-def buffer_plan(processes: dict[str, Any]) -> dict[str, Any]:
-    """One geometry.buffer step. The candidate's AnalysisPlan takes step kinds QueryFeatures, Geoprocess,
-    Aggregate, RenderMap or Export and `outputs` as artifact kinds; it refuses `kind: Process` with
-    invalid_argument."""
-    x, y = processes["point"]
-    return {"planId": "sdkreg-mcp-buffer", "intentId": "sdkreg-mcp-buffer", "outputs": ["FeatureLayer"],
-            "steps": [{"stepId": "buffer", "kind": "Geoprocess", "processId": processes["processId"], "inputs": {
-                "wkb": point_wkb(x, y), "srid": str(processes["srid"]), "distance": str(processes["distance"]),
-                "geodesic": "false"}}]}
 
 
 def run(proxy: str) -> None:
