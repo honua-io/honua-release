@@ -270,6 +270,7 @@ def health_output(result, method, before, after, bootstrap):
     release = deploy.get("platformRelease")
     if (not isinstance(release, dict) or any(type(release.get(key)) is not bool for key in ("releaseDeclared", "isCoVersioned"))
             or not isinstance(release.get("skewedIds"), list) or any(not isinstance(item, str) or not item for item in release["skewedIds"])
+            or release.get("releaseVersion") is not None and not isinstance(release["releaseVersion"], str)
             or release["releaseDeclared"] and (not isinstance(release.get("releaseVersion"), str) or not release["releaseVersion"])
             or release["isCoVersioned"] and release["skewedIds"]):
         raise ValueError("declared release posture malformed")
@@ -308,7 +309,7 @@ def health_output(result, method, before, after, bootstrap):
             raise ValueError("failed/missing/stale alert observation falsely declared actionable")
     source = sources["honua_ops_health.serving_latency"]
     coverage = source.get("coverage")
-    replicas = latency.get("clusterReplicaCount") or 1
+    replicas = 1 if latency.get("clusterReplicaCount") is None else latency["clusterReplicaCount"]
     if type(replicas) is not int or replicas < 1 or not isinstance(coverage, dict) or coverage.get("observedReplicaCount") != replicas:
         raise ValueError("serving latency replica coverage differs from actual projection")
     if source["completeness"] == "complete":

@@ -221,6 +221,20 @@ class OpsHealthControls(unittest.TestCase):
                         body["alertDispatch"]["channels"] = [item]
                 self.refused(mutate_payload(controls(), change))
 
+    def test_nullable_release_version_and_replica_count_preserve_supported_types(self):
+        for absent in (False, True):
+            def nullable(body):
+                body["deploy"]["platformRelease"]["releaseVersion"] = None
+                if absent: body["servingLatency"].pop("clusterReplicaCount")
+                else: body["servingLatency"]["clusterReplicaCount"] = None
+            self.assertTrue(validation.judge(FIXTURE, bootstrap(), mutate_payload(controls(), nullable))["mediaSchema"])
+        for field, malformed in (("releaseVersion", 42), ("clusterReplicaCount", False), ("clusterReplicaCount", 0)):
+            with self.subTest(field=field, malformed=malformed):
+                def change(body):
+                    target = body["deploy"]["platformRelease"] if field == "releaseVersion" else body["servingLatency"]
+                    target[field] = malformed
+                self.refused(mutate_payload(controls(), change))
+
     def test_exact_server_large_payload_summary_never_substitutes_for_structured_semantics(self):
         value = controls()
         self.assertEqual(value["calls"][0]["result"]["content"][0]["text"], "Ops health snapshot returned in structuredContent.")
