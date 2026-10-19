@@ -219,6 +219,10 @@ class Session:
     counter: int = 0
     contexts: dict[str, "Session"] = field(default_factory=dict)
     require_reader_project: bool = False
+    python_environment_audits: dict[str, list[dict]] = field(default_factory=dict)
+    python_audit_interpreters: dict[str, str] = field(default_factory=dict)
+    python_invocations: dict[str, set[str]] = field(default_factory=dict)
+    python_interpreter_paths: dict[str, list[str]] = field(default_factory=dict)
 
     def __post_init__(self) -> None:
         self.state = self.workdir / ".docrun"
@@ -237,6 +241,7 @@ class Session:
         home_nuget.mkdir(parents=True, exist_ok=True)
         shutil.copy2(nuget / "NuGet.Config", home_nuget / "NuGet.Config")
         shutil.copy2(HERE / "pysession.py", self.state / "pysession.py")
+        shutil.copy2(HERE / "python_environment_audit.py", self.state / "python_environment_audit.py")
         shutil.copy2(HERE / "jssession.mjs", self.state / "jssession.mjs")
         shutil.copy2(HERE / "jsimports.mjs", self.state / "jsimports.mjs")
         shutil.copy2(HERE / "jsresources.mjs", self.state / "jsresources.mjs")
@@ -294,6 +299,9 @@ class Session:
                 raise RunError(f"could not install the documented prerequisites {packages}: {setup.stderr[-300:]}")
         base = docker("exec", name, "env", "-0").stdout
         self.baselines[runtime] = dict(item.split("=", 1) for item in base.split("\0") if "=" in item)
+        if runtime == "python" or "python" in image:
+            self.python_audit_interpreters[runtime] = docker(
+                "exec", name, "python3", "-E", "-c", "import sys; print(sys.executable)", check=True).stdout.strip()
         return name
 
     def close(self) -> None:
@@ -361,6 +369,18 @@ class Session:
             raise RunError(f"could not write {path}: {proc.stderr.strip()[-300:]}")
 
     # executors
+    def retain_python_invocations(self, runtime: str, words: list[str], *, relative: bool = True) -> None:
+        for word in words:
+            if any(marker in word for marker in ("$", "`", "*", "?", "[", "~")):
+                continue  # dynamic shell paths are inventoried through bounded environment discovery
+            if not re.fullmatch(r"(?:.*/)?(?:python|pip)(?:[0-9.]+)?", word):
+                continue
+            if "/" in word:
+                if not Path(word).is_absolute() and not relative:
+                    continue  # complex shell cwd changes are covered by environment discovery
+                word = str(Path(self.cwd, word).absolute())
+            self.python_invocations.setdefault(runtime, set()).add(word)
+
     def run_shell(self, code: str, runtime: str, timeout: int, serve: bool,
                   readiness: dict[str, str] | None = None) -> Outcome:
         name = self.container(runtime)
@@ -405,6 +425,10 @@ class Session:
                     continue
                 if baseline.get(key) != value:
                     self.env[key] = value
+        # Retain literal interpreter paths the shell wrapper can bind. Environment
+        # discovery also covers dynamically composed paths and cwd-changing scripts.
+        self.retain_python_invocations(runtime, shlex.split(code, comments=True),
+                                       relative=not re.search(r"(?:^|[;\n])\s*cd\s", code))
         code_ = proc.returncode
         if code_ == 124:
             if serve:
@@ -559,9 +583,16 @@ class Session:
         name = self.containers[runtime]
         found = []
         if runtime == "python" or "python" in self.runtimes.get(runtime, ""):
-            metadata = "import importlib.metadata as m,json; print(json.dumps([{\"name\":d.metadata[\"Name\"],\"version\":d.version,\"path\":str(d.locate_file(''))} for d in m.distributions()]))"
-            out = docker("exec", *self.exec_env(runtime), name, "python3", "-c", metadata, check=True).stdout
-            for row in json.loads(out):
+            interpreter = self.python_audit_interpreters.get(runtime, "python3")
+            invoked = [argument for value in sorted(self.python_invocations.get(runtime, set()))
+                       for argument in ("--interpreter", value)]
+            out = docker("exec", *self.exec_env(runtime), name, interpreter, "-I",
+                         str(self.state / "python_environment_audit.py"), str(self.workdir), str(self.home),
+                         "/tmp", *invoked, check=True).stdout
+            audit = json.loads(out)
+            self.python_environment_audits[runtime] = audit["environments"]
+            self.python_interpreter_paths[runtime] = audit.get("documentedInterpreters", [])
+            for row in audit["packages"]:
                 if row["name"].lower().startswith("honua"):
                     found.append({**row, "name": pypi_normalize(row["name"]), "ecosystem": "pypi"})
         modules = [Path(self.cwd) / "node_modules", self.home / ".local/lib/node_modules", *extra_roots]
@@ -595,6 +626,8 @@ class Session:
         started = time.monotonic()
         out, err = self.next_path(".out"), self.next_path(".err")
         runtime = next((key for key, value in self.containers.items() if value == name), None)
+        if runtime is not None:
+            self.retain_python_invocations(runtime, cmd[:1])
         exitfile = out.with_suffix(".exit")
         wrapper = f'"$@"; rc=$?; echo "$rc" > {shlex.quote(str(exitfile))}; exit "$rc"'
         proc = subprocess.run(["docker", "exec", "-w", self.cwd, *self.exec_env(runtime), name,
@@ -818,6 +851,9 @@ def run_document(doc: dict[str, Any], text: str, session: Session, context: dict
                 row["stderrTail"] = scrub(tail(outcome.stderr), secrets)
         if block_inventory:
             row["installedPackages"] = block_inventory
+        if getattr(session, "python_environment_audits", {}).get(runtime_for(block)) is not None:
+            row["pythonEnvironments"] = session.python_environment_audits[runtime_for(block)]
+            row["pythonInterpreterPaths"] = session.python_interpreter_paths.get(runtime_for(block), [])
         if active_source:
             row["sourceBuild"] = {"identity": source_build.digest(source_build.canonical(active_source)),
                                   "sourceSha": active_source["sourceSha"], "checkoutPath": str(source_root), "locks": active_source["locks"],
