@@ -297,3 +297,49 @@ only retained actual installed-client evidence against the selected immutable
 candidate can qualify the operation. All 82 governed rows, per-operation auth,
 frozen client cohort and global gates remain required. Native/cloud parity,
 cancellation/worker cessation and `publish_result` remain separate obligations.
+
+### Genuine worker result publication
+
+`mcp_publish_result_validation.mjs` owns the fixed installed SDK/public Inspector
+journey for `publish_result`. Its setup module uses the supported Console
+workflow package/version/validation/publication/manual-run APIs with the same
+credential as the canonical client. A dormant schedule runs exactly one authored
+`sink.external-postgis` workflow; direct `execute_plan` does not admit this
+WorkflowOnly process. No setup inserts a job, workflow, result artifact, or
+publication record into a database.
+
+The producer retains the actual HTTP setup responses, immutable worker spec,
+committed JSON receipt, Redis workflow/job/result identities, and exact returned
+artifact. The result must declare `application/json` for its JSON sink receipt.
+It then invokes `publish_result` through the real installed client, performs fresh
+job/result and published-resource reads, queries the returned public layer, and
+restarts the same owned candidate before fresh readback. Explicit `id` and
+`attributes` projection proves the authored rows and geometry; wildcard behavior
+is a separate server obligation, not inferred from this projection. Physical
+publication layer, public layer index, source row ID, and materialized snapshot
+object ID remain independently bound.
+
+The SQL observer uses one statement for a complete source/catalog/active-graph
+snapshot; its Redis census is independently atomic. These are quiescent cuts,
+not a distributed transaction. Prior rows, graph members, full geometry,
+connection hashes, and durable record hashes must survive successful publication.
+Unknown-job/artifact and fresh anonymous attempts must leave the complete
+immediately preceding committed state and revision unchanged. A completed
+publication may retain its own operation-instance receipt; accepted, queued,
+approval-required, denied, and failed outcomes are never completed publication
+proof. This non-idempotent tool is not replayed.
+
+The consumer must fetch and verify the complete 27-file closure from one
+protected immutable revision before import, setup, every client call, and
+rejudging. The trusted release launcher verifies installed package bytes and
+owns asynchronous child launch. JSON receipts are not independent process or
+socket attestation; source/workflow/artifact provenance remains the outer trust
+boundary. Partial `.canonical-publish-result.raw.json` and `.setup.json` files
+must be uploaded even when setup or execution refuses.
+
+The offline Python/Node, actual isolated Redis, and actual isolated PostGIS
+controls supply no candidate or installed-client qualification. Actual two-client
+execution, every operation's authentication facets, frozen cohort reconciliation,
+and all global gates remain required. See
+[mcp_publish_result_contract.md](mcp_publish_result_contract.md) and release issue
+[710](https://github.com/honua-io/honua-release/issues/710).

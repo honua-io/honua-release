@@ -1,0 +1,75 @@
+"""Real isolated PostGIS observer controls; never candidate/client qualification."""
+import copy
+import json
+import os
+import re
+import subprocess
+import unittest
+from unittest.mock import patch
+import mcp_publish_result_state as state
+from mcp_publish_result_validation_controls import bootstrap, database
+from mcp_ingest_publish_validation_controls import connection_control
+from mcp_render_validation_controls import FIXTURE
+from mcp_publish_result_validation import scenario
+
+
+class SqlObserverControls(unittest.TestCase):
+    def setUp(self):
+        self.container = os.environ.get("CONTROL_POSTGIS_CONTAINER","")
+        if os.environ.get("GITHUB_ACTIONS") != "true" or not re.fullmatch(r"[a-f0-9]{64}",self.container):
+            raise ValueError("SQL controls require their workflow-owned disposable PostGIS service")
+        self.authored = scenario(FIXTURE,bootstrap(),"abcdef123456","Official MCP TypeScript SDK")
+        self.published = {"layerId":"741"}
+        self.initial,self.completed = database(self.authored,self.published)
+        table = self.authored["table"]
+        self.query("CREATE EXTENSION IF NOT EXISTS postgis; DROP SCHEMA IF EXISTS honua CASCADE; CREATE SCHEMA honua; "
+            "DROP TABLE IF EXISTS public.features; CREATE TABLE public.features(objectid bigint,layer_id integer,attributes jsonb,geometry geometry); "
+            f'DROP TABLE IF EXISTS public."{table}"; CREATE TABLE public."{table}"(id bigint,geom geometry,attributes jsonb); '
+            "CREATE TABLE honua.services(service_name text); CREATE TABLE honua.layers(layer_id integer); "
+            "CREATE TABLE honua.service_layers(service_name text,layer_id integer); CREATE TABLE honua.layer_fields(layer_id integer,field_order integer,field_name text); "
+            "CREATE TABLE honua.data_connections(connection_id uuid,encrypted_secret text); "
+            "CREATE TABLE honua.metadata_v2_current(environment text,revision bigint); CREATE TABLE honua.metadata_v2_snapshots(environment text,revision bigint,document jsonb);")
+        for index,row in enumerate(self.authored["expectedRows"],11):
+            attrs = json.dumps(row["properties"]).replace("'","''"); x,y = row["geometry"]["coordinates"]
+            self.query(f'INSERT INTO public."{table}" VALUES ({index},ST_SetSRID(ST_MakePoint({x},{y}),4326),\'{attrs}\'::jsonb);')
+        self.query("INSERT INTO honua.data_connections VALUES ('22222222-2222-4222-8222-222222222222','controlled-encrypted-secret-never-retain');")
+
+    def query(self,sql):
+        result = subprocess.run(["docker","exec","-i",self.container,"psql","-X","-q","-A","-t","-v","ON_ERROR_STOP=1","-U","honua","-d","honua_test"],input=sql,
+            capture_output=True,text=True,timeout=20)
+        if result.returncode: raise ValueError("owned SQL control refused")
+        return result.stdout.strip()
+
+    def graph(self,environment,document):
+        document = copy.deepcopy(document); document["environment"] = environment
+        literal = json.dumps(document).replace("'","''")
+        self.query(f"INSERT INTO honua.metadata_v2_current VALUES ('{environment}',{document['revision']}); INSERT INTO honua.metadata_v2_snapshots VALUES ('{environment}',{document['revision']},'{literal}'::jsonb);")
+
+    def observe(self):
+        with patch.object(state,"connection_observation",return_value=connection_control()),patch.object(state,"database_query",side_effect=lambda query,_:self.query(query)):
+            return state.database_snapshot(self.authored,"controlled-unused-password")
+
+    def test_actual_sql_preserves_identical_mapping_multiplicity_across_environments(self):
+        document = self.completed["graphs"][0]["document"]
+        self.graph("production",document); self.graph("staging",document)
+        value = self.observe()
+        self.assertEqual(len(value["mappings"]),2)
+        self.assertEqual({row["environment"] for row in value["mappings"]},{"production","staging"})
+        self.assertEqual(value["mappings"][0]["publication"],value["mappings"][1]["publication"])
+        self.assertNotIn("controlled-encrypted-secret-never-retain",json.dumps(value))
+
+    def test_actual_materialization_jsonb_geometry_and_distinct_ids_roundtrip(self):
+        table = self.authored["table"]; self.graph("production",self.completed["graphs"][0]["document"])
+        self.query(f'INSERT INTO public.features SELECT id+870,741,jsonb_build_object(\'id\',id,\'geom\',geom,\'attributes\',attributes),geom FROM public."{table}";')
+        value = self.observe(); self.assertEqual(len(value["materialized"]),2)
+        by_source = {row["id"]:row for row in value["rows"]}
+        for row in value["materialized"]:
+            source = by_source[row["attributes"]["id"]]
+            self.assertNotEqual(row["id"],source["id"])
+            self.assertEqual(row["geometry"],source["geometry"])
+            self.assertEqual(row["attributes"]["geom"],source["geometry"])
+            self.assertEqual(row["attributes"]["attributes"],source["properties"])
+
+
+if __name__ == "__main__":
+    unittest.main()
