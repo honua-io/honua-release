@@ -110,6 +110,27 @@ def test_hashbang_import_and_optional_indirect_eval_match_native_node(reader):
     assert retained.stdout == "1\n"
 
 
+@pytest.mark.parametrize("prefix,terminator", [
+    ("", "\n"), ("", "\r"), ("", "\r\n"),
+    ("", "\u2028"), ("", "\u2029"), ("\ufeff", "\r"),
+])
+def test_hashbang_line_terminators_match_native_node(reader, prefix, terminator):
+    Path(reader.cwd, "hashbang-lines.mjs").write_text("export const value = 1;\n")
+    source = (f"{prefix}#!/usr/bin/env node{terminator}"
+              "import {value} from './hashbang-lines.mjs'; console.log(value);")
+    native = Path(reader.cwd, "native-hashbang-lines.mjs")
+    native.write_text(source)
+    oracle = subprocess.run(["node", str(native)], cwd=reader.cwd,
+                            capture_output=True, text=True, timeout=5)
+    assert oracle.returncode == 0 and oracle.stdout == "1\n", oracle.stderr
+    first = run(reader, source)
+    assert first.status == "pass", first.stderr
+    assert first.stdout == oracle.stdout
+    retained = run(reader, f"{prefix}#!/usr/bin/env node{terminator}console.log(value);")
+    assert retained.status == "pass", retained.stderr
+    assert retained.stdout == "1\n"
+
+
 def test_import_meta_uses_native_filename_and_resolution_without_replaying_body(reader):
     source = "const retainedMeta = () => import.meta; " \
              "console.log(import.meta.url, import.meta.filename, import.meta.dirname, " \

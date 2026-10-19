@@ -3,23 +3,35 @@ import {writeFileSync} from 'node:fs';
 import {spawnSync} from 'node:child_process';
 import {pathToFileURL} from 'node:url';
 import {randomUUID} from 'node:crypto';
+function lineTerminator(char) {
+  return char === '\n' || char === '\r' || char === '\u2028' || char === '\u2029';
+}
+function hashbangEnd(source) {
+  // Node accepts a UTF-8 BOM before the first hashbang line.
+  const start = source.charCodeAt(0) === 0xFEFF ? 1 : 0;
+  if (source.slice(start, start + 2) !== '#!') return 0;
+  let offset = start + 2;
+  while (offset < source.length && !lineTerminator(source[offset])) offset++;
+  if (source[offset] === '\r' && source[offset + 1] === '\n') return offset + 2;
+  return offset < source.length ? offset + 1 : offset;
+}
 export class ImportBindings {
   constructor(ts) { this.ts=ts; this.bindings=new Map(); this.declared=new Set(); }
   prepare(source,file) {
     const ts=this.ts, f=ts.factory;
     const prefix=[...this.bindings].map(([name,b])=>`import { ${name} } from ${JSON.stringify(b.url)};`).join('\n');
-    const hashbangEnd=source.startsWith('#!')?source.indexOf('\n'):-1;
-    const hashbang=source.startsWith('#!')?source.slice(0,hashbangEnd<0?source.length:hashbangEnd+1):'';
-    const hashbangLineBreak=hashbang&&!hashbang.endsWith('\n')?'\n':'';
+    const hashbang=source.slice(0,hashbangEnd(source));
+    const parseHashbang=hashbang.charCodeAt(0)===0xFEFF?hashbang.slice(1):hashbang;
+    const hashbangLineBreak=hashbang&&!lineTerminator(hashbang.at(-1))?'\n':'';
     const bodySource=hashbang?source.slice(hashbang.length):source;
-    const combined=hashbang+hashbangLineBreak+prefix+(prefix?'\n':'')+bodySource;
+    const combined=parseHashbang+hashbangLineBreak+prefix+(prefix?'\n':'')+bodySource;
     const virtual=file+'.mts';
     const sf=ts.createSourceFile(virtual,combined,ts.ScriptTarget.Latest,true,ts.ScriptKind.JS);
     const opts={noLib:true,noResolve:true,target:ts.ScriptTarget.ESNext,module:ts.ModuleKind.ESNext};
     const host={getSourceFile:n=>n===virtual?sf:undefined,getDefaultLibFileName:()=>'',writeFile(){},getCurrentDirectory:()=>process.cwd(),getDirectories:()=>[],fileExists:n=>n===virtual,readFile:n=>n===virtual?combined:undefined,getCanonicalFileName:n=>n,useCaseSensitiveFileNames:()=>true,getNewLine:()=> '\n'};
     const checker=ts.createProgram([virtual],opts,host).getTypeChecker();
     const aliases=new Map(), imports=[], fresh=[];
-    const prefixEnd=hashbang.length+hashbangLineBreak.length+prefix.length;
+    const prefixEnd=parseHashbang.length+hashbangLineBreak.length+prefix.length;
     function names(node){const c=node.importClause;if(!c)return [];return [...(c.name?[c.name]:[]),...(c.namedBindings?(ts.isNamespaceImport(c.namedBindings)?[c.namedBindings.name]:c.namedBindings.elements.map(x=>x.name)):[])];}
     for(const s of sf.statements) {
       if(!ts.isImportDeclaration(s))continue;
@@ -43,8 +55,11 @@ export class ImportBindings {
       for(const symbol of checker.getSymbolsInScope(sf,ts.SymbolFlags.Value|ts.SymbolFlags.Alias))this.declared.add(symbol.name);
       return {code: source, metadataIdentifier: null};
     }
+    // Node's stdin syntax check rejects a BOM before a valid file hashbang;
+    // remove that inert BOM only from the grammar-check input.
+    const checkSource=combined.charCodeAt(0)===0xFEFF?combined.slice(1):combined;
     const grammar=spawnSync(process.execPath,['--check','--input-type=module'],
-      {input:combined,encoding:'utf8',timeout:5000});
+      {input:checkSource,encoding:'utf8',timeout:5000});
     if(grammar.error || grammar.status!==0)throw new SyntaxError(grammar.stderr?.trim()||
       grammar.error?.message||'native module syntax check failed');
     const bridge=file+'.imports.mjs'; const bridgeUrl=pathToFileURL(bridge).href;
@@ -91,10 +106,7 @@ export class ImportBindings {
       };return n=>ts.visitNode(n,visit);
     }]);
     let body=ts.createPrinter().printFile(transformed.transformed[0]);transformed.dispose();
-    if(body.startsWith('#!')){
-      const lineEnd=body.indexOf('\n');
-      body=lineEnd<0?'':body.slice(lineEnd+1);
-    }
+    if(hashbangEnd(body))body=body.slice(hashbangEnd(body));
     for(const name of fresh)this.bindings.set(name,{url:bridgeUrl});
     for(const symbol of checker.getSymbolsInScope(sf,ts.SymbolFlags.Value|ts.SymbolFlags.Alias))this.declared.add(symbol.name);
     return {code: loads.join('\n')+'\n'+body, metadataIdentifier};
