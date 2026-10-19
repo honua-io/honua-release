@@ -113,9 +113,10 @@ def responses():
     def error():
         item = {"status": "error", "code": "invalid_argument", "message": "Controlled authored invalid selector"}
         return {"isError": True, "structuredContent": item, "content": [{"type": "text", "text": json.dumps(item)}]}
+    denied = {"status": "error", "code": "unauthenticated", "message": "Controlled unauthenticated creation",
+              "requiresReauthentication": True, "error": {"kind": "AuthorizationDenied", "message": "Controlled unauthenticated creation"}}
     return [{"isError": False, "structuredContent": value, "content": [{"type": "text", "text": json.dumps(value)}]}, error(), error(),
-            {"error": {"code": -32000, "message": "Controlled unauthenticated creation", "data": {
-                "code": "unauthenticated", "requiresReauthentication": True}}}]
+            {"isError": True, "structuredContent": denied, "content": [{"type": "text", "text": json.dumps(denied)}]}]
 
 
 def reads():
@@ -254,7 +255,8 @@ class MapPackageControls(unittest.TestCase):
                 if name == "accepted":
                     case["result"] = responses()[0]; bind_controls(value)
                 elif name == "wrong-code":
-                    case["result"]["error"]["data"]["code"] = "not_found"; bind_controls(value)
+                    case["result"]["structuredContent"]["code"] = "not_found"
+                    case["result"]["content"][0]["text"] = json.dumps(case["result"]["structuredContent"]); bind_controls(value)
                 elif name == "forwarded-auth":
                     for record in (case["wire"]["initialize"], case["wire"]["invocation"]):
                         record["request"]["credentialPresent"] = True
@@ -266,6 +268,24 @@ class MapPackageControls(unittest.TestCase):
                     case["client"]["sessionSha256"] = creator
                 elif name == "missing-wire": case["wire"] = None
                 else: case["client"]["output"] = {"error": {"message": "local catalog refusal"}}
+                with self.assertRaises(ValueError): validation.judge(FIXTURE, bootstrap(), value)
+
+    def test_anonymous_tool_denial_refuses_success_unrelated_error_and_creation_effects(self):
+        for name in ("success-flag", "wrong-code", "missing-reauth", "false-reauth", "creation-id", "creation-body", "nested-effect", "unrelated-error", "rpc-refusal"):
+            with self.subTest(name=name):
+                value = observations(); result = value["cases"][3]["result"]; output = result["structuredContent"]
+                if name == "success-flag": result["isError"] = False
+                elif name == "wrong-code": output["code"] = "not_found"
+                elif name == "missing-reauth": output.pop("requiresReauthentication")
+                elif name == "false-reauth": output["requiresReauthentication"] = False
+                elif name == "creation-id": output["packageId"] = "map_unexpected"
+                elif name == "creation-body": output["package"] = {"mapPackageId": "map_unexpected"}
+                elif name == "nested-effect": output["error"]["resourceUri"] = "honua://map-packages/map_unexpected"
+                elif name == "unrelated-error": output["error"]["kind"] = "UnknownDataset"
+                else: value["cases"][3]["result"] = {"error": {"code": -32000, "message": "Controlled unauthenticated creation",
+                    "data": {"code": "unauthenticated", "requiresReauthentication": True}}}
+                if name != "rpc-refusal": result["content"][0]["text"] = json.dumps(output)
+                bind_controls(value)
                 with self.assertRaises(ValueError): validation.judge(FIXTURE, bootstrap(), value)
 
     def test_wire_response_id_must_match_the_actual_request_even_when_scalar(self):

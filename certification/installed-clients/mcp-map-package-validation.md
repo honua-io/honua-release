@@ -74,6 +74,13 @@ credentials; all seven sessions must be distinct, including the creator and
 fresh readers. Before/after actual container identity checks bind that fixed
 upstream to the owned candidate.
 
+Anonymous `tools/call` creation must return the canonical tool result with
+`isError: true`, `status: error`, `code: unauthenticated`, and
+`requiresReauthentication: true`, without package identity or creation data.
+Its text and structured representations must agree. This differs from the
+JSON-RPC refusal used by `resources/read`; neither can be substituted for the
+other or for local Inspector discovery failure.
+
 The pure oracle correlates public client output with the original server wire
 response. Inspector 2.10.1 replaces numeric JSON-RPC error code/data with its
 own CLI diagnostic. Its original stderr is retained separately and must

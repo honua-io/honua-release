@@ -343,6 +343,34 @@ def resource_output(result, uri, identifier):
         raise ValueError("fresh resource read did not resolve the created scratch draft")
 
 
+def anonymous_tool_refusal(result):
+    # tools/call reports execution denial as an isError result; resources/read
+    # uses a JSON-RPC error. Both must retain their actual wire representation.
+    if (not isinstance(result, dict) or result.get("isError") is not True
+            or set(result) - {"isError", "structuredContent", "content"}):
+        raise ValueError("anonymous creation requires a typed tool-error result without data")
+    outputs = [result["structuredContent"]] if "structuredContent" in result else []
+    content = result.get("content", [])
+    if not isinstance(content, list):
+        raise ValueError("anonymous tool refusal has invalid content")
+    for item in content:
+        if not isinstance(item, dict) or set(item) != {"type", "text"} or item["type"] != "text" or not isinstance(item["text"], str):
+            raise ValueError("anonymous tool refusal contains unrelated media")
+        outputs.append(strict_json(item["text"]))
+    if not outputs or any(not isinstance(value, dict) for value in outputs) or any(not same_json(value, outputs[0]) for value in outputs[1:]):
+        raise ValueError("anonymous tool refusal representations are missing or conflicting")
+    value = outputs[0]
+    error = value.get("error")
+    if (set(value) - {"status", "code", "message", "requiresReauthentication", "error", "correlationId"}
+            or value.get("status") != "error" or value.get("code") != "unauthenticated"
+            or not isinstance(value.get("message"), str) or not value["message"].strip()
+            or value.get("requiresReauthentication") is not True
+            or not isinstance(error, dict) or set(error) != {"kind", "message"}
+            or error.get("kind") != "AuthorizationDenied" or error.get("message") != value["message"]
+            or ("correlationId" in value and (not isinstance(value["correlationId"], str) or not 0 < len(value["correlationId"]) <= 256))):
+        raise ValueError("anonymous tool refusal lacks exact authorization semantics or contains creation data")
+
+
 def resource_refusal(result, code, semantic_code):
     error = result.get("error") if isinstance(result, dict) else None
     if (not isinstance(error, dict) or type(error.get("code")) is not int or error["code"] != code
@@ -388,7 +416,7 @@ def judge(fixture_bytes, bootstrap, observations):
         sessions.add(fresh); credentials.add(actual["wire"]["expectedCredentialFingerprint"])
         client_observation(actual["client"], frame, actual["wire"], canonical, version)
         if expected["id"] == "anonymous-composition":
-            resource_refusal(actual["result"], -32000, "unauthenticated")
+            anonymous_tool_refusal(actual["result"])
         elif "error" in frame:
             raise ValueError("authenticated map tool returned an RPC refusal")
         elif expected["id"] == "authored-composition":
