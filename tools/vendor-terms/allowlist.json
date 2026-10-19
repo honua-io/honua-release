@@ -368,6 +368,22 @@
       "reason": "Exact immutable source path identifies the reviewed migration implementation. This admits only the source identifier, not product prose or licensed desktop detail.",
       "owner": "@mikemcdougall",
       "issue": "honua-io/honua-release#652"
+    },
+    {
+      "repo": "honua-release",
+      "paths": [
+        "certification/installed-clients/mcp_ingest_publish_state.py",
+        "certification/installed-clients/mcp_ingest_publish_validation_controls.py"
+      ],
+      "tokens": [
+        "esri"
+      ],
+      "identifiers": [
+        "esri-feature-layer"
+      ],
+      "reason": "Exact persisted Metadata v2 publicationType discriminator declared by JsonStringEnumMemberName in honua-server source 3ecd214c1ce20e96ad4911b6f8447055dee9089d, src/Honua.Core.Abstractions/Features/Metadata/Domain/V2/MetadataV2Enums.cs (https://github.com/honua-io/honua-server/blob/3ecd214c1ce20e96ad4911b6f8447055dee9089d/src/Honua.Core.Abstractions/Features/Metadata/Domain/V2/MetadataV2Enums.cs). The independent SQL observer must select this exact stored value, and the control verifies that source-bound selection. Renaming it would select no real publication. Only this complete wire identifier in these two files is covered; unrelated prose and identifiers remain checked. Revisit if the persisted wire contract changes.",
+      "owner": "@mikemcdougall",
+      "issue": "honua-io/honua-release#699"
     }
   ]
 }
