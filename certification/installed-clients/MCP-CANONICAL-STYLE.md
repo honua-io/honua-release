@@ -51,7 +51,19 @@ catalog record census (title/description/body/drawing metadata/version/timestamp
 revision attribution/summary) must remain unchanged from initial state through
 apply. Pre-existing refs must survive; nonprimary ordinals remain unchanged and
 an old ordinal-zero primary moves to the previous maximum ordinal plus one.
-Neither authored style may be associated before the tested application.
+Neither authored style may be associated before the tested application. The first
+application must advance the graph revision strictly because it introduces that
+new association; no exact +1 is assumed. Same or regressed revisions are refused
+even when every later checkpoint coherently repeats that invalid revision.
+
+The raw census is validated for multiplicity and binding before any ordering
+normalization. Catalog record order is not semantic. Ref and graph sequences
+must preserve nondecreasing ordinals and the sole primary; only permutations
+within the same nonzero ordinal are equivalent because the production catalog
+locale-orders those ties. Comparisons normalize these ties without dropping any
+identity, ordinal, catalog field, graph body or revision. Mixed-case/punctuation
+and equal-secondary-ordinal controls reject different-ordinal swaps and missing,
+duplicated or changed entries.
 
 All SQL reads of catalog, associations, metadata mapping/revision and authored
 area rows including full GeoJSON geometry use one statement/MVCC snapshot. The independent rectangle oracle permits ring start/orientation changes only, with no extra vertices, holes or same-bbox distortions. Every negative compares full relevant

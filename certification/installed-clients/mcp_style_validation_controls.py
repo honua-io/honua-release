@@ -282,6 +282,51 @@ class StyleControls(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "catalog records"):
             validation.judge(FIXTURE, bootstrap(), value)
 
+    def test_first_application_requires_a_new_graph_revision(self):
+        for delta in (0, -1):
+            with self.subTest(delta=delta):
+                value = controls()
+                revision = value["snapshots"]["initial"]["mappings"][0]["revision"] + delta
+                for name, snapshot in value["snapshots"].items():
+                    if name not in ("initial", "dry-run"): snapshot["mappings"][0]["revision"] = revision
+                with self.assertRaisesRegex(ValueError, "advance the committed graph revision"):
+                    validation.judge(FIXTURE, bootstrap(), value)
+        value = controls()
+        for name, snapshot in value["snapshots"].items():
+            if name not in ("initial", "dry-run"): snapshot["mappings"][0]["revision"] += 7
+        self.assertTrue(validation.judge(FIXTURE, bootstrap(), value)["persistedReadback"])
+
+    def test_catalog_locale_order_and_nonprimary_ordinal_ties_are_not_semantic(self):
+        value = existing_primary_controls()
+        identifiers = ("a_style", "A-style", "a-style")
+        for name, snapshot in value["snapshots"].items():
+            initial = name in ("initial", "dry-run")
+            if not initial:
+                next(row for row in snapshot["refs"] if row["styleId"] == "previous-catalog-style")["ordinal"] = 5
+            for identifier in identifiers:
+                document = {"version": 8, "name": identifier, "layers": []}
+                snapshot["styles"].append(catalog_record(identifier, document, 3))
+                snapshot["refs"].append({"styleId": identifier, "ordinal": 4})
+                snapshot["mappings"][0]["styleResources"].append({"id": "style-" + identifier, "name": identifier,
+                    "style": {"styleVersion": 3, "encodings": [{"encoding": "mapbox-style", "contentType": "application/vnd.mapbox.style+json", "body": json.dumps(document)}]}})
+            snapshot["styles"].sort(key=lambda row: row["styleId"], reverse=name == "readback")
+            if name == "readback": snapshot["refs"].reverse()
+            snapshot["refs"].sort(key=lambda row: row["ordinal"])
+            snapshot["mappings"][0]["styleResourceIds"] = ["style-" + row["styleId"] for row in snapshot["refs"]]
+        self.assertTrue(validation.judge(FIXTURE, bootstrap(), value)["persistedReadback"])
+        for mutation in ("graph-precedence", "association-precedence", "duplicate-catalog", "missing-ref", "changed-ref"):
+            with self.subTest(mutation=mutation):
+                changed = copy.deepcopy(value)
+                for name, snapshot in changed["snapshots"].items():
+                    if name in ("initial", "dry-run"): continue
+                    if mutation == "graph-precedence":
+                        ids = snapshot["mappings"][0]["styleResourceIds"]; ids[0], ids[-1] = ids[-1], ids[0]
+                    elif mutation == "association-precedence": snapshot["refs"][0], snapshot["refs"][-1] = snapshot["refs"][-1], snapshot["refs"][0]
+                    elif mutation == "duplicate-catalog": snapshot["styles"].append(copy.deepcopy(snapshot["styles"][0]))
+                    elif mutation == "missing-ref": snapshot["refs"].pop()
+                    else: snapshot["refs"][-1]["ordinal"] = 6
+                with self.assertRaises(ValueError): validation.judge(FIXTURE, bootstrap(), changed)
+
     def test_missing_observation_wrong_session_auth_and_body_refuse(self):
         for name in ("missing", "session", "auth", "response", "wrong-uri"):
             with self.subTest(name=name):

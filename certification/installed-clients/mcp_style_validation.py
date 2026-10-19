@@ -134,8 +134,6 @@ def snapshot_output(value, authored, fixture_bytes, *, applied):
             if not isinstance(row[key], str) or datetime.fromisoformat(row[key].replace("Z", "+00:00")).tzinfo is None:
                 raise ValueError("persisted catalog timestamp missing or timezone-free")
         catalog_by_id[row["styleId"]] = row
-    if catalog != sorted(catalog, key=lambda row: row["styleId"]):
-        raise ValueError("persisted style catalog order differs")
     for style in authored["styles"]:
         actual = catalog_by_id.get(style["id"])
         expected = {"styleId": style["id"], "title": style["id"], "description": None, "document": style["document"],
@@ -187,8 +185,8 @@ def snapshot_output(value, authored, fixture_bytes, *, applied):
                 or type(ref["ordinal"]) is not int or ref["ordinal"] < 0 or (ref["ordinal"] == 0 and 0 in ordinals)):
             raise ValueError("duplicate or invalid persisted style association")
         ids.add(ref["styleId"]); ordinals.add(ref["ordinal"])
-    if refs != sorted(refs, key=lambda ref: (ref["ordinal"], ref["styleId"])):
-        raise ValueError("style primary order changed")
+    if [ref["ordinal"] for ref in refs] != sorted(ref["ordinal"] for ref in refs):
+        raise ValueError("style association ordinal order changed")
     if any(ref["styleId"] == authored["styles"][1]["id"] for ref in refs):
         raise ValueError("dry-run alternate style was persisted")
     if applied and (not refs or refs[0] != {"styleId": authored["styles"][0]["id"], "ordinal": 0}):
@@ -198,8 +196,16 @@ def snapshot_output(value, authored, fixture_bytes, *, applied):
     # ASCII identifiers here use the exact MetadataV2StyleResourceFactory rule:
     # preserve letters/digits/underscore/dot/hyphen, then trim outer hyphens.
     expected_ids = ["style-" + (ref["styleId"].strip("-") or "default") for ref in refs]
-    if len(set(expected_ids)) != len(expected_ids) or not same_json(mapping["styleResourceIds"], expected_ids):
+    graph_ids = mapping["styleResourceIds"]
+    if (len(set(expected_ids)) != len(expected_ids) or not isinstance(graph_ids, list)
+            or any(not isinstance(identifier, str) for identifier in graph_ids)
+            or len(graph_ids) != len(expected_ids) or len(set(graph_ids)) != len(graph_ids)
+            or set(graph_ids) != set(expected_ids)):
         raise ValueError("active metadata graph disagrees with catalog associations")
+    ordinal_by_id = {identifier: ref["ordinal"] for ref, identifier in zip(refs, expected_ids, strict=True)}
+    graph_ordinals = [ordinal_by_id[identifier] for identifier in graph_ids]
+    if graph_ordinals != sorted(graph_ordinals):
+        raise ValueError("active graph style ordinal order differs from associations")
     resources = mapping["styleResources"]
     if (not isinstance(resources, list) or len(resources) != len(expected_ids)
             or any(not isinstance(row, dict) or set(row) != {"id", "name", "style"} for row in resources)
@@ -221,8 +227,22 @@ def snapshot_output(value, authored, fixture_bytes, *, applied):
             raise ValueError("referenced graph stylesheet differs from the real catalog")
 
 
+def canonical_state(value):
+    # Validate raw multiplicity, identities and primary/ordinal semantics first.
+    # Catalog order is not semantic. Production locale-orders secondary ties;
+    # normalize only within the same ordinal, never across precedence levels.
+    result = copy.deepcopy(value)
+    result["styles"].sort(key=lambda row: row["styleId"])
+    result["refs"].sort(key=lambda row: (row["ordinal"], row["styleId"]))
+    order = {"style-" + (row["styleId"].strip("-") or "default"): (row["ordinal"], row["styleId"]) for row in result["refs"]}
+    for mapping in result["mappings"]:
+        mapping["styleResourceIds"].sort(key=order.__getitem__)
+        mapping["styleResources"].sort(key=lambda row: row["id"])
+    return result
+
+
 def stable_state(value):
-    copy_value = copy.deepcopy(value)
+    copy_value = canonical_state(value)
     for mapping in copy_value["mappings"]:
         mapping.pop("revision", None)
     return copy_value
@@ -324,8 +344,11 @@ def judge(fixture_bytes, bootstrap, observed):
         raise ValueError("independent mutation/refusal/restart census incomplete")
     for name in names:
         snapshot_output(snapshots[name], authored, fixture_bytes, applied=name not in ("initial", "dry-run"))
+    snapshots = {name: canonical_state(snapshot) for name, snapshot in snapshots.items()}
     if not same_json(snapshots["initial"], snapshots["dry-run"]):
         raise ValueError("style dry run mutated committed state")
+    if snapshots["applied"]["mappings"][0]["revision"] <= snapshots["initial"]["mappings"][0]["revision"]:
+        raise ValueError("first style application did not advance the committed graph revision")
     if not same_json(snapshots["initial"]["styles"], snapshots["applied"]["styles"]):
         raise ValueError("style apply changed pre-existing or authored catalog records")
     old_refs = snapshots["initial"]["refs"]
