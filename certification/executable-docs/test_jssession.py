@@ -471,13 +471,19 @@ def test_owned_unref_schedulers_cannot_mutate_after_completion(reader, schedule)
 
 
 def test_fired_timeout_refresh_gets_fresh_block_ownership(reader):
-    first = run(reader, "let fired = 0; const reusable = setTimeout(() => fired++, 5); "
+    first = run(reader, "let fired = 0; const reusable = setTimeout(() => { fired++; "
+                "require('node:fs').appendFileSync('fires', 'x'); }, 5); "
                 "await new Promise(resolve => setTimeout(resolve, 10)); console.log(fired);")
     assert first.status == 'pass' and first.stdout == '1\n'
     refreshed = run(reader, "reusable.refresh().unref();")
     assert refreshed.status == 'pass', refreshed
+    # A short native timer may fire within its new owner block, before that
+    # block publishes pass. Only effects after publication violate ownership.
+    before = Path(reader.cwd, 'fires').read_bytes()
+    assert before in (b'x', b'xx')
     later = run(reader, "await new Promise(resolve => setTimeout(resolve, 40)); console.log(fired);")
-    assert later.status == 'pass' and later.stdout == '1\n'
+    assert later.status == 'pass' and later.stdout == f'{len(before)}\n'
+    assert Path(reader.cwd, 'fires').read_bytes() == before
 
 
 def test_module_import_scheduled_unref_work_is_owned(reader):
