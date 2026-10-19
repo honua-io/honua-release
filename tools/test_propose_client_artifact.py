@@ -55,7 +55,7 @@ def test_verification_failure_produces_no_proposal(monkeypatch):
 def test_optional_artifact_cannot_skip_package_verification():
     manifest = fixture()
     manifest['clientArtifacts']['sdk']['required'] = False
-    with pytest.raises(verifier.VerificationError, match='existing public NuGet'):
+    with pytest.raises(verifier.VerificationError, match='existing required client'):
         proposal.propose(manifest, 'sdk', '1.1.1')
 
 
@@ -65,3 +65,70 @@ def test_registry_source_must_be_immutable(monkeypatch, source):
                         if 'registration' in url else {'repository': {'commit': source}})
     with pytest.raises(verifier.VerificationError, match='immutable repository commit'):
         proposal.propose(fixture(), 'sdk', '1.1.1')
+
+
+def test_npm_proposal_verifies_recorded_package_bytes(monkeypatch):
+    from test_verify_client_artifacts import RECORDED_PINS, recorded_registry
+    recorded_registry(monkeypatch)
+    current = copy.deepcopy(RECORDED_PINS['js'])
+    current['version'] = '0.0.0'
+    current['sourceSha'] = 'a' * 40
+    result = proposal.propose({'clientArtifacts': {'js': current}}, 'js', '0.1.12')
+    assert result['verifiedIdentity']['sourceRevision'] == '1102d2d55916340edca13cb28411df8da8206f92'
+    assert result['verifiedIdentity']['sha256'] == 'sha256:679e0873ae1347be0f7de33ae9876ac82ebd4cf1af6a160e8bcf1e8dc70a7b62'
+    assert result['candidateQualification'] == 'pending'
+
+
+def test_pypi_proposal_derives_signed_source_and_checks_real_wheel_bytes(monkeypatch):
+    from test_verify_client_artifacts import RECORDED_PINS, recorded_registry
+    recorded_registry(monkeypatch)
+    request_json = verifier._request_json
+    def metadata(url, **kwargs):
+        value = request_json(url, **kwargs)
+        # The existing PyPI metadata fixture is explicitly synthetic. Add its
+        # wheel type for discovery; the recorded wheel/provenance stay unedited.
+        if url.endswith('/json') and 'pypi.org/pypi/' in url:
+            value['urls'][0]['packagetype'] = 'bdist_wheel'
+        return value
+    monkeypatch.setattr(verifier, '_request_json', metadata)
+    current = copy.deepcopy(RECORDED_PINS['python'])
+    current.update(version='0.0.0', sourceSha='a' * 40)
+    result = proposal.propose({'clientArtifacts': {'python': current}}, 'python', '0.1.12')
+    assert result['verifiedIdentity']['sourceRevision'] == '12670676a1e8acb835e911c358adbf46a731120a'
+    assert result['verifiedIdentity']['sha256'] == 'sha256:4ca00c6d585a7325ccb39e15c5e3e4e036e3d91b9bed3471cd5037e1e36efcf2'
+
+
+def test_npm_unsigned_source_hint_never_skips_publisher_verification(monkeypatch):
+    from test_verify_client_artifacts import _npm_split_publisher
+    pin, _, _, _, calls = _npm_split_publisher(monkeypatch)
+    result = proposal.propose({'clientArtifacts': {'js': pin}}, 'js', '0.1.14')
+    assert result['verifiedIdentity']['sourceRevision'] == 'a' * 40
+    assert len(calls) == 1
+    assert calls[0][2]['sourceRevision'] == 'a' * 40
+
+
+def test_npm_bad_publisher_signature_cannot_produce_proposal(monkeypatch):
+    import subprocess
+    import mint_nightly_lock
+    from test_verify_client_artifacts import _npm_split_publisher
+    pin, _, _, _, _ = _npm_split_publisher(monkeypatch)
+    def reject(*args):
+        raise subprocess.CalledProcessError(1, ['gh', 'attestation', 'verify'])
+    monkeypatch.setattr(mint_nightly_lock, 'verify_publisher_bundle', reject)
+    with pytest.raises(verifier.VerificationError, match='publisher provenance verification failed'):
+        proposal.propose({'clientArtifacts': {'js': pin}}, 'js', '0.1.14')
+
+
+@pytest.mark.parametrize('count', [0, 2])
+def test_pypi_ambiguous_wheel_is_refused(monkeypatch, count):
+    manifest = {'clientArtifacts': {'python': {'ecosystem': 'pypi', 'package': 'honua-sdk'}}}
+    monkeypatch.setattr(verifier, '_request_json', lambda url: {'urls': [{'packagetype': 'bdist_wheel'}] * count})
+    with pytest.raises(verifier.VerificationError, match='exactly one published wheel'):
+        proposal.propose(manifest, 'python', '0.1.17')
+
+
+def test_npm_discovery_refuses_external_download_origin(monkeypatch):
+    manifest = {'clientArtifacts': {'js': {'ecosystem': 'npm', 'package': '@honua/sdk-js'}}}
+    monkeypatch.setattr(verifier, '_request_json', lambda url: {'dist': {'tarball': 'https://evil.example/package.tgz'}})
+    with pytest.raises(verifier.VerificationError, match='untrusted tarball'):
+        proposal.propose(manifest, 'js', '0.2.3')
