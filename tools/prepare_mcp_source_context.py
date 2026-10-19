@@ -12,6 +12,8 @@ import re
 import shutil
 import tempfile
 
+import yaml
+
 import convergence_rebind as convergence
 import resolve_trunk_candidate as resolver
 
@@ -82,11 +84,14 @@ def prepare(root, output, source, github=None):
     root, output = Path(root).resolve(), Path(output).resolve()
     if output == root or root in output.parents or output.exists():
         raise PreparationError('output must be new and outside the source repository')
-    github = github or resolver.GitHub()
-    protected_head, snapshots = authenticated_source(github, source)
     frozen_paths = ('platform-manifest.yaml', 'customer-install-manifest.json',
                     str(convergence.REVISIONS), str(convergence.CATALOG), POLICY, CHECKER)
     original = {path: (root / path).read_bytes() for path in frozen_paths}
+    manifest = yaml.safe_load(original['platform-manifest.yaml'])
+    if manifest.get('protocolCertification', {}).get('ledger', {}).get('status') != 'pending':
+        raise PreparationError('source preparation requires an explicitly pending release ledger')
+    github = github or resolver.GitHub()
+    protected_head, snapshots = authenticated_source(github, source)
     before = json.loads(original[str(convergence.CATALOG)])
     sources = json.loads(original[str(convergence.REVISIONS)])
     if sources['sources']['geospatial-mcp']['repository'] != REPOSITORY:

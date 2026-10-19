@@ -143,3 +143,20 @@ def test_output_cannot_overwrite_release_source_or_existing_artifacts(tmp_path, 
     output = context.ROOT / 'do-not-create-context' if case == 'inside' else tmp_path
     with pytest.raises(context.PreparationError, match='new and outside'):
         context.prepare(context.ROOT, output, SOURCE, GitHub())
+
+
+def test_source_preparation_cannot_reuse_a_bound_ledger(tmp_path):
+    root = tmp_path / 'source'
+    root.mkdir()
+    for path in ('customer-install-manifest.json', str(context.convergence.REVISIONS),
+                 str(context.convergence.CATALOG), context.POLICY, context.CHECKER):
+        target = root / path
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_text('{}')
+    (root / 'platform-manifest.yaml').write_text('protocolCertification:\n  ledger:\n    status: bound\n')
+    output = tmp_path / 'refused'
+    github = GitHub()
+    with pytest.raises(context.PreparationError, match='explicitly pending'):
+        context.prepare(root, output, SOURCE, github)
+    assert not github.reads
+    assert not output.exists()

@@ -69,7 +69,8 @@ python3 tools/prepare_mcp_source_context.py \
 ```
 
 The command authenticates protected trunk history and fetches literal package
-and lock bytes from that same commit. It uses the existing release generator
+and lock bytes from that same commit. It requires the release ledger to be
+explicitly pending and refuses a bound release. It uses the existing release generator
 and validator, preserving all original requirements and all 82 MCP rows. Only
 the MCP source revision and canonical client versions may change. The review
 retains the ordinary strict CI verdict and actual check conclusions, including
