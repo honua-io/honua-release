@@ -1,0 +1,6 @@
+source_id,name,capacity,is_open,longitude,latitude
+s1,Kestrel Central,,true,-0.1742731651,-0.0422208145
+s2,Kestrel Central,120,false,-0.1688832734,-0.0422208145
+s3,"Hālau, ""North"" refuge",80,true,-0.1715782193,-0.0422208145
+s4,Centre d’accueil,75,true,-0.176968111,-0.0422208145
+s5,Mālama refuge,50,true,-0.1796630568,-0.0422208145

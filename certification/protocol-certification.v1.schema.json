@@ -28,6 +28,7 @@
     }
   },
   "$defs": {
+    "pythonWheel": {"type": "object", "additionalProperties": false, "required": ["filename", "sha256", "source"], "properties": {"filename": {"type": "string", "pattern": "^honua_sdk-[0-9]+\\.[0-9]+\\.[0-9]+-py3-none-any\\.whl$"}, "sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"}, "source": {"const": "pypi"}}},
     "cell": {
       "type": "object",
       "additionalProperties": false,
@@ -46,9 +47,18 @@
         "surface": { "type": "string", "minLength": 1 },
         "operation": { "type": "string", "minLength": 1 },
         "maturity": { "enum": ["supported", "preview", "experimental", "roadmap", "deprecated", "internal"] },
+        "client_id": { "type": "string", "minLength": 1, "maxLength": 256, "pattern": "^[^\\u0000-\\u001f]*\\S[^\\u0000-\\u001f]*$" },
+        "runner_lane": { "type": "string", "minLength": 1, "maxLength": 256, "pattern": "^[^\\u0000-\\u001f]*\\S[^\\u0000-\\u001f]*$" },
+        "protocol_version": { "type": "string", "minLength": 1, "maxLength": 256, "pattern": "^[^\\u0000-\\u001f]*\\S[^\\u0000-\\u001f]*$" },
+        "protocol_profile": { "type": "string", "minLength": 1, "maxLength": 256, "pattern": "^[^\\u0000-\\u001f]*\\S[^\\u0000-\\u001f]*$" },
+        "performed_by": { "type": "string", "minLength": 1, "maxLength": 256, "pattern": "^[^\\u0000-\\u001f]*\\S[^\\u0000-\\u001f]*$" },
+        "request_url": { "type": ["string", "null"], "minLength": 1, "maxLength": 8192, "pattern": "^https?://[^\\s]+$" },
+        "exercised_capabilities": { "type": "array", "uniqueItems": true, "maxItems": 15, "items": { "$ref": "#/$defs/cell/properties/scenario_facets/items" } },
         "canonical_client": { "type": "string", "minLength": 1 },
         "client_lane": { "type": "string", "minLength": 1 },
         "client_version": { "type": "string", "minLength": 1 },
+          "client_package_digest": { "type": "string", "pattern": "^(sha256:[0-9a-f]{64}|sha512-[A-Za-z0-9+/]{86}==)$" },
+          "client_package": { "$ref": "#/$defs/pythonWheel" },
         "client_version_observed": {
           "description": "The exact client version a receipt observed, when client_version names a release line <major>.<minor>.x (R38, honua-release#376).",
           "type": "string",
@@ -110,6 +120,8 @@
                     "operation": { "type": "string" },
                     "canonical_client": { "type": "string" },
                     "client_version": { "type": "string" },
+                    "client_package_digest": { "type": "string", "pattern": "^(sha256:[0-9a-f]{64}|sha512-[A-Za-z0-9+/]{86}==)$" },
+                    "client_package": { "$ref": "#/$defs/pythonWheel" },
                     "client_version_observed": { "type": "string" },
                     "client_driver": { "type": "string", "minLength": 1, "pattern": "^[a-z0-9-]{1,32}$" },
                     "deployment_target": { "type": "string" },
@@ -213,7 +225,137 @@
           }
         }
       },
+      "dependentRequired": {
+        "client_id": ["runner_lane", "protocol_version", "protocol_profile", "performed_by", "request_url", "exercised_capabilities"],
+        "runner_lane": ["client_id", "protocol_version", "protocol_profile", "performed_by", "request_url", "exercised_capabilities"],
+        "protocol_version": ["client_id", "runner_lane", "protocol_profile", "performed_by", "request_url", "exercised_capabilities"],
+        "protocol_profile": ["client_id", "runner_lane", "protocol_version", "performed_by", "request_url", "exercised_capabilities"],
+        "performed_by": ["client_id", "runner_lane", "protocol_version", "protocol_profile", "request_url", "exercised_capabilities"],
+        "request_url": ["client_id", "runner_lane", "protocol_version", "protocol_profile", "performed_by", "exercised_capabilities"],
+        "exercised_capabilities": ["client_id", "runner_lane", "protocol_version", "protocol_profile", "performed_by", "request_url"]
+      },
       "allOf": [
+        {"if": {"properties": {"client_lane": {"const": "sdk-python-certification"}}, "required": ["client_lane"]}, "else": {"properties": {"client_package": false, "evidence_receipt": {"properties": {"identity": {"properties": {"client_package": false}}}}}}, "then": {"if": {"properties": {"result": {"enum": ["pass", "fail"]}}, "required": ["result"]}, "then": {"required": ["client_package"], "properties": {"evidence_receipt": {"properties": {"identity": {"required": ["client_package"]}}}}}}},
+        {
+          "if": {
+            "properties": {
+              "client_lane": {
+                "enum": [
+                  "grpc-dotnet",
+                  "grpc-python"
+                ]
+              }
+            },
+            "required": [
+              "client_lane"
+            ]
+          },
+          "then": {
+            "properties": {
+              "client_package_digest": {
+                "pattern": "^sha256:[0-9a-f]{64}$(?![\\s\\S])"
+              },
+              "evidence_receipt": {
+                "properties": {
+                  "identity": {
+                    "properties": {
+                      "client_package_digest": {
+                        "pattern": "^sha256:[0-9a-f]{64}$(?![\\s\\S])"
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "client_lane": {
+                "enum": [
+                  "grpc-typescript"
+                ]
+              }
+            },
+            "required": [
+              "client_lane"
+            ]
+          },
+          "then": {
+            "properties": {
+              "client_package_digest": {
+                "pattern": "^sha512-[A-Za-z0-9+/]{85}[AQgw]==$(?![\\s\\S])"
+              },
+              "evidence_receipt": {
+                "properties": {
+                  "identity": {
+                    "properties": {
+                      "client_package_digest": {
+                        "pattern": "^sha512-[A-Za-z0-9+/]{85}[AQgw]==$(?![\\s\\S])"
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        {
+          "if": { "properties": { "client_lane": { "pattern": "^grpc-" } }, "required": ["client_lane"] },
+          "then": {
+            "required": ["client_package_digest"],
+            "properties": {
+              "client_lane": { "enum": ["grpc-dotnet", "grpc-python", "grpc-typescript"] },
+              "evidence_receipt": { "properties": { "identity": { "required": ["client_package_digest"] } } }
+            }
+          },
+          "else": { "properties": {
+            "client_package_digest": false,
+            "evidence_receipt": { "properties": { "identity": { "properties": { "client_package_digest": false } } } }
+          } }
+        },
+        {
+          "if": {
+            "required": ["canonical_client", "client_lane", "deployment_target"],
+            "properties": {
+              "canonical_client": { "const": "Honua server public protocol integration harness" },
+              "client_lane": { "const": "server-protocol-harness" },
+              "deployment_target": { "const": "source-test-host" }
+            }
+          },
+          "then": { "required": ["client_id", "runner_lane", "protocol_version", "protocol_profile", "performed_by", "request_url", "exercised_capabilities"] }
+        },
+        {
+          "if": { "required": ["request_url"], "properties": { "request_url": { "type": "null" }, "result": { "const": "skip" } } },
+          "then": { "properties": {
+            "exercised_capabilities": { "maxItems": 0 },
+            "evidence_receipt": { "type": "null" },
+            "evidence_digest": { "type": "null" },
+            "evidence_uri": { "type": "null" },
+            "facet_results": { "type": "null" }
+          } }
+        },
+        {
+          "if": { "required": ["request_url"], "properties": { "request_url": { "type": "null" } }, "not": { "properties": { "result": { "const": "skip" } } } },
+          "then": {
+            "required": ["test_ids"],
+            "properties": {
+              "canonical_client": { "const": "Honua server public protocol integration harness" },
+              "client_id": { "const": "Honua server public protocol integration harness" },
+              "performed_by": { "const": "Honua server public protocol integration harness" },
+              "client_lane": { "const": "server-protocol-harness" },
+              "runner_lane": { "const": "server-protocol-harness" },
+              "deployment_target": { "const": "source-test-host" },
+              "image_digest": { "type": "null" },
+              "protocol_profile": { "const": "source-test-host-http-adapter" },
+              "evidence_receipt": {
+                "type": "object",
+                "properties": { "identity": { "type": "object", "required": ["producer_run", "candidate_cut_at"] } }
+              }
+            }
+          }
+        },
         {
           "if": {
             "properties": { "deployment_target": { "const": "source-test-host" } },

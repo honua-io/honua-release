@@ -3,6 +3,8 @@
 
 A discovery tag is only a lookup key. Candidate images are repo@digest, with every
 linux architecture and its source revision checked against registry config bytes.
+Lambda retains its verified discovery tag plus a separate immutable platform digest
+for the existing tag@digest deployment producer.
 SDK source pins name the published primary package's source, never an unpublished head.
 """
 from __future__ import annotations
@@ -30,7 +32,7 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / 'certification'))
 import check_build_test as ci
 from component_versions import version_map
-from platform_version import IMAGED_COMPONENTS, PRERELEASE, PUBLISHER
+from platform_version import IMAGED_COMPONENTS, PRERELEASE, PUBLISHER, artifact_version, stamp_platform_version
 import sdk_baselines
 from semver import parse as parse_semver
 import upgrade_lock_binding
@@ -118,7 +120,7 @@ class GitHub:
         except json.JSONDecodeError as exc:
             raise ResolutionError(f'gh api {path} returned non-JSON ({exc})') from exc
 
-    def pages(self, path, key=None):
+    def pages(self, path, key=None, *, page_size=100):
         """Every row, or a refusal. Keyed pages must add up to their declared total_count.
 
         A keyed listing is read in full before any row is yielded, so a total_count that moves
@@ -128,7 +130,7 @@ class GitHub:
         for attempt in range(1, PAGING_ATTEMPTS + 1):
             page, seen, total, collected, moved = 1, 0, None, [], None
             while True:
-                result = self.json(f'{path}{separator}per_page=100&page={page}')
+                result = self.json(f'{path}{separator}per_page={page_size}&page={page}')
                 if key:
                     rows = result.get(key) if isinstance(result, dict) else None
                     count = result.get('total_count') if isinstance(result, dict) else None
@@ -146,7 +148,7 @@ class GitHub:
                     raise ResolutionError(f'gh api {path} page {page} contains a non-object row')
                 seen += len(rows)
                 collected.extend(rows)
-                if len(rows) < 100:
+                if len(rows) < page_size:
                     break
                 page += 1
             if moved is None:
@@ -178,10 +180,29 @@ class GitHub:
         runs = list(self.pages(f'repos/{repository}/actions/runs?head_sha={sha}', 'workflow_runs'))
         payload = ci._enrich_action_workflow_ids({'check_runs': checks}, {'workflow_runs': runs})
         payload['_workflow_runs'] = runs
+        policies = ci.load_full_matrix()
+        policy = policies.get(name)
+        if policy:
+            import full_matrix_evidence as matrix
+            def api_path(url):
+                prefix = 'https://api.github.com/'
+                if not url.startswith(prefix):
+                    raise ResolutionError('matrix evidence escaped the GitHub API origin')
+                return url[len(prefix):]
+            def collection(url, headers, key, *, page_size=100):
+                return {key: list(self.pages(api_path(url), key, page_size=page_size))}
+            try:
+                selected = matrix.selected_run(payload, policy, sha)
+                payload['_matrix_execution'] = matrix.collect(repository, sha, selected, policy, {}, collection,
+                                                              lambda url, headers: self.json(api_path(url)))
+            except (ValueError, ResolutionError):
+                # The same evaluator must refuse absent producer observations, including historical
+                # captured runs. Never manufacture jobs/selection to preserve a prior green result.
+                pass
         result = ci.evaluate({'components': {name: {'sha': sha}}}, lambda *_: payload,
                              enforcement='strict', env_gated=ci.load_env_gated(),
                              rollup=ci.load_rollup(), security=ci.load_security(),
-                             governance=ci.load_governance(), full_matrix=ci.load_full_matrix(),
+                             governance=ci.load_governance(), full_matrix=policies,
                              advisory=ci.load_advisory())
         row = result['components'][0]
         return row['decided'] == 'pass', row['why']
@@ -356,7 +377,7 @@ class Registry:
                     # A moved source pin cannot keep yesterday's mirror digest (honua-release#99).
                     ecr = existing if component.get('sha') == sha and (
                         existing == 'pending-ecr-mirror' or DIGEST.fullmatch(existing)) else 'pending-ecr-mirror'
-                    result.update(awsLambdaImage=f'ghcr.io/{repository}@{digest}', awsLambdaDigest=digest,
+                    result.update(awsLambdaImage=f'ghcr.io/{repository}:{lambda_tag}', awsLambdaDigest=digest,
                                   awsLambdaEcrDigest=ecr)
                 return result
             except (OSError, ValueError, subprocess.CalledProcessError) as exc:
@@ -871,13 +892,45 @@ def release_carried_platform_identity(components):
                 selected.pop(key, None)
 
 
+def prestamp_platform_version(candidate, label):
+    """Stamp the manifest's own platformRelease version on the bound imaged rows (decision 22).
+
+    Exact-candidate qualification checks R22 on the candidate this resolver hands to mint, so the
+    candidate carries the platform version of the label the manifest already names. Only rows whose
+    identity is bound to tonight's selection take it (stamp_platform_version honours
+    unbound_identity); SDK, gRPC and MCP rows are never touched. Mint re-stamps tonight's label,
+    which replaces every field set here. A manifest without a platform label is left unstamped and
+    validate_platform refuses its platformRelease.
+    """
+    try:
+        version = artifact_version(label)
+    except ValueError as exc:
+        print(f'R22 pre-stamp: skipped, platformRelease {exc}')
+        return {}
+    stamped = stamp_platform_version(candidate, label)
+    print(f"R22 pre-stamp: {label} → {version} (mint re-stamps tonight's label)"
+          + (f"; stamped {', '.join(sorted(stamped))}" if stamped else '; no bound imaged row'))
+    return stamped
+
+
 def resolve(manifest, matrix, github, registry, limit=100, protocol_ledger='require', skips=None,
-            skip_limit=SKIP_REPORT_LIMIT, stale_days=STALE_DAYS):
+            skip_limit=SKIP_REPORT_LIMIT, stale_days=STALE_DAYS, prepare_deployments=False):
     """`protocol_ledger='produce'` is the nightly: its protocol-ledger job produces and binds the
     ledger for the server selected here, so an unbound ledger is not a refusal yet. Every other
     exact-candidate check still refuses, and the bound candidate is re-checked in full.
     `skips`, when given, receives each trunk-selected component's skip report, also on refusal."""
     candidate, candidate_matrix = copy.deepcopy(manifest), copy.deepcopy(matrix)
+    if prepare_deployments:
+        if protocol_ledger != 'produce':
+            raise ResolutionError('deployment preparation requires a newly produced protocol ledger')
+        # These are new execution inputs, not a certified snapshot. Never carry
+        # yesterday's passed deployment references onto a newly selected image.
+        for component, target in (('honua-server', 'awsLambda'), ('honua-helm', 'awsEks')):
+            rows = candidate_matrix.get('deploy', {}).get(component, {}).get(target, {}).get('architectures', {})
+            for row in rows.values():
+                if isinstance(row, dict) and (row.get('status') == 'ga-target' or row.get('releaseScope') == 'ga-target'):
+                    row.update(status='ga-target', qualification='pending')
+                    row.pop('qualificationReceipt', None)
     failures = []
     # Verify once, before selecting SDK checkouts or reading declarations. A component
     # identity must come from verified package bytes, even when another gate later refuses.
@@ -920,9 +973,12 @@ def resolve(manifest, matrix, github, registry, limit=100, protocol_ledger='requ
                 if skips is not None:
                     skips[name] = report
         declare(name, selected)
-    # R22: mint stamps tonight's platform version beside the identity selected here. A version, or
-    # a chart digest, carried forward from another night never survives selection.
+    # R22: a version, or a chart digest, carried forward from another night never survives
+    # selection. The selected bound images then take the platform version of the manifest's own
+    # label so exact-candidate qualification can check them (decision 22); mint re-stamps the
+    # night's label beside the same identity.
     release_carried_platform_identity(candidate['components'])
+    prestamp_platform_version(candidate, manifest.get('platformRelease'))
     # Experimental rows are not selected from trunk; they declare at the sha the manifest pins.
     for name, selected in (candidate.get('experimental') or {}).items():
         declare(name, selected)
@@ -1005,12 +1061,13 @@ def resolve(manifest, matrix, github, registry, limit=100, protocol_ledger='requ
     if failures:
         # Local qualification still runs so the refusal names every exact-candidate error.
         # Reachability and registry client probes are not a passing claim on this path.
-        findings = validate_platform.validate(candidate, candidate_matrix, None, exact_candidate=True,
-            ledger_produced_later=protocol_ledger == 'produce')
+        findings = validate_resolved_inputs(candidate, candidate_matrix,
+            ledger_produced_later=protocol_ledger == 'produce', prepare_deployments=prepare_deployments)
         failures.extend(findings.errors)
         raise ResolutionError('candidate qualification refused:\n' + '\n'.join(failures))
-    findings = validate_platform.validate(candidate, candidate_matrix, None,
-        exact_candidate=True, reachability_client=github, ledger_produced_later=protocol_ledger == 'produce')
+    findings = validate_resolved_inputs(candidate, candidate_matrix,
+        reachability_client=github, ledger_produced_later=protocol_ledger == 'produce',
+        prepare_deployments=prepare_deployments)
     evidence_path = ROOT / 'certification' / 'conformance-evidence.yaml'
     if evidence_path.exists():
         validate_platform.check_legacy_evidence_pin_coherence(
@@ -1020,6 +1077,18 @@ def resolve(manifest, matrix, github, registry, limit=100, protocol_ledger='requ
     return candidate, candidate_matrix
 
 
+def validate_resolved_inputs(candidate, matrix, *, reachability_client=None,
+                            ledger_produced_later=False, prepare_deployments=False):
+    """Preparation has no candidate-admission verdict; all intrinsic pin gates still run."""
+    findings = validate_platform.validate(candidate, matrix, None,
+        exact_candidate=not prepare_deployments, reachability_client=reachability_client,
+        ledger_produced_later=ledger_produced_later)
+    if prepare_deployments:
+        validate_platform.check_exact_candidate(candidate, findings, reachability_client,
+                                                ledger_produced_later)
+    return findings
+
+
 def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--manifest', type=Path, default=ROOT / 'platform-manifest.yaml')
@@ -1027,6 +1096,8 @@ def main(argv=None):
     parser.add_argument('--out-dir', type=Path, default=Path('resolved-candidate'))
     parser.add_argument('--max-commits', type=int, default=100)
     parser.add_argument('--dry-run', action='store_true', help='read live trunk/registries; publish nothing')
+    parser.add_argument('--prepare-deployments', action='store_true',
+                        help='emit unadmitted execution inputs for real deployment producers, never a candidate')
     parser.add_argument('--protocol-ledger', choices=('require', 'produce'), default='require',
                         help='produce: the nightly binds a ledger it produces for the selected server')
     parser.add_argument('--skip-report-limit', type=int, default=SKIP_REPORT_LIMIT,
@@ -1040,14 +1111,25 @@ def main(argv=None):
             raise ResolutionError('--max-commits must be positive')
         if args.skip_report_limit < 0 or args.stale_days < 0:
             raise ResolutionError('--skip-report-limit and --stale-days must not be negative')
+        if args.prepare_deployments and (not args.dry_run or args.protocol_ledger != 'produce'):
+            raise ResolutionError('--prepare-deployments requires --dry-run --protocol-ledger produce')
         github = GitHub()
         manifest, matrix = resolve(yaml.safe_load(args.manifest.read_text()),
             yaml.safe_load(args.matrix.read_text()), github, Registry(github), args.max_commits,
-            args.protocol_ledger, skips, args.skip_report_limit, args.stale_days)
+            args.protocol_ledger, skips, args.skip_report_limit, args.stale_days,
+            prepare_deployments=args.prepare_deployments)
         args.out_dir.mkdir(parents=True, exist_ok=True)
         for filename, value in [('platform-manifest.yaml', manifest), ('compatibility-matrix.yaml', matrix)]:
             (args.out_dir / filename).write_text(yaml.safe_dump(value, sort_keys=False))
-        print(f'PASS: exact trunk candidate in {args.out_dir}; dry_run={args.dry_run}')
+        if args.prepare_deployments:
+            preparation = {'schema': 'honua.deployment-preparation/v1', 'status': 'unadmitted',
+                           'candidateQualified': False,
+                           'remaining': ['real deployment qualification', 'bound protocol ledger',
+                                         'exact candidate admission']}
+            (args.out_dir / 'deployment-preparation.json').write_text(json.dumps(preparation, indent=2) + '\n')
+            print(f'PREPARED ONLY: unadmitted deployment inputs in {args.out_dir}')
+        else:
+            print(f'PASS: exact trunk candidate in {args.out_dir}; dry_run={args.dry_run}')
         return 0
     except (OSError, ValueError, subprocess.CalledProcessError) as exc:
         print(f'REFUSED: {exc}', file=sys.stderr)

@@ -1,0 +1,4 @@
+source_id,name,longitude,latitude
+bad1,Out of bounds,181,95
+bad2,Missing coordinate,,0
+bad3,Text coordinate,wrong,0

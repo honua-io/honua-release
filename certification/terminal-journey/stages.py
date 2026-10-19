@@ -86,6 +86,9 @@ class Observation:
     proxy_detail: str = ""
     proxy_note: str | None = None
     image_ref: str | None = None
+    # A cloud target's account of the image it observed (or why it observed none), e.g. which ECS
+    # task or digest disagreed. Local Docker leaves it unset.
+    image_detail: str | None = None
     expected_revision: str | None = None
     setup_view_present: bool = False
     credential_probe: CredentialProbe | None = None
@@ -227,7 +230,8 @@ def stage_1(observation: Observation, workspace_blockers: Callable[[int], list[s
                 "compose",
                 "docker compose up -d --wait (server image pinned from platform-manifest.yaml)",
                 "pass",
-                f"stack running the pinned candidate image {observation.image_ref}",
+                f"stack running the pinned candidate image {observation.image_ref}"
+                + (f" ({observation.image_detail})" if observation.image_detail else ""),
             )
         )
     else:
@@ -236,7 +240,8 @@ def stage_1(observation: Observation, workspace_blockers: Callable[[int], list[s
                 "1.1-candidate-image",
                 "compose",
                 "docker compose up -d --wait",
-                "the pinned candidate stack was not brought up",
+                "the pinned candidate stack was not brought up"
+                + (f": {observation.image_detail}" if observation.image_detail else ""),
                 [INSTALLED_CLIENTS],
             )
         )

@@ -30,6 +30,7 @@ import fnmatch
 import hashlib
 import json
 import re
+import runpy
 import shutil
 import subprocess
 import sys
@@ -39,6 +40,8 @@ from pathlib import Path
 from typing import Any, Protocol
 
 import yaml
+
+from check_protocol_certification import _valid_python_wheel
 
 ROOT = Path(__file__).resolve().parents[1]
 REVISIONS = Path("certification/sources/source-revisions.v1.json")
@@ -63,11 +66,12 @@ SDK_PRODUCERS = (
 )
 
 VENDORED: dict[str, tuple[tuple[str, str], ...]] = {
+    "geospatial-mcp": (("certification/package.json", "certification/sources/geospatial-mcp/package.json"), ("certification/package-lock.json", "certification/sources/geospatial-mcp/package-lock.json")),
     "server": (("docs/gis/data/capability-matrix.v1.json", "certification/sources/server/capability-matrix.v1.json"),),
     "server-certification": (("docs/gis/data/protocol-harness-assignments.v1.json", "certification/sources/server/protocol-harness-assignments.v1.json"),),
     "sdk-js": (("config/protocol-certification.v1.json", "certification/sources/sdk-js/protocol-certification.v1.json"), ("config/sdk-coverage.v1.json", "certification/sources/sdk-js/sdk-coverage.v1.json")),
     "sdk-python": (("conformance/protocol-certification.v1.json", "certification/sources/sdk-python/protocol-certification.v1.json"), ("compatibility/sdk-coverage.v1.json", "certification/sources/sdk-python/sdk-coverage.v1.json")),
-    "sdk-dotnet": (("contracts/sdk-certification.v1.json", "certification/sources/sdk-dotnet/sdk-certification.v1.json"), ("contracts/sdk-coverage.v1.json", "certification/sources/sdk-dotnet/sdk-coverage.v1.json")),
+    "sdk-dotnet": (("contracts/sdk-certification.v1.json", "certification/sources/sdk-dotnet/sdk-certification.v1.json"), ("contracts/sdk-coverage.v1.json", "certification/sources/sdk-dotnet/sdk-coverage.v1.json"), (".release-please-manifest.json", "certification/sources/sdk-dotnet/release-please-manifest.json")),
 }
 
 
@@ -256,6 +260,155 @@ def fetch_snapshots(root: Path, gh: GitHub, revisions: dict[str, Any], pins: dic
     return fetched
 
 
+def project_official_protocol_assignments(root: Path) -> tuple[str, bytes]:
+    """Follow the exact vendored implemented protocol surface; never edit snapshots.
+
+    This is the existing validator's equality rule, applied to release-owned policy
+    during PLAN/APPLY. The plan exposes additions/demotions for normal review.
+    Historical catalog and policy files stay unchanged until that apply.
+    """
+    path = "certification/sources/official-sdk-protocol-assignments.v1.json"
+    assignments = load_json(root, Path(path))
+    original = copy.deepcopy(assignments)
+    matrix = load_json(root, Path("certification/sources/server/capability-matrix.v1.json"))
+    prefixes = ("serve.", "process.", "editing.", "routing.", "geocoding.", "styling.")
+    implemented = sorted(row["key"] for row in matrix["capabilities"]
+                         if row["key"].startswith(prefixes) and row.get("maturity", {}).get("implemented"))
+    if len(implemented) != len(set(implemented)):
+        raise Finding("candidate matrix repeats an implemented protocol capability")
+    assignments["capabilities"] = implemented
+    # Execute only the checked-out canonical generator, never vendored source code.
+    # Reuse its exact identity/version validation after the pinned data is fetched.
+    declarations = runpy.run_path(str(root / "certification/generate-protocol-requirements.py"))
+    identities = {"sdk-js": "@honua/sdk-js", "sdk-python": "Honua SDK Python", "sdk-dotnet": "Honua SDK .NET"}
+    seen = set()
+    manifest = load_manifest(root)
+    bindings = {source: (component, artifact) for source, component, artifact in SDK_PRODUCERS}
+    try:
+        for client in assignments["clients"]:
+            source = client["source"]
+            if source not in identities or client["name"] != identities[source] or source in seen:
+                raise Finding("official client roster has an unknown, mismatched, or duplicate source identity")
+            seen.add(source)
+            client["version"] = (declarations["sdk_js_version"]() if source == "sdk-js"
+                                 else declarations["source_sdk_version"](source))
+            component, artifact = bindings[source]
+            component_version = manifest["components"][component]["version"]
+            artifact_version = manifest["clientArtifacts"][artifact]["version"]
+            if client["version"] != component_version or client["version"] != artifact_version:
+                raise Finding(
+                    f"pinned {source} declaration version {client['version']} differs from "
+                    f"components.{component}.version {component_version} or "
+                    f"clientArtifacts.{artifact}.version {artifact_version}"
+                )
+    except (OSError, ValueError, KeyError) as exc:
+        raise Finding(f"cannot project official client versions from pinned sources: {exc}") from exc
+    if seen != set(identities):
+        raise Finding("official client roster is missing a governed SDK source")
+    if assignments == original:
+        return path, (root / path).read_bytes()
+    return path, (json.dumps(assignments, indent=2) + "\n").encode()
+
+
+
+def project_canonical_client_applicability(root: Path) -> tuple[str, bytes]:
+    """Apply the reviewed H3 requirement only when the fetched matrix implements it.
+
+    Historical matrices without H3 remove only this exact projected decision. This is an
+    explicit policy addition, not automatic classification of unknown capabilities;
+    ordinary denominator validation still requires real SDK or harness assignments.
+    """
+    path = "certification/sources/canonical-client-applicability.v1.json"
+    original = (root / path).read_bytes()
+    policy = json.loads(original)
+    matrix = load_json(root, Path("certification/sources/server/capability-matrix.v1.json"))
+    capabilities = [row for row in matrix["capabilities"] if row["key"] == "analytics.h3"]
+    if len(capabilities) > 1:
+        raise Finding("candidate matrix repeats analytics.h3")
+    expected = {"capability_key": "analytics.h3", "classification": "official-sdk-required"}
+    existing = [row for row in policy["decisions"] if row["capability_key"] == "analytics.h3"]
+    if existing and existing != [expected]:
+        raise Finding("analytics.h3 applicability conflicts with the reviewed official SDK or harness requirement")
+    if not capabilities:
+        if not existing:
+            return path, original
+        policy["decisions"].remove(expected)
+        return path, (json.dumps(policy, indent=2) + "\n").encode()
+    if existing or not capabilities[0].get("maturity", {}).get("implemented"):
+        return path, original
+    position = next((i for i, row in enumerate(policy["decisions"])
+                     if row["capability_key"] > "analytics.h3"), len(policy["decisions"]))
+    policy["decisions"].insert(position, expected)
+    return path, (json.dumps(policy, indent=2) + "\n").encode()
+
+
+def _project_reviewed_http_gap(root: Path, capability: str, expected: dict[str, Any], label: str, revision: str) -> tuple[str, bytes]:
+    """Project one reviewed source gap; existing assignments and future scope stay untouched."""
+    path = "certification/sources/protocol-certification-production.v1.json"
+    original = (root / path).read_bytes()
+    production = json.loads(original)
+    matrix = load_json(root, Path("certification/sources/server/capability-matrix.v1.json"))
+    capabilities = [row for row in matrix["capabilities"] if row["key"] == capability]
+    if len(capabilities) > 1:
+        raise Finding(f"candidate matrix repeats {capability}")
+    if (not capabilities or not capabilities[0].get("maturity", {}).get("implemented")
+            or capabilities[0].get("status") in {"preview", "roadmap", "experimental", "internal"}):
+        return path, original
+    if capabilities[0].get("status") not in {None, "supported", "implemented", "deprecated"}:
+        raise Finding(f"{label} source maturity has no reviewed production disposition")
+    harness = load_json(root, Path("certification/sources/server/protocol-harness-assignments.v1.json"))
+    if any(row["capability_key"] == capability for row in harness["assignments"]):
+        return path, original
+    lane = expected["client_lanes"][0]
+    owners = []
+    for kind in ("producers", "unproduced"):
+        for entry in production[kind]:
+            if any(fnmatch.fnmatchcase(lane, pattern) for pattern in entry.get("except_client_lanes", [])):
+                continue
+            if (any(fnmatch.fnmatchcase(lane, pattern) for pattern in entry.get("client_lanes", []))
+                    or "local-docker" in entry.get("deployment_targets", [])):
+                owners.append((kind, entry))
+    if owners:
+        if owners != [("unproduced", expected)]:
+            raise Finding(f"{label} gap conflicts with reviewed unproduced production ownership")
+        return path, original
+    production["unproduced"].append(expected)
+    production["revision"] += revision
+    return path, (json.dumps(production, indent=2) + "\n").encode()
+
+
+def project_h3_production_gap(root: Path) -> tuple[str, bytes]:
+    expected = {
+        "client_lanes": ["protocol-harness-gap-analytics-h3"], "owner": "honua-io/honua-release",
+        "issue": "https://github.com/honua-io/honua-release/issues/360",
+        "missing_producer": (
+            "The selected source lacks an H3 HTTP adapter assignment for candidate-bound production. "
+            "https://github.com/honua-io/honua-server/issues/6042 supplies source-host evidence for four "
+            "existing public HTTP adapters, not execution against this candidate image. Normal source "
+            "convergence and actual candidate receipts remain required. This disposition does not add "
+            "h3-pg computation, warehouse pushdown or other Later/2026.2 algorithms to the release gate."
+        ),
+    }
+    return _project_reviewed_http_gap(root, "analytics.h3", expected, "H3 HTTP", "+h3-http-gap-v1")
+
+
+def project_wps_production_gap(root: Path) -> tuple[str, bytes]:
+    expected = {
+        "client_lanes": ["protocol-harness-gap-serve-wps"], "owner": "honua-io/honua-release",
+        "issue": "https://github.com/honua-io/honua-release/issues/360",
+        "missing_producer": (
+            "The selected historical source lacks a WPS HTTP assignment for candidate-bound production. "
+            "https://github.com/honua-io/honua-server/issues/6036 supplies the maintained GetCapabilities, "
+            "DescribeProcess, Execute, GetStatus and GetResult assignments; "
+            "https://github.com/honua-io/honua-server/issues/6043 supplies source CITE normalization. "
+            "Neither is execution against this candidate image. Normal source convergence and actual "
+            "candidate receipts remain required. This disposition covers existing public WPS HTTP "
+            "scope only; it grants no producer credit or new algorithm scope."
+        ),
+    }
+    return _project_reviewed_http_gap(root, "serve.wps", expected, "WPS HTTP", "+wps-http-gap-v1")
+
+
 def run_catalog(root: Path, receipt_min: str) -> None:
     generator = root / "certification/generate-protocol-requirements.py"
     text = generator.read_text(encoding="utf-8")
@@ -287,6 +440,14 @@ def prepare(root: Path, gh: GitHub, receipt_min_arg: str) -> tuple[dict[str, Any
         (trial / REVISIONS).write_text(json.dumps(revised, indent=2) + "\n", encoding="utf-8")
         for path, data in snapshots.items():
             (trial / path).write_bytes(data)
+        assignments_path, assignments_bytes = project_official_protocol_assignments(trial)
+        (trial / assignments_path).write_bytes(assignments_bytes)
+        applicability_path, applicability_bytes = project_canonical_client_applicability(trial)
+        (trial / applicability_path).write_bytes(applicability_bytes)
+        production_path, production_bytes = project_h3_production_gap(trial)
+        (trial / production_path).write_bytes(production_bytes)
+        production_path, production_bytes = project_wps_production_gap(trial)
+        (trial / production_path).write_bytes(production_bytes)
         run_catalog(trial, receipt_min)
         new_catalog_bytes = (trial / CATALOG).read_bytes()
         new_generator_bytes = (trial / "certification/generate-protocol-requirements.py").read_bytes()
@@ -316,7 +477,33 @@ def prepare(root: Path, gh: GitHub, receipt_min_arg: str) -> tuple[dict[str, Any
         },
         "gate_workflow_pins": [{"path": str(path), "current": PIN_RE.search((root / path).read_text()).group(0), "proposed_comment": REBIND_COMMENT} for path in CALLERS],
     }
+    plan["official_protocol_assignments"] = {
+        "path": assignments_path,
+        "added": sorted(set(json.loads(assignments_bytes)["capabilities"]) - set(load_json(root, Path(assignments_path))["capabilities"])),
+        "removed": sorted(set(load_json(root, Path(assignments_path))["capabilities"]) - set(json.loads(assignments_bytes)["capabilities"])),
+        "client_versions": [
+            {"source": old["source"], "name": old["name"], "current": old["version"], "proposed": new["version"]}
+            for old, new in zip(load_json(root, Path(assignments_path))["clients"], json.loads(assignments_bytes)["clients"])
+            if old["version"] != new["version"]
+        ],
+    }
+    plan["canonical_client_applicability"] = {
+        "path": applicability_path,
+        "added": [row for row in json.loads(applicability_bytes)["decisions"]
+                  if row not in load_json(root, Path(applicability_path))["decisions"]],
+        "removed": [row for row in load_json(root, Path(applicability_path))["decisions"]
+                    if row not in json.loads(applicability_bytes)["decisions"]],
+    }
+    plan["production_gap_ownership"] = {
+        "path": production_path,
+        "added": [row for row in json.loads(production_bytes)["unproduced"]
+                  if row not in load_json(root, Path(production_path))["unproduced"]],
+        "meaning": "Unproduced source/candidate convergence only; never a producer or pass receipt",
+    }
     payloads = dict(snapshots)
+    payloads[assignments_path] = assignments_bytes
+    payloads[applicability_path] = applicability_bytes
+    payloads[production_path] = production_bytes
     revised = copy.deepcopy(source_doc)
     for name, pin in pins.items(): revised["sources"][name]["commit"] = pin
     payloads[str(REVISIONS)] = (json.dumps(revised, indent=2) + "\n").encode()
@@ -334,6 +521,23 @@ def human(plan: dict[str, Any], root: Path = ROOT) -> str:
     for name, values in plan["bindings"].items(): lines.append(f"  {name}: {values['current']} -> {values['proposed']}")
     lines += ["", "Gate workflow pins:"]
     for pin in plan["gate_workflow_pins"]: lines.append(f"  {pin['path']}: {pin['current']} -> {pin['proposed_comment']}")
+    policy = plan.get("official_protocol_assignments")
+    if policy:
+        lines += ["", f"Official protocol assignments: {policy['path']}",
+                  f"  added: {', '.join(policy['added']) or 'none'}",
+                  f"  removed: {', '.join(policy['removed']) or 'none'}"]
+        for client in policy["client_versions"]:
+            lines.append(f"  {client['source']} ({client['name']}): {client['current']} -> {client['proposed']}")
+    applicability = plan.get("canonical_client_applicability")
+    if applicability:
+        lines += ["", f"Canonical client applicability: {applicability['path']}",
+                  f"  added decisions: {json.dumps(applicability['added'], sort_keys=True)}",
+                  f"  removed decisions: {json.dumps(applicability['removed'], sort_keys=True)}"]
+    ownership = plan.get("production_gap_ownership")
+    if ownership:
+        lines += ["", f"Production gap ownership: {ownership['path']}",
+                  f"  added unproduced dispositions: {json.dumps(ownership['added'], sort_keys=True)}",
+                  f"  {ownership['meaning']}"]
     lines += ["", "Apply mode stages the catalog; the workflow then aggregates, verifies, and finalizes one review PR. Repository variables activate automatically only after merge."]
     return "\n".join(lines)
 
@@ -564,6 +768,13 @@ def verify_nightly_ledger(ledger: dict[str, Any], catalog: dict[str, Any], manif
     actual = sorted(tuple(str(cell.get(key)) for key in LEDGER_IDENTITY) for cell in cells)
     if actual != expected:
         problems.append(f"cells do not match the staged catalog ({len(actual)} cells for {len(expected)} requirements)")
+    requirement_by_identity = {
+        tuple(str(row.get(key)) for key in LEDGER_IDENTITY): row for row in catalog["requirements"]
+    }
+    for row in catalog["requirements"]:
+        if "client_package" in row and (row.get("client_lane") != "sdk-python-certification"
+                or not _valid_python_wheel(row["client_package"], row.get("client_version"))):
+            problems.append("catalog has malformed or wrong-lane governed Python wheel identity")
     counts: dict[str, int] = {}
     observed: set[str] = set()
     for cell in cells:
@@ -591,6 +802,14 @@ def verify_nightly_ledger(ledger: dict[str, Any], catalog: dict[str, Any], manif
         if not isinstance(identity, dict) or "producer_run" not in identity:
             problems.append(f"{label}: {result} carries no producer run identity")
             continue
+        requirement = requirement_by_identity.get(tuple(str(cell.get(key)) for key in LEDGER_IDENTITY), {})
+        if cell.get("client_lane") == "sdk-python-certification":
+            wheel = requirement.get("client_package")
+            if (not _valid_python_wheel(wheel, requirement.get("client_version"))
+                    or cell.get("client_package") != wheel or identity.get("client_package") != wheel):
+                problems.append(f"{label}: executed Python wheel differs from governed published artifact")
+        elif "client_package" in cell or "client_package" in identity:
+            problems.append(f"{label}: wheel identity is only permitted for the Python certification lane")
         if identity.get("client_driver") != cell.get("client_driver"):
             problems.append(f"{label}: receipt driver {identity.get('client_driver')!r} is not the cell driver "
                             f"{cell.get('client_driver')!r}")

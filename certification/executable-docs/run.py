@@ -14,6 +14,7 @@ document is red when any block fails; the run is red when any document is.
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import os
 import queue
@@ -38,9 +39,15 @@ ROOT = HERE.parents[1]
 sys.path.insert(0, str(HERE))
 
 from blocks import Block, extract  # noqa: E402
+import grpc_tls  # noqa: E402
+from execution_contexts import RUNTIMES, compile_plan  # noqa: E402
 from inputs import assigned_names, doc_id, load_vars, needs, render  # noqa: E402
+from jssession import JavaScriptSession  # noqa: E402
+from compiler_bootstrap import bootstrap as bootstrap_compiler  # noqa: E402
 from inventory import InventoryError, Resolver, document_record, drift  # noqa: E402
 from registry_guard import pins_from_manifest, NPM_HONUA, pypi_normalize  # noqa: E402
+import source_build  # noqa: E402
+import publish_inputs  # noqa: E402
 
 TAIL = 2000
 SERVE = re.compile(
@@ -152,26 +159,8 @@ def combine_csharp(codes: list[str]) -> str:
     return "\n".join(usings + [""] + statements + [""] + types) + "\n"
 
 
-JS_IMPORT = re.compile(r"^\s*import\s[^;]*?from\s+['\"][^'\"]+['\"]\s*;?\s*$|^\s*import\s+['\"][^'\"]+['\"]\s*;?\s*$")
-
-
-def combine_js(codes: list[str]) -> str:
-    imports: list[str] = []
-    body: list[str] = []
-    for code in codes:
-        for line in code.splitlines():
-            if JS_IMPORT.match(line):
-                if line.strip() not in imports:
-                    imports.append(line.strip())
-            else:
-                body.append(line)
-    return "\n".join(imports + body) + "\n"
-
-
 def continuation_error(language: str, text: str) -> bool:
-    if language == "csharp":
-        return "CS0103" in text
-    return bool(re.search(r"ReferenceError: \w+ is not defined|TS2304|TS2552", text))
+    return language == "csharp" and "CS0103" in text
 
 
 # ── containers ───────────────────────────────────────────────────────────────────────────────────
@@ -221,12 +210,15 @@ class Session:
     py: subprocess.Popen | None = None
     py_lines: "queue.Queue[str]" = field(default_factory=queue.Queue)
     py_path: str | None = None
+    js: JavaScriptSession | None = None
     paths: dict[str, str] = field(default_factory=dict)   # PATH per runtime (venv activation, npm -g)
     prerequisites: set[str] = field(default_factory=set)  # tools the session's documents say to have
     teardowns: list[tuple[dict[str, Any], str, str, dict[str, Any]]] = field(default_factory=list)
     dotnet_project: bool = False
     servers_seen: dict[str, dict[str, Any]] = field(default_factory=dict)
     counter: int = 0
+    contexts: dict[str, "Session"] = field(default_factory=dict)
+    require_reader_project: bool = False
 
     def __post_init__(self) -> None:
         self.state = self.workdir / ".docrun"
@@ -245,6 +237,9 @@ class Session:
         home_nuget.mkdir(parents=True, exist_ok=True)
         shutil.copy2(nuget / "NuGet.Config", home_nuget / "NuGet.Config")
         shutil.copy2(HERE / "pysession.py", self.state / "pysession.py")
+        shutil.copy2(HERE / "jssession.mjs", self.state / "jssession.mjs")
+        shutil.copy2(HERE / "jsimports.mjs", self.state / "jsimports.mjs")
+        shutil.copy2(HERE / "jsresources.mjs", self.state / "jsresources.mjs")
 
     # container lifecycle
     def container(self, runtime: str) -> str:
@@ -267,6 +262,9 @@ class Session:
         if "node" in self.prerequisites and runtime != "node":
             args += ["-v", f"{self.tools / 'node'}:/opt/node:ro"]
             path = "/opt/node/bin:" + path
+        if runtime == "node":
+            args += ["-v", f"{self.tools / 'compiler'}:/opt/honua-execdocs-compiler:ro",
+                     "-e", "HONUA_EXECDOCS_COMPILER=/opt/honua-execdocs-compiler/node_modules/typescript/lib/typescript.js"]
         if runtime == "dotnet":
             path += f":{self.home}/.dotnet/tools"
         if path != "/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin":
@@ -299,12 +297,36 @@ class Session:
         return name
 
     def close(self) -> None:
+        for session in self.contexts.values():
+            session.close()
+        self.contexts.clear()
+        if self.js is not None:
+            self.js.close()
+            self.js = None
         if self.py is not None:
             self.py.kill()
             self.py = None
         for name in self.containers.values():
             docker("rm", "-f", name)
         self.containers.clear()
+
+    def execution_context(self, name: str, runtime: str) -> "Session":
+        """A context owns its interpreter, project, cwd, HOME and exported state."""
+        if (not isinstance(name, str) or re.fullmatch(r"[a-z][a-z0-9-]{0,39}", name) is None
+                or not isinstance(runtime, str) or runtime not in RUNTIMES or runtime not in self.runtimes):
+            raise RunError("invalid or unavailable execution context runtime/name")
+        if name not in self.contexts:
+            identity = hashlib.sha256(f"{self.workdir.resolve()}\0{name}".encode()).hexdigest()
+            # The legacy Docker name truncates Session.name to 40 characters.
+            # Put the context identity first so long shared prefixes cannot collide.
+            self.contexts[name] = Session(f"context-{identity}", self.state / "contexts" / name,
+                {runtime: self.runtimes[runtime]}, self.guard_base, self.tools, False, self.network,
+                self.run_id, self.typescript, prerequisites=set(self.prerequisites),
+                require_reader_project=runtime == "dotnet")
+        child = self.contexts[name]
+        if set(child.runtimes) != {runtime}:
+            raise RunError("an execution context cannot change its runtime")
+        return child
 
     def exec_env(self, runtime: str | None = None) -> list[str]:
         out = []
@@ -442,13 +464,36 @@ class Session:
         return Outcome("fail", last[-1][:300] if last else "exception", stdout, stderr, 1, duration, command_failed=True)
 
     def run_js(self, code: str, language: str, timeout: int) -> Outcome:
+        if self.js is not None and self.js.broken:
+            return Outcome("fail", "JavaScript context was lost; refusing to restart or replay earlier blocks")
         name = self.container("node")
+        if self.js is None:
+            self.js = JavaScriptSession(
+                ["docker", "exec", "-i", *self.exec_env("node"), name, "node", "--no-warnings",
+                 str(self.state / "jssession.mjs")],
+                # Removing this context's owned container kills the worker and its children,
+                # including synchronous loops. Killing only docker exec loses that guarantee.
+                lambda: docker("rm", "-f", name, check=True))
         uses_require = "require(" in code and not re.search(r"^\s*import\s", code, re.M)
         suffix = ".cjs" if uses_require else (".mts" if language == "typescript" else ".mjs")
         path = self.next_path(suffix, self.cwd)
         self.put("node", path, code)
-        flags = ["--experimental-transform-types", "--no-warnings"] if suffix == ".mts" else []
-        return self._exec(name, ["node", *flags, path.name], timeout)
+        started = time.monotonic()
+        try:
+            env = dict(self.env)
+            if "node" in self.paths:
+                env["PATH"] = self.paths["node"]
+            answer = self.js.execute(path, self.cwd, env, language, timeout, self.baselines.get("node"))
+        except (OSError, ValueError, RuntimeError) as exc:
+            return Outcome("fail", str(exc), _read(path, ".out"), _read(path, ".err"),
+                           None, time.monotonic() - started)
+        stdout, stderr = _read(path, ".out"), _read(path, ".err")
+        if answer["ok"]:
+            return Outcome("pass", "completed without an exception", stdout, stderr,
+                           0, time.monotonic() - started)
+        last = answer["error"].strip().splitlines()
+        return Outcome("fail", last[0][:300] if last else "exception", stdout, stderr,
+                       answer["exitCode"], time.monotonic() - started, command_failed=True)
 
     def run_compile(self, code: str, timeout: int) -> Outcome:
         name = self.container("node")
@@ -466,6 +511,8 @@ class Session:
         projects = sorted(Path(self.cwd).glob("*.csproj")) if Path(self.cwd).is_dir() else []
         if len(projects) == 1:
             project_dir, mode = Path(self.cwd), "reader-project"
+        elif self.require_reader_project:
+            return Outcome("fail", "explicit .NET context requires exactly one project created by its documented setup")
         else:
             self.counter += 1
             project_dir, mode = self.state / f"cs-{self.counter:03d}", "scaffolded-console"
@@ -505,32 +552,43 @@ class Session:
             cmd += ["--data-binary", body]
         return self._exec(self.container(runtime), cmd, timeout)
 
-    def installed_honua(self, runtime: str) -> dict[str, str]:
-        """Honua packages the reader's environment now has: pip site-packages and ./node_modules."""
+    def installed_honua(self, runtime: str, extra_roots: tuple[Path, ...] = ()) -> list[dict[str, str]]:
+        """Retain every installed package path, including simultaneous nested versions."""
         if runtime not in self.containers:
-            return {}
+            return []
         name = self.containers[runtime]
-        found: dict[str, str] = {}
+        found = []
         if runtime == "python" or "python" in self.runtimes.get(runtime, ""):
-            metadata = "import importlib.metadata as m,json; print(json.dumps([{\"name\":d.metadata[\"Name\"],\"version\":d.version} for d in m.distributions()]))"
+            metadata = "import importlib.metadata as m,json; print(json.dumps([{\"name\":d.metadata[\"Name\"],\"version\":d.version,\"path\":str(d.locate_file(''))} for d in m.distributions()]))"
             out = docker("exec", *self.exec_env(runtime), name, "python3", "-c", metadata, check=True).stdout
             for row in json.loads(out):
                 if row["name"].lower().startswith("honua"):
-                    found[pypi_normalize(row["name"])] = row["version"]
-        modules = [Path(self.cwd) / "node_modules", self.home / ".local/lib/node_modules"]
-        for package_json in (p for root in modules for p in root.rglob("package.json")):
-            try:
-                meta = json.loads(package_json.read_text())
-                if NPM_HONUA.match(meta["name"]):
-                    found[meta["name"]] = meta["version"]
-            except (OSError, json.JSONDecodeError, KeyError):
-                pass
+                    found.append({**row, "name": pypi_normalize(row["name"]), "ecosystem": "pypi"})
+        modules = [Path(self.cwd) / "node_modules", self.home / ".local/lib/node_modules", *extra_roots]
+        seen = set()
+        for root in modules:
+            hidden = root / ".package-lock.json"
+            locked = json.loads(hidden.read_text()).get("packages", {}) if hidden.exists() else {}
+            paths = set(root.rglob("package.json")) | set(root.glob("@honua/*/package.json"))
+            for package_json in sorted(paths):
+                if package_json in seen:
+                    continue
+                seen.add(package_json)
+                try:
+                    meta = json.loads(package_json.read_text())
+                    if NPM_HONUA.match(meta["name"]):
+                        key = "node_modules/" + str(package_json.parent.relative_to(root))
+                        found.append({"name": meta["name"], "version": meta["version"], "ecosystem": "npm",
+                                      "path": str(package_json.parent), "integrity": locked.get(key, {}).get("integrity", "")})
+                except (OSError, json.JSONDecodeError, KeyError):
+                    pass
         if runtime == "dotnet":
             for assets in self.workdir.rglob("project.assets.json"):
                 for library, meta in json.loads(assets.read_text()).get("libraries", {}).items():
                     package, version = library.rsplit("/", 1)
                     if meta.get("type") == "package" and package.lower().startswith("honua."):
-                        found[package.lower()] = version
+                        found.append({"name": package.lower(), "version": version, "path": str(assets) + "#" + library,
+                                      "ecosystem": "nuget"})
         return found
 
     def _exec(self, name: str, cmd: list[str], timeout: int) -> Outcome:
@@ -645,6 +703,9 @@ def checkout_context(doc: dict[str, Any], revision: str, session: Session, token
         outcome = session._exec(session.container(doc["runtime"]), ["bash", "-c", script], DEFAULT_TIMEOUT)
         if outcome.status != "pass":
             raise RunError(f"could not check out {doc['repo']}@{revision[:12]}: {outcome.stderr.strip()[-300:]}")
+    actual = session._exec(session.container(doc["runtime"]), ["git", "-C", str(target), "rev-parse", "HEAD"], DEFAULT_TIMEOUT)
+    if actual.status != "pass" or actual.stdout.strip() != revision:
+        raise RunError("existing source checkout does not match the immutable document revision")
     session.cwd = str(target / spec.get("cwd", ""))
 
 
@@ -661,6 +722,8 @@ def summarize(result: dict[str, Any]) -> None:
 
 def run_teardowns(session: Session, secrets: list[str]) -> None:
     """Run what each document said to run when the reader is done, after the whole session."""
+    for child in getattr(session, "contexts", {}).values():
+        run_teardowns(child, secrets)
     for row, code, runtime, result in session.teardowns:
         try:
             outcome = session.run_shell(code, runtime, DEFAULT_TIMEOUT, False)
@@ -680,8 +743,10 @@ def run_document(doc: dict[str, Any], text: str, session: Session, context: dict
                  defined: set[str], revision: str = "", token: str | None = None,
                  report_row: dict[str, Any] | None = None) -> tuple[dict[str, Any], set[str]]:
     blocks = extract(text, "html" if doc.get("format") == "html" else "markdown")
+    plan = compile_plan(doc, blocks)
+    default_session = session
     context = {**context, "session.appDir": str(session.workdir / "app")}
-    if (doc["runtime"] == "dotnet" and not doc.get("checkout")
+    if (not plan and doc["runtime"] == "dotnet" and not doc.get("checkout")
             and not any(re.search(r"\bdotnet\s+new\b", b.code) for b in blocks)):
         session.ensure_dotnet_project()
     env_values = {k: render(str(v["value"]), context) for k, v in variables["env"].items()}
@@ -693,6 +758,23 @@ def run_document(doc: dict[str, Any], text: str, session: Session, context: dict
         # document's own text, e.g. a floating release-channel tag) because the run has no value for it.
         raise RunError("variables reference values this run does not have: " + "; ".join(unresolved))
     session.env.update(env_values)
+    initialized_contexts: set[str] = set()
+    failed_contexts: set[str] = set()
+    context_defined: dict[str, set[str]] = {}
+
+    def select_context(block: Block) -> None:
+        nonlocal session
+        if block.index not in plan:
+            session = default_session
+            return
+        binding = plan[block.index]
+        session = default_session.execution_context(binding["name"], binding["runtime"])
+        if binding["name"] not in initialized_contexts:
+            session.env.update(env_values)
+            initialized_contexts.add(binding["name"])
+
+    def runtime_for(block: Block) -> str:
+        return plan.get(block.index, {}).get("runtime", LANGUAGE_RUNTIME.get(block.language, doc["runtime"]))
     packages = [(m.group(1), m.group(2)) for b in blocks if b.language == "shell"
                 for m in DOTNET_ADD.finditer(b.code)]
     rows: list[dict[str, Any]] = []
@@ -702,12 +784,15 @@ def run_document(doc: dict[str, Any], text: str, session: Session, context: dict
     pinned_versions = {k.lower() if not k.startswith("@") else k: v for k, v in (context.get("_pins") or {}).items()}
     before = snapshot_containers() if doc.get("docker") else set()
     servers_seen = {cid: meta for cid, meta in getattr(session, "servers_seen", {}).items() if cid in before}
-    later_text = {b.index: "\n".join(x.code for x in blocks[b.index + 1:]) for b in blocks}
+    later_text = {b.index: "\n".join(x.code for x in blocks[b.index + 1:]
+                                   if not plan or plan.get(x.index) == plan.get(b.index)) for b in blocks}
 
     def record(block: Block, outcome: Outcome | None, status: str, detail: str, extra: dict | None = None) -> None:
         row = {"index": block.index, "line": block.line, "language": block.language, "intent": block.intent,
                "status": status, "detail": scrub(detail, secrets), "sha256": block.sha256,
                "command": scrub(tail(block.code, 600), secrets)}
+        if block.index in plan:
+            row["executionContext"] = dict(plan[block.index])
         if block.reason:
             row["reason"] = block.reason
         if block.marker_error:
@@ -731,18 +816,63 @@ def run_document(doc: dict[str, Any], text: str, session: Session, context: dict
             if status != "pass":
                 row["stdoutTail"] = scrub(tail(outcome.stdout), secrets)
                 row["stderrTail"] = scrub(tail(outcome.stderr), secrets)
+        if block_inventory:
+            row["installedPackages"] = block_inventory
+        if active_source:
+            row["sourceBuild"] = {"identity": source_build.digest(source_build.canonical(active_source)),
+                                  "sourceSha": active_source["sourceSha"], "checkoutPath": str(source_root), "locks": active_source["locks"],
+                                  "bindingOperation": ("documented clone followed by explicit fetch/checkout of document revision before npm ci"
+                                                       if any(b["sha256"] == block.sha256 and b["index"] == block.index and b["clone"] for b in active_source["blocks"])
+                                                       else "verify existing checkout revision and immutable locks before and after build")}
+        if source_dependency_audit:
+            row["sourceDependencyAudit"] = source_dependency_audit
         row.update(extra or {})
         rows.append(row)
+        if block.index in plan and row["status"] not in {"pass", "pending", "not-run"}:
+            failed_contexts.add(plan[block.index]["name"])
+
+    active_source = None
+    retained_source = None
+    source_dependency_audit = None
+    source_root = session.workdir / "app" / "honua-sdk-js"
+    block_inventory = []
+
+    def verify_retained_source() -> None:
+        if retained_source:
+            binding, root = retained_source
+            verified = session._exec(session.container("node"), ["bash", "-e", "-c", source_build.verification_script(binding, root)], DEFAULT_TIMEOUT)
+            if verified.status != "pass":
+                raise RunError("previously admitted source checkout or immutable lock changed")
 
     def audit(outcome: Outcome, runtime: str) -> Outcome:
-        installed = session.installed_honua(runtime)
+        nonlocal block_inventory, source_dependency_audit
+        source = (active_source, source_root) if active_source else retained_source
+        installed = (session.installed_honua(runtime, (source[1] / "node_modules", source[1] / "mcp/node_modules"))
+                     if source else session.installed_honua(runtime))
+        # Older test doubles use mappings; actual observations always preserve paths.
+        if isinstance(installed, dict):
+            installed = [{"name": name, "version": version, "path": ""} for name, version in installed.items()]
+        block_inventory = installed
+        if source:
+            binding, root = source
+            if not active_source:
+                verify_retained_source()
+                source_dependency_audit = {"identity": source_build.digest(source_build.canonical(binding)),
+                                           "sourceSha": binding["sourceSha"], "checkoutPath": str(root),
+                                           "scope": "existing exact source dependencies; candidate registry unchanged"}
+            errors = source_build.audit_source(binding, root, installed)
+            if errors:
+                outcome.status, outcome.command_failed = "fail", False
+                outcome.detail += "; " + "; ".join(errors)
+            installed = [row for row in installed if not Path(row["path"]).is_relative_to(root)]
         allowed = {**context.get("_closure", lambda: {})(), **pinned_versions}
         # The registry guard already admits Honua.Sdk.* at the root SDK's exact release version.
-        for name in installed:
+        for row in installed:
+            name = row["name"]
             if name.startswith("honua.sdk.") and "honua.sdk" in allowed:
                 allowed.setdefault(name, allowed["honua.sdk"])
-        wrong = sorted(f"{name} {version} (admitted version: {allowed.get(name, 'none')})"
-                       for name, version in installed.items() if allowed.get(name) not in {version, "*"})
+        wrong = sorted(f"{row['path']}: {row['name']} {row['version']} (admitted version: {allowed.get(row['name'], 'none')})"
+                       for row in installed if allowed.get(row["name"]) not in {row["version"], "*"})
         if wrong:
             outcome.status = "fail"
             outcome.command_failed = False
@@ -757,25 +887,55 @@ def run_document(doc: dict[str, Any], text: str, session: Session, context: dict
             readiness = {k: substitute(v, subst) for k, v in (block.marker or {}).items()
                          if k in {"ready-url", "ready-log"}}
             if serve and readiness:
-                return session.run_shell(code, doc["runtime"], timeout, True,
+                return session.run_shell(code, runtime_for(block), timeout, True,
                                          {k.removeprefix("ready-"): v for k, v in readiness.items()})
-            return session.run_shell(code, doc["runtime"], timeout, serve)
+            return session.run_shell(code, runtime_for(block), timeout, serve)
         if lang == "python":
             return session.run_python(code, timeout)
         if lang in {"javascript", "typescript"}:
             return session.run_js(code, lang, timeout)
         if lang == "csharp":
-            return session.run_csharp(code, packages, timeout)
+            selected_packages = ([(m.group(1), m.group(2)) for b in blocks
+                                  if b.language == "shell" and plan.get(b.index) == plan[block.index]
+                                  for m in DOTNET_ADD.finditer(b.code)] if plan else packages)
+            return session.run_csharp(code, selected_packages, timeout)
         if lang == "http":
-            return session.run_http(code, doc["runtime"], context["candidate.baseUrl"], timeout)
+            return session.run_http(code, runtime_for(block), context["candidate.baseUrl"], timeout)
         return Outcome("fail", f"no executor for {lang}")
 
     def execute(block: Block, code: str) -> Outcome:
-        return dispatch(block, code)
+        nonlocal retained_source
+        if not active_source:
+            verify_retained_source()
+            return dispatch(block, code)
+        original = {key: session.env.get(key) for key in ["npm_config_registry", "YARN_NPM_REGISTRY_SERVER"]}
+        registry = context["_source_registry"]
+        session.env.update({key: registry for key in original})
+        try:
+            outcome = dispatch(block, source_build.bind_code(active_source, block, code, source_root))
+            verified = session._exec(session.container("node"), ["bash", "-e", "-c", source_build.verification_script(active_source, source_root)], DEFAULT_TIMEOUT)
+            if verified.status != "pass":
+                outcome.status, outcome.command_failed = "fail", False
+                outcome.detail += "; source checkout or lock changed during build"
+            else:
+                retained_source = (active_source, source_root)
+            outcome.mode = "immutable-source-build"
+            return outcome
+        finally:
+            for key, value in original.items():
+                if value is None:
+                    session.env.pop(key, None)
+                else:
+                    session.env[key] = value
 
     pending_teardowns: list[tuple[Block, str]] = []
     for block in blocks:
+        binding = context.get("_source_build")
+        active_source = binding if binding and any(row["sha256"] == block.sha256 and row["index"] == block.index for row in binding["blocks"]) else None
+        block_inventory = []
+        source_dependency_audit = None
         try:
+            select_context(block)
             if ((block.marker_error or "").startswith("doc-run: run on a language") and block.intent == "run"
                     or (block.marker_error or "").startswith("doc-run: blocked on a language")):
                 record(block, None, "fail", block.marker_error)
@@ -789,10 +949,14 @@ def run_document(doc: dict[str, Any], text: str, session: Session, context: dict
             if block.intent == "compile":
                 deferred.append(block)
                 continue
-            need = needs(block, defined | set(session.env))
+            if block.index in plan and plan[block.index]["name"] in failed_contexts:
+                record(block, None, "fail", "an earlier block in this execution context did not succeed")
+                continue
+            current_defined = context_defined.setdefault(plan[block.index]["name"], set()) if plan else defined
+            need = needs(block, current_defined | set(session.env))
             missing_env = [n for n in need["env"] if n not in session.env]
             missing_ph = [p for p in need["placeholders"] if p not in subst]
-            defined |= assigned_names(block)
+            current_defined.update(assigned_names(block))
             if missing_env or missing_ph:
                 parts = []
                 if missing_env:
@@ -806,15 +970,20 @@ def run_document(doc: dict[str, Any], text: str, session: Session, context: dict
             code = substitute(block.code, subst)
             if block.marker and "checkout" in block.marker:
                 checkout_context({**doc, "checkout": {"cwd": block.marker.get("checkout", "")}}, revision, session, token)
+            if active_source and any(row["sha256"] == block.sha256 and row["index"] == block.index and row["clone"] for row in active_source["blocks"]):
+                # git clone uses the reader's current directory, which a previous
+                # scaffold block may have changed. Keep this exact location for
+                # the following fixture block instead of resetting the reader.
+                source_root = Path(session.cwd) / "honua-sdk-js"
             if block.intent == "file":
                 target = Path(session.cwd) / block.file if not block.file.startswith("/") else Path(block.file)
-                session.put(doc["runtime"], target, code)
+                session.put(plan.get(block.index, {}).get("runtime", doc["runtime"]), target, code)
                 # A .cs file belongs to the reader's project: a later `dotnet run` builds it, it never runs alone.
                 runnable = block.language in {"python", "javascript", "typescript", "shell"}
                 if not runnable or Path(block.file).name in later_text[block.index]:
                     record(block, None, "pass", f"saved as {block.file} for the steps that use it", {"file": block.file})
                     continue
-                outcome = audit(execute(block, code), LANGUAGE_RUNTIME.get(block.language, doc["runtime"]))
+                outcome = audit(execute(block, code), runtime_for(block))
                 record(block, outcome, outcome.status, f"saved as {block.file}; no later step runs it, so run it: "
                        + outcome.detail, {"file": block.file})
                 continue
@@ -824,14 +993,14 @@ def run_document(doc: dict[str, Any], text: str, session: Session, context: dict
                 outcome.status, outcome.detail = "pass", f"exit code {outcome.exit_code}, as the document says it should fail"
             elif block.expect_failure and outcome.status == "pass":
                 outcome.status, outcome.detail = "fail", "exit code 0, but the document says this command fails"
-            if (outcome.status == "fail" and lang in {"csharp", "javascript", "typescript"}
+            if (outcome.status == "fail" and lang == "csharp"
                     and session.passed.get(lang) and continuation_error(lang, outcome.stdout + outcome.stderr)):
-                combined = (combine_csharp if lang == "csharp" else combine_js)(session.passed[lang] + [code])
+                combined = combine_csharp(session.passed[lang] + [code])
                 retry = execute(block, combined)
                 retry.mode = (retry.mode or "") + "+continues-earlier-blocks"
                 outcome = retry
             if outcome.status == "pass":
-                if lang in {"csharp", "javascript", "typescript"}:
+                if lang == "csharp":
                     session.passed.setdefault(lang, []).append(code)
                 if block.expected_output:
                     ok, why = assert_output(block.expected_output, outcome.stdout)
@@ -843,13 +1012,21 @@ def run_document(doc: dict[str, Any], text: str, session: Session, context: dict
             if doc.get("docker") and block.language == "shell":
                 observe_servers({c for c in snapshot_containers() - before if started_from(c, session.workdir)},
                                 servers_seen, candidate_digest)
-            outcome = audit(outcome, LANGUAGE_RUNTIME.get(block.language, doc["runtime"]))
+            outcome = audit(outcome, runtime_for(block))
             record(block, outcome, outcome.status, outcome.detail)
         except Exception:
             outcome = exception_outcome()
             record(block, outcome, outcome.status, outcome.detail)
+    active_source = None
     for block in deferred:
+        block_inventory = []
+        source_dependency_audit = None
         try:
+            select_context(block)
+            if block.index in plan and plan[block.index]["name"] in failed_contexts:
+                record(block, None, "fail", "an earlier block in this execution context did not succeed")
+                continue
+            verify_retained_source()
             outcome = session.run_compile(substitute(block.code, subst), int(doc.get("timeout", DEFAULT_TIMEOUT)))
             outcome = audit(outcome, "node")
         except Exception:
@@ -857,8 +1034,10 @@ def run_document(doc: dict[str, Any], text: str, session: Session, context: dict
         record(block, outcome, outcome.status, "doc-test=compile; typechecked after the document's install steps: "
                + outcome.detail)
     for block, code in pending_teardowns:
+        select_context(block)
         record(block, None, "pending", "teardown; runs when the session's documents are done")
-        session.teardowns.append((rows[-1], code, doc["runtime"], report_row if report_row is not None else {}))
+        session.teardowns.append((rows[-1], code, runtime_for(block), report_row if report_row is not None else {}))
+    session = default_session
     rows.sort(key=lambda r: r["index"])
     checks = []
     if doc.get("docker"):
@@ -892,6 +1071,7 @@ def prepare_tools(runtimes: dict[str, str], work: Path) -> Path:
             docker("rm", "-f", cid)
         for command, target in (("npm", "npm-cli.js"), ("npx", "npx-cli.js")):
             (node / "bin" / command).symlink_to(f"../lib/node_modules/npm/bin/{target}")
+    bootstrap_compiler(tools, node / "bin" / "node", node / "lib" / "node_modules/npm/bin/npm-cli.js")
     docker("pull", runtimes["dockerCli"], timeout=900, check=True)
     cid = docker("create", runtimes["dockerCli"], check=True).stdout.strip()
     try:
@@ -972,6 +1152,13 @@ class Guards:
                 raise RunError(f"registry guard did not start on {network}: {docker('logs', name).stderr[-500:]}")
             self.running[network] = name
         return f"http://127.0.0.1:{self.port}"
+
+    def source_registry(self, binding: dict, network: str) -> str:
+        raw = source_build.canonical(binding)
+        identity = source_build.digest(raw)
+        path = self.dir / f"source-{identity}.json"
+        path.write_bytes(raw)
+        return f"{self.base(network)}/source/{identity}/npm/"
 
     def closure(self) -> dict[str, str]:
         admitted: dict[str, str] = {}
@@ -1072,6 +1259,7 @@ def main() -> int:
     report_docs: list[dict[str, Any]] = []
     live_docs: list[tuple[dict[str, Any], str, str]] = []
     sessions: dict[str, Session] = {}
+    tls_fixture: grpc_tls.GrpcTlsFixture | None = None
 
     def add_exception(row: dict[str, Any], check: str) -> None:
         outcome = exception_outcome()
@@ -1085,6 +1273,7 @@ def main() -> int:
         cleanup_containers({c for c in snapshot_containers() if started_from(c, session.workdir)})
 
     def run_phase(documents: list[dict[str, Any]], network: str, tools: Path) -> None:
+        nonlocal tls_fixture
         last_of_session = {(d.get("session") or doc_id(d["repo"], d["path"])): doc_id(d["repo"], d["path"])
                            for d in documents}
         defined: dict[str, set[str]] = {}
@@ -1109,10 +1298,30 @@ def main() -> int:
                                             prerequisites={p for d in members for p in d.get("prerequisites", {})})
                 session = sessions[key]
                 variables = load_vars(args.vars_dir, ident)
+                if grpc_tls.required(variables):
+                    if tls_fixture is None:
+                        tls_fixture = grpc_tls.GrpcTlsFixture(docker, work / "grpc-tls", network,
+                                                              sources["runtimes"]["python"], run_id)
+                        tls_fixture.start()
+                    session.env.update(tls_fixture.session_env(session.state))
+                    context["candidate.grpcTlsAddress"] = grpc_tls.ADDRESS
+                    row["grpcTlsFixture"] = dict(tls_fixture.evidence)
                 print(f"== {ident} @ {revision[:12]}", flush=True)
                 checkout_context(document, revision, session, token)
-                result, defined[key] = run_document(document, text, session, context, variables, digest,
-                                                    [api_key], defined.get(key, set()), revision, token, row)
+                binding = source_build.derive(document, revision, text,
+                    lambda path: resolver.read({**document, "path": path}, revision).encode())
+                document_context = dict(context)
+                document_secrets = [api_key]
+                if ident == publish_inputs.DOCUMENT:
+                    fixture_context, fixture_observation = publish_inputs.publication_inputs(ROOT)
+                    document_context.update(fixture_context)
+                    document_secrets.append(fixture_context["publish.databasePassword"])
+                    row["publicationSourceFixture"] = fixture_observation
+                if binding:
+                    document_context.update(_source_build=binding, _source_registry=guards.source_registry(binding, network))
+                    row["sourceBuildAdmission"] = binding
+                result, defined[key] = run_document(document, text, session, document_context, variables, digest,
+                                                    document_secrets, defined.get(key, set()), revision, token, row)
                 row.update(result)
                 row["variablesFile"] = f"vars/{ident}.json" if (args.vars_dir / f"{ident}.json").exists() else None
             except Exception:
@@ -1149,6 +1358,11 @@ def main() -> int:
                             "url": args.evidence_uri, "status": "fail", "counts": {"fail": 1}, "blocks": [],
                             "checks": [{"check": "candidate", "status": "fail", "detail": str(exc)}]})
     finally:
+        if tls_fixture is not None:
+            try:
+                tls_fixture.close()
+            except Exception:
+                add_exception(report_docs[-1], "grpc-tls-cleanup")
         for session in sessions.values():
             try:
                 close_session(session)
@@ -1209,6 +1423,9 @@ def main() -> int:
         "guardAdmittedClosure": closure,
         "inventoryDrift": drift_lines,
     }
+    compiler_receipt = work / "tools" / "compiler-bootstrap.json"
+    if compiler_receipt.exists():
+        report["compilerBootstrap"] = json.loads(compiler_receipt.read_text())
     args.output.parent.mkdir(parents=True, exist_ok=True)
     args.output.write_text(json.dumps(report, indent=2) + "\n", encoding="utf-8")
     summary = markdown_summary(report)

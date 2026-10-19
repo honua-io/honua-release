@@ -250,7 +250,7 @@ def publish_harness(api: AdminApi, fixture: dict[str, Any], slugs: list[str], db
     """Create the harness datasource and publish the shared and per-client layers."""
     database = fixture["lifecycle"]["database"]
     connection = api.request("POST", "/api/v1/admin/connections/", {
-        "name": "sdkreg-harness", **database, "password": db_password, "sslRequired": False, "sslMode": "Disable"})
+        "name": "sdkreg-harness", "sslRequired": False, "sslMode": "Disable", **database, "password": db_password})
     connection_id = connection.get("connectionId") or connection.get("id")
     if not connection_id:
         raise RegressionError("harness datasource has no id")
@@ -296,13 +296,14 @@ def mint_principals(api: AdminApi, tag: str) -> dict[str, dict[str, str]]:
     return principals
 
 
-def mint_bearer(signing_key: str, *, lifetime: int = 3600) -> str:
+def mint_bearer(signing_key: str, *, lifetime: int = 3600, issuer: str = BEARER_ISSUER,
+                audience: str = BEARER_AUDIENCE) -> str:
     """An HS256 operator token for the candidate's generic OIDC issuer (per-run key)."""
     def encode(value: dict[str, Any]) -> bytes:
         return base64.urlsafe_b64encode(json.dumps(value, separators=(",", ":")).encode()).rstrip(b"=")
     now = int(time.time())
     body = encode({"alg": "HS256", "typ": "JWT"}) + b"." + encode({
-        "iss": BEARER_ISSUER, "aud": BEARER_AUDIENCE, "sub": "sdk-regression-operator", "tenant_id": BEARER_TENANT,
+        "iss": issuer, "aud": audience, "sub": "sdk-regression-operator", "tenant_id": BEARER_TENANT,
         "role": "admin", "roles": ["admin"], "iat": now, "nbf": now, "exp": now + lifetime, "jti": secrets.token_hex(16)})
     signature = base64.urlsafe_b64encode(hmac.new(signing_key.encode(), body, hashlib.sha256).digest()).rstrip(b"=")
     return (body + b"." + signature).decode()
@@ -471,7 +472,16 @@ ORACLES: dict[str, Callable[..., tuple[bool, str]]] = {
     "mcp-full-catalog": lambda o, f, p, obs, s: oracles.oracle_mcp_full_catalog(o, load_tool_roster(), _observed_names(obs, s, "default-tools-list")),
     "map-render": lambda o, f, p, obs, s: oracles.oracle_map_render(o, f),
     "mcp-job-accepted": lambda o, f, p, obs, s: oracles.oracle_mcp_job_accepted(o),
-    "mcp-job-succeeded": lambda o, f, p, obs, s: oracles.oracle_mcp_job_succeeded(o),
+    "mcp-process-catalog": lambda o, f, p, obs, s: oracles.oracle_mcp_process_catalog(o, f),
+    "mcp-plan-valid": lambda o, f, p, obs, s: oracles.oracle_mcp_plan_valid(o),
+    "mcp-plan-invalid": lambda o, f, p, obs, s: oracles.oracle_mcp_plan_invalid(o),
+    "mcp-dry-run": lambda o, f, p, obs, s: oracles.oracle_mcp_dry_run(o),
+    "mcp-job-replayed": lambda o, f, p, obs, s: oracles.oracle_mcp_bound_job(
+        o, obs.get((s, "buffer-submit"), {}).get("observed", {})),
+    "mcp-job-succeeded": lambda o, f, p, obs, s: oracles.oracle_mcp_bound_job(
+        o, obs.get((s, "buffer-submit"), {}).get("observed", {}), terminal=True),
+    "mcp-buffer-result": lambda o, f, p, obs, s: oracles.oracle_mcp_buffer_result(
+        o, f, obs.get((s, "buffer-submit"), {}).get("observed", {})),
 }
 
 

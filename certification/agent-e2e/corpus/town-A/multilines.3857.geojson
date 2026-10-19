@@ -1,0 +1,44 @@
+{
+  "crs": {
+    "properties": {
+      "name": "EPSG:3857"
+    },
+    "type": "name"
+  },
+  "features": [
+    {
+      "geometry": {
+        "coordinates": [
+          [
+            [
+              0,
+              3000
+            ],
+            [
+              500,
+              3000
+            ]
+          ],
+          [
+            [
+              0,
+              3100
+            ],
+            [
+              500,
+              3300
+            ]
+          ]
+        ],
+        "type": "MultiLineString"
+      },
+      "id": "lines-A",
+      "properties": {
+        "name": "Disconnected paths",
+        "source_id": "lines-A"
+      },
+      "type": "Feature"
+    }
+  ],
+  "type": "FeatureCollection"
+}

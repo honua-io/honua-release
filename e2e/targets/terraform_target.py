@@ -51,6 +51,9 @@ class TfTargetSpec:
     #     to the runner's /32 (needs_runner_db_access), which is exactly the reachability the
     #     local-exec PostGIS bootstrap requires, as on v0.1.0 where it defaulted true.
     declared_ephemeral_vars: tuple[str, ...] = ()
+    # `name=value` vars like declared_ephemeral_vars, passed on Redis-on cells only and only when the
+    # pinned root declares `name`: the S10 large-import background window (honua-release#548).
+    redis_on_declared_vars: tuple[str, ...] = ()
     # JSON var files preserve typed values that cannot be represented faithfully
     # by Terraform's string-constrained `-var=name=value` coercion (notably null).
     # Paths are relative to the honua-release repository root.
@@ -101,6 +104,15 @@ class TfTargetSpec:
     # it is set and the pinned root declares every input in REDIS_ON_SCALE_INPUTS, the Redis-on
     # cell runs REDIS_ON_TASKS tasks in the MultiNode topology (see the constants below).
     redis_on_scale_bucket_env: str = ""
+    # Redis-on only, for roots that do not scale through REDIS_ON_SCALE_INPUTS (the Lambda cell):
+    # the file-storage inputs (provider, bucket, key prefix) that make the API host and the GP Batch
+    # workers share one S3 bucket, which a background import accepted by the Lambda needs to run on
+    # Batch (honua-server#5916, honua-iac#243). Passed only when the pinned root declares every one;
+    # the region input is left to the module (it renders its own region). A declaring root with
+    # file_storage_bucket_env unset refuses the Redis-on cell (S10 would otherwise record the typed
+    # 503 instead of the background import); destroy never refuses.
+    file_storage_inputs: tuple[str, ...] = ()
+    file_storage_bucket_env: str = ""
     # Run the generic server image on the runner against the cell's database before the cell is
     # probed. The serverless root keeps skip_migrations=true (a Lambda cold start must not race a
     # schema migration), so without this step the Lambda serves an unmigrated database.
@@ -138,6 +150,21 @@ class TfTargetSpec:
 REDIS_ON_TASKS = 2
 REDIS_ON_SCALE_INPUTS = ("desired_count", "max_capacity", "deployment_mode", "file_storage_provider",
                          "file_storage_aws_s3_bucket_name", "file_storage_aws_s3_key_prefix")
+# Every cell's server objects live under `release-cells/<name prefix>` in the operator-owned bucket;
+# the module scopes the cell roles' object grants to `<prefix>/*` (honua-iac#243). The S10 fixture the
+# harness stages sits beside it under `release-cells/<cell>/s10/` (large_import.object_key): the server
+# never reads it with its own role, only through the harness-minted presigned URL, and both sit under
+# the bucket's one-day `release-cells/` lifecycle backstop (CELL_FILE_STORAGE_ROOT).
+CELL_FILE_STORAGE_ROOT = "release-cells/"
+FILE_STORAGE_INPUTS = ("file_storage_provider", "file_storage_aws_s3_bucket_name", "file_storage_aws_s3_key_prefix")
+FILE_STORAGE_KEY_PREFIX_VAR = "file_storage_aws_s3_key_prefix"
+
+
+def cell_file_storage_prefix(name_prefix: str) -> str:
+    """The FileStorage key prefix a cell passes: `release-cells/<name prefix>`."""
+    return CELL_FILE_STORAGE_ROOT + name_prefix
+
+
 _S3_BUCKET = re.compile(r"[a-z0-9][a-z0-9.-]{1,61}[a-z0-9]")
 
 # Repository variables (not secrets) naming the public hosted zone that carries per-run cell names.
@@ -306,8 +333,16 @@ class TerraformTarget(DeployTarget):
                 raise ProvisionError(f"{self.name}: {self.spec.opt_in_env}=true but the pinned root does "
                                      f"not declare {', '.join(undeclared)}")
             values.extend(f"-var={v}" for v in self.spec.opt_in_vars)
+        if (redis_enabled and self.name == "aws-serverless" and getattr(self, "transition_release", None) is not None):
+            if not self._root_declares("gp_batch_retain_prior_definitions") and not destroy:
+                raise ProvisionError("update/rollback requires a root with explicit prior Batch revision retention")
+            if self._root_declares("gp_batch_retain_prior_definitions"):
+                values.append("-var=gp_batch_retain_prior_definitions=true")
         if redis_enabled:
             values.extend(self._redis_on_scale_vars(prefix))
+            values.extend(self._file_storage_vars(prefix, destroy=destroy))
+            values.extend(f"-var={v}" for v in self.spec.redis_on_declared_vars
+                          if self._root_declares(v.split("=", 1)[0]))
         if self.spec.needs_runner_db_access:
             raw_cidr = self._runner_cidr("HONUA_AWS_DB_INGRESS_CIDR")
             values.extend([
@@ -340,6 +375,22 @@ class TerraformTarget(DeployTarget):
                 else architecture.upper()
             )
             values.append(f"-var={self.spec.architecture_var}={architecture_value}")
+        fixture_secret = getattr(self, "journey_signing_secret", None)
+        if fixture_secret is not None and not destroy:
+            if not self._root_declares("oidc_static_jwt"):
+                raise ProvisionError("pinned root does not declare the typed cloud tenant issuer")
+            values.append("-var=oidc_static_jwt=" + json.dumps({
+                "issuer": "https://terminal-journey.invalid", "audience": "terminal-journey",
+                "signing_key_secret_arn": fixture_secret["arn"],
+                "signing_key_secret_version_id": fixture_secret["versionId"]}, separators=(",", ":")))
+        release = getattr(self, "transition_release", None)
+        if release is not None and not destroy:
+            if not self._root_declares("platform_release"):
+                raise ProvisionError("transition baseline requires the maintained typed platform_release input")
+            serving = os.environ.get(self.spec.image_env, "")
+            values.append("-var=platform_release=" + json.dumps({"version": release.version,
+                "serving_artifact_reference": serving,
+                "workers": [{"runtime_profile": "managed", "artifact_reference": release.image}]}, separators=(",", ":")))
         return values
 
     def _tag_vars(self, redis_enabled: bool) -> list[str]:
@@ -363,12 +414,34 @@ class TerraformTarget(DeployTarget):
         bucket = os.environ.get(env, "").strip() if env else ""
         if not bucket or not all(self._root_declares(v) for v in REDIS_ON_SCALE_INPUTS):
             return []
+        return [f"-var=desired_count={REDIS_ON_TASKS}", f"-var=max_capacity={REDIS_ON_TASKS}",
+                "-var=deployment_mode=MultiNode", *self._shared_file_storage(env, bucket, name_prefix)]
+
+    def _file_storage_vars(self, name_prefix: str, *, destroy: bool = False) -> list[str]:
+        """The shared-file-storage inputs of a Redis-on cell that does not scale (the Lambda cell), or [].
+
+        Nothing on a root that lacks any of spec.file_storage_inputs (an older iac pin keeps the
+        module's Local storage). A declaring root with the bucket variable unset refuses provisioning:
+        without shared storage the Lambda refuses S10's background import with the typed 503.
+        """
+        inputs, env = self.spec.file_storage_inputs, self.spec.file_storage_bucket_env
+        if not inputs or not env or not all(self._root_declares(v) for v in inputs):
+            return []
+        bucket = os.environ.get(env, "").strip()
+        if not bucket:
+            if destroy:
+                return []
+            raise ProvisionError(
+                f"{self.name}: the pinned root declares shared file storage ({', '.join(inputs)}) but {env} is "
+                "unset; the Redis-on cell needs the operator-owned bucket so S10's background import can run "
+                "on AWS Batch (honua-release#548, owner step in e2e/README.md)")
+        return self._shared_file_storage(env, bucket, name_prefix)
+
+    def _shared_file_storage(self, env: str, bucket: str, name_prefix: str) -> list[str]:
         if not _S3_BUCKET.fullmatch(bucket):
             raise ProvisionError(f"{self.name}: {env} is not an S3 bucket name")
-        return [f"-var=desired_count={REDIS_ON_TASKS}", f"-var=max_capacity={REDIS_ON_TASKS}",
-                "-var=deployment_mode=MultiNode", "-var=file_storage_provider=AwsS3",
-                f"-var=file_storage_aws_s3_bucket_name={bucket}",
-                f"-var=file_storage_aws_s3_key_prefix=release-cells/{name_prefix}"]
+        return ["-var=file_storage_provider=AwsS3", f"-var=file_storage_aws_s3_bucket_name={bucket}",
+                f"-var={FILE_STORAGE_KEY_PREFIX_VAR}={cell_file_storage_prefix(name_prefix)}"]
 
     # --- per-run HTTPS cell hostname (honua-release#450) -----------------------------------------
     def cell_domain_label(self, redis_enabled: bool) -> str:
@@ -532,12 +605,44 @@ class TerraformTarget(DeployTarget):
             raise ProvisionError(f"ephemeral Terraform var file not found: {path}")
         return path
 
+    _TRANSITION_INPUTS = ".honua-transition-vars.json"
+
+    def _write_transition_vars(self, root: Path, variables, redis_enabled: bool) -> None:
+        """Private argv travels only inside the existing encrypted state archive, never a receipt."""
+        path = root / self._TRANSITION_INPUTS
+        if path.is_symlink():
+            raise ProvisionError("private transition inputs must not be a symlink")
+        document = {"schema": "honua.private-transition-inputs/v1", "runId": str(self.run_id),
+                    "target": self.name, "redisEnabled": redis_enabled, "variables": variables}
+        descriptor = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC | os.O_NOFOLLOW, 0o600)
+        with os.fdopen(descriptor, "w") as output:
+            os.fchmod(output.fileno(), 0o600)
+            json.dump(document, output)
+
+    def _read_transition_vars(self, root: Path, redis_enabled: bool, *, required=False):
+        path = root / self._TRANSITION_INPUTS
+        if not path.exists():
+            if required:
+                raise ProvisionError("exact transition inputs missing from the sealed provision state")
+            return None
+        if path.is_symlink() or path.stat().st_mode & 0o077:
+            raise ProvisionError("sealed transition inputs must remain private")
+        record = json.loads(path.read_text())
+        variables = record.get("variables")
+        if (record.get("schema") != "honua.private-transition-inputs/v1" or record.get("runId") != str(self.run_id)
+                or record.get("target") != self.name or record.get("redisEnabled") is not redis_enabled
+                or not isinstance(variables, list) or not variables or not all(isinstance(v, str) for v in variables)):
+            raise ProvisionError("sealed transition inputs belong to another run or topology")
+        return variables
+
     def provision(self, redis_enabled: bool = False) -> str:
         root = self._iac_root()
         if root is None:
             raise ProvisionError(f"{self.name}: honua-iac root not found (set HONUA_IAC_DIR)")
         self._workdir = root
         self._last_vars = self._vars(redis_enabled)
+        if getattr(self, "transition_release", None) is not None:
+            self._write_transition_vars(root, self._last_vars, redis_enabled)
         if self.spec.cell_domain:
             domain = self.cell_domain(redis_enabled)
             if domain is None:
@@ -559,6 +664,91 @@ class TerraformTarget(DeployTarget):
             raise ProvisionError(f"{self.name}: terraform applied but {self.spec.endpoint_output} was empty")
         return url
 
+    def _exact_image_apply(self, image: str, *, redis_enabled: bool, extra_vars: tuple[str, ...] = (), capture_evidence: bool = False):
+        """Apply the same restored cell, replacing only the reviewed immutable image/alias inputs."""
+        if not re.fullmatch(r"[a-z0-9][a-z0-9./_-]+@sha256:[0-9a-f]{64}", image):
+            raise ProvisionError("update image must be a digest-addressed untagged repository")
+        root = self._workdir or self._iac_root()
+        if root is None:
+            raise ProvisionError("update requires restored Terraform state")
+        if not (root / "terraform.tfstate").is_file():
+            raise ProvisionError("update refuses a missing local cell state")
+        variables = list(self._last_vars or self._read_transition_vars(root, redis_enabled,
+                         required=getattr(self, "transition_release", None) is not None) or self._vars(redis_enabled))
+        names = {self.spec.image_var, *(v.split("=", 2)[1] for v in extra_vars)}
+        variables = [v for v in variables if not any(v.startswith("-var=" + name + "=") for name in names)]
+        variables += ["-var=" + self.spec.image_var + "=" + image, *extra_vars]
+        try:
+            # Save and apply an exact plan; do not re-plan different inputs after preflight.
+            (root / "honua-update.tfplan").unlink(missing_ok=True)
+            self._tf(root, "plan", "-input=false", "-out=honua-update.tfplan", *variables)
+            if capture_evidence:
+                plan = root / "honua-update.tfplan"
+                if not plan.is_file() or plan.is_symlink() or not plan.stat().st_size:
+                    raise ProvisionError("exact transition plan identity missing")
+                plan_digest = "sha256:" + hashlib.sha256(plan.read_bytes()).hexdigest()
+            if self.name == "aws-serverless" and redis_enabled:
+                planned = json.loads(self._tf(root, "show", "-json", "honua-update.tfplan").stdout)
+                for resource in planned.get("resource_changes", []):
+                    change = resource.get("change", {})
+                    if resource.get("type") == "aws_batch_job_definition":
+                        if "delete" in change.get("actions", []):
+                            raise ProvisionError("Lambda rollback requires retained active prior Batch definitions; plan would deregister one")
+                        before, after = change.get("before") or {}, change.get("after") or {}
+                        if (before.get("container_properties") != after.get("container_properties")
+                                and after.get("deregister_on_new_revision") is not False):
+                            raise ProvisionError("Lambda rollback requires deregister_on_new_revision=false before worker revision staging")
+            self._tf(root, "apply", "-input=false", "-auto-approve", "honua-update.tfplan")
+        except (OSError, subprocess.SubprocessError) as error:
+            raise ProvisionError("exact candidate Terraform transition failed") from error
+        finally:
+            (root / "honua-update.tfplan").unlink(missing_ok=True)
+        self._last_vars = variables
+        self._workdir = root
+        if getattr(self, "transition_release", None) is not None or (root / self._TRANSITION_INPUTS).exists():
+            self._write_transition_vars(root, variables, redis_enabled)
+        if capture_evidence:
+            return {"actuator": "terraform-exact-apply", "status": "applied", "planSha256": plan_digest,
+                    "imageDigest": image.rsplit("@", 1)[1]}
+
+    def update(self, image: str, *, redis_enabled: bool = False, release=None, capture_evidence: bool = False):
+        """ECS Redis-off's explicit Terraform actuator; never substitute it for a native backend."""
+        if self.name != "aws-ecs" or redis_enabled:
+            raise ProvisionError("exact Terraform update is only the ECS Redis-off actuator")
+        root = self._workdir or self._iac_root()
+        self._rollback_vars = list(self._last_vars or self._read_transition_vars(root, False,
+                                   required=getattr(self, "transition_release", None) is not None) or self._vars(False))
+        extra = () if release is None else ("-var=platform_release=" + json.dumps({"version": release.version,
+            "serving_artifact_reference": image, "workers": [{"runtime_profile": "managed", "artifact_reference": release.image}]},
+            separators=(",", ":")),)
+        return self._exact_image_apply(image, redis_enabled=False, extra_vars=extra, capture_evidence=capture_evidence)
+
+    def rollback(self, *, capture_evidence: bool = False):
+        variables = getattr(self, "_rollback_vars", None)
+        if not variables:
+            raise ProvisionError("no retained exact Terraform baseline for rollback")
+        image = [value.split("=", 2)[2] for value in variables
+                 if value.startswith("-var=" + self.spec.image_var + "=")]
+        if len(image) != 1:
+            raise ProvisionError("retained Terraform baseline image is ambiguous")
+        self._last_vars = variables
+        return self._exact_image_apply(image[0], redis_enabled=False, capture_evidence=capture_evidence)
+
+    def stage_lambda(self, image: str, previous_version: str, *, redis_enabled: bool, release=None) -> None:
+        """Publish B while live remains pinned to A; the supported alias backend performs exposure."""
+        if self.name != "aws-serverless" or not previous_version.isdigit() or int(previous_version) < 1:
+            raise ProvisionError("Lambda staging requires a published retained alias version")
+        if not self._root_declares("lambda_alias_version"):
+            raise ProvisionError("pinned Lambda root cannot retain the baseline alias during staging")
+        extra = ["-var=lambda_alias_version=" + previous_version]
+        if release is not None:
+            extra.append("-var=platform_release=" + json.dumps({"version": release.version,
+                "serving_artifact_reference": image, "workers": [{"runtime_profile": "managed", "artifact_reference": release.image}]},
+                separators=(",", ":")))
+            if redis_enabled:
+                extra.append("-var=gp_batch_image=" + release.image)
+        self._exact_image_apply(image, redis_enabled=redis_enabled, extra_vars=tuple(extra))
+
     def teardown(self, redis_enabled: bool | None = None) -> None:
         # Fail-closed: a destroy that does not complete has left real, billing AWS resources behind
         # (honua-iac#142), so it raises instead of being swallowed. The caller (run_cloud / the
@@ -568,6 +758,7 @@ class TerraformTarget(DeployTarget):
         if root is None:
             return
         mode = False if redis_enabled is None else redis_enabled
+        self._last_vars = self._last_vars or self._read_transition_vars(root, mode)
         try:
             destroy = self._tf(root, "destroy", "-auto-approve",
                                *(self._last_vars or self._vars(mode, destroy=True)), check=False)
@@ -852,10 +1043,20 @@ OPERATIONS_POLICY_RULES_VAR = "operations_policy_rules=" + hcl_object_list(CELL_
 # input studio_end_user_authorization (bool, examples/aws and examples/aws-serverless) renders the
 # setting; it is passed only when the pinned root declares it, so an older pin passes nothing.
 STUDIO_END_USER_AUTHORIZATION_VAR = "studio_end_user_authorization=true"
+# S10 large-import (honua-release#548, owner decision 24): both upload paths cap a staged file at
+# max(BackgroundJobThresholdBytes, MaxMemoryBytes), 100 MiB each by default, so a default cell has no
+# file that can queue as a background import. The Redis-on cells lower the threshold to 64 MiB under
+# the default 100 MiB MaxMemoryBytes, leaving the window (64 MiB, 100 MiB] the S10 fixture sits in.
+# The roots render it as Import__Limits__BackgroundJobThresholdBytes; neither aws root declares the
+# input yet (their additional_env is fixed in the root), so nothing is passed until honua-iac does.
+IMPORT_BACKGROUND_THRESHOLD_VAR = "import_background_job_threshold_bytes=67108864"
 
 # The two terraform-output cells. EKS is a separate, heavier target (cluster + Helm + LB).
 SERVERLESS_SPEC = TfTargetSpec(
     name="aws-serverless",
+    # Same explicit, fail-closed Bedrock opt-in as ECS; absent root inputs refuse provisioning.
+    opt_in_env="HONUA_ENABLE_BEDROCK_AI",
+    opt_in_vars=("enable_bedrock_ai=true", "bedrock_ai_region=us-east-1"),
     root="infrastructure/terraform/examples/aws-serverless",
     image_env="HONUA_LAMBDA_IMAGE_URI",
     image_var="honua_image_uri",
@@ -882,6 +1083,13 @@ SERVERLESS_SPEC = TfTargetSpec(
     # which mirror the in-process timers; JobReconciliation is already rate(1 minute), the
     # EventBridge Scheduler floor, so no faster schedule is possible for the 120 s stage 5 budget.
     declared_ephemeral_vars=("enable_gp_batch=true", "use_batch_service_linked_role=true",
+                             # honua-iac#240: RDS Proxy caps the db.t3.micro connection budget
+                             # regardless of Lambda scale-out (run 38133126673: 53300 on the API host).
+                             "enable_rds_proxy=true",
+                             # honua-iac#241: leave direct-session headroom on db.t3.micro (runner
+                             # migrate/seed, PostGIS + role-defaults psql): 70% of ~87 max_connections
+                             # = ~60 multiplexed proxy connections; ~21 of ~82 usable slots stay direct.
+                             "rds_proxy_max_connections_percent=70",
                              "image_repository_policy_mode=reuse", "enable_control_plane_events=true",
                              OPERATIONS_POLICY_RULES_VAR, STUDIO_END_USER_AUTHORIZATION_VAR),
     # The manifest's generic server image, amd64 child by digest (resolved by e2e-cloud-aws.yml).
@@ -907,6 +1115,14 @@ SERVERLESS_SPEC = TfTargetSpec(
     cell_domain_inputs=("domain_name", "route53_zone_id"),
     cell_domain_optional_on_root=True,
     cors_allowed_origins=(DEMO_SITE_ORIGIN,),
+    redis_on_declared_vars=(IMPORT_BACKGROUND_THRESHOLD_VAR,),
+    # honua-server#5916 / honua-iac#243: a background import the Redis-on Lambda accepts runs on AWS
+    # Batch only when the API function and the Batch workers share S3 file storage (else the Lambda
+    # answers S10 with the typed 503, reasonCode shared-file-storage-required). Redis-off is not
+    # given it: a Lambda without Redis has no durable runner and refuses with the same 503 whatever
+    # its storage, which is what that cell records.
+    file_storage_inputs=FILE_STORAGE_INPUTS,
+    file_storage_bucket_env="HONUA_AWS_CELL_FILE_STORAGE_BUCKET",
 )
 ECS_SPEC = TfTargetSpec(
     name="aws-ecs",
@@ -921,8 +1137,7 @@ ECS_SPEC = TfTargetSpec(
     ephemeral_vars=("alb_deletion_protection=false",),
     declared_ephemeral_vars=("rds_deletion_protection=false", "enable_postgis=true",
                              OPERATIONS_POLICY_RULES_VAR, STUDIO_END_USER_AUTHORIZATION_VAR),
-    # Genuine-model cell only (rc.3 fix unit C6): the workflow sets HONUA_ENABLE_BEDROCK_AI=true for
-    # aws-ecs/redis-off when its genuine_model_bedrock input is on; every other run stays cost-free.
+    # The workflow opts selected GA cells into Bedrock explicitly; defaults incur no model calls.
     opt_in_env="HONUA_ENABLE_BEDROCK_AI",
     opt_in_vars=("enable_bedrock_ai=true", "bedrock_ai_region=us-east-1"),
     # honua-iac#216: the operation key-ring certificate secret for Redis-on cells (see above).
@@ -939,6 +1154,7 @@ ECS_SPEC = TfTargetSpec(
     alb_http_redirect=True,
     redis_on_scale_bucket_env="HONUA_AWS_CELL_FILE_STORAGE_BUCKET",
     cors_allowed_origins=(DEMO_SITE_ORIGIN,),
+    redis_on_declared_vars=(IMPORT_BACKGROUND_THRESHOLD_VAR,),
 )
 
 

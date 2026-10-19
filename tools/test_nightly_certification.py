@@ -120,7 +120,9 @@ def test_resolve_and_mint_run_only_on_trunk():
         assert evaluate(jobs['mint']['if'], {'github.ref': ref, 'needs.train.result': 'success'}) is expected, ref
     # capacity needs the trunk-only resolve; dr and train need the bound candidate. A branch
     # dispatch reaches none of them.
-    assert jobs['protocol_ledger']['needs'] == 'resolve'
+    assert jobs['lambda_deployment']['needs'] == 'resolve'
+    assert jobs['deployment_qualification']['needs'] == 'lambda_deployment'
+    assert set(jobs['protocol_ledger']['needs']) == {'resolve', 'deployment_qualification'}
     assert jobs['capacity']['needs'] == 'resolve'
     assert jobs['dr']['needs'] == 'protocol_ledger'
     assert set(jobs['train']['needs']) >= {'protocol_ledger', 'capacity', 'dr'}
@@ -167,7 +169,9 @@ def test_write_scopes_live_only_on_the_jobs_that_use_them():
     writes = {name: sorted(k for k, v in (job.get('permissions') or {}).items() if v == 'write')
               for name, job in jobs.items()}
     assert writes == {
-        'resolve': [],
+        'resolve': ['contents'],               # unadmitted capacity preparation only
+        'lambda_deployment': ['contents'],       # unadmitted refs/prepared-deployments/<sha> only
+        'deployment_qualification': [],          # validates Lambda proof; Preview EKS is not dispatched
         'protocol_ledger': ['contents'],         # refs/nightly-requirements/<sha>, refs/nightly-candidates/<sha>
         'capacity': [],                          # cross-repo work uses RELEASE_GH_TOKEN
         'dr': ['actions'],                       # dispatches the drill in this repository
@@ -233,6 +237,29 @@ def test_nightly_and_candidate_ref_are_call_only_inputs():
     # A manual dispatch therefore always takes the signed frozen-lock binding.
     bind = step(train['jobs']['freeze'], 'Bind the complete atomic platform lock')
     assert evaluate(bind['if'], {'inputs.dry_run': False})
+
+
+@pytest.mark.parametrize(('dry_run', 'nightly', 'expected'), [
+    ('false', '', ['--exact-candidate']),
+    ('false', 'false', ['--exact-candidate']),
+    ('false', 'true', ['--exact-candidate', '--deployment-phase', 'candidate-precut',
+                       '--deployment-qualification', 'certification/deployment-qualification.json']),
+    ('true', 'true', []),
+])
+def test_only_the_live_nightly_selects_precut_qualification(tmp_path, dry_run, nightly, expected):
+    candidate = step(workflow('release-train.yml')['jobs']['freeze'], 'Validate + publish the candidate manifest')
+    invocation = 'python tools/validate_platform.py "${ARGS[@]}"'
+    script = candidate['run'].split(invocation, 1)[0] + invocation
+    bin_dir = tmp_path / 'bin'
+    bin_dir.mkdir()
+    log = tmp_path / 'argv.json'
+    shim = bin_dir / 'python'
+    shim.write_text(f'#!{sys.executable}\nimport json,sys\n'
+                    f'open({str(log)!r},"w").write(json.dumps(sys.argv[1:]))\n')
+    shim.chmod(shim.stat().st_mode | stat.S_IEXEC)
+    subprocess.run(['bash', '-c', script], cwd=tmp_path, check=True,
+                   env={'PATH': f'{bin_dir}:{os.environ["PATH"]}', 'DRY_RUN': dry_run, 'NIGHTLY': nightly})
+    assert json.loads(log.read_text()) == ['tools/validate_platform.py', *expected]
 
 
 def test_the_strict_train_runs_the_real_journey_gate():
@@ -404,8 +431,8 @@ fail(404, f'unrouted {method} {path}')
 def github(tmp_path):
     bin_dir = tmp_path / 'bin'
     bin_dir.mkdir()
-    for name, body in (('gh', FAKE_GH), ('python', 'import runpy, sys\nsys.argv = sys.argv[1:]\n'
-                                                  'runpy.run_path(sys.argv[0], run_name="__main__")\n')):
+    python_launcher = 'import os, sys\nos.execv(sys.executable, [sys.executable, *sys.argv[1:]])\n'
+    for name, body in (('gh', FAKE_GH), ('python', python_launcher)):
         path = bin_dir / name
         path.write_text(f'#!{sys.executable}\n{body}')
         path.chmod(path.stat().st_mode | stat.S_IEXEC)
@@ -439,6 +466,11 @@ def github(tmp_path):
             work.mkdir(exist_ok=True)
             shutil.copytree(ROOT / 'tools', work / 'tools', dirs_exist_ok=True,
                             ignore=shutil.ignore_patterns('__pycache__'))
+            (work / 'certification').mkdir(exist_ok=True)
+            shutil.copy(ROOT / 'certification/generate-protocol-requirements.py', work / 'certification')
+            (work / 'certification/sources').mkdir(exist_ok=True)
+            shutil.copy(ROOT / 'certification/sources/desktop-client-certification.v1.json',
+                        work / 'certification/sources/desktop-client-certification.v1.json')
             for relative, text in (files or {}).items():
                 (work / relative).parent.mkdir(parents=True, exist_ok=True)
                 (work / relative).write_text(text)
@@ -452,7 +484,7 @@ def github(tmp_path):
     return GitHub()
 
 
-CAPACITY_ENV = {'SERVER_SHA': SERVER, 'SERVER_IMAGE': IMAGE, 'LOCK_REF': REVIEWED, 'GH_TOKEN': 'x'}
+CAPACITY_ENV = {'SERVER_SHA': SERVER, 'SERVER_IMAGE': IMAGE, 'LOCK_REF': SNAPSHOT, 'GH_TOKEN': 'x'}
 DR_ENV = {'CANDIDATE_REF': SNAPSHOT, 'REVIEWED_SHA': REVIEWED, 'GH_TOKEN': 'x'}
 
 
@@ -478,9 +510,9 @@ def test_capacity_producer_runs_on_a_tag_at_the_exact_server_commit(github):
     assert dispatched['repo'] == 'honua-io/honua-server'
     assert dispatched['workflow'] == 'capacity-soak-candidate.yml'
     assert dispatched['ref'] == f'refs/tags/nightly-candidate/{SERVER}'
-    # The envelope is read at this run's commit: a candidate snapshot never changes it.
+    # The resolved unadmitted snapshot carries both candidate manifest and unchanged envelope.
     assert dispatched['inputs'] == {'candidate_sha': SERVER, 'candidate_image': IMAGE,
-                                    'lock_ref': REVIEWED, 'publish': 'true'}
+                                    'lock_ref': SNAPSHOT, 'publish': 'true'}
     assert state['refs']['honua-io/honua-server'][f'refs/tags/nightly-candidate/{SERVER}'] == SERVER
     run = state['runs'][str(state['next_run'])]
     assert run['head_sha'] == SERVER  # the producer's workflow source is the candidate commit
@@ -755,11 +787,17 @@ def lineage(tmp_path):
                        check=True, capture_output=True)
         git(checkout, 'fetch', '-q', '--depth', '1', 'origin', run_sha)
         git(checkout, 'checkout', '-q', '--detach', run_sha)
+        canonical = 'https://github.com/honua-io/honua-release'
+        git(checkout, 'remote', 'set-url', 'origin', canonical)
+        # Preserve the canonical identity while redirecting real Git transport to this fixture.
+        git(checkout, 'config', f'url.file://{origin}.insteadOf', canonical)
         temp = tmp_path / f'temp-{checkout.name}'
         temp.mkdir()
         result = subprocess.run(['bash', '-c', script], cwd=checkout, capture_output=True, text=True, env={
             **os.environ, 'CANDIDATE_REF': candidate, 'RUN_SHA': run_sha, 'RUN_REF': run_ref,
-            'RUNNER_TEMP': str(temp)})
+            'RUNNER_TEMP': str(temp), 'GITHUB_ACTION_PATH': str(ROOT / '.github/actions/candidate-input'),
+            'RUN_REPOSITORY': 'honua-io/honua-release', 'CHECKOUT_DIRECTORY': str(checkout),
+            'REVIEWED_RELEASE_SHA': '', 'GITHUB_OUTPUT': str(temp / 'outputs')})
         return result, checkout
 
     return {'reviewed': reviewed, 'moved': moved, 'good': good, 'sneaky': sneaky, 'staged': staged,
@@ -816,7 +854,10 @@ def ledger_files(catalog=None, server=SERVER):
 
 def test_the_night_produces_its_ledger_before_any_candidate_exists():
     jobs = workflow()['jobs']
-    assert not any('git push' in s.get('run', '') for s in jobs['resolve']['steps'])
+    preparation = step(jobs['resolve'], 'Publish unadmitted resolved inputs')['run']
+    assert 'refs/prepared-deployments/' in preparation
+    assert 'refs/nightly-candidates/' not in preparation
+    assert '-p "$GITHUB_SHA"' in preparation
     resolver = step(jobs['resolve'], 'Resolve the newest qualifying trunk candidate')['run']
     assert '--protocol-ledger produce' in resolver
     names = [s.get('name', '') for s in jobs['protocol_ledger']['steps']]
@@ -844,7 +885,8 @@ def test_capacity_runs_in_parallel_with_the_ledger_and_only_the_train_joins_them
     assert 'protocol_ledger' not in json.dumps(jobs['capacity'])
     assert capacity['env']['SERVER_SHA'] == '${{ needs.resolve.outputs.server_sha }}'
     assert capacity['env']['SERVER_IMAGE'] == '${{ needs.resolve.outputs.server_image }}'
-    assert capacity['env']['LOCK_REF'] == '${{ github.sha }}'
+    assert capacity['env']['LOCK_REF'] == '${{ needs.resolve.outputs.prepared_ref }}'
+    assert jobs['resolve']['outputs']['prepared_ref'] == '${{ steps.prepared.outputs.prepared_ref }}'
     # DR's receipt hashes the bound manifest, so it stays behind the ledger.
     assert jobs['dr']['needs'] == 'protocol_ledger'
     assert set(jobs['train']['needs']) == {'resolve', 'protocol_ledger', 'capacity', 'dr'}
@@ -871,6 +913,14 @@ def test_protocol_producers_run_at_their_pins_bound_to_the_candidate(github):
     candidate = {'candidate_source_sha': SERVER, 'candidate_image': LEDGER_IMAGE, 'candidate_cut_at': CUT,
                  'nightly_dispatch_id': DISPATCH_ID}
     dispatched = github.load()['dispatches']
+    context_json = dispatched[0]['inputs'].pop('requirements_context')
+    context = json.loads(context_json)
+    assert context['producer'] == 'server-protocol-harness'
+    assert context['producer_source_sha'] == SERVER
+    assert context['candidate'] == {'source_sha': SERVER, 'image_digest': NIGHT['candidate']['image_digest'], 'cut_at': CUT}
+    assert context['requirements_revision'] == NIGHT['catalog']['revision']
+    governed = [row for row in NIGHT['catalog']['requirements'] if row['client_lane'] == 'harness']
+    assert context['requirements'] == [{key: row[key] for key in context['requirements'][0]} for row in governed]
     assert dispatched == [
         # honua-server trunk has moved past the candidate: the harness runs on a tag at the candidate.
         {'repo': 'honua-io/honua-server', 'workflow': 'protocol-harness-certification.yml',
@@ -991,3 +1041,51 @@ def test_candidate_input_refuses_a_snapshot_that_changes_the_catalog_generator(l
     assert result.returncode != 0
     assert 'unexpected candidate change: certification/generate-protocol-requirements.py' in result.stdout
     assert (checkout / CATALOG).read_text() == 'old\n'
+
+
+def test_manifest_gate_precut_is_call_only_and_follows_the_live_nightly_phase():
+    manifest = workflow('manifest-validate.yml')
+    called = manifest['triggers']['workflow_call']['inputs']
+    assert called['candidate_precut'] == {'required': False, 'type': 'boolean', 'default': False}
+    assert manifest['triggers']['workflow_dispatch'] is None
+    assert 'deployment_qualification' not in called  # no caller-chosen evidence path
+    gate = workflow('release-train.yml')['jobs']['gate_manifest']
+    assert gate['with']['candidate_ref'] == '${{ inputs.candidate_ref }}'
+    assert gate['with']['candidate_precut'] == '${{ inputs.nightly && inputs.dry_run == false }}'
+    assert gate['secrets'] == 'inherit'
+    validate = step(manifest['jobs']['validate'], 'Validate manifest + matrix')
+    assert validate['env']['GITHUB_TOKEN'] == '${{ secrets.RELEASE_GH_TOKEN || github.token }}'
+    adopt = step(manifest['jobs']['validate'], 'Use the immutable candidate inputs')
+    assert adopt['uses'] == './.github/actions/candidate-input'
+
+
+@pytest.mark.parametrize(('candidate', 'precut', 'baseline', 'expected'), [
+    ('', '', '', []),
+    ('', 'false', 'origin/trunk', ['--baseline', 'origin/trunk']),
+    (SNAPSHOT, 'false', '', ['--exact-candidate']),
+    (SNAPSHOT, 'true', '', ['--exact-candidate', '--deployment-phase', 'candidate-precut',
+                           '--deployment-qualification', 'certification/deployment-qualification.json']),
+    (SNAPSHOT, 'true', 'origin/trunk', ['--baseline', 'origin/trunk', '--exact-candidate',
+         '--deployment-phase', 'candidate-precut', '--deployment-qualification',
+         'certification/deployment-qualification.json']),
+    ('', 'true', '', None),
+])
+def test_manifest_gate_executes_exact_phase_and_refuses_unbound_precut(tmp_path, candidate, precut, baseline, expected):
+    validate = step(workflow('manifest-validate.yml')['jobs']['validate'], 'Validate manifest + matrix')
+    bin_dir = tmp_path / 'bin'
+    bin_dir.mkdir()
+    log = tmp_path / 'argv.json'
+    shim = bin_dir / 'python'
+    shim.write_text(f'#!{sys.executable}\nimport json,sys\n'
+                    f'open({str(log)!r},"w").write(json.dumps(sys.argv[1:]))\n')
+    shim.chmod(shim.stat().st_mode | stat.S_IEXEC)
+    result = subprocess.run(['bash', '-c', validate['run']], cwd=tmp_path, capture_output=True, text=True,
+        env={'PATH': f'{bin_dir}:{os.environ["PATH"]}', 'CANDIDATE_REF': candidate,
+             'CANDIDATE_PRECUT': precut, 'BASELINE_REF': baseline})
+    if expected is None:
+        assert result.returncode != 0
+        assert 'requires adopted immutable candidate inputs' in result.stdout
+        assert not log.exists()
+    else:
+        assert result.returncode == 0, result.stderr
+        assert json.loads(log.read_text()) == ['tools/validate_platform.py', *expected]

@@ -71,6 +71,8 @@ PUBLISHER_WORKFLOWS = {
     'honua-io/geospatial-grpc': 'publish-dotnet-protocol.yml',
 }
 JS_WORKFLOWS = {'@honua/sdk-js': 'publish-js-sdk.yml',
+                **{package: 'publish-js-sdk.yml' for package in ('@honua/sdk', '@honua/sdk-esri-compat',
+                    '@honua/react', '@honua/geometry', '@honua/app-platform')},
                 '@honua/mcp-server': 'publish-mcp-server.yml',
                 'create-honua-app': 'publish-create-honua-app.yml'}
 
@@ -222,9 +224,16 @@ def verify_publisher_bundle(raw: bytes | str, bundle: dict, artifact: dict, repo
         else:
             target = raw  # A pinned OCI manifest can be verified without pulling runnable layers.
         document.write_text(json.dumps(bundle))
+        constraints = []
+        if artifact.get('digestAlgorithm'):
+            constraints += ['--digest-alg', artifact['digestAlgorithm']]
+        if artifact.get('sourceRef'):
+            constraints += ['--source-ref', artifact['sourceRef']]
+        if artifact.get('denySelfHosted'):
+            constraints += ['--deny-self-hosted-runners']
         retry(lambda: subprocess.run(['gh', 'attestation', 'verify', target, '--bundle', str(document),
             '--repo', repository, '--source-digest', artifact['sourceRevision'],
-            '--signer-workflow', workflow, '--predicate-type', predicate, '--format', 'json'], capture_output=True, text=True, check=True))
+            '--signer-workflow', workflow, '--predicate-type', predicate, '--format', 'json', *constraints], capture_output=True, text=True, check=True))
 
 
 def collect_post_gate(report: dict, manifest: Path, matrix: Path, output: Path, *,
@@ -512,6 +521,9 @@ def declare_evidence(report: dict, lock: Path, journeys: list[dict]) -> dict:
                     cells.append({'cell': row['cell'], 'mode': mode, 'attemptCount': len(attempts),
                                   'attempts': [{'attempt': a['number'], 'status': a['status'],
                                                 'failureAttribution': a.get('failureAttribution'),
+                                                **({key: a.get(key) for key in ('profile', 'executionOutcome',
+                                                    'functionalGpExecuted')} if mode == 'genuine-model'
+                                                    or row['cell'].endswith('/redis-off') else {}),
                                                 'completedAt': a.get('completedAt'),
                                                 'lockDigest': a.get('lockDigest') if mode == 'genuine-model'
                                                 else digest} for a in attempts]})

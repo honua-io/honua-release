@@ -26,7 +26,7 @@ ROOT = Path(__file__).resolve().parents[2]
 HERE = Path(__file__).resolve().parent
 DEFAULT_MATRIX = Path(__file__).with_name("matrix.json")
 FLOATING = re.compile(r"(?:^|[-.])(latest|next|local|snapshot)(?:$|[-.])|[*^~<>]", re.I)
-DRIVERS = {"npm", "npm-mcp", "npm-mcp-setup-view", "pypi", "pypi-admin", "nuget", "nuget-import-fidelity"}
+DRIVERS = {"npm-companion", "npm", "npm-mcp", "npm-mcp-setup-view", "pypi", "pypi-admin", "nuget", "nuget-import-fidelity"}
 # Regression drivers: a published SDK, command-line client or the MCP proxy drives the candidate
 # through a scenario contract (scenarios/*.json) with fixture-computed oracles (regression.py,
 # oracles.py).
@@ -83,6 +83,8 @@ def validate_release_inputs(manifest: dict[str, Any], matrix: dict[str, Any]) ->
         artifact = artifacts.get(cell.get("artifact"))
         if not artifact:
             raise CertificationError(f"{cell_id}: artifact pin is missing")
+        if cell["driver"] == "npm-companion" and artifact.get("package") != COMPANION_PROBES[cell["artifact"]][0]:
+            raise CertificationError(f"{cell_id}: companion package differs from its fixed runtime contract")
         version = str(artifact.get("version", ""))
         if not version or FLOATING.search(version) or artifact.get("source") == "local":
             raise CertificationError(f"{cell_id}: release mode rejects local/floating version {version!r}")
@@ -133,6 +135,9 @@ def validate_cell(cell: dict[str, Any]) -> None:
             raise CertificationError(f"{cell_id}: a blocked cell must name its blocking issue URL(s)")
     else:
         raise CertificationError(f"{cell_id}: status must be active or blocked, not {status!r}")
+    if cell["driver"] == "npm-companion":
+        if cell.get("artifact") not in COMPANION_PROBES or cell.get("scenario") != "installed-companion-runtime":
+            raise CertificationError(f"{cell_id}: unknown companion runtime contract")
     if cell["driver"] == "npm-mcp":
         executables = cell.get("executables")
         if (
@@ -153,9 +158,9 @@ def validate_cell(cell: dict[str, Any]) -> None:
             raise CertificationError(f"{cell_id}: setup-view cells must expect a workflowView and a positive toolCount")
 
 
-def boot_candidate(manifest: dict[str, Any]) -> list[str]:
+def boot_candidate(manifest: dict[str, Any], *, overlay: Path | None = None) -> list[str]:
     """Boot the exact candidate image@digest the way e2e-local-docker does (local Docker,
-    licensing disabled, no AWS), plus the SDK regression overlay. Returns the compose command."""
+    licensing disabled, no AWS), with the selected overlay (SDK regression by default)."""
     port = os.environ.get("E2E_SERVER_PORT", "8080")
     server = os.environ.setdefault("HONUA_SERVER_URL", f"http://localhost:{port}")
     os.environ.setdefault("E2E_BASE", server)
@@ -164,7 +169,7 @@ def boot_candidate(manifest: dict[str, Any]) -> list[str]:
     os.environ["HONUA_SERVER_IMAGE"] = server_image_ref(manifest)
     # A per-run issuer key for the operator-bearer scenarios; it never outlives the stack.
     os.environ.setdefault("SDKREG_SIGNING_KEY", secrets.token_urlsafe(48))
-    compose = ["docker", "compose", "-f", str(COMPOSE_BASE), "-f", str(COMPOSE_OVERLAY)]
+    compose = ["docker", "compose", "-f", str(COMPOSE_BASE), "-f", str(overlay or COMPOSE_OVERLAY)]
     os.environ["SDKREG_COMPOSE"] = " ".join(compose)
     if subprocess.run([*compose, "pull", "server"], cwd=ROOT).returncode:
         raise CertificationError(f"could not pull {os.environ['HONUA_SERVER_IMAGE']}")
@@ -216,6 +221,9 @@ def install_npm(
     executables: dict[str, str] | None = None,
     companion_pin: dict[str, Any] | None = None,
     sdk_probe: bool = True,
+    strict_peers: bool = False,
+    runtime_peers: tuple[str, ...] = (),
+    help_identity: str | None = None,
 ) -> tuple[bool, str]:
     if not shutil.which("npm"):
         return False, "npm is unavailable"
@@ -231,7 +239,7 @@ def install_npm(
             return False, companion_archive
         archives.append(companion_archive)
     proc = _run(
-        ["npm", "install", "--ignore-scripts", "--legacy-peer-deps", "--save-exact", *archives],
+        ["npm", "install", "--ignore-scripts", *([] if strict_peers else ["--legacy-peer-deps"]), "--save-exact", *archives, *runtime_peers],
         cwd=work,
     )
     if proc.returncode:
@@ -260,6 +268,8 @@ def install_npm(
                 probe = _run([str(shim), "--help"], cwd=work)
                 if probe.returncode:
                     return False, f"installed executable {command} --help failed: {(probe.stdout + probe.stderr)[-1000:]}"
+                if help_identity and help_identity not in probe.stdout + probe.stderr:
+                    return False, f"installed executable {command} --help did not identify {help_identity}"
             elif server:
                 ok, detail = mcp_tools_list(shim, contract, server)
                 if not ok:
@@ -274,9 +284,40 @@ def install_npm(
     suffix = ""
     if executables is not None:
         suffix = ", package executables verified"
-        if server:
-            suffix += ", every MCP executable answered a live tools/list"
+        if server and any(contract in {"mcp-stdio", "mcp-proxy"} for contract in executables.values()):
+            suffix += ", MCP stdio/proxy executables answered a live tools/list"
     return True, f"exact npm archive sha512 and installed lock integrity matched{suffix}"
+
+
+# Fixed product contracts, not caller-supplied executable code. Each probe runs only after
+# the selected published archive and installed lock match the manifest identity.
+COMPANION_PROBES = {
+    "honua-sdk": ("@honua/sdk", "assert.equal(typeof api.createHonua, 'function'); const client = api.createHonua(); await client.dispose();"),
+    "honua-sdk-esri-compat": ("@honua/sdk-esri-compat", "const graphic = new api.GraphicCompat({attributes: {id: 17}}); assert.equal(graphic.attributes.id, 17);"),
+    "honua-react": ("@honua/react", "const React = await import('react'); const {renderToString} = await import('react-dom/server'); assert.equal(typeof api.useQuery, 'function'); assert.equal(renderToString(React.createElement(api.HonuaProvider, {client:{}}, React.createElement('span', null, 'installed-react'))), '<span>installed-react</span>');"),
+    "honua-geometry": ("@honua/geometry", "assert.deepEqual(api.bbox({type:'Point', coordinates:[12,34]}), [12,34,12,34]);"),
+    "honua-app-platform": ("@honua/app-platform", "const workspace = api.createHonuaAppWorkspace(); assert.ok(workspace.state); workspace.dispose();"),
+    "create-honua-app": ("create-honua-app", None),
+}
+
+
+def probe_npm_companion(pin: dict[str, Any], work: Path) -> tuple[bool, str]:
+    contract = next((value for value in COMPANION_PROBES.values() if value[0] == pin.get("package")), None)
+    if contract is None:
+        return False, "unknown companion package contract"
+    coordinate, expression = contract
+    ok, detail = install_npm(pin, work, sdk_probe=False, strict_peers=True,
+                            executables={"create-honua-app": "help"} if expression is None else None,
+                            runtime_peers=("react@19.2.0", "react-dom@19.2.0") if coordinate == "@honua/react" else (),
+                            help_identity="create-honua-app" if expression is None else None)
+    if not ok:
+        return False, detail
+    if expression is not None:
+        script = "import assert from 'node:assert/strict'; import * as api from " + json.dumps(coordinate) + "; " + expression
+        probe = _run(["node", "--input-type=module", "-e", script], cwd=work)
+        if probe.returncode:
+            return False, f"installed {coordinate} runtime contract failed: {(probe.stdout + probe.stderr)[-2000:]}"
+    return True, f"{detail}; installed {coordinate} runtime contract passed"
 
 
 def _terminal_probes():
@@ -680,7 +721,7 @@ def client_labels(pins: dict[str, Any]) -> dict[str, str]:
     return {artifact: f"{pin['package']} {pin['version']}" for artifact, pin in pins.items()}
 
 
-def run_suite(manifest: dict[str, Any], matrix: dict[str, Any], base: Path) -> dict[str, tuple[str, str, list[dict[str, Any]]]]:
+def run_suite(manifest: dict[str, Any], matrix: dict[str, Any], base: Path, endpoint_context: dict | None = None) -> dict[str, tuple[str, str, list[dict[str, Any]]]]:
     """Run every regression cell (SDK, command-line and MCP): one install and one driver run per client."""
     regression = _regression()
     pins = manifest["clientArtifacts"]
@@ -695,7 +736,16 @@ def run_suite(manifest: dict[str, Any], matrix: dict[str, Any], base: Path) -> d
     interop = interop_context = interop_principals = None
     if "interop" in drivers:
         interop = _interop()
-    if server:
+    db_password = FIXTURE_DB_PASSWORD
+    if endpoint_context is not None:
+        published = endpoint_context["published"]
+        bearer = endpoint_context["bearer"]
+        principals = endpoint_context["principals"]
+        interop_context = endpoint_context["interopContext"]
+        interop_principals = endpoint_context["interopPrincipals"]
+        db_password = endpoint_context["dbPassword"]
+        fixture["lifecycle"]["database"] = endpoint_context["database"]
+    elif server:
         try:
             family = lambda driver: regression.DRIVER_CLIENTS[driver][0]  # noqa: E731
             slugs = [regression.SUITE_DRIVERS[driver] for driver in drivers if family(driver) == "sdk"]
@@ -745,8 +795,12 @@ def run_suite(manifest: dict[str, Any], matrix: dict[str, Any], base: Path) -> d
         plan_path.write_text(json.dumps(plan, indent=2))
         code, stdout, stderr = regression.run_driver(command, work, regression.driver_env(
             env, api_key=os.environ.get("E2E_API_KEY", DEFAULT_ADMIN_KEY), bearer=bearer,
-            db_password=FIXTURE_DB_PASSWORD, plan_path=plan_path, principals=workflow))
-        regression.log(f"== {client} driver exited {code} ==\n{stderr[-6000:]}")
+            db_password=db_password, plan_path=plan_path, principals=workflow))
+        diagnostic = f"== {client} driver exited {code} ==\n{stderr[-6000:]}"
+        if endpoint_context is not None:
+            import endpoint
+            diagnostic = endpoint.redact_log(diagnostic, endpoint_context, os.environ.get("E2E_API_KEY", ""))
+        regression.log(diagnostic)
         observations = regression.parse_observations(stdout)
         for cell in group:
             if driver == "interop":
@@ -826,7 +880,9 @@ def run_cell(
     pins = manifest["clientArtifacts"]
     pin = pins[cell["artifact"]]
     driver = cell["driver"]
-    if driver == "npm":
+    if driver == "npm-companion":
+        ok, detail = probe_npm_companion(pin, work)
+    elif driver == "npm":
         ok, detail = install_npm(pin, work)
     elif driver == "npm-mcp":
         ok, detail = install_npm(
@@ -926,13 +982,15 @@ def execute(
     matrix: dict[str, Any],
     evidence_uri: str,
     import_fidelity_receipt: dict[str, Any] | None = None,
+    endpoint_context: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     pins = manifest["clientArtifacts"]
     results: list[dict[str, Any]] = []
     with tempfile.TemporaryDirectory(prefix="honua-installed-client-") as tmp:
         base = Path(tmp)
         # Blocked cells and blocked steps still execute so a fix is observed instead of assumed.
-        suite = run_suite(manifest, matrix, base)
+        suite = (run_suite(manifest, matrix, base, endpoint_context) if endpoint_context is not None
+                 else run_suite(manifest, matrix, base))
         for cell in matrix["cells"]:
             pin = pins[cell["artifact"]]
             steps = None
@@ -953,7 +1011,11 @@ def execute(
             if cell["status"] == "blocked":
                 result["blockedBy"] = cell["blockedBy"]
             results.append(result)
-    return make_receipt(manifest, matrix, results, evidence_uri)
+    receipt = make_receipt(manifest, matrix, results, evidence_uri)
+    if endpoint_context is not None:
+        receipt["deployment"] = endpoint_context["binding"]
+        receipt["server"] = dict(endpoint_context["binding"]["server"])
+    return receipt
 
 
 def main() -> int:
@@ -974,7 +1036,10 @@ def main() -> int:
         default="all",
         help="fast: only the install/probe cells (the PR check); all: also the SDK regression scenarios (the gate)",
     )
-    parser.add_argument("--live", action="store_true", help="boot and seed the single real server/PostgreSQL target")
+    target = parser.add_mutually_exclusive_group()
+    target.add_argument("--live", action="store_true", help="boot and seed the single real server/PostgreSQL target")
+    target.add_argument("--endpoint-context", type=Path,
+                        help="private prepared endpoint context from the trusted provisioner; never boots Docker")
     parser.add_argument(
         "--import-fidelity-receipt",
         type=Path,
@@ -1007,7 +1072,18 @@ def main() -> int:
                 raise CertificationError(f"import fidelity receipt is not readable JSON: {exc}") from exc
             if not isinstance(import_fidelity_receipt, dict):
                 raise CertificationError("import fidelity receipt must be a JSON object")
-        if args.live:
+        if args.endpoint_context:
+            import endpoint
+            context = endpoint.read_context(args.endpoint_context)
+            endpoint.validate_context(context, manifest, matrix, args.manifest)
+            endpoint.require_client_transport(context)
+            with endpoint.client_environment(context):
+                endpoint.verify_live_identity(context, manifest)
+                receipt = execute(manifest, matrix, args.evidence_uri,
+                                  import_fidelity_receipt=import_fidelity_receipt, endpoint_context=context)
+                endpoint.verify_live_identity(context, manifest)
+            receipt = endpoint.redact_receipt(receipt, context, os.environ.get("E2E_API_KEY", ""))
+        elif args.live:
             compose = boot_candidate(manifest)
             try:
                 seed = subprocess.run(["bash", str(ROOT / "e2e/harness/seed/seed.sh")], cwd=ROOT,
@@ -1027,7 +1103,7 @@ def main() -> int:
         args.output.write_text(json.dumps(receipt, indent=2) + "\n")
         print(json.dumps(receipt, indent=2))
         return 0 if receipt["status"] in {"pass", "blocked"} else 1
-    except CertificationError as exc:
+    except (CertificationError, ValueError) as exc:
         print(f"certification input error: {exc}", file=sys.stderr)
         return 2
 

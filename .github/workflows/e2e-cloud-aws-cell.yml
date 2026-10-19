@@ -14,10 +14,14 @@ name: e2e-cloud-aws-cell
 on:
   workflow_call:
     inputs:
+      update_rollback_run_id: { required: false, type: string, default: "" }
+      update_rollback_mode: { required: false, type: string, default: "rehearsal" }
+      update_rollback_prior_run_id: { required: false, type: string, default: "" }
       target: { required: true, type: string }
       redis: { required: true, type: string }
       preview: { required: true, type: boolean }
       candidate_ref: { required: false, type: string, default: "" }
+      prepared_ref: { required: false, type: string, default: "" }
       require_real: { required: false, type: boolean, default: false }
       cost_ceiling_usd: { required: false, type: string, default: "20" }
       iac_ref: { required: true, type: string }
@@ -31,10 +35,12 @@ on:
       gp_batch_image: { required: false, type: string, default: "" }
       enable_bedrock: { required: false, type: boolean, default: false }
       # Fix unit J3: the genuine-model canary runs after this cell's journey whenever Bedrock is on
-      # (the caller enables it only for aws-ecs / redis off), bound to this lock digest. Empty on a
+      # (opt-in on approved ECS/Lambda GA cells), bound to this lock digest. Empty on a
       # manual dispatch: the canary then records an unbound `blocked` row.
       lock_digest: { required: false, type: string, default: "" }
     secrets:
+      UPDATE_ROLLBACK_CONTROLLER_ENV: { required: false }
+      UPDATE_ROLLBACK_APPROVAL_KEY: { required: false }
       RELEASE_GH_TOKEN:
         required: false
 
@@ -42,6 +48,9 @@ permissions:
   contents: read
 
 env:
+  HONUA_DEPLOYMENT_PREPARED: ${{ inputs.prepared_ref != '' }}
+  # Prepared/admitted cohorts must include the reviewed typed OIDC fixture support.
+  HONUA_CLOUD_TENANT_FIXTURE: ${{ inputs.prepared_ref != '' || inputs.candidate_ref != '' }}
   AWS_REGION: "us-east-1"
   HONUA_LAMBDA_IMAGE_URI: ${{ inputs.lambda_image }}
   HONUA_LAMBDA_ARCHITECTURE: ${{ inputs.lambda_architecture }}
@@ -61,6 +70,7 @@ jobs:
     continue-on-error: ${{ inputs.preview }}
     permissions:
       contents: read
+      actions: read
       id-token: write                 # OIDC -> AWS (no static creds)
     # Identifiers only. Job outputs and step env are printed in the public job log, so the cell's
     # application key goes to Secrets Manager and reaches the journey sealed to its own key.
@@ -74,6 +84,12 @@ jobs:
         if: ${{ inputs.candidate_ref }}
         uses: ./.github/actions/candidate-input
         with:
+          candidate_ref: ${{ inputs.candidate_ref }}
+      - name: Use the unadmitted prepared deployment inputs
+        if: ${{ inputs.prepared_ref }}
+        uses: ./.github/actions/prepared-deployment-input
+        with:
+          prepared_ref: ${{ inputs.prepared_ref }}
           candidate_ref: ${{ inputs.candidate_ref }}
       - name: Checkout honua-iac (terraform tree)
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -142,9 +158,36 @@ jobs:
 
       # Provision, readiness, canonical + canary probes and the database seed. No pinned client,
       # npm package or browser runs in this job.
+      - name: Authenticate transition baseline before any AWS provisioning
+        if: ${{ inputs.update_rollback_run_id != '' }}
+        env:
+          GH_TOKEN: ${{ secrets.RELEASE_GH_TOKEN || github.token }}
+          PRIOR_RUN: ${{ inputs.update_rollback_prior_run_id }}
+          PROOF_MODE: ${{ inputs.update_rollback_mode }}
+          ENABLED: ${{ vars.HONUA_AWS_UPDATE_ROLLBACK_ENABLED }}
+        run: |
+          set -euo pipefail
+          test "$GITHUB_REF" = refs/heads/trunk
+          test "$ENABLED" = true
+          mkdir -p "$RUNNER_TEMP/rollback-prior"
+          if [ "$PROOF_MODE" = qualification ]; then
+            python3 -c 'import re,sys; assert re.fullmatch(r"[1-9][0-9]*",sys.argv[1])' "$PRIOR_RUN"
+            gh run download "$PRIOR_RUN" --repo "$GITHUB_REPOSITORY" --name certified-candidate --dir "$RUNNER_TEMP/rollback-prior"
+            cmp platform-manifest.yaml "$RUNNER_TEMP/rollback-prior/platform-manifest.yaml"
+          else
+            test "$PROOF_MODE" = rehearsal
+            cp platform-manifest.yaml "$RUNNER_TEMP/rollback-prior/"
+          fi
+          echo "HONUA_UPDATE_ROLLBACK_PRIOR_INPUTS=$RUNNER_TEMP/rollback-prior" >> "$GITHUB_ENV"
       - name: "Provision ${{ inputs.target }} / redis-${{ inputs.redis }}"
         id: provision
         env:
+          # Full SDK workflows run on the Redis-on GA cells, with the SQL prepared here.
+          HONUA_CLOUD_INSTALLED_CLIENTS: "true"
+          GH_TOKEN: ${{ secrets.RELEASE_GH_TOKEN || github.token }}
+          HONUA_UPDATE_ROLLBACK_ENABLED: ${{ inputs.update_rollback_run_id != '' }}
+          HONUA_UPDATE_ROLLBACK_ECS_SAFETY: ${{ vars.HONUA_UPDATE_ROLLBACK_ECS_SAFETY }}
+          HONUA_UPDATE_ROLLBACK_MODE: ${{ inputs.update_rollback_mode }}
           HONUA_IAC_DIR: ${{ github.workspace }}/_honua-iac
           HONUA_HELM_DIR: ${{ github.workspace }}/_honua-helm
           HONUA_CLOUD_PROVISION_MARKER: ${{ runner.temp }}/honua-cloud-provision-attempted
@@ -163,6 +206,8 @@ jobs:
           HONUA_AWS_CELL_DNS_PARENT: ${{ vars.HONUA_AWS_CELL_DNS_PARENT }}
           # honua-release#377 stage 6: the Redis-on ECS cell runs two tasks (MultiNode) with shared
           # file storage in this operator-owned bucket (owner step in e2e/README.md). Unset => one task.
+          # The Redis-on Lambda cell shares it with its Batch workers once its root declares the inputs
+          # (honua-iac#243); then an unset bucket refuses that cell (S10 background import, #548).
           HONUA_AWS_CELL_FILE_STORAGE_BUCKET: ${{ vars.HONUA_AWS_CELL_FILE_STORAGE_BUCKET }}
         run: |
           set -euo pipefail
@@ -206,9 +251,15 @@ jobs:
           # Identifiers and verdicts only; this repository's artifacts are public.
           path: |
             ${{ env.CELL_DIR }}/provision.json
+            ${{ env.CELL_DIR }}/deployment-execution-inputs.json
+            ${{ env.CELL_DIR }}/deployment-terraform-inputs.json
+            ${{ env.CELL_DIR }}/deployment-helm-inputs.json
+            ${{ env.CELL_DIR }}/deployment-actuation.json
+            ${{ env.CELL_DIR }}/executed-manifest.yaml
             ${{ env.CELL_DIR }}/extended/seed-manifest.json
             ${{ env.CELL_DIR }}/receipt-*.json
             ${{ env.CELL_DIR }}/target-*.json
+            ${{ env.CELL_DIR }}/serving-refusal-*.json
           if-no-files-found: warn
           retention-days: 1
 
@@ -250,6 +301,12 @@ jobs:
         uses: ./.github/actions/candidate-input
         with:
           candidate_ref: ${{ inputs.candidate_ref }}
+      - name: Use the unadmitted prepared deployment inputs
+        if: ${{ inputs.prepared_ref }}
+        uses: ./.github/actions/prepared-deployment-input
+        with:
+          prepared_ref: ${{ inputs.prepared_ref }}
+          candidate_ref: ${{ inputs.candidate_ref }}
       - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
         with:
           python-version: "3.12"
@@ -258,6 +315,9 @@ jobs:
           node-version: "22"
       - name: Install journey runner dependencies
         run: python -m pip install -r e2e/requirements.txt
+      - uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68 # v6.0.0
+        with:
+          dotnet-version: "10.0.x"
 
       # The checkout below is static so the code driven on this host stays review-visible. The
       # candidate declares its demo source in the (possibly overlaid) platform manifest, so that
@@ -267,7 +327,7 @@ jobs:
         run: |
           python - <<'PY'
           import yaml
-          reviewed = "0db19d7e6e5826fd885fb8f9c21c1798077c9b71"
+          reviewed = "b024902e2c4bc41bf7a5ce39d159bf65e35c9675"
           source = (yaml.safe_load(open("platform-manifest.yaml")).get("evidenceSources") or {}).get("demos") or {}
           if source.get("repository") != "honua-io/honua-site" or source.get("producerSha") != reviewed:
               raise SystemExit("candidate evidenceSources.demos differs from the reviewed workflow pin")
@@ -278,7 +338,7 @@ jobs:
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           repository: honua-io/honua-site
-          ref: 0db19d7e6e5826fd885fb8f9c21c1798077c9b71
+          ref: b024902e2c4bc41bf7a5ce39d159bf65e35c9675
           path: _site
           persist-credentials: false
       # Root installs only the distro packages named here: the list is Playwright 1.61.1's own
@@ -308,7 +368,7 @@ jobs:
           echo "E2E_PW_HOME=$E2E_PW_HOME" >> "$GITHUB_ENV"
           echo "E2E_PLAYWRIGHT_VERSION=1.61.1" >> "$GITHUB_ENV"
           echo "E2E_SITE_DIR=$GITHUB_WORKSPACE/_site" >> "$GITHUB_ENV"
-          echo "E2E_SITE_SHA=0db19d7e6e5826fd885fb8f9c21c1798077c9b71" >> "$GITHUB_ENV"
+          echo "E2E_SITE_SHA=b024902e2c4bc41bf7a5ce39d159bf65e35c9675" >> "$GITHUB_ENV"
 
       - name: Download the provision handoff
         uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
@@ -359,9 +419,10 @@ jobs:
           TERMINAL_MODEL_SIGNING_MANIFEST_SHA256: ${{ vars.TERMINAL_MODEL_SIGNING_MANIFEST_SHA256 }}
         run: |
           set -euo pipefail
-          if [ "${{ inputs.target }}" != aws-ecs ] || [ "${{ inputs.redis }}" != off ]; then
-            echo "::error::the genuine-model canary runs on aws-ecs / redis-off only"; exit 1
-          fi
+          case "${{ inputs.target }}/redis-${{ inputs.redis }}" in
+            aws-ecs/redis-off|aws-ecs/redis-on|aws-serverless/redis-off|aws-serverless/redis-on) ;;
+            *) echo "::error::the genuine-model canary requires an approved AWS GA cell"; exit 1 ;;
+          esac
           python -m pip install "cryptography>=45.0"
           # The nightly train passes its qualification lock digest and every attempt binds to it. A
           # manual dispatch has no nightly lock: the canary then runs once unbound and records an
@@ -380,7 +441,7 @@ jobs:
         if: ${{ always() && inputs.enable_bedrock }}
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
-          name: journey-gate-report-nightly-model
+          name: journey-gate-report-nightly-model-${{ env.CELL_ARTIFACT }}
           path: |
             ${{ env.CELL_DIR }}/model-journey/gate-report-journey.json
             ${{ env.CELL_DIR }}/model-journey/model-canary-*.json
@@ -396,8 +457,11 @@ jobs:
             ${{ env.CELL_DIR }}/journey.json
             ${{ env.CELL_DIR }}/receipt-*.json
             ${{ env.CELL_DIR }}/target-*.json
+            ${{ env.CELL_DIR }}/serving-refusal-*.json
             ${{ env.CELL_DIR }}/setup-discovery-*.json
             ${{ env.CELL_DIR }}/extended/gate-report.json
+            ${{ env.CELL_DIR }}/installed-clients/receipt.json
+            ${{ env.CELL_DIR }}/extended/seed-manifest.json
           if-no-files-found: warn
           retention-days: 1
 
@@ -435,7 +499,7 @@ jobs:
           path: ${{ env.CELL_DIR }}
       - name: Wait for the journey runner's introduction
         env:
-          GH_TOKEN: ${{ github.token }}
+          GH_TOKEN: ${{ secrets.RELEASE_GH_TOKEN || github.token }}
           NAME: cloud-cell-journey-hello-${{ env.CELL_ARTIFACT }}
         run: |
           set -euo pipefail
@@ -478,9 +542,10 @@ jobs:
     needs: [provision, journey, admit]
     if: always()
     runs-on: ubuntu-latest
-    continue-on-error: ${{ inputs.preview }}
+    continue-on-error: false
     permissions:
       contents: read
+      actions: read
       id-token: write
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -489,6 +554,12 @@ jobs:
         if: ${{ inputs.candidate_ref }}
         uses: ./.github/actions/candidate-input
         with:
+          candidate_ref: ${{ inputs.candidate_ref }}
+      - name: Use the unadmitted prepared deployment inputs
+        if: ${{ inputs.prepared_ref }}
+        uses: ./.github/actions/prepared-deployment-input
+        with:
+          prepared_ref: ${{ inputs.prepared_ref }}
           candidate_ref: ${{ inputs.candidate_ref }}
       - name: Checkout honua-iac (terraform tree)
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -554,6 +625,69 @@ jobs:
           else
             echo "no sealed state — provisioning never started or its state was lost (teardown decides)"
           fi
+      - name: Prepare authenticated transition bundles and protected controller inputs
+        if: ${{ inputs.update_rollback_run_id != '' }}
+        env:
+          GH_TOKEN: ${{ secrets.RELEASE_GH_TOKEN || github.token }}
+          TRANSITION_RUN: ${{ inputs.update_rollback_run_id }}
+          PRIOR_RUN: ${{ inputs.update_rollback_prior_run_id }}
+          PROOF_MODE: ${{ inputs.update_rollback_mode }}
+          CONTROLLER_ENV: ${{ secrets.UPDATE_ROLLBACK_CONTROLLER_ENV }}
+          ENABLED: ${{ vars.HONUA_AWS_UPDATE_ROLLBACK_ENABLED }}
+        run: |
+          set -euo pipefail
+          test "$GITHUB_REF" = refs/heads/trunk
+          test "$ENABLED" = true
+          mkdir -p "$RUNNER_TEMP/rollback-prior" "$RUNNER_TEMP/rollback-candidate"
+          python3 -c 'import re,sys; assert re.fullmatch(r"[1-9][0-9]*",sys.argv[1])' "$TRANSITION_RUN"
+          case "$PROOF_MODE" in
+            rehearsal)
+              cp platform-manifest.yaml "$RUNNER_TEMP/rollback-prior/"
+              gh run download "$TRANSITION_RUN" --repo "$GITHUB_REPOSITORY" --name prepared-deployment --dir "$RUNNER_TEMP/rollback-candidate"
+              ;;
+            qualification)
+              python3 -c 'import re,sys; assert re.fullmatch(r"[1-9][0-9]*",sys.argv[1])' "$PRIOR_RUN"
+              gh run download "$PRIOR_RUN" --repo "$GITHUB_REPOSITORY" --name certified-candidate --dir "$RUNNER_TEMP/rollback-prior"
+              gh run download "$TRANSITION_RUN" --repo "$GITHUB_REPOSITORY" --name certified-candidate --dir "$RUNNER_TEMP/rollback-candidate"
+              ;;
+            *) exit 1 ;;
+          esac
+          # A reviewed optional pack is tracked in the trusted workflow source. Its exact bytes
+          # must match BOTH retained manifest hashes before the runtime may use it.
+          if [ -f certification/update-rollback-workload.json ]; then
+            cp certification/update-rollback-workload.json "$RUNNER_TEMP/rollback-candidate/update-rollback-workload.json"
+          fi
+          (umask 077; printf '%s' "$CONTROLLER_ENV" > "$RUNNER_TEMP/rollback-controller.env")
+      - name: Prove actual AWS update and rollback after the baseline journey
+        if: ${{ inputs.update_rollback_run_id != '' }}
+        env:
+          GH_TOKEN: ${{ secrets.RELEASE_GH_TOKEN || github.token }}
+          HONUA_IAC_DIR: ${{ github.workspace }}/_honua-iac
+          CELL_TARGET: ${{ inputs.target }}
+          CELL_REDIS: ${{ inputs.redis }}
+          PROOF_MODE: ${{ inputs.update_rollback_mode }}
+          HONUA_UPDATE_ROLLBACK_APPROVAL_KEY: ${{ secrets.UPDATE_ROLLBACK_APPROVAL_KEY }}
+          HONUA_UPDATE_ROLLBACK_CONTROLLER_ROLE_ARN: ${{ vars.HONUA_UPDATE_ROLLBACK_CONTROLLER_ROLE_ARN }}
+          HONUA_UPDATE_ROLLBACK_ECR_REPOSITORY: ${{ vars.HONUA_UPDATE_ROLLBACK_ECR_REPOSITORY }}
+        run: |
+          set -euo pipefail
+          case "$CELL_TARGET" in
+            aws-ecs) ROOT=examples/aws ;;
+            aws-serverless) ROOT=examples/aws-serverless ;;
+            *) exit 1 ;;
+          esac
+          terraform -chdir="$HONUA_IAC_DIR/infrastructure/terraform/$ROOT" init -input=false -no-color >/dev/null
+          WORKLOAD_ARGS=()
+          if [ -f "$RUNNER_TEMP/rollback-candidate/update-rollback-workload.json" ]; then
+            WORKLOAD_ARGS=(--gp-workload "$RUNNER_TEMP/rollback-candidate/update-rollback-workload.json")
+          fi
+          python e2e/run_cloud.py --phase update-rollback --target "$CELL_TARGET" --redis "$CELL_REDIS" "${WORKLOAD_ARGS[@]}" \
+            --prior-inputs "$RUNNER_TEMP/rollback-prior" --transition-inputs "$RUNNER_TEMP/rollback-candidate" \
+            --update-rollback-mode "$PROOF_MODE" --controller-env "$RUNNER_TEMP/rollback-controller.env" \
+            --serving-fixture "$RUNNER_TEMP/journey-upload/extended/seed-manifest.json" --journey-dir "$RUNNER_TEMP/journey-upload"
+      - name: Remove private controller startup input
+        if: ${{ always() && inputs.update_rollback_run_id != '' }}
+        run: rm -f "$RUNNER_TEMP/rollback-controller.env"
       # J6: an ECS cell leaves its tasks' exit cause in the cell artifact and this job log — every
       # task's stoppedReason, the last 300 CloudWatch log lines of each stopped task's containers
       # (and the newest task's), credentials redacted, and each task definition's environment
@@ -591,6 +725,7 @@ jobs:
       # Batch usage) is written into the cell gate-report's `cost` (owner decision 9).
       - name: "Tear down ${{ inputs.target }} / redis-${{ inputs.redis }} and decide the cell"
         if: always()
+        # The runner separates Preview qualification from mandatory cleanup; no error is swallowed.
         env:
           HONUA_IAC_DIR: ${{ github.workspace }}/_honua-iac
           HONUA_CLOUD_PROVISION_MARKER: ${{ runner.temp }}/honua-cloud-provision-attempted
@@ -608,6 +743,8 @@ jobs:
           HONUA_AWS_CELL_DNS_PARENT: ${{ vars.HONUA_AWS_CELL_DNS_PARENT }}
           # honua-release#377 stage 6: the Redis-on ECS cell runs two tasks (MultiNode) with shared
           # file storage in this operator-owned bucket (owner step in e2e/README.md). Unset => one task.
+          # The Redis-on Lambda cell shares it with its Batch workers once its root declares the inputs
+          # (honua-iac#243); then an unset bucket refuses that cell (S10 background import, #548).
           HONUA_AWS_CELL_FILE_STORAGE_BUCKET: ${{ vars.HONUA_AWS_CELL_FILE_STORAGE_BUCKET }}
         run: |
           set -euo pipefail
@@ -617,6 +754,28 @@ jobs:
           if [ "${{ inputs.require_real }}" = "true" ]; then ARGS+=(--require-real); fi
           python e2e/run_cloud.py "${ARGS[@]}"
 
+      - name: Bind transition proof to actual cleanup and metered cost
+        if: ${{ always() && inputs.update_rollback_run_id != '' }}
+        run: |
+          python tools/collect_update_rollback.py --cell "$CELL_DIR/update-rollback-cell.json" \
+            --cloud-report e2e/gate-report-cloud.json --output "$CELL_DIR/update-rollback-cell.json"
+      - name: Refuse incomplete cleanup on every topology
+        if: always()
+        run: |
+          python3 - <<'PYCODE'
+          import json
+          import sys
+          from pathlib import Path
+          sys.path.insert(0, "e2e")
+          from cloud_journey import cleanup_failure
+          report = json.loads(Path("e2e/gate-report-cloud.json").read_text())
+          problem = cleanup_failure(report)
+          if problem:
+              raise SystemExit(problem)
+          if report.get("cost", {}).get("status") == "fail":
+              raise SystemExit("run cost ceiling exceeded")
+          PYCODE
+
       - name: Upload cloud gate-report (per cell)
         if: always()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
@@ -624,8 +783,17 @@ jobs:
           name: e2e-cloud-aws-gate-report-${{ inputs.target }}-redis-${{ inputs.redis }}
           path: |
             e2e/gate-report-cloud.json
+            e2e/cloud-evidence/**/update-rollback-cell.json
             e2e/cloud-evidence/**/extended/gate-report.json
             e2e/cloud-evidence/**/receipt-*.json
             e2e/cloud-evidence/**/target-*.json
+            e2e/cloud-evidence/**/serving-refusal-*.json
+            e2e/cloud-evidence/**/extended/seed-manifest.json
             e2e/cloud-evidence/**/diagnostics-*.json
+            e2e/cloud-evidence/**/deployment-execution-inputs.json
+            e2e/cloud-evidence/**/deployment-terraform-inputs.json
+            e2e/cloud-evidence/**/deployment-helm-inputs.json
+            e2e/cloud-evidence/**/deployment-actuation.json
+            e2e/cloud-evidence/**/executed-manifest.yaml
+            e2e/cloud-evidence/**/deployment-cell-receipt.json
           if-no-files-found: warn

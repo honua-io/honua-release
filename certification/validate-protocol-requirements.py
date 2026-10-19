@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import fnmatch
+import importlib.util
 import json
 import re
 from pathlib import Path
@@ -18,6 +19,38 @@ FIXTURE = "docker/cng/seed.sql@{source_sha}"
 
 def slug(value: str) -> str:
     return re.sub(r"[^a-z0-9]+", "-", value.lower()).strip("-")
+
+
+def validate_geometry_client_addressability(catalog: dict) -> None:
+    policy = json.loads((ROOT / "sources/geometry-service-client-addressability.v1.json").read_text(encoding="utf-8"))
+    if (policy["schema"], policy["client_key"], policy["client_kind"], policy["surface"], policy["supported_operation_count"], policy["addressable_by_client"]) != ("honua.geometry-service-client-addressability/v1", "pro", "licensed-scripting", "geometry-service", 31, False):
+        raise ValueError("GeometryServer policy must remain scoped to the governed licensed scripting client.")
+    source = policy["source"]
+    if (source["repository"] != "honua-io/honua-esri-compat" or source["commit"] != "7b275a11a7a4995dcd4dbfb90f21d9e57342eacc" or source["blob"] != "68f0fd206ee566682efebeb8d32ff4ac19dba66c" or "git-blob:" + source["blob"] not in policy["reason"]):
+        raise ValueError("GeometryServer policy requires an exact private source commit/blob and matching evidence reference.")
+    spec = importlib.util.spec_from_file_location("protocol_generator_config", ROOT / "generate-protocol-requirements.py")
+    config = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(config)
+    declaration = config.licensed_scripting_client()
+    lane = declaration[2]
+    driver = lane.removeprefix("desktop-")
+    if declaration[3] != config.DESKTOP["clients"][policy["client_key"]]["deployment_target"] or declaration[4] is not True:
+        raise ValueError("Licensed scripting declaration must match the authoritative desktop manifest.")
+    matrix = json.loads((ROOT / "sources/esri-compat/matrix/geometry-service.matrix.json").read_text(encoding="utf-8"))
+    operations = {case["id"] for case in matrix["cases"] if case["status"] in SUPPORTED}
+    rows = [row for row in catalog["requirements"] if row["client_lane"] == lane + "-geometry-service"]
+    if len(operations) != policy["supported_operation_count"] or len(rows) != len(operations) or {row["operation"] for row in rows} != operations:
+        raise ValueError("All original Licensed scripting GeometryServer operation records must remain explicit.")
+    if any(row.get("client_driver") != driver or row["addressable_by_client"] or row["addressability_reason"] != policy["reason"]
+           or row["scenario_facets"] != ["not-client-addressable"] for row in rows):
+        raise ValueError("Licensed scripting GeometryServer operations must carry the documented non-addressability policy.")
+    if any(row["addressability_reason"] == policy["reason"] for row in catalog["requirements"] if row not in rows):
+        raise ValueError("Licensed scripting GeometryServer policy cannot apply to another client or surface.")
+    for lane in (client[2] for client in config.protocol_clients() if not client[4]):
+        other = [row for row in catalog["requirements"] if row["client_lane"] == lane + "-geometry-service"]
+        if (len(other) != len(operations) or {row["operation"] for row in other} != operations
+                or any(not row["addressable_by_client"] or row["addressability_reason"] is not None for row in other)):
+            raise ValueError("Other GeometryServer clients must retain every addressable operation.")
 
 
 def validate_bounded_roster(catalog: dict, roster: dict) -> None:
@@ -125,6 +158,30 @@ def validate_bounded_roster(catalog: dict, roster: dict) -> None:
         raise ValueError(f"Bounded test IDs resolve to more than one requirement: {ambiguous}")
 
 
+def validate_mcp_authorization(catalog: dict) -> None:
+    """Check both canonical clients against the exhaustive operation policy."""
+    spec = importlib.util.spec_from_file_location("mcp_auth_generator", ROOT / "generate-protocol-requirements.py")
+    config = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(config)
+    inventory = json.loads((ROOT / "sources/geospatial-mcp/operations.v1.json").read_text(encoding="utf-8"))
+    policies = config.mcp_operation_auth(inventory)
+    kinds = {entry["operation"]: entry["kind"] for entry in inventory["operations"]}
+    expected = {
+        (operation, client, lane, version, "local-docker", f"mcp.{kinds[operation]}", policy)
+        for operation, policy in policies.items()
+        for client, lane, version in config.mcp_clients()
+    }
+    rows = [row for row in catalog["requirements"] if row["surface"] == "mcp"]
+    actual = {
+        (row["operation"], row["canonical_client"], row["client_lane"], row["client_version"], row["deployment_target"],
+         row["capability_key"], row["auth_policy_revision"])
+        for row in rows
+    }
+    if (len(rows) != len(expected) or actual != expected
+            or any(row["scenario_facets"] != ["positive", "negative", "media-schema", "auth"] for row in rows)):
+        raise ValueError("MCP requirements differ from the complete selected-client authorization policy")
+
+
 def main() -> None:
     catalog = json.loads((ROOT / "protocol-certification-requirements.v1.json").read_text(encoding="utf-8"))
     schema = json.loads((ROOT / "protocol-certification-requirements.v1.schema.json").read_text(encoding="utf-8"))
@@ -165,6 +222,8 @@ def main() -> None:
         for cell in bounded_roster["cells"]
     }
     jsonschema.validate(catalog, schema)
+    validate_geometry_client_addressability(catalog)
+    validate_mcp_authorization(catalog)
     if catalog["receipt_schema_min"] not in {"v1", "v2"}:
         raise ValueError("Catalog receipt_schema_min must be 'v1' or 'v2'.")
     if catalog["source_revisions"] != revisions:
@@ -301,7 +360,10 @@ def main() -> None:
         "scenario_facets",
     }
     required_assignment_fields = allowed_assignment_fields - {"catalog_capability_key"}
+    known_capabilities = {capability["key"] for capability in server["capabilities"]}
     for assignment in harness_assignments:
+        if assignment.get("capability_key") not in known_capabilities:
+            raise ValueError("Server protocol harness assignment names an unknown capability.")
         if not required_assignment_fields.issubset(assignment) or not set(assignment).issubset(allowed_assignment_fields):
             raise ValueError("Server protocol harness assignment has unknown or missing fields.")
         if not re.fullmatch(r"(?:GET|POST|PUT|PATCH|DELETE) /\S(?:.*\S)?", assignment["operation"]):
@@ -349,17 +411,19 @@ def main() -> None:
     expected_harness_capabilities = {
         capability
         for capability in governed_official_capabilities
-        if not sdk_has_entrypoints(capability)
+        if capability in implemented_keys and not sdk_has_entrypoints(capability)
     }
     actual_harness_capabilities = {
         assignment["capability_key"] for assignment in harness_assignments
         if assignment["capability_key"] in implemented_keys
     }
-    if actual_harness_capabilities != expected_harness_capabilities:
+    # Governed write operations supplement SDK-covered capabilities; they are not gaps.
+    # The exact operation/test/facet denominator below still requires every implemented
+    # assignment and refuses extra, omitted or altered generated rows.
+    if not expected_harness_capabilities.issubset(actual_harness_capabilities):
         raise ValueError(
-            "Server protocol harness assignments differ from the operation-contract gaps "
-            f"(missing={sorted(expected_harness_capabilities - actual_harness_capabilities)}, "
-            f"unexpected={sorted(actual_harness_capabilities - expected_harness_capabilities)})"
+            "Server protocol harness assignments omit operation-contract gaps "
+            f"(missing={sorted(expected_harness_capabilities - actual_harness_capabilities)})"
         )
     expected_harness_rows = {
         (
@@ -453,7 +517,17 @@ def main() -> None:
             "Capabilities cannot be both protocol-assigned and separately classified: "
             f"{sorted(overlap)}"
         )
-    classified_capabilities = declared_protocols | decision_capabilities
+    unknown_decisions = decision_capabilities - known_capabilities
+    if unknown_decisions:
+        raise ValueError(f"Canonical-client applicability names unknown capabilities: {sorted(unknown_decisions)}")
+    implemented_decisions = decision_capabilities & implemented_capabilities
+    if any(
+        row["contract_revision"] == f"canonical-client-applicability@{applicability['revision']}"
+        and row["capability_key"] not in implemented_decisions
+        for row in catalog["requirements"]
+    ):
+        raise ValueError("Canonical-client applicability has a generated row for a nonimplemented decision.")
+    classified_capabilities = declared_protocols | implemented_decisions
     if implemented_capabilities != classified_capabilities:
         raise ValueError(
             "Canonical-client applicability differs from the implemented capability surface "
@@ -489,6 +563,8 @@ def main() -> None:
     expected_decision_rows: list[dict] = []
     for decision in decisions:
         capability_key = decision["capability_key"]
+        if capability_key not in implemented_decisions:
+            continue
         classification = decision["classification"]
         if classification == "official-sdk-required":
             capability_row_count = 0
@@ -626,7 +702,7 @@ def main() -> None:
     present_decision_rows = [
         row
         for row in catalog["requirements"]
-        if row["capability_key"] in decision_capabilities
+        if row["capability_key"] in implemented_decisions
         and (
             row["contract_revision"]
             == f"canonical-client-applicability@{applicability['revision']}"

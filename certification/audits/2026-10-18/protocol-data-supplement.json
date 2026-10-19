@@ -1,0 +1,198 @@
+{
+  "scope": "Supplemental bounded WCS/WPS/STAC/gRPC assertion and selector review; source evidence only.",
+  "server_revision": "e4a973997e4444e8c0f97d2cb6a62a0a5825c5e9",
+  "release_base": "162f08d162683ea36915451d822ee9a6c0f68fb1",
+  "method": "Read current worktree files and verify every cited byte against the immutable server commit. Inspect assertions, substituted dependencies, client entry points, governed facet descriptions, selectors, and existing scope issues. No runtime tests performed for this review.",
+  "qualification": "not-evaluated",
+  "strong_existing_coverage": [
+    {
+      "surface": "WCS adapter",
+      "assertions": "Namespace-correct coverage metadata, asymmetric CRS84 longitude/latitude bounds, pixel-center values, rotated projected-grid vectors and nodata are checked against literals. GetCoverage verifies exact forwarded clip/SRID/format; unsupported CRS rejects before exporting.",
+      "boundary": "Wcs20EndpointsTests replaces IRasterStore and returns four PNG-signature bytes. These are adapter-contract assertions, not decoded raster correctness.",
+      "sources": [
+        "https://github.com/honua-io/honua-server/blob/e4a973997e4444e8c0f97d2cb6a62a0a5825c5e9/tests/dotnet/Honua.Protocols.OgcClassic.Tests/Source/Wcs20/Wcs20EndpointsTests.cs#L24",
+        "https://github.com/honua-io/honua-server/blob/e4a973997e4444e8c0f97d2cb6a62a0a5825c5e9/tests/dotnet/Honua.Protocols.OgcClassic.Tests/Source/Wcs20/Wcs20EndpointsTests.cs#L61",
+        "https://github.com/honua-io/honua-server/blob/e4a973997e4444e8c0f97d2cb6a62a0a5825c5e9/tests/dotnet/Honua.Protocols.OgcClassic.Tests/Source/Wcs20/Wcs20EndpointsTests.cs#L88",
+        "https://github.com/honua-io/honua-server/blob/e4a973997e4444e8c0f97d2cb6a62a0a5825c5e9/tests/dotnet/Honua.Protocols.OgcClassic.Tests/Source/Wcs20/Wcs20EndpointsTests.cs#L240",
+        "https://github.com/honua-io/honua-server/blob/e4a973997e4444e8c0f97d2cb6a62a0a5825c5e9/tests/dotnet/Honua.Protocols.OgcClassic.Tests/Source/Wcs20/Wcs20EndpointsTests.cs#L291"
+      ]
+    },
+    {
+      "surface": "WCS authorization",
+      "assertions": "Protected coverage reads deny a principal without the read role, while an allowed principal receives PNG bytes; desktop and canonical routes are compared.",
+      "boundary": "The shared positive image assertion checks status, media type and PNG magic; it does not decode or verify pixel values.",
+      "sources": [
+        "https://github.com/honua-io/honua-server/blob/e4a973997e4444e8c0f97d2cb6a62a0a5825c5e9/tests/dotnet/Honua.Protocols.OgcClassic.Tests/Source/Wcs20/Wcs20AuthorizationProofTests.cs#L26",
+        "https://github.com/honua-io/honua-server/blob/e4a973997e4444e8c0f97d2cb6a62a0a5825c5e9/tests/dotnet/Honua.Protocols.OgcClassic.Tests/Source/OgcClassicAuthorizationProofTestBase.cs#L130"
+      ]
+    },
+    {
+      "surface": "WPS adapter",
+      "assertions": "Execute XML input maps to the canonical plan; status preserves exact job identity, Running state and 42 percent progress. GetResult preserves both artifact identifiers and references instead of replacing outputs with the summary. Unknown jobs and invalid contracts receive protocol errors.",
+      "boundary": "These cases substitute IGeoprocessingJobService. Inert conformance-echo cases and adapter tests do not prove real native worker completion, restart, cancellation or output bytes.",
+      "sources": [
+        "https://github.com/honua-io/honua-server/blob/e4a973997e4444e8c0f97d2cb6a62a0a5825c5e9/tests/dotnet/Honua.Protocols.OgcClassic.Tests/Source/Wps20/Wps20EndpointsTests.cs#L216",
+        "https://github.com/honua-io/honua-server/blob/e4a973997e4444e8c0f97d2cb6a62a0a5825c5e9/tests/dotnet/Honua.Protocols.OgcClassic.Tests/Source/Wps20/Wps20EndpointsTests.cs#L331",
+        "https://github.com/honua-io/honua-server/blob/e4a973997e4444e8c0f97d2cb6a62a0a5825c5e9/tests/dotnet/Honua.Protocols.OgcClassic.Tests/Source/Wps20/Wps20EndpointsTests.cs#L429",
+        "https://github.com/honua-io/honua-server/blob/e4a973997e4444e8c0f97d2cb6a62a0a5825c5e9/tests/dotnet/Honua.Protocols.OgcClassic.Tests/Source/Wps20/Wps20EndpointsTests.cs#L461",
+        "https://github.com/honua-io/honua-server/blob/e4a973997e4444e8c0f97d2cb6a62a0a5825c5e9/tests/dotnet/Honua.Protocols.OgcClassic.Tests/Source/Wps20/Wps20EndpointsTests.cs#L794"
+      ]
+    },
+    {
+      "surface": "STAC canonical client",
+      "assertions": "Actual PySTAC Client collection/search/pages APIs check active-filter narrowing, authored bbox membership, spatial intersects exact IDs, anchor coordinates and pagination. Full walk requires the canonical count, uniqueness and per-page size bound. Separate compatibility tests require exactly alpha/beta/gamma/delta for a filtered search.",
+      "boundary": "Full-walk total plus uniqueness does not itself assert the exact full ID set; representative exact-ID tests cover narrower subsets. External validator disables pagination, which is independently covered by client traversal.",
+      "sources": [
+        "https://github.com/honua-io/honua-server/blob/e4a973997e4444e8c0f97d2cb6a62a0a5825c5e9/tests/python/stac_client/test_cert_common_core.py#L519",
+        "https://github.com/honua-io/honua-server/blob/e4a973997e4444e8c0f97d2cb6a62a0a5825c5e9/tests/python/stac_client/test_cert_common_core.py#L946",
+        "https://github.com/honua-io/honua-server/blob/e4a973997e4444e8c0f97d2cb6a62a0a5825c5e9/tests/python/stac_client/test_cert_common_core.py#L1261",
+        "https://github.com/honua-io/honua-server/blob/e4a973997e4444e8c0f97d2cb6a62a0a5825c5e9/tests/python/stac_client/test_cert_common_core.py#L1548",
+        "https://github.com/honua-io/honua-server/blob/e4a973997e4444e8c0f97d2cb6a62a0a5825c5e9/tests/python/stac_client/test_client_compat.py#L159"
+      ]
+    },
+    {
+      "surface": "gRPC query and mutation",
+      "assertions": "Real generated-client stream spans pages of 2/2/1, asserts exactly IDs 1 through 5, first-page-only field schema, literal names/coordinates and null geometry. Add reads the new feature through the RPC and checks SQL state; rejected edits preserve rows and data.",
+      "boundary": "The bounded read does not establish installed public SDK transport qualification or backend cessation after client cancellation.",
+      "sources": [
+        "https://github.com/honua-io/honua-server/blob/e4a973997e4444e8c0f97d2cb6a62a0a5825c5e9/tests/dotnet/Honua.Server.Tests/Features/Protocols/Grpc/GrpcIntegrationTests.cs#L151",
+        "https://github.com/honua-io/honua-server/blob/e4a973997e4444e8c0f97d2cb6a62a0a5825c5e9/tests/dotnet/Honua.Server.Tests/Features/Protocols/Grpc/GrpcIntegrationTests.cs#L245",
+        "https://github.com/honua-io/honua-server/blob/e4a973997e4444e8c0f97d2cb6a62a0a5825c5e9/tests/dotnet/Honua.Server.Tests/Features/Protocols/Grpc/GrpcIntegrationTests.cs#L302"
+      ]
+    },
+    {
+      "surface": "gRPC field security and keyed edits",
+      "assertions": "Service-level tests reject predicates over masked fields across query shapes. Keyed-edit cancellation after write is exercised separately from stream cancellation.",
+      "boundary": "Masked-field and keyed-edit service controls substitute dependencies; do not describe them as a blocked live provider stream being cancelled by an installed client.",
+      "sources": [
+        "https://github.com/honua-io/honua-server/blob/e4a973997e4444e8c0f97d2cb6a62a0a5825c5e9/tests/dotnet/Honua.Server.Tests/Features/Protocols/Grpc/GrpcMaskedFieldPredicateTests.cs#L44",
+        "https://github.com/honua-io/honua-server/blob/e4a973997e4444e8c0f97d2cb6a62a0a5825c5e9/tests/dotnet/Honua.Server.Tests/Features/Protocols/Grpc/GrpcApplyEditsIdempotencyTests.cs#L141"
+      ]
+    }
+  ],
+  "improvement_candidates": [
+    {
+      "id": "PD-S1",
+      "surface": "STAC schema reporting",
+      "observation": "_validate_with_pystac rethrows STACValidationError but treats every other exception as remote-schema unavailability. DISC-02/SCHM-01 retain pass with an explicit structure-validated reference; the dedicated NB-STAC-ITEM-06 instead records skip. The governed common facets ask for single-resource metadata and property schema, so the common pass is not by itself a false claim of full JSON Schema validation.",
+      "improvement": "Narrow environmental exception classification; add controls for true schema violations, schema-network failure and unexpected validator defects. Preserve metadata/property assertions separately and require the actual schema-validation row wherever that obligation applies.",
+      "disposition": "Source-review improvement; no runtime regression reproduced or new release gate added.",
+      "sources": [
+        "https://github.com/honua-io/honua-server/blob/e4a973997e4444e8c0f97d2cb6a62a0a5825c5e9/tests/python/stac_client/test_cert_common_core.py#L162",
+        "https://github.com/honua-io/honua-server/blob/e4a973997e4444e8c0f97d2cb6a62a0a5825c5e9/tests/python/stac_client/test_cert_common_core.py#L391",
+        "https://github.com/honua-io/honua-server/blob/e4a973997e4444e8c0f97d2cb6a62a0a5825c5e9/tests/python/stac_client/test_cert_common_core.py#L1967",
+        "https://github.com/honua-io/honua-server/blob/e4a973997e4444e8c0f97d2cb6a62a0a5825c5e9/docs/gis/data/client-certification-fixture.v1.json#L948",
+        "https://github.com/honua-io/honua-server/blob/e4a973997e4444e8c0f97d2cb6a62a0a5825c5e9/docs/gis/data/client-certification-fixture.v1.json#L1098"
+      ]
+    },
+    {
+      "id": "PD-S2",
+      "surface": "STAC external validator",
+      "observation": "The Compose lane deliberately excludes the older hard-failing test module and invokes the extension wrapper. Its recorded schema-unreachable skip is explicit, but classification searches combined output for generic network markers; failures mixed with those markers can be classified as unavailability. The two wrappers also differ in recognizing Error output.",
+      "improvement": "Use one tested outcome classifier, preserve genuine conformance failures when network diagnostics coexist, distinguish schema-host failure from server-endpoint failure, and retain stdout/stderr with a bounded execution deadline.",
+      "disposition": "Source-review improvement; skip is not a qualifying pass. Candidate acceptance must honor the owned required rows, without expanding the denominator.",
+      "sources": [
+        "https://github.com/honua-io/honua-server/blob/e4a973997e4444e8c0f97d2cb6a62a0a5825c5e9/docker/client-compat/pystac/run.sh#L72",
+        "https://github.com/honua-io/honua-server/blob/e4a973997e4444e8c0f97d2cb6a62a0a5825c5e9/tests/python/stac_client/test_cert_common_core.py#L2328",
+        "https://github.com/honua-io/honua-server/blob/e4a973997e4444e8c0f97d2cb6a62a0a5825c5e9/tests/python/stac_client/test_cert_common_core.py#L2407",
+        "https://github.com/honua-io/honua-server/blob/e4a973997e4444e8c0f97d2cb6a62a0a5825c5e9/tests/python/stac_client/test_stac_api_validator.py#L65"
+      ]
+    },
+    {
+      "id": "PD-S3",
+      "surface": "WCS/WPS native results",
+      "observation": "Reviewed adapter tests are useful but cannot alone substantiate decoded coverage pixels or native process outputs.",
+      "improvement": "Join applicable existing native/CITE receipts to exact candidate identity. For a supported row lacking that evidence, use an independent decoder with authored pixel/nodata/CRS values or a real durable job and decoded typed output; do not substitute echo or mocked export proof.",
+      "disposition": "Evidence review still needed. Broad external-client expansion remains owned by server#3386 for 2026.2; do not activate deferred rows merely because an adapter exists.",
+      "scope_references": [
+        "https://github.com/honua-io/honua-server/issues/3386",
+        "https://github.com/honua-io/honua-server/issues/3434"
+      ]
+    },
+    {
+      "id": "PD-S4",
+      "surface": "gRPC streaming cessation",
+      "observation": "Reviewed real transport cases prove complete and limited streams, while keyed-edit cancellation is a different operation. No live blocked-provider stream cancellation receipt was established in this bounded review.",
+      "improvement": "Reconcile existing published-SDK cancellation tests and receipts before creating duplicate work. If required evidence is absent, observe cancellation/deadline at an actual blocked provider, eventual source disposal and no later pages, with an unrelated-stream negative control.",
+      "disposition": "Unproven in this review, not a claim that no such tests exist across all SDK repositories."
+    }
+  ],
+  "selector_review": {
+    "WCS_WPS": "WFS catch-all explicitly includes Wcs20 and Wps20 namespaces; do not infer omission from the shard name.",
+    "STAC": "Separate STAC Protocol, STAC Items and Collections, Stac Units and Stac Components selections exist.",
+    "gRPC": "gRPC Protocol and Scene selects the Grpc namespace.",
+    "python": "pystac Compose invokes the package with the documented legacy-validator exclusion; its extension wrapper runs the external validator. client-interop-nightly includes pystac.",
+    "sources": [
+      "https://github.com/honua-io/honua-server/blob/e4a973997e4444e8c0f97d2cb6a62a0a5825c5e9/.github/ci-shards.json#L899",
+      "https://github.com/honua-io/honua-server/blob/e4a973997e4444e8c0f97d2cb6a62a0a5825c5e9/.github/ci-shards.json#L1966",
+      "https://github.com/honua-io/honua-server/blob/e4a973997e4444e8c0f97d2cb6a62a0a5825c5e9/.github/ci-shards.json#L1824",
+      "https://github.com/honua-io/honua-server/blob/e4a973997e4444e8c0f97d2cb6a62a0a5825c5e9/docker/client-compat/pystac/run.sh#L82",
+      "https://github.com/honua-io/honua-server/blob/e4a973997e4444e8c0f97d2cb6a62a0a5825c5e9/.github/workflows/client-interop-nightly.yml#L21"
+    ],
+    "limit": "Static selection only. Current run discovery, nonzero execution and test-ID union remain separate verification obligations."
+  },
+  "review_limits": [
+    "No exhaustive protocol, geometry, auth, concurrency or media coverage claim.",
+    "No CITE pass rate inferred or altered.",
+    "No fixture, supported scope, requirement row, client pin, workflow selector or release gate changed.",
+    "No candidate or AWS execution performed by this source review."
+  ],
+  "source_files": {
+    "tests/dotnet/Honua.Protocols.OgcClassic.Tests/Source/Wcs20/Wcs20EndpointsTests.cs": {
+      "sha256": "56d5e971d08810a4c133c3d5460caf7604395b1950308ccefad7d738e1ca76cc",
+      "git_blob": "1e6f6da4544aa2bd159713252d4c28a9677172eb"
+    },
+    "tests/dotnet/Honua.Protocols.OgcClassic.Tests/Source/Wcs20/Wcs20AuthorizationProofTests.cs": {
+      "sha256": "64b59a079adec4acc4823a381c347011c44ab12c7d4e593bfa0cdf55ee4c18ca",
+      "git_blob": "ec60ed4214d73807484cbe61b3c1d4ecdc43871f"
+    },
+    "tests/dotnet/Honua.Protocols.OgcClassic.Tests/Source/OgcClassicAuthorizationProofTestBase.cs": {
+      "sha256": "ca02236bf022aad7e02088c9f85f91f4bcd599f082050ab7c2f17585f7a2ffd3",
+      "git_blob": "cc52fbda0261536b827b5e30120c15a0778693e5"
+    },
+    "tests/dotnet/Honua.Protocols.OgcClassic.Tests/Source/Wps20/Wps20EndpointsTests.cs": {
+      "sha256": "f4708106fe2add9831a98cd60e4c125d0bd1f84d2f73500d891693ba8effb940",
+      "git_blob": "84b09c2d151907d23dfdae7681f6d49c40d01022"
+    },
+    "tests/python/stac_client/test_cert_common_core.py": {
+      "sha256": "837ba15e1d8b339aa1b4374eccf14473ae0d4cfa16ee9a53b3b8629a7ac9c8d7",
+      "git_blob": "88312decd22aae725f73b03242bb230bc06629b5"
+    },
+    "tests/python/stac_client/test_client_compat.py": {
+      "sha256": "f2248091b63445f9175d183afb75f5a3aacbc422cec22fe98a3965837ab35d16",
+      "git_blob": "584fa23b45c77526af9d9160244613d1c85df918"
+    },
+    "tests/dotnet/Honua.Server.Tests/Features/Protocols/Grpc/GrpcIntegrationTests.cs": {
+      "sha256": "f362eb5250d1421d36e94706ba10e3f97f3722625e2b03502e7b1705dbf33df2",
+      "git_blob": "1d58fe63204d49ab5352edcd80de0d71dfe36ce3"
+    },
+    "tests/dotnet/Honua.Server.Tests/Features/Protocols/Grpc/GrpcMaskedFieldPredicateTests.cs": {
+      "sha256": "5106f27324bdf9922f03c3b7528a84e99585b6b4de45ff5a487427e86b634bdc",
+      "git_blob": "fdd430ab40803716f18269e5aaca419b6ee1273b"
+    },
+    "tests/dotnet/Honua.Server.Tests/Features/Protocols/Grpc/GrpcApplyEditsIdempotencyTests.cs": {
+      "sha256": "063e45841959c4101163e9ac21da309bc5e1b593563f55648510e671c41c2e90",
+      "git_blob": "5a0017c7a44495bfc3439eefdd203ae9cddf970c"
+    },
+    "docs/gis/data/client-certification-fixture.v1.json": {
+      "sha256": "c8a8dc5faa88e1b0250a920622b3b1771d103aa0b91a238539f64cd6e6b35bcb",
+      "git_blob": "fb4bd5f26bb512264e18d3df8bce45dbac884f86"
+    },
+    "docker/client-compat/pystac/run.sh": {
+      "sha256": "e70b2ebe05fc00caa2c00e6834a234c628cdc88a723802225418cbf287caecdc",
+      "git_blob": "9bf88dc9454d9bdabd4d819eb2fdaa99a713e416"
+    },
+    "tests/python/stac_client/test_stac_api_validator.py": {
+      "sha256": "7fd7dacaa72e6a3f316d5a11b13a7c30f1b84074ba0366923408d6edcbaf42ab",
+      "git_blob": "bb2f317a1e8ac1fbef13ed52524f8f607a450840"
+    },
+    ".github/ci-shards.json": {
+      "sha256": "caba3cf689ab387bb477962523547dd6a2e464e965e231e83bf654e17a0f32ed",
+      "git_blob": "52335eb524b7d84a3718222477ab23263896945f"
+    },
+    ".github/workflows/client-interop-nightly.yml": {
+      "sha256": "e200af171cae27fe1c965451f04688a2f637d5f18e9b7ef5fa086a5e9c102e26",
+      "git_blob": "f712ce2ae38dfdddd22f5719735517b45467c384"
+    }
+  }
+}

@@ -8,10 +8,13 @@ receipt: it never carries a response body, a credential or a message the server 
 from __future__ import annotations
 
 import base64
+import binascii
 import math
-import struct
-import zlib
-from typing import Any, Callable
+from typing import Any
+
+from render_png import decode_png, oracle_map_render, render_expectations
+
+from mcp_plan_validation import oracle_mcp_plan_invalid, oracle_mcp_plan_valid
 
 COORDINATE_TOLERANCE = 1e-9
 REFUSED_STATUSES = {401, 403, 499}
@@ -233,7 +236,23 @@ def oracle_buffer(observed: dict[str, Any], fixture: dict[str, Any]) -> tuple[bo
     ring = _exterior_ring(observed.get("geometry"))
     if ring is None:
         return False, "the job result holds no polygon geometry"
+    geometry = observed["geometry"]
+    if geometry.get("type") == "Feature":
+        geometry = geometry["geometry"]
+    if len(geometry["coordinates"]) != 1:
+        return False, "point buffer must not contain interior rings"
+    if not all(isinstance(vertex, list) and len(vertex) >= 2
+               and all(type(value) in (int, float) and math.isfinite(value) for value in vertex[:2]) for vertex in ring):
+        return False, "buffer coordinates must be finite numbers"
     vertices = ring[:-1] if ring[0] == ring[-1] else ring
+    # Radius alone accepts a diamond (or a crossed polygon) with correct vertices.
+    area = abs(sum((a[0] - cx) * (b[1] - cy) - (b[0] - cx) * (a[1] - cy)
+                   for a, b in zip(ring, ring[1:]))) / 2
+    if not math.isclose(area, math.pi * distance ** 2, rel_tol=0.01):
+        return False, "buffer area differs from the requested circle by more than 1%"
+    if any(math.hypot((a[0] + b[0]) / 2 - cx, (a[1] + b[1]) / 2 - cy) < distance * 0.99
+           for a, b in zip(ring, ring[1:])):
+        return False, "buffer boundary has a chord cutting more than 1% inside the requested circle"
     worst = max(abs(math.hypot(x - cx, y - cy) - distance) for x, y in (vertex[:2] for vertex in vertices))
     mean_x = sum(vertex[0] for vertex in vertices) / len(vertices)
     mean_y = sum(vertex[1] for vertex in vertices) / len(vertices)
@@ -295,72 +314,11 @@ def expected_pixels(fixture: dict[str, Any]) -> list[tuple[int, int, bool]]:
     return result
 
 
-def decode_png(data: bytes) -> tuple[int, int, Callable[[int, int], tuple[int, int, int, int]]]:
-    """Decode an 8-bit, non-interlaced PNG into an RGBA pixel accessor (stdlib only)."""
-    if data[:8] != b"\x89PNG\r\n\x1a\n":
-        raise ValueError("not a PNG")
-    offset, idat, palette, transparency, header = 8, b"", b"", b"", None
-    while offset < len(data):
-        (length,) = struct.unpack(">I", data[offset:offset + 4])
-        kind, chunk = data[offset + 4:offset + 8], data[offset + 8:offset + 8 + length]
-        offset += 12 + length
-        if kind == b"IHDR":
-            header = struct.unpack(">IIBBBBB", chunk)
-        elif kind == b"IDAT":
-            idat += chunk
-        elif kind == b"PLTE":
-            palette = chunk
-        elif kind == b"tRNS":
-            transparency = chunk
-    if header is None:
-        raise ValueError("PNG has no header")
-    width, height, depth, color, _, _, interlace = header
-    channels = {0: 1, 2: 3, 3: 1, 4: 2, 6: 4}.get(color)
-    if depth != 8 or interlace or channels is None:
-        raise ValueError(f"unsupported PNG (depth {depth}, color type {color}, interlace {interlace})")
-    raw, stride, rows, previous, position = zlib.decompress(idat), width * channels, [], bytearray(width * channels), 0
-    for _ in range(height):
-        kind, line = raw[position], bytearray(raw[position + 1:position + 1 + stride])
-        position += 1 + stride
-        for i in range(stride):
-            left = line[i - channels] if i >= channels else 0
-            up = previous[i]
-            corner = previous[i - channels] if i >= channels else 0
-            if kind == 1:
-                line[i] = (line[i] + left) & 0xFF
-            elif kind == 2:
-                line[i] = (line[i] + up) & 0xFF
-            elif kind == 3:
-                line[i] = (line[i] + (left + up) // 2) & 0xFF
-            elif kind == 4:
-                estimate = left + up - corner
-                pa, pb, pc = abs(estimate - left), abs(estimate - up), abs(estimate - corner)
-                line[i] = (line[i] + (left if pa <= pb and pa <= pc else up if pb <= pc else corner)) & 0xFF
-        rows.append(bytes(line))
-        previous = line
-
-    def pixel(x: int, y: int) -> tuple[int, int, int, int]:
-        row, start = rows[y], x * channels
-        if color == 6:
-            return tuple(row[start:start + 4])  # type: ignore[return-value]
-        if color == 2:
-            return (*row[start:start + 3], 255)  # type: ignore[return-value]
-        if color == 3:
-            index = row[start]
-            alpha = transparency[index] if index < len(transparency) else 255
-            return (*palette[index * 3:index * 3 + 3], alpha)  # type: ignore[return-value]
-        if color == 0:
-            return (row[start],) * 3 + (255,)  # type: ignore[return-value]
-        return (row[start],) * 3 + (row[start + 1],)  # type: ignore[return-value]
-
-    return width, height, pixel
-
-
 def oracle_raster_tile(observed: dict[str, Any], fixture: dict[str, Any]) -> tuple[bool, str]:
     try:
         data = base64.b64decode(observed.get("bytes") or "", validate=True)
         width, height, pixel = decode_png(data)
-    except (ValueError, zlib.error, struct.error) as exc:
+    except (binascii.Error, ValueError) as exc:
         return False, f"the tile is not a decodable PNG ({type(exc).__name__}); content type {observed.get('contentType')!r}"
     if (width, height) != (256, 256):
         return False, f"tile is {width}x{height}, WebMercatorQuad tiles are 256x256"
@@ -577,44 +535,6 @@ def oracle_mcp_full_catalog(observed: dict[str, Any], roster: list[str], default
                            else f"; equals the {len(roster)}-tool pinned roster, includes the default view, view restored"))
 
 
-def render_expectations(fixture: dict[str, Any]) -> list[tuple[int, int, bool]]:
-    """(x, y, painted) per render sample, from the area envelopes; pixels near an edge are skipped."""
-    spec = fixture["mcp"]["render"]
-    minx, miny, maxx, maxy = spec["bbox"]
-    sx, sy = (maxx - minx) / spec["width"], (maxy - miny) / spec["height"]
-    margin = spec["edgeMarginPixels"]
-    boxes = [((e[0] - minx) / sx, (maxy - e[3]) / sy, (e[2] - minx) / sx, (maxy - e[1]) / sy)
-             for e in (feature["envelope"] for feature in fixture["area"]["features"])]
-    result = []
-    for x, y in spec["samples"]:
-        cx, cy = x + 0.5, y + 0.5
-        inside = any(x0 <= cx <= x1 and y0 <= cy <= y1 for x0, y0, x1, y1 in boxes)
-        near = any(x0 - margin <= cx <= x1 + margin and y0 - margin <= cy <= y1 + margin
-                   and not (x0 + margin <= cx <= x1 - margin and y0 + margin <= cy <= y1 - margin) for x0, y0, x1, y1 in boxes)
-        if not near:
-            result.append((x, y, inside))
-    return result
-
-
-def oracle_map_render(observed: dict[str, Any], fixture: dict[str, Any]) -> tuple[bool, str]:
-    spec = fixture["mcp"]["render"]
-    try:
-        width, height, pixel = decode_png(base64.b64decode(observed.get("png") or "", validate=True))
-    except (ValueError, zlib.error, struct.error) as exc:
-        return False, f"the rendered map is not a decodable PNG ({type(exc).__name__}); mime type {observed.get('mimeType')!r}"
-    if (width, height) != (spec["width"], spec["height"]):
-        return False, f"rendered map is {width}x{height}, the fixture requested {spec['width']}x{spec['height']}"
-    samples = render_expectations(fixture)
-    mismatches = [f"({x},{y}) alpha {pixel(x, y)[3]} expected {'painted' if painted else 'transparent'}"
-                  for x, y, painted in samples if (pixel(x, y)[3] > 0) != painted]
-    painted = sum(1 for *_, inside in samples if inside)
-    if not samples or not painted or painted == len(samples):
-        return False, "the fixture needs painted and transparent sample pixels away from the polygon edge"
-    if mismatches:
-        return False, f"{len(mismatches)} of {len(samples)} sample pixels disagree with the fixture polygon: {mismatches}"
-    return True, f"{painted} painted and {len(samples) - painted} transparent sample pixels match the fixture polygon"
-
-
 def oracle_mcp_job_accepted(observed: dict[str, Any]) -> tuple[bool, str]:
     job_id, status = observed.get("jobId"), observed.get("status")
     ok = isinstance(job_id, str) and bool(job_id) and status in {"Queued", "Provisioning", "Running", "Succeeded"}
@@ -624,3 +544,46 @@ def oracle_mcp_job_accepted(observed: dict[str, Any]) -> tuple[bool, str]:
 def oracle_mcp_job_succeeded(observed: dict[str, Any]) -> tuple[bool, str]:
     status = observed.get("status")
     return status == "Succeeded", f"terminal job status {status!r}"
+
+
+def oracle_mcp_process_catalog(observed: dict[str, Any], fixture: dict[str, Any]) -> tuple[bool, str]:
+    processes = observed.get("processes")
+    if not isinstance(processes, list) or not processes or not all(isinstance(p, dict) for p in processes):
+        return False, "missing process catalog"
+    ids = [p.get("processId") for p in processes]
+    if not all(isinstance(pid, str) and pid for pid in ids) or len(set(ids)) != len(ids):
+        return False, "duplicate or missing process identifiers"
+    selected = next((p for p in processes if p["processId"] == fixture["processes"]["processId"]), {})
+    parameters = selected.get("parameters") or []
+    names = {p.get("name") for p in parameters if isinstance(p, dict)}
+    ok = (selected.get("executionKind") == "Job" and "Async" in (selected.get("supportedExecutionModes") or [])
+          and {"wkb", "srid", "distance", "geodesic"} <= names)
+    return ok, "catalog must describe the fixture buffer's asynchronous entry point and inputs"
+
+
+def oracle_mcp_dry_run(observed: dict[str, Any]) -> tuple[bool, str]:
+    ok = ("FeatureLayer" in (observed.get("estimatedArtifacts") or [])
+          and isinstance(observed.get("sideEffects"), list) and not observed.get("jobId"))
+    return ok, "dry run must preview a FeatureLayer without reporting an executed job"
+
+
+def oracle_mcp_bound_job(observed: dict[str, Any], submitted: dict[str, Any], *, terminal: bool = False) -> tuple[bool, str]:
+    job = submitted.get("jobId")
+    ok = isinstance(job, str) and bool(job) and observed.get("jobId") == job
+    accepted, _ = oracle_mcp_job_accepted(observed)
+    ok = ok and accepted and (not terminal or observed.get("status") == "Succeeded")
+    return ok, "job identity must match submission and status must be " + ("Succeeded" if terminal else "accepted")
+
+
+def oracle_mcp_buffer_result(observed: dict[str, Any], fixture: dict[str, Any], submitted: dict[str, Any]) -> tuple[bool, str]:
+    job, artifact = submitted.get("jobId"), observed.get("artifactId")
+    if not (isinstance(job, str) and job and observed.get("jobId") == job
+            and observed.get("status") == "Completed" and observed.get("errors") == []
+            and observed.get("artifactsTruncated") is False and isinstance(artifact, str) and artifact):
+        return False, "result must be complete, error-free, identified and bound to the submitted job"
+    feature = observed.get("geometry") or {}
+    properties = feature.get("properties") or {}
+    if (properties.get("inputSrid") != fixture["processes"]["srid"]
+            or properties.get("processId") != fixture["processes"]["processId"]):
+        return False, "buffer metadata must identify the fixture process and CRS"
+    return oracle_buffer(observed, fixture)

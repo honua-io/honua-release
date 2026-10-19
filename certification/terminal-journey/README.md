@@ -107,8 +107,12 @@ the cell. Preview and stub cells keep the documented blocked build receipt.
   retained target document holds no host, login or password.
 - **Replica.** A cell has one endpoint. honua-server#5790 stamps every response with a stable
   `Honua-Instance` id, so stage 6's `replica-map` check re-reads the saved map through that endpoint
-  up to 8 times, half a second apart. Each read must match the write, and the check collects the
-  instance ids that answered:
+  up to 8 times. Once the saved-map response has an instance id, Lambda sends its eight
+  reads concurrently, with a separate HTTP transport per read, so sequential reuse of one
+  warm environment does not prevent the probe from exercising scale-out. Each request retains
+  the existing 30-second HTTP timeout; launching the bounded batch has a 10-second deadline.
+  Other topologies, or candidates without an observed header, keep sequential reads half a
+  second apart. Each read must match the write, and the check collects the instance ids that answered:
   - two or more distinct instances: `pass`, with the ids (and each id's source from
     `GET /api/v1/admin/version` when the operator key can read it) in the check detail;
   - one instance only (one ECS task, a warm Lambda): `blocked` with `topology served one instance:
@@ -116,6 +120,10 @@ the cell. Preview and stub cells keep the documented blocked build receipt.
   - no header on any read: `blocked` on the server need (honua-server#5790), naming the pinned
     candidate sha;
   - a header on some reads but not others: `fail`.
+
+  Concurrency alone never proves scale-out. Every concurrent response is validated, including
+  late stale or malformed responses after two ids have been observed. If Lambda still serves
+  all eight reads from one instance, the result remains blocked.
 
   `replicaTopology` stays as evidence in the check and a receipt notice: `ecs-alb-tasks` (the ALB
   spreads requests across ECS tasks) or `lambda-function` (one function).
@@ -241,6 +249,13 @@ gets the profile's default view and no error. On a Lambda cell, a proxy request
 that lands on a different warm instance therefore returns a different view than
 the HTTP session saw. The instance list and the named differences show whether
 that happened.
+When a stage 1 discovery check fails and the direct HTTP requests were answered
+by more than one instance, the check detail says so. It names the instance that
+answered `initialize` and the instances that answered the later requests, and it
+cites the session-affinity defect (honua-server#5629). It never claims affinity
+for a single instance or a response with no header. On run 38119871941, the
+Redis-on ECS cell on two tasks failed with only "requested server-authored view
+identity is missing". The check itself is unchanged.
 
 Both transports reject duplicate JSON keys, invalid/nonstandard JSON, oversized
 responses and incomplete catalog pagination. The stdio consumer reads bounded

@@ -6,10 +6,13 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import math
 import re
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
+
+import yaml
 
 
 SHA256_RE = re.compile(r"^sha256:[0-9a-f]{64}$")
@@ -67,16 +70,16 @@ def _load(path: Path, field: str) -> dict[str, Any]:
 
 # R21: required classes and their production tier. Additional consumed classes must
 # be explicitly declared too; declarations cannot change these mandated tiers.
+COMPATIBILITY_CERTIFICATE_CLASS = "esri-bundle"
+
 EVIDENCE_CLASSES = {
     **dict.fromkeys(("build-test", "contract", "sbom", "security", "upgrade",
                      "capacity-soak", "dr", "lambda-certification", "protocol-ledger",
                      "deterministic-journey", "nightly-model-journey", "executable-docs", "installed-clients"), "nightly"),
-    **dict.fromkeys(("genuine-model-journey", "update-rollback", "esri-bundle", "cite"), "qualifying"),
+    **dict.fromkeys(("genuine-model-journey", "update-rollback", COMPATIBILITY_CERTIFICATE_CLASS, "cite"), "qualifying"),
 }
-# The promotion contract's journey cells. The cloud matrix and the journey receipt gate also require
-# the two aws-eks cells (honua-release#203, owner decisions 12/18 of 2026-10-10); promotion does not
-# yet. Requiring them here, with EKS update/rollback evidence, is an open owner question, so a
-# promotion decision says nothing about EKS until it is answered.
+# Owner amendment 2026-10-16: ECS/Lambda are GA; EKS/Helm is informational Preview.
+# Preview evidence cannot replace any required cell or establish GP execution on Redis-off.
 GA_CELLS = frozenset({"aws-ecs/redis-off", "aws-ecs/redis-on", "aws-serverless/redis-off", "aws-serverless/redis-on"})
 # Policy maximum between a receipt's completion and its freshUntil. A producer may set a
 # shorter bound but never a longer one, so the promotion window always closes. A declared
@@ -86,13 +89,12 @@ MAX_FRESHNESS = {
                      "capacity-soak", "dr", "lambda-certification", "protocol-ledger",
                      "deterministic-journey", "nightly-model-journey", "executable-docs", "installed-clients",
                      "genuine-model-journey", "update-rollback"), timedelta(days=7)),
-    **dict.fromkeys(("esri-bundle", "cite"), timedelta(days=14)),
+    **dict.fromkeys((COMPATIBILITY_CERTIFICATE_CLASS, "cite"), timedelta(days=14)),
 }
 CANARY_SLOT = timedelta(hours=6, minutes=30)
-# A journey cell counts only with status pass. On a Redis-off GA cell, stages 3 (owner extension of
-# decision 3, 2026-10-10) and 5-8 (decision 3, 2026-10-08) pass by the typed unavailable refusal; the
-# terminal-journey receipt schema enforces that per stage (topologyRefusal on Redis-off targets and
-# those stages only), so a cell status here already reflects it. See docs/BURN-IN-PROMOTION.md.
+# Redis-on retains the full journey. Redis-off requires explicit limited serving/refusal metadata;
+# its retained raw eight-stage receipt may remain blocked and never counts as completed GP.
+# See docs/BURN-IN-PROMOTION.md for the independently bound profile proof.
 JOURNEYS = {
     "deterministic-journey": ("deterministic", GA_CELLS),
     "nightly-model-journey": ("genuine-model", frozenset({"aws-ecs/redis-off"})),
@@ -124,6 +126,19 @@ def _journey(receipt: dict[str, Any], required: frozenset[str], mode: str,
             if (type(attempt.get("attempt")) is not int or attempt["attempt"] != index
                     or attempt.get("lockDigest") != digest or not earliest <= completed <= latest):
                 return False
+            if mode == "genuine-model":
+                expected_profile, expected_outcome, expected_execution = (("redis-off-serving-refusal", "refused", False)
+                    if cell["cell"].endswith("/redis-off") else ("full-workflow", "completed", True))
+                if attempt.get("profile") != expected_profile:
+                    return False
+                if index == len(attempts) and (attempt.get("executionOutcome") != expected_outcome
+                        or attempt.get("functionalGpExecuted") is not expected_execution):
+                    return False
+            if mode == "deterministic" and cell["cell"].endswith("/redis-off"):
+                if (attempt.get("profile") != "redis-off-serving-refusal"
+                        or index == len(attempts) and (attempt.get("executionOutcome") != "refused"
+                            or attempt.get("functionalGpExecuted") is not False)):
+                    return False
             if index == len(attempts):
                 if attempt.get("status") != "pass":
                     return False
@@ -134,15 +149,200 @@ def _journey(receipt: dict[str, Any], required: frozenset[str], mode: str,
     return True
 
 
-def _update_rollback(receipt: dict[str, Any]) -> bool:
-    """Each GA cell appears once and passes both its update and its rollback."""
+UPDATE_ROLLBACK_ACTUATORS = {
+    "aws-ecs/redis-off": "terraform-exact-apply",
+    "aws-ecs/redis-on": "honua-aws-ecs-alb",
+    "aws-serverless/redis-off": "honua-gitops-aws-lambda",
+    "aws-serverless/redis-on": "honua-gitops-aws-lambda",
+}
+
+
+def _is_digest(value: Any) -> bool:
+    return isinstance(value, str) and SHA256_RE.fullmatch(value) is not None
+
+
+def _update_rollback_target_images(lock_path: Path, manifest_path: Path) -> dict[str, str]:
+    """Resolve deployment pins from the signed lock and its retained, hash-bound inputs."""
+    lock = _load(lock_path, "selected lock")
+    inputs = lock.get("sourceInputs")
+    binding = inputs.get("platformManifest") if isinstance(inputs, dict) else None
+    payload = manifest_path.read_bytes()
+    if (not isinstance(binding, dict)
+            or binding.get("sha256") != "sha256:" + hashlib.sha256(payload).hexdigest()):
+        raise ReadinessError("selected lock does not bind the retained platform manifest")
+    try:
+        manifest = yaml.safe_load(payload)
+    except yaml.YAMLError as exc:
+        raise ReadinessError("retained platform manifest is invalid YAML") from exc
+    components = manifest.get("components") if isinstance(manifest, dict) else None
+    server = components.get("honua-server") if isinstance(components, dict) else None
+    lock_components = lock.get("components")
+    lock_server = lock_components.get("honua-server") if isinstance(lock_components, dict) else None
+    artifacts = lock_server.get("artifacts") if isinstance(lock_server, dict) else None
+    if not isinstance(server, dict) or not isinstance(artifacts, list):
+        raise ReadinessError("candidate server image pins are missing")
+    images = [artifact for artifact in artifacts if isinstance(artifact, dict) and artifact.get("kind") == "image"]
+    ecs, lambda_mirror = server.get("digest"), server.get("awsLambdaEcrDigest")
+    if (len(images) != 1 or not _is_digest(ecs) or images[0].get("digest") != ecs
+            or not _is_digest(lambda_mirror)):
+        raise ReadinessError("candidate ECS image or Lambda mirror pin is missing or inconsistent")
+    return {cell: lambda_mirror if cell.startswith("aws-serverless/") else ecs for cell in GA_CELLS}
+
+
+def _update_rollback(receipt: dict[str, Any], target_images: dict[str, str],
+                     baseline_images: dict[str, str] | None = None) -> bool:
+    """Refuse status-only/self-rollback proof; every GA cell binds its real actuator.
+
+    Lock signatures and retained workflow artifact integrity are checked by the
+    existing fetch/publication gates, not inferred from these claimed fields.
+    """
     cells = receipt.get("cells")
+    from_lock, to_lock = receipt.get("fromLockDigest"), receipt.get("toLockDigest")
     if (not isinstance(cells, list) or any(not isinstance(cell, dict) for cell in cells)
-            or receipt.get("updateStatus") != "pass" or receipt.get("rollbackStatus") != "pass"):
+            or receipt.get("updateStatus") != "pass" or receipt.get("rollbackStatus") != "pass"
+            or not _is_digest(from_lock) or not _is_digest(to_lock)
+            or from_lock == to_lock or to_lock != receipt.get("lockDigest")):
+        return False
+    if any(not isinstance(cell.get("prior"), dict) or not isinstance(cell.get("candidate"), dict)
+           or cell["prior"].get("lockDigest") != from_lock or cell["candidate"].get("lockDigest") != to_lock for cell in cells):
+        return False
+    return _update_rollback_cells(cells, target_images, baseline_images)
+
+
+def _update_rollback_observations(cell):
+    """Require actual ordered A/B/A readback plus the concrete actuator identities."""
+    prior, candidate, rows = cell.get("prior"), cell.get("candidate"), cell.get("observations")
+    if not isinstance(prior, dict) or not isinstance(candidate, dict) or not isinstance(rows, list) or len(rows) != 3:
+        return False
+    before, after = cell["fromDigest"], cell["toDigest"]
+    image_key = "lambdaImageDigest" if cell["cell"].startswith("aws-serverless/") else "imageDigest"
+    for release, expected in ((prior, before), (candidate, after)):
+        if (release.get(image_key) != expected or not _is_digest(release.get("imageDigest"))
+                or not _is_digest(release.get("lambdaImageDigest")) or not _is_digest(release.get("manifestDigest"))
+                or not isinstance(release.get("sourceRevision"), str)
+                or re.fullmatch(r"[0-9a-f]{40}", release["sourceRevision"]) is None
+                or release.get("schemaVersion") != cell["schemaBoundary"].get("schemaVersion")):
+            return False
+    if prior["sourceRevision"] == candidate["sourceRevision"] or prior["manifestDigest"] == candidate["manifestDigest"]:
+        return False
+    last_time, fixture, journal = None, None, None
+    for row, phase, release, image in zip(rows, ("baseline", "candidate", "rollback"),
+                                         (prior, candidate, prior), (before, after, before)):
+        if not isinstance(row, dict):
+            return False
+        native, serving, schema = row.get("native"), row.get("servingFixture"), row.get("schemaJournal")
+        timestamp = row.get("observedAt")
+        if (row.get("phase") != phase or row.get("sourceRevision") != release["sourceRevision"]
+                or type(timestamp) not in (int, float) or not math.isfinite(timestamp) or timestamp <= 0
+                or last_time is not None and timestamp <= last_time
+                or not isinstance(native, dict) or native.get("imageDigest") != image
+                or native.get("kind") != ("lambda-alias" if cell["cell"].startswith("aws-serverless/") else "ecs-native-routing")
+                or not isinstance(serving, dict) or serving.get("serviceId") != "e2e"
+                or type(serving.get("layerId")) is not int or serving["layerId"] < 0
+                or any(not isinstance(serving.get(key), str) or re.fullmatch(r"[0-9a-f]{64}", serving[key]) is None
+                       for key in ("seedManifestSha256", "seedScriptSha256", "seedSqlSha256", "expectedFeaturesSha256"))
+                or not isinstance(schema, dict) or schema.get("method") != "live-bidirectional-migration-plan"
+                or type(schema.get("pendingScripts")) is not int or type(schema.get("extraScripts")) is not int
+                or schema.get("pendingScripts") != 0 or schema.get("extraScripts") != 0
+                or schema.get("readyForCoordinatedDeploy") is not True
+                or schema.get("candidateImageDigest") != candidate.get("imageDigest")):
+            return False
+        if cell["cell"].startswith("aws-serverless/"):
+            if not isinstance(native.get("version"), str) or not native["version"].isdigit() or int(native["version"]) < 1:
+                return False
+        elif type(native.get("taskCount")) is not int or native["taskCount"] < 1:
+            return False
+        if fixture is not None and (fixture != serving or journal != schema):
+            return False
+        last_time, fixture, journal = timestamp, serving, schema
+    update, rollback = cell.get("updateOperation"), cell.get("rollbackOperation")
+    if not isinstance(update, dict) or not isinstance(rollback, dict):
+        return False
+    if cell["actuator"] == "terraform-exact-apply":
+        for operation, image in ((update, after), (rollback, before)):
+            if (operation.get("actuator") != "terraform-exact-apply" or operation.get("status") != "applied"
+                    or operation.get("imageDigest") != image or not _is_digest(operation.get("planSha256"))):
+                return False
+        return update["planSha256"] != rollback["planSha256"]
+    for operation in (update, rollback):
+        if (not isinstance(operation.get("operationId"), str) or not operation["operationId"].strip()
+                or not isinstance(operation.get("observedRevision"), str) or not operation["observedRevision"].strip()
+                or not _is_digest(operation.get("providerOperationIdSha256"))):
+            return False
+    if (update["operationId"] != rollback["operationId"] or update["observedRevision"] == rollback["observedRevision"]
+            or update.get("status") not in ("Succeeded", "Observing", "Protected", "Reconciling")
+            or rollback.get("status") != "RolledBack"):
+        return False
+    if cell["cell"].startswith("aws-serverless/"):
+        versions = [r["native"]["version"] for r in rows]
+        if versions != [rollback["observedRevision"], update["observedRevision"], rollback["observedRevision"]]:
+            return False
+    return True
+
+
+def _update_rollback_cells(cells, target_images, baseline_images=None):
+    """Shared structural execution floor; a rehearsal has no lock-binding or promotion credit."""
+    if not isinstance(cells, list) or any(not isinstance(cell, dict) for cell in cells):
         return False
     names = [cell.get("cell") for cell in cells]
-    return (len(names) == len(set(names)) == len(GA_CELLS) and set(names) == GA_CELLS
-            and all(cell.get("updateStatus") == cell.get("rollbackStatus") == "pass" for cell in cells))
+    if (any(not isinstance(name, str) for name in names)
+            or len(names) != len(set(names)) or set(names) != GA_CELLS):
+        return False
+    for cell in cells:
+        before, after = cell.get("fromDigest"), cell.get("toDigest")
+        boundary = cell.get("schemaBoundary")
+        if (cell.get("updateStatus") != "pass" or cell.get("rollbackStatus") != "pass"
+                or cell.get("actuator") != UPDATE_ROLLBACK_ACTUATORS[cell["cell"]]
+                or not _is_digest(before) or not _is_digest(after) or before == after
+                or after != target_images.get(cell["cell"])
+                or (baseline_images is not None and before != baseline_images.get(cell["cell"]))
+                or not isinstance(boundary, dict)):
+            return False
+        if (cell.get("cleanup", {}).get("status") != "pass" or cell.get("cost", {}).get("status") != "pass"
+                or boundary.get("status") != "pass"
+                or boundary.get("outcome") not in ("serving", "refused-cleanly")
+                or not isinstance(boundary.get("schemaVersion"), str) or not boundary["schemaVersion"].strip()
+                or boundary.get("imageDigest") != before):
+            return False
+        if cell["cell"].endswith("redis-off"):
+            refusals = cell.get("refusals")
+            allowed = {"status", "outcome", "functionalGpExecuted", "code", "capability", "missingDependency"}
+            if (cell.get("executionOutcome") != "refused" or cell.get("functionalGpExecuted") is not False
+                    or any(key in cell for key in ("inFlightJob", "rollbackInFlightJob", "jobBeforeUpdate", "jobAfterUpdate", "jobBeforeRollback", "jobAfterRollback"))
+                    or not isinstance(refusals, list) or len(refusals) != 3
+                    or any(not isinstance(r, dict) or set(r) != allowed or r.get("status") != "pass"
+                           or r.get("outcome") != "refused" or r.get("functionalGpExecuted") is not False
+                           or r.get("code") != "dependency-unavailable" or r.get("capability") != "jobs.runner"
+                           or r.get("missingDependency") != "redis" for r in refusals)):
+                return False
+        else:
+            if cell.get("executionOutcome") != "succeeded" or cell.get("functionalGpExecuted") is not True:
+                return False
+            for field, names in (("inFlightJob", ("jobBeforeUpdate", "jobAfterUpdate")),
+                                 ("rollbackInFlightJob", ("jobBeforeRollback", "jobAfterRollback"))):
+                job = cell.get(field)
+                if not isinstance(job, dict):
+                    return False
+                states, events, output = job.get("terminalStates"), job.get("executionEvents"), job.get("output")
+                if (not isinstance(job.get("jobId"), str) or not job["jobId"].strip()
+                        or job.get("initialState") != "running" or states != ["succeeded"]
+                        or type(job.get("attemptCount")) is not int or job["attemptCount"] != 1
+                        or not isinstance(events, dict) or type(events.get("started")) is not int or type(events.get("completed")) is not int
+                        or events.get("started") != 1 or events.get("completed") != 1
+                        or not isinstance(output, dict) or not _is_digest(output.get("sha256"))
+                        or not _is_digest(output.get("fixtureSha256")) or not output.get("oracle")):
+                    return False
+                for name in names:
+                    seen = cell.get(name)
+                    if (not isinstance(seen, dict) or seen.get("state") != "running"
+                            or seen.get("jobId") != job["jobId"] or type(seen.get("attemptCount")) is not int or seen.get("attemptCount") != 1):
+                        return False
+        if not _update_rollback_observations(cell):
+            return False
+        if boundary["outcome"] == "refused-cleanly" and (
+                not isinstance(boundary.get("reasonCode"), str) or not boundary["reasonCode"].strip()):
+            return False
+    return True
 
 
 def _canary_key(run: dict[str, Any], field: str) -> tuple[str, datetime, Any, Any]:
@@ -175,10 +375,12 @@ def evaluate(
     actual_digest = _digest(lock_path)
     check("lock-digest", isinstance(digest, str) and SHA256_RE.fullmatch(digest) is not None and digest == actual_digest,
           f"recorded={digest!r}; selected={actual_digest}")
+    from patch_promotion_policy import profile, reused_receipt
+    policy = profile(record, _load(lock_path, "selected lock"), evidence_dir)
     burn_start = _time(lock.get("burnStartedAt"), "lock.burnStartedAt")
     age = now - burn_start
-    check("burn-duration", age >= timedelta(hours=48),
-          f"lock burn age is {age.total_seconds() / 3600:.2f}h; required at least 48h")
+    check("burn-duration", age >= timedelta(hours=policy["hours"]),
+          f"lock burn age is {age.total_seconds() / 3600:.2f}h; required at least {policy['hours']}h")
 
     trains = record.get("strictTrains")
     rc_run_id = _run_id(record.get("rcTrainRunId"), "rcTrainRunId")
@@ -243,8 +445,10 @@ def evaluate(
             metadata = _load(root / "run.json", f"{name} metadata")
             expiry = _time(receipt.get("freshUntil"), f"{name} freshUntil")
             tier = declarations[name]
+            reused = reused_receipt(name, row, receipt, metadata, policy, now)
+            bound_digest = reused or digest
             ok &= (row.get("status") == receipt.get("status") == "pass"
-                   and row.get("lockDigest") == receipt.get("lockDigest") == digest
+                   and row.get("lockDigest") == receipt.get("lockDigest") == bound_digest
                    and receipt.get("class") == name and receipt.get("kind") == tier
                    and str(receipt.get("runId")) == run_id
                    and receipt.get("completedAt") == row.get("completedAt")
@@ -256,14 +460,21 @@ def evaluate(
                        <= completed <= _time(metadata.get("updated_at"), "run updated_at"))
                 earliest, latest = train_time - timedelta(hours=24), completed
             else:
-                ok &= burn_start <= completed <= now and row.get("completedAt") == metadata.get("updated_at")
+                ok &= (completed <= now if reused else burn_start <= completed <= now) and row.get("completedAt") == metadata.get("updated_at")
                 earliest, latest = burn_start, completed
             ok &= name in MAX_FRESHNESS and expiry - completed <= MAX_FRESHNESS.get(name, timedelta(0))
             if name in JOURNEYS:
                 mode, required = JOURNEYS[name]
                 ok &= _journey(receipt, required, mode, digest, earliest, latest)
             if name == "update-rollback":
-                ok &= _update_rollback(receipt)
+                target_images = _update_rollback_target_images(
+                    lock_path, evidence_dir / "trains" / rc_run_id / "platform-manifest.yaml")
+                baseline_images = None
+                if policy["name"] == "patch":
+                    baseline_images = _update_rollback_target_images(
+                        policy["baselineRoot"] / "platform-lock.json", policy["baselineRoot"] / "platform-manifest.yaml")
+                    ok &= receipt.get("fromLockDigest") == policy["baselineDigest"]
+                ok &= _update_rollback(receipt, target_images, baseline_images)
         except (ReadinessError, OSError, TypeError):
             ok = False
         check(f"evidence:{name}", bool(ok), detail)
@@ -271,7 +482,8 @@ def evaluate(
     canaries = record.get("demoCanaries")
     if not isinstance(canaries, list):
         raise ReadinessError("demoCanaries must be an array")
-    canary_ok = len(canaries) == 7
+    required_canaries = policy["canaries"]
+    canary_ok = len(canaries) == required_canaries
     times: list[datetime] = []
     ids: list[str] = []
     for row in canaries:
@@ -294,7 +506,7 @@ def evaluate(
         except (ReadinessError, AttributeError):
             canary_ok = False
     canary_ok &= len(set(ids)) == len(ids)
-    if len(times) == 7:
+    if len(times) == required_canaries:
         canary_ok &= times == sorted(times) and times[0] >= burn_start
         canary_ok &= all(timedelta(hours=5, minutes=30) <= b - a <= CANARY_SLOT
                          for a, b in zip(times, times[1:]))
@@ -334,7 +546,7 @@ def evaluate(
         observed_ids = [key[0] for key in observed]
         burn_ok &= len(set(observed_ids)) == len(observed_ids)
         selected = [_canary_key(row, "canary") for row in canaries if isinstance(row, dict)]
-        canary_ok &= len(observed) >= 7 and observed[-7:] == selected
+        canary_ok &= len(observed) >= required_canaries and observed[-required_canaries:] == selected
         # The lock is deployed when burn starts, so its first canary follows within one slot.
         # A burn start claimed earlier than that would shorten the real burn.
         start_ok = bool(observed) and observed[0][1] - burn_start <= CANARY_SLOT
@@ -345,10 +557,10 @@ def evaluate(
           "the lock's first observed canary completed no more than 6h30m after the recorded burn start")
     check("lock-burn-health", bool(burn_ok), burn_detail)
     check("demo-canaries", bool(canary_ok),
-          "seven consecutive passing lock-bound 6-hour canaries, latest no more than 6.5h old")
+          f"{required_canaries} consecutive passing lock-bound 6-hour canaries, latest no more than 6.5h old")
     decision = {
         "schemaVersion": "promotion-readiness.v1", "platformLabel": label,
-        "lockDigest": actual_digest, "rcTrainRunId": rc_run_id,
+        "lockDigest": actual_digest, "rcTrainRunId": rc_run_id, "profile": policy["name"],
         "evaluatedAt": now.isoformat().replace("+00:00", "Z"),
         "status": "pass" if not failures else "refused", "checks": checks,
     }

@@ -24,13 +24,16 @@
     "rds-storage-gb": "0.115",
     "ebs-gp3-gb": "0.08",
     "secretsmanager-secret": "0.40",
-    "kms-key": "1.00"
+    "kms-key": "1.00",
+    "s3-standard-gb": "0.023"
   },
   "usage": {
     "lambda-gb-second:x86_64": "0.0000166667",
     "lambda-gb-second:arm64": "0.0000133334",
     "lambda-request": "0.0000002",
-    "apigw-http-request": "0.000001"
+    "apigw-http-request": "0.000001",
+    "s3-put-request": "0.000005",
+    "s3-get-request": "0.0000004"
   },
   "hoursPerMonth": "730",
   "partialHourBilledAsFull": ["elasticache", "alb", "alb-lcu", "elb-classic", "nat-gateway", "public-ipv4", "eks-cluster"],
@@ -39,7 +42,7 @@
     "NAT gateway data processing",
     "ALB capacity beyond one LCU-hour per hour",
     "CloudWatch logs, metrics and alarms",
-    "S3 and ECR storage and requests",
+    "S3 and ECR storage and requests, except the S10 large-import fixture the harness stages (S3 Standard storage, one PUT, one GET)",
     "Route 53 and ACM",
     "Bedrock model tokens (the genuine-model cell)",
     "Lambda INIT duration (not in the Duration metric)",

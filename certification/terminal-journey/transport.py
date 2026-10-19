@@ -82,6 +82,22 @@ def describe_fields(fields):
     return "; ".join(f"{name}={json.dumps(value) if name == 'message' else value}" for name, value in fields.items())
 
 
+def has_execution_evidence(value):
+    """Inspect private wire data before allowlisted error fields are masked for receipts."""
+    if isinstance(value, dict):
+        return any(key in {"jobId", "operationId", "operationInstanceId", "jobStatus", "resourceUri", "jobCreatedAt"}
+                   and item or has_execution_evidence(item) for key, item in value.items())
+    if isinstance(value, list):
+        return any(has_execution_evidence(item) for item in value)
+    if isinstance(value, str):
+        try:
+            parsed = json.loads(value)
+        except ValueError:
+            return False
+        return isinstance(parsed, (dict, list)) and has_execution_evidence(parsed)
+    return False
+
+
 def tool_error(result, secrets=()):
     """The typed problem a candidate tool error carries, masked; never raw tool output."""
     content = result.get("structuredContent")
@@ -121,14 +137,20 @@ class Transport:
         self.workdir, self.credentials = Path(workdir), credentials
         self.opener = urllib.request.build_opener(discovery._NoRedirect())
 
+    def credential(self, principal):
+        value = self.credentials[principal]
+        value = value() if callable(value) else value
+        if not isinstance(value, str) or not value:
+            raise ExecutionError("principal", "configured credential is unavailable")
+        self._issued_credentials = [*(getattr(self, "_issued_credentials", [])), value]
+        return value
+
     def http(self, method, path, *, principal="proposer", body=None, expected=(200,), extra_headers=None):
         url = safe_url(self.base_url, path)
         headers = {"Accept": "application/json", "Cache-Control": "no-cache"}
         headers.update(extra_headers or {})
         if principal is not None:
-            credential = self.credentials[principal]
-            if callable(credential):
-                credential = credential()
+            credential = self.credential(principal)
             if credential.startswith("Bearer "):
                 headers["Authorization"] = credential
             else:
@@ -174,9 +196,12 @@ class Transport:
 
         if not self.proxy or not self.proxy.is_file():
             raise ExecutionError(name, "verified installed proxy is unavailable", blocked=True)
+        credential = self.credential(principal)
+        bearer = credential.startswith("Bearer ")
         with probes.McpProxySession(str(self.proxy), self.base_url + "/mcp",
-                                    {"HONUA_API_KEY": self.credentials[principal],
-                                     "HONUA_ADMIN_KEY": "", "HONUA_MCP_AUTH_TOKEN": ""}) as session:
+                                    {"HONUA_API_KEY": "" if bearer else credential,
+                                     "HONUA_ADMIN_KEY": "",
+                                     "HONUA_MCP_AUTH_TOKEN": credential[7:] if bearer else ""}) as session:
             initialized = session.initialize(workflow_view="setup")
             if "error" in initialized:
                 raise ExecutionError(name, "proxy initialize refused")
@@ -192,14 +217,22 @@ class Transport:
                 # A JSON-RPC error carries the same typed problem in error.data; name it (masked).
                 error = response.get("error") if isinstance(response.get("error"), dict) else {}
                 data = error.get("data") if isinstance(error.get("data"), dict) else {}
+                if has_execution_evidence(response):
+                    # Fixed diagnostic only: private identities/output never enter the receipt.
+                    raise ExecutionError(name, "candidate error carries contradictory execution evidence")
                 fields = tool_error({"structuredContent": {"message": error.get("message"), **data}},
                                     self.secret_values())
                 raise ExecutionError(name, "candidate tool call refused"
                                      + (f" ({describe_fields(fields)})" if fields else ""), problem=fields)
+            if "isError" in result and type(result["isError"]) is not bool:
+                raise ExecutionError(name, "candidate tool result has a nonboolean error marker")
+            if result.get("isError") is True and has_execution_evidence(result):
+                raise ExecutionError(name, "candidate error carries contradictory execution evidence")
             return result
 
     def secret_values(self):
-        return credential_values(self.credentials)
+        return credential_values(self.credentials) + [v.removeprefix("Bearer ")
+            for v in getattr(self, "_issued_credentials", [])]
 
     def cli_approve(self, proposal_id, principal):
         return self.cli_admin("operate", "approveOperationProposal", principal,
@@ -233,7 +266,10 @@ class Transport:
         config.chmod(0o600)
         config.write_text(json.dumps({"profiles": {name: {"baseUrl": self.base_url}
                                                   for name in ("operator", "proposer", "approver")}}))
-        env = {"PATH": os.environ.get("PATH", ""), "HONUA_ADMIN_KEY": self.credentials[principal],
+        credential = self.credential(principal)
+        bearer = credential.startswith("Bearer ")
+        env = {"PATH": os.environ.get("PATH", ""),
+               "HONUA_BEARER_TOKEN" if bearer else "HONUA_ADMIN_KEY": credential[7:] if bearer else credential,
                "HONUA_CONFIG_HOME": str(self.workdir / "profiles")}
         try:
             result = subprocess.run(args, env=env, capture_output=True, text=True, timeout=120, check=False)

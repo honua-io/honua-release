@@ -92,6 +92,15 @@ export function judgeRedisOffGeoprocessing({ topology, jobsRunner, execution, pa
   if (claimsRun) {
     return verdict("fail", "the demo claims a completed job although the server refused the execution");
   }
+  // honua-site#294 (owner decision 3): nothing was accepted, so the pill and the headline (the
+  // summary's first sentence; the server's own detail is quoted later and is not judged) must not say so.
+  // A negated mention ("not accepted", "never accepted") is the honest wording, not a claim.
+  const headline = (page.summary || "").split(/(?<=\.)\s/)[0];
+  if (/(?<!\b(?:not|never)\s+)\baccepted\b/i.test(`${page.pill || ""} ${headline}`)) {
+    return verdict("blocked",
+      `the pinned honua-site demo-geoprocessing page claimed the refused execution was accepted ` +
+      `(pill="${page.pill}") (site behaviour, not a server defect)`);
+  }
   if (!showsRefusal || !verbatim) {
     return verdict("blocked",
       `the pinned honua-site demo-geoprocessing page did not render the typed refusal as its job-store-unavailable state ` +
@@ -102,4 +111,20 @@ export function judgeRedisOffGeoprocessing({ topology, jobsRunner, execution, pa
     `redis-off${signal}: generalization.simplify-layer execution refused with the typed ` +
     `capability-unavailable receipt (missingDependency=redis) and the demo rendered its honest ` +
     `job-store-unavailable state ("${page.pill}") with the verbatim server refusal` };
+}
+
+/**
+ * The page's own verdict when it could not load the selected process's description.
+ *
+ * The pinned honua-site demo (assets/demos/geoprocessing/app.js selectProcess) keeps the Execute
+ * button hidden until GET /ogc/processes/processes/{id} answers, and on a failed fetch writes
+ * "Could not load schema: <reason>" into #gp-detail-desc. Run 38133126673 (aws-serverless/redis-off)
+ * waited 45 s for a button the page had already decided never to show; this names that decision.
+ *   detailDesc — #gp-detail-desc text after the process was selected
+ * -> the reason string, or null while the page has not reported a load failure
+ */
+export function processDetailFailure(detailDesc) {
+  const text = String(detailDesc ?? "").trim();
+  const match = /^Could not load schema:\s*(.*)$/s.exec(text);
+  return match ? `the page could not load the process description: "${text.slice(0, 300)}"` : null;
 }

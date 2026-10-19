@@ -13,6 +13,7 @@ import io
 import json
 import atexit
 import os
+import re
 import shutil
 import subprocess
 import sys
@@ -65,7 +66,8 @@ def _cell_admin_password(monkeypatch):
 _CELL_WORKFLOW_ENV = ("HONUA_LAMBDA_IMAGE_URI", "HONUA_LAMBDA_ARCHITECTURE", "HONUA_ECS_IMAGE",
                       "HONUA_ECS_ARCHITECTURE", "HONUA_GP_BATCH_IMAGE", "HONUA_MIGRATE_IMAGE",
                       "HONUA_ENABLE_BEDROCK_AI", "HONUA_CLOUD_COST_CEILING_USD", "HONUA_RUN_URL",
-                      "CELL_DIR", "CELL_ARTIFACT", "HONUA_AWS_OPERATION_KEY_RING_SECRET_ARN",
+                      "CELL_DIR", "CELL_ARTIFACT", "HONUA_DEPLOYMENT_PREPARED", "HONUA_CLOUD_TENANT_FIXTURE",
+                      "HONUA_AWS_OPERATION_KEY_RING_SECRET_ARN",
                       "HONUA_AWS_OPERATION_KEY_RING_SECRET_KMS_KEY_ARN", "HONUA_AWS_AUDIT_CHAIN_KEY_SECRET_ARN",
                       "HONUA_AWS_AUDIT_CHAIN_KEY_SECRET_KMS_KEY_ARN", "HONUA_AWS_CELL_DNS_ZONE_ID",
                       "HONUA_AWS_CELL_DNS_PARENT")
@@ -1292,11 +1294,16 @@ def _ecs_receipt(cell="aws-ecs/redis-off"):
 def _artifact(directory, receipt, *, number=1):
     cj = run_cloud.cloud_journey
     path = directory / f"receipt-{number}.json"
+    # A new test producer invocation replaces this numbered artifact, including its sidecar.
+    (directory / f"serving-refusal-{number}.json").unlink(missing_ok=True)
     path.write_text(json.dumps(receipt))
     record = {"number": number, "cell": receipt["target"]["id"], "runId": "offline-run",
         "runAttempt": "2", "candidateDigest": cj.candidate_digest(), "receipt": path.name,
         "receiptSha256": hashlib.sha256(path.read_bytes()).hexdigest(),
         "failureAttribution": None if receipt["status"] == "pass" else "infrastructure"}
+    if receipt["target"]["id"].endswith("/redis-off") and receipt["status"] == "pass":
+        from test_deterministic_refusal_profile import attach_fixture_profile
+        path.write_bytes(attach_fixture_profile(directory, receipt, record))
     return record
 
 
@@ -1363,7 +1370,7 @@ def test_preview_cell_failure_is_informational_and_cannot_fill_a_ga_cell():
     with tempfile.TemporaryDirectory() as directory:
         root = Path(directory)
         report = _cell_report(root, _ecs_receipt())
-        previews = [{"cell": f"{target}/redis-off", "status": "fail"} for target in cj.PREVIEW_TARGETS]
+        previews = [{"cell": f"{target}/redis-off", "status": "fail", "provisionAttempted": False} for target in cj.PREVIEW_TARGETS]
         result = _aggregate_fixture([report, *previews], root)
         assert result["status"] == "blocked"  # focused dispatch remains diagnostic
         assert [r["evidenceTier"] for r in result["cells"]] == ["GA", *(["Preview"] * len(cj.PREVIEW_TARGETS))]
@@ -1475,7 +1482,7 @@ def test_imported_journey_runs_inside_provision_teardown_and_records_each_attemp
     # The cell reports the exact candidate, so each failed attempt is an attributed failure.
     sha, image = _manifest_server()
     monkeypatch.setattr(cj, "server_identity", lambda endpoint: {"revision": sha, "source": "commit-sha"})
-    monkeypatch.setattr(cj, "observed_ecs_image", lambda *a, **k: image)
+    monkeypatch.setattr(cj, "observe_ecs_image", lambda *a, **k: (image, "1 RUNNING task(s) of s1"))
     def cost(*args, **kwargs):
         events.append("cost")
         return {"status": "pass"}
@@ -1548,21 +1555,23 @@ def _cloud_workflows():
             yaml.safe_load((workflows / "e2e-cloud-aws-cell.yml").read_text()))
 
 
-def test_cloud_workflow_requires_the_six_ga_cells_including_eks():
-    # honua-release#203 (owner decisions 12/18 of 2026-10-10): aws-eks is GA in 2026.1.
+def test_cloud_workflow_requires_four_ga_cells_and_keeps_eks_preview():
+    # October16 owner amendment explicitly supersedes the prior EKS GA scope.
     cj = run_cloud.cloud_journey
     workflow, cell = _cloud_workflows()
     job = workflow["jobs"]["parity"]
-    assert len(cj.GA_CELLS) == 6 and all("mixed" not in c for c in cj.GA_CELLS)
-    assert {"aws-eks/redis-off", "aws-eks/redis-on"} <= set(cj.GA_CELLS) and cj.PREVIEW_TARGETS == ()
+    assert set(cj.GA_CELLS) == {f"{target}/redis-{mode}" for target in ("aws-ecs", "aws-serverless") for mode in ("off", "on")}
+    assert cj.PREVIEW_TARGETS == ("aws-eks",)
     assert "aws-eks" in job["strategy"]["matrix"]["target"]
     # rc.3: examples/aws-mixed does not exist; the cell is out of the matrix until honua-iac#209.
     assert "aws-mixed" not in job["strategy"]["matrix"]["target"]
     assert "aws-mixed" not in workflow[True]["workflow_dispatch"]["inputs"]["target"]["options"]
-    assert job["with"]["preview"] is False
-    assert job["strategy"]["fail-fast"] is False and job["strategy"]["max-parallel"] == 2
+    assert job["with"]["preview"] == "${{ matrix.target == 'aws-eks' }}"
+    assert job["strategy"]["fail-fast"] is False and job["strategy"]["max-parallel"] == 1
     # Preview tolerance lives on the called cell's jobs; a reusable-workflow call cannot carry it.
-    assert all(cell_job["continue-on-error"] == "${{ inputs.preview }}" for cell_job in cell["jobs"].values())
+    assert all(cell_job["continue-on-error"] == "${{ inputs.preview }}"
+               for name, cell_job in cell["jobs"].items() if name != "teardown")
+    assert cell["jobs"]["teardown"]["continue-on-error"] is False
     assembly = next(step["run"] for step in workflow["jobs"]["cloud-report"]["steps"] if step.get("id") == "assemble")
     assert "python e2e/cloud_journey.py --reports reports" in assembly
     assert "PARITY_RESULT" not in assembly and "IAC_LIVE_RESULT" not in assembly
@@ -1607,17 +1616,21 @@ def test_cloud_full_scope_preview_failure_cannot_redden_a_passing_ga_run():
             subdir = root / cell.replace("/", "-")
             subdir.mkdir()
             reports.append(_cell_report(subdir, _ecs_receipt(cell)))
-        # No AWS target is Preview since honua-release#203 made aws-eks GA; any cell outside
-        # GA_CELLS is still informational, so a stand-in keeps the policy covered.
-        previews = [{"cell": f"{target}/redis-{redis}", "status": "fail"}
+        # EKS failures stay informational; required ECS/Lambda failures and cost ceilings still refuse.
+        previews = [{"cell": f"{target}/redis-{redis}", "status": "fail", "provisionAttempted": False}
                     for target in (cj.PREVIEW_TARGETS or ("stub",)) for redis in ("off", "on")]
-        with mock.patch.object(cj, "validate_attempt", return_value=True):
+        with mock.patch.object(cj, "qualify_attempt", return_value=True):
             result = _aggregate_fixture([*reports, *previews], root, full_scope=True)
             assert result["status"] == "pass" and result["certifying"] is True
             previews[0]["cost"] = {**reports[0]["cost"], "status": "fail", "amountUsd": "20.01"}
             over_budget = _aggregate_fixture([*reports, *previews], root, full_scope=True)
             assert over_budget["status"] == "fail" and "run cost ceiling exceeded" in over_budget["why"]
             del previews[0]["cost"]
+            previews[0].update(provisionAttempted=True, teardown={"attempted": True, "completed": False})
+            leaked = _aggregate_fixture([*reports, *previews], root, full_scope=True)
+            assert leaked["status"] == "fail" and "infrastructure cleanup incomplete" in leaked["why"]
+            previews[0]["teardown"]["completed"] = True
+            assert _aggregate_fixture([*reports, *previews], root, full_scope=True)["status"] == "pass"
             reports[0]["status"] = "fail"
             assert _aggregate_fixture([*reports, *previews], root, full_scope=True)["status"] == "fail"
 
@@ -1631,7 +1644,7 @@ def test_cloud_full_scope_requires_a_final_run_cost_reading_after_every_cloud_jo
             subdir = root / cell.replace("/", "-")
             subdir.mkdir()
             reports.append(_cell_report(subdir, _ecs_receipt(cell)))
-        with mock.patch.object(cj, "validate_attempt", return_value=True):
+        with mock.patch.object(cj, "qualify_attempt", return_value=True):
             # Every per-cell reading is under the ceiling; the later whole-run reading is not.
             over = cj.aggregate(reports, root, require_real=True, full_scope=True,
                                 run_id="offline-run", run_attempt="2",
@@ -1742,7 +1755,7 @@ def test_ecs_running_image_is_read_back_from_every_running_task():
     for tasks, status in (([good, stale], "RUNNING"), ([], "RUNNING"), ([good], "PENDING"),
                           ([{"taskArn": "t3", "containers": good["containers"][1:]}], "RUNNING")):
         run, _ = _ecs_aws(tasks, task_status=status)
-        assert cj.observed_ecs_image(_EcsOutputs(), pinned, run=run) is None
+        assert cj.observed_ecs_image(_EcsOutputs(), pinned, run=run, sleep=lambda _s: None) is None
 
 
 def test_ecs_running_image_matches_the_tagless_reference_the_cell_deploys():
@@ -1808,11 +1821,218 @@ def test_redis_on_ecs_cell_stays_single_task_without_the_bucket_or_on_an_older_r
         monkeypatch.setenv("HONUA_AWS_CELL_FILE_STORAGE_BUCKET", "honua-release-cell-files")
         _iac_root_with(monkeypatch, base, "aws", *_SCALE_ROOT[:-1])   # no key-prefix input
         assert not set(_SCALE_ROOT) & set(_tf_vars(ecs(run_id="r1")._vars(True)))
-    # The serverless cell never scales this way.
+    # The serverless cell never scales this way (it gets only the shared file storage, below).
     _serverless_env(monkeypatch)
     with tempfile.TemporaryDirectory() as base:
         _iac_root_with(monkeypatch, base, "aws-serverless", *_SCALE_ROOT)
-        assert not set(_SCALE_ROOT) & set(_tf_vars(serverless(run_id="r1")._vars(True)))
+        assert not {"desired_count", "max_capacity", "deployment_mode"} & set(
+            _tf_vars(serverless(run_id="r1")._vars(True)))
+
+
+_FILE_STORAGE_ROOT = ("file_storage_provider", "file_storage_aws_s3_bucket_name",
+                      "file_storage_aws_s3_region", "file_storage_aws_s3_key_prefix")
+_FILE_STORAGE_PASSED = ("file_storage_provider", "file_storage_aws_s3_bucket_name", "file_storage_aws_s3_key_prefix")
+
+
+def test_redis_on_serverless_cell_shares_file_storage_with_the_batch_workers(monkeypatch):
+    # honua-server#5916 (S33): a background import the Lambda accepts runs on Batch only with shared
+    # S3 file storage; honua-iac#243 adds the inputs to examples/aws-serverless.
+    from targets.terraform_target import SERVERLESS_SPEC, FILE_STORAGE_INPUTS
+    assert SERVERLESS_SPEC.file_storage_inputs == FILE_STORAGE_INPUTS == _FILE_STORAGE_PASSED
+    assert SERVERLESS_SPEC.file_storage_bucket_env == "HONUA_AWS_CELL_FILE_STORAGE_BUCKET"
+    _serverless_env(monkeypatch)
+    monkeypatch.setenv("HONUA_AWS_CELL_FILE_STORAGE_BUCKET", "release-cells-file-storage-585192672263")
+    with tempfile.TemporaryDirectory() as base:
+        _iac_root_with(monkeypatch, base, "aws-serverless", *_FILE_STORAGE_ROOT)
+        target = serverless(run_id="38046060497")
+        argv = target._vars(True)
+        values = _tf_vars(argv)
+        # honua-iac#243's passthrough test pins exactly this prefix for the serverless Redis-on cell.
+        assert values["name_prefix"] == "honuarawsse380460"
+        assert [a for a in argv if a.startswith("-var=file_storage_")] == [
+            "-var=file_storage_provider=AwsS3",
+            "-var=file_storage_aws_s3_bucket_name=release-cells-file-storage-585192672263",
+            "-var=file_storage_aws_s3_key_prefix=release-cells/honuarawsse380460"]
+        # The region is left to the module (it renders the root region); no scaling inputs.
+        assert "file_storage_aws_s3_region" not in values
+        assert not {"desired_count", "max_capacity", "deployment_mode"} & set(values)
+        # Destroy plans with the same inputs.
+        assert {k: v for k, v in _tf_vars(target._vars(True, destroy=True)).items()
+                if k.startswith("file_storage_")} == {k: values[k] for k in _FILE_STORAGE_PASSED}
+        # Redis-off is not given shared storage: without Redis the Lambda refuses with the typed 503.
+        assert not set(_FILE_STORAGE_ROOT) & set(_tf_vars(target._vars(False)))
+        # A malformed bucket refuses rather than reaching terraform.
+        monkeypatch.setenv("HONUA_AWS_CELL_FILE_STORAGE_BUCKET", "Not_A_Bucket")
+        with pytest.raises(ProvisionError, match="HONUA_AWS_CELL_FILE_STORAGE_BUCKET is not an S3 bucket name"):
+            target._vars(True)
+        # A declaring root with the bucket unset refuses the Redis-on cell, naming the variable;
+        # Redis-off and destroy still plan.
+        monkeypatch.delenv("HONUA_AWS_CELL_FILE_STORAGE_BUCKET")
+        with pytest.raises(ProvisionError, match="HONUA_AWS_CELL_FILE_STORAGE_BUCKET is unset"):
+            target._vars(True)
+        assert not set(_FILE_STORAGE_ROOT) & set(_tf_vars(target._vars(True, destroy=True)))
+        assert not set(_FILE_STORAGE_ROOT) & set(_tf_vars(target._vars(False)))
+
+
+def test_serverless_file_storage_stays_off_on_an_older_root(monkeypatch):
+    _serverless_env(monkeypatch)
+    for env in ("release-cells-file-storage-585192672263", None):
+        if env:
+            monkeypatch.setenv("HONUA_AWS_CELL_FILE_STORAGE_BUCKET", env)
+        else:
+            monkeypatch.delenv("HONUA_AWS_CELL_FILE_STORAGE_BUCKET", raising=False)
+        with tempfile.TemporaryDirectory() as base:
+            # Today's pins declare none of them; a partial root (no key prefix) passes none either.
+            for declared in ((), _FILE_STORAGE_ROOT[:2]):
+                _iac_root_with(monkeypatch, base, "aws-serverless", *declared)
+                assert not set(_FILE_STORAGE_ROOT) & set(_tf_vars(serverless(run_id="r1")._vars(True)))
+
+
+def test_ecs_cell_file_storage_is_unchanged_by_the_serverless_passthrough(monkeypatch):
+    from targets.terraform_target import ECS_SPEC
+    assert ECS_SPEC.file_storage_inputs == () and ECS_SPEC.file_storage_bucket_env == ""
+    _ecs_env(monkeypatch)
+    monkeypatch.setenv("HONUA_AWS_OPERATION_KEY_RING_SECRET_ARN", KEY_RING_ARN)
+    monkeypatch.setenv("HONUA_AWS_CELL_FILE_STORAGE_BUCKET", "honua-release-cell-files")
+    with tempfile.TemporaryDirectory() as base:
+        _iac_root_with(monkeypatch, base, "aws", *_SCALE_ROOT, "file_storage_aws_s3_region")
+        argv = ecs(run_id="38110106995")._vars(True)
+        prefix = _tf_vars(argv)["name_prefix"]
+        watched = set(_SCALE_ROOT) | {"file_storage_aws_s3_region"}
+        assert [a for a in argv if a.startswith("-var=") and a[5:].split("=", 1)[0] in watched] == [
+            "-var=desired_count=2", "-var=max_capacity=2", "-var=deployment_mode=MultiNode",
+            "-var=file_storage_provider=AwsS3", "-var=file_storage_aws_s3_bucket_name=honua-release-cell-files",
+            f"-var=file_storage_aws_s3_key_prefix=release-cells/{prefix}"]
+        # Without the bucket the ECS cell still stays one task rather than refusing.
+        monkeypatch.delenv("HONUA_AWS_CELL_FILE_STORAGE_BUCKET")
+        assert not set(_SCALE_ROOT) & set(_tf_vars(ecs(run_id="38110106995")._vars(True)))
+
+
+def test_s10_fixture_and_cell_file_storage_prefixes_agree(monkeypatch):
+    # The cell's FileStorage prefix (`release-cells/<name prefix>`, the roles' object grant per
+    # honua-iac#243) and the S10 staging key (`release-cells/<cell>/s10/...`) share the bucket's
+    # `release-cells/` lifecycle root. The S10 object is read only through the harness-minted
+    # presigned URL, never with the cell role, so it sits beside the cell's prefix, not inside it:
+    # the server's FileStorage namespace stays server-owned and the S10 delete cannot touch it.
+    import large_import
+    from targets.terraform_target import CELL_FILE_STORAGE_ROOT, cell_file_storage_prefix
+    _serverless_env(monkeypatch)
+    _ecs_env(monkeypatch)
+    for factory, target_name in ((serverless, "aws-serverless"), (ecs, "aws-ecs")):
+        for redis in (True, False):
+            mode = "on" if redis else "off"
+            key = large_import.object_key(f"{target_name}/redis-{mode}", "38046060497", "1")
+            name_prefix = _tf_vars(factory(run_id="38046060497")._vars(redis, destroy=True))["name_prefix"]
+            cell_prefix = cell_file_storage_prefix(name_prefix)
+            assert cell_prefix == f"release-cells/{name_prefix}"
+            assert key.startswith(CELL_FILE_STORAGE_ROOT) and cell_prefix.startswith(CELL_FILE_STORAGE_ROOT)
+            assert key.startswith(f"release-cells/{target_name}-redis-{mode}/s10/")
+            assert not key.startswith(cell_prefix + "/"), (key, cell_prefix)
+
+
+def _ecs_polls(polls):
+    """An ECS API whose DescribeTasks answers `polls[i]` (a list of (arn, status, digest)) on the
+    i-th read, repeating the last; ListTasks lists the same arns."""
+    reads = {"n": 0}
+
+    def run(argv, **kwargs):
+        rows = polls[min(reads["n"], len(polls) - 1)]
+        if argv[2] == "list-tasks":
+            body = {"taskArns": [f"arn:aws:ecs:us-east-1:1:task/c1/{arn}" for arn, _, _ in rows]}
+        else:
+            reads["n"] += 1
+            body = {"tasks": [{"taskArn": f"arn:aws:ecs:us-east-1:1:task/c1/{arn}", "lastStatus": status,
+                               "containers": [{"name": "honua", "image": _TAGLESS, "imageDigest": digest,
+                                               "lastStatus": "RUNNING"}]} for arn, status, digest in rows]}
+        return subprocess.CompletedProcess(argv, 0, json.dumps(body), "")
+    return run, reads
+
+
+_SERVER = run_cloud.cloud_journey.manifest()["components"]["honua-server"]
+_TAGLESS = _SERVER["image"].rsplit(":", 1)[0] + "@" + _SERVER["digest"]
+
+
+def test_two_task_ecs_cell_passes_when_every_running_task_reports_the_candidate():
+    # Run 38119871941: the Redis-on cell on two MultiNode tasks reported no running image.
+    cj = run_cloud.cloud_journey
+    pinned = cj.manifest()
+    candidate = cj.candidate_image("aws-ecs/redis-on", pinned)
+    child = _SERVER["platformDigests"]["amd64"]
+    sleeps = []
+    # Both tasks running, one reporting the index digest and one the amd64 child.
+    run, _ = _ecs_polls([[("aaa", "RUNNING", _SERVER["digest"]), ("bbb", "RUNNING", child)]])
+    image, detail = cj.observe_ecs_image(_EcsOutputs(), pinned, run=run, sleep=sleeps.append)
+    assert image == candidate and detail.startswith("2 RUNNING task(s) of s1") and sleeps == []
+    # The second task is still starting: wait for it, then count both.
+    run, reads = _ecs_polls([[("aaa", "RUNNING", _SERVER["digest"]), ("bbb", "PENDING", "")],
+                             [("aaa", "RUNNING", _SERVER["digest"]), ("bbb", "RUNNING", _SERVER["digest"])]])
+    image, detail = cj.observe_ecs_image(_EcsOutputs(), pinned, run=run, sleep=sleeps.append)
+    assert image == candidate and reads["n"] == 2 and sleeps == [cj.ECS_IMAGE_POLL_SECONDS]
+    # A task that never starts within the wait is not counted, and is named.
+    sleeps.clear()
+    run, _ = _ecs_polls([[("aaa", "RUNNING", _SERVER["digest"]), ("bbb", "PENDING", "")]])
+    image, detail = cj.observe_ecs_image(_EcsOutputs(), pinned, run=run, sleep=sleeps.append)
+    assert image == candidate and "not counted: bbb PENDING" in detail
+    assert len(sleeps) == cj.ECS_IMAGE_POLLS - 1
+
+
+def test_two_task_ecs_cell_names_the_task_and_digest_that_disagree():
+    cj = run_cloud.cloud_journey
+    pinned = cj.manifest()
+    foreign = "sha256:" + "3" * 64
+    run, _ = _ecs_polls([[("aaa", "RUNNING", _SERVER["digest"]), ("bbb", "RUNNING", foreign)]])
+    image, detail = cj.observe_ecs_image(_EcsOutputs(), pinned, run=run, sleep=lambda _s: None)
+    assert image is None
+    assert detail.startswith(f"task bbb container honua reports {foreign} (candidate {_SERVER['digest']}")
+    assert "aaa" not in detail
+    run, _ = _ecs_polls([[("aaa", "STOPPED", _SERVER["digest"])]])
+    image, detail = cj.observe_ecs_image(_EcsOutputs(), pinned, run=run, sleep=lambda _s: None)
+    assert image is None and detail == "service s1 has no RUNNING task (aaa STOPPED)"
+
+
+def test_ecs_image_is_never_observed_from_a_partial_describe_tasks_answer():
+    # Every listed task must be described: a DescribeTasks failure or a missing record is no pass.
+    cj = run_cloud.cloud_journey
+    pinned = cj.manifest()
+    good = {"taskArn": "arn:aws:ecs:us-east-1:1:task/c1/aaa", "lastStatus": "RUNNING", "containers": [
+        {"name": "honua", "image": _TAGLESS, "imageDigest": _SERVER["digest"], "lastStatus": "RUNNING"}]}
+    for described in ({"tasks": [good], "failures": [{"arn": "arn:aws:ecs:us-east-1:1:task/c1/bbb",
+                                                      "reason": "MISSING"}]},
+                      {"tasks": [good], "failures": []}):
+        def run(argv, **kwargs):
+            body = ({"taskArns": [good["taskArn"], "arn:aws:ecs:us-east-1:1:task/c1/bbb"]}
+                    if argv[2] == "list-tasks" else described)
+            return subprocess.CompletedProcess(argv, 0, json.dumps(body), "")
+        image, detail = cj.observe_ecs_image(_EcsOutputs(), pinned, run=run, sleep=lambda _s: None)
+        assert image is None
+        assert detail.startswith("DescribeTasks described 1 of 2 listed tasks of s1")
+        assert ("bbb (MISSING)" in detail) == bool(described["failures"])
+
+
+def test_ecs_image_detail_reaches_the_candidate_image_check(monkeypatch):
+    cj = run_cloud.cloud_journey
+    driver, _ = cj.drivers()
+    stages = sys.modules["stages"]
+    seen = []
+    monkeypatch.setattr(driver, "observe", lambda target, base_url, workspace, bindir, image_ref, revision:
+                        stages.Observation(image_ref=image_ref))
+
+    def live(target, pinned, contract, workdir, base_url, keep):
+        seen.append(driver.observe(target, base_url, None, None, None, None))
+        raise RuntimeError("stop after observation")
+    monkeypatch.setattr(driver, "run_live", live)
+    try:
+        cj.attempt("aws-ecs/redis-on", 1, "https://cell.invalid", "key", None,
+                   image_detail="task bbb container honua reports sha256:33")
+    finally:
+        cj.cleanup("aws-ecs/redis-on")
+    (observation,) = seen
+    assert observation.image_ref is None
+    assert observation.image_detail == "task bbb container honua reports sha256:33"
+    (row,) = [c for c in stages.stage_1(observation, lambda _n: []) if c.id == "1.1-candidate-image"]
+    assert row.status == "blocked"
+    assert row.detail == ("the pinned candidate stack was not brought up: "
+                          "task bbb container honua reports sha256:33")
 
 
 def test_external_ecs_image_reaches_the_owned_candidate_image_check(monkeypatch):
@@ -2361,14 +2581,22 @@ def _phase_env(monkeypatch, run_id="phase381"):
     return run_cloud.cloud_journey.cell_dir("aws-ecs/redis-off")
 
 
-def test_teardown_job_fails_closed_when_provisioned_state_never_arrives(monkeypatch):
+@pytest.mark.parametrize("cleanup_raises", [False, True])
+@pytest.mark.parametrize("preview", [False, True])
+@pytest.mark.parametrize("tenant_fixture", [False, True])
+def test_teardown_job_fails_closed_when_provisioned_state_never_arrives(monkeypatch, tenant_fixture, preview, cleanup_raises):
+    monkeypatch.setenv("HONUA_CLOUD_TENANT_FIXTURE", "true" if tenant_fixture else "false")
     cj = run_cloud.cloud_journey
     directory = _phase_env(monkeypatch)
+    if preview:
+        monkeypatch.setattr(cj, "PREVIEW_TARGETS", ("aws-ecs",))
     with tempfile.TemporaryDirectory() as scratch:
         stub = _PhaseStub(Path(scratch))
         monkeypatch.setattr(run_cloud, "REGISTRY", {**run_cloud.REGISTRY, "aws-ecs": lambda **kw: stub})
         monkeypatch.setattr(run_cloud, "REPORT_PATH", Path(scratch) / "report.json")
         monkeypatch.setattr(cj, "check_cost", lambda *a, **k: {"status": "pass"})
+        if cleanup_raises:
+            monkeypatch.setattr(cj, "cleanup", mock.Mock(side_effect=OSError("cleanup fixture")))
         monkeypatch.setenv("HONUA_CLOUD_PROVISION_MARKER", str(Path(scratch) / "marker"))
         forgotten = []
         monkeypatch.setattr(run_cloud, "forget_secret", lambda name: forgotten.append(name))
@@ -2387,12 +2615,18 @@ def test_teardown_job_fails_closed_when_provisioned_state_never_arrives(monkeypa
             report = json.loads(run_cloud.REPORT_PATH.read_text())
             assert stub.torn_down == 0 and "never reached teardown" in report["why"]
             # The application key goes regardless; the state key stays while the cell may still exist.
-            assert forgotten == [run_cloud.app_key_secret_name("aws-ecs/redis-off")]
+            expected_secrets = [run_cloud.app_key_secret_name("aws-ecs/redis-off")]
+            if tenant_fixture:
+                expected_secrets.append(run_cloud.tenant_secret_name("aws-ecs/redis-off"))
+            assert forgotten == expected_secrets
             forgotten.clear()
             # Restored state: destroy, then delete the state key.
             Path(scratch, "marker").write_text("")
-            assert run_cloud.main(argv) == 1  # the provision failure still fails the cell
-            assert stub.torn_down == 1 and forgotten == [run_cloud.app_key_secret_name("aws-ecs/redis-off"),
+            assert run_cloud.main(argv) == (0 if preview and not cleanup_raises else 1)
+            assert json.loads(run_cloud.REPORT_PATH.read_text())["status"] == "fail"  # qualification is retained
+            if cleanup_raises:
+                assert "journey-cleanup-failed" in json.loads(run_cloud.REPORT_PATH.read_text())["cleanupFailures"]
+            assert stub.torn_down == 1 and forgotten == [*expected_secrets,
                                                          run_cloud.state_secret_name("aws-ecs/redis-off")]
             # A handoff from another run attempt cannot be adopted.
             run_cloud._write_json(directory / run_cloud.HANDOFF_NAME, {**state, "runAttempt": "2"})
@@ -2406,6 +2640,10 @@ def _journey_upload(directory, receipts, *, run_id="offline-run", run_attempt="2
     """A journey job's upload: receipt files plus the journey.json records that name them."""
     cj = run_cloud.cloud_journey
     cell_dir = cj.cell_dir(cell)
+    # Each call stands for a fresh artifact from a separate journey job.
+    for pattern in ("receipt-*.json", "serving-refusal-*.json", "target-*.json"):
+        for stale in directory.glob(pattern):
+            stale.unlink()
     records = []
     for number, receipt in enumerate(receipts, 1):
         data = json.dumps(receipt).encode()
@@ -2415,6 +2653,9 @@ def _journey_upload(directory, receipts, *, run_id="offline-run", run_attempt="2
             "receipt": str((cell_dir / f"receipt-{number}.json").relative_to(E2E_DIR)),
             "receiptSha256": hashlib.sha256(data).hexdigest(),
             "failureAttribution": None if receipt["status"] == "pass" else "infrastructure"})
+        if cell.endswith("/redis-off") and receipt["status"] == "pass":
+            from test_deterministic_refusal_profile import attach_fixture_profile
+            (directory / f"receipt-{number}.json").write_bytes(attach_fixture_profile(directory, receipt, records[-1]))
     return {"cell": cell, "status": "pass", "journeyAttempts": records}
 
 
@@ -2425,7 +2666,9 @@ def test_teardown_reverifies_journey_receipts_and_adopts_no_claimed_verdict(monk
     monkeypatch.setenv("GITHUB_RUN_ATTEMPT", "2")
     sha, image = _manifest_server()
     state = {"cell": "aws-ecs/redis-off", "observedServer": {"revision": sha, "source": "commit-sha"},
-             "runningImage": image}
+             "runningImage": image, "servingFixtureSha256": hashlib.sha256(json.dumps({
+                 "slice1": {"e2e_src_fs": {"service": "e2e", "layerId": 7}},
+                 "layers": {"e2e_src_fs": 7}}).encode()).hexdigest()}
     failed = _ecs_receipt()
     failed["status"] = "fail"
     failed["stages"][0]["status"] = "fail"
@@ -2463,7 +2706,8 @@ def test_teardown_reverifies_journey_receipts_and_adopts_no_claimed_verdict(monk
                                                 _journey_upload(upload, [unobserved, unobserved]), upload)
             assert verified["status"] == "fail" and "did not pass" in verified["why"]
             assert len(verified["journeyAttempts"]) == 2
-            # An upload that claims a pass with no attempt against the provisioned endpoint fails.
+            # An independent empty upload claims a pass without running against the endpoint.
+            _journey_upload(upload, [])
             for claimed in ({"status": "pass"}, {}):
                 empty = run_cloud.verify_journey({**state, "endpoint": "http://cell.invalid"},
                                                  {"cell": "aws-ecs/redis-off", "journeyAttempts": [],
@@ -2576,7 +2820,7 @@ def test_journey_job_stops_on_a_documented_block_and_reports_it(monkeypatch):
         return {"number": number, "receipt": str(path.relative_to(E2E_DIR))}
 
     monkeypatch.setattr(cj, "attempt", attempt)
-    monkeypatch.setattr(cj, "validate_attempt", lambda *a, **k: False)
+    monkeypatch.setattr(cj, "qualify_attempt", lambda *a, **k: False)
     _patch_seam(monkeypatch, lambda *a, **k: [cc.CheckResult("top-demo", "blocked", "honua-release#450 CSP")])
     try:
         for require_real, status in ((False, "blocked"), (True, "fail")):
@@ -2751,6 +2995,111 @@ def test_eks_admission_grants_this_runner_then_adds_the_journey_source_range(mon
         "192.0.2.10/32", "203.0.113.9/32"]
     patch = next(c for c in commands if c[:2] == ["kubectl", "patch"])
     assert json.loads(patch[-1])["spec"]["loadBalancerSourceRanges"] == ["192.0.2.10/32", "198.51.100.7/32"]
+
+
+# ---- run 38128300695: a failed fixture publication names its call, status and answering task ------
+def _seed_cell_against(handler_answers):
+    """Run the real seed against a loopback admin API answering `handler_answers(method, path)`
+    with (status, body bytes, instance)."""
+    import http.server
+    import threading
+
+    calls = []
+
+    class Handler(http.server.BaseHTTPRequestHandler):
+        def _answer(self):
+            length = int(self.headers.get("Content-Length") or 0)
+            calls.append((self.command, self.path, json.loads(self.rfile.read(length) or b"{}"),
+                          self.headers.get("X-API-Key")))
+            status, body, instance = handler_answers(self.command, self.path)
+            self.send_response(status)
+            self.send_header("Content-Type", "application/json")
+            if instance:
+                self.send_header("Honua-Instance", instance)
+            self.send_header("Content-Length", str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
+
+        do_POST = do_PUT = _answer
+
+        def log_message(self, *args):
+            pass
+
+    server = http.server.HTTPServer(("127.0.0.1", 0), Handler)
+    threading.Thread(target=server.serve_forever, daemon=True).start()
+
+    class Cell:
+        admin_api_key = "cell-admin-key-value"
+
+        def seed_database(self, sql):
+            return {"host": "db.internal.example", "port": 5432, "databaseName": "honua",
+                    "username": "honua_admin", "password": "pg-password-value", "provider": "PostGIS",
+                    "sslRequired": True, "sslMode": "Require"}
+    try:
+        with tempfile.TemporaryDirectory() as out:
+            error = cloud_driver.seed_cell(f"http://127.0.0.1:{server.server_address[1]}", target=Cell(), out=out)
+            wrote = (Path(out) / "seed-manifest.json").exists()
+    finally:
+        server.shutdown()
+        server.server_close()
+    return error, calls, wrote
+
+
+def test_seed_failure_names_the_call_status_instance_and_a_masked_body():
+    cid = "3f2b8c1e-5d4a-4e7b-9c0d-1a2b3c4d5e6f"
+
+    def answers(method, path):
+        if path == "/api/v1/admin/connections/":
+            return 201, json.dumps({"data": {"connectionId": cid}}).encode(), "task-a"
+        return 404, json.dumps({"success": False, "message": "Connection not found",
+                                "detail": "pg-password-value at db.internal.example",
+                                "password": "pg-password-value"}).encode(), "task-b"
+    error, calls, wrote = _seed_cell_against(answers)
+    assert not wrote
+    assert error.startswith(f"HTTPError HTTP 404 on POST /api/v1/admin/connections/{cid}/layers "
+                            "(answered by instance task-b): ")
+    assert '"message":"Connection not found"' in error
+    assert error.endswith("; 1 earlier publication call(s) were answered by task-a")
+    for secret in ("pg-password-value", "db.internal.example", "honua_admin", "cell-admin-key-value"):
+        assert secret not in error
+    assert [c[:2] for c in calls] == [("POST", "/api/v1/admin/connections/"),
+                                      ("POST", f"/api/v1/admin/connections/{cid}/layers")]
+
+
+def test_seed_failure_on_a_non_json_body_is_bounded_and_unnamed_instances_are_said():
+    def answers(method, path):
+        if path == "/api/v1/admin/connections/":
+            return 200, json.dumps({"data": {"connectionId": "c1"}}).encode(), None
+        return 502, b"<html>Bad Gateway token=abc123 " + b"x" * 1000 + b"</html>", None
+    error, _, _ = _seed_cell_against(answers)
+    assert error.startswith("HTTPError HTTP 502 on POST /api/v1/admin/connections/c1/layers: <html>Bad Gateway")
+    assert "abc123" not in error and "...(truncated)" in error
+    assert error.endswith("; 1 earlier publication call(s) were answered by no named instance")
+
+
+def test_seed_failure_never_keeps_part_of_a_secret_cut_by_the_excerpt_bound():
+    # Review on #540: a secret straddling the 300-character cut must be replaced before the cut.
+    from harness.cloud.seed import MAX_BODY_CHARS, body_excerpt
+    secret = "pg-password-" + "s" * 40
+    for raw in (json.dumps({"message": "x" * (MAX_BODY_CHARS - 30) + secret}).encode(),
+                ("<html>" + "y" * (MAX_BODY_CHARS - 20) + secret + "</html>").encode()):
+        excerpt = body_excerpt(raw, (secret, None, 5432))
+        assert "pg-password-" not in excerpt and "s" * 10 not in excerpt
+        assert len(excerpt) <= MAX_BODY_CHARS + len("...(truncated)")
+    # A secret JSON escaping would alter is replaced in the parsed value, before serialization.
+    quoted = 'pa"ss/wörd-value'
+    excerpt = body_excerpt(json.dumps({"detail": f"auth failed: {quoted}"}).encode(), (quoted,))
+    assert excerpt == '{"detail":"auth failed: [redacted]"}'
+
+
+def test_seed_failure_that_is_not_http_keeps_only_the_error_type():
+    class Cell:
+        admin_api_key = "k"
+
+        def seed_database(self, sql):
+            raise RuntimeError("psql: password authentication failed for user honua_admin")
+    with tempfile.TemporaryDirectory() as out:
+        assert cloud_driver.seed_cell("http://127.0.0.1:9", target=Cell(), out=out) == "RuntimeError"
 
 
 def _driver_contract_fixture(monkeypatch, directory, *, blocked=False, missing=False, crash=False, ready=True):
@@ -2970,6 +3319,17 @@ def test_demos_geoprocessing_topology_verdicts_hold_for_both_topologies():
     if not node:
         pytest.skip("node is not installed")
     completed = subprocess.run([node, "--test", str(E2E_DIR / "drivers/demos/gp-topology.test.mjs")],
+                               capture_output=True, text=True, timeout=120)
+    assert completed.returncode == 0, completed.stdout + completed.stderr
+
+
+# ---- S9 demo call log (run 38192851328, aws-serverless): a gateway 5xx without CORS headers is a call
+# the sample made, not a shim failure; the editing/workbench verdicts name who answered.
+def test_demos_call_log_attributes_gateway_answers_and_cors_blocked_calls():
+    node = shutil.which("node")
+    if not node:
+        pytest.skip("node is not installed")
+    completed = subprocess.run([node, "--test", str(E2E_DIR / "drivers/demos/backend-calls.test.mjs")],
                                capture_output=True, text=True, timeout=120)
     assert completed.returncode == 0, completed.stdout + completed.stderr
 
@@ -3740,9 +4100,20 @@ def test_ecs_bedrock_is_opt_in_and_fails_closed_on_a_root_without_it(monkeypatch
         _iac_root_with(monkeypatch, base, "aws")
         with pytest.raises(ProvisionError, match="does not declare enable_bedrock_ai"):
             ecs(run_id="r1")._vars(False)
-    # Serverless has no Bedrock opt-in.
+    # Serverless uses the same explicit opt-in and fails closed on older roots.
+    from targets.terraform_target import SERVERLESS_SPEC
+    assert SERVERLESS_SPEC.opt_in_env == "HONUA_ENABLE_BEDROCK_AI"
     _serverless_env(monkeypatch)
-    assert "enable_bedrock_ai" not in _tf_vars(serverless(run_id="r1")._vars(False))
+    with tempfile.TemporaryDirectory() as base:
+        _iac_root_with(monkeypatch, base, "aws-serverless", "enable_bedrock_ai", "bedrock_ai_region")
+        monkeypatch.setenv("HONUA_ENABLE_BEDROCK_AI", "false")
+        assert "enable_bedrock_ai" not in _tf_vars(serverless(run_id="r1")._vars(False))
+        monkeypatch.setenv("HONUA_ENABLE_BEDROCK_AI", "true")
+        values = _tf_vars(serverless(run_id="r1")._vars(False))
+        assert values["enable_bedrock_ai"] == "true" and values["bedrock_ai_region"] == "us-east-1"
+        _iac_root_with(monkeypatch, base, "aws-serverless")
+        with pytest.raises(ProvisionError, match="does not declare enable_bedrock_ai"):
+            serverless(run_id="r1")._vars(False)
 
 
 def test_cloud_workflow_threads_the_batch_image_and_scopes_bedrock_to_the_genuine_model_cell():
@@ -3755,7 +4126,7 @@ def test_cloud_workflow_threads_the_batch_image_and_scopes_bedrock_to_the_genuin
     parity = workflow["jobs"]["parity"]["with"]
     assert parity["gp_batch_image"] == "${{ needs.candidate.outputs.gp_batch_image }}"
     assert parity["enable_bedrock"] == ("${{ (inputs.genuine_model_bedrock || false) && "
-                                        "matrix.target == 'aws-ecs' && matrix.redis == 'off' }}")
+                                        "(matrix.target == 'aws-ecs' || matrix.target == 'aws-serverless') }}")
     for trigger in ("workflow_dispatch", "workflow_call"):
         assert workflow[True][trigger]["inputs"]["genuine_model_bedrock"]["default"] is False
     assert cell["env"]["HONUA_GP_BATCH_IMAGE"] == "${{ inputs.gp_batch_image }}"
@@ -3950,7 +4321,7 @@ def test_ecs_readiness_diagnostics_capture_stop_reasons_and_the_server_log_tail(
         return subprocess.CompletedProcess(argv, 0, json.dumps(payload), "")
 
     report = run_cloud.ecs_readiness_diagnostics(target, run=run, redact=run_cloud._redact_log)
-    assert run_cloud.cloud_journey.PREVIEW_TARGETS == ()
+    assert run_cloud.cloud_journey.PREVIEW_TARGETS == ("aws-eks",)
     assert report["cluster"] == "c1" and report["service"] == "s1"
     task = report["tasks"][0]
     assert task["stoppedReason"] == "Essential container in task exited"
@@ -4004,9 +4375,25 @@ def test_ecs_diagnostics_tail_every_stopped_task_and_report_unreadable_streams(m
     assert "ResourceNotFoundException" in unreadable["error"] and "Password=[redacted]" in unreadable["error"]
 
 
-def _lambda_cli(outputs, *, functions, groups, batch_groups=(), failing_streams=(), calls=None):
+def _filter_matches(pattern, message):
+    """The two filter-pattern shapes the collector sends: `?"a" ?"b"` phrases, or the access-log
+    JSON status pattern."""
+    if pattern.startswith("{"):
+        try:
+            status = str(json.loads(message).get("status", ""))
+        except ValueError:
+            return False
+        return status[:1] in ("4", "5")
+    phrases = re.findall(r'\?"([^"]+)"', pattern)
+    assert phrases, pattern
+    return any(phrase in message for phrase in phrases)
+
+
+def _lambda_cli(outputs, *, functions, groups, batch_groups=(), failing_streams=(), calls=None,
+                stream_order=None):
     """A fake terraform/aws CLI for lambda_readiness_diagnostics: `groups` maps a log group to
-    {stream: [(timestamp, message), ...]}."""
+    {stream: [(timestamp, message), ...]}. `stream_order` overrides describe-log-streams' order for
+    a group (CloudWatch's LastEventTime order is eventually consistent, so it can be stale)."""
     def run(argv, **kwargs):
         if calls is not None:
             calls.append(argv)
@@ -4024,9 +4411,19 @@ def _lambda_cli(outputs, *, functions, groups, batch_groups=(), failing_streams=
         if verb == "describe-log-streams":
             if group not in groups:
                 return subprocess.CompletedProcess(argv, 254, "", "ResourceNotFoundException: token=abc gone")
-            names = sorted(groups[group], key=lambda n: max(t for t, _ in groups[group][n]), reverse=True)
+            names = (stream_order or {}).get(group) or sorted(
+                groups[group], key=lambda n: max(t for t, _ in groups[group][n]), reverse=True)
             return subprocess.CompletedProcess(argv, 0, json.dumps({"logStreams": [
                 {"logStreamName": n} for n in names[:int(argv[argv.index("--max-items") + 1])]]}), "")
+        if verb == "filter-log-events":
+            if group not in groups:
+                return subprocess.CompletedProcess(argv, 254, "", "ResourceNotFoundException: token=abc gone")
+            pattern = argv[argv.index("--filter-pattern") + 1]
+            events = sorted(({"timestamp": t, "logStreamName": n, "message": m + "\n"}
+                             for n, rows in groups[group].items() for t, m in rows
+                             if _filter_matches(pattern, m)), key=lambda e: e["timestamp"])
+            return subprocess.CompletedProcess(argv, 0, json.dumps(
+                {"events": events[:int(argv[argv.index("--max-items") + 1])]}), "")
         assert verb == "get-log-events"
         stream = argv[argv.index("--log-stream-name") + 1]
         if stream in failing_streams:
@@ -4092,7 +4489,7 @@ def test_lambda_readiness_diagnostics_tail_every_cell_function_and_the_batch_log
     # Read-only: no AWS verb but list/describe/get, and terraform only reads outputs.
     for call in calls:
         if call[0] == "aws":
-            assert call[2].split("-")[0] in ("list", "describe", "get"), call
+            assert call[2].split("-")[0] in ("list", "describe", "get", "filter"), call
         else:
             assert call[2:4] == ["output", "-raw"], call
     dumped = json.dumps(report)
@@ -4116,6 +4513,75 @@ def test_lambda_diagnostics_skip_batch_when_disabled_and_report_unreadable_strea
     with pytest.raises(ValueError, match="lambda_function_name"):
         run_cloud.lambda_readiness_diagnostics(
             target, run=_lambda_cli({}, functions=[], groups={}), redact=run_cloud._redact_log)
+
+
+def test_lambda_diagnostics_read_every_stream_sweep_failure_signatures_and_the_access_log(monkeypatch):
+    """Run 38133126673: the API tail ended at a cold start minutes before the journey's failure
+    because describe-log-streams' LastEventTime order was stale, and the access log that tells an
+    API Gateway refusal from a server response was never read."""
+    target = serverless(run_id="r3")
+    monkeypatch.setattr(target, "_iac_root", lambda: Path("iac"))
+    api, reconcile = "cell-it-honua", "cell-it-cp-reconcile"
+    t0 = 1_791_000_000_000
+    cold = [(t0 + i, f"cold start line {i}") for i in range(400)]
+    cold.append((t0 + 500, "Npgsql.PostgresException (0x80004005): 53300: remaining connection slots "
+                           "are reserved Password=hunter2"))
+    serving = [(t0 + 180_000 + i, f"request line {i}") for i in range(50)]
+    serving.append((t0 + 180_100, "warn: Honua.Ai.Protocols.Mcp.McpDataAccessSurface[8163] MCP tool "
+                                  "invocation failed unexpectedly: ToolName=honua_get_style"))
+    access = [(t0 + 60_000, json.dumps({"status": "200", "httpMethod": "GET", "path": "/odata/Layers"})),
+              (t0 + 61_000, json.dumps({"status": "500", "httpMethod": "GET", "path": "/odata/Layers"})),
+              (t0 + 61_500, json.dumps({"status": "500", "httpMethod": "GET", "path": "/odata/Layers"})),
+              (t0 + 62_000, json.dumps({"status": "429", "httpMethod": "GET",
+                                        "path": "/rest/services/maui-hillshade/ImageServer/tile/13/1/2"}))]
+    groups = {f"/aws/lambda/{api}": {"2026/10/11/[1]cold": cold, "2026/10/11/[1]serving": serving},
+              f"/aws/lambda/{reconcile}": {"r": [
+                  (t0 + 9, "INIT_REPORT Init Duration: 768.74 ms Phase: invoke Status: error "
+                           "Error Type: Runtime.ExitError"),
+                  (t0 + 8, "Unhandled exception. System.InvalidOperationException: PostGIS preflight check "
+                           "failed: Database compatibility check failed.")]},
+              f"/aws/apigateway/{api}": {"access": access}}
+    # LastEventTime has not caught up: the stream that served last is listed after the cold one.
+    order = {f"/aws/lambda/{api}": ["2026/10/11/[1]cold", "2026/10/11/[1]serving"]}
+    calls = []
+    run = _lambda_cli({"lambda_function_name": api, "control_plane_reconcile_function_name": reconcile,
+                       "gp_batch_enabled": "false"},
+                      functions=[{"FunctionName": api}, {"FunctionName": reconcile}],
+                      groups=groups, stream_order=order, calls=calls)
+    report = run_cloud.lambda_readiness_diagnostics(target, run=run, redact=run_cloud._redact_log)
+    logs = {log["logGroup"]: log for log in report["logs"]}
+    api_log = logs[f"/aws/lambda/{api}"]
+    # Every stream is read, so the tail ends with the serving environment's last line.
+    assert api_log["lines"][-1].endswith("ToolName=honua_get_style")
+    describe = next(c for c in calls if "describe-log-streams" in c)
+    assert describe[describe.index("--max-items") + 1] == str(run_cloud._LOG_STREAMS)
+    signatures = api_log["failureSignatures"]["signatures"]
+    assert signatures["db-connection-slots"] == {
+        "lines": 1, "streams": 1, "first": "2026-10-03T04:00:00.500Z", "last": "2026-10-03T04:00:00.500Z"}
+    assert signatures["mcp-tool-unexpected"]["lines"] == 1
+    assert "2026/10/11/[1]serving" in api_log["failureSignatures"]["samples"][-1]
+    assert "hunter2" not in json.dumps(api_log)
+    crash = logs[f"/aws/lambda/{reconcile}"]["failureSignatures"]["signatures"]
+    assert set(crash) == {"runtime-exit", "unhandled-exception", "preflight-failed"}
+    access_log = logs[f"/aws/apigateway/{api}"]
+    assert access_log["accessLog"] is True and len(access_log["lines"]) == 4
+    assert access_log["accessErrors"]["byStatus"] == {"429": 1, "500": 2}
+    assert access_log["accessErrors"]["byRoute"]["500 GET /odata/Layers"] == 2
+    assert len(access_log["accessErrors"]["samples"]) == 3
+
+
+def test_lambda_diagnostics_record_unreadable_signature_and_access_sweeps(monkeypatch):
+    target = serverless(run_id="r4")
+    monkeypatch.setattr(target, "_iac_root", lambda: Path("iac"))
+    api = "cell-dev-honua"
+    run = _lambda_cli({"lambda_function_name": api, "gp_batch_enabled": "false"},
+                      functions=[{"FunctionName": api}], groups={f"/aws/lambda/{api}": {"a": [(1, "ok")]}})
+    report = run_cloud.lambda_readiness_diagnostics(target, run=run, redact=run_cloud._redact_log)
+    logs = {log["logGroup"]: log for log in report["logs"]}
+    assert logs[f"/aws/lambda/{api}"]["failureSignatures"] == {"signatures": {}, "truncated": False, "samples": []}
+    # The cell's access log group is missing: recorded, never fatal.
+    access_log = logs[f"/aws/apigateway/{api}"]
+    assert "token=[redacted]" in access_log["error"] and "token=[redacted]" in access_log["accessErrors"]["error"]
 
 
 def test_diagnose_phase_writes_lambda_diagnostics_for_a_serverless_cell(monkeypatch, capsys):
@@ -4240,21 +4706,28 @@ def test_redact_log_strips_key_values_bearer_tokens_and_postgres_uri_passwords(l
 LOCK = "sha256:" + "c" * 64
 
 
-def _model_cell(monkeypatch, run_id, *, deterministic_status):
+def _model_cell(monkeypatch, run_id, *, deterministic_status, cell="aws-ecs/redis-off", endpoint="http://cell.example"):
     monkeypatch.setenv("GITHUB_RUN_ID", run_id)
     monkeypatch.setenv("GITHUB_RUN_ATTEMPT", "1")
-    directory = run_cloud.cloud_journey.cell_dir("aws-ecs/redis-off")
+    monkeypatch.setattr(run_cloud.cloud_journey, "reset_prior_attempt", lambda *args, **kwargs: ["reset test fixture"])
+    directory = run_cloud.cloud_journey.cell_dir(cell)
     directory.mkdir(parents=True, exist_ok=True)
     receipt = directory / "receipt-1.json"
-    receipt.write_text(json.dumps({"status": deterministic_status}))
+    target = directory / "target-1.json"
+    target.write_text(json.dumps({"id": cell, "replicaBaseUrl": endpoint}))
+    receipt.write_text(json.dumps({"status": deterministic_status, "target": {
+        "id": cell, "configSha256": hashlib.sha256(target.read_bytes()).hexdigest()}}))
     (directory / run_cloud.JOURNEY_NAME).write_text(json.dumps(
         {"journeyAttempts": [{"number": 1, "receipt": str(receipt.relative_to(run_cloud.E2E_DIR))}]}))
     return directory
 
 
-def _canary_receipt(attempt, status, attribution):
-    return {"mode": "genuine-model", "cell": "aws-ecs/redis-off", "attempt": attempt, "lockDigest": LOCK,
+def _canary_receipt(attempt, status, attribution, cell="aws-ecs/redis-off"):
+    return {"mode": "genuine-model", "cell": cell, "attempt": attempt, "lockDigest": LOCK,
             "status": status, "failureAttribution": attribution,
+            "profile": "redis-off-serving-refusal" if cell.endswith("/redis-off") else "full-workflow",
+            "executionOutcome": "refused" if cell.endswith("/redis-off") else "completed",
+            "functionalGpExecuted": not cell.endswith("/redis-off"),
             "completedAt": f"2026-10-08T12:0{attempt}:00.000000Z"}
 
 
@@ -4273,9 +4746,12 @@ def test_model_canary_is_refused_without_this_jobs_passing_deterministic_journey
         shutil.rmtree(run_cloud.cloud_journey.EVIDENCE / "990001", ignore_errors=True)
 
 
-def test_model_canary_binds_each_attempt_to_the_lock_and_reports_the_nightly_row(monkeypatch):
+@pytest.mark.parametrize("cell", sorted(run_cloud.MODEL_CANARY_CELLS))
+def test_model_canary_binds_each_attempt_to_the_lock_and_reports_the_nightly_row(monkeypatch, cell):
     sys.path.insert(0, str(run_cloud.E2E_DIR.parent / "tools"))
-    directory = _model_cell(monkeypatch, "990002", deterministic_status="pass")
+    directory = _model_cell(monkeypatch, "990002", deterministic_status="pass", cell=cell, endpoint="https://cell.example")
+    monkeypatch.setenv("AWS_SECRET_ACCESS_KEY", "never-forward-cloud-credentials")
+    monkeypatch.setenv("GITHUB_TOKEN", "never-forward-github-credentials")
     try:
         calls = []
 
@@ -4283,16 +4759,20 @@ def test_model_canary_binds_each_attempt_to_the_lock_and_reports_the_nightly_row
             calls.append((argv, env))
             number = int(argv[argv.index("--attempt") + 1])
             outcome = ("fail", "infrastructure") if number == 1 else ("pass", None)
-            Path(argv[argv.index("--output") + 1]).write_text(json.dumps(_canary_receipt(number, *outcome)))
+            Path(argv[argv.index("--output") + 1]).write_text(json.dumps(_canary_receipt(number, *outcome, cell=cell)))
             return subprocess.CompletedProcess(argv, 1 if number == 1 else 0)
 
         report = run_cloud.model_canary_phase(
-            {"cell": "aws-ecs/redis-off", "endpoint": "https://cell.example/"}, admin_key="cell-key",
+            {"cell": cell, "endpoint": "https://cell.example/"}, admin_key="cell-key",
             lock_digest=LOCK, run=fake_run)
         assert len(calls) == 2
         argv, env = calls[0]
         assert argv[argv.index("--lock-digest") + 1] == LOCK
-        assert argv[argv.index("--cell") + 1] == "aws-ecs/redis-off"
+        assert argv[argv.index("--cell") + 1] == cell
+        assert argv[argv.index("--profile") + 1] == ("redis-off-serving-refusal" if cell.endswith("/redis-off") else "full-workflow")
+        assert argv[argv.index("--target") + 1] == str(directory / "target-1.json")
+        assert "AWS_SECRET_ACCESS_KEY" not in env and "GITHUB_TOKEN" not in env
+        assert env["HONUA_CLOUD_JOURNEY_ADMIN"] == "cell-key"
         assert argv[argv.index("--base-url") + 1] == "https://cell.example/api"
         # Owner ruling canary-http-cell-2026-10-08: only this cell's own host may use plain HTTP.
         assert argv[argv.index("--allow-http-cell") + 1] == "cell.example"
@@ -4300,6 +4780,8 @@ def test_model_canary_binds_each_attempt_to_the_lock_and_reports_the_nightly_row
         assert env["TERMINAL_MODEL_API_KEY"] == "cell-key" and "cell-key" not in argv
         row = report["cells"][0]
         assert report["status"] == row["status"] == "pass"
+        assert row["cell"] == cell
+        assert [r["modelAttempt"] for r in report["harnessSetup"]] == [1, 2]
         assert [(a["number"], a["status"], a["failureAttribution"], a["lockDigest"], a["driver"])
                 for a in row["attempts"]] == [(1, "fail", "infrastructure", LOCK, "genuine-model"),
                                               (2, "pass", None, LOCK, "genuine-model")]
@@ -4790,3 +5272,227 @@ def test_cell_workflow_threads_the_cell_dns_repository_variables():
     # Step-scoped, never workflow-level, and the credential-free journey job never sees them.
     assert not {"HONUA_AWS_CELL_DNS_ZONE_ID", "HONUA_AWS_CELL_DNS_PARENT"} & set(cell["env"])
     assert "HONUA_AWS_CELL_DNS" not in json.dumps(cell["jobs"]["journey"])
+
+
+@pytest.mark.parametrize("change,expected", [
+    ("qualification-only", 0), ("never-provisioned", 0), ("destroy-failed", 1),
+    ("lost-state", 1), ("unknown-obligation", 1), ("missing-report", 1),
+    ("secret-cleanup", 1), ("staged-fixture", 1), ("cost-failed", 1),
+])
+def test_preview_workflow_cannot_tolerate_failed_cleanup(tmp_path, change, expected):
+    workflow, cell = _cloud_workflows()
+    teardown = cell["jobs"]["teardown"]
+    assert teardown["continue-on-error"] is False
+    steps = teardown["steps"]
+    destroy = next(step for step in steps if (step.get("name") or "").startswith("Tear down"))
+    assert "continue-on-error" not in destroy
+    guard = next(step for step in steps if step.get("name") == "Refuse incomplete cleanup on every topology")
+    assert guard["if"] == "always()" and steps.index(guard) > steps.index(destroy)
+    # Execute the actual workflow guard against retained reports. Qualification failure alone
+    # remains informational; lost state, failed destroy, leaked secrets and spend remain fatal.
+    report = {"status": "fail", "provisionAttempted": True,
+              "teardown": {"attempted": True, "completed": True}, "cost": {"status": "pass"}}
+    if change == "never-provisioned":
+        report.update(provisionAttempted=False, teardown={"attempted": False, "completed": False})
+    elif change == "destroy-failed": report["teardown"]["completed"] = False
+    elif change == "lost-state": report["teardown"].update(attempted=False, completed=False)
+    elif change == "unknown-obligation": del report["provisionAttempted"]
+    elif change == "secret-cleanup": report["cleanupFailures"] = ["owned-secret-delete-failed"]
+    elif change == "staged-fixture": report["s10Cleanup"] = {"status": "failed"}
+    elif change == "cost-failed": report["cost"]["status"] = "fail"
+    directory = tmp_path / "e2e"
+    directory.mkdir()
+    if change != "missing-report":
+        (directory / "gate-report-cloud.json").write_text(json.dumps(report))
+    result = subprocess.run(["bash", "-c", guard["run"]], cwd=tmp_path,
+                            env={**os.environ, "PYTHONPATH": str(E2E_DIR)}, capture_output=True, text=True)
+    assert result.returncode == expected, result.stderr
+
+
+@pytest.mark.parametrize("handoff", ["missing", "stale", "confirmed-no-provision"])
+def test_preview_teardown_refuses_unconfirmed_missing_state(monkeypatch, tmp_path, handoff):
+    cj = run_cloud.cloud_journey
+    directory = _phase_env(monkeypatch, run_id="preview-missing-state")
+    monkeypatch.setattr(cj, "PREVIEW_TARGETS", ("aws-ecs",))
+    stub = _PhaseStub(tmp_path)
+    monkeypatch.setattr(run_cloud, "REGISTRY", {**run_cloud.REGISTRY, "aws-ecs": lambda **kw: stub})
+    monkeypatch.setattr(run_cloud, "REPORT_PATH", tmp_path / "report.json")
+    monkeypatch.setattr(run_cloud, "forget_secret", lambda *_: None)
+    monkeypatch.setenv("HONUA_CLOUD_PROVISION_MARKER", str(tmp_path / "absent-marker"))
+    if handoff != "missing":
+        state = {"cell": "aws-ecs/redis-off", "redis": "redis-off", "runId": "preview-missing-state",
+                 "runAttempt": "2" if handoff == "stale" else "1", "candidateDigest": cj.candidate_digest(),
+                 "startedAt": cj.now(), "provisionAttempted": False,
+                 "report": {"cell": "aws-ecs/redis-off", "status": "fail", "journeyAttempts": []}}
+        run_cloud._write_json(directory / run_cloud.HANDOFF_NAME, state)
+    try:
+        result = run_cloud.main(["--phase", "teardown", "--target", "aws-ecs", "--redis", "off"])
+        report = json.loads(run_cloud.REPORT_PATH.read_text())
+        assert stub.torn_down == 0
+        assert result == (0 if handoff == "confirmed-no-provision" else 1)
+        assert report["status"] == "fail"  # informational qualification never becomes a pass
+        if handoff != "confirmed-no-provision":
+            assert "provisioning-obligation-unconfirmed" in report["cleanupFailures"]
+            assert cj.cleanup_failure(report) is not None
+    finally:
+        shutil.rmtree(cj.EVIDENCE / "preview-missing-state", ignore_errors=True)
+
+
+@pytest.mark.parametrize("mutation", ["missing-config", "digest", "endpoint", "cell", "history"])
+def test_model_canary_refuses_mismatched_target_or_history_without_invoking_model(monkeypatch, mutation):
+    sys.path.insert(0, str(run_cloud.E2E_DIR.parent / "tools"))
+    directory = _model_cell(monkeypatch, "990008", deterministic_status="pass", cell="aws-serverless/redis-on")
+    try:
+        path = directory / "target-1.json"
+        if mutation == "missing-config":
+            path.unlink()
+        elif mutation == "history":
+            (directory / run_cloud.JOURNEY_NAME).write_text(json.dumps({"journeyAttempts": [None, "wrong"]}))
+        else:
+            config = json.loads(path.read_text())
+            config[{"digest": "extra", "endpoint": "replicaBaseUrl", "cell": "id"}[mutation]] = "changed"
+            path.write_text(json.dumps(config))
+        calls = []
+        report = run_cloud.model_canary_phase(
+            {"cell": "aws-serverless/redis-on", "endpoint": "http://cell.example"},
+            admin_key="private-app-key", lock_digest=LOCK, run=lambda *args, **kwargs: calls.append(args))
+        assert not calls and report["status"] == "fail"
+        assert report["cells"][0]["cell"] == "aws-serverless/redis-on"
+    finally:
+        shutil.rmtree(run_cloud.cloud_journey.EVIDENCE / "990008", ignore_errors=True)
+
+
+def test_model_phase_rejects_handoff_for_another_cell(monkeypatch):
+    seen = []
+    monkeypatch.setattr(run_cloud, "_read_json", lambda *_: {"cell": "aws-ecs/redis-off", "endpoint": "https://wrong.example"})
+    monkeypatch.setattr(run_cloud, "open_key", lambda *_: "application-key")
+    monkeypatch.setattr(run_cloud, "model_canary_phase", lambda state, **kwargs: (
+        seen.append(state) or {"status": "fail", "why": state["handoffError"]}))
+    args = mock.Mock(target="aws-serverless", redis="on", sealed_key=Path("s"), private_key=Path("p"),
+                     lock_digest=LOCK, max_attempts=2)
+    assert run_cloud._phase_model_canary(args) == 1
+    assert seen[0]["cell"] == "aws-serverless/redis-on" and "endpoint" not in seen[0]
+
+
+def test_model_canary_never_reuses_old_output_when_current_process_writes_no_receipt(monkeypatch):
+    sys.path.insert(0, str(run_cloud.E2E_DIR.parent / "tools"))
+    directory = _model_cell(monkeypatch, "990009", deterministic_status="pass")
+    try:
+        out = directory / "model-journey"
+        out.mkdir()
+        stale = out / "model-canary-1.json"
+        stale.write_text(json.dumps(_canary_receipt(1, "pass", None)))
+        report = run_cloud.model_canary_phase({"cell": "aws-ecs/redis-off", "endpoint": "http://cell.example"},
+            admin_key="private-app-key", lock_digest=LOCK,
+            run=lambda argv, **kwargs: subprocess.CompletedProcess(argv, 0))
+        assert report["status"] == "fail" and not stale.exists()
+        assert "before writing attempt" in report["why"]
+    finally:
+        shutil.rmtree(run_cloud.cloud_journey.EVIDENCE / "990009", ignore_errors=True)
+@pytest.mark.parametrize('matches', [True, False])
+def test_off_profile_native_after_observation_cannot_bypass_cost_or_teardown(monkeypatch, matches):
+    cj = run_cloud.cloud_journey
+    monkeypatch.setenv('GITHUB_RUN_ID', 'offline-run')
+    monkeypatch.setenv('GITHUB_RUN_ATTEMPT', '2')
+    cell = 'aws-ecs/redis-off'; directory = cj.cell_dir(cell)
+    directory.mkdir(parents=True, exist_ok=True)
+    events = []; sha, image = _manifest_server()
+    stub = _ServingStub()
+    monkeypatch.setattr(stub, 'teardown', lambda **kwargs: events.append('destroy'), raising=False)
+    monkeypatch.setattr(cj, 'cleanup', lambda cell: events.append('cleanup'))
+    monkeypatch.setattr(cj, 'check_cost', lambda *a, **k: (events.append('cost') or {'status': 'pass'}))
+    monkeypatch.setattr(cj, 'observe_ecs_image', lambda *a: (image if matches else 'wrong-image', 'native readback'))
+    monkeypatch.setattr(cj, 'server_identity', lambda endpoint: {'revision': sha, 'source': 'commit-sha'})
+    try:
+        record = _artifact(directory, _ecs_receipt())
+        record['receipt'] = str((directory / 'receipt-1.json').relative_to(E2E_DIR))
+        state = {'cell': cell, 'target': 'aws-ecs', 'redis': 'redis-off', 'runId': 'offline-run', 'runAttempt': '2',
+            'candidateDigest': cj.candidate_digest(), 'endpoint': 'https://cell.invalid', 'startedAt': cj.now(),
+            'provisionAttempted': True, 'observedServer': {'revision': sha, 'source': 'commit-sha'}, 'runningImage': image,
+            'servingFixtureSha256': record['profileObservation']['seedManifestSha256'],
+            'report': {'cell': cell, 'endpoint': 'https://cell.invalid', 'readiness': {'ready': True},
+                       'checks': [], 'canaryProbes': [], 'journeyAttempts': []}}
+        report = run_cloud.teardown_phase(state, {'journeyAttempts': [record]}, stub,
+            reference_endpoint=None, cost_report=directory / 'meter.json')
+        assert state['destroyed'] is True
+        assert events == ['cost', 'cleanup', 'destroy']
+        assert record['profileObservation']['source'] == 'aws-control-plane'
+        assert record['profileObservation']['after']['image'] == (image if matches else 'wrong-image')
+        if matches:
+            assert 'native observation rejected' not in report.get('why', '')
+        else:
+            assert report['status'] == 'fail' and 'native observation rejected' in report['why']
+    finally:
+        shutil.rmtree(cj.EVIDENCE / 'offline-run', ignore_errors=True)
+
+
+def test_off_profile_transient_failure_keeps_raw_block_and_spends_only_existing_retry(monkeypatch):
+    cj = run_cloud.cloud_journey
+    monkeypatch.setenv('GITHUB_RUN_ID', 'offline-run')
+    monkeypatch.setenv('GITHUB_RUN_ATTEMPT', '2')
+    calls = []; cell = 'aws-ecs/redis-off'
+    from test_deterministic_refusal_profile import attach_fixture_profile
+    def attempt(cell, number, endpoint, admin_key, running_image=None):
+        calls.append(number)
+        directory = cj.cell_dir(cell); directory.mkdir(parents=True, exist_ok=True)
+        raw = _ecs_receipt()
+        if number == 1:
+            raw['status'] = 'blocked'
+            for stage in raw['stages'][2:]:
+                stage.update(status='blocked', blockedBy=['honua-release#381'])
+                for check in stage['checks']: check.update(status='blocked', blockedBy=['honua-release#381'])
+                for key in ('jobId', 'operationId', 'operationInstanceId', 'resourceUri', 'jobStatus', 'jobCreatedAt'):
+                    stage[key] = None
+        record = _artifact(directory, raw, number=number)
+        path = directory / f'receipt-{number}.json'
+        path.write_bytes(attach_fixture_profile(directory, raw, record))
+        record['receipt'] = str(path.relative_to(E2E_DIR))
+        return record
+    monkeypatch.setattr(cj, 'attempt', attempt)
+    monkeypatch.setattr(cj, 'cleanup', lambda cell: None)
+    monkeypatch.setattr(run_cloud.large_import, 'run_scenario', lambda *a, **k: None)
+    monkeypatch.setattr(run_cloud, 'run_drivers', lambda *a, **k: [])
+    state = {'cell': cell, 'redis': 'redis-off', 'endpoint': 'https://cell.invalid', 'report': {},
+             'runId': 'offline-run', 'runAttempt': '2', 'candidateDigest': cj.candidate_digest()}
+    try:
+        journey = run_cloud.journey_phase(state, admin_key='private-app-key')
+        assert calls == [1, 2] and journey.get('status') != 'fail'
+        assert len(journey['journeyAttempts']) == 2
+        first = json.loads((E2E_DIR / journey['journeyAttempts'][0]['receipt']).read_bytes())
+        assert first['status'] == 'blocked' and first['stages'][4]['status'] == 'blocked'
+        final = journey['journeyAttempts'][-1]
+        proof = json.loads((cj.cell_dir(cell) / final['servingRefusal']['file']).read_bytes())
+        assert proof['status'] == 'pass' and proof['functionalGpExecuted'] is False
+    finally:
+        shutil.rmtree(cj.EVIDENCE / 'offline-run', ignore_errors=True)
+
+
+def test_raw_pass_with_failed_profile_is_attributed_by_actual_attempt_producer(monkeypatch):
+    import deterministic_refusal_profile as profile
+    cj = run_cloud.cloud_journey; driver, _ = cj.drivers()
+    monkeypatch.setenv('GITHUB_RUN_ID', 'offline-run'); monkeypatch.setenv('GITHUB_RUN_ATTEMPT', '2')
+    raw = _ecs_receipt(); workspace = driver.pins.ClientWorkspace(status='blocked', root=None, reason='unit seam')
+    monkeypatch.setattr(driver, 'run_live', lambda *a, **k: (workspace, [], [], None))
+    monkeypatch.setattr(driver, 'build_receipt', lambda **kwargs: raw)
+    sha, image = _manifest_server()
+    monkeypatch.setattr(cj, 'server_identity', lambda endpoint: {'revision': sha, 'source': 'commit-sha'})
+    monkeypatch.setattr(profile, 'produce', lambda *a, **k: {'status': 'fail', 'why': 'controlled profile failure'})
+    try:
+        record = cj.attempt('aws-ecs/redis-off', 1, 'https://cell.invalid', 'private-app-key', image)
+        assert raw['status'] == 'pass' and record['failureAttribution'] == 'infrastructure'
+        assert json.loads((cj.cell_dir(record['cell']) / record['servingRefusal']['file']).read_bytes())['status'] == 'fail'
+    finally: shutil.rmtree(cj.EVIDENCE / 'offline-run', ignore_errors=True)
+
+
+def test_controller_and_aggregate_refuse_unaccounted_profile_artifacts(monkeypatch, tmp_path):
+    cj = run_cloud.cloud_journey
+    monkeypatch.setenv('GITHUB_RUN_ID', 'offline-run'); monkeypatch.setenv('GITHUB_RUN_ATTEMPT', '2')
+    report = _cell_report(tmp_path, _ecs_receipt())
+    (tmp_path / 'serving-refusal-unrecorded.json').write_text('{"status":"pass"}')
+    assert 'sidecar omitted from attempt history' in _aggregate_fixture([report], tmp_path)['why']
+    # Controller rejects it before copying any uploaded evidence into its trusted directory.
+    sha, image = _manifest_server()
+    with pytest.raises(ValueError, match='artifact omitted from attempt history'):
+        run_cloud.verify_journey({'cell': 'aws-ecs/redis-off', 'observedServer': {
+            'revision': sha, 'source': 'commit-sha'}, 'runningImage': image},
+            {'journeyAttempts': report['journeyAttempts']}, tmp_path)

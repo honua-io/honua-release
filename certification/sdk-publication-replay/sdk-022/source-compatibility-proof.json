@@ -1,0 +1,59 @@
+{
+  "scope": "Immutable SDK0.2.2 source against unchanged legacy runtime baseline only; not installed npm or candidate qualification",
+  "run": "https://github.com/honua-io/honua-sdk-js/actions/runs/38492974391",
+  "runId": 38492974391,
+  "runAttempt": 1,
+  "sdkSource": "076b4218f832725d57a8e23745fae75aeb9f4e5a",
+  "sdkTag": "js-sdk-v0.2.2",
+  "serverSource": "ff5f5671903e96e13cffac7b73546c3ed0f853c5",
+  "serverImage": "ghcr.io/honua-io/honua-server@sha256:3ef3bd41a2f84d1f3a6194c11db496f741cc4d869b54bf57e9d7067dd9cf3d39",
+  "artifactId": 11862780825,
+  "archiveSha256": "4ca8df4fd567483b74e2028e2495ca2b9ec7357029fe62c25e77b7bdfc1f3c3b",
+  "files": [
+    {
+      "path": "conformance-vitest.json",
+      "sha256": "3be590a417ef5001d3af8dda8c87c45132179d48d75ff8bbbeb215a9fd170cfa",
+      "bytes": 3440,
+      "numTotalTests": 6,
+      "numPassedTests": 2,
+      "numFailedTests": 0,
+      "numPendingTests": 4,
+      "success": true
+    },
+    {
+      "path": "integration-alerts-false-vitest.json",
+      "sha256": "5e6feed92bef0b3836b8f6175950953240f69ff40f93ded81b25fe1c5815cfd8",
+      "bytes": 1102,
+      "numTotalTests": 1,
+      "numPassedTests": 1,
+      "numFailedTests": 0,
+      "numPendingTests": 0,
+      "success": true
+    },
+    {
+      "path": "integration-alerts-true-vitest.json",
+      "sha256": "13fb72446eb683a70cefda7bd2435e806a4f276543776785dadd6d30c6c0fe48",
+      "bytes": 1147,
+      "numTotalTests": 1,
+      "numPassedTests": 1,
+      "numFailedTests": 0,
+      "numPendingTests": 0,
+      "success": true
+    },
+    {
+      "path": "integration-meta.json",
+      "sha256": "bbcf4a847104923be575cfa51276bbb6ff56a2a2144e80951a54842fb3e4b5d3",
+      "bytes": 1499
+    },
+    {
+      "path": "integration-vitest.json",
+      "sha256": "537f9bb117a72932a95c963848f7641c689098627db25d9ee9786b5f1140c81e",
+      "bytes": 33739,
+      "numTotalTests": 65,
+      "numPassedTests": 58,
+      "numFailedTests": 0,
+      "numPendingTests": 7,
+      "success": true
+    }
+  ]
+}

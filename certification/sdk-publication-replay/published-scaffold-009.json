@@ -1,0 +1,34 @@
+{
+  "status": "pass",
+  "verifierSource": "0f4c5483719c25619aa285a5428727c35fa321ab",
+  "verifierSha256": "bae2f79d4a17f9c10d71cb9444825f4de8de0a6bba133c10435a04a82cf0e928",
+  "scope": "single published scaffold artifact; not release or full cohort certification",
+  "tag": "create-honua-app-v0.1.9",
+  "sourceSha": "4ded33a5ee77cc3b289f85740f315d5f4a122fae",
+  "githubReleaseUrl": "https://github.com/honua-io/honua-sdk-js/releases/tag/create-honua-app-v0.1.9",
+  "registryMetadataUrl": "https://registry.npmjs.org/create-honua-app/0.1.9",
+  "artifact": {
+    "ecosystem": "npm",
+    "package": "create-honua-app",
+    "version": "0.1.9",
+    "integrity": "sha512-rsAIuboBuqoWuqFvzSpV7l4RV60HXpQOdaQTItp3+tu6fXfXIPBf1mFtNGxw8co1wDwgmy1aSUjVGYD/EwkoMw==",
+    "repository": "honua-io/honua-sdk-js",
+    "sourceSha": "4ded33a5ee77cc3b289f85740f315d5f4a122fae",
+    "publicationState": "published",
+    "targets": [
+      "node"
+    ],
+    "filename": "create-honua-app-0.1.9.tgz"
+  },
+  "verifiedIdentity": {
+    "create-honua-app": {
+      "version": "0.1.9",
+      "sourceRevision": "4ded33a5ee77cc3b289f85740f315d5f4a122fae",
+      "sha256": "sha256:b53c50879d6eab716196c5b8d16941c714f2d1e21a43abbbcbe14a68e9193da5"
+    }
+  },
+  "tarballSha256": "b53c50879d6eab716196c5b8d16941c714f2d1e21a43abbbcbe14a68e9193da5",
+  "readmeSha256": "984da907892c9f69d6dbb0e2c8ae388e6908c430c304aba776c96dddedac995b",
+  "readmeMatchesPublishedSource": true,
+  "readmeExplicitSdkVersion": "0.1.16"
+}

@@ -1,0 +1,6 @@
+source_id,name,capacity,is_open,longitude,latitude
+s101,Willow Central,50,true,0.1194759328,-0.0691702601
+s102,Willow Central,80,true,0.1275607703,-0.0691702601
+s103,"Hālau, ""North"" refuge",120,false,0.1221708786,-0.0691702601
+s104,Centre d’accueil,75,true,0.1248658245,-0.0691702601
+s105,Mālama refuge,,true,0.1167809869,-0.0691702601

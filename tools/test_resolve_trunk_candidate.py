@@ -12,6 +12,7 @@ import yaml
 import verify_client_artifacts as verifier
 
 import resolve_trunk_candidate as resolver
+from platform_version import stamp_errors
 
 NEW, OLD = 'a' * 40, 'b' * 40
 
@@ -280,7 +281,8 @@ def test_main_writes_skips_json_and_summary_even_on_refusal(monkeypatch, tmp_pat
               'selectedAgeDays': 18.0, 'commitsBehind': 40, 'daysBehind': 17.5, 'staleAfterDays': 3,
               'stale': True, 'skippedTotal': 40, 'skipped': [{'sha': NEW, 'reason': 'CI a | b'}], 'aborted': None}
 
-    def refuse(manifest, matrix, github, registry, limit, ledger, skips, *rest):
+    def refuse(manifest, matrix, github, registry, limit, ledger, skips, *rest, prepare_deployments=False):
+        assert prepare_deployments is False
         skips['honua-server'] = report
         raise resolver.ResolutionError('honua-server: release/component-versions.json is missing')
 
@@ -413,7 +415,7 @@ def test_lambda_image_pins_a_single_architecture_manifest():
     registry, _, child = _lambda_registry(NEW, 'manifest')
     result = registry.image('honua-server', _lambda_component(), NEW)
     assert result['awsLambdaDigest'] == child
-    assert result['awsLambdaImage'].endswith('@' + child)
+    assert result['awsLambdaImage'] == f'ghcr.io/honua-io/honua-server:nightly-lambda-aot-{NEW[:7]}-amd64'
     assert result['awsLambdaEcrDigest'] == 'pending-ecr-mirror'
 
 
@@ -421,8 +423,27 @@ def test_lambda_attested_index_pins_the_linux_amd64_child():
     registry, server_child, child = _lambda_registry(NEW, 'index')
     result = registry.image('honua-server', _lambda_component(), NEW)
     assert result['awsLambdaDigest'] == child
+    assert result['awsLambdaImage'] == f'ghcr.io/honua-io/honua-server:nightly-lambda-aot-{NEW[:7]}-amd64'
     assert result['awsLambdaDigest'] != result['digest']
     assert result['platformDigests'] == {'amd64': server_child}
+
+
+@pytest.mark.parametrize('shape', ['manifest', 'index'])
+def test_verified_lambda_identity_survives_the_deployment_dispatch(shape):
+    from nightly_deployments import lambda_inputs
+    registry, _, child = _lambda_registry(NEW, shape)
+    selected = registry.image('honua-server', _lambda_component(), NEW)
+    server = {**selected, 'sha': NEW, 'awsLambdaArchitecture': 'x86_64'}
+    inputs = lambda_inputs({'components': {'honua-server': server}}, b'operating policy')
+    assert inputs['source_image'] == f'ghcr.io/honua-io/honua-server:nightly-lambda-aot-{NEW[:7]}-amd64'
+    assert '@' not in inputs['source_image']
+    assert inputs['source_digest'] == child
+    # The producer executes tag@digest; the discovery tag never replaces the verified child.
+    assert inputs['source_image'] + '@' + inputs['source_digest'] == (
+        f'ghcr.io/honua-io/honua-server:nightly-lambda-aot-{NEW[:7]}-amd64@{child}')
+    captured = json.loads(inputs['prepared_manifest'])['manifest']['components']['honua-server']
+    assert captured['awsLambdaDigest'] == child
+    assert captured['awsLambdaImage'] == inputs['source_image']
 
 
 def test_lambda_index_without_a_linux_amd64_image_refuses():
@@ -799,6 +820,75 @@ def test_resolve_drops_a_carried_forward_platform_version_for_tonights_stamp(mon
     server = candidate['components']['honua-server']
     assert 'artifactVersion' not in server and 'releaseVersion' not in server
     assert server['version'] == 'pre-release'
+
+
+BOUND_SERVER = {'image': 'ghcr.io/honua-io/honua-server@sha256:' + 'e' * 64, 'digest': 'sha256:' + 'e' * 64,
+                'platformDigests': {'amd64': 'sha256:' + 'd' * 64}, 'artifactSourceRevision': NEW,
+                'version': 'pre-release'}
+
+
+def _r22_qualification_errors(candidate):
+    findings = resolver.validate_platform.Findings()
+    resolver.validate_platform.check_exact_candidate(candidate, findings)
+    return [error for error in findings.errors if '(R22)' in error]
+
+
+def test_a_resolved_candidate_passes_r22_qualification_with_the_prestamp(monkeypatch, capsys):
+    """Decision 22: the resolver stamps the manifest's platformRelease before qualification."""
+    candidate, _ = resolve_fixture(monkeypatch, MigrationSource(), 'sha256:' + 'f' * 64,
+                                   extra={'platformRelease': '2026.1-rc.2'}, **BOUND_SERVER)
+    server = candidate['components']['honua-server']
+    assert server['artifactVersion'] == server['releaseVersion'] == '2026.1.0-rc.2'
+    assert _r22_qualification_errors(candidate) == []
+    assert stamp_errors(candidate) == []
+    assert ("R22 pre-stamp: 2026.1-rc.2 \u2192 2026.1.0-rc.2 (mint re-stamps tonight's label)"
+            in capsys.readouterr().out)
+
+
+def test_without_the_prestamp_the_same_candidate_is_refused_by_r22():
+    """R22 stays strict: a bound image with no platform version is an exact-candidate refusal."""
+    candidate = {'platformRelease': '2026.1-rc.2', 'components': {'honua-server': {'sha': NEW, **BOUND_SERVER}}}
+    assert _r22_qualification_errors(candidate) == [
+        "exact-candidate: honua-server.artifactVersion None must be the platform version '2026.1.0-rc.2' "
+        "of platformRelease '2026.1-rc.2' (R22)"]
+
+
+def test_an_unbound_server_image_is_left_unstamped(monkeypatch):
+    unbound = {key: value for key, value in BOUND_SERVER.items() if key != 'platformDigests'}
+    candidate, _ = resolve_fixture(monkeypatch, MigrationSource(), 'sha256:' + 'f' * 64,
+                                   extra={'platformRelease': '2026.1-rc.2'}, artifactVersion='2026.1.0-rc.2',
+                                   releaseVersion='2026.1.0-rc.2', **unbound)
+    server = candidate['components']['honua-server']
+    assert 'artifactVersion' not in server and 'releaseVersion' not in server
+
+
+def test_the_prestamp_uses_the_manifests_label_not_a_carried_version(monkeypatch):
+    candidate, _ = resolve_fixture(monkeypatch, MigrationSource(), 'sha256:' + 'f' * 64,
+                                   extra={'platformRelease': '2026.1-rc.2'}, artifactVersion='2026.1.0-rc.1',
+                                   releaseVersion='2026.1.0-rc.1', **BOUND_SERVER)
+    server = candidate['components']['honua-server']
+    assert server['artifactVersion'] == server['releaseVersion'] == '2026.1.0-rc.2'
+
+
+def test_the_prestamp_never_touches_an_sdk_row_or_an_unbound_chart():
+    candidate = {'platformRelease': '2026.1-rc.2', 'components': {
+        'honua-server': {'sha': NEW, **BOUND_SERVER},
+        'honua-helm': {'artifact': 'oci-chart:honua', 'sha': NEW, 'version': 'pre-release'},
+        'honua-sdk-js': {'sha': NEW, 'version': '0.1.12', 'artifactVersion': '0.1.12'}}}
+    resolver.release_carried_platform_identity(candidate['components'])
+    assert resolver.prestamp_platform_version(candidate, '2026.1-rc.2') == {'honua-server': '2026.1.0-rc.2'}
+    assert 'artifactVersion' not in candidate['components']['honua-helm']
+    assert candidate['components']['honua-sdk-js'] == {'sha': NEW, 'version': '0.1.12', 'artifactVersion': '0.1.12'}
+
+
+def test_a_manifest_without_a_platform_label_is_left_for_validate_to_refuse(capsys):
+    candidate = {'components': {'honua-server': {'sha': NEW, **BOUND_SERVER}}}
+    assert resolver.prestamp_platform_version(candidate, None) == {}
+    assert 'artifactVersion' not in candidate['components']['honua-server']
+    assert 'R22 pre-stamp: skipped' in capsys.readouterr().out
+    findings = resolver.validate_platform.Findings()
+    resolver.validate_platform.check_exact_candidate(candidate, findings)
+    assert any('exact-candidate: platformRelease' in error for error in findings.errors), findings.errors
 
 
 def test_resolve_refuses_when_the_migration_tree_cannot_be_read(monkeypatch):
@@ -1872,8 +1962,8 @@ def test_an_unreadable_server_vocabulary_refuses(body, message):
         resolver.advertised_capabilities(Server(), candidate)
 
 
-def test_green_passes_advisory_and_accepts_the_server_fixture_sha():
-    """c19f29d is green only when the resolver hands the advisory list to the evaluator."""
+def test_green_passes_advisory_but_refuses_historical_server_without_actual_job_observations():
+    """Keep captured bytes intact; an old name-only fixture cannot certify current execution."""
     captured = json.loads((
         resolver.ROOT / 'tools' / 'fixtures' / 'candidate-resolution-2026-10-06' / 'honua-server-c19f29d.json'
     ).read_text())
@@ -1895,13 +1985,14 @@ def test_green_passes_advisory_and_accepts_the_server_fixture_sha():
         raise AssertionError(path)
 
     github.pages = pages
+    github.json = lambda path: pytest.fail('historical fixture has no authoritative source/job observations')
     resolver.ci.evaluate = evaluate
     try:
         ok, why = github.green('honua-server', 'honua-io/honua-server', captured['sha'])
     finally:
         resolver.ci.evaluate = original
-    assert ok, why
-    assert 'full-matrix run 37435142851 completed successfully' in why
+    assert not ok
+    assert 'missing actual Actions job and pinned shard selection evidence' in why
     workflows = seen['advisory']['honua-server']['workflows']
     assert '.github/workflows/server-test-prebuild-observe.yml' in workflows
     assert '.github/workflows/ci.yml' not in workflows

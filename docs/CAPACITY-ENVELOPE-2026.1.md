@@ -93,7 +93,9 @@ Redis populations separately and gates on their maximum.
 
 Before extraction, the workflow verifies SLSA provenance for the complete ZIP, pins the signer to
 `honua-io/honua-server/.github/workflows/capacity-soak-candidate.yml`, pins the source digest to the
-manifest candidate, and denies self-hosted attestations. The checker then binds that verification output
+manifest candidate. Self-hosted attestations additionally require live Actions job and restricted
+runner-group verification under the committed [dedicated runner policy](DEDICATED-RELEASE-RUNNER.md);
+an empty policy admits none. The checker then binds that verification output
 to the evidence: every verified statement must name exactly the ZIP's SHA-256 as its subject, and its
 certificate's signer workflow ref, run invocation (run id and attempt), GitHub-hosted runner and source
 commit must equal the receipt's `producer` block and the candidate revision. The receipt, raw hashes,

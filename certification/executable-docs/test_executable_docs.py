@@ -15,7 +15,7 @@ from inputs import doc_id, load_vars, needs, render  # noqa: E402
 from inventory import Resolver, build, drift  # noqa: E402
 from registry_guard import (filter_npm_packument, filter_nuget_registration, honua_dependencies, filter_nuget_versions, filter_pypi_simple,  # noqa: E402
                             digest_matches, nuget_family_pins, pins_from_manifest, Guard)
-from run import (assert_output, combine_csharp, combine_js, continuation_error, scrub,  # noqa: E402
+from run import (assert_output, combine_csharp, continuation_error, scrub,  # noqa: E402
                  split_csharp, substitute, SERVE)
 
 
@@ -237,12 +237,7 @@ def test_csharp_continuation_hoists_usings_and_types():
     assert combined.index("using System.Linq;") < combined.index("var client")
     assert combined.index("Console.WriteLine") < combined.index("record Point")
     assert continuation_error("csharp", "error CS0103: The name 'client' does not exist")
-    assert continuation_error("javascript", "ReferenceError: client is not defined")
-
-
-def test_js_continuation_hoists_imports():
-    combined = combine_js(["import { A } from 'a';\nconst a = new A();\n", "import { A } from 'a';\na.run();\n"])
-    assert combined.count("import { A } from 'a';") == 1 and combined.index("a.run") > combined.index("new A")
+    assert not continuation_error("javascript", "ReferenceError: client is not defined")
 
 
 def test_serve_detection_and_substitution_and_scrub():
@@ -684,6 +679,80 @@ def test_container_runs_as_host_user_with_writable_home(tmp_path, monkeypatch):
     assert (session.home / ".nuget/NuGet/NuGet.Config").exists()
 
 
+@pytest.mark.parametrize("repository,path,expected_packages", [
+    ("honua-io/honua-site", "docs/playbooks/install-with-docker/index.md", []),
+    ("honua-io/honua-site", "docs/playbooks/publish-a-service/index.md", ["jq"]),
+    ("honua-io/honua-sdk-python", "README.md", []),
+])
+def test_document_declared_tools_reach_its_python_session(tmp_path, monkeypatch, repository, path, expected_packages):
+    import subprocess
+    import run
+    sources = json.loads((HERE / "sources.json").read_text())
+    doc = next(d for d in sources["documents"] if d["repo"] == repository and d["path"] == path)
+    calls = []
+    def docker(*args, **kwargs):
+        calls.append(args)
+        return subprocess.CompletedProcess(args, 0, "", "")
+    monkeypatch.setattr(run, "docker", docker)
+    session = run.Session("playbook", tmp_path, sources["runtimes"], "http://guard", tmp_path / "tools",
+                          False, "host", "test", sources["toolchain"]["typescript"],
+                          prerequisites=set(doc.get("prerequisites", {})))
+    name = session.container(doc["runtime"])
+    invocation = next(args for args in calls if args[0] == "run")
+    assert invocation[-3:] == (sources["runtimes"]["python"], "sleep", "infinity")
+    assert f"{session.tools / 'node'}:/opt/node:ro" in invocation
+    assert any(arg.startswith("PATH=/opt/node/bin:") for arg in invocation)
+    assert "npm_config_registry=http://guard/npm/" in invocation
+    installs = [args[-1] for args in calls if args[:3] == ("exec", "--user", "0")]
+    assert installs == (["apt-get update -qq && DEBIAN_FRONTEND=noninteractive apt-get install -y -qq jq"]
+                        if expected_packages else [])
+    assert all(doc["path"] in citation for citation in doc["prerequisites"].values())
+    session.close()
+    assert calls[-1] == ("rm", "-f", name)
+
+
+def test_undeclared_tools_are_not_injected_into_other_python_documents(tmp_path, monkeypatch):
+    import subprocess
+    import run
+    sources = json.loads((HERE / "sources.json").read_text())
+    doc = next(d for d in sources["documents"] if d["repo"] == "honua-io/honua-site"
+               and d["path"] == "docs/playbooks/run-a-bounded-gp-job/index.md")
+    calls = []
+    def docker(*args, **kwargs):
+        calls.append(args)
+        return subprocess.CompletedProcess(args, 0, "", "")
+    monkeypatch.setattr(run, "docker", docker)
+    session = run.Session("bounded-gp", tmp_path, sources["runtimes"], "http://guard", tmp_path / "tools",
+                          False, "host", "test", sources["toolchain"]["typescript"],
+                          prerequisites=set(doc.get("prerequisites", {})))
+    session.container(doc["runtime"])
+    assert not any("/opt/node" in arg for args in calls for arg in args)
+    assert not any(args[:3] == ("exec", "--user", "0") for args in calls)
+
+
+def test_declared_tool_install_failure_remains_fatal_and_cleanup_is_retained(tmp_path, monkeypatch):
+    import subprocess
+    import run
+    sources = json.loads((HERE / "sources.json").read_text())
+    doc = next(d for d in sources["documents"] if d["repo"] == "honua-io/honua-site"
+               and d["path"] == "docs/playbooks/publish-a-service/index.md")
+    calls = []
+    def docker(*args, **kwargs):
+        calls.append(args)
+        return subprocess.CompletedProcess(args, 1 if args[:3] == ("exec", "--user", "0") else 0,
+                                           "", "package archive unavailable")
+    monkeypatch.setattr(run, "docker", docker)
+    session = run.Session("publish", tmp_path, sources["runtimes"], "http://guard", tmp_path / "tools",
+                          False, "host", "test", sources["toolchain"]["typescript"],
+                          prerequisites=set(doc.get("prerequisites", {})))
+    with pytest.raises(run.RunError, match="could not install the documented prerequisites"):
+        session.container(doc["runtime"])
+    assert "python" not in session.baselines
+    name = session.containers["python"]
+    session.close()
+    assert calls[-1] == ("rm", "-f", name)
+
+
 def test_inventory_check_exits_one_on_revision_drift(tmp_path, monkeypatch):
     import inventory
     committed = {"documents": [{"id": "doc", "revision": "a" * 40, "blocks": []}]}
@@ -835,7 +904,7 @@ def test_python_audit_uses_metadata_without_requiring_pip(tmp_path, monkeypatch)
     session = run.Session("metadata", tmp_path, {"python": "python-pinned"}, "http://guard", tmp_path,
                           False, "host", "metadata", "5.9.3")
     session.containers["python"] = "python-container"
-    assert session.installed_honua("python") == {"honua-sdk": "0.1.11"}
+    assert session.installed_honua("python") == [{"name": "honua-sdk", "version": "0.1.11", "ecosystem": "pypi"}]
     assert "importlib.metadata" in calls[0][0][-1]
     assert calls[0][1]["check"] is True
 
@@ -1031,6 +1100,8 @@ def _run_quickstart(tmp_path, monkeypatch, image: str, context: dict, variables:
     # the channel tag executes as the candidate digest...
     ("ghcr.io/honua-io/honua-server:2026.1-rc", True, CANDIDATE_IMAGE, "pass"),
     ("ghcr.io/honua-io/honua-server:2026.1", True, CANDIDATE_IMAGE, "pass"),
+    ("ghcr.io/honua-io/honua-server:nightly-0e03bdd", True, CANDIDATE_IMAGE, "pass"),
+    ("ghcr.io/honua-io/honua-server:nightly-0e03bdd", False, "ghcr.io/honua-io/honua-server:nightly-0e03bdd", "fail"),
     # ...and without the substitution the floating tag is not the candidate: boots-candidate-image fails
     ("ghcr.io/honua-io/honua-server:2026.1-rc", False, "ghcr.io/honua-io/honua-server:2026.1-rc", "fail"),
     # the legacy hand-copied digest form runs unchanged: the candidate digest passes, any other fails
@@ -1050,11 +1121,12 @@ def test_quickstart_channel_tag_executes_the_candidate_digest(tmp_path, monkeypa
     assert f"HONUA_IMAGE={documented}" in result["blocks"][0]["command"]
 
 
-def test_channel_substitution_without_a_candidate_image_fails_closed(tmp_path, monkeypatch):
+@pytest.mark.parametrize("tag", ["2026.1-rc", "nightly-0e03bdd"])
+def test_channel_substitution_without_a_candidate_image_fails_closed(tmp_path, monkeypatch, tag):
     import run
     variables = load_vars(HERE / "vars", QUICKSTART_ID)
     with pytest.raises(run.RunError, match=r"candidate\.image"):
-        _run_quickstart(tmp_path, monkeypatch, "ghcr.io/honua-io/honua-server:2026.1-rc", {}, variables)
+        _run_quickstart(tmp_path, monkeypatch, f"ghcr.io/honua-io/honua-server:{tag}", {}, variables)
 
 
 @pytest.mark.parametrize("server", [
@@ -1083,3 +1155,22 @@ def test_channel_substitution_prefers_the_longer_tag():
     assert substitute(code, table) == f"a={CANDIDATE_IMAGE}\nb={CANDIDATE_IMAGE}\n"
     legacy = f"HONUA_IMAGE=ghcr.io/honua-io/honua-server@sha256:{'a' * 64}\n"
     assert substitute(legacy, table) == legacy
+
+
+def test_public_feature_sample_binds_its_exact_documented_service_token():
+    ident = "honua-samples-samples-hello-featureserver-rest-readme"
+    inventory = json.loads((HERE / "inventory.json").read_text())
+    document = next(d for d in inventory["documents"] if d["id"] == ident)
+    code = "export HONUA_BASE_URL=http://localhost:8080\nexport HONUA_SAMPLE_SERVICE=your-feature-service\n"
+    block = extract("```bash\n" + code + "```\n", "markdown")[0]
+    assert document["revision"] == "65253c959a97ad4ed39cc2a45c85a14a5a34cfac"
+    assert block.sha256 == document["blocks"][0]["sha256"]
+    variables = load_vars(HERE / "vars", ident)
+    assert set(variables["substitute"]) == {"your-feature-service"}
+    entry = variables["substitute"]["your-feature-service"]
+    assert entry["documentedAt"].startswith("samples/hello-featureserver-rest/README.md:13")
+    table = {key: render(value["value"], {"fixture.featureService": "maui-zoning"})
+             for key, value in variables["substitute"].items()}
+    assert substitute(code, table) == code.replace("your-feature-service", "maui-zoning")
+    # The former bracketed key left the actual reader input untouched.
+    assert substitute(code, {"<your-feature-service>": "maui-zoning"}) == code

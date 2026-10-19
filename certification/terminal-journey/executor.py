@@ -12,7 +12,9 @@ import os
 import re
 import time
 import urllib.parse
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
+from threading import Barrier, BrokenBarrierError
 
 import oracles
 import probes
@@ -57,7 +59,7 @@ STAGE_TOOLS = {
 STAGE_PRINCIPALS = {3: "operator", 4: "operator", 5: "operator", 6: "proposer", 7: "proposer", 8: "operator"}
 SDK_METHODS = {"CreateConnectionAsync", "TestConnectionAsync"}
 # Cross-replica read through a cloud cell's single endpoint (honua-server#5790): how many times the
-# saved map is re-read, the pause between reads, and the bound on an instance id the server stamps
+# saved map is re-read, the pause between sequential reads, and the bound on an instance id the server stamps
 # (printable ASCII, at most 128 characters, as ServerInstanceIdentity sanitizes it).
 REPLICA_READS = 8
 REPLICA_READ_DELAY_SECONDS = 0.5
@@ -609,13 +611,18 @@ class JourneyExecutor:
         """
         import local_fixture
         observed = []
-        for number in range(REPLICA_READS):
-            if number:
-                time.sleep(REPLICA_READ_DELAY_SECONDS)
-            self._prove_map(self.transport, self.map_path())
-            observed.append(self._instance(self.transport))
-            if len({value for value in observed if value}) >= 2:
-                break
+        if self.target.get("kind") == "aws-serverless" and self._instance(self.transport) is not None:
+            # Sequential requests can all reuse one warm Lambda environment. Give the real
+            # endpoint bounded concurrent work; only observed distinct responders prove a pass.
+            observed = self._concurrent_replica_reads(command)
+        else:
+            for number in range(REPLICA_READS):
+                if number:
+                    time.sleep(REPLICA_READ_DELAY_SECONDS)
+                self._prove_map(self.transport, self.map_path())
+                observed.append(self._instance(self.transport))
+                if len({value for value in observed if value}) >= 2:
+                    break
         ids = list(dict.fromkeys(value for value in observed if value))
         if not ids:
             raise ExecutionError(command, local_fixture.replica_unprovable_reason(self._server_sha()),
@@ -634,6 +641,35 @@ class JourneyExecutor:
         return {"detail": f"{len(observed)} re-reads through the cell endpoint agreed with the write "
                           f"and were answered by {len(ids)} instances: {described}",
                 "instances": instances, "reads": len(observed)}
+
+    def _concurrent_replica_reads(self, command):
+        # Each client owns its response headers and opener. Sharing one transport could join
+        # one request's map body to another response's instance id and fabricate replica proof.
+        clients = [Transport(self.transport.base_url, self.transport.proxy, self.transport.honua,
+                             self.transport.workdir, self.transport.credentials)
+                   for _ in range(REPLICA_READS)]
+        start = Barrier(REPLICA_READS, timeout=10)
+
+        def read(client):
+            try:
+                start.wait()
+            except BrokenBarrierError as error:
+                raise ExecutionError(command, "bounded concurrent replica reads could not start") from error
+            self._prove_map(client, self.map_path())
+            return self._instance(client)
+
+        try:
+            with ThreadPoolExecutor(max_workers=REPLICA_READS) as pool:
+                futures = [pool.submit(read, client) for client in clients]
+                # Validate every response, including responses after a second instance appears.
+                return [future.result() for future in futures]
+        finally:
+            # The pool has drained even on failure. Preserve fresh bearer values for the
+            # parent transport's existing receipt/error redaction without sharing mutable clients.
+            issued = list(getattr(self.transport, "_issued_credentials", []))
+            for client in clients:
+                issued.extend(getattr(client, "_issued_credentials", []))
+            self.transport._issued_credentials = issued
 
     def check_reopened(self):
         def prove():
@@ -791,6 +827,10 @@ class JourneyExecutor:
                                          blocked_by=list(unavailable["blockedBy"]))
                 raise ExecutionError("GET authority denial", f"{principal} credential reference is unavailable", blocked=True)
             if principal == "other-tenant":
+                if self.target.get("tenantFixture"):
+                    # Prove this exact private resource is readable by the same subject/role
+                    # in tenant A immediately before the tenant B comparison.
+                    self.transport.http("GET", path, principal="proposer", expected=(200,))
                 # Reach a non-admin Studio route before testing a private resource;
                 # a blanket RBAC refusal cannot establish tenant isolation.
                 self.transport.http("GET", "/api/v1/studio/package-families", principal=principal, expected=(200,))

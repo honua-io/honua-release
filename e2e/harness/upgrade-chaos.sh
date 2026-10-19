@@ -62,7 +62,7 @@ die() {
 
 require_tools() {
   local tool
-  for tool in docker curl jq; do
+  for tool in docker curl jq od tr; do
     command -v "$tool" >/dev/null 2>&1 || die "required tool not found: $tool"
   done
   [ -n "$PRIOR_IMAGE" ] || die "HONUA_PRIOR_SERVER_IMAGE is required"
@@ -303,12 +303,36 @@ run_boundary_kills() {
 run_concurrent_start() (
   # Subshell EXIT cleanup covers every return, including failed container creation/assertions.
   local holder_log="$OUT/advisory-lock.log" a b i ready=0 failed=0
+  local cleanup_owner="$BASHPID"
+  local holder_name
+  holder_name="honua-chaos-$(od -An -N16 -tx1 /dev/urandom | tr -d ' \n')" || return 1
+  [[ "$holder_name" =~ ^honua-chaos-[0-9a-f]{32}$ ]] || return 1
+  stop_concurrent_lock_holder() {
+    [ -n "$LOCK_HOLDER_PID" ] || return 0
+    local failed=0 remaining=""
+    # Killing the Docker CLI does not establish that its remote psql session
+    # exited. Terminate only our tagged database backend, then let the complete
+    # holder command return naturally and reap it before continuing.
+    db_exec "SELECT pg_terminate_backend(pid) FROM pg_stat_activity WHERE application_name = '$holder_name' AND datname = current_database() AND usename = current_user AND pid <> pg_backend_pid();" >/dev/null 2>&1 || failed=1
+    wait "$LOCK_HOLDER_PID" >/dev/null 2>&1 || true
+    LOCK_HOLDER_PID=""
+    # A false pg_terminate_backend result is not proof. Require actual absence
+    # after the complete external command has exited and been reaped.
+    remaining="$(db_exec "SELECT count(*) FROM pg_stat_activity WHERE application_name = '$holder_name' AND datname = current_database() AND usename = current_user;")" || failed=1
+    [ "$remaining" = 0 ] || failed=1
+    [ "$failed" = 0 ]
+  }
   a="${PROJECT}_chaos_app_a"
   b="${PROJECT}_chaos_app_b"
-  trap 'docker rm -f "$a" "$b" >/dev/null 2>&1 || true; [ -z "$LOCK_HOLDER_PID" ] || kill "$LOCK_HOLDER_PID" >/dev/null 2>&1 || true' EXIT
+  # A background child must never remove the owning shell's containers, even
+  # if it receives a signal before resetting inherited trap state.
+  trap 'if [ "$BASHPID" = "$cleanup_owner" ]; then
+    docker rm -f "$a" "$b" >/dev/null 2>&1 || true
+    stop_concurrent_lock_holder || true
+  fi' EXIT
   restore_baseline
   export HONUA_SERVER_IMAGE="$CANDIDATE_IMAGE"
-  db_exec "SELECT pg_advisory_lock($LOCK_KEY); SELECT pg_sleep(90);" > "$holder_log" 2>&1 &
+  (trap - EXIT; db_exec "SET application_name = '$holder_name'; SET statement_timeout = '95s'; SELECT pg_advisory_lock($LOCK_KEY); SELECT pg_sleep(90);") > "$holder_log" 2>&1 &
   LOCK_HOLDER_PID=$!
   sleep 2
   docker rm -f "$a" "$b" >/dev/null 2>&1 || true
@@ -327,9 +351,7 @@ run_concurrent_start() (
     fi
     sleep 2
   done
-  kill "$LOCK_HOLDER_PID" >/dev/null 2>&1 || true
-  wait "$LOCK_HOLDER_PID" >/dev/null 2>&1 || true
-  LOCK_HOLDER_PID=""
+  stop_concurrent_lock_holder || return 1
   if [ "$failed" = 0 ] && [ "$ready" = 1 ] && wait_for_journal; then
     if ! assert_state concurrent-app-start; then
       return 1

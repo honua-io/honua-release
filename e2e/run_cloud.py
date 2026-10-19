@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
 """Provision a cloud cell, run the imported pinned journey, meter cost and always tear down.
 
-GA: {aws-ecs, aws-serverless, aws-eks} x Redis off/on; aws-serverless is Lambda + AWS Batch
-geoprocessing, and aws-eks is the bring-your-own Kubernetes cell (Helm on EKS, honua-release#203, owner
-decisions 12/18 of 2026-10-10). The mixed ECS + Batch cell is out of the 2026.1 rc.3 matrix: its IaC
+GA: {aws-ecs, aws-serverless} x Redis off/on; aws-serverless is Lambda + AWS Batch
+geoprocessing. EKS is informational Preview under the 2026-10-16 owner amendment.
+Redis-on exercises full workflows; Redis-off requires explicitly bound serving/refusal proof. The mixed ECS + Batch cell is out of the 2026.1 rc.3 matrix: its IaC
 root does not exist yet (restore it when honua-iac#209 lands).
 Missing, blocked or invalid journey evidence cannot certify a GA cloud cell.
 """
@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import argparse
 import hashlib
+import importlib.util
 import json
 import os
 import re
@@ -34,6 +35,7 @@ from targets.base import ProvisionError  # noqa: E402
 
 import cloud_journey  # noqa: E402
 import cost_meter  # noqa: E402
+import large_import  # noqa: E402
 
 # No aws-mixed entry for 2026.1 rc.3: examples/aws-mixed does not exist in honua-iac, so the cell could
 # only ever report a missing root. Restore it (never as the all-ECS root) when honua-iac#209 lands.
@@ -116,8 +118,20 @@ def _results(rows) -> list[CheckResult]:
             for row in rows or []]
 
 
+def installed_clients():
+    """The published-client endpoint adapter, kept separate from the terminal journey driver."""
+    name = "installed_client_endpoint"
+    if name not in sys.modules:
+        path = E2E_DIR.parent / "certification/installed-clients/endpoint.py"
+        spec = importlib.util.spec_from_file_location(name, path)
+        module = importlib.util.module_from_spec(spec)
+        sys.modules[name] = module
+        spec.loader.exec_module(module)
+    return sys.modules[name]
+
+
 def provision_phase(target, target_name: str, *, require_real: bool, redis_enabled: bool,
-                    journey_datasource: dict | None = None) -> dict:
+                    journey_datasource: dict | None = None, installed_context: dict | None = None) -> dict:
     """Credentialed half: provision, probe and seed the cell. Nothing third-party runs here.
 
     Returns the handoff the credential-free journey job and the teardown job consume. The handoff
@@ -161,6 +175,8 @@ def provision_phase(target, target_name: str, *, require_real: bool, redis_enabl
     try:
         _mark_provision_attempt()
         state["provisionAttempted"] = True
+        configure_tenant_fixture(target, cell)
+        state["tenantFixtureEnabled"] = bool(getattr(target, "journey_signing_key", None))
         endpoint = target.provision(redis_enabled=redis_enabled)
         report["endpoint"] = endpoint
         # The scheme the pinned clients will be handed and the host they will see (honua-release#450:
@@ -211,12 +227,36 @@ def provision_phase(target, target_name: str, *, require_real: bool, redis_enabl
         seed_kwargs = {} if journey_datasource is None else {"datasource": journey_datasource}
         state["seedError"] = seed_cell(endpoint, target=target,
                                        out=cloud_journey.cell_dir(cell) / "extended", **seed_kwargs)
-        # The owned 1.1-candidate-image check needs the image ECS reports running.
-        if target_name in ("aws-ecs", "aws-serverless"):
-            observe = (cloud_journey.observed_ecs_image if target_name == "aws-ecs"
-                       else cloud_journey.observed_lambda_image)
+        serving_seed = cloud_journey.cell_dir(cell) / "extended/seed-manifest.json"
+        if serving_seed.is_file() and not serving_seed.is_symlink():
+            # This digest enters the encrypted provision handoff before candidate packages run.
+            state["servingFixtureSha256"] = hashlib.sha256(serving_seed.read_bytes()).hexdigest()
+        if (os.environ.get("HONUA_UPDATE_ROLLBACK_ENABLED") == "true" and target_name == "aws-ecs" and redis_enabled):
+            from runner.update_rollback_aws import configure_ecs_safety
+            configure_ecs_safety(target, endpoint, serving_seed)
+        # S10 large-import (honua-release#548): stage the cell's pinned fixture in S3 while this job
+        # holds the AWS credentials. Only a target that names an AWS region can stage.
+        if getattr(target, "region", None):
             try:
-                state["runningImage"] = observe(target, cloud_journey.manifest())
+                state["s10"] = large_import.stage(
+                    cell, run_id=run_id, run_attempt=run_attempt,
+                    bucket=os.environ.get("HONUA_AWS_CELL_FILE_STORAGE_BUCKET"), region=target.region,
+                    workdir=cloud_journey.cell_dir(cell) / "s10")
+            except Exception as e:
+                state["s10"] = {"scenario": large_import.SCENARIO, "staged": False,
+                                "why": f"staging the S10 fixture raised {type(e).__name__} ({large_import.ISSUE})"}
+        # The owned 1.1-candidate-image check needs the image ECS reports running.
+        if target_name == "aws-ecs":
+            # Every RUNNING task must report the candidate; the detail names any that disagrees.
+            try:
+                state["runningImage"], state["runningImageDetail"] = cloud_journey.observe_ecs_image(
+                    target, cloud_journey.manifest())
+            except Exception as e:
+                state["runningImage"] = None
+                state["runningImageDetail"] = f"reading the ECS tasks failed: {type(e).__name__}"
+        elif target_name == "aws-serverless":
+            try:
+                state["runningImage"] = cloud_journey.observed_lambda_image(target, cloud_journey.manifest())
             except Exception:
                 state["runningImage"] = None
         elif hasattr(target, "observed_image"):
@@ -226,6 +266,16 @@ def provision_phase(target, target_name: str, *, require_real: bool, redis_enabl
             except Exception:
                 state["runningImage"] = None
         state.update(endpoint=endpoint, ready=ready)
+        if installed_context is not None and redis_enabled:
+            state["installedClients"] = {"enabled": True, "prepared": False}
+            try:
+                installed_context.update(installed_clients().prepare(target, state, cloud_journey.manifest(),
+                    E2E_DIR.parent / "platform-manifest.yaml", admin_key=target.admin_api_key,
+                    signing_key=getattr(target, "journey_signing_key", None)))
+                state["installedClients"]["prepared"] = True
+            except Exception as error:
+                # A seed/client exception may carry database coordinates. Only the type is public.
+                state["installedClients"]["why"] = f"installed-client fixture preparation raised {type(error).__name__}"
     except ProvisionError as e:
         report["status"] = "fail"
         report["why"] = f"provision failed: {e}"
@@ -235,7 +285,32 @@ def provision_phase(target, target_name: str, *, require_real: bool, redis_enabl
     return state
 
 
-def journey_phase(state: dict, *, admin_key: str, max_attempts: int = 2) -> dict:
+def installed_client_row(state, context, admin_key):
+    """The existing matrix is the denominator; missing prerequisites remain visibly blocked."""
+    output = cloud_journey.cell_dir(state["cell"]) / "installed-clients/receipt.json"
+    if not context:
+        return CheckResult("S11-installed-clients", "blocked",
+            "published-client endpoint fixture unavailable (honua-release#65); full suite was not qualified")
+    adapter = installed_clients()
+    try:
+        receipt = adapter.run_cloud(state, context, admin_key, output)
+        counts = {status: sum(result["status"] == status for result in receipt["results"])
+                  for status in ("pass", "fail", "blocked")}
+        return CheckResult("S11-installed-clients", receipt["status"],
+            "published clients executed the complete installed-client matrix against this endpoint",
+            {"receipt": str(output.relative_to(E2E_DIR)), "counts": counts})
+    except Exception as error:
+        prerequisite = getattr(adapter, "PrerequisiteUnavailable", None)
+        if isinstance(prerequisite, type) and isinstance(error, prerequisite):
+            return CheckResult("S11-installed-clients", "blocked",
+                "approved ALB HTTP cell needs HTTPS for the published-client workflow; no clients executed (honua-release#65)")
+        return CheckResult("S11-installed-clients", "fail",
+            f"published-client endpoint qualification raised {type(error).__name__} (honua-release#65)")
+
+
+def journey_phase(state: dict, *, admin_key: str, max_attempts: int = 2,
+                  s10_source_url: str | None = None, tenant_signing_key: str | None = None,
+                  installed_context: dict | None = None) -> dict:
     """Credential-free half: the npm/browser seam drivers and the manifest-pinned journey.
 
     The workflow runs this in a job with no id-token permission and no AWS credential, so nothing a
@@ -254,6 +329,8 @@ def journey_phase(state: dict, *, admin_key: str, max_attempts: int = 2) -> dict
         if (state.get("runId"), state.get("runAttempt"), state.get("candidateDigest")) != (
                 run_id, run_attempt, cloud_journey.candidate_digest()):
             raise ValueError("provision handoff is bound to another run or candidate")
+        if bool(state.get("tenantFixtureEnabled")) != (tenant_signing_key is not None):
+            raise ValueError("sealed tenant fixture does not match the provisioned cell")
         if not admin_key:
             raise ValueError("provision handoff did not deliver the cell's application key")
         if state.get("ready"):
@@ -267,19 +344,35 @@ def journey_phase(state: dict, *, admin_key: str, max_attempts: int = 2) -> dict
                 journey["why"] = (f"{cell}: {endpoint} served the provisioning runner but never the "
                                   "credential-free journey runner (ingress admission failed)")
                 return journey
+        # S10 first: its presigned source URL is short-lived (large_import.PRESIGN_TTL_SECONDS).
+        try:
+            s10 = large_import.run_scenario(
+                state, endpoint, admin_key, source_url=s10_source_url,
+                seed_manifest=cloud_journey.cell_dir(cell) / "extended" / "seed-manifest.json")
+        except Exception as e:
+            s10 = CheckResult(large_import.ROW, "fail",
+                              f"{large_import.SCENARIO}: the harness raised {type(e).__name__}")
         extended = run_drivers(endpoint, admin_key=admin_key,
             out=cloud_journey.cell_dir(cell) / "extended", ready=state.get("ready", False),
             require_real=state.get("requireReal", False),
             redis_enabled=state.get("redis") == "redis-on", seed_error=state.get("seedError"))
+        if s10 is not None:
+            extended = [*extended, s10]
+        if state.get("installedClients", {}).get("enabled"):
+            extended = [*extended, installed_client_row(state, installed_context, admin_key)]
         journey["scenarioCoverage"] = _check_dicts(extended)
         blockers: list[list[str]] = []
         for number in range(1, max_attempts + 1):
-            record = cloud_journey.attempt(cell, number, endpoint, admin_key, state.get("runningImage"))
+            detail = state.get("runningImageDetail")
+            record = cloud_journey.attempt(cell, number, endpoint, admin_key, state.get("runningImage"),
+                                           **({"image_detail": detail} if detail else {}),
+                                           **({"tenant_signing_key": tenant_signing_key} if tenant_signing_key else {}))
             journey["journeyAttempts"].append(record)
             receipt = json.loads((E2E_DIR / record["receipt"]).read_text())
             try:
-                passed = cloud_journey.validate_attempt(record, receipt, cell,
-                                                        run_id=run_id, run_attempt=run_attempt)
+                passed = cloud_journey.qualify_attempt(record, receipt, cell,
+                    raw_path=E2E_DIR / record["receipt"], run_id=run_id, run_attempt=run_attempt,
+                    require_observation=False)
             except ValueError as error:
                 # validate_attempt's reasons are fixed strings; they carry no receipt content.
                 journey["status"] = "fail"
@@ -288,8 +381,8 @@ def journey_phase(state: dict, *, admin_key: str, max_attempts: int = 2) -> dict
             if passed:
                 break
             blockers.append(cloud_journey.documented_blockers(receipt))
-            if blockers[-1]:
-                break  # a documented limitation is deterministic; another attempt cannot lift it
+            if blockers[-1] and not record.get("servingRefusal"):
+                break  # only the explicit profile gets the existing retry budget past a raw block
         else:
             journey["status"] = "fail"
             journey["why"] = "journey did not pass within the recorded attempt budget"
@@ -349,6 +442,8 @@ def teardown_phase(state: dict, journey: dict, target, *, reference_endpoint: st
     if journey_blocked:
         report["journeyBlockedBy"] = journey.get("blockedBy", [])
     cost_unavailable = None
+    report["teardown"] = {"attempted": False, "completed": False}
+    report["provisionAttempted"] = bool(state.get("provisionAttempted"))
     if not state.get("provisionAttempted"):
         # Self-skipped, blocked, or never started: nothing was deployed, so nothing is destroyed.
         state["destroyed"] = False
@@ -360,6 +455,25 @@ def teardown_phase(state: dict, journey: dict, target, *, reference_endpoint: st
     # independent obligations. An error in any one must not bypass the following obligations.
     try:
         try:
+            if cell in ("aws-ecs/redis-off", "aws-serverless/redis-off") and any(
+                    record.get("servingRefusal") for record in report["journeyAttempts"]):
+                try:
+                    pinned = cloud_journey.manifest()
+                    after_image = (cloud_journey.observe_ecs_image(target, pinned)[0] if state["target"] == "aws-ecs"
+                                   else cloud_journey.observed_lambda_image(target, pinned))
+                    after = cloud_journey.observed_server(cloud_journey.server_identity(state["endpoint"]), after_image)
+                    before = cloud_journey.observed_server(state.get("observedServer"), state.get("runningImage"))
+                    for record in report["journeyAttempts"]:
+                        record["profileObservation"] = {"source": "aws-control-plane", "before": before,
+                            "after": after, "observedAt": cloud_journey.now(),
+                            "seedManifestSha256": state.get("servingFixtureSha256")}
+                        path = E2E_DIR / record["receipt"]
+                        accepted = cloud_journey.qualify_attempt(record, json.loads(path.read_bytes()), cell, raw_path=path,
+                            run_id=state["runId"], run_attempt=state["runAttempt"])
+                        if record is report["journeyAttempts"][-1] and not accepted:
+                            raise ValueError("final serving/refusal profile did not qualify")
+                except Exception as exc:
+                    report.update(status="fail", why="serving/refusal native observation rejected: " + type(exc).__name__)
             if not report["journeyAttempts"]:
                 report["journeyAttempts"].append(cloud_journey.attempt(cell, 1, None, ""))
         except Exception as e:
@@ -409,12 +523,22 @@ def teardown_phase(state: dict, journey: dict, target, *, reference_endpoint: st
         except Exception as e:
             report.update(status="fail", why=report.get("why", "") +
                           f"; journey cleanup failed: {type(e).__name__}")
+            report.setdefault("cleanupFailures", []).append("journey-cleanup-failed")
         finally:
+            if "s10" in state:
+                # The staged S10 fixture lives in the operator-owned bucket, not in the cell: delete
+                # it whatever the verdict (the bucket lifecycle on release-cells/ is the backstop).
+                report["s10Cleanup"] = large_import.delete_staged(state.get("s10"), cell)
+                if report["s10Cleanup"]["status"] == "failed":
+                    report.update(status="fail", why=(report.get("why") + "; " if report.get("why") else "")
+                                  + f"S10 staged fixture not deleted: {report['s10Cleanup']['why']}")
             state["destroyed"] = False
             if destroy:
+                report["teardown"]["attempted"] = True
                 try:
                     target.teardown(redis_enabled=redis_enabled)
                     state["destroyed"] = True
+                    report["teardown"]["completed"] = True
                 except Exception as e:
                     prior = report.get("why")
                     report["status"] = "fail"
@@ -515,18 +639,42 @@ def run(target_name: str, require_real: bool, reference_endpoint: str | None,
         return {"gate": "cloud-parity", "target": target_name, "status": "fail",
                 "why": f"unknown target {target_name!r}; known: {sorted(REGISTRY)}"}
     target = cls(run_id=os.environ.get("GITHUB_RUN_ID", "local"))
+    if os.environ.get("HONUA_UPDATE_ROLLBACK_ENABLED") == "true":
+        from runner.update_rollback import load_release
+        prior_inputs = Path(os.environ.get("HONUA_UPDATE_ROLLBACK_PRIOR_INPUTS", "."))
+        target.transition_release = load_release(prior_inputs, os.environ.get("HONUA_UPDATE_ROLLBACK_MODE", "rehearsal"))
     datasource: dict = {}
     state = provision_phase(target, target_name, require_real=require_real, redis_enabled=redis_enabled,
                             journey_datasource=datasource)
     if not state["provisionAttempted"]:
         return state["report"]
+    s10_url = None
+    if (state.get("s10") or {}).get("staged"):
+        try:
+            s10_url = large_import.presign(state["s10"], state["cell"])
+        except Exception:
+            s10_url = None  # the S10 row then reports the missing URL as a blocked precondition
     try:
         with cloud_journey.cell_datasource(datasource or None):
-            journey = journey_phase(state, admin_key=target.admin_api_key, max_attempts=max_attempts)
+            journey = journey_phase(state, admin_key=target.admin_api_key, max_attempts=max_attempts,
+                                    s10_source_url=s10_url, tenant_signing_key=getattr(target, "journey_signing_key", None))
     except Exception as e:
         journey = {"status": "fail", "why": f"cloud checks/journey failed: {type(e).__name__}"}
-    return teardown_phase(state, journey, target, reference_endpoint=reference_endpoint,
-                          cost_ceiling_usd=cost_ceiling_usd, cost_report=cost_report)
+    report = None
+    try:
+        report = teardown_phase(state, journey, target, reference_endpoint=reference_endpoint,
+                                cost_ceiling_usd=cost_ceiling_usd, cost_report=cost_report)
+    finally:
+        if os.environ.get("HONUA_CLOUD_TENANT_FIXTURE") == "true":
+            try:
+                forget_secret(tenant_secret_name(state["cell"]))
+            except Exception as error:
+                if report is None:
+                    raise RuntimeError("run-owned tenant secret cleanup failed") from None
+                report["status"] = "fail"
+                report["why"] = f"run-owned tenant secret cleanup failed: {type(error).__name__}"
+                report.setdefault("cleanupFailures", []).append("tenant-secret-delete-failed")
+    return report
 
 
 # ---- job handoffs ----------------------------------------------------------------------------------
@@ -568,6 +716,32 @@ def state_secret_name(cell: str) -> str:
 
 def app_key_secret_name(cell: str) -> str:
     return state_secret_name(cell) + "-app-key"
+
+
+def tenant_secret_name(cell: str) -> str:
+    return state_secret_name(cell) + "-tenant-signing-key"
+
+
+def configure_tenant_fixture(target, cell: str, *, run=subprocess.run) -> None:
+    """Opt-in run-owned issuer; only an existing-secret reference enters Terraform."""
+    if os.environ.get("HONUA_CLOUD_TENANT_FIXTURE") != "true":
+        return
+    if target.name not in ("aws-ecs", "aws-serverless", "aws-eks"):
+        raise ValueError("tenant fixture requires an owned AWS cell")
+    if target.name != "aws-eks" and not target._root_declares("oidc_static_jwt"):
+        raise ValueError("pinned IaC root does not support the typed tenant issuer")
+    key = secrets.token_hex(32)
+    result = run(["aws", "secretsmanager", "create-secret", "--name", tenant_secret_name(cell),
+                  "--description", "Ephemeral cloud journey tenant issuer; deleted by teardown",
+                  "--secret-string", "file:///dev/stdin"],
+                 input=key, text=True, capture_output=True, check=True)
+    observed = json.loads(result.stdout)
+    arn, version = observed.get("ARN"), observed.get("VersionId")
+    if (not isinstance(arn, str) or not re.fullmatch(r"arn:aws[a-z-]*:secretsmanager:[a-z0-9-]+:[0-9]{12}:secret:[A-Za-z0-9/_+=.@-]+", arn)
+            or not isinstance(version, str) or not re.fullmatch(r"[A-Za-z0-9-]{32,64}", version)):
+        raise ValueError("tenant signing secret has no immutable identity")
+    target.journey_signing_key = key
+    target.journey_signing_secret = {"arn": arn, "versionId": version}
 
 
 def _with_secret_fd(run, argv, secret: str, **kwargs):
@@ -650,13 +824,17 @@ def _modulus_bytes(private_key: Path, *, run=subprocess.run) -> int:
     return int(bits.group(1)) // 8
 
 
-def seal_key(secret_name: str, public_key: Path, sealed: Path, *, run=subprocess.run) -> None:
+def seal_key(secret_name: str, public_key: Path, sealed: Path, *, run=subprocess.run, extend=None) -> None:
     """Encrypt the cell's journey handoff to the journey runner's own public key.
 
     Job outputs and step env are printed in the public job log, so the key reaches the
-    credential-free journey job only as RSA-OAEP ciphertext in an artifact.
+    credential-free journey job only as RSA-OAEP ciphertext in an artifact. `extend` adds what the
+    admit job minted itself (the S10 presigned source URL) to the plaintext before it is sealed.
     """
-    plaintext = read_secret(secret_name, run=run).encode("utf-8")
+    plaintext = read_secret(secret_name, run=run)
+    if extend is not None:
+        plaintext = extend(plaintext)
+    plaintext = plaintext.encode("utf-8")
     ciphertext = b"".join(
         run(["openssl", "pkeyutl", "-encrypt", "-pubin", "-inkey", str(public_key),
              "-pkeyopt", "rsa_padding_mode:oaep", "-pkeyopt", "rsa_oaep_md:sha256"],
@@ -693,6 +871,11 @@ def verify_journey(state: dict, journey: dict, journey_dir: Path) -> dict:
             or [r.get("number") for r in records] != list(range(1, len(records) + 1))):
         raise ValueError("journey attempt history is not 1..n within two attempts")
     expected = cloud_journey.observed_server(state.get("observedServer"), state.get("runningImage"))
+    expected_receipts = {f"receipt-{record['number']}.json" for record in records}
+    expected_profiles = {f"serving-refusal-{record['number']}.json" for record in records if record.get("servingRefusal")}
+    if (any(path.name not in expected_receipts for path in journey_dir.glob("receipt-*.json"))
+            or any(path.name not in expected_profiles for path in journey_dir.glob("serving-refusal-*.json"))):
+        raise ValueError("produced journey/profile artifact omitted from attempt history")
     verified: list[tuple[int, bytes, bytes | None]] = []
     blockers: list[list[str]] = []
     passed = False
@@ -713,7 +896,23 @@ def verify_journey(state: dict, journey: dict, journey_dir: Path) -> dict:
         if receipt["target"].get("configSha256") and (
                 config_bytes is None or hashlib.sha256(config_bytes).hexdigest() != receipt["target"]["configSha256"]):
             raise ValueError("journey target config digest mismatch")
-        passed = cloud_journey.validate_attempt(record, receipt, cell, run_id=run_id, run_attempt=run_attempt)
+        record.pop("profileObservation", None)
+        if record.get("servingRefusal"):
+            seed = journey_dir / "extended/seed-manifest.json"
+            if (not seed.is_file() or seed.is_symlink() or not state.get("servingFixtureSha256")
+                    or hashlib.sha256(seed.read_bytes()).hexdigest() != state["servingFixtureSha256"]):
+                raise ValueError("journey serving fixture differs from the sealed provision handoff")
+        passed = cloud_journey.qualify_attempt(record, receipt, cell,
+            raw_path=journey_dir / f"receipt-{number}.json", run_id=run_id, run_attempt=run_attempt,
+            require_observation=False)
+        if record.get("servingRefusal"):
+            for source in (journey_dir / f"serving-refusal-{number}.json",
+                           journey_dir / "extended/seed-manifest.json"):
+                relative = source.relative_to(journey_dir)
+                destination = directory / relative
+                destination.parent.mkdir(parents=True, exist_ok=True)
+                if source.resolve() != destination.resolve():
+                    destination.write_bytes(source.read_bytes())
         if not passed:
             blockers.append(cloud_journey.documented_blockers(receipt))
         verified.append((number, data, config_bytes))
@@ -747,9 +946,30 @@ DIAGNOSTICS_NAME = "diagnostics-ecs.json"
 LAMBDA_DIAGNOSTICS_NAME = "diagnostics-lambda.json"
 EKS_DIAGNOSTICS_NAME = "diagnostics-eks.json"
 _LOG_LINES = 300
-# Newest log streams merged per Lambda/Batch log group. A Lambda log group holds one stream per
-# execution environment, so the last lines of the group span several streams.
-_LOG_STREAMS = 5
+# Log streams merged per Lambda/Batch log group. A Lambda log group holds one stream per execution
+# environment, so the last lines of the group span several streams. CloudWatch updates a stream's
+# lastEventTimestamp lazily, so "the N newest by LastEventTime" can miss the environment that served
+# last (run 38133126673 redis-on: the tail ended at an 11:04:15 cold start while the journey ran to
+# 11:07, and the serving stream the replica check named was not among the five read). A short-lived
+# cell has few streams, so every one up to this bound is read and the merge picks the true tail.
+_LOG_STREAMS = 40
+# Failure signatures counted over the WHOLE log group (filter-log-events), not just the tail: the
+# tail of a busy API function covers about a second, so a refusal minutes earlier never shows in it.
+_SIGNATURES = (
+    ("db-connection-slots", "53300"),
+    ("runtime-exit", "Runtime.ExitError"),
+    ("unhandled-exception", "Unhandled exception"),
+    ("task-timeout", "Task timed out"),
+    ("db-timeout", "The operation has timed out"),
+    ("preflight-failed", "preflight check failed"),
+    ("mcp-tool-unexpected", "MCP tool invocation failed unexpectedly"),
+)
+_SIGNATURE_EVENTS = 5000
+_SIGNATURE_SAMPLES = 60
+# API Gateway access-log lines whose status is a 4xx/5xx. A response API Gateway produced itself
+# (throttle, Lambda init or invoke failure) carries no CORS header, so a browser reports it as a CORS
+# refusal; only the access log tells it apart from a response the server sent.
+_ACCESS_ERROR_PATTERN = '{ ($.status = "4*") || ($.status = "5*") }'
 
 
 def _cell_readers(target, run, redact):
@@ -800,6 +1020,78 @@ def _log_group_tail(aws, group: str, redact) -> dict:
     return entry
 
 
+def _iso_ms(timestamp: int) -> str:
+    return datetime.fromtimestamp(timestamp / 1000, tz=timezone.utc).strftime("%Y-%m-%dT%H:%M:%S.%f")[:-3] + "Z"
+
+
+def _filter_events(aws, group: str, pattern: str) -> list[tuple[int, str, str]]:
+    """Every event of the whole log group matching `pattern`, oldest first (bounded)."""
+    page = aws("logs", "filter-log-events", "--log-group-name", group, "--filter-pattern", pattern,
+               "--max-items", str(_SIGNATURE_EVENTS))
+    events = [(int(e.get("timestamp") or 0), str(e.get("logStreamName", "")), str(e.get("message", "")))
+              for e in page.get("events", [])]
+    events.sort(key=lambda event: (event[0], event[1]))
+    return events
+
+
+def _log_group_signatures(aws, group: str, redact) -> dict:
+    """Failure signatures over the whole log group: per signature the matching lines, the streams
+    (execution environments) they came from and the first/last time, plus a bounded sample.
+
+    A .NET Lambda writes most entries twice (console text and its JSON twin), so `lines` counts
+    log lines, not distinct failures; `streams` and the times are what line up with a request."""
+    pattern = " ".join(f'?"{phrase}"' for _, phrase in _SIGNATURES)
+    try:
+        events = _filter_events(aws, group, pattern)
+    except RuntimeError as error:
+        return {"error": str(error)}
+    summary: dict = {}
+    samples = []
+    for timestamp, stream, message in events:
+        names = [name for name, phrase in _SIGNATURES if phrase in message]
+        for name in names:
+            row = summary.setdefault(name, {"lines": 0, "streams": set(), "first": timestamp, "last": timestamp})
+            row["lines"] += 1
+            row["streams"].add(stream)
+            row["first"], row["last"] = min(row["first"], timestamp), max(row["last"], timestamp)
+        if names and len(samples) < _SIGNATURE_SAMPLES:
+            samples.append(f"{_iso_ms(timestamp)} [{stream}] {redact(message.rstrip(chr(10)))[:600]}")
+    return {
+        "signatures": {name: {"lines": row["lines"], "streams": len(row["streams"]),
+                              "first": _iso_ms(row["first"]), "last": _iso_ms(row["last"])}
+                       for name, row in summary.items()},
+        "truncated": len(events) >= _SIGNATURE_EVENTS,
+        "samples": samples,
+    }
+
+
+def _access_log_errors(aws, group: str, redact) -> dict:
+    """API Gateway access-log 4xx/5xx lines of the whole group: counts by status and by
+    status+method+path, and a bounded sample of the lines themselves."""
+    try:
+        events = _filter_events(aws, group, _ACCESS_ERROR_PATTERN)
+    except RuntimeError as error:
+        return {"error": str(error)}
+    by_status: dict[str, int] = {}
+    by_route: dict[str, int] = {}
+    samples = []
+    for timestamp, _, message in events:
+        try:
+            record = json.loads(message)
+        except ValueError:
+            record = {}
+        record = record if isinstance(record, dict) else {}
+        status = str(record.get("status", "?"))
+        route = f"{status} {record.get('httpMethod', '?')} {str(record.get('path', '?')).split('?')[0]}"
+        by_status[status] = by_status.get(status, 0) + 1
+        by_route[route] = by_route.get(route, 0) + 1
+        if len(samples) < _SIGNATURE_SAMPLES:
+            samples.append(f"{_iso_ms(timestamp)} {redact(message.rstrip(chr(10)))[:600]}")
+    top = sorted(by_route.items(), key=lambda item: (-item[1], item[0]))[:40]
+    return {"byStatus": dict(sorted(by_status.items())), "byRoute": dict(top),
+            "truncated": len(events) >= _SIGNATURE_EVENTS, "samples": samples}
+
+
 def lambda_readiness_diagnostics(target, *, run=subprocess.run, redact=None) -> dict:
     """The serverless counterpart of ecs_readiness_diagnostics: what the cell's Lambda functions and
     Batch jobs logged about their own startup, dependency refusals and job execution.
@@ -837,7 +1129,13 @@ def lambda_readiness_diagnostics(target, *, run=subprocess.run, redact=None) -> 
             "environmentNames": sorted(str(key) for key in
                                        (function.get("Environment") or {}).get("Variables") or {}),
             "logGroup": group})
-        report["logs"].append({"functionName": name, **_log_group_tail(aws, group, redact)})
+        report["logs"].append({"functionName": name, **_log_group_tail(aws, group, redact),
+                               "failureSignatures": _log_group_signatures(aws, group, redact)})
+    # The module names the HTTP API after the API function and writes its access log to
+    # /aws/apigateway/<api name>: the only record of a response API Gateway produced itself.
+    access_group = f"/aws/apigateway/{api}"
+    report["logs"].append({"accessLog": True, **_log_group_tail(aws, access_group, redact),
+                           "accessErrors": _access_log_errors(aws, access_group, redact)})
     report["gpBatchEnabled"] = out("gp_batch_enabled").lower() == "true"
     if report["gpBatchEnabled"]:
         try:
@@ -847,7 +1145,8 @@ def lambda_readiness_diagnostics(target, *, run=subprocess.run, redact=None) -> 
             report["logs"].append({"batch": True, "logGroup": f"/aws/batch/{stem}-*", "error": str(error)})
             groups = []
         for group in sorted(str(g["logGroupName"]) for g in groups if g.get("logGroupName")):
-            report["logs"].append({"batch": True, **_log_group_tail(aws, group, redact)})
+            report["logs"].append({"batch": True, **_log_group_tail(aws, group, redact),
+                                   "failureSignatures": _log_group_signatures(aws, group, redact)})
     return report
 
 
@@ -996,10 +1295,29 @@ def _phase_diagnose(args) -> int:
             print(f"   {line}")
         print("::endgroup::")
     for log in diagnostics.get("logs", []):
-        owner = log.get("taskArn") or log.get("functionName") or ("batch" if log.get("batch") else "")
+        owner = (log.get("taskArn") or log.get("functionName") or ("batch" if log.get("batch") else "")
+                 or ("access log" if log.get("accessLog") else ""))
         print(f"::group::{log.get('logStream') or log.get('logGroup')} ({owner})")
         if "error" in log:
             print(f"   log unavailable: {log['error']}")
+        if log.get("logStreams") is not None:
+            print(f"   streams read: {len(log['logStreams'])}"
+                  + (" (bound reached; more exist)" if len(log["logStreams"]) >= _LOG_STREAMS else ""))
+        signatures = log.get("failureSignatures") or {}
+        if "error" in signatures:
+            print(f"   failure signatures unavailable: {signatures['error']}")
+        for signature, row in (signatures.get("signatures") or {}).items():
+            print(f"   signature {signature}: {row['lines']} lines from {row['streams']} stream(s), "
+                  f"{row['first']} .. {row['last']}")
+        for line in signatures.get("samples", []):
+            print(f"   ! {line}")
+        access = log.get("accessErrors") or {}
+        if "error" in access:
+            print(f"   access-log errors unavailable: {access['error']}")
+        if access.get("byStatus"):
+            print(f"   access-log 4xx/5xx by status: {access['byStatus']}")
+            for route, count in access.get("byRoute", {}).items():
+                print(f"   access-log {route}: {count}")
         for error in log.get("errors", []):
             print(f"   stream unavailable: {error}")
         for line in log.get("lines", []):
@@ -1038,15 +1356,19 @@ def _phase_provision(args) -> int:
     # It reaches the journey job only sealed to that runner's own public key.
     os.environ.setdefault("HONUA_ADMIN_PASSWORD", f"Honua-Gate-Aa1!{secrets.token_urlsafe(32)}")
     datasource: dict = {}
+    client_context = ({} if os.environ.get("HONUA_CLOUD_INSTALLED_CLIENTS") == "true"
+                      and args.redis == "on" and args.target in ("aws-ecs", "aws-serverless") else None)
     state = provision_phase(target, args.target, require_real=args.require_real,
-                            redis_enabled=args.redis == "on", journey_datasource=datasource)
+                            redis_enabled=args.redis == "on", journey_datasource=datasource, installed_context=client_context)
     if state["endpoint"]:
         # The admit job seals this to the journey runner's public key (seal_key). With a seeded
         # cell it also carries the seed's connection: the terminal journey's datasource
         # (honua-release#377). It exists only in Secrets Manager and sealed to that runner.
         try:
             store_secret(app_key_secret_name(cell),
-                         cloud_journey.pack_handoff(target.admin_api_key, datasource or None),
+                         cloud_journey.pack_handoff(target.admin_api_key, datasource or None,
+                             tenant_signing_key=getattr(target, "journey_signing_key", None),
+                             installed_clients=client_context or None),
                          "Ephemeral cloud-cell application key; deleted by teardown")
         except Exception as error:
             state["report"].update(status="fail", why="could not hand the cell's application key to "
@@ -1069,13 +1391,19 @@ def _phase_journey(args) -> int:
         journey = {"cell": cell, "status": "fail", "why": "provision handoff missing or for another cell"}
     else:
         try:
-            admin_key, datasource = cloud_journey.unpack_handoff(
-                open_key(args.sealed_key, args.private_key) if args.sealed_key
-                else os.environ.get("HONUA_CLOUD_ADMIN_KEY", ""))
+            handoff = (open_key(args.sealed_key, args.private_key) if args.sealed_key
+                       else os.environ.get("HONUA_CLOUD_ADMIN_KEY", ""))
+            admin_key, datasource = cloud_journey.unpack_handoff(handoff)
+            s10_url = cloud_journey.handoff_source_url(handoff)
+            tenant_key = cloud_journey.handoff_tenant_signing_key(handoff)
+            client_context = json.loads(handoff).get("installedClients") if handoff.startswith("{") else None
         except Exception:
-            admin_key, datasource = "", None
+            admin_key, datasource, s10_url, tenant_key = "", None, None, None
+            client_context = None
         with cloud_journey.cell_datasource(datasource):
-            journey = journey_phase(state, admin_key=admin_key, max_attempts=args.max_attempts)
+            journey = journey_phase(state, admin_key=admin_key, max_attempts=args.max_attempts,
+                                    s10_source_url=s10_url, tenant_signing_key=tenant_key,
+                                    installed_context=client_context)
     _write_json(cloud_journey.cell_dir(cell) / JOURNEY_NAME, journey)
     print(f"== cloud-journey :: {cell} -> {journey.get('status', 'recorded').upper()} ==")
     for c in journey.get("scenarioCoverage", []):
@@ -1085,25 +1413,34 @@ def _phase_journey(args) -> int:
     return 1 if journey.get("status") == "fail" else 0
 
 
-# The nightly genuine-model cell (check_promotion_readiness.JOURNEYS["nightly-model-journey"]).
-MODEL_CANARY_CELL = "aws-ecs/redis-off"
+# Approved GA cells; nightly selects ECS Redis-off while promotion can exercise all four.
+MODEL_CANARY_CELLS = frozenset(f"{target}/redis-{redis}" for target in ("aws-ecs", "aws-serverless")
+                               for redis in ("off", "on"))
 MODEL_JOURNEY_DIR = "model-journey"
 LOCK_DIGEST = re.compile(r"sha256:[0-9a-f]{64}")
 
 
-def _passing_deterministic_receipt(cell_directory: Path) -> Path | None:
+def _passing_deterministic_receipt(cell_directory: Path, *, prerequisite_profile: str | None = None) -> Path | None:
     """The cell journey's passing receipt from this job, which the canary protocol requires."""
     journey = _read_json(cell_directory / JOURNEY_NAME) or {}
-    for record in reversed(journey.get("journeyAttempts") or []):
+    records = journey.get("journeyAttempts")
+    if not isinstance(records, list):
+        return None
+    for record in reversed(records):
+        if not isinstance(record, dict):
+            continue
         path = E2E_DIR / str(record.get("receipt", ""))
+        if (path.resolve().parent != cell_directory.resolve()
+                or not re.fullmatch(r"receipt-[12]\.json", path.name)):
+            continue
         receipt = _read_json(path) if path.is_file() else None
-        if receipt and receipt.get("status") == "pass":
+        if receipt and receipt.get("status") in ({"pass", "blocked"} if prerequisite_profile == "redis-off-serving-refusal" else {"pass"}):
             return path
     return None
 
 
 def model_canary_phase(state: dict, *, admin_key: str, lock_digest: str | None, run=subprocess.run,
-                       max_attempts: int = 2) -> dict:
+                       max_attempts: int = 2, tenant_signing_key: str | None = None) -> dict:
     """Credential-free: run the genuine-model canary on the cell after its deterministic journey.
 
     Every attempt is bound to the lock digest under certification and chained to this job's passing
@@ -1122,26 +1459,62 @@ def model_canary_phase(state: dict, *, admin_key: str, lock_digest: str | None, 
     run_id, run_attempt = _run_identity()
     receipts: list[Path] = []
     why = None
-    if cell != MODEL_CANARY_CELL:
-        why = f"{cell} is not the genuine-model cell ({MODEL_CANARY_CELL})"
+    if state.get("handoffError"):
+        why = str(state["handoffError"])
+    elif cell not in MODEL_CANARY_CELLS:
+        why = f"{cell} is not an approved genuine-model GA cell"
     elif not state.get("endpoint") or not admin_key:
         why = "the cell has no endpoint or application key for the canary"
-    deterministic = _passing_deterministic_receipt(directory) if why is None else None
+    profile = "redis-off-serving-refusal" if cell.endswith("/redis-off") else "full-workflow"
+    deterministic = _passing_deterministic_receipt(directory, prerequisite_profile=profile) if why is None else None
     if why is None and deterministic is None:
         why = "the cell's deterministic journey did not pass in this job; the canary is refused"
+    target = (deterministic.with_name(deterministic.name.replace("receipt-", "target-"))
+              if deterministic is not None else None)
+    if why is None and (target is None or not target.is_file()):
+        why = "the passing deterministic journey has no retained target config; the canary is refused"
     if why is None:
-        env = {**os.environ, "TERMINAL_MODEL_API_KEY": admin_key}
+        config = _read_json(target) or {}
+        prerequisite = _read_json(deterministic) or {}
+        if (target.resolve().parent != directory.resolve()
+                or config.get("id") != cell
+                or prerequisite.get("target", {}).get("id") != cell
+                or prerequisite.get("target", {}).get("configSha256") != hashlib.sha256(target.read_bytes()).hexdigest()
+                or str(config.get("replicaBaseUrl", "")).rstrip("/") != str(state["endpoint"]).rstrip("/")):
+            why = "the retained target config is not bound to this deterministic cell and endpoint"
+    setup_notices = []
+    if why is None:
+        driver, _adapter = cloud_journey.drivers()
+        # Candidate subprocesses receive application capabilities only, never CI/cloud credentials.
+        env = {**driver.pins.candidate_env(),
+               **{key: os.environ[key] for key in ("TERMINAL_MODEL_NAME", "TERMINAL_MODEL_RUNTIME",
+                   "TERMINAL_MODEL_QUANTIZATION", "TERMINAL_MODEL_SIGNING_MANIFEST_SHA256") if key in os.environ},
+               "TERMINAL_MODEL_API_KEY": admin_key, "HONUA_CLOUD_JOURNEY_ADMIN": admin_key,
+               "HONUA_CANARY_HTTP_CELL_HOST": urllib.parse.urlsplit(str(state["endpoint"])).hostname or ""}
+        if tenant_signing_key is not None:
+            env["HONUA_CANARY_TENANT_SIGNING_KEY"] = tenant_signing_key
         binding = ["--lock-digest", lock_digest] if lock_digest is not None else []
         attempts = max_attempts if lock_digest is not None else 1
         for number in range(1, attempts + 1):
             output = out / f"model-canary-{number}.json"
+            # Deterministic setup left fixed-name fixture objects. Reset them before every model
+            # attempt; the model must issue fresh writes instead of inheriting a completed journey.
+            try:
+                setup_notices.append({"modelAttempt": number, "notices": cloud_journey.reset_prior_attempt(
+                    state["endpoint"], admin_key, config.get("execution"), number + 1)})
+            except Exception as error:
+                why = f"fixture reset before model attempt {number} failed ({type(error).__name__})"
+                break
+            output.unlink(missing_ok=True)  # An earlier phase invocation cannot stand in for this attempt.
             endpoint = str(state["endpoint"]).rstrip("/")
             argv = [sys.executable, str(E2E_DIR.parent / "tools" / "terminal_model_canary.py"),
                     "--base-url", endpoint + "/api",
                     # Owner ruling canary-http-cell-2026-10-08: plain HTTP only to this cell's own
                     # harness-provisioned ALB host, never to any other non-loopback host.
                     "--allow-http-cell", urllib.parse.urlsplit(endpoint).hostname or "",
-                    "--require-api-key", "--cell", cell, "--attempt", str(number),
+                    "--require-api-key", "--profile", profile, "--cell", cell, "--attempt", str(number),
+                    "--driver-command", str(E2E_DIR.parent / "certification" / "terminal-journey" / "live_driver.py"),
+                    "--target", str(target),
                     *binding,
                     "--deterministic-receipt", str(deterministic.relative_to(E2E_DIR.parent)),
                     "--output", str(output)]
@@ -1152,9 +1525,10 @@ def model_canary_phase(state: dict, *, admin_key: str, lock_digest: str | None, 
             receipts.append(output)
             if completed.returncode == 0:
                 break
-    report = model_journey_report.build(receipts, cell=MODEL_CANARY_CELL, lock_digest=lock_digest,
+    report = model_journey_report.build(receipts, cell=cell, lock_digest=lock_digest,
                                         candidate_digest=cloud_journey.candidate_digest(),
                                         run_id=run_id, run_attempt=run_attempt)
+    report["harnessSetup"] = setup_notices
     if why is not None:
         report["cells"][0]["why"] = report["why"] = why
         report["cells"][0]["status"] = report["status"] = report["overallStatus"] = "fail"
@@ -1162,16 +1536,78 @@ def model_canary_phase(state: dict, *, admin_key: str, lock_digest: str | None, 
     return report
 
 
+def _phase_update_rollback(args) -> int:
+    """Run on the credentialed retained controller after the ordinary journey, before teardown."""
+    from runner.update_rollback import load_release, run_cell, ProofError, preflight
+    from runner.update_rollback_aws import AwsRuntime
+    cell = _cell(args.target, args.redis)
+    directory = cloud_journey.cell_dir(cell)
+    output = directory / "update-rollback-cell.json"
+    output.unlink(missing_ok=True)
+    runtime = None
+    receipt = {"schema": "honua.aws-update-rollback-cell/v1", "cell": cell, "status": "fail",
+               "mode": args.update_rollback_mode, "runId": _run_identity()[0], "runAttempt": _run_identity()[1]}
+    try:
+        if not args.prior_inputs or not args.transition_inputs or not args.serving_fixture:
+            raise ProofError("prior/candidate authenticated input bundles and retained serving fixture required")
+        prior = load_release(args.prior_inputs, args.update_rollback_mode)
+        candidate = load_release(args.transition_inputs, args.update_rollback_mode)
+        preflight(prior, candidate, cell, args.update_rollback_mode)
+        state = _read_json(directory / HANDOFF_NAME)
+        if (not state or state.get("cell") != cell or
+                (state.get("runId"), state.get("runAttempt")) != _run_identity()):
+            raise ProofError("restored provision handoff is bound to another workflow attempt")
+        # The actual initial deployment must be A. Never relabel an ordinary B deployment as A.
+        if "sha256:" + state.get("candidateDigest", "") != prior.manifest_digest:
+            raise ProofError("provisioned baseline manifest differs from the authenticated prior inputs")
+        journey = _read_json((args.journey_dir or directory) / JOURNEY_NAME)
+        if not journey or journey.get("cell") != cell:
+            raise ProofError("ordinary baseline journey must run before update/rollback")
+        verify_journey(state, journey, args.journey_dir or directory)
+        target = _target(args.target)
+        target._workdir = target._iac_root()
+        target.transition_release = prior
+        if args.target == "aws-ecs":
+            target.admit(state["endpoint"], os.environ.get("HONUA_AWS_RUNNER_CIDR", ""), redis_enabled=args.redis == "on")
+        # Original application key stays in the owned Secrets Manager handoff; never persist it.
+        admin_key, _ = cloud_journey.unpack_handoff(read_secret(app_key_secret_name(cell)))
+        os.environ["HONUA_ADMIN_PASSWORD"] = admin_key
+        runtime = AwsRuntime(target, state, admin_key=admin_key,
+            approval_key=os.environ.get("HONUA_UPDATE_ROLLBACK_APPROVAL_KEY", ""),
+            serving_fixture=args.serving_fixture, controller_env=args.controller_env,
+            mirror_repository=os.environ.get("HONUA_UPDATE_ROLLBACK_ECR_REPOSITORY"), vertices=args.gp_vertices, workload_path=args.gp_workload)
+        receipt = run_cell(prior, candidate, cell, args.update_rollback_mode, runtime,
+                           run_id=_run_identity()[0], run_attempt=_run_identity()[1])
+    except ProofError as error:
+        receipt["finding"] = str(error)
+    except Exception as error:
+        receipt["finding"] = "update/rollback prerequisite raised " + type(error).__name__
+    finally:
+        if runtime:
+            cleanup = runtime.close()
+            receipt["controllerCleanupFailures"] = cleanup
+            if cleanup:
+                receipt["status"] = "fail"
+        _write_json(output, receipt)
+    print(f"{cell}: update/rollback {receipt['status']}; retained {output}")
+    return 0 if receipt.get("status") == "pass" else 1
+
+
 def _phase_model_canary(args) -> int:
     sys.path.insert(0, str(E2E_DIR.parent / "tools"))
     cell = _cell(args.target, args.redis)
     state = _read_json(cloud_journey.cell_dir(cell) / HANDOFF_NAME) or {"cell": cell}
+    if state.get("cell") != cell:
+        state = {"cell": cell, "handoffError": "provision handoff is for another cell; the model is refused"}
     try:
-        admin_key, _ = cloud_journey.unpack_handoff(open_key(args.sealed_key, args.private_key))
+        handoff = open_key(args.sealed_key, args.private_key)
+        admin_key, datasource = cloud_journey.unpack_handoff(handoff)
+        tenant_key = cloud_journey.handoff_tenant_signing_key(handoff)
     except Exception:
-        admin_key = ""
-    report = model_canary_phase(state, admin_key=admin_key, lock_digest=args.lock_digest,
-                                max_attempts=args.max_attempts)
+        admin_key, datasource, tenant_key = "", None, None
+    with cloud_journey.cell_datasource(datasource):
+        report = model_canary_phase(state, admin_key=admin_key, lock_digest=args.lock_digest,
+                                    max_attempts=args.max_attempts, tenant_signing_key=tenant_key)
     print(f"== cloud-model-canary :: {cell} -> {report['status'].upper()} ==")
     print(f"   {report['why']}")
     if args.lock_digest is None and report["status"] == "blocked":
@@ -1191,10 +1627,31 @@ def _phase_admit(args) -> int:
     return 0
 
 
+def s10_handoff_extension(state: dict | None, cell: str, *, run=subprocess.run):
+    """(extend, note): the sealed-handoff extension carrying the S10 presigned source URL, or None.
+
+    Minted here, in the admit job, so its lifetime starts as late as the credentialed jobs allow. A
+    presign failure never stops the key delivery: the journey's S10 row then reports the missing URL.
+    """
+    record = (state or {}).get("s10")
+    if not isinstance(record, dict) or not record.get("staged"):
+        return None, f"{cell}: no S10 fixture was staged; no source URL to seal"
+    try:
+        url = large_import.presign(record, cell, run=run)
+    except subprocess.CalledProcessError as error:
+        return None, f"{cell}: S10 presign failed: {large_import.aws_error(error)}"
+    except Exception as error:
+        return None, f"{cell}: S10 presign failed: {type(error).__name__}"
+    return ((lambda plaintext: cloud_journey.attach_source_url(plaintext, url)),
+            f"{cell}: sealed the S10 presigned source URL (valid {large_import.PRESIGN_TTL_SECONDS}s) with the key")
+
+
 def _phase_deliver_key(args) -> int:
     cell = _cell(args.target, args.redis)
-    seal_key(app_key_secret_name(cell), args.public_key, args.sealed_key)
+    extend, note = s10_handoff_extension(_read_json(cloud_journey.cell_dir(cell) / HANDOFF_NAME), cell)
+    seal_key(app_key_secret_name(cell), args.public_key, args.sealed_key, extend=extend)
     print(f"sealed the {cell} application key to the journey runner's public key")
+    print(note if extend else f"::warning title=S10 large-import::{note}")
     return 0
 
 
@@ -1229,8 +1686,10 @@ def _phase_teardown(args) -> int:
     marker = os.environ.get("HONUA_CLOUD_PROVISION_MARKER")
     restored = bool(marker) and Path(marker).is_file()
     problems = []
+    cleanup_unconfirmed = False
     if state is None or state.get("cell") != cell:
         problems.append("provision handoff missing")
+        cleanup_unconfirmed = True
         state = {"cell": cell, "redis": f"redis-{args.redis}", "requireReal": args.require_real,
                  "startedAt": cloud_journey.now(), "provisionAttempted": restored,
                  "report": {"gate": "cloud-parity", "target": args.target, "redis": f"redis-{args.redis}",
@@ -1240,6 +1699,9 @@ def _phase_teardown(args) -> int:
     elif (state.get("runId"), state.get("runAttempt"), state.get("candidateDigest")) != (
             *_run_identity(), cloud_journey.candidate_digest()):
         problems.append("provision handoff is bound to another run or candidate")
+        cleanup_unconfirmed = True
+    if not isinstance(state.get("provisionAttempted"), bool):
+        cleanup_unconfirmed = True
     if journey and journey.get("cell") != cell:
         problems.append("journey handoff is for another cell")
         journey = {}
@@ -1272,27 +1734,45 @@ def _phase_teardown(args) -> int:
     report = teardown_phase(state, journey, target, reference_endpoint=args.reference_endpoint,
                             cost_ceiling_usd=args.cost_ceiling_usd, cost_report=args.cost_report,
                             destroy=restored)
+    if cleanup_unconfirmed and not restored:
+        # Absence of both handoff and restored state is not evidence that apply never ran.
+        report.setdefault("cleanupFailures", []).append("provisioning-obligation-unconfirmed")
     if stranded:
         problems.append("the cell provisioned infrastructure but its sealed Terraform state never "
                         "reached teardown; reap it by hand (honua-iac#142)")
-    secret_names = [app_key_secret_name(cell)] + ([state_secret_name(cell)] if state.get("destroyed") else [])
+    secret_names = [app_key_secret_name(cell)] + ([tenant_secret_name(cell)] if
+        state.get("tenantFixtureEnabled") or os.environ.get("HONUA_CLOUD_TENANT_FIXTURE") == "true" else []) + ([state_secret_name(cell)] if state.get("destroyed") else [])
     for name in secret_names:
         try:
             forget_secret(name)
         except Exception as error:
             problems.append(f"{name} could not be deleted: {type(error).__name__}")
+            report.setdefault("cleanupFailures", []).append("owned-secret-delete-failed")
     if problems:
         report["status"] = "fail"
         report["why"] = "; ".join(filter(None, [report.get("why"), *problems]))
+    if args.target == "aws-eks" and os.environ.get("HONUA_DEPLOYMENT_PREPARED") == "true":
+        try:
+            from deployment_cell import write_receipt
+            write_receipt(report, directory, E2E_DIR)
+        except Exception as error:
+            report["status"] = "fail"
+            report["why"] = "; ".join(filter(None, [report.get("why"),
+                f"before-actuation deployment proof could not be retained: {type(error).__name__}"]))
     report.setdefault("evidence_url", os.environ.get("HONUA_RUN_URL", ""))
     REPORT_PATH.write_text(json.dumps(report, indent=2) + "\n", encoding="utf-8")
     _print_report(report)
+    if args.target in cloud_journey.PREVIEW_TARGETS:
+        # Keep the qualification outcome in the receipt. Only its informational verdict is
+        # tolerated; cleanup and cost failures remain hard process/workflow failures.
+        return int(cloud_journey.cleanup_failure(report) is not None
+                   or report.get("cost", {}).get("status") == "fail")
     return 1 if report["status"] == "fail" else 0
 
 
 def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument("--phase", choices=("all", "provision", "seal-state", "journey", "model-canary",
+    ap.add_argument("--phase", choices=("all", "provision", "seal-state", "journey", "model-canary", "update-rollback",
                                         "deliver-key", "admit", "open-state", "diagnose", "teardown"), default="all",
                     help="CI runs provision, journey and teardown as separate jobs (honua-release#381)")
     ap.add_argument("--bundle", type=Path, help="sealed Terraform state (seal-state / open-state)")
@@ -1306,6 +1786,13 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--max-attempts", type=int, choices=(1, 2), default=2)
     ap.add_argument("--lock-digest", help="sha256:<hex> of the platform lock the genuine-model canary binds to; "
                                           "omitted on a manual dispatch, the canary records an unbound `blocked`")
+    ap.add_argument("--prior-inputs", type=Path, help="retained authenticated baseline input directory")
+    ap.add_argument("--transition-inputs", type=Path, help="retained authenticated destination input directory")
+    ap.add_argument("--update-rollback-mode", choices=("rehearsal", "qualification"), default="rehearsal")
+    ap.add_argument("--serving-fixture", type=Path, help="baseline extended/seed-manifest.json bound by sealed provision state")
+    ap.add_argument("--controller-env", type=Path, help="protected independent controller startup configuration; never uploaded")
+    ap.add_argument("--gp-workload", type=Path, help="reviewed real GP execution+independent feature fixture bound by BOTH retained manifests")
+    ap.add_argument("--gp-vertices", type=int, default=65536, help="reviewed symmetric centroid workload size; fast completion fails")
     ap.add_argument("--cost-ceiling-usd", default=os.environ.get("HONUA_CLOUD_COST_CEILING_USD", "20"))
     ap.add_argument("--cost-report", type=Path)
     ap.add_argument("--target", default="aws-serverless", choices=sorted(REGISTRY))
@@ -1317,7 +1804,7 @@ def main(argv: list[str] | None = None) -> int:
                     help="a reference (local-docker) endpoint to assert parity against")
     args = ap.parse_args(argv)
     phases = {"provision": _phase_provision, "seal-state": _phase_seal, "journey": _phase_journey,
-              "model-canary": _phase_model_canary,
+              "model-canary": _phase_model_canary, "update-rollback": _phase_update_rollback,
               "deliver-key": _phase_deliver_key, "admit": _phase_admit, "open-state": _phase_open,
               "diagnose": _phase_diagnose, "teardown": _phase_teardown}
     if args.phase in phases:

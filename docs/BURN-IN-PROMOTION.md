@@ -53,25 +53,47 @@ GA cells are `aws-ecs/redis-off`, `aws-ecs/redis-on`, `aws-serverless/redis-off`
   rc.3 → rc.N → rc.3 locks, a GP job in flight that finishes exactly once, and the schema rollback
   boundary. Each cell records its own `updateStatus` and `rollbackStatus`, and both must pass.
 
-A Redis-off GA cell (`aws-ecs/redis-off`, `aws-serverless/redis-off`) passes its journey when every
-stage passes, where a stage that needs the governed control plane passes by recording the candidate's
-typed `unavailable` refusal (`missingDependency: redis`) with the manifest `dependency-unavailable`
-reasonCode: stages 5-8 under owner decision 3 (2026-10-08) and stage 3 (publish-service) under its
-2026-10-10 extension. The receipt schema enforces this per stage (`topologyRefusal`, Redis-off targets
-only, stages 3 and 5-8 only), so the checker reads it from the cell's `pass` status. Redis-on cells
-must execute every stage. On a Production Redis-off cell stages 4 and 6-8 still have no published
-layer and stay blocked, so that cell does not yet pass.
+Redis-on GA cells execute the complete eight-stage workflow. Redis-off GA cells qualify through
+an explicit `redis-off-serving-refusal` profile: a nonempty feature query must match the authored
+cell seed data through independent serving adapters, and a valid authored durable buffer request
+must actually receive the typed Redis dependency refusal, corroborated by the live capability
+manifest. The profile also verifies authentication, anonymous/viewer denials, exact client catalog
+parity, and the candidate image before and after execution. The controller binds the seed manifest
+to its encrypted provision handoff before candidate packages run.
+
+The deterministic profile retains its original eight-stage receipt unchanged, including blocked
+stages. A separate hashed sidecar records `executionOutcome: refused` and
+`functionalGpExecuted: false`; it cannot supply genuine-model attribution or completed GP evidence.
+A failed first profile remains attributed history and may use the existing second attempt. Missing,
+failed, stale or mismatched sidecar, fixture, image, principal cleanup or run binding fails
+qualification. This limited serving/refusal proof does not establish persistence, publication or
+approval completion. Redis-on retains those full-workflow requirements. Background file
+imports are not a governed-control-plane capability (ruling `redis-off-background-import-follows-job-2026-10-12`,
+learned on run 38192851328): the import job service runs in-process without Redis, so the S10
+large-import scenario on a Redis-off cell follows the job like a Redis-on cell, and the typed 503
+counts only from a host without the import job service.
 
 Each required journey cell passes within two attempts. A cell records `mode`, `attemptCount` and the
 complete ordered `attempts` array. Every attempt records its consecutive number, completion time,
 status and lock digest. A first-attempt failure must have `failureAttribution: model` or
 `failureAttribution: infrastructure`; the last attempt must pass. Skipped, missing, out-of-period or
-wrong-lock attempts fail. The mixed ECS + Batch cell is out of the rc.3 matrix. The two aws-eks cells
-are required by the cloud matrix and the journey receipt gate (owner decisions 12/18 of 2026-10-10,
-honua-release#203), but this promotion contract still counts only the four ECS/Lambda cells: whether it
-also requires the EKS cells and EKS update/rollback evidence is an open owner question. Until then an
-EKS pass cannot replace ECS/Lambda evidence, and promotion says nothing about EKS. The journey producers enforce
+wrong-lock attempts fail. The mixed ECS + Batch cell is out of the rc.3 matrix. The two aws-eks cells are informational Preview under the 2026-10-16 owner amendment in #376,
+superseding decisions 12/18. Their unknown/failed observations remain visible; no EKS success
+replaces an ECS/Lambda requirement or establishes GA qualification. The journey producers enforce
 the per-run cost ceiling before teardown; a run over the ceiling fails and tears down.
+
+The cost reading is cell evidence, not a promotion class (owner decision 9, honua-release#519). Each
+cell's gate report carries `cost`, the run carries `finalCost`, and earlier runs appear under
+`priorRunCosts`: a live resource-hour estimate from the cell's Terraform state priced by
+`e2e/cost-prices.json`, and the Cost Explorer actual for earlier runs grouped by the
+`honua-release:run-id` tag once it is settled. A missing, stale, wrong-run or over-ceiling reading
+fails the run. The Cost Explorer half reports `tag-not-activated` until the owner activates the
+cost-allocation tags; see [Cost evidence](../e2e/README.md#cost-evidence-owner-decision-9-2026-10-10).
+
+Every cell is reached on its own HTTPS name. Certification cells use per-run names under
+`*.cert.demo.honua.io`; that is a certification artefact. The product must work on any customer
+FQDN, with `Public__BaseUrl` derived from the module's `domain_name` (ruling
+`customer-domains-2026-10-11`), so no journey check may assume a honua.io host.
 
 ## Canary coverage and promotion time
 
@@ -123,8 +145,36 @@ The checker reads these paths under `--evidence-dir`:
 
 A class receipt repeats the record reference fields and adds `kind` and `freshUntil`. Journey receipts
 add `cells` with the attempt ledger above. The update/rollback receipt adds top-level `updateStatus` and
-`rollbackStatus`, and `cells`: one `{"cell", "updateStatus", "rollbackStatus"}` object for each of the
-four GA cells, with no other cells. Successful Actions metadata must match each recorded qualifying
+`rollbackStatus`, `fromLockDigest` (retained lock), `toLockDigest` (selected candidate lock),
+and `cells`, exactly one for each of the four GA cells. The two lock digests must differ and
+`toLockDigest` must equal the receipt's `lockDigest`. A first-release self-rollback does not qualify.
+Each cell requires:
+
+- `updateStatus` and `rollbackStatus`, both `pass`.
+- `actuator`: `terraform-exact-apply` for ECS Redis-off, `honua-aws-ecs-alb` for the retained
+  controller on ECS Redis-on, or `honua-gitops-aws-lambda` for either Lambda cell.
+- Different immutable image `fromDigest` and `toDigest` values.
+- `inFlightJob`: a nonempty `jobId`, `initialState: running`, and `terminalStates`
+  containing exactly one of `succeeded`, `failed`, or `cancelled`. This records terminal observations;
+  it does not alone prove exactly-once effects.
+- `schemaBoundary`: `status: pass`, the observed candidate `schemaVersion`, and
+  `imageDigest` equal to the rollback image `fromDigest`. `outcome` is `serving` or
+  `refused-cleanly`; a clean refusal also requires its `reasonCode`.
+
+The receipt shape is `#/$defs/updateRollbackReceipt` in
+`certification/promotion-evidence.v1.schema.json`; promotion record entries remain artifact
+references. The checker enforces cross-field equality/inequality and the four distinct cells,
+which standard JSON Schema cannot express by comparing arbitrary sibling values.
+Target image pins are resolved from the selected lock and the retained minting train's
+`platform-manifest.yaml`; its bytes must match `sourceInputs.platformManifest.sha256` in that
+lock. ECS `toDigest` is the generic server image digest, also checked against the lock's sole
+server image artifact. Lambda `toDigest` is `awsLambdaEcrDigest`, the deployed mirror pin, not
+the GHCR source digest. Missing or pending mirror pins refuse. Producers must include the shared
+`runId`, `completedAt`, `status`, `kind` and `freshUntil` receipt envelope.
+
+These requirements do not create evidence: release#483 still needs the actual controller,
+Terraform update/rollback phase, in-flight GP observations, and two certified-lock cloud runs.
+ Successful Actions metadata must match each recorded qualifying
 completion time; nightly receipt production must fall within the minting run lifetime. These are retained workflow artifacts, never hand-minted summaries. The fetcher must
 verify producer workflow identity, successful run metadata, artifact integrity and complete sequence
 coverage before invoking the checker. Lock signature verification remains a separate mandatory gate.
@@ -177,3 +227,27 @@ commit for a nightly mint.
 The independent human approval and signature gates remain mandatory. `promote.yml` publishes the
 minting train's exact signed lock and artifacts as `honua-2026.1.0` (then `honua-2026.1.Z`) and moves
 npm, container, Helm and install-manifest channels. Only promotion may move those pointers.
+
+Preview qualification is informational; failed or unknown cleanup, leaked run-owned resources and run cost overruns remain fatal. EKS teardown always executes and its independent workflow/aggregation checks retain the pre-amendment safety bar.
+
+## Owner-approved patch profile (2026-10-17)
+
+First mint stays on trusted trunk. Protect maintenance branches only after an accepted RC and before GA. A patch lock declares `profile: patch`, exact `changedComponents`, and `baselineLockDigest`; its promotion record repeats `profile: patch` and names the authenticated prior certified artifact in `baseline: {runId, lockDigest, releaseTag}`. The baseline must match the exact lock asset of an actual published GA/maintenance release, in the same major/minor series and with a strictly lower patch version (the first patch starts from `honua-2026.1.0`). The checker compares complete component identities, not merely version strings. A successful older nightly is insufficient. Pre-GA patch rehearsals are explicitly non-promotable diagnostics; no short-burn promotion is possible before GA. Require one strict train, at least 12 hours on the actually deployed selected lock, two consecutive scheduled six-hour canaries and mandatory actual AWS update/rollback. GA retains 48 hours and seven canaries. Human approval and App dispatch remain unchanged; promotion publishes the same bytes.
+
+Required evidence classes are unchanged. Changed components need fresh evidence. The conservative initial reuse policy admits only `cite` (server) and the existing client compatibility bundle (server plus JS, .NET and Python SDKs): an evidence row declares the exact policy `reusedComponents`, and its original authenticated receipt carries `componentIdentities` equal to both signed locks. Shared fixtures/content digests must be identical, the receipt must bind the authenticated baseline, and the original completion/expiry and class maximum apply. No security, build, journey, rollback or arbitrary class is reusable. Missing producer allowlists still refuse; this patch does not invent live qualifying producers. Reuse cannot renew freshness.
+
+The patch mint producer is not implemented by this consumer slice. An end-to-end non-promotable pre-GA patch rehearsal, baseline-certified artifact retention, deployed-lock canary producer binding, and maintenance branch protection remain execution obligations under #380/#386. Code tests do not perform them. Before first public RC, use two distinct immutable attested rehearsal builds for actual AWS transitions; GA still requires two distinct certified signed locks. A self-loop never qualifies.
+
+**Current consumer limitation:** certificate reuse eligibility is not complete client-only or Helm-only patch promotion proof. The standing real-AWS rollback contract requires different server images in every GA cell. Patch rollback now binds every source image to the authenticated published baseline and every destination image to the selected lock; a self-image transition cannot qualify. Consequently unchanged-runtime patches are not promotable through this consumer today. Generalizing that transition proof and implementing the patch mint producer require separate reviewed work; this slice does not claim a generic operational patch path.
+
+## Selected deployed-lock demo canary (initial ECS adapter)
+
+The existing `demo-canary.yml` remains a daily monitor at 06:23 UTC. Without a selected record its envelope has no `candidateLock` and cannot satisfy a candidate burn. A governed repository variable, `DEMO_CANARY_PROMOTION_RECORD`, selects an already committed `certification/promotions/<label>.json` on protected trunk. While set, scheduled slots at 00:23, 12:23 and 18:23 UTC complete the six-hour cadence. Clearing the selection returns to daily monitoring. Manual runs remain diagnostic: promotion still requires the existing consecutive scheduled observations and failure ledger.
+
+Bound mode obtains the record's exact `certified-candidate` from its successful trusted-trunk mint. It checks retained lock bytes against the record, verifies the minting workflow's signature/attestation and the existing derived-bundle contract, and passes that lock's server revision to the probes. It does not accept a supplied JSON lock or bind the current checkout's lock. The committed expected-GA fixture must still match the selected server revision; fixture drift refuses rather than rewriting expectations.
+
+Activation requires operator-approved variables `DEMO_CANARY_READ_ROLE_ARN`, `DEMO_CANARY_REGION`, `DEMO_CANARY_CLUSTER`, `DEMO_CANARY_SERVICE`, `DEMO_CANARY_CONTAINER` and `DEMO_CANARY_ZONE`. The role must be restricted to read-only observation of the intended ECS service/tasks, ELB routing/target health and Route53 records, with OIDC trust restricted to this repository's protected trunk workflow. This code does not create the role, choose infrastructure identifiers, change variables or claim that this configuration exists.
+
+The initial adapter requires a stable ECS service, one IP target group, direct public Route53 aliases to its active ALB and an HTTPS listener whose forwarding rules all select that group. Live endpoint DNS must match the ALB. Every healthy target must be a running service task; the named server container must report the selected immutable image index or its verified architecture child digest. Bound public and authenticated probes refuse redirects, preventing responses or admin headers from reaching another origin. The workflow repeats observation after the probes and refuses a changed deployment. Missing inputs, unsupported topology, incomplete observations, mismatched images or unavailable AWS reads fail closed. The envelope preserves passing, blocked and failed probe verdicts and records the observed deployment identity with the selected lock. A bound blocked/quarantined or failed observation also fails the workflow after writing that truthful envelope, so the complete burn ledger cannot erase the interruption after later green slots. Unbound daily diagnostics retain their existing behavior.
+
+This ECS demo producer is burn monitoring, not acceptance of every AWS feature or cell. It cannot replace Lambda/Batch qualification, Redis-off serving/refusal proof, actual update/rollback, CITE/client compatibility receipts or the full AWS functional acceptance required before public RC. Existing demo failures remain owned by #475; this change claims no successful deployment, burn or promotion.

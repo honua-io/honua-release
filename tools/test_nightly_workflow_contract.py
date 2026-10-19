@@ -22,7 +22,8 @@ ROOT = Path(__file__).resolve().parents[1]
 WORKFLOW = ROOT / '.github/workflows/nightly-certification.yml'
 REQUIREMENTS = ROOT / 'tools/requirements-nightly.txt'
 INSTALL = 'python -m pip install -r tools/requirements-nightly.txt'
-LOCAL_DIRS = (ROOT / 'tools', ROOT / 'certification')
+LOCAL_DIRS = (ROOT / 'tools', ROOT / 'certification', ROOT / 'e2e',
+              ROOT / 'certification' / 'terminal-journey')
 TOOL_CALL = re.compile(r'\bpython3? (tools/[A-Za-z0-9_]+)\.py\b')
 HEREDOC = re.compile(r"python3? - <<'(\w+)'[^\n]*\n(.*?)\n\s*\1\s*$", re.S | re.M)
 
@@ -81,9 +82,10 @@ def _graph():
 def test_workflow_runs_tools_and_the_graph_reaches_the_lazy_import_that_broke_the_night():
     tools = _entry_tools()
     assert {'resolve_trunk_candidate', 'mint_nightly_lock', 'validate_platform', 'nightly_receipts',
-            'convergence_rebind'} <= set(tools)
+            'convergence_rebind', 'nightly_deployments'} <= set(tools)
     local, third_party = _graph()
     assert 'verify_client_artifacts' in local and 'check_build_test' in local
+    assert {'deployment_qualification', 'cloud_journey', 'cloud_target'} <= local
     assert {'yaml', 'jsonschema', 'cryptography'} <= third_party
 
 

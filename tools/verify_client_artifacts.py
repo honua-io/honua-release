@@ -10,6 +10,7 @@ import io
 import json
 import os
 import re
+import subprocess
 import tarfile
 import urllib.error
 import urllib.parse
@@ -128,7 +129,8 @@ def _verify_npm(name: str, artifact: dict) -> tuple[str, str]:
     expected = str(artifact.get("integrity", ""))
     encoded = urllib.parse.quote(package, safe="")
     metadata = _request_json(f"https://registry.npmjs.org/{encoded}/{urllib.parse.quote(version, safe='')}")
-    if metadata.get("gitHead") != artifact.get("sourceSha"):
+    git_head = metadata.get("gitHead")
+    if git_head is not None and git_head != artifact.get("sourceSha"):
         raise VerificationError(f"{name}: npm registry gitHead does not match the manifest sourceSha")
     dist = metadata.get("dist") or {}
     if dist.get("integrity") != expected:
@@ -140,10 +142,68 @@ def _verify_npm(name: str, artifact: dict) -> tuple[str, str]:
     if _sha512_sri(data) != expected:
         raise VerificationError(f"{name}: downloaded npm bytes do not match manifest integrity")
     _verify_npm_archive(data, package, version)
+    if git_head is None:
+        _verify_npm_provenance(name, artifact, data)
     return f"npm:{package}@{version}", _sha256_pin(data)
 
 
-def _pypi_source(name: str, artifact: dict) -> str:
+
+def _verify_npm_provenance(name: str, artifact: dict, data: bytes) -> None:
+    """Missing gitHead is admissible only with the exact publisher's verified npm bundle.
+
+    A decoded envelope is an untrusted claim until gh verifies its signature, certificate,
+    transparency log, package bytes, repository, source, workflow and release ref together.
+    Conflicting registry gitHead never reaches this fallback.
+    """
+    from mint_nightly_lock import signer_workflow, verify_publisher_bundle
+
+    package, version = str(artifact['package']), str(artifact['version'])
+    split_packages = {'@honua/sdk', '@honua/sdk-esri-compat', '@honua/react',
+                      '@honua/geometry', '@honua/app-platform'}
+    repository = 'honua-io/honua-sdk-js'
+    if package not in split_packages or str(artifact.get('repository', '')).removeprefix('https://github.com/') != repository:
+        raise VerificationError(f'{name}: missing npm gitHead has no allowlisted publisher source fallback')
+    ref = f'refs/tags/js-sdk-v{version}'
+    workflow = signer_workflow({}, {'coordinate': package}, repository)
+    predicate_type = 'https://slsa.dev/provenance/v1'
+    response = _request_json('https://registry.npmjs.org/-/npm/v1/attestations/'
+        + urllib.parse.quote(package, safe='') + '@' + urllib.parse.quote(version, safe=''))
+    rows = response.get('attestations')
+    if not isinstance(rows, list):
+        raise VerificationError(f'{name}: npm publisher attestations are missing')
+    bundles = [row.get('bundle') for row in rows if isinstance(row, dict)
+               and row.get('predicateType') == predicate_type]
+    if len(bundles) != 1 or not isinstance(bundles[0], dict):
+        raise VerificationError(f'{name}: exactly one npm SLSA publisher bundle is required')
+    bundle = bundles[0]
+    try:
+        statement = json.loads(base64.b64decode(bundle['dsseEnvelope']['payload'], validate=True))
+        build = statement['predicate']['buildDefinition']
+        expected_subject = {'name': f'pkg:npm/{urllib.parse.quote(package, safe="/")}@{version}',
+                            'digest': {'sha512': hashlib.sha512(data).hexdigest()}}
+        if statement.get('_type') != 'https://in-toto.io/Statement/v1' or statement.get('predicateType') != predicate_type:
+            raise ValueError('statement type or predicate mismatch')
+        if statement.get('subject') != [expected_subject]:
+            raise ValueError('package subject mismatch')
+        if build.get('buildType') != 'https://slsa-framework.github.io/github-actions-buildtypes/workflow/v1':
+            raise ValueError('publisher build type mismatch')
+        if build['externalParameters']['workflow'] != {'ref': ref,
+                'repository': f'https://github.com/{repository}', 'path': '.github/workflows/publish-js-sdk.yml'}:
+            raise ValueError('publisher workflow or release ref mismatch')
+        if build['internalParameters']['github']['event_name'] not in {'workflow_dispatch', 'release'}:
+            raise ValueError('publisher event mismatch')
+        if build.get('resolvedDependencies') != [{'uri': f'git+https://github.com/{repository}@{ref}',
+                'digest': {'gitCommit': artifact['sourceSha']}}]:
+            raise ValueError('publisher source mismatch')
+        if statement['predicate']['runDetails']['builder']['id'] != 'https://github.com/actions/runner/github-hosted':
+            raise ValueError('publisher runner mismatch')
+        verify_publisher_bundle(data, bundle, {'coordinate': package, 'sourceRevision': artifact['sourceSha'],
+            'signerWorkflow': workflow, 'sourceRef': ref, 'digestAlgorithm': 'sha512',
+            'denySelfHosted': True}, repository, predicate_type)
+    except (KeyError, TypeError, ValueError, subprocess.CalledProcessError) as exc:
+        raise VerificationError(f'{name}: npm publisher provenance verification failed: {exc}') from exc
+
+def _pypi_published_source(name: str, artifact: dict) -> str:
     """Bind PyPI's registry-validated publish attestation to bytes and source.
 
     Trust PyPI over HTTPS for certificate/log validation, as for registry digests.
@@ -192,9 +252,16 @@ def _pypi_source(name: str, artifact: dict) -> str:
                 revisions.add(revision)
     except (KeyError, TypeError, ValueError, AttributeError, x509.ExtensionNotFound, InvalidSignature) as exc:
         raise VerificationError(f"{name}: invalid PyPI provenance: {exc}") from exc
-    if len(revisions) != 1 or artifact["sourceSha"] not in revisions:
-        raise VerificationError(f"{name}: PyPI provenance is absent or does not match manifest sourceSha")
+    if len(revisions) != 1:
+        raise VerificationError(f"{name}: PyPI provenance is absent or ambiguous")
     return revisions.pop()
+
+
+def _pypi_source(name: str, artifact: dict) -> str:
+    source = _pypi_published_source(name, artifact)
+    if source != artifact["sourceSha"]:
+        raise VerificationError(f"{name}: PyPI provenance does not match manifest sourceSha")
+    return source
 
 
 def _verify_pypi(name: str, artifact: dict) -> tuple[str, str]:
@@ -282,7 +349,7 @@ def _verify_nuget_package(name: str, artifact: dict, github_token: str | None) -
 
 
 def verify_manifest(manifest: dict, *, github_token: str | None = None,
-                    include_identities: bool = False) -> list[str] | dict[str, dict]:
+                    include_identities: bool = False, ecosystem: str | None = None) -> list[str] | dict[str, dict]:
     """Verify all required packages, optionally returning their lock artifact identities.
 
     SHA-256 for npm is computed from the same downloaded bytes whose SHA-512 SRI
@@ -292,6 +359,14 @@ def verify_manifest(manifest: dict, *, github_token: str | None = None,
     artifacts = manifest.get("clientArtifacts") or {}
     if not isinstance(artifacts, dict) or not artifacts:
         raise VerificationError("clientArtifacts must be a non-empty mapping")
+    if ecosystem is not None:
+        if ecosystem not in {'npm', 'pypi', 'nuget'}:
+            raise VerificationError(f'unsupported ecosystem scope {ecosystem!r}')
+        artifacts = {name: artifact for name, artifact in artifacts.items()
+                     if isinstance(artifact, dict) and artifact.get('ecosystem') == ecosystem
+                     and artifact.get('required', True) is not False}
+        if not artifacts:
+            raise VerificationError(f'no client artifacts selected for ecosystem {ecosystem}')
     verified = []
     identities = {}
     for name, artifact in sorted(artifacts.items()):
@@ -304,19 +379,19 @@ def verify_manifest(manifest: dict, *, github_token: str | None = None,
         source = artifact.get("sourceSha")
         if not isinstance(source, str) or not re.fullmatch(r"[0-9a-f]{40}", source):
             raise VerificationError(f"{name}: sourceSha must be an immutable revision")
-        ecosystem = artifact.get("ecosystem")
-        if ecosystem == "npm":
+        artifact_ecosystem = artifact.get("ecosystem")
+        if artifact_ecosystem == "npm":
             coordinate, digest = _verify_npm(name, artifact)
             verified.append(coordinate)
-        elif ecosystem == "pypi":
+        elif artifact_ecosystem == "pypi":
             coordinate, source = _verify_pypi(name, artifact)
             verified.append(coordinate)
             digest = artifact["digest"]
-        elif ecosystem == "nuget":
+        elif artifact_ecosystem == "nuget":
             verified.append(_verify_nuget_package(name, artifact, github_token))
             digest = artifact["digest"]
         else:
-            raise VerificationError(f"{name}: unsupported ecosystem {ecosystem!r}")
+            raise VerificationError(f"{name}: unsupported ecosystem {artifact_ecosystem!r}")
         identities[name] = {"version": str(artifact["version"]), "sourceRevision": source,
                             "sha256": digest}
     return identities if include_identities else verified
@@ -326,16 +401,22 @@ def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--manifest", default=str(REPO_ROOT / "platform-manifest.yaml"))
     parser.add_argument("--github-token-env", default="GITHUB_TOKEN")
+    parser.add_argument("--ecosystem", choices=["npm", "pypi", "nuget"],
+                        help="Verify only this ecosystem; default verifies the full required package set")
     args = parser.parse_args(argv)
     manifest = yaml.safe_load(Path(args.manifest).read_text(encoding="utf-8")) or {}
     try:
-        verified = verify_manifest(manifest, github_token=os.environ.get(args.github_token_env))
+        verified = verify_manifest(manifest, github_token=os.environ.get(args.github_token_env), ecosystem=args.ecosystem)
     except VerificationError as exc:
         print(f"ERROR {exc}")
         return 1
     for identity in verified:
         print(f"OK    {identity}")
-    print(f"OK    verified {len(verified)} required published client artifact(s)")
+    if args.ecosystem:
+        print(f"SCOPE {args.ecosystem}-only; full platform package verification was not requested")
+        print(f"OK    verified {len(verified)} required published {args.ecosystem} client artifact(s)")
+    else:
+        print(f"OK    verified {len(verified)} required published client artifact(s)")
     return 0
 
 

@@ -1,0 +1,63 @@
+{
+  "artifacts": [
+    {
+      "name": "buffer-features-1.0.0.tar.gz",
+      "sha256": "sha256:eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+      "sizeBytes": 18432
+    }
+  ],
+  "compatibility": {
+    "serverContractVersion": {
+      "maximum": 4,
+      "minimum": 3
+    }
+  },
+  "configurationReferences": [
+    {
+      "name": "HONUA_DATA_BUCKET",
+      "reference": "ref:environment/data-bucket"
+    }
+  ],
+  "dependencyLock": {
+    "path": "samples/gp-local-dev/uv.lock",
+    "sha256": "sha256:dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd"
+  },
+  "generatedAt": "2026-10-15T04:00:00Z",
+  "process": {
+    "contract": {
+      "inputSchemaSha256": "sha256:1111111111111111111111111111111111111111111111111111111111111111",
+      "outputSchemaSha256": "sha256:2222222222222222222222222222222222222222222222222222222222222222"
+    },
+    "entrypoint": "buffer_features:execute",
+    "name": "buffer-features",
+    "runtime": "python",
+    "version": "1.0.0"
+  },
+  "runtimeImage": {
+    "digest": "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+    "reference": "ghcr.io/honua-io/honua-gp-worker@sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+  },
+  "schema": "honua.gp-process-release-lock/v1",
+  "source": {
+    "descriptorPath": "samples/gp-local-dev/honua-gp.yaml",
+    "repository": "honua-io/honua-samples",
+    "sha": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+  },
+  "targets": [
+    {
+      "chartVersion": "2026.1.0",
+      "kind": "kubernetes-job",
+      "workerImageDigest": "sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
+    }
+  ],
+  "validation": {
+    "receipts": [
+      {
+        "name": "golden-tests.junit.xml",
+        "sha256": "sha256:9999999999999999999999999999999999999999999999999999999999999999",
+        "status": "pass"
+      }
+    ]
+  },
+  "workflowVersion": "wf-2026.1-7"
+}

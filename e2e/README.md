@@ -5,7 +5,7 @@ server + DB + SDKs installed from a staging registry, NO mocks at the seams; dep
 real cloud targets for parity.
 
 - `scenarios/canonical-scenarios.md` — the scenario list (seeded from audit findings).
-- Tiers: **local-docker** (per-PR, full SDK × scenario) → **cloud parity** (nightly, slim canonical set per deploy target).
+- Tiers: **local-docker** (per-PR, full SDK × scenario) → **cloud parity** (canonical checks and live journeys, plus the full installed-client suite on the Redis-on GA cells).
 - Deploy targets: local docker, AWS {serverless, ECS, EKS}, Azure {ACA, AKS, Functions} — axis-decomposed (see docs/TEST-STRATEGY.md).
 - Build order: AWS-first (you have credits). OIDC (no static creds), ephemeral envs, teardown reaper, cost guardrails.
 
@@ -68,6 +68,11 @@ Redis-off expectation:
   every other name stays exact. The evidence records `topology` and which state was observed.
 - **S3** on Redis-off asserts the typed refusal at `create-draft` for every family (query, analysis, map)
   and passes with `topology: redis-off`; Redis-on drives the full lifecycle for the same families.
+- **S10** (`large-import`) on Redis-off sends a `forceBackground` `upload-url` import of the small
+  fixture. The server runs file imports in-process without Redis, so a 202 job is followed to
+  completion, published and counted (`executor: in-process`, `topology: redis-off`); the typed 503
+  passes only from a host without the import job service. Redis-on follows the large fixture's
+  background job the same way (see "S10 large-import" below).
 - **S9** (`top-demo`) `S9-demos-geoprocessing` on Redis-off drives the demo's execution and passes with `topology: redis-off` only when the server returns S5's typed 503 capability-unavailable (`missingDependency=redis`) and the page renders it as its job-store-unavailable state (a page that spins on the refusal is `blocked`, naming the site); Redis-on still requires a completed live job.
 - A topology the server contradicts (a Redis-on cell with no durable control plane, or a Redis-off cell
   the server does not confirm) fails both scenarios.
@@ -85,8 +90,12 @@ E2E_BASE=http://localhost:8080 E2E_API_KEY=honua-console-dev-key bash e2e/driver
 
 The "also run cloud integration" layer: deploy a **real** honua-server to a cloud target via the actual
 honua-iac, run the **canonical (slim) parity set** against its public endpoint, and assert it behaves
-identically to the reference (local docker). Per `docs/TEST-STRATEGY.md`, this does NOT re-run the full
-SDK × scenario matrix per target — it runs the small, data-independent canonical set and compares.
+identically to the reference (local docker). The canonical parity checks are supplemented by live
+journeys. ECS/Redis-on and Lambda+Batch/Redis-on also execute the complete published installed-client
+matrix against the deployed endpoint, using trusted fixture preparation and the encrypted application
+handoff. Redis-off retains serving and typed-refusal checks; it does not claim full SDK workflow coverage.
+Missing prerequisites and matrix blockers remain non-passes. See
+[`certification/installed-clients/README.md`](../certification/installed-clients/README.md#existing-aws-endpoint).
 
 **Matrix: all 3 AWS targets × Redis on/off** — so the platform is proven to behave identically across
 deploy shapes and with/without its cache:
@@ -165,9 +174,9 @@ reported there, never hidden.
 `python e2e/run_cloud.py --phase <provision|journey|admit|teardown> ...` runs one phase; without
 `--phase` all three run in one process.
 
-GA cells for 2026.1 are `{aws-ecs, aws-serverless, aws-eks} × {redis-off, redis-on}`: owner decisions
-12 and 18 of 2026-10-10 pulled honua-release#203 (bring-your-own Kubernetes) into 2026.1, so the EKS
-cells are no longer informational Preview and a red EKS cell reddens the full-scope cloud report. The
+GA cells for 2026.1 are `{aws-ecs, aws-serverless} × {redis-off, redis-on}` under the October 16
+owner amendment, superseding decisions 12/18. EKS is informational Preview: its raw failures remain
+visible and cannot replace required ECS/Lambda proofs. The
 mixed ECS + Batch cell is not in the rc.3 matrix: honua-iac has no
 `examples/aws-mixed` root yet, so the cell could only report a missing root. Restore it in
 `run_cloud.py` and `e2e-cloud-aws.yml` when honua-iac#209 lands.
@@ -199,7 +208,7 @@ step under `migration`. A server-side `HONUA_MIGRATE_ONLY` exit mode would repla
 tracked for 2026.1.x.
 
 ### The EKS cell (bring-your-own Kubernetes, honua-release#203)
-`aws-eks` is the 2026.1 Kubernetes GA cell (owner decisions 12/18 of 2026-10-10; GP on Kubernetes is
+`aws-eks` is an informational 2026.1 Preview cell (October 16 amendment supersedes decisions 12/18; GP on Kubernetes is
 honua-server#4719 and honua-helm#77). It runs the same provision → admit → journey → teardown chain as
 the ECS and Lambda cells. Provision applies `examples/aws-eks`, installs the manifest-pinned honua-helm
 chart with the manifest-pinned image by digest, and probes the Service's load balancer. Admit adds the
@@ -338,6 +347,11 @@ way (#512). The ECS cell deploys `repository@digest` with no tag. The match is t
 repository, and the reported digest must be the manifest's index digest or its child for the cell
 architecture (`platformDigests.amd64` for `x86_64`). Matching the manifest's tagged `image` found no
 server container on run 38110106995, so the check stayed blocked.
+With two tasks, a task still starting is waited for, up to 12 reads 10 s apart. After that, only
+RUNNING tasks count, and every one of them must report the candidate. If one does not, the check's
+detail names the task, container and digest that disagree, or names the task states when no task is
+RUNNING. On run 38119871941 the two-task Redis-on cell showed only "the pinned candidate stack was
+not brought up".
 
 The Redis-on ECS cell runs two tasks, so stage 6's `6.replica-map` can observe two `Honua-Instance`
 ids; on one task, run 38110106995 recorded "topology served one instance". honua-iac allows more than
@@ -351,8 +365,23 @@ that declares the inputs, the harness passes:
 The Redis-off ECS cell stays one task. It is the serving-only topology, and MultiNode requires Redis.
 Without the variable, or on an older root, the Redis-on cell also stays one task and `6.replica-map`
 stays blocked on the topology. **Cost:** the live estimate prices Fargate vCPU and GB per task from
-the state's `desired_count`, so the Redis-on ECS cell's Fargate line roughly doubles. Objects in the
-bucket are not counted, like other S3 usage.
+the state's `desired_count`, so the Redis-on ECS cell's Fargate line roughly doubles. Objects the
+server writes to the bucket are not counted, like other S3 usage; the S10 fixture the harness stages
+there is counted (see "Cost evidence").
+
+The cloud fixture seed (`harness/cloud/seed.py`) publishes the demo and Studio fixtures through the
+admin API from the provision runner. If a call fails, the `studio-authoring-seed` and `top-demo-seed`
+rows say which call failed, its status, which `Honua-Instance` answered it, a bounded
+credential-masked excerpt of the body, and which instances answered the earlier calls. Before this,
+run 38128300695 recorded only `HTTPError` on the two-task cell.
+
+The likely cause, from reading the server code (not yet observed on a run): honua-server caches the
+metadata graph per process with a 10 s TTL (`MetadataV2GraphSnapshotCache`), and a write invalidates
+it only on the node that wrote. The cache's own comments say other nodes see the write only when
+their TTL expires. A `PUT /api/v1/admin/services/{service}/access-policy` that lands on the other
+task within 10 s of the layer publish therefore answers `404 "Service '<name>' not found."`. That is
+a server MultiNode defect: it needs cross-node invalidation of the snapshot. The harness does not
+retry around it.
 
 **Owner step:**
 1. Create an S3 bucket in us-east-1 for cell file storage, with a lifecycle rule that expires objects
@@ -362,6 +391,123 @@ bucket are not counted, like other S3 usage.
    `s3:ListBucket` on the bucket and object access on `bucket/*`.
 3. Set the repository variable `HONUA_AWS_CELL_FILE_STORAGE_BUCKET`. The cell workflow exports it to
    the provision and teardown steps.
+
+### S10 large-import: a background import from the cell's S3 bucket (honua-release#548)
+Owner decision 24 (2026-10-11), fix unit J19. The journey's stage 3 proves only the small synchronous
+multipart upload; every committed cloud receipt records `jobId: null`. S10 proves the other path on
+every GA cell, as the `large-import` row of `scenarioCoverage` (`e2e/large_import.py`):
+
+| cell | fixture | request | passes when |
+|---|---|---|---|
+| Redis-on | `s10-large-import.geojson`, 330,000 points, 85,688,964 bytes, sha256 `b1795475…c4d79ca9`, generated (never committed) | `upload-url` from a presigned GET URL | the job reaches `Completed`, the table publishes, and the layer's count is 330,000 |
+| Redis-off | `e2e/fixtures/s10-redis-off.geojson`, 8 points, 2,109 bytes, committed | `upload-url` with `forceBackground: true` | either the 202 job (an in-process background import) reaches `Completed`, `honua_data.imported_s10_redis_off` publishes as `s10-redis-off`, and its count is 8 (`executor: in-process`, `topology: redis-off`); or the typed 503 `Background import service not available. File is too large for synchronous import.`, which the server sends only when the import job service is absent (`refusal` recorded, decision 3) |
+
+`e2e/fixtures/large_import.py` generates both fixtures byte for byte from integer arithmetic and pins
+their feature count, size and SHA-256; the harness refuses a file whose digest differs. The work
+follows the cell's job split (honua-release#381):
+
+- **provision** (AWS credentials) generates and verifies the fixture, then puts it at
+  `s3://$HONUA_AWS_CELL_FILE_STORAGE_BUCKET/release-cells/<target>-redis-<on|off>/s10/<run id>-<attempt>/`.
+  The handoff records the bucket and the key's SHA-256 only; the key is recomputed from the cell and run.
+- **admit** (AWS credentials) mints a presigned GET URL valid for 1,800 s and seals it to the journey
+  runner together with the application key. The URL is a bearer credential: it never reaches a job
+  output, an artifact in the clear, a receipt or a log line.
+- **journey** (no AWS credential) runs S10 before the seam drivers. It reads
+  `GET /api/v1/admin/import/limits` first. If `max(BackgroundJobThresholdBytes, MaxMemoryBytes)` (the
+  staging cap both upload paths enforce) does not exceed the threshold, the row fails
+  `no-background-window` and names both limits; a fixture outside the window fails
+  `fixture-outside-window`. It never falls back to `forceBackground` or a smaller file. Then it calls
+  `POST /api/v1/admin/import/upload-url` and follows `GET /api/v1/admin/import/jobs/{jobId}` for up to
+  1,200 s, recording each state change. It publishes `honua_data.imported_s10_large_import` through
+  the seed's connection (`POST /api/v1/admin/connections/{id}/layers`) and counts it through
+  `FeatureServer/{layer}/query?returnCountOnly=true`.
+- **publish** follows the admin API's asynchronous 202 response when present. It validates the
+  job id, pinned source row count, and exact relative same-connection `statusUrl` before polling
+  `GET /api/v1/admin/connections/{id}/layers/jobs/{jobId}` every 5 s for at most 1,200 s. A completed
+  job must report full materialization and a committed layer id; the scenario then queries that
+  layer and still requires the pinned row count. Failed, cancelled, stalled, malformed and denied
+  jobs fail the scenario. Job acceptance alone never passes it. Receipts keep the job id, status,
+  bounded progress transitions, rows materialized/total, duration, reads and answering instances;
+  raw responses and credentials are excluded. The harness never follows a foreign status URL or
+  resubmits publication. Small 200/201 publications keep the synchronous path.
+  Older candidates can answer 504 or nothing within 120 s (as run 38249563601 did). For those
+  responses, S10 retains the existing read-only layer-list convergence window of 360 s, then
+  requires the same pinned count. It records `publishAnswered`, `publishMs`, `publishReads` and
+  `publishConvergedSeconds`; failure to find the layer remains `publish-not-converged`.
+  A typed publish refusal still fails the positive Redis-on journey. Real cloud receipts are
+  required after the asynchronous server implementation ships; harness tests do not qualify it.
+- **teardown** (AWS credentials) deletes the object (`s10Cleanup` in the cell report). A failed delete
+  fails the cell. The bucket's one-day lifecycle on `release-cells/` is only the backstop.
+
+A 200 (imported synchronously), a 202 without a `jobId`, a failed or cancelled job, a stalled job, a
+publish that does not converge, a wrong row count, or (on Redis-off) any answer other than a 202 job or the typed 503 is `fail`, never
+`blocked`, on both topologies: the server accepted the work. A job still not terminal at the 1,200 s
+deadline fails `job-stalled`, naming the last transition, its time, the seconds since it, the
+`Honua-Instance` values that answered the status reads, and the server item (`honua-server#5916`:
+the job runs in the host that accepted the upload, which stops advancing it, e.g. a Lambda invocation
+frozen after its 202; cloud run 38192851328, `processing -> queued -> processing`). An unstaged fixture (no
+bucket variable, a digest mismatch, an S3 refusal) or a missing presigned URL is `blocked` and names
+honua-release#548; `require_real` fails it. The row's evidence keeps only the allowlisted fields
+`jobId`, `fixtureSha256`, `bytes`, `thresholdBytes`, `maxMemoryBytes`, `stagingCapBytes`, `queuedAt`,
+`completedAt`, `durationSeconds`, `durationMs`, `transitions`, `rowCount`, `executor`,
+`executorBasis`, `jobRunner`, `jobsRunnerCapability`, `stall`, `refusal`, `topology`, `source`
+(`s3://<bucket>/sha256:<key digest>`), `sourceUrlHost`, the answering `instances` and the
+`statusInstances` that answered the job reads. The job
+document's `sourceUrl` (the presigned URL) is dropped, and server messages are scrubbed of the URL and
+every `X-Amz-*` parameter.
+
+**Cell inputs.** Under the server defaults (100 MiB each), the staging cap equals the threshold, so a
+default cell has no background window. The Redis-on cells lower `Import__Limits__BackgroundJobThresholdBytes`
+to 64 MiB (67,108,864) under the default 100 MiB `MaxMemoryBytes`, which leaves the window
+(64 MiB, 100 MiB] that the fixture sits in:
+
+- `aws-eks/redis-on` sets it directly in the chart's `config.env`.
+- `aws-ecs/redis-on` and `aws-serverless/redis-on` pass `import_background_job_threshold_bytes=67108864`
+  (`TfTargetSpec.redis_on_declared_vars`), only when the pinned root declares it. Neither
+  `examples/aws` nor `examples/aws-serverless` declares it yet, because both roots fix their
+  `additional_env` inline. Until honua-iac adds the input and renders it as
+  `Import__Limits__BackgroundJobThresholdBytes`, those two cells fail S10 with `no-background-window`.
+
+A background import that the Redis-on Lambda accepts runs on AWS Batch only when the API function and
+the Batch workers share S3 file storage (honua-server#5916). Otherwise the Lambda refuses it with the
+typed 503 (`import.background` reports `reasonCode: shared-file-storage-required`). honua-iac#243 adds
+the inputs to `examples/aws-serverless`. The cells pass:
+
+| cell | input (only when the pinned root declares all three) | value |
+|---|---|---|
+| `aws-serverless/redis-on` | `file_storage_provider` | `AwsS3` |
+| | `file_storage_aws_s3_bucket_name` | `$HONUA_AWS_CELL_FILE_STORAGE_BUCKET` |
+| | `file_storage_aws_s3_key_prefix` | `release-cells/<name prefix>` (the cell's object grant is `<prefix>/*`) |
+| | `file_storage_aws_s3_region` | not passed; the module renders the root region (us-east-1, the bucket's region) |
+| `aws-serverless/redis-off` | none | without Redis the Lambda has no durable runner and answers the typed 503 whatever its storage, which is what the cell records |
+| `aws-ecs/redis-on` | unchanged: the same three inputs as part of the MultiNode set (`REDIS_ON_SCALE_INPUTS`) | |
+
+`TfTargetSpec.file_storage_inputs` and `file_storage_bucket_env` drive the serverless set. An older pin
+that lacks any of the three inputs gets none of them and keeps `Local` storage. If the root declares
+them but `HONUA_AWS_CELL_FILE_STORAGE_BUCKET` is unset, the Redis-on serverless cell refuses to
+provision with an error naming the variable (destroy still plans). The S10 fixture is staged next to
+the cell's prefix, not inside it: `release-cells/<target>-redis-<on|off>/s10/...` versus
+`release-cells/<name prefix>/...`. The server reads it only through the harness-minted presigned URL,
+never with its own role, and both sit under the bucket's one-day `release-cells/` lifecycle. The
+release-cell permissions boundary must admit the module's grant on the bucket for the Lambda,
+control-plane event and GP Batch job roles.
+
+**Where the import job runs (`executor`, `jobRunner`).** honua-server queues file imports in
+`UniversalImportJobService`, which runs the job inside the host that accepted the upload on every
+topology, and registers it whether or not Redis is. Cloud run 38192851328 (server 93cad86ec) showed
+both consequences: the Redis-off cell queued the forced job (202) instead of the typed 503, and on
+`aws-serverless/redis-on` the job stalled after the Lambda invocation returned its 202. When the job
+document names its runner (`jobRunner`, `runner` or `executor`; `ImportProgress` at 93cad86ec has none),
+the receipt records it as `jobRunner` and `executor`. Otherwise the receipt **derives**
+`executor: in-process` and says so in `executorBasis`, quoting the capability manifest's `jobs.runner`
+entry (`jobsRunnerCapability`: `available`, `reasonCode`). That entry describes the Redis-backed
+geoprocessing job runner, not file imports: on Redis-off it is `dependency-unavailable` while the import
+still runs, which is why an accepted Redis-off import can only be in-process.
+
+**Owner step (Cloud lane, honua-iac):** declare `import_background_job_threshold_bytes` on
+`examples/aws` and `examples/aws-serverless`. The harness role also needs `s3:PutObject`,
+`s3:GetObject` (presign) and `s3:DeleteObject` on `release-cells/*/s10/*` in the cell file-storage
+bucket.
 
 ### Audit hash-chain key on every AWS cell
 Without `AuditLog:ChainVerification:Key` the server still serves and writes audit rows, but its
@@ -460,8 +606,17 @@ For a serverless cell it writes `diagnostics-lambda.json`: every Lambda function
 name stem (the stem of the `lambda_function_name` output, matched against `aws lambda
 list-functions`, plus the API and control-plane function-name outputs), each with its state, last
 update status and environment variable NAMES (never values), and the last 300 lines of its log group
-merged from the group's newest streams. When `gp_batch_enabled` is true it also tails every
-`/aws/batch/<stem>-*` job log group. This is where a Lambda server's own startup and refusal reasons
+merged from every stream (one per execution environment, up to 40; CloudWatch's LastEventTime order
+is updated lazily, so "the newest few" can miss the environment that served last). Each group also
+gets `failureSignatures`: a whole-group `filter-log-events` sweep counting lines, streams and
+first/last time for `53300` connection exhaustion, `Runtime.ExitError`, unhandled exceptions, Lambda
+and database timeouts, a failed startup preflight and unexpected MCP tool failures (the server logs
+the exception class there; the tool envelope does not carry it), with a bounded sample. The API
+Gateway access log (`/aws/apigateway/<api function name>`) is tailed and its 4xx/5xx lines counted
+by status and by route (`accessErrors`): a response API Gateway produced itself carries no CORS
+header, so a demo page reports it as a CORS refusal and only this log tells it from a server
+response. When `gp_batch_enabled` is true it also tails and sweeps every `/aws/batch/<stem>-*` job
+log group. This is where a Lambda server's own startup and refusal reasons
 (a `dependency-unavailable` capability, a GP job that never left `running`) survive the cell.
 
 The log groups are destroyed with the cell, so this is the only record of an exit or refusal cause.
@@ -480,7 +635,9 @@ it cannot read these.
   `e2e/cost-prices.json`, a committed table of public us-east-1 on-demand list prices with a
   `pricesAsOf` date (read from the AWS Price List API). Classes billed "per hour or partial hour"
   are billed whole hours. Data transfer, NAT data processing, ALB capacity beyond one LCU-hour per
-  hour, CloudWatch, S3/ECR, Route 53/ACM, Bedrock tokens and Lambda INIT time are **not** counted;
+  hour, CloudWatch, S3/ECR (except the S10 fixture the harness stages: S3 Standard storage for the
+  run's hours, one PUT and one GET, attributed to the run by its key prefix), Route 53/ACM, Bedrock
+  tokens and Lambda INIT time are **not** counted;
   Fargate Spot is priced at the on-demand rate. The table's `excluded` list says so in every
   reading. A resource the table cannot price, or a usage reading that fails, makes the estimate
   `unavailable` (named, never `pass`). A metric with no datapoints yet is read again once after
@@ -651,3 +808,40 @@ returned) · `2` = SKIP (SDK/toolchain unavailable).
   real SDK call surfaces in each probe (constructor / query method).
 - **Server config:** confirm honua-server health path, metrics port, DB env keys in `docker-compose.yml`.
 - **`sync_no_duplicates`:** implement via the honua-collect sync client once it is installable from staging.
+
+### Run-owned tenant isolation fixture
+
+The optional `HONUA_CLOUD_TENANT_FIXTURE=true` profile provisions an ephemeral static
+OIDC issuer for the owned cell. The ECS and Lambda roots must expose the reviewed
+`oidc_static_jwt` input; the Lambda image must include the early signing-secret
+resolution from honua-server#5980. EKS injects the key through its existing external
+Kubernetes Secret, never Helm values. Existing deployments and legacy runs keep
+their current configuration when this flag is absent.
+
+The bootstrap API credential still creates the narrow operator, approver and viewer
+keys and role grants. The author and second tenant use fresh five-minute signed
+JWTs with identical subject and role, differing only in tenant and token timing/
+nonce. Stage 8 first reads the exact private map as its author, proves that the
+other tenant can reach the general Studio surface, then requires denial for that
+same private resource. A missing issuer, invalid bearer or blanket route denial
+cannot count as tenant-isolation evidence.
+
+The provision job creates the signing secret outside Terraform and passes only
+its ARN to the typed ECS/Lambda configuration. The key travels to the isolated
+journey job through the existing encrypted handoff and remains in Python memory;
+it is not passed to npm or retained in a principal file, target document, receipt
+or public artifact. Teardown deletes the run-owned secret. Public configuration
+capture resolves immutable secret version identities using metadata-only DescribeSecret
+requests. Runtime secret values use field-bound HMAC-SHA256 commitments with a fresh
+256-bit key that exists only in producer memory and is never published or persisted.
+Public validation verifies the captured configuration binding, not secret values or
+offline guesses against a public password hash.
+
+For prepared EKS qualification, `deployment-terraform-inputs.json` records exact
+Terraform arguments before apply. `deployment-helm-inputs.json` chains that digest
+and records the resolved values and exact command before Helm installation. Both
+are bound by `deployment-execution-inputs.json`; `deployment-actuation.json` records
+the actual consumption boundaries. `executed-manifest.yaml` preserves the original
+manifest bytes. The teardown producer verifies the chain and actual journey and
+cleanup results before emitting `deployment-cell-receipt.json`. A source change
+or local control pass alone does not qualify a cloud target.

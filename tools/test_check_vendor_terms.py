@@ -767,3 +767,82 @@ def test_the_gate_pins_its_tooling_and_fails_on_known_confidential_uses():
     assert "--fail-on-known-confidential" in workflow
     assert "^[0-9a-f]{40}$" in workflow and "required: true" in workflow.split("tools_ref:")[2].split("outputs:")[0]
     assert "trunk" not in workflow
+
+
+def test_identifier_exception_is_exact_and_preserves_prose_and_path_failures(tmp_path):
+    allowlist = vt.load_allowlist(_allowlist(tmp_path, [{
+        "repo": "honua-test", "paths": ["pins.yaml"], "tokens": ["esri"],
+        "identifiers": ["@honua/sdk-esri-compat", "sdk-esri-compat-0.1.14.tgz"],
+        "reason": "published registry identities", "owner": "@owner",
+    }]))
+    cases = [
+        ("pins.yaml", 'package: "@honua/sdk-esri-compat"', True),
+        ("pins.yaml", 'filename: "sdk-esri-compat-0.1.14.tgz"', True),
+        ("other.yaml", 'package: "@honua/sdk-esri-compat"', False),
+        ("pins.yaml", 'package: "@honua/sdk-esri-compat-extra"', False),
+        ("pins.yaml", 'package: "prefix@honua/sdk-esri-compat"', False),
+        ("pins.yaml", 'filename: "sdk-esri-compat-0.1.15.tgz"', False),
+        ("pins.yaml", 'description: Esri compatibility package', False),
+        ("pins.yaml", 'description: "endorsed by @honua/sdk-esri-compat"', False),
+    ]
+    for path, text, excepted in cases:
+        hits = vt.Classifier("honua-test", VOCABULARY, allowlist).classify_text(path, text)
+        assert hits and all((hit.exception is not None) == excepted for hit in hits), (path, text, hits)
+
+
+def test_identifier_exception_cannot_cover_confidential_hits_or_nonliteral_patterns(tmp_path):
+    entry = {"repo": "honua-test", "paths": ["pins.yaml"], "reason": "exact identity", "owner": "@owner"}
+    allowlist = vt.load_allowlist(_allowlist(tmp_path, [{**entry, "identifiers": [SCRIPTING]}]))
+    hits = vt.Classifier("honua-test", VOCABULARY, allowlist).classify_text("pins.yaml", SCRIPTING)
+    assert hits and all(hit.cls == "confidential" and hit.exception is None for hit in hits)
+    for identifiers in [["*esri*"], [""], "esri", [12]]:
+        with pytest.raises(SystemExit, match="exact nonempty lexical identifiers"):
+            vt.load_allowlist(_allowlist(tmp_path, [{**entry, "identifiers": identifiers}]))
+
+
+@pytest.mark.parametrize("version,next_version", [("0.2.1", "0.2.2"), ("0.2.2", "0.2.3")])
+def test_published_coordinate_exception_is_exact_and_path_scoped(version, next_version):
+    directory = "sdk-" + version.replace(".", "")
+    publication = f"certification/sdk-publication-replay/{directory}/published-release-verification.v1.json"
+    observations = f"certification/sdk-publication-replay/{directory}/registry-observations.json"
+    entries = vt.load_allowlist(vt.ALLOWLIST)
+    selected = [entry for entry in entries if publication in entry.paths]
+    assert len(selected) == 1
+    entry = selected[0]
+    assert set(entry.paths) == {"platform-manifest.yaml", publication, observations}
+    classifier = vt.Classifier("honua-release", VOCABULARY, selected)
+    for path in (publication, observations):
+        hits = classifier.classify_text(path, (vt.ROOT / path).read_text())
+        assert hits and all(hit.exception is not None for hit in hits)
+    for identifier in entry.identifiers:
+        for path, value in [(publication, identifier + "-extra"), ("other.json", identifier)]:
+            hits = classifier.classify_text(path, json.dumps({"package": value}))
+            assert hits and all(hit.exception is None for hit in hits)
+        hits = classifier.classify_text(publication, json.dumps({"description": "endorsed by " + identifier}))
+        assert hits and all(hit.exception is None for hit in hits)
+    prose = classifier.classify_text(publication, json.dumps({"description": entry.tokens[0] + " compatibility"}))
+    assert prose and all(hit.exception is None for hit in prose)
+    changed_version = classifier.classify_text(publication, (vt.ROOT / publication).read_text().replace(version, next_version))
+    assert any(hit.exception is None for hit in changed_version)
+
+
+def test_default_consumer_lock_exception_preserves_exact_observed_coordinates_only():
+    paths = {
+        f"certification/sdk-publication-replay/sdk-022/default-{template}/sdk-package-lock.json"
+        for template in ("vanilla-ts", "react-ts")
+    }
+    selected = [entry for entry in vt.load_allowlist(vt.ALLOWLIST) if paths & set(entry.paths)]
+    assert len(selected) == 1 and set(selected[0].paths) == paths
+    classifier = vt.Classifier("honua-release", VOCABULARY, selected)
+    for path in paths:
+        raw = (vt.ROOT / path).read_text()
+        hits = classifier.classify_text(path, raw)
+        assert hits and all(hit.exception is not None for hit in hits)
+        changed = classifier.classify_text(path, raw.replace("0.1.18.tgz", "0.1.19.tgz"))
+        assert any(hit.exception is None for hit in changed)
+        for identifier in selected[0].identifiers:
+            for other_path, value in (("other.json", identifier), (path, identifier + "-extra")):
+                rejected = classifier.classify_text(other_path, json.dumps({"package": value}))
+                assert rejected and all(hit.exception is None for hit in rejected)
+            prose = classifier.classify_text(path, json.dumps({"description": "endorsed by " + identifier}))
+            assert prose and all(hit.exception is None for hit in prose)

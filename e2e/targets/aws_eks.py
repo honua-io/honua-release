@@ -1,4 +1,4 @@
-"""AWS EKS deploy target: cluster + Helm chart + Service LoadBalancer, run as a GA cell.
+"""AWS EKS deploy target: cluster + Helm chart + Service LoadBalancer, run as an informational Preview cell in 2026.1.
 
 Owner decisions 12 and 18 (2026-10-10) pull honua-release#203 (bring-your-own Kubernetes) into 2026.1,
 so the EKS cell runs the same provision -> admit -> journey -> teardown chain as the ECS and Lambda
@@ -63,6 +63,11 @@ from .base import Availability, DeployTarget, ProvisionError
 
 EKS_ROOT = "infrastructure/terraform/examples/aws-eks"
 
+# S10 large-import (honua-release#548): the Redis-on background-import window, from the same cell
+# input the ECS and serverless roots take (terraform_target.IMPORT_BACKGROUND_THRESHOLD_VAR).
+IMPORT_THRESHOLD_ENV = "Import__Limits__BackgroundJobThresholdBytes"
+IMPORT_THRESHOLD_BYTES = int(_tt.IMPORT_BACKGROUND_THRESHOLD_VAR.split("=", 1)[1])
+
 # honua-iac's aws-eks root variable that switches the cluster's secret-encryption CMK on/off. Named
 # once here because BOTH the declared-variable probe and the `-var` flag have to agree on the spelling
 # — a typo in either would silently stop disabling the key (honua-release#127).
@@ -104,6 +109,16 @@ IRSA_ANNOTATION = "eks.amazonaws.com/role-arn"
 # The Kubernetes Job geoprocessing backend (honua-helm#77, honua-server#4719): run the manifest's
 # generic server image, the same image the Lambda cell's Batch jobs run.
 GP_IMAGE_ENV = "HONUA_GP_BATCH_IMAGE"
+# Whether the manifest-pinned honua-server lets a Kubernetes Job worker take the server's runtime
+# Secret and ConfigMap through envFrom/secretKeyRef (honua-server#5796, bebaada00:
+# ControlPlane:Kubernetes:DefaultEnvFromSecrets/DefaultEnvFromConfigMaps). The chart's
+# geoprocessing.kubernetesJobs.envFromServer (honua-helm#99) depends on it: an older server ignores the
+# setting and its GP workers start without the database, Redis and master key that this cell keeps in
+# its external runtime Secret. The previous pin 93cad86 carried #5780 (the worker-only profile) but
+# predated #5796, so the cell rendered envFromServer=false. The 2026-10-12 re-pin to 0e03bdd06 carries
+# bebaada00 (`git merge-base --is-ancestor bebaada00 0e03bdd06`), so the cell now renders
+# envFromServer=true.
+SERVER_PIN_HONOURS_GP_JOB_ENV_FROM = True
 
 NAMESPACE = "honua-cert"
 RELEASE = "honua"
@@ -358,13 +373,15 @@ class AwsEksTarget(DeployTarget):
 
     def _redact(self, text: str) -> str:
         """Never let a generated credential reach the public Actions log through an error/diagnostic."""
-        hidden = [self._db_password, self._admin_password, self._master_key, self._redis_password]
+        hidden = [self._db_password, self._admin_password, self._master_key, self._redis_password,
+                  getattr(self, "journey_signing_key", "")]
         for name in (DB_OUTPUT, REDIS_OUTPUT):
             value = (self._outputs or {}).get(name)
             if isinstance(value, str) and value:
                 hidden.append(value)
         for secret_value in hidden:
-            text = text.replace(secret_value, "***")
+            if secret_value:
+                text = text.replace(secret_value, "***")
         return re.sub(r"(?i)(password|pwd)(\s*=\s*)[^;,\s\"']+", r"\1\2***", text)
 
     def _failure(self, operation: str, error: subprocess.CalledProcessError) -> ProvisionError:
@@ -663,6 +680,8 @@ class AwsEksTarget(DeployTarget):
             "HONUA_ADMIN_PASSWORD": self._admin_password,
             "Security__ConnectionEncryption__MasterKey": self._master_key,
         }
+        if getattr(self, "journey_signing_key", None):
+            values["Oidc__TokenValidation__SymmetricSigningKey"] = self.journey_signing_key
         if redis_enabled:
             if self._uses_elasticache():
                 redis = self._output(REDIS_OUTPUT)
@@ -676,6 +695,8 @@ class AwsEksTarget(DeployTarget):
                 values["ConnectionStrings__redis"] = (
                     f"{REDIS_RELEASE}-master:6379,password={self._redis_password}"
                 )
+        import deployment_capture
+        self._runtime_secret_commitments = deployment_capture.secret_commitments(values)
         self._ensure_namespace()
         self._apply({
             "apiVersion": "v1",
@@ -744,6 +765,21 @@ class AwsEksTarget(DeployTarget):
                     raise ProvisionError(f"{self.name}: root output {CHART_ENV_OUTPUT} holds a value "
                                          f"that is not a plain environment entry ({str(key)[:64]!r})")
                 env[str(key)] = str(value).lower() if isinstance(value, bool) else str(value)
+        if getattr(self, "journey_signing_key", None):
+            tenant_env = {"Oidc__Enabled": "true", "Oidc__Generic__Enabled": "true",
+                          "Oidc__Generic__Authority": "https://terminal-journey.invalid",
+                          "Oidc__Generic__ClientId": "terminal-journey",
+                          "Studio__EndUserAuthorization__Enabled": "true"}
+            if "Oidc__TokenValidation__SymmetricSigningKey" in env:
+                raise ProvisionError("tenant signing key must use the external runtime Secret")
+            if any(key in env and env[key] != value for key, value in tenant_env.items()):
+                raise ProvisionError("pinned root supplies a conflicting tenant issuer")
+            env.update(tenant_env)
+        if redis_enabled:
+            # S10 large-import (honua-release#548): the same background window as the Redis-on
+            # ECS and serverless cells (terraform_target.IMPORT_BACKGROUND_THRESHOLD_VAR). The chart
+            # takes server environment directly, so this cell needs no root input for it.
+            env[IMPORT_THRESHOLD_ENV] = str(IMPORT_THRESHOLD_BYTES)
         values: dict = {"config": {"env": env}}
         self._check_identity_binding()
         server_account = self._service_account_values(
@@ -758,6 +794,9 @@ class AwsEksTarget(DeployTarget):
                 GP_JOB_SERVICE_ACCOUNT, GP_JOB_SA_ANNOTATIONS_OUTPUT, GP_JOB_ROLE_OUTPUT)
             if job_account:
                 jobs["serviceAccount"] = job_account
+            if self._chart_declares("geoprocessing.kubernetesJobs.envFromServer"):
+                # Explicit either way: the chart defaults it on, which an older server would ignore.
+                jobs["envFromServer"] = SERVER_PIN_HONOURS_GP_JOB_ENV_FROM
             values["geoprocessing"] = {"kubernetesJobs": jobs}
         domain = self.cell_domain(redis_enabled)
         if domain is not None:
@@ -895,9 +934,27 @@ class AwsEksTarget(DeployTarget):
             raise self._failure("Helm dependency build", error) from error
         with tempfile.TemporaryDirectory(prefix="honua-eks-values-") as scratch:
             values_file = Path(scratch) / "values.json"
-            values_file.write_text(json.dumps(self.chart_values(redis_enabled), indent=2), encoding="utf-8")
+            values = self.chart_values(redis_enabled)
+            import deployment_capture
+            if deployment_capture.enabled():
+                values["config"]["env"] = deployment_capture.pin_secret_references(values["config"]["env"])
+            values_file.write_text(json.dumps(values, indent=2), encoding="utf-8")
+            command = self._helm_command(redis_enabled, chart, values_file)
+            import deployment_capture
+            if deployment_capture.enabled():
+                if not self._uses_rds() or (redis_enabled and not self._uses_elasticache()):
+                    raise ProvisionError("prepared EKS qualification requires the managed database/cache profile")
+                deployment_capture.capture(self, "helm", {
+                    "arguments": command, "values": values,
+                    "helmSource": deployment_capture.source(chart),
+                    "runtimeSecretCommitmentAlgorithm": "hmac-sha256",
+                    "runtimeSecretValueCommitments": self._runtime_secret_commitments,
+                    "immutableSecretVersionIds": deployment_capture.secret_versions(values),
+                    "tenantSigningSecret": getattr(self, "journey_signing_secret", None),
+                }, redis_enabled)
             try:
-                self._run(self._helm_command(redis_enabled, chart, values_file), env=self._kube_env())
+                deployment_capture.actuating(self, "helm", redis_enabled)
+                self._run(command, env=self._kube_env())
             except subprocess.CalledProcessError as error:
                 failure = self._failure("Helm install", error)
                 diagnostics = self._diagnostics()
@@ -1059,6 +1116,14 @@ class AwsEksTarget(DeployTarget):
         prefix = self._prefix = self._name_prefix(redis_enabled)
         self._kubeconfig = Path(tempfile.gettempdir()) / f"{prefix}.kubeconfig"
         tf_vars = self._tf_vars(redis_enabled)
+        import deployment_capture
+        if deployment_capture.enabled():
+            deployment_capture.capture(self, "terraform", {
+                "arguments": tf_vars, "iacSource": deployment_capture.source(root),
+                "secretVersionObservations": deployment_capture.secret_versions(tf_vars),
+                "tenantFixture": {"enabled": bool(getattr(self, "journey_signing_key", None)),
+                                  "signingSecret": getattr(self, "journey_signing_secret", None)},
+            }, redis_enabled)
         domain = self.cell_domain(redis_enabled)
         if domain is not None:
             print(f"{self.name}: HTTPS cell hostname {domain[0]} (ACM certificate from the root; the "
@@ -1072,6 +1137,7 @@ class AwsEksTarget(DeployTarget):
                   "(honua-release#203)", flush=True)
         try:
             self._tf(root, "init", "-input=false", "-no-color")
+            deployment_capture.actuating(self, "terraform", redis_enabled)
             self._tf(root, "apply", "-auto-approve", *tf_vars)
             self._cluster_name = self._tf(root, "output", "-raw", "cluster_name").stdout.strip()
         except subprocess.CalledProcessError as error:

@@ -1,0 +1,41 @@
+name: Prepared deployment inputs
+description: Adopt reviewed data-only execution inputs without admitting a candidate
+inputs:
+  candidate_ref:
+    description: Must be empty; prepared inputs are not an admitted candidate
+    required: false
+    default: ""
+  prepared_ref:
+    description: Full unadmitted snapshot SHA at refs/prepared-deployments/<sha>
+    required: true
+  checkout_directory:
+    required: false
+    default: .
+  reviewed_release_sha:
+    required: false
+    default: ""
+outputs:
+  manifest_path:
+    value: ${{ steps.adopt.outputs.manifest_path }}
+  matrix_path:
+    value: ${{ steps.adopt.outputs.matrix_path }}
+  manifest_sha256:
+    value: ${{ steps.adopt.outputs.manifest_sha256 }}
+  matrix_sha256:
+    value: ${{ steps.adopt.outputs.matrix_sha256 }}
+runs:
+  using: composite
+  steps:
+    - name: Verify prepared input lineage and unadmitted marker
+      id: adopt
+      shell: bash
+      env:
+        CANDIDATE_REF: ${{ inputs.candidate_ref }}
+        PREPARED_REF: ${{ inputs.prepared_ref }}
+        RUN_SHA: ${{ github.sha }}
+        RUN_REF: ${{ github.ref }}
+        CHECKOUT_DIRECTORY: ${{ inputs.checkout_directory }}
+        REVIEWED_RELEASE_SHA: ${{ inputs.reviewed_release_sha }}
+        RUN_REPOSITORY: ${{ github.repository }}
+      run: |
+        bash "$GITHUB_ACTION_PATH/adopt.sh"

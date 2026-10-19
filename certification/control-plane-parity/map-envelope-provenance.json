@@ -1,0 +1,7 @@
+{
+  "sourceSha": "c6484209dda9b1533fefcae1b0e47d87b56414c2",
+  "repository": "honua-io/honua-sdk-js",
+  "path": "test/fixtures/studio-lifecycle/envelopes/map.v1.json",
+  "sha256": "9c76bcd1f83c4e1336bf9333b0550c69d2bdda72a546fe9283f7fd18183c403c",
+  "scope": "Owned request fixture from published SDK source; not a file claimed present in npm package"
+}

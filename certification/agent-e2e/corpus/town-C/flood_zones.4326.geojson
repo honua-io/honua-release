@@ -1,0 +1,46 @@
+{
+  "crs": {
+    "properties": {
+      "name": "EPSG:4326"
+    },
+    "type": "name"
+  },
+  "features": [
+    {
+      "geometry": {
+        "coordinates": [
+          [
+            [
+              0.0448259327,
+              -0.089921323
+            ],
+            [
+              0.0480598677,
+              -0.089921323
+            ],
+            [
+              0.0480598677,
+              -0.088843346
+            ],
+            [
+              0.0448259327,
+              -0.088843346
+            ],
+            [
+              0.0448259327,
+              -0.089921323
+            ]
+          ]
+        ],
+        "type": "Polygon"
+      },
+      "id": "f201",
+      "properties": {
+        "name": "Cedar flood zone",
+        "source_id": "f201"
+      },
+      "type": "Feature"
+    }
+  ],
+  "type": "FeatureCollection"
+}

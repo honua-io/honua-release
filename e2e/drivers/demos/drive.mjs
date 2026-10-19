@@ -17,7 +17,8 @@
 import { readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { pathToFileURL } from "node:url";
-import { geoprocessingExpectation, judgeRedisOffGeoprocessing } from "./gp-topology.mjs";
+import { geoprocessingExpectation, judgeRedisOffGeoprocessing, processDetailFailure } from "./gp-topology.mjs";
+import { CallLog, describeCall, editingFallbackReason, workbenchReach } from "./backend-calls.mjs";
 
 // Playwright lives in a cache dir outside the repo (run.sh installs it there and passes the entry
 // point in E2E_PW_MODULE); a normally-installed copy is used when one is on the resolution path.
@@ -63,21 +64,56 @@ async function newPage(context) {
   const page = await context.newPage();
   const consoleErrors = [];
   const failedRequests = [];
+  // Every call the page makes to the candidate, with the status the wire carried even when CORS hid
+  // the response from the page (backend-calls.mjs; run 38192851328's gateway 500/503s).
+  const calls = new CallLog(BASE);
   page.on("console", (m) => {
     if (m.type() === "error") consoleErrors.push(m.text().slice(0, 300));
   });
   page.on("requestfailed", (r) => {
-    failedRequests.push(`${r.method()} ${r.url().slice(0, 160)} — ${r.failure()?.errorText}`);
+    calls.failed(r.method(), r.url(), r.failure()?.errorText);
+    failedRequests.push({ method: r.method(), url: r.url(), error: r.failure()?.errorText });
   });
-  page.__diag = { consoleErrors, failedRequests };
+  page.on("response", (r) => calls.status(r.request().method(), r.url(), r.status(), r.headers()));
+  let wire = false;
+  try {
+    // Chromium's raw response (status + headers) arrives here even for a response CORS blocks, which
+    // Playwright then reports only as `requestfailed`.
+    const cdp = await context.newCDPSession(page);
+    await cdp.send("Network.enable");
+    const sent = new Map();
+    cdp.on("Network.requestWillBeSent", (e) => {
+      if (e.redirectResponse) return;
+      sent.set(e.requestId, { method: e.request.method, url: e.request.url });
+      calls.request(e.request.method, e.request.url);
+    });
+    cdp.on("Network.responseReceivedExtraInfo", (e) => {
+      const r = sent.get(e.requestId);
+      if (r) calls.status(r.method, r.url, e.statusCode, e.headers);
+    });
+    wire = true;
+  } catch (_error) {
+    wire = false; // no CDP: requests are still counted, statuses come from `response` only
+  }
+  if (!wire) page.on("request", (r) => calls.request(r.method(), r.url()));
+  page.__diag = { consoleErrors, failedRequests, calls };
   return page;
 }
 
 function diag(page, extra = {}) {
+  const { calls } = page.__diag;
   return {
     ...extra,
     consoleErrors: page.__diag.consoleErrors.slice(0, 8),
-    failedRequests: page.__diag.failedRequests.slice(0, 8),
+    // A failed request names the status the wire carried when there was one (a gateway 5xx without
+    // CORS headers reads as a CORS failure in the page).
+    failedRequests: page.__diag.failedRequests.slice(0, 8).map(({ method, url, error }) => {
+      const call = calls.calls.findLast((c) => c.method === method && c.url === url);
+      return call && Number.isInteger(call.status)
+        ? `${describeCall(call)}`
+        : `${method} ${url.slice(0, 160)} — ${error}`;
+    }),
+    backendCalls: calls.tail(8),
   };
 }
 
@@ -472,7 +508,15 @@ async function openGeoprocessingRun(page) {
   // The page never ships a credential — the operator pastes one. Do exactly that.
   await page.locator("#gp-key").fill(KEY);
   await page.locator(`.gp-proc[data-id="generalization.simplify-layer"]`).click();
-  await page.waitForSelector("#gp-run", { state: "visible", timeout: STEP });
+  // The page shows Execute only once the process description loaded; on a failed load it says so
+  // in #gp-detail-desc and never shows the button. Settle on whichever happens first.
+  await page.waitForFunction(() => {
+    const run = document.querySelector("#gp-run");
+    const desc = document.querySelector("#gp-detail-desc")?.textContent || "";
+    return (run && run.offsetParent !== null) || /^\s*Could not load schema:/.test(desc);
+  }, null, { timeout: STEP });
+  const failure = processDetailFailure(await page.locator("#gp-detail-desc").innerText().catch(() => ""));
+  if (failure) throw new Error(failure);
   await page.waitForFunction(() => !document.querySelector("#gp-run")?.disabled, null, { timeout: STEP });
   return catalogText;
 }
@@ -536,7 +580,8 @@ async function checkEditing(context) {
     // The data lane MUST be live: the page resolved maui-inspections through the candidate's OData
     // catalog and read its features. The bundled fixture lane is a fail here, not a pass.
     if (!/live/i.test(dataChip)) {
-      record("editing", "fail", `data lane did not go live against the candidate: "${dataChip}"`, diag(page, { dataChip, writesChip, statusText }));
+      // Name what the probe and features reads got (a gateway 503/500 vs a server answer).
+      record("editing", "fail", editingFallbackReason(dataChip, page.__diag.calls), diag(page, { dataChip, writesChip, statusText }));
       return;
     }
     const readCode = (await page.locator("#ed-code-block").innerText()).trim();
@@ -644,10 +689,6 @@ async function checkEditing(context) {
 async function runWorkbenchLane(context, lane) {
   const workbench = demoLayers["workbench-assets"];
   const page = await newPage(context);
-  const backendCalls = [];
-  page.on("response", (r) => {
-    if (r.url().startsWith(BASE)) backendCalls.push(`${r.status()} ${decodeURIComponent(r.url()).slice(0, 500)}`);
-  });
   await page.goto(
     demoUrl("demo-analyst-workbench.html", {
       // demo-analyst-workbench.html loads the published spatial-analytics-workbench SDK sample.
@@ -709,10 +750,13 @@ async function runWorkbenchLane(context, lane) {
   });
   // The whole point of not passing `baseUrl`: if the shim did not mirror the resolved origin into
   // the parameter the sample reads, the sample would have no backend and never touch the candidate.
-  const reachedCandidate = backendCalls.some((call) => call.includes(`/rest/services/${workbench.service}/`));
-  const diagnostics = diag(page, { lane, ...observed, reachedCandidate, backendCalls: backendCalls.slice(-3) });
+  // Counted on REQUESTS: a call the gateway answered without CORS headers still reached the candidate.
+  const reach = workbenchReach(page.__diag.calls, workbench.service, BASE);
+  const reachedCandidate = page.__diag.calls.requested(`/rest/services/${workbench.service}/`);
+  const backendCalls = page.__diag.calls.tail(3);
+  const diagnostics = diag(page, { lane, ...observed, reachedCandidate });
   await page.close();
-  return { lane, observed, backendCalls, reachedCandidate, diagnostics, service: workbench };
+  return { lane, observed, backendCalls, reachedCandidate, reach, diagnostics, service: workbench };
 }
 
 /* The workbench's DEFAULT execution policy is "GeoServices remote pushdown" — that is the demo's
@@ -722,14 +766,10 @@ async function runWorkbenchLane(context, lane) {
 async function checkAnalystWorkbench(context) {
   try {
     const primary = await runWorkbenchLane(context, "remote-pushdown");
-    if (!primary.reachedCandidate) {
-      record(
-        "analyst-workbench",
-        "fail",
-        `the workbench never queried the candidate — ?apiBase= did not reach the sample's own baseUrl ` +
-          `parameter, so whatever it did was not against ${BASE}`,
-        { ...primary.observed, backendCalls: primary.backendCalls.slice(-3) }
-      );
+    if (primary.reach) {
+      // Either the sample never requested the candidate (the shim did not reach its baseUrl), or it
+      // did and every answer was an error (e.g. API Gateway's own 503 with no CORS header).
+      record("analyst-workbench", "fail", primary.reach.why, primary.diagnostics);
       return;
     }
     const rows = primary.observed.aggregateRows;
@@ -738,7 +778,7 @@ async function checkAnalystWorkbench(context) {
         "analyst-workbench",
         "pass",
         `the GeoServices remote-pushdown lane executed live against ${primary.service.service}/${primary.service.layerId} on the candidate and returned ${rows.length} aggregate rows`,
-        { ...primary.observed, backendCalls: primary.backendCalls.slice(-3) }
+        { ...primary.observed, backendCalls: primary.backendCalls }
       );
       return;
     }
@@ -761,7 +801,7 @@ async function checkAnalystWorkbench(context) {
           ? `The same demo's bounded-local lane DID execute live on the same seeded layer (${fallbackRows.length} aggregate rows), so the shim and the seed are correct and the fault is server-side.`
           : `The demo's bounded-local lane did not execute either (${fallback?.observed?.executionError || "no output artifact"}).`),
       {
-        remotePushdown: { ...primary.observed, reachedCandidate: primary.reachedCandidate, backendCalls: primary.backendCalls.slice(-3) },
+        remotePushdown: primary.diagnostics,
         boundedLocalDiagnostic: fallback?.observed ?? null,
       }
     );

@@ -20,6 +20,7 @@ on:
   pull_request:
     paths:
       - "certification/check_build_test.py"
+      - "certification/full_matrix_evidence.py"
       - "certification/test_build_test.py"
       - "tools/test_build_test_full_matrix.py"
       - "certification/advisory-checks.yaml"
@@ -29,6 +30,8 @@ on:
       - "certification/rollup-checks.yaml"
       - "certification/security-checks.yaml"
       - "tools/test_check_build_test.py"
+      - "tools/resolve_trunk_candidate.py"
+      - "tools/test_resolve_trunk_candidate.py"
       - "tools/fixtures/candidate-resolution-2026-10-06/**"
       - ".github/workflows/gate-build-test.yml"
   schedule:
@@ -56,6 +59,7 @@ on:
 
 permissions:
   contents: read
+  actions: read                   # authoritative component job/attempt execution inventories
   checks: read                    # read each component's check-runs on its pinned sha
 
 concurrency:
@@ -78,11 +82,11 @@ jobs:
         with:
           python-version: "3.12"
       - name: Install deps
-        run: python -m pip install "pyyaml>=6.0" pytest
+        run: python -m pip install "pyyaml>=6.0" "jsonschema>=4.23" "cryptography>=45.0" pytest
 
       # Always: prove the verdict logic can FAIL (green-only passes; red/missing/incomplete don't).
       - name: Self-test the gate logic
-        run: python -m pytest certification/test_build_test.py tools/test_build_test_full_matrix.py tools/test_check_build_test.py -q
+        run: python -m pytest certification/test_build_test.py tools/test_build_test_full_matrix.py tools/test_check_build_test.py tools/test_resolve_trunk_candidate.py -q
 
       # Live per-repo check — not on PRs (stale pins aren't a PR's fault); enforces in the train/nightly.
       - name: Per-repo CI on pinned SHAs
