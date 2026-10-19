@@ -102,15 +102,38 @@ def execute_setup(authored, credential, password, salt, receipt, persist):
     return workflow_output(receipt, authored)
 
 
+
+def persist_receipt(path, receipt, secrets, previous=None):
+    """Retain original safe bytes or a refusal hash plus prior safe evidence."""
+    encoded = json.dumps(receipt, allow_nan=False)
+    try:
+        parsed = safe_response(encoded, secrets)
+    except (ValueError, UnicodeError):
+        refusal = {"schema":"honua.mcp-publish-result-setup/v1", "phase":"unsafe-observation",
+                   "refusedObservationSha256":"sha256:"+hashlib.sha256(encoded.encode()).hexdigest()}
+        if previous is not None:
+            try:
+                refusal["previousSafeReceipt"] = safe_response(json.dumps(previous,allow_nan=False),secrets)
+            except (ValueError, UnicodeError):
+                pass
+        path.parent.mkdir(parents=True,exist_ok=True)
+        path.write_text(json.dumps(refusal,allow_nan=False)+"\n")
+        receipt.clear(); receipt.update(refusal)
+        raise ValueError("workflow setup observation refused before unsafe retention") from None
+    path.parent.mkdir(parents=True,exist_ok=True)
+    path.write_text(encoded+"\n")
+    return parsed
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--fixture", type=Path, required=True); parser.add_argument("--bootstrap", type=Path, required=True)
     parser.add_argument("--observations", type=Path, required=True); parser.add_argument("--receipt", type=Path, required=True)
     parser.add_argument("--owned-disposable-candidate", action="store_true", required=True)
-    args = parser.parse_args(); receipt = {}
+    args = parser.parse_args(); receipt = {}; previous = None
     def persist():
-        args.receipt.parent.mkdir(parents=True, exist_ok=True)
-        args.receipt.write_text(json.dumps(receipt, allow_nan=False)+"\n")
+        nonlocal previous
+        previous = persist_receipt(args.receipt,receipt,(os.environ.get("HONUA_MCP_API_KEY"),os.environ.get("HONUA_CERT_DB_PASSWORD")),previous)
     try:
         observed = strict_json(args.observations.read_bytes())
         authored = scenario(args.fixture.read_bytes(), strict_json(args.bootstrap.read_bytes()), observed["nonce"], observed["canonicalClient"])

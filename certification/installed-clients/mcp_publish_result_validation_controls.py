@@ -5,6 +5,9 @@ import copy
 import hashlib
 import json
 import unittest
+import tempfile
+from pathlib import Path
+import mcp_publish_result_setup as setup_module
 
 import mcp_publish_result_validation as validation
 import mcp_publish_result_state as state
@@ -102,12 +105,12 @@ def database(authored,published):
     current["layers"].append({"layer_id":physical,"layer_name":"authored-result","table_schema":"public","table_name":authored["table"],
         "primary_key_column":"id","geometry_column":"geom","storage_srid":4326,"srid":4326,"enabled":True,"default_visibility":True})
     current["serviceLayers"].append({"service_name":authored["serviceName"],"layer_id":physical,"layer_order":0})
-    for ordinal,(name,kind) in enumerate((("id","BigInteger"),("geom","Geometry"),("attributes","Json")),1):
+    for ordinal,(name,kind) in enumerate((("id","BigInteger"),("attributes","Json"),("geom","Geometry")),1):
         current["fields"].append({"layer_id":physical,"field_name":name,"field_type":kind,"field_order":ordinal})
     for index,row in enumerate(rows):
         canonical_id = 881+index
         current["features"].append({"id":canonical_id,"layerId":physical,"sha256":"sha256:"+str(index+7)*64})
-        current["materialized"].append({"id":canonical_id,"layerId":physical,"attributes":{"id":row["id"],"geom":copy.deepcopy(row["geometry"]),"attributes":copy.deepcopy(row["properties"])},"geometry":copy.deepcopy(row["geometry"]),"srid":4326})
+        current["materialized"].append({"id":canonical_id,"layerId":physical,"attributes":{"id":row["id"],"attributes":copy.deepcopy(row["properties"])},"geometry":copy.deepcopy(row["geometry"]),"srid":4326})
     mapping = {"serviceId":"canonical-service-7","serviceName":authored["serviceName"],"layerId":0,"storageLayerId":physical,"locator":"public."+authored["table"],"connectionId":GUID}
     current["mappings"] = [{"environment":"production","revision":42,"publication":mapping}]
     graph = current["graphs"][0]; graph["revision"] = 42; document = graph["document"]; document.update(revision=42,generatedAt=STAMP)
@@ -185,6 +188,15 @@ class PublicationControls(unittest.TestCase):
             value = controls(); value["setup"]["workflow"]["census"][family].append({"id":"unrelated","sha256":"sha256:"+"a"*64}); self.assert_refused(value)
         value = controls(); value["setup"]["workflow"]["census"]["definitions"][0]["sha256"] = "sha256:"+"a"*64; self.assert_refused(value)
 
+    def test_unknown_job_is_not_a_preexisting_census_identity(self):
+        value = controls(); identifier = "gp-"+value["nonce"]*2
+        prior = {"id":identifier,"sha256":"sha256:"+"a"*64}
+        censuses = [value["setup"]["beforeRun"]["census"],value["setup"]["workflow"]["census"]]
+        censuses += [snapshot["census"] for snapshot in value["snapshots"].values()]
+        for census in censuses:
+            census["jobs"].append(copy.deepcopy(prior)); census["jobs"].sort(key=lambda row:row["id"])
+        self.assert_refused(value)
+
     def test_every_refusal_and_read_only_checkpoint_preserves_full_state(self):
         for name in ("worker-read","unknown-artifact","unknown-job","anonymous","readback","anonymous-resource","restarted","restarted-readback"):
             for field in ("database","census"):
@@ -223,6 +235,26 @@ class PublicationControls(unittest.TestCase):
                 self.assert_refused(value)
         value = controls(); value["snapshots"]["published"]["database"]["materialized"][1]["attributes"]["id"] = 11; self.assert_refused(value)
 
+    def test_materialization_projection_and_separate_full_geometry_are_exact(self):
+        value = controls()
+        for checkpoint in ("published","readback","anonymous-resource","restarted","restarted-readback"):
+            database = value["snapshots"][checkpoint]["database"]
+            for row in database["materialized"]:
+                row["attributes"]["geom"] = copy.deepcopy(row["geometry"])
+        # Even a coherently repeated extra geometry attribute is not the actual
+        # discovered nongeometry projection and must not be silently accepted.
+        self.assert_refused(value)
+        for field,change in (("field_type","String"),("field_order",2)):
+            value = controls()
+            for checkpoint in ("published","readback","anonymous-resource","restarted","restarted-readback"):
+                row = next(row for row in value["snapshots"][checkpoint]["database"]["fields"] if row.get("field_name") == "geom")
+                row[field] = change
+            self.assert_refused(value)
+        value = controls()
+        for checkpoint in ("published","readback","anonymous-resource","restarted","restarted-readback"):
+            value["snapshots"][checkpoint]["database"]["materialized"][0]["geometry"]["coordinates"][0] += 0.001
+        self.assert_refused(value)
+
     def test_physical_public_and_source_canonical_ids_stay_distinct(self):
         value = controls(); self.assertEqual("741",value["calls"][5]["result"]["structuredContent"]["layerId"])
         self.assertEqual(0,value["calls"][7]["params"]["arguments"]["layerId"])
@@ -250,7 +282,7 @@ class PublicationControls(unittest.TestCase):
             value = controls(); output = value["calls"][4]["result"]["structuredContent"]; output[field] = change; value["calls"][4]["result"] = envelope(output,True); self.assert_refused(rebind(value))
 
     def test_pending_denied_failed_and_unrelated_publication_never_completed(self):
-        for field,change in (("status","Queued"),("status","RequiresApproval"),("status","Failed"),("status","Denied"),("sourceJobId","other"),("artifactId","other"),("metadataRevision",True),("requiresApproval",True),("serviceUri","honua://published-services/other")):
+        for field,change in (("status","Queued"),("status","RequiresApproval"),("status","Failed"),("status","Denied"),("sourceJobId","other"),("artifactId","other"),("metadataRevision",True),("metadataRevision",41),("metadataRevision",40),("requiresApproval",True),("serviceUri","honua://published-services/other")):
             value = controls(); output = value["calls"][5]["result"]["structuredContent"]; output[field] = change; value["calls"][5]["result"] = envelope(output); self.assert_refused(rebind(value))
 
     def test_source_query_jsonb_roundtrip_and_changed_second_representation(self):
@@ -275,6 +307,27 @@ class PublicationControls(unittest.TestCase):
             elif name == "registry": database["connection"]["registry"].append(copy.deepcopy(database["connection"]["registry"][0]))
             else: database["connection"]["target"]["clusterId"] = "foreign"
             self.assert_refused(value)
+
+    def test_complete_setup_receipt_refuses_nested_credential_before_disk(self):
+        for raw in ("controlled-private-key", "%63ontrolled%2Dprivate%2Dkey", "controlled-db-password"):
+            with tempfile.TemporaryDirectory() as directory:
+                path = Path(directory)/"receipt.json"
+                previous = {"phase":"before-run", "safeObservedRun":"retained"}
+                setup_module.persist_receipt(path,previous,["controlled-private-key","controlled-db-password"])
+                value = {"phase":"worker", "workflow":{"job":{"audit":{"nested":[{raw:"untrusted"}]}}}}
+                with self.assertRaises(ValueError):
+                    setup_module.persist_receipt(path,value,["controlled-private-key","controlled-db-password"],previous)
+                retained = json.loads(path.read_text())
+                self.assertEqual(retained["phase"],"unsafe-observation")
+                self.assertEqual(retained["previousSafeReceipt"],previous)
+                self.assertRegex(retained["refusedObservationSha256"],r"^sha256:[a-f0-9]{64}$")
+                self.assertNotIn(raw,path.read_text())
+                self.assertNotIn("controlled-private-key",path.read_text())
+                self.assertNotIn("controlled-db-password",path.read_text())
+                # The CLI finally write sees only this safe refusal, never the
+                # original unsafe worker observation after an earlier error.
+                setup_module.persist_receipt(path,value,["controlled-private-key","controlled-db-password"],previous)
+                self.assertEqual(json.loads(path.read_text()),retained)
 
     def test_state_malformed_steps_fail_closed_and_raw_record_multiplicity(self):
         value = controls()["setup"]["workflow"]

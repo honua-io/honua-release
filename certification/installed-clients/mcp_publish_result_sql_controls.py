@@ -58,16 +58,17 @@ class SqlObserverControls(unittest.TestCase):
         self.assertEqual(value["mappings"][0]["publication"],value["mappings"][1]["publication"])
         self.assertNotIn("controlled-encrypted-secret-never-retain",json.dumps(value))
 
-    def test_actual_materialization_jsonb_geometry_and_distinct_ids_roundtrip(self):
+    def test_actual_nongeometry_jsonb_projection_and_separate_geometry_distinct_ids(self):
         table = self.authored["table"]; self.graph("production",self.completed["graphs"][0]["document"])
-        self.query(f'INSERT INTO public.features SELECT id+870,741,jsonb_build_object(\'id\',id,\'geom\',geom,\'attributes\',attributes),geom FROM public."{table}";')
+        self.query(f'INSERT INTO public.features SELECT id+870,741,jsonb_build_object(\'id\',id,\'attributes\',attributes),geom FROM public."{table}";')
         value = self.observe(); self.assertEqual(len(value["materialized"]),2)
         by_source = {row["id"]:row for row in value["rows"]}
         for row in value["materialized"]:
             source = by_source[row["attributes"]["id"]]
             self.assertNotEqual(row["id"],source["id"])
             self.assertEqual(row["geometry"],source["geometry"])
-            self.assertEqual(row["attributes"]["geom"],source["geometry"])
+            self.assertEqual(set(row["attributes"]),{"id","attributes"})
+            self.assertEqual(row["srid"],4326)
             self.assertEqual(row["attributes"]["attributes"],source["properties"])
 
 

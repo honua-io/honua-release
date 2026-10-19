@@ -14,8 +14,8 @@ validated separately in server PR 6394 (`610d260b05`). Historical selected image
 | Result package | Completed enum 5; one FeatureLayer enum 1, actual job-derived artifact ID, JSON data URI and `application/json`, exact credential-free connectionId/schema/table metadata. Conflicting receipt media is refused. |
 | Source SQL | Sink table uses id/geom/attributes. Observer explicitly projects attributes AS properties. Full authored points, gid/name/batch marker and 4326 remain exact. |
 | `honua_publish_result` | Arguments sourceId/actual artifactId/serviceName/layerName. Only Completed service.publish with actual operation handle, sourceJobId, artifactId, serviceId/serviceUri, physical layerId and metadataRevision is positive. Other outcomes retain diagnostics and fail this positive. |
-| Persisted publication | One new catalog service/layer/relation, fields id/geom/attributes in 1-based order, one new canonical service/resource/binding and two related protocol publications. Source-backed binding retains actual registered GUID and owned locator. Revision increases; no unrelated graph/catalog/source data may change. |
-| Canonical snapshot copy | Publisher materializes a copy into public.features. Its object IDs differ independently from source PKs; complete id/geom/attributes JSON and primary geometry must equal authored data. Prior canonical rows remain hashed and unchanged. |
+| Persisted publication | One new catalog service/layer/relation, fields id/attributes/geom in 1-based order, one new canonical service/resource/binding and two related protocol publications. Source-backed binding retains actual registered GUID and owned locator. Revision increases; no unrelated graph/catalog/source data may change. |
+| Canonical snapshot copy | Publisher materializes a copy into public.features. Its object IDs differ independently from source PKs; complete id/attributes JSON and separate primary geometry must equal authored data. Prior canonical rows remain hashed and unchanged. |
 | Fresh resource and query | Read the exact returned URI; canonical graph service ID, public layerIds/servingLayerIds and physical binding independently agree. Query uses the resource-returned public index and explicit id/attributes fields. Both typed and GeoJSON representations preserve actual source IDs, full nested JSON attributes and geometry. |
 | Refusals | Actual unknown job/artifact tool errors require not_found; fresh anonymous tools/call requires typed unauthenticated tool result, not Inspector-local discovery refusal. Full SQL/graph/revision and all durable record hashes remain unchanged. |
 | Restart | Original shared bootstrap alone may predate earlier owned restarts. Current client runtimeBefore equals setup before/after and immediate prepublication inspection exactly; explicit same-container restart advances StartedAt and preserves source/image/digest/container identity. Fresh resource/query/results and full persisted census remain exact. |
@@ -25,7 +25,9 @@ WorkflowPackagePublisher/WorkflowOrchestrationEngine create actual work;
 PostgisSinkProcess and GeoprocessingResultPackageFactory provide the actual
 committed result; PublishResultTool selects the real result and delegates to
 service.publish. PostgreSqlLayerPublishingService and its MetadataV2Graph,
-LayerPersistence and SqlHelpers partials define catalog/copy/projection behavior;
+LayerPersistence and SqlHelpers partials define catalog/copy/projection behavior.
+PostgreSqlTableDiscoveryService excludes geometry columns from selected attributes;
+BuildLayerFields appends geometry last, so no synthetic geom attribute is expected;
 QueryFeaturesTool and PostgresStorageMappedFeatureReader define source-backed
 readback. RedisWorkflowRunStore, RedisWorkflowDefinitionStore,
 RedisOperationProposalStore and RedisOperationInstanceStore define observed key

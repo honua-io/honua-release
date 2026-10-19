@@ -496,13 +496,12 @@ def database_output(value, authored, published=None):
                 or type(row["id"]) is not int or (row["id"],) not in features or row["id"] in seen
                 or type(row["layerId"]) is not int or row["layerId"] != int(published["layerId"])
                 or features[(row["id"],)]["layerId"] != row["layerId"] or type(row["srid"]) is not int or row["srid"] != 4326
-                or not isinstance(row["attributes"], dict) or set(row["attributes"]) != {"id", "geom", "attributes"}
+                or not isinstance(row["attributes"], dict) or set(row["attributes"]) != {"id", "attributes"}
                 or type(row["attributes"]["id"]) is not int or row["attributes"]["id"] not in by_source):
             raise ValueError("materialized copy conflates source PK/canonical object ID/layer or loses attributes")
         source = by_source[row["attributes"]["id"]]
         if (not same_json(row["attributes"]["attributes"], source["properties"])
-                or not same_json(row["geometry"], source["geometry"])
-                or not same_json(row["attributes"]["geom"], source["geometry"])):
+                or not same_json(row["geometry"], source["geometry"])):
             raise ValueError("materialized full attributes/geometry differ from independently authored source")
         seen.add(row["id"])
     if len({row["attributes"]["id"] for row in materialized}) != len(rows):
@@ -548,9 +547,11 @@ def committed_database(initial, current, authored, published):
     relation, = preserve_rows(initial["serviceLayers"], current["serviceLayers"], ("service_name","layer_id"), [(authored["serviceName"],physical)])
     if type(relation.get("layer_order")) is not int or relation["layer_order"] != 0:
         raise ValueError("new service has an unexpected physical catalog association")
-    added_fields = [(physical,k) for k in ("id","geom","attributes")]
+    # Discovery selects nongeometry id/attributes columns; BuildLayerFields
+    # preserves those and appends the separate geometry field last.
+    added_fields = [(physical,k) for k in ("id","attributes","geom")]
     fields = preserve_rows(initial["fields"], current["fields"], ("layer_id","field_name"), added_fields)
-    for row, name, kind, ordinal in zip(fields, ("id","geom","attributes"), ("BigInteger","Geometry","Json"), (1,2,3)):
+    for row, name, kind, ordinal in zip(fields, ("id","attributes","geom"), ("BigInteger","Json","Geometry"), (1,2,3)):
         if row.get("field_name") != name or row.get("field_type") != kind or type(row.get("field_order")) is not int or row["field_order"] != ordinal:
             raise ValueError("new published source fields lost their actual type/order")
     added_features = [(row["id"],) for row in current["materialized"]]
@@ -565,7 +566,8 @@ def committed_database(initial, current, authored, published):
             if not same_json(old, new):
                 raise ValueError("publication changed an unrelated canonical environment")
             continue
-        if new["revision"] <= old["revision"] or new["revision"] < published["metadataRevision"]:
+        if (new["revision"] <= old["revision"] or published["metadataRevision"] <= old["revision"]
+                or new["revision"] < published["metadataRevision"]):
             raise ValueError("first actual publication did not advance the committed metadata revision")
         previous, document = old["document"], new["document"]
         allowed = {"revision","generatedAt","services","resources","storageBindings","publications","connections"}
@@ -719,6 +721,9 @@ def judge(fixture_bytes, bootstrap, observed):
         census_output(snapshot["census"])
     if not same_json(snapshots["initial"]["census"],identity["census"]):
         raise ValueError("worker records changed before canonical-client publication journey")
+    missing_job = negative_arguments(authored,identity,"unknown-job")["sourceId"]
+    if any(row["id"] == missing_job for family in ("jobs","results") for row in snapshots["initial"]["census"][family]):
+        raise ValueError("authored unknown-job probe already exists in the actual initial census")
     calls = observed["calls"]
     if not isinstance(calls,list) or len(calls) != 12:
         raise ValueError("publication actual-client sequence incomplete/unrelated")
