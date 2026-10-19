@@ -23,6 +23,14 @@ SCHEMA = "honua.mcp-render-scenario/v1"
 BOOTSTRAP = "honua.mcp-render-bootstrap/v1"
 
 
+class RuntimeMismatch(ValueError):
+    """A refused identity with safe selected observations retained for evidence."""
+
+    def __init__(self, observation):
+        super().__init__("running candidate identity differs")
+        self.observation = observation
+
+
 def inspect_candidate(candidate_source_sha, candidate_image, *, run=subprocess.run):
     """Read only selected safe Docker fields; never retain container env/secrets."""
     if (not isinstance(candidate_source_sha, str) or not re.fullmatch(r"[a-f0-9]{40}", candidate_source_sha)
@@ -40,18 +48,36 @@ def inspect_candidate(candidate_source_sha, candidate_image, *, run=subprocess.r
             raise ValueError("owned candidate Docker identity inspection failed")
         return json.loads(result.stdout)
 
-    container = inspect(["docker", "inspect", "--format", container_format, "honua-server"])
+    observed = {"schema": "honua.mcp-render-runtime/v1", "candidateSourceSha": candidate_source_sha,
+                "candidateImage": candidate_image}
+    try:
+        container = inspect(["docker", "inspect", "--format", container_format, "honua-server"])
+    except (ValueError, OSError, subprocess.SubprocessError) as exc:
+        observed["inspectionError"] = {"phase": "container", "errorType": type(exc).__name__}
+        raise RuntimeMismatch(observed) from None
+    if isinstance(container, dict):
+        observed.update(container)
+    else:
+        observed["containerReadback"] = container
     if (not isinstance(container, dict) or container.get("running") is not True
             or container.get("imageReference") != candidate_image
             or not isinstance(container.get("imageId"), str) or not re.fullmatch(r"sha256:[a-f0-9]{64}", container["imageId"])):
-        raise ValueError("running owned container differs from the intended exact image")
-    image = inspect(["docker", "image", "inspect", "--format", image_format, container["imageId"]])
-    if (not isinstance(image, dict) or image.get("imageId") != container["imageId"]
+        # A different but well-formed image still has inspectable source/digest
+        # telemetry; collect that before refusing it below.
+        if not isinstance(container, dict) or not isinstance(container.get("imageId"), str) or not re.fullmatch(r"sha256:[a-f0-9]{64}", container["imageId"]):
+            raise RuntimeMismatch(observed)
+    try:
+        image = inspect(["docker", "image", "inspect", "--format", image_format, container["imageId"]])
+    except (ValueError, OSError, subprocess.SubprocessError) as exc:
+        observed["inspectionError"] = {"phase": "image", "errorType": type(exc).__name__}
+        raise RuntimeMismatch(observed) from None
+    observed["imageReadback"] = image
+    if (container.get("running") is not True or container.get("imageReference") != candidate_image
+            or not isinstance(image, dict) or image.get("imageId") != container["imageId"]
             or image.get("sourceSha") != candidate_source_sha
             or not isinstance(image.get("repoDigests"), list) or candidate_image not in image["repoDigests"]):
-        raise ValueError("started image lacks the exact digest and OCI source binding")
-    return {"schema": "honua.mcp-render-runtime/v1", "candidateSourceSha": candidate_source_sha,
-            "candidateImage": candidate_image, **container}
+        raise RuntimeMismatch(observed)
+    return observed
 
 
 
@@ -70,12 +96,16 @@ def scenario(fixture_bytes, bootstrap):
             or not re.fullmatch(r"sha256:[a-f0-9]{64}", bootstrap["seedSqlSha256"])):
         raise ValueError("render requires the independently provisioned exact candidate fixture")
     runtime = bootstrap.get("runtimeBinding", {})
+    image_readback = runtime.get("imageReadback", {}) if isinstance(runtime, dict) else {}
     if (not isinstance(runtime, dict) or runtime.get("schema") != "honua.mcp-render-runtime/v1"
             or runtime.get("running") is not True or runtime.get("candidateSourceSha") != bootstrap["candidateSourceSha"]
             or runtime.get("candidateImage") != bootstrap["candidateImage"] or runtime.get("imageReference") != bootstrap["candidateImage"]
             or not isinstance(runtime.get("imageId"), str) or not re.fullmatch(r"sha256:[a-f0-9]{64}", runtime["imageId"])
             or not isinstance(runtime.get("containerId"), str) or not re.fullmatch(r"[a-f0-9]{64}", runtime["containerId"])
-            or not isinstance(runtime.get("startedAt"), str) or not runtime["startedAt"]):
+            or not isinstance(runtime.get("startedAt"), str) or not runtime["startedAt"]
+            or not isinstance(image_readback, dict) or image_readback.get("sourceSha") != bootstrap["candidateSourceSha"]
+            or image_readback.get("imageId") != runtime.get("imageId")
+            or not isinstance(image_readback.get("repoDigests"), list) or bootstrap["candidateImage"] not in image_readback["repoDigests"]):
         raise ValueError("render fixture lacks the started candidate runtime identity")
     area = bootstrap.get("published", {}).get("area", {})
     if (area.get("service") != fixture["area"]["service"] or type(area.get("layerId")) is not int
@@ -219,7 +249,12 @@ def main():
         if args.inspect_runtime:
             if args.fixture or args.bootstrap or args.observations:
                 raise ValueError("runtime inspection cannot select scenario generation/judgment")
-            output = inspect_candidate(args.candidate_source_sha, args.candidate_image)
+            try:
+                output = inspect_candidate(args.candidate_source_sha, args.candidate_image)
+            except RuntimeMismatch as exc:
+                # The JS owner persists this safe observation before comparing
+                # it with bootstrap. Refusal must not erase mismatch telemetry.
+                output = {**exc.observation, "inspectionRefused": True}
         else:
             if not args.fixture or not args.bootstrap or args.candidate_source_sha or args.candidate_image:
                 raise ValueError("render judgment requires fixture/bootstrap only")

@@ -50,6 +50,9 @@ observations are retained and must match the original container ID, image ID,
 digest, source revision and start time. Restart or replacement after bootstrap
 fails closed. Offline controls use explicit controlled Docker executables;
 canonical consumers use the actual running-container inspection.
+Mismatching safe fields and image source/digest readback are emitted before
+refusal so failed cases retain telemetry too. Inspection failures retain their
+phase/error type and any already available container fields without stderr.
 
 Positive judgment checks both image representations, MIME, dimensions, byte
 length, bbox and allocated layer before the strict PNG oracle checks pixels

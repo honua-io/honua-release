@@ -24,7 +24,8 @@ IMAGE = "ghcr.io/honua-io/honua-server@sha256:" + "c" * 64
 def runtime():
     return {"schema": "honua.mcp-render-runtime/v1", "running": True, "candidateSourceSha": SOURCE,
             "candidateImage": IMAGE, "imageReference": IMAGE, "imageId": "sha256:" + "d" * 64,
-            "containerId": "e" * 64, "startedAt": "2026-10-19T00:00:00Z"}
+            "containerId": "e" * 64, "startedAt": "2026-10-19T00:00:00Z",
+            "imageReadback": {"imageId": "sha256:" + "d" * 64, "sourceSha": SOURCE, "repoDigests": [IMAGE]}}
 
 
 def bootstrap():
@@ -186,7 +187,7 @@ class RenderControls(unittest.TestCase):
         for mutation in (None, "stopped", "container-image", "image-id", "source", "digest", "container-id", "started"):
             with self.subTest(mutation=mutation):
                 container, calls = runtime(), []
-                image = {"imageId": container["imageId"], "sourceSha": SOURCE, "repoDigests": [IMAGE]}
+                image = container["imageReadback"]
                 if mutation == "stopped": container["running"] = False
                 elif mutation == "container-image": container["imageReference"] = "latest"
                 elif mutation == "image-id": image["imageId"] = "sha256:" + "f" * 64
@@ -196,7 +197,8 @@ class RenderControls(unittest.TestCase):
                 elif mutation == "started": container["startedAt"] = ""
                 def run(command, **kwargs):
                     calls.append(command)
-                    return subprocess.CompletedProcess(command, 0, json.dumps(container if len(calls) == 1 else image), "")
+                    selected = {key:container[key] for key in ["running", "imageId", "imageReference", "startedAt", "containerId"]}
+                    return subprocess.CompletedProcess(command, 0, json.dumps(selected if len(calls) == 1 else image), "")
                 if mutation is None:
                     self.assertEqual(runtime(), bootstrap_module.inspect_candidate(SOURCE, IMAGE, run=run))
                     self.assertEqual("honua-server", calls[0][-1])
@@ -207,6 +209,20 @@ class RenderControls(unittest.TestCase):
                         bootstrap_module.provision(FIXTURE, candidate_source_sha=SOURCE, candidate_image=IMAGE,
                             database_password="secret", api_key="secret", base_url="http://localhost:8080",
                             runtime_binding=binding, psql_run=lambda *a, **k: self.fail("must reject before SQL"))
+
+    def test_refused_inspection_keeps_available_runtime_fields_without_stderr(self):
+        state, calls = runtime(), []
+        def run(command, **kwargs):
+            calls.append(command)
+            if len(calls) == 1:
+                return subprocess.CompletedProcess(command, 0, json.dumps({key:state[key] for key in ["running", "imageId", "imageReference", "startedAt", "containerId"]}), "")
+            return subprocess.CompletedProcess(command, 1, "", "private unretained stderr")
+        with self.assertRaises(validation.RuntimeMismatch) as failure:
+            validation.inspect_candidate(SOURCE, IMAGE, run=run)
+        observed = failure.exception.observation
+        self.assertEqual(state["containerId"], observed["containerId"])
+        self.assertEqual("image", observed["inspectionError"]["phase"])
+        self.assertNotIn("private", json.dumps(observed))
 
 
 if __name__ == "__main__":
@@ -219,7 +235,7 @@ if __name__ == "__main__":
         docker = directory / "docker"
         docker.write_text("#!/usr/bin/env python3\nimport json,sys\nfrom pathlib import Path\n"
             f"state=json.loads(Path({str(control)!r}).read_text())\n"
-            "value={'imageId':state['imageId'],'sourceSha':state['candidateSourceSha'],'repoDigests':[state['candidateImage']]} if sys.argv[1]=='image' "
+            "value=state['imageReadback'] if sys.argv[1]=='image' "
             "else {key:state[key] for key in ['running','imageId','imageReference','startedAt','containerId']}\n"
             "print(json.dumps(value))\n")
         docker.chmod(0o755)

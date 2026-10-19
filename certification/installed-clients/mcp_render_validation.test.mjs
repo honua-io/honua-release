@@ -127,14 +127,18 @@ test("bootstrap delegates only after every setup dependency is verified", () => 
 });
 
 test("candidate replacement before or during calls cannot qualify and raw runtime readback survives", async () => {
-  for (const when of ["before", "during"]) {
+  for (const when of ["before", "during"]) for (const changed of ["startedAt", "imageReference", "imageId", "sourceSha", "repoDigests"]) {
     const { directory, context, responses, restore } = setup();
     try {
       const api = createRenderValidation(context);
       const control = join(directory, "runtime-control.json");
       const replace = () => {
         const state = JSON.parse(readFileSync(control));
-        state.startedAt = "2026-10-19T00:01:00Z";
+        if (changed === "startedAt") state.startedAt = "2026-10-19T00:01:00Z";
+        else if (changed === "imageReference") state.imageReference = `ghcr.io/other/server@sha256:${"f".repeat(64)}`;
+        else if (changed === "imageId") state.imageId = `sha256:${"f".repeat(64)}`;
+        else if (changed === "sourceSha") state.imageReadback.sourceSha = "f".repeat(40);
+        else state.imageReadback.repoDigests = [];
         writeFileSync(control, JSON.stringify(state));
       };
       if (when === "before") replace();
@@ -149,7 +153,10 @@ test("candidate replacement before or during calls cannot qualify and raw runtim
       assert.match(String(error), /candidate changed/);
       assert.equal(calls, when === "before" ? 0 : 3);
       const raw = JSON.parse(readFileSync(`${results}.render-validation.raw.json`));
-      assert.equal(raw.runtimeAfter.startedAt, "2026-10-19T00:01:00Z");
+      const state = JSON.parse(readFileSync(control));
+      assert.equal(raw.runtimeAfter[changed], state[changed]);
+      assert.deepEqual(raw.runtimeAfter.imageReadback, state.imageReadback);
+      if (changed !== "startedAt") assert.equal(raw.runtimeAfter.inspectionRefused, true);
       assert.equal(raw.cases.length, calls);
     } finally { restore(); rmSync(directory, { recursive: true, force: true }); }
   }

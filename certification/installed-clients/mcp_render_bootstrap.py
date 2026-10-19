@@ -18,7 +18,7 @@ from urllib.parse import urlsplit
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import regression
-from mcp_render_validation import inspect_candidate
+from mcp_render_validation import inspect_candidate, RuntimeMismatch
 
 
 def provision(fixture_bytes, *, candidate_source_sha, candidate_image, database_password,
@@ -36,6 +36,12 @@ def provision(fixture_bytes, *, candidate_source_sha, candidate_image, database_
             or not isinstance(runtime_binding.get("containerId"), str) or not re.fullmatch(r"[a-f0-9]{64}", runtime_binding["containerId"])
             or not isinstance(runtime_binding.get("startedAt"), str) or not runtime_binding["startedAt"]):
         raise ValueError("bootstrap lacks the running owned container identity readback")
+    image_readback = runtime_binding.get("imageReadback", {})
+    if (not isinstance(image_readback, dict) or image_readback.get("imageId") != runtime_binding["imageId"]
+            or image_readback.get("sourceSha") != candidate_source_sha
+            or not isinstance(image_readback.get("repoDigests"), list) or candidate_image not in image_readback["repoDigests"]
+            or runtime_binding.get("inspectionRefused") is not None):
+        raise ValueError("bootstrap runtime readback lacks the exact image digest/source")
     url = urlsplit(base_url)
     if (url.scheme != "http" or url.hostname not in ("localhost", "127.0.0.1", "::1")
             or url.username or url.password or url.query or url.fragment or url.path not in ("", "/")):
@@ -142,6 +148,8 @@ def main():
                   api_key=os.environ.get("HONUA_MCP_API_KEY"), base_url=args.base_url, receipt=receipt,
                   runtime_binding=inspect_candidate(args.candidate_source_sha, args.candidate_image))
     except (ValueError, KeyError, TypeError, OSError, subprocess.SubprocessError, regression.RegressionError) as exc:
+        if isinstance(exc, RuntimeMismatch):
+            receipt["runtimeObservation"] = exc.observation
         receipt.update({"status": "failed", "errorType": type(exc).__name__})
         parser.exit(1, f"render fixture bootstrap refused: {type(exc).__name__}\n")
     finally:
