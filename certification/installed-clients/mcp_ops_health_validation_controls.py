@@ -7,7 +7,7 @@ import unittest
 
 import mcp_ops_health_validation as validation
 import mcp_ops_health_state as state
-from mcp_map_package_validation_controls import control_wire
+from mcp_map_package_validation_controls import control_wire, bind_launch
 from mcp_render_validation_controls import FIXTURE, bootstrap, runtime
 
 
@@ -87,6 +87,21 @@ def controls():
     return rebind(value)
 
 
+def inspector_controls():
+    """Explicit offline Inspector process vectors, rejudged by the real oracle."""
+    value = controls()
+    value["canonicalClient"], value["clientVersion"] = "MCP Inspector", "2.10.1"
+    for item in value["calls"]:
+        frame = item["result"]; error = frame.get("error")
+        auth = bool(error and error.get("data", {}).get("code") == "unauthenticated")
+        item["client"] = {"kind": "inspector-cli", "canonicalClient": "MCP Inspector", "version": "2.10.1", "processId": 456,
+            "requestUrl": item["wire"]["listener"], "exitCode": 3 if auth else 1 if error else 5 if frame.get("isError") else 0,
+            "exitSignal": None, "timedOut": False, "stdout": "" if error else json.dumps({"result": frame}),
+            "stderr": json.dumps({"error": {"code": "auth_required" if auth else "error", "message": error["message"]}}) if error else ""}
+        bind_launch(item["client"], item["wire"], "inspector")
+    return value
+
+
 def mutate_payload(value, transform):
     body = value["calls"][0]["result"]["structuredContent"]
     transform(body)
@@ -103,6 +118,18 @@ class OpsHealthControls(unittest.TestCase):
         judged = validation.judge(FIXTURE, bootstrap(), controls())
         self.assertTrue(judged["independentStores"] and judged["restartRecomputed"] and judged["liveNotPersisted"])
         self.assertEqual(judged["operations"], ["tools/call:ops_health", "resources/read:Ops health"])
+
+    def test_offline_inspector_tool_resource_and_refusal_outputs_are_rejudged(self):
+        value = inspector_controls()
+        self.assertTrue(validation.judge(FIXTURE, bootstrap(), value)["positive"])
+        for mutation in ("positive-output", "refusal-diagnostic"):
+            with self.subTest(mutation=mutation):
+                changed = copy.deepcopy(value)
+                item = changed["calls"][0] if mutation == "positive-output" else next(call for call in changed["calls"] if call["id"] == "anonymous-resource")
+                if mutation == "positive-output": item["client"]["stdout"] = json.dumps({"result": {"fabricated": True}})
+                else: item["client"]["stderr"] = json.dumps({"error": {"code": "error", "message": "different refusal"}})
+                bind_launch(item["client"], item["wire"], "inspector")
+                self.refused(changed)
 
     def test_independent_store_or_queue_loss_cannot_be_success(self):
         for name in ("db-identity", "db-probe", "fixture", "redis-ping", "cache", "cleanup", "active-index", "record-hash", "changed-record", "nonfinite-database-timing"):
