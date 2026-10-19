@@ -303,7 +303,7 @@ class MapPackageControls(unittest.TestCase):
             _, frame = validation.wire_frame(item["wire"]["invocation"])
             error = frame.get("error")
             item["client"] = {"kind": "inspector-cli", "canonicalClient": "MCP Inspector", "version": "2.10.1", "processId": 456,
-                "requestUrl": item["wire"]["listener"], "exitCode": 2 if error else 5 if frame["result"].get("isError") else 0,
+                "requestUrl": item["wire"]["listener"], "exitCode": 1 if error else 5 if frame["result"].get("isError") else 0,
                 "exitSignal": None, "timedOut": False, "stdout": "" if error else json.dumps({"result": frame["result"]}),
                 "stderr": json.dumps({"error": {"code": "error", "message": error["message"]}}) if error else ""}
             bind_launch(item["client"], item["wire"], "inspector")
@@ -312,6 +312,16 @@ class MapPackageControls(unittest.TestCase):
         with self.assertRaises(ValueError): validation.judge(FIXTURE, bootstrap(), changed)
         changed = copy.deepcopy(value); changed["reads"][1]["wire"] = None
         with self.assertRaises(ValueError): validation.judge(FIXTURE, bootstrap(), changed)
+        # Keep source/package/request/output bindings valid so the actual
+        # exit/diagnostic semantic check must refuse NO_APP and false success.
+        for exit_code, code in [(2, "no_app"), (0, "error"), (1, "auth_required")]:
+            with self.subTest(exit_code=exit_code, code=code):
+                changed = copy.deepcopy(value); item = changed["reads"][1]
+                _, frame = validation.wire_frame(item["wire"]["invocation"])
+                item["client"]["exitCode"] = exit_code
+                item["client"]["stderr"] = json.dumps({"error": {"code": code, "message": frame["error"]["message"]}})
+                bind_launch(item["client"], item["wire"], "inspector")
+                with self.assertRaises(ValueError): validation.judge(FIXTURE, bootstrap(), changed)
 
     def test_launch_package_process_output_and_request_identity_cannot_be_self_reported(self):
         for field in ("missing", "manifest", "package", "launcher", "runner", "pid", "wire-pid", "endpoint", "request", "exit", "stdout", "client-info"):

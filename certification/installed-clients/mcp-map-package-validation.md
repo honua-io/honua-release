@@ -79,6 +79,9 @@ response. Inspector 2.10.1 replaces numeric JSON-RPC error code/data with its
 own CLI diagnostic. Its original stderr is retained separately and must
 correlate with the response; the typed refusal is explicitly **server wire
 observer evidence**, not a claim that the CLI exposes those discarded fields.
+The pinned 2.10.1 public error handler uses exit 1 with `error` for generic RPC
+errors and may use exit 3 with `auth_required` for authentication. Exit 2 means
+`no_app` and cannot prove a server resource refusal.
 A local error string, assumed HTTP status, copied tool result or synthesized
 typed error cannot supply proof. The authored reads require:
 

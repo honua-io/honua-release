@@ -233,7 +233,7 @@ def client_observation(client, frame, wire, canonical_client, version):
             # never pretend this stderr is the original server envelope.
             diagnostic = strict_json(client["stderr"])
             diagnostic = diagnostic.get("error") if isinstance(diagnostic, dict) else None
-            expected = ((2, "error"), (3, "auth_required")) if frame["error"].get("data", {}).get("code") == "unauthenticated" else ((2, "error"),)
+            expected = ((1, "error"), (3, "auth_required")) if frame["error"].get("data", {}).get("code") == "unauthenticated" else ((1, "error"),)
             if (client["stdout"].strip() or not isinstance(diagnostic, dict)
                     or (client["exitCode"], diagnostic.get("code")) not in expected
                     or not isinstance(diagnostic.get("message"), str) or frame["error"]["message"] not in diagnostic["message"]):
