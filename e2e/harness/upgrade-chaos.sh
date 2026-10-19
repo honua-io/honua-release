@@ -303,12 +303,21 @@ run_boundary_kills() {
 run_concurrent_start() (
   # Subshell EXIT cleanup covers every return, including failed container creation/assertions.
   local holder_log="$OUT/advisory-lock.log" a b i ready=0 failed=0
+  local cleanup_owner="$BASHPID"
   a="${PROJECT}_chaos_app_a"
   b="${PROJECT}_chaos_app_b"
-  trap 'docker rm -f "$a" "$b" >/dev/null 2>&1 || true; [ -z "$LOCK_HOLDER_PID" ] || kill "$LOCK_HOLDER_PID" >/dev/null 2>&1 || true' EXIT
+  # A background child must never remove the owning shell's containers, even
+  # if it receives a signal before resetting inherited trap state.
+  trap 'if [ "$BASHPID" = "$cleanup_owner" ]; then
+    docker rm -f "$a" "$b" >/dev/null 2>&1 || true
+    if [ -n "$LOCK_HOLDER_PID" ]; then
+      kill "$LOCK_HOLDER_PID" >/dev/null 2>&1 || true
+      wait "$LOCK_HOLDER_PID" >/dev/null 2>&1 || true
+    fi
+  fi' EXIT
   restore_baseline
   export HONUA_SERVER_IMAGE="$CANDIDATE_IMAGE"
-  db_exec "SELECT pg_advisory_lock($LOCK_KEY); SELECT pg_sleep(90);" > "$holder_log" 2>&1 &
+  (trap - EXIT; db_exec "SELECT pg_advisory_lock($LOCK_KEY); SELECT pg_sleep(90);") > "$holder_log" 2>&1 &
   LOCK_HOLDER_PID=$!
   sleep 2
   docker rm -f "$a" "$b" >/dev/null 2>&1 || true
