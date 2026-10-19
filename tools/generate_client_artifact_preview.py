@@ -7,6 +7,7 @@ import copy
 import hashlib
 import json
 import shutil
+import subprocess
 import tempfile
 from pathlib import Path
 
@@ -138,7 +139,11 @@ def generate(root, output, proposals, github=None, stage_github=None):
         shutil.copytree(root, trial, ignore=shutil.ignore_patterns('.git', '__pycache__', '.venv',
                                                                   'node_modules', 'artifacts'))
         (trial / 'platform-manifest.yaml').write_bytes(manifest)
-        plan, payloads, _ = convergence.prepare(trial, stage_github or convergence.GhCli(), 'keep')
+        try:
+            plan, payloads, _ = convergence.prepare(trial, stage_github or convergence.GhCli(), 'keep')
+        except subprocess.CalledProcessError as exc:
+            raise PreviewError(f'normal convergence preparation failed (exit {exc.returncode}):\n'
+                               f'{exc.stdout or str()}\n{exc.stderr or str()}') from exc
         old = json.loads((root / convergence.CATALOG).read_bytes())
         new = json.loads(payloads[str(convergence.CATALOG)])
         comparison = requirement_diff(old, new)

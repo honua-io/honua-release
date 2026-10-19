@@ -168,3 +168,20 @@ def test_source_or_existing_output_cannot_be_overwritten(tmp_path):
     for output in (root, root / 'new', tmp_path):
         with pytest.raises(preview.PreviewError, match='nonexistent and outside'):
             preview.generate(root, output, [])
+
+
+def test_normal_generator_refusal_preserves_diagnostic_and_creates_no_output(monkeypatch, tmp_path):
+    import subprocess
+    raw, item = context(monkeypatch)
+    root = tmp_path / 'source'
+    root.mkdir()
+    (root / 'platform-manifest.yaml').write_bytes(raw)
+    (root / 'customer-install-manifest.json').write_text('{}')
+    def refuse(*args):
+        raise subprocess.CalledProcessError(1, ['normal-catalog-generator'], output='source summary',
+                                            stderr='required source operation is missing')
+    monkeypatch.setattr(preview.convergence, 'prepare', refuse)
+    output = tmp_path / 'preview'
+    with pytest.raises(preview.PreviewError, match='required source operation is missing'):
+        preview.generate(root, output, [item], GitHub(), object())
+    assert not output.exists() and (root / 'platform-manifest.yaml').read_bytes() == raw
