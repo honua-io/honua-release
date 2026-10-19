@@ -43,6 +43,8 @@ state and fresh client read/render. Every invocation uses a new actual client
 process/session. The public Inspector must discover the real supported setup view
 without credentials; local tool-not-found cannot stand in for a server refusal.
 
+The actual get_style discovery list must match every independently observed initial
+catalog style identity/title/URI exactly, without missing/duplicate/unknown records.
 The catalog census includes every catalog record, including both authored entries,
 existing associated styles and unrelated entries. Every referenced graph style must have exactly one resource object whose
 name, version and canonical MapLibre body match its independently observed catalog
@@ -75,7 +77,13 @@ candidate after source/image/full-container identity inspection.
 Original wire bytes, package/launcher identity, child outcome, session hashes and
 runtime observations remain under the trusted protected-source/workflow/artifact
 boundary. JSON does not independently attest a process, socket or database.
-Diagnostics must contain no raw credential or session headers. Partial refusal
+Diagnostics must contain no raw credential or session headers. Setup response
+Location and body remain local until the Location equals the exact owned style
+URI, the accepted body names that style, and every decoded JSON key/value passes
+the private-credential check. Rejected responses retain only the bounded status
+and empty Location/body fields, so finally-path receipt retention cannot leak a
+header echo or JSON-escaped nested credential. The accepted safe original parsed body
+is retained without fabricating a positive response. Partial refusal
 and unsupported prerequisites remain raw failures rather than fabricated proof.
 
 Refs release705, release652 and release695. Analysis/GP execution, genuine

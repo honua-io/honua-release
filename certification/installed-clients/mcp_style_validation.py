@@ -322,10 +322,6 @@ def judge(fixture_bytes, bootstrap, observed):
     listed = tool_output(outcomes["catalog"]).get("styles")
     if not isinstance(listed, list):
         raise ValueError("style catalog list missing")
-    for style in (a, b):
-        matches = [row for row in listed if isinstance(row, dict) and row.get("styleId") == style["id"]]
-        if len(matches) != 1 or matches[0].get("uri") != "honua://styles/" + style["id"] or matches[0].get("title") != style["id"]:
-            raise ValueError("authored style missing/duplicated in actual catalog")
     for identifier in ("direct", "fresh", "restarted-fresh"):
         get_output(outcomes[identifier], a)
     handle_persistence = {}
@@ -344,6 +340,16 @@ def judge(fixture_bytes, bootstrap, observed):
         raise ValueError("independent mutation/refusal/restart census incomplete")
     for name in names:
         snapshot_output(snapshots[name], authored, fixture_bytes, applied=name not in ("initial", "dry-run"))
+    stored_catalog = snapshots["initial"]["styles"]
+    if (len(listed) != len(stored_catalog)
+            or any(not isinstance(row, dict) or not isinstance(row.get("styleId"), str) for row in listed)
+            or len({row["styleId"] for row in listed}) != len(listed)):
+        raise ValueError("actual discovery catalog is missing, duplicated or unrelated")
+    listed_by_id = {row["styleId"]: row for row in listed}
+    for stored in stored_catalog:
+        row = listed_by_id.get(stored["styleId"])
+        if row is None or row.get("title") != stored["title"] or row.get("uri") != "honua://styles/" + stored["styleId"]:
+            raise ValueError("actual discovery catalog differs from independent committed identity/title/URI")
     snapshots = {name: canonical_state(snapshot) for name, snapshot in snapshots.items()}
     if not same_json(snapshots["initial"], snapshots["dry-run"]):
         raise ValueError("style dry run mutated committed state")

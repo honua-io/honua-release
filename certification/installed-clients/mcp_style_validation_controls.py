@@ -109,6 +109,15 @@ def controls():
         "calls": calls, "snapshots": snapshots, "runtimeBefore": runtime(), "runtimeRestarted": restarted, "runtimeAfter": copy.deepcopy(restarted)})
 
 
+def bind_catalog_control(value):
+    # Independent offline stored fixture records are all advertised by the real
+    # source contract. Keep controlled raw text/wire/client bindings coherent.
+    value["calls"][0]["result"] = envelope({"styles": [
+        {"styleId": row["styleId"], "title": row["title"], "uri": "honua://styles/" + row["styleId"]}
+        for row in value["snapshots"]["initial"]["styles"]]})
+    return rebind(value)
+
+
 def existing_primary_controls():
     value = controls()
     identifier = "previous-catalog-style"
@@ -123,7 +132,7 @@ def existing_primary_controls():
         snapshot["mappings"][0]["styleResourceIds"].append(resource["id"])
         snapshot["mappings"][0]["styleResources"].append(copy.deepcopy(resource))
         snapshot["mappings"][0]["styleResources"].sort(key=lambda row: row["id"])
-    return value
+    return bind_catalog_control(value)
 
 
 def change_output(entry, **values):
@@ -263,6 +272,7 @@ class StyleControls(unittest.TestCase):
             snapshot["mappings"][0]["styleResources"].append({"id": "style-retained-alternate", "name": "retained-alternate",
                 "style": {"styleVersion": 3, "encodings": [{"encoding": "mapbox-style", "contentType": "application/vnd.mapbox.style+json", "body": json.dumps(document)}]}})
             snapshot["mappings"][0]["styleResources"].sort(key=lambda row: row["id"])
+        bind_catalog_control(value)
         self.assertTrue(validation.judge(FIXTURE, bootstrap(), value)["persistedReadback"])
         for name, snapshot in value["snapshots"].items():
             if name in ("initial", "dry-run"): continue
@@ -275,6 +285,7 @@ class StyleControls(unittest.TestCase):
         for snapshot in value["snapshots"].values():
             snapshot["styles"].append(catalog_record("unrelated-retained", {"version": 8, "layers": []}, 2))
             snapshot["styles"].sort(key=lambda row: row["styleId"])
+        bind_catalog_control(value)
         self.assertTrue(validation.judge(FIXTURE, bootstrap(), value)["persistedReadback"])
         for name, snapshot in value["snapshots"].items():
             if name not in ("initial", "dry-run"):
@@ -313,6 +324,7 @@ class StyleControls(unittest.TestCase):
             if name == "readback": snapshot["refs"].reverse()
             snapshot["refs"].sort(key=lambda row: row["ordinal"])
             snapshot["mappings"][0]["styleResourceIds"] = ["style-" + row["styleId"] for row in snapshot["refs"]]
+        bind_catalog_control(value)
         self.assertTrue(validation.judge(FIXTURE, bootstrap(), value)["persistedReadback"])
         for mutation in ("graph-precedence", "association-precedence", "duplicate-catalog", "missing-ref", "changed-ref"):
             with self.subTest(mutation=mutation):
@@ -353,6 +365,59 @@ class StyleControls(unittest.TestCase):
         duplicate = copy.deepcopy(value["snapshots"]["applied"]); duplicate["mappings"] *= 2
         with self.assertRaisesRegex(ValueError, "ambiguous"):
             state.snapshot(FIXTURE, authored, execute=lambda _: json.dumps(duplicate))
+
+    def test_discovery_catalog_matches_complete_independent_census(self):
+        for mutation in ("missing", "duplicate", "unknown", "title", "uri"):
+            with self.subTest(mutation=mutation):
+                value = existing_primary_controls()
+                rows = value["calls"][0]["result"]["structuredContent"]["styles"]
+                if mutation == "missing": rows.pop()
+                elif mutation == "duplicate": rows[-1] = copy.deepcopy(rows[0])
+                elif mutation == "unknown": rows[-1]["styleId"] = "unrelated-style"
+                elif mutation == "title": rows[-1]["title"] = "wrong title"
+                else: rows[-1]["uri"] = "honua://styles/unrelated-style"
+                value["calls"][0]["result"]["content"][0]["text"] = json.dumps(value["calls"][0]["result"]["structuredContent"])
+                rebind(value)
+                with self.assertRaisesRegex(ValueError, "discovery catalog"):
+                    validation.judge(FIXTURE, bootstrap(), value)
+
+    def test_setup_retains_only_validated_header_and_decoded_body(self):
+        authored = validation.scenario(FIXTURE, bootstrap(), "abcdef123456", "Official MCP TypeScript SDK")
+        credential = "private-setup-fixture-secret"
+        class Connection:
+            def __init__(self, response): self.response = response
+            def request(self, *args, **kwargs): pass
+            def getresponse(self): return self.response
+            def close(self): pass
+        for mutation in ("clean", "location-echo", "location-encoded", "raw-body-echo", "escaped-body-value", "escaped-body-key", "wrong-id", "rejected-status"):
+            with self.subTest(mutation=mutation):
+                responses = []
+                for style in authored["styles"]:
+                    location = "http://127.0.0.1:8080/ogc/styles/" + style["id"]
+                    body = {"id": style["id"], "links": [{"href": location}]}
+                    status = 201
+                    if mutation == "location-echo": location += "?credential=" + credential
+                    elif mutation == "location-encoded": location += "?credential=" + "".join("%" + format(ord(char), "02X") for char in credential)
+                    elif mutation in ("raw-body-echo", "escaped-body-value"): body["links"].append({"nested": [credential]})
+                    elif mutation == "escaped-body-key": body[credential] = "unsafe key"
+                    elif mutation == "wrong-id": body["id"] = "another-style"
+                    elif mutation == "rejected-status": status = 500
+                    raw = json.dumps(body).encode()
+                    if mutation.startswith("escaped-body"):
+                        raw = raw.replace(credential.encode(), "".join("\\u" + format(ord(char), "04x") for char in credential).encode())
+                        self.assertNotIn(credential.encode(), raw)
+                    responses.append(SimpleNamespace(status=status, getheader=lambda name, value=location: value, read=lambda limit, data=raw: data))
+                receipt = []
+                connect = lambda *args, **kwargs: Connection(responses.pop(0))
+                if mutation == "clean":
+                    state.create_styles(authored, credential, receipt, connect=connect)
+                    self.assertEqual(2, len(receipt)); self.assertTrue(all(entry["body"] is not None and entry["location"] for entry in receipt))
+                else:
+                    with self.assertRaises(ValueError): state.create_styles(authored, credential, receipt, connect=connect)
+                    self.assertEqual(1, len(receipt)); self.assertIsNone(receipt[0]["body"]); self.assertIsNone(receipt[0]["location"])
+                retained = json.dumps(receipt, ensure_ascii=False)
+                self.assertNotIn(credential, retained)
+                self.assertNotIn("".join("%" + format(ord(char), "02X") for char in credential), retained)
 
     def test_database_credential_environment_is_isolated(self):
         invocations = []

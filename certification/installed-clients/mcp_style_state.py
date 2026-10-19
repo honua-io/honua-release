@@ -66,11 +66,33 @@ def create_styles(authored, credential, receipt, *, connect=HTTPConnection):
             connection.request("POST", "/ogc/styles", json.dumps(style["document"], allow_nan=False).encode(), headers={
                 "X-API-Key": credential, "X-Style-Id": style["id"], "Content-Type": "application/vnd.mapbox.style+json", "Accept": "application/json"})
             response = connection.getresponse()
-            entry["status"], entry["location"] = response.status, response.getheader("Location")
+            status = response.status
+            if type(status) is not int or not 100 <= status <= 599:
+                raise ValueError("style setup response status malformed")
+            # Only the bounded integer is safe before inspecting response data.
+            # Rejected Location/body values never enter the retained receipt.
+            entry["status"] = status
+            location = response.getheader("Location")
             raw = response.read(2 * 1024 * 1024 + 1)
             if len(raw) > 2 * 1024 * 1024 or credential.encode() in raw:
                 raise ValueError("style setup response unsafe or oversized")
-            entry["body"] = strict_json(raw)
+            body = strict_json(raw)
+            # JSON unicode escapes must not hide a credential in either object
+            # keys or nested values. Work iteratively within the bounded body.
+            pending = [body]
+            while pending:
+                value = pending.pop()
+                if isinstance(value, str) and credential in value:
+                    raise ValueError("style setup response contains private credential")
+                if isinstance(value, dict):
+                    pending.extend(value.keys()); pending.extend(value.values())
+                elif isinstance(value, list):
+                    pending.extend(value)
+            allowed = ("http://localhost:8080/ogc/styles/" + style["id"],
+                       "http://127.0.0.1:8080/ogc/styles/" + style["id"])
+            if status != 201 or not isinstance(location, str) or location not in allowed or not isinstance(body, dict) or body.get("id") != style["id"]:
+                raise ValueError("style setup did not create the exact authored catalog entry")
+            entry["location"], entry["body"] = location, body
         finally:
             connection.close()
         if entry["status"] != 201:
