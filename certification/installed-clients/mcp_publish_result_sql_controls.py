@@ -49,6 +49,51 @@ class SqlObserverControls(unittest.TestCase):
         with patch.object(state,"connection_observation",return_value=connection_control()),patch.object(state,"database_query",side_effect=lambda query,_:self.query(query)):
             return state.database_snapshot(self.authored,"controlled-unused-password")
 
+    def test_upgrade_cleanup_releases_actual_owned_advisory_backend(self):
+        # Actual Docker exec -> psql child and PostgreSQL advisory lock. This is
+        # driver cleanup proof against an isolated control DB, not a candidate.
+        import tempfile
+        from pathlib import Path
+        driver = Path(__file__).resolve().parents[2] / "e2e/harness/upgrade-chaos.sh"
+        definitions = driver.read_text().split("\ntrap cleanup EXIT\n", 1)[0]
+        commands = r'''
+restore_baseline() { :; }
+db_exec() {
+  if [[ "$1" == *pg_terminate_backend* ]]; then
+    printf '%s\n' "$1" > "$OUT/termination-query"
+  fi
+  command docker exec -i "$CONTROL_POSTGIS_CONTAINER" psql -X -q -A -t -v ON_ERROR_STOP=1 -U honua -d honua_test -c "$1"
+}
+sleep() {
+  local attempt
+  for attempt in $(seq 1 100); do
+    if [ "$(db_exec "SELECT count(*) FROM pg_stat_activity WHERE application_name = '$holder_name' AND wait_event = 'PgSleep';")" = 1 ]; then
+      printf acquired > "$OUT/advisory-acquired"
+      return 0
+    fi
+    command sleep 0.05
+  done
+  return 1
+}
+compose() { printf '%s\n' "$LOCK_HOLDER_PID" > "$OUT/wrapper-pid"; return 1; }
+docker() { [ "$1" != rm ] || printf '%s\n' "$*" >> "$OUT/removed"; return 0; }
+if run_concurrent_start; then exit 9; fi
+[ -f "$OUT/advisory-acquired" ] || exit 8
+if kill -0 "$(cat "$OUT/wrapper-pid")" 2>/dev/null; then exit 7; fi
+printf advisory-holder-completed
+'''
+        with tempfile.TemporaryDirectory(prefix="upgrade-owned-backend-") as directory:
+            result = subprocess.run(["bash", "-c", "source /dev/stdin"], input=definitions+"\n"+commands,
+                capture_output=True, text=True, timeout=20,
+                env={**os.environ,"E2E_OUT":directory,"MIGRATION_LOCK_KEY":"8044282257919950151"})
+            self.assertEqual(result.returncode,0,"owned PostgreSQL cleanup control refused")
+            self.assertEqual(result.stdout,"advisory-holder-completed")
+            query = (Path(directory)/"termination-query").read_text()
+            name = re.search(r"application_name = '(honua-chaos-[0-9a-f]{32})'",query).group(1)
+            self.assertEqual(self.query(f"SELECT count(*) FROM pg_stat_activity WHERE application_name = '{name}';"),"0")
+            self.assertEqual(self.query("SELECT pg_try_advisory_lock(8044282257919950151);"),"t")
+            self.assertEqual(len((Path(directory)/"removed").read_text().splitlines()),2)
+
     def test_actual_sql_preserves_identical_mapping_multiplicity_across_environments(self):
         document = self.completed["graphs"][0]["document"]
         self.graph("production",document); self.graph("staging",document)

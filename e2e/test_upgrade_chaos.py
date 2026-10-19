@@ -119,7 +119,7 @@ kill_at_boundary migration.sql
 def test_concurrent_requires_both_healthy_and_always_removes_containers(tmp_path, mode, passed):
     result = run_driver(tmp_path, r'''
 restore_baseline() { :; }
-db_exec() { :; }
+db_exec() { [[ "$1" != "SELECT count(*) FROM pg_stat_activity"* ]] || echo 0; }
 sleep() { :; }
 compose() { [ "$MODE" != creation-failure ]; }
 docker() {
@@ -287,6 +287,12 @@ def test_concurrent_creation_failure_waits_for_holder_exit_before_return(tmp_pat
     result = run_driver(tmp_path, r'''
 restore_baseline() { :; }
 db_exec() {
+  if [[ "$1" == "SELECT count(*) FROM pg_stat_activity"* ]]; then echo 0; return 0; fi
+  if [[ "$1" == *pg_terminate_backend* ]]; then
+    printf '%s\n' "$1" > "$OUT/backend-termination"
+    kill "$(cat "$OUT/holder-pid")"
+    return 0
+  fi
   trap -p EXIT > "$OUT/holder-inherited-exit"
   trap 'command sleep 0.1; printf exited > "$OUT/holder-exited"' EXIT
   trap 'exit 0' TERM
@@ -311,3 +317,79 @@ printf holder-completed-before-return
     assert result.stdout == "holder-completed-before-return"
     removals = (tmp_path / "removed").read_text().splitlines()
     assert len(removals) == 2
+
+
+def test_concurrent_creation_failure_waits_for_external_holder_child(tmp_path):
+    result = run_driver(tmp_path, r'''
+restore_baseline() { :; }
+db_exec() {
+  if [[ "$1" == "SELECT count(*) FROM pg_stat_activity"* ]]; then echo 0; return 0; fi
+  if [[ "$1" == *pg_terminate_backend* ]]; then
+    printf '%s\n' "$1" > "$OUT/backend-termination"
+    kill "$(cat "$OUT/external-pid")"
+    return 0
+  fi
+  printf '%s\n' "$1" > "$OUT/holder-query"
+  bash -c '
+    trap '"'"'command sleep 0.1; printf completed > "$OUT/external-exited"'"'"' EXIT
+    trap '"'"'exit 0'"'"' TERM
+    printf "%s\n" "$BASHPID" > "$OUT/external-pid"
+    while :; do command sleep 0.01; done
+  '
+  printf reaped > "$OUT/external-reaped"
+}
+sleep() {
+  while [ ! -s "$OUT/external-pid" ]; do command sleep 0.01; done
+}
+compose() { return 1; }
+docker() {
+  [ "$1" != rm ] || printf '%s\n' "$*" >> "$OUT/removed"
+  return 0
+}
+export OUT
+if run_concurrent_start; then exit 9; fi
+[ -f "$OUT/external-exited" ] && [ -f "$OUT/external-reaped" ] || exit 8
+if kill -0 "$(cat "$OUT/external-pid")" 2>/dev/null; then exit 6; fi
+printf external-child-completed-before-return
+''')
+    assert result.returncode == 0, result.stderr
+    assert result.stdout == "external-child-completed-before-return"
+    holder_query = (tmp_path / "holder-query").read_text()
+    termination = (tmp_path / "backend-termination").read_text()
+    import re
+    name = re.search(r"SET application_name = '(honua-chaos-[0-9a-f]{32})'", holder_query).group(1)
+    assert f"application_name = '{name}'" in termination
+    assert "datname = current_database()" in termination
+    assert "usename = current_user" in termination
+    assert "pid <> pg_backend_pid()" in termination
+    assert len((tmp_path / "removed").read_text().splitlines()) == 2
+
+
+@pytest.mark.parametrize("backend,passed", [("absent",True),("still-present",False),("observation-failed",False)])
+def test_concurrent_cleanup_requires_observed_backend_absence(tmp_path,backend,passed):
+    result = run_driver(tmp_path,r'''
+restore_baseline() { :; }
+db_exec() {
+  if [[ "$1" == *pg_terminate_backend* ]]; then echo f; return 0; fi
+  if [[ "$1" == "SELECT count(*) FROM pg_stat_activity"* ]]; then
+    [ "$BACKEND" != observation-failed ] || return 1
+    if [ "$BACKEND" = absent ]; then echo 0; else echo 1; fi
+  fi
+}
+sleep() { :; }
+compose() { return 0; }
+docker() {
+  case "$1" in
+    rm) printf '%s\n' "$*" >> "$OUT/removed" ;;
+    inspect) echo 'true healthy' ;;
+  esac
+  return 0
+}
+wait_for_journal() { return 0; }
+assert_state() { return 0; }
+run_concurrent_start
+''',BACKEND=backend,CHAOS_READY_ATTEMPTS="1")
+    # SQL command success with a false termination result is insufficient;
+    # only an independently observed absence can qualify completed cleanup.
+    assert (result.returncode == 0) == passed,result.stderr
+    assert len((tmp_path/"removed").read_text().splitlines()) == 2
