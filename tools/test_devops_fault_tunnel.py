@@ -91,7 +91,10 @@ def open_tls(tunnel, cert, host=AWS):
     connection, header = open_connect(tunnel, host)
     assert header == b'HTTP/1.1 200 Connection Established\r\n\r\n'
     context = ssl.create_default_context(cafile=str(cert))
-    return context.wrap_socket(connection, server_hostname='localhost')
+    context.minimum_version = ssl.TLSVersion.TLSv1_2
+    secured = context.wrap_socket(connection, server_hostname='localhost')
+    assert secured.version() in ('TLSv1.2', 'TLSv1.3')
+    return secured
 
 
 def exchange(connection, value):
