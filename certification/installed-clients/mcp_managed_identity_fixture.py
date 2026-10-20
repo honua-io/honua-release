@@ -80,6 +80,18 @@ def managed_record(key_id, key, permissions, *, execute, salt, expected_name, ac
             "lastUsedAt": value.get("LastUsedAt"), "revokedAt": value.get("RevokedAt"), "observedAt": stamp()}
 
 
+def profile_permissions(profile, service_id=None):
+    """The caller must derive the exact service from the owned live bootstrap."""
+    if profile in ("admin", "limited-read"):
+        if service_id is not None:
+            raise ValueError("legacy managed profile cannot carry a service")
+        return ["admin"] if profile == "admin" else ["read:*"]
+    if (profile != "workspace-reader" or not isinstance(service_id, str)
+            or not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9_.-]{0,127}", service_id)):
+        raise ValueError("exact workspace execution service required")
+    return ["read:*", "execute:" + service_id + "/geometry.area"]
+
+
 class ManagedIdentityFixture:
     """Restricted normal read:* fixture with owned cleanup and partial receipts.
 
@@ -87,12 +99,10 @@ class ManagedIdentityFixture:
     adapter supplies its protected runtime inspector, not an arbitrary test hook.
     Injectable transports below exist for explicitly offline failure controls.
     """
-    def __init__(self, *, admin_credential, private_path, inspect_owned, redis, credential_salt, http=None, profile="limited-read", receipt_path=None):
+    def __init__(self, *, admin_credential, private_path, inspect_owned, redis, credential_salt, http=None, profile="limited-read", receipt_path=None, service_id=None):
         if not isinstance(admin_credential, str) or not admin_credential or "\n" in admin_credential or "\r" in admin_credential:
             raise ValueError("private admin credential malformed")
-        if profile not in ("limited-read", "admin"):
-            raise ValueError("managed fixture profile refused")
-        self.permissions = ["read:*"] if profile == "limited-read" else ["admin"]
+        self.permissions = profile_permissions(profile, service_id)
         self.profile = profile
         self.runtime = None
         self.admin = admin_credential
@@ -295,7 +305,7 @@ class ManagedIdentityFixture:
         return self.receipt
 
 
-def verify_receipt(receipt, candidate_runtime, profile):
+def verify_receipt(receipt, candidate_runtime, profile, *, service_id=None):
     """Rejudge the original public helper receipt, never qualification booleans.
 
     Immutable producer provenance authenticates the observation of private key
@@ -303,7 +313,7 @@ def verify_receipt(receipt, candidate_runtime, profile):
     they do not claim process attestation or infer an effective tenant.
     """
     from mcp_map_package_validation import strict_json, same_json
-    permissions = ["read:*"] if profile == "limited-read" else ["admin"] if profile == "admin" else None
+    permissions = profile_permissions(profile, service_id)
     if (permissions is None or not isinstance(receipt, dict)
             or receipt.get("schema") != "honua.mcp-managed-identity-fixture/v1"
             or receipt.get("profile") != profile or receipt.get("permissions") != permissions
@@ -419,7 +429,8 @@ def main(argv=None):
     import argparse
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("action", choices=("create", "revoke"))
-    parser.add_argument("--profile", choices=("admin", "limited-read"), required=True)
+    parser.add_argument("--profile", choices=("admin", "limited-read", "workspace-reader"), required=True)
+    parser.add_argument("--service-id")
     parser.add_argument("--private-path", required=True)
     parser.add_argument("--receipt-path", required=True)
     parser.add_argument("--credential-salt", required=True)
@@ -433,7 +444,7 @@ def main(argv=None):
     try:
         managed = ManagedIdentityFixture(admin_credential=os.environ.get("HONUA_MCP_ADMIN_API_KEY"),
             private_path=args.private_path, receipt_path=args.receipt_path, credential_salt=args.credential_salt,
-            profile=args.profile, inspect_owned=lambda: inspect_candidate(args.candidate_source_sha, args.candidate_image), redis=redis_command)
+            profile=args.profile, service_id=args.service_id, inspect_owned=lambda: inspect_candidate(args.candidate_source_sha, args.candidate_image), redis=redis_command)
         if args.action == "create":
             receipt = managed.create()
         else:
@@ -462,7 +473,7 @@ def main(argv=None):
                 # retained error history still prevents a green final proof.
                 managed_record(managed.key_id, managed.key, managed.permissions, execute=redis_command, salt=managed.salt, expected_name=managed.name, active=False)
             receipt = managed.revoke()
-            verify_receipt(receipt, inspect_candidate(args.candidate_source_sha, args.candidate_image), args.profile)
+            verify_receipt(receipt, inspect_candidate(args.candidate_source_sha, args.candidate_image), args.profile, service_id=args.service_id)
         print(json.dumps(receipt, sort_keys=True))
         return 0
     except Exception:
