@@ -46,6 +46,7 @@ def rebind(value, *, inspector=False):
         for phase in ("initialize", "invocation"):
             entry["wire"][phase]["request"]["tenantId"] = selected
         bind_launch(entry["client"], entry["wire"], "inspector" if inspector else "sdk")
+        entry["client"]["launch"]["request"]["tenantId"] = selected
     return value
 
 

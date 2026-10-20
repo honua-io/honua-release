@@ -57,7 +57,7 @@ class DirectCancelStateControls(unittest.TestCase):
                 self.call(record)
         record = copy.deepcopy(self.record); record["spec"]["parameters"]["honua.geoprocessing.plan_id"] = "other"
         with self.assertRaises(ValueError): self.call(record)
-        for field, replacement in (("tenantId", "other"), ("principalId", "other"),
+        for field, replacement in (("tenantId", None), ("principalId", "other"),
                                    ("ownerActorId", "other"), ("workspaceOwnerId", "other")):
             record = copy.deepcopy(self.record)
             record["audit"]["submitterSecurityContext"][field] = replacement
