@@ -55,7 +55,8 @@ function setup(mode) {
       "args=sys.argv[1:]",
       "script=next((arg for arg in args if arg.endswith('.py')),None)",
       "name=Path(script).name if script else ''",
-      "if name=='mcp_direct_cancel_validation.py' and '--nonce' in args:",
+      "with trace.open('a') as output: output.write(json.dumps({'action':'python','name':name})+'\\n')",
+      "if name in ('mcp_direct_cancel_validation.py','mcp_direct_cancel_config.py') and '--nonce' in args:",
       "    args[args.index('--nonce')+1]=" + JSON.stringify(nonce),
       "if name not in ('mcp_managed_identity_fixture.py','mcp_direct_cancel_state.py'): os.execv(real,[real,*args])",
       "sys.path.insert(0,str(Path(script).parent))",
@@ -177,7 +178,9 @@ for (const mode of ["valid", "wrong-actor", "early-success", "no-terminal", "cle
         ownedDisposableCandidate: true, results });
       const raw = JSON.parse(readFileSync(results + ".direct-cancel.raw.json"));
       const state = JSON.parse(readFileSync(control.statePath));
-      assert.equal(state.api.filter(item => item.action === "create").length, 2);
+      assert.equal(state.api.filter(item => item.action === "create").length, 2,
+        JSON.stringify({ error: checks[directCancelOperation]?.error,
+          launched: traces.filter(item => item.action === "python").map(item => item.name).slice(-8) }));
       assert.equal(state.api.filter(item => item.action === "revoke").length, 2);
       const traces = readFileSync(control.tracePath, "utf8").trim().split("\n").map(JSON.parse);
       for (const profile of ["admin", "limited-read"]) {
