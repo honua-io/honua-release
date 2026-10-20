@@ -344,7 +344,7 @@ def audit(policy: dict, snapshot: dict, receipts: dict | None = None,
                for repo, row in expected.items()}
     extras = sorted(set(observed) - set(expected))
     return {'schema_version': 1, 'issue': 'honua-io/honua-release#236',
-            'review_model': model['id'] if model else 'independent-code-owner',
+            'review_model': model.get('id', 'unnamed') if model else 'independent-code-owner',
             'status': 'fail' if extras or any(results.values()) else 'pass',
             'unexpected_repositories': extras, 'repositories': results}
 

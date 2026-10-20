@@ -84,9 +84,10 @@ weakened, skipped or deleted to change these results.
 `policy.json` enumerates all 17 repositories from the adopted issue inventory,
 including all nine manifest components. The renderer preserves the currently
 required exact contexts as a baseline, binds them to the GitHub Actions app
-(15368), and adds strict release-line checks, one code-owner review, stale-review
-dismissal, last-push approval, resolved threads, deletion/force-push prevention,
-and **no bypass actors**. It targets `refs/heads/release/*`; it neither creates a
+(15368), and adds strict release-line checks, a required pull request, stale-review
+dismissal, resolved threads, deletion/force-push prevention, and **no bypass
+actors**. Without a `review_model` it also requires one code-owner review and
+last-push approval; the 2026.1 operator-approval model above omits those two. It targets `refs/heads/release/*`; it neither creates a
 maintenance branch nor changes default-branch policy. In particular, server
 trunk's adopted `strict=false` exception remains intact. SDK native `release/x.y`
 and platform `release/2026.1` branches both match this pattern. Existing scratch
