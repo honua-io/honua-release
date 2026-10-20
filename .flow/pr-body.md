@@ -1,10 +1,10 @@
-docs(release): record the 2026-10-19 Lambda GA bill position
+docs(release): record the 2026-10-20 Lambda GA bill position
 The Lambda GA bill ledger (`docs/2026.1-lambda-ga-bill.md`) was last updated on 2026-09-27. Since then it has named the wrong pin (`87966c3`) and the wrong blocker. This PR adds a dated status section. It is read-only evidence from GitHub plus the downloaded receipt artifact. No gate, manifest field or qualification changes.
 
 What it records:
 
 - **Items 1 and 2 are proven on the current manifest pin, pre-cut.** honua-server run 38239462033 (2026-10-12) produced a `result: pass` receipt. Its `serverRevision` is `0e03bdd`, and its source digest and ECR digest both equal the pinned `awsLambdaDigest` `sha256:3d6a38e3…`. Fixture 10/10 rows in all four phases, write round-trip 1/1/1/0, 403 and 401, cold start 6246.32 ms, alias `live` 9 → 13 → 9, full teardown. The ledger had never recorded this run. §1 rows 1 and 2 now point at it.
-- **Every lane run since then has failed.** The 2026-10-13 run was refused at input validation (a digest-form image). The 10-16, 10-17, 10-18 and 10-19 runs each stopped at `Secrets Manager read denied; serving noProof`.
+- **Every lane run since then has failed.** The 2026-10-13 run was refused at input validation (a digest-form image). The 10-16, 10-17, 10-18, 10-19 and 10-20 runs (the last is 39450966449) each stopped at `Secrets Manager read denied; serving noProof`.
 - **The current blocker is an infrastructure apply, not code.** The source fix is honua-iac#255 (`3be6dfce`, merged 2026-10-17). It is not yet applied to the standing `aws-cert` stack. That apply needs a governed exact-plan executor and plan-bound approval, and the protected `terraform-live-approval` environment prevents self-review.
 - **Items 3–5 are unchanged.** Items 3 and 4 are candidate-bound. Item 5's Supported flip is withheld behind the §5 sequence.
 
