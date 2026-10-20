@@ -37,7 +37,7 @@ if(frame.error){const auth=frame.error.data?.code==='unauthenticated';console.er
   selected.integrity = "explicit-offline-not-published"; writeFileSync(manifestPath, JSON.stringify(manifest));
 }
 
-test("actual JS two-client factory completes unchanged full oracles through offline HTTP and normal fixture implementations", async () => {
+for (const mode of ["valid", "wrong-error-id"]) test(`actual JS two-client factory through offline HTTP and normal fixture implementations: ${mode}`, async () => {
   const directory = mkdtempSync(join(tmpdir(), "offline-full-deployment-factory-"));
   const originalDate = globalThis.Date, originalPath = process.env.PATH;
   const oldEnvironment = Object.fromEntries(["OFFLINE_ORIGINAL_PYTHON", "OFFLINE_COHORT_DIRECTORY", "HONUA_MCP_READ_API_KEY"].map(key => [key, process.env[key]]));
@@ -91,7 +91,11 @@ test("actual JS two-client factory completes unchanged full oracles through offl
         if (originalDate.parse(expected.completedAt) > originalDate.parse(old)) writeFileSync(clockPath, JSON.stringify(expected.completedAt));
         observed.push({ selector, id: expected.id, session: request.headers["mcp-session-id"] }); cursor++;
         response.writeHead(200, { "content-type": "application/json" });
-        response.end(JSON.stringify({ jsonrpc: "2.0", id: message.id, ...(expected.result.error ? expected.result : { result: expected.result }) }));
+        // A retained oracle-vector error may contain its own old RPC id. Only
+        // the error payload belongs here; the actual request owns its frame id.
+        const replyId = mode === "wrong-error-id" && selector === "inspector" && expected.result.error ? 1 : message.id;
+        response.end(JSON.stringify({ jsonrpc: "2.0", id: replyId,
+          ...(expected.result.error ? { error:expected.result.error } : { result: expected.result }) }));
       } catch (error) { observed.push({ error: error.message }); response.writeHead(400).end(JSON.stringify({ error: "explicit offline fixture mismatch" })); }
     });
     await new Promise((resolve, reject) => { server.once("error", reject); server.listen(8080, "127.0.0.1", resolve); });
@@ -121,6 +125,14 @@ test("actual JS two-client factory completes unchanged full oracles through offl
     }
     const diagnostic = JSON.stringify({ recovery, helpers: helperCommands.map(value => ({ helper:value.helper, phase:value.args[3] })), observedCount:observed.length,
       lastObserved:observed.slice(-4).map(value=>({selector:value.selector,id:value.id})),postmortems });
+    if (mode === "wrong-error-id") {
+      assert.equal(observed.some(value=>value.selector==='inspector'&&value.id==='foreign-personal-workspace'),true);
+      assert.equal(records.length,8);assert.equal(records.every(value=>typeof value.error==='string'),true,diagnostic);
+      assert.equal(proofs.sdk,undefined);assert.equal(proofs.inspector,undefined);
+      assert.equal(recovery.length,1);assert.equal(recovery[0].cleanupComplete,true);
+      assert.deepEqual(recovery[0].failures,['inspector']);
+      return;
+    }
     assert.equal(records.length, 8); assert.deepEqual(records.filter(value => value.error), [], diagnostic);
     for (const selector of ["sdk", "inspector"]) {
       assert.ok(proofs[selector]); assert.equal(records.filter(value => value.selector === selector).length, 4);
