@@ -41,15 +41,22 @@ def instant(value):
 def authored_plan(nonce):
     if not isinstance(nonce, str) or not re.fullmatch(r"[a-f0-9]{24}", nonce):
         raise ValueError("direct cancel requires fresh bounded nonce")
-    features = [{"type": "Feature", "geometry": {"type": "Point", "coordinates": [n % 100, n // 100]},
-                 "properties": {}} for n in range(10000)]
+    # One MultiPoint keeps 10,000 actual buffer coordinates while avoiding a
+    # megabyte of repeated Feature JSON in Inspector's single argv value.
+    points = [[n % 100, n // 100] for n in range(10000)]
+    features = [{"type": "Feature", "geometry": {"type": "MultiPoint", "coordinates": points},
+                 "properties": {}}]
     geojson = json.dumps({"type": "FeatureCollection", "features": features}, separators=(",", ":"), allow_nan=False).encode()
     uri = "data:application/geo+json;base64," + base64.b64encode(geojson).decode("ascii")
     plan_id = "mcp-direct-cancel-" + nonce
     plan = {"planId": plan_id, "intentId": plan_id, "outputs": ["FeatureLayer"], "steps": [
         {"stepId": "owned-buffer", "kind": "Geoprocess", "processId": PROCESS,
          "inputs": {"input": uri, "distance": "0.8", "unit": "meters", "dissolve": "true", "sourceCrs": "EPSG:3857"}}]}
-    if (len(features) != 10000 or len(geojson) > 900000
+    # Inspector passes each tool argument through argv. Keep the complete
+    # authored plan below the Linux per-argument ceiling, with room for the
+    # CLI's key/value framing; the live oracle still requires Running.
+    inspector_plan_arg = ("plan=" + json.dumps(plan)).encode()
+    if (len(features) != 1 or len(points) != 10000 or len(geojson) > 85000 or len(inspector_plan_arg) >= 120000
             or len(json.dumps({"jsonrpc": "2.0", "id": 1, "method": "tools/call", "params":
                                {"name": "honua_execute_plan", "arguments": {"plan": plan, "idempotencyKey": plan_id}}})) >= 2 * 1024 * 1024):
         raise ValueError("direct cancel workload exceeds reviewed bounded transport")

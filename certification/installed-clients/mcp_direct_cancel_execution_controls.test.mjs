@@ -9,6 +9,7 @@ import { tmpdir } from "node:os";
 import { delimiter, dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { createDirectCancelValidation, directCancelDependencies, directCancelOperation } from "./mcp_direct_cancel_validation.mjs";
+import { inspectorToolArguments } from "./mcp_fixed_client_launcher.mjs";
 import { prepareControlledInstallation } from "./mcp_map_package_wire_controls.mjs";
 
 const source = process.env.HONUA_DIRECT_CANCEL_SOURCE_DIR ?? dirname(fileURLToPath(import.meta.url));
@@ -61,6 +62,8 @@ function setup(mode) {
     assert.equal(generated.status, 0, generated.stderr);
     const vector = JSON.parse(generated.stdout);
     const raw = (mode === "valid-inspector" ? vector.inspector : vector.sdk).observations;
+    const submittedArgs = inspectorToolArguments("honua_execute_plan", raw.calls[5].params.arguments);
+    assert.ok(submittedArgs.every(value => Buffer.byteLength(value) < 120_000), "Inspector argument exceeds bounded process launch");
     if (mode === "early-success") {
       const body = JSON.parse(raw.calls[6].result.contents[0].text);
       body.status = "Succeeded";

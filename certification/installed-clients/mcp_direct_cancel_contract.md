@@ -1,7 +1,10 @@
 # Original direct-cancel source control
 
 The protected installed-client producer submits one fresh, bounded managed
-buffer job through each canonical client. It must observe that exact job
+buffer job over 10,000 MultiPoint coordinates through each canonical client.
+Its complete `plan` argument stays below 120 KiB so Inspector's CLI can pass it
+as one process argument; the server still buffers every coordinate.
+It must observe that exact job
 `Running` before requesting `honua_cancel_job` with the original managed
 owner key. An acknowledgement is only an intermediate observation: the
 producer also requires durable `Cancelled`, an empty result package, and a
