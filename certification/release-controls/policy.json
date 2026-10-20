@@ -96,7 +96,7 @@
       ],
       "required_checks": [],
       "tag_refs": [],
-      "check_qualification": "MISSING: PR contracts (job `contracts`) runs on every pull_request but has failed on trunk and on every PR since at least 2026-10-16 (trunk run 38873190052). A permanently red context cannot be a release-line denominator until honua-esri-compat repairs it.",
+      "check_qualification": "MISSING: PR contracts (job `contracts`) runs on every pull_request but has failed on trunk and on every PR since at least 2026-10-16 (trunk run 38873190052). A permanently red context cannot be a release-line denominator until that repository repairs it.",
       "tag_qualification": "publication tag namespace and signing applicability require qualification",
       "code_owners": [
         "mikemcdougall"

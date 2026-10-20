@@ -1,0 +1,85 @@
+{
+  "schema_version": 1,
+  "issue": "honua-io/honua-release#236",
+  "review_model": "operator-approval-2026.1",
+  "status": "fail",
+  "unexpected_repositories": [],
+  "repositories": {
+    "geospatial-grpc": [
+      "complete active release-line ruleset missing or drifted",
+      "catch-all human CODEOWNERS not verified",
+      "native signed-tag producer and trusted verification not qualified"
+    ],
+    "geospatial-mcp": [
+      "complete active release-line ruleset missing or drifted",
+      "catch-all human CODEOWNERS not verified"
+    ],
+    "honua-console": [
+      "complete active release-line ruleset missing or drifted",
+      "catch-all human CODEOWNERS not verified"
+    ],
+    "honua-demo-infra": [
+      "complete active release-line ruleset missing or drifted",
+      "catch-all human CODEOWNERS not verified"
+    ],
+    "honua-devops": [
+      "complete active release-line ruleset missing or drifted",
+      "catch-all human CODEOWNERS not verified"
+    ],
+    "honua-esri-compat": [
+      "required_checks must be a nonempty, unique denominator",
+      "catch-all human CODEOWNERS not verified"
+    ],
+    "honua-evidence": [
+      "required_checks must be a nonempty, unique denominator",
+      "catch-all human CODEOWNERS not verified"
+    ],
+    "honua-helm": [
+      "complete active release-line ruleset missing or drifted",
+      "catch-all human CODEOWNERS not verified",
+      "native signed-tag producer and trusted verification not qualified"
+    ],
+    "honua-iac": [
+      "required_checks must be a nonempty, unique denominator",
+      "catch-all human CODEOWNERS not verified"
+    ],
+    "honua-release": [
+      "complete active release-line ruleset missing or drifted",
+      "immutable native publication tag ruleset missing or drifted",
+      "native signed-tag producer and trusted verification not qualified"
+    ],
+    "honua-sdk-dotnet": [
+      "complete active release-line ruleset missing or drifted",
+      "catch-all human CODEOWNERS not verified",
+      "native signed-tag producer and trusted verification not qualified"
+    ],
+    "honua-sdk-js": [
+      "complete active release-line ruleset missing or drifted",
+      "catch-all human CODEOWNERS not verified"
+    ],
+    "honua-sdk-python": [
+      "complete active release-line ruleset missing or drifted",
+      "catch-all human CODEOWNERS not verified",
+      "immutable native publication tag ruleset missing or drifted",
+      "native signed-tag producer and trusted verification not qualified"
+    ],
+    "honua-server": [
+      "complete active release-line ruleset missing or drifted",
+      "catch-all human CODEOWNERS not verified"
+    ],
+    "honua-site": [
+      "complete active release-line ruleset missing or drifted",
+      "catch-all human CODEOWNERS not verified"
+    ],
+    "honua-studio": [
+      "complete active release-line ruleset missing or drifted",
+      "catch-all human CODEOWNERS not verified"
+    ],
+    "honua-support": [
+      "complete active release-line ruleset missing or drifted",
+      "catch-all human CODEOWNERS not verified"
+    ]
+  },
+  "snapshot_sha256": "afbe9b3e35fce2dc5af6cca67edf90c635044b57d73b66c348b3304d641973cb",
+  "policy_sha256": "a67919ce701a1fac62b261602b009110e4fa78faba69e6e5d6dc238b53acec64"
+}

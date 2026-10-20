@@ -194,10 +194,14 @@ def test_operator_actions_match_the_committed_policy_and_do_not_call_github(monk
     policy = json.loads((root / 'certification/release-controls/policy.json').read_text())
     trust = json.loads((root / 'certification/release-controls/tag-signing-policy.json').read_text())
     rows = {row['id']: row for row in operator_actions(policy, trust)}
-    assert rows['independent-code-owner']['status'] == 'open'
+    # Owner ruling 2026-09-29 defers the two-person rule; it is not reported as satisfied.
+    assert policy['review_model']['id'] == 'operator-approval-2026.1'
+    assert rows['independent-code-owner']['status'] == 'deferred'
     assert rows['independent-code-owner']['repositories'] == sorted(policy['repositories'])
     assert rows['missing-check-denominators']['repositories'] == [
-        'honua-demo-infra', 'honua-esri-compat', 'honua-evidence', 'honua-iac']
+        'honua-esri-compat', 'honua-evidence', 'honua-iac']
+    assert policy['repositories']['honua-demo-infra']['required_checks'] == [
+        'Terraform format and validate', 'demo-services.v1.json matches seed definitions']
     assert rows['nominate-signing-key']['status'] == 'open'
     assert rows['nominate-signing-key']['repositories'] == [
         'geospatial-grpc', 'honua-helm', 'honua-release', 'honua-sdk-dotnet', 'honua-sdk-python']
@@ -268,3 +272,83 @@ def test_paginated_repository_controls_are_not_truncated(monkeypatch):
     monkeypatch.setattr(controls.subprocess, 'run', run)
     assert controls.github('repos/example/rulesets', paginated=True) == [{'id': 1}, {'id': 2}]
     assert calls == [['gh', 'api', 'repos/example/rulesets', '--paginate', '--slurp']]
+
+
+OPERATOR_MODEL = {'id': 'operator-approval-2026.1', 'ruling': 'https://example.invalid/ruling',
+                  'independent_code_owner_required': False, 'required_approving_review_count': 0}
+# Written from the 2026-09-29 ruling and the rules API shape, not captured from the renderer:
+# a pull request is still required, but no approval the sole writer cannot give.
+OPERATOR_LIVE_REVIEW = {
+    'required_approving_review_count': 0, 'dismiss_stale_reviews_on_push': True,
+    'require_code_owner_review': False, 'require_last_push_approval': False,
+    'required_review_thread_resolution': True,
+    'allowed_merge_methods': ['merge', 'squash', 'rebase'],
+}
+
+
+def operator_snapshot():
+    data = snapshot()
+    data['rulesets'][0]['rules'][2]['parameters'] = copy.deepcopy(OPERATOR_LIVE_REVIEW)
+    data['codeowners']['content'] = '* @mikemcdougall\n'
+    data['human_writers'] = ['mikemcdougall']
+    return data
+
+
+OPERATOR_POLICY = {**POLICY, 'code_owners': ['mikemcdougall']}
+
+
+def test_operator_model_renders_the_ruling_and_accepts_the_sole_writer():
+    rendered = branch_rules(OPERATOR_POLICY, OPERATOR_MODEL)
+    assert rendered['bypass_actors'] == []
+    assert rendered['rules'][2] == {'type': 'pull_request', 'parameters': OPERATOR_LIVE_REVIEW}
+    assert [r['type'] for r in rendered['rules']] == [
+        'deletion', 'non_fast_forward', 'pull_request', 'required_status_checks']
+    assert audit_repository(OPERATOR_POLICY, operator_snapshot(), model=OPERATOR_MODEL) == []
+
+
+def test_operator_model_still_rejects_bypass_missing_checks_and_absent_owner():
+    for mutate in (
+        lambda d: d['rulesets'][0].__setitem__('bypass_actors', [
+            {'actor_type': 'RepositoryRole', 'actor_id': 5, 'bypass_mode': 'always'}]),
+        lambda d: d['rulesets'][0]['rules'].pop(3),
+        lambda d: d['rulesets'][0]['rules'].pop(2),
+        lambda d: d['rulesets'][0]['rules'][2]['parameters'].__setitem__('required_review_thread_resolution', False),
+        lambda d: d['rulesets'][0]['rules'][3]['parameters'].__setitem__('strict_required_status_checks_policy', False),
+    ):
+        data = operator_snapshot()
+        mutate(data)
+        assert 'complete active release-line ruleset missing or drifted' in audit_repository(
+            OPERATOR_POLICY, data, model=OPERATOR_MODEL)
+    data = operator_snapshot()
+    data.pop('codeowners')
+    assert 'catch-all human CODEOWNERS not verified' in audit_repository(OPERATOR_POLICY, data, model=OPERATOR_MODEL)
+    data = operator_snapshot()
+    data['human_writers'] = []
+    assert audit_repository(OPERATOR_POLICY, data, model=OPERATOR_MODEL) == [
+        'designated code owner lacks write access']
+
+
+def test_stronger_live_review_settings_satisfy_the_operator_model():
+    data = operator_snapshot()
+    data['rulesets'][0]['rules'][2]['parameters'].update(
+        required_approving_review_count=1, require_code_owner_review=True, require_last_push_approval=True)
+    assert audit_repository(OPERATOR_POLICY, data, model=OPERATOR_MODEL) == []
+
+
+def test_without_a_ruling_the_two_person_contract_still_applies():
+    # An operator-model ruleset does not satisfy the default contract.
+    assert 'complete active release-line ruleset missing or drifted' in audit_repository(
+        OPERATOR_POLICY, operator_snapshot())
+    for model in ({**OPERATOR_MODEL, 'ruling': ''}, {**OPERATOR_MODEL, 'required_approving_review_count': -1},
+                  {**OPERATOR_MODEL, 'required_approving_review_count': '0'}):
+        with pytest.raises(ValueError):
+            branch_rules(OPERATOR_POLICY, model)
+
+
+def test_audit_receipt_names_the_review_model():
+    policy = {'review_model': OPERATOR_MODEL, 'repositories': {'a': OPERATOR_POLICY}}
+    result = audit(policy, {'repositories': {'a': operator_snapshot()}})
+    assert result['review_model'] == 'operator-approval-2026.1'
+    assert result['status'] == 'pass'
+    assert audit({'repositories': {'a': OPERATOR_POLICY}},
+                 {'repositories': {'a': operator_snapshot()}})['status'] == 'fail'

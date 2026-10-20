@@ -433,6 +433,23 @@
       "reason": "Exact persisted publicationType discriminator declared by JsonStringEnumMemberName in immutable honua-server ce5bcccecdb64dcff4094a0982d95eea875bad7f, src/Honua.Core.Abstractions/Features/Metadata/Domain/V2/MetadataV2Enums.cs (https://github.com/honua-io/honua-server/blob/ce5bcccecdb64dcff4094a0982d95eea875bad7f/src/Honua.Core.Abstractions/Features/Metadata/Domain/V2/MetadataV2Enums.cs). The independent worker-result publication observer and oracle must retain this exact stored discriminator to bind public routing to physical storage. Only this complete wire identifier in these three files is covered; no unrelated prose, compatibility claim, classifier or baseline change. Revisit if the persisted contract changes.",
       "owner": "@mikemcdougall",
       "issue": "honua-io/honua-release#710"
+    },
+    {
+      "repo": "honua-release",
+      "paths": [
+        "certification/release-controls/snapshot-2026-10-20-windows.json",
+        "certification/release-controls/audit-2026-10-20-windows.json"
+      ],
+      "tokens": [
+        "esri"
+      ],
+      "identifiers": [
+        "honua-esri-compat",
+        "//api.github.com/repos/honua-io/honua-esri-compat"
+      ],
+      "reason": "Read-only GitHub API capture of the 17 release-control repositories keyed by their exact repository names; honua-io/honua-esri-compat is one of them. The SHA-256-bound audit receipt hashes these bytes, so renaming the key or API URL would falsify the capture. Only this repository identifier and its API URL in this snapshot and its audit receipt are covered; prose and other identifiers remain checked.",
+      "owner": "@mikemcdougall",
+      "issue": "honua-io/honua-release#236"
     }
   ]
 }

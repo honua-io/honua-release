@@ -13,6 +13,39 @@ The current-versus-required inventory was posted before any settings changes:
 https://github.com/honua-io/honua-release/issues/236#issuecomment-5557114421
 No live settings have been changed. #236 remains must-fix-before-cut.
 
+## Review model for 2026.1 — operator approval (ruling 2026-09-29)
+
+The owner ruled on 2026-09-29
+(https://github.com/honua-io/honua-release/issues/236#issuecomment-5883910519) that
+the second-human CODEOWNERS approval cannot be met while the operator is the only
+writer. `policy.json` `review_model` records it as `operator-approval-2026.1`, and
+`render`/`audit` apply it:
+
+- A release-line pull request is still required: it needs every exact required
+  check (strict, bound to GitHub Actions 15368), resolved threads, stale-review
+  dismissal, and no deletion, force push or bypass actor.
+- `required_approving_review_count` is 0, and code-owner and last-push approval
+  are off. The sole writer cannot approve their own pull request, so any of those
+  three would block every merge rather than add review. The operator approves by
+  merging. A live ruleset that sets them anyway is stronger, and the audit accepts it.
+- CODEOWNERS still names the operator (`* @mikemcdougall`), and the audit requires
+  that the named owner holds write access. It no longer reports `no independent
+  human code owner` for this release. `operator-actions` marks that row
+  `deferred`, not `satisfied`.
+- Promotion keeps its own independence rule: an automation principal starts it
+  and the operator approves the `release-promotion` environment.
+- The two-person review rule moves to 2026.2 as an accepted limitation. Removing
+  `review_model` from `policy.json` restores the two-person contract in both
+  `render` and `audit`.
+
+`snapshot-2026-10-20-windows.json` and `audit-2026-10-20-windows.json` are a fresh
+read-only capture under this model. The audit still **fails for all 17
+repositories**: CODEOWNERS is missing in 16, no release-line ruleset is applied
+anywhere, three repositories have no qualified check set, two lack the immutable
+tag ruleset, and no tag signer is nominated. Earlier receipts
+(`audit-2026-09-06*.json`) bind the policy bytes they were produced from. They are
+historical and no longer reproduce against the current `policy.json`.
+
 ## Windows verification after merge
 
 The fresh `snapshot-2026-09-06-windows.json` records each repository's exact
@@ -187,14 +220,19 @@ still reproduce byte-for-byte from their snapshots.
 performs none of them. It exits nonzero while a policy prerequisite is still open.
 Do not wire that command into `validate`; it describes work this repository cannot do.
 
-- Nominate and authorize an independent human code owner, add that identity to
-  the policy and CODEOWNERS, and land ownership PRs in the remaining repositories.
-  No user/team is invented and no collaborator access is granted by this PR.
-- Qualify each aggregate implementation and implement the four missing required
-  check denominators before activating their rulesets.
-- Apply/read back all release-line controls and prove a denied unreviewed change
-  plus an independently reviewed allowed change. Those are pre-cut requirements;
-  the absence of a candidate does not release them.
+- ~~Nominate an independent human code owner~~ — **deferred to 2026.2** by the
+  owner ruling below. Still open for 2026.1: land the catch-all
+  `* @mikemcdougall` CODEOWNERS line in the 16 repositories other than
+  honua-release (the 2026-10-20 audit fails `catch-all human CODEOWNERS not
+  verified` in all 16). This repository cannot open those pulls.
+- Implement the three remaining missing required-check denominators
+  (honua-iac, honua-evidence and the compatibility-suite repository; reasons in `policy.json`
+  `check_qualification`) and qualify the existing ones before activating their
+  rulesets. honua-demo-infra now has a recorded denominator.
+- Apply/read back all release-line controls and prove one denied change (a
+  direct push, or a pull request with a failing required check) plus one change
+  merged by the operator after every required check passed. Those are pre-cut
+  requirements; the absence of a candidate does not release them.
 - Nominate an authorized publication signing key and record its fingerprint in
   `tag-signing-policy.json`. The producer, trust policy and verifier now exist
   (see above), but the policy names no signer, so no publication tag can be
