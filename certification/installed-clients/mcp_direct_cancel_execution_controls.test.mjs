@@ -25,7 +25,7 @@ function prepareControlledInspector(directory, manifestPath) {
     "const args=process.argv.slice(2);",
     "const value=name=>args[args.indexOf(name)+1];",
     "const headers={'content-type':'application/json'};",
-    "for(let i=0;i<args.length;i++)if(args[i]==='--header'){const entry=args[++i],at=entry.indexOf(':');headers[entry.slice(0,at).toLowerCase()]=entry.slice(at+1).trim();}",
+    "for(let i=0;i<args.length;i++)if(args[i]==='--header')for(i++;i<args.length&&!args[i].startsWith('--');i++){const entry=args[i],at=entry.indexOf(':');headers[entry.slice(0,at).toLowerCase()]=entry.slice(at+1).trim();}",
     "const request=async(id,method,params,session)=>{const response=await fetch(value('--cli'),{method:'POST',headers:{...headers,...(session?{'mcp-session-id':session}:{})},body:JSON.stringify({jsonrpc:'2.0',id,method,params})});return {frame:await response.json(),session:response.headers.get('mcp-session-id')};};",
     "const init=await request(0,'initialize',{protocolVersion:'2025-06-18',capabilities:{},clientInfo:{name:'inspector-cli',version:'2.10.1'}});",
     "const method=value('--method');const params=method==='resources/read'?{uri:value('--uri')}:{name:value('--tool-name'),arguments:{}};",
