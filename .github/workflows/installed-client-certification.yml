@@ -64,6 +64,8 @@ jobs:
           python -B certification/installed-clients/mcp_deployment_workspace_redis_controls.py
           python -B certification/installed-clients/mcp_deployment_workspace_validation_controls.py
           node --test certification/installed-clients/mcp_deployment_workspace_validation.test.mjs
+          python -B certification/installed-clients/mcp_managed_identity_fixture_controls.py
+          python -B certification/installed-clients/mcp_managed_identity_redis_controls.py
 
   publish-result-state-controls:
     runs-on: ubuntu-latest
