@@ -9,7 +9,7 @@ const clientRoot = new URL('../certification/sources/geospatial-mcp/', import.me
 const require = createRequire(new URL('package.json', clientRoot));
 const { Client } = await import(pathToFileURL(require.resolve('@modelcontextprotocol/sdk/client/index.js')));
 const { StreamableHTTPClientTransport } = await import(pathToFileURL(require.resolve('@modelcontextprotocol/sdk/client/streamableHttp.js')));
-const LOCK = 'f2d66687dd7c31b6620d1417cabaa367da9b56bed7bcb00f56aabcf96e789192';
+const LOCK = '5e6b28f4c29b82b799190e9e92083c7aca38b879afc7e242bee4320a711e195f';
 const hash = bytes => createHash('sha256').update(bytes).digest('hex');
 
 function outputs(result) {
@@ -26,7 +26,7 @@ export async function lifecycle(baseUrl, mode, argument, apiKey, { loopback = fa
     || origin.username || origin.password || origin.pathname !== '/' || origin.search || origin.hash || !apiKey) throw Error('invalid-origin');
   const bytes = await readFile(new URL('package-lock.json', clientRoot));
   const locked = JSON.parse(bytes).packages['node_modules/@modelcontextprotocol/sdk'];
-  if (hash(bytes) !== LOCK || locked?.version !== '1.30.0') throw Error('client-lock');
+  if (hash(bytes) !== LOCK || locked?.version !== '1.32.1') throw Error('client-lock');
   let root = dirname(require.resolve('@modelcontextprotocol/sdk/client/index.js'));
   let installed;
   for (let i = 0; i < 6; i++, root = dirname(root)) {

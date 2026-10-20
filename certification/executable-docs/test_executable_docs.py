@@ -15,7 +15,7 @@ from inputs import doc_id, load_vars, needs, render  # noqa: E402
 from inventory import Resolver, build, drift  # noqa: E402
 from registry_guard import (filter_npm_packument, filter_nuget_registration, honua_dependencies, filter_nuget_versions, filter_pypi_simple,  # noqa: E402
                             digest_matches, nuget_family_pins, pins_from_manifest, Guard)
-from run import (assert_output, combine_csharp, combine_js, continuation_error, scrub,  # noqa: E402
+from run import (assert_output, combine_csharp, continuation_error, scrub,  # noqa: E402
                  split_csharp, substitute, SERVE)
 
 
@@ -237,12 +237,7 @@ def test_csharp_continuation_hoists_usings_and_types():
     assert combined.index("using System.Linq;") < combined.index("var client")
     assert combined.index("Console.WriteLine") < combined.index("record Point")
     assert continuation_error("csharp", "error CS0103: The name 'client' does not exist")
-    assert continuation_error("javascript", "ReferenceError: client is not defined")
-
-
-def test_js_continuation_hoists_imports():
-    combined = combine_js(["import { A } from 'a';\nconst a = new A();\n", "import { A } from 'a';\na.run();\n"])
-    assert combined.count("import { A } from 'a';") == 1 and combined.index("a.run") > combined.index("new A")
+    assert not continuation_error("javascript", "ReferenceError: client is not defined")
 
 
 def test_serve_detection_and_substitution_and_scrub():
@@ -904,13 +899,14 @@ def test_python_audit_uses_metadata_without_requiring_pip(tmp_path, monkeypatch)
     calls = []
     def docker(*args, **kwargs):
         calls.append((args, kwargs))
-        return subprocess.CompletedProcess(args, 0, '[{"name":"Honua_Sdk","version":"0.1.11"}]', "")
+        return subprocess.CompletedProcess(args, 0, '{"environments":[],"packages":[{"name":"Honua_Sdk","version":"0.1.11"}]}', "")
     monkeypatch.setattr(run, "docker", docker)
     session = run.Session("metadata", tmp_path, {"python": "python-pinned"}, "http://guard", tmp_path,
                           False, "host", "metadata", "5.9.3")
     session.containers["python"] = "python-container"
     assert session.installed_honua("python") == [{"name": "honua-sdk", "version": "0.1.11", "ecosystem": "pypi"}]
-    assert "importlib.metadata" in calls[0][0][-1]
+    assert "python_environment_audit.py" in calls[0][0][-4]
+    assert calls[0][0][-3:] == (str(tmp_path), str(session.home), "/tmp")
     assert calls[0][1]["check"] is True
 
 

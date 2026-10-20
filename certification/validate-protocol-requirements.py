@@ -158,6 +158,30 @@ def validate_bounded_roster(catalog: dict, roster: dict) -> None:
         raise ValueError(f"Bounded test IDs resolve to more than one requirement: {ambiguous}")
 
 
+def validate_mcp_authorization(catalog: dict) -> None:
+    """Check both canonical clients against the exhaustive operation policy."""
+    spec = importlib.util.spec_from_file_location("mcp_auth_generator", ROOT / "generate-protocol-requirements.py")
+    config = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(config)
+    inventory = json.loads((ROOT / "sources/geospatial-mcp/operations.v1.json").read_text(encoding="utf-8"))
+    policies = config.mcp_operation_auth(inventory)
+    kinds = {entry["operation"]: entry["kind"] for entry in inventory["operations"]}
+    expected = {
+        (operation, client, lane, version, "local-docker", f"mcp.{kinds[operation]}", policy)
+        for operation, policy in policies.items()
+        for client, lane, version in config.mcp_clients()
+    }
+    rows = [row for row in catalog["requirements"] if row["surface"] == "mcp"]
+    actual = {
+        (row["operation"], row["canonical_client"], row["client_lane"], row["client_version"], row["deployment_target"],
+         row["capability_key"], row["auth_policy_revision"])
+        for row in rows
+    }
+    if (len(rows) != len(expected) or actual != expected
+            or any(row["scenario_facets"] != ["positive", "negative", "media-schema", "auth"] for row in rows)):
+        raise ValueError("MCP requirements differ from the complete selected-client authorization policy")
+
+
 def main() -> None:
     catalog = json.loads((ROOT / "protocol-certification-requirements.v1.json").read_text(encoding="utf-8"))
     schema = json.loads((ROOT / "protocol-certification-requirements.v1.schema.json").read_text(encoding="utf-8"))
@@ -199,6 +223,7 @@ def main() -> None:
     }
     jsonschema.validate(catalog, schema)
     validate_geometry_client_addressability(catalog)
+    validate_mcp_authorization(catalog)
     if catalog["receipt_schema_min"] not in {"v1", "v2"}:
         raise ValueError("Catalog receipt_schema_min must be 'v1' or 'v2'.")
     if catalog["source_revisions"] != revisions:

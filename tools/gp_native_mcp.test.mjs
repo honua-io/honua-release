@@ -38,15 +38,21 @@ async function run(mode, operation = 'cancel') {
 test('actual installed SDK submits and repeats cancellation without claiming cessation', async () => {
   const submitted = await run('positive', 'submit');
   assert.equal(submitted.value.jobId, 'job-1');
+  assert.equal(submitted.value.sdkVersion, '1.32.1');
   assert.equal(submitted.value.executionCessationProven, false);
   const cancelled = await run('positive');
-  assert.equal(cancelled.value.sdkVersion, '1.30.0');
+  assert.equal(cancelled.value.sdkVersion, '1.32.1');
   assert.equal(cancelled.value.responses.length, 2);
   assert.equal(cancelled.calls.filter(x => x.body.method === 'tools/call').length, 2);
   assert.ok(cancelled.calls.every(x => x.key === 'control'));
 });
-for (const mode of ['missing-tool', 'cursor-loop', 'wrong-job', 'false-ack', 'completed', 'readable-result', 'contradictory', 'tool-error', 'empty']) {
-  test(`SDK refuses ${mode}`, async () => { await assert.rejects(run(mode)); });
+for (const [mode, reason] of [['missing-tool', 'missing-tool'], ['cursor-loop', 'incomplete-discovery'],
+  ['wrong-job', 'invalid-acknowledgement'], ['false-ack', 'invalid-acknowledgement'],
+  ['completed', 'invalid-acknowledgement'], ['readable-result', 'invalid-acknowledgement'],
+  ['contradictory', 'contradictory-output'], ['tool-error', 'tool-error'], ['empty', 'missing-output']]) {
+  // An unrelated admission failure (for example a stale client lock) must not
+  // make every semantic negative look successful before it reaches the wire.
+  test(`SDK refuses ${mode}`, async () => { await assert.rejects(run(mode), { message: reason }); });
 }
 test('cloud CLI rejects non-TLS target before connecting', async () => {
   await assert.rejects(lifecycle('http://127.0.0.1:9', 'cancel', { jobId: 'job-1' }, 'key'), /invalid-origin/);

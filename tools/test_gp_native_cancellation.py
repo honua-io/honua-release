@@ -10,7 +10,7 @@ import sys
 import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from gp_native_cancellation import AwsObserver, ProofError, efs_mount, observation, run_cell
+from gp_native_cancellation import AwsObserver, InstalledMcp, CLIENT_LOCK, ProofError, efs_mount, observation, run_cell
 
 NOW = 1792350000
 STAMP = datetime.fromtimestamp(NOW, timezone.utc).isoformat()
@@ -22,6 +22,32 @@ BARRIER_SHA = hashlib.sha256((READY_SHA + "\n" + ENTRY_SHA).encode("ascii")).hex
 PROCESS = {"workerId": "worker-1", "worker": {"pid": 100, "parentPid": 1, "startTicks": 10},
            "child": {"pid": 200, "parentPid": 100, "startTicks": 20}, "bootId": "12345678-1234-1234-1234-123456789abc", "pidNamespace": 1,
            "barrierSha256": BARRIER_SHA, "scratchRelative": "job-1"}
+
+
+def installed_client_response():
+    return {"schema": "honua.gp-native-mcp/v1", "clientLockSha256": CLIENT_LOCK,
+            "sdkVersion": "1.32.1", "executionCessationProven": False,
+            "jobId": "job-1", "responses": []}
+
+
+def test_installed_adapter_requires_exact_selected_lock_and_version_before_accepting_response():
+    def run(command, **kwargs):
+        assert command[0] == "node" and command[-1] == "cancel"
+        assert kwargs["env"]["HONUA_GP_MCP_API_KEY"] == "private-control-value"
+        return subprocess.CompletedProcess(command, 0, stdout=json.dumps(installed_client_response()), stderr="")
+    adapter = InstalledMcp("https://owned-control.example", "private-control-value", run=run)
+    assert adapter.call("cancel", {"jobId": "job-1"})["sdkVersion"] == "1.32.1"
+
+
+@pytest.mark.parametrize("field,value", [("clientLockSha256", "0" * 64), ("sdkVersion", "1.30.0"),
+                                        ("sdkVersion", None), ("executionCessationProven", True)])
+def test_installed_adapter_refuses_changed_client_identity_or_false_cessation(field, value):
+    response = installed_client_response()
+    response[field] = value
+    adapter = InstalledMcp("https://owned-control.example", "private-control-value",
+        run=lambda command, **kwargs: subprocess.CompletedProcess(command, 0, stdout=json.dumps(response), stderr=""))
+    with pytest.raises(ProofError, match="client identity"):
+        adapter.call("cancel", {"jobId": "job-1"})
 
 
 def record(phase="before"):

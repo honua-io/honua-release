@@ -1,0 +1,276 @@
+{
+  "schema": "honua.mcp-operation-auth-policy/v1",
+  "revision": "mcp-operation-auth-v1",
+  "owner_issue": "https://github.com/honua-io/honua-release/issues/695",
+  "reviewed_server_contract": {
+    "repository": "honua-io/honua-server",
+    "commit": "bdf8a14bbb99c46bbcca0efe219ae43ad0f76d0c",
+    "paths": [
+      "src/Honua.Ai/Features/Protocols/Mcp/Mcp/McpDataAccessSurface.cs",
+      "src/Honua.Ai/Features/Protocols/Mcp/Mcp/McpEndpointExtensions.cs"
+    ],
+    "meaning": "Source rationale only; actual selected-candidate client observations remain mandatory."
+  },
+  "required_observations": {
+    "anonymous-public-v1": [
+      "anonymous-success",
+      "fresh-anonymous-session",
+      "no-credentials"
+    ],
+    "mcp-protected-operation-v1": [
+      "authenticated-success",
+      "fresh-anonymous-refusal",
+      "no-credential-forwarding",
+      "no-authenticated-session-reuse",
+      "caller-session-binding"
+    ]
+  },
+  "operations": [
+    {
+      "kind": "transport",
+      "operation": "initialize",
+      "auth_policy_revision": "anonymous-public-v1",
+      "rationale": "Anonymous protocol negotiation is allowed; the returned session must retain its caller identity."
+    },
+    {
+      "kind": "transport",
+      "operation": "ping",
+      "auth_policy_revision": "anonymous-public-v1",
+      "rationale": "An anonymous session may ping; success must not borrow an authenticated session."
+    },
+    {
+      "kind": "transport",
+      "operation": "tools/list",
+      "auth_policy_revision": "anonymous-public-v1",
+      "rationale": "The default anonymous workflow catalog is public. A privileged full-catalog response is not evidence for this anonymous case."
+    },
+    {
+      "kind": "transport",
+      "operation": "resources/templates/list",
+      "auth_policy_revision": "anonymous-public-v1",
+      "rationale": "Resource templates may be discovered anonymously; discovery does not grant resource-read authority."
+    },
+    {
+      "kind": "tool",
+      "operation": "tools/call:apply_style_preset",
+      "auth_policy_revision": "mcp-protected-operation-v1",
+      "rationale": "The server authenticates every tool call before dispatch and argument/name validation; this exact tool must still execute its own positive and anonymous-negative probes."
+    },
+    {
+      "kind": "tool",
+      "operation": "tools/call:cancel_job",
+      "auth_policy_revision": "mcp-protected-operation-v1",
+      "rationale": "The server authenticates every tool call before dispatch and argument/name validation; this exact tool must still execute its own positive and anonymous-negative probes."
+    },
+    {
+      "kind": "tool",
+      "operation": "tools/call:clarify_intent",
+      "auth_policy_revision": "mcp-protected-operation-v1",
+      "rationale": "The server authenticates every tool call before dispatch and argument/name validation; this exact tool must still execute its own positive and anonymous-negative probes."
+    },
+    {
+      "kind": "tool",
+      "operation": "tools/call:create_app_package",
+      "auth_policy_revision": "mcp-protected-operation-v1",
+      "rationale": "The server authenticates every tool call before dispatch and argument/name validation; this exact tool must still execute its own positive and anonymous-negative probes."
+    },
+    {
+      "kind": "tool",
+      "operation": "tools/call:create_map_package",
+      "auth_policy_revision": "mcp-protected-operation-v1",
+      "rationale": "The server authenticates every tool call before dispatch and argument/name validation; this exact tool must still execute its own positive and anonymous-negative probes."
+    },
+    {
+      "kind": "tool",
+      "operation": "tools/call:validate_plan",
+      "auth_policy_revision": "mcp-protected-operation-v1",
+      "rationale": "The server authenticates every tool call before dispatch and argument/name validation; this exact tool must still execute its own positive and anonymous-negative probes."
+    },
+    {
+      "kind": "tool",
+      "operation": "tools/call:execute_plan",
+      "auth_policy_revision": "mcp-protected-operation-v1",
+      "rationale": "The server authenticates every tool call before dispatch and argument/name validation; this exact tool must still execute its own positive and anonymous-negative probes."
+    },
+    {
+      "kind": "tool",
+      "operation": "tools/call:geocode_address",
+      "auth_policy_revision": "mcp-protected-operation-v1",
+      "rationale": "The server authenticates every tool call before dispatch and argument/name validation; this exact tool must still execute its own positive and anonymous-negative probes."
+    },
+    {
+      "kind": "tool",
+      "operation": "tools/call:geocode_addresses",
+      "auth_policy_revision": "mcp-protected-operation-v1",
+      "rationale": "The server authenticates every tool call before dispatch and argument/name validation; this exact tool must still execute its own positive and anonymous-negative probes."
+    },
+    {
+      "kind": "tool",
+      "operation": "tools/call:get_style",
+      "auth_policy_revision": "mcp-protected-operation-v1",
+      "rationale": "The server authenticates every tool call before dispatch and argument/name validation; this exact tool must still execute its own positive and anonymous-negative probes."
+    },
+    {
+      "kind": "tool",
+      "operation": "tools/call:ground_candidates",
+      "auth_policy_revision": "mcp-protected-operation-v1",
+      "rationale": "The server authenticates every tool call before dispatch and argument/name validation; this exact tool must still execute its own positive and anonymous-negative probes."
+    },
+    {
+      "kind": "tool",
+      "operation": "tools/call:ingest_dataset",
+      "auth_policy_revision": "mcp-protected-operation-v1",
+      "rationale": "The server authenticates every tool call before dispatch and argument/name validation; this exact tool must still execute its own positive and anonymous-negative probes."
+    },
+    {
+      "kind": "tool",
+      "operation": "tools/call:list_capabilities",
+      "auth_policy_revision": "mcp-protected-operation-v1",
+      "rationale": "The server authenticates every tool call before dispatch and argument/name validation; this exact tool must still execute its own positive and anonymous-negative probes."
+    },
+    {
+      "kind": "tool",
+      "operation": "tools/call:list_layers",
+      "auth_policy_revision": "mcp-protected-operation-v1",
+      "rationale": "The server authenticates every tool call before dispatch and argument/name validation; this exact tool must still execute its own positive and anonymous-negative probes."
+    },
+    {
+      "kind": "tool",
+      "operation": "tools/call:plan_analysis",
+      "auth_policy_revision": "mcp-protected-operation-v1",
+      "rationale": "The server authenticates every tool call before dispatch and argument/name validation; this exact tool must still execute its own positive and anonymous-negative probes."
+    },
+    {
+      "kind": "tool",
+      "operation": "tools/call:preview_package",
+      "auth_policy_revision": "mcp-protected-operation-v1",
+      "rationale": "The server authenticates every tool call before dispatch and argument/name validation; this exact tool must still execute its own positive and anonymous-negative probes."
+    },
+    {
+      "kind": "tool",
+      "operation": "tools/call:propose_rollback",
+      "auth_policy_revision": "mcp-protected-operation-v1",
+      "rationale": "The server authenticates every tool call before dispatch and argument/name validation; this exact tool must still execute its own positive and anonymous-negative probes."
+    },
+    {
+      "kind": "tool",
+      "operation": "tools/call:ops_health",
+      "auth_policy_revision": "mcp-protected-operation-v1",
+      "rationale": "The server authenticates every tool call before dispatch and argument/name validation; this exact tool must still execute its own positive and anonymous-negative probes."
+    },
+    {
+      "kind": "tool",
+      "operation": "tools/call:ops_findings",
+      "auth_policy_revision": "mcp-protected-operation-v1",
+      "rationale": "The server authenticates every tool call before dispatch and argument/name validation; this exact tool must still execute its own positive and anonymous-negative probes."
+    },
+    {
+      "kind": "tool",
+      "operation": "tools/call:alert_events",
+      "auth_policy_revision": "mcp-protected-operation-v1",
+      "rationale": "The server authenticates every tool call before dispatch and argument/name validation; this exact tool must still execute its own positive and anonymous-negative probes."
+    },
+    {
+      "kind": "tool",
+      "operation": "tools/call:operate_events",
+      "auth_policy_revision": "mcp-protected-operation-v1",
+      "rationale": "The server authenticates every tool call before dispatch and argument/name validation; this exact tool must still execute its own positive and anonymous-negative probes."
+    },
+    {
+      "kind": "tool",
+      "operation": "tools/call:platform_release_status",
+      "auth_policy_revision": "mcp-protected-operation-v1",
+      "rationale": "The server authenticates every tool call before dispatch and argument/name validation; this exact tool must still execute its own positive and anonymous-negative probes."
+    },
+    {
+      "kind": "tool",
+      "operation": "tools/call:deploy_operations",
+      "auth_policy_revision": "mcp-protected-operation-v1",
+      "rationale": "The server authenticates every tool call before dispatch and argument/name validation; this exact tool must still execute its own positive and anonymous-negative probes."
+    },
+    {
+      "kind": "tool",
+      "operation": "tools/call:publish_service",
+      "auth_policy_revision": "mcp-protected-operation-v1",
+      "rationale": "The server authenticates every tool call before dispatch and argument/name validation; this exact tool must still execute its own positive and anonymous-negative probes."
+    },
+    {
+      "kind": "tool",
+      "operation": "tools/call:publish_result",
+      "auth_policy_revision": "mcp-protected-operation-v1",
+      "rationale": "The server authenticates every tool call before dispatch and argument/name validation; this exact tool must still execute its own positive and anonymous-negative probes."
+    },
+    {
+      "kind": "tool",
+      "operation": "tools/call:query_features",
+      "auth_policy_revision": "mcp-protected-operation-v1",
+      "rationale": "The server authenticates every tool call before dispatch and argument/name validation; this exact tool must still execute its own positive and anonymous-negative probes."
+    },
+    {
+      "kind": "tool",
+      "operation": "tools/call:render_map",
+      "auth_policy_revision": "mcp-protected-operation-v1",
+      "rationale": "The server authenticates every tool call before dispatch and argument/name validation; this exact tool must still execute its own positive and anonymous-negative probes."
+    },
+    {
+      "kind": "tool",
+      "operation": "tools/call:resolve_entity",
+      "auth_policy_revision": "mcp-protected-operation-v1",
+      "rationale": "The server authenticates every tool call before dispatch and argument/name validation; this exact tool must still execute its own positive and anonymous-negative probes."
+    },
+    {
+      "kind": "tool",
+      "operation": "tools/call:solve_route",
+      "auth_policy_revision": "mcp-protected-operation-v1",
+      "rationale": "The server authenticates every tool call before dispatch and argument/name validation; this exact tool must still execute its own positive and anonymous-negative probes."
+    },
+    {
+      "kind": "tool",
+      "operation": "tools/call:validate_package",
+      "auth_policy_revision": "mcp-protected-operation-v1",
+      "rationale": "The server authenticates every tool call before dispatch and argument/name validation; this exact tool must still execute its own positive and anonymous-negative probes."
+    },
+    {
+      "kind": "resource",
+      "operation": "resources/read:App package",
+      "auth_policy_revision": "mcp-protected-operation-v1",
+      "rationale": "The server authenticates every resource read before URI parsing and lookup; read the actual resource with the authorized caller and prove a separate anonymous refusal."
+    },
+    {
+      "kind": "resource",
+      "operation": "resources/read:Deployment",
+      "auth_policy_revision": "mcp-protected-operation-v1",
+      "rationale": "The server authenticates every resource read before URI parsing and lookup; read the actual resource with the authorized caller and prove a separate anonymous refusal."
+    },
+    {
+      "kind": "resource",
+      "operation": "resources/read:Map package",
+      "auth_policy_revision": "mcp-protected-operation-v1",
+      "rationale": "The server authenticates every resource read before URI parsing and lookup; read the actual resource with the authorized caller and prove a separate anonymous refusal."
+    },
+    {
+      "kind": "resource",
+      "operation": "resources/read:Ops findings",
+      "auth_policy_revision": "mcp-protected-operation-v1",
+      "rationale": "The server authenticates every resource read before URI parsing and lookup; read the actual resource with the authorized caller and prove a separate anonymous refusal."
+    },
+    {
+      "kind": "resource",
+      "operation": "resources/read:Ops health",
+      "auth_policy_revision": "mcp-protected-operation-v1",
+      "rationale": "The server authenticates every resource read before URI parsing and lookup; read the actual resource with the authorized caller and prove a separate anonymous refusal."
+    },
+    {
+      "kind": "resource",
+      "operation": "resources/read:Published service",
+      "auth_policy_revision": "mcp-protected-operation-v1",
+      "rationale": "The server authenticates every resource read before URI parsing and lookup; read the actual resource with the authorized caller and prove a separate anonymous refusal."
+    },
+    {
+      "kind": "resource",
+      "operation": "resources/read:Workspace",
+      "auth_policy_revision": "mcp-protected-operation-v1",
+      "rationale": "The server authenticates every resource read before URI parsing and lookup; read the actual resource with the authorized caller and prove a separate anonymous refusal."
+    }
+  ]
+}

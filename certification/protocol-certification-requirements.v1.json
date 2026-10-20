@@ -1,6 +1,6 @@
 {
   "schema": "honua.protocol-certification-requirements/v1",
-  "revision": "2026-10-17-complete.24",
+  "revision": "2026-10-19-complete.25",
   "trademarkNotice": "Esri, ArcGIS, and the Esri product names used here are trademarks, registered trademarks, or service marks of Esri in the United States and other countries. They identify the products Honua is compatible with; Honua is not affiliated with, sponsored by, or endorsed by Esri.",
   "receipt_schema_min": "v2",
   "complete": true,
@@ -40,7 +40,7 @@
     },
     "geospatial-mcp": {
       "repository": "honua-io/geospatial-mcp",
-      "commit": "d5a09d13c4ad541c05702e598c3679c0f42db7af"
+      "commit": "c669cad590fff3469875ddbcdcd2f94706b05e42"
     }
   },
   "desktop_driver_summary": {
@@ -34131,7 +34131,7 @@
       "maturity": "supported",
       "canonical_client": "MCP Inspector",
       "client_lane": "mcp-inspector",
-      "client_version": "2.3.0",
+      "client_version": "2.10.1",
       "deployment_target": "local-docker",
       "required_tier": "nightly",
       "licensed": false,
@@ -34141,10 +34141,11 @@
       "scenario_facets": [
         "positive",
         "negative",
-        "media-schema"
+        "media-schema",
+        "auth"
       ],
       "contract_revision": "geospatial-mcp@5e052a76b6485edbe78c3482488c58f66700bd59",
-      "auth_policy_revision": "anonymous-public-v1",
+      "auth_policy_revision": "mcp-protected-operation-v1",
       "fixture_revision": "conformance@5e052a76b6485edbe78c3482488c58f66700bd59",
       "budget_expectations": null
     },
@@ -34155,7 +34156,7 @@
       "maturity": "supported",
       "canonical_client": "Official MCP TypeScript SDK",
       "client_lane": "mcp-typescript-sdk",
-      "client_version": "1.30.0",
+      "client_version": "1.32.1",
       "deployment_target": "local-docker",
       "required_tier": "nightly",
       "licensed": false,
@@ -34165,10 +34166,11 @@
       "scenario_facets": [
         "positive",
         "negative",
-        "media-schema"
+        "media-schema",
+        "auth"
       ],
       "contract_revision": "geospatial-mcp@5e052a76b6485edbe78c3482488c58f66700bd59",
-      "auth_policy_revision": "anonymous-public-v1",
+      "auth_policy_revision": "mcp-protected-operation-v1",
       "fixture_revision": "conformance@5e052a76b6485edbe78c3482488c58f66700bd59",
       "budget_expectations": null
     },
@@ -34179,7 +34181,7 @@
       "maturity": "supported",
       "canonical_client": "MCP Inspector",
       "client_lane": "mcp-inspector",
-      "client_version": "2.3.0",
+      "client_version": "2.10.1",
       "deployment_target": "local-docker",
       "required_tier": "nightly",
       "licensed": false,
@@ -34189,10 +34191,11 @@
       "scenario_facets": [
         "positive",
         "negative",
-        "media-schema"
+        "media-schema",
+        "auth"
       ],
       "contract_revision": "geospatial-mcp@5e052a76b6485edbe78c3482488c58f66700bd59",
-      "auth_policy_revision": "anonymous-public-v1",
+      "auth_policy_revision": "mcp-protected-operation-v1",
       "fixture_revision": "conformance@5e052a76b6485edbe78c3482488c58f66700bd59",
       "budget_expectations": null
     },
@@ -34203,7 +34206,7 @@
       "maturity": "supported",
       "canonical_client": "Official MCP TypeScript SDK",
       "client_lane": "mcp-typescript-sdk",
-      "client_version": "1.30.0",
+      "client_version": "1.32.1",
       "deployment_target": "local-docker",
       "required_tier": "nightly",
       "licensed": false,
@@ -34213,10 +34216,11 @@
       "scenario_facets": [
         "positive",
         "negative",
-        "media-schema"
+        "media-schema",
+        "auth"
       ],
       "contract_revision": "geospatial-mcp@5e052a76b6485edbe78c3482488c58f66700bd59",
-      "auth_policy_revision": "anonymous-public-v1",
+      "auth_policy_revision": "mcp-protected-operation-v1",
       "fixture_revision": "conformance@5e052a76b6485edbe78c3482488c58f66700bd59",
       "budget_expectations": null
     },
@@ -34227,7 +34231,7 @@
       "maturity": "supported",
       "canonical_client": "MCP Inspector",
       "client_lane": "mcp-inspector",
-      "client_version": "2.3.0",
+      "client_version": "2.10.1",
       "deployment_target": "local-docker",
       "required_tier": "nightly",
       "licensed": false,
@@ -34237,10 +34241,11 @@
       "scenario_facets": [
         "positive",
         "negative",
-        "media-schema"
+        "media-schema",
+        "auth"
       ],
       "contract_revision": "geospatial-mcp@5e052a76b6485edbe78c3482488c58f66700bd59",
-      "auth_policy_revision": "anonymous-public-v1",
+      "auth_policy_revision": "mcp-protected-operation-v1",
       "fixture_revision": "conformance@5e052a76b6485edbe78c3482488c58f66700bd59",
       "budget_expectations": null
     },
@@ -34251,7 +34256,7 @@
       "maturity": "supported",
       "canonical_client": "Official MCP TypeScript SDK",
       "client_lane": "mcp-typescript-sdk",
-      "client_version": "1.30.0",
+      "client_version": "1.32.1",
       "deployment_target": "local-docker",
       "required_tier": "nightly",
       "licensed": false,
@@ -34261,10 +34266,11 @@
       "scenario_facets": [
         "positive",
         "negative",
-        "media-schema"
+        "media-schema",
+        "auth"
       ],
       "contract_revision": "geospatial-mcp@5e052a76b6485edbe78c3482488c58f66700bd59",
-      "auth_policy_revision": "anonymous-public-v1",
+      "auth_policy_revision": "mcp-protected-operation-v1",
       "fixture_revision": "conformance@5e052a76b6485edbe78c3482488c58f66700bd59",
       "budget_expectations": null
     },
@@ -34275,7 +34281,7 @@
       "maturity": "supported",
       "canonical_client": "MCP Inspector",
       "client_lane": "mcp-inspector",
-      "client_version": "2.3.0",
+      "client_version": "2.10.1",
       "deployment_target": "local-docker",
       "required_tier": "nightly",
       "licensed": false,
@@ -34285,10 +34291,11 @@
       "scenario_facets": [
         "positive",
         "negative",
-        "media-schema"
+        "media-schema",
+        "auth"
       ],
       "contract_revision": "geospatial-mcp@5e052a76b6485edbe78c3482488c58f66700bd59",
-      "auth_policy_revision": "anonymous-public-v1",
+      "auth_policy_revision": "mcp-protected-operation-v1",
       "fixture_revision": "conformance@5e052a76b6485edbe78c3482488c58f66700bd59",
       "budget_expectations": null
     },
@@ -34299,7 +34306,7 @@
       "maturity": "supported",
       "canonical_client": "Official MCP TypeScript SDK",
       "client_lane": "mcp-typescript-sdk",
-      "client_version": "1.30.0",
+      "client_version": "1.32.1",
       "deployment_target": "local-docker",
       "required_tier": "nightly",
       "licensed": false,
@@ -34309,10 +34316,11 @@
       "scenario_facets": [
         "positive",
         "negative",
-        "media-schema"
+        "media-schema",
+        "auth"
       ],
       "contract_revision": "geospatial-mcp@5e052a76b6485edbe78c3482488c58f66700bd59",
-      "auth_policy_revision": "anonymous-public-v1",
+      "auth_policy_revision": "mcp-protected-operation-v1",
       "fixture_revision": "conformance@5e052a76b6485edbe78c3482488c58f66700bd59",
       "budget_expectations": null
     },
@@ -34323,7 +34331,7 @@
       "maturity": "supported",
       "canonical_client": "MCP Inspector",
       "client_lane": "mcp-inspector",
-      "client_version": "2.3.0",
+      "client_version": "2.10.1",
       "deployment_target": "local-docker",
       "required_tier": "nightly",
       "licensed": false,
@@ -34333,10 +34341,11 @@
       "scenario_facets": [
         "positive",
         "negative",
-        "media-schema"
+        "media-schema",
+        "auth"
       ],
       "contract_revision": "geospatial-mcp@5e052a76b6485edbe78c3482488c58f66700bd59",
-      "auth_policy_revision": "anonymous-public-v1",
+      "auth_policy_revision": "mcp-protected-operation-v1",
       "fixture_revision": "conformance@5e052a76b6485edbe78c3482488c58f66700bd59",
       "budget_expectations": null
     },
@@ -34347,7 +34356,7 @@
       "maturity": "supported",
       "canonical_client": "Official MCP TypeScript SDK",
       "client_lane": "mcp-typescript-sdk",
-      "client_version": "1.30.0",
+      "client_version": "1.32.1",
       "deployment_target": "local-docker",
       "required_tier": "nightly",
       "licensed": false,
@@ -34357,10 +34366,11 @@
       "scenario_facets": [
         "positive",
         "negative",
-        "media-schema"
+        "media-schema",
+        "auth"
       ],
       "contract_revision": "geospatial-mcp@5e052a76b6485edbe78c3482488c58f66700bd59",
-      "auth_policy_revision": "anonymous-public-v1",
+      "auth_policy_revision": "mcp-protected-operation-v1",
       "fixture_revision": "conformance@5e052a76b6485edbe78c3482488c58f66700bd59",
       "budget_expectations": null
     },
@@ -34371,7 +34381,7 @@
       "maturity": "supported",
       "canonical_client": "MCP Inspector",
       "client_lane": "mcp-inspector",
-      "client_version": "2.3.0",
+      "client_version": "2.10.1",
       "deployment_target": "local-docker",
       "required_tier": "nightly",
       "licensed": false,
@@ -34381,10 +34391,11 @@
       "scenario_facets": [
         "positive",
         "negative",
-        "media-schema"
+        "media-schema",
+        "auth"
       ],
       "contract_revision": "geospatial-mcp@5e052a76b6485edbe78c3482488c58f66700bd59",
-      "auth_policy_revision": "anonymous-public-v1",
+      "auth_policy_revision": "mcp-protected-operation-v1",
       "fixture_revision": "conformance@5e052a76b6485edbe78c3482488c58f66700bd59",
       "budget_expectations": null
     },
@@ -34395,7 +34406,7 @@
       "maturity": "supported",
       "canonical_client": "Official MCP TypeScript SDK",
       "client_lane": "mcp-typescript-sdk",
-      "client_version": "1.30.0",
+      "client_version": "1.32.1",
       "deployment_target": "local-docker",
       "required_tier": "nightly",
       "licensed": false,
@@ -34405,10 +34416,11 @@
       "scenario_facets": [
         "positive",
         "negative",
-        "media-schema"
+        "media-schema",
+        "auth"
       ],
       "contract_revision": "geospatial-mcp@5e052a76b6485edbe78c3482488c58f66700bd59",
-      "auth_policy_revision": "anonymous-public-v1",
+      "auth_policy_revision": "mcp-protected-operation-v1",
       "fixture_revision": "conformance@5e052a76b6485edbe78c3482488c58f66700bd59",
       "budget_expectations": null
     },
@@ -34419,7 +34431,7 @@
       "maturity": "supported",
       "canonical_client": "MCP Inspector",
       "client_lane": "mcp-inspector",
-      "client_version": "2.3.0",
+      "client_version": "2.10.1",
       "deployment_target": "local-docker",
       "required_tier": "nightly",
       "licensed": false,
@@ -34429,10 +34441,11 @@
       "scenario_facets": [
         "positive",
         "negative",
-        "media-schema"
+        "media-schema",
+        "auth"
       ],
       "contract_revision": "geospatial-mcp@5e052a76b6485edbe78c3482488c58f66700bd59",
-      "auth_policy_revision": "anonymous-public-v1",
+      "auth_policy_revision": "mcp-protected-operation-v1",
       "fixture_revision": "conformance@5e052a76b6485edbe78c3482488c58f66700bd59",
       "budget_expectations": null
     },
@@ -34443,7 +34456,7 @@
       "maturity": "supported",
       "canonical_client": "Official MCP TypeScript SDK",
       "client_lane": "mcp-typescript-sdk",
-      "client_version": "1.30.0",
+      "client_version": "1.32.1",
       "deployment_target": "local-docker",
       "required_tier": "nightly",
       "licensed": false,
@@ -34453,10 +34466,11 @@
       "scenario_facets": [
         "positive",
         "negative",
-        "media-schema"
+        "media-schema",
+        "auth"
       ],
       "contract_revision": "geospatial-mcp@5e052a76b6485edbe78c3482488c58f66700bd59",
-      "auth_policy_revision": "anonymous-public-v1",
+      "auth_policy_revision": "mcp-protected-operation-v1",
       "fixture_revision": "conformance@5e052a76b6485edbe78c3482488c58f66700bd59",
       "budget_expectations": null
     },
@@ -34467,7 +34481,7 @@
       "maturity": "supported",
       "canonical_client": "MCP Inspector",
       "client_lane": "mcp-inspector",
-      "client_version": "2.3.0",
+      "client_version": "2.10.1",
       "deployment_target": "local-docker",
       "required_tier": "nightly",
       "licensed": false,
@@ -34477,10 +34491,11 @@
       "scenario_facets": [
         "positive",
         "negative",
-        "media-schema"
+        "media-schema",
+        "auth"
       ],
       "contract_revision": "geospatial-mcp@5e052a76b6485edbe78c3482488c58f66700bd59",
-      "auth_policy_revision": "anonymous-public-v1",
+      "auth_policy_revision": "mcp-protected-operation-v1",
       "fixture_revision": "conformance@5e052a76b6485edbe78c3482488c58f66700bd59",
       "budget_expectations": null
     },
@@ -34491,7 +34506,7 @@
       "maturity": "supported",
       "canonical_client": "Official MCP TypeScript SDK",
       "client_lane": "mcp-typescript-sdk",
-      "client_version": "1.30.0",
+      "client_version": "1.32.1",
       "deployment_target": "local-docker",
       "required_tier": "nightly",
       "licensed": false,
@@ -34501,10 +34516,11 @@
       "scenario_facets": [
         "positive",
         "negative",
-        "media-schema"
+        "media-schema",
+        "auth"
       ],
       "contract_revision": "geospatial-mcp@5e052a76b6485edbe78c3482488c58f66700bd59",
-      "auth_policy_revision": "anonymous-public-v1",
+      "auth_policy_revision": "mcp-protected-operation-v1",
       "fixture_revision": "conformance@5e052a76b6485edbe78c3482488c58f66700bd59",
       "budget_expectations": null
     },
@@ -34515,7 +34531,7 @@
       "maturity": "supported",
       "canonical_client": "MCP Inspector",
       "client_lane": "mcp-inspector",
-      "client_version": "2.3.0",
+      "client_version": "2.10.1",
       "deployment_target": "local-docker",
       "required_tier": "nightly",
       "licensed": false,
@@ -34525,10 +34541,11 @@
       "scenario_facets": [
         "positive",
         "negative",
-        "media-schema"
+        "media-schema",
+        "auth"
       ],
       "contract_revision": "geospatial-mcp@5e052a76b6485edbe78c3482488c58f66700bd59",
-      "auth_policy_revision": "anonymous-public-v1",
+      "auth_policy_revision": "mcp-protected-operation-v1",
       "fixture_revision": "conformance@5e052a76b6485edbe78c3482488c58f66700bd59",
       "budget_expectations": null
     },
@@ -34539,7 +34556,7 @@
       "maturity": "supported",
       "canonical_client": "Official MCP TypeScript SDK",
       "client_lane": "mcp-typescript-sdk",
-      "client_version": "1.30.0",
+      "client_version": "1.32.1",
       "deployment_target": "local-docker",
       "required_tier": "nightly",
       "licensed": false,
@@ -34549,10 +34566,11 @@
       "scenario_facets": [
         "positive",
         "negative",
-        "media-schema"
+        "media-schema",
+        "auth"
       ],
       "contract_revision": "geospatial-mcp@5e052a76b6485edbe78c3482488c58f66700bd59",
-      "auth_policy_revision": "anonymous-public-v1",
+      "auth_policy_revision": "mcp-protected-operation-v1",
       "fixture_revision": "conformance@5e052a76b6485edbe78c3482488c58f66700bd59",
       "budget_expectations": null
     },
@@ -34563,7 +34581,7 @@
       "maturity": "supported",
       "canonical_client": "MCP Inspector",
       "client_lane": "mcp-inspector",
-      "client_version": "2.3.0",
+      "client_version": "2.10.1",
       "deployment_target": "local-docker",
       "required_tier": "nightly",
       "licensed": false,
@@ -34573,10 +34591,11 @@
       "scenario_facets": [
         "positive",
         "negative",
-        "media-schema"
+        "media-schema",
+        "auth"
       ],
       "contract_revision": "geospatial-mcp@5e052a76b6485edbe78c3482488c58f66700bd59",
-      "auth_policy_revision": "anonymous-public-v1",
+      "auth_policy_revision": "mcp-protected-operation-v1",
       "fixture_revision": "conformance@5e052a76b6485edbe78c3482488c58f66700bd59",
       "budget_expectations": null
     },
@@ -34587,7 +34606,7 @@
       "maturity": "supported",
       "canonical_client": "Official MCP TypeScript SDK",
       "client_lane": "mcp-typescript-sdk",
-      "client_version": "1.30.0",
+      "client_version": "1.32.1",
       "deployment_target": "local-docker",
       "required_tier": "nightly",
       "licensed": false,
@@ -34597,10 +34616,11 @@
       "scenario_facets": [
         "positive",
         "negative",
-        "media-schema"
+        "media-schema",
+        "auth"
       ],
       "contract_revision": "geospatial-mcp@5e052a76b6485edbe78c3482488c58f66700bd59",
-      "auth_policy_revision": "anonymous-public-v1",
+      "auth_policy_revision": "mcp-protected-operation-v1",
       "fixture_revision": "conformance@5e052a76b6485edbe78c3482488c58f66700bd59",
       "budget_expectations": null
     },
@@ -34611,7 +34631,7 @@
       "maturity": "supported",
       "canonical_client": "MCP Inspector",
       "client_lane": "mcp-inspector",
-      "client_version": "2.3.0",
+      "client_version": "2.10.1",
       "deployment_target": "local-docker",
       "required_tier": "nightly",
       "licensed": false,
@@ -34621,10 +34641,11 @@
       "scenario_facets": [
         "positive",
         "negative",
-        "media-schema"
+        "media-schema",
+        "auth"
       ],
       "contract_revision": "geospatial-mcp@5e052a76b6485edbe78c3482488c58f66700bd59",
-      "auth_policy_revision": "anonymous-public-v1",
+      "auth_policy_revision": "mcp-protected-operation-v1",
       "fixture_revision": "conformance@5e052a76b6485edbe78c3482488c58f66700bd59",
       "budget_expectations": null
     },
@@ -34635,7 +34656,7 @@
       "maturity": "supported",
       "canonical_client": "Official MCP TypeScript SDK",
       "client_lane": "mcp-typescript-sdk",
-      "client_version": "1.30.0",
+      "client_version": "1.32.1",
       "deployment_target": "local-docker",
       "required_tier": "nightly",
       "licensed": false,
@@ -34645,10 +34666,11 @@
       "scenario_facets": [
         "positive",
         "negative",
-        "media-schema"
+        "media-schema",
+        "auth"
       ],
       "contract_revision": "geospatial-mcp@5e052a76b6485edbe78c3482488c58f66700bd59",
-      "auth_policy_revision": "anonymous-public-v1",
+      "auth_policy_revision": "mcp-protected-operation-v1",
       "fixture_revision": "conformance@5e052a76b6485edbe78c3482488c58f66700bd59",
       "budget_expectations": null
     },
@@ -34659,7 +34681,7 @@
       "maturity": "supported",
       "canonical_client": "MCP Inspector",
       "client_lane": "mcp-inspector",
-      "client_version": "2.3.0",
+      "client_version": "2.10.1",
       "deployment_target": "local-docker",
       "required_tier": "nightly",
       "licensed": false,
@@ -34669,10 +34691,11 @@
       "scenario_facets": [
         "positive",
         "negative",
-        "media-schema"
+        "media-schema",
+        "auth"
       ],
       "contract_revision": "geospatial-mcp@5e052a76b6485edbe78c3482488c58f66700bd59",
-      "auth_policy_revision": "anonymous-public-v1",
+      "auth_policy_revision": "mcp-protected-operation-v1",
       "fixture_revision": "conformance@5e052a76b6485edbe78c3482488c58f66700bd59",
       "budget_expectations": null
     },
@@ -34683,7 +34706,7 @@
       "maturity": "supported",
       "canonical_client": "Official MCP TypeScript SDK",
       "client_lane": "mcp-typescript-sdk",
-      "client_version": "1.30.0",
+      "client_version": "1.32.1",
       "deployment_target": "local-docker",
       "required_tier": "nightly",
       "licensed": false,
@@ -34693,10 +34716,11 @@
       "scenario_facets": [
         "positive",
         "negative",
-        "media-schema"
+        "media-schema",
+        "auth"
       ],
       "contract_revision": "geospatial-mcp@5e052a76b6485edbe78c3482488c58f66700bd59",
-      "auth_policy_revision": "anonymous-public-v1",
+      "auth_policy_revision": "mcp-protected-operation-v1",
       "fixture_revision": "conformance@5e052a76b6485edbe78c3482488c58f66700bd59",
       "budget_expectations": null
     },
@@ -34707,7 +34731,7 @@
       "maturity": "supported",
       "canonical_client": "MCP Inspector",
       "client_lane": "mcp-inspector",
-      "client_version": "2.3.0",
+      "client_version": "2.10.1",
       "deployment_target": "local-docker",
       "required_tier": "nightly",
       "licensed": false,
@@ -34717,10 +34741,11 @@
       "scenario_facets": [
         "positive",
         "negative",
-        "media-schema"
+        "media-schema",
+        "auth"
       ],
       "contract_revision": "geospatial-mcp@5e052a76b6485edbe78c3482488c58f66700bd59",
-      "auth_policy_revision": "anonymous-public-v1",
+      "auth_policy_revision": "mcp-protected-operation-v1",
       "fixture_revision": "conformance@5e052a76b6485edbe78c3482488c58f66700bd59",
       "budget_expectations": null
     },
@@ -34731,7 +34756,7 @@
       "maturity": "supported",
       "canonical_client": "Official MCP TypeScript SDK",
       "client_lane": "mcp-typescript-sdk",
-      "client_version": "1.30.0",
+      "client_version": "1.32.1",
       "deployment_target": "local-docker",
       "required_tier": "nightly",
       "licensed": false,
@@ -34741,10 +34766,11 @@
       "scenario_facets": [
         "positive",
         "negative",
-        "media-schema"
+        "media-schema",
+        "auth"
       ],
       "contract_revision": "geospatial-mcp@5e052a76b6485edbe78c3482488c58f66700bd59",
-      "auth_policy_revision": "anonymous-public-v1",
+      "auth_policy_revision": "mcp-protected-operation-v1",
       "fixture_revision": "conformance@5e052a76b6485edbe78c3482488c58f66700bd59",
       "budget_expectations": null
     },
@@ -34755,7 +34781,7 @@
       "maturity": "supported",
       "canonical_client": "MCP Inspector",
       "client_lane": "mcp-inspector",
-      "client_version": "2.3.0",
+      "client_version": "2.10.1",
       "deployment_target": "local-docker",
       "required_tier": "nightly",
       "licensed": false,
@@ -34765,10 +34791,11 @@
       "scenario_facets": [
         "positive",
         "negative",
-        "media-schema"
+        "media-schema",
+        "auth"
       ],
       "contract_revision": "geospatial-mcp@5e052a76b6485edbe78c3482488c58f66700bd59",
-      "auth_policy_revision": "anonymous-public-v1",
+      "auth_policy_revision": "mcp-protected-operation-v1",
       "fixture_revision": "conformance@5e052a76b6485edbe78c3482488c58f66700bd59",
       "budget_expectations": null
     },
@@ -34779,7 +34806,7 @@
       "maturity": "supported",
       "canonical_client": "Official MCP TypeScript SDK",
       "client_lane": "mcp-typescript-sdk",
-      "client_version": "1.30.0",
+      "client_version": "1.32.1",
       "deployment_target": "local-docker",
       "required_tier": "nightly",
       "licensed": false,
@@ -34789,10 +34816,11 @@
       "scenario_facets": [
         "positive",
         "negative",
-        "media-schema"
+        "media-schema",
+        "auth"
       ],
       "contract_revision": "geospatial-mcp@5e052a76b6485edbe78c3482488c58f66700bd59",
-      "auth_policy_revision": "anonymous-public-v1",
+      "auth_policy_revision": "mcp-protected-operation-v1",
       "fixture_revision": "conformance@5e052a76b6485edbe78c3482488c58f66700bd59",
       "budget_expectations": null
     },
@@ -34803,7 +34831,7 @@
       "maturity": "supported",
       "canonical_client": "MCP Inspector",
       "client_lane": "mcp-inspector",
-      "client_version": "2.3.0",
+      "client_version": "2.10.1",
       "deployment_target": "local-docker",
       "required_tier": "nightly",
       "licensed": false,
@@ -34813,10 +34841,11 @@
       "scenario_facets": [
         "positive",
         "negative",
-        "media-schema"
+        "media-schema",
+        "auth"
       ],
       "contract_revision": "geospatial-mcp@5e052a76b6485edbe78c3482488c58f66700bd59",
-      "auth_policy_revision": "anonymous-public-v1",
+      "auth_policy_revision": "mcp-protected-operation-v1",
       "fixture_revision": "conformance@5e052a76b6485edbe78c3482488c58f66700bd59",
       "budget_expectations": null
     },
@@ -34827,7 +34856,7 @@
       "maturity": "supported",
       "canonical_client": "Official MCP TypeScript SDK",
       "client_lane": "mcp-typescript-sdk",
-      "client_version": "1.30.0",
+      "client_version": "1.32.1",
       "deployment_target": "local-docker",
       "required_tier": "nightly",
       "licensed": false,
@@ -34837,10 +34866,11 @@
       "scenario_facets": [
         "positive",
         "negative",
-        "media-schema"
+        "media-schema",
+        "auth"
       ],
       "contract_revision": "geospatial-mcp@5e052a76b6485edbe78c3482488c58f66700bd59",
-      "auth_policy_revision": "anonymous-public-v1",
+      "auth_policy_revision": "mcp-protected-operation-v1",
       "fixture_revision": "conformance@5e052a76b6485edbe78c3482488c58f66700bd59",
       "budget_expectations": null
     },
@@ -34851,7 +34881,7 @@
       "maturity": "supported",
       "canonical_client": "MCP Inspector",
       "client_lane": "mcp-inspector",
-      "client_version": "2.3.0",
+      "client_version": "2.10.1",
       "deployment_target": "local-docker",
       "required_tier": "nightly",
       "licensed": false,
@@ -34861,10 +34891,11 @@
       "scenario_facets": [
         "positive",
         "negative",
-        "media-schema"
+        "media-schema",
+        "auth"
       ],
       "contract_revision": "geospatial-mcp@5e052a76b6485edbe78c3482488c58f66700bd59",
-      "auth_policy_revision": "anonymous-public-v1",
+      "auth_policy_revision": "mcp-protected-operation-v1",
       "fixture_revision": "conformance@5e052a76b6485edbe78c3482488c58f66700bd59",
       "budget_expectations": null
     },
@@ -34875,7 +34906,7 @@
       "maturity": "supported",
       "canonical_client": "Official MCP TypeScript SDK",
       "client_lane": "mcp-typescript-sdk",
-      "client_version": "1.30.0",
+      "client_version": "1.32.1",
       "deployment_target": "local-docker",
       "required_tier": "nightly",
       "licensed": false,
@@ -34885,10 +34916,11 @@
       "scenario_facets": [
         "positive",
         "negative",
-        "media-schema"
+        "media-schema",
+        "auth"
       ],
       "contract_revision": "geospatial-mcp@5e052a76b6485edbe78c3482488c58f66700bd59",
-      "auth_policy_revision": "anonymous-public-v1",
+      "auth_policy_revision": "mcp-protected-operation-v1",
       "fixture_revision": "conformance@5e052a76b6485edbe78c3482488c58f66700bd59",
       "budget_expectations": null
     },
@@ -34899,7 +34931,7 @@
       "maturity": "supported",
       "canonical_client": "MCP Inspector",
       "client_lane": "mcp-inspector",
-      "client_version": "2.3.0",
+      "client_version": "2.10.1",
       "deployment_target": "local-docker",
       "required_tier": "nightly",
       "licensed": false,
@@ -34909,10 +34941,11 @@
       "scenario_facets": [
         "positive",
         "negative",
-        "media-schema"
+        "media-schema",
+        "auth"
       ],
       "contract_revision": "geospatial-mcp@5e052a76b6485edbe78c3482488c58f66700bd59",
-      "auth_policy_revision": "anonymous-public-v1",
+      "auth_policy_revision": "mcp-protected-operation-v1",
       "fixture_revision": "conformance@5e052a76b6485edbe78c3482488c58f66700bd59",
       "budget_expectations": null
     },
@@ -34923,7 +34956,7 @@
       "maturity": "supported",
       "canonical_client": "Official MCP TypeScript SDK",
       "client_lane": "mcp-typescript-sdk",
-      "client_version": "1.30.0",
+      "client_version": "1.32.1",
       "deployment_target": "local-docker",
       "required_tier": "nightly",
       "licensed": false,
@@ -34933,10 +34966,11 @@
       "scenario_facets": [
         "positive",
         "negative",
-        "media-schema"
+        "media-schema",
+        "auth"
       ],
       "contract_revision": "geospatial-mcp@5e052a76b6485edbe78c3482488c58f66700bd59",
-      "auth_policy_revision": "anonymous-public-v1",
+      "auth_policy_revision": "mcp-protected-operation-v1",
       "fixture_revision": "conformance@5e052a76b6485edbe78c3482488c58f66700bd59",
       "budget_expectations": null
     },
@@ -34947,7 +34981,7 @@
       "maturity": "supported",
       "canonical_client": "MCP Inspector",
       "client_lane": "mcp-inspector",
-      "client_version": "2.3.0",
+      "client_version": "2.10.1",
       "deployment_target": "local-docker",
       "required_tier": "nightly",
       "licensed": false,
@@ -34957,10 +34991,11 @@
       "scenario_facets": [
         "positive",
         "negative",
-        "media-schema"
+        "media-schema",
+        "auth"
       ],
       "contract_revision": "geospatial-mcp@5e052a76b6485edbe78c3482488c58f66700bd59",
-      "auth_policy_revision": "anonymous-public-v1",
+      "auth_policy_revision": "mcp-protected-operation-v1",
       "fixture_revision": "conformance@5e052a76b6485edbe78c3482488c58f66700bd59",
       "budget_expectations": null
     },
@@ -34971,7 +35006,7 @@
       "maturity": "supported",
       "canonical_client": "Official MCP TypeScript SDK",
       "client_lane": "mcp-typescript-sdk",
-      "client_version": "1.30.0",
+      "client_version": "1.32.1",
       "deployment_target": "local-docker",
       "required_tier": "nightly",
       "licensed": false,
@@ -34981,10 +35016,11 @@
       "scenario_facets": [
         "positive",
         "negative",
-        "media-schema"
+        "media-schema",
+        "auth"
       ],
       "contract_revision": "geospatial-mcp@5e052a76b6485edbe78c3482488c58f66700bd59",
-      "auth_policy_revision": "anonymous-public-v1",
+      "auth_policy_revision": "mcp-protected-operation-v1",
       "fixture_revision": "conformance@5e052a76b6485edbe78c3482488c58f66700bd59",
       "budget_expectations": null
     },
@@ -34995,7 +35031,7 @@
       "maturity": "supported",
       "canonical_client": "MCP Inspector",
       "client_lane": "mcp-inspector",
-      "client_version": "2.3.0",
+      "client_version": "2.10.1",
       "deployment_target": "local-docker",
       "required_tier": "nightly",
       "licensed": false,
@@ -35005,10 +35041,11 @@
       "scenario_facets": [
         "positive",
         "negative",
-        "media-schema"
+        "media-schema",
+        "auth"
       ],
       "contract_revision": "geospatial-mcp@5e052a76b6485edbe78c3482488c58f66700bd59",
-      "auth_policy_revision": "anonymous-public-v1",
+      "auth_policy_revision": "mcp-protected-operation-v1",
       "fixture_revision": "conformance@5e052a76b6485edbe78c3482488c58f66700bd59",
       "budget_expectations": null
     },
@@ -35019,7 +35056,7 @@
       "maturity": "supported",
       "canonical_client": "Official MCP TypeScript SDK",
       "client_lane": "mcp-typescript-sdk",
-      "client_version": "1.30.0",
+      "client_version": "1.32.1",
       "deployment_target": "local-docker",
       "required_tier": "nightly",
       "licensed": false,
@@ -35029,10 +35066,11 @@
       "scenario_facets": [
         "positive",
         "negative",
-        "media-schema"
+        "media-schema",
+        "auth"
       ],
       "contract_revision": "geospatial-mcp@5e052a76b6485edbe78c3482488c58f66700bd59",
-      "auth_policy_revision": "anonymous-public-v1",
+      "auth_policy_revision": "mcp-protected-operation-v1",
       "fixture_revision": "conformance@5e052a76b6485edbe78c3482488c58f66700bd59",
       "budget_expectations": null
     },
@@ -35043,7 +35081,7 @@
       "maturity": "supported",
       "canonical_client": "MCP Inspector",
       "client_lane": "mcp-inspector",
-      "client_version": "2.3.0",
+      "client_version": "2.10.1",
       "deployment_target": "local-docker",
       "required_tier": "nightly",
       "licensed": false,
@@ -35053,10 +35091,11 @@
       "scenario_facets": [
         "positive",
         "negative",
-        "media-schema"
+        "media-schema",
+        "auth"
       ],
       "contract_revision": "geospatial-mcp@5e052a76b6485edbe78c3482488c58f66700bd59",
-      "auth_policy_revision": "anonymous-public-v1",
+      "auth_policy_revision": "mcp-protected-operation-v1",
       "fixture_revision": "conformance@5e052a76b6485edbe78c3482488c58f66700bd59",
       "budget_expectations": null
     },
@@ -35067,7 +35106,7 @@
       "maturity": "supported",
       "canonical_client": "Official MCP TypeScript SDK",
       "client_lane": "mcp-typescript-sdk",
-      "client_version": "1.30.0",
+      "client_version": "1.32.1",
       "deployment_target": "local-docker",
       "required_tier": "nightly",
       "licensed": false,
@@ -35077,10 +35116,11 @@
       "scenario_facets": [
         "positive",
         "negative",
-        "media-schema"
+        "media-schema",
+        "auth"
       ],
       "contract_revision": "geospatial-mcp@5e052a76b6485edbe78c3482488c58f66700bd59",
-      "auth_policy_revision": "anonymous-public-v1",
+      "auth_policy_revision": "mcp-protected-operation-v1",
       "fixture_revision": "conformance@5e052a76b6485edbe78c3482488c58f66700bd59",
       "budget_expectations": null
     },
@@ -35091,7 +35131,7 @@
       "maturity": "supported",
       "canonical_client": "MCP Inspector",
       "client_lane": "mcp-inspector",
-      "client_version": "2.3.0",
+      "client_version": "2.10.1",
       "deployment_target": "local-docker",
       "required_tier": "nightly",
       "licensed": false,
@@ -35101,10 +35141,11 @@
       "scenario_facets": [
         "positive",
         "negative",
-        "media-schema"
+        "media-schema",
+        "auth"
       ],
       "contract_revision": "geospatial-mcp@5e052a76b6485edbe78c3482488c58f66700bd59",
-      "auth_policy_revision": "anonymous-public-v1",
+      "auth_policy_revision": "mcp-protected-operation-v1",
       "fixture_revision": "conformance@5e052a76b6485edbe78c3482488c58f66700bd59",
       "budget_expectations": null
     },
@@ -35115,7 +35156,7 @@
       "maturity": "supported",
       "canonical_client": "Official MCP TypeScript SDK",
       "client_lane": "mcp-typescript-sdk",
-      "client_version": "1.30.0",
+      "client_version": "1.32.1",
       "deployment_target": "local-docker",
       "required_tier": "nightly",
       "licensed": false,
@@ -35125,10 +35166,11 @@
       "scenario_facets": [
         "positive",
         "negative",
-        "media-schema"
+        "media-schema",
+        "auth"
       ],
       "contract_revision": "geospatial-mcp@5e052a76b6485edbe78c3482488c58f66700bd59",
-      "auth_policy_revision": "anonymous-public-v1",
+      "auth_policy_revision": "mcp-protected-operation-v1",
       "fixture_revision": "conformance@5e052a76b6485edbe78c3482488c58f66700bd59",
       "budget_expectations": null
     },
@@ -35139,7 +35181,7 @@
       "maturity": "supported",
       "canonical_client": "MCP Inspector",
       "client_lane": "mcp-inspector",
-      "client_version": "2.3.0",
+      "client_version": "2.10.1",
       "deployment_target": "local-docker",
       "required_tier": "nightly",
       "licensed": false,
@@ -35149,10 +35191,11 @@
       "scenario_facets": [
         "positive",
         "negative",
-        "media-schema"
+        "media-schema",
+        "auth"
       ],
       "contract_revision": "geospatial-mcp@5e052a76b6485edbe78c3482488c58f66700bd59",
-      "auth_policy_revision": "anonymous-public-v1",
+      "auth_policy_revision": "mcp-protected-operation-v1",
       "fixture_revision": "conformance@5e052a76b6485edbe78c3482488c58f66700bd59",
       "budget_expectations": null
     },
@@ -35163,7 +35206,7 @@
       "maturity": "supported",
       "canonical_client": "Official MCP TypeScript SDK",
       "client_lane": "mcp-typescript-sdk",
-      "client_version": "1.30.0",
+      "client_version": "1.32.1",
       "deployment_target": "local-docker",
       "required_tier": "nightly",
       "licensed": false,
@@ -35173,10 +35216,11 @@
       "scenario_facets": [
         "positive",
         "negative",
-        "media-schema"
+        "media-schema",
+        "auth"
       ],
       "contract_revision": "geospatial-mcp@5e052a76b6485edbe78c3482488c58f66700bd59",
-      "auth_policy_revision": "anonymous-public-v1",
+      "auth_policy_revision": "mcp-protected-operation-v1",
       "fixture_revision": "conformance@5e052a76b6485edbe78c3482488c58f66700bd59",
       "budget_expectations": null
     },
@@ -35187,7 +35231,7 @@
       "maturity": "supported",
       "canonical_client": "MCP Inspector",
       "client_lane": "mcp-inspector",
-      "client_version": "2.3.0",
+      "client_version": "2.10.1",
       "deployment_target": "local-docker",
       "required_tier": "nightly",
       "licensed": false,
@@ -35197,10 +35241,11 @@
       "scenario_facets": [
         "positive",
         "negative",
-        "media-schema"
+        "media-schema",
+        "auth"
       ],
       "contract_revision": "geospatial-mcp@5e052a76b6485edbe78c3482488c58f66700bd59",
-      "auth_policy_revision": "anonymous-public-v1",
+      "auth_policy_revision": "mcp-protected-operation-v1",
       "fixture_revision": "conformance@5e052a76b6485edbe78c3482488c58f66700bd59",
       "budget_expectations": null
     },
@@ -35211,7 +35256,7 @@
       "maturity": "supported",
       "canonical_client": "Official MCP TypeScript SDK",
       "client_lane": "mcp-typescript-sdk",
-      "client_version": "1.30.0",
+      "client_version": "1.32.1",
       "deployment_target": "local-docker",
       "required_tier": "nightly",
       "licensed": false,
@@ -35221,10 +35266,11 @@
       "scenario_facets": [
         "positive",
         "negative",
-        "media-schema"
+        "media-schema",
+        "auth"
       ],
       "contract_revision": "geospatial-mcp@5e052a76b6485edbe78c3482488c58f66700bd59",
-      "auth_policy_revision": "anonymous-public-v1",
+      "auth_policy_revision": "mcp-protected-operation-v1",
       "fixture_revision": "conformance@5e052a76b6485edbe78c3482488c58f66700bd59",
       "budget_expectations": null
     },
@@ -35235,7 +35281,7 @@
       "maturity": "supported",
       "canonical_client": "MCP Inspector",
       "client_lane": "mcp-inspector",
-      "client_version": "2.3.0",
+      "client_version": "2.10.1",
       "deployment_target": "local-docker",
       "required_tier": "nightly",
       "licensed": false,
@@ -35245,10 +35291,11 @@
       "scenario_facets": [
         "positive",
         "negative",
-        "media-schema"
+        "media-schema",
+        "auth"
       ],
       "contract_revision": "geospatial-mcp@5e052a76b6485edbe78c3482488c58f66700bd59",
-      "auth_policy_revision": "anonymous-public-v1",
+      "auth_policy_revision": "mcp-protected-operation-v1",
       "fixture_revision": "conformance@5e052a76b6485edbe78c3482488c58f66700bd59",
       "budget_expectations": null
     },
@@ -35259,7 +35306,7 @@
       "maturity": "supported",
       "canonical_client": "Official MCP TypeScript SDK",
       "client_lane": "mcp-typescript-sdk",
-      "client_version": "1.30.0",
+      "client_version": "1.32.1",
       "deployment_target": "local-docker",
       "required_tier": "nightly",
       "licensed": false,
@@ -35269,10 +35316,11 @@
       "scenario_facets": [
         "positive",
         "negative",
-        "media-schema"
+        "media-schema",
+        "auth"
       ],
       "contract_revision": "geospatial-mcp@5e052a76b6485edbe78c3482488c58f66700bd59",
-      "auth_policy_revision": "anonymous-public-v1",
+      "auth_policy_revision": "mcp-protected-operation-v1",
       "fixture_revision": "conformance@5e052a76b6485edbe78c3482488c58f66700bd59",
       "budget_expectations": null
     },
@@ -35283,7 +35331,7 @@
       "maturity": "supported",
       "canonical_client": "MCP Inspector",
       "client_lane": "mcp-inspector",
-      "client_version": "2.3.0",
+      "client_version": "2.10.1",
       "deployment_target": "local-docker",
       "required_tier": "nightly",
       "licensed": false,
@@ -35293,10 +35341,11 @@
       "scenario_facets": [
         "positive",
         "negative",
-        "media-schema"
+        "media-schema",
+        "auth"
       ],
       "contract_revision": "geospatial-mcp@5e052a76b6485edbe78c3482488c58f66700bd59",
-      "auth_policy_revision": "anonymous-public-v1",
+      "auth_policy_revision": "mcp-protected-operation-v1",
       "fixture_revision": "conformance@5e052a76b6485edbe78c3482488c58f66700bd59",
       "budget_expectations": null
     },
@@ -35307,7 +35356,7 @@
       "maturity": "supported",
       "canonical_client": "Official MCP TypeScript SDK",
       "client_lane": "mcp-typescript-sdk",
-      "client_version": "1.30.0",
+      "client_version": "1.32.1",
       "deployment_target": "local-docker",
       "required_tier": "nightly",
       "licensed": false,
@@ -35317,10 +35366,11 @@
       "scenario_facets": [
         "positive",
         "negative",
-        "media-schema"
+        "media-schema",
+        "auth"
       ],
       "contract_revision": "geospatial-mcp@5e052a76b6485edbe78c3482488c58f66700bd59",
-      "auth_policy_revision": "anonymous-public-v1",
+      "auth_policy_revision": "mcp-protected-operation-v1",
       "fixture_revision": "conformance@5e052a76b6485edbe78c3482488c58f66700bd59",
       "budget_expectations": null
     },
@@ -35331,7 +35381,7 @@
       "maturity": "supported",
       "canonical_client": "MCP Inspector",
       "client_lane": "mcp-inspector",
-      "client_version": "2.3.0",
+      "client_version": "2.10.1",
       "deployment_target": "local-docker",
       "required_tier": "nightly",
       "licensed": false,
@@ -35341,10 +35391,11 @@
       "scenario_facets": [
         "positive",
         "negative",
-        "media-schema"
+        "media-schema",
+        "auth"
       ],
       "contract_revision": "geospatial-mcp@5e052a76b6485edbe78c3482488c58f66700bd59",
-      "auth_policy_revision": "anonymous-public-v1",
+      "auth_policy_revision": "mcp-protected-operation-v1",
       "fixture_revision": "conformance@5e052a76b6485edbe78c3482488c58f66700bd59",
       "budget_expectations": null
     },
@@ -35355,7 +35406,7 @@
       "maturity": "supported",
       "canonical_client": "Official MCP TypeScript SDK",
       "client_lane": "mcp-typescript-sdk",
-      "client_version": "1.30.0",
+      "client_version": "1.32.1",
       "deployment_target": "local-docker",
       "required_tier": "nightly",
       "licensed": false,
@@ -35365,10 +35416,11 @@
       "scenario_facets": [
         "positive",
         "negative",
-        "media-schema"
+        "media-schema",
+        "auth"
       ],
       "contract_revision": "geospatial-mcp@5e052a76b6485edbe78c3482488c58f66700bd59",
-      "auth_policy_revision": "anonymous-public-v1",
+      "auth_policy_revision": "mcp-protected-operation-v1",
       "fixture_revision": "conformance@5e052a76b6485edbe78c3482488c58f66700bd59",
       "budget_expectations": null
     },
@@ -35379,7 +35431,7 @@
       "maturity": "supported",
       "canonical_client": "MCP Inspector",
       "client_lane": "mcp-inspector",
-      "client_version": "2.3.0",
+      "client_version": "2.10.1",
       "deployment_target": "local-docker",
       "required_tier": "nightly",
       "licensed": false,
@@ -35389,10 +35441,11 @@
       "scenario_facets": [
         "positive",
         "negative",
-        "media-schema"
+        "media-schema",
+        "auth"
       ],
       "contract_revision": "geospatial-mcp@5e052a76b6485edbe78c3482488c58f66700bd59",
-      "auth_policy_revision": "anonymous-public-v1",
+      "auth_policy_revision": "mcp-protected-operation-v1",
       "fixture_revision": "conformance@5e052a76b6485edbe78c3482488c58f66700bd59",
       "budget_expectations": null
     },
@@ -35403,7 +35456,7 @@
       "maturity": "supported",
       "canonical_client": "Official MCP TypeScript SDK",
       "client_lane": "mcp-typescript-sdk",
-      "client_version": "1.30.0",
+      "client_version": "1.32.1",
       "deployment_target": "local-docker",
       "required_tier": "nightly",
       "licensed": false,
@@ -35413,10 +35466,11 @@
       "scenario_facets": [
         "positive",
         "negative",
-        "media-schema"
+        "media-schema",
+        "auth"
       ],
       "contract_revision": "geospatial-mcp@5e052a76b6485edbe78c3482488c58f66700bd59",
-      "auth_policy_revision": "anonymous-public-v1",
+      "auth_policy_revision": "mcp-protected-operation-v1",
       "fixture_revision": "conformance@5e052a76b6485edbe78c3482488c58f66700bd59",
       "budget_expectations": null
     },
@@ -35427,7 +35481,7 @@
       "maturity": "supported",
       "canonical_client": "MCP Inspector",
       "client_lane": "mcp-inspector",
-      "client_version": "2.3.0",
+      "client_version": "2.10.1",
       "deployment_target": "local-docker",
       "required_tier": "nightly",
       "licensed": false,
@@ -35437,10 +35491,11 @@
       "scenario_facets": [
         "positive",
         "negative",
-        "media-schema"
+        "media-schema",
+        "auth"
       ],
       "contract_revision": "geospatial-mcp@5e052a76b6485edbe78c3482488c58f66700bd59",
-      "auth_policy_revision": "anonymous-public-v1",
+      "auth_policy_revision": "mcp-protected-operation-v1",
       "fixture_revision": "conformance@5e052a76b6485edbe78c3482488c58f66700bd59",
       "budget_expectations": null
     },
@@ -35451,7 +35506,7 @@
       "maturity": "supported",
       "canonical_client": "Official MCP TypeScript SDK",
       "client_lane": "mcp-typescript-sdk",
-      "client_version": "1.30.0",
+      "client_version": "1.32.1",
       "deployment_target": "local-docker",
       "required_tier": "nightly",
       "licensed": false,
@@ -35461,10 +35516,11 @@
       "scenario_facets": [
         "positive",
         "negative",
-        "media-schema"
+        "media-schema",
+        "auth"
       ],
       "contract_revision": "geospatial-mcp@5e052a76b6485edbe78c3482488c58f66700bd59",
-      "auth_policy_revision": "anonymous-public-v1",
+      "auth_policy_revision": "mcp-protected-operation-v1",
       "fixture_revision": "conformance@5e052a76b6485edbe78c3482488c58f66700bd59",
       "budget_expectations": null
     },
@@ -35475,7 +35531,7 @@
       "maturity": "supported",
       "canonical_client": "MCP Inspector",
       "client_lane": "mcp-inspector",
-      "client_version": "2.3.0",
+      "client_version": "2.10.1",
       "deployment_target": "local-docker",
       "required_tier": "nightly",
       "licensed": false,
@@ -35485,10 +35541,11 @@
       "scenario_facets": [
         "positive",
         "negative",
-        "media-schema"
+        "media-schema",
+        "auth"
       ],
       "contract_revision": "geospatial-mcp@5e052a76b6485edbe78c3482488c58f66700bd59",
-      "auth_policy_revision": "anonymous-public-v1",
+      "auth_policy_revision": "mcp-protected-operation-v1",
       "fixture_revision": "conformance@5e052a76b6485edbe78c3482488c58f66700bd59",
       "budget_expectations": null
     },
@@ -35499,7 +35556,7 @@
       "maturity": "supported",
       "canonical_client": "Official MCP TypeScript SDK",
       "client_lane": "mcp-typescript-sdk",
-      "client_version": "1.30.0",
+      "client_version": "1.32.1",
       "deployment_target": "local-docker",
       "required_tier": "nightly",
       "licensed": false,
@@ -35509,10 +35566,11 @@
       "scenario_facets": [
         "positive",
         "negative",
-        "media-schema"
+        "media-schema",
+        "auth"
       ],
       "contract_revision": "geospatial-mcp@5e052a76b6485edbe78c3482488c58f66700bd59",
-      "auth_policy_revision": "anonymous-public-v1",
+      "auth_policy_revision": "mcp-protected-operation-v1",
       "fixture_revision": "conformance@5e052a76b6485edbe78c3482488c58f66700bd59",
       "budget_expectations": null
     },
@@ -35523,7 +35581,7 @@
       "maturity": "supported",
       "canonical_client": "MCP Inspector",
       "client_lane": "mcp-inspector",
-      "client_version": "2.3.0",
+      "client_version": "2.10.1",
       "deployment_target": "local-docker",
       "required_tier": "nightly",
       "licensed": false,
@@ -35533,10 +35591,11 @@
       "scenario_facets": [
         "positive",
         "negative",
-        "media-schema"
+        "media-schema",
+        "auth"
       ],
       "contract_revision": "geospatial-mcp@5e052a76b6485edbe78c3482488c58f66700bd59",
-      "auth_policy_revision": "anonymous-public-v1",
+      "auth_policy_revision": "mcp-protected-operation-v1",
       "fixture_revision": "conformance@5e052a76b6485edbe78c3482488c58f66700bd59",
       "budget_expectations": null
     },
@@ -35547,7 +35606,7 @@
       "maturity": "supported",
       "canonical_client": "Official MCP TypeScript SDK",
       "client_lane": "mcp-typescript-sdk",
-      "client_version": "1.30.0",
+      "client_version": "1.32.1",
       "deployment_target": "local-docker",
       "required_tier": "nightly",
       "licensed": false,
@@ -35557,10 +35616,11 @@
       "scenario_facets": [
         "positive",
         "negative",
-        "media-schema"
+        "media-schema",
+        "auth"
       ],
       "contract_revision": "geospatial-mcp@5e052a76b6485edbe78c3482488c58f66700bd59",
-      "auth_policy_revision": "anonymous-public-v1",
+      "auth_policy_revision": "mcp-protected-operation-v1",
       "fixture_revision": "conformance@5e052a76b6485edbe78c3482488c58f66700bd59",
       "budget_expectations": null
     },
@@ -35571,7 +35631,7 @@
       "maturity": "supported",
       "canonical_client": "MCP Inspector",
       "client_lane": "mcp-inspector",
-      "client_version": "2.3.0",
+      "client_version": "2.10.1",
       "deployment_target": "local-docker",
       "required_tier": "nightly",
       "licensed": false,
@@ -35581,10 +35641,11 @@
       "scenario_facets": [
         "positive",
         "negative",
-        "media-schema"
+        "media-schema",
+        "auth"
       ],
       "contract_revision": "geospatial-mcp@5e052a76b6485edbe78c3482488c58f66700bd59",
-      "auth_policy_revision": "anonymous-public-v1",
+      "auth_policy_revision": "mcp-protected-operation-v1",
       "fixture_revision": "conformance@5e052a76b6485edbe78c3482488c58f66700bd59",
       "budget_expectations": null
     },
@@ -35595,7 +35656,7 @@
       "maturity": "supported",
       "canonical_client": "Official MCP TypeScript SDK",
       "client_lane": "mcp-typescript-sdk",
-      "client_version": "1.30.0",
+      "client_version": "1.32.1",
       "deployment_target": "local-docker",
       "required_tier": "nightly",
       "licensed": false,
@@ -35605,10 +35666,11 @@
       "scenario_facets": [
         "positive",
         "negative",
-        "media-schema"
+        "media-schema",
+        "auth"
       ],
       "contract_revision": "geospatial-mcp@5e052a76b6485edbe78c3482488c58f66700bd59",
-      "auth_policy_revision": "anonymous-public-v1",
+      "auth_policy_revision": "mcp-protected-operation-v1",
       "fixture_revision": "conformance@5e052a76b6485edbe78c3482488c58f66700bd59",
       "budget_expectations": null
     },
@@ -35619,7 +35681,7 @@
       "maturity": "supported",
       "canonical_client": "MCP Inspector",
       "client_lane": "mcp-inspector",
-      "client_version": "2.3.0",
+      "client_version": "2.10.1",
       "deployment_target": "local-docker",
       "required_tier": "nightly",
       "licensed": false,
@@ -35629,10 +35691,11 @@
       "scenario_facets": [
         "positive",
         "negative",
-        "media-schema"
+        "media-schema",
+        "auth"
       ],
       "contract_revision": "geospatial-mcp@5e052a76b6485edbe78c3482488c58f66700bd59",
-      "auth_policy_revision": "anonymous-public-v1",
+      "auth_policy_revision": "mcp-protected-operation-v1",
       "fixture_revision": "conformance@5e052a76b6485edbe78c3482488c58f66700bd59",
       "budget_expectations": null
     },
@@ -35643,7 +35706,7 @@
       "maturity": "supported",
       "canonical_client": "Official MCP TypeScript SDK",
       "client_lane": "mcp-typescript-sdk",
-      "client_version": "1.30.0",
+      "client_version": "1.32.1",
       "deployment_target": "local-docker",
       "required_tier": "nightly",
       "licensed": false,
@@ -35653,10 +35716,11 @@
       "scenario_facets": [
         "positive",
         "negative",
-        "media-schema"
+        "media-schema",
+        "auth"
       ],
       "contract_revision": "geospatial-mcp@5e052a76b6485edbe78c3482488c58f66700bd59",
-      "auth_policy_revision": "anonymous-public-v1",
+      "auth_policy_revision": "mcp-protected-operation-v1",
       "fixture_revision": "conformance@5e052a76b6485edbe78c3482488c58f66700bd59",
       "budget_expectations": null
     },
@@ -35667,7 +35731,7 @@
       "maturity": "supported",
       "canonical_client": "MCP Inspector",
       "client_lane": "mcp-inspector",
-      "client_version": "2.3.0",
+      "client_version": "2.10.1",
       "deployment_target": "local-docker",
       "required_tier": "nightly",
       "licensed": false,
@@ -35677,10 +35741,11 @@
       "scenario_facets": [
         "positive",
         "negative",
-        "media-schema"
+        "media-schema",
+        "auth"
       ],
       "contract_revision": "geospatial-mcp@5e052a76b6485edbe78c3482488c58f66700bd59",
-      "auth_policy_revision": "anonymous-public-v1",
+      "auth_policy_revision": "mcp-protected-operation-v1",
       "fixture_revision": "conformance@5e052a76b6485edbe78c3482488c58f66700bd59",
       "budget_expectations": null
     },
@@ -35691,7 +35756,7 @@
       "maturity": "supported",
       "canonical_client": "Official MCP TypeScript SDK",
       "client_lane": "mcp-typescript-sdk",
-      "client_version": "1.30.0",
+      "client_version": "1.32.1",
       "deployment_target": "local-docker",
       "required_tier": "nightly",
       "licensed": false,
@@ -35701,10 +35766,11 @@
       "scenario_facets": [
         "positive",
         "negative",
-        "media-schema"
+        "media-schema",
+        "auth"
       ],
       "contract_revision": "geospatial-mcp@5e052a76b6485edbe78c3482488c58f66700bd59",
-      "auth_policy_revision": "anonymous-public-v1",
+      "auth_policy_revision": "mcp-protected-operation-v1",
       "fixture_revision": "conformance@5e052a76b6485edbe78c3482488c58f66700bd59",
       "budget_expectations": null
     },
@@ -35715,7 +35781,7 @@
       "maturity": "supported",
       "canonical_client": "MCP Inspector",
       "client_lane": "mcp-inspector",
-      "client_version": "2.3.0",
+      "client_version": "2.10.1",
       "deployment_target": "local-docker",
       "required_tier": "nightly",
       "licensed": false,
@@ -35725,10 +35791,11 @@
       "scenario_facets": [
         "positive",
         "negative",
-        "media-schema"
+        "media-schema",
+        "auth"
       ],
       "contract_revision": "geospatial-mcp@5e052a76b6485edbe78c3482488c58f66700bd59",
-      "auth_policy_revision": "anonymous-public-v1",
+      "auth_policy_revision": "mcp-protected-operation-v1",
       "fixture_revision": "conformance@5e052a76b6485edbe78c3482488c58f66700bd59",
       "budget_expectations": null
     },
@@ -35739,7 +35806,7 @@
       "maturity": "supported",
       "canonical_client": "Official MCP TypeScript SDK",
       "client_lane": "mcp-typescript-sdk",
-      "client_version": "1.30.0",
+      "client_version": "1.32.1",
       "deployment_target": "local-docker",
       "required_tier": "nightly",
       "licensed": false,
@@ -35749,10 +35816,11 @@
       "scenario_facets": [
         "positive",
         "negative",
-        "media-schema"
+        "media-schema",
+        "auth"
       ],
       "contract_revision": "geospatial-mcp@5e052a76b6485edbe78c3482488c58f66700bd59",
-      "auth_policy_revision": "anonymous-public-v1",
+      "auth_policy_revision": "mcp-protected-operation-v1",
       "fixture_revision": "conformance@5e052a76b6485edbe78c3482488c58f66700bd59",
       "budget_expectations": null
     },
@@ -35763,7 +35831,7 @@
       "maturity": "supported",
       "canonical_client": "MCP Inspector",
       "client_lane": "mcp-inspector",
-      "client_version": "2.3.0",
+      "client_version": "2.10.1",
       "deployment_target": "local-docker",
       "required_tier": "nightly",
       "licensed": false,
@@ -35773,10 +35841,11 @@
       "scenario_facets": [
         "positive",
         "negative",
-        "media-schema"
+        "media-schema",
+        "auth"
       ],
       "contract_revision": "geospatial-mcp@5e052a76b6485edbe78c3482488c58f66700bd59",
-      "auth_policy_revision": "anonymous-public-v1",
+      "auth_policy_revision": "mcp-protected-operation-v1",
       "fixture_revision": "conformance@5e052a76b6485edbe78c3482488c58f66700bd59",
       "budget_expectations": null
     },
@@ -35787,7 +35856,7 @@
       "maturity": "supported",
       "canonical_client": "Official MCP TypeScript SDK",
       "client_lane": "mcp-typescript-sdk",
-      "client_version": "1.30.0",
+      "client_version": "1.32.1",
       "deployment_target": "local-docker",
       "required_tier": "nightly",
       "licensed": false,
@@ -35797,10 +35866,11 @@
       "scenario_facets": [
         "positive",
         "negative",
-        "media-schema"
+        "media-schema",
+        "auth"
       ],
       "contract_revision": "geospatial-mcp@5e052a76b6485edbe78c3482488c58f66700bd59",
-      "auth_policy_revision": "anonymous-public-v1",
+      "auth_policy_revision": "mcp-protected-operation-v1",
       "fixture_revision": "conformance@5e052a76b6485edbe78c3482488c58f66700bd59",
       "budget_expectations": null
     },
@@ -35811,7 +35881,7 @@
       "maturity": "supported",
       "canonical_client": "MCP Inspector",
       "client_lane": "mcp-inspector",
-      "client_version": "2.3.0",
+      "client_version": "2.10.1",
       "deployment_target": "local-docker",
       "required_tier": "nightly",
       "licensed": false,
@@ -35821,10 +35891,11 @@
       "scenario_facets": [
         "positive",
         "negative",
-        "media-schema"
+        "media-schema",
+        "auth"
       ],
       "contract_revision": "geospatial-mcp@5e052a76b6485edbe78c3482488c58f66700bd59",
-      "auth_policy_revision": "anonymous-public-v1",
+      "auth_policy_revision": "mcp-protected-operation-v1",
       "fixture_revision": "conformance@5e052a76b6485edbe78c3482488c58f66700bd59",
       "budget_expectations": null
     },
@@ -35835,7 +35906,7 @@
       "maturity": "supported",
       "canonical_client": "Official MCP TypeScript SDK",
       "client_lane": "mcp-typescript-sdk",
-      "client_version": "1.30.0",
+      "client_version": "1.32.1",
       "deployment_target": "local-docker",
       "required_tier": "nightly",
       "licensed": false,
@@ -35845,10 +35916,11 @@
       "scenario_facets": [
         "positive",
         "negative",
-        "media-schema"
+        "media-schema",
+        "auth"
       ],
       "contract_revision": "geospatial-mcp@5e052a76b6485edbe78c3482488c58f66700bd59",
-      "auth_policy_revision": "anonymous-public-v1",
+      "auth_policy_revision": "mcp-protected-operation-v1",
       "fixture_revision": "conformance@5e052a76b6485edbe78c3482488c58f66700bd59",
       "budget_expectations": null
     },
@@ -35859,7 +35931,7 @@
       "maturity": "supported",
       "canonical_client": "MCP Inspector",
       "client_lane": "mcp-inspector",
-      "client_version": "2.3.0",
+      "client_version": "2.10.1",
       "deployment_target": "local-docker",
       "required_tier": "nightly",
       "licensed": false,
@@ -35869,10 +35941,11 @@
       "scenario_facets": [
         "positive",
         "negative",
-        "media-schema"
+        "media-schema",
+        "auth"
       ],
       "contract_revision": "geospatial-mcp@5e052a76b6485edbe78c3482488c58f66700bd59",
-      "auth_policy_revision": "anonymous-public-v1",
+      "auth_policy_revision": "mcp-protected-operation-v1",
       "fixture_revision": "conformance@5e052a76b6485edbe78c3482488c58f66700bd59",
       "budget_expectations": null
     },
@@ -35883,7 +35956,7 @@
       "maturity": "supported",
       "canonical_client": "Official MCP TypeScript SDK",
       "client_lane": "mcp-typescript-sdk",
-      "client_version": "1.30.0",
+      "client_version": "1.32.1",
       "deployment_target": "local-docker",
       "required_tier": "nightly",
       "licensed": false,
@@ -35893,7 +35966,33 @@
       "scenario_facets": [
         "positive",
         "negative",
-        "media-schema"
+        "media-schema",
+        "auth"
+      ],
+      "contract_revision": "geospatial-mcp@5e052a76b6485edbe78c3482488c58f66700bd59",
+      "auth_policy_revision": "mcp-protected-operation-v1",
+      "fixture_revision": "conformance@5e052a76b6485edbe78c3482488c58f66700bd59",
+      "budget_expectations": null
+    },
+    {
+      "capability_key": "mcp.transport",
+      "surface": "mcp",
+      "operation": "initialize",
+      "maturity": "supported",
+      "canonical_client": "MCP Inspector",
+      "client_lane": "mcp-inspector",
+      "client_version": "2.10.1",
+      "deployment_target": "local-docker",
+      "required_tier": "nightly",
+      "licensed": false,
+      "entitlement_policy_revision": null,
+      "addressable_by_client": true,
+      "addressability_reason": null,
+      "scenario_facets": [
+        "positive",
+        "negative",
+        "media-schema",
+        "auth"
       ],
       "contract_revision": "geospatial-mcp@5e052a76b6485edbe78c3482488c58f66700bd59",
       "auth_policy_revision": "anonymous-public-v1",
@@ -35905,33 +36004,9 @@
       "surface": "mcp",
       "operation": "initialize",
       "maturity": "supported",
-      "canonical_client": "MCP Inspector",
-      "client_lane": "mcp-inspector",
-      "client_version": "2.3.0",
-      "deployment_target": "local-docker",
-      "required_tier": "nightly",
-      "licensed": false,
-      "entitlement_policy_revision": null,
-      "addressable_by_client": true,
-      "addressability_reason": null,
-      "scenario_facets": [
-        "positive",
-        "negative",
-        "media-schema"
-      ],
-      "contract_revision": "geospatial-mcp@5e052a76b6485edbe78c3482488c58f66700bd59",
-      "auth_policy_revision": "anonymous-public-v1",
-      "fixture_revision": "conformance@5e052a76b6485edbe78c3482488c58f66700bd59",
-      "budget_expectations": null
-    },
-    {
-      "capability_key": "mcp.transport",
-      "surface": "mcp",
-      "operation": "initialize",
-      "maturity": "supported",
       "canonical_client": "Official MCP TypeScript SDK",
       "client_lane": "mcp-typescript-sdk",
-      "client_version": "1.30.0",
+      "client_version": "1.32.1",
       "deployment_target": "local-docker",
       "required_tier": "nightly",
       "licensed": false,
@@ -35941,7 +36016,8 @@
       "scenario_facets": [
         "positive",
         "negative",
-        "media-schema"
+        "media-schema",
+        "auth"
       ],
       "contract_revision": "geospatial-mcp@5e052a76b6485edbe78c3482488c58f66700bd59",
       "auth_policy_revision": "anonymous-public-v1",
@@ -35955,7 +36031,7 @@
       "maturity": "supported",
       "canonical_client": "MCP Inspector",
       "client_lane": "mcp-inspector",
-      "client_version": "2.3.0",
+      "client_version": "2.10.1",
       "deployment_target": "local-docker",
       "required_tier": "nightly",
       "licensed": false,
@@ -35965,7 +36041,8 @@
       "scenario_facets": [
         "positive",
         "negative",
-        "media-schema"
+        "media-schema",
+        "auth"
       ],
       "contract_revision": "geospatial-mcp@5e052a76b6485edbe78c3482488c58f66700bd59",
       "auth_policy_revision": "anonymous-public-v1",
@@ -35979,7 +36056,7 @@
       "maturity": "supported",
       "canonical_client": "Official MCP TypeScript SDK",
       "client_lane": "mcp-typescript-sdk",
-      "client_version": "1.30.0",
+      "client_version": "1.32.1",
       "deployment_target": "local-docker",
       "required_tier": "nightly",
       "licensed": false,
@@ -35989,7 +36066,8 @@
       "scenario_facets": [
         "positive",
         "negative",
-        "media-schema"
+        "media-schema",
+        "auth"
       ],
       "contract_revision": "geospatial-mcp@5e052a76b6485edbe78c3482488c58f66700bd59",
       "auth_policy_revision": "anonymous-public-v1",
@@ -36003,7 +36081,7 @@
       "maturity": "supported",
       "canonical_client": "MCP Inspector",
       "client_lane": "mcp-inspector",
-      "client_version": "2.3.0",
+      "client_version": "2.10.1",
       "deployment_target": "local-docker",
       "required_tier": "nightly",
       "licensed": false,
@@ -36013,7 +36091,8 @@
       "scenario_facets": [
         "positive",
         "negative",
-        "media-schema"
+        "media-schema",
+        "auth"
       ],
       "contract_revision": "geospatial-mcp@5e052a76b6485edbe78c3482488c58f66700bd59",
       "auth_policy_revision": "anonymous-public-v1",
@@ -36027,7 +36106,7 @@
       "maturity": "supported",
       "canonical_client": "Official MCP TypeScript SDK",
       "client_lane": "mcp-typescript-sdk",
-      "client_version": "1.30.0",
+      "client_version": "1.32.1",
       "deployment_target": "local-docker",
       "required_tier": "nightly",
       "licensed": false,
@@ -36037,7 +36116,8 @@
       "scenario_facets": [
         "positive",
         "negative",
-        "media-schema"
+        "media-schema",
+        "auth"
       ],
       "contract_revision": "geospatial-mcp@5e052a76b6485edbe78c3482488c58f66700bd59",
       "auth_policy_revision": "anonymous-public-v1",
@@ -36051,7 +36131,7 @@
       "maturity": "supported",
       "canonical_client": "MCP Inspector",
       "client_lane": "mcp-inspector",
-      "client_version": "2.3.0",
+      "client_version": "2.10.1",
       "deployment_target": "local-docker",
       "required_tier": "nightly",
       "licensed": false,
@@ -36061,7 +36141,8 @@
       "scenario_facets": [
         "positive",
         "negative",
-        "media-schema"
+        "media-schema",
+        "auth"
       ],
       "contract_revision": "geospatial-mcp@5e052a76b6485edbe78c3482488c58f66700bd59",
       "auth_policy_revision": "anonymous-public-v1",
@@ -36075,7 +36156,7 @@
       "maturity": "supported",
       "canonical_client": "Official MCP TypeScript SDK",
       "client_lane": "mcp-typescript-sdk",
-      "client_version": "1.30.0",
+      "client_version": "1.32.1",
       "deployment_target": "local-docker",
       "required_tier": "nightly",
       "licensed": false,
@@ -36085,7 +36166,8 @@
       "scenario_facets": [
         "positive",
         "negative",
-        "media-schema"
+        "media-schema",
+        "auth"
       ],
       "contract_revision": "geospatial-mcp@5e052a76b6485edbe78c3482488c58f66700bd59",
       "auth_policy_revision": "anonymous-public-v1",

@@ -1,4 +1,4 @@
-<!-- Exact six code blocks, in order, from https://github.com/honua-io/honua-site/blob/a0999823f6fd397769d9f780f3df6726f0ddd585/docs/geoprocessing/index.md
+<!-- Exact six code blocks, in order, from https://github.com/honua-io/honua-site/blob/4327a1ec8e4000556d57122b50c30f428868b4b3/docs/geoprocessing/index.md
 Original UTF-8 source SHA256: ddb529d19ed48f1de609befba1c1f08d476a2bca4a577498baf1605eba4edcdb
 The original guide is authoritative for prose/citations. Every block hash is checked against the frozen inventory. -->
 

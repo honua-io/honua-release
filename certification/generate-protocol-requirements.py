@@ -160,6 +160,60 @@ def mcp_clients() -> list[tuple[str, str, str]]:
     return clients
 
 
+def mcp_operation_auth(inventory: dict) -> dict[str, str]:
+    """Require an explicit authorization decision for every selected MCP operation.
+
+    This is release-owned policy, not a change to the producer snapshots. The
+    selected producer must actually implement the new auth facet before its
+    receipts can satisfy the regenerated requirements.
+    """
+    policy = load(SOURCES / "mcp-operation-auth-policy.v1.json")
+    if (policy.get("schema") != "honua.mcp-operation-auth-policy/v1"
+            or policy.get("revision") != "mcp-operation-auth-v1"):
+        raise ValueError("MCP authorization policy schema/revision is invalid")
+    expected_profiles = {
+        "anonymous-public-v1": ["anonymous-success", "fresh-anonymous-session", "no-credentials"],
+        "mcp-protected-operation-v1": [
+            "authenticated-success", "fresh-anonymous-refusal", "no-credential-forwarding",
+            "no-authenticated-session-reuse", "caller-session-binding",
+        ],
+    }
+    if policy.get("required_observations") != expected_profiles:
+        raise ValueError("MCP authorization policy must preserve all required observations")
+    operations = {}
+    for entry in inventory["operations"]:
+        operation, kind = entry["operation"], entry["kind"]
+        valid_kind = (
+            kind == "transport" and operation in {"initialize", "ping", "tools/list", "resources/templates/list"}
+            or kind == "tool" and isinstance(operation, str) and operation.startswith("tools/call:")
+            or kind == "resource" and isinstance(operation, str) and operation.startswith("resources/read:")
+        )
+        if not valid_kind:
+            raise ValueError(f"MCP authorization policy has unknown operation kind or method: {kind}/{operation}")
+        if operation in operations and operations[operation] != kind:
+            raise ValueError(f"MCP authorization inventory has conflicting kinds: {operation}")
+        operations[operation] = kind
+    decisions = policy.get("operations")
+    if not isinstance(decisions, list) or not decisions:
+        raise ValueError("MCP authorization policy requires explicit operation decisions")
+    selected = {}
+    for decision in decisions:
+        if not isinstance(decision, dict) or set(decision) != {"operation", "kind", "auth_policy_revision", "rationale"}:
+            raise ValueError("MCP authorization decision has unknown or missing fields")
+        operation = decision["operation"]
+        if not isinstance(operation, str) or operation not in operations or operation in selected:
+            raise ValueError(f"MCP authorization decision is unknown or duplicated: {operation}")
+        kind = operations[operation]
+        expected = "anonymous-public-v1" if kind == "transport" else "mcp-protected-operation-v1"
+        if (decision["kind"] != kind or decision["auth_policy_revision"] != expected
+                or not isinstance(decision["rationale"], str) or not decision["rationale"].strip()):
+            raise ValueError(f"MCP authorization decision contradicts the server contract: {operation}")
+        selected[operation] = expected
+    if set(selected) != set(operations):
+        raise ValueError(f"MCP authorization decisions are missing: {sorted(set(operations) - set(selected))}")
+    return selected
+
+
 def protocol_clients() -> list[tuple]:
     """Authoritative protocol client declarations, shared by generation and validation."""
     return [
@@ -740,13 +794,14 @@ def main() -> None:
 
     mcp = load(SOURCES / "geospatial-mcp" / "operations.v1.json")
     selected_mcp_clients = mcp_clients()
+    selected_mcp_auth = mcp_operation_auth(mcp)
     for entry in mcp["operations"]:
         for client, lane, version in selected_mcp_clients:
             add(
                 capability=f"mcp.{entry['kind']}", surface="mcp", operation=entry["operation"],
                 client=client, lane=lane, version=version,
-                contract=f"geospatial-mcp@{mcp['source_sha']}", auth_policy="anonymous-public-v1",
-                fixture=mcp["fixture_version"], facets=["positive", "negative", "media-schema"],
+                contract=f"geospatial-mcp@{mcp['source_sha']}", auth_policy=selected_mcp_auth[entry["operation"]],
+                fixture=mcp["fixture_version"], facets=["positive", "negative", "media-schema", "auth"],
             )
 
     server = load(SOURCES / "server" / "capability-matrix.v1.json")
@@ -1092,7 +1147,7 @@ def main() -> None:
     ))
     output = {
         "schema": "honua.protocol-certification-requirements/v1",
-        "revision": "2026-10-17-complete.24",
+        "revision": "2026-10-19-complete.25",
         "trademarkNotice": DESKTOP["trademarkNotice"],
         "receipt_schema_min": "v2",
         "complete": True,

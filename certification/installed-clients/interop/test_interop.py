@@ -266,7 +266,7 @@ class OracleTests(unittest.TestCase):
 
     def test_render_oracle_reads_pixels_of_the_imported_polygon(self):
         spec_ = FIXTURE["area"]["render"]
-        encode = lambda data: {"png": base64.b64encode(data).decode()}  # noqa: E731
+        encode = lambda data: {"png": base64.b64encode(data).decode(), "mimeType": "image/png"}  # noqa: E731
         painted = png(spec_["width"], spec_["height"], lambda x, y: 40 <= x < 220 and 40 <= y < 280)
         self.assertTrue(judge.oracle_area_render(encode(painted), FIXTURE)[0])
         self.assertFalse(judge.oracle_area_render(encode(png(spec_["width"], spec_["height"], lambda x, y: False)), FIXTURE)[0])
