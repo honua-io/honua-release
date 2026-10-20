@@ -1,0 +1,71 @@
+{
+  "purpose": "exact current manifest-admitted documentation source blocks, not source-build admission",
+  "revision": "5a79352066b8aa23f1bae45b5c38e6d83efd003f",
+  "blocks": [
+    {
+      "repository": "honua-io/honua-sdk-python",
+      "revision": "5a79352066b8aa23f1bae45b5c38e6d83efd003f",
+      "document": "README.md",
+      "documentGitBlob": "73537ad2bc7c630d53e7825f880413e9aaa2850d",
+      "documentSha256": "ecd459ce86900db8c990cf6a419e8b52d2cd9e4a934c6467f5481bc5ad4e0fa9",
+      "index": 1,
+      "line": 55,
+      "sha256": "52ae3befaa5abb60f863381805ee1230de6081a89f466722946b5edf1e859755",
+      "language": "shell",
+      "intent": "run",
+      "code": "git clone https://github.com/honua-io/honua-sdk-python.git\ncd honua-sdk-python\n\n# Data-plane client\npip install ./packages/honua-sdk\n\n# With optional extras: gRPC streaming, GeoPandas vector interop,\n# raster interop (rasterio / rioxarray / xarray)\npip install \"./packages/honua-sdk[grpc,geopandas,raster]\"\n\n# Control-plane (admin) client \u2014 installs honua-sdk alongside it\npip install ./packages/honua-sdk ./packages/honua-admin\n",
+      "orderedCommands": [
+        "git clone https://github.com/honua-io/honua-sdk-python.git",
+        "cd honua-sdk-python",
+        "pip install ./packages/honua-sdk",
+        "pip install \"./packages/honua-sdk[grpc,geopandas,raster]\"",
+        "pip install ./packages/honua-sdk ./packages/honua-admin"
+      ]
+    },
+    {
+      "repository": "honua-io/honua-sdk-python",
+      "revision": "5a79352066b8aa23f1bae45b5c38e6d83efd003f",
+      "document": "README.md",
+      "documentGitBlob": "73537ad2bc7c630d53e7825f880413e9aaa2850d",
+      "documentSha256": "ecd459ce86900db8c990cf6a419e8b52d2cd9e4a934c6467f5481bc5ad4e0fa9",
+      "index": 8,
+      "line": 283,
+      "sha256": "8e5ca8fcca606626e5908577b8d2293977b9f1e81f71b2a7b7a923ff689b2ea3",
+      "language": "shell",
+      "intent": "run",
+      "code": "# Editable install of both packages with extras\npip install -e \"packages/honua-sdk[grpc,geopandas]\"\npip install -e \"packages/honua-admin\"\npip install pytest pytest-cov ruff mypy\n\n# Lint + type-check (mypy runs in strict mode)\nruff check .\npython -m mypy packages/honua-sdk/honua_sdk packages/honua-admin/honua_admin\n\n# Deterministic local test suite\npython3 -m pytest tests/ -q\n\n# Public-API compatibility gate\npython3 scripts/compatibility_gate.py\n",
+      "orderedCommands": [
+        "pip install -e \"packages/honua-sdk[grpc,geopandas]\"",
+        "pip install -e \"packages/honua-admin\"",
+        "pip install pytest pytest-cov ruff mypy",
+        "ruff check .",
+        "python -m mypy packages/honua-sdk/honua_sdk packages/honua-admin/honua_admin",
+        "python3 -m pytest tests/ -q",
+        "python3 scripts/compatibility_gate.py"
+      ]
+    },
+    {
+      "repository": "honua-io/honua-sdk-python",
+      "revision": "5a79352066b8aa23f1bae45b5c38e6d83efd003f",
+      "document": "INSTALL.md",
+      "documentGitBlob": "cdb8cab9d5d11ec8f9d3db57b71c230ae70cca06",
+      "documentSha256": "a754d741fe68c4409baeb3d68bdaf5207b1b31e3e06648dc1879ced5274593ca",
+      "index": 1,
+      "line": 32,
+      "sha256": "bb1abba46229bf51f71ff0c281708c4b2f37f3dce88b26eeb4b8473cbedeeb58",
+      "language": "shell",
+      "intent": "run",
+      "code": "git clone https://github.com/honua-io/honua-sdk-python.git\ncd honua-sdk-python\n\n# Core data client (REST/HTTP, sync + async)\npip install ./packages/honua-sdk\n\n# With gRPC support\npip install \"./packages/honua-sdk[grpc]\"\n\n# With GeoPandas integration (vector result interop)\npip install \"./packages/honua-sdk[geopandas]\"\n\n# With raster result interop (rasterio / rioxarray / xarray)\npip install \"./packages/honua-sdk[raster]\"\n\n# Admin / control-plane client (installs honua-sdk alongside it)\npip install ./packages/honua-sdk ./packages/honua-admin\n\n# Everything\npip install \"./packages/honua-sdk[grpc,geopandas,raster]\" ./packages/honua-admin\n",
+      "orderedCommands": [
+        "git clone https://github.com/honua-io/honua-sdk-python.git",
+        "cd honua-sdk-python",
+        "pip install ./packages/honua-sdk",
+        "pip install \"./packages/honua-sdk[grpc]\"",
+        "pip install \"./packages/honua-sdk[geopandas]\"",
+        "pip install \"./packages/honua-sdk[raster]\"",
+        "pip install ./packages/honua-sdk ./packages/honua-admin",
+        "pip install \"./packages/honua-sdk[grpc,geopandas,raster]\" ./packages/honua-admin"
+      ]
+    }
+  ]
+}

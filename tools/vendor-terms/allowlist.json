@@ -433,6 +433,18 @@
       "reason": "Exact persisted publicationType discriminator declared by JsonStringEnumMemberName in immutable honua-server ce5bcccecdb64dcff4094a0982d95eea875bad7f, src/Honua.Core.Abstractions/Features/Metadata/Domain/V2/MetadataV2Enums.cs (https://github.com/honua-io/honua-server/blob/ce5bcccecdb64dcff4094a0982d95eea875bad7f/src/Honua.Core.Abstractions/Features/Metadata/Domain/V2/MetadataV2Enums.cs). The independent worker-result publication observer and oracle must retain this exact stored discriminator to bind public routing to physical storage. Only this complete wire identifier in these three files is covered; no unrelated prose, compatibility claim, classifier or baseline change. Revisit if the persisted contract changes.",
       "owner": "@mikemcdougall",
       "issue": "honua-io/honua-release#710"
+    },
+    {
+      "repo": "honua-release",
+      "paths": [
+        "certification/executable-docs/fixtures/site-geoprocessing-7d733c0.md"
+      ],
+      "tokens": [
+        "Esri"
+      ],
+      "reason": "Verbatim immutable full 4504-byte honua-site docs/geoprocessing/index.md at protected 7d733c0f04822947c111c8bc9e43a977e5714f9f (SHA256 652c7bb512f161474088dce1e1f8faef322d74a9a025dd4873b13d22a65193aa). The fixture and full-document hash must preserve the actual upstream prose to test all six real executable blocks. Only this token in this exact historical fixture is covered; sibling paths, other terms, and current website prose remain checked. Revisit when the fixture is retired.",
+      "owner": "@mikemcdougall",
+      "issue": "honua-io/honua-release#721"
     }
   ]
 }
