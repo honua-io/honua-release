@@ -65,6 +65,8 @@ jobs:
           python -B certification/installed-clients/mcp_ops_events_config_controls.py
           python -B certification/installed-clients/mcp_ops_events_setup_controls.py
           python -B certification/installed-clients/mcp_ops_events_validation_controls.py
+          python -B certification/installed-clients/mcp_managed_identity_fixture_controls.py
+          python -B certification/installed-clients/mcp_managed_identity_redis_controls.py
 
   publish-result-state-controls:
     runs-on: ubuntu-latest
