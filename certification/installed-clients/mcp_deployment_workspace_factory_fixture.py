@@ -60,6 +60,7 @@ def main():
         originals=[Path(option('--'+selector+'-journey')).read_bytes() for selector in ('sdk','inspector')]
         terminal['roleReceipt']['cohort']['journeys']=role.journey_bindings(originals,
             terminal['candidate'],terminal['roleReceipt']['configurationSha256'],terminal['nonce'])
+        (directory/'offline-final-cohort.json').write_text(json.dumps(terminal))
         # Real pure role checks rejudge the original actual factory envelopes.
         role.verify_role_receipt(terminal['roleReceipt'],terminal['configuration'],terminal['configurationObservation'],members['inspector']['semantic']['runtimeAfter'])
         for path in Path(option('--private-root')).glob('*.private.json'):path.unlink()
@@ -78,8 +79,10 @@ def main():
                     advance(observed['output']['completedAt']);print(json.dumps(observed));return
         raise AssertionError('unknown offline owned GP label')
     if name=='mcp_ops_events_data_read.py':
-        credential=os.environ['HONUA_MCP_API_KEY']
-        selector='sdk' if credential=='hnua_'+base64.urlsafe_b64encode(bytes([2])*32).decode().rstrip('=') else 'inspector'
+        credential=os.environ['HONUA_MCP_READ_API_KEY']
+        expected={selector:'hnua_'+base64.urlsafe_b64encode(bytes([index])*32).decode().rstrip('=') for selector,index in [('sdk',2),('inspector',4)]}
+        assert credential in expected.values(),'actual data-read helper requires the exact independently provisioned READ credential'
+        selector=next(selector for selector,key in expected.items() if key==credential)
         observed=members[selector]['authority']['limitedRead'];advance(observed['completedAt']);print(json.dumps(observed));return
     if name=='mcp_deployment_workspace_state.py':
         for index,(selector,value) in enumerate(members.items()):

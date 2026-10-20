@@ -40,7 +40,7 @@ if(frame.error){const auth=frame.error.data?.code==='unauthenticated';console.er
 test("actual JS two-client factory completes unchanged full oracles through offline HTTP and normal fixture implementations", async () => {
   const directory = mkdtempSync(join(tmpdir(), "offline-full-deployment-factory-"));
   const originalDate = globalThis.Date, originalPath = process.env.PATH;
-  const oldEnvironment = Object.fromEntries(["OFFLINE_ORIGINAL_PYTHON", "OFFLINE_COHORT_DIRECTORY"].map(key => [key, process.env[key]]));
+  const oldEnvironment = Object.fromEntries(["OFFLINE_ORIGINAL_PYTHON", "OFFLINE_COHORT_DIRECTORY", "HONUA_MCP_READ_API_KEY"].map(key => [key, process.env[key]]));
   let server;
   try {
     for (const name of new Set([...deploymentWorkspaceCohortDependencies, ...support])) copyFileSync(join(original, name), join(directory, name));
@@ -66,6 +66,7 @@ test("actual JS two-client factory completes unchanged full oracles through offl
     writeFileSync(shim, `#!${realPython}\nimport runpy\nrunpy.run_path(${JSON.stringify(join(directory, "mcp_deployment_workspace_factory_fixture.py"))},run_name='__main__')\n`, { mode: 0o700 });
     process.env.PATH = `${directory}${delimiter}${originalPath}`;
     process.env.OFFLINE_ORIGINAL_PYTHON = realPython; process.env.OFFLINE_COHORT_DIRECTORY = directory;
+    process.env.HONUA_MCP_READ_API_KEY = "explicit-offline-unrelated-ambient-read-key";
     const observed = [], sessions = new Set(); let cursor = 0;
     server = createServer(async (request, response) => {
       try {
@@ -108,7 +109,18 @@ test("actual JS two-client factory completes unchanged full oracles through offl
     const recovery = readdirSync(directory).filter(name => name.endsWith('.recovery.json'))
       .map(name => JSON.parse(readFileSync(join(directory,name))));
     const helperCommands = readFileSync(join(directory, "offline-helper-commands.jsonl"), "utf8").trim().split("\n").map(JSON.parse);
-    const diagnostic = JSON.stringify({ recovery, helpers: helperCommands.map(value => ({ helper:value.helper, phase:value.args[3] })), observedCount:observed.length });
+    const postmortems = [];
+    if (records.some(value => value.error)) {
+      // Reuse the actual pure oracles on retained ORIGINAL public bytes. This
+      // reports the cause without changing any decision or exposing journals.
+      const program = `import sys,json,pathlib\nsys.path.insert(0,sys.argv[1])\nimport mcp_deployment_workspace_cohort as c\nimport mcp_deployment_workspace_validation as s\nroot=pathlib.Path(sys.argv[1]);fixture=(root/'fixture.v1.json').read_bytes();boot=json.loads((root/'bootstrap.json').read_text());envelope=json.loads(pathlib.Path(sys.argv[2]).read_text());value=envelope['observations'];out=[]\nfor phase in ('before','semantic','after'):\n try:\n  result=s.judge(fixture,boot,value['semantic'],tenant_id='mcp-deployment-'+value['nonce']) if phase=='semantic' else c.authority_progress(fixture,boot,value,phase)\n  out.append({'phase':phase,'action':result.get('action','judged'),'nextId':result.get('call',{}).get('id')})\n except Exception as error:out.append({'phase':phase,'errorType':type(error).__name__,'message':str(error)[:300]})\nprint(json.dumps({'client':value['canonicalClient'],'diagnostics':out}))`;
+      for (const name of readdirSync(directory).filter(name => name.endsWith('.original.json'))) {
+        const result = spawnSync(realPython, ["-I", "-B", "-c", program, directory, join(directory,name)], { encoding:"utf8", timeout:30_000 });
+        postmortems.push({ name, status:result.status, stdout:result.stdout, stderr:result.stderr });
+      }
+    }
+    const diagnostic = JSON.stringify({ recovery, helpers: helperCommands.map(value => ({ helper:value.helper, phase:value.args[3] })), observedCount:observed.length,
+      lastObserved:observed.slice(-4).map(value=>({selector:value.selector,id:value.id})),postmortems });
     assert.equal(records.length, 8); assert.deepEqual(records.filter(value => value.error), [], diagnostic);
     for (const selector of ["sdk", "inspector"]) {
       assert.ok(proofs[selector]); assert.equal(records.filter(value => value.selector === selector).length, 4);

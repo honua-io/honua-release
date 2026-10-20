@@ -38,7 +38,7 @@ class FullIdentityMutationControls(unittest.TestCase):
         rehash_member(vector,'sdk',mutate)
         primary=vector['members']['sdk']['semantic']
         self.assertIs(semantic.judge(FIXTURE,bootstrap(),primary,tenant_id='mcp-deployment-'+primary['nonce'])['semanticOnly'],True)
-        with self.assertRaisesRegex(ValueError,'identity|owner|managed'):
+        with self.assertRaisesRegex(ValueError,'actual normal caller does not own its independent tenant resources'):
             self.judge(vector)
 
     def test_rehashed_client_lifetime_overlap_refused(self):

@@ -83,11 +83,15 @@ for (const mode of ["prepare-fails", "members-fail", "cleanup-fails"]) {
     let privateRoot;
     try {
       const bin = join(control.directory, "offline-bin"), commands = join(control.directory, "offline-commands.jsonl"); mkdirSync(bin);
+      const preparationPath = join(control.directory,"offline-public-preparation.json");
+      const preparation = structuredClone(control.proofs.sdk.observations.identityPreparation);
+      preparation.keys = { sdk:{}, inspector:{} };
+      writeFileSync(preparationPath,JSON.stringify(preparation));
       // Only fixture CLI failure responses are controlled here. No successful
       // semantic/auth judge is stubbed and no candidate row can pass.
       const interpreter = spawnSync("python3", ["-c", "import sys; print(sys.executable)"], { encoding: "utf8" });
       assert.equal(interpreter.status, 0);
-      const shim = `#!${interpreter.stdout.trim()}\nimport json,pathlib,sys\na=sys.argv[1:]\nassert a[:2]==['-I','-B']\nassert pathlib.Path(a[2]).name=='mcp_deployment_identity_fixture.py'\nphase=a[3]\nroot=pathlib.Path(a[a.index('--private-root')+1])\nwith pathlib.Path(${JSON.stringify(commands)}).open('a') as stream: stream.write(json.dumps({'phase':phase,'args':a,'privateRoot':str(root)})+'\\n')\nif phase=='prepare':\n (root/'offline-owned-recovery.private.json').write_text('explicit offline recovery marker')\n if ${JSON.stringify(mode)}=='prepare-fails':sys.exit(17)\n print(json.dumps({'keys':{'sdk':{},'inspector':{}}}))\nelif phase=='close':\n if ${JSON.stringify(mode)}=='cleanup-fails':sys.exit(23)\n print(json.dumps({'cleanupComplete':False,'failures':['retained explicit offline setup failure']}))\nelse:raise AssertionError('unexpected mutation/helper')\n`;
+      const shim = `#!${interpreter.stdout.trim()}\nimport json,pathlib,sys\na=sys.argv[1:]\nassert a[:2]==['-I','-B']\nassert pathlib.Path(a[2]).name=='mcp_deployment_identity_fixture.py'\nphase=a[3]\nroot=pathlib.Path(a[a.index('--private-root')+1])\nwith pathlib.Path(${JSON.stringify(commands)}).open('a') as stream: stream.write(json.dumps({'phase':phase,'args':a,'privateRoot':str(root)})+'\\n')\nif phase=='prepare':\n (root/'offline-owned-recovery.private.json').write_text('explicit offline recovery marker')\n if ${JSON.stringify(mode)}=='prepare-fails':sys.exit(17)\n print(pathlib.Path(${JSON.stringify(preparationPath)}).read_text())\nelif phase=='close':\n if ${JSON.stringify(mode)}=='cleanup-fails':sys.exit(23)\n print(json.dumps({'cleanupComplete':False,'failures':['retained explicit offline setup failure']}))\nelse:raise AssertionError('unexpected mutation/helper')\n`;
       writeFileSync(join(bin, "python3"), shim, { mode: 0o700 }); process.env.PATH = `${bin}${delimiter}${originalPath}`;
       const proof = control.proofs.sdk, manifest = JSON.parse(readFileSync(join(control.directory, "mcp_fixed_client_manifest.v1.json")));
       const record = selector => async (operation, execute) => {

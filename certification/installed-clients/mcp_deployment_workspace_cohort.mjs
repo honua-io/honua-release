@@ -56,11 +56,12 @@ export function createDeploymentWorkspaceCohort({ directory, sourceSha, sha256, 
   verifyBytes();
   const semantic = createSemanticComponent({ directory, sourceSha, bootstrapPath,
     sha256: Object.fromEntries(deploymentWorkspaceDependencies.map(name => [name, sha256[name]])) });
-  const run = (name, args, { credential, admin, timeout = 65_000 } = {}) => {
+  const run = (name, args, { credential, readCredential, admin, timeout = 65_000 } = {}) => {
     verifyBytes();
     if (!deploymentWorkspaceCohortDependencies.includes(name) || !name.endsWith(".py")) throw new Error("unknown cohort helper refused");
     const result = spawnSync("python3", ["-I", "-B", join(directory, name), ...args], { encoding: "utf8", timeout, maxBuffer: 16 * 1024 * 1024,
-      env: { ...process.env, ...(credential === undefined ? {} : { HONUA_MCP_API_KEY: credential }), ...(admin === undefined ? {} : { HONUA_MCP_ADMIN_API_KEY: admin }) } });
+      env: { ...process.env, ...(credential === undefined ? {} : { HONUA_MCP_API_KEY: credential }),
+        ...(readCredential === undefined ? {} : { HONUA_MCP_READ_API_KEY: readCredential }), ...(admin === undefined ? {} : { HONUA_MCP_ADMIN_API_KEY: admin }) } });
     verifyBytes();
     if (result.error || result.signal || result.status !== 0) throw new Error("complete original cohort helper refused; retain original partial receipts");
     return JSON.parse(result.stdout);
@@ -143,7 +144,7 @@ export function createDeploymentWorkspaceCohort({ directory, sourceSha, sha256, 
                 if (!["storeBefore", "personalStoreBefore", "storeAfter", "personalStoreAfter"].includes(action.slot)) throw new Error("unknown authority store slot");
                 value.authority[action.slot] = run("mcp_deployment_workspace_state.py", [...candidate, "--target-id", action.targetId, "--deployment-id", action.deploymentId, "--workspace-id", action.workspaceId]);
               } else if (action.action === "limited-data-read") {
-                value.authority.limitedRead = run("mcp_ops_events_data_read.py", ["--fixture", join(directory, "fixture.v1.json"), "--bootstrap", bootstrapPath, "--credential-salt", salt, ...candidate], { credential: credentials.foreign });
+                value.authority.limitedRead = run("mcp_ops_events_data_read.py", ["--fixture", join(directory, "fixture.v1.json"), "--bootstrap", bootstrapPath, "--credential-salt", salt, ...candidate], { readCredential: credentials.foreign });
               } else throw new Error("unknown owned authority action");
             }
             throw new Error("bounded authority sequence exhausted");
