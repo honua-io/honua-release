@@ -846,3 +846,34 @@ def test_default_consumer_lock_exception_preserves_exact_observed_coordinates_on
                 assert rejected and all(hit.exception is None for hit in rejected)
             prose = classifier.classify_text(path, json.dumps({"description": "endorsed by " + identifier}))
             assert prose and all(hit.exception is None for hit in prose)
+
+
+def test_immutable_gp_guide_exception_is_exact_and_remains_visible():
+    import hashlib
+
+    path = "certification/executable-docs/fixtures/site-geoprocessing-7d733c0.md"
+    raw = (vt.ROOT / path).read_bytes()
+    assert len(raw) == 4504
+    assert hashlib.sha256(raw).hexdigest() == "652c7bb512f161474088dce1e1f8faef322d74a9a025dd4873b13d22a65193aa"
+    entries = vt.load_allowlist(vt.ALLOWLIST)
+    selected = [entry for entry in entries if entry.covers("honua-release", path, "Esri")]
+    assert len(selected) == 1
+    entry = selected[0]
+    assert entry.paths == (path,) and entry.tokens == ("Esri",)
+    assert entry.owner == "@mikemcdougall"
+    source_entry = json.loads(vt.ALLOWLIST.read_text())["entries"][entry.index]
+    assert source_entry["issue"] == "honua-io/honua-release#721"
+    assert "652c7bb5" in entry.reason
+    for repo, candidate, content, excepted in [
+        ("honua-release", path, raw, True),
+        ("honua-release", path.replace("7d733c0", "sibling"), raw, False),
+        ("honua-site", path, raw, False),
+        ("honua-release", path, b"ArcGIS Online\n", False),
+    ]:
+        hits, skipped, scanned = vt.scan([(candidate, content)], repo, VOCABULARY, entries)
+        report = vt.build_report(repo, "0" * 40, hits, skipped, scanned)
+        assert report["counts"]["avoidable"] == 1
+        assert report["counts"]["avoidableExcepted"] == int(excepted)
+        baseline = {"schema": vt.BASELINE_SCHEMA, "repo": repo, "files": {}, "total": 0}
+        assert bool(vt.lint(report, baseline)) is not excepted
+        assert ("exception" in report["avoidable"][0]) is excepted
