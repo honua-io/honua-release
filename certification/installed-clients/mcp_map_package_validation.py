@@ -73,13 +73,15 @@ def wire_bytes(value):
     return data
 
 
-def wire_frame(record):
+def wire_frame(record, tenant_id=None):
     if not isinstance(record, dict) or set(record) != {"request", "response"}:
         raise ValueError("wire request/response record has an invalid schema")
     request, response = record.get("request"), record.get("response")
     if not isinstance(request, dict) or not isinstance(response, dict):
         raise ValueError("wire request/response missing")
-    if (set(request) != {"jsonrpc", "id", "method", "params", "bodyBase64", "bodySha256", "sessionSha256", "credentialPresent", "credentialFingerprint", "authorizationPresent", "cookiePresent"}
+    tenant_fields = {"tenantId"} if tenant_id is not None else set()
+    if (set(request) != {"jsonrpc", "id", "method", "params", "bodyBase64", "bodySha256", "sessionSha256", "credentialPresent", "credentialFingerprint", "authorizationPresent", "cookiePresent"} | tenant_fields
+            or (tenant_id is not None and request.get("tenantId") != tenant_id)
             or set(response) != {"status", "contentType", "contentEncoding", "sessionSha256", "complete", "delivered", "bodyBase64", "bodySha256"}
             or not isinstance(response["contentType"], str) or not isinstance(response["contentEncoding"], str)):
         raise ValueError("wire observation contains unknown fields or media")
@@ -117,7 +119,9 @@ def wire_frame(record):
     return request_body, frames[0]
 
 
-def observed_wire(wire, method, params, authenticated):
+def observed_wire(wire, method, params, authenticated, tenant_id=None):
+    if tenant_id is not None and (not authenticated or not isinstance(tenant_id, str) or not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9_.-]{0,63}", tenant_id)):
+        raise ValueError("authored tenant context malformed")
     if (not isinstance(wire, dict) or wire.get("schema") != "honua.mcp-candidate-wire/v1"
             or wire.get("upstream") != "http://127.0.0.1:8080/mcp" or wire.get("method") != method
             or not same_json(wire.get("expectedParams"), params) or wire.get("authenticated") is not authenticated
@@ -125,14 +129,17 @@ def observed_wire(wire, method, params, authenticated):
             or not isinstance(wire.get("expectedCredentialFingerprint"), str)
             or not re.fullmatch(r"scrypt:[a-f0-9]{32}:[a-f0-9]{64}", wire["expectedCredentialFingerprint"])):
         raise ValueError("wire observation is missing or bound to another request/candidate")
-    if set(wire) != {"schema", "upstream", "listener", "method", "expectedParams", "authenticated", "expectedCredentialFingerprint", "initialize", "invocation", "invalid", "completed", "clientProcessId"}:
+    tenant_fields = {"expectedTenantId"} if tenant_id is not None else set()
+    if wire.get("expectedTenantId") != tenant_id:
+        raise ValueError("wire tenant context differs from authored caller")
+    if set(wire) != {"schema", "upstream", "listener", "method", "expectedParams", "authenticated", "expectedCredentialFingerprint", "initialize", "invocation", "invalid", "completed", "clientProcessId"} | tenant_fields:
         raise ValueError("wire observation contains unrelated retained fields")
     listener = urlsplit(wire.get("listener", ""))
     if (listener.scheme != "http" or listener.hostname != "127.0.0.1" or listener.username or listener.password
             or not listener.port or listener.path != "/mcp" or listener.query or listener.fragment):
         raise ValueError("actual client did not use the owned observation listener")
-    initial_request, initial_response = wire_frame(wire["initialize"])
-    request, response = wire_frame(wire["invocation"])
+    initial_request, initial_response = wire_frame(wire["initialize"], tenant_id)
+    request, response = wire_frame(wire["invocation"], tenant_id)
     if (initial_request.get("method") != "initialize" or initial_request["id"] == request["id"]
             or request.get("method") != method or not isinstance(request.get("params"), dict)
             or any(not same_json(request["params"].get(key), value) for key, value in params.items())
@@ -185,10 +192,10 @@ def client_launch(client, wire, canonical_client, version):
     expected = {"schema": "honua.mcp-fixed-client-launch/v1", "selector": selector, "package": package,
                 "manifestSha256": digest(manifest_bytes), "launcherSha256": digest((here / "mcp_fixed_client_launcher.mjs").read_bytes()),
                 "sdkRunnerSha256": digest((here / "mcp_fixed_sdk_runner.mjs").read_bytes()),
-                "request": {"endpoint": wire["listener"], "method": wire["method"], "params": wire["expectedParams"], "authenticated": wire["authenticated"]},
+                "request": {"endpoint": wire["listener"], "method": wire["method"], "params": wire["expectedParams"], "authenticated": wire["authenticated"], **({"tenantId": wire["expectedTenantId"]} if "expectedTenantId" in wire else {})},
                 **{key: client.get(key) for key in ("processId", "exitCode", "exitSignal", "timedOut")},
                 "stdoutSha256": digest(client.get("stdout", "").encode()), "stderrSha256": digest(client.get("stderr", "").encode())}
-    initial, _ = wire_frame(wire["initialize"])
+    initial, _ = wire_frame(wire["initialize"], wire.get("expectedTenantId"))
     if (not same_json(launch, expected) or selected["canonicalClient"] != canonical_client or selected["version"] != version
             or wire.get("clientProcessId") != client.get("processId") or type(wire.get("clientProcessId")) is not int
             or client.get("exitSignal") is not None or client.get("timedOut") is not False or type(client.get("exitCode")) is not int

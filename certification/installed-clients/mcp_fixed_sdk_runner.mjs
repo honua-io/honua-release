@@ -6,12 +6,13 @@ import { pathToFileURL } from "node:url";
 try {
   const chunks = []; let length = 0;
   for await (const chunk of process.stdin) { length += chunk.length; if (length > 2 * 1024 * 1024) throw new Error("input oversized"); chunks.push(chunk); }
-  const { packageRoot, endpoint, method, params, authenticated, credential } = JSON.parse(Buffer.concat(chunks));
+  const { packageRoot, endpoint, method, params, authenticated, credential, tenantId } = JSON.parse(Buffer.concat(chunks));
+  if (tenantId !== undefined && (!authenticated || typeof tenantId !== "string" || !/^[A-Za-z0-9][A-Za-z0-9_.-]{0,63}$/.test(tenantId))) throw new Error("tenant selection refused");
   const { Client } = await import(pathToFileURL(join(packageRoot, "dist/esm/client/index.js")).href);
   const { StreamableHTTPClientTransport } = await import(pathToFileURL(join(packageRoot, "dist/esm/client/streamableHttp.js")).href);
   const { McpError } = await import(pathToFileURL(join(packageRoot, "dist/esm/types.js")).href);
   const client = new Client({ name: "geospatial-mcp-map-package-certification", version: "1.0.0" });
-  const transport = new StreamableHTTPClientTransport(new URL(endpoint), { requestInit: { headers: authenticated ? { "X-API-Key": credential } : {} } });
+  const transport = new StreamableHTTPClientTransport(new URL(endpoint), { requestInit: { headers: authenticated ? { "X-API-Key": credential, ...(tenantId === undefined ? {} : { "X-Honua-Tenant": tenantId }) } : {} } });
   try {
     await client.connect(transport);
     let output;

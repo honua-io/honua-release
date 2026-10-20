@@ -22,15 +22,17 @@ const auth = (headers, salt) => ({
 });
 const session = (value) => typeof value === "string" && value ? hash(value) : null;
 
-export async function observeCandidateRequest({ method, params, authenticated, credential, credentialSalt, invoke, onObservation, onClient, observeDiscovery = false }) {
+export async function observeCandidateRequest({ method, params, authenticated, credential, credentialSalt, invoke, onObservation, onClient, observeDiscovery = false, tenantId }) {
   if (!["tools/call", "resources/read"].includes(method) || !params || typeof params !== "object"
       || typeof authenticated !== "boolean" || typeof credential !== "string" || !credential || typeof invoke !== "function"
       || typeof observeDiscovery !== "boolean" || typeof credentialSalt !== "string" || !/^[a-f0-9]{32}$/.test(credentialSalt)) {
     throw new Error("candidate observation requires a fixed owned request and expected credential");
   }
+  if (tenantId !== undefined && (!authenticated || typeof tenantId !== "string" || !/^[A-Za-z0-9][A-Za-z0-9_.-]{0,63}$/.test(tenantId))) throw new Error("candidate tenant selection refused");
   const observed = { schema: "honua.mcp-candidate-wire/v1", upstream: upstream.href,
     method, expectedParams: structuredClone(params), authenticated, expectedCredentialFingerprint: credentialHash(credential, credentialSalt),
     listener: null, initialize: null, invocation: null, invalid: false, completed: false };
+  if (tenantId !== undefined) observed.expectedTenantId = tenantId;
   if (observeDiscovery) observed.discovery = [];
   const active = new Set();
   const sockets = new Set();
@@ -41,12 +43,18 @@ export async function observeCandidateRequest({ method, params, authenticated, c
     jsonrpc: message.jsonrpc, id: message.id, method: message.method,
     params: message.params, bodyBase64: body.toString("base64"), bodySha256: hash(body),
     sessionSha256: session(incoming.headers["mcp-session-id"]), ...auth(incoming.headers, credentialSalt),
+    ...(tenantId === undefined ? {} : { tenantId: incoming.headers["x-honua-tenant"] }),
   }, response: null });
   const proxy = createServer(async (incoming, outgoing) => {
     let forwarded;
     try {
       if (incoming.url !== "/mcp" || !["GET", "POST", "DELETE"].includes(incoming.method)) refusal();
       const credentials = auth(incoming.headers, credentialSalt);
+      // Bind the one supported tenant header on every request, including
+      // initialization/discovery/cleanup; never accept unrequested authority.
+      if (incoming.headers["x-honua-tenant"] !== tenantId
+          || Object.keys(incoming.headers).some(name => (name.startsWith("x-honua-") && name !== "x-honua-tenant")
+            || ["x-tenant-id", "tenant-id", "x-tenant"].includes(name))) refusal();
       if (credentials.authorizationPresent || credentials.cookiePresent
           || (authenticated ? incoming.headers["x-api-key"] !== credential : incoming.headers["x-api-key"] !== undefined)) refusal();
       const chunks = [];
