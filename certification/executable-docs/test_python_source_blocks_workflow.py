@@ -32,7 +32,7 @@ def test_source_block_artifact_preserves_receipts_without_reuploading_original_i
     upload = workflow["jobs"]["execute"]["steps"][-1]
     assert upload["if"] == "always()"
     paths = upload["with"]["path"].splitlines()
-    assert not any("originals" in path or "environment" in path or "original.zip" in path for path in paths)
-    for suffix in ("/evidence/*", "/wire/*", "/reader-*/bridge/original-block.sh", "/clone-staging/*/command-*"):
+    assert not any("originals" in path or "environment" in path or "original.zip" in path or "/node-prerequisite/prefix" in path for path in paths)
+    for suffix in ("/evidence/*", "/wire/*", "/reader-*/bridge/original-block.sh", "/clone-staging/*/command-*", "/node-prerequisite/*.json", "/reader-*/bridge/node-prerequisite.json"):
         assert any(path.endswith(suffix) for path in paths)
     assert upload["with"]["if-no-files-found"] == "error"

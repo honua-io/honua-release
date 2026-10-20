@@ -74,6 +74,9 @@ jobs:
             ${{ runner.temp }}/python-block-native-control/**/stderr
             ${{ runner.temp }}/python-block-fetch/*.json
             ${{ runner.temp }}/python-block-execution/*.json
+            ${{ runner.temp }}/python-block-execution/node-prerequisite/*.json
+            ${{ runner.temp }}/python-block-execution/node-prerequisite/command-*.stdout
+            ${{ runner.temp }}/python-block-execution/node-prerequisite/command-*.stderr
             ${{ runner.temp }}/python-block-execution/request/*
             ${{ runner.temp }}/python-block-execution/controller/*
             ${{ runner.temp }}/python-block-execution/evidence/*
@@ -83,6 +86,7 @@ jobs:
             ${{ runner.temp }}/python-block-execution/reader-*/*.json
             ${{ runner.temp }}/python-block-execution/reader-*/bridge/context.json
             ${{ runner.temp }}/python-block-execution/reader-*/bridge/original-block.sh
+            ${{ runner.temp }}/python-block-execution/reader-*/bridge/node-prerequisite.json
             ${{ runner.temp }}/python-block-execution/reader-*/state/*
             ${{ runner.temp }}/python-block-execution/clone-staging/*/command-*
           if-no-files-found: error

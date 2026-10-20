@@ -64,6 +64,7 @@ def _create(*, directory, image, arguments, cwd, home, mounts, user, tmpfs, inte
 
 
 def run(fetch, implementation, subject, output):
+    from python_source_node import prepare as prepare_node, require_node, verify as verify_node
     prepared = prepare_outer(fetch, implementation, subject, output)
     selection, originals = prepared["selection"], prepared["originals"]
     launcher, policy = prepared["launcher"], prepared["policy"]
@@ -76,6 +77,7 @@ def run(fetch, implementation, subject, output):
             or "python@" + selection["image"]["indexDigest"] not in observed_image["RepoDigests"]):
         raise inputs.InputRefusal("source execution image differs from the authenticated OCI chain")
     code = Path(__file__).parent.resolve()
+    node_prefix, node_receipt = prepare_node(output / "node-prerequisite", code / "sources.json")
     request_directory, evidence, wire, staging = [output / name for name in ("request", "evidence", "wire", "clone-staging")]
     for path in (request_directory, evidence, wire, staging):
         path.mkdir(mode=0o700)
@@ -177,6 +179,9 @@ def run(fetch, implementation, subject, output):
                 (bridge / "bridge").chmod(0o755)
                 for name in ("pip", "git"):
                     (bridge / name).symlink_to("bridge")
+                uses_node = require_node(declaration, selection)
+                if uses_node:
+                    save(bridge, "node-prerequisite.json", verify_node(node_prefix, node_receipt))
                 save(bridge, "context.json", {"schema": "honua.python-controlled-block/v1", "contextIndex": index,
                     "blockSha256": declaration["blockSha256"]})
                 with (bridge / "original-block.sh").open("xb") as original:
@@ -192,8 +197,10 @@ def run(fetch, implementation, subject, output):
                     (scratch / "honua-sdk-python/.git", str(scratch / "honua-sdk-python/.git"), True),
                     (scratch / "environment", str(scratch / "environment"), False), (bridge, "/python-source-bridge", True),
                     (state, "/reader-state", False), (home, "/reader-home", False), (code / "python_source_reader.py", "/reader.py", True)]
+                if uses_node:
+                    bindings.append((node_prefix, "/opt/node", True))
                 argv = ["/usr/local/bin/python3.12", "-I", "/reader.py"]
-                reader_path = "/python-source-bridge:" + str(scratch / "environment/bin") + ":/usr/local/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
+                reader_path = "/python-source-bridge:" + ("/opt/node/bin:" if uses_node else "") + str(scratch / "environment/bin") + ":/usr/local/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
                 reader_cwd = str(scratch if phase["cloneRequired"] else scratch / "honua-sdk-python")
                 reader_contract = {"expected_home": "/reader-home", "expected_path": reader_path, "expected_cwd": reader_cwd}
                 reader = None
@@ -217,6 +224,8 @@ def run(fetch, implementation, subject, output):
                             or lifetime.get("originalBlockSha256") != declaration["blockSha256"]
                             or any(os.waitstatus_to_exitcode(row["waitStatus"]) != 0 for row in lifetime["drainedChildren"])):
                         raise inputs.InputRefusal("reader lifetime did not prove normal original-child completion")
+                    if uses_node:
+                        save(reader_output, "node-prerequisite-after.json", verify_node(node_prefix, node_receipt))
                     # Only now, with the reader and every namespace child actually
                     # terminal, may the trusted controller execute the shared venv.
                     broker.finish()

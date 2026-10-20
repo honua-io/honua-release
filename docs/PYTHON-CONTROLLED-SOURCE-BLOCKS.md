@@ -22,6 +22,13 @@ read-only in both containers. The receipt records the original request, actual
 commands, private staging, transposition and unchanged metadata. This is an
 immutable-source substitution, not equivalence to a mutable network clone.
 
+The README development prerequisite uses the exact existing governed Node image
+from the executable-docs runtime declaration. Its original Node/npm prefix is
+copied from a nonce-owned container that never starts, retained with file/mode/
+symlink hashes, and mounted read-only at `/opt/node` only for the exact development
+reader. Its declared PATH and byte census are checked before and after that block.
+The private Python controller and original producer runtime remain unchanged.
+
 Each complete original source block runs in one shell in a separate reader PID
 namespace. The private controller retains source/closure/file-census state; it
 exposes only exact, ordered install/clone requests. The reader has only its own
