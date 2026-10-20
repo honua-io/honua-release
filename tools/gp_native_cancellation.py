@@ -33,7 +33,7 @@ HEX = re.compile(r"[a-f0-9]{64}\Z")
 # Neither operator configuration nor an observer-selected arbitrary path may
 # redefine the executable that satisfies the gdal.ogr2ogr qualification cell.
 NATIVE_OGR_EXECUTABLES = frozenset(("/usr/bin/ogr2ogr", "/usr/local/bin/ogr2ogr"))
-CLIENT_LOCK = "f2d66687dd7c31b6620d1417cabaa367da9b56bed7bcb00f56aabcf96e789192"
+CLIENT_LOCK = "5e6b28f4c29b82b799190e9e92083c7aca38b879afc7e242bee4320a711e195f"
 
 
 def sha(raw):
@@ -419,6 +419,7 @@ class InstalledMcp:
                       env={**os.environ, "HONUA_GP_MCP_API_KEY": self.credential}, timeout=60)
         value = json.loads(raw)
         require(value.get("schema") == "honua.gp-native-mcp/v1" and value.get("clientLockSha256") == CLIENT_LOCK
+                and value.get("sdkVersion") == "1.32.1"
                 and value.get("executionCessationProven") is False, "installed MCP client identity missing")
         if mode == "submit" and TOKEN.fullmatch(str(value.get("jobId"))):
             self.submitted_job = value["jobId"]
