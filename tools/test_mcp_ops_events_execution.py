@@ -19,3 +19,10 @@ def test_findings_events_bridge_rejudges_complete_sdk_and_inspector_vectors():
                              "certification/installed-clients/mcp_ops_events_validation.test.mjs"],
                             cwd=ROOT, capture_output=True, text=True, timeout=240)
     assert result.returncode == 0, result.stdout + result.stderr
+
+
+def test_findings_events_full_producer_orchestration_and_fail_closed_cleanup():
+    result = subprocess.run(["node", "--test", "--test-concurrency=1",
+                             "certification/installed-clients/mcp_ops_events_execution_controls.test.mjs"],
+                            cwd=ROOT, capture_output=True, text=True, timeout=600)
+    assert result.returncode == 0, result.stdout + result.stderr

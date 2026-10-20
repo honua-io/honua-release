@@ -122,7 +122,12 @@ def observe_configuration(expected, runtime, *, run=subprocess.run):
     if result.returncode or len(result.stdout) > 32768:
         raise ValueError("actual selected configuration readback failed")
     selected, count = {}, 0
-    for line in result.stdout.splitlines():
+    lines = result.stdout.splitlines()
+    # Docker adds a CLI newline after the template's final println. Accept
+    # that single framing line only; interior or repeated blanks still refuse.
+    if lines and lines[-1] == "":
+        lines.pop()
+    for line in lines:
         value = json.loads(line)
         if value == {"selectedScope": True}:
             count += 1

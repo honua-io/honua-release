@@ -112,20 +112,33 @@ semantic and raw-wire judge, same-container restart, and installed-client bridge
 are drafted. The shared managed identity prerequisite is protected on trunk at
 `b6e6c950568f5a00a057866ce2544e8b2e49ee47` and is adopted through a normal trunk merge.
 
-The earlier `a2c4eff1` required validation passed with 5,637 tests, one existing
-skip, and two warnings. Its separate fast job passed ten store controls, then
-stopped because PyYAML was missing. This update installs the existing pinned
-source dependencies. Local attempts through the maintained guard exited 75
-before execution; those attempts provide no test pass.
+Source controls cover complete synthetic SDK/Inspector raw-wire and managed
+lifecycle vectors, semantic mutations, the bridge verifier, and isolated
+PostGIS, Docker and HTTP observers. The Docker observer selects only the eight
+reviewed nonsecret values inside the daemon and separately counts all entries
+in those configuration namespaces, including differently cased aliases. It
+accepts Docker's one extra final newline while rejecting interior or repeated
+blank records. Original Python bootstrap JSON bytes are retained across the
+Node bridge so JSON number reserialization cannot silently change the authored
+bootstrap hash.
 
-This update adds complete synthetic SDK/Inspector raw-wire and managed-lifecycle
-vectors, a mandatory normal limited-data-read positive, coherent semantic
-mutations, the real bridge verifier controls, and isolated PostGIS/Docker/HTTP
-observer controls. These new controls still require actual hosted results.
-Synthetic client records do not establish installed-client execution. Utility
-containers and minimal SQL contracts do not certify a Honua image or migrations.
+Offline producer controls also execute the real factory, fixed SDK runner,
+wire observer and pure judge against explicitly controlled HTTP/process inputs.
+They cover the positive journey, substituted authorization output, reused
+sessions, failed normal cleanup, and missing or zero-count limited-reader data.
+A failed data-read positive must stop before any MCP call or restart while
+still attempting to revoke both owned keys. Failed cleanup must stay nonpassing
+and retain its private journal; the control removes only its own test directory
+after checking that behavior. These controls use a synthetic package and
+candidate and do not establish published-client or Honua execution.
 
-The full producer execution controls, selected canonical workflow, protected
-consumer, and actual candidate/client journeys remain required. This draft does
-not close #727 or qualify any candidate. Follow each PR through review, required
-validation, normal merge, and verification of every changed file on trunk.
+Existing service controls run independently within the same job. A failure is
+retained and makes the job fail after the other commands finish; it cannot be
+hidden by a later successful command. Utility containers and minimal SQL
+contracts do not certify a Honua image or its migrations. Hosted results and
+prior failures are retained in the PR's test evidence.
+
+The selected canonical workflow, protected consumer and actual candidate/client
+journeys remain required. This draft does not close #727 or qualify any
+candidate. Follow each PR through review, required validation, normal merge,
+and verification of every changed file on trunk.

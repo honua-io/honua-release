@@ -59,7 +59,10 @@ class LiveConfigurationProjectionControls(unittest.TestCase):
         raw = self.command(["docker", "inspect", "--format", configuration.option_template(), binding["containerId"]])
         self.assertNotIn("controlled-secret-never-project", raw)
         self.assertNotIn("PRIVATE_CONTROL_KEY", raw)
-        self.assertEqual(len(raw.splitlines()), 16)
+        lines = raw.splitlines()
+        if lines and lines[-1] == "":
+            lines.pop()
+        self.assertEqual(len(lines), 16)
 
     def test_extra_or_case_aliased_options_are_refused_without_projecting_values(self):
         for key in ("ControlPlane__DeployTargets__2__ArtifactReference", "controlplane__platformrelease__version"):
@@ -67,7 +70,7 @@ class LiveConfigurationProjectionControls(unittest.TestCase):
                 declaration, binding = self.container({key: "controlled-aliased-secret-never-project"})
                 raw = self.command(["docker", "inspect", "--format", configuration.option_template(), binding["containerId"]])
                 self.assertNotIn("controlled-aliased-secret-never-project", raw)
-                with self.assertRaises(ValueError):
+                with self.assertRaisesRegex(ValueError, "option values/coverage differ"):
                     configuration.observe_configuration(declaration, binding)
 
 

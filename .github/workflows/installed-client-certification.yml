@@ -64,18 +64,21 @@ jobs:
         env:
           CONTROL_REDIS_CONTAINER: ${{ job.services.redis.id }}
         run: |
-          python -B certification/installed-clients/mcp_execute_plan_redis_controls.py
-          python -B certification/installed-clients/mcp_ops_health_redis_controls.py
-          python -B certification/installed-clients/mcp_ops_events_state_controls.py
-          python -B certification/installed-clients/mcp_ops_events_config_controls.py
-          python -B certification/installed-clients/mcp_ops_events_setup_controls.py
-          python -B certification/installed-clients/mcp_ops_events_validation_controls.py
-          python -B certification/installed-clients/mcp_ops_events_data_read_controls.py
-          python -B certification/installed-clients/mcp_ops_events_journey_controls.py
-          python -B certification/installed-clients/mcp_ops_events_docker_controls.py
-          node --test --test-concurrency=1 certification/installed-clients/mcp_ops_events_validation.test.mjs
-          python -B certification/installed-clients/mcp_managed_identity_fixture_controls.py
-          python -B certification/installed-clients/mcp_managed_identity_redis_controls.py
+          control_failures=0
+          run_control() { "$@" || control_failures=1; }
+          run_control python -B certification/installed-clients/mcp_execute_plan_redis_controls.py
+          run_control python -B certification/installed-clients/mcp_ops_health_redis_controls.py
+          run_control python -B certification/installed-clients/mcp_ops_events_state_controls.py
+          run_control python -B certification/installed-clients/mcp_ops_events_config_controls.py
+          run_control python -B certification/installed-clients/mcp_ops_events_setup_controls.py
+          run_control python -B certification/installed-clients/mcp_ops_events_validation_controls.py
+          run_control python -B certification/installed-clients/mcp_ops_events_data_read_controls.py
+          run_control python -B certification/installed-clients/mcp_ops_events_journey_controls.py
+          run_control python -B certification/installed-clients/mcp_ops_events_docker_controls.py
+          run_control node --test --test-concurrency=1 certification/installed-clients/mcp_ops_events_validation.test.mjs certification/installed-clients/mcp_ops_events_execution_controls.test.mjs
+          run_control python -B certification/installed-clients/mcp_managed_identity_fixture_controls.py
+          run_control python -B certification/installed-clients/mcp_managed_identity_redis_controls.py
+          exit "$control_failures"
 
   publish-result-state-controls:
     runs-on: ubuntu-latest

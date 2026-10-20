@@ -100,7 +100,7 @@ class OwnedConfigurationControls(unittest.TestCase):
             self.assertEqual(kwargs["timeout"], 30)
             rows = [json.dumps({"selectedScope": True})] * 8
             rows += [json.dumps(key + "=" + value) for key, value in expected["environment"].items()]
-            return SimpleNamespace(returncode=0, stdout="\n".join(rows))
+            return SimpleNamespace(returncode=0, stdout="\n".join(rows) + "\n\n")
         result = config.observe_configuration(expected, runtime, run=run)
         self.assertEqual(len(observed), 1)
         self.assertEqual(result["environment"], expected["environment"])
@@ -112,7 +112,9 @@ class OwnedConfigurationControls(unittest.TestCase):
         runtime = {"running": True, "candidateSourceSha": SOURCE, "candidateImage": IMAGE, "containerId": "c" * 64}
         values = [json.dumps(key + "=" + value) for key, value in expected["environment"].items()]
         marker = json.dumps({"selectedScope": True})
-        cases = [(1, ""), (0, "x" * 32769), (0, "\n".join([marker] * 9 + values)),
+        cases = [(1, ""), (0, "x" * 32769),
+                 (0, "\n" + "\n".join([marker] * 8 + values)),
+                 (0, "\n".join([marker] * 8 + values) + "\n\n\n"), (0, "\n".join([marker] * 9 + values)),
                  (0, "\n".join([marker] * 8 + values[:-1])),
                  (0, "\n".join([marker] * 8 + values + [values[0]])),
                  (0, "\n".join([marker] * 8 + values[:-1] + [json.dumps("ControlPlane__DeployTargets__0__RequiresApproval=false")])),

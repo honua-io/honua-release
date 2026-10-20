@@ -29,13 +29,15 @@ manifest=configuration_manifest()
 manifest['candidate']['ref']=setup['runtimeBinding']['candidateSourceSha']
 manifest['components']['honua-server'].update(sha=setup['runtimeBinding']['candidateSourceSha'],digest='sha256:'+'c'*64)
 raw=yaml.safe_dump(manifest).encode()
-print(json.dumps({'observed':observed,'judged':judge(observed),'setup':setup,'bootstrap':bootstrap(),'declaration':declaration,'manifestBytesBase64':base64.b64encode(raw).decode()}))
+print(json.dumps({'observed':observed,'judged':judge(observed),'setup':setup,'bootstrapBytesBase64':base64.b64encode(json.dumps(bootstrap()).encode()).decode(),'declaration':declaration,'manifestBytesBase64':base64.b64encode(raw).decode()}))
 `], { cwd: directory, encoding: "utf8", timeout: 30_000, maxBuffer: 16 * 1024 * 1024 });
     assert.equal(generated.status, 0, generated.stderr);
     const fixture = JSON.parse(generated.stdout);
     const bootstrapPath = join(directory, "bootstrap.json"), setupPath = join(directory, "setup.json");
     const platformManifestPath = join(directory, "manifest.yaml");
-    writeFileSync(bootstrapPath, JSON.stringify(fixture.bootstrap));
+    // Keep the original Python JSON number spellings: rewriting through Node
+    // would change e.g. 0.0 into 0 and invalidate the authored bootstrap hash.
+    writeFileSync(bootstrapPath, Buffer.from(fixture.bootstrapBytesBase64, "base64"));
     writeFileSync(setupPath, JSON.stringify(fixture.setup));
     writeFileSync(platformManifestPath, Buffer.from(fixture.manifestBytesBase64, "base64"));
     const context = { directory, sourceSha: "a".repeat(40), bootstrapPath, setupPath, platformManifestPath,
