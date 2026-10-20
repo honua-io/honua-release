@@ -61,6 +61,10 @@ jobs:
         run: |
           python -B certification/installed-clients/mcp_execute_plan_redis_controls.py
           python -B certification/installed-clients/mcp_ops_health_redis_controls.py
+          python -B certification/installed-clients/mcp_ops_events_state_controls.py
+          python -B certification/installed-clients/mcp_ops_events_config_controls.py
+          python -B certification/installed-clients/mcp_ops_events_setup_controls.py
+          python -B certification/installed-clients/mcp_ops_events_validation_controls.py
 
   publish-result-state-controls:
     runs-on: ubuntu-latest
