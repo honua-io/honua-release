@@ -163,7 +163,9 @@ class DirectCancelValidationControls(unittest.TestCase):
             for mutation in ("owner", "tenant", "artifact", "late", "status"):
                 value = journey(inspector=inspector)
                 if mutation == "owner": value["snapshots"]["running"]["job"]["requestedBy"] = "ApiKey:api-key:other"
-                elif mutation == "tenant": value["snapshots"]["running"]["job"]["tenantId"] = "public"
+                elif mutation == "tenant":
+                    value["snapshots"]["running"]["job"]["tenantId"] = "public"
+                    value["snapshots"]["running"]["job"]["submitterTenantId"] = "public"
                 elif mutation == "artifact": value["snapshots"]["results"]["value"]["results"][0]["binding"]["artifacts"] = [{"artifactId": "bad"}]
                 elif mutation == "late": value["calls"][14]["startedAt"] = stamp(137)
                 else: value["snapshots"]["terminal"]["job"]["status"] = 3
