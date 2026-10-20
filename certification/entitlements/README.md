@@ -13,7 +13,7 @@ have accepted a 404 or a 500 as an entitled answer. Every gated capability is as
   key and its required edition:
   - REST surfaces: HTTP 402, `application/problem+json`, `status: 402`, `title: Payment Required`,
     `detail` containing `entitlement: <key>` and `requires an active <edition> entitlement`.
-  - GeoServices surfaces (`/rest/services/...`, `/tiles/...`): the Esri wire convention, HTTP 200
+  - GeoServices surfaces (`/rest/services/...`, `/tiles/...`): the GeoServices REST error convention, HTTP 200
     with `error.code: 402`, `error.message: Payment Required` and the same key and edition in
     `error.details`.
 

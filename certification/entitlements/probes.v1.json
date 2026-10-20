@@ -1282,7 +1282,7 @@
         "method": "POST",
         "path": "/api/v1/admin/import/geoservices/discover",
         "json": {
-          "serviceUrl": "https://example.com/arcgis/rest/services/Source/FeatureServer"
+          "serviceUrl": "https://example.com/geoservices/rest/services/Source/FeatureServer"
         }
       },
       "positive_blocked": "Discovery requires a reachable HTTPS GeoServices source; the candidate lane provisions none and does not depend on a third-party server.",

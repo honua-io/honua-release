@@ -14,7 +14,7 @@ gate (c)) with exact assertions in both directions for every gated capability:
 - **Negative.** A license without the key gets exactly the documented denial
   (honua-server `docs/concepts/editions-and-licensing.md#how-gating-responds`): HTTP 402
   `application/problem+json` naming `entitlement: <key>` and `requires an active <edition>
-  entitlement`; on GeoServices routes, the Esri 200 envelope with `error.code: 402` and the same key
+  entitlement`; on GeoServices routes, the GeoServices REST 200 error envelope with `error.code: 402` and the same key
   and edition in `error.details`.
 
 Cloud-matrix expansion is out of scope; the lane runs on the existing local candidate harness
@@ -71,23 +71,30 @@ No HTTP 402 surface (17, reasons in `probes.v1.json`, mirroring honua-server's
 
 ## Live result against the pinned candidate
 
-Run locally (Docker) against `ghcr.io/honua-io/honua-server:nightly-93cad86@sha256:785de2ae…`
-(and earlier against `798d517`, same result):
+Run locally (Docker Desktop) against the current manifest pin
+`ghcr.io/honua-io/honua-server:nightly-0e03bdd@sha256:dcf3296f…` (and earlier against `93cad86`
+and `798d517`, same result). `FeatureCatalog.cs`, the denial docs, the test corpus and the alert
+gating are byte-identical between the probe-table source `93cad86` and `0e03bdd`, and the live
+catalog matched the committed table on all three stacks.
 
 - 38/38 provisionable positives pass; 7 blocked as above.
 - 35/45 negatives pass.
-- **10 negatives fail — a candidate defect, not a lane defect.** Creating an alert rule without
-  the trigger/channel entitlement returns 402 naming the key but not the required edition
-  (`"The active license does not include the entitlements this alert rule requires. entitlement:
-  alerts.dwell"`), unlike every other gate and unlike the documented denial. Affected:
-  `alerts.dwell`, `alerts.enter-exit`, `alerts.threshold`, `channels.aws-sns`,
+- **10 negatives fail — a candidate defect, not a lane defect** (honua-server#6449). Creating an
+  alert rule without the trigger/channel entitlement returns 402 naming the key but not the
+  required edition (`"The active license does not include the entitlements this alert rule
+  requires. entitlement: alerts.dwell"`), unlike every other gate and unlike the documented denial.
+  Affected: `alerts.dwell`, `alerts.enter-exit`, `alerts.threshold`, `channels.aws-sns`,
   `channels.azure-eventgrid`, `channels.digest`, `channels.email`, `channels.slack`,
-  `channels.teams`, `channels.webhook`. Expect the gate fragment to read `fail` until the server
-  message names the edition (honua-server `AlertAdminEndpoints`).
+  `channels.teams`, `channels.webhook`. Expect the gate fragment to read `fail` (with those keys in
+  its `why`) until the server message names the edition.
+
+The job tolerates the lane's exit 1 and reads the verdict from its log: GitHub's default
+`bash -e -o pipefail` run shell would otherwise abort before `status`/`why` reach the fragment. A
+test runs the step script under that shell with a failing stub lane.
 
 ## Follow-ups
 
-- honua-server: alert-rule 402 detail should name the required edition (the 10 failures above).
+- honua-server#6449: alert-rule 402 detail should name the required edition (the 10 failures above).
 - honua-server image: `/app/scenes-generated` is not writable by the non-root user, so scene ingest
   fails with 500 in a default container; the overlay mounts a tmpfs.
 - Harness: on first boot the server can start during the PostGIS image's init restart and never
@@ -100,8 +107,9 @@ Run locally (Docker) against `ghcr.io/honua-io/honua-server:nightly-93cad86@sha2
 ## Verification
 
 ```bash
-python -m pytest certification/entitlements/test_entitlements.py -q          # 37 passed
-PYTHONUTF8=1 python -m pytest tools/test_workflow_contracts.py tools/test_action_pins.py \
-  e2e/test_licensing.py certification/test_conformance.py -q
-bash certification/entitlements/lane.sh <LicenseTestSupport.cs at the pinned sha> <out-dir>
+python -m pytest certification/entitlements/test_entitlements.py -q          # 38 passed
+PYTHONUTF8=1 python -m pytest tools/test_workflow_contracts.py tools/test_action_pins.py certification/test_conformance.py -q
+PYTHONUTF8=1 python tools/check_vendor_terms.py lint --root . --repo honua-release   # 0 errors
+PYTHONUTF8=1 python tools/coverage_audit.py --check && PYTHONUTF8=1 python tools/release_decision_record.py --check
+E2E_SERVER_PORT=18080 bash certification/entitlements/lane.sh   <LicenseTestSupport.cs at honua-server 0e03bdd> <out-dir>                    # status=fail, the 10 keys above
 ```
