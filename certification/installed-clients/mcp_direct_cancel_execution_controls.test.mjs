@@ -204,7 +204,8 @@ for (const mode of ["valid", "wrong-actor", "early-success", "no-terminal", "cle
       process.env.PATH = priorPath;
       if (candidate) await candidate.close();
       const traces = readFileSync(control.tracePath, "utf8").trim().split("\n").filter(Boolean).map(JSON.parse);
-      for (const privateDirectory of new Set(traces.map(row => dirname(row.private)))) {
+      for (const privateDirectory of new Set(traces.filter(row => typeof row.private === "string")
+        .map(row => dirname(row.private)))) {
         assert.ok(privateDirectory.startsWith(join(tmpdir(), "mcp-direct-cancel-private-")));
         rmSync(privateDirectory, { recursive: true, force: true });
       }
