@@ -45,7 +45,9 @@ const server = createServer(async (request, response) => {
       }
       const match = /^\/api\/v1\/admin\/api-keys\/([a-f0-9-]{36})\/(effective-permissions|revoke)$/.exec(path);
       assert.ok(match);
-      const entry = state.keys[match[1]];
+      // HTTP input may select only an own, provisioned fixture entry. Map
+      // lookup cannot traverse Object.prototype before the normal revocation.
+      const entry = new Map(Object.entries(state.keys)).get(match[1]);
       assert.ok(entry);
       const role = entry.record.Permissions[0] === "admin" ? "full" : "limited";
       state.api.push({ method: request.method, action: match[2], role });

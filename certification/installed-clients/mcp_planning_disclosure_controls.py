@@ -64,6 +64,7 @@ def journey(*, inspector=False):
         elif expectation == "unmatched":
             output = demo(copy.deepcopy(entry["params"]["arguments"]["context"]))
             output.update(status="rejected", plan=None, specDraft=None, appPackage=None,
+                fixtureCase=None, contractVersion=None, warnings=[],
                 reason="Fixture demo did not attempt to compile this unmatched intent; use a client model and honua_validate_plan.")
             entry["result"] = response(output)
         elif expectation == "handoff":
@@ -111,6 +112,9 @@ class PlanningDisclosureControls(unittest.TestCase):
             (1, lambda body: body["warnings"][0].update(message="Everything is reproducible forever")),
             (3, lambda body: body.update(status="planned", plan={"steps": []})),
             (3, lambda body: body.update(reason="Your request is unsupported")),
+            (3, lambda body: body.update(fixtureCase="success")),
+            (3, lambda body: body.update(contractVersion="honua.ai_builder.spatial_query.v1")),
+            (3, lambda body: body.update(warnings=[{"code": "stale", "message": "Old matched demo warning"}])),
             (4, lambda body: body.update(isExecutable=False)),
             (4, lambda body: body.update(warnings=[False])),
         ]

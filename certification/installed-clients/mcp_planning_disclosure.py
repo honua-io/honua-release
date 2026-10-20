@@ -109,7 +109,8 @@ def unmatched_demo(result, context):
     reason = output.get("reason")
     if (output.get("status") != "rejected" or output.get("plan") is not None
             or output.get("specDraft") is not None or output.get("appPackage") is not None
-            or not isinstance(reason, str)
+            or output.get("fixtureCase") is not None or output.get("contractVersion") is not None
+            or output.get("warnings") != [] or not isinstance(reason, str)
             or not all(part in reason.lower() for part in
                        ("fixture", "demo", "did not attempt to compile", "client model", "honua_validate_plan"))):
         raise ValueError("unmatched fixture intent silently became a tailored or executable plan")
