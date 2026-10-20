@@ -130,8 +130,8 @@ def rebind(value, selector="sdk"):
     return value
 
 
-def controls(selector="sdk"):
-    value = {"nonce": "abcdef123456", "canonicalClient": "Official MCP TypeScript SDK", "clientVersion": "1.32.1", "targetId": "owned-target", "calls": [],
+def controls(selector="sdk", nonce="abcdef123456"):
+    value = {"nonce": nonce, "canonicalClient": "Official MCP TypeScript SDK", "clientVersion": "1.32.1", "targetId": "owned-target", "calls": [],
         "workspacePrerequisite": None, "storeBefore": None, "storeAfter": None, "proposalBefore": None, "proposalAfter": None,
         "runtimeBefore": runtime(), "runtimeRestarted": None, "runtimeAfter": runtime()}
     value["canonicalClient"], value["clientVersion"] = ("Official MCP TypeScript SDK", "1.32.1") if selector == "sdk" else ("MCP Inspector", "2.10.1")

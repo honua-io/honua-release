@@ -231,7 +231,7 @@ def semantic_controls(selector,offset,primary,foreign,before,frozen_history,orig
             call.update(bind(call,selected_selector,identity,selected_tenant,label+':'+str(index),seconds))
         return value
     with patch.object(legacy,'stamp',side_effect=lambda seconds:at(offset+seconds)),patch.object(legacy,'runtime',side_effect=lambda:copy.deepcopy(before)),patch.object(legacy,'history',side_effect=lambda:copy.deepcopy(frozen_history)),patch.object(legacy,'tool_output',side_effect=output),patch.object(legacy,'prerequisite',side_effect=setup),patch.object(legacy,'stores',side_effect=observed_stores),patch.object(legacy,'proposal_state',side_effect=proposal_state),patch.object(legacy,'rebind',side_effect=rebound),patch.object(semantic,'advance',side_effect=lambda fixture,boot,value:original_advance(fixture,boot,value,tenant_id=tenant)):
-        return legacy.controls(selector)
+        return legacy.controls(selector,nonce=NONCE)
 
 legacy_proposal_base=legacy.proposal_state
 
@@ -252,7 +252,7 @@ def authority_controls(value,selector,offset,primary,foreign,frozen_history,stag
         elif action['action']=='observe-stores':
             personal=action['slot'].startswith('personal');gp_value=auth['personalWorkspacePrerequisite' if personal else 'foreignWorkspacePrerequisite']
             seconds=(722 if personal else 720) if action['slot'].endswith('After') else (26 if personal else 25)
-            auth[action['slot']]=stores(foreign_authored,context['expected'],gp_value,seconds,foreign['studioActorId'],'public')
+            auth[action['slot']]=stores(personal_authored if personal else foreign_authored,context['expected'],gp_value,seconds,foreign['studioActorId'],'public')
         elif action['action']=='limited-data-read':
             import mcp_ops_events_data_read as data
             response=json.dumps({'count':len(json.loads(FIXTURE)['area']['features']),'exceededTransferLimit':False})

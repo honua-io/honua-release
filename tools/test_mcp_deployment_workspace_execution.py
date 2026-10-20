@@ -37,6 +37,7 @@ def test_complete_original_two_client_managed_authority_and_mutations():
 
 
 def test_complete_js_cohort_verifier_and_partial_setup_cleanup_orchestration():
-    result = subprocess.run(["node", "--test", "--test-concurrency=1", "certification/installed-clients/mcp_deployment_workspace_cohort.test.mjs"],
+    result = subprocess.run(["node", "--test", "--test-concurrency=1", "certification/installed-clients/mcp_deployment_workspace_cohort.test.mjs",
+                             "certification/installed-clients/mcp_deployment_workspace_factory.test.mjs"],
                             cwd=ROOT, capture_output=True, text=True, timeout=360)
     assert result.returncode == 0, result.stdout + result.stderr
