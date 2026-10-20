@@ -159,7 +159,10 @@ print(json.dumps(value['imageReadback'] if sys.argv[1]=='image' else {key:value[
         } else if (frame.result?.contents?.[0]?.text) {
           const item = frame.result.contents[0], value = JSON.parse(item.text);
           const label = candidate.seen.find(call => call.params.name === "honua_studio_create_draft").params.arguments.packageKey;
-          if (value.deploymentId) value.routePrefix = "/api/v1/studio/published/maps/" + label;
+          if (value.deploymentId) {
+            value.routePrefix = "/api/v1/studio/published/maps/" + label;
+            value.targetId = "studio-route:/maps/" + label;
+          }
           if (value.workspaceId) value.label = label;
           item.text = JSON.stringify(value);
         }
