@@ -9,7 +9,9 @@ import sys
 import unittest
 
 import mcp_direct_cancel_validation as oracle
-from mcp_ops_events_journey_controls import managed_receipt, stamp, rebind
+import mcp_deployment_identity_configuration as tenant_config
+from mcp_ops_events_journey_controls import managed_receipt, stamp, rebind as base_rebind
+from mcp_map_package_validation_controls import bind_launch
 from mcp_render_validation_controls import FIXTURE, bootstrap
 
 
@@ -34,6 +36,19 @@ def result_read(uri, job, package):
     return {"contents": [{"uri": uri + "/results", "mimeType": "application/json", "text": json.dumps(value)}]}
 
 
+def rebind(value, *, inspector=False):
+    base_rebind(value, inspector=inspector)
+    for entry in value["calls"]:
+        selected = entry["tenantId"]
+        if selected is None:
+            continue
+        entry["wire"]["expectedTenantId"] = selected
+        for phase in ("initialize", "invocation"):
+            entry["wire"][phase]["request"]["tenantId"] = selected
+        bind_launch(entry["client"], entry["wire"], "inspector" if inspector else "sdk")
+    return value
+
+
 def journey(*, inspector=False):
     original = bootstrap()
     canonical = "MCP Inspector" if inspector else "Official MCP TypeScript SDK"
@@ -44,6 +59,13 @@ def journey(*, inspector=False):
     value.update(clientVersion="2.10.1" if inspector else "1.32.1", runtimeBefore=copy.deepcopy(runtime),
                  runtimeAfter=copy.deepcopy(runtime), lateWaitMilliseconds=3000,
                  identityFixtures={role: managed_receipt(role, runtime) for role in ("full", "limited")})
+    declared = tenant_config.declaration(authored["tenantId"])
+    value["configuration"] = {"schema": "honua.mcp-direct-cancel-tenant/v1", "tenantId": authored["tenantId"],
+        "declaration": declared, "observation": {
+            "schema": "honua.mcp-deployment-configuration-observation/v1",
+            "declarationSha256": tenant_config.digest(declared),
+            "containerId": runtime["containerId"], "imageId": runtime["imageId"],
+            "environment": dict(declared["environment"]), "observedAt": stamp(-25)}}
     job = "gp-" + "3" * 24
     uri, package = "honua://jobs/" + job, job + ":v3"
     actor = value["identityFixtures"]["full"]["identity"]["canonicalActorId"]
@@ -59,7 +81,7 @@ def journey(*, inspector=False):
                      "createdAt": stamp(50), "idempotencyKey": plan["planId"], "parameters": params}}]
             owned = {"jobId": job, "recordSha256": hashed, "status": status, "createdAt": stamp(50),
                      "updatedAt": stamp(start), "completedAt": stamp(110) if status == 5 else None,
-                     "requestedBy": actor, "tenantId": "public", "idempotencyKey": plan["planId"],
+                     "requestedBy": actor, "tenantId": authored["tenantId"], "idempotencyKey": plan["planId"],
                      "processDefinitions": oracle.PROCESS, "planId": plan["planId"],
                      "artifactReferences": [], "committedEffectReferences": []}
         else:
@@ -71,8 +93,8 @@ def journey(*, inspector=False):
                 "value": {"schema": "honua.mcp-execution-persisted/v1", "jobs": jobs, "results": result_rows}, "job": owned}
     value["snapshots"] = {"initial": store(-20), "preflight": store(45), "submitted": store(55, 0),
                           "running": store(65, 2), "limited": store(75, 2), "anonymous": store(85, 2),
-                          "acknowledged": store(95, 2), "terminal": store(115, 5),
-                          "results": store(125, 5, results=True), "late": store(145, 5, results=True)}
+                          "otherTenant": store(95, 2), "acknowledged": store(105, 2), "terminal": store(125, 5),
+                          "results": store(135, 5, results=True), "late": store(165, 5, results=True)}
     denied_anon = envelope({"status": "error", "code": "unauthenticated", "message": "Authentication required",
                             "error": {"kind": "AuthorizationDenied", "message": "Authentication required"},
                             "requiresReauthentication": True}, error=True)
@@ -93,6 +115,8 @@ def journey(*, inspector=False):
         ("poll-running-0", "resources/read", {"uri": uri}, "full", job_read(uri, job, "Running", 60)),
         ("limited-target", "tools/call", {"name": "honua_cancel_job", "arguments": {"jobId": job}}, "limited", denied_limited),
         ("anonymous-target", "tools/call", {"name": "honua_cancel_job", "arguments": {"jobId": job}}, "anonymous", denied_anon),
+        ("other-tenant", "tools/call", {"name": "honua_cancel_job", "arguments": {"jobId": job}}, "full",
+            envelope({"status": "error", "code": "not_found", "message": "Job not visible in selected tenant"}, error=True)),
         ("owner-cancel", "tools/call", {"name": "honua_cancel_job", "arguments": {"jobId": job}}, "full", ack),
         ("repeat-cancel", "tools/call", {"name": "honua_cancel_job", "arguments": {"jobId": job}}, "full", ack),
         ("poll-terminal-0", "resources/read", {"uri": uri}, "full", job_read(uri, job, "Cancelled", 110)),
@@ -101,6 +125,7 @@ def journey(*, inspector=False):
         ("late-results", "resources/read", {"uri": uri + "/results"}, "full", result_read(uri, job, package)),
     ]
     value["calls"] = [{"id": ident, "method": method, "params": params, "credentialRole": role,
+                       "tenantId": None if role in ("anonymous", "limited") else "public" if ident == "other-tenant" else authored["tenantId"],
                        "authenticated": role != "anonymous", "result": result,
                        "startedAt": stamp(index * 10), "completedAt": stamp(index * 10 + 1)}
                       for index, (ident, method, params, role, result) in enumerate(calls)]
@@ -122,7 +147,7 @@ class DirectCancelValidationControls(unittest.TestCase):
 
     def test_early_completion_or_acknowledgement_without_terminal_proof_refuses(self):
         for inspector in (False, True):
-            for index, status in ((6, "Succeeded"), (11, "Running")):
+            for index, status in ((6, "Succeeded"), (12, "Running")):
                 value = journey(inspector=inspector)
                 content = value["calls"][index]["result"]["contents"][0]
                 body = json.loads(content["text"]); body["status"] = status; content["text"] = json.dumps(body)
@@ -131,11 +156,12 @@ class DirectCancelValidationControls(unittest.TestCase):
 
     def test_wrong_durable_owner_or_result_effect_refuses(self):
         for inspector in (False, True):
-            for mutation in ("owner", "artifact", "late", "status"):
+            for mutation in ("owner", "tenant", "artifact", "late", "status"):
                 value = journey(inspector=inspector)
                 if mutation == "owner": value["snapshots"]["running"]["job"]["requestedBy"] = "ApiKey:api-key:other"
+                elif mutation == "tenant": value["snapshots"]["running"]["job"]["tenantId"] = "public"
                 elif mutation == "artifact": value["snapshots"]["results"]["value"]["results"][0]["binding"]["artifacts"] = [{"artifactId": "bad"}]
-                elif mutation == "late": value["calls"][13]["startedAt"] = stamp(127)
+                elif mutation == "late": value["calls"][14]["startedAt"] = stamp(137)
                 else: value["snapshots"]["terminal"]["job"]["status"] = 3
                 with self.subTest(inspector=inspector, mutation=mutation), self.assertRaises(ValueError):
                     judge(value)
@@ -151,9 +177,27 @@ class DirectCancelValidationControls(unittest.TestCase):
                     for phase in ("initialize", "invocation"):
                         entry["wire"][phase]["request"]["credentialFingerprint"] = full
                 elif mutation == "job":
-                    value["calls"][10]["params"]["arguments"]["jobId"] = "gp-" + "4" * 24
+                    value["calls"][11]["params"]["arguments"]["jobId"] = "gp-" + "4" * 24
                     value = rebind(value, inspector=inspector)
                 else: value["identityFixtures"]["limited"]["cleanupComplete"] = False
+                with self.subTest(inspector=inspector, mutation=mutation), self.assertRaises(ValueError):
+                    judge(value)
+
+    def test_other_tenant_denial_requires_distinct_wire_tenant_and_no_store_mutation(self):
+        for inspector in (False, True):
+            for mutation in ("wire", "outcome", "store", "configuration"):
+                value = journey(inspector=inspector)
+                if mutation == "wire":
+                    value["calls"][9]["tenantId"] = value["tenantId"]
+                    value = rebind(value, inspector=inspector)
+                elif mutation == "outcome":
+                    value["calls"][9]["result"] = envelope({"jobId": "gp-" + "3" * 24,
+                        "status": "cancellation_requested", "cancellationRequested": True})
+                    value = rebind(value, inspector=inspector)
+                elif mutation == "store":
+                    value["snapshots"]["otherTenant"]["job"]["status"] = 5
+                else:
+                    value["configuration"]["observation"]["environment"]["MultiTenancy__DefaultTenantId"] = "other"
                 with self.subTest(inspector=inspector, mutation=mutation), self.assertRaises(ValueError):
                     judge(value)
 

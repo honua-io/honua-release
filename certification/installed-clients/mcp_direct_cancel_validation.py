@@ -21,6 +21,7 @@ from mcp_map_package_validation import strict_json, same_json, observed_wire, cl
 from mcp_plan_validation import oracle_mcp_plan_valid, tool_output as validation_output
 from mcp_render_validation import scenario as fixture_binding
 from mcp_style_validation import tool_output
+from mcp_deployment_identity_configuration import declaration, verify_configuration
 
 OPERATION = "tools/call:cancel_job"
 PROCESS = "analytics.buffer-aggregate-managed"
@@ -62,7 +63,8 @@ def scenario(fixture_bytes, bootstrap, nonce, canonical_client):
     plan = authored_plan(nonce)
     return {key: binding[key] for key in ("fixtureSha256", "bootstrapSha256", "candidateSourceSha", "candidateImage", "runtimeBinding")} | {
         "schema": "honua.mcp-direct-cancel-scenario/v1", "operation": OPERATION,
-        "nonce": nonce, "canonicalClient": canonical_client, "plan": plan,
+        "nonce": nonce, "canonicalClient": canonical_client,
+        "tenantId": "mcp-deployment-" + nonce[:12], "plan": plan,
         "arguments": {"plan": plan, "idempotencyKey": plan["planId"]},
         "fakeJobId": "gp-" + nonce}
 
@@ -151,6 +153,7 @@ def checked_store(item, authored, job_id, actor, *, status=None):
             or job.get("idempotencyKey") != authored["arguments"]["idempotencyKey"]
             or job.get("requestedBy") != actor or type(job.get("status")) is not int
             or job["status"] not in range(6)
+            or job.get("tenantId") != authored["tenantId"]
             or rows[0]["binding"] != {"operationId": job_id, "status": job["status"],
                                       "createdAt": job.get("createdAt"),
                                       "idempotencyKey": job["idempotencyKey"],
@@ -170,7 +173,7 @@ def judge(fixture_bytes, bootstrap, observed):
         raise ValueError("direct cancel original observations missing")
     authored = scenario(fixture_bytes, bootstrap, observed.get("nonce"), observed.get("canonicalClient"))
     fields = set(authored) - {"plan", "arguments", "fakeJobId"} | {
-        "clientVersion", "runtimeBefore", "runtimeAfter", "identityFixtures", "calls", "snapshots", "lateWaitMilliseconds"}
+        "clientVersion", "runtimeBefore", "runtimeAfter", "configuration", "identityFixtures", "calls", "snapshots", "lateWaitMilliseconds"}
     if (set(observed) != fields or any(not same_json(observed[k], authored[k]) for k in
                                        ("schema", "operation", "nonce", "canonicalClient", "candidateSourceSha", "candidateImage",
                                         "fixtureSha256", "bootstrapSha256", "runtimeBinding"))
@@ -179,6 +182,13 @@ def judge(fixture_bytes, bootstrap, observed):
             or not isinstance(observed["clientVersion"], str)
             or not re.fullmatch(r"[0-9]+\.[0-9]+\.[0-9]+", observed["clientVersion"])):
         raise ValueError("direct cancel changed original source, client, runtime or plan")
+    configuration = observed["configuration"]
+    if (not isinstance(configuration, dict) or set(configuration) != {"schema", "tenantId", "declaration", "observation"}
+            or configuration["schema"] != "honua.mcp-direct-cancel-tenant/v1"
+            or configuration["tenantId"] != authored["tenantId"]
+            or not same_json(configuration["declaration"], declaration(authored["tenantId"]))):
+        raise ValueError("direct cancel tenant setup differs from original candidate")
+    verify_configuration(configuration["declaration"], configuration["observation"], authored["runtimeBinding"])
     identities = observed["identityFixtures"]
     if not isinstance(identities, dict) or set(identities) != {"full", "limited"}:
         raise ValueError("direct cancel lacks managed callers")
@@ -188,26 +198,30 @@ def judge(fixture_bytes, bootstrap, observed):
             or callers["full"]["keyId"] == callers["limited"]["keyId"]):
         raise ValueError("direct cancel callers share a key or differ in original salt")
     calls, snapshots = observed["calls"], observed["snapshots"]
-    required_snapshots = {"initial", "preflight", "submitted", "running", "limited", "anonymous", "acknowledged",
+    required_snapshots = {"initial", "preflight", "submitted", "running", "limited", "anonymous", "otherTenant", "acknowledged",
                           "terminal", "results", "late"}
     if (not isinstance(calls, list) or not isinstance(snapshots, dict) or set(snapshots) != required_snapshots
             or type(observed["lateWaitMilliseconds"]) is not int or observed["lateWaitMilliseconds"] < 3000):
         raise ValueError("direct cancel omitted original calls, snapshots or late bound")
     sessions = set()
     previous = instant(snapshots["initial"]["completedAt"])
-    def call(index, identifier, method, params, role="full"):
+    if instant(configuration["observation"]["observedAt"]) > instant(snapshots["initial"]["startedAt"]):
+        raise ValueError("direct cancel tenant configuration observed after original calls")
+    def call(index, identifier, method, params, role="full", tenant_id=None):
         nonlocal previous
         if index >= len(calls):
             raise ValueError("direct cancel omitted an authored call")
         entry = calls[index]
+        selected_tenant = (None if role in ("anonymous", "limited") else (tenant_id or authored["tenantId"]))
         if (not isinstance(entry, dict)
                 or set(entry) != {"id", "method", "params", "authenticated", "credentialRole", "wire", "client",
-                                  "result", "startedAt", "completedAt"}
+                                  "result", "startedAt", "completedAt", "tenantId"}
                 or entry["id"] != identifier or entry["method"] != method
                 or not same_json(entry["params"], params) or entry["credentialRole"] != role
-                or entry["authenticated"] is not (role != "anonymous")):
+                or entry["authenticated"] is not (role != "anonymous")
+                or entry["tenantId"] != selected_tenant):
             raise ValueError("direct cancel call differs from original request")
-        frame, session = observed_wire(entry["wire"], method, params, role != "anonymous")
+        frame, session = observed_wire(entry["wire"], method, params, role != "anonymous", tenant_id=selected_tenant)
         selected = callers["limited" if role == "limited" else "full"]
         if (session in sessions or entry["wire"].get("expectedCredentialFingerprint") != selected["credentialFingerprint"]
                 or not same_json(entry["result"], frame if "error" in frame else frame["result"])):
@@ -248,9 +262,9 @@ def judge(fixture_bytes, bootstrap, observed):
     if instant(snapshots["submitted"]["startedAt"]) < previous:
         raise ValueError("direct cancel submission store read preceded original submit")
     previous = instant(snapshots["submitted"]["completedAt"])
-    for name in ("submitted", "running", "limited", "anonymous", "acknowledged", "terminal", "results", "late"):
+    for name in ("submitted", "running", "limited", "anonymous", "otherTenant", "acknowledged", "terminal", "results", "late"):
         allowed = {"submitted": range(6), "running": (2,), "limited": (2,), "anonymous": (2,),
-                   "acknowledged": (2, 5), "terminal": (5,), "results": (5,), "late": (5,)}[name]
+                   "otherTenant": (2,), "acknowledged": (2, 5), "terminal": (5,), "results": (5,), "late": (5,)}[name]
         checked_store(snapshots[name], authored, job_id, callers["full"]["canonicalActorId"], status=allowed)
     if snapshots["submitted"]["job"]["createdAt"] != submitted["createdAt"]:
         raise ValueError("direct cancel durable creation differs from accepted submission")
@@ -299,6 +313,11 @@ def judge(fixture_bytes, bootstrap, observed):
     if instant(snapshots["anonymous"]["startedAt"]) < previous:
         raise ValueError("anonymous denial durable read preceded original refusal")
     previous = instant(snapshots["anonymous"]["completedAt"])
+    refusal(call(index, "other-tenant", "tools/call", {"name": "honua_cancel_job", "arguments":
+           {"jobId": job_id}}, tenant_id="public")); index += 1
+    if instant(snapshots["otherTenant"]["startedAt"]) < previous:
+        raise ValueError("other-tenant denial durable read preceded original refusal")
+    previous = instant(snapshots["otherTenant"]["completedAt"])
     acknowledgement(call(index, "owner-cancel", "tools/call", {"name": "honua_cancel_job", "arguments":
                      {"jobId": job_id}}), job_id); index += 1
     if instant(snapshots["acknowledged"]["startedAt"]) < previous:

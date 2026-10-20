@@ -9,8 +9,13 @@ second job/result/store read after three seconds with no late output. The
 read-only managed key and anonymous caller must receive typed denials for
 the same job; the owner may repeat the cancellation idempotently.
 
-The independently captured Redis job record binds the full authored plan,
-the canonical owner, exact job ID, and empty artifact/effect references. Its
+The exact owned Docker tenant options are read back before any call. An admin
+key selects a fresh tenant on both fixed-client HTTP requests, then the same
+key selects the declared public tenant and must be denied on the original job.
+This proves the server's tenant boundary for this admin path; it does not
+claim non-admin owner isolation. The independently captured Redis job record
+binds the full authored plan, canonical submitting actor, selected tenant,
+exact job ID, and empty artifact/effect references. Its
 atomic job/result census and source/image readback must remain stable. The
 managed-key helper creates and revokes only owned disposable keys; private
 key files remain local and are excluded from the public proof.

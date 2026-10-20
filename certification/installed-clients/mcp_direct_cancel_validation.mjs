@@ -9,7 +9,8 @@ import { pathToFileURL } from "node:url";
 import { observeCandidateRequest, observedResponse } from "./mcp_candidate_wire.mjs";
 
 export const directCancelDependencies = Object.freeze([
-  "mcp_direct_cancel_validation.py", "mcp_direct_cancel_state.py", "mcp_managed_identity_fixture.py",
+  "mcp_direct_cancel_validation.py", "mcp_direct_cancel_state.py", "mcp_direct_cancel_config.py",
+  "mcp_deployment_identity_configuration.py", "mcp_managed_identity_fixture.py",
   "mcp_execute_plan_state.py", "mcp_execute_plan_validation.py", "mcp_plan_validation.py",
   "mcp_style_validation.py", "mcp_style_state.py", "mcp_ingest_publish_validation.py",
   "mcp_ingest_publish_state.py", "mcp_map_package_validation.py", "mcp_render_validation.py",
@@ -79,7 +80,7 @@ export function createDirectCancelValidation({ directory, sourceSha, sha256, boo
         throw new Error("direct cancellation original bootstrap differs from candidate");
       const observed = Object.fromEntries(Object.entries(setup).filter(([key]) => !["plan", "arguments", "fakeJobId"].includes(key)));
       Object.assign(observed, { clientVersion, calls: [], identityFixtures: {}, snapshots: {},
-        runtimeBefore: null, runtimeAfter: null, lateWaitMilliseconds: 3000 });
+        configuration: null, runtimeBefore: null, runtimeAfter: null, lateWaitMilliseconds: 3000 });
       const retained = `${resolve(results)}.direct-cancel.raw.json`;
       mkdirSync(dirname(retained), { recursive: true });
       const privateWork = mkdtempSync(join(tmpdir(), "mcp-direct-cancel-private-"));
@@ -99,6 +100,11 @@ export function createDirectCancelValidation({ directory, sourceSha, sha256, boo
         observed.runtimeBefore = inspect(candidateSourceSha, candidateImage);
         if (!isDeepStrictEqual(observed.runtimeBefore, setup.runtimeBinding))
           throw new Error("direct cancellation runtime differs from original bootstrap");
+        observed.configuration = launch("mcp_direct_cancel_config.py", [
+          "--nonce", nonce, "--candidate-source-sha", candidateSourceSha,
+          "--candidate-image", candidateImage, "--owned-disposable-candidate"]);
+        if (observed.configuration.tenantId !== setup.tenantId)
+          throw new Error("direct cancellation tenant setup differs from authored plan");
         for (const role of ["full", "limited"]) {
           observed.identityFixtures[role] = managed(role, "create");
           const file = lstatSync(fixtures[role].privatePath);
@@ -109,18 +115,21 @@ export function createDirectCancelValidation({ directory, sourceSha, sha256, boo
             throw new Error("direct cancellation managed key missing");
         }
         const { launchCanonicalClient } = await import(pathToFileURL(join(directory, "mcp_fixed_client_launcher.mjs")).href);
-        const call = async (id, method, params, role = "full") => {
+        const call = async (id, method, params, role = "full", selectedTenant = undefined) => {
+          const tenantId = role === "anonymous" || role === "limited" ? undefined : selectedTenant ?? setup.tenantId;
           const entry = { id, method, params, authenticated: role !== "anonymous", credentialRole: role,
-            wire: null, client: null, result: null, startedAt: new Date().toISOString(), completedAt: null };
+            tenantId: tenantId ?? null, wire: null, client: null, result: null,
+            startedAt: new Date().toISOString(), completedAt: null };
           observed.calls.push(entry);
           const selectedKey = keys[role === "limited" ? "limited" : "full"];
           try {
             verifyBytes();
             const probe = await observeCandidateRequest({ method, params, authenticated: role !== "anonymous",
-              credential: selectedKey, credentialSalt,
+              credential: selectedKey, credentialSalt, ...(tenantId ? { tenantId } : {}),
               invoke: endpoint => launchCanonicalClient({ installationRoot,
                 selector: canonicalClient === "MCP Inspector" ? "inspector" : "sdk", endpoint,
-                method, params, authenticated: role !== "anonymous", credential: selectedKey }),
+                method, params, authenticated: role !== "anonymous", credential: selectedKey,
+                ...(tenantId ? { tenantId } : {}) }),
               onClient: client => { entry.client = client; }, onObservation: wire => { entry.wire = wire; } });
             verifyBytes();
             entry.client = probe.client;
@@ -164,6 +173,8 @@ export function createDirectCancelValidation({ directory, sourceSha, sha256, boo
         observed.snapshots.limited = state(setup, jobId);
         await tool("anonymous-target", "honua_cancel_job", { jobId }, "anonymous");
         observed.snapshots.anonymous = state(setup, jobId);
+        await call("other-tenant", "tools/call", { name: "honua_cancel_job", arguments: { jobId } }, "full", "public");
+        observed.snapshots.otherTenant = state(setup, jobId);
         await tool("owner-cancel", "honua_cancel_job", { jobId });
         observed.snapshots.acknowledged = state(setup, jobId);
         await tool("repeat-cancel", "honua_cancel_job", { jobId });

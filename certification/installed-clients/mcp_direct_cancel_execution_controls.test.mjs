@@ -31,9 +31,9 @@ function setup(mode) {
       raw.calls[6].result.contents[0].text = JSON.stringify(body);
     }
     if (mode === "no-terminal") {
-      const body = JSON.parse(raw.calls[11].result.contents[0].text);
+      const body = JSON.parse(raw.calls[12].result.contents[0].text);
       body.status = "Running";
-      raw.calls[11].result.contents[0].text = JSON.stringify(body);
+      raw.calls[12].result.contents[0].text = JSON.stringify(body);
     }
     const bootstrapPath = join(directory, "original-bootstrap.json");
     writeFileSync(bootstrapPath, Buffer.from(vector.bootstrapBase64, "base64"));
@@ -68,12 +68,12 @@ function setup(mode) {
       "    plan=call['params']['arguments']['plan']",
       "    full=next((k for k in v['keys'].values() if k['record']['Permissions']==['admin']),None)",
       "    if not full: raise ValueError('controlled managed full key missing')",
-      "    status=0 if count==6 else 2 if count<12 else 5",
+      "    status=0 if count==6 else 2 if count<13 else 5",
       "    if mode=='wrong-actor': actor='ApiKey:api-key:33333333-3333-4333-8333-333333333333'",
       "    else: actor='ApiKey:api-key:'+full['record']['Id']",
       "    params={'honua.geoprocessing.plan_id':plan['planId'],'honua.geoprocessing.process_definitions':'analytics.buffer-aggregate-managed','honua.geoprocessing.output_artifact_kinds':'FeatureLayer'}",
       "    params.update({'honua.geoprocessing.step.0.'+k:x for k,x in plan['steps'][0]['inputs'].items()})",
-      "    return {'operationId':job,'status':status,'createdAt':call['result']['structuredContent']['createdAt'],'updatedAt':'2026-10-19T22:01:50Z' if status==5 else '2026-10-19T22:01:05Z','completedAt':'2026-10-19T22:01:50Z' if status==5 else None,'audit':{'requestedBy':actor,'tenantId':'public','idempotencyKey':plan['planId']},'spec':{'parameters':params},'artifactReferences':[],'committedEffectReferences':[]}",
+      "    return {'operationId':job,'status':status,'createdAt':call['result']['structuredContent']['createdAt'],'updatedAt':'2026-10-19T22:01:50Z' if status==5 else '2026-10-19T22:01:05Z','completedAt':'2026-10-19T22:01:50Z' if status==5 else None,'audit':{'requestedBy':actor,'tenantId':v['raw']['tenantId'],'idempotencyKey':plan['planId']},'spec':{'parameters':params},'artifactReferences':[],'committedEffectReferences':[]}",
       "def execute(arguments):",
       "    v=json.loads(state.read_text())",
       "    if arguments[0]=='GET' and arguments[1].startswith('controlplane:job:'):",
@@ -94,7 +94,7 @@ function setup(mode) {
       "        if not item: return []",
       "        job=item['operationId']",
       "        rows=[[b'jobs',job.encode(),json.dumps(item).encode()]]",
-      "        if len(v['seen'])>=13:",
+      "        if len(v['seen'])>=14:",
       "            result={'resultPackageId':job+':v3','status':7,'artifacts':[],'errors':[]}",
       "            rows.append([b'results',job.encode(),json.dumps(result).encode()])",
       "        return rows",
@@ -118,8 +118,13 @@ function setup(mode) {
       "#!" + realPython,
       "import json,sys",
       "from pathlib import Path",
-      "v=json.loads(Path(" + JSON.stringify(statePath) + ").read_text())['runtime']",
+      "state=json.loads(Path(" + JSON.stringify(statePath) + ").read_text())",
+      "v=state['runtime']",
       "if sys.argv[1]=='image': print(json.dumps(v['imageReadback']))",
+      "elif any('selectedScope' in arg for arg in sys.argv):",
+      "    for key,value in state['raw']['configuration']['declaration']['environment'].items():",
+      "        print(json.dumps({'selectedScope':True}))",
+      "        print(json.dumps(key+'='+value))",
       "else: print(json.dumps({key:v[key] for key in ('running','imageId','imageReference','startedAt','containerId')}))",
     ];
     writeFileSync(join(directory, "docker"), docker.join("\n") + "\n", { mode: 0o755 });
@@ -180,9 +185,9 @@ for (const mode of ["valid", "wrong-actor", "early-success", "no-terminal", "cle
         assert.equal(traces.filter(row => row.profile === profile && row.action === "revoke").length, 1);
       }
       if (mode === "valid") {
-        assert.equal(state.seen.length, 15);
-        assert.equal(raw.calls.length, 15);
-        assert.equal(Object.keys(raw.snapshots).length, 10);
+        assert.equal(state.seen.length, 16);
+        assert.equal(raw.calls.length, 16);
+        assert.equal(Object.keys(raw.snapshots).length, 11);
         assert.equal(checks[directCancelOperation].passed, true, checks[directCancelOperation].error);
         assert.equal(control.api.verifyDirectCancelProof(checks[directCancelOperation].proof, raw.candidateSourceSha,
           raw.candidateImage, directCancelOperation, "Official MCP TypeScript SDK", "1.32.1"), true);
