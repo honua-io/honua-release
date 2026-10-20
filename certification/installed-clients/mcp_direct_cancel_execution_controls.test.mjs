@@ -4,7 +4,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { createHash } from "node:crypto";
 import { fork, spawnSync } from "node:child_process";
-import { copyFileSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync, existsSync } from "node:fs";
+import { copyFileSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync, existsSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { delimiter, dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -15,12 +15,47 @@ const source = process.env.HONUA_DIRECT_CANCEL_SOURCE_DIR ?? dirname(fileURLToPa
 const hash = bytes => createHash("sha256").update(bytes).digest("hex");
 const nonce = "0123456789abcdef01234567";
 
+function prepareControlledInspector(directory, manifestPath) {
+  const manifest = JSON.parse(readFileSync(manifestPath, "utf8"));
+  const selected = manifest.clients.inspector;
+  assert.equal(selected.entry, "clients/launcher/build/index.js");
+  assert.equal(Object.keys(selected.files).length, 27);
+  const root = join(directory, "node_modules", ...selected.name.split("/"));
+  const cli = [
+    "const args=process.argv.slice(2);",
+    "const value=name=>args[args.indexOf(name)+1];",
+    "const headers={'content-type':'application/json'};",
+    "for(let i=0;i<args.length;i++)if(args[i]==='--header'){const entry=args[++i],at=entry.indexOf(':');headers[entry.slice(0,at).toLowerCase()]=entry.slice(at+1).trim();}",
+    "const request=async(id,method,params,session)=>{const response=await fetch(value('--cli'),{method:'POST',headers:{...headers,...(session?{'mcp-session-id':session}:{})},body:JSON.stringify({jsonrpc:'2.0',id,method,params})});return {frame:await response.json(),session:response.headers.get('mcp-session-id')};};",
+    "const init=await request(0,'initialize',{protocolVersion:'2025-06-18',capabilities:{},clientInfo:{name:'inspector-cli',version:'2.10.1'}});",
+    "const method=value('--method');const params=method==='resources/read'?{uri:value('--uri')}:{name:value('--tool-name'),arguments:{}};",
+    "for(let i=0;i<args.length;i++)if(args[i]==='--tool-arg')for(i++;i<args.length&&!args[i].startsWith('--');i++){const at=args[i].indexOf('=');params.arguments[args[i].slice(0,at)]=JSON.parse(args[i].slice(at+1));}",
+    "const {frame}=await request(1,method,params,init.session);",
+    "if(frame.error){const auth=frame.error.data?.code==='unauthenticated';console.error(JSON.stringify({error:{code:auth?'auth_required':'error',message:frame.error.message}}));process.exitCode=auth?3:1;}",
+    "else{console.log(JSON.stringify({result:frame.result}));process.exitCode=frame.result?.isError===true?5:0;}",
+  ].join("\n") + "\n";
+  const files = {};
+  for (const name of Object.keys(selected.files).sort()) {
+    const content = name === "package.json"
+      ? JSON.stringify({ name: selected.name, version: selected.version, type: "module" }) + "\n"
+      : name === selected.entry ? cli : `controlled Inspector fixture ${name}\n`;
+    const path = join(root, name);
+    mkdirSync(dirname(path), { recursive: true });
+    writeFileSync(path, content);
+    files[name] = hash(content);
+  }
+  selected.files = files;
+  selected.integrity = "offline-control-not-published";
+  writeFileSync(manifestPath, JSON.stringify(manifest, null, 2) + "\n");
+}
+
 function setup(mode) {
   const directory = mkdtempSync(join(tmpdir(), "direct-cancel-producer-offline-"));
   try {
     for (const entry of readdirSync(source, { withFileTypes: true })) if (entry.isFile())
       copyFileSync(join(source, entry.name), join(directory, entry.name));
     const installationRoot = prepareControlledInstallation(directory, join(directory, "mcp_fixed_client_manifest.v1.json"));
+    if (mode === "valid-inspector") prepareControlledInspector(directory, join(directory, "mcp_fixed_client_manifest.v1.json"));
     const generated = spawnSync("python3", ["-B", join(directory, "mcp_direct_cancel_validation_controls.py"), "--emit-offline-vector"],
       { encoding: "utf8", timeout: 90_000, maxBuffer: 64 * 1024 * 1024 });
     assert.equal(generated.status, 0, generated.stderr);
@@ -191,10 +226,10 @@ for (const mode of ["valid", "valid-inspector", "wrong-actor", "early-success", 
         assert.equal(traces.filter(row => row.profile === profile && row.action === "revoke").length, 1);
       }
       if (mode === "valid" || mode === "valid-inspector") {
+        assert.equal(checks[directCancelOperation].passed, true, checks[directCancelOperation].error);
         assert.equal(state.seen.length, 16);
         assert.equal(raw.calls.length, 16);
         assert.equal(Object.keys(raw.snapshots).length, 11);
-        assert.equal(checks[directCancelOperation].passed, true, checks[directCancelOperation].error);
         assert.equal(control.api.verifyDirectCancelProof(checks[directCancelOperation].proof, raw.candidateSourceSha,
           raw.candidateImage, directCancelOperation, canonicalClient, clientVersion), true);
         assert.equal(checks[directCancelOperation].proof.nativeChildCessationProven, false);
