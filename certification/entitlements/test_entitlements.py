@@ -1,6 +1,8 @@
 """Entitlement certification: exact positive/negative assertions, fail-closed coverage, fixture hygiene."""
 import json
 import re
+import shutil
+import subprocess
 import sys
 from pathlib import Path
 
@@ -414,3 +416,34 @@ def test_the_certification_gate_runs_and_reports_the_entitlement_lane():
     assert "LicenseTestSupport.cs" in script
     fragment = next(step for step in job["steps"] if step.get("uses") == "./.github/actions/gate-fragment")
     assert fragment["with"]["gate"] == "conformance-entitlements"
+
+
+@pytest.mark.skipif(shutil.which("bash") is None, reason="needs bash")
+def test_a_failing_verdict_reaches_the_fragment_under_the_default_run_shell(tmp_path):
+    """GitHub runs `run:` steps with `bash -e -o pipefail`: a lane exiting 1 must not drop the why."""
+    workflow = yaml.safe_load((ROOT / ".github/workflows/certification.yml").read_text(encoding="utf-8"))
+    step = next(step for step in workflow["jobs"]["conformance-entitlements"]["steps"]
+                if "certification/entitlements/lane.sh" in step.get("run", ""))
+    (tmp_path / "platform-manifest.yaml").write_text("components:\n  honua-server:\n    sha: abc123\n", encoding="utf-8")
+    lane = tmp_path / "certification" / "entitlements" / "lane.sh"
+    lane.parent.mkdir(parents=True)
+    lane.write_text("echo status=fail\necho 'why=10 capability assertion(s) failed: alerts.dwell'\nexit 1\n",
+                    encoding="utf-8", newline="\n")
+    stubs = tmp_path / "stubs"
+    stubs.mkdir()
+    (stubs / "curl").write_text('#!/usr/bin/env bash\nwhile [ "$1" != -o ]; do shift; done\n: > "$2"\n',
+                                encoding="utf-8", newline="\n")
+    (stubs / "python").write_text(f'#!/usr/bin/env bash\nexec "{Path(sys.executable).as_posix()}" "$@"\n',
+                                  encoding="utf-8", newline="\n")
+    for stub in stubs.iterdir():
+        stub.chmod(0o755)
+    env_file, runner_temp = tmp_path / "github.env", tmp_path / "runner"
+    runner_temp.mkdir()
+    script = f'export PATH="$(cd stubs && pwd):$PATH" GITHUB_ENV=github.env RUNNER_TEMP=runner\n{step["run"]}'
+    result = subprocess.run([shutil.which("bash"), "--noprofile", "--norc", "-e", "-o", "pipefail", "-s"], input=script.encode(),
+                            cwd=tmp_path, capture_output=True, timeout=60)
+    assert result.returncode == 0, result.stderr.decode(errors="replace")
+    recorded = env_file.read_text(encoding="utf-8")
+    assert "status=fail" in recorded
+    assert "why=10 capability assertion(s) failed: alerts.dwell" in recorded
+    assert "source=honua-io/honua-server@abc123#entitlement-fixtures" in recorded

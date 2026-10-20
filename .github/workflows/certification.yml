@@ -587,7 +587,9 @@ jobs:
           if [ -z "$SHA" ] || ! curl -fsSL "$URL" -o "$CORPUS"; then
             STATUS=blocked; WHY="the candidate's licensing test corpus could not be fetched at ${SHA:-<no pin>}"
           else
-            bash certification/entitlements/lane.sh "$CORPUS" "$OUT" | tee "$OUT/lane.log"
+            # lane.sh exits 1 on a failing verdict; the default run shell is `bash -e`, so tolerate
+            # it here and read the verdict from the log, or the fragment would lose the why.
+            bash certification/entitlements/lane.sh "$CORPUS" "$OUT" | tee "$OUT/lane.log" || true
             STATUS="$(sed -n 's/^status=//p' "$OUT/lane.log" | tail -1)"
             WHY="$(sed -n 's/^why=//p' "$OUT/lane.log" | tail -1)"
             [ -n "$STATUS" ] || { STATUS=fail; WHY="the entitlement lane produced no verdict"; }
