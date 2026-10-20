@@ -98,7 +98,7 @@ class GroundingStatusControls(unittest.TestCase):
             return json.dumps([METADATA])
         self.assertEqual(graph_resource(AREA, execute=execute), METADATA)
         sql = queries[0]
-        for required in ("metadata_v2_current", "metadata_v2_snapshots", "active.revision=snap.revision",
+        for required in ("metadata_v2_current", "metadata_v2_snapshots", "snap.revision=active.revision",
                          "pub->>'resourceId'=resource#>>'{metadata,id}'",
                          "binding->>'resourceId'=resource#>>'{metadata,id}'",
                          "pub->>'storageBindingId'=binding#>>'{metadata,id}'"):
