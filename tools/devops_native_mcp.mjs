@@ -42,7 +42,7 @@ export async function validateSdkLocation(module, expectedRoot) {
       || await realpath(module) !== module) fail('native-sdk-resolution');
 }
 
-async function installedSdk(artifactDirectory) {
+export async function prepareInstalledSdk(artifactDirectory) {
   const root = resolve(ROOT, 'certification/sources/geospatial-mcp');
   const bytes = await readFile(join(root, 'package-lock.json'));
   const locked = JSON.parse(bytes).packages['node_modules/@modelcontextprotocol/sdk'];
@@ -52,6 +52,8 @@ async function installedSdk(artifactDirectory) {
   const require = createRequire(join(root, 'package.json'));
   const module = require.resolve('@modelcontextprotocol/sdk/client/index.js');
   await validateSdkLocation(module, join(root, 'node_modules/@modelcontextprotocol/sdk'));
+  const typesModule = require.resolve('@modelcontextprotocol/sdk/types.js');
+  await validateSdkLocation(typesModule, join(root, 'node_modules/@modelcontextprotocol/sdk'));
   let path = dirname(module), installed;
   for (let i = 0; i < 6; i++, path = dirname(path)) {
     try { const value = JSON.parse(await readFile(join(path, 'package.json'))); if (value.name === '@modelcontextprotocol/sdk') { installed = value; break; } }
@@ -60,6 +62,7 @@ async function installedSdk(artifactDirectory) {
   if (installed?.version !== locked.version) fail('native-sdk-installed-version');
   return { Client: (await import(pathToFileURL(module))).Client,
     StdioClientTransport: (await import(pathToFileURL(require.resolve('@modelcontextprotocol/sdk/client/stdio.js')))).StdioClientTransport,
+    CallToolResultSchema: (await import(pathToFileURL(typesModule))).CallToolResultSchema,
     lockSha256: LOCK, version: installed.version, integrity: locked.integrity, verification };
 }
 
@@ -103,6 +106,29 @@ async function verifyMembers(seal) {
   return binary;
 }
 
+// Shared by the bounded original129 coordinator. These helpers authenticate
+// normal published bytes and the existing installed SDK; they grant no tool,
+// environment, approval, cloud or execution authority. No generic subprocess
+// runner is exported. The read-only inspectPublished contract below is retained.
+export async function preparePublishedRuntime(expectedFile, invocation) {
+  const seal = await finiteProcess('python3', [join(ROOT, 'tools/devops_native_artifact.py'),
+    '--expected', resolve(expectedFile), '--output', invocation], ROOT,
+  join(invocation, 'intake.stdout.json'), join(invocation, 'intake.stderr'));
+  const binary = await verifyMembers(seal);
+  const sdk = await prepareInstalledSdk(invocation);
+  return { seal, binary, sdk };
+}
+
+export async function recheckPublishedRuntime(runtime, invocation) {
+  await verifyMembers(runtime.seal);
+  const after = await finiteProcess('python3', [join(ROOT, 'tools/devops_native_artifact.py'),
+    '--verify-sdk', '--sdk-archive', runtime.sdk.verification.archive, '--output', invocation],
+  ROOT, join(invocation, 'sdk-after.stdout.json'), join(invocation, 'sdk-after.stderr'));
+  if (after.closureSha256 !== runtime.sdk.verification.closureSha256
+      || after.archiveSha256 !== runtime.sdk.verification.archiveSha256) fail('native-sdk-after-drift');
+  return after;
+}
+
 export async function inspectPublished({ expectedFile, outputDirectory, expectedTools = {}, readRequest = null }) {
   if (process.platform !== 'linux' || process.arch !== 'x64') fail('native-execution-host');
   if (typeof expectedFile !== 'string' || typeof outputDirectory !== 'string'
@@ -121,7 +147,7 @@ export async function inspectPublished({ expectedFile, outputDirectory, expected
     seal = await finiteProcess('python3', [join(ROOT, 'tools/devops_native_artifact.py'), '--expected', resolve(expectedFile), '--output', invocation],
       ROOT, join(invocation, 'intake.stdout.json'), join(invocation, 'intake.stderr'));
     const binary = await verifyMembers(seal);
-    sdk = await installedSdk(invocation);
+    sdk = await prepareInstalledSdk(invocation);
     const cwd = join(invocation, 'session'); await mkdir(cwd, { mode: 0o700 });
     // Read-only source prerequisite: no ambient HOME/.env/GH/AWS/credentials,
     // Terraform checkout/executable or operator grants are forwarded.
