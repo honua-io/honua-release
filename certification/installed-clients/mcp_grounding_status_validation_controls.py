@@ -18,12 +18,14 @@ AREA = {"serviceId": "service-42", "serviceName": "sdkreg-area", "layerId": 9,
 METADATA = AREA | {"revision": 12, "resourceId": "resource-42", "resourceName": "area",
                    "resourceType": "feature-dataset"}
 CATALOG = {"status": "ok", "catalogVersion": "honua.process_catalog.v1", "processes": [{"processId": "geometry.buffer",
-            "executionKind": "Job", "entryPoints": ["job"], "supportedExecutionModes": ["Async"]}]}
+            "displayName": "Buffer geometry", "executionKind": "Job", "entryPoints": ["job"],
+            "supportedExecutionModes": ["Async"]}]}
 
 
 def candidate(identifier, kind, score):
+    display_name = {"7": "area", "geometry.buffer": "Buffer geometry"}.get(identifier, identifier)
     return {"id": identifier, "kind": kind, "score": score,
-            "evidence": ["title:1"], "displayName": identifier, "confidenceBand": "Medium"}
+            "evidence": ["title:1"], "displayName": display_name, "confidenceBand": "Medium"}
 
 
 def grounded(goal="Buffer sdkreg-area geometry"):
@@ -110,6 +112,8 @@ class GroundingStatusControls(unittest.TestCase):
     def test_owned_graph_and_actual_job_catalog_are_required(self):
         context = source_context(AREA, METADATA, CATALOG)
         self.assertEqual(context["datasetIds"], {"7", "sdkreg-area"})
+        self.assertEqual(context["datasetNames"], {"7": "area", "sdkreg-area": "sdkreg-area"})
+        self.assertEqual(context["processNames"], {"geometry.buffer": "Buffer geometry"})
         for change in (lambda m, c: m.update(resourceType="table"),
                        lambda m, c: m.update(storageLayerId=8),
                        lambda m, c: c["processes"][0].update(entryPoints=["workflow"]),
@@ -140,9 +144,27 @@ class GroundingStatusControls(unittest.TestCase):
                        lambda o: o["draftIntent"]["provenance"].update(processDefinitions=[]),
                        lambda o: o["draftIntent"]["provenance"]["sources"].append({"sourceId": "unranked"}),
                        lambda o: o["candidates"]["datasets"][0].update(evidence=[""]),
+                       lambda o: o["candidates"]["datasets"][0].update(displayName="invented area"),
                        lambda o: o["candidates"]["datasets"][1].update(score=.95)):
             value = copy.deepcopy(good); change(value)
             with self.assertRaises(ValueError): grounding_output(value, context, good["draftIntent"]["goal"])
+        # A provenance list that repeats an invented top hit used to pass the
+        # old owned-ID intersection check. Neither an extra dataset nor a
+        # catalog-absent process is independently grounded.
+        for kind, invented in (("datasets", candidate("missing-layer", "Dataset", .95)),
+                               ("processes", candidate("missing.process", "Process", .95))):
+            value = copy.deepcopy(good)
+            value["candidates"][kind].insert(0, invented)
+            provenance = value["draftIntent"]["provenance"]
+            if kind == "datasets":
+                provenance["sources"].insert(0, {"sourceId": invented["id"],
+                                                  "description": invented["displayName"]})
+            else:
+                provenance["processDefinitions"].insert(0, invented["id"])
+            with self.assertRaises(ValueError): grounding_output(value, context, good["draftIntent"]["goal"])
+        value = copy.deepcopy(good)
+        value["candidates"]["datasets"][1]["score"] = .9
+        with self.assertRaises(ValueError): grounding_output(value, context, good["draftIntent"]["goal"])
 
     def test_material_answer_preserves_intent_and_records_answered_question(self):
         before = grounded("sdkreg-area")
@@ -155,6 +177,17 @@ class GroundingStatusControls(unittest.TestCase):
         after["clarification"] = {"intentId": "grounding-123", "questions": [{"questionId": "publish.source"}]}
         context = source_context(AREA, METADATA, CATALOG)
         self.assertEqual(clarification_output(before, after, "sdkreg-area", context), "grounding-123")
+        for kind, invented in (("datasets", candidate("missing-layer", "Dataset", .95)),
+                               ("processes", candidate("missing.process", "Process", .95))):
+            changed = copy.deepcopy(after)
+            changed["candidates"][kind].insert(0, invented)
+            provenance = changed["draftIntent"]["provenance"]
+            if kind == "datasets":
+                provenance["sources"].insert(0, {"sourceId": invented["id"],
+                                                  "description": invented["displayName"]})
+            else:
+                provenance["processDefinitions"].insert(0, invented["id"])
+            with self.assertRaises(ValueError): clarification_output(before, changed, "sdkreg-area", context)
         native = copy.deepcopy(before)
         native["clarification"] = None
         native["elicitation"] = {"message": "Additional detail is needed for intent 'grounding-123'.",

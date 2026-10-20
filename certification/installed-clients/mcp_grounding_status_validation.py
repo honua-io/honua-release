@@ -84,22 +84,24 @@ def _nonempty(value, label):
     return value
 
 
-def _ranking(rows, kind, *, require_nonempty=True):
+def _ranking(rows, kind, allowed, *, require_nonempty=True):
     if not isinstance(rows, list) or (require_nonempty and not rows):
         raise ValueError(f"{kind} candidates are missing")
-    seen, previous = set(), math.inf
+    seen, previous, previous_id = set(), math.inf, None
     for candidate in rows:
         candidate = _mapping(candidate, kind)
         identifier = _nonempty(candidate.get("id"), f"{kind} id")
         score = candidate.get("score")
         if (identifier in seen or candidate.get("kind") != kind
+                or identifier not in allowed or candidate.get("displayName") != allowed[identifier]
                 or type(score) not in (int, float) or not math.isfinite(score)
                 or score <= 0 or score > previous
+                or (score == previous and previous_id is not None and identifier < previous_id)
                 or not isinstance(candidate.get("evidence"), list)
                 or not candidate["evidence"]
                 or not all(isinstance(item, str) and item for item in candidate["evidence"])):
             raise ValueError(f"{kind} candidates have duplicate, unordered, or unsupported evidence")
-        seen.add(identifier); previous = score
+        seen.add(identifier); previous, previous_id = score, identifier
     return seen
 
 
@@ -144,10 +146,28 @@ def source_context(owned_area, metadata, catalog):
             or not isinstance(process.get("supportedExecutionModes"), list)
             or "Async" not in process["supportedExecutionModes"]):
         raise ValueError("geometry.buffer is not job-callable in the actual catalog")
-    # The grounding catalog identifies a layer by its physical storage layer
-    # and a service by its display name, not by the public publication IDs.
-    return {"datasetIds": {str(area["storageLayerId"]), area["serviceName"]},
-            "processId": "geometry.buffer", "revision": metadata["revision"]}
+    # The bounded owned graph read observes one physical layer and its service.
+    # The process resource observes the entire callable catalog. A shortlist
+    # entry outside either observation cannot be credited as grounded.
+    dataset_names = {str(area["storageLayerId"]): metadata["resourceName"],
+                     area["serviceName"]: area["serviceName"]}
+    if (len(dataset_names) != 2 or not all(isinstance(name, str) and name.strip()
+                                           for name in dataset_names.values())):
+        raise ValueError("owned graph has ambiguous or unnamed dataset aliases")
+    process_names = {}
+    for item in processes:
+        identifier = item.get("processId")
+        if (not isinstance(identifier, str) or not identifier
+                or identifier in process_names):
+            raise ValueError("process catalog has an ambiguous identity")
+        if (item.get("executionKind") == "Job" and "job" in (item.get("entryPoints") or [])
+                and "Async" in (item.get("supportedExecutionModes") or [])):
+            process_names[identifier] = _nonempty(item.get("displayName"), "process display name")
+    if process_names.get("geometry.buffer") != _nonempty(process.get("displayName"), "buffer display name"):
+        raise ValueError("owned buffer process is not callable in the actual catalog")
+    return {"datasetIds": set(dataset_names), "datasetNames": dataset_names,
+            "processId": "geometry.buffer", "processNames": process_names,
+            "revision": metadata["revision"]}
 
 
 def process_catalog_resource(result, uri="honua://catalog/processes"):
@@ -173,8 +193,8 @@ def grounding_output(output, context, goal):
     if draft.get("goal") != goal:
         raise ValueError("grounding draft changed the authored goal")
     intent = _nonempty(draft.get("intentId"), "intent ID")
-    dataset_ids = _ranking(ranking.get("datasets"), "Dataset")
-    process_ids = _ranking(ranking.get("processes"), "Process")
+    dataset_ids = _ranking(ranking.get("datasets"), "Dataset", context["datasetNames"])
+    process_ids = _ranking(ranking.get("processes"), "Process", context["processNames"])
     if (not context["datasetIds"].intersection(dataset_ids)
             or context["processId"] not in process_ids):
         raise ValueError("grounding omitted the owned graph or callable process")
@@ -193,8 +213,8 @@ def clarification_output(before, after, goal, context):
     second = _mapping(after.get("draftIntent"), "clarified intent")
     for result in (before, after):
         candidates = _mapping(result.get("candidates"), "clarification candidates")
-        datasets = _ranking(candidates.get("datasets"), "Dataset")
-        _ranking(candidates.get("processes"), "Process", require_nonempty=False)
+        datasets = _ranking(candidates.get("datasets"), "Dataset", context["datasetNames"])
+        _ranking(candidates.get("processes"), "Process", context["processNames"], require_nonempty=False)
         if not context["datasetIds"].intersection(datasets):
             raise ValueError("clarification lost the owned Metadata V2 dataset")
         _provenance(_mapping(result.get("draftIntent"), "clarification intent"), candidates)
