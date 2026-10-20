@@ -1,0 +1,61 @@
+{
+  "schema": "honua.python-source-input-selection/v1",
+  "producer": {
+    "repository": "honua-io/honua-sdk-python",
+    "sourceSha": "f36e702e6e86d71e4747da4abd5bf5d823f1387b",
+    "runId": 39402438874,
+    "event": "push",
+    "branch": "trunk",
+    "attempt": 1,
+    "workflow": ".github/workflows/development-source-inputs.yml",
+    "job": "governed-document-runtime",
+    "jobId": 118560187490
+  },
+  "artifact": {
+    "id": 12256314217,
+    "name": "governed-development-source-inputs",
+    "size": 1517847437,
+    "sha256": "01e76f2718d113cd2bb1782a473d02a4e8bb6537f5a30c90333b8f1c319b6fb3",
+    "entryCount": 338,
+    "uncompressedBytes": 3191283000,
+    "files": "artifact-files.json",
+    "filesSha256": "0ee7007a7f1c7e7dd19ec218eacc3d3cbfc89d63b267b0c0eab482f78ed399c6"
+  },
+  "subject": {
+    "repository": "honua-io/honua-sdk-python",
+    "sourceSha": "5a79352066b8aa23f1bae45b5c38e6d83efd003f"
+  },
+  "innerProposalSha256": "cdcd3774cb4b0e12c546a8bdd4628e9f123d3eed7b0a882a90db2f990d6e2795",
+  "executionContextSha256": "d62cdfebaa3d55820a8da0d1e0db787e33e51cf3846966713b4f6a13077e5ceb",
+  "image": {
+    "indexDigest": "sha256:e91fec3d1ac69f04e4eddcd29c327e630ce34658cf31075bfa7e8b0e052bafea",
+    "manifestDigest": "sha256:a594f7e9df8a4c431265125b5f5d90cd1b81c8a8797fefee69d5b3544be11111",
+    "configDigest": "sha256:4e32743734599c5dbfcd60a97e60804ccbb674e967ea418509f9eeedc038d8bb"
+  },
+  "documentation": [
+    {
+      "document": "README.md",
+      "documentGitBlob": "73537ad2bc7c630d53e7825f880413e9aaa2850d",
+      "documentSha256": "ecd459ce86900db8c990cf6a419e8b52d2cd9e4a934c6467f5481bc5ad4e0fa9",
+      "index": 1,
+      "sha256": "52ae3befaa5abb60f863381805ee1230de6081a89f466722946b5edf1e859755"
+    },
+    {
+      "document": "README.md",
+      "documentGitBlob": "73537ad2bc7c630d53e7825f880413e9aaa2850d",
+      "documentSha256": "ecd459ce86900db8c990cf6a419e8b52d2cd9e4a934c6467f5481bc5ad4e0fa9",
+      "index": 8,
+      "sha256": "8e5ca8fcca606626e5908577b8d2293977b9f1e81f71b2a7b7a923ff689b2ea3"
+    },
+    {
+      "document": "INSTALL.md",
+      "documentGitBlob": "cdb8cab9d5d11ec8f9d3db57b71c230ae70cca06",
+      "documentSha256": "a754d741fe68c4409baeb3d68bdaf5207b1b31e3e06648dc1879ced5274593ca",
+      "index": 1,
+      "sha256": "bb1abba46229bf51f71ff0c281708c4b2f37f3dce88b26eeb4b8473cbedeeb58"
+    }
+  ],
+  "sourceAdmitted": false,
+  "publishedWheelIdentity": false,
+  "candidateQualified": false
+}
