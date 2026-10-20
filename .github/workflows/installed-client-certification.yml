@@ -61,6 +61,8 @@ jobs:
         run: |
           python -B certification/installed-clients/mcp_execute_plan_redis_controls.py
           python -B certification/installed-clients/mcp_ops_health_redis_controls.py
+          python -B certification/installed-clients/mcp_managed_identity_fixture_controls.py
+          python -B certification/installed-clients/mcp_managed_identity_redis_controls.py
 
   publish-result-state-controls:
     runs-on: ubuntu-latest
