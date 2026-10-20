@@ -46,6 +46,6 @@ class DaemonProjectionControls(unittest.TestCase):
         self.assertNotIn("explicit-offline-namespace-sentinel",output)
         self.assertNotIn("explicit-offline-private-sentinel",output)
         self.assertEqual(sum(json.loads(line)=={"selectedScope":True} for line in output.splitlines()),len(config.ENV)+1)
-        with self.assertRaises(ValueError):config.observe_configuration(config.declaration("mcp-deployment-"+"d"*12),self.inspect_owned)
+        with self.assertRaisesRegex(ValueError,"unreviewed case-insensitive authorization configuration refused"):config.observe_configuration(config.declaration("mcp-deployment-"+"d"*12),self.inspect_owned)
 
 if __name__=="__main__":unittest.main()

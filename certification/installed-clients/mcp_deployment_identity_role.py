@@ -275,4 +275,5 @@ def verify_role_receipt(receipt, configuration, configuration_observation, runti
         created,updated=instant(value.get("createdAt")),instant(value.get("updatedAt"))
         if updated<created: raise ValueError("normal role API timestamp order differs")
     if cleanup_started>instant(events[-1]["observedAt"]): raise ValueError("normal role deletion preceded declared cleanup")
-    return {"roleId":identifier,"name":"scoped-api-key","permissions":GRANTS,"configurationSha256":digest(configuration),"cohort":cohort}
+    return {"roleId":identifier,"name":"scoped-api-key","permissions":GRANTS,"configurationSha256":digest(configuration),"cohort":cohort,
+        "databaseIdentity":identities[0],"roleCreatedAt":created_times[0].isoformat()}

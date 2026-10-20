@@ -71,8 +71,14 @@ def observe_configuration(configuration, inspect_owned):
         check=True, capture_output=True, text=True, timeout=20)
     # The daemon emits only exact reviewed nonsecret options and namespace counts.
     if len(result.stdout)>32768: raise ValueError("selected environment observation oversized")
+    lines=result.stdout.splitlines()
+    # Docker adds one final newline after the template's own final newline.
+    # Remove that one empty line only; malformed interior/repeated blanks refuse.
+    if lines and lines[-1]=="": lines.pop()
+    if any(line=="" for line in lines):
+        raise ValueError("selected environment blank framing refused")
     selected, count = {}, 0
-    for line in result.stdout.splitlines():
+    for line in lines:
         value=json.loads(line)
         if value=={"selectedScope":True}: count+=1; continue
         if not isinstance(value,str) or "=" not in value:

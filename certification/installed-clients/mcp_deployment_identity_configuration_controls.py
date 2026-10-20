@@ -12,12 +12,14 @@ class ConfigurationControls(unittest.TestCase):
     def setUp(self):
         self.configuration = subject.declaration("mcp-deployment-"+"d"*12)
 
-    def observe(self, environment=None, inspect=None):
+    def observe(self, environment=None, inspect=None, transform=None):
         env=environment if environment is not None else subject.ENV
         rows=[json.dumps({"selectedScope":True}) for key in env if key.lower().startswith(("multitenancy__","studio__enduserauthorization__"))]
         rows += [json.dumps(key+"="+value) for key,value in env.items() if key in subject.ENV]
         # Model only the daemon-selected output. No unrelated credential enters Python.
-        with patch.object(subject.subprocess, "run", return_value=SimpleNamespace(stdout="\n".join(rows))) as run:
+        stdout="\n".join(rows)+"\n\n"
+        if transform is not None: stdout=transform(stdout)
+        with patch.object(subject.subprocess, "run", return_value=SimpleNamespace(stdout=stdout)) as run:
             result = subject.observe_configuration(self.configuration, inspect or (lambda: copy.deepcopy(RUNTIME)))
             self.assertEqual(run.call_args.args[0], ["docker", "inspect", "--format", subject.option_template(), RUNTIME["containerId"]])
             self.assertNotIn("{{json .Config.Env}}",run.call_args.args[0][3])
@@ -56,5 +58,17 @@ class ConfigurationControls(unittest.TestCase):
                 subject.verify_configuration(self.configuration, altered, RUNTIME)
         altered=copy.deepcopy(self.configuration); altered["foreignRole"]="admin"
         with self.assertRaises(ValueError): subject.verify_configuration(altered, observed, RUNTIME)
+
+    def test_only_one_final_empty_line_is_tolerated_without_accepting_interior_blanks(self):
+        self.observe()
+        self.observe(transform=lambda value:value[:-1])
+        for transform in (lambda value:value+"\n",lambda value:value.replace("\n","\n\n",1)):
+            with self.assertRaisesRegex(ValueError,"selected environment blank framing refused"):
+                self.observe(transform=transform)
+
+    def test_case_insensitive_alias_negative_requires_namespace_refusal(self):
+        environment=dict(subject.ENV);environment["multitenancy__OtherPrivateOption"]="explicit-offline-unused-value"
+        with self.assertRaisesRegex(ValueError,"unreviewed case-insensitive authorization configuration refused"):
+            self.observe(environment=environment)
 
 if __name__ == "__main__": unittest.main()
