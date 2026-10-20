@@ -29,7 +29,7 @@ function setup(live = false, selector = "sdk") {
   const judged = spawnSync("python3", ["-I", "-B", join(directory, "mcp_deployment_workspace_validation.py"), "--fixture", join(directory, "fixture.v1.json"),
     "--bootstrap", bootstrapPath, "--observations", observations], { encoding: "utf8", timeout: 20_000 });
   assert.equal(judged.status, 0, judged.stderr);
-  const proof = { ...JSON.parse(judged.stdout), schema: "honua.mcp-deployment-workspace-proof/v1", helperSourceSha: context.sourceSha,
+  const proof = { ...JSON.parse(judged.stdout), schema: "honua.mcp-deployment-workspace-semantics/v1", helperSourceSha: context.sourceSha,
     helperSha256: `sha256:${context.sha256["mcp_deployment_workspace_validation.py"]}`, observations: fixture.observations };
   const api = createDeploymentWorkspaceValidation(context);
   const verify = (value = proof) => api.verifyDeploymentWorkspaceProof(value, proof.candidateSourceSha, proof.candidateImage,

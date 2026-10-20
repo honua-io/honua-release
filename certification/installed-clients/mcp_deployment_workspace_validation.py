@@ -104,8 +104,9 @@ def published_identity(published, publication_call, map_body):
             "studioContentHash": arguments["contentHash"], "route": arguments["route"], "mapBody": map_body}
 
 
-def workspace_prerequisite(value, authored, bootstrap, stores):
+def workspace_prerequisite(value, authored, bootstrap, stores, *, strong=False):
     expected_fields = {"schema", "serviceId", "label", "workspaceId", "jobId", "ownerId", "scopeId", "submitted", "polls", "output", "durableJobSha256"}
+    if strong:expected_fields|={"submitterSecurityContext","durableJobBytesBase64"}
     if (not isinstance(value, dict) or set(value) != expected_fields or value["schema"] != "honua.mcp-gp-workspace-prerequisite/v1"
             or value["label"] != authored["workspaceLabel"] or value["serviceId"] != bootstrap["ownedArea"]["serviceId"]
             or not isinstance(value["durableJobSha256"], str) or not re.fullmatch(r"sha256:[a-f0-9]{64}", value["durableJobSha256"])):
@@ -113,6 +114,7 @@ def workspace_prerequisite(value, authored, bootstrap, stores):
     base = "/rest/services/" + quote(value["serviceId"], safe="") + "/GPServer/geometry.area"
     def response(entry, path, method):
         fields = {"path", "method", "requestBodyBase64", "requestBodySha256", "credentialPresent", "responseStatus", "responseBodyBase64", "responseBodySha256"}
+        if strong:fields|={"credentialFingerprint","tenantId","startedAt","completedAt"}
         if not isinstance(entry, dict) or set(entry) != fields or entry["path"] != path or entry["method"] != method or entry["credentialPresent"] is not True or type(entry["responseStatus"]) is not int or entry["responseStatus"] != 200:
             raise ValueError("actual GP setup method/path/media differs")
         for body in ("request", "response"):
@@ -166,11 +168,14 @@ def primary_calls(authored, expected, history, workspace_id):
             read(deployment_uri, id="anonymous-deployment", authenticated=False), read(workspace_uri, id="anonymous-workspace", authenticated=False) ]
 
 
-def actual_call(actual, expected, canonical, version, sessions, fingerprints):
-    if (not isinstance(actual, dict) or set(actual) != set(expected) | {"wire", "client", "result"}
+def actual_call(actual, expected, canonical, version, sessions, fingerprints, *, tenant_id=None, timed=False):
+    timing={"startedAt","completedAt"} if timed else set()
+    if (not isinstance(actual, dict) or set(actual) != set(expected) | {"wire", "client", "result"} | timing
             or any(not wire.same_json(actual.get(key), value) for key, value in expected.items())):
         raise ValueError("actual lifecycle request differs from authored request")
-    frame, session = wire.observed_wire(actual["wire"], expected["method"], expected["params"], expected["authenticated"])
+    if timed and instant(actual["completedAt"])<instant(actual["startedAt"]):
+        raise ValueError("actual lifecycle call time order differs")
+    frame, session = wire.observed_wire(actual["wire"], expected["method"], expected["params"], expected["authenticated"],tenant_id=tenant_id)
     if session in sessions or not wire.same_json(actual["result"], frame if "error" in frame else frame["result"]):
         raise ValueError("lifecycle response altered or session reused")
     wire.client_observation(actual["client"], frame, actual["wire"], canonical, version)
@@ -301,7 +306,7 @@ def deploy_read(result, operation_id, history, window=None):
     return output
 
 
-def advance(fixture, bootstrap, observed):
+def advance(fixture, bootstrap, observed, *, tenant_id=None):
     fields = {"nonce", "canonicalClient", "clientVersion", "targetId", "calls", "workspacePrerequisite", "storeBefore", "storeAfter", "proposalBefore", "proposalAfter", "runtimeBefore", "runtimeRestarted", "runtimeAfter"}
     if not isinstance(observed, dict) or set(observed) != fields:
         raise ValueError("lifecycle observations missing or unknown")
@@ -315,6 +320,8 @@ def advance(fixture, bootstrap, observed):
           or current != restarted or instant(restarted["startedAt"]) <= instant(before["startedAt"])):
         raise ValueError("unexpected candidate replacement/restart before lifecycle action")
     authored = scenario(fixture, bootstrap, observed.get("nonce"), observed.get("canonicalClient"))
+    if tenant_id is not None and tenant_id!="mcp-deployment-"+authored["nonce"]:
+        raise ValueError("normal primary tenant must bind the original cohort nonce")
     version = observed.get("clientVersion")
     if not isinstance(version, str) or not re.fullmatch(r"[0-9]+\.[0-9]+\.[0-9]+", version):
         raise ValueError("actual installed lifecycle client version missing")
@@ -326,7 +333,9 @@ def advance(fixture, bootstrap, observed):
         nonlocal position
         if position == len(calls):
             raise Pending({"action": "invoke", "call": expected})
-        value = actual_call(calls[position], expected, authored["canonicalClient"], version, sessions, fingerprints)
+        selected_tenant=tenant_id if expected["authenticated"] and expected.get("credentialRole","primary")=="primary" else None
+        value = actual_call(calls[position], expected, authored["canonicalClient"], version, sessions, fingerprints,
+            tenant_id=selected_tenant,timed=tenant_id is not None)
         position += 1
         return value
     try:
@@ -361,7 +370,7 @@ def advance(fixture, bootstrap, observed):
             raise Pending({"action": "observe-stores", "slot": "storeBefore", "targetId": target,
                            "deploymentId": expected["deploymentId"], "workspaceId": workspace_expected["workspaceId"]})
         baseline = observation(observed["storeBefore"], target, expected["deploymentId"], workspace_expected["workspaceId"])
-        deployment(baseline, expected); workspace_expected = workspace_prerequisite(prerequisite, authored, bootstrap, baseline)
+        deployment(baseline, expected); workspace_expected = workspace_prerequisite(prerequisite, authored, bootstrap, baseline,strong=tenant_id is not None)
         history = observed["storeBefore"]["succeededWorkflowHistory"]
         selection = rollback_selection(history, target)
         specs = primary_calls(authored, expected, history, workspace_expected["workspaceId"])
@@ -430,14 +439,14 @@ def advance(fixture, bootstrap, observed):
         proof = {key: authored[key] for key in ("candidateSourceSha", "candidateImage", "fixtureSha256", "bootstrapSha256", "canonicalClient")} | {
             "clientVersion": version, "operations": OPERATIONS, "positive": True, "negative": True, "mediaSchema": True,
             "independentStores": True, "persistedAfterRestart": True, "anonymousInvocationRefusal": True,
-            "approvalRequiredForwardProposal": True, "deploymentActuationProven": False, "runtimeHealthProven": False}
+            "approvalRequiredForwardProposal": True, "deploymentActuationProven": False, "runtimeHealthProven": False, "semanticOnly": True}
         return {"action": "complete", "proof": proof}
     except Pending as pending:
         return pending.value
 
 
-def judge(fixture, bootstrap, observed):
-    value = advance(fixture, bootstrap, observed)
+def judge(fixture, bootstrap, observed, *, tenant_id=None):
+    value = advance(fixture, bootstrap, observed,tenant_id=tenant_id)
     if value.get("action") != "complete":
         raise ValueError("actual lifecycle journey incomplete")
     return value["proof"]
@@ -447,10 +456,11 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--fixture", type=Path, required=True); parser.add_argument("--bootstrap", type=Path, required=True)
     parser.add_argument("--observations", type=Path, required=True); parser.add_argument("--advance", action="store_true")
+    parser.add_argument("--tenant-id")
     args = parser.parse_args()
     try:
         fixture, bootstrap, observed = args.fixture.read_bytes(), wire.strict_json(args.bootstrap.read_bytes()), wire.strict_json(args.observations.read_bytes())
-        value = advance(fixture, bootstrap, observed) if args.advance else judge(fixture, bootstrap, observed)
+        value = advance(fixture, bootstrap, observed,tenant_id=args.tenant_id) if args.advance else judge(fixture, bootstrap, observed,tenant_id=args.tenant_id)
         print(json.dumps(value, allow_nan=False)); return 0
     except (ValueError, TypeError, KeyError, AttributeError, OSError):
         print("authored deployment/workspace oracle refused evidence", file=sys.stderr); return 1

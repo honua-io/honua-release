@@ -15,3 +15,15 @@ def test_release_owned_deployment_workspace_complete_dependency_and_proof_bindin
     result = subprocess.run(["node", "--test", "certification/installed-clients/mcp_deployment_workspace_validation.test.mjs"],
                             cwd=ROOT, capture_output=True, text=True, timeout=360)
     assert result.returncode == 0, result.stdout + result.stderr
+
+
+def test_owned_two_client_coordinator_preserves_cleanup_failures():
+    result = subprocess.run(["python3", "-B", "certification/installed-clients/mcp_deployment_identity_fixture_controls.py"],
+                            cwd=ROOT, capture_output=True, text=True, timeout=180)
+    assert result.returncode == 0, result.stdout + result.stderr
+
+
+def test_original_two_client_role_and_managed_key_cohort_join():
+    result = subprocess.run(["python3", "-B", "certification/installed-clients/mcp_deployment_identity_validation_controls.py"],
+                            cwd=ROOT, capture_output=True, text=True, timeout=180)
+    assert result.returncode == 0, result.stdout + result.stderr

@@ -86,6 +86,8 @@ jobs:
           run_control python -B certification/installed-clients/mcp_deployment_workspace_redis_controls.py
           run_control python -B certification/installed-clients/mcp_deployment_workspace_validation_controls.py
           run_control node --test certification/installed-clients/mcp_deployment_workspace_validation.test.mjs
+          run_control python -B certification/installed-clients/mcp_deployment_identity_fixture_controls.py
+          run_control python -B certification/installed-clients/mcp_deployment_identity_validation_controls.py
           exit "$control_failures"
 
   publish-result-state-controls:

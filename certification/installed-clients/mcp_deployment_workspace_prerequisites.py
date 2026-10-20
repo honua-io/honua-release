@@ -33,12 +33,17 @@ def polygon():
     return base64.b64encode(struct.pack("<BIII10d", 1, 3, 1, 5, 0, 0, 3, 0, 3, 4, 0, 4, 0, 0)).decode()
 
 
-def request(path, credential, *, form=None, open=urlopen):
+def request(path, credential, *, form=None, open=urlopen, credential_salt=None, tenant_id=None):
     if (not isinstance(path, str) or not path.startswith("/rest/services/") or ".." in path or "#" in path
             or not isinstance(credential, str) or not credential or "\r" in credential or "\n" in credential):
         raise ValueError("workspace fixture target/credential refused")
+    if credential_salt is not None and (not isinstance(credential_salt,str) or not re.fullmatch(r"[a-f0-9]{32}",credential_salt)):
+        raise ValueError("workspace common credential salt malformed")
+    if tenant_id is not None and (credential_salt is None or not isinstance(tenant_id,str) or not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9_.-]{0,63}",tenant_id)):
+        raise ValueError("workspace explicit tenant context malformed")
+    started=datetime.now(timezone.utc).isoformat()
     data = urlencode(form).encode() if form is not None else None
-    incoming = Request(ORIGIN + path, data=data, headers={"X-API-Key": credential, "Accept": "application/json"},
+    incoming = Request(ORIGIN + path, data=data, headers={"X-API-Key": credential, "Accept": "application/json", **({"X-Honua-Tenant":tenant_id} if tenant_id is not None else {})},
                        method="POST" if data is not None else "GET")
     # urllib's default redirect handling must not forward the private key.
     from urllib.request import build_opener, HTTPRedirectHandler, ProxyHandler
@@ -57,18 +62,21 @@ def request(path, credential, *, form=None, open=urlopen):
     return value, {"path": path, "method": incoming.method, "requestBodyBase64": base64.b64encode(data or b"").decode(),
                    "requestBodySha256": "sha256:" + hashlib.sha256(data or b"").hexdigest(), "credentialPresent": True,
                    "responseStatus": 200, "responseBodyBase64": base64.b64encode(raw).decode(),
-                   "responseBodySha256": "sha256:" + hashlib.sha256(raw).hexdigest()}
+                   "responseBodySha256": "sha256:" + hashlib.sha256(raw).hexdigest(),
+                   **({"credentialFingerprint":"scrypt:"+credential_salt+":"+hashlib.scrypt(credential.encode(),salt=bytes.fromhex(credential_salt),n=16384,r=8,p=1,dklen=32).hex(),
+                       "tenantId":tenant_id,"startedAt":started,"completedAt":datetime.now(timezone.utc).isoformat()} if credential_salt is not None else {})}
 
 
-def create(service_id, label, *, credential, password, http=request, redis=redis_command, sql=database_query, sleep=time.sleep):
+def create(service_id, label, *, credential, password, http=request, redis=redis_command, sql=database_query, sleep=time.sleep, credential_salt=None, tenant_id=None):
     identifier(service_id); identifier(label)
     base = "/rest/services/" + quote(service_id, safe="") + "/GPServer/geometry.area"
     form = {"f": "json", "wkb": polygon(), "srid": "3857", "env:workspace": label, "env:overwriteOutput": "false"}
-    submitted, submitted_wire = http(base + "/submitJob", credential, form=form)
+    context = {} if credential_salt is None and tenant_id is None else {"credential_salt":credential_salt,"tenant_id":tenant_id}
+    submitted, submitted_wire = http(base + "/submitJob", credential, form=form, **context)
     job_id = identifier(submitted.get("jobId"))
     polls = []
     for _ in range(30):
-        status, wire = http(base + "/jobs/" + job_id + "?f=json", credential)
+        status, wire = http(base + "/jobs/" + job_id + "?f=json", credential, **context)
         polls.append(wire)
         if status.get("jobId") != job_id:
             raise ValueError("actual GP job identity changed")
@@ -82,9 +90,9 @@ def create(service_id, label, *, credential, password, http=request, redis=redis
         sleep(2)
     else:
         raise ValueError("actual GP workspace job observation exhausted")
-    output, output_wire = http(base + "/jobs/" + job_id + "/results/outputScalar?f=json", credential)
+    output, output_wire = http(base + "/jobs/" + job_id + "/results/outputScalar?f=json", credential, **context)
     raw = redis(["GET", "controlplane:job:" + job_id])
-    if not isinstance(raw, bytes):
+    if not isinstance(raw, bytes) or len(raw)>2*1024*1024:
         raise ValueError("real GP job was not durably observed")
     job = strict_json(raw)
     audit = job.get("audit", {}) if isinstance(job, dict) else {}
@@ -103,18 +111,23 @@ def create(service_id, label, *, credential, password, http=request, redis=redis
     return {"schema": "honua.mcp-gp-workspace-prerequisite/v1", "serviceId": service_id, "label": label,
             "workspaceId": workspace_id, "jobId": job_id, "ownerId": owner, "scopeId": scope,
             "submitted": submitted_wire, "polls": polls, "output": output_wire,
-            "durableJobSha256": "sha256:" + hashlib.sha256(raw).hexdigest()}
+            "durableJobSha256": "sha256:" + hashlib.sha256(raw).hexdigest(),
+            **({"durableJobBytesBase64":base64.b64encode(raw).decode(),
+                "submitterSecurityContext": {key:security.get(key) for key in ("principalId","tenantId","ownerActorId","workspaceOwnerId","roleClaimType")} | {
+                "claims":[claim for claim in security.get("claims",[]) if isinstance(claim,dict) and claim.get("type") in ("api_key_id","api_key_name","permission","http://schemas.microsoft.com/ws/2008/06/identity/claims/role")]}}
+               if credential_salt is not None else {})}
 
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--candidate-source-sha", required=True); parser.add_argument("--candidate-image", required=True)
     parser.add_argument("--service-id", required=True); parser.add_argument("--label", required=True)
+    parser.add_argument("--credential-salt"); parser.add_argument("--tenant-id")
     parser.add_argument("--owned-disposable-candidate", action="store_true", required=True)
     args = parser.parse_args()
     try:
         before = inspect_candidate(args.candidate_source_sha, args.candidate_image)
-        value = create(args.service_id, args.label, credential=os.environ.get("HONUA_MCP_API_KEY"), password=os.environ.get("HONUA_CERT_DB_PASSWORD"))
+        value = create(args.service_id, args.label, credential=os.environ.get("HONUA_MCP_API_KEY"), password=os.environ.get("HONUA_CERT_DB_PASSWORD"),credential_salt=args.credential_salt,tenant_id=args.tenant_id)
         if inspect_candidate(args.candidate_source_sha, args.candidate_image) != before:
             raise ValueError("candidate changed during real workspace setup")
         print(json.dumps(value, allow_nan=False)); return 0

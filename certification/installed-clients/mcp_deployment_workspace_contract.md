@@ -1,9 +1,53 @@
 # Deployment and workspace primary execution contract
 
-This producer covers the original `deploy_operations`, `propose_rollback`,
+This producer is being completed for the original `deploy_operations`, `propose_rollback`,
 Deployment resource and Workspace resource on both canonical installed MCP
 clients. It preserves all eight rows and all four required facets. Source
 controls are regression evidence; actual candidate qualification remains separate.
+The current PR remains incomplete until the full two-client producer/oracle,
+positive and negative controls, and protected consumer have been validated and
+delivered. The earlier fingerprint-only semantic component cannot qualify a row.
+
+## Complete proof intake
+
+The complete entry point is `createDeploymentWorkspaceCohort` in
+`mcp_deployment_workspace_cohort.mjs`. Its `honua.mcp-deployment-workspace-proof/v2`
+proof must pass the complete Python cohort oracle for BOTH original client
+journeys before any of the eight original operation records is emitted.
+`mcp_deployment_workspace_validation` is an independently checked semantic
+component only: its proof has `semanticOnly: true` and the distinct
+`honua.mcp-deployment-workspace-semantics/v1` schema. That component is never the
+complete proof intake for the consumer or authority facet.
+
+One normal owned `scoped-api-key` role lifecycle spans both SDK and Inspector.
+Normal deletion preserves that globally unique name as a tombstone, so the
+fixture cannot be recreated per client or rerun by resetting/reseeding the same
+candidate. Both original raw journeys, configuration hash and candidate tuple
+are bound before final role cleanup. Four normal managed keys use a common
+salt and distinct key IDs, canonical actors, Studio owners and workspace owners.
+Their public original receipts are independently rejudged through provisioning,
+effective permissions, Redis records/indexes and normal revocation. Private
+mode600 journals stay outside artifacts; failed cleanup preserves recovery
+journals and a nonsecret recovery-path receipt.
+
+The explicitly declared owned multi-tenant/end-user fixture posture is checked
+against safe daemon-side selected configuration values. This is a tested
+configuration, not a claim about unchanged default posture. Normal admins keep
+their supported tenant override and cross-tenant bypass. The foreign caller uses
+the normal non-bypass scoped role with only Deployment/Read and Workspace/Read
+grants, plus its exact `read:*` and owned-service geometry execution grants.
+
+The foreign caller first reads its own real published deployment and its own
+real GP workspace, and positively queries the original nonempty FeatureServer
+fixture with `read:*`. Valid scoped platform-operation and rollback denials then
+preserve the product's actual authorization semantics. The original cross-tenant
+Deployment/Workspace denials remain mandatory. A separate real primary-owned
+workspace in the foreign caller's default tenant additionally exercises the
+personal-owner denial branch; a shared-scope denial cannot substitute for it.
+Both clients use fresh sessions and the exact supported tenant header only on
+the explicitly selected admin path. Original GP job bytes independently bind
+`audit.requestedBy`/`principalId`/`ownerActorId` to the canonical managed actor,
+and `workspaceOwnerId` to the bare managed key GUID.
 
 ## Required production prerequisites
 

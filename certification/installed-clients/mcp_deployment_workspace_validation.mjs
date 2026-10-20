@@ -40,19 +40,21 @@ export function createDeploymentWorkspaceValidation({ directory, sourceSha, sha2
     if (result.error || result.signal || result.status !== 0) throw new Error("actual canonical lifecycle prerequisite/oracle refused evidence");
     return JSON.parse(result.stdout);
   };
-  const judge = (observed, advance = false) => {
+  const judge = (observed, advance = false, tenantId) => {
     const work = mkdtempSync(join(tmpdir(), "mcp-lifecycle-oracle-"));
     try {
       const path = join(work, "observations.json"); writeFileSync(path, JSON.stringify(observed));
       return run("mcp_deployment_workspace_validation.py", ["--fixture", join(directory, "fixture.v1.json"),
-        "--bootstrap", bootstrapPath, "--observations", path, ...(advance ? ["--advance"] : [])], { timeout: 20_000 });
+        "--bootstrap", bootstrapPath, "--observations", path, ...(advance ? ["--advance"] : []),
+        ...(tenantId === undefined ? [] : ["--tenant-id", tenantId])], { timeout: 20_000 });
     } finally { rmSync(work, { recursive: true, force: true }); }
   };
   const inspect = (source, selectedImage) => run("mcp_render_validation.py", ["--inspect-runtime",
     "--candidate-source-sha", source, "--candidate-image", selectedImage]);
 
   async function deploymentWorkspaceScenarios(record, { candidateSourceSha, candidateImage, canonicalClient, clientVersion,
-    installationRoot, credential, foreignCredential, targetId, ownedDisposableCandidate, results = "results.json" }) {
+    installationRoot, credential, foreignCredential, targetId, ownedDisposableCandidate, results = "results.json",
+    cohortNonce, cohortSalt, tenantId }) {
     let proof;
     await record(operations[0], async () => {
       if (ownedDisposableCandidate !== true || !immutable(candidateSourceSha) || !image(candidateImage)
@@ -63,12 +65,17 @@ export function createDeploymentWorkspaceValidation({ directory, sourceSha, sha2
           || typeof targetId !== "string" || !/^[A-Za-z0-9][A-Za-z0-9_.:-]{0,127}$/.test(targetId)) {
         throw new Error("lifecycle requires explicitly owned candidate, actual installed client and real configured target");
       }
-      const observed = { nonce: randomBytes(6).toString("hex"), canonicalClient, clientVersion, targetId,
+      if ((cohortNonce !== undefined && !/^[a-f0-9]{12}$/.test(cohortNonce))
+          || (cohortSalt !== undefined && !/^[a-f0-9]{32}$/.test(cohortSalt))
+          || (tenantId !== undefined && (tenantId !== `mcp-deployment-${cohortNonce}` || cohortSalt === undefined))) {
+        throw new Error("normal lifecycle cohort tenant/salt selection refused");
+      }
+      const observed = { nonce: cohortNonce ?? randomBytes(6).toString("hex"), canonicalClient, clientVersion, targetId,
         calls: [], workspacePrerequisite: null, storeBefore: null, storeAfter: null,
         proposalBefore: null, proposalAfter: null, runtimeBefore: null, runtimeRestarted: null, runtimeAfter: null };
       const retained = `${resolve(results)}.deployment-workspace.raw.json`;
       mkdirSync(dirname(retained), { recursive: true });
-      const credentialSalt = randomBytes(16).toString("hex");
+      const credentialSalt = cohortSalt ?? randomBytes(16).toString("hex");
       const candidate = ["--candidate-source-sha", candidateSourceSha, "--candidate-image", candidateImage, "--owned-disposable-candidate"];
       let completed = false;
       try {
@@ -76,25 +83,29 @@ export function createDeploymentWorkspaceValidation({ directory, sourceSha, sha2
         const { launchCanonicalClient } = await import(pathToFileURL(join(directory, "mcp_fixed_client_launcher.mjs")).href);
         for (let step = 0; step < 128; step++) {
           observed.runtimeAfter = inspect(candidateSourceSha, candidateImage);
-          const action = judge(observed, true);
+          const action = judge(observed, true, tenantId);
           if (action.action === "complete") {
             completed = true;
             break;
           }
           if (action.action === "invoke") {
-            const entry = { ...action.call, wire: null, client: null, result: null }; observed.calls.push(entry);
+            const entry = { ...action.call, wire: null, client: null, result: null,
+              ...(tenantId === undefined ? {} : { startedAt: new Date().toISOString(), completedAt: null }) }; observed.calls.push(entry);
             const selectedCredential = entry.credentialRole === "foreign" ? foreignCredential : credential;
+            const selectedTenant = entry.authenticated && entry.credentialRole !== "foreign" ? tenantId : undefined;
             const probe = await observeCandidateRequest({ method: entry.method, params: entry.params,
-              authenticated: entry.authenticated, credential: selectedCredential, credentialSalt,
+              authenticated: entry.authenticated, credential: selectedCredential, credentialSalt, tenantId: selectedTenant,
               invoke: endpoint => launchCanonicalClient({ installationRoot, selector: canonicalClient === "MCP Inspector" ? "inspector" : "sdk",
-                endpoint, method: entry.method, params: entry.params, authenticated: entry.authenticated, credential: selectedCredential }),
+                endpoint, method: entry.method, params: entry.params, authenticated: entry.authenticated, credential: selectedCredential, tenantId: selectedTenant }),
               onClient: client => { entry.client = client; }, onObservation: wire => { entry.wire = wire; } });
             entry.client = probe.client;
             const frame = observedResponse(probe.wire.invocation);
             entry.result = Object.hasOwn(frame, "error") ? frame : frame.result;
+            if (tenantId !== undefined) entry.completedAt = new Date().toISOString();
           } else if (action.action === "create-workspace") {
             observed.workspacePrerequisite = run("mcp_deployment_workspace_prerequisites.py",
-              [...candidate, "--service-id", action.serviceId, "--label", action.label], { timeout: 180_000, credential });
+              [...candidate, "--service-id", action.serviceId, "--label", action.label,
+                ...(tenantId === undefined ? [] : ["--credential-salt", credentialSalt, "--tenant-id", tenantId])], { timeout: 180_000, credential });
           } else if (action.action === "observe-stores") {
             if (!["storeBefore", "storeAfter"].includes(action.slot)) throw new Error("unknown lifecycle store slot");
             observed[action.slot] = run("mcp_deployment_workspace_state.py", [...candidate,
@@ -112,8 +123,9 @@ export function createDeploymentWorkspaceValidation({ directory, sourceSha, sha2
         try { observed.runtimeAfter = inspect(candidateSourceSha, candidateImage); }
         finally { writeFileSync(retained, `${JSON.stringify(observed, null, 2)}\n`); }
       }
-      proof = { ...judge(observed), schema: "honua.mcp-deployment-workspace-proof/v1", helperSourceSha: sourceSha,
-        helperSha256: `sha256:${sha256["mcp_deployment_workspace_validation.py"]}`, observations: observed };
+      proof = { ...judge(observed, false, tenantId), schema: "honua.mcp-deployment-workspace-semantics/v1", helperSourceSha: sourceSha,
+        helperSha256: `sha256:${sha256["mcp_deployment_workspace_validation.py"]}`, observations: observed,
+        ...(tenantId === undefined ? {} : { semanticTenantId: tenantId }) };
       return proof;
     });
     for (const operation of operations.slice(1)) await record(operation, async () => {
@@ -126,11 +138,11 @@ export function createDeploymentWorkspaceValidation({ directory, sourceSha, sha2
   function verifyDeploymentWorkspaceProof(proof, candidateSourceSha, candidateImage, operation, canonicalClient, clientVersion) {
     try {
       verifyBytes();
-      if (!operations.includes(operation) || proof?.schema !== "honua.mcp-deployment-workspace-proof/v1"
+      if (!operations.includes(operation) || proof?.schema !== "honua.mcp-deployment-workspace-semantics/v1"
           || proof.helperSourceSha !== sourceSha || proof.helperSha256 !== `sha256:${sha256["mcp_deployment_workspace_validation.py"]}`
           || proof.candidateSourceSha !== candidateSourceSha || proof.candidateImage !== candidateImage
           || proof.canonicalClient !== canonicalClient || proof.clientVersion !== clientVersion) return false;
-      const expected = judge(proof.observations);
+      const expected = judge(proof.observations, false, proof.semanticTenantId);
       return isDeepStrictEqual(Object.fromEntries(Object.keys(expected).map(key => [key, proof[key]])), expected)
         && expected.deploymentActuationProven === false && expected.runtimeHealthProven === false;
     } catch { return false; }
