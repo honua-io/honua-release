@@ -3,6 +3,9 @@ import base64
 import copy
 from datetime import datetime, timezone
 import hashlib
+import io
+import os
+from contextlib import redirect_stdout, redirect_stderr
 import json
 from pathlib import Path
 import tempfile
@@ -33,7 +36,7 @@ class OfflineNormalApi:
             return json.dumps(self.value).encode() if self.value else None
         if command == "GET" and key.startswith("honua:auth:admin-api-key:hash:"):
             return self.index.encode() if self.index else None
-        if command == "EVAL":
+        if command == "EVAL_RO":
             assert args[2:] == ["2", "honua:auth:admin-api-key:hash:" + hashlib.sha256(PRIVATE_KEY.encode()).hexdigest(), "honua:auth:admin-api-key:active-ids", KEY_ID]
             assert "redis.call('GET'" in args[1] and "redis.call('SISMEMBER'" in args[1]
             assert not any("'" + name + "'" in args[1] for name in ("SET", "DEL", "SREM", "SADD"))
@@ -118,6 +121,25 @@ class ManagedIdentityControls(unittest.TestCase):
                 self.assertNotIn(PRIVATE_ADMIN, public); self.assertNotIn(PRIVATE_KEY, public)
                 self.assertEqual(json.loads(public), managed.receipt)
                 self.assertNotIn("responseBytesBase64", managed.receipt["events"][0])
+
+    def test_actual_cli_private_journal_roundtrip_rejudges_original_terminal_receipt(self):
+        import mcp_execute_plan_state
+        import mcp_render_validation
+        with tempfile.TemporaryDirectory() as directory:
+            api = OfflineNormalApi(); public, errors = io.StringIO(), io.StringIO()
+            shared = ["--profile", "limited-read", "--private-path", str(Path(directory) / "private.json"),
+                      "--receipt-path", str(Path(directory) / "receipt.json"), "--credential-salt", SALT,
+                      "--candidate-source-sha", runtime()["candidateSourceSha"], "--candidate-image", runtime()["candidateImage"],
+                      "--owned-disposable-candidate"]
+            with patch.object(fixture, "build_opener", return_value=api), patch.object(mcp_execute_plan_state, "redis_command", side_effect=api.redis), patch.object(mcp_render_validation, "inspect_candidate", side_effect=lambda *args: runtime()), patch.dict(os.environ, {"HONUA_MCP_ADMIN_API_KEY": PRIVATE_ADMIN}), redirect_stdout(public), redirect_stderr(errors):
+                self.assertEqual(fixture.main(["create", *shared]), 0, errors.getvalue())
+                self.assertTrue((Path(directory) / "private.json").exists())
+                self.assertEqual(fixture.main(["revoke", *shared]), 0, errors.getvalue())
+            receipt = json.loads((Path(directory) / "receipt.json").read_text())
+            self.assertEqual(fixture.verify_receipt(receipt, runtime(), "limited-read")["keyId"], KEY_ID)
+            self.assertFalse((Path(directory) / "private.json").exists())
+            self.assertNotIn(PRIVATE_KEY, public.getvalue()); self.assertNotIn(PRIVATE_ADMIN, public.getvalue())
+            self.assertEqual(errors.getvalue(), "")
 
     def test_live_private_file_is_exclusive600_and_never_overwrites_existing_material(self):
         with tempfile.TemporaryDirectory() as directory:
