@@ -57,6 +57,23 @@ def test_published_recovery_reference_reaches_the_complete_original_consumer(tmp
     path.write_bytes(originals['recovery-context'])
     path.chmod(0o600)
     originals['recovery-context'] = read_reference(root, reference, expected_kind='destroy-recovery')
+    parent_bytes = dict(originals, **{
+        'recovery-parent-obligation': originals['parent-obligation'],
+        'recovery-parent-claim': kwargs['previous_originals']['claim'],
+    })
+    if not missing_receipt:
+        parent_bytes['recovery-parent-execution'] = kwargs['previous_originals']['execution-receipt']
+    resolved = {}
+    for parent_reference in document(originals['recovery-context'])['ParentOriginals']:
+        kind = parent_reference['kind']
+        path = root / parent_reference['sha256']
+        path.write_bytes(parent_bytes[kind])
+        path.chmod(0o600)
+        resolved[kind] = read_reference(root, parent_reference, expected_kind=kind)
+    originals['parent-obligation'] = resolved['recovery-parent-obligation']
+    kwargs['previous_originals']['claim'] = resolved['recovery-parent-claim']
+    if not missing_receipt:
+        kwargs['previous_originals']['execution-receipt'] = resolved['recovery-parent-execution']
     result = verify_destroy_recovery(originals, context, **kwargs)
     assert result['status'] == 'signed-destroy-recovery-originals-joined'
     assert result['stateChain']['prior']['status'] == ('indeterminate' if missing_receipt else 'execution-joined')

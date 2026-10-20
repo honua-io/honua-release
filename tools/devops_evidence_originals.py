@@ -13,7 +13,8 @@ from devops_provisioning_contract import Refusal,require,sha256
 
 ALLOWED_KINDS=frozenset({'plan','plan-metadata','approval','apply','handoff','verification-evidence',
     'verification-receipt','provision-binding','runtime-observation','cleanup-execution','cleanup-claim',
-    'cleanup-plan-schema','cleanup-exec-schema','destroy-recovery'})
+    'cleanup-plan-schema','cleanup-exec-schema','destroy-recovery',
+    'recovery-parent-obligation','recovery-parent-execution','recovery-parent-claim'})
 MAX_ORIGINAL=512*1024*1024
 
 
