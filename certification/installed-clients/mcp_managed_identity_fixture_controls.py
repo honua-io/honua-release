@@ -213,7 +213,7 @@ class ManagedIdentityControls(unittest.TestCase):
     def test_original_receipt_mutations_cannot_grant_identity_or_cleanup(self):
         with tempfile.TemporaryDirectory() as directory:
             managed, api = self.complete(directory)
-            for mutation in ("projection", "raw-record", "record-hash", "fingerprint", "salt", "active-index", "effective-bytes", "revoke-bytes", "missing-event", "wrong-profile", "key-id", "runtime", "extra-claim", "cleanup"):
+            for mutation in ("projection", "raw-record", "record-hash", "fingerprint", "salt", "active-index", "effective-bytes", "effective-bool-alias", "revoke-bytes", "missing-event", "wrong-profile", "key-id", "runtime", "extra-claim", "cleanup"):
                 with self.subTest(mutation=mutation):
                     value = copy.deepcopy(managed.receipt)
                     if mutation == "projection": value["identity"]["studioActorId"] = "wrong-owner"
@@ -223,6 +223,13 @@ class ManagedIdentityControls(unittest.TestCase):
                     elif mutation == "salt": value["credentialSalt"] = "b" * 32
                     elif mutation == "active-index": value["identity"]["hashIndexValue"] = "wrong-key"
                     elif mutation == "effective-bytes": value["events"][1]["responseBytesBase64"] = base64.b64encode(b"{}").decode()
+                    elif mutation == "effective-bool-alias":
+                        body = json.loads(base64.b64decode(value["events"][1]["responseBytesBase64"]))
+                        body["data"]["canAuthenticate"] = 1
+                        raw = json.dumps(body).encode()
+                        value["events"][1]["responseBytesBase64"] = base64.b64encode(raw).decode()
+                        value["events"][1]["responseSha256"] = "sha256:" + hashlib.sha256(raw).hexdigest()
+                        value["effectivePermissions"]["canAuthenticate"] = 1
                     elif mutation == "revoke-bytes": value["events"][2]["responseSha256"] = "sha256:" + "0" * 64
                     elif mutation == "missing-event": value["events"].pop()
                     elif mutation == "wrong-profile": value["profile"] = "admin"

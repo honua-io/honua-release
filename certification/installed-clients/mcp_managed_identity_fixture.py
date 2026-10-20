@@ -409,8 +409,8 @@ def verify_receipt(receipt, candidate_runtime, profile):
             effective.append(value.get("data"))
     active_effective = {"id": identifier, "name": name, "status": "active", "permissions": permissions, "canAuthenticate": True}
     revoked_effective = {**active_effective, "status": "revoked", "canAuthenticate": False}
-    if (effective != [active_effective, revoked_effective] or receipt.get("effectivePermissions") != active_effective
-            or receipt.get("revokedEffectivePermissions") != revoked_effective):
+    if (not same_json(effective, [active_effective, revoked_effective]) or not same_json(receipt.get("effectivePermissions"), active_effective)
+            or not same_json(receipt.get("revokedEffectivePermissions"), revoked_effective)):
         raise ValueError("managed original effective-permissions/lifecycle differs")
     return {**initial, "revokedAt": final["revokedAt"], "revokedRecordSha256": final["recordSha256"]}
 
