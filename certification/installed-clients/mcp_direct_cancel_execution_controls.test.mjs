@@ -24,7 +24,8 @@ function setup(mode) {
     const generated = spawnSync("python3", ["-B", join(directory, "mcp_direct_cancel_validation_controls.py"), "--emit-offline-vector"],
       { encoding: "utf8", timeout: 90_000, maxBuffer: 64 * 1024 * 1024 });
     assert.equal(generated.status, 0, generated.stderr);
-    const vector = JSON.parse(generated.stdout), raw = vector.sdk.observations;
+    const vector = JSON.parse(generated.stdout);
+    const raw = (mode === "valid-inspector" ? vector.inspector : vector.sdk).observations;
     if (mode === "early-success") {
       const body = JSON.parse(raw.calls[6].result.contents[0].text);
       body.status = "Succeeded";
@@ -161,7 +162,7 @@ async function start(control, mode) {
   return { async close() { if (child.connected) child.send("stop"); await waitForExit(child); } };
 }
 
-for (const mode of ["valid", "wrong-actor", "early-success", "no-terminal", "cleanup-failure"]) {
+for (const mode of ["valid", "valid-inspector", "wrong-actor", "early-success", "no-terminal", "cleanup-failure"]) {
   test("offline complete direct cancel producer: " + mode, async () => {
     const control = setup(mode), priorPath = process.env.PATH;
     let candidate;
@@ -169,31 +170,33 @@ for (const mode of ["valid", "wrong-actor", "early-success", "no-terminal", "cle
       candidate = await start(control, mode);
       process.env.PATH = control.directory + delimiter + priorPath;
       const checks = {}, results = join(control.directory, "controlled-results.json");
+      const canonicalClient = mode === "valid-inspector" ? "MCP Inspector" : "Official MCP TypeScript SDK";
+      const clientVersion = mode === "valid-inspector" ? "2.10.1" : "1.32.1";
       await control.api.directCancelScenarios(async (operation, run) => {
         try { checks[operation] = { passed: true, proof: await run() }; }
         catch (error) { checks[operation] = { passed: false, error: String(error) }; }
       }, { candidateSourceSha: control.raw.candidateSourceSha, candidateImage: control.raw.candidateImage,
-        canonicalClient: "Official MCP TypeScript SDK", clientVersion: "1.32.1",
+        canonicalClient, clientVersion,
         installationRoot: control.installationRoot, credential: "controlled-fixture-admin",
         ownedDisposableCandidate: true, results });
       const raw = JSON.parse(readFileSync(results + ".direct-cancel.raw.json"));
       const state = JSON.parse(readFileSync(control.statePath));
+      const traces = readFileSync(control.tracePath, "utf8").trim().split("\n").map(JSON.parse);
       assert.equal(state.api.filter(item => item.action === "create").length, 2,
         JSON.stringify({ error: checks[directCancelOperation]?.error,
           launched: traces.filter(item => item.action === "python").map(item => item.name).slice(-8) }));
       assert.equal(state.api.filter(item => item.action === "revoke").length, 2);
-      const traces = readFileSync(control.tracePath, "utf8").trim().split("\n").map(JSON.parse);
       for (const profile of ["admin", "limited-read"]) {
         assert.equal(traces.filter(row => row.profile === profile && row.action === "create").length, 1);
         assert.equal(traces.filter(row => row.profile === profile && row.action === "revoke").length, 1);
       }
-      if (mode === "valid") {
+      if (mode === "valid" || mode === "valid-inspector") {
         assert.equal(state.seen.length, 16);
         assert.equal(raw.calls.length, 16);
         assert.equal(Object.keys(raw.snapshots).length, 11);
         assert.equal(checks[directCancelOperation].passed, true, checks[directCancelOperation].error);
         assert.equal(control.api.verifyDirectCancelProof(checks[directCancelOperation].proof, raw.candidateSourceSha,
-          raw.candidateImage, directCancelOperation, "Official MCP TypeScript SDK", "1.32.1"), true);
+          raw.candidateImage, directCancelOperation, canonicalClient, clientVersion), true);
         assert.equal(checks[directCancelOperation].proof.nativeChildCessationProven, false);
       } else assert.equal(checks[directCancelOperation].passed, false);
       for (const row of traces.filter(item => item.action === "revoke")) {
