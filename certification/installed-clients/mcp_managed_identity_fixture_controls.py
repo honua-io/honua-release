@@ -33,7 +33,11 @@ class OfflineNormalApi:
             return json.dumps(self.value).encode() if self.value else None
         if command == "GET" and key.startswith("honua:auth:admin-api-key:hash:"):
             return self.index.encode() if self.index else None
-        if command == "SISMEMBER": return 1 if self.active else 0
+        if command == "EVAL":
+            assert args[2:] == ["2", "honua:auth:admin-api-key:hash:" + hashlib.sha256(PRIVATE_KEY.encode()).hexdigest(), "honua:auth:admin-api-key:active-ids", KEY_ID]
+            assert "redis.call('GET'" in args[1] and "redis.call('SISMEMBER'" in args[1]
+            assert not any("'" + name + "'" in args[1] for name in ("SET", "DEL", "SREM", "SADD"))
+            return [(self.index or "").encode(), b"1" if self.active else b"0"]
         raise AssertionError("offline observer attempted a mutation/unrelated key")
 
     def metadata(self):

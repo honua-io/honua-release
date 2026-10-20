@@ -55,8 +55,17 @@ def managed_record(key_id, key, permissions, *, execute, salt, expected_name, ac
         raise ValueError("actual managed key binding differs")
     expires = value.get("ExpiresAt")
     expired = expires is not None and datetime.fromisoformat(expires.replace("Z", "+00:00")) <= datetime.now(timezone.utc)
-    index = execute(["GET", "honua:auth:admin-api-key:hash:" + hashlib.sha256(key.encode()).hexdigest()])
-    membership = execute(["SISMEMBER", "honua:auth:admin-api-key:active-ids", key_id])
+    # The protected bounded RESP reader intentionally accepts bulk bytes and
+    # arrays, not nil/integer responses. Observe both indexes atomically and
+    # return explicit bulk representations without changing that decoder.
+    indexes = execute(["EVAL", "local i=redis.call('GET',KEYS[1]);local m=redis.call('SISMEMBER',KEYS[2],ARGV[1]);return {i or '',tostring(m)}", "2",
+                       "honua:auth:admin-api-key:hash:" + hashlib.sha256(key.encode()).hexdigest(),
+                       "honua:auth:admin-api-key:active-ids", key_id])
+    if (not isinstance(indexes, list) or len(indexes) != 2 or not all(isinstance(value, bytes) for value in indexes)
+            or indexes[1] not in (b"0", b"1")):
+        raise ValueError("actual managed authentication index framing differs")
+    index = indexes[0] or None
+    membership = int(indexes[1])
     if active:
         if index != key_id.encode() or membership != 1 or value.get("RevokedAt") is not None or expired:
             raise ValueError("actual managed credential is not active")
