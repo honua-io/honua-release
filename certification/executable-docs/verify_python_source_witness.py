@@ -66,7 +66,13 @@ def save(root: Path, name: str, value: dict) -> None:
     (root / name).write_text(json.dumps(value, sort_keys=True) + "\n")
 
 
-def verify(fetch: Path, implementation: Path, subject: Path, destination: Path) -> dict:
+def prepare_outer(fetch: Path, implementation: Path, subject: Path, destination: Path) -> dict:
+    """Authenticate immutable inputs; a caller must still execute the full inner verifier.
+
+    The controlled document worker executes that original verifier in its own
+    original-runtime process before it permits any installation. This function
+    grants neither source admission nor a verified-input completion receipt.
+    """
     selection, files = inputs.selected_inputs()
     producer = selection["producer"]
     # Reauthenticate metadata and bytes after the credentialed step has ended.
@@ -114,6 +120,16 @@ def verify(fetch: Path, implementation: Path, subject: Path, destination: Path) 
     save(destination, "outer-verification.json", {"result": outer, "imageChain": chain,
          "sourceAdmitted": False, "publishedWheelIdentity": False, "candidateQualified": False})
     del raw
+    return {"selection": selection, "files": files, "originals": originals, "policy": policy,
+            "launcher": launcher, "engine": engine, "documents": documents, "declarations": declarations}
+
+
+def verify(fetch: Path, implementation: Path, subject: Path, destination: Path) -> dict:
+    prepared = prepare_outer(fetch, implementation, subject, destination)
+    selection, files, originals = prepared["selection"], prepared["files"], prepared["originals"]
+    policy, launcher, engine = prepared["policy"], prepared["launcher"], prepared["engine"]
+    declarations = prepared["declarations"]
+    producer = selection["producer"]
     run_inner(destination, originals, implementation, subject, selection, policy, launcher)
     inputs.retain_originals(selection, originals, files)
     engine.source(implementation, producer["sourceSha"])
