@@ -13,12 +13,16 @@ class ConfigurationControls(unittest.TestCase):
         self.configuration = subject.declaration("mcp-deployment-"+"d"*12)
 
     def observe(self, environment=None, inspect=None):
-        entries = [key+"="+value for key,value in (environment or subject.ENV).items()]
-        # A real candidate has unrelated private environment. It must never leak.
-        entries.append("HONUA_ADMIN_PASSWORD=controlled-private-not-for-receipt")
-        with patch.object(subject.subprocess, "run", return_value=SimpleNamespace(stdout=json.dumps(entries))) as run:
+        env=environment if environment is not None else subject.ENV
+        rows=[json.dumps({"selectedScope":True}) for key in env if key.lower().startswith(("multitenancy__","studio__enduserauthorization__"))]
+        rows += [json.dumps(key+"="+value) for key,value in env.items() if key in subject.ENV]
+        # Model only the daemon-selected output. No unrelated credential enters Python.
+        with patch.object(subject.subprocess, "run", return_value=SimpleNamespace(stdout="\n".join(rows))) as run:
             result = subject.observe_configuration(self.configuration, inspect or (lambda: copy.deepcopy(RUNTIME)))
-            self.assertEqual(run.call_args.args[0], ["docker", "inspect", "--format", "{{json .Config.Env}}", RUNTIME["containerId"]])
+            self.assertEqual(run.call_args.args[0], ["docker", "inspect", "--format", subject.option_template(), RUNTIME["containerId"]])
+            self.assertNotIn("{{json .Config.Env}}",run.call_args.args[0][3])
+            self.assertIn("(lower ",run.call_args.args[0][3])
+            self.assertNotIn("HONUA_ADMIN_PASSWORD",run.call_args.args[0][3])
             self.assertNotIn("controlled-private-not-for-receipt", json.dumps(result))
             return result
 

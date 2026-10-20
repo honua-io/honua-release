@@ -12,15 +12,38 @@ from mcp_deployment_identity_configuration import declaration,digest,ENV
 RUNTIME={"running":True,"containerId":"a"*64,"imageId":"sha256:"+"b"*64,"candidateSourceSha":"c"*40}
 IDENTIFIER="11111111-1111-4111-8111-111111111111"
 
+
+def original_journeys(fixture):
+    # Explicit offline pre-cleanup original observation envelopes, no qualification.
+    return [json.dumps({"schema":"honua.mcp-deployment-client-journey/v1","canonicalClient":client,
+        "cohortId":"d"*12,"candidate":copy.deepcopy(fixture.receipt["candidate"]),
+        "configurationSha256":fixture.receipt["configurationSha256"],"startedAt":"2026-10-20T00:00:01Z",
+        "completedAt":"2026-10-20T00:00:02Z","observations":{"canonicalClient":client,"nonce":"d"*12,
+            "calls":[{"explicitOfflineControl":True}]}}).encode() for client in subject.CANONICAL_CLIENTS]
+
+
+def rehash_store(value):
+    raw=json.dumps(value["value"]).encode();value["storeBytesBase64"]=base64.b64encode(raw).decode()
+    value["storeSha256"]="sha256:"+hashlib.sha256(raw).hexdigest()
+
+
+def mutate_journey(binding,mutate):
+    value=json.loads(base64.b64decode(binding["journeyBytesBase64"]))
+    mutate(value);raw=json.dumps(value).encode();binding["journeyBytesBase64"]=base64.b64encode(raw).decode()
+    binding["journeySha256"]="sha256:"+hashlib.sha256(raw).hexdigest()
+    for field in ("canonicalClient","startedAt","completedAt"):binding[field]=value[field]
+
 class OfflineRoleApi:
     def __init__(self): self.role=None; self.grants=[]; self.mutations=[]
     def open(self,request,timeout):
         assert request.get_header("X-api-key")=="controlled-private-admin"
         path=urlsplit(request.full_url).path; method=request.method
         status=200
-        if method=="GET" and path=="/api/v1/admin/roles/": data=[] if self.role is None else [self.api_role()]
+        if method=="GET" and path=="/api/v1/admin/roles/": data=[] if self.role is None or self.role.get("deletedAt") else [self.api_role()]
         elif method=="POST" and path=="/api/v1/admin/roles/":
-            self.mutations.append((method,path)); body=json.loads(request.data)
+            self.mutations.append((method,path))
+            if self.role is not None: raise ValueError("explicit offline globally unique role-name tombstone conflict")
+            body=json.loads(request.data)
             self.role={"roleId":IDENTIFIER,"name":body["name"],"description":body["description"],"isBuiltIn":False,
                 "createdAt":"2026-10-20T00:00:00Z","updatedAt":"2026-10-20T00:00:00Z","deletedAt":None}; status=201; data=self.api_role()
         elif method=="PUT" and path.endswith("/permissions"):
@@ -55,7 +78,7 @@ class RoleControls(unittest.TestCase):
         return fixture,configuration,observation
     def complete(self):
         api=OfflineRoleApi(); fixture,config,observation=self.fixture(api)
-        with patch.object(subject,"build_opener",return_value=api): fixture.create(); fixture.revoke()
+        with patch.object(subject,"build_opener",return_value=api): fixture.create(); fixture.bind_journeys(original_journeys(fixture)); fixture.revoke()
         return fixture,config,observation,api
     def test_normal_create_grant_readback_revoke_original_bytes_join_independent_database(self):
         fixture,config,observation,api=self.complete()
@@ -102,12 +125,47 @@ class RoleControls(unittest.TestCase):
     def test_failed_cleanup_retained_after_actual_owned_retry_and_final_rejudge_refuses(self):
         api=OfflineRoleApi(); fixture,config,observation=self.fixture(api)
         with patch.object(subject,"build_opener",return_value=api):
-            fixture.create(); marker=api.role["description"];api.role["description"]="foreign-role"
+            fixture.create(); fixture.bind_journeys(original_journeys(fixture));marker=api.role["description"];api.role["description"]="foreign-role"
             with self.assertRaises(ValueError):fixture.revoke()
             self.assertFalse(any(method=="DELETE" for method,path in api.mutations))
             api.role["description"]=marker; fixture.revoke()
         self.assertTrue(fixture.receipt["cleanupComplete"])
         self.assertEqual(fixture.receipt["failures"][0]["phase"],"revoke")
         with self.assertRaises(ValueError):subject.verify_role_receipt(fixture.receipt,config,observation,RUNTIME)
+
+    def test_one_role_lifecycle_binds_both_original_client_journeys_and_cannot_recreate_tombstone(self):
+        fixture,config,observation,api=self.complete()
+        value=subject.verify_role_receipt(fixture.receipt,config,observation,RUNTIME)
+        self.assertEqual([member["canonicalClient"] for member in value["cohort"]["journeys"]],subject.CANONICAL_CLIENTS)
+        self.assertEqual(sum(method=="POST" for method,path in api.mutations),1)
+        second,_,_=self.fixture(api)
+        with patch.object(subject,"build_opener",return_value=api),self.assertRaises(ValueError):second.create()
+        self.assertEqual(second.receipt["failures"][0]["phase"],"create")
+        self.assertFalse(second.receipt["cleanupComplete"])
+    def test_rehashed_cross_cluster_and_creation_identity_substitutions_refuse(self):
+        fixture,config,observation,api=self.complete()
+        for phase in ("createdStore","configuredStore","beforeCleanupStore","afterCleanupStore"):
+            for field,value in (("clusterId","7654321"),("createdAt","2026-10-19T23:59:59Z")):
+                altered=copy.deepcopy(fixture.receipt)
+                target=altered[phase]["value"]["databaseIdentity"] if field=="clusterId" else altered[phase]["value"]["role"]
+                target[field]=value;rehash_store(altered[phase])
+                with self.subTest(phase=phase,field=field),self.assertRaises(ValueError):subject.verify_role_receipt(altered,config,observation,RUNTIME)
+    def test_rehashed_member_candidate_nonce_and_late_journey_substitutions_refuse(self):
+        fixture,config,observation,api=self.complete()
+        for mutate in (lambda value:value["candidate"].update(containerId="e"*64),
+                       lambda value:value.update(cohortId="e"*12),
+                       lambda value:value.update(canonicalClient=subject.CANONICAL_CLIENTS[1],observations={"canonicalClient":subject.CANONICAL_CLIENTS[1],"nonce":"d"*12,"calls":[{}]}),
+                       lambda value:value.update(completedAt="2099-10-20T00:00:02Z")):
+            altered=copy.deepcopy(fixture.receipt);mutate_journey(altered["cohort"]["journeys"][0],mutate)
+            with self.assertRaises(ValueError):subject.verify_role_receipt(altered,config,observation,RUNTIME)
+        for mutation in ([],fixture.receipt["cohort"]["journeys"][:1]):
+            altered=copy.deepcopy(fixture.receipt);altered["cohort"]["journeys"]=mutation
+            with self.assertRaises(ValueError):subject.verify_role_receipt(altered,config,observation,RUNTIME)
+    def test_rehashed_malformed_role_telemetry_refuses_supported_null_only(self):
+        fixture,config,observation,api=self.complete()
+        for field,value in (("createdAt",1),("updatedAt","2026-10-20T00:00:00"),("deletedAt",False)):
+            altered=copy.deepcopy(fixture.receipt);altered["afterCleanupStore"]["value"]["role"][field]=value
+            rehash_store(altered["afterCleanupStore"])
+            with self.subTest(field=field),self.assertRaises(ValueError):subject.verify_role_receipt(altered,config,observation,RUNTIME)
 
 if __name__=="__main__":unittest.main()

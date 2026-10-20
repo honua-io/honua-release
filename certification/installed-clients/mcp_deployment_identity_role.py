@@ -18,6 +18,42 @@ def stamp():
     return datetime.now(timezone.utc).isoformat()
 
 
+CANONICAL_CLIENTS=["Official MCP TypeScript SDK","MCP Inspector"]
+
+
+def instant(value):
+    if not isinstance(value,str): raise ValueError("normal role timestamp malformed")
+    try: parsed=datetime.fromisoformat(value.replace("Z","+00:00"))
+    except ValueError: raise ValueError("normal role timestamp malformed") from None
+    if parsed.tzinfo is None: raise ValueError("normal role timestamp lacks timezone")
+    return parsed
+
+
+def journey_bindings(originals,candidate,configuration_sha256,cohort_id):
+    if not isinstance(originals,list) or len(originals)!=2:
+        raise ValueError("one shared role requires both original canonical client journeys")
+    bindings=[];seen=set()
+    fields={"schema","canonicalClient","cohortId","candidate","configurationSha256","startedAt","completedAt","observations"}
+    for raw in originals:
+        if not isinstance(raw,bytes) or not raw or len(raw)>2*1024*1024:
+            raise ValueError("original client journey bytes missing or oversized")
+        value=strict_json(raw)
+        if (not isinstance(value,dict) or set(value)!=fields or value["schema"]!="honua.mcp-deployment-client-journey/v1"
+                or value["canonicalClient"] not in CANONICAL_CLIENTS or value["canonicalClient"] in seen
+                or value["cohortId"]!=cohort_id or value["candidate"]!=candidate
+                or value["configurationSha256"]!=configuration_sha256
+                or instant(value["completedAt"])<instant(value["startedAt"])
+                or not isinstance(value["observations"],dict)
+                or value["observations"].get("canonicalClient")!=value["canonicalClient"]
+                or value["observations"].get("nonce")!=cohort_id
+                or not isinstance(value["observations"].get("calls"),list) or not value["observations"]["calls"]):
+            raise ValueError("original shared role client journey binding differs")
+        seen.add(value["canonicalClient"])
+        bindings.append({"canonicalClient":value["canonicalClient"],"journeyBytesBase64":base64.b64encode(raw).decode(),
+            "journeySha256":"sha256:"+hashlib.sha256(raw).hexdigest(),"startedAt":value["startedAt"],"completedAt":value["completedAt"]})
+    return sorted(bindings,key=lambda value:CANONICAL_CLIENTS.index(value["canonicalClient"]))
+
+
 def observe_role(role_id, password, *, query=None):
     from mcp_ingest_publish_state import database_query
     query = query or database_query
@@ -37,6 +73,7 @@ SELECT jsonb_build_object(
 def owned_record(observation, role_id, marker, grants, *, deleted=False):
     if not isinstance(observation, dict) or set(observation) != {"startedAt", "storeBytesBase64", "storeSha256", "value"}:
         raise ValueError("independent role observation missing")
+    instant(observation["startedAt"])
     raw=base64.b64decode(observation["storeBytesBase64"], validate=True)
     if (len(raw)>65536 or observation["storeSha256"]!="sha256:"+hashlib.sha256(raw).hexdigest()
             or not same_json(strict_json(raw), observation["value"])):
@@ -56,6 +93,9 @@ def owned_record(observation, role_id, marker, grants, *, deleted=False):
             or role["description"]!=marker or role["isBuiltIn"] is not False
             or (role["deletedAt"] is not None)!=deleted or not same_json(value["permissions"], grants)):
         raise ValueError("normal role is not the exact owned non-bypass fixture")
+    created,updated=instant(role["createdAt"]),instant(role["updatedAt"])
+    if updated<created or (role["deletedAt"] is not None and instant(role["deletedAt"])<created):
+        raise ValueError("normal role persisted timestamp order differs")
     return role
 
 
@@ -84,12 +124,14 @@ class ManagedRoleFixture:
         self.role_id=None; self.grants=[]
         self.receipt={"schema":"honua.mcp-deployment-role-fixture/v1","marker":self.marker,
             "candidate":{key:self.runtime.get(key) for key in ("containerId","imageId","candidateSourceSha")},
-            "configurationSha256":digest(configuration),"events":[],"failures":[],"cleanupComplete":False}
+            "configurationSha256":digest(configuration),"events":[],"failures":[],"cleanupComplete":False,
+            "cohort":{"id":configuration["primaryTenant"].removeprefix("mcp-deployment-"),"members":CANONICAL_CLIENTS.copy(),"journeys":[]}}
 
     def request(self, method, path, body=None):
         if not re.fullmatch(r"/api/v1/admin/roles/(?:[a-f0-9-]{36}(?:/permissions)?)?",path):
             raise ValueError("role fixture request outside fixed API")
-        if any(self.inspect().get(key)!=self.runtime.get(key) for key in ("containerId","imageId","candidateSourceSha")):
+        current=self.inspect()
+        if any(current.get(key)!=self.runtime.get(key) for key in ("containerId","imageId","candidateSourceSha")):
             raise ValueError("role fixture runtime changed")
         raw=b"" if body is None else json.dumps(body).encode()
         request=Request("http://127.0.0.1:8080"+path, data=raw if method in ("POST","PUT") else None,
@@ -107,7 +149,8 @@ class ManagedRoleFixture:
             if (not isinstance(value,dict) or value.get("success") is not True
                     or (method != "DELETE" and "data" not in value)):
                 raise ValueError("normal role fixture envelope malformed")
-            if any(self.inspect().get(key)!=self.runtime.get(key) for key in ("containerId","imageId","candidateSourceSha")):
+            current=self.inspect()
+            if any(current.get(key)!=self.runtime.get(key) for key in ("containerId","imageId","candidateSourceSha")):
                 raise ValueError("role fixture runtime changed after request")
             return value.get("data")
 
@@ -134,8 +177,16 @@ class ManagedRoleFixture:
         self.receipt["normalPermissions"]=self.http("GET","/api/v1/admin/roles/"+identifier+"/permissions")
         return self.receipt
 
+    @retained_failure("bind-journeys")
+    def bind_journeys(self,originals):
+        if self.role_id is None or self.receipt["cohort"]["journeys"] or self.receipt["cleanupComplete"]:
+            raise ValueError("shared role cohort cannot be rebound or reused")
+        self.receipt["cohort"]["journeys"]=journey_bindings(originals,self.receipt["candidate"],self.receipt["configurationSha256"],self.receipt["cohort"]["id"])
+        return self.receipt
+
     @retained_failure("revoke")
     def revoke(self):
+        self.receipt["cleanupStartedAt"]=stamp()
         if self.role_id is None: raise ValueError("owned role identity missing; no deletion permitted")
         # Re-read ownership and complete grant set BEFORE the normal mutation.
         before=self.observe(self.role_id)
@@ -154,7 +205,7 @@ class ManagedRoleFixture:
 def verify_role_receipt(receipt, configuration, configuration_observation, runtime):
     """Rejudge original normal API and DB bytes after owned role cleanup."""
     verify_configuration(configuration,configuration_observation,runtime)
-    expected={"schema","marker","candidate","configurationSha256","events","failures","cleanupComplete","roleId",
+    expected={"schema","marker","candidate","configurationSha256","events","failures","cleanupComplete","cohort","cleanupStartedAt","roleId",
         "createdStore","configuredStore","normalReadback","normalPermissions","beforeCleanupStore","afterCleanupStore"}
     if (not isinstance(receipt,dict) or set(receipt)!=expected
             or receipt["schema"]!="honua.mcp-deployment-role-fixture/v1" or receipt["cleanupComplete"] is not True or receipt["failures"]!=[]
@@ -164,9 +215,30 @@ def verify_role_receipt(receipt, configuration, configuration_observation, runti
     marker="mcp-owned-deployment:"+runtime["containerId"]+":"+digest(configuration)
     identifier=guid(receipt["roleId"])
     if receipt["marker"]!=marker: raise ValueError("owned role marker differs")
+    identities=[];created_times=[]
     for field,grants,deleted in [("createdStore",[],False),("configuredStore",GRANTS,False),
                                 ("beforeCleanupStore",GRANTS,False),("afterCleanupStore",[],True)]:
         owned_record(receipt[field],identifier,marker,grants,deleted=deleted)
+        identities.append(receipt[field]["value"]["databaseIdentity"])
+        created_times.append(instant(receipt[field]["value"]["role"]["createdAt"]))
+    if any(value!=identities[0] for value in identities) or any(value!=created_times[0] for value in created_times):
+        raise ValueError("shared role database cluster or original creation identity changed")
+    cohort=receipt["cohort"]
+    if (not isinstance(cohort,dict) or set(cohort)!={"id","members","journeys"}
+            or cohort["id"]!=configuration["primaryTenant"].removeprefix("mcp-deployment-") or cohort["members"]!=CANONICAL_CLIENTS
+            or not isinstance(cohort["journeys"],list)):
+        raise ValueError("original shared canonical-client role cohort missing")
+    originals=[]
+    for binding in cohort["journeys"]:
+        if not isinstance(binding,dict) or set(binding)!={"canonicalClient","journeyBytesBase64","journeySha256","startedAt","completedAt"}:
+            raise ValueError("original role cohort journey schema differs")
+        originals.append(base64.b64decode(binding["journeyBytesBase64"],validate=True))
+    if not same_json(journey_bindings(originals,receipt["candidate"],receipt["configurationSha256"],cohort["id"]),cohort["journeys"]):
+        raise ValueError("original role cohort bytes/hash differ")
+    cleanup_started=instant(receipt["cleanupStartedAt"])
+    configured=instant(receipt["configuredStore"]["startedAt"])
+    if any(not configured<=instant(binding["startedAt"])<=instant(binding["completedAt"])<=cleanup_started for binding in cohort["journeys"]):
+        raise ValueError("one role lifecycle must bracket both canonical-client journeys before cleanup")
     expected_events=[("GET","/api/v1/admin/roles/"),("POST","/api/v1/admin/roles/"),
         ("PUT","/api/v1/admin/roles/"+identifier+"/permissions"),("GET","/api/v1/admin/roles/"+identifier),
         ("GET","/api/v1/admin/roles/"+identifier+"/permissions"),("DELETE","/api/v1/admin/roles/"+identifier)]
@@ -200,4 +272,7 @@ def verify_role_receipt(receipt, configuration, configuration_observation, runti
                 or value.get("description")!=marker or value.get("isBuiltIn") is not False
                 or not same_json(value.get("permissions"),grants)):
             raise ValueError("normal role response ownership differs")
-    return {"roleId":identifier,"name":"scoped-api-key","permissions":GRANTS,"configurationSha256":digest(configuration)}
+        created,updated=instant(value.get("createdAt")),instant(value.get("updatedAt"))
+        if updated<created: raise ValueError("normal role API timestamp order differs")
+    if cleanup_started>instant(events[-1]["observedAt"]): raise ValueError("normal role deletion preceded declared cleanup")
+    return {"roleId":identifier,"name":"scoped-api-key","permissions":GRANTS,"configurationSha256":digest(configuration),"cohort":cohort}

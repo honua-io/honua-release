@@ -39,8 +39,10 @@ MultiTenancy enabled, default tenant `public`, all three explicit admin roles
 (`admin`, `multi_tenant_admin`, `platform_admin`) and Studio end-user authorization
 enabled. This is explicit test authorization configuration, not an unchanged
 production default. The primary tenant binds the authored 12-hex journey nonce.
-A fixed read-only Docker inspection projects only these safe environment values;
-unreviewed or aliased values in either authorization namespace refuse. The
+A fixed read-only Docker template selects only these safe environment values
+inside the daemon. A case-insensitive namespace census emits only a count marker
+for each scoped option; it never returns an unreviewed option's name or value.
+Unreviewed or aliased values in either authorization namespace refuse. The
 original declaration/hash and exact container/image readback are rejudged. The
 whole environment and its credentials are never retained. This observation does
 not claim that a principal belongs to a tenant: actual captured security context,
@@ -58,7 +60,14 @@ establish distinct principals, owners or tenants.
 creation, exact permission update, role/permission readback and deletion. It
 refuses any pre-existing `scoped-api-key` role. The fresh role has only
 `Deployment/Read/*` and `Workspace/Read/*`; it grants neither admin nor
-scoped-admin-read bypass. The marker binds the owned container and configuration
+scoped-admin-read bypass. Its name is globally unique even after soft deletion:
+a tombstoned role cannot be recreated for the second client. Therefore one
+shared role/configuration/nonce cohort spans BOTH SDK and Inspector on the same
+unchanged candidate. Create it once, bind both original pre-cleanup journey byte
+envelopes with `bind_journeys`, and clean up only after both attempts. No candidate
+replacement, database reset, reseeding or second role creation substitutes for
+this shared lifecycle. Actual managed keys may have their own normally observed
+lifecycles, but every journey must join its original receipts and this same role. The marker binds the owned container and configuration
 hash. Independent read-only PostgreSQL observations retain original bytes and
 exact role ID/name/marker, non-built-in status, grants and tombstone state.
 Ownership is checked before any permission PUT or DELETE, including malformed
@@ -75,7 +84,18 @@ partial-exit handling remain required in #729.
 
 `verify_role_receipt` rejudges the original six normal API exchanges and four
 independent database snapshots, exact tested configuration/candidate, final
-owned cleanup and retained failures. It is not a boolean authority adapter.
+owned cleanup and retained failures. All four snapshots must name the SAME
+database identity and original role creation time. Typed timestamp fields,
+including supported null `deletedAt`, retain the actual DTO/store semantics.
+The shared cohort requires both exact canonical clients, original byte/hash
+bindings to the same candidate/configuration/nonce, actual observation envelopes
+and start/end bounds between configuration and final cleanup. The original
+journey envelopes contain pre-cleanup observations without the final role
+receipt, so no circular hash or rewritten historical bytes are needed. Cleanup
+still proceeds for an owned partial attempt; incomplete member coverage or any
+retained failure cannot produce a passing final receipt. Envelopes are
+source/provenance bindings only: #738 must independently adjudicate BOTH original
+semantic/auth journeys rather than treating opaque envelopes as passing proof. It is not a boolean authority adapter.
 The SQL service controls use explicitly controlled minimal DDL to test the real
 read query, immutable ownership refusals, tombstone projection and read-only
 transaction enforcement. They do not prove migrations, actual role API execution
@@ -88,7 +108,11 @@ temporary control manifests. Production package manifests and hashes are
 unchanged. Offline positives exercise both fixed child paths and original Python
 wire/launch adjudication; mutations cover missing/wrong/unrequested tenant,
 aliases, cleanup, malformed options, ownership before mutation, original bytes,
-configuration and retained failed cleanup. Real SQL query controls are separate.
+configuration, coherent cross-cluster/creation-time substitutions, duplicate or
+missing/late cohort members and retained failed cleanup. Two real owned Docker
+controls verify daemon-side safe projection and case-insensitive scope census;
+two real SQL query controls are separate. The latter also confirm that the
+soft-deleted globally unique role name cannot be recreated.
 None are installed-client or candidate receipts.
 
 After this prerequisite lands normally, #738 must immediately integrate actual
