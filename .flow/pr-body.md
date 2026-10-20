@@ -66,7 +66,14 @@ Some failures appear only on Windows and fail the same way on unmodified trunk 1
 
 - 11 `tools/test_tag_signing.py` cases that need bash;
 - `test_symlink_names_are_classified_without_following_the_target`, which needs symlink privileges;
-- `release_decision_record.py --check` regeneration drift.
+- `release_decision_record.py --check` regeneration drift;
+- `test_current_pinned_catalog_regenerates_byte_identically` and `test_existing_source_versions_leave_historical_catalog_byte_identical` (catalog regeneration byte drift), re-confirmed failing identically on unmodified trunk 1eefa31.
+
+The branch was re-merged with trunk 1eefa31 (one `tools/vendor-terms/allowlist.json` conflict, resolved by keeping both entries) and every command above was re-run on the merged head.
+
+## Follow-ups (P3, not blocking)
+
+- `audit` accepts live `require_code_owner_review`/`require_last_push_approval` set to true as stronger. Under the single-writer model those settings would block every merge, so a live ruleset with them passes the audit but cannot be used. Consider a warning once the rulesets are applied.
 
 No test was weakened, skipped or deleted.
 
