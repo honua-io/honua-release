@@ -78,6 +78,11 @@ jobs:
           run_control node --test --test-concurrency=1 certification/installed-clients/mcp_ops_events_validation.test.mjs certification/installed-clients/mcp_ops_events_execution_controls.test.mjs
           run_control python -B certification/installed-clients/mcp_managed_identity_fixture_controls.py
           run_control python -B certification/installed-clients/mcp_managed_identity_redis_controls.py
+          run_control python -B certification/installed-clients/mcp_workspace_identity_profile_controls.py
+          run_control python -B certification/installed-clients/mcp_deployment_identity_configuration_controls.py
+          run_control python -B certification/installed-clients/mcp_deployment_identity_configuration_docker_controls.py
+          run_control python -B certification/installed-clients/mcp_deployment_identity_role_controls.py
+          run_control node --test certification/installed-clients/mcp_tenant_transport.test.mjs
           exit "$control_failures"
 
   publish-result-state-controls:
@@ -118,6 +123,7 @@ jobs:
           CONTROL_POSTGIS_CONTAINER: ${{ job.services.postgis.id }}
         run: |
           python -B certification/installed-clients/mcp_publish_result_sql_controls.py
+          python -B certification/installed-clients/mcp_deployment_identity_role_sql_controls.py
           python -B certification/installed-clients/mcp_ops_health_sql_controls.py
           python -B certification/installed-clients/mcp_ops_events_sql_controls.py
 

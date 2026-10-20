@@ -39,11 +39,13 @@ export function inspectorToolArguments(name, arguments_) {
   return ["--tool-name", name, ...(pairs.length ? ["--tool-arg", ...pairs] : [])];
 }
 
-export async function launchCanonicalClient({ installationRoot, selector, endpoint, method, params, authenticated, credential }) {
+export async function launchCanonicalClient({ installationRoot, selector, endpoint, method, params, authenticated, credential, tenantId }) {
   const url = new URL(endpoint);
   if (url.protocol !== "http:" || url.hostname !== "127.0.0.1" || !url.port || url.pathname !== "/mcp"
       || url.username || url.password || url.search || url.hash || typeof authenticated !== "boolean"
       || typeof credential !== "string" || !credential || !["tools/call", "resources/read"].includes(method)) throw new Error("fixed client request refused");
+  if (tenantId !== undefined && (!authenticated || typeof tenantId !== "string" || !/^[A-Za-z0-9][A-Za-z0-9_.-]{0,63}$/.test(tenantId))) throw new Error("fixed client tenant selection refused");
+  const tenant = tenantId === undefined ? {} : { tenantId };
   const installed = verifyInstalledClient(installationRoot, selector);
   const directory = mkdtempSync(join(tmpdir(), "release-mcp-installed-client-"));
   const entry = selector === "sdk" ? join(here, "mcp_fixed_sdk_runner.mjs") : join(installed.root, installed.selected.entry);
@@ -59,11 +61,11 @@ export async function launchCanonicalClient({ installationRoot, selector, endpoi
         args.push("--metadata", 'honua.io/workflow-view="setup"');
       }
     } else args.push("--uri", params.uri);
-    if (authenticated) args.push("--header", `X-API-Key: ${credential}`);
+    if (authenticated) args.push("--header", `X-API-Key: ${credential}`, ...(tenantId === undefined ? [] : [`X-Honua-Tenant: ${tenantId}`]));
   }
   const binding = { schema: "honua.mcp-fixed-client-launch/v1", selector, package: installed.package,
     manifestSha256: own(manifestName), launcherSha256: own("mcp_fixed_client_launcher.mjs"), sdkRunnerSha256: own("mcp_fixed_sdk_runner.mjs"),
-    request: { endpoint: url.href, method, params, authenticated } };
+    request: { endpoint: url.href, method, params, authenticated, ...tenant } };
   try {
     // Async is essential: the transparent observer runs in this event loop.
     const outcome = await new Promise((resolveOutcome, reject) => {
@@ -86,7 +88,7 @@ export async function launchCanonicalClient({ installationRoot, selector, endpoi
         if (oversized || stdout.includes(credential) || stderr.includes(credential)) { reject(new Error("fixed client diagnostics unsafe or oversized")); return; }
         resolveOutcome({ processId: child.pid, exitCode, exitSignal, timedOut, stdout, stderr });
       });
-      child.stdin.end(selector === "sdk" ? JSON.stringify({ packageRoot: installed.root, endpoint: url.href, method, params, authenticated, credential }) : "");
+      child.stdin.end(selector === "sdk" ? JSON.stringify({ packageRoot: installed.root, endpoint: url.href, method, params, authenticated, credential, ...tenant }) : "");
     });
     // Refuse a package changed while its child was running as well as before it.
     verifyInstalledClient(installationRoot, selector);
