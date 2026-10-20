@@ -46,7 +46,7 @@
     {"repo": "honua-io/honua-samples", "path": "samples/stac-search-rest/README.md", "revision": {"defaultBranch": true}, "runtime": "node", "checkout": {"cwd": "samples/stac-search-rest"}},
     {"repo": "honua-io/honua-samples", "path": "samples/wms-getmap-check/README.md", "revision": {"defaultBranch": true}, "runtime": "node", "docker": true, "checkout": {"cwd": ""}, "prerequisites": {"jq": "samples/wms-getmap-check/README.md:10 — \"Bash, `curl`, `jq`, and `od`\""}},
     {"repo": "honua-io/honua-site", "path": "docs.html", "revision": {"defaultBranch": true}, "runtime": "python", "docker": true, "format": "html"},
-    {"repo": "honua-io/honua-site", "path": "docs/playbooks/install-with-docker/index.md", "revision": {"defaultBranch": true}, "runtime": "python", "docker": true, "prerequisites": {"node": "docs/playbooks/install-with-docker/index.md:18 — \"Node.js 20.19.0 or later with `npm`\""}},
+    {"repo": "honua-io/honua-site", "path": "docs/playbooks/install-with-docker/index.md", "revision": {"defaultBranch": true}, "runtime": "python", "docker": true, "prerequisites": {"node": "docs/playbooks/install-with-docker/index.md:18 — \"Node.js 22.12.0 or later with `npm`\""}},
     {"repo": "honua-io/honua-site", "path": "docs/playbooks/publish-a-service/index.md", "revision": {"defaultBranch": true}, "runtime": "python", "prerequisites": {"node": "docs/playbooks/publish-a-service/index.md:27 — \"Node.js 20.19.0 or later with `npm`\"", "jq": "docs/playbooks/publish-a-service/index.md:27 — \"`jq` 1.6 or later\""}},
     {"repo": "honua-io/honua-site", "path": "docs/playbooks/run-a-bounded-gp-job/index.md", "revision": {"defaultBranch": true}, "runtime": "python"},
     {
@@ -64,11 +64,11 @@
           "blocks": [
             {
               "index": 0,
-              "sha256": "b1c8f96fd6bd3f526df4cad98ca6425d25d851b562925fc8f11777835fb26949"
+              "sha256": "ccf4d54ff8309eeeebd7b454c23ce149c7920a9e7108a9a0c113c10649f668e6"
             },
             {
               "index": 1,
-              "sha256": "10f8a4781ce78bb7a64c022815995367f0d64cbd77170e3074fa06fe667a3cd4"
+              "sha256": "346524f59dd63dcfc7ae5e23778a78697e4e3c752a1c8355ecd7749505346a5d"
             }
           ]
         },
@@ -98,7 +98,7 @@
             },
             {
               "index": 5,
-              "sha256": "a6a40657f9043f4434098e022bcdba0f0c503b2ade2bc3600a44e9f877f7ddf9"
+              "sha256": "366928ee4f5a115705aa92bb69b695499e32e3258db1cd384cf47164d8bf29ff"
             }
           ]
         }
