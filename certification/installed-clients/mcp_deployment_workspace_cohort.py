@@ -23,7 +23,9 @@ def original_preparation(terminal):
     """Reconstruct the complete exact public pre-journey state from originals."""
     original=copy.deepcopy(terminal);original.pop('cleanupStartedAt');original['cleanupComplete']=False
     role=original['roleReceipt'];role.pop('cleanupStartedAt');role['cleanupComplete']=False
-    role['beforeCleanupStore']=None;role['afterCleanupStore']=None;role['events']=role['events'][:5];role['cohort']['journeys']=[]
+    # Normal create never declares cleanup observations. Preserve absent keys;
+    # adding nulls would reject the actual original provisioning receipt.
+    role.pop('beforeCleanupStore');role.pop('afterCleanupStore');role['events']=role['events'][:5];role['cohort']['journeys']=[]
     for pair in original['keys'].values():
         for receipt in pair.values():
             for key in ('revocation','revokedKeyIds','revokedEffectivePermissions'):receipt.pop(key)

@@ -23,7 +23,10 @@ class FullIdentityMutationControls(unittest.TestCase):
             receipt=value['identityPreparation']['keys']['sdk']['primaryReceipt']
             old=receipt['identity']['studioActorId'];wrong=guid('wrong-but-coherent-studio-owner')
             for slot in ('storeBefore','storeAfter'):
-                primary[slot]['stores']=replace(primary[slot]['stores'],{old:wrong})
+                stores=primary[slot]['stores']
+                stores['studioItem']['ownerId']=wrong
+                stores['studioVersion']['ownerId']=wrong
+                stores['deployment']['document']['source']['studioOwnerId']=wrong
             for index,call in enumerate(primary['calls']):
                 if call['id'] not in ('deployment','restarted-deployment'):continue
                 for content in call['result']['contents']:

@@ -252,7 +252,8 @@ def authority_controls(value,selector,offset,primary,foreign,frozen_history,stag
         elif action['action']=='observe-stores':
             personal=action['slot'].startswith('personal');gp_value=auth['personalWorkspacePrerequisite' if personal else 'foreignWorkspacePrerequisite']
             seconds=(722 if personal else 720) if action['slot'].endswith('After') else (26 if personal else 25)
-            auth[action['slot']]=stores(personal_authored if personal else foreign_authored,context['expected'],gp_value,seconds,foreign['studioActorId'],'public')
+            store_authored={**foreign_authored,'workspaceLabel':personal_authored['workspaceLabel']} if personal else foreign_authored
+            auth[action['slot']]=stores(store_authored,context['expected'],gp_value,seconds,foreign['studioActorId'],'public')
         elif action['action']=='limited-data-read':
             import mcp_ops_events_data_read as data
             response=json.dumps({'count':len(json.loads(FIXTURE)['area']['features']),'exceededTransferLimit':False})
@@ -317,6 +318,9 @@ class FullOriginalCohortControls(unittest.TestCase):
     def setUpClass(cls):cls.golden=full_controls()
 
     def test_complete_both_original_clients_join_real_oracles(self):
+        expected=full.original_preparation(self.golden['terminal'])
+        self.assertNotIn('beforeCleanupStore',expected['roleReceipt'])
+        self.assertNotIn('afterCleanupStore',expected['roleReceipt'])
         for selector in ('sdk','inspector'):
             with self.subTest(client=selector):
                 result=full.judge(FIXTURE,bootstrap(),self.golden['members'][selector],self.golden['terminal'])

@@ -4,7 +4,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { createHash, randomUUID } from "node:crypto";
 import { createServer } from "node:http";
-import { readFileSync, writeFileSync, copyFileSync, mkdtempSync, rmSync, mkdirSync } from "node:fs";
+import { readFileSync, writeFileSync, copyFileSync, mkdtempSync, rmSync, mkdirSync, readdirSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, dirname, delimiter } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -105,7 +105,11 @@ test("actual JS two-client factory completes unchanged full oracles through offl
       results: join(directory, "actual-offline-factory-results"),
       clients: Object.fromEntries(["sdk", "inspector"].map(selector => [selector, { clientVersion: manifest.clients[selector].version, installationRoot: root }])) });
     assert.deepEqual(observed.filter(value => value.error), []);
-    assert.equal(records.length, 8); assert.deepEqual(records.filter(value => value.error), []);
+    const recovery = readdirSync(directory).filter(name => name.endsWith('.recovery.json'))
+      .map(name => JSON.parse(readFileSync(join(directory,name))));
+    const helperCommands = readFileSync(join(directory, "offline-helper-commands.jsonl"), "utf8").trim().split("\n").map(JSON.parse);
+    const diagnostic = JSON.stringify({ recovery, helpers: helperCommands.map(value => ({ helper:value.helper, phase:value.args[3] })), observedCount:observed.length });
+    assert.equal(records.length, 8); assert.deepEqual(records.filter(value => value.error), [], diagnostic);
     for (const selector of ["sdk", "inspector"]) {
       assert.ok(proofs[selector]); assert.equal(records.filter(value => value.selector === selector).length, 4);
       for (const value of records.filter(value => value.selector === selector)) assert.equal(api.verifyDeploymentWorkspaceProof(value.proof,
