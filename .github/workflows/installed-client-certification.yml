@@ -76,6 +76,9 @@ jobs:
           run_control python -B certification/installed-clients/mcp_ops_events_journey_controls.py
           run_control python -B certification/installed-clients/mcp_ops_events_docker_controls.py
           run_control node --test --test-concurrency=1 certification/installed-clients/mcp_ops_events_validation.test.mjs certification/installed-clients/mcp_ops_events_execution_controls.test.mjs
+          run_control python -B certification/installed-clients/mcp_grounding_status_validation_controls.py
+          run_control python -B certification/installed-clients/mcp_grounding_status_journey_controls.py
+          run_control node --test --test-concurrency=1 certification/installed-clients/mcp_grounding_status_execution_controls.test.mjs
           run_control python -B certification/installed-clients/mcp_managed_identity_fixture_controls.py
           run_control python -B certification/installed-clients/mcp_managed_identity_redis_controls.py
           run_control python -B certification/installed-clients/mcp_workspace_identity_profile_controls.py
@@ -91,6 +94,8 @@ jobs:
           run_control python -B certification/installed-clients/mcp_deployment_workspace_full_controls.py
           run_control python -B certification/installed-clients/mcp_deployment_workspace_full_mutation_controls.py
           run_control node --test --test-concurrency=1 certification/installed-clients/mcp_deployment_workspace_cohort.test.mjs certification/installed-clients/mcp_deployment_workspace_factory.test.mjs
+          run_control python -B certification/installed-clients/mcp_planning_disclosure_controls.py
+          run_control node --test --test-concurrency=1 certification/installed-clients/mcp_planning_disclosure.test.mjs certification/installed-clients/mcp_planning_execution_controls.test.mjs
           exit "$control_failures"
 
   publish-result-state-controls:
