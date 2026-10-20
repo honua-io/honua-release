@@ -2,6 +2,14 @@
   "schema_version": 1,
   "owner": "mikemcdougall",
   "issue": "honua-io/honua-release#236",
+  "review_model": {
+    "id": "operator-approval-2026.1",
+    "ruling": "https://github.com/honua-io/honua-release/issues/236#issuecomment-5883910519",
+    "summary": "Owner ruling 2026-09-29: honua-io has one human writer, so a second-human CODEOWNERS approval cannot be met in 2026.1. Release lines require the exact status checks, a pull request, resolved threads and no bypass; CODEOWNERS names the operator, who approves by merging. Promotion keeps its own independence rule (automation starts it, the operator approves the release-promotion environment). The two-person review rule moves to 2026.2 as an accepted limitation.",
+    "independent_code_owner_required": false,
+    "required_approving_review_count": 0,
+    "deferred_to": "2026.2"
+  },
   "repositories": {
     "geospatial-grpc": {
       "release_refs": [
@@ -57,9 +65,12 @@
       "release_refs": [
         "refs/heads/release/*"
       ],
-      "required_checks": [],
+      "required_checks": [
+        "Terraform format and validate",
+        "demo-services.v1.json matches seed definitions"
+      ],
       "tag_refs": [],
-      "check_qualification": "existing required contexts; aggregate execution audit pending",
+      "check_qualification": "Manifest Drift workflow (manifest-drift.yml) runs on every pull_request and push with no path filter, so both contexts report on every release-line PR; 8 of 8 recent PR runs green (2026-09-06..09-29). Fail-closed negative proof pending.",
       "tag_qualification": "publication tag namespace and signing applicability require qualification",
       "code_owners": [
         "mikemcdougall"
@@ -85,7 +96,7 @@
       ],
       "required_checks": [],
       "tag_refs": [],
-      "check_qualification": "existing required contexts; aggregate execution audit pending",
+      "check_qualification": "MISSING: PR contracts (job `contracts`) runs on every pull_request but has failed on trunk and on every PR since at least 2026-10-16 (trunk run 38873190052). A permanently red context cannot be a release-line denominator until honua-esri-compat repairs it.",
       "tag_qualification": "publication tag namespace and signing applicability require qualification",
       "code_owners": [
         "mikemcdougall"
@@ -97,7 +108,7 @@
       ],
       "required_checks": [],
       "tag_refs": [],
-      "check_qualification": "existing required contexts; aggregate execution audit pending",
+      "check_qualification": "MISSING: validate.yml (job `validate`) is a path-filtered pull_request workflow; a release-line PR outside scripts/, config/, data/, tests/ never reports. Needs an always-triggered aggregate in honua-evidence.",
       "tag_qualification": "publication tag namespace and signing applicability require qualification",
       "code_owners": [
         "mikemcdougall"
@@ -126,7 +137,7 @@
       ],
       "required_checks": [],
       "tag_refs": [],
-      "check_qualification": "existing required contexts; aggregate execution audit pending",
+      "check_qualification": "MISSING: Terraform CI (Static Terraform Validate, Terraform 1.5 Floor Validate, Terraform Policy Gates) and Documentation are path-filtered pull_request workflows, so a release-line PR outside those paths never reports and would wait forever. Needs an always-triggered aggregate in honua-iac before a denominator can be recorded.",
       "tag_qualification": "publication tag namespace and signing applicability require qualification",
       "code_owners": [
         "mikemcdougall"
