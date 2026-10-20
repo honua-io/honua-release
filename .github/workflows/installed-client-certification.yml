@@ -63,6 +63,7 @@ jobs:
           python -B certification/installed-clients/mcp_ops_health_redis_controls.py
           python -B certification/installed-clients/mcp_deployment_workspace_redis_controls.py
           python -B certification/installed-clients/mcp_deployment_workspace_validation_controls.py
+          node --test certification/installed-clients/mcp_deployment_workspace_validation.test.mjs
 
   publish-result-state-controls:
     runs-on: ubuntu-latest

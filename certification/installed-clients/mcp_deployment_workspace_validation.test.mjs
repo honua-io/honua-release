@@ -179,7 +179,12 @@ print(json.dumps(value['imageReadback'] if sys.argv[1]=='image' else {key:value[
       const observed = JSON.parse(readFileSync(`${results}.deployment-workspace.raw.json`));
       assert.ok(observed.calls.length >= 1);
       if (mode === "valid") {
-        for (const operation of control.proof.operations) assert.equal(checks[operation].result, "pass", JSON.stringify(checks));
+        const diagnostic = checks[control.proof.operations[0]].result === "pass" ? "" : spawnSync(realPython, ["-B", "-c",
+          `import json;from pathlib import Path;from mcp_deployment_workspace_validation_controls import FIXTURE,bootstrap;from mcp_deployment_workspace_validation import judge;judge(FIXTURE,bootstrap(),json.loads(Path(${JSON.stringify(results + ".deployment-workspace.raw.json")}).read_text()))`],
+          { cwd: control.directory, encoding: "utf8", timeout: 20_000 });
+        // This is an explicit offline fixture: retain the actual oracle refusal
+        // rather than hiding a valid-path regression behind a generic wrapper.
+        for (const operation of control.proof.operations) assert.equal(checks[operation].result, "pass", JSON.stringify(checks) + String(diagnostic.stderr ?? ""));
         assert.equal(control.verify(checks[control.proof.operations[0]].value), true);
         assert.equal(observed.calls.length, 24);
         const commands = JSON.parse(readFileSync(commandsPath));
