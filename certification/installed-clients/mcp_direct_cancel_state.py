@@ -45,15 +45,27 @@ def observe(plan_id, job_id, source, image, *, read=redis_command, census=snapsh
             raise ValueError("owned durable job differs from atomic census")
         audit, spec = record["audit"], record["spec"]
         params = spec.get("parameters")
+        submitter = audit.get("submitterSecurityContext")
         if (not isinstance(params, dict) or params.get("honua.geoprocessing.plan_id") != plan_id
                 or not isinstance(audit.get("requestedBy"), str)
                 or not audit["requestedBy"].startswith("ApiKey:api-key:")
+                or not isinstance(submitter, dict)
+                or not isinstance(submitter.get("tenantId"), str)
+                or (audit.get("tenantId") is not None
+                    and audit["tenantId"] != submitter["tenantId"])
+                or submitter.get("principalId") != audit["requestedBy"]
+                or submitter.get("ownerActorId") != audit["requestedBy"]
+                or submitter.get("workspaceOwnerId") != audit["requestedBy"].removeprefix("ApiKey:api-key:")
                 or not isinstance(audit.get("idempotencyKey"), str)):
-            raise ValueError("durable job lacks authored plan or canonical actor")
+            raise ValueError("durable job lacks authored plan or canonical submitter")
         job = {"jobId": job_id, "recordSha256": rows[0]["sha256"],
                "status": record["status"], "createdAt": record.get("createdAt"),
                "updatedAt": record.get("updatedAt"), "completedAt": record.get("completedAt"),
-               "requestedBy": audit["requestedBy"], "tenantId": audit.get("tenantId"),
+               "requestedBy": audit["requestedBy"], "tenantId": submitter["tenantId"],
+               "submitterTenantId": submitter["tenantId"],
+               "submitterPrincipalId": submitter["principalId"],
+               "submitterOwnerActorId": submitter["ownerActorId"],
+               "submitterWorkspaceOwnerId": submitter["workspaceOwnerId"],
                "idempotencyKey": audit["idempotencyKey"],
                "processDefinitions": params.get("honua.geoprocessing.process_definitions"),
                "planId": params["honua.geoprocessing.plan_id"],

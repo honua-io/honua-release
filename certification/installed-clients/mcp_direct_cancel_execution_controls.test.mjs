@@ -73,7 +73,7 @@ function setup(mode) {
       "    else: actor='ApiKey:api-key:'+full['record']['Id']",
       "    params={'honua.geoprocessing.plan_id':plan['planId'],'honua.geoprocessing.process_definitions':'analytics.buffer-aggregate-managed','honua.geoprocessing.output_artifact_kinds':'FeatureLayer'}",
       "    params.update({'honua.geoprocessing.step.0.'+k:x for k,x in plan['steps'][0]['inputs'].items()})",
-      "    return {'operationId':job,'status':status,'createdAt':call['result']['structuredContent']['createdAt'],'updatedAt':'2026-10-19T22:01:50Z' if status==5 else '2026-10-19T22:01:05Z','completedAt':'2026-10-19T22:01:50Z' if status==5 else None,'audit':{'requestedBy':actor,'tenantId':v['raw']['tenantId'],'idempotencyKey':plan['planId']},'spec':{'parameters':params},'artifactReferences':[],'committedEffectReferences':[]}",
+      "    return {'operationId':job,'status':status,'createdAt':call['result']['structuredContent']['createdAt'],'updatedAt':'2026-10-19T22:01:50Z' if status==5 else '2026-10-19T22:01:05Z','completedAt':'2026-10-19T22:01:50Z' if status==5 else None,'audit':{'requestedBy':actor,'tenantId':None,'idempotencyKey':plan['planId'],'submitterSecurityContext':{'tenantId':v['raw']['tenantId'],'principalId':actor,'ownerActorId':actor,'workspaceOwnerId':actor.removeprefix('ApiKey:api-key:')}},'spec':{'parameters':params},'artifactReferences':[],'committedEffectReferences':[]}",
       "def execute(arguments):",
       "    v=json.loads(state.read_text())",
       "    if arguments[0]=='GET' and arguments[1].startswith('controlplane:job:'):",

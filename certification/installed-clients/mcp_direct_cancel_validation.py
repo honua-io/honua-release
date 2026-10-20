@@ -154,6 +154,10 @@ def checked_store(item, authored, job_id, actor, *, status=None):
             or job.get("requestedBy") != actor or type(job.get("status")) is not int
             or job["status"] not in range(6)
             or job.get("tenantId") != authored["tenantId"]
+            or job.get("submitterTenantId") != authored["tenantId"]
+            or job.get("submitterPrincipalId") != actor
+            or job.get("submitterOwnerActorId") != actor
+            or job.get("submitterWorkspaceOwnerId") != actor.removeprefix("ApiKey:api-key:")
             or rows[0]["binding"] != {"operationId": job_id, "status": job["status"],
                                       "createdAt": job.get("createdAt"),
                                       "idempotencyKey": job["idempotencyKey"],

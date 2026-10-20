@@ -82,6 +82,9 @@ def journey(*, inspector=False):
             owned = {"jobId": job, "recordSha256": hashed, "status": status, "createdAt": stamp(50),
                      "updatedAt": stamp(start), "completedAt": stamp(110) if status == 5 else None,
                      "requestedBy": actor, "tenantId": authored["tenantId"], "idempotencyKey": plan["planId"],
+                     "submitterTenantId": authored["tenantId"], "submitterPrincipalId": actor,
+                     "submitterOwnerActorId": actor,
+                     "submitterWorkspaceOwnerId": actor.removeprefix("ApiKey:api-key:"),
                      "processDefinitions": oracle.PROCESS, "planId": plan["planId"],
                      "artifactReferences": [], "committedEffectReferences": []}
         else:

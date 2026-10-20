@@ -20,7 +20,10 @@ class DirectCancelStateControls(unittest.TestCase):
         self.record = {"operationId": self.job, "status": 2,
                        "createdAt": "2026-10-20T00:00:00Z", "updatedAt": "2026-10-20T00:00:01Z",
                        "completedAt": None, "artifactReferences": [], "committedEffectReferences": [],
-                       "audit": {"requestedBy": self.actor, "tenantId": "public", "idempotencyKey": self.plan},
+                       "audit": {"requestedBy": self.actor, "tenantId": None, "idempotencyKey": self.plan,
+                                 "submitterSecurityContext": {"tenantId": "public", "principalId": self.actor,
+                                                              "ownerActorId": self.actor,
+                                                              "workspaceOwnerId": self.actor.removeprefix("ApiKey:api-key:")}},
                        "spec": {"parameters": {"honua.geoprocessing.plan_id": self.plan,
                                                "honua.geoprocessing.process_definitions": "analytics.buffer-aggregate-managed"}}}
 
@@ -53,6 +56,14 @@ class DirectCancelStateControls(unittest.TestCase):
             with self.subTest(path=path), self.assertRaises(ValueError):
                 self.call(record)
         record = copy.deepcopy(self.record); record["spec"]["parameters"]["honua.geoprocessing.plan_id"] = "other"
+        with self.assertRaises(ValueError): self.call(record)
+        for field, replacement in (("tenantId", "other"), ("principalId", "other"),
+                                   ("ownerActorId", "other"), ("workspaceOwnerId", "other")):
+            record = copy.deepcopy(self.record)
+            record["audit"]["submitterSecurityContext"][field] = replacement
+            with self.subTest(field=field), self.assertRaises(ValueError):
+                self.call(record)
+        record = copy.deepcopy(self.record); record["audit"]["tenantId"] = "other"
         with self.assertRaises(ValueError): self.call(record)
 
     def test_runtime_identity_must_be_stable(self):
