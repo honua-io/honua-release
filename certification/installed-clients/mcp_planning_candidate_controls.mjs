@@ -91,6 +91,10 @@ const server = createServer(async (request, response) => {
       selected.structuredContent.engine = "live";
       selected.content[0].text = JSON.stringify(selected.structuredContent);
     }
+    if (mode === "extra-step" && expected.id === "matched-demo") {
+      selected.structuredContent.plan.steps[0].execute = true;
+      selected.content[0].text = JSON.stringify(selected.structuredContent);
+    }
     reply(200, { jsonrpc: "2.0", id: body.id, ...(selected.error ? { error: selected.error } : { result: selected }) });
   } catch {
     reply(400, { error: "controlled planning request refused" });

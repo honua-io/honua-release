@@ -72,7 +72,8 @@ def matched_demo(result, context):
     plan = output.get("plan")
     if (output.get("status") != "planned" or output.get("fixtureCase") != "success"
             or output.get("contractVersion") != "honua.ai_builder.spatial_query.v1"
-            or not isinstance(plan, dict) or plan.get("intentId") != CASE
+            or not isinstance(plan, dict) or set(plan) != {"planId", "intentId", "steps", "outputs", "warnings"}
+            or plan.get("intentId") != CASE
             or plan.get("planId") != "plan-" + CASE or not isinstance(plan.get("steps"), list)
             or len(plan["steps"]) != 3 or plan.get("outputs") != []):
         raise ValueError("matched planning response lost its explicit canned-demo identity")
@@ -84,12 +85,14 @@ def matched_demo(result, context):
         ("compose-packages", "Export", None, ["distance-filter"], {}),
     ]
     for actual, (identifier, kind, process, dependencies, inputs) in zip(plan["steps"], expected, strict=True):
-        if (not isinstance(actual, dict) or actual.get("stepId") != identifier or actual.get("kind") != kind
+        keys = {"stepId", "kind", "dependsOn", "inputs"} | ({"processId"} if process is not None else set())
+        if (not isinstance(actual, dict) or set(actual) != keys
+                or actual.get("stepId") != identifier or actual.get("kind") != kind
                 or actual.get("processId") != process or actual.get("dependsOn") != dependencies
                 or actual.get("inputs") != inputs):
             raise ValueError("canned planning DAG lost its original source, filter or dependency")
     warnings = plan.get("warnings")
-    if not isinstance(warnings, list) or "mutable_source_cache_warning" not in warnings:
+    if warnings != ["mutable_source_cache_warning"]:
         raise ValueError("canned planning omitted its mutable-source warning")
     messages = output.get("warnings")
     if (not isinstance(messages, list) or not messages

@@ -121,7 +121,7 @@ async function start(control, mode) {
   return { async close() { if (child.connected) child.send("stop"); await waitForExit(child); } };
 }
 
-for (const mode of ["valid", "wrong-model", "reused-session", "dirty-job-store", "cleanup-failure"]) {
+for (const mode of ["valid", "wrong-model", "extra-step", "reused-session", "dirty-job-store", "cleanup-failure"]) {
   test("offline complete planning producer: " + mode, async () => {
     const control = setup(mode), priorPath = process.env.PATH;
     let candidate;

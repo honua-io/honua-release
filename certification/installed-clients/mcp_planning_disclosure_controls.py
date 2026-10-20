@@ -125,6 +125,24 @@ class PlanningDisclosureControls(unittest.TestCase):
                     with self.assertRaises(ValueError):
                         judge(value)
 
+    def test_fixed_plan_and_every_step_refuse_coherent_extra_semantics(self):
+        mutations = [
+            lambda body: body["plan"].update(execute=True),
+            lambda body: body["plan"].update(rasterSources={}),
+            lambda body: body["plan"]["steps"][0].update(execute=True),
+            lambda body: body["plan"]["steps"][1].update(execute=True),
+            lambda body: body["plan"]["steps"][2].update(execute=True),
+            lambda body: body["plan"]["steps"][0].update(processId=None),
+            lambda body: body["plan"]["warnings"].append({"execute": True}),
+            lambda body: body["plan"]["warnings"].append("mutable_source_cache_warning"),
+        ]
+        for inspector in (False, True):
+            for index in (1, 2):
+                for number, mutate in enumerate(mutations):
+                    value = change_result(journey(inspector=inspector), index, mutate, inspector)
+                    with self.subTest(inspector=inspector, caller=index, mutation=number), self.assertRaises(ValueError):
+                        judge(value)
+
     def test_coherent_wrong_caller_is_not_hidden_by_valid_wire_and_client(self):
         for inspector in (False, True):
             value = journey(inspector=inspector)
