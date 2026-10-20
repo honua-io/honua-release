@@ -88,6 +88,9 @@ jobs:
           run_control node --test certification/installed-clients/mcp_deployment_workspace_validation.test.mjs
           run_control python -B certification/installed-clients/mcp_deployment_identity_fixture_controls.py
           run_control python -B certification/installed-clients/mcp_deployment_identity_validation_controls.py
+          run_control python -B certification/installed-clients/mcp_deployment_workspace_full_controls.py
+          run_control python -B certification/installed-clients/mcp_deployment_workspace_full_mutation_controls.py
+          run_control node --test --test-concurrency=1 certification/installed-clients/mcp_deployment_workspace_cohort.test.mjs
           exit "$control_failures"
 
   publish-result-state-controls:

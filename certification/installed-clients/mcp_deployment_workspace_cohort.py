@@ -50,6 +50,12 @@ def judge(fixture,bootstrap,selected,terminal):
     checked_observation(selected)
     service=bootstrap['ownedArea']['serviceId'];nonce=selected['nonce']
     members=verified_cohort(terminal,runtime=selected['semantic']['runtimeAfter'],nonce=nonce,service_id=service)
+    sdk=members[CANONICAL['sdk']]['original']
+    inspector=members[CANONICAL['inspector']]['original']
+    if instant(sdk['completedAt'])>instant(inspector['startedAt']):
+        raise ValueError('original SDK and Inspector lifetimes overlap')
+    if not wire.same_json(inspector['observations']['semantic']['runtimeBefore'],sdk['observations']['semantic']['runtimeAfter']):
+        raise ValueError('original clients lost the same-container restart lineage')
     expected_preparation=original_preparation(terminal)
     sessions=set();proofs={};selected_found=False
     for canonical,binding in members.items():
