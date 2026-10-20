@@ -85,7 +85,11 @@ rows across restart. Findings are computed on demand, not persisted snapshots.
 Use two normal managed API keys, with exact `admin` and `read:*` grants. The
 shared identity prerequisite creates them through the product admin API,
 reads effective permissions and independent durable registry bytes, and joins
-each salted credential fingerprint to its actual key ID. The final judge
+each salted credential fingerprint to its actual key ID. Before any Ops call,
+the limited key must positively read the original nonempty owned layer through
+the normal FeatureServer count query. The raw response requires the expected
+count and `exceededTransferLimit: false`. This supporting read adds no primary
+MCP operation credit; its key, runtime, and lifecycle must match the later denial. The final judge
 rechecks original request/response bytes, installed-client provenance, unique
 sessions, both caller lifecycles, and successful normal revocation. An invalid
 key receiving a reauthentication error cannot replace the reader's typed
@@ -94,7 +98,8 @@ the original row's remaining policy facets still require their own evidence.
 
 The configuration declaration is derived again from the original protected
 platform manifest. Every positive call is bracketed by independent store,
-daemon-selected configuration, and authenticated normal deploy-preflight
+daemon-selected configuration (including refusal of extra or case-aliased
+options), and authenticated normal deploy-preflight
 observations. A continuation is taken from the actual first response and
 rejudged against the original rows; an unresolved authored continuation is
 never executed. Both clients reuse the first setup even when the first client
@@ -103,12 +108,24 @@ already restarted the same container; original timestamps and rows are kept.
 ## Delivery state
 
 The observer, bounded SQL setup, configuration declaration, 26-call scenario,
-semantic and raw-wire judge, installed-client bridge, and synthetic mutation
-controls are drafted. Frozen component attempts exited 75 before execution;
-no test pass or qualification is claimed. The newer judge/context/bridge bytes
-have only Python syntax checks. The shared managed-identity prerequisite must
-land before this producer can use its protected bytes. Full SDK/Inspector
-positive and adversarial controls, real SQL/Docker/normal-API observations,
-workflow selection, and the protected consumer remain required before #727
-can close. Follow every PR through review, required validation, normal merge,
-and content verification.
+semantic and raw-wire judge, same-container restart, and installed-client bridge
+are drafted. The shared managed identity prerequisite is protected on trunk at
+`b6e6c950568f5a00a057866ce2544e8b2e49ee47` and is adopted through a normal trunk merge.
+
+The earlier `a2c4eff1` required validation passed with 5,637 tests, one existing
+skip, and two warnings. Its separate fast job passed ten store controls, then
+stopped because PyYAML was missing. This update installs the existing pinned
+source dependencies. Local attempts through the maintained guard exited 75
+before execution; those attempts provide no test pass.
+
+This update adds complete synthetic SDK/Inspector raw-wire and managed-lifecycle
+vectors, a mandatory normal limited-data-read positive, coherent semantic
+mutations, the real bridge verifier controls, and isolated PostGIS/Docker/HTTP
+observer controls. These new controls still require actual hosted results.
+Synthetic client records do not establish installed-client execution. Utility
+containers and minimal SQL contracts do not certify a Honua image or migrations.
+
+The full producer execution controls, selected canonical workflow, protected
+consumer, and actual candidate/client journeys remain required. This draft does
+not close #727 or qualify any candidate. Follow each PR through review, required
+validation, normal merge, and verification of every changed file on trunk.

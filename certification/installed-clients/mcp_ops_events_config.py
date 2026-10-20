@@ -93,9 +93,13 @@ def declaration(manifest_bytes, *, release_source_sha, candidate_source_sha, can
 def option_template():
     # Docker's template selects these non-secret values in the daemon. Never
     # capture Config.Env wholesale: unrelated credentials must not leave it.
-    def starts(prefix):
-        return f'(and (ge (len .) {len(prefix)}) (eq (slice . 0 {len(prefix)}) {json.dumps(prefix)}))'
-    scope = '(or ' + starts('ControlPlane__PlatformRelease__') + ' ' + starts('ControlPlane__DeployTargets__') + ')'
+    def starts(prefix, *, insensitive=False):
+        selected = f"(slice . 0 {len(prefix)})"
+        if insensitive:
+            selected = "(lower " + selected + ")"
+            prefix = prefix.lower()
+        return f'(and (ge (len .) {len(prefix)}) (eq {selected} {json.dumps(prefix)}))'
+    scope = '(or ' + starts('ControlPlane__PlatformRelease__', insensitive=True) + ' ' + starts('ControlPlane__DeployTargets__', insensitive=True) + ')'
     template = '{{range .Config.Env}}{{if ' + scope + '}}{"selectedScope":true}{{println}}{{end}}'
     for key in SELECTED_KEYS:
         template += '{{if ' + starts(key + '=') + '}}{{json .}}{{println}}{{end}}'

@@ -9,7 +9,7 @@ import { pathToFileURL } from "node:url";
 import { observeCandidateRequest, observedResponse } from "./mcp_candidate_wire.mjs";
 
 export const opsEventsDependencies = Object.freeze([
-  "mcp_ops_events_validation.py", "mcp_ops_events_state.py", "mcp_ops_events_config.py", "mcp_ops_events_setup.py",
+  "mcp_ops_events_validation.py", "mcp_ops_events_data_read.py", "mcp_ops_events_state.py", "mcp_ops_events_config.py", "mcp_ops_events_setup.py",
   "mcp_managed_identity_fixture.py", "mcp_execute_plan_state.py", "mcp_execute_plan_validation.py", "mcp_plan_validation.py",
   "mcp_style_validation.py", "mcp_ingest_publish_validation.py", "mcp_map_package_validation.py", "mcp_render_validation.py",
   "render_png.py", "mcp_style_state.py", "mcp_ingest_publish_state.py", "fixture.v1.json", "mcp_candidate_wire.mjs",
@@ -69,7 +69,7 @@ export function createOpsEventsValidation({ directory, sourceSha, sha256, bootst
       const declaration = config(candidateSourceSha, candidateImage);
       const authored = python(declaration, { nonce: randomBytes(12).toString("hex"), canonicalClient });
       if (authored.candidateSourceSha !== candidateSourceSha || authored.candidateImage !== candidateImage) throw new Error("findings/events bootstrap selected another candidate");
-      const observed = { ...authored, clientVersion, calls: [], runtimeBefore: null, runtimeRestarted: null, runtimeAfter: null, identityFixtures: {} };
+      const observed = { ...authored, clientVersion, calls: [], runtimeBefore: null, runtimeRestarted: null, runtimeAfter: null, identityFixtures: {}, limitedRead: null };
       const retained = `${resolve(results)}.ops-events.raw.json`;
       mkdirSync(dirname(retained), { recursive: true });
       const privateWork = mkdtempSync(join(tmpdir(), "mcp-ops-private-")), credentialSalt = randomBytes(16).toString("hex");
@@ -110,6 +110,10 @@ export function createOpsEventsValidation({ directory, sourceSha, sha256, bootst
           keys[role] = JSON.parse(readFileSync(fixtures[role].privatePath, "utf8")).key;
           if (typeof keys[role] !== "string" || !keys[role]) throw new Error("normal managed key fixture is incomplete");
         }
+        observed.limitedRead = launch("mcp_ops_events_data_read.py", ["--fixture", join(directory, "fixture.v1.json"),
+          "--bootstrap", bootstrapPath, "--credential-salt", credentialSalt, "--candidate-source-sha", candidateSourceSha,
+          "--candidate-image", candidateImage, "--owned-disposable-candidate"],
+          { env: { HONUA_MCP_READ_API_KEY: keys.limited } });
         const { launchCanonicalClient } = await import(pathToFileURL(join(directory, "mcp_fixed_client_launcher.mjs")).href);
         let cursor;
         for (const expected of authored.calls) {

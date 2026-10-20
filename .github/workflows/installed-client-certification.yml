@@ -55,6 +55,11 @@ jobs:
       - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
         with:
           python-version: "3.12"
+      - name: Install pinned source-control dependencies
+        run: python -m pip install -r tools/requirements-nightly.txt
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: "22.23.3"
       - name: Exercise actual read-only Redis census and refusal controls
         env:
           CONTROL_REDIS_CONTAINER: ${{ job.services.redis.id }}
@@ -65,6 +70,10 @@ jobs:
           python -B certification/installed-clients/mcp_ops_events_config_controls.py
           python -B certification/installed-clients/mcp_ops_events_setup_controls.py
           python -B certification/installed-clients/mcp_ops_events_validation_controls.py
+          python -B certification/installed-clients/mcp_ops_events_data_read_controls.py
+          python -B certification/installed-clients/mcp_ops_events_journey_controls.py
+          python -B certification/installed-clients/mcp_ops_events_docker_controls.py
+          node --test --test-concurrency=1 certification/installed-clients/mcp_ops_events_validation.test.mjs
           python -B certification/installed-clients/mcp_managed_identity_fixture_controls.py
           python -B certification/installed-clients/mcp_managed_identity_redis_controls.py
 
@@ -107,6 +116,7 @@ jobs:
         run: |
           python -B certification/installed-clients/mcp_publish_result_sql_controls.py
           python -B certification/installed-clients/mcp_ops_health_sql_controls.py
+          python -B certification/installed-clients/mcp_ops_events_sql_controls.py
 
   exact-published-clients:
     runs-on: ubuntu-latest

@@ -477,6 +477,7 @@ def judge(fixture, bootstrap, setup, manifest_bytes, declaration, observed):
     # This helper is one shared prerequisite for the three original MCP closure
     # streams. Missing source/receipt or failed normal revocation stays NONPASS.
     from mcp_managed_identity_fixture import verify_receipt
+    from mcp_ops_events_data_read import verify as verify_limited_read
 
     if not isinstance(observed, dict):
         raise ValueError("original canonical-client operate observations are missing")
@@ -485,7 +486,7 @@ def judge(fixture, bootstrap, setup, manifest_bytes, declaration, observed):
     if not wire.same_json(declaration, rederived):
         raise ValueError("declared configuration differs from the original protected manifest bytes")
     authored = scenario(fixture, bootstrap, setup, declaration, observed.get("nonce"), observed.get("canonicalClient"))
-    extras = {"clientVersion", "runtimeBefore", "runtimeRestarted", "runtimeAfter", "identityFixtures"}
+    extras = {"clientVersion", "runtimeBefore", "runtimeRestarted", "runtimeAfter", "identityFixtures", "limitedRead"}
     if (set(observed) != set(authored) | extras
             or any(not wire.same_json(observed[key], value) for key, value in authored.items() if key != "calls")
             or not isinstance(observed["clientVersion"], str)
@@ -509,6 +510,7 @@ def judge(fixture, bootstrap, setup, manifest_bytes, declaration, observed):
     if (identities["full"]["keyId"] == identities["limited"]["keyId"]
             or identities["full"]["credentialFingerprint"] == identities["limited"]["credentialFingerprint"]):
         raise ValueError("full and limited callers did not independently resolve to different managed keys")
+    verify_limited_read(observed["limitedRead"], fixture, bootstrap, identities["limited"], original)
     calls = observed["calls"]
     if not isinstance(calls, list) or len(calls) != len(authored["calls"]):
         raise ValueError("canonical operate journey is missing authored operations or controls")
@@ -581,6 +583,11 @@ def judge(fixture, bootstrap, setup, manifest_bytes, declaration, observed):
             limited_refusal(actual["result"])
     if findings_times != sorted(findings_times) or findings_times[-1] <= findings_times[0]:
         raise ValueError("findings were not freshly recomputed across the actual restart")
+    limited_read = observed["limitedRead"]
+    if (instant(identities["limited"]["createdAt"]) > instant(limited_read["startedAt"])
+            or instant(identities["limited"]["observedAt"]) > instant(limited_read["startedAt"])
+            or instant(limited_read["completedAt"]) > first_before):
+        raise ValueError("limited data-read positive does not follow provisioning and precede the Ops journey")
     for role in ("full", "limited"):
         if (instant(identities[role]["createdAt"]) > first_before
                 or instant(identities[role]["observedAt"]) > first_before
@@ -590,6 +597,7 @@ def judge(fixture, bootstrap, setup, manifest_bytes, declaration, observed):
         "clientVersion": observed["clientVersion"], "operations": OPERATIONS, "positive": True, "negative": True,
         "mediaSchema": True, "independentStores": True, "persistedRestart": True, "liveFindingsRecomputed": True,
         "anonymousInvocationRefusal": True, "limitedPermissionRefusal": True, "managedIdentityJoined": True,
+        "limitedDataReadPositive": True,
         "actualCursorPaging": True, "configurationLevel": "L1-declared-configuration",
         "alertEvaluationExercised": False, "notificationDeliveryExercised": False, "lifecycleApiExercised": False}
 
