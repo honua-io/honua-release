@@ -2,25 +2,22 @@
 
 `run.py` coordinates a joined native Console integration attempt across the published SDK/MCP installer, a real external Claude Code MCP client, the installed Console's native map browser producer, and a separate human approval. It is a live operator harness. Offline tests and a prepared attempt are never qualification evidence. Use a disposable Docker host and a **new** install and attempt directory. The runner retains the stack for inspection and does not tear down anything it did not create.
 
-This is **not yet** the original one external-agent conversation through connection, import, service, map, and publish. The runner retains the external client's session ID and has `agent-task`, `agent-submit`, `agent-observe-import` and `agent-service` continuations for the real browser-file turn, prepared import, physical output, and connection/service/query. These stages still need actual execution against published candidates. The separate `browser` joined smoke uses the published .NET SDK and human Console UI for its connection/import/service, and a separate real native model turn creates its map. A fully matched joined receipt says `joined-native-console-integration-pass` and `oneExternalAgentConversationQualified:false`. The external client must still make and submit the same map through canonical tools and receipts, then join those to distinct human approval and audience reads. Those external map/publication stages are not yet implemented; no existing stage should be described as their completion.
+The runner has two explicit install modes. `external-agent` retains one Claude client session and leaves the Server native model and gateway disabled; real human Console turns are saved for that external client to continue. `joined-native` retains the historical browser smoke with a separate configured native model and gateway. These modes produce separate attempts and cannot be mixed. The external path now includes map composition, a real human visual edit and fresh prompt, same-client final style/version/publication proposal, and a read-only approval/audience witness. **No live attempt has qualified these new stages against accepted published artifacts.** The joined browser smoke still reports `oneExternalAgentConversationQualified:false` and cannot substitute for the external path.
 
 Supply a resolver-produced candidate `platform-manifest.yaml` containing published SDK/MCP pins verified by the canonical client resolver, the exact public NuGet SDK, and immutable Server and Console images with source SHAs. The committed default manifest is stale and must not be used as a current candidate. The installed MCP must advertise the turn-binding capability, and the runner must observe a successful bind to the selected turn. Supply a clean, committed Console checkout containing `workspace-live/specs/studio-map.live.spec.ts` and `publication-witness.live.spec.ts`; `--console-sha` must be that checkout's exact HEAD. The installed Console's `/version.json` must report the candidate's Console SHA. Do not replace this with a source-built or seeded deployment.
 
-Set `CANDIDATE`, `ATTEMPT`, `INSTALL`, `CONSOLE`, and `CONSOLE_SHA` to private absolute paths/values. The host must have Docker Compose, Node, .NET 10, Playwright Chromium, the real Claude Code client, actual model credentials and network access. The gateway URL must be a private origin reachable from the Console container; choose its host listener explicitly. Keep the independent bridge key in a protected host environment variable, for example `HONUA_NATIVE_BRIDGE_KEY`. The runner never records its value.
+Set `CANDIDATE`, `ATTEMPT`, `INSTALL`, `CONSOLE`, and `CONSOLE_SHA` to private absolute paths/values. The host must have Docker Compose, Node, .NET 10, Playwright Chromium, the real Claude Code client, its actual model credentials, and network access. Only the separate `joined-native` smoke needs an additional Server-side model and native gateway. Its gateway URL must be a private origin reachable from the Console container; keep its independent bridge key in a protected host environment variable. The runner never records that value.
 
 ```bash
-python3 certification/native-docker-first/run.py start \
+python3 certification/native-docker-first/run.py start --conversation-mode external-agent \
   --manifest "$CANDIDATE" --attempt "$ATTEMPT" --install-dir "$INSTALL" \
   --console-root "$CONSOLE" --console-sha "$CONSOLE_SHA"
 python3 certification/native-docker-first/run.py install \
   --manifest "$CANDIDATE" --attempt "$ATTEMPT" \
-  --console-root "$CONSOLE" --console-sha "$CONSOLE_SHA" \
-  --gateway-url http://host.docker.internal:7863 --gateway-listen-host 0.0.0.0 \
-  --gateway-key-env HONUA_NATIVE_BRIDGE_KEY \
-  --model-kind bedrock --model-name "$REAL_MODEL" --model-region us-west-2
+  --console-root "$CONSOLE" --console-sha "$CONSOLE_SHA"
 ```
 
-The external client returns actual results for `honua_agent_inspect_local`, `honua_agent_install_local(confirm:true)` once, and status on its single published `honua-agent-mcp` registration. Its transcript is private. An uncertain installer outcome is terminal for this attempt until inspected manually; the runner will not replay the mutation. `install` records the running owned Compose container IDs, immutable image references and image IDs, release identity, installer connector origin, Console version SHA, and exact local Server/Console origins. Later stages refuse a replaced stack or origin. It starts the published native HTTP gateway as an owned process and records its PID. Check the private receipt and gateway log. The installer returns `preview-requires-human-pairing`, which is not a passed browser stage.
+The external client returns actual results for `honua_agent_inspect_local`, `honua_agent_install_local(confirm:true)` once, and status on its single published `honua-agent-mcp` registration. Its transcript is private. An uncertain installer outcome is terminal for this attempt until inspected manually; the runner will not replay the mutation. `install` records the running owned Compose container IDs, immutable image references and image IDs, release identity, installer connector origin, Console version SHA, exact local Server/Console origins, and verifies the installed model/gateway mode. Later stages refuse a replaced stack or origin. External mode does not start a native gateway or configure a second model. The installer returns `preview-requires-human-pairing`, which is not a passed browser stage. For the separate historical `joined-native` smoke, start a new attempt with `--conversation-mode joined-native` and supply the gateway URL/listen host/key reference and real model kind/name at install as before.
 
 For the external-client continuation, the paired human selects the real file in Console's `/operate/resources/import/task` picker and sends a message in that same workspace conversation. Read the actual new `workspaceId` and `turnId` from the private Console context/conversation; do not invent a turn or copy file bytes into the prompt. Then run:
 
@@ -64,6 +61,45 @@ python3 certification/native-docker-first/run.py agent-service \
 ```
 
 The same external client reads that conversation and turn, binds it, creates one PostGIS connection using the installer's `env:HONUA_LOCAL_DB_PASSWORD` reference, tests the connection, and publishes the exact physical table recorded by the original import. The reference resolves inside the local Server; no password or connection string is placed in a prompt. The client describes the published service by name, then uses the description's actual canonical service ID to count the same layer; the service name and ID can differ. The runner joins original **structured MCP results** from the private client transcript, including matching schema/table, connection, service/layer IDs, Studio source ID and imported feature count. Model prose and query summaries cannot qualify the stage. A pending approval, denied operation or uncertain response blocks without approval impersonation or mutation replay. This phase does not change the service access policy or qualify audience access. It retains `oneExternalAgentConversationQualified:false`: map authoring, visual edits, save/reopen, publication and audience verification through this same external conversation remain required. The following `browser` phase remains a separate joined smoke and does not consume this service receipt.
+
+For the external-only map path, the human sends a new normal Console message in the same workspace, exactly “Create and style a map from the service I just published.” The runner reads its actual turn ID and resumes the same Claude session:
+
+```bash
+python3 certification/native-docker-first/run.py agent-map \
+  --manifest "$CANDIDATE" --attempt "$ATTEMPT" \
+  --console-root "$CONSOLE" --console-sha "$CONSOLE_SHA" \
+  --workspace-id "$WORKSPACE_ID" --turn-id "$HUMAN_MAP_TURN_ID" \
+  --route /maps/native-first-use
+```
+
+The agent verifies the original service's canonical ID, published name, source and count, grants only anonymous service read access, composes and styles its map, validates, saves and reopens a version, then attaches that exact reopened draft to the shared workspace. It deliberately stops before proposing publication. A real Console browser phase must show rendered features, use the embedded visual editor to choose a field and value from the source, save its thematic color, and submit a fresh human prompt on that same draft. Run that phase with the originating paired human's normal browser storage state:
+
+```bash
+python3 certification/native-docker-first/run.py agent-map-visual \
+  --manifest "$CANDIDATE" --attempt "$ATTEMPT" \
+  --console-root "$CONSOLE" --console-sha "$CONSOLE_SHA" \
+  --operator-state "$PRIVATE_OPERATOR_STATE" --origin http://127.0.0.1:8081
+```
+
+The visual phase refuses a Server native model, because sending the normal Console message in that configuration would invoke a second model. Its browser script uses actual UI controls, never a direct draft write or synthetic turn. It records the exact human-edited body digest, generation, field, color expression and new turn. The same external agent then reads that turn and changes only the requested opacity while preserving the human color edit; it validates, saves, reopens, attaches the final version, and opens the exact public publication proposal:
+
+```bash
+python3 certification/native-docker-first/run.py agent-map-finish \
+  --manifest "$CANDIDATE" --attempt "$ATTEMPT" \
+  --console-root "$CONSOLE" --console-sha "$CONSOLE_SHA"
+```
+
+A separate actual human approves the retained proposal in the installed Console inbox. The originating human then runs the read-only witness:
+
+```bash
+python3 certification/native-docker-first/run.py agent-map-audience \
+  --manifest "$CANDIDATE" --attempt "$ATTEMPT" \
+  --console-root "$CONSOLE" --console-sha "$CONSOLE_SHA" \
+  --operator-state "$PRIVATE_OPERATOR_STATE" \
+  --origin http://127.0.0.1:8081 --server-origin http://127.0.0.1:8080
+```
+
+It joins the real proposal/operation/request/item/version/content identities, distinct approver, authenticated final map render with features, unauthenticated public map artifact and the original layer's anonymous metadata and feature count. Only this complete live join may set `oneExternalAgentConversationQualified:true`; source and offline tests are never that evidence. The following `browser` phase remains a separate joined smoke and does not consume this service receipt.
 
 Complete actual human Console pairing/sign-in and capture a private Playwright storage-state file through the normal browser flow. This runner does not mint or synthesize one. Use the committed GeoJSON fixture `certification/terminal-journey/fixtures/journey-source.geojson` or another real GeoJSON with renderable, varied attributes. Then run:
 

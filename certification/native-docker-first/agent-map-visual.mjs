@@ -61,8 +61,13 @@ try {
   }));
   const thematic = candidates.find(candidate => candidate.values.length >= 2);
   assert(thematic, 'actual authorized source needs two observed thematic values');
-  const rendered = before.envelope.body.mapSpec?.layers?.find(layer => layer.id === handoff.layerId);
-  assert(rendered && ['circle', 'fill', 'line', 'symbol'].includes(rendered.type), 'real map render layer required');
+  await page.getByRole('button', { name: 'Edit map style', exact: true }).click();
+  const editor = page.getByRole('region', { name: 'Map style editor', exact: true });
+  await editor.waitFor();
+  await editor.frameLocator('iframe[title="Maputnik visual map style editor"]').locator('.maputnik-layout').waitFor();
+  const initialized = await read(draftPath(handoff.reopenedDraftId));
+  const rendered = initialized.envelope.body.mapSpec?.layers?.find(layer => layer.id === handoff.layerId);
+  assert(rendered && ['circle', 'fill', 'line', 'symbol'].includes(rendered.type), 'real initialized map render layer required');
   const prefix = rendered.type === 'symbol' ? 'text' : rendered.type;
   const colorProperty = `${prefix}-color`, opacityProperty = `${prefix}-opacity`;
   const expression = ['match', ['get', thematic.name], thematic.values[0], '#eff3ff', '#c6dbef'];
@@ -70,10 +75,6 @@ try {
     const map = document.querySelector('honua-studio-canvas')?.mapView?.map;
     return map?.getLayer(layerId) && map.queryRenderedFeatures({ layers: [layerId] }).length > 0;
   }, handoff.layerId, { timeout: 60000 });
-  await page.getByRole('button', { name: 'Edit map style', exact: true }).click();
-  const editor = page.getByRole('region', { name: 'Map style editor', exact: true });
-  await editor.waitFor();
-  await editor.frameLocator('iframe[title="Maputnik visual map style editor"]').locator('.maputnik-layout').waitFor();
   await editor.getByRole('combobox', { name: 'Map layer for styling', exact: true }).selectOption(handoff.layerId);
   await editor.getByRole('combobox', { name: 'Actual source field', exact: true }).selectOption(thematic.name);
   await editor.getByRole('combobox', { name: 'Thematic method', exact: true }).selectOption('categories');

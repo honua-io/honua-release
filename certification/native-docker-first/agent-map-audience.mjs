@@ -99,7 +99,7 @@ try {
     for (const [key, value] of Object.entries({itemId:handoff.itemId, publicationId:requestId,
       versionId:handoff.versionId,contentHash:handoff.contentHash,route:handoff.route,visibility:'public'}))
       assert.equal(artifact[key], value, `public artifact ${key}`);
-    const service = encodeURIComponent(initial.service.serviceName);
+    const service = initial.service.serviceName.split('/').map(encodeURIComponent).join('/');
     const layer = initial.service.layerId;
     const metadata = await anonymous.get(`/rest/services/${service}/FeatureServer/${layer}?f=json`);
     assert.equal(metadata.status(), 200, 'unauthenticated public layer metadata');
