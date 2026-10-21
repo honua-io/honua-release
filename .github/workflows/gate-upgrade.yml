@@ -16,7 +16,8 @@
 # R26); until one exists the signed-lock kind smoke is blocked. TRUNK-CANDIDATE FALLBACK: while it is
 # blocked, the same install -> seed -> upgrade -> verify -> rollback -> prior-serves sequence runs on a
 # substitute pair (tools/upgrade_trunk_pair.py: the previous honua-server pin in this manifest's trunk
-# history, or the honua-2026.1 pre-release server, -> the manifest candidate) under the separate
+# history, or the honua-2026.1 pre-release server, each installed with its own pinned chart, -> the
+# manifest candidate) under the separate
 # fragment upgrade-kind-trunk-candidate-<scenario>. Its receipt says `priorSource: trunk-candidate`,
 # `certifiedReleasePair: false`; the signed-lock fragment stays blocked. A trunk-candidate FAIL
 # (migrations did not advance, seeded rows lost, prior image cannot serve after rollback) fails
@@ -311,6 +312,16 @@ jobs:
           path: _chart/trunk
           persist-credentials: false
 
+      - name: Fetch the prior's manifest-pinned chart source (trunk-candidate fallback)
+        id: trunk_prior_chart
+        if: steps.fallback.outputs.ready == '1'
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: honua-io/honua-helm
+          ref: ${{ steps.fallback.outputs.prior_helm_sha }}
+          path: _chart/trunk-prior
+          persist-credentials: false
+
       - name: Pull lock-bound Helm chart packages
         id: chart
         if: steps.images.outputs.verified == '1'
@@ -351,7 +362,7 @@ jobs:
           echo "pullable=$OK" >> "$GITHUB_OUTPUT"
 
       - name: Create kind cluster
-        if: (steps.chart.outcome == 'success' || steps.trunk_chart.outcome == 'success') && steps.pull.outputs.pullable == '1'
+        if: (steps.chart.outcome == 'success' || (steps.trunk_chart.outcome == 'success' && steps.trunk_prior_chart.outcome == 'success')) && steps.pull.outputs.pullable == '1'
         uses: helm/kind-action@06c1ae10762d3b9c1644e7fe69596ae519e015a2 # v1.15.0
         with:
           cluster_name: honua-upgrade
@@ -375,7 +386,7 @@ jobs:
           FAILURE_SCENARIO: ${{ matrix.scenario }}
           TRUNK_READY: ${{ steps.fallback.outputs.ready }}
           TRUNK_UNAVAILABLE_WHY: ${{ steps.fallback.outputs.why }}
-          TRUNK_CHART_OUTCOME: ${{ steps.trunk_chart.outcome }}
+          TRUNK_CHART_OUTCOME: ${{ steps.trunk_chart.outcome == 'success' && steps.trunk_prior_chart.outcome || steps.trunk_chart.outcome }}
           # Kept out of the script body: a run block containing any expression is evaluated as one
           # expression, and this one exceeds Actions' 21000-character expression limit.
           SIGNED_VERIFIED: ${{ steps.images.outputs.verified }}
@@ -405,9 +416,9 @@ jobs:
             STATUS=blocked; WHY="prior baseline image is missing or equals the manifest candidate — real migration upgrade cannot run"
           else
             if [ "$MODE" = trunk-candidate ]; then
-              # One manifest-pinned chart source across install, upgrade and rollback: the edge under
-              # test is the server image + schema, not a chart change.
-              PRIOR_CHART="_chart/trunk/honua"
+              # Each side's own manifest-pinned chart source: install the prior as its manifest
+              # shipped it, upgrade chart + image together, and `helm rollback` restores both.
+              PRIOR_CHART="_chart/trunk-prior/honua"
               CANDIDATE_CHART="_chart/trunk/honua"
             else
               PRIOR_CHART="$SIGNED_PRIOR_CHART"

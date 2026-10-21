@@ -78,7 +78,7 @@ def helm_sha(manifest: dict) -> str:
     return sha
 
 
-def previous_pin(candidate: dict, history) -> tuple[dict, str]:
+def previous_pin(candidate: dict, history) -> tuple[dict, str, dict]:
     """Newest manifest in `history` (newest first: (commit, manifest-dict)) whose server differs."""
     for commit, manifest in history:
         try:
@@ -86,7 +86,7 @@ def previous_pin(candidate: dict, history) -> tuple[dict, str]:
         except PairError:
             continue
         if identity["sourceRevision"] != candidate["sourceRevision"]:
-            return identity, f"platform-manifest.yaml@{commit} (previous honua-server pin on trunk)"
+            return identity, f"platform-manifest.yaml@{commit} (previous honua-server pin on trunk)", manifest
     raise PairError("no earlier honua-server pin in platform-manifest.yaml history")
 
 
@@ -111,8 +111,15 @@ def resolve(candidate_manifest: dict, candidate_bytes: bytes, *, prior_manifest:
         selected = prior_label or "prior manifest"
         prior_digest = _bytes_digest(prior_bytes or b"")
     else:
-        prior, selected = previous_pin(candidate, history if history is not None else git_history())
+        prior, selected, prior_manifest = previous_pin(candidate, history if history is not None else git_history())
         prior_digest = _bytes_digest(json.dumps(prior, sort_keys=True).encode())
+    candidate_helm = helm_sha(candidate_manifest)
+    try:
+        # Install the prior server with the chart its own manifest pinned, as an operator of that
+        # release would have; the upgrade then moves chart and image together, like the signed path.
+        prior_helm = helm_sha(prior_manifest)
+    except PairError:
+        prior_helm = candidate_helm
     if prior["dbSchema"] > candidate["dbSchema"]:
         raise PairError(f"prior schema {prior['dbSchema']} is newer than candidate schema {candidate['dbSchema']}")
     cross = prior["reference"] != candidate["reference"] and prior["sourceRevision"] != candidate["sourceRevision"]
@@ -126,7 +133,8 @@ def resolve(candidate_manifest: dict, candidate_bytes: bytes, *, prior_manifest:
         "candidate": candidate["reference"],
         "candidate_source_revision": candidate["sourceRevision"],
         "candidate_schema": str(candidate["dbSchema"]),
-        "helm_sha": helm_sha(candidate_manifest),
+        "helm_sha": candidate_helm,
+        "prior_helm_sha": prior_helm,
         # Not lock digests: these bind the deployment env (HONUA_PLATFORM_LOCK_DIGEST) to the exact
         # manifest identities this run used, and are labelled as such in the receipt.
         "prior_manifest_digest": prior_digest,
@@ -160,8 +168,9 @@ def build_receipt(pair: dict, *, scenario: str, status: str, why: str, signed_lo
         "candidate": {"image": pair.get("candidate"), "sourceRevision": pair.get("candidate_source_revision"),
                       "declaredSchema": pair.get("candidate_schema"),
                       "manifestDigest": pair.get("candidate_manifest_digest")},
-        "chart": {"repository": "honua-io/honua-helm", "sha": pair.get("helm_sha"),
-                  "note": "same manifest-pinned chart source for install, upgrade and rollback"},
+        "chart": {"repository": "honua-io/honua-helm", "install": pair.get("prior_helm_sha"),
+                  "upgrade": pair.get("helm_sha"),
+                  "note": "manifest-pinned chart sources: install with the prior's, upgrade with the candidate's"},
         "observed": observed,
         "phases": phases,
         "workflow": {"run": run, "commit": commit},

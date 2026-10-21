@@ -29,7 +29,15 @@ def test_previous_pin_skips_history_entries_with_the_candidates_own_server():
     assert ":nightly" not in out["prior"] and ":nightly" not in out["candidate"]
     assert out["prior_schema"] == "125" and out["candidate_schema"] == "128"
     assert out["prior_selected_from"].startswith("platform-manifest.yaml@" + "3" * 40)
-    assert out["helm_sha"] == HELM and out["cross"] == "yes"
+    assert out["helm_sha"] == HELM and out["prior_helm_sha"] == HELM and out["cross"] == "yes"
+
+
+def test_prior_installs_with_the_chart_its_own_manifest_pinned():
+    prior = manifest(A, "a", 106, amd64=False, helm="e" * 40)
+    out = pair.resolve(manifest(C, "c", 128), b"c", prior_manifest=prior, prior_bytes=b"p")
+    assert out["prior_helm_sha"] == "e" * 40 and out["helm_sha"] == HELM
+    no_helm = {"components": {"honua-server": prior["components"]["honua-server"]}}
+    assert pair.resolve(manifest(C, "c", 128), b"c", prior_manifest=no_helm, prior_bytes=b"p")["prior_helm_sha"] == HELM
 
 
 def test_candidate_uses_the_amd64_child_and_falls_back_to_the_index_digest():
