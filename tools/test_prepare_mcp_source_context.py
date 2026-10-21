@@ -80,7 +80,7 @@ def test_real_generator_stages_complete_context_and_keeps_red_selector_refusal(t
     assert report['producer']['checks'][0]['conclusion'] == 'failure'
     assert report['requirements']['clientVersions'] == {
         'mcp-typescript-sdk': '1.32.1', 'mcp-inspector': '2.10.1'}
-    assert report['requirements']['originalRows'] == report['requirements']['proposedRows'] >= 3008
+    assert report['requirements']['originalRows'] == report['requirements']['proposedRows'] >= 2713
     assert report['requirements']['mcpRows'] == 82
     assert github.reads == [(context.REPOSITORY, SOURCE, path) for path in context.FILES]
     assert all((context.ROOT / path).read_bytes() == data for path, data in frozen.items())

@@ -574,9 +574,15 @@ def main() -> None:
         )
         for source_name in ("sdk-js", "sdk-python", "sdk-dotnet")
     }
+    python_contract = json.loads(
+        (ROOT / "sources" / "sdk-python" / "protocol-certification.v1.json").read_text(encoding="utf-8")
+    )
+    python_fixture = python_contract.get("fixtureRevision")
+    if not isinstance(python_fixture, str) or not python_fixture.strip():
+        raise ValueError("pinned sdk-python protocol contract is missing fixtureRevision")
     sdk_fixtures = {
         "sdk-js": "0.2.0-alpha.1",
-        "sdk-python": "geospatial-grpc@0.2.0-alpha.1",
+        "sdk-python": python_fixture,
         "sdk-dotnet": "sha256:83eb29ac38a3fb54914c1252b273dbb7f7f4d651a8204aafb4108d14d6d23727",
     }
     expected_decision_rows: list[dict] = []
@@ -782,7 +788,10 @@ LICENSED_POLICIES = {
 }
 
 
-def _validate_pyqgis_grid(rows: list[dict], driver: dict, must_fix: str, preview: set[str]) -> None:
+def _validate_pyqgis_grid(
+    rows: list[dict], driver: dict, must_fix: str, preview: set[str],
+    implemented: set[str], matrix_keys: set[str],
+) -> None:
     """R40: the pyqgis lane is the full surface × function grid. A cell the client cannot perform
     stays in the grid as not-applicable, with that reason declared on the row."""
     grid = json.loads((ROOT / "sources" / "pyqgis-function-grid.v1.json").read_text(encoding="utf-8"))
@@ -799,6 +808,9 @@ def _validate_pyqgis_grid(rows: list[dict], driver: dict, must_fix: str, preview
             raise ValueError(f"pyqgis surface {surface['surface']} names unknown functions {sorted(unknown)}.")
         if surface["capability_key"] in preview and set(declared) != set(operations):
             raise ValueError(f"preview surface {surface['surface']} must declare every function not-applicable.")
+        # The generator emits no grid row for a capability the pinned matrix has not implemented.
+        if surface["capability_key"] in matrix_keys and surface["capability_key"] not in implemented:
+            continue
         for operation in operations:
             reason = declared.get(operation)
             if reason is not None and not (isinstance(reason, str) and reason.startswith("not-applicable: ")):
@@ -811,6 +823,8 @@ def _validate_pyqgis_grid(rows: list[dict], driver: dict, must_fix: str, preview
         key = (dropped["surface"], dropped["operation"])
         if key in expected:
             raise ValueError(f"dropped PyQGIS function {key} collides with a grid cell.")
+        if dropped["surface"] in matrix_keys and dropped["surface"] not in implemented:
+            continue
         expected[key] = reason
     present = {
         (row["surface"], row["operation"]): row
@@ -868,6 +882,7 @@ def validate_desktop_clients(catalog: dict, roster: dict) -> None:
         ruling["preview_capability_keys"] for ruling in roster["rulings"] if ruling["id"] == "preview-surfaces"
     ))
     matrix = json.loads((ROOT / "sources" / "server" / "capability-matrix.v1.json").read_text(encoding="utf-8"))
+    matrix_keys = {capability["key"] for capability in matrix["capabilities"]}
     implemented = {
         capability["key"] for capability in matrix["capabilities"]
         if capability.get("maturity", {}).get("implemented")
@@ -907,6 +922,16 @@ def validate_desktop_clients(catalog: dict, roster: dict) -> None:
         version = pro["version"] if driver in (scripting_driver, "pro-ui") else qgis["version"]
         if row["client_version"] != version:
             raise ValueError(f"{driver} row {row['surface']}/{row['operation']} left its release line.")
+    withheld = [
+        row for row in rows
+        if row["capability_key"] in matrix_keys and row["capability_key"] not in implemented
+    ]
+    if withheld:
+        row = withheld[0]
+        raise ValueError(
+            f"{row['client_lane']} row {row['surface']}/{row['operation']} keeps maturity "
+            f"{row.get('maturity')!r} for {row['capability_key']!r}, which the pinned matrix has not implemented."
+        )
     summary = catalog.get("desktop_driver_summary")
     expected_summary = {
         "ruling": "R40",
@@ -971,7 +996,7 @@ def validate_desktop_clients(catalog: dict, roster: dict) -> None:
     )
     if missing_surfaces:
         raise ValueError(f"pyqgis is missing OGC surfaces {missing_surfaces}.")
-    _validate_pyqgis_grid(pyqgis_rows, drivers["pyqgis"], must_fix, preview)
+    _validate_pyqgis_grid(pyqgis_rows, drivers["pyqgis"], must_fix, preview, implemented, matrix_keys)
     ui = source["ui"]
     expected_ui: dict[str, dict[tuple[str, str], str]] = {"pro-ui": {}, "qgis-ui": {}}
     for surface in ui["surfaces"]:
@@ -981,6 +1006,8 @@ def validate_desktop_clients(catalog: dict, roster: dict) -> None:
             raise ValueError(f"UI surface {surface['surface']} cores name unknown functions {sorted(unknown)}.")
         if surface["capability_key"] in preview:
             continue
+        if surface["capability_key"] in matrix_keys and surface["capability_key"] not in implemented:
+            continue
         for function in functions:
             expected_ui["pro-ui"][(surface["surface"], function)] = (
                 must_fix if function in surface["pro_core"] else prove
@@ -988,9 +1015,10 @@ def validate_desktop_clients(catalog: dict, roster: dict) -> None:
             expected_ui["qgis-ui"][(surface["surface"], function)] = (
                 must_fix if function in surface["qgis_core"] else prove
             )
-    for mode in ui["auth_modes"]:
-        expected_ui["pro-ui"][(ui["auth_surface"], mode)] = must_fix
-        expected_ui["qgis-ui"][(ui["auth_surface"], mode)] = must_fix
+    if ui["auth_capability"] not in matrix_keys or ui["auth_capability"] in implemented:
+        for mode in ui["auth_modes"]:
+            expected_ui["pro-ui"][(ui["auth_surface"], mode)] = must_fix
+            expected_ui["qgis-ui"][(ui["auth_surface"], mode)] = must_fix
     for driver, expected in expected_ui.items():
         present = {(row["surface"], row["operation"]): row for row in by_driver[driver]}
         if set(present) != set(expected):
@@ -1036,8 +1064,57 @@ def _disposition_selects(entry: dict, row: dict) -> bool:
     ) or row["deployment_target"] in (entry.get("deployment_targets") or [])
 
 
+def _unassigned_gap_contract(capability: str) -> str:
+    """Official assignments win: the generator emits that contract before applicability."""
+    sdk_protocols = json.loads(
+        (ROOT / "sources" / "official-sdk-protocol-assignments.v1.json").read_text(encoding="utf-8")
+    )
+    applicability = json.loads(
+        (ROOT / "sources" / "canonical-client-applicability.v1.json").read_text(encoding="utf-8")
+    )
+    if capability in set(sdk_protocols["capabilities"]):
+        return f"official-sdk-protocol-assignments@{sdk_protocols['revision']}"
+    required = {
+        decision["capability_key"]
+        for decision in applicability["decisions"]
+        if decision["classification"] == "official-sdk-required"
+    }
+    if capability in required:
+        return f"canonical-client-applicability@{applicability['revision']}"
+    raise ValueError(
+        f"Unassigned protocol harness contract for {capability} is not a governed gap."
+    )
+
+
+def _unassigned_gap_row(capability: str, contract: str) -> dict:
+    return {
+        "capability_key": capability,
+        "surface": slug(capability),
+        "operation": f"{UNASSIGNED_PROTOCOL_HARNESS_PREFIX}{capability}",
+        "maturity": "supported",
+        "canonical_client": "UNASSIGNED PROTOCOL HARNESS",
+        "client_lane": f"protocol-harness-gap-{slug(capability)}",
+        "client_version": "policy-v1",
+        "deployment_target": "local-docker",
+        "required_tier": "nightly",
+        "licensed": False,
+        "entitlement_policy_revision": None,
+        "addressable_by_client": True,
+        "addressability_reason": None,
+        "scenario_facets": ["positive"],
+        "contract_revision": contract,
+        "auth_policy_revision": "unassigned-protocol-harness-v1",
+        "fixture_revision": FIXTURE,
+        "budget_expectations": None,
+    }
+
+
 def explicit_unassigned_harness_gaps(catalog: dict) -> dict[str, dict]:
-    """One reviewed unassigned contract per capability. Not a harness assignment."""
+    """One reviewed unassigned contract per capability. Not a harness assignment.
+
+    Every field the generator writes is governed. A nightly gap that becomes a
+    release row, or any other drift, is not an accounted gap.
+    """
     found: dict[str, dict] = {}
     for row in catalog["requirements"]:
         operation = row.get("operation")
@@ -1054,12 +1131,14 @@ def explicit_unassigned_harness_gaps(catalog: dict) -> dict[str, dict]:
             )
         if capability in found:
             raise ValueError(f"Duplicate unassigned protocol harness contract for {capability}.")
-        if row.get("canonical_client") != "UNASSIGNED PROTOCOL HARNESS":
-            raise ValueError(f"Unassigned protocol harness contract for {capability} has the wrong client.")
-        if row.get("client_lane") != f"protocol-harness-gap-{slug(capability)}":
-            raise ValueError(f"Unassigned protocol harness contract for {capability} has the wrong lane.")
-        if row.get("addressable_by_client") is not True:
-            raise ValueError(f"Unassigned protocol harness contract for {capability} must stay addressable.")
+        expected = _unassigned_gap_row(capability, _unassigned_gap_contract(capability))
+        drifted = sorted(field for field in expected if row.get(field) != expected[field])
+        extra = sorted(set(row) - set(expected))
+        if drifted or extra:
+            raise ValueError(
+                f"Unassigned protocol harness contract for {capability} drifted "
+                f"(fields={drifted}, extra={extra})."
+            )
         found[capability] = row
     return found
 

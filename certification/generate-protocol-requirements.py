@@ -500,6 +500,80 @@ def production(requirements: list[dict[str, Any]], revisions: dict[str, Any]) ->
     }
 
 
+def pinned_python_fixture(contract: dict) -> str:
+    """Coverage and certification rows for this client share one pinned fixture."""
+    fixture = contract.get("fixtureRevision")
+    if not isinstance(fixture, str) or not fixture.strip():
+        raise ValueError("pinned sdk-python protocol contract is missing fixtureRevision")
+    return fixture
+
+
+def dotnet_release_profile(contract: dict) -> dict[str, int]:
+    """releaseProfile.excluded and each operation's releaseDenominator are one decision."""
+    profile = contract.get("releaseProfile")
+    if not isinstance(profile, dict):
+        raise ValueError("sdk-dotnet certification is missing releaseProfile")
+    denominator = profile.get("denominator")
+    excluded = profile.get("excluded")
+    if isinstance(denominator, bool) or not isinstance(denominator, int) or denominator < 0:
+        raise ValueError("sdk-dotnet releaseProfile.denominator must be a non-negative integer")
+    if not isinstance(excluded, list):
+        raise ValueError("sdk-dotnet releaseProfile.excluded must be a list")
+    operations = contract.get("operations")
+    if not isinstance(operations, list) or not operations:
+        raise ValueError("sdk-dotnet certification has no operations")
+    by_id: dict[str, dict] = {}
+    for operation in operations:
+        operation_id = operation.get("id")
+        if not isinstance(operation_id, str) or not operation_id or operation_id in by_id:
+            raise ValueError(f"sdk-dotnet certification repeats or omits operation id {operation_id!r}")
+        by_id[operation_id] = operation
+    excluded_ids: list[str] = []
+    for entry in excluded:
+        if not isinstance(entry, dict):
+            raise ValueError("sdk-dotnet releaseProfile exclusion must name an operation")
+        operation_id = entry.get("operationId")
+        if not isinstance(operation_id, str) or not operation_id:
+            raise ValueError("sdk-dotnet releaseProfile exclusion is missing operationId")
+        if not isinstance(entry.get("ownerIssue"), str) or not entry["ownerIssue"].strip():
+            raise ValueError(f"sdk-dotnet release exclusion {operation_id} is missing ownerIssue")
+        if not isinstance(entry.get("reason"), str) or not entry["reason"].strip():
+            raise ValueError(f"sdk-dotnet release exclusion {operation_id} is missing reason")
+        excluded_ids.append(operation_id)
+    if len(excluded_ids) != len(set(excluded_ids)):
+        raise ValueError("sdk-dotnet releaseProfile.excluded repeats an operationId")
+    unknown = sorted(set(excluded_ids) - set(by_id))
+    if unknown:
+        raise ValueError(f"sdk-dotnet releaseProfile excludes unknown operations: {unknown}")
+    excluded_set = set(excluded_ids)
+    included = non_addressable = 0
+    for operation in operations:
+        operation_id = operation["id"]
+        denom = operation.get("releaseDenominator")
+        if denom not in {"included", "excluded", "non-addressable"}:
+            raise ValueError(f"sdk-dotnet operation {operation_id} has releaseDenominator {denom!r}")
+        if (operation_id in excluded_set) != (denom == "excluded"):
+            raise ValueError(
+                f"sdk-dotnet operation {operation_id} releaseDenominator {denom!r} "
+                "disagrees with releaseProfile.excluded"
+            )
+        status = operation.get("status")
+        if (status == "non-addressable") != (denom == "non-addressable"):
+            raise ValueError(
+                f"sdk-dotnet operation {operation_id} status {status!r} "
+                f"disagrees with releaseDenominator {denom!r}"
+            )
+        if denom == "included":
+            included += 1
+        elif denom == "non-addressable":
+            non_addressable += 1
+    if included != denominator:
+        raise ValueError(
+            f"sdk-dotnet releaseProfile.denominator is {denominator}, but {included} operations are included"
+        )
+    return {"denominator": denominator, "excluded": len(excluded_ids), "non_addressable": non_addressable}
+
+
 def main() -> None:
     revisions = load(SOURCES / "source-revisions.v1.json")["sources"]
     python_wheel = selected_python_wheel(revisions)
@@ -608,6 +682,11 @@ def main() -> None:
             release_bucket: str | None = None,
             client_driver: str | None = None,
             client_package_digest: str | None = None) -> None:
+        # Every row is stamped maturity "supported". A capability the pinned matrix has not
+        # implemented must not enter the release denominator, on any lane.
+        recorded = server_by_key.get(capability)
+        if recorded is not None and not recorded.get("maturity", {}).get("implemented"):
+            return
         # The preview-surfaces ruling (release#351) covers every client driver (R40), not only
         # the bounded roster: an addressable driver row on a Preview capability would be a
         # supported requirement the release gate demands. PyQGIS keeps its not-applicable grid row.
@@ -651,9 +730,12 @@ def main() -> None:
         if bound is not None:
             requirements.append(bound)
 
+    server = load(SOURCES / "server" / "capability-matrix.v1.json")
+    server_by_key = {capability["key"]: capability for capability in server["capabilities"]}
+    python_fixture = pinned_python_fixture(load(SOURCES / "sdk-python" / "protocol-certification.v1.json"))
     dotnet_version = source_sdk_version("sdk-dotnet")
     sdk_sources = [
-        ("sdk-python", "capabilities", "Honua SDK Python", source_sdk_version("sdk-python"), "sdk-python", "geospatial-grpc@0.2.0-alpha.1"),
+        ("sdk-python", "capabilities", "Honua SDK Python", source_sdk_version("sdk-python"), "sdk-python", python_fixture),
         ("sdk-js", "capabilities", "@honua/sdk-js", sdk_js_version(), "sdk-js", fixture_pins["sdk-js"]),
         ("sdk-dotnet", "coverage", "Honua SDK .NET", dotnet_version, "sdk-dotnet", "sha256:83eb29ac38a3fb54914c1252b273dbb7f7f4d651a8204aafb4108d14d6d23727"),
     ]
@@ -720,7 +802,7 @@ def main() -> None:
                 fixture=(
                     fixture_pins["sdk-js"]
                     if source_name == "sdk-js"
-                    else contract["fixtureRevision"]
+                    else pinned_python_fixture(contract)
                 ),
                 facets=operation["scenario_facets"],
                 licensed=policy.get("licensed", operation.get("licensed", False)),
@@ -746,16 +828,19 @@ def main() -> None:
         )
 
     dotnet = load(SOURCES / "sdk-dotnet" / "sdk-certification.v1.json")
-    dotnet_addressable_operations = sum(
-        operation["status"] != "non-addressable" for operation in dotnet["operations"]
-    )
+    dotnet_profile = dotnet_release_profile(dotnet)
     tier_order = ("pr", "nightly", "release")
+    dotnet_rows_before = len(requirements)
     for operation in dotnet["operations"]:
+        if operation["releaseDenominator"] != "included":
+            continue
         required_tier = next(
             (tier for tier in tier_order if tier in operation["requiredTiers"]), None
         )
-        if operation["status"] == "non-addressable" or required_tier is None:
-            continue
+        if required_tier is None:
+            raise ValueError(
+                f"sdk-dotnet release operation {operation['id']} has no pr, nightly, or release tier"
+            )
         facets = list(dict.fromkeys(
             "positive" if facet == "read-only" else facet
             for facet in operation["scenarioFacets"]
@@ -767,6 +852,12 @@ def main() -> None:
             auth_policy="api-key-protected-v1",
             fixture="sha256:1165029a4c750c38a9b180f79f560dea41b84d8f0725618c9d96d3864be2d419",
             facets=facets, required_tier=required_tier,
+        )
+    dotnet_emitted = len(requirements) - dotnet_rows_before
+    if dotnet_emitted != dotnet_profile["denominator"]:
+        raise ValueError(
+            f"sdk-dotnet release profile denominator is {dotnet_profile['denominator']}, "
+            f"but {dotnet_emitted} certification rows were emitted"
         )
 
     grpc = load(SOURCES / "geospatial-grpc" / "operations.v1.json")
@@ -804,7 +895,6 @@ def main() -> None:
                 fixture=mcp["fixture_version"], facets=["positive", "negative", "media-schema", "auth"],
             )
 
-    server = load(SOURCES / "server" / "capability-matrix.v1.json")
     lane_clients = {
         "desktop-qgis": ("QGIS", QGIS_VERSION),
         "desktop-arcgis": (PRO["name"], PRO["version"]),
@@ -843,7 +933,6 @@ def main() -> None:
             )
 
     assignments = load(SOURCES / "canonical-client-assignments.v1.json")
-    server_by_key = {capability["key"]: capability for capability in server["capabilities"]}
     for assignment in assignments["assignments"]:
         capability = server_by_key.get(assignment["capability_key"])
         if not capability or not capability.get("maturity", {}).get("implemented"):
@@ -1170,19 +1259,20 @@ def main() -> None:
             f"{len(preview_cells)} bounded cells on Preview surfaces are excluded by the preview-surfaces "
             f"roster ruling and {len(not_addressable_cells)} cells no released client can exercise remain "
             "non-addressable rows (release#351, release#359). "
-            f"The .NET contract contributes {dotnet_addressable_operations} addressable operations; "
-            "18 explicitly non-addressable public abstractions "
+            f"The .NET release profile contributes {dotnet_profile['denominator']} operations "
+            f"and excludes {dotnet_profile['excluded']} candidate-fixture operations; "
+            f"{dotnet_profile['non_addressable']} explicitly non-addressable public abstractions "
             "remain documented in its pinned source contract and excluded from client certification. "
             f"Desktop clients are certified against release lines (R38): QGIS {QGIS_VERSION} and "
             f"{PRO['name']} {PRO['version']}; a receipt records the exact patch it observed. "
             "R40 splits those clients by driver. Scripting rows are must-fix-before-cut on every "
-            "applicable GeoServices and OGC cell. PyQGIS is every server-declared surface crossed with "
+            "applicable GeoServices and OGC cell. PyQGIS is every implemented server-declared surface crossed with "
             "every function that client can perform (connect/discover, add, render, identify, "
             "query/filter, edit, raster read, save/reopen, and the auth modes). A function PyQGIS "
             "has no client for is not-applicable, and the reason is declared on the row. "
             "pro-ui and qgis-ui are must-fix-before-cut only on "
-            "the core set recorded in the desktop source (FeatureServer, MapServer, ImageServer render, "
-            "connect, add layer, render, identify, query, FeatureServer edit, and the auth modes; "
+            "the core set recorded in the desktop source for capabilities the pinned matrix has implemented "
+            "(FeatureServer, MapServer, connect, add layer, render, identify, query, FeatureServer edit, and the auth modes; "
             "QGIS UI also WMS, WFS, WCS and WFS-T edit). Every other UI cell is "
             "prove-against-candidate. Counts per bucket per driver are in desktop_driver_summary. "
             "Roadmap Kerchunk and COPC capabilities remain excluded until promoted to supported."
