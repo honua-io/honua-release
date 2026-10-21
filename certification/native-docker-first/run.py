@@ -327,12 +327,25 @@ def observed_agent_task(transcript: str, workspace_id: str, turn_id: str,
     context = turn_value.get('context') or {}
     request = task.get('input', {}).get('request') or {}
     source = request.get('source') or {}
+    created_source = created.get('source') or {}
+    source_keys = {'kind', 'fileName', 'totalBytes', 'expectedSha256', 'artifact',
+                   'browserSelectionId', 'serverJobArtifact'}
+    def without_nulls(value):
+        return {key: item for key, item in value.items() if item is not None}
     if (task.get('input', {}).get('workspaceId') != workspace_id or
+            context.get('workspaceId') != workspace_id or not context.get('targetId') or
             request.get('intentId') != intent_id or request.get('viewId') != context.get('viewId') or
             request.get('contextRevision') != context.get('revision') or source.get('kind') != 'browser-file' or
             source.get('browserSelectionId') != selection['selectionId'] or
             any(source.get(key) != value for key, value in expected.items()) or
-            created.get('source') != source or not created.get('taskId') or
+            not set(source) <= source_keys or not set(created_source) <= source_keys or
+            source.get('artifact') is not None or source.get('serverJobArtifact') is not None or
+            created_source.get('artifact') is not None or created_source.get('serverJobArtifact') is not None or
+            without_nulls(created_source) != without_nulls(source) or
+            created.get('workspaceId') != workspace_id or created.get('targetId') != context['targetId'] or
+            created.get('tenantId') != context.get('tenantId') or
+            created.get('destination') != request.get('destination') or
+            not created.get('taskId') or
             not isinstance(created.get('revision'), int) or not created.get('contentHash')):
         raise Blocked('created import task did not bind the observed browser selection and intent')
     return {'workspaceId': workspace_id, 'turnId': turn_id, 'intentId': intent_id,

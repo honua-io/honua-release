@@ -57,10 +57,13 @@ class NativeFirstUseTests(unittest.TestCase):
             digest = runner.sha256(source)
             selection = {'selectionId': 'selected-1', 'fileName': source.name,
                          'totalBytes': source.stat().st_size, 'expectedSha256': digest}
-            context = {'workspaceId': 'workspace-1', 'viewId': 'view-1', 'revision': 2}
+            context = {'workspaceId': 'workspace-1', 'targetId': 'target-1', 'tenantId': 'tenant-1',
+                       'viewId': 'view-1', 'revision': 2}
             request = {'intentId': 'intent-1', 'viewId': 'view-1', 'contextRevision': 2,
+                       'destination': {'schema': 'public', 'table': 'new'},
                        'source': {'kind': 'browser-file', 'browserSelectionId': 'selected-1',
-                                  **{key: selection[key] for key in ('fileName', 'totalBytes', 'expectedSha256')}}}
+                                  **{key: selection[key] for key in ('fileName', 'totalBytes', 'expectedSha256')},
+                                  'artifact': None}}
             def call(name, identifier, value):
                 return json.dumps({'message': {'content': [{'type': 'tool_use', 'name': 'mcp__honua__' + name,
                                                            'id': identifier, 'input': value}]}})
@@ -76,20 +79,28 @@ class NativeFirstUseTests(unittest.TestCase):
                       result('b', {'state': 'attached', 'turnBinding': {'workspaceId': 'workspace-1', 'turnId': 'turn-1'}}),
                       call('honua_workspace_create_dataset_import_task', 'i', {'workspaceId': 'workspace-1', 'request': request}),
                       result('i', {'taskId': 'task-1', 'revision': 1, 'contentHash': 'a'*64,
-                                   'source': request['source'], 'destination': {'schema': 'public', 'table': 'new'}})]
+                                   'workspaceId': 'workspace-1', 'targetId': 'target-1', 'tenantId': 'tenant-1',
+                                   'source': {key: value for key, value in request['source'].items() if value is not None},
+                                   'destination': request['destination']})]
             transcript = '\n'.join(events)
             runner.observed_client_session(transcript, 'session-1')
             self.assertEqual(runner.observed_agent_task(transcript, 'workspace-1', 'turn-1', 'intent-1', source)['taskId'], 'task-1')
             with self.assertRaisesRegex(runner.Blocked, 'same persistent'):
                 runner.observed_client_session(transcript, 'different-session')
-            for bad in ('turnBinding', 'browserFileSelection', 'task'):
+            for bad in ('turnBinding', 'browserFileSelection', 'task', 'workspace', 'target',
+                        'tenant', 'destination', 'artifact'):
                 broken = list(events)
-                index = {'turnBinding': 6, 'browserFileSelection': 4, 'task': 8}[bad]
+                index = {'turnBinding': 6, 'browserFileSelection': 4}.get(bad, 8)
                 payload = json.loads(broken[index])
                 output = json.loads(payload['message']['content'][0]['content'])
                 if bad == 'turnBinding': output['turnBinding']['turnId'] = 'other-turn'
                 elif bad == 'browserFileSelection': output['browserFileSelection']['expectedSha256'] = 'b'*64
-                else: output['source']['browserSelectionId'] = 'other-selection'
+                elif bad == 'task': output['source']['browserSelectionId'] = 'other-selection'
+                elif bad == 'workspace': output['workspaceId'] = 'foreign-workspace'
+                elif bad == 'target': output['targetId'] = 'foreign-target'
+                elif bad == 'tenant': output['tenantId'] = 'foreign-tenant'
+                elif bad == 'destination': output['destination']['table'] = 'foreign_table'
+                else: output['source']['artifact'] = {'projectId': 'foreign'}
                 payload['message']['content'][0]['content'] = json.dumps(output)
                 broken[index] = json.dumps(payload)
                 with self.assertRaises(runner.Blocked):
