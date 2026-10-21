@@ -719,6 +719,16 @@ jobs:
                   fi
                 else
                   STATUS=fail; WHY="rollback to the prior revision failed"; tail -n 40 /tmp/rollback.log || true
+                  # Keep the prior image's own refusal: it is the expand-contract verdict.
+                  mkdir -p /tmp/upg
+                  kubectl describe pods -n "$NS" -l app.kubernetes.io/instance=honua > /tmp/upg/rollback-pods.txt 2>&1 || true
+                  for prev in "" --previous; do
+                    kubectl logs -n "$NS" -l app.kubernetes.io/instance=honua --all-containers --prefix --tail=400 $prev \
+                      >> /tmp/upg/rollback-prior.log 2>&1 || true
+                  done
+                  REFUSAL="$(grep -hoE 'schema_reader_incompatible[^"]{0,200}|Unhandled exception[^"]{0,300}' /tmp/upg/rollback-prior.log | head -n 1 || true)"
+                  [ -z "$REFUSAL" ] || WHY="$WHY: prior image refused the migrated schema: $REFUSAL"
+                  tail -n 60 /tmp/upg/rollback-prior.log || true
                 fi
               elif [ "$STATUS" != "fail" ]; then
                 kubectl logs -n "$NS" -l app.kubernetes.io/instance=honua \
