@@ -6,6 +6,8 @@ from __future__ import annotations
 
 import importlib.util
 import struct
+import subprocess
+import sys
 import zlib
 from pathlib import Path
 
@@ -96,3 +98,20 @@ def test_journey_pixel_oracle_uses_the_shared_decoder_and_media_type():
         assert "critical-chunk" in str(exc)
     else:
         raise AssertionError("critical-chunk")
+
+
+def test_executor_import_does_not_shadow_the_journey_driver():
+    script = """
+import sys
+from pathlib import Path
+root = Path(sys.argv[1])
+sys.path.insert(0, str(root / "certification" / "terminal-journey"))
+import executor
+import run
+journey = (root / "certification" / "terminal-journey").resolve()
+assert Path(executor.__file__).resolve().parent == journey
+assert Path(run.__file__).resolve().parent == journey
+assert Path(run.pins.__file__).resolve().parent == journey
+assert callable(run.build_receipt)
+"""
+    subprocess.run([sys.executable, "-c", script, str(ROOT)], check=True)

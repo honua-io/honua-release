@@ -1092,6 +1092,28 @@ def test_a_passing_render_carries_no_blocker():
     assert rejected.check_render(output).status == "fail"
 
 
+def test_uri_render_rejects_a_conflicting_response_media_type():
+    png = png_fixture()
+    for header, status in (("image/jpeg", "fail"), ("application/octet-stream", "fail"),
+                           ("image/png; charset=binary", "pass")):
+        transport = mock.Mock(credentials={"proposer": "unit"})
+        transport.http.return_value = (png, 200)
+        transport.last_response_headers = {"content-type": header}
+        engine = engine_for(transport, execution=dict(RENDER_FIXTURE))
+        output = {"image": {"mimeType": "image/png", "uri": "/render.png"}, "layers": []}
+        assert engine.check_render(output).status == status
+        detail = engine.evidence["checks"]["4"]["pixel"]["detail"]
+        if status == "fail":
+            assert "media type" in detail
+        else:
+            assert engine.evidence["proofs"]["pixel"]["rgba"] == [239, 32, 32, 255]
+    transport = mock.Mock(credentials={"proposer": "unit"})
+    transport.http.return_value = (png_fixture((1, 2, 3, 255)), 200)
+    transport.last_response_headers = {"content-type": "image/png"}
+    engine = engine_for(transport, execution=dict(RENDER_FIXTURE))
+    assert engine.check_render({"image": {"mimeType": "image/png", "uri": "/render.png"}, "layers": []}).status == "fail"
+
+
 def test_failed_upload_proof_is_recorded_and_stops_the_stage_as_a_handled_failure():
     engine = upload_engine()
     engine.transport.cli_admin.return_value = (0, {**UPLOAD_RESULT, "success": False, "errorCode": "import.failed"})

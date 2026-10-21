@@ -40,7 +40,10 @@ corresponding proof. The protocol certification consumer now refuses a passing
 MCP cell unless the receipt payload is `honua.mcp-auth-observations/v1` and
 binds the cell operation, authorization policy, canonical client, lane, pinned
 cohort version, and producer source, including every observation that policy
-requires. Anonymous observations cannot use an authenticated credential mode.
+requires. Each observation names the method, tool, or resource it requested
+and carries a response digest bound to that request, the observation name,
+and the session. Copying one shared-tool probe and changing only the
+top-level operation does not certify the other operation. Anonymous observations cannot use an authenticated credential mode.
 A protected operation's anonymous refusal cannot reuse the authenticated
 session, and a different caller on that session must be refused. Non-passing
 MCP cells are unchanged. This is a checker control: it does not qualify a

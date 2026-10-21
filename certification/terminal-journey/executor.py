@@ -456,15 +456,24 @@ class JourneyExecutor:
             self.fixture["features"]))
 
     def check_render(self, output):
+        def media_type_of(value):
+            if not isinstance(value, str):
+                return ""
+            return value.split(";", 1)[0].strip().lower()
+
         def prove():
             image = output["image"]
-            media_type = image.get("mimeType")
+            declared = media_type_of(image.get("mimeType"))
             if image.get("base64"):
                 raw = base64.b64decode(image["base64"], validate=True)
+                media_type = declared
             else:
                 raw, _ = self.transport.http("GET", image["uri"], principal=self.principal(4))
-                if not media_type:
-                    media_type = self.transport.last_response_headers.get("content-type", "").split(";", 1)[0].strip()
+                fetched = media_type_of(self.transport.last_response_headers.get("content-type", ""))
+                # A declared image/png must match the bytes the client actually fetched.
+                if not fetched or (declared and declared != fetched):
+                    raise oracles.ProofError("render response media type conflicts with the declared image type")
+                media_type = fetched
             proof = oracles.prove_pixel(raw, bbox=self.fixture["bbox"], point=self.fixture["pixelPoint"],
                 size=self.fixture["renderSize"], rgba=self.fixture["pixelRgba"], media_type=media_type)
             return proof

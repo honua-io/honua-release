@@ -11,6 +11,7 @@ from __future__ import annotations
 import argparse
 import base64
 import hashlib
+import importlib.util
 import json
 import math
 import re
@@ -596,7 +597,12 @@ _MCP_CLIENTS = {
     "Official MCP TypeScript SDK": ("mcp-typescript-sdk", "@modelcontextprotocol/sdk"),
     "MCP Inspector": ("mcp-inspector", "@modelcontextprotocol/inspector"),
 }
-_MCP_OBS_FIELDS = {"result", "credential_mode", "forwarded_credential", "session_id", "caller_id"}
+_MCP_OBS_FIELDS = {
+    "result", "credential_mode", "forwarded_credential", "session_id", "caller_id", "request", "response",
+}
+_MCP_REQUEST_FIELDS = {"method", "target"}
+_MCP_RESPONSE_FIELDS = {"outcome", "code", "digest"}
+_MCP_CODE_RE = re.compile(r"^[a-z][a-z0-9-]{0,63}$")
 _MCP_PAYLOAD_FIELDS = {
     "schema", "auth_policy_revision", "policy_revision", "canonical_client", "client_lane",
     "client_version", "operation", "producer_source_sha", "observations",
@@ -665,7 +671,36 @@ def _mcp_contract() -> dict | str:
     return _mcp_contract_cache
 
 
-def _mcp_observation_error(name: str, obs: object) -> str | None:
+def _mcp_operation_request(operation: object) -> tuple[str, str] | None:
+    if not isinstance(operation, str) or not operation or len(operation) > 256 or any(ord(char) < 32 for char in operation):
+        return None
+    if ":" in operation:
+        method, target = operation.split(":", 1)
+        if not method or not target or ":" in method:
+            return None
+        return method, target
+    return operation, ""
+
+
+def _mcp_response_digest(name: str, request: dict, outcome: str, code: str, session_id: str, caller_id: str) -> str:
+    """Bind response evidence to this observation's request. A copied probe will not match."""
+    body = json.dumps(
+        {
+            "caller_id": caller_id,
+            "code": code,
+            "method": request["method"],
+            "observation": name,
+            "outcome": outcome,
+            "session_id": session_id,
+            "target": request["target"],
+        },
+        sort_keys=True,
+        separators=(",", ":"),
+    ).encode("utf-8")
+    return "sha256:" + hashlib.sha256(body).hexdigest()
+
+
+def _mcp_observation_error(name: str, obs: object, operation: object) -> str | None:
     if not isinstance(obs, dict) or set(obs) != _MCP_OBS_FIELDS:
         return f"MCP observation {name} has unknown or missing fields"
     if obs["forwarded_credential"] is not False:
@@ -676,6 +711,23 @@ def _mcp_observation_error(name: str, obs: object) -> str | None:
         return f"MCP observation {name} has an invalid session"
     if not isinstance(obs["caller_id"], str) or _MCP_ID_RE.fullmatch(obs["caller_id"]) is None:
         return f"MCP observation {name} has an invalid caller"
+    expected = _mcp_operation_request(operation)
+    request = obs["request"]
+    if (expected is None or not isinstance(request, dict) or set(request) != _MCP_REQUEST_FIELDS
+            or request.get("method") != expected[0] or request.get("target") != expected[1]):
+        return "MCP observation request does not match the cell operation"
+    response = obs["response"]
+    if not isinstance(response, dict) or set(response) != _MCP_RESPONSE_FIELDS:
+        return f"MCP observation {name} response evidence is missing"
+    outcome = "result" if obs["result"] == "pass" else "error"
+    code = response.get("code")
+    if (response.get("outcome") != outcome or not isinstance(code, str) or _MCP_CODE_RE.fullmatch(code) is None
+            or (obs["result"] == "pass") != (code == "ok")):
+        return f"MCP observation {name} response does not match the observation result"
+    if response.get("digest") != _mcp_response_digest(
+        name, request, outcome, code, obs["session_id"], obs["caller_id"],
+    ):
+        return "MCP observation response is not bound to its request"
     return None
 
 
@@ -717,8 +769,10 @@ def _mcp_profile_error(policy: str, observations: dict) -> str | None:
 
 
 def _mcp_pass_observation_error(cell: dict) -> str | None:
-    """Bind a passing MCP receipt to the operation policy and pinned client cohort.
+    """Bind a passing MCP receipt to the operation policy, request, and pinned cohort.
 
+    Each observation names the method, tool, or resource it called and a response
+    digest bound to that request. A copied probe does not certify another operation.
     A matching payload is a checker control. It does not qualify a candidate, and a
     non-passing MCP cell is not inspected here.
     """
@@ -766,11 +820,63 @@ def _mcp_pass_observation_error(cell: dict) -> str | None:
     observations = payload["observations"]
     if not isinstance(required, list) or not required or not isinstance(observations, dict) or set(observations) != set(required):
         return "MCP authorization observations are incomplete"
+    digests = []
     for name in required:
-        error = _mcp_observation_error(name, observations.get(name))
+        error = _mcp_observation_error(name, observations.get(name), operation)
         if error:
             return error
+        digests.append(observations[name]["response"]["digest"])
+    if len(set(digests)) != len(digests):
+        return "copied MCP observation response"
     return _mcp_profile_error(decision, observations)
+
+
+_portal_module = None
+
+
+def _portal_sharing_module():
+    """Load the group-sharing judge by path. Do not mutate sys.path."""
+    global _portal_module
+    if _portal_module is not None:
+        return _portal_module
+    path = Path(__file__).resolve().parent / "portal_group_sharing.py"
+    spec = importlib.util.spec_from_file_location("honua_portal_group_sharing", path)
+    if spec is None or spec.loader is None:
+        raise ImportError(f"portal group sharing judge is not loadable: {path}")
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    _portal_module = module
+    return module
+
+
+def _portal_observation_document(cell: dict):
+    receipt = cell.get("evidence_receipt")
+    encoded = receipt.get("payload_base64") if isinstance(receipt, dict) else None
+    if not isinstance(encoded, str) or len(encoded) > ((MAX_FORMAT_RECEIPT_PAYLOAD_BYTES + 2) // 3) * 4:
+        return None
+    try:
+        raw_payload = base64.b64decode(encoded, validate=True)
+        if len(raw_payload) > MAX_FORMAT_RECEIPT_PAYLOAD_BYTES:
+            return {"schema": "oversize"}
+        document = json.loads(
+            raw_payload,
+            object_pairs_hook=_unique_json_object,
+            parse_constant=_reject_json_constant,
+        )
+    except (ValueError, UnicodeDecodeError, RecursionError, _DuplicateJsonKey):
+        return None
+    return document if isinstance(document, dict) else None
+
+
+def _portal_sharing_verdict(cell: dict) -> dict:
+    try:
+        qualify = _portal_sharing_module().qualify
+    except (ImportError, OSError, AttributeError):
+        return {"status": "refused", "reason": "judge-unavailable"}
+    verdict = qualify(_portal_observation_document(cell))
+    if not isinstance(verdict, dict) or verdict.get("status") not in {"pass", "nonpass", "refused"}:
+        return {"status": "refused", "reason": "judge-unavailable"}
+    return verdict
 
 
 def evaluate(
@@ -1120,6 +1226,13 @@ def evaluate(
                         reason = _mcp_pass_observation_error(raw)
                         if reason:
                             fail(prefix, reason)
+
+        if (raw.get("surface") == "portal-sharing" and raw.get("addressable_by_client") is True
+                and (raw.get("result") == "pass" or _in_scope(raw, tier))):
+            verdict = _portal_sharing_verdict(raw)
+            # The judge does not return pass for absent or synthetic observations.
+            if verdict.get("status") != "pass":
+                fail(prefix, f"portal group sharing {verdict.get('status')}: {verdict.get('reason')}")
 
         if raw["addressable_by_client"]:
             if raw["result"] == "not-addressable":

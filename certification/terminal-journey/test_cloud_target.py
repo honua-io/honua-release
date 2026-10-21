@@ -419,6 +419,15 @@ class CloudExecutionTests(unittest.TestCase):
             self.assertEqual(local.datasource_arguments()["host"], "db")
 
 
+class JourneyImportTests(unittest.TestCase):
+    def test_importing_executor_before_run_keeps_the_journey_driver(self):
+        # This module imports executor, which loads the PNG decoder, before run.
+        self.assertEqual(Path(executor.__file__).resolve().parent, HERE)
+        self.assertEqual(Path(driver.__file__).resolve().parent, HERE)
+        self.assertEqual(Path(driver.pins.__file__).resolve().parent, HERE)
+        self.assertTrue(callable(driver.build_receipt))
+
+
 def live_receipt(kind, stage_results=None):
     """A live receipt build_receipt emits for a cloud target (stages blocked unless given)."""
     target = cloud(kind)
