@@ -6,13 +6,23 @@ from __future__ import annotations
 
 import importlib.util
 import struct
-import sys
 import zlib
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
-sys.path.insert(0, str(ROOT / "certification" / "installed-clients"))
-import render_png  # noqa: E402
+
+
+def _load_render_png():
+    path = ROOT / "certification" / "installed-clients" / "render_png.py"
+    spec = importlib.util.spec_from_file_location("honua_installed_clients_render_png_test", path)
+    if spec is None or spec.loader is None:
+        raise ImportError(f"shared PNG decoder is not loadable: {path}")
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+render_png = _load_render_png()
 
 
 def _oracles():

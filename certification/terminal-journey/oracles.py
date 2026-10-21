@@ -7,16 +7,26 @@ from __future__ import annotations
 
 import base64
 import hashlib
+import importlib.util
 import json
 import math
 import struct
-import sys
 from pathlib import Path
 
-_RENDER_PNG = Path(__file__).resolve().parents[1] / "installed-clients"
-if str(_RENDER_PNG) not in sys.path:
-    sys.path.insert(0, str(_RENDER_PNG))
-from render_png import PngError, decode_png
+def _load_render_png():
+    """Load the shared decoder by path so this package never shadows `run` or `pins`."""
+    path = Path(__file__).resolve().parents[1] / "installed-clients" / "render_png.py"
+    spec = importlib.util.spec_from_file_location("honua_installed_clients_render_png", path)
+    if spec is None or spec.loader is None:
+        raise ImportError(f"shared PNG decoder is not loadable: {path}")
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+_render_png = _load_render_png()
+PngError = _render_png.PngError
+decode_png = _render_png.decode_png
 
 
 class ProofError(ValueError):
