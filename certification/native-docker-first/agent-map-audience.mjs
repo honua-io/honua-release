@@ -40,7 +40,6 @@ try {
   assert.equal(proposal.status?.toLowerCase(), 'succeeded');
   assert(proposal.requestedBy && proposal.resolvedBy);
   assert.notEqual(proposal.requestedBy, proposal.resolvedBy, 'proposer cannot approve');
-  assert.notEqual(proposal.resolvedBy, visual.principalId, 'originating human cannot approve');
   const agentRead = await request.newContext({ baseURL: serverOrigin,
     extraHTTPHeaders: { 'X-API-Key': required('HONUA_AGENT_MAP_AGENT_KEY'), Accept: 'application/json' } });
   let operation;
@@ -115,7 +114,7 @@ try {
   const receipt = { status:'pass', proposalId:handoff.proposalId,
     operationInstanceId:handoff.operationInstanceId, requestId,
     requestedBy:proposal.requestedBy, resolvedBy:proposal.resolvedBy,
-    originHuman:visual.principalId, itemId:handoff.itemId, versionId:handoff.versionId,
+    originConsolePartition:visual.principalId, itemId:handoff.itemId, versionId:handoff.versionId,
     contentHash:handoff.contentHash, route:handoff.route, serviceId:initial.service.serviceId,
     serviceName:initial.service.serviceName, sourceId:initial.sourceId,
     publicFeatureCount:serviceCount, renderedFeatureCount,

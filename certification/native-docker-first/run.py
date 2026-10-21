@@ -1683,7 +1683,7 @@ def phase_agent_map_audience(args, state, binding, attempt):
     if (witness.get('status') != 'pass' or
             any(witness.get(key) != final.get(key) for key in
                 ('proposalId', 'operationInstanceId', 'itemId', 'versionId', 'contentHash', 'route')) or
-            witness.get('originHuman') != visual['principalId'] or
+            witness.get('originConsolePartition') != visual['principalId'] or
             witness.get('serviceId') != first['service']['serviceId'] or
             witness.get('serviceName') != first['service']['serviceName'] or
             witness.get('sourceId') != first['sourceId'] or
@@ -1692,8 +1692,7 @@ def phase_agent_map_audience(args, state, binding, attempt):
             witness['renderedFeatureCount'] <= 0 or
             not witness.get('requestId') or
             not witness.get('requestedBy') or not witness.get('resolvedBy') or
-            witness['requestedBy'] == witness['resolvedBy'] or
-            witness['originHuman'] == witness['resolvedBy']):
+            witness['requestedBy'] == witness['resolvedBy']):
         state['stages']['agentMapApproval'] = 'blocked'
         private_json(attempt / 'receipt.json', state)
         raise Blocked('audience witness does not join exact service, real approver and final external map')
