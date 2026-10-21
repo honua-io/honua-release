@@ -426,6 +426,12 @@ jobs:
             fi
             NS=honua-upgrade
             kubectl create namespace "$NS" || true
+            # Production refuses credentials that ship in honua-server's example/harness files
+            # ("'ConnectionStrings__DefaultConnection' is set to a placeholder value", run
+            # 39667188026), so the database password and encryption master key are minted per run.
+            DB_PASSWORD="$(openssl rand -hex 24)"; MASTER_KEY="$(openssl rand -hex 32)"
+            echo "::add-mask::$DB_PASSWORD"; echo "::add-mask::$MASTER_KEY"
+            kubectl create secret generic honua-postgis-auth -n "$NS" --from-literal=password="$DB_PASSWORD"
             # PostGIS + Redis (persistent backing so the schema seeded pre-upgrade survives the upgrade).
             kubectl apply -n "$NS" -f - <<'YAML'
           apiVersion: apps/v1
@@ -443,7 +449,7 @@ jobs:
                     ports: [ { containerPort: 5432 } ]
                     env:
                       - { name: POSTGRES_USER, value: honua }
-                      - { name: POSTGRES_PASSWORD, value: honua }
+                      - { name: POSTGRES_PASSWORD, valueFrom: { secretKeyRef: { name: honua-postgis-auth, key: password } } }
                       - { name: POSTGRES_DB, value: honua }
           ---
           apiVersion: v1
@@ -522,10 +528,10 @@ jobs:
                     --set-string "secret.env.AuditLog__ChainVerification__Key=$AUDIT_CHAIN_KEY"
                     --set postgresql.enabled=false
                     --set redis.enabled=false
-                    --set 'secret.env.ConnectionStrings__DefaultConnection=Host=honua-postgis;Port=5432;Database=honua;Username=honua;Password=honua'
+                    --set-string "secret.env.ConnectionStrings__DefaultConnection=Host=honua-postgis;Port=5432;Database=honua;Username=honua;Password=$DB_PASSWORD"
                     --set 'secret.env.ConnectionStrings__redis=honua-redis:6379'
                     --set 'secret.env.HONUA_ADMIN_PASSWORD=UpgradeCiAdmin!2026'
-                    --set 'secret.env.Security__ConnectionEncryption__MasterKey=upgrade-kind-master-key-2026-rc2-0001'
+                    --set-string "secret.env.Security__ConnectionEncryption__MasterKey=$MASTER_KEY"
                     --set-string 'config.env.Operations__Policy__Enabled=true'
                     --set-string 'config.env.Operations__Policy__DefaultDecision=Deny'
                     --set image.pullPolicy=IfNotPresent)
@@ -632,7 +638,7 @@ jobs:
               "${COMMON[@]}" >/tmp/install.log 2>&1; then
               BEFORE_VERSIONS="$(db_query 'SELECT count(*) FROM public.schema_versions;' 2>/tmp/before-db.log || true)"
               if start_server_forward && E2E_BASE=http://127.0.0.1:18080 \
-                   E2E_API_KEY='UpgradeCiAdmin!2026' E2E_DB_HOST=honua-postgis \
+                   E2E_API_KEY='UpgradeCiAdmin!2026' E2E_DB_HOST=honua-postgis E2E_DB_PASSWORD="$DB_PASSWORD" \
                    E2E_PSQL="kubectl exec -i -n $NS deployment/honua-postgis -- env PGPASSWORD=honua psql -U honua -d honua" \
                    E2E_OUT=/tmp/upg-seed bash e2e/harness/seed/seed.sh >/tmp/seed.log 2>&1; then
                 stop_server_forward

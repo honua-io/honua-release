@@ -41,6 +41,7 @@ source "$HERE/../lib/common.sh"
 COMPOSE_FILE="${E2E_COMPOSE_FILE:-$HERE/../compose.candidate.yml}"
 E2E_PSQL="${E2E_PSQL:-docker compose -f $COMPOSE_FILE exec -T db psql -U honua -d honua}"
 DB_HOST="${E2E_DB_HOST:-db}"   # hostname the SERVER uses to reach PostGIS (compose service name)
+DB_PASSWORD="${E2E_DB_PASSWORD:-honua}"   # password for that connection (Production lanes mint one per run)
 
 psql_apply() { $E2E_PSQL -v ON_ERROR_STOP=1 "$@"; }
 
@@ -244,8 +245,8 @@ INSERT INTO honua_data.workbench_assets (asset_id, title, category, risk, zone, 
 SQL
 
 echo "== seed: creating data connection =="
-api_post "/api/v1/admin/connections/" "$(jq -nc --arg h "$DB_HOST" \
-  '{name:"e2e-pg",host:$h,port:5432,databaseName:"honua",username:"honua",password:"honua",provider:"PostGIS",sslRequired:false,sslMode:"Disable"}')"
+api_post "/api/v1/admin/connections/" "$(jq -nc --arg h "$DB_HOST" --arg pw "$DB_PASSWORD" \
+  '{name:"e2e-pg",host:$h,port:5432,databaseName:"honua",username:"honua",password:$pw,provider:"PostGIS",sslRequired:false,sslMode:"Disable"}')"
 CID="$(jget '.data.connectionId // .connectionId // .data.id')"
 [ -z "$CID" ] && { echo "::error:: could not create connection (HTTP $HTTP_CODE): $HTTP_BODY"; exit 1; }
 echo "   connection: $CID"
