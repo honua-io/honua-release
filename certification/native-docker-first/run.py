@@ -53,16 +53,16 @@ def canonical_map_route(route: str | None) -> bool:
 def require_private_source(server_origin: str, service: dict) -> None:
     """Observe the installed source as an anonymous reader before map publication."""
     service_path = '/'.join(quote(part, safe='') for part in service['serviceName'].split('/'))
-    path = ('/rest/services/' + service_path +
-            '/FeatureServer/' + str(service['layerId']) + '?f=json')
-    try:
-        with urlopen(server_origin + path, timeout=15) as response:
-            status = response.status
-    except HTTPError as exc:
-        status = exc.code
-        exc.close()
-    if status not in (401, 403):
-        raise Blocked('original source is not demonstrably private to anonymous readers')
+    layer_path = '/rest/services/' + service_path + '/FeatureServer/' + str(service['layerId'])
+    for suffix in ('?f=json', '/query?where=1%3D1&returnCountOnly=true&f=json'):
+        try:
+            with urlopen(server_origin + layer_path + suffix, timeout=15) as response:
+                status = response.status
+        except HTTPError as exc:
+            status = exc.code
+            exc.close()
+        if status not in (401, 403):
+            raise Blocked('original source is not demonstrably private to anonymous readers')
 
 
 class Blocked(RuntimeError):

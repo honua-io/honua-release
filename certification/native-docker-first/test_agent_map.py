@@ -158,7 +158,8 @@ class AgentMapRouteTests(unittest.TestCase):
             with self.subTest(status=status), patch.object(runner, 'urlopen',
                 side_effect=HTTPError(endpoint, status, 'denied', None, None)) as read:
                 runner.require_private_source('http://127.0.0.1:8080', service)
-                self.assertEqual(read.call_args.args[0], endpoint)
+                self.assertEqual([call.args[0] for call in read.call_args_list], [endpoint,
+                    endpoint.removesuffix('?f=json') + '/query?where=1%3D1&returnCountOnly=true&f=json'])
         for status in (200, 404):
             with self.subTest(status=status), patch.object(runner, 'urlopen',
                 return_value=nullcontext(SimpleNamespace(status=status))):
@@ -176,7 +177,19 @@ class AgentMapRouteTests(unittest.TestCase):
         with patch.object(runner, 'urlopen',
                 side_effect=HTTPError(endpoint, 401, 'denied', None, None)) as read:
             runner.require_private_source('http://127.0.0.1:8080', service)
-            self.assertEqual(read.call_args.args[0], endpoint)
+            self.assertEqual([call.args[0] for call in read.call_args_list], [endpoint,
+                endpoint.removesuffix('?f=json') + '/query?where=1%3D1&returnCountOnly=true&f=json'])
+
+    def test_private_metadata_does_not_prove_private_feature_query(self):
+        service = {'serviceName': 'native-source', 'layerId': 42}
+        endpoint = 'http://127.0.0.1:8080/rest/services/native-source/FeatureServer/42'
+        with patch.object(runner, 'urlopen', side_effect=[
+                HTTPError(endpoint + '?f=json', 401, 'denied', None, None),
+                nullcontext(SimpleNamespace(status=200))]) as read:
+            with self.assertRaises(runner.Blocked):
+                runner.require_private_source('http://127.0.0.1:8080', service)
+            self.assertEqual(read.call_args.args[0],
+                endpoint + '/query?where=1%3D1&returnCountOnly=true&f=json')
 
 
 class AgentMapShareEvidenceTests(unittest.TestCase):
