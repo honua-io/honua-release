@@ -472,9 +472,17 @@ jobs:
             helm dependency build "$PRIOR_CHART" || helm dependency update "$PRIOR_CHART" || true
             helm dependency build "$CANDIDATE_CHART" || helm dependency update "$CANDIDATE_CHART" || true
 
-            # Load images into kind so the cluster doesn't need registry creds at pod-pull time.
-            kind load docker-image "$PRIOR" --name honua-upgrade || true
-            [ "$CAND" != "$PRIOR" ] && kind load docker-image "$CAND" --name honua-upgrade || true
+            # Do NOT `kind load` these digest references. kind imports a digest-only image under a
+            # synthetic docker.io/library/import-<date>@sha256 name, and containerd then refuses the
+            # pod with CreateContainerError "failed to check if this is a checkpoint image" (run
+            # 39662331927). The pre-pull step above already proved both digests are pullable, so
+            # the kind node pulls exactly those digests from the registry itself.
+            for IMG in "$PRIOR" "$CAND"; do
+              case "$IMG" in
+                *@sha256:*) ;;
+                *) kind load docker-image "$IMG" --name honua-upgrade || true ;;
+              esac
+            done
 
             COMMON=(--namespace "$NS" --wait --timeout 12m
                     --set postgresql.enabled=false
@@ -727,6 +735,11 @@ jobs:
               fi
             else
               STATUS=fail; WHY="helm install of the prior baseline image failed"; tail -n 60 /tmp/install.log || true
+              mkdir -p /tmp/upg
+              kubectl describe pods -n "$NS" -l app.kubernetes.io/instance=honua > /tmp/upg/prior-install-pods.txt 2>&1 || true
+              kubectl logs -n "$NS" -l app.kubernetes.io/instance=honua --all-containers --prefix --tail=500 \
+                > /tmp/upg/prior-install.log 2>&1 || true
+              tail -n 40 /tmp/upg/prior-install.log || true
             fi
             set +x
           fi
