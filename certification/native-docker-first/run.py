@@ -635,6 +635,133 @@ def phase_agent_task(args, state, binding, attempt):
         raise
 
 
+def observed_agent_submission(transcript: str, original: dict) -> dict:
+    calls = []
+    results = {}
+    for line in transcript.splitlines():
+        try: event = json.loads(line)
+        except ValueError: continue
+        if not isinstance(event, dict): continue
+        message = event.get('message')
+        for item in message.get('content', []) if isinstance(message, dict) else []:
+            if isinstance(item, dict) and item.get('type') == 'tool_use': calls.append(item)
+            elif isinstance(item, dict) and item.get('type') == 'tool_result': results[item.get('tool_use_id')] = item
+    binds = [call for call in calls if call.get('name') == 'mcp__honua__honua_agent_connect']
+    names = ('get_dataset_import_authority', 'get_dataset_import_submission',
+             'submit_dataset_import')
+    matches = [[call for call in calls if call.get('name') == 'mcp__honua__honua_workspace_' + name]
+               for name in names]
+    authority_calls, read_calls, submits = matches
+    if len(binds) != 1 or len(authority_calls) != 1 or len(read_calls) != 2 or len(submits) != 1:
+        raise Blocked('external client did not inspect authority, submit once, and read back the original task')
+    bind, authority_call, before, after, submit = binds[0], authority_calls[0], read_calls[0], read_calls[1], submits[0]
+    if not (calls.index(bind) < calls.index(authority_call) < calls.index(before) <
+            calls.index(submit) < calls.index(after)):
+        raise Blocked('external client submission sequence is not ordered')
+    reference = {'workspaceId': original['workspaceId'], 'taskId': original['taskId'],
+                 'revision': original['revision'], 'contentHash': original['contentHash']}
+    if any(call.get('input') != reference for call in (authority_call, before, after)):
+        raise Blocked('external client inspected a different immutable import task')
+    def output(call):
+        result = results.get(call.get('id'))
+        if not result or result.get('is_error'):
+            raise Blocked('external client lacks a successful authoritative submission result')
+        return json.loads(result['content'])
+    bound, authority, prepared, submitted, accepted = (output(call) for call in
+                                                       (bind, authority_call, before, submit, after))
+    if (bind.get('input') != {'workspaceId': original['workspaceId'], 'turnId': original['turnId']} or
+            bound.get('state') != 'attached' or bound.get('turnBinding') != bind['input']):
+        raise Blocked('reconnected client did not bind the original authorized turn')
+    identity = {'taskId': original['taskId'], 'taskRevision': original['revision'],
+                'taskContentHash': original['contentHash']}
+    if (any(authority.get(key) != value or prepared.get(key) != value or
+            submitted.get(key) != value or accepted.get(key) != value
+            for key, value in identity.items()) or
+            authority.get('originatingTurnId') != original['turnId'] or
+            not authority.get('executorActorId') or not authority.get('preparedOperationId') or
+            prepared.get('state') != 'prepared' or prepared.get('operationId') != authority['preparedOperationId']):
+        raise Blocked('prepared task does not bind the original agent and human turn')
+    reviewed = {key: authority.get(key) for key in
+                ('authorityRevision', 'authorityFingerprint', 'policyContextFingerprint')}
+    if (not isinstance(reviewed['authorityRevision'], int) or reviewed['authorityRevision'] < 1 or
+            any(not isinstance(reviewed[key], str) or not DIGEST.fullmatch(reviewed[key])
+                for key in ('authorityFingerprint', 'policyContextFingerprint')) or
+            any(prepared.get(key) != value for key, value in reviewed.items())):
+        raise Blocked('prepared submission authority differs from the observed task authority')
+    request = {'taskContentHash': original['contentHash'], **reviewed}
+    if submit.get('input') != {key: reference[key] for key in ('workspaceId', 'taskId', 'revision')} | {'request': request}:
+        raise Blocked('external client submitted a different task or authority')
+    if submitted.get('state') != 'accepted' or accepted.get('state') != 'accepted':
+        raise Blocked('submitted import lacks matching authoritative accepted readback')
+    submitted_job, job = submitted.get('job') or {}, accepted.get('job') or {}
+    if (not job.get('jobId') or job.get('jobId') != authority['preparedOperationId'] or
+            submitted_job.get('jobId') != job['jobId'] or submitted_job.get('leaseId') != job.get('leaseId') or
+            not job.get('leaseId') or job.get('status') not in
+            ('queued', 'provisioning', 'running', 'succeeded')):
+        raise Blocked('submitted import lacks an actual durable accepted job')
+    return {'taskId': original['taskId'], 'revision': original['revision'],
+            'contentHash': original['contentHash'], 'jobId': job['jobId'],
+            'leaseId': job['leaseId'], 'status': job['status'],
+            'operationId': authority['preparedOperationId']}
+
+
+def phase_agent_submit(args, state, binding, attempt):
+    if state['stages'].get('agentSubmission') != 'awaiting-real-human-upload-and-prepare':
+        raise Blocked('external client submission stage is not ready or its outcome is uncertain')
+    original = state.get('agentImportTask') or {}
+    if not original.get('taskId') or not original.get('contentHash'):
+        raise Blocked('original external-client import task is missing')
+    if installed_target(Path(state['installDirectory']), binding) != state.get('target'):
+        raise Blocked('installed target changed before the external client submission')
+    mcp_config = attempt / 'mcp.json'
+    mcp_executable = Path(state['executables']['mcp'])
+    if (not mcp_config.is_file() or not mcp_executable.is_file() or
+            sha256(mcp_config) != state.get('mcpConfigSha256') or
+            sha256(mcp_executable) != state.get('mcpExecutableSha256')):
+        raise Blocked('external client registration/configuration changed before submission')
+    state['stages']['agentSubmission'] = 'started'
+    private_json(attempt / 'receipt.json', state)
+    prompt = (f'The human has uploaded and prepared the original browser-file task. In this same '
+              f'Honua conversation, first reconnect with honua_agent_connect using workspaceId '
+              f'{original["workspaceId"]} and turnId {original["turnId"]}. Then inspect exact authority for '
+              f'workspaceId {original["workspaceId"]}, taskId {original["taskId"]}, revision '
+              f'{original["revision"]}, contentHash {original["contentHash"]}. Read the original '
+              f'submission receipt; proceed only if prepared, never if already accepted or unknown. '
+              f'Explicitly call honua_workspace_submit_dataset_import once with the exact current '
+              f'authority revision and fingerprints, then read back that same submission receipt. '
+              f'Do not create another task, upload, create a service, map, or publish in this step. '
+              f'If denied or uncertain, stop without retrying the mutation.')
+    allowed = ['ToolSearch', 'ListMcpResourcesTool', 'ReadMcpResourceTool', 'WaitForMcpServers'] + [
+        'mcp__honua__' + name for name in ('honua_agent_connect', 'honua_agent_status', 'honua_workspace_get_dataset_import_authority',
+            'honua_workspace_get_dataset_import_submission', 'honua_workspace_submit_dataset_import')]
+    command = [args.claude, '--restricted', '--tools', 'default', '--allowedTools', ','.join(allowed),
+               '--disallowedTools', 'Bash,PowerShell,Agent,Read,Write,Edit,NotebookEdit,Glob,Grep,LSP,WebFetch,WebSearch,Workflow,Task',
+               '--setting-sources', '', '--settings', '{"disableAllHooks":true}', '--strict-mcp-config',
+               '--mcp-config', str(mcp_config), '--permission-mode', 'dontAsk', '--permission-prompts', 'none',
+               '--resume', state['externalClientSessionId'], '--output-format', 'stream-json', '--verbose', '--print']
+    try:
+        result = subprocess.run(command, input=prompt, text=True, capture_output=True,
+                                timeout=900, cwd=attempt, check=False)
+        transcript = attempt / 'agent-submission-transcript.ndjson'
+        transcript.write_text(result.stdout)
+        transcript.chmod(0o600)
+        (attempt / 'agent-submission-stderr.log').write_text(result.stderr)
+        (attempt / 'agent-submission-stderr.log').chmod(0o600)
+        state['agentSubmissionTranscriptSha256'] = sha256(transcript)
+        if result.returncode:
+            raise Blocked('resumed external client failed; reconcile the original submission without replay')
+        observed_client_session(result.stdout, state['externalClientSessionId'])
+        state['agentSubmission'] = observed_agent_submission(result.stdout, original)
+        state['stages']['agentSubmission'] = 'pass'
+        private_json(attempt / 'receipt.json', state)
+        print('Same external client submitted the prepared original task; the actual durable job was observed.')
+    except Exception as exc:
+        state['stages']['agentSubmission'] = 'blocked'
+        state['blocker'] = str(exc)
+        private_json(attempt / 'receipt.json', state)
+        raise
+
+
 def phase_witness(args, state, binding, attempt):
     if state['stages'].get('approval') != 'awaiting-separate-human-approval':
         raise Blocked('no pending separate-human approval to witness')
@@ -695,7 +822,7 @@ def phase_witness(args, state, binding, attempt):
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument('phase', choices=('start', 'install', 'agent-task', 'browser', 'witness'))
+    parser.add_argument('phase', choices=('start', 'install', 'agent-task', 'agent-submit', 'browser', 'witness'))
     parser.add_argument('--manifest', type=Path, required=True)
     parser.add_argument('--attempt', type=Path, required=True)
     parser.add_argument('--install-dir', type=Path)
@@ -740,6 +867,8 @@ def main():
                 phase_install(args, state, binding, args.attempt)
             elif args.phase == 'agent-task':
                 phase_agent_task(args, state, binding, args.attempt)
+            elif args.phase == 'agent-submit':
+                phase_agent_submit(args, state, binding, args.attempt)
             elif args.phase == 'browser':
                 phase_browser(args, state, manifest, binding, harness, args.attempt)
             else:
