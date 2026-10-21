@@ -4,8 +4,11 @@ import hashlib
 import importlib.util
 import json
 import unittest
+from contextlib import nullcontext
 from pathlib import Path
 from types import SimpleNamespace
+from unittest.mock import patch
+from urllib.error import HTTPError
 
 spec = importlib.util.spec_from_file_location('native_map_run', Path(__file__).with_name('run.py'))
 runner = importlib.util.module_from_spec(spec)
@@ -147,6 +150,20 @@ class AgentMapRouteTests(unittest.TestCase):
                 with self.assertRaises(runner.Blocked):
                     runner.phase_agent_map(args, state, {}, Path('/nonexistent'))
                 self.assertEqual(state['stages'], {'agentService': 'pass'})
+
+    def test_installed_source_must_reject_anonymous_read_before_map(self):
+        service = {'serviceName': 'native-source', 'layerId': 42}
+        endpoint = 'http://127.0.0.1:8080/rest/services/native-source/FeatureServer/42?f=json'
+        for status in (401, 403):
+            with self.subTest(status=status), patch.object(runner, 'urlopen',
+                side_effect=HTTPError(endpoint, status, 'denied', None, None)) as read:
+                runner.require_private_source('http://127.0.0.1:8080', service)
+                self.assertEqual(read.call_args.args[0], endpoint)
+        for status in (200, 404):
+            with self.subTest(status=status), patch.object(runner, 'urlopen',
+                return_value=nullcontext(SimpleNamespace(status=status))):
+                with self.assertRaises(runner.Blocked):
+                    runner.require_private_source('http://127.0.0.1:8080', service)
 
 
 class AgentMapShareEvidenceTests(unittest.TestCase):

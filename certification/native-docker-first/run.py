@@ -17,6 +17,7 @@ import sys
 import time
 import uuid
 from pathlib import Path
+from urllib.error import HTTPError
 from urllib.parse import quote, urlsplit
 from urllib.request import urlopen
 
@@ -47,6 +48,20 @@ def canonical_map_route(route: str | None) -> bool:
     if not route or not re.fullmatch(r'/maps/[A-Za-z0-9._/-]{1,160}', route):
         return False
     return all(part not in ('', '.', '..') for part in route[1:].split('/'))
+
+
+def require_private_source(server_origin: str, service: dict) -> None:
+    """Observe the installed source as an anonymous reader before map publication."""
+    path = ('/rest/services/' + quote(service['serviceName'], safe='') +
+            '/FeatureServer/' + str(service['layerId']) + '?f=json')
+    try:
+        with urlopen(server_origin + path, timeout=15) as response:
+            status = response.status
+    except HTTPError as exc:
+        status = exc.code
+        exc.close()
+    if status not in (401, 403):
+        raise Blocked('original source is not demonstrably private to anonymous readers')
 
 
 class Blocked(RuntimeError):
@@ -1297,8 +1312,10 @@ def phase_agent_map(args, state, binding, attempt):
             args.turn_id in (original['turnId'], service['turnId']) or
             not canonical_map_route(args.route)):
         raise Blocked('fresh actual human map turn, original workspace and bounded map route are required')
-    if installed_target(Path(state['installDirectory']), binding) != state.get('target'):
+    target = installed_target(Path(state['installDirectory']), binding)
+    if target != state.get('target'):
         raise Blocked('installed target changed before map continuation')
+    require_private_source(target['origins']['server'], service)
     config, executable = attempt / 'mcp.json', Path(state['executables']['mcp'])
     if (not config.is_file() or not executable.is_file() or
             sha256(config) != state.get('mcpConfigSha256') or
@@ -1602,11 +1619,13 @@ def phase_agent_map_finish(args, state, binding, attempt):
             state['stages'].get('agentMapVisual') != 'pass' or
             state['stages'].get('agentMapFinish') != 'awaiting-actual-human-visual-edit-and-turn'):
         raise Blocked('final map requires the actual human visual edit and cannot replay')
-    if (installed_target(Path(state['installDirectory']), binding) != state.get('target') or
+    target = installed_target(Path(state['installDirectory']), binding)
+    if (target != state.get('target') or
             sha256(attempt / 'mcp.json') != state.get('mcpConfigSha256') or
             sha256(Path(state['executables']['mcp'])) != state.get('mcpExecutableSha256') or
             sha256(attempt / 'agent-map-visual.json') != state.get('agentMapVisualReceiptSha256')):
         raise Blocked('installed target, registration or actual human visual receipt changed')
+    require_private_source(target['origins']['server'], state['agentService'])
     visual, first = state['agentMapVisual'], state['agentMap']
     state['stages']['agentMapFinish'] = 'started'
     private_json(attempt / 'receipt.json', state)
@@ -1682,6 +1701,7 @@ def phase_agent_map_share_request(args, state, binding, attempt):
             sha256(attempt / 'mcp.json') != state.get('mcpConfigSha256')):
         raise Blocked('map visual evidence or external registration changed before sharing request')
     final, first = state['agentMapFinish'], state['agentMap']
+    require_private_source(target['origins']['server'], first['service'])
     handoff = attempt / 'agent-map-final-handoff.json'
     if handoff.exists():
         if read_json(handoff) != final:
@@ -1781,9 +1801,9 @@ def observed_agent_map_share(transcript: str, original: dict, service: dict,
     conversation, turn, bound, described, policy = (structured[call['id']] for call in expected)
     locator = {'workspaceId': original['workspaceId'], 'turnId': request['turnId']}
     def matches_human_message(value):
-        return len([item for item in value.get('messages', [])
-                    if item.get('role') == 'user' and item.get('turnId') == request['turnId']
-                    and item.get('content') == request['prompt']]) == 1
+        messages = [item for item in value.get('messages', [])
+                    if item.get('role') == 'user' and item.get('turnId') == request['turnId']]
+        return len(messages) == 1 and messages[0].get('content') == request['prompt']
     expected_task = request['task']
     if (expected[0].get('input') != {'workspaceId': original['workspaceId']} or
             expected[1].get('input') != locator or expected[2].get('input') != locator or
@@ -1838,13 +1858,15 @@ def phase_agent_map_share(args, state, binding, attempt):
             state['stages'].get('agentMapShareRequest') != 'pass' or
             state['stages'].get('agentMapShare')):
         raise Blocked('agent service sharing requires a new actual human request and cannot replay')
-    if (installed_target(Path(state['installDirectory']), binding) != state.get('target') or
+    target = installed_target(Path(state['installDirectory']), binding)
+    if (target != state.get('target') or
             sha256(attempt / 'mcp.json') != state.get('mcpConfigSha256') or
             sha256(Path(state['executables']['mcp'])) != state.get('mcpExecutableSha256') or
             sha256(attempt / 'agent-map-share-request.json') !=
                 state.get('agentMapShareRequestReceiptSha256')):
         raise Blocked('installed target, registration or human sharing turn changed')
     original, service = state['agentImportTask'], state['agentService']
+    require_private_source(target['origins']['server'], service)
     request, final = state['agentMapShareRequest'], state['agentMapFinish']
     state['stages']['agentMapShare'] = 'started'
     private_json(attempt / 'receipt.json', state)

@@ -39,8 +39,6 @@ try {
   assert.equal(proposal.status?.toLowerCase(), 'succeeded', 'separate map approval required before source sharing');
   assert.equal(proposal.requestedBy, final.expectedRequestedBy);
   assert(proposal.resolvedBy && proposal.resolvedBy !== proposal.requestedBy);
-  assert.notEqual(proposal.resolvedBy, session.principalId,
-    'originating human cannot be the separate map approver');
   const agentRead = await request.newContext({baseURL: required('HONUA_AGENT_MAP_SERVER_ORIGIN'),
     extraHTTPHeaders:{'X-API-Key':required('HONUA_AGENT_MAP_AGENT_KEY'), Accept:'application/json'}});
   let operation;

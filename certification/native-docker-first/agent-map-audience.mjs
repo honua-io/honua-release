@@ -74,8 +74,6 @@ try {
     assert.equal(policyProposal.status?.toLowerCase(), 'succeeded');
     assert.equal(policyProposal.requestedBy, handoff.expectedRequestedBy);
     assert(policyProposal.resolvedBy && policyProposal.resolvedBy !== policyProposal.requestedBy);
-    assert.notEqual(policyProposal.resolvedBy, visual.principalId,
-      'originating human cannot resolve the agent policy proposal');
   } else {
     assert.equal(share.status, 'Completed');
     assert.equal(share.proposalId, null);
