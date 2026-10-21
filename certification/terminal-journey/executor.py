@@ -458,12 +458,15 @@ class JourneyExecutor:
     def check_render(self, output):
         def prove():
             image = output["image"]
+            media_type = image.get("mimeType")
             if image.get("base64"):
                 raw = base64.b64decode(image["base64"], validate=True)
             else:
                 raw, _ = self.transport.http("GET", image["uri"], principal=self.principal(4))
+                if not media_type:
+                    media_type = self.transport.last_response_headers.get("content-type", "").split(";", 1)[0].strip()
             proof = oracles.prove_pixel(raw, bbox=self.fixture["bbox"], point=self.fixture["pixelPoint"],
-                size=self.fixture["renderSize"], rgba=self.fixture["pixelRgba"])
+                size=self.fixture["renderSize"], rgba=self.fixture["pixelRgba"], media_type=media_type)
             return proof
         row = self._check(4, "pixel", "honua_render_map + decode PNG", prove)
         reported = {layer.get("styleId") for layer in output.get("layers") or [] if isinstance(layer, dict)}

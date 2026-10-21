@@ -36,9 +36,18 @@ an assertion copied into another tool's receipt cannot satisfy these rows.
 The policy and catalog alone do not implement those producer observations.
 The existing producer explicitly rejects an unsupported policy or facet set;
 it must keep doing so until its actual SDK and Inspector adapters supply the
-corresponding proof. Release #695 remains open for producer adoption and
-fresh exact-candidate qualification. The map-package slice under #693 and
-geospatial-mcp#110 covers only its named operations.
+corresponding proof. The protocol certification consumer now refuses a passing
+MCP cell unless the receipt payload is `honua.mcp-auth-observations/v1` and
+binds the cell operation, authorization policy, canonical client, lane, pinned
+cohort version, and producer source, including every observation that policy
+requires. Anonymous observations cannot use an authenticated credential mode.
+A protected operation's anonymous refusal cannot reuse the authenticated
+session, and a different caller on that session must be refused. Non-passing
+MCP cells are unchanged. This is a checker control: it does not qualify a
+candidate, and missing producer observations stay nonpass. Release #695 remains
+open for producer adoption and fresh exact-candidate qualification. The
+map-package slice under #693 and geospatial-mcp#110 covers only its named
+operations.
 
 ## Source-coherent client selection
 

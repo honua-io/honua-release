@@ -328,3 +328,24 @@ def test_the_new_exclusions_alone_are_blocked_never_pass():
                             ("honua-sdk-js", "Bounded AWS semantic workflow")):
         status, why = _classify(component, _runs_named((name, "failure")))
         assert status == "blocked", (component, why)
+
+
+def test_impact_routing_ledger_stays_excluded_until_its_promotion_window():
+    """The exclusion stays, with both fail-closed gates, links, and a review date."""
+    text = (ROOT / "certification" / "governance-checks.yaml").read_text(encoding="utf-8")
+    name = "Audit trusted impact-routing observations"
+    assert name in bt.load_governance()["honua-server"]
+    start = text.index(f'name: "{name}"')
+    why = " ".join(text[start:text.index('name: "Post exact-head Claude review evidence"', start)].split())
+    assert "receipt integrity violations" in why
+    assert "measured receipt loss over the 5% budget" in why
+    assert "Cohort drift, superseded heads" in why
+    assert "in-flight builds, and tombstoned evidence" in why
+    assert "https://github.com/honua-io/honua-server/actions/runs/39471979464" in why
+    assert "https://github.com/honua-io/honua-server/actions/runs/39311450010" in why
+    assert "consecutive_green_days 1 of 7" in why
+    assert "promotion_gate_ready" in why
+    assert "2026-10-27" in why
+    assert "no longer holds" in why
+    assert "32038145537" in why
+    assert "honua-server#3521" in why

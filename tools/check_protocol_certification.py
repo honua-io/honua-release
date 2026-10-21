@@ -590,6 +590,189 @@ def _valid_execution_metadata(cell: dict, candidate_cut_at: str, revision: str) 
         return False
 
 
+_MCP_POLICY_PATH = Path(__file__).resolve().parents[1] / "certification" / "sources" / "mcp-operation-auth-policy.v1.json"
+_MCP_PACKAGE_PATH = Path(__file__).resolve().parents[1] / "certification" / "sources" / "geospatial-mcp" / "package.json"
+_MCP_CLIENTS = {
+    "Official MCP TypeScript SDK": ("mcp-typescript-sdk", "@modelcontextprotocol/sdk"),
+    "MCP Inspector": ("mcp-inspector", "@modelcontextprotocol/inspector"),
+}
+_MCP_OBS_FIELDS = {"result", "credential_mode", "forwarded_credential", "session_id", "caller_id"}
+_MCP_PAYLOAD_FIELDS = {
+    "schema", "auth_policy_revision", "policy_revision", "canonical_client", "client_lane",
+    "client_version", "operation", "producer_source_sha", "observations",
+}
+_MCP_ID_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$")
+_MCP_SECRET_KEYS = {
+    "credential", "credentials", "token", "access_token", "api_key", "apikey",
+    "authorization", "secret", "password", "private_key",
+}
+_mcp_contract_cache: dict | None = None
+
+
+def _mcp_contains_secret(value: object) -> bool:
+    if isinstance(value, dict):
+        return any(
+            (isinstance(key, str) and key.lower().replace("-", "_") in _MCP_SECRET_KEYS)
+            or _mcp_contains_secret(item)
+            for key, item in value.items()
+        )
+    if isinstance(value, list):
+        return any(_mcp_contains_secret(item) for item in value)
+    return False
+
+
+def _mcp_contract() -> dict | str:
+    global _mcp_contract_cache
+    if _mcp_contract_cache is not None:
+        return _mcp_contract_cache
+    try:
+        policy = json.loads(
+            _MCP_POLICY_PATH.read_text(encoding="utf-8"),
+            object_pairs_hook=_unique_json_object,
+            parse_constant=_reject_json_constant,
+        )
+        package = json.loads(
+            _MCP_PACKAGE_PATH.read_text(encoding="utf-8"),
+            object_pairs_hook=_unique_json_object,
+            parse_constant=_reject_json_constant,
+        )
+    except (OSError, ValueError, UnicodeError, RecursionError, _DuplicateJsonKey):
+        return "MCP authorization policy or pinned client cohort is unreadable"
+    if (policy.get("schema") != "honua.mcp-operation-auth-policy/v1"
+            or policy.get("revision") != "mcp-operation-auth-v1"):
+        return "MCP authorization policy schema/revision is invalid"
+    decisions: dict[str, str] = {}
+    for decision in policy.get("operations") or []:
+        if not isinstance(decision, dict) or not isinstance(decision.get("operation"), str):
+            return "MCP authorization policy decisions are unreadable"
+        decisions[decision["operation"]] = decision.get("auth_policy_revision")
+    dependencies = package.get("dependencies") if isinstance(package.get("dependencies"), dict) else {}
+    versions: dict[str, tuple[str, str]] = {}
+    for client, (lane, dependency) in _MCP_CLIENTS.items():
+        version = dependencies.get(dependency)
+        if not isinstance(version, str) or not EXACT_VERSION_RE.fullmatch(version):
+            return "pinned MCP client cohort is incomplete"
+        versions[client] = (lane, version)
+    required = policy.get("required_observations")
+    if not isinstance(required, dict):
+        return "MCP authorization policy observations are unreadable"
+    _mcp_contract_cache = {
+        "decisions": decisions,
+        "versions": versions,
+        "required": required,
+        "revision": policy["revision"],
+    }
+    return _mcp_contract_cache
+
+
+def _mcp_observation_error(name: str, obs: object) -> str | None:
+    if not isinstance(obs, dict) or set(obs) != _MCP_OBS_FIELDS:
+        return f"MCP observation {name} has unknown or missing fields"
+    if obs["forwarded_credential"] is not False:
+        return f"MCP observation {name} forwards credentials"
+    if obs["result"] not in {"pass", "refused"} or obs["credential_mode"] not in {"anonymous", "authenticated"}:
+        return f"MCP observation {name} has an invalid result or credential mode"
+    if not isinstance(obs["session_id"], str) or _MCP_ID_RE.fullmatch(obs["session_id"]) is None:
+        return f"MCP observation {name} has an invalid session"
+    if not isinstance(obs["caller_id"], str) or _MCP_ID_RE.fullmatch(obs["caller_id"]) is None:
+        return f"MCP observation {name} has an invalid caller"
+    return None
+
+
+def _mcp_profile_error(policy: str, observations: dict) -> str | None:
+    if policy == "anonymous-public-v1":
+        if any(item["credential_mode"] != "anonymous" for item in observations.values()):
+            return "anonymous label on an authenticated observation"
+        sessions = [item["session_id"] for item in observations.values()]
+        if len(set(sessions)) != len(sessions):
+            return "reused session"
+        if any(item["result"] != "pass" for item in observations.values()):
+            return "anonymous policy observation did not pass"
+        return None
+    if policy != "mcp-protected-operation-v1":
+        return "MCP observation policy is unknown"
+    auth = observations["authenticated-success"]
+    fresh = observations["fresh-anonymous-refusal"]
+    forwarding = observations["no-credential-forwarding"]
+    reuse = observations["no-authenticated-session-reuse"]
+    binding = observations["caller-session-binding"]
+    if fresh["credential_mode"] != "anonymous" or reuse["credential_mode"] != "anonymous":
+        return "anonymous label on an authenticated observation"
+    if auth["result"] != "pass" or auth["credential_mode"] != "authenticated":
+        return "protected authenticated success is missing"
+    if (forwarding["result"] != "pass" or forwarding["credential_mode"] != "authenticated"
+            or forwarding["session_id"] != auth["session_id"] or forwarding["caller_id"] != auth["caller_id"]):
+        return "protected observation does not bind credential non-forwarding to the authenticated success"
+    if (fresh["result"] != "refused" or fresh["session_id"] == auth["session_id"]
+            or fresh["caller_id"] == auth["caller_id"]):
+        return "fresh anonymous refusal reuses the authenticated caller or session"
+    if reuse["result"] != "refused":
+        return "anonymous session-reuse control was not refused"
+    if reuse["session_id"] == auth["session_id"]:
+        return "reused authenticated session"
+    if (binding["result"] != "refused" or binding["credential_mode"] != "authenticated"
+            or binding["session_id"] != auth["session_id"] or binding["caller_id"] == auth["caller_id"]):
+        return "caller-session binding does not refuse a different caller on the authenticated session"
+    return None
+
+
+def _mcp_pass_observation_error(cell: dict) -> str | None:
+    """Bind a passing MCP receipt to the operation policy and pinned client cohort.
+
+    A matching payload is a checker control. It does not qualify a candidate, and a
+    non-passing MCP cell is not inspected here.
+    """
+    facets = cell.get("scenario_facets")
+    if not isinstance(facets, list) or "auth" not in facets:
+        return "passing MCP cell omits the auth facet"
+    contract = _mcp_contract()
+    if isinstance(contract, str):
+        return contract
+    receipt = cell.get("evidence_receipt")
+    encoded = receipt.get("payload_base64") if isinstance(receipt, dict) else None
+    if not isinstance(encoded, str) or len(encoded) > ((MAX_FORMAT_RECEIPT_PAYLOAD_BYTES + 2) // 3) * 4:
+        return "passing MCP cell lacks authorization observations"
+    try:
+        raw_payload = base64.b64decode(encoded, validate=True)
+        if len(raw_payload) > MAX_FORMAT_RECEIPT_PAYLOAD_BYTES:
+            return "passing MCP cell lacks authorization observations"
+        payload = json.loads(
+            raw_payload,
+            object_pairs_hook=_unique_json_object,
+            parse_constant=_reject_json_constant,
+        )
+    except (ValueError, UnicodeDecodeError, RecursionError, _DuplicateJsonKey):
+        return "passing MCP cell lacks authorization observations"
+    if _mcp_contains_secret(payload):
+        return "MCP observation retains credential material"
+    if (not isinstance(payload, dict) or set(payload) != _MCP_PAYLOAD_FIELDS
+            or payload.get("schema") != "honua.mcp-auth-observations/v1"):
+        return "passing MCP cell lacks authorization observations"
+    operation = cell.get("operation")
+    if payload["operation"] != operation or operation not in contract["decisions"]:
+        return "MCP observation policy does not match the cell"
+    decision = contract["decisions"][operation]
+    if (not isinstance(decision, str) or payload["policy_revision"] != contract["revision"]
+            or payload["auth_policy_revision"] != decision or cell.get("auth_policy_revision") != decision):
+        return "MCP observation policy does not match the cell"
+    pinned = contract["versions"].get(cell.get("canonical_client"))
+    if (pinned is None or payload["canonical_client"] != cell.get("canonical_client")
+            or payload["client_lane"] != pinned[0] or cell.get("client_lane") != pinned[0]
+            or payload["client_version"] != pinned[1] or cell.get("client_version") != pinned[1]):
+        return "MCP observation cohort does not match the pinned canonical client"
+    if payload["producer_source_sha"] != cell.get("producer_source_sha"):
+        return "MCP observation source does not match the cell producer"
+    required = contract["required"].get(decision)
+    observations = payload["observations"]
+    if not isinstance(required, list) or not required or not isinstance(observations, dict) or set(observations) != set(required):
+        return "MCP authorization observations are incomplete"
+    for name in required:
+        error = _mcp_observation_error(name, observations.get(name))
+        if error:
+            return error
+    return _mcp_profile_error(decision, observations)
+
+
 def evaluate(
     ledger: dict | None,
     tier: str,
@@ -926,12 +1109,17 @@ def evaluate(
                     fail(prefix, "passing cell evidence_receipt is not semantically bound to the cell")
                 elif _receipt_digest(evidence_receipt) != evidence_digest:
                     fail(prefix, "passing cell evidence_receipt bytes do not match evidence_digest")
-                elif receipt_root is not None:
-                    receipt_path = receipt_root / evidence_digest[7:]
-                    if not receipt_path.is_file():
-                        fail(prefix, "passing cell content-addressed evidence receipt is not materialized")
-                    elif f"sha256:{hashlib.sha256(receipt_path.read_bytes()).hexdigest()}" != evidence_digest:
-                        fail(prefix, "materialized evidence receipt bytes do not match evidence_digest")
+                else:
+                    if receipt_root is not None:
+                        receipt_path = receipt_root / evidence_digest[7:]
+                        if not receipt_path.is_file():
+                            fail(prefix, "passing cell content-addressed evidence receipt is not materialized")
+                        elif f"sha256:{hashlib.sha256(receipt_path.read_bytes()).hexdigest()}" != evidence_digest:
+                            fail(prefix, "materialized evidence receipt bytes do not match evidence_digest")
+                    if raw.get("surface") == "mcp":
+                        reason = _mcp_pass_observation_error(raw)
+                        if reason:
+                            fail(prefix, reason)
 
         if raw["addressable_by_client"]:
             if raw["result"] == "not-addressable":
