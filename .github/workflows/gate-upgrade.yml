@@ -376,23 +376,30 @@ jobs:
           TRUNK_READY: ${{ steps.fallback.outputs.ready }}
           TRUNK_UNAVAILABLE_WHY: ${{ steps.fallback.outputs.why }}
           TRUNK_CHART_OUTCOME: ${{ steps.trunk_chart.outcome }}
+          # Kept out of the script body: a run block containing any expression is evaluated as one
+          # expression, and this one exceeds Actions' 21000-character expression limit.
+          SIGNED_VERIFIED: ${{ steps.images.outputs.verified }}
+          SIGNED_CHART_OUTCOME: ${{ steps.chart.outcome }}
+          SIGNED_PRIOR_CHART: ${{ steps.chart.outputs.prior }}
+          SIGNED_CANDIDATE_CHART: ${{ steps.chart.outputs.candidate }}
+          PULLABLE: ${{ steps.pull.outputs.pullable }}
         run: |
           set -uo pipefail
           STATUS=blocked; WHY=""
           SIGNED_LOCK_WHY="exact signed prior/candidate platform locks are unavailable or invalid"
           MODE=signed-lock
-          if [ "${{ steps.images.outputs.verified }}" != 1 ] && [ "$TRUNK_READY" = 1 ]; then
+          if [ "$SIGNED_VERIFIED" != 1 ] && [ "$TRUNK_READY" = 1 ]; then
             MODE=trunk-candidate
             echo "TRUNK-CANDIDATE FALLBACK: $SIGNED_LOCK_WHY; running prior-source=trunk-candidate $PRIOR -> $CAND (not a certified release pair)"
           fi
           echo "mode=$MODE" >> "$GITHUB_OUTPUT"
-          if [ "$MODE" = signed-lock ] && [ "${{ steps.images.outputs.verified }}" != 1 ]; then
+          if [ "$MODE" = signed-lock ] && [ "$SIGNED_VERIFIED" != 1 ]; then
             STATUS=blocked; WHY="$SIGNED_LOCK_WHY${TRUNK_UNAVAILABLE_WHY:+; $TRUNK_UNAVAILABLE_WHY}"
-          elif [ "$MODE" = signed-lock ] && [ "${{ steps.chart.outcome }}" != "success" ]; then
+          elif [ "$MODE" = signed-lock ] && [ "$SIGNED_CHART_OUTCOME" != "success" ]; then
             STATUS=blocked; WHY="lock-bound honua-helm package is unavailable or its checksum mismatched"
           elif [ "$MODE" = trunk-candidate ] && [ "$TRUNK_CHART_OUTCOME" != "success" ]; then
             STATUS=blocked; WHY="manifest-pinned honua-helm chart source could not be fetched"
-          elif [ "${{ steps.pull.outputs.pullable }}" != "1" ]; then
+          elif [ "$PULLABLE" != "1" ]; then
             STATUS=blocked; WHY="server image(s) not pullable (private/unpublished) — kind smoke self-skipped"
           elif [ "$CROSS" = "no" ]; then
             STATUS=blocked; WHY="prior baseline image is missing or equals the manifest candidate — real migration upgrade cannot run"
@@ -403,8 +410,8 @@ jobs:
               PRIOR_CHART="_chart/trunk/honua"
               CANDIDATE_CHART="_chart/trunk/honua"
             else
-              PRIOR_CHART="${{ steps.chart.outputs.prior }}"
-              CANDIDATE_CHART="${{ steps.chart.outputs.candidate }}"
+              PRIOR_CHART="$SIGNED_PRIOR_CHART"
+              CANDIDATE_CHART="$SIGNED_CANDIDATE_CHART"
             fi
             NS=honua-upgrade
             kubectl create namespace "$NS" || true
