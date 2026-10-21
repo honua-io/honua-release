@@ -361,10 +361,11 @@ while IFS= read -r row; do
   open_anonymous "$svc" "$(layer_id_of "$svc")" "$write"
 done < <(python3 "$HERE/plan.py" access-plan | jq -c '.[]')
 
-# Attribute-only edits rewrite geometry as WKB with SRID 0. The shared features
-# geography index evaluates ST_Transform during that write and rejects SRID 0.
-# Stamp the layer SRID before index maintenance. Leave the shared column
-# unconstrained; every managed layer uses the same table.
+# Attribute-only edits of the scratch service rewrite geometry as WKB with
+# SRID 0. The shared features geography index evaluates ST_Transform during
+# that write and rejects SRID 0. Stamp the layer SRID for maui-inspections
+# only, before index maintenance. Other managed layers keep the candidate's
+# edit behavior. Leave the shared column unconstrained.
 echo "== seed: assigning a layer SRID before shared-features index maintenance =="
 psql_apply <<'SQL'
 CREATE OR REPLACE FUNCTION honua.assign_missing_feature_srid()
@@ -375,11 +376,15 @@ DECLARE
   target_srid integer;
 BEGIN
   IF NEW.geometry IS NOT NULL AND ST_SRID(NEW.geometry) = 0 THEN
-    SELECT COALESCE(NULLIF(storage_srid, 0), NULLIF(srid, 0))
+    SELECT COALESCE(NULLIF(l.storage_srid, 0), NULLIF(l.srid, 0), 4326)
       INTO target_srid
-      FROM honua.layers
-     WHERE layer_id = NEW.layer_id;
-    NEW.geometry := ST_SetSRID(NEW.geometry, COALESCE(target_srid, 4326));
+      FROM honua.layers l
+      JOIN honua.service_layers sl ON sl.layer_id = l.layer_id
+     WHERE l.layer_id = NEW.layer_id
+       AND sl.service_name = 'maui-inspections';
+    IF FOUND THEN
+      NEW.geometry := ST_SetSRID(NEW.geometry, target_srid);
+    END IF;
   END IF;
   RETURN NEW;
 END;

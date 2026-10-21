@@ -152,7 +152,8 @@ def test_dry_run_publishes_stable_ids_and_scratch_edit_contract(tmp_path: Path):
     assert "CREATE TRIGGER assign_missing_feature_srid" in applied
     assert "BEFORE INSERT OR UPDATE OF geometry" in applied
     assert "ST_SRID(NEW.geometry) = 0" in applied
-    assert "ST_SetSRID(NEW.geometry, COALESCE(target_srid, 4326))" in applied
+    assert "ST_SetSRID(NEW.geometry, target_srid)" in applied
+    assert "sl.service_name = 'maui-inspections'" in applied
     assert "to_regclass('features')" in applied
     assert "to_regclass('public.features')" in applied
     assert "tmk_txt" not in applied
