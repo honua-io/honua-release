@@ -37,6 +37,7 @@ try {
   const proposal = await read(`/api/processes/admin/proposals/${encodeURIComponent(handoff.proposalId)}`);
   assert.equal(proposal.proposalId, handoff.proposalId);
   assert.equal(proposal.status?.toLowerCase(), 'succeeded');
+  assert.equal(proposal.requestedBy, handoff.expectedRequestedBy, 'original installed agent must be the proposer');
   assert(proposal.requestedBy && proposal.resolvedBy);
   assert.notEqual(proposal.requestedBy, proposal.resolvedBy, 'proposer cannot approve');
   const agentRead = await request.newContext({ baseURL: serverOrigin,
@@ -137,8 +138,9 @@ try {
     assert.equal(documentResponse?.status(), 200, 'anonymous published viewer page');
     const definitionResponse = await definitionResponsePromise;
     assert.equal(definitionResponse.status(), 200, 'anonymous viewer loaded published artifact');
+    const definitionHeaders = await definitionResponse.request().allHeaders();
     for (const header of ['cookie', 'authorization', 'x-api-key'])
-      assert(!definitionResponse.request().headers()[header], `anonymous viewer sent ${header}`);
+      assert(!definitionHeaders[header], `anonymous viewer sent ${header}`);
     viewerPartition = definitionResponse.headers()['x-honua-viewer-partition'];
     assert.match(viewerPartition ?? '', /^[0-9a-f]{64}$/);
     const definitionWire = await definitionResponse.json();
@@ -168,7 +170,7 @@ try {
     for (const {response} of reads) {
       assert.equal(response.status(), 200, `anonymous source data ${response.url()}`);
       assert.equal(response.headers()['x-honua-viewer-partition'], viewerPartition);
-      const requestHeaders = response.request().headers();
+      const requestHeaders = await response.request().allHeaders();
       assert.equal(requestHeaders['x-honua-viewer-partition'], viewerPartition);
       for (const header of ['cookie', 'authorization', 'x-api-key'])
         assert(!requestHeaders[header], `anonymous source data sent ${header}`);

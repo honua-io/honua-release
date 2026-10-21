@@ -135,7 +135,8 @@ class AgentMapEvidenceTests(unittest.TestCase):
 
 class AgentMapFinishEvidenceTests(unittest.TestCase):
     def setUp(self):
-        self.original = {'workspaceId': 'workspace-1', 'targetId': 'target-1', 'tenantId': 'tenant-1'}
+        self.original = {'workspaceId': 'workspace-1', 'targetId': 'target-1', 'tenantId': 'tenant-1',
+                         'ownerActorId': 'apikey:api-key:22222222-2222-4222-8222-222222222222'}
         self.initial = {'workspaceId': 'workspace-1', 'turnId': 'map-turn',
                         'packageKey': 'map-package', 'draftId': 'draft-1',
                         'reopenedDraftId': 'draft-2', 'itemId': 'item-1', 'route': '/maps/map-1'}
@@ -207,6 +208,7 @@ class AgentMapFinishEvidenceTests(unittest.TestCase):
         self.assertEqual(result['versionId'], 'version-2')
         self.assertEqual(result['finalOpacity'], 0.55)
         self.assertEqual(result['body']['title'], 'Hawaiʻi')
+        self.assertEqual(result['expectedRequestedBy'], '22222222-2222-4222-8222-222222222222')
 
     def test_rejects_structurally_altered_human_visual_body(self):
         self.visual['body']['title'] = 'Retargeted map'
@@ -226,6 +228,25 @@ class AgentMapFinishEvidenceTests(unittest.TestCase):
         changed = copy.deepcopy(self.exchanges)
         changed[14][1]['versionId'] = 'version-1'
         with self.assertRaises(runner.Blocked): self.observe(changed)
+
+
+class AgentMapApprovalIdentityTests(unittest.TestCase):
+    def test_requires_actual_proposal_requester_to_match_original_stored_agent(self):
+        agent_id = '22222222-2222-4222-8222-222222222222'
+        original = {'ownerActorId': 'apikey:api-key:' + agent_id}
+        final = {'expectedRequestedBy': agent_id}
+        witness = {'requestedBy': agent_id, 'resolvedBy': 'actual-distinct-human'}
+        runner.require_agent_map_approver(witness, original, final)
+        with self.assertRaises(runner.Blocked):
+            runner.require_agent_map_approver({**witness, 'requestedBy': '33333333-3333-4333-8333-333333333333'}, original, final)
+        with self.assertRaises(runner.Blocked):
+            runner.require_agent_map_approver({**witness, 'resolvedBy': agent_id}, original, final)
+        with self.assertRaises(runner.Blocked):
+            runner.require_agent_map_approver(witness, original, {'expectedRequestedBy': 'foreign-agent'})
+        for actor in ('operatorbearer:subject:' + agent_id, 'ApiKey:api-key:' + agent_id,
+                      'apikey:api-key:00000000-0000-0000-0000-000000000000', 'apikey:api-key:bad-id'):
+            with self.subTest(actor=actor), self.assertRaises(runner.Blocked):
+                runner.require_agent_map_approver(witness, {'ownerActorId': actor}, final)
 
 
 if __name__ == '__main__':

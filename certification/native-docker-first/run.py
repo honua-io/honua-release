@@ -1426,6 +1426,26 @@ def phase_agent_map_visual(args, state, binding, attempt):
         raise
 
 
+def expected_studio_requester(original: dict) -> str:
+    # Dataset import stores CanonicalSecurityActor (normalized API-key scheme),
+    # while StudioAuthorizationService.ResolveCallerId stores api_key_id itself.
+    # This lane is intentionally the installed stored-key client, not a JWT alias.
+    actor = original.get('ownerActorId')
+    match = re.fullmatch(r'apikey:api-key:([0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12})',
+                         actor if isinstance(actor, str) else '')
+    if not match or uuid.UUID(match[1]).int == 0:
+        raise Blocked('original executor is not the canonical installed stored API-key actor')
+    return match[1]
+
+
+def require_agent_map_approver(witness: dict, original: dict, final: dict) -> None:
+    expected = expected_studio_requester(original)
+    if (final.get('expectedRequestedBy') != expected or witness.get('requestedBy') != expected or
+            not isinstance(witness.get('resolvedBy'), str) or not witness['resolvedBy'].strip() or
+            witness['resolvedBy'] == expected):
+        raise Blocked('publication requester must be the original agent with a distinct actual approver')
+
+
 def observed_agent_map_finish(transcript: str, original: dict, map_receipt: dict,
                               visual: dict) -> dict:
     """Require the same external client to preserve the real human visual edit before proposal."""
@@ -1566,7 +1586,7 @@ def observed_agent_map_finish(transcript: str, original: dict, map_receipt: dict
             'route': map_receipt['route'], 'audience': 'public',
             'proposalId': proposed['proposalId'],
             'operationInstanceId': proposed['operationInstanceId'],
-            'requestedBy': proposed['operation'].get('requestedBy'),
+            'expectedRequestedBy': expected_studio_requester(original),
             'visualTurnId': turn_id, 'visualDraftId': visual['draftId'],
             'visualColorExpression': visual['colorExpression'],
             'finalOpacity': 0.55}
@@ -1685,6 +1705,7 @@ def phase_agent_map_audience(args, state, binding, attempt):
         raise Blocked('separate approval, public data or rendered audience witness absent; inspect private log')
     witness = read_json(attempt / 'agent-map-audience.json')
     final, visual, first = state['agentMapFinish'], state['agentMapVisual'], state['agentMap']
+    require_agent_map_approver(witness, state['agentImportTask'], final)
     if (witness.get('status') != 'pass' or
             any(witness.get(key) != final.get(key) for key in
                 ('proposalId', 'operationInstanceId', 'itemId', 'versionId', 'contentHash', 'route')) or
