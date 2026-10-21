@@ -17,6 +17,7 @@ import time
 import uuid
 from pathlib import Path
 from urllib.parse import urlsplit
+from urllib.request import urlopen
 
 import yaml
 
@@ -145,7 +146,8 @@ def installed_target(directory: Path, binding: dict) -> dict:
         if '=' in line and not line.startswith('#'):
             key, value = line.split('=', 1)
             if key in ('HONUA_AGENT_API_KEY', 'HONUA_AGENT_KEY_ID', 'POSTGRES_PASSWORD',
-                       'HONUA_SERVER_IMAGE', 'HONUA_CONSOLE_IMAGE', 'HONUA_AGENT_RELEASE_ID'):
+                       'HONUA_SERVER_IMAGE', 'HONUA_CONSOLE_IMAGE', 'HONUA_AGENT_RELEASE_ID',
+                       'HONUA_HTTP_PORT', 'HONUA_CONSOLE_PORT', 'HONUA_COMPOSE_PROJECT'):
                 values[key] = value.strip('"\'')
     if any(not values.get(key) for key in ('HONUA_AGENT_API_KEY', 'HONUA_AGENT_KEY_ID', 'POSTGRES_PASSWORD')):
         raise Blocked('installer did not issue all separate workspace/database credentials')
@@ -155,8 +157,79 @@ def installed_target(directory: Path, binding: dict) -> dict:
             '${HONUA_SERVER_IMAGE}' not in compose.read_text() or
             '${HONUA_CONSOLE_IMAGE}' not in compose.read_text()):
         raise Blocked('installed Compose/environment do not bind the selected immutable images and release')
+    project = values.get('HONUA_COMPOSE_PROJECT', '')
+    if not re.fullmatch(r'honua-local-[a-f0-9]{24}', project):
+        raise Blocked('fresh installer Compose project identity missing')
+    if any(not re.fullmatch(r'[0-9]{1,5}', values.get(key, '')) or
+           not 0 < int(values[key]) < 65536 for key in ('HONUA_HTTP_PORT', 'HONUA_CONSOLE_PORT')):
+        raise Blocked('installed server and Console ports missing')
+    origins = {'server': f"http://127.0.0.1:{values['HONUA_HTTP_PORT']}",
+               'console': f"http://127.0.0.1:{values['HONUA_CONSOLE_PORT']}"}
     return {'installDirectory': str(directory), 'composeSha256': sha256(compose),
-            'agentKeyId': values['HONUA_AGENT_KEY_ID']}
+            'agentKeyId': values['HONUA_AGENT_KEY_ID'], 'composeProject': project,
+            'origins': origins, 'containers': running_containers(directory, project, binding,
+                {'server': values['HONUA_HTTP_PORT'], 'console': values['HONUA_CONSOLE_PORT']}),
+            'consoleSourceSha': live_console_sha(origins['console'])}
+
+
+def docker_json(command: list[str], directory: Path):
+    result = subprocess.run(['docker', *command], cwd=directory, text=True,
+                            capture_output=True, timeout=30, check=False)
+    if result.returncode:
+        raise Blocked(f'Docker observation failed for {command[0]}')
+    return json.loads(result.stdout)
+
+
+def running_containers(directory: Path, project: str, binding: dict, ports: dict) -> dict:
+    result = subprocess.run(['docker', 'compose', '--project-name', project,
+                             '--project-directory', str(directory), '--file', str(directory / 'compose.yaml'),
+                             'ps', '--format', 'json'], cwd=directory, text=True,
+                            capture_output=True, timeout=30, check=False)
+    if result.returncode:
+        raise Blocked('owned Compose project is not observable')
+    raw = result.stdout.strip()
+    try:
+        parsed = json.loads(raw)
+        entries = parsed if isinstance(parsed, list) else [parsed]
+    except ValueError:
+        entries = [json.loads(line) for line in raw.splitlines()]
+    observed = {}
+    for service, component in (('honua', 'server'), ('console', 'console')):
+        matches = [entry for entry in entries if entry.get('Service') == service and
+                   entry.get('State') == 'running']
+        if len(matches) != 1 or not matches[0].get('ID'):
+            raise Blocked(f'owned Compose {service} container is not uniquely running')
+        inspect = docker_json(['container', 'inspect', matches[0]['ID']], directory)
+        if not isinstance(inspect, list) or len(inspect) != 1:
+            raise Blocked(f'Docker {service} inspect is incomplete')
+        item = inspect[0]
+        labels = item.get('Config', {}).get('Labels') or {}
+        env = item.get('Config', {}).get('Env') or []
+        published = item.get('NetworkSettings', {}).get('Ports', {}).get('8080/tcp') or []
+        if len(published) != 1 or published[0].get('HostIp') != '127.0.0.1' or published[0].get('HostPort') != ports[component]:
+            raise Blocked(f'running {service} is not bound to the installed loopback origin')
+        releases = [value.split('=', 1)[1] for value in env if
+                    value.startswith(('HONUA_AGENT_RELEASE_ID=', 'AgentWorkspace__ReleaseId='))]
+        if (item.get('Id') != matches[0]['ID'] or not item.get('State', {}).get('Running') or
+                item.get('Config', {}).get('Image') != binding[component]['image'] or
+                labels.get('com.docker.compose.project') != project or
+                labels.get('com.docker.compose.service') != service or
+                binding['releaseId'] not in releases or not item.get('Image')):
+            raise Blocked(f'running {service} container does not bind selected image/release/project')
+        observed[component] = {'id': item['Id'], 'imageId': item['Image'],
+                               'image': item['Config']['Image'], 'releaseId': binding['releaseId']}
+    return observed
+
+
+def live_console_sha(origin: str) -> str:
+    try:
+        with urlopen(origin + '/version.json', timeout=10) as response:
+            version = json.load(response)
+    except (OSError, ValueError) as exc:
+        raise Blocked(f'installed Console version is not observable: {exc}') from exc
+    if not isinstance(version, dict) or not SHA.fullmatch(version.get('commit', '')):
+        raise Blocked('installed Console did not report an exact source SHA')
+    return version['commit']
 
 
 def observed_install_call(transcript: str) -> dict:
@@ -180,20 +253,27 @@ def observed_install_call(transcript: str) -> dict:
     installs = [call for call in calls if call.get('name') == 'mcp__honua__honua_agent_install_local']
     if len(installs) != 1 or installs[0].get('input', {}).get('confirm') is not True:
         raise Blocked('client transcript lacks exactly one confirmed native installer tool call')
+    inspections = [call for call in calls[:calls.index(installs[0])]
+                   if call.get('name') == 'mcp__honua__honua_agent_inspect_local']
+    if not inspections or inspections[-1].get('id') not in results or results[inspections[-1]['id']].get('is_error'):
+        raise Blocked('client transcript lacks successful prerequisite inspection')
     statuses = [call for call in calls[calls.index(installs[0]) + 1:]
                 if call.get('name') == 'mcp__honua__honua_agent_status']
     if not statuses:
         raise Blocked('client did not inspect native installer status after the install call')
     try:
+        inspected = json.loads(results[inspections[-1]['id']]['content'])
         installed = json.loads(results[installs[0]['id']]['content'])
         status = json.loads(results[statuses[-1]['id']]['content'])
     except (KeyError, ValueError, TypeError):
         raise Blocked('client transcript lacks authoritative installer and status tool results') from None
-    if (results[installs[0]['id']].get('is_error') or results[statuses[-1]['id']].get('is_error') or
+    if (not isinstance(inspected, dict) or not inspected or
+            results[installs[0]['id']].get('is_error') or results[statuses[-1]['id']].get('is_error') or
             installed.get('state') != 'attached' or status.get('state') != 'attached' or
             installed.get('target') != status.get('target') or not installed.get('target', {}).get('credentialId')):
         raise Blocked('real connector did not prove the same attached target after installation')
-    return {'toolCallId': installs[0]['id'], 'target': installed['target']}
+    return {'inspectionToolCallId': inspections[-1]['id'],
+            'toolCallId': installs[0]['id'], 'target': installed['target']}
 
 
 def phase_start(args, manifest, binding, harness, attempt):
@@ -291,8 +371,12 @@ def phase_install(args, state, binding, attempt):
         state['installToolCallId'] = observed['toolCallId']
         state['connectorTarget'] = observed['target']
         state['target'] = installed_target(install_dir, binding)
+        if state['target']['consoleSourceSha'] != binding['console']['sha']:
+            raise Blocked('running Console source differs from the selected image candidate')
         if state['connectorTarget']['credentialId'] != state['target']['agentKeyId']:
             raise Blocked('external connector attached with a different workspace credential identity')
+        if urlsplit(state['connectorTarget'].get('endpoint', ''))._replace(path='', query='', fragment='').geturl().rstrip('/') != state['target']['origins']['server']:
+            raise Blocked('external connector points to a different running server origin')
         gateway_env = {**os.environ, 'HONUA_AGENT_INSTALL_DIRECTORY': str(install_dir),
                        'HONUA_AGENT_GATEWAY_KEY': os.environ[gateway_key_env],
                        'HONUA_AGENT_GATEWAY_HOST': args.gateway_listen_host,
@@ -335,6 +419,8 @@ def phase_browser(args, state, manifest, binding, harness, attempt):
     target = installed_target(install_dir, binding)
     if target != state.get('target'):
         raise Blocked('installed target changed since installer proof')
+    if args.origin != target['origins']['console'] or args.server_origin != target['origins']['server']:
+        raise Blocked('browser origins differ from installed Compose ports')
     input_digest = sha256(args.input_file)
     gateway = state.get('gateway') or {}
     try:
@@ -405,8 +491,11 @@ def phase_witness(args, state, binding, attempt):
     if not args.server_origin or not re.fullmatch(r'http://127\.0\.0\.1:\d+', args.server_origin):
         raise Blocked('installed server loopback origin required')
     install_dir = Path(state['installDirectory'])
-    if installed_target(install_dir, binding) != state.get('target'):
+    target = installed_target(install_dir, binding)
+    if target != state.get('target'):
         raise Blocked('installed target changed before the audience witness')
+    if args.origin != target['origins']['console'] or args.server_origin != target['origins']['server']:
+        raise Blocked('witness origins differ from installed Compose ports')
     values = dict(line.split('=', 1) for line in (install_dir / '.env').read_text().splitlines()
                   if '=' in line and not line.startswith('#'))
     handoff = read_json(attempt / 'publication-handoff.json')
@@ -431,18 +520,23 @@ def phase_witness(args, state, binding, attempt):
         private_json(attempt / 'receipt.json', state)
         raise Blocked('separate approval or audience witness absent; inspect actual proposal and private log')
     witness = read_json(attempt / 'audience-witness.json')
-    if witness.get('status') != 'pass' or any(witness.get(key) != handoff.get(key) for key in
+    if (witness.get('status') != 'pass' or any(witness.get(key) != handoff.get(key) for key in
                                                ('proposalId', 'operationInstanceId', 'commandId', 'requestId', 'itemId', 'versionId',
-                                                'contentHash', 'route')) or witness.get('requestedBy') == witness.get('resolvedBy'):
+                                                'contentHash', 'route')) or
+            not isinstance(handoff.get('requestedBy'), str) or not handoff['requestedBy'].strip() or
+            witness.get('requestedBy') != handoff['requestedBy'] or
+            not isinstance(witness.get('resolvedBy'), str) or not witness['resolvedBy'].strip() or
+            witness['requestedBy'] == witness['resolvedBy']):
         state['stages']['approval'] = 'blocked'
         private_json(attempt / 'receipt.json', state)
         raise Blocked('audience witness does not bind the native draft or distinct human approval')
     state['audience'] = witness
     state['stages']['approval'] = 'pass'
     state['stages']['audience'] = 'pass'
-    state['status'] = 'pass'
+    state['status'] = 'joined-native-console-integration-pass'
+    state['oneExternalAgentConversationQualified'] = False
     private_json(attempt / 'receipt.json', state)
-    print('One-attempt first-use source, native draft, separate approval and anonymous audience matched.')
+    print('Joined native Console integration matched; one external-agent conversation remains unqualified.')
 
 
 def main():
