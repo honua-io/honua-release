@@ -30,6 +30,7 @@ SCHEMA = 'honua.native-docker-first/v1'
 SHA = re.compile(r'^[a-f0-9]{40}$')
 DIGEST = re.compile(r'^[a-f0-9]{64}$')
 IMAGE = re.compile(r'^ghcr\.io/honua-io/[a-z0-9-]+:[a-zA-Z0-9._-]+@sha256:[a-f0-9]{64}$')
+SERVICE_PROMPT = 'Create a service from this imported dataset.'
 
 
 class Blocked(RuntimeError):
@@ -377,6 +378,7 @@ def observed_agent_task(transcript: str, workspace_id: str, turn_id: str,
             not isinstance(created.get('revision'), int) or not created.get('contentHash')):
         raise Blocked('created import task did not bind the observed browser selection and intent')
     return {'workspaceId': workspace_id, 'turnId': turn_id, 'intentId': intent_id,
+            'targetId': context['targetId'], 'tenantId': context['tenantId'],
             'selection': selection, 'taskId': created['taskId'],
             'revision': created['revision'], 'contentHash': created['contentHash'],
             'destination': created.get('destination'), 'ownerActorId': created['ownerActorId']}
@@ -902,6 +904,175 @@ def phase_agent_observe_import(args, state, binding, attempt):
         raise
 
 
+def observed_agent_service(transcript: str, original: dict, imported: dict,
+                           turn_id: str, names: dict) -> dict:
+    """Join actual MCP results, never the model's account of its work."""
+    calls, results, positions, result_positions = ordered_tool_events(transcript)
+    sequence = ('honua_workspace_conversation', 'honua_workspace_get_turn', 'honua_agent_connect',
+                'honua_admin_connections_create', 'honua_admin_connections_test',
+                'honua_admin_layer_publish', 'honua_describe_layer', 'honua_query_features')
+    allowed = {'mcp__honua__' + name for name in sequence} | {
+        'ToolSearch', 'ListMcpResourcesTool', 'ReadMcpResourceTool', 'WaitForMcpServers',
+        'mcp__honua__honua_agent_status'}
+    if any(call.get('name') not in allowed for call in calls):
+        raise Blocked('service continuation contains an unrelated or approval tool')
+    matches = [[call for call in calls if call.get('name') == 'mcp__honua__' + name]
+               for name in sequence]
+    if any(len(group) != 1 for group in matches):
+        raise Blocked('service continuation must bind, connect, publish and query exactly once')
+    ordered = [group[0] for group in matches]
+    require_results_before_dependencies(ordered, results, positions, result_positions)
+
+    # Claude's model-visible text can summarize query results. Its raw MCP
+    # tool_use_result retains structuredContent; bind it to the actual result ID.
+    structured = {}
+    for line in transcript.splitlines():
+        event = json.loads(line)
+        if not isinstance(event, dict) or event.get('type') != 'user':
+            continue
+        raw = event.get('tool_use_result')
+        message = event.get('message')
+        items = message.get('content', []) if isinstance(message, dict) else []
+        result_items = [item for item in items if isinstance(item, dict) and item.get('type') == 'tool_result']
+        if isinstance(raw, dict) and isinstance(raw.get('structuredContent'), dict):
+            if len(result_items) != 1 or raw.get('isError'):
+                raise Blocked('ambiguous or failed raw MCP service result')
+            structured[result_items[0]['tool_use_id']] = raw['structuredContent']
+    if any(call['id'] not in structured for call in ordered):
+        raise Blocked('service continuation lacks original structured MCP results')
+    conversation, turn, bound, created, tested, published, described, queried = (
+        structured[call['id']] for call in ordered)
+    workspace = original['workspaceId']
+    locator = {'workspaceId': workspace, 'turnId': turn_id}
+    def has_human_request(value):
+        messages = [item for item in value.get('messages', [])
+                    if item.get('role') == 'user' and item.get('turnId') == turn_id]
+        return len(messages) == 1 and messages[0].get('content') == SERVICE_PROMPT
+    task = turn.get('context', {}).get('task') or {}
+    if (ordered[0].get('input') != {'workspaceId': workspace} or
+            ordered[1].get('input') != locator or ordered[2].get('input') != locator or
+            not has_human_request(conversation) or not has_human_request(turn) or
+            task.get('kind') != 'dataset-import' or
+            any(original.get(source) is None or task.get(key) != original[source]
+                for key, source in (('id', 'taskId'), ('revision', 'revision'), ('contentHash', 'contentHash'))) or
+            turn.get('turnId') != turn_id or turn_id == original['turnId'] or
+            any(not original.get(key) or turn.get('context', {}).get(key) != original[key]
+                for key in ('workspaceId', 'targetId', 'tenantId')) or
+            bound.get('state') != 'attached' or bound.get('turnBinding') != locator):
+        raise Blocked('service continuation does not bind a fresh human turn on the original target')
+
+    def completed_data(value):
+        if (value.get('status') != 'Completed' or value.get('requiresApproval') is not False or
+                not isinstance(value.get('operationInstanceId'), str) or not value['operationInstanceId']):
+            raise Blocked('service operation is pending, denied or lacks a durable identity')
+        response = json.loads(value.get('details', {}).get('response', 'null'))
+        if not isinstance(response, dict) or response.get('success') is not True or not isinstance(response.get('data'), dict):
+            raise Blocked('service operation lacks its actual successful API response')
+        return response['data']
+
+    connection, health, layer = (completed_data(value) for value in (created, tested, published))
+    connection_request = {'name': names['connection'], 'secretReference': 'env:HONUA_LOCAL_DB_PASSWORD',
+                          'secretType': 'env', 'sslRequired': False, 'sslMode': 'Disable'}
+    connection_id = connection.get('connectionId')
+    output = imported['output']
+    publish_request = {'connectionId': connection_id, 'schema': output['schema'],
+                       'table': output['physicalTableName'], 'layerName': names['layer'],
+                       'serviceName': names['service'], 'enabled': True}
+    if (ordered[3].get('input') != connection_request or
+            not isinstance(connection_id, str) or not connection_id or
+            connection.get('name') != names['connection'] or
+            ordered[4].get('input') != {'id': connection_id} or
+            health.get('connectionId') != connection_id or health.get('isHealthy') is not True or
+            ordered[5].get('input') != publish_request or
+            any(layer.get(key) != publish_request[key] for key in ('schema', 'table', 'layerName', 'serviceName')) or
+            layer.get('enabled') is not True or type(layer.get('layerId')) is not int or layer['layerId'] <= 0):
+        raise Blocked('published service does not match the original imported table and secret reference')
+    identity = {'serviceId': names['service'], 'layerId': layer['layerId']}
+    if (ordered[6].get('input') != {**identity, 'includeRowCount': True} or
+            ordered[7].get('input') != {**identity, 'returnCountOnly': True} or
+            any(described.get(key) != value or queried.get(key) != value for key, value in identity.items()) or
+            not isinstance(described.get('studioSourceId'), str) or not described['studioSourceId'] or
+            not isinstance(described.get('fields'), list) or not described['fields'] or
+            type(described.get('rowCount')) is not int or described['rowCount'] != output['featureCount'] or
+            type(queried.get('count')) is not int or queried['count'] != output['featureCount']):
+        raise Blocked('actual service schema and query do not verify the imported feature count')
+    return {**identity, 'connectionId': connection_id, 'studioSourceId': described['studioSourceId'],
+            'schema': output['schema'], 'table': output['physicalTableName'],
+            'featureCount': queried['count'], 'fields': described['fields'],
+            'workspaceId': workspace, 'turnId': turn_id,
+            'operationInstanceIds': [value['operationInstanceId'] for value in (created, tested, published)]}
+
+
+def phase_agent_service(args, state, binding, attempt):
+    if state['stages'].get('agentImportObservation') != 'pass' or state['stages'].get('agentService'):
+        raise Blocked('service continuation requires a confirmed import and cannot replay an uncertain mutation')
+    original, imported = state['agentImportTask'], state['agentImportObservation']
+    if (args.workspace_id != original['workspaceId'] or
+            not re.fullmatch(r'[A-Za-z0-9_-]{1,128}', args.turn_id or '') or
+            args.turn_id == original['turnId']):
+        raise Blocked('a fresh actual human Console turn in the same workspace is required')
+    if installed_target(Path(state['installDirectory']), binding) != state.get('target'):
+        raise Blocked('installed target changed before the service continuation')
+    config, executable = attempt / 'mcp.json', Path(state['executables']['mcp'])
+    if (not config.is_file() or not executable.is_file() or
+            sha256(config) != state.get('mcpConfigSha256') or
+            sha256(executable) != state.get('mcpExecutableSha256')):
+        raise Blocked('external client registration/configuration changed before service continuation')
+    suffix = uuid.uuid4().hex[:20]
+    names = {'connection': 'native-' + suffix, 'service': 'native-' + suffix, 'layer': 'Imported ' + suffix}
+    state['stages']['agentService'] = 'started'
+    state['agentServiceIntent'] = {'turnId': args.turn_id, **names}
+    private_json(attempt / 'receipt.json', state)
+    output = imported['output']
+    prompt = (f'The human has sent a new Console turn requesting a service from their imported data. '
+              f'Continue this same Honua conversation and registration. Read honua_workspace_conversation '
+              f'for workspaceId {args.workspace_id}, then honua_workspace_get_turn for turnId {args.turn_id}. '
+              f'The exact retained human request must be "{SERVICE_PROMPT}" and its context must '
+              f'retain the original import task {original["taskId"]}; stop if either differs. '
+              f'Bind that exact workspace and turn with honua_agent_connect. Create exactly one connection '
+              f'named {names["connection"]}, secretReference env:HONUA_LOCAL_DB_PASSWORD, secretType env, '
+              f'sslRequired false and sslMode Disable. Never read or supply a password. Test its returned '
+              f'connectionId with honua_admin_connections_test using id. If healthy, publish exactly once '
+              f'with honua_admin_layer_publish using connectionId, schema {output["schema"]}, '
+              f'table {output["physicalTableName"]}, layerName "{names["layer"]}", '
+              f'serviceName {names["service"]}, enabled true. Inspect each successful result before the '
+              f'next call. Describe the returned serviceId/layerId with includeRowCount true, then query '
+              f'that same serviceId/layerId with returnCountOnly true. The original import contained '
+              f'{output["featureCount"]} features. Do not set anonymous access, approve anything, create '
+              f'a map or retry any mutation. If approval is required or a result is uncertain, stop.')
+    tools = ('honua_workspace_conversation', 'honua_workspace_get_turn', 'honua_agent_connect',
+             'honua_agent_status', 'honua_admin_connections_create', 'honua_admin_connections_test',
+             'honua_admin_layer_publish', 'honua_describe_layer', 'honua_query_features')
+    allowed = ['ToolSearch', 'ListMcpResourcesTool', 'ReadMcpResourceTool', 'WaitForMcpServers'] + [
+        'mcp__honua__' + name for name in tools]
+    command = [args.claude, '--restricted', '--tools', 'default', '--allowedTools', ','.join(allowed),
+               '--disallowedTools', 'Bash,PowerShell,Agent,Read,Write,Edit,NotebookEdit,Glob,Grep,LSP,WebFetch,WebSearch,Workflow,Task',
+               '--setting-sources', '', '--settings', '{"disableAllHooks":true}', '--strict-mcp-config',
+               '--mcp-config', str(config), '--permission-mode', 'dontAsk', '--permission-prompts', 'none',
+               '--resume', state['externalClientSessionId'], '--output-format', 'stream-json', '--verbose', '--print']
+    try:
+        result = subprocess.run(command, input=prompt, text=True, capture_output=True,
+                                timeout=900, cwd=attempt, check=False)
+        transcript, stderr = attempt / 'agent-service-transcript.ndjson', attempt / 'agent-service-stderr.log'
+        for path, content in ((transcript, result.stdout), (stderr, result.stderr)):
+            path.write_text(content)
+            path.chmod(0o600)
+        state['agentServiceTranscriptSha256'] = sha256(transcript)
+        if result.returncode:
+            raise Blocked('external service continuation failed; inspect existing operations without replay')
+        observed_client_session(result.stdout, state['externalClientSessionId'])
+        state['agentService'] = observed_agent_service(result.stdout, original, imported, args.turn_id, names)
+        state['stages']['agentService'] = 'pass'
+        state['oneExternalAgentConversationQualified'] = False
+        private_json(attempt / 'receipt.json', state)
+        print('Same external client published and queried the imported table. Map and audience qualification remain.')
+    except Exception as exc:
+        state['stages']['agentService'] = 'blocked'
+        state['blocker'] = str(exc)
+        private_json(attempt / 'receipt.json', state)
+        raise
+
+
 def phase_witness(args, state, binding, attempt):
     if state['stages'].get('approval') != 'awaiting-separate-human-approval':
         raise Blocked('no pending separate-human approval to witness')
@@ -963,7 +1134,7 @@ def phase_witness(args, state, binding, attempt):
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('phase', choices=('start', 'install', 'agent-task', 'agent-submit',
-                                         'agent-observe-import', 'browser', 'witness'))
+                                         'agent-observe-import', 'agent-service', 'browser', 'witness'))
     parser.add_argument('--manifest', type=Path, required=True)
     parser.add_argument('--attempt', type=Path, required=True)
     parser.add_argument('--install-dir', type=Path)
@@ -1012,6 +1183,8 @@ def main():
                 phase_agent_submit(args, state, binding, args.attempt)
             elif args.phase == 'agent-observe-import':
                 phase_agent_observe_import(args, state, binding, args.attempt)
+            elif args.phase == 'agent-service':
+                phase_agent_service(args, state, binding, args.attempt)
             elif args.phase == 'browser':
                 phase_browser(args, state, manifest, binding, harness, args.attempt)
             else:
