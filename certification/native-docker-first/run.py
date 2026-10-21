@@ -52,7 +52,8 @@ def canonical_map_route(route: str | None) -> bool:
 
 def require_private_source(server_origin: str, service: dict) -> None:
     """Observe the installed source as an anonymous reader before map publication."""
-    path = ('/rest/services/' + quote(service['serviceName'], safe='') +
+    service_path = '/'.join(quote(part, safe='') for part in service['serviceName'].split('/'))
+    path = ('/rest/services/' + service_path +
             '/FeatureServer/' + str(service['layerId']) + '?f=json')
     try:
         with urlopen(server_origin + path, timeout=15) as response:

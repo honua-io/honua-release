@@ -165,6 +165,19 @@ class AgentMapRouteTests(unittest.TestCase):
                 with self.assertRaises(runner.Blocked):
                     runner.require_private_source('http://127.0.0.1:8080', service)
 
+    def test_private_source_checks_real_segment_encoded_service_route(self):
+        service = {'serviceName': 'folder/source name', 'layerId': 42}
+        endpoint = 'http://127.0.0.1:8080/rest/services/folder/source%20name/FeatureServer/42?f=json'
+        with patch.object(runner, 'urlopen',
+                return_value=nullcontext(SimpleNamespace(status=200))) as read:
+            with self.assertRaises(runner.Blocked):
+                runner.require_private_source('http://127.0.0.1:8080', service)
+            self.assertEqual(read.call_args.args[0], endpoint)
+        with patch.object(runner, 'urlopen',
+                side_effect=HTTPError(endpoint, 401, 'denied', None, None)) as read:
+            runner.require_private_source('http://127.0.0.1:8080', service)
+            self.assertEqual(read.call_args.args[0], endpoint)
+
 
 class AgentMapShareEvidenceTests(unittest.TestCase):
     def setUp(self):
