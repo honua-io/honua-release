@@ -4268,7 +4268,9 @@ def test_require_real_ga_cell_refuses_a_non_honua_hostname_before_probes():
     reason = run_cloud.ga_cell_hostname_precondition(
         type("Cell", (), {"cell_domain": lambda self, redis: None})(),
         "http", "example.elb.amazonaws.com", require_real=True, evidence_tier="GA")
-    assert reason and "honua.io" in reason and "example.elb.amazonaws.com" in reason
+    assert reason == (
+        "CSP hostname precondition: a require_real GA cell must serve https on honua.io "
+        "so the top-demo origin is admitted; got http://example.elb.amazonaws.com")
     assert run_cloud.ga_cell_hostname_precondition(
         type("Cell", (), {"cell_domain": lambda self, redis: None})(),
         "https", "honua.io.attacker.test", require_real=True, evidence_tier="GA")
