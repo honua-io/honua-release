@@ -149,6 +149,12 @@ def test_dry_run_publishes_stable_ids_and_scratch_edit_contract(tmp_path: Path):
     applied = (tmp_path / "out" / "applied.sql").read_text(encoding="utf-8")
     assert "generate_series(0, 13) AS i, generate_series(0, 22) AS j;" in applied
     assert "(1 + ((i * 3 + j) % 6))::text" in applied
+    assert "CREATE TRIGGER assign_missing_feature_srid" in applied
+    assert "BEFORE INSERT OR UPDATE OF geometry" in applied
+    assert "ST_SRID(NEW.geometry) = 0" in applied
+    assert "ST_SetSRID(NEW.geometry, COALESCE(target_srid, 4326))" in applied
+    assert "to_regclass('features')" in applied
+    assert "to_regclass('public.features')" in applied
     assert "tmk_txt" not in applied
     for name in INSPECTION_NAMES:
         assert name in applied

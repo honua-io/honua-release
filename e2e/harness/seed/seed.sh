@@ -361,6 +361,46 @@ while IFS= read -r row; do
   open_anonymous "$svc" "$(layer_id_of "$svc")" "$write"
 done < <(python3 "$HERE/plan.py" access-plan | jq -c '.[]')
 
+# Attribute-only edits rewrite geometry as WKB with SRID 0. The shared features
+# geography index evaluates ST_Transform during that write and rejects SRID 0.
+# Stamp the layer SRID before index maintenance. Leave the shared column
+# unconstrained; every managed layer uses the same table.
+echo "== seed: assigning a layer SRID before shared-features index maintenance =="
+psql_apply <<'SQL'
+CREATE OR REPLACE FUNCTION honua.assign_missing_feature_srid()
+RETURNS trigger
+LANGUAGE plpgsql
+AS $fn$
+DECLARE
+  target_srid integer;
+BEGIN
+  IF NEW.geometry IS NOT NULL AND ST_SRID(NEW.geometry) = 0 THEN
+    SELECT COALESCE(NULLIF(storage_srid, 0), NULLIF(srid, 0))
+      INTO target_srid
+      FROM honua.layers
+     WHERE layer_id = NEW.layer_id;
+    NEW.geometry := ST_SetSRID(NEW.geometry, COALESCE(target_srid, 4326));
+  END IF;
+  RETURN NEW;
+END;
+$fn$;
+
+DO $do$
+DECLARE
+  features_table regclass;
+BEGIN
+  features_table := COALESCE(to_regclass('features'), to_regclass('public.features'));
+  IF features_table IS NULL THEN
+    RAISE EXCEPTION 'managed features table is not visible to the seed session';
+  END IF;
+  EXECUTE format('DROP TRIGGER IF EXISTS assign_missing_feature_srid ON %s', features_table);
+  EXECUTE format(
+    'CREATE TRIGGER assign_missing_feature_srid BEFORE INSERT OR UPDATE OF geometry ON %s FOR EACH ROW EXECUTE FUNCTION honua.assign_missing_feature_srid()',
+    features_table);
+END;
+$do$;
+SQL
+
 if [ "${SEED_DRY_RUN:-}" != "1" ]; then
   if ! E2E_BASE="$E2E_BASE" E2E_API_KEY="$E2E_API_KEY" \
     python3 "$HERE/verify_edit.py" --publication "$E2E_OUT/seed-inspections-publication.json" \
