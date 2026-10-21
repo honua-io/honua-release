@@ -55,8 +55,18 @@ jobs:
           if [ -z "${GH_TOKEN:-}" ]; then
             echo "::error::RELEASE_GH_TOKEN is required to read component repositories"; exit 1
           fi
+          # Exit 75 = transient-registry-unavailable: a package registry kept answering 5xx after the
+          # verifier's bounded backoff. The night still mints nothing, but it is reported as an outage,
+          # never as a provenance refusal (run 39630172050, PyPI integrity 503).
+          rc=0
           python tools/resolve_trunk_candidate.py --dry-run --max-commits 500 --protocol-ledger produce --prepare-deployments \
-            --out-dir resolved-candidate
+            --out-dir resolved-candidate || rc=$?
+          if [ "$rc" = 75 ]; then
+            echo "::error title=transient-registry-unavailable::a package registry was unavailable after bounded retries; this is not a provenance refusal (see resolved-candidate/resolution-outcome.json)"
+            { echo "## Resolve outcome: transient-registry-unavailable"; echo;
+              echo "A registry outage outlasted the bounded retry. No pin was refused; re-run the night once the registry is healthy."; } >> "$GITHUB_STEP_SUMMARY"
+          fi
+          exit "$rc"
       - name: Stamp the next 2026.1-rc label
         id: stamp
         env:

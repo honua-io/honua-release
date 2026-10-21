@@ -2025,3 +2025,47 @@ def test_the_nightly_uploads_the_skip_report_even_when_resolution_refuses():
 def test_gh_failures_carry_the_api_status(stdout, stderr, status):
     exc = subprocess.CalledProcessError(1, ['gh', 'api'], output=stdout, stderr=stderr)
     assert resolver.api_status(exc) == status
+
+
+def test_registry_outage_is_a_distinct_transient_outcome_not_a_refusal(monkeypatch, tmp_path, capsys):
+    """Run 39630172050: a PyPI integrity 503 must not read as a provenance REFUSED."""
+    from verify_client_artifacts import RegistryUnavailable, VerificationError
+
+    def outage(*args, **kwargs):
+        raise RegistryUnavailable('transient-registry-unavailable: registry did not answer '
+                                  'https://pypi.org/integrity/honua-admin/0.1.12/x/provenance after 5 attempts: '
+                                  'HTTP Error 503: Backend is unhealthy')
+
+    monkeypatch.setattr(resolver, 'resolve', outage)
+    monkeypatch.setattr(resolver, 'Registry', lambda github: None)
+    (tmp_path / 'm.yaml').write_text('{}\n')
+    out = tmp_path / 'out'
+    status = resolver.main(['--manifest', str(tmp_path / 'm.yaml'), '--matrix', str(tmp_path / 'm.yaml'),
+                            '--out-dir', str(out)])
+    assert status == resolver.TRANSIENT_EXIT != 1
+    err = capsys.readouterr().err
+    assert 'TRANSIENT-REGISTRY-UNAVAILABLE' in err and 'REFUSED' not in err
+    outcome = json.loads((out / 'resolution-outcome.json').read_text())
+    assert outcome['outcome'] == 'transient-registry-unavailable' and outcome['provenanceRefusal'] is False
+
+    def invalid(*args, **kwargs):
+        raise VerificationError('honua-admin: invalid PyPI provenance: attestation subject mismatch')
+
+    monkeypatch.setattr(resolver, 'resolve', invalid)
+    out2 = tmp_path / 'out2'
+    assert resolver.main(['--manifest', str(tmp_path / 'm.yaml'), '--matrix', str(tmp_path / 'm.yaml'),
+                          '--out-dir', str(out2)]) == 1
+    assert 'REFUSED' in capsys.readouterr().err
+    assert not (out2 / 'resolution-outcome.json').exists()
+
+
+def test_image_child_without_config_descriptor_refuses_instead_of_crashing():
+    """Run 37501454457 died with KeyError('config') on a child manifest that had no config."""
+    registry = resolver.Registry(None)
+    index = json.dumps({'manifests': [{'digest': 'sha256:' + 'a' * 64,
+                                       'platform': {'os': 'linux', 'architecture': 'amd64'}}]}).encode()
+    digest = 'sha256:' + hashlib.sha256(index).hexdigest()
+    registry.request = lambda repository, suffix, manifest=False: (index, {'Docker-Content-Digest': digest})
+    registry.document = lambda repository, digest, manifest=False: {'manifests': []}
+    with pytest.raises(resolver.ResolutionError, match='no config descriptor'):
+        registry.identity('honua-io/honua-server', 'nightly-aaaaaaa', NEW, ['amd64'])
