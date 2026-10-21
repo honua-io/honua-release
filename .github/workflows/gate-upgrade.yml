@@ -521,12 +521,15 @@ jobs:
             - { name: operation-keyring, mountPath: /keyring, readOnly: true }
           YAML
 
-            # AllowedHosts: host validation rejects the chart's own in-cluster license-status hook
-            # ("untrusted host header 'honua-honua:80'", run 39669924148) and the port-forwarded
-            # probes unless their hosts are allowlisted.
+            # HostValidation:AllowedHosts: Honua's host validation rejects the chart's own in-cluster
+            # license-status hook ("untrusted host header 'honua-honua:80'", run 39669924148) and the
+            # port-forwarded probes unless allowlisted. Not ASP.NET's AllowedHosts: that also enables
+            # HostFiltering, which 400s the kubelet's pod-IP probes (run 39670822137).
             COMMON=(--namespace "$NS" --wait --timeout 12m
                     -f /tmp/upg-keyring-values.yaml
-                    --set-string 'config.env.AllowedHosts=honua-honua;127.0.0.1;localhost'
+                    --set-string 'config.env.HostValidation__AllowedHosts__0=honua-honua'
+                    --set-string 'config.env.HostValidation__AllowedHosts__1=127.0.0.1'
+                    --set-string 'config.env.HostValidation__AllowedHosts__2=localhost'
                     --set-string 'config.env.Operations__SecretChannel__KeyRingCertificatePath=/keyring/keyring.pfx'
                     --set-string "secret.env.Operations__SecretChannel__KeyRingCertificatePassword=$KEYRING_PASSWORD"
                     --set-string "secret.env.AuditLog__ChainVerification__Key=$AUDIT_CHAIN_KEY"
