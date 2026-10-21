@@ -17,7 +17,7 @@ spec.loader.exec_module(runner)
 class NativeFirstUseTests(unittest.TestCase):
     def test_resumed_client_submits_only_original_prepared_task_and_reads_actual_job(self):
         original = {'workspaceId': 'workspace-1', 'turnId': 'turn-1', 'taskId': 'task-1',
-                    'revision': 1, 'contentHash': 'a' * 64}
+                    'revision': 1, 'contentHash': 'a' * 64, 'ownerActorId': 'agent-1'}
         reference = {'workspaceId': 'workspace-1', 'taskId': 'task-1',
                      'revision': 1, 'contentHash': 'a' * 64}
         identity = {'taskId': 'task-1', 'taskRevision': 1, 'taskContentHash': 'a' * 64}
@@ -50,6 +50,19 @@ class NativeFirstUseTests(unittest.TestCase):
                   result('after', accepted)]
         transcript = lambda items: '\n'.join(json.dumps(item) for item in items)
         self.assertEqual(runner.observed_agent_submission(transcript(events), original)['jobId'], 'operation-1')
+        for broken in (events[:5] + [events[6], events[5]] + events[7:],
+                       events[:7] + [events[8], events[7]] + events[9:],
+                       events + [events[1]],
+                       events + [events[0]],
+                       [*events[:2], {**events[2], 'message': {'content': [
+                           {**events[2]['message']['content'][0], 'id': 'bind'}]}}, *events[3:]]):
+            with self.assertRaises(runner.Blocked):
+                runner.observed_agent_submission(transcript(broken), original)
+        with self.assertRaisesRegex(runner.Blocked, 'original agent'):
+            runner.observed_agent_submission(transcript(events), {**original, 'ownerActorId': 'foreign-agent'})
+        with self.assertRaises(runner.Blocked):
+            runner.observed_agent_submission(transcript(events), {key: value for key, value in original.items()
+                                                               if key != 'ownerActorId'})
         for index, field in ((0, 'bind'), (6, 'revision'), (9, 'job'), (9, 'fingerprint')):
             broken = json.loads(json.dumps(events))
             if field in ('job', 'fingerprint'):
@@ -129,15 +142,21 @@ class NativeFirstUseTests(unittest.TestCase):
                       call('honua_workspace_create_dataset_import_task', 'i', {'workspaceId': 'workspace-1', 'request': request}),
                       result('i', {'taskId': 'task-1', 'revision': 1, 'contentHash': 'a'*64,
                                    'workspaceId': 'workspace-1', 'targetId': 'target-1', 'tenantId': 'tenant-1',
+                                   'ownerActorId': 'agent-1',
                                    'source': {key: value for key, value in request['source'].items() if value is not None},
                                    'destination': request['destination']})]
             transcript = '\n'.join(events)
             runner.observed_client_session(transcript, 'session-1')
-            self.assertEqual(runner.observed_agent_task(transcript, 'workspace-1', 'turn-1', 'intent-1', source)['taskId'], 'task-1')
+            observed = runner.observed_agent_task(transcript, 'workspace-1', 'turn-1', 'intent-1', source)
+            self.assertEqual((observed['taskId'], observed['ownerActorId']), ('task-1', 'agent-1'))
+            for broken in (events[:2] + [events[3], events[2]] + events[4:],
+                           events + [events[8]], events + [events[1]]):
+                with self.assertRaises(runner.Blocked):
+                    runner.observed_agent_task('\n'.join(broken), 'workspace-1', 'turn-1', 'intent-1', source)
             with self.assertRaisesRegex(runner.Blocked, 'same persistent'):
                 runner.observed_client_session(transcript, 'different-session')
             for bad in ('turnBinding', 'browserFileSelection', 'task', 'workspace', 'target',
-                        'tenant', 'destination', 'artifact'):
+                        'tenant', 'destination', 'artifact', 'ownerActorId'):
                 broken = list(events)
                 index = {'turnBinding': 6, 'browserFileSelection': 4}.get(bad, 8)
                 payload = json.loads(broken[index])
@@ -149,6 +168,7 @@ class NativeFirstUseTests(unittest.TestCase):
                 elif bad == 'target': output['targetId'] = 'foreign-target'
                 elif bad == 'tenant': output['tenantId'] = 'foreign-tenant'
                 elif bad == 'destination': output['destination']['table'] = 'foreign_table'
+                elif bad == 'ownerActorId': output.pop('ownerActorId')
                 else: output['source']['artifact'] = {'projectId': 'foreign'}
                 payload['message']['content'][0]['content'] = json.dumps(output)
                 broken[index] = json.dumps(payload)

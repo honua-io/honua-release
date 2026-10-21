@@ -282,18 +282,43 @@ def observed_client_session(transcript: str, expected: str) -> None:
         raise Blocked('external client did not use the same persistent conversation')
 
 
-def observed_agent_task(transcript: str, workspace_id: str, turn_id: str,
-                        intent_id: str, input_file: Path) -> dict:
-    calls = []
-    results = {}
+def ordered_tool_events(transcript: str):
+    calls, results, call_positions, result_positions = [], {}, {}, {}
+    position = 0
     for line in transcript.splitlines():
         try: event = json.loads(line)
         except ValueError: continue
         if not isinstance(event, dict): continue
         message = event.get('message')
         for item in message.get('content', []) if isinstance(message, dict) else []:
-            if isinstance(item, dict) and item.get('type') == 'tool_use': calls.append(item)
-            elif isinstance(item, dict) and item.get('type') == 'tool_result': results[item.get('tool_use_id')] = item
+            if not isinstance(item, dict): continue
+            position += 1
+            if item.get('type') == 'tool_use':
+                identifier = item.get('id')
+                if not isinstance(identifier, str) or not identifier or identifier in call_positions:
+                    raise Blocked('external client transcript has missing or duplicate tool call IDs')
+                calls.append(item)
+                call_positions[identifier] = position
+            elif item.get('type') == 'tool_result':
+                identifier = item.get('tool_use_id')
+                if not isinstance(identifier, str) or identifier not in call_positions or identifier in results:
+                    raise Blocked('external client transcript has unmatched or duplicate tool results')
+                results[identifier] = item
+                result_positions[identifier] = position
+    return calls, results, call_positions, result_positions
+
+
+def require_results_before_dependencies(sequence, results, call_positions, result_positions):
+    if (any(call.get('id') not in result_positions or results[call['id']].get('is_error') or
+           not call_positions[call['id']] < result_positions[call['id']] < call_positions[next_call['id']]
+           for call, next_call in zip(sequence, sequence[1:])) or
+            sequence[-1].get('id') not in result_positions or results[sequence[-1]['id']].get('is_error')):
+        raise Blocked('external client did not observe each successful tool result before its dependent call')
+
+
+def observed_agent_task(transcript: str, workspace_id: str, turn_id: str,
+                        intent_id: str, input_file: Path) -> dict:
+    calls, results, call_positions, result_positions = ordered_tool_events(transcript)
     names = ('honua_workspace_conversation', 'honua_workspace_get_turn',
              'honua_agent_connect', 'honua_workspace_create_dataset_import_task')
     matches = [[call for call in calls if call.get('name') == 'mcp__honua__' + name] for name in names]
@@ -302,6 +327,8 @@ def observed_agent_task(transcript: str, workspace_id: str, turn_id: str,
     conversation, turn, bind, task = (group[0] for group in matches)
     if not (calls.index(conversation) < calls.index(turn) < calls.index(bind) < calls.index(task)):
         raise Blocked('external client task sequence was not ordered after the human turn read')
+    require_results_before_dependencies((conversation, turn, bind, task), results,
+                                        call_positions, result_positions)
     if (conversation.get('input', {}).get('workspaceId') != workspace_id or
             turn.get('input') != {'workspaceId': workspace_id, 'turnId': turn_id} or
             bind.get('input') != {'workspaceId': workspace_id, 'turnId': turn_id}):
@@ -345,13 +372,14 @@ def observed_agent_task(transcript: str, workspace_id: str, turn_id: str,
             created.get('workspaceId') != workspace_id or created.get('targetId') != context['targetId'] or
             created.get('tenantId') != context.get('tenantId') or
             created.get('destination') != request.get('destination') or
+            not isinstance(created.get('ownerActorId'), str) or not created['ownerActorId'] or
             not created.get('taskId') or
             not isinstance(created.get('revision'), int) or not created.get('contentHash')):
         raise Blocked('created import task did not bind the observed browser selection and intent')
     return {'workspaceId': workspace_id, 'turnId': turn_id, 'intentId': intent_id,
             'selection': selection, 'taskId': created['taskId'],
             'revision': created['revision'], 'contentHash': created['contentHash'],
-            'destination': created.get('destination')}
+            'destination': created.get('destination'), 'ownerActorId': created['ownerActorId']}
 
 
 def phase_start(args, manifest, binding, harness, attempt):
@@ -636,16 +664,7 @@ def phase_agent_task(args, state, binding, attempt):
 
 
 def observed_agent_submission(transcript: str, original: dict) -> dict:
-    calls = []
-    results = {}
-    for line in transcript.splitlines():
-        try: event = json.loads(line)
-        except ValueError: continue
-        if not isinstance(event, dict): continue
-        message = event.get('message')
-        for item in message.get('content', []) if isinstance(message, dict) else []:
-            if isinstance(item, dict) and item.get('type') == 'tool_use': calls.append(item)
-            elif isinstance(item, dict) and item.get('type') == 'tool_result': results[item.get('tool_use_id')] = item
+    calls, results, call_positions, result_positions = ordered_tool_events(transcript)
     binds = [call for call in calls if call.get('name') == 'mcp__honua__honua_agent_connect']
     names = ('get_dataset_import_authority', 'get_dataset_import_submission',
              'submit_dataset_import')
@@ -658,6 +677,8 @@ def observed_agent_submission(transcript: str, original: dict) -> dict:
     if not (calls.index(bind) < calls.index(authority_call) < calls.index(before) <
             calls.index(submit) < calls.index(after)):
         raise Blocked('external client submission sequence is not ordered')
+    require_results_before_dependencies((bind, authority_call, before, submit, after),
+                                        results, call_positions, result_positions)
     reference = {'workspaceId': original['workspaceId'], 'taskId': original['taskId'],
                  'revision': original['revision'], 'contentHash': original['contentHash']}
     if any(call.get('input') != reference for call in (authority_call, before, after)):
@@ -678,7 +699,8 @@ def observed_agent_submission(transcript: str, original: dict) -> dict:
             submitted.get(key) != value or accepted.get(key) != value
             for key, value in identity.items()) or
             authority.get('originatingTurnId') != original['turnId'] or
-            not authority.get('executorActorId') or not authority.get('preparedOperationId') or
+            not original.get('ownerActorId') or authority.get('executorActorId') != original['ownerActorId'] or
+            not authority.get('preparedOperationId') or
             prepared.get('state') != 'prepared' or prepared.get('operationId') != authority['preparedOperationId']):
         raise Blocked('prepared task does not bind the original agent and human turn')
     reviewed = {key: authority.get(key) for key in
@@ -713,7 +735,7 @@ def phase_agent_submit(args, state, binding, attempt):
     if state['stages'].get('agentSubmission') != 'awaiting-real-human-upload-and-prepare':
         raise Blocked('external client submission stage is not ready or its outcome is uncertain')
     original = state.get('agentImportTask') or {}
-    if not original.get('taskId') or not original.get('contentHash'):
+    if not original.get('taskId') or not original.get('contentHash') or not original.get('ownerActorId'):
         raise Blocked('original external-client import task is missing')
     if installed_target(Path(state['installDirectory']), binding) != state.get('target'):
         raise Blocked('installed target changed before the external client submission')
