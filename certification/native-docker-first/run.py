@@ -75,6 +75,7 @@ def candidate(manifest_path: Path) -> tuple[dict, dict]:
     clients = manifest.get('clientArtifacts') or {}
     server, console = (components.get(key) or {} for key in ('honua-server', 'honua-console'))
     sdk_js, mcp = (clients.get(key) or {} for key in ('honua-sdk-js', 'honua-mcp-server'))
+    dotnet = clients.get('honua-sdk-dotnet') or {}
     if sdk_js.get('version') != mcp.get('version') or tuple(int(x) for x in mcp.get('version', '0.0.0').split('.')[:3]) < (0, 2, 7):
         raise Blocked('candidate requires coherent published SDK/MCP 0.2.7 or later; the old release manifest is refused')
     for name, component in (('server', server), ('console', console)):
@@ -83,6 +84,10 @@ def candidate(manifest_path: Path) -> tuple[dict, dict]:
     for name, pin in (('sdk', sdk_js), ('mcp', mcp)):
         if pin.get('publicationState') not in ('published', 'promoted') or pin.get('ecosystem') != 'npm' or not pin.get('integrity', '').startswith('sha512-'):
             raise Blocked(f'{name} needs a published exact npm integrity pin')
+    if (dotnet.get('publicationState') not in ('published', 'promoted') or
+            dotnet.get('ecosystem') != 'nuget' or dotnet.get('registry') != 'nuget.org' or
+            not re.fullmatch(r'sha256:[a-f0-9]{64}', dotnet.get('digest', ''))):
+        raise Blocked('candidate needs a published NuGet.org .NET SDK digest pin')
     release_id = manifest.get('platformRelease')
     if not isinstance(release_id, str) or not release_id:
         raise Blocked('candidate release identity missing')
@@ -90,7 +95,9 @@ def candidate(manifest_path: Path) -> tuple[dict, dict]:
                'server': {'sha': server['sha'], 'image': f"{server['image']}@{server['digest']}"},
                'console': {'sha': console['sha'], 'image': f"{console['image']}@{console['digest']}"},
                'clients': {key: {'package': clients[key]['package'], 'version': clients[key]['version'],
-                                 'integrity': clients[key]['integrity']} for key in ('honua-sdk-js', 'honua-mcp-server')}}
+                                 'integrity': clients[key]['integrity']} for key in ('honua-sdk-js', 'honua-mcp-server')},
+               'dotnet': {'package': dotnet['package'], 'version': dotnet['version'],
+                          'digest': dotnet['digest'], 'registry': dotnet['registry']}}
     return manifest, binding
 
 
