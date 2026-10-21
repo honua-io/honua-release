@@ -420,11 +420,30 @@ def main() -> None:
     # Governed write operations supplement SDK-covered capabilities; they are not gaps.
     # The exact operation/test/facet denominator below still requires every implemented
     # assignment and refuses extra, omitted or altered generated rows.
-    if not expected_harness_capabilities.issubset(actual_harness_capabilities):
+    # An explicit unassigned contract with one unproduced owner is a reviewed gap
+    # (analytics.h3, serve.wps at the frozen candidate). It is not harness credit and
+    # it is not a silent omission. Stripping the row, or letting a producer claim the
+    # lane, still fails.
+    gap_rows = explicit_unassigned_harness_gaps(catalog)
+    overlap = set(gap_rows) & actual_harness_capabilities
+    if overlap:
+        raise ValueError(
+            "Server protocol harness assignments coexist with explicit unassigned contracts "
+            f"(capabilities={sorted(overlap)})"
+        )
+    accounted_harness_capabilities = actual_harness_capabilities | set(gap_rows)
+    if not expected_harness_capabilities.issubset(accounted_harness_capabilities):
         raise ValueError(
             "Server protocol harness assignments omit operation-contract gaps "
-            f"(missing={sorted(expected_harness_capabilities - actual_harness_capabilities)})"
+            f"(missing={sorted(expected_harness_capabilities - accounted_harness_capabilities)})"
         )
+    unexpected_gaps = set(gap_rows) - expected_harness_capabilities
+    if unexpected_gaps:
+        raise ValueError(
+            "Unassigned protocol harness contracts name capabilities that are not implemented gaps "
+            f"(unexpected={sorted(unexpected_gaps)})"
+        )
+    require_unproduced_harness_gaps(catalog, gap_rows)
     expected_harness_rows = {
         (
             assignment["capability_key"], assignment["surface"], assignment["operation"],
@@ -606,9 +625,11 @@ def main() -> None:
                         })
                         capability_row_count += 1
             if capability_row_count == 0:
+                matched_harness = False
                 for assignment in harness_assignments:
                     if assignment["capability_key"] != capability_key:
                         continue
+                    matched_harness = True
                     expected_decision_rows.append({
                         "capability_key": capability_key,
                         "surface": assignment["surface"],
@@ -628,6 +649,30 @@ def main() -> None:
                         "fixture_revision": f"server-test-fixtures@{harness_source_sha}",
                         "budget_expectations": None,
                         "test_ids": assignment["test_ids"],
+                    })
+                # No SDK entrypoint and no harness assignment: the generator records one
+                # unassigned contract under this applicability revision. It is a reviewed
+                # gap, not a harness pass. The harness accounting above still requires
+                # exactly one unproduced owner.
+                if not matched_harness:
+                    expected_decision_rows.append({
+                        "capability_key": capability_key,
+                        "surface": slug(capability_key),
+                        "operation": f"{UNASSIGNED_PROTOCOL_HARNESS_PREFIX}{capability_key}",
+                        "canonical_client": "UNASSIGNED PROTOCOL HARNESS",
+                        "client_lane": f"protocol-harness-gap-{slug(capability_key)}",
+                        "client_version": "policy-v1",
+                        "deployment_target": "local-docker",
+                        "required_tier": "nightly",
+                        "licensed": False,
+                        "entitlement_policy_revision": None,
+                        "addressable_by_client": True,
+                        "addressability_reason": None,
+                        "scenario_facets": ["positive"],
+                        "contract_revision": f"canonical-client-applicability@{applicability['revision']}",
+                        "auth_policy_revision": "unassigned-protocol-harness-v1",
+                        "fixture_revision": FIXTURE,
+                        "budget_expectations": None,
                     })
             continue
         elif classification == "canonical-external-required":
@@ -970,6 +1015,69 @@ def validate_desktop_clients(catalog: dict, roster: dict) -> None:
 
 
 CANDIDATE_INPUTS = ("{server_image}", "{server_sha}", "{cut_at}")
+UNASSIGNED_PROTOCOL_HARNESS_PREFIX = "UNASSIGNED PROTOCOL HARNESS CONTRACT:"
+
+
+def _generator_module():
+    spec = importlib.util.spec_from_file_location(
+        "protocol_generator_digest", ROOT / "generate-protocol-requirements.py"
+    )
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+def _disposition_selects(entry: dict, row: dict) -> bool:
+    lane = row["client_lane"]
+    if any(fnmatch.fnmatchcase(lane, pattern) for pattern in entry.get("except_client_lanes") or []):
+        return False
+    return any(
+        fnmatch.fnmatchcase(lane, pattern) for pattern in entry.get("client_lanes") or []
+    ) or row["deployment_target"] in (entry.get("deployment_targets") or [])
+
+
+def explicit_unassigned_harness_gaps(catalog: dict) -> dict[str, dict]:
+    """One reviewed unassigned contract per capability. Not a harness assignment."""
+    found: dict[str, dict] = {}
+    for row in catalog["requirements"]:
+        operation = row.get("operation")
+        if not isinstance(operation, str) or not operation.startswith(UNASSIGNED_PROTOCOL_HARNESS_PREFIX):
+            continue
+        capability = row.get("capability_key")
+        if (
+            not isinstance(capability, str)
+            or operation != f"{UNASSIGNED_PROTOCOL_HARNESS_PREFIX}{capability}"
+        ):
+            raise ValueError(
+                "Unassigned protocol harness contract does not name its capability: "
+                f"{operation!r}"
+            )
+        if capability in found:
+            raise ValueError(f"Duplicate unassigned protocol harness contract for {capability}.")
+        if row.get("canonical_client") != "UNASSIGNED PROTOCOL HARNESS":
+            raise ValueError(f"Unassigned protocol harness contract for {capability} has the wrong client.")
+        if row.get("client_lane") != f"protocol-harness-gap-{slug(capability)}":
+            raise ValueError(f"Unassigned protocol harness contract for {capability} has the wrong lane.")
+        if row.get("addressable_by_client") is not True:
+            raise ValueError(f"Unassigned protocol harness contract for {capability} must stay addressable.")
+        found[capability] = row
+    return found
+
+
+def require_unproduced_harness_gaps(catalog: dict, gaps: dict[str, dict]) -> None:
+    production = catalog.get("production") or {}
+    producers = production.get("producers") or []
+    unproduced = production.get("unproduced") or []
+    for capability, row in gaps.items():
+        produced = [entry for entry in producers if _disposition_selects(entry, row)]
+        owned = [entry for entry in unproduced if _disposition_selects(entry, row)]
+        if produced or len(owned) != 1:
+            raise ValueError(
+                "Unassigned protocol harness contract "
+                f"{capability} is not an owned unproduced gap "
+                f"(producers={len(produced)}, unproduced={len(owned)}). "
+                "It is not a passing harness receipt."
+            )
 
 
 def validate_production(catalog: dict) -> None:
@@ -1073,6 +1181,18 @@ def validate_grpc_scope(catalog: dict) -> None:
                      if row["surface"] == "grpc" and row["client_lane"] in lanes}
     if lane_versions != {shipped["version"]}:
         raise ValueError(f"Generated gRPC client versions {sorted(lane_versions)} differ from the shipped version")
+    # The release gate compares a receipt to these rows. The rows themselves must carry the
+    # published archive digest, not a well-formed substitute. This does not qualify a candidate.
+    generator = _generator_module()
+    for row in catalog["requirements"]:
+        lane = row.get("client_lane")
+        if row.get("surface") != "grpc" or lane not in lanes:
+            continue
+        expected_digest = generator.grpc_client_digest(published, lane)
+        if row.get("client_package_digest") != expected_digest:
+            raise ValueError(
+                f"gRPC requirement {lane} {row.get('operation')} digest differs from the published package"
+            )
 
 
 if __name__ == "__main__":

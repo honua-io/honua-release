@@ -400,6 +400,81 @@ def test_h3_projection_refuses_conflicting_existing_decisions(candidate, mutatio
     assert path.read_bytes() == original
 
 
+def stage_reviewed_unassigned_gap(candidate, capability):
+    """Implemented source surface, no harness assignment, one reviewed unproduced owner."""
+    if capability == "analytics.h3":
+        add_reviewed_h3_contract(candidate, assignments=False)
+        path, data = REBIND.project_canonical_client_applicability(candidate.parent)
+        (candidate.parent / path).write_bytes(data)
+        path, data = REBIND.project_h3_production_gap(candidate.parent)
+    elif capability == "serve.wps":
+        fixture = read(ROOT / "tools/fixtures/wps-contract-source-2026-10-13.json")
+        matrix_path = candidate / "sources/server/capability-matrix.v1.json"
+        matrix = read(matrix_path)
+        assert not any(row["key"] == "serve.wps" for row in matrix["capabilities"])
+        matrix["capabilities"].append(fixture["capability"])
+        write(matrix_path, matrix)
+        path, data = REBIND.project_official_protocol_assignments(candidate.parent)
+        (candidate.parent / path).write_bytes(data)
+        path, data = REBIND.project_wps_production_gap(candidate.parent)
+    else:
+        raise AssertionError(capability)
+    (candidate.parent / path).write_bytes(data)
+    return path
+
+
+@pytest.mark.parametrize("capability, lane", [
+    ("analytics.h3", "protocol-harness-gap-analytics-h3"),
+    ("serve.wps", "protocol-harness-gap-serve-wps"),
+])
+def test_explicit_unproduced_gap_is_accounted_and_not_harness_credit(candidate, capability, lane):
+    stage_reviewed_unassigned_gap(candidate, capability)
+    generate(candidate)
+    result = validate(candidate)
+    assert result.returncode == 0, result.stderr
+    catalog = read(candidate / CATALOG)
+    gaps = [row for row in catalog["requirements"] if row["client_lane"] == lane]
+    assert len(gaps) == 1
+    assert gaps[0]["operation"] == f"UNASSIGNED PROTOCOL HARNESS CONTRACT:{capability}"
+    assert gaps[0]["canonical_client"] == "UNASSIGNED PROTOCOL HARNESS"
+    assert not any(
+        row["client_lane"] == "server-protocol-harness" and row["capability_key"] == capability
+        for row in catalog["requirements"]
+    )
+    owners = [
+        entry for entry in catalog["production"]["unproduced"]
+        if entry.get("client_lanes") == [lane]
+    ]
+    assert len(owners) == 1 and owners[0]["cells"] == 1
+    assert owners[0]["owner"] == "honua-io/honua-release"
+    assert not any(lane in (entry.get("client_lanes") or []) for entry in catalog["production"]["producers"])
+    catalog["requirements"] = [row for row in catalog["requirements"] if row["client_lane"] != lane]
+    write(candidate / CATALOG, catalog)
+    refused = validate(candidate)
+    assert refused.returncode != 0
+    assert "omit operation-contract gaps" in refused.stderr
+    assert capability in refused.stderr
+
+
+def test_producer_cannot_claim_an_unassigned_harness_gap(candidate):
+    stage_reviewed_unassigned_gap(candidate, "analytics.h3")
+    generate(candidate)
+    catalog = read(candidate / CATALOG)
+    lane = "protocol-harness-gap-analytics-h3"
+    owner = next(entry for entry in catalog["production"]["unproduced"] if entry["client_lanes"] == [lane])
+    catalog["production"]["unproduced"].remove(owner)
+    producer = next(entry for entry in catalog["production"]["producers"] if entry["producer"] == "server-protocol-harness")
+    producer["client_lanes"] = [*producer["client_lanes"], lane]
+    producer["cells"] += owner["cells"]
+    catalog["production"]["cells"]["produced"] += owner["cells"]
+    catalog["production"]["cells"]["unproduced"] -= owner["cells"]
+    write(candidate / CATALOG, catalog)
+    refused = validate(candidate)
+    assert refused.returncode != 0
+    assert "analytics.h3 is not an owned unproduced gap" in refused.stderr
+    assert "not a passing harness receipt" in refused.stderr
+
+
 def test_h3_classification_cannot_substitute_for_missing_operation_contract(candidate):
     add_reviewed_h3_contract(candidate, assignments=False)
     path, data = REBIND.project_canonical_client_applicability(candidate.parent)
