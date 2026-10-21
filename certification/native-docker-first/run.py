@@ -31,6 +31,7 @@ SHA = re.compile(r'^[a-f0-9]{40}$')
 DIGEST = re.compile(r'^[a-f0-9]{64}$')
 IMAGE = re.compile(r'^ghcr\.io/honua-io/[a-z0-9-]+:[a-zA-Z0-9._-]+@sha256:[a-f0-9]{64}$')
 SERVICE_PROMPT = 'Create a service from this imported dataset.'
+MAP_PROMPT = 'Create and style a map from the service I just published.'
 
 
 class Blocked(RuntimeError):
@@ -146,7 +147,8 @@ def installed_target(directory: Path, binding: dict) -> dict:
             key, value = line.split('=', 1)
             if key in ('HONUA_AGENT_API_KEY', 'HONUA_AGENT_KEY_ID', 'POSTGRES_PASSWORD',
                        'HONUA_SERVER_IMAGE', 'HONUA_CONSOLE_IMAGE', 'HONUA_AGENT_RELEASE_ID',
-                       'HONUA_HTTP_PORT', 'HONUA_CONSOLE_PORT', 'HONUA_COMPOSE_PROJECT'):
+                       'HONUA_HTTP_PORT', 'HONUA_CONSOLE_PORT', 'HONUA_COMPOSE_PROJECT',
+                       'HONUA_NATIVE_MODEL_ENABLED', 'HONUA_AGENT_GATEWAY_URL'):
                 values[key] = value.strip('"\'')
     if any(not values.get(key) for key in ('HONUA_AGENT_API_KEY', 'HONUA_AGENT_KEY_ID', 'POSTGRES_PASSWORD')):
         raise Blocked('installer did not issue all separate workspace/database credentials')
@@ -166,6 +168,8 @@ def installed_target(directory: Path, binding: dict) -> dict:
                'console': f"http://127.0.0.1:{values['HONUA_CONSOLE_PORT']}"}
     return {'installDirectory': str(directory), 'composeSha256': sha256(compose),
             'agentKeyId': values['HONUA_AGENT_KEY_ID'], 'composeProject': project,
+            'nativeModelEnabled': values.get('HONUA_NATIVE_MODEL_ENABLED'),
+            'nativeGatewayConfigured': bool(values.get('HONUA_AGENT_GATEWAY_URL')),
             'origins': origins, 'containers': running_containers(directory, project, binding,
                 {'server': values['HONUA_HTTP_PORT'], 'console': values['HONUA_CONSOLE_PORT']}),
             'consoleSourceSha': live_console_sha(origins['console'])}
@@ -389,7 +393,9 @@ def phase_start(args, manifest, binding, harness, attempt):
         raise Blocked('fresh attempt and install directories are required')
     attempt.mkdir(mode=0o700, parents=True)
     state = {'schemaVersion': SCHEMA, 'candidate': binding, 'harness': harness,
-             'installDirectory': str(args.install_dir), 'stages': {'prepare': 'started'}}
+             'installDirectory': str(args.install_dir),
+             'conversationMode': args.conversation_mode or 'joined-native',
+             'stages': {'prepare': 'started'}}
     private_json(attempt / 'receipt.json', state, new=True)
     try:
         workspace = pins.resolve_client_workspace(manifest, attempt / 'published-clients')
@@ -421,32 +427,38 @@ def phase_install(args, state, binding, attempt):
     install_dir = Path(state['installDirectory'])
     if install_dir.exists():
         raise Blocked('fresh install directory no longer absent')
+    joined = state['conversationMode'] == 'joined-native'
     gateway_key_env = args.gateway_key_env
-    if not gateway_key_env or len(os.environ.get(gateway_key_env, '')) < 32:
-        raise Blocked('independent gateway key environment reference is missing or too short')
     gateway_url = urlsplit(args.gateway_url or '')
-    if (gateway_url.scheme != 'http' or not gateway_url.hostname or not gateway_url.port or
-            gateway_url.path not in ('', '/') or gateway_url.query or gateway_url.fragment or gateway_url.username):
-        raise Blocked('private gateway HTTP origin is required')
-    if args.gateway_listen_host not in ('127.0.0.1', '0.0.0.0', '::1'):
-        raise Blocked('explicit supported gateway listen host is required')
-    if not args.model_kind or not args.model_name:
-        raise Blocked('real native model kind and name are required')
+    if joined:
+        if not gateway_key_env or len(os.environ.get(gateway_key_env, '')) < 32:
+            raise Blocked('independent gateway key environment reference is missing or too short')
+        if (gateway_url.scheme != 'http' or not gateway_url.hostname or not gateway_url.port or
+                gateway_url.path not in ('', '/') or gateway_url.query or gateway_url.fragment or gateway_url.username):
+            raise Blocked('private gateway HTTP origin is required')
+        if args.gateway_listen_host not in ('127.0.0.1', '0.0.0.0', '::1'):
+            raise Blocked('explicit supported gateway listen host is required')
+        if not args.model_kind or not args.model_name:
+            raise Blocked('real native model kind and name are required')
+    elif any((args.gateway_url, args.gateway_key_env, args.gateway_listen_host,
+              args.model_kind, args.model_name, args.model_region, args.model_endpoint,
+              args.model_key_env)):
+        raise Blocked('external-agent mode cannot configure or start a second native model/gateway')
     mcp_config = {'mcpServers': {'honua': {'command': state['executables']['mcp'], 'args': [],
                   'env': {'HONUA_AGENT_INSTALL_DIRECTORY': str(install_dir),
                           'HONUA_AGENT_PREVIEW_SERVER_IMAGE': binding['server']['image'],
                           'HONUA_AGENT_PREVIEW_CONSOLE_IMAGE': binding['console']['image'],
                           'HONUA_AGENT_PREVIEW_RELEASE_ID': binding['releaseId'],
                           'HONUA_AGENT_PREVIEW_GATEWAY_COMMAND': state['executables']['gateway'],
-                          'HONUA_AGENT_PREVIEW_GATEWAY_HTTP_URL': args.gateway_url,
-                          'HONUA_AGENT_PREVIEW_GATEWAY_HTTP_KEY_ENV': gateway_key_env,
-                          'HONUA_AGENT_PREVIEW_MODEL_KIND': args.model_kind,
-                          'HONUA_AGENT_PREVIEW_MODEL_NAME': args.model_name}}}}
-    if args.model_region:
+                          **({'HONUA_AGENT_PREVIEW_GATEWAY_HTTP_URL': args.gateway_url,
+                              'HONUA_AGENT_PREVIEW_GATEWAY_HTTP_KEY_ENV': gateway_key_env,
+                              'HONUA_AGENT_PREVIEW_MODEL_KIND': args.model_kind,
+                              'HONUA_AGENT_PREVIEW_MODEL_NAME': args.model_name} if joined else {})}}}}
+    if joined and args.model_region:
         mcp_config['mcpServers']['honua']['env']['HONUA_AGENT_PREVIEW_MODEL_REGION'] = args.model_region
-    if args.model_endpoint:
+    if joined and args.model_endpoint:
         mcp_config['mcpServers']['honua']['env']['HONUA_AGENT_PREVIEW_MODEL_ENDPOINT'] = args.model_endpoint
-    if args.model_key_env:
+    if joined and args.model_key_env:
         mcp_config['mcpServers']['honua']['env']['HONUA_AGENT_PREVIEW_MODEL_KEY_ENV'] = args.model_key_env
     private_json(attempt / 'mcp.json', mcp_config, new=True)
     state['mcpConfigSha256'] = sha256(attempt / 'mcp.json')
@@ -485,28 +497,32 @@ def phase_install(args, state, binding, attempt):
         state['installToolCallId'] = observed['toolCallId']
         state['connectorTarget'] = observed['target']
         state['target'] = installed_target(install_dir, binding)
+        if (state['target']['nativeModelEnabled'] != ('true' if joined else 'false') or
+                state['target']['nativeGatewayConfigured'] != joined):
+            raise Blocked('installed target native model/gateway differs from the persisted conversation mode')
         if state['target']['consoleSourceSha'] != binding['console']['sha']:
             raise Blocked('running Console source differs from the selected image candidate')
         if state['connectorTarget']['credentialId'] != state['target']['agentKeyId']:
             raise Blocked('external connector attached with a different workspace credential identity')
         if urlsplit(state['connectorTarget'].get('endpoint', ''))._replace(path='', query='', fragment='').geturl().rstrip('/') != state['target']['origins']['server']:
             raise Blocked('external connector points to a different running server origin')
-        gateway_env = {**os.environ, 'HONUA_AGENT_INSTALL_DIRECTORY': str(install_dir),
-                       'HONUA_AGENT_GATEWAY_KEY': os.environ[gateway_key_env],
-                       'HONUA_AGENT_GATEWAY_HOST': args.gateway_listen_host,
-                       'HONUA_AGENT_GATEWAY_PORT': str(gateway_url.port)}
-        gateway_log = open(attempt / 'gateway.log', 'x')
-        os.chmod(attempt / 'gateway.log', 0o600)
-        try:
-            gateway = subprocess.Popen([state['executables']['gateway']], cwd=attempt, env=gateway_env,
-                                       stdout=gateway_log, stderr=subprocess.STDOUT, start_new_session=True)
-        finally:
-            gateway_log.close()
-        time.sleep(1)
-        if gateway.poll() is not None:
-            raise Blocked('published native gateway exited on startup; inspect private gateway log')
-        state['gateway'] = {'pid': gateway.pid, 'listenHost': args.gateway_listen_host,
-                            'port': gateway_url.port, 'url': args.gateway_url}
+        if joined:
+            gateway_env = {**os.environ, 'HONUA_AGENT_INSTALL_DIRECTORY': str(install_dir),
+                           'HONUA_AGENT_GATEWAY_KEY': os.environ[gateway_key_env],
+                           'HONUA_AGENT_GATEWAY_HOST': args.gateway_listen_host,
+                           'HONUA_AGENT_GATEWAY_PORT': str(gateway_url.port)}
+            gateway_log = open(attempt / 'gateway.log', 'x')
+            os.chmod(attempt / 'gateway.log', 0o600)
+            try:
+                gateway = subprocess.Popen([state['executables']['gateway']], cwd=attempt, env=gateway_env,
+                                           stdout=gateway_log, stderr=subprocess.STDOUT, start_new_session=True)
+            finally:
+                gateway_log.close()
+            time.sleep(1)
+            if gateway.poll() is not None:
+                raise Blocked('published native gateway exited on startup; inspect private gateway log')
+            state['gateway'] = {'pid': gateway.pid, 'listenHost': args.gateway_listen_host,
+                                'port': gateway_url.port, 'url': args.gateway_url}
         state['stages']['install'] = 'pass'
         state['stages']['pairing'] = 'awaiting-real-human-session'
         state['stages']['agentTask'] = 'awaiting-human-browser-file-turn'
@@ -520,6 +536,8 @@ def phase_install(args, state, binding, attempt):
 
 
 def phase_browser(args, state, manifest, binding, harness, attempt):
+    if state.get('conversationMode') != 'joined-native':
+        raise Blocked('native browser smoke requires the separate joined-native installation mode')
     if state['stages'].get('pairing') != 'awaiting-real-human-session':
         raise Blocked('pairing/browser stage is not ready or its outcome is uncertain')
     if not args.operator_state or not args.operator_state.is_file() or not args.input_file or not args.input_file.is_file():
@@ -1079,6 +1097,616 @@ def phase_agent_service(args, state, binding, attempt):
         raise
 
 
+def observed_agent_map(transcript: str, original: dict, service: dict, turn_id: str,
+                       package_key: str, layer_key: str, route: str) -> dict:
+    """Join the same client's actual Studio MCP results to the original service and human turn."""
+    calls, results, positions, result_positions = ordered_tool_events(transcript)
+    names = ('honua_workspace_conversation', 'honua_workspace_get_turn', 'honua_agent_connect',
+             'honua_describe_layer', 'honua_admin_services_access_policy_set',
+             'honua_studio_create_draft', 'honua_studio_add_layer',
+             'honua_studio_set_layer_style', 'honua_studio_set_view',
+             'honua_studio_get_draft', 'honua_studio_validate_draft',
+             'honua_studio_save_version', 'honua_studio_get_version',
+             'honua_studio_reopen_version', 'honua_studio_get_draft',
+             'honua_workspace_get',
+             'honua_workspace_set_context', 'honua_workspace_get')
+    permitted = {'mcp__honua__' + name for name in names} | {
+        'ToolSearch', 'ListMcpResourcesTool', 'ReadMcpResourceTool', 'WaitForMcpServers',
+        'mcp__honua__honua_agent_status'}
+    if any(call.get('name') not in permitted for call in calls):
+        raise Blocked('map continuation contains an unrelated mutation or approval tool')
+    matched = [[call for call in calls if call.get('name') == 'mcp__honua__' + name]
+               for name in set(names)]
+    if any(len(group) != names.count(group[0].get('name', '').removeprefix('mcp__honua__'))
+           for group in matched if group) or any(not group for group in matched):
+        raise Blocked('map continuation must execute the exact Studio sequence once')
+    expected = []
+    seen = {}
+    for name in names:
+        index = seen.get(name, 0)
+        group = [call for call in calls if call.get('name') == 'mcp__honua__' + name]
+        expected.append(group[index])
+        seen[name] = index + 1
+    if [call for call in calls if call in expected] != expected:
+        raise Blocked('map continuation executed Studio calls out of order')
+    require_results_before_dependencies(expected, results, positions, result_positions)
+    structured = {}
+    for line in transcript.splitlines():
+        event = json.loads(line)
+        if not isinstance(event, dict) or event.get('type') != 'user':
+            continue
+        raw, message = event.get('tool_use_result'), event.get('message')
+        items = [item for item in message.get('content', []) if item.get('type') == 'tool_result'] \
+            if isinstance(message, dict) and isinstance(message.get('content'), list) else []
+        if isinstance(raw, dict) and isinstance(raw.get('structuredContent'), dict):
+            if len(items) != 1 or raw.get('isError'):
+                raise Blocked('ambiguous or failed raw Studio MCP result')
+            structured[items[0]['tool_use_id']] = raw['structuredContent']
+    if any(call['id'] not in structured for call in expected):
+        raise Blocked('map continuation lacks original structured Studio MCP results')
+    (conversation, turn, bound, described, policy, created, added, styled, viewed,
+     draft, validation, saved, version, reopened, reopened_read,
+     context_before, context_set, context_after) = (
+        structured[call['id']] for call in expected)
+    workspace = original['workspaceId']
+    locator = {'workspaceId': workspace, 'turnId': turn_id}
+    def human_request(value):
+        messages = [item for item in value.get('messages', [])
+                    if item.get('role') == 'user' and item.get('turnId') == turn_id]
+        return len(messages) == 1 and messages[0].get('content') == MAP_PROMPT
+    task = turn.get('context', {}).get('task') or {}
+    if (expected[0].get('input') != {'workspaceId': workspace} or
+            expected[1].get('input') != locator or expected[2].get('input') != locator or
+            not human_request(conversation) or not human_request(turn) or
+            turn.get('turnId') != turn_id or turn_id in (original['turnId'], service['turnId']) or
+            any(turn.get('context', {}).get(key) != original[key]
+                for key in ('workspaceId', 'targetId', 'tenantId')) or
+            any(task.get(key) != original[source] for key, source in
+                (('id', 'taskId'), ('revision', 'revision'), ('contentHash', 'contentHash'))) or
+            task.get('kind') != 'dataset-import' or bound.get('state') != 'attached' or
+            bound.get('turnBinding') != locator):
+        raise Blocked('map continuation lacks a fresh exact human Console turn on the original import')
+    layer = {'serviceId': service['serviceId'], 'layerId': service['layerId']}
+    if (expected[3].get('input') != {'serviceId': service['serviceName'],
+                                     'layerId': service['layerId'], 'includeRowCount': True} or
+            any(described.get(key) != value for key, value in layer.items()) or
+            described.get('serviceName') != service['serviceName'] or
+            described.get('studioSourceId') != service['studioSourceId'] or
+            described.get('rowCount') != service['featureCount'] or
+            described.get('srid') != 4326 or not isinstance(described.get('extent'), dict) or
+            expected[4].get('input') != {'serviceName': service['serviceName'],
+                                         'allowAnonymous': True, 'allowAnonymousWrite': False} or
+            policy.get('status') != 'Completed' or policy.get('requiresApproval') is not False or
+            not policy.get('operationInstanceId')):
+        raise Blocked('map source or public read policy is not the original published layer')
+    policy_response = json.loads(policy.get('details', {}).get('response', 'null'))
+    if not isinstance(policy_response, dict) or policy_response.get('success') is not True:
+        raise Blocked('service read policy lacks a successful canonical API response')
+    draft_id, item_id = created.get('draftId'), created.get('itemId')
+    if (expected[5].get('input') != {'packageKey': package_key, 'family': 'map',
+                                    'schemaVersion': '1.0'} or
+            not isinstance(draft_id, str) or not draft_id or not isinstance(item_id, str) or
+            not item_id or created.get('packageKey') != package_key or
+            created.get('family') != 'map' or created.get('generation') != 1):
+        raise Blocked('Studio draft creation lacks its real agent-owned identity')
+    layer_input = expected[6].get('input') or {}
+    composed = layer_input.get('layer') or {}
+    if (layer_input.get('draftId') != draft_id or layer_input.get('generation') != 1 or
+            composed.get('id') != layer_key or composed.get('sourceId') != service['studioSourceId'] or
+            composed.get('visible') is not True or composed.get('type') not in ('circle', 'line', 'fill') or
+            added.get('draftId') != draft_id or added.get('generation') != 2):
+        raise Blocked('Studio composition did not add the original catalog source')
+    style_input = expected[7].get('input') or {}
+    style_body = style_input.get('styleBody') or {}
+    if (style_input.get('draftId') != draft_id or style_input.get('generation') != 2 or
+            style_input.get('layerId') != layer_key or 'styleRef' in style_input or
+            not isinstance(style_body.get(layer_key), dict) or
+            not isinstance(style_body[layer_key].get('paint'), dict) or
+            not style_body[layer_key]['paint'] or styled.get('generation') != 3):
+        raise Blocked('Studio layer has no actual map-local visual style edit')
+    view_input = expected[8].get('input') or {}
+    view = view_input.get('view') or {}
+    extent = described['extent']
+    bounds = [extent.get(key) for key in ('minX', 'minY', 'maxX', 'maxY')]
+    if (view_input.get('draftId') != draft_id or view_input.get('generation') != 3 or
+            not isinstance(view.get('bbox'), list) or len(view['bbox']) != 4 or
+            any(type(value) not in (int, float) for value in view['bbox']) or
+            any(type(value) not in (int, float) for value in bounds) or
+            not (-180 <= bounds[0] <= bounds[2] <= 180 and
+                 -90 <= bounds[1] <= bounds[3] <= 90) or
+            not (view['bbox'][0] <= bounds[0] <= bounds[2] <= view['bbox'][2] and
+                 view['bbox'][1] <= bounds[1] <= bounds[3] <= view['bbox'][3]) or
+            view.get('crs') != 'EPSG:4326' or viewed.get('generation') != 4 or
+            expected[9].get('input') != {'draftId': draft_id} or
+            draft.get('draftId') != draft_id or draft.get('generation') != 4):
+        raise Blocked('Studio map viewport/readback changed or was not saved')
+    body = draft.get('envelope', {}).get('body') or {}
+    layers = body.get('layers') or []
+    references = body.get('styleRefs') or []
+    if (len(layers) != 1 or any(layers[0].get(key) != value for key, value in
+            {'id': layer_key, 'sourceId': service['studioSourceId'],
+             'styleRef': 'honua-inline:' + layer_key}.items()) or
+            body.get('view', {}).get('bbox') != view['bbox'] or
+            not any(ref.get('styleId') == 'honua-inline:' + layer_key and
+                    ref.get('body') == style_body for ref in references)):
+        raise Blocked('canonical draft readback lost source, visual style or viewport')
+    if (expected[10].get('input') != {'draftId': draft_id} or
+            validation.get('status') not in ('valid', 'warning') or
+            expected[11].get('input') != {'draftId': draft_id, 'generation': 4}):
+        raise Blocked('Studio draft was not structurally validated before save')
+    saved_version = saved.get('version') or {}
+    version_id, content_hash = saved_version.get('versionId'), saved_version.get('contentHash')
+    if (saved_version.get('itemId') != item_id or not isinstance(version_id, str) or
+            not isinstance(content_hash, str) or not content_hash or
+            expected[12].get('input') != {'itemId': item_id, 'versionId': version_id} or
+            version.get('versionId') != version_id or version.get('contentHash') != content_hash or
+            expected[13].get('input') != {'itemId': item_id, 'versionId': version_id}):
+        raise Blocked('saved Studio version lacks exact immutable identity/readback')
+    reopened_id = reopened.get('draftId')
+    if (not isinstance(reopened_id, str) or not reopened_id or reopened_id == draft_id or
+            reopened.get('itemId') != item_id or
+            expected[14].get('input') != {'draftId': reopened_id} or
+            reopened_read.get('draftId') != reopened_id or
+            reopened_read.get('itemId') != item_id or
+            reopened_read.get('envelope', {}).get('body') != body):
+        raise Blocked('reopened version does not preserve the exact composed map')
+    view_id = turn.get('context', {}).get('viewId')
+    revision = context_before.get('revision')
+    selected = context_before.get('selectedResources')
+    task_before = context_before.get('task') or {}
+    desired_task = {'kind': 'studio-composition', 'id': reopened_id,
+                    'revision': reopened_read.get('generation'), 'packageKey': package_key}
+    if (not isinstance(view_id, str) or not view_id or
+            expected[15].get('input') != {'workspaceId': workspace, 'viewId': view_id} or
+            expected[17].get('input') != expected[15].get('input') or
+            type(revision) is not int or revision < 0 or not isinstance(selected, list) or
+            context_before.get('workspaceId') != workspace or
+            context_before.get('targetId') != original['targetId'] or
+            any(task_before.get(key) != original[source] for key, source in
+                (('id', 'taskId'), ('revision', 'revision'), ('contentHash', 'contentHash'))) or
+            expected[16].get('input') != {'workspaceId': workspace, 'viewId': view_id,
+                                          'expectedRevision': revision,
+                                          'targetId': original['targetId'],
+                                          'selectedResources': selected, 'task': desired_task} or
+            context_set.get('task') != desired_task or context_after.get('task') != desired_task or
+            context_after.get('revision') != revision + 1):
+        raise Blocked('canonical workspace context did not attach the exact agent-created map for future human views')
+    return {'workspaceId': workspace, 'turnId': turn_id, 'service': service,
+            'packageKey': package_key, 'layerId': layer_key, 'sourceId': service['studioSourceId'],
+            'draftId': draft_id, 'reopenedDraftId': reopened_id, 'itemId': item_id,
+            'versionId': version_id, 'contentHash': content_hash, 'bodySha256': hashlib.sha256(
+                json.dumps(body, separators=(',', ':')).encode()).hexdigest(), 'route': route,
+            'policyOperationInstanceId': policy['operationInstanceId'],
+            'styleBody': style_body, 'view': view,
+            'workspaceViewId': view_id, 'workspaceContextRevision': revision + 1}
+
+
+def phase_agent_map(args, state, binding, attempt):
+    if state['stages'].get('agentService') != 'pass' or state['stages'].get('agentMap'):
+        raise Blocked('map continuation requires the confirmed original external-agent service and cannot replay a mutation')
+    original, service = state['agentImportTask'], state['agentService']
+    if (args.workspace_id != original['workspaceId'] or
+            not re.fullmatch(r'[A-Za-z0-9_-]{1,128}', args.turn_id or '') or
+            args.turn_id in (original['turnId'], service['turnId']) or
+            not args.route or not re.fullmatch(r'/maps/[A-Za-z0-9._/-]{1,160}', args.route)):
+        raise Blocked('fresh actual human map turn, original workspace and bounded map route are required')
+    if installed_target(Path(state['installDirectory']), binding) != state.get('target'):
+        raise Blocked('installed target changed before map continuation')
+    config, executable = attempt / 'mcp.json', Path(state['executables']['mcp'])
+    if (not config.is_file() or not executable.is_file() or
+            sha256(config) != state.get('mcpConfigSha256') or
+            sha256(executable) != state.get('mcpExecutableSha256')):
+        raise Blocked('external client registration/configuration changed before map continuation')
+    suffix = uuid.uuid4().hex[:20]
+    package_key, layer_key = 'native-map-' + suffix, 'imported-' + suffix
+    state['stages']['agentMap'] = 'started'
+    state['agentMapIntent'] = {'turnId': args.turn_id, 'packageKey': package_key,
+                               'layerId': layer_key, 'route': args.route}
+    private_json(attempt / 'receipt.json', state)
+    prompt = (f'The human sent a new Console turn requesting a map from the same service. '
+              f'Continue the original Honua conversation and only its existing registration. '
+              f'Read honua_workspace_conversation for {args.workspace_id}, then honua_workspace_get_turn '
+              f'for {args.turn_id}; the exact human prompt must be "{MAP_PROMPT}" and its task must retain '
+              f'original import {original["taskId"]}. Bind with honua_agent_connect to that exact turn. '
+              f'Describe published service name {service["serviceName"]} layer {service["layerId"]} '
+              f'with includeRowCount true; verify returned canonical serviceId {service["serviceId"]}. '
+              f'it must return studioSourceId {service["studioSourceId"]} and {service["featureCount"]} rows. '
+              f'Set only anonymous READ on published service name {service["serviceName"]} with '
+              f'honua_admin_services_access_policy_set, allowAnonymous true, allowAnonymousWrite false. '
+              f'If this policy is pending or denied, stop; never impersonate approval. '
+              f'Create a map Studio draft with packageKey {package_key}, family map, schemaVersion 1.0. '
+              f'Use the returned draftId and actual generation. Add one visible presentation layer id {layer_key} '
+              f'with sourceId copied exactly from that described studioSourceId, selecting circle/line/fill for '
+              f'the observed geometry. Apply one map-local visual style with honua_studio_set_layer_style '
+              f'styleBody keyed by {layer_key}, with nonempty paint. Set a WGS84 bbox view from observed extent. '
+              f'Read back the draft, validate, save its current generation, get that exact saved version, '
+              f'reopen it, and read back the reopened draft. Do not propose publication yet: the human '
+              f'must make a real visual edit in Console and send a new prompt first. '
+              f'Finally honua_workspace_get current view context, '
+              f'honua_workspace_set_context with its exact expectedRevision, original targetId and unchanged '
+              f'selectedResources, setting task studio-composition to the reopened draftId, actual generation '
+              f'and packageKey; then get context again. This attachment is for future human views and must not '
+              f'retarget the frozen turn. Inspect each successful result before its dependent call; stop on '
+              f'any uncertain mutation without replay.')
+    tools = ('honua_workspace_conversation', 'honua_workspace_get_turn', 'honua_agent_connect',
+             'honua_agent_status', 'honua_describe_layer', 'honua_admin_services_access_policy_set',
+             'honua_studio_create_draft', 'honua_studio_add_layer',
+             'honua_studio_set_layer_style', 'honua_studio_set_view', 'honua_studio_get_draft',
+             'honua_studio_validate_draft', 'honua_studio_save_version', 'honua_studio_get_version',
+             'honua_studio_reopen_version',
+             'honua_workspace_get', 'honua_workspace_set_context')
+    allowed = ['ToolSearch', 'ListMcpResourcesTool', 'ReadMcpResourceTool', 'WaitForMcpServers'] + [
+        'mcp__honua__' + name for name in tools]
+    command = [args.claude, '--restricted', '--tools', 'default', '--allowedTools', ','.join(allowed),
+               '--disallowedTools', 'Bash,PowerShell,Agent,Read,Write,Edit,NotebookEdit,Glob,Grep,LSP,WebFetch,WebSearch,Workflow,Task',
+               '--setting-sources', '', '--settings', '{"disableAllHooks":true}', '--strict-mcp-config',
+               '--mcp-config', str(config), '--permission-mode', 'dontAsk', '--permission-prompts', 'none',
+               '--resume', state['externalClientSessionId'], '--output-format', 'stream-json', '--verbose', '--print']
+    try:
+        result = subprocess.run(command, input=prompt, text=True, capture_output=True,
+                                timeout=1200, cwd=attempt, check=False)
+        transcript, stderr = attempt / 'agent-map-transcript.ndjson', attempt / 'agent-map-stderr.log'
+        for path, content in ((transcript, result.stdout), (stderr, result.stderr)):
+            path.write_text(content)
+            path.chmod(0o600)
+        state['agentMapTranscriptSha256'] = sha256(transcript)
+        if result.returncode:
+            raise Blocked('external map continuation failed; reconcile original Studio records without replay')
+        observed_client_session(result.stdout, state['externalClientSessionId'])
+        state['agentMap'] = observed_agent_map(result.stdout, original, service, args.turn_id,
+                                                package_key, layer_key, args.route)
+        state['stages']['agentMap'] = 'pass'
+        state['stages']['agentMapFinish'] = 'awaiting-actual-human-visual-edit-and-turn'
+        state['oneExternalAgentConversationQualified'] = False
+        private_json(attempt / 'receipt.json', state)
+        print('Same external client saved/reopened and attached its map. Human visual edit and fresh prompt remain before publication.')
+    except Exception as exc:
+        state['stages']['agentMap'] = 'blocked'
+        state['blocker'] = str(exc)
+        private_json(attempt / 'receipt.json', state)
+        raise
+
+
+def phase_agent_map_visual(args, state, binding, attempt):
+    if (state.get('conversationMode') != 'external-agent' or
+            state['stages'].get('agentMap') != 'pass' or
+            state['stages'].get('agentMapVisual')):
+        raise Blocked('actual human visual edit requires the external-only agent map and cannot replay')
+    if not args.operator_state or not args.operator_state.is_file():
+        raise Blocked('original paired human browser storage state is required')
+    if not args.origin or not re.fullmatch(r'http://127\.0\.0\.1:\d+', args.origin):
+        raise Blocked('installed Console origin is required')
+    target = installed_target(Path(state['installDirectory']), binding)
+    if target != state.get('target') or target['origins']['console'] != args.origin or \
+            target['nativeModelEnabled'] != 'false' or target['nativeGatewayConfigured']:
+        raise Blocked('external-only installed target changed before the visual edit')
+    script = ROOT / 'certification/native-docker-first/agent-map-visual.mjs'
+    receipt = attempt / 'agent-map-visual.json'
+    if receipt.exists():
+        raise Blocked('existing visual receipt requires read-only reconciliation')
+    state['stages']['agentMapVisual'] = 'started'
+    private_json(attempt / 'receipt.json', state)
+    env = {**os.environ, 'HONUA_AGENT_MAP_CONSOLE_ROOT': str(args.console_root),
+           'HONUA_AGENT_MAP_HANDOFF': str(attempt / 'agent-map-handoff.json'),
+           'HONUA_AGENT_MAP_ORIGIN': args.origin,
+           'HONUA_AGENT_MAP_OPERATOR_STATE': str(args.operator_state),
+           'HONUA_AGENT_MAP_VISUAL_RECEIPT': str(receipt)}
+    private_json(attempt / 'agent-map-handoff.json', state['agentMap'], new=True)
+    try:
+        result = subprocess.run(['node', str(script)], cwd=attempt, env=env,
+                                capture_output=True, text=True, timeout=600, check=False)
+        log = attempt / 'agent-map-visual.log'
+        log.write_text(result.stdout + '\n' + result.stderr)
+        log.chmod(0o600)
+        if result.returncode:
+            raise Blocked('actual paired-human visual edit/turn failed; inspect private browser log')
+        value = read_json(receipt)
+        prior = state['agentMap']
+        if (value.get('status') != 'human-visual-edit-and-turn-observed' or
+                any(value.get(key) != prior[key] for key in
+                    ('workspaceId', 'itemId', 'packageKey', 'layerId', 'sourceId')) or
+                value.get('draftId') != prior['reopenedDraftId'] or
+                value.get('turnId') in (state['agentImportTask']['turnId'],
+                                        state['agentService']['turnId'], prior['turnId']) or
+                type(value.get('generation')) is not int or value['generation'] <= 0 or
+                not isinstance(value.get('prompt'), str) or not value['prompt']):
+            raise Blocked('visual browser receipt does not join exact agent map and fresh human turn')
+        state['agentMapVisual'] = value
+        state['agentMapVisualScriptSha256'] = sha256(script)
+        state['agentMapVisualReceiptSha256'] = sha256(receipt)
+        state['stages']['agentMapVisual'] = 'pass'
+        private_json(attempt / 'receipt.json', state)
+        print('Human visual edit and external-only Console turn observed; same agent must finish the map.')
+    except Exception as exc:
+        state['stages']['agentMapVisual'] = 'blocked'
+        state['blocker'] = str(exc)
+        private_json(attempt / 'receipt.json', state)
+        raise
+
+
+def observed_agent_map_finish(transcript: str, original: dict, map_receipt: dict,
+                              visual: dict) -> dict:
+    """Require the same external client to preserve the real human visual edit before proposal."""
+    calls, results, positions, result_positions = ordered_tool_events(transcript)
+    names = ('honua_workspace_conversation', 'honua_workspace_get_turn', 'honua_agent_connect',
+             'honua_studio_get_draft', 'honua_studio_set_map_style',
+             'honua_studio_get_draft', 'honua_studio_validate_draft',
+             'honua_studio_save_version', 'honua_studio_get_version',
+             'honua_studio_reopen_version', 'honua_studio_get_draft',
+             'honua_workspace_get', 'honua_workspace_set_context', 'honua_workspace_get',
+             'honua_studio_propose_publication')
+    allowed = {'mcp__honua__' + name for name in names} | {
+        'ToolSearch', 'ListMcpResourcesTool', 'ReadMcpResourceTool', 'WaitForMcpServers',
+        'mcp__honua__honua_agent_status'}
+    if any(call.get('name') not in allowed for call in calls):
+        raise Blocked('final map continuation contains unrelated mutation or approval')
+    expected = []
+    seen = {}
+    for name in names:
+        group = [call for call in calls if call.get('name') == 'mcp__honua__' + name]
+        if len(group) != names.count(name):
+            raise Blocked('final map continuation omitted or repeated a canonical tool')
+        index = seen.get(name, 0)
+        expected.append(group[index])
+        seen[name] = index + 1
+    if [call for call in calls if call in expected] != expected:
+        raise Blocked('final map continuation executed tools out of order')
+    require_results_before_dependencies(expected, results, positions, result_positions)
+    structured = {}
+    for line in transcript.splitlines():
+        event = json.loads(line)
+        if not isinstance(event, dict) or event.get('type') != 'user':
+            continue
+        raw, message = event.get('tool_use_result'), event.get('message')
+        items = [item for item in message.get('content', []) if item.get('type') == 'tool_result'] \
+            if isinstance(message, dict) and isinstance(message.get('content'), list) else []
+        if isinstance(raw, dict) and isinstance(raw.get('structuredContent'), dict):
+            if len(items) != 1 or raw.get('isError'):
+                raise Blocked('ambiguous or failed raw final-map MCP result')
+            structured[items[0]['tool_use_id']] = raw['structuredContent']
+    if any(call['id'] not in structured for call in expected):
+        raise Blocked('final map continuation lacks original structured MCP results')
+    (conversation, turn, bound, before, changed, after, validation, saved, version,
+     reopened, reopened_read, context_before, context_set, context_after, proposed) = (
+        structured[call['id']] for call in expected)
+    workspace, turn_id = map_receipt['workspaceId'], visual['turnId']
+    locator = {'workspaceId': workspace, 'turnId': turn_id}
+    messages = [item for item in conversation.get('messages', [])
+                if item.get('role') == 'user' and item.get('turnId') == turn_id]
+    turn_messages = [item for item in turn.get('messages', [])
+                     if item.get('role') == 'user' and item.get('turnId') == turn_id]
+    task = turn.get('context', {}).get('task') or {}
+    if (expected[0].get('input') != {'workspaceId': workspace} or
+            expected[1].get('input') != locator or expected[2].get('input') != locator or
+            len(messages) != 1 or len(turn_messages) != 1 or
+            messages[0].get('content') != visual['prompt'] or
+            turn_messages[0].get('content') != visual['prompt'] or
+            turn.get('turnId') != turn_id or
+            any(turn.get('context', {}).get(key) != original[key]
+                for key in ('workspaceId', 'targetId', 'tenantId')) or
+            task != {'kind': 'studio-composition', 'id': visual['draftId'],
+                     'revision': visual['generation'], 'packageKey': visual['packageKey']} or
+            bound.get('state') != 'attached' or bound.get('turnBinding') != locator):
+        raise Blocked('final map continuation lacks the fresh human visual-edit turn and binding')
+    draft_id = visual['draftId']
+    before_body = before.get('envelope', {}).get('body') or {}
+    before_hash = hashlib.sha256(json.dumps(before_body, separators=(',', ':')).encode()).hexdigest()
+    layers = before_body.get('mapSpec', {}).get('layers') or []
+    render = [layer for layer in layers if layer.get('id') == visual['layerId']]
+    if (expected[3].get('input') != {'draftId': draft_id} or before.get('draftId') != draft_id or
+            before.get('generation') != visual['generation'] or
+            before_hash != visual['bodySha256'] or len(render) != 1 or
+            render[0].get('paint', {}).get(visual['colorProperty']) != visual['colorExpression'] or
+            before.get('itemId') != map_receipt['itemId']):
+        raise Blocked('external agent did not read the exact human-edited map')
+    changed_spec = expected[4].get('input', {}).get('mapSpec') or {}
+    expected_spec = json.loads(json.dumps(before_body['mapSpec']))
+    expected_render = next(layer for layer in expected_spec['layers'] if layer['id'] == visual['layerId'])
+    expected_render.setdefault('paint', {})[visual['opacityProperty']] = 0.55
+    if (expected[4].get('input', {}).get('draftId') != draft_id or
+            expected[4].get('input', {}).get('generation') != visual['generation'] or
+            changed_spec != expected_spec or changed.get('generation') != visual['generation'] + 1 or
+            expected[5].get('input') != {'draftId': draft_id} or
+            after.get('draftId') != draft_id or after.get('generation') != visual['generation'] + 1 or
+            after.get('envelope', {}).get('body', {}).get('mapSpec') != expected_spec):
+        raise Blocked('prompted map style failed to preserve the real human edit and exact source')
+    final_body = after['envelope']['body']
+    if (expected[6].get('input') != {'draftId': draft_id} or
+            validation.get('status') not in ('valid', 'warning') or
+            expected[7].get('input') != {'draftId': draft_id, 'generation': after['generation']}):
+        raise Blocked('final human-edited map was not validated before save')
+    saved_version = saved.get('version') or {}
+    item_id, version_id, content_hash = (saved_version.get(key) for key in
+                                         ('itemId', 'versionId', 'contentHash'))
+    if (item_id != map_receipt['itemId'] or not version_id or not content_hash or
+            expected[8].get('input') != {'itemId': item_id, 'versionId': version_id} or
+            version.get('versionId') != version_id or version.get('contentHash') != content_hash or
+            expected[9].get('input') != {'itemId': item_id, 'versionId': version_id}):
+        raise Blocked('final version did not bind the original agent map item')
+    reopened_id = reopened.get('draftId')
+    if (not reopened_id or reopened_id in (draft_id, map_receipt['draftId']) or
+            reopened.get('itemId') != item_id or
+            expected[10].get('input') != {'draftId': reopened_id} or
+            reopened_read.get('draftId') != reopened_id or
+            reopened_read.get('itemId') != item_id or
+            reopened_read.get('envelope', {}).get('body') != final_body):
+        raise Blocked('final saved version did not reopen as the same map content')
+    view_id = turn.get('context', {}).get('viewId')
+    revision = context_before.get('revision')
+    selected = context_before.get('selectedResources')
+    final_task = {'kind': 'studio-composition', 'id': reopened_id,
+                  'revision': reopened_read.get('generation'), 'packageKey': visual['packageKey']}
+    if (not view_id or expected[11].get('input') != {'workspaceId': workspace, 'viewId': view_id} or
+            expected[13].get('input') != expected[11].get('input') or
+            type(revision) is not int or not isinstance(selected, list) or
+            context_before.get('task') != task or
+            expected[12].get('input') != {'workspaceId': workspace, 'viewId': view_id,
+                                           'expectedRevision': revision,
+                                           'targetId': original['targetId'],
+                                           'selectedResources': selected, 'task': final_task} or
+            context_set.get('task') != final_task or context_after.get('task') != final_task or
+            context_after.get('revision') != revision + 1):
+        raise Blocked('final reopened map was not attached to the shared human workspace')
+    proposal_input = {'itemId': item_id, 'versionId': version_id,
+                      'contentHash': content_hash, 'route': map_receipt['route'],
+                      'visibility': 'public'}
+    if (expected[14].get('input') != proposal_input or
+            proposed.get('status') != 'AwaitingApproval' or
+            proposed.get('humanConfirmationRequired') is not True or
+            not proposed.get('proposalId') or not proposed.get('operationInstanceId') or
+            proposed.get('operation', {}).get('proposalId') != proposed['proposalId'] or
+            proposed.get('operation', {}).get('operationInstanceId') != proposed['operationInstanceId'] or
+            proposed.get('shareUrl')):
+        raise Blocked('external agent did not open the exact final public map for separate approval')
+    return {'workspaceId': workspace, 'turnId': turn_id,
+            'draftId': draft_id, 'reopenedDraftId': reopened_id,
+            'itemId': item_id, 'versionId': version_id, 'contentHash': content_hash,
+            'bodySha256': hashlib.sha256(json.dumps(final_body, separators=(',', ':')).encode()).hexdigest(),
+            'route': map_receipt['route'], 'audience': 'public',
+            'proposalId': proposed['proposalId'],
+            'operationInstanceId': proposed['operationInstanceId'],
+            'requestedBy': proposed['operation'].get('requestedBy'),
+            'visualTurnId': turn_id, 'visualDraftId': visual['draftId'],
+            'visualColorExpression': visual['colorExpression'],
+            'finalOpacity': 0.55}
+
+
+def phase_agent_map_finish(args, state, binding, attempt):
+    if (state.get('conversationMode') != 'external-agent' or
+            state['stages'].get('agentMapVisual') != 'pass' or
+            state['stages'].get('agentMapFinish') != 'awaiting-actual-human-visual-edit-and-turn'):
+        raise Blocked('final map requires the actual human visual edit and cannot replay')
+    if (installed_target(Path(state['installDirectory']), binding) != state.get('target') or
+            sha256(attempt / 'mcp.json') != state.get('mcpConfigSha256') or
+            sha256(Path(state['executables']['mcp'])) != state.get('mcpExecutableSha256') or
+            sha256(attempt / 'agent-map-visual.json') != state.get('agentMapVisualReceiptSha256')):
+        raise Blocked('installed target, registration or actual human visual receipt changed')
+    visual, first = state['agentMapVisual'], state['agentMap']
+    state['stages']['agentMapFinish'] = 'started'
+    private_json(attempt / 'receipt.json', state)
+    prompt = (f'The same actual human visually edited your attached map in Console and sent a NEW turn. '
+              f'Continue the original external Claude session and same Honua registration only. Read '
+              f'honua_workspace_conversation for {first["workspaceId"]}, honua_workspace_get_turn for '
+              f'{visual["turnId"]}, and bind with honua_agent_connect to that exact turn. Its prompt is '
+              f'{json.dumps(visual["prompt"])} and its Studio task must be draft {visual["draftId"]} '
+              f'generation {visual["generation"]}. Read honua_studio_get_draft. Preserve its exact current '
+              f'mapSpec, sources and all layers; change ONLY render layer {visual["layerId"]} paint property '
+              f'{visual["opacityProperty"]} to 0.55 via honua_studio_set_map_style at that generation. '
+              f'In particular preserve the human-edited {visual["colorProperty"]} expression '
+              f'{json.dumps(visual["colorExpression"])}. Read back, validate, save the exact generation, '
+              f'get the saved version, reopen it, and read back the reopened draft. Use honua_workspace_get '
+              f'and honua_workspace_set_context with its actual expectedRevision and unchanged selectedResources '
+              f'to attach the final reopened draft for future human views; get context again. Finally call '
+              f'honua_studio_propose_publication with exact returned itemId, versionId, contentHash, '
+              f'route {first["route"]} and visibility public. A separate actual human must approve; you may '
+              f'not approve, publish directly, invent a receipt, or retry an uncertain mutation. Inspect each '
+              f'successful result before its dependent call.')
+    tools = ('honua_workspace_conversation', 'honua_workspace_get_turn', 'honua_agent_connect',
+             'honua_agent_status', 'honua_studio_get_draft', 'honua_studio_set_map_style',
+             'honua_studio_validate_draft', 'honua_studio_save_version',
+             'honua_studio_get_version', 'honua_studio_reopen_version',
+             'honua_workspace_get', 'honua_workspace_set_context',
+             'honua_studio_propose_publication')
+    allowed = ['ToolSearch', 'ListMcpResourcesTool', 'ReadMcpResourceTool', 'WaitForMcpServers'] + [
+        'mcp__honua__' + name for name in tools]
+    command = [args.claude, '--restricted', '--tools', 'default', '--allowedTools', ','.join(allowed),
+               '--disallowedTools', 'Bash,PowerShell,Agent,Read,Write,Edit,NotebookEdit,Glob,Grep,LSP,WebFetch,WebSearch,Workflow,Task',
+               '--setting-sources', '', '--settings', '{"disableAllHooks":true}', '--strict-mcp-config',
+               '--mcp-config', str(attempt / 'mcp.json'), '--permission-mode', 'dontAsk',
+               '--permission-prompts', 'none', '--resume', state['externalClientSessionId'],
+               '--output-format', 'stream-json', '--verbose', '--print']
+    try:
+        result = subprocess.run(command, input=prompt, text=True, capture_output=True,
+                                timeout=1200, cwd=attempt, check=False)
+        transcript, stderr = attempt / 'agent-map-finish-transcript.ndjson', attempt / 'agent-map-finish-stderr.log'
+        for path, content in ((transcript, result.stdout), (stderr, result.stderr)):
+            path.write_text(content)
+            path.chmod(0o600)
+        state['agentMapFinishTranscriptSha256'] = sha256(transcript)
+        if result.returncode:
+            raise Blocked('external final map continuation failed; reconcile without replay')
+        observed_client_session(result.stdout, state['externalClientSessionId'])
+        state['agentMapFinish'] = observed_agent_map_finish(
+            result.stdout, state['agentImportTask'], first, visual)
+        state['stages']['agentMapFinish'] = 'pass'
+        state['stages']['agentMapApproval'] = 'awaiting-separate-human-approval'
+        state['oneExternalAgentConversationQualified'] = False
+        private_json(attempt / 'receipt.json', state)
+        print('Same external agent proposed the exact final map; separate human approval and audience remain.')
+    except Exception as exc:
+        state['stages']['agentMapFinish'] = 'blocked'
+        state['blocker'] = str(exc)
+        private_json(attempt / 'receipt.json', state)
+        raise
+
+
+def phase_agent_map_audience(args, state, binding, attempt):
+    if (state.get('conversationMode') != 'external-agent' or
+            state['stages'].get('agentMapApproval') != 'awaiting-separate-human-approval'):
+        raise Blocked('exact external-agent map proposal must await a separate human approval')
+    if not args.operator_state or not args.operator_state.is_file():
+        raise Blocked('actual originating human browser state required for read-only audience witness')
+    target = installed_target(Path(state['installDirectory']), binding)
+    if (target != state.get('target') or
+            args.origin != target['origins']['console'] or
+            args.server_origin != target['origins']['server'] or
+            target['nativeModelEnabled'] != 'false' or target['nativeGatewayConfigured']):
+        raise Blocked('external-only installed target/origin changed before audience witness')
+    if (attempt / 'agent-map-audience.json').exists():
+        raise Blocked('existing external map audience witness requires read-only inspection')
+    install_dir = Path(state['installDirectory'])
+    values = dict(line.split('=', 1) for line in (install_dir / '.env').read_text().splitlines()
+                  if '=' in line and not line.startswith('#'))
+    script = ROOT / 'certification/native-docker-first/agent-map-audience.mjs'
+    handoff = attempt / 'agent-map-final-handoff.json'
+    private_json(handoff, state['agentMapFinish'], new=True)
+    env = {**os.environ, 'HONUA_AGENT_MAP_CONSOLE_ROOT': str(args.console_root),
+           'HONUA_AGENT_MAP_FINAL_HANDOFF': str(handoff),
+           'HONUA_AGENT_MAP_INITIAL_HANDOFF': str(attempt / 'agent-map-handoff.json'),
+           'HONUA_AGENT_MAP_VISUAL_RECEIPT': str(attempt / 'agent-map-visual.json'),
+           'HONUA_AGENT_MAP_ORIGIN': args.origin,
+           'HONUA_AGENT_MAP_SERVER_ORIGIN': args.server_origin,
+           'HONUA_AGENT_MAP_OPERATOR_STATE': str(args.operator_state),
+           'HONUA_AGENT_MAP_AGENT_KEY': values['HONUA_AGENT_API_KEY'],
+           'HONUA_AGENT_MAP_AUDIENCE_RECEIPT': str(attempt / 'agent-map-audience.json')}
+    result = subprocess.run(['node', str(script)], cwd=attempt, env=env,
+                            capture_output=True, text=True, timeout=600, check=False)
+    log = attempt / 'agent-map-audience.log'
+    log.write_text(result.stdout + '\n' + result.stderr)
+    log.chmod(0o600)
+    if result.returncode:
+        state['lastAgentMapAudience'] = 'blocked-or-pending'
+        private_json(attempt / 'receipt.json', state)
+        raise Blocked('separate approval, public data or rendered audience witness absent; inspect private log')
+    witness = read_json(attempt / 'agent-map-audience.json')
+    final, visual, first = state['agentMapFinish'], state['agentMapVisual'], state['agentMap']
+    if (witness.get('status') != 'pass' or
+            any(witness.get(key) != final.get(key) for key in
+                ('proposalId', 'operationInstanceId', 'itemId', 'versionId', 'contentHash', 'route')) or
+            witness.get('originHuman') != visual['principalId'] or
+            witness.get('serviceId') != first['service']['serviceId'] or
+            witness.get('serviceName') != first['service']['serviceName'] or
+            witness.get('sourceId') != first['sourceId'] or
+            witness.get('publicFeatureCount') != first['service']['featureCount'] or
+            type(witness.get('renderedFeatureCount')) is not int or
+            witness['renderedFeatureCount'] <= 0 or
+            not witness.get('requestId') or
+            not witness.get('requestedBy') or not witness.get('resolvedBy') or
+            witness['requestedBy'] == witness['resolvedBy'] or
+            witness['originHuman'] == witness['resolvedBy']):
+        state['stages']['agentMapApproval'] = 'blocked'
+        private_json(attempt / 'receipt.json', state)
+        raise Blocked('audience witness does not join exact service, real approver and final external map')
+    state['agentMapAudience'] = witness
+    state['agentMapAudienceScriptSha256'] = sha256(script)
+    state['stages']['agentMapApproval'] = 'pass'
+    state['stages']['agentMapAudience'] = 'pass'
+    state['oneExternalAgentConversationQualified'] = True
+    state['status'] = 'one-external-agent-conversation-pass'
+    private_json(attempt / 'receipt.json', state)
+    print('One external-agent conversation joined to actual human approval, public data and rendered map.')
+
+
 def phase_witness(args, state, binding, attempt):
     if state['stages'].get('approval') != 'awaiting-separate-human-approval':
         raise Blocked('no pending separate-human approval to witness')
@@ -1140,7 +1768,9 @@ def phase_witness(args, state, binding, attempt):
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('phase', choices=('start', 'install', 'agent-task', 'agent-submit',
-                                         'agent-observe-import', 'agent-service', 'browser', 'witness'))
+                                         'agent-observe-import', 'agent-service', 'agent-map',
+                                         'agent-map-visual', 'agent-map-finish', 'agent-map-audience',
+                                         'browser', 'witness'))
     parser.add_argument('--manifest', type=Path, required=True)
     parser.add_argument('--attempt', type=Path, required=True)
     parser.add_argument('--install-dir', type=Path)
@@ -1162,6 +1792,7 @@ def main():
     parser.add_argument('--route')
     parser.add_argument('--workspace-id')
     parser.add_argument('--turn-id')
+    parser.add_argument('--conversation-mode', choices=('external-agent', 'joined-native'))
     args = parser.parse_args()
     try:
         args.attempt = args.attempt.resolve()
@@ -1181,6 +1812,10 @@ def main():
         else:
             state = read_json(args.attempt / 'receipt.json')
             check_state(state, binding, harness)
+            if args.conversation_mode and args.conversation_mode != state.get('conversationMode'):
+                raise Blocked('requested conversation mode differs from the persisted install mode')
+            if args.phase.startswith('agent-') and state.get('conversationMode') != 'external-agent':
+                raise Blocked('same external-agent conversation requires external-only installation mode')
             if args.phase == 'install':
                 phase_install(args, state, binding, args.attempt)
             elif args.phase == 'agent-task':
@@ -1191,6 +1826,14 @@ def main():
                 phase_agent_observe_import(args, state, binding, args.attempt)
             elif args.phase == 'agent-service':
                 phase_agent_service(args, state, binding, args.attempt)
+            elif args.phase == 'agent-map':
+                phase_agent_map(args, state, binding, args.attempt)
+            elif args.phase == 'agent-map-visual':
+                phase_agent_map_visual(args, state, binding, args.attempt)
+            elif args.phase == 'agent-map-finish':
+                phase_agent_map_finish(args, state, binding, args.attempt)
+            elif args.phase == 'agent-map-audience':
+                phase_agent_map_audience(args, state, binding, args.attempt)
             elif args.phase == 'browser':
                 phase_browser(args, state, manifest, binding, harness, args.attempt)
             else:
