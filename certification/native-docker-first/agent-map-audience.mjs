@@ -12,6 +12,7 @@ const { chromium, request } = requireConsole('@playwright/test');
 const handoff = JSON.parse(readFileSync(required('HONUA_AGENT_MAP_FINAL_HANDOFF'), 'utf8'));
 const visual = JSON.parse(readFileSync(required('HONUA_AGENT_MAP_VISUAL_RECEIPT'), 'utf8'));
 const initial = JSON.parse(readFileSync(required('HONUA_AGENT_MAP_INITIAL_HANDOFF'), 'utf8'));
+const share = JSON.parse(readFileSync(required('HONUA_AGENT_MAP_SHARE_RECEIPT'), 'utf8'));
 const consoleOrigin = required('HONUA_AGENT_MAP_ORIGIN'), serverOrigin = required('HONUA_AGENT_MAP_SERVER_ORIGIN');
 const browser = await chromium.launch();
 try {
@@ -42,16 +43,49 @@ try {
   assert.notEqual(proposal.requestedBy, proposal.resolvedBy, 'proposer cannot approve');
   const agentRead = await request.newContext({ baseURL: serverOrigin,
     extraHTTPHeaders: { 'X-API-Key': required('HONUA_AGENT_MAP_AGENT_KEY'), Accept: 'application/json' } });
-  let operation;
+  let operation, policyOperation, policyProposal = null;
   try {
     const response = await agentRead.get(`/api/v1/operations/handles/${encodeURIComponent(handoff.operationInstanceId)}`);
     assert.equal(response.status(), 200);
     const wire = await response.json();
     operation = wire.data ?? wire;
+    const policyResponse = await agentRead.get(
+      `/api/v1/operations/handles/${encodeURIComponent(share.operationInstanceId)}`);
+    assert.equal(policyResponse.status(), 200, 'read exact original-service policy operation');
+    const policyWire = await policyResponse.json();
+    policyOperation = policyWire.data ?? policyWire;
   } finally { await agentRead.dispose(); }
   assert.equal(operation.operationInstanceId, handoff.operationInstanceId);
   assert.equal(operation.operationId, 'studio.content.create-publication-request');
   assert.equal(operation.proposalId, handoff.proposalId);
+  assert.equal(share.mapProposalId, handoff.proposalId);
+  assert.equal(share.serviceId, initial.service.serviceId);
+  assert.equal(share.serviceName, initial.service.serviceName);
+  assert.equal(share.layerId, initial.service.layerId);
+  assert.equal(policyOperation.operationInstanceId, share.operationInstanceId);
+  assert.equal(policyOperation.operationId, 'admin.services.access-policy.set');
+  assert.equal(policyOperation.status, 'Completed', 'public read policy must complete before anonymous requests');
+  assert.equal(policyOperation.proposalId ?? null, share.proposalId);
+  if (share.requiresApproval) {
+    assert.equal(share.status, 'RequiresApproval');
+    assert(share.proposalId, 'pending policy requires its own durable proposal');
+    policyProposal = await read(`/api/processes/admin/proposals/${encodeURIComponent(share.proposalId)}`);
+    assert.equal(policyProposal.proposalId, share.proposalId);
+    assert.equal(policyProposal.status?.toLowerCase(), 'succeeded');
+    assert.equal(policyProposal.requestedBy, handoff.expectedRequestedBy);
+    assert(policyProposal.resolvedBy && policyProposal.resolvedBy !== policyProposal.requestedBy);
+    assert.notEqual(policyProposal.resolvedBy, visual.principalId,
+      'originating human cannot resolve the agent policy proposal');
+  } else {
+    assert.equal(share.status, 'Completed');
+    assert.equal(share.proposalId, null);
+  }
+  const policyResponseBody = JSON.parse(policyOperation.result?.details?.response ?? '{}');
+  const policyData = policyResponseBody.data ?? policyResponseBody;
+  assert.equal(policyResponseBody.success, true);
+  assert.equal(policyData.serviceName, initial.service.serviceName);
+  assert.equal(policyData.accessPolicy?.allowAnonymous, true);
+  assert.equal(policyData.accessPolicy?.allowAnonymousWrite, false);
   const requestId = operation.resourceIds?.requestId;
   assert(requestId, 'operation must seal deterministic publication request ID');
   assert.equal(operation.resourceIds.itemId, handoff.itemId);
@@ -181,6 +215,8 @@ try {
     viewerSourceFeatureCount = sourceRead.body.features.length;
   } finally { await publicContext.close(); }
   const receipt = { status:'pass', proposalId:handoff.proposalId,
+    policyOperationInstanceId:share.operationInstanceId, policyProposalId:share.proposalId,
+    policyStatus:policyOperation.status, policyResolvedBy:policyProposal?.resolvedBy ?? null,
     operationInstanceId:handoff.operationInstanceId, requestId,
     requestedBy:proposal.requestedBy, resolvedBy:proposal.resolvedBy,
     originConsolePartition:visual.principalId, itemId:handoff.itemId, versionId:handoff.versionId,

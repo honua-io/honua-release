@@ -72,7 +72,7 @@ python3 certification/native-docker-first/run.py agent-map \
   --route /maps/native-first-use
 ```
 
-The agent verifies the original service's canonical ID, published name, source and count, grants only anonymous service read access, composes and styles its map, validates, saves and reopens a version, then attaches that exact reopened draft to the shared workspace. It deliberately stops before proposing publication. A real Console browser phase must show rendered features, use the embedded visual editor to choose a field and value from the source, save its thematic color, and submit a fresh human prompt on that same draft. Run that phase with the originating paired human's normal browser storage state:
+The agent verifies the original service's canonical ID, published name, source and count, composes and styles its map, validates, saves and reopens a version, then attaches that exact reopened draft to the shared workspace. The original source remains private through map authoring and approval. The agent deliberately stops before proposing publication. A real Console browser phase must show rendered features, use the embedded visual editor to choose a field and value from the source, save its thematic color, and submit a fresh human prompt on that same draft. Run that phase with the originating paired human's normal browser storage state:
 
 ```bash
 python3 certification/native-docker-first/run.py agent-map-visual \
@@ -89,7 +89,25 @@ python3 certification/native-docker-first/run.py agent-map-finish \
   --console-root "$CONSOLE" --console-sha "$CONSOLE_SHA"
 ```
 
-A separate actual human approves the retained proposal in the installed Console inbox. The originating human then runs the read-only witness:
+A separate actual human approves the retained map proposal in the installed Console inbox. Only after its real operation and publication request succeed, the originating paired human sends a **new** normal Console turn that explicitly asks to expose the original source service for anonymous read only:
+
+```bash
+python3 certification/native-docker-first/run.py agent-map-share-request \
+  --manifest "$CANDIDATE" --attempt "$ATTEMPT" \
+  --console-root "$CONSOLE" --console-sha "$CONSOLE_SHA" \
+  --operator-state "$PRIVATE_OPERATOR_STATE" \
+  --origin http://127.0.0.1:8081 --server-origin http://127.0.0.1:8080
+```
+
+The original external client binds that new human turn, re-reads the exact original service, and invokes the canonical service policy MCP tool with anonymous read enabled and anonymous write disabled. The map approval does **not** approve this separate service policy. If the policy returns a durable `RequiresApproval` handle, a different actual human must resolve that second proposal through the installed inbox before audience verification; do not replay an uncertain policy mutation:
+
+```bash
+python3 certification/native-docker-first/run.py agent-map-share \
+  --manifest "$CANDIDATE" --attempt "$ATTEMPT" \
+  --console-root "$CONSOLE" --console-sha "$CONSOLE_SHA"
+```
+
+The originating human then runs the read-only audience witness:
 
 ```bash
 python3 certification/native-docker-first/run.py agent-map-audience \
@@ -99,7 +117,7 @@ python3 certification/native-docker-first/run.py agent-map-audience \
   --origin http://127.0.0.1:8081 --server-origin http://127.0.0.1:8080
 ```
 
-It joins the real proposal/operation/request/item/version/content identities, distinct approver, authenticated Studio preservation of the final map, and the original layer's anonymous metadata and feature count. A separate browser context without operator state must load the exact published artifact through the Console public viewer, receive successful partition-bound source data, and render actual features in the read-only Studio SDK view. Only this complete live join may set `oneExternalAgentConversationQualified:true`; source and offline tests are never that evidence. The following `browser` phase remains a separate joined smoke and does not consume this service receipt. Further UX-008 visual edit, undo/redo, stale/view-switch and thematic error/conversion journeys still require separate live qualification.
+It first re-reads the exact service policy operation and, when required, its separately approved proposal; anonymous requests are not issued while that approval is pending. It then joins the real map proposal/operation/request/item/version/content identities, distinct approver, authenticated Studio preservation of the final map, and the original layer's anonymous metadata and feature count. A separate browser context without operator state must load the exact published artifact through the Console public viewer, receive successful partition-bound source data, and render actual features in the read-only Studio SDK view. Only this complete live join may set `oneExternalAgentConversationQualified:true`; source and offline tests are never that evidence. The following `browser` phase remains a separate joined smoke and does not consume this service receipt. Further UX-008 visual edit, undo/redo, stale/view-switch and thematic error/conversion journeys still require separate live qualification.
 
 Complete actual human Console pairing/sign-in and capture a private Playwright storage-state file through the normal browser flow. This runner does not mint or synthesize one. Use the committed GeoJSON fixture `certification/terminal-journey/fixtures/journey-source.geojson` or another real GeoJSON with renderable, varied attributes. Then run:
 

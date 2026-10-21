@@ -5,6 +5,7 @@ import importlib.util
 import json
 import unittest
 from pathlib import Path
+from types import SimpleNamespace
 
 spec = importlib.util.spec_from_file_location('native_map_run', Path(__file__).with_name('run.py'))
 runner = importlib.util.module_from_spec(spec)
@@ -57,10 +58,6 @@ class AgentMapEvidenceTests(unittest.TestCase):
              {'serviceId': 'svc-publish-map-1', 'serviceName': 'map-1', 'layerId': 42,
               'studioSourceId': 'source-42', 'rowCount': 3, 'srid': 4326,
               'extent': {'minX': -0.8, 'minY': -0.8, 'maxX': 0.8, 'maxY': 0.8}}),
-            ('honua_admin_services_access_policy_set', {'serviceName': 'map-1',
-             'allowAnonymous': True, 'allowAnonymousWrite': False}, {'status': 'Completed',
-             'requiresApproval': False, 'operationInstanceId': 'policy-1',
-             'details': {'response': json.dumps({'success': True})}}),
             ('honua_studio_create_draft', {'packageKey': 'map-package', 'family': 'map',
              'schemaVersion': '1.0'}, {'draftId': 'draft-1', 'itemId': 'item-1',
              'packageKey': 'map-package', 'family': 'map', 'generation': 1}),
@@ -115,10 +112,10 @@ class AgentMapEvidenceTests(unittest.TestCase):
         changed[3][2]['studioSourceId'] = 'other-source'
         cases.append(changed)
         changed = copy.deepcopy(self.exchanges)
-        changed[4][1]['serviceName'] = 'svc-publish-map-1'
+        changed[4][1]['packageKey'] = 'svc-publish-map-1'
         cases.append(changed)
         changed = copy.deepcopy(self.exchanges)
-        changed[14][2]['envelope']['body']['layers'][0]['sourceId'] = 'other-source'
+        changed[13][2]['envelope']['body']['layers'][0]['sourceId'] = 'other-source'
         cases.append(changed)
         changed = copy.deepcopy(self.exchanges)
         changed.append(('honua_studio_propose_publication', {}, {'status': 'AwaitingApproval'}))
@@ -131,6 +128,96 @@ class AgentMapEvidenceTests(unittest.TestCase):
         with self.assertRaises(runner.Blocked):
             runner.observed_agent_map(wire(events), self.original, self.service,
                                       'map-turn', 'map-package', 'layer-1', '/maps/map-1')
+
+
+class AgentMapRouteTests(unittest.TestCase):
+    def test_supported_viewer_route_alphabet_and_canonical_segments(self):
+        for route in ('/maps/Map_1', '/maps/a.b', '/maps/A_B/child-2', '/maps/a/ordinary..dots'):
+            with self.subTest(route=route):
+                self.assertTrue(runner.canonical_map_route(route))
+
+    def test_bad_route_is_refused_before_stage_state_mutation(self):
+        for route in ('/maps/a//b', '/maps/a/./b', '/maps/a/../b', '/maps/a/',
+                      '/maps//a', '/maps/a%2Fb', '/maps/a\\b'):
+            with self.subTest(route=route):
+                state = {'stages': {'agentService': 'pass'},
+                         'agentImportTask': {'workspaceId': 'workspace-1', 'turnId': 'import-turn'},
+                         'agentService': {'turnId': 'service-turn'}}
+                args = SimpleNamespace(workspace_id='workspace-1', turn_id='map-turn', route=route)
+                with self.assertRaises(runner.Blocked):
+                    runner.phase_agent_map(args, state, {}, Path('/nonexistent'))
+                self.assertEqual(state['stages'], {'agentService': 'pass'})
+
+
+class AgentMapShareEvidenceTests(unittest.TestCase):
+    def setUp(self):
+        self.original = {'workspaceId': 'workspace-1', 'targetId': 'target-1',
+                         'tenantId': 'tenant-1'}
+        self.service = {'serviceId': 'svc-publish-map-1', 'serviceName': 'map-1',
+                        'layerId': 42, 'studioSourceId': 'source-42', 'featureCount': 3}
+        self.final = {'proposalId': 'map-proposal-1', 'reopenedDraftId': 'draft-final',
+                      'itemId': 'item-1', 'versionId': 'version-2'}
+        task = {'kind': 'studio-composition', 'id': 'draft-final', 'revision': 1,
+                'packageKey': 'map-package'}
+        self.request = {'turnId': 'sharing-turn', 'prompt': runner.map_share_prompt(self.service, self.final),
+                        'task': task}
+        locator = {'workspaceId': 'workspace-1', 'turnId': 'sharing-turn'}
+        message = {'role': 'user', 'turnId': 'sharing-turn', 'content': self.request['prompt']}
+        self.exchanges = [
+            ('honua_workspace_conversation', {'workspaceId': 'workspace-1'},
+             {'messages': [message]}),
+            ('honua_workspace_get_turn', locator, {'turnId': 'sharing-turn',
+             'messages': [message], 'context': {'workspaceId': 'workspace-1',
+             'targetId': 'target-1', 'tenantId': 'tenant-1', 'task': task}}),
+            ('honua_agent_connect', locator, {'state': 'attached', 'turnBinding': locator}),
+            ('honua_describe_layer', {'serviceId': 'map-1', 'layerId': 42,
+             'includeRowCount': True}, {'serviceId': 'svc-publish-map-1',
+             'serviceName': 'map-1', 'layerId': 42, 'studioSourceId': 'source-42',
+             'rowCount': 3}),
+            ('honua_admin_services_access_policy_set', {'serviceName': 'map-1',
+             'allowAnonymous': True, 'allowAnonymousWrite': False},
+             {'status': 'Completed', 'requiresApproval': False,
+              'operationId': 'admin.services.access-policy.set',
+              'operationInstanceId': 'policy-operation-1', 'details': {'response':
+               json.dumps({'success': True, 'data': {'serviceName': 'map-1',
+                'accessPolicy': {'allowAnonymous': True, 'allowAnonymousWrite': False}}})}}),
+        ]
+
+    def observe(self, exchanges=None):
+        return runner.observed_agent_map_share(wire(transcript(exchanges or self.exchanges)),
+                                               self.original, self.service,
+                                               self.request, self.final)
+
+    def test_completed_exact_original_source_policy(self):
+        result = self.observe()
+        self.assertEqual(result['status'], 'Completed')
+        self.assertFalse(result['requiresApproval'])
+        self.assertEqual(result['serviceId'], 'svc-publish-map-1')
+
+    def test_pending_requires_separate_durable_proposal(self):
+        changed = copy.deepcopy(self.exchanges)
+        changed[4] = (changed[4][0], changed[4][1],
+                      {'status': 'RequiresApproval', 'requiresApproval': True,
+                       'operationId': 'admin.services.access-policy.set',
+                       'operationInstanceId': 'policy-operation-1',
+                       'proposalId': 'policy-proposal-1'})
+        result = self.observe(changed)
+        self.assertTrue(result['requiresApproval'])
+        self.assertEqual(result['proposalId'], 'policy-proposal-1')
+        changed[4][2].pop('proposalId')
+        with self.assertRaises(runner.Blocked): self.observe(changed)
+
+    def test_rejects_wrong_service_write_or_human_turn_and_premature_policy(self):
+        for index, change in ((4, lambda x: x[1].update(serviceName='other')),
+                              (4, lambda x: x[1].update(allowAnonymousWrite=True)),
+                              (1, lambda x: x[2]['context'].update(targetId='other')),
+                              (3, lambda x: x[2].update(serviceId='other'))):
+            changed = copy.deepcopy(self.exchanges)
+            change(changed[index])
+            with self.subTest(index=index), self.assertRaises(runner.Blocked): self.observe(changed)
+        changed = copy.deepcopy(self.exchanges)
+        changed.insert(0, changed.pop(4))
+        with self.assertRaises(runner.Blocked): self.observe(changed)
 
 
 class AgentMapFinishEvidenceTests(unittest.TestCase):
