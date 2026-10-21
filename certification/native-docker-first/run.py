@@ -987,8 +987,11 @@ def observed_agent_service(transcript: str, original: dict, imported: dict,
             any(layer.get(key) != publish_request[key] for key in ('schema', 'table', 'layerName', 'serviceName')) or
             layer.get('enabled') is not True or type(layer.get('layerId')) is not int or layer['layerId'] <= 0):
         raise Blocked('published service does not match the original imported table and secret reference')
-    identity = {'serviceId': names['service'], 'layerId': layer['layerId']}
-    if (ordered[6].get('input') != {**identity, 'includeRowCount': True} or
+    identity = {'serviceId': described.get('serviceId'), 'layerId': layer['layerId']}
+    if (ordered[6].get('input') != {'serviceId': names['service'], 'layerId': layer['layerId'],
+                                  'includeRowCount': True} or
+            described.get('serviceName') != names['service'] or
+            not isinstance(identity['serviceId'], str) or not identity['serviceId'] or
             ordered[7].get('input') != {**identity, 'returnCountOnly': True} or
             any(described.get(key) != value or queried.get(key) != value for key, value in identity.items()) or
             not isinstance(described.get('studioSourceId'), str) or not described['studioSourceId'] or
@@ -996,7 +999,8 @@ def observed_agent_service(transcript: str, original: dict, imported: dict,
             type(described.get('rowCount')) is not int or described['rowCount'] != output['featureCount'] or
             type(queried.get('count')) is not int or queried['count'] != output['featureCount']):
         raise Blocked('actual service schema and query do not verify the imported feature count')
-    return {**identity, 'connectionId': connection_id, 'studioSourceId': described['studioSourceId'],
+    return {**identity, 'serviceName': names['service'],
+            'connectionId': connection_id, 'studioSourceId': described['studioSourceId'],
             'schema': output['schema'], 'table': output['physicalTableName'],
             'featureCount': queried['count'], 'fields': described['fields'],
             'workspaceId': workspace, 'turnId': turn_id,
@@ -1036,8 +1040,10 @@ def phase_agent_service(args, state, binding, attempt):
               f'with honua_admin_layer_publish using connectionId, schema {output["schema"]}, '
               f'table {output["physicalTableName"]}, layerName "{names["layer"]}", '
               f'serviceName {names["service"]}, enabled true. Inspect each successful result before the '
-              f'next call. Describe the returned serviceId/layerId with includeRowCount true, then query '
-              f'that same serviceId/layerId with returnCountOnly true. The original import contained '
+              f'next call. Describe the published serviceName as serviceId and its returned layerId '
+              f'with includeRowCount true. The description returns the canonical serviceId, which may '
+              f'differ from serviceName. Query that exact canonical serviceId/layerId with '
+              f'returnCountOnly true. The original import contained '
               f'{output["featureCount"]} features. Do not set anonymous access, approve anything, create '
               f'a map or retry any mutation. If approval is required or a result is uncertain, stop.')
     tools = ('honua_workspace_conversation', 'honua_workspace_get_turn', 'honua_agent_connect',

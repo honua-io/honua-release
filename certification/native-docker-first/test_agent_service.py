@@ -23,7 +23,7 @@ class AgentServiceTests(unittest.TestCase):
         self.names = {'connection': 'native-test', 'service': 'native-test', 'layer': 'Imported test'}
         self.locator = {'workspaceId': 'workspace-1', 'turnId': 'service-turn'}
         messages = [{'role': 'user', 'turnId': 'service-turn', 'content': runner.SERVICE_PROMPT}]
-        identity = {'serviceId': 'native-test', 'layerId': 42}
+        identity = {'serviceId': 'svc-publish-native-test', 'layerId': 42}
         connection = {'name': 'native-test', 'secretReference': 'env:HONUA_LOCAL_DB_PASSWORD',
                       'secretType': 'env', 'sslRequired': False, 'sslMode': 'Disable'}
         publication = {'connectionId': 'connection-1', 'schema': 'public', 'table': 'imported_table',
@@ -45,8 +45,8 @@ class AgentServiceTests(unittest.TestCase):
              handle({'connectionId': 'connection-1', 'isHealthy': True}, 'test-1')),
             ('honua_admin_layer_publish', publication,
              handle({**publication, 'layerId': 42}, 'publish-1')),
-            ('honua_describe_layer', {**identity, 'includeRowCount': True},
-             {**identity, 'studioSourceId': 'catalog-source-42', 'rowCount': 3,
+            ('honua_describe_layer', {'serviceId': 'native-test', 'layerId': 42, 'includeRowCount': True},
+             {**identity, 'serviceName': 'native-test', 'studioSourceId': 'catalog-source-42', 'rowCount': 3,
               'fields': [{'name': 'id', 'type': 'int64'}]}),
             ('honua_query_features', {**identity, 'returnCountOnly': True}, {**identity, 'count': 3}),
         ]
@@ -70,6 +70,8 @@ class AgentServiceTests(unittest.TestCase):
         observed = self.observe()
         self.assertEqual(observed['studioSourceId'], 'catalog-source-42')
         self.assertEqual(observed['featureCount'], 3)
+        self.assertEqual(observed['serviceId'], 'svc-publish-native-test')
+        self.assertEqual(observed['serviceName'], 'native-test')
         self.assertEqual(observed['operationInstanceIds'], ['create-1', 'test-1', 'publish-1'])
 
     def test_model_prose_cannot_replace_structured_query_or_success(self):
@@ -97,11 +99,17 @@ class AgentServiceTests(unittest.TestCase):
             with self.subTest(key=key), self.assertRaises(runner.Blocked):
                 self.observe(broken)
         for index, key, value in ((13, 'rowCount', 0), (13, 'studioSourceId', ''),
+                                   (13, 'serviceName', 'other-service'), (13, 'serviceId', ''),
+                                   (15, 'serviceId', 'native-test'),
                                    (15, 'count', True), (15, 'count', 2)):
             broken = copy.deepcopy(self.events)
             broken[index]['tool_use_result']['structuredContent'][key] = value
             with self.subTest(key=key), self.assertRaises(runner.Blocked):
                 self.observe(broken)
+        broken = copy.deepcopy(self.events)
+        broken[14]['message']['content'][0]['input']['serviceId'] = 'native-test'
+        with self.assertRaises(runner.Blocked):
+            self.observe(broken)
         for key, value in (('isHealthy', False), ('connectionId', 'other-connection')):
             broken = copy.deepcopy(self.events)
             health = broken[9]['tool_use_result']['structuredContent']
