@@ -769,7 +769,8 @@ def test_canonical_client_applicability_decisions_are_complete_and_governed():
         "not-client-addressable",
     }
 
-    assert len(decisions) == 41
+    assert len(decisions) == 42
+    assert {"capability_key": "analytics.h3", "classification": "official-sdk-required"} in decisions
     assert len(capability_keys) == len(set(capability_keys))
     assert all(decision["classification"] in allowed for decision in decisions)
     assert all(

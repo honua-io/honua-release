@@ -656,9 +656,9 @@ def test_plan_reports_source_derived_official_client_version_changes(tmp_path):
     manifest_path.write_text(yaml.safe_dump(manifest, sort_keys=False))
     plan, _, _ = MODULE.prepare(root, StubGitHub(root), "keep")
     assert plan["official_protocol_assignments"]["client_versions"] == [{
-        "source": "sdk-js", "name": "@honua/sdk-js", "current": "0.1.9-beta.0", "proposed": "0.2.0",
+        "source": "sdk-js", "name": "@honua/sdk-js", "current": "0.2.3", "proposed": "0.2.0",
     }]
-    assert "sdk-js (@honua/sdk-js): 0.1.9-beta.0 -> 0.2.0" in MODULE.human(plan, root)
+    assert "sdk-js (@honua/sdk-js): 0.2.3 -> 0.2.0" in MODULE.human(plan, root)
 
 
 @pytest.mark.parametrize("field,value", [("sha256", "e" * 64), ("source", "local"),

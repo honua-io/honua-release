@@ -88,7 +88,7 @@ def test_catalog_cannot_suppress_or_relabel_auth_obligation(mutation):
 def test_complete_catalog_keeps_all_governed_rows():
     catalog = json.loads((ROOT / "certification/protocol-certification-requirements.v1.json").read_text())
     VALIDATOR.validate_mcp_authorization(catalog)
-    assert len(catalog["requirements"]) == 3008
+    assert len(catalog["requirements"]) == 3026
     assert sum(row["licensed"] for row in catalog["requirements"]) == 340
     rows = [row for row in catalog["requirements"] if row["surface"] == "mcp"]
     assert len(rows) == 82
