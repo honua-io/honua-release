@@ -2,7 +2,6 @@
 // Copyright (c) Honua. All rights reserved.
 // Actual paired-human Console UI actions for the external client's already attached map.
 import assert from 'node:assert/strict';
-import { createHash } from 'node:crypto';
 import { createRequire } from 'node:module';
 import { join } from 'node:path';
 import { readFileSync, writeFileSync, openSync, closeSync } from 'node:fs';
@@ -118,7 +117,7 @@ try {
   const receipt = { status: 'human-visual-edit-and-turn-observed', workspaceId: workspace,
     turnId, draftId: handoff.reopenedDraftId, itemId: handoff.itemId, packageKey: handoff.packageKey,
     generation: after.generation, layerId: handoff.layerId, sourceId: handoff.sourceId,
-    bodySha256: createHash('sha256').update(JSON.stringify(after.envelope.body)).digest('hex'),
+    body: after.envelope.body,
     field: thematic.name, observedValue: thematic.values[0], colorProperty, colorExpression: expression,
     opacityProperty, prompt, principalId: session.principalId, environmentId: session.environmentId };
   const path = required('HONUA_AGENT_MAP_VISUAL_RECEIPT');

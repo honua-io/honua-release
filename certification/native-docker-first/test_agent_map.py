@@ -140,10 +140,10 @@ class AgentMapFinishEvidenceTests(unittest.TestCase):
                         'packageKey': 'map-package', 'draftId': 'draft-1',
                         'reopenedDraftId': 'draft-2', 'itemId': 'item-1', 'route': '/maps/map-1'}
         expression = ['match', ['get', 'class'], 'A', '#eff3ff', '#c6dbef']
-        before = {'layers': [{'id': 'layer-1', 'sourceId': 'source-42'}],
+        before = {'title': 'Hawaiʻi', 'layers': [{'id': 'layer-1', 'sourceId': 'source-42'}],
                   'mapSpec': {'version': 8, 'sources': {'source-42': {'type': 'vector'}},
                               'layers': [{'id': 'layer-1', 'type': 'circle',
-                                          'paint': {'circle-color': expression}}]}}
+                                          'paint': {'circle-color': expression, 'circle-radius': 1.0}}]}}
         after = copy.deepcopy(before)
         after['mapSpec']['layers'][0]['paint']['circle-opacity'] = 0.55
         self.visual = {'workspaceId': 'workspace-1', 'turnId': 'visual-turn',
@@ -151,8 +151,7 @@ class AgentMapFinishEvidenceTests(unittest.TestCase):
                        'packageKey': 'map-package', 'layerId': 'layer-1',
                        'colorProperty': 'circle-color', 'colorExpression': expression,
                        'opacityProperty': 'circle-opacity',
-                       'bodySha256': hashlib.sha256(json.dumps(before,
-                           separators=(',', ':')).encode()).hexdigest(),
+                       'body': copy.deepcopy(before),
                        'prompt': 'Human visual edit followed by actual new prompt.'}
         locator = {'workspaceId': 'workspace-1', 'turnId': 'visual-turn'}
         task = {'kind': 'studio-composition', 'id': 'draft-2', 'revision': 3,
@@ -201,10 +200,17 @@ class AgentMapFinishEvidenceTests(unittest.TestCase):
                                                 self.original, self.initial, self.visual)
 
     def test_keeps_visual_edit_then_proposes_only_exact_final_version(self):
+        # A JS JSON.parse/JSON.stringify round trip writes 1.0 as 1; Unicode is not ASCII-escaped.
+        self.visual['body']['mapSpec']['layers'][0]['paint']['circle-radius'] = 1
         result = self.observe()
         self.assertEqual(result['proposalId'], 'proposal-1')
         self.assertEqual(result['versionId'], 'version-2')
         self.assertEqual(result['finalOpacity'], 0.55)
+        self.assertEqual(result['body']['title'], 'Hawaiʻi')
+
+    def test_rejects_structurally_altered_human_visual_body(self):
+        self.visual['body']['title'] = 'Retargeted map'
+        with self.assertRaises(runner.Blocked): self.observe()
 
     def test_rejects_style_overwrite_stale_human_turn_and_direct_publication(self):
         changed = copy.deepcopy(self.exchanges)

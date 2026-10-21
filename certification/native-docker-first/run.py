@@ -7,6 +7,7 @@ A blocked phase is retained and cannot be replayed as a successful phase.
 from __future__ import annotations
 
 import argparse
+import copy
 import hashlib
 import json
 import os
@@ -16,7 +17,7 @@ import sys
 import time
 import uuid
 from pathlib import Path
-from urllib.parse import urlsplit
+from urllib.parse import quote, urlsplit
 from urllib.request import urlopen
 
 import yaml
@@ -1409,7 +1410,8 @@ def phase_agent_map_visual(args, state, binding, attempt):
                 value.get('turnId') in (state['agentImportTask']['turnId'],
                                         state['agentService']['turnId'], prior['turnId']) or
                 type(value.get('generation')) is not int or value['generation'] <= 0 or
-                not isinstance(value.get('prompt'), str) or not value['prompt']):
+                not isinstance(value.get('prompt'), str) or not value['prompt'] or
+                not isinstance(value.get('body'), dict)):
             raise Blocked('visual browser receipt does not join exact agent map and fresh human turn')
         state['agentMapVisual'] = value
         state['agentMapVisualScriptSha256'] = sha256(script)
@@ -1490,17 +1492,16 @@ def observed_agent_map_finish(transcript: str, original: dict, map_receipt: dict
         raise Blocked('final map continuation lacks the fresh human visual-edit turn and binding')
     draft_id = visual['draftId']
     before_body = before.get('envelope', {}).get('body') or {}
-    before_hash = hashlib.sha256(json.dumps(before_body, separators=(',', ':')).encode()).hexdigest()
     layers = before_body.get('mapSpec', {}).get('layers') or []
     render = [layer for layer in layers if layer.get('id') == visual['layerId']]
     if (expected[3].get('input') != {'draftId': draft_id} or before.get('draftId') != draft_id or
             before.get('generation') != visual['generation'] or
-            before_hash != visual['bodySha256'] or len(render) != 1 or
+            before_body != visual.get('body') or len(render) != 1 or
             render[0].get('paint', {}).get(visual['colorProperty']) != visual['colorExpression'] or
             before.get('itemId') != map_receipt['itemId']):
         raise Blocked('external agent did not read the exact human-edited map')
     changed_spec = expected[4].get('input', {}).get('mapSpec') or {}
-    expected_spec = json.loads(json.dumps(before_body['mapSpec']))
+    expected_spec = copy.deepcopy(before_body['mapSpec'])
     expected_render = next(layer for layer in expected_spec['layers'] if layer['id'] == visual['layerId'])
     expected_render.setdefault('paint', {})[visual['opacityProperty']] = 0.55
     if (expected[4].get('input', {}).get('draftId') != draft_id or
@@ -1561,7 +1562,7 @@ def observed_agent_map_finish(transcript: str, original: dict, map_receipt: dict
     return {'workspaceId': workspace, 'turnId': turn_id,
             'draftId': draft_id, 'reopenedDraftId': reopened_id,
             'itemId': item_id, 'versionId': version_id, 'contentHash': content_hash,
-            'bodySha256': hashlib.sha256(json.dumps(final_body, separators=(',', ':')).encode()).hexdigest(),
+            'body': final_body,
             'route': map_receipt['route'], 'audience': 'public',
             'proposalId': proposed['proposalId'],
             'operationInstanceId': proposed['operationInstanceId'],
@@ -1692,8 +1693,16 @@ def phase_agent_map_audience(args, state, binding, attempt):
             witness.get('serviceName') != first['service']['serviceName'] or
             witness.get('sourceId') != first['sourceId'] or
             witness.get('publicFeatureCount') != first['service']['featureCount'] or
-            type(witness.get('renderedFeatureCount')) is not int or
-            witness['renderedFeatureCount'] <= 0 or
+            type(witness.get('authenticatedStudioRenderedFeatureCount')) is not int or
+            witness['authenticatedStudioRenderedFeatureCount'] <= 0 or
+            type(witness.get('anonymousPublishedRenderedFeatureCount')) is not int or
+            witness['anonymousPublishedRenderedFeatureCount'] <= 0 or
+            type(witness.get('viewerSourceFeatureCount')) is not int or
+            witness['viewerSourceFeatureCount'] <= 0 or
+            not isinstance(witness.get('viewerPartition'), str) or
+            len(witness['viewerPartition']) != 64 or
+            witness.get('publicViewerUrl') != args.origin + '/maps/published/' +
+                '/'.join(quote(part, safe="!~*'()") for part in final['route'].lstrip('/').split('/')) or
             not witness.get('requestId') or
             not witness.get('requestedBy') or not witness.get('resolvedBy') or
             witness['requestedBy'] == witness['resolvedBy']):

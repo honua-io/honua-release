@@ -2,7 +2,6 @@
 // Copyright (c) Honua. All rights reserved.
 // Read-only witness for the external agent's exact approved map and public data.
 import assert from 'node:assert/strict';
-import { createHash } from 'node:crypto';
 import { createRequire } from 'node:module';
 import { join } from 'node:path';
 import { readFileSync, openSync, writeFileSync, closeSync } from 'node:fs';
@@ -59,7 +58,7 @@ try {
   const version = await read(`/api/studio/v1/studio/content-items/${encodeURIComponent(handoff.itemId)}` +
     `/versions/${encodeURIComponent(handoff.versionId)}`);
   assert.equal(version.contentHash, handoff.contentHash);
-  assert.equal(createHash('sha256').update(JSON.stringify(version.envelope.body)).digest('hex'), handoff.bodySha256);
+  assert.deepEqual(version.envelope.body, handoff.body, 'approved version must be the agent-observed final map');
   const publication = await read(`/api/studio/v1/studio/content-items/${encodeURIComponent(handoff.itemId)}` +
     `/versions/${encodeURIComponent(handoff.versionId)}/publish-requests/${encodeURIComponent(requestId)}`);
   assert.equal(publication.requestId, requestId);
@@ -85,8 +84,9 @@ try {
     const map = document.querySelector('honua-studio-canvas')?.mapView?.map;
     return map?.getLayer(layerId) && map.queryRenderedFeatures({ layers: [layerId] }).length > 0;
   }, initial.layerId, { timeout: 60000 });
-  const renderedFeatureCount = await page.locator('honua-studio-canvas').evaluate((element, layerId) =>
+  const authenticatedStudioRenderedFeatureCount = await page.locator('honua-studio-canvas').evaluate((element, layerId) =>
     element.mapView.map.queryRenderedFeatures({ layers: [layerId] }).length, initial.layerId);
+  assert(authenticatedStudioRenderedFeatureCount > 0, 'human Studio must retain the exact final styled map');
   const anonymous = await request.newContext({ baseURL: serverOrigin,
     extraHTTPHeaders: { Accept: 'application/json' } });
   let artifact, serviceCount;
@@ -111,14 +111,83 @@ try {
     serviceCount = data.count;
     assert.equal(serviceCount, initial.service.featureCount, 'public audience sees the original physical features');
   } finally { await anonymous.dispose(); }
+  const routeParts = handoff.route.replace(/^\//, '').split('/');
+  assert(routeParts.length > 0 && routeParts.every(part => part && part !== '.' && part !== '..'
+    && !/[\\%\p{Cc}]/u.test(part)), 'canonical public viewer route required');
+  const publicViewerPath = '/maps/published/' + routeParts.map(encodeURIComponent).join('/');
+  const definitionPath = '/api/studio/viewer/published/' + routeParts.map(encodeURIComponent).join('/');
+  const sourcePath = '/api/studio/viewer/data/rest/services/' +
+    initial.service.serviceName.split('/').map(encodeURIComponent).join('/') +
+    `/FeatureServer/${initial.service.layerId}`;
+  // This context has no operator storageState, bearer, or agent API key.
+  const publicContext = await browser.newContext({baseURL: consoleOrigin});
+  let anonymousPublishedRenderedFeatureCount, viewerPartition, viewerSourceFeatureCount;
+  try {
+    const publicPage = await publicContext.newPage();
+    const dataReads = [];
+    publicPage.on('response', response => {
+      if (new URL(response.url()).pathname.startsWith('/api/studio/viewer/data/rest/services/'))
+        dataReads.push((async () => ({response, body: await response.json()}))());
+    });
+    const definitionResponsePromise = publicPage.waitForResponse(response =>
+      new URL(response.url()).pathname === definitionPath, {timeout: 60000});
+    const sourceResponsePromise = publicPage.waitForResponse(response =>
+      new URL(response.url()).pathname === `${sourcePath}/query`, {timeout: 60000});
+    const documentResponse = await publicPage.goto(publicViewerPath);
+    assert.equal(documentResponse?.status(), 200, 'anonymous published viewer page');
+    const definitionResponse = await definitionResponsePromise;
+    assert.equal(definitionResponse.status(), 200, 'anonymous viewer loaded published artifact');
+    for (const header of ['cookie', 'authorization', 'x-api-key'])
+      assert(!definitionResponse.request().headers()[header], `anonymous viewer sent ${header}`);
+    viewerPartition = definitionResponse.headers()['x-honua-viewer-partition'];
+    assert.match(viewerPartition ?? '', /^[0-9a-f]{64}$/);
+    const definitionWire = await definitionResponse.json();
+    assert.equal(definitionWire.success, true);
+    const loaded = definitionWire.data;
+    for (const [key, value] of Object.entries({itemId:handoff.itemId, publicationId:requestId,
+      versionId:handoff.versionId, contentHash:handoff.contentHash, route:handoff.route,
+      visibility:'public'})) assert.equal(loaded[key], value, `anonymous viewer artifact ${key}`);
+    assert.deepEqual(loaded.envelope?.body, version.envelope.body,
+      'anonymous viewer rendered the exact approved version body');
+    assert(loaded.sourceCatalog?.some(source => source.id === initial.sourceId
+      && source.locator?.layerId === initial.service.layerId
+      && new URL(source.locator.url, serverOrigin).pathname.endsWith(
+        `/rest/services/${initial.service.serviceName}/FeatureServer`)),
+    'viewer source catalog must bind the original published service and layer');
+    await sourceResponsePromise;
+    await publicPage.waitForFunction(() => document.querySelector('[data-map-status]')?.textContent === 'Map ready.',
+      undefined, {timeout: 60000});
+    await publicPage.waitForFunction(() => {
+      const value = document.querySelector('[data-map-canvas]')?.dataset.renderedFeatureCount;
+      return value !== undefined && /^\d+$/.test(value) && Number.isSafeInteger(Number(value)) && Number(value) > 0;
+    }, undefined, {timeout: 60000});
+    anonymousPublishedRenderedFeatureCount = Number(await publicPage.locator('[data-map-canvas]')
+      .getAttribute('data-rendered-feature-count'));
+    const reads = await Promise.all(dataReads);
+    assert(reads.length > 0, 'anonymous viewer must request public source data');
+    for (const {response} of reads) {
+      assert.equal(response.status(), 200, `anonymous source data ${response.url()}`);
+      assert.equal(response.headers()['x-honua-viewer-partition'], viewerPartition);
+      const requestHeaders = response.request().headers();
+      assert.equal(requestHeaders['x-honua-viewer-partition'], viewerPartition);
+      for (const header of ['cookie', 'authorization', 'x-api-key'])
+        assert(!requestHeaders[header], `anonymous source data sent ${header}`);
+    }
+    const sourceRead = reads.find(({response, body}) => new URL(response.url()).pathname === `${sourcePath}/query`
+      && body.type === 'FeatureCollection' && Array.isArray(body.features) && body.features.length > 0);
+    assert(sourceRead, 'anonymous viewer must load original nonempty feature collection');
+    viewerSourceFeatureCount = sourceRead.body.features.length;
+  } finally { await publicContext.close(); }
   const receipt = { status:'pass', proposalId:handoff.proposalId,
     operationInstanceId:handoff.operationInstanceId, requestId,
     requestedBy:proposal.requestedBy, resolvedBy:proposal.resolvedBy,
     originConsolePartition:visual.principalId, itemId:handoff.itemId, versionId:handoff.versionId,
     contentHash:handoff.contentHash, route:handoff.route, serviceId:initial.service.serviceId,
     serviceName:initial.service.serviceName, sourceId:initial.sourceId,
-    publicFeatureCount:serviceCount, renderedFeatureCount,
-    publicationUrl:serverOrigin + `/api/v1/studio/published${handoff.route}` };
+    publicFeatureCount:serviceCount, authenticatedStudioRenderedFeatureCount,
+    anonymousPublishedRenderedFeatureCount, viewerSourceFeatureCount, viewerPartition,
+    publicationUrl:serverOrigin + `/api/v1/studio/published${handoff.route}`,
+    publicViewerUrl:consoleOrigin + publicViewerPath };
   const fd = openSync(required('HONUA_AGENT_MAP_AUDIENCE_RECEIPT'), 'wx', 0o600);
   try { writeFileSync(fd, JSON.stringify(receipt, null, 2) + '\n'); }
   finally { closeSync(fd); }
