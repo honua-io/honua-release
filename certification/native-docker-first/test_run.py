@@ -15,6 +15,86 @@ spec.loader.exec_module(runner)
 
 
 class NativeFirstUseTests(unittest.TestCase):
+    def test_agent_continuation_refuses_changed_mcp_registration_bytes(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            config, executable, source = (root / name for name in ('mcp.json', 'honua-agent-mcp', 'source.geojson'))
+            config.write_text('{"mcpServers":{"honua":{}}}')
+            executable.write_text('original executable')
+            source.write_text('{}')
+            state = {'stages': {'agentTask': 'awaiting-human-browser-file-turn'},
+                     'installDirectory': str(root), 'target': {'id': 'installed'},
+                     'executables': {'mcp': str(executable)},
+                     'mcpConfigSha256': runner.sha256(config),
+                     'mcpExecutableSha256': runner.sha256(executable)}
+            args = SimpleNamespace(input_file=source, workspace_id='workspace-1', turn_id='turn-1')
+            executable.write_text('replaced executable')
+            with patch.object(runner, 'installed_target', return_value=state['target']):
+                with self.assertRaisesRegex(runner.Blocked, 'registration/configuration changed'):
+                    runner.phase_agent_task(args, state, {'server': 'pinned'}, root)
+
+    def test_native_client_install_refuses_peer_bypass_before_retry(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            artifact = runner.pins.ResolvedArtifact(
+                name='honua-mcp-server', package='@honua/mcp-server', version='0.2.1',
+                ecosystem='npm', registry_url=None, integrity_verified=True,
+                tarball_sha256='a' * 64, bin={}, tarball=root / 'verified.tgz')
+            workspace = runner.pins.ClientWorkspace('pass', root, None, [artifact])
+            failed = SimpleNamespace(returncode=1, stderr='ERESOLVE peer dependency conflict', stdout='')
+            with patch.object(runner.pins, '_npm_install', return_value=failed) as install:
+                bindir, reason, notes = runner.pins.install_executables(
+                    workspace, root / 'client', require_default_peers=True)
+            self.assertIsNone(bindir)
+            self.assertIn('default peer resolution', reason)
+            self.assertEqual(notes, [])
+            install.assert_called_once()
+
+    def test_resumed_external_client_binds_original_human_file_turn(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            source = Path(tmp) / 'source.geojson'
+            source.write_text('{"type":"FeatureCollection","features":[]}')
+            digest = runner.sha256(source)
+            selection = {'selectionId': 'selected-1', 'fileName': source.name,
+                         'totalBytes': source.stat().st_size, 'expectedSha256': digest}
+            context = {'workspaceId': 'workspace-1', 'viewId': 'view-1', 'revision': 2}
+            request = {'intentId': 'intent-1', 'viewId': 'view-1', 'contextRevision': 2,
+                       'source': {'kind': 'browser-file', 'browserSelectionId': 'selected-1',
+                                  **{key: selection[key] for key in ('fileName', 'totalBytes', 'expectedSha256')}}}
+            def call(name, identifier, value):
+                return json.dumps({'message': {'content': [{'type': 'tool_use', 'name': 'mcp__honua__' + name,
+                                                           'id': identifier, 'input': value}]}})
+            def result(identifier, value):
+                return json.dumps({'message': {'content': [{'type': 'tool_result',
+                                                           'tool_use_id': identifier, 'content': json.dumps(value)}]}})
+            events = [json.dumps({'type': 'system', 'subtype': 'init', 'session_id': 'session-1'}),
+                      call('honua_workspace_conversation', 'c', {'workspaceId': 'workspace-1'}),
+                      result('c', {'messages': [{'turnId': 'turn-1', 'role': 'user'}]}),
+                      call('honua_workspace_get_turn', 't', {'workspaceId': 'workspace-1', 'turnId': 'turn-1'}),
+                      result('t', {'turnId': 'turn-1', 'context': context, 'browserFileSelection': selection}),
+                      call('honua_agent_connect', 'b', {'workspaceId': 'workspace-1', 'turnId': 'turn-1'}),
+                      result('b', {'state': 'attached', 'turnBinding': {'workspaceId': 'workspace-1', 'turnId': 'turn-1'}}),
+                      call('honua_workspace_create_dataset_import_task', 'i', {'workspaceId': 'workspace-1', 'request': request}),
+                      result('i', {'taskId': 'task-1', 'revision': 1, 'contentHash': 'a'*64,
+                                   'source': request['source'], 'destination': {'schema': 'public', 'table': 'new'}})]
+            transcript = '\n'.join(events)
+            runner.observed_client_session(transcript, 'session-1')
+            self.assertEqual(runner.observed_agent_task(transcript, 'workspace-1', 'turn-1', 'intent-1', source)['taskId'], 'task-1')
+            with self.assertRaisesRegex(runner.Blocked, 'same persistent'):
+                runner.observed_client_session(transcript, 'different-session')
+            for bad in ('turnBinding', 'browserFileSelection', 'task'):
+                broken = list(events)
+                index = {'turnBinding': 6, 'browserFileSelection': 4, 'task': 8}[bad]
+                payload = json.loads(broken[index])
+                output = json.loads(payload['message']['content'][0]['content'])
+                if bad == 'turnBinding': output['turnBinding']['turnId'] = 'other-turn'
+                elif bad == 'browserFileSelection': output['browserFileSelection']['expectedSha256'] = 'b'*64
+                else: output['source']['browserSelectionId'] = 'other-selection'
+                payload['message']['content'][0]['content'] = json.dumps(output)
+                broken[index] = json.dumps(payload)
+                with self.assertRaises(runner.Blocked):
+                    runner.observed_agent_task('\n'.join(broken), 'workspace-1', 'turn-1', 'intent-1', source)
+
     def test_external_client_requires_one_real_install_call_and_later_status(self):
         def event(name, identifier, input_value=None):
             return json.dumps({'type': 'assistant', 'message': {'content': [
@@ -39,9 +119,13 @@ class NativeFirstUseTests(unittest.TestCase):
             with self.assertRaises(runner.Blocked):
                 runner.observed_install_call(bad)
 
-    def test_default_old_manifest_refused_before_any_install(self):
-        with self.assertRaisesRegex(runner.Blocked, '0.2.7'):
-            runner.candidate(runner.ROOT / 'platform-manifest.yaml')
+    def test_candidate_does_not_invent_sdk_mcp_version_coupling(self):
+        manifest, _ = runner.candidate(runner.ROOT / 'platform-manifest.yaml')
+        manifest['clientArtifacts']['honua-mcp-server']['version'] = '0.2.1'
+        with patch.object(runner.yaml, 'safe_load', return_value=manifest):
+            _, binding = runner.candidate(runner.ROOT / 'platform-manifest.yaml')
+        self.assertEqual(binding['clients']['honua-sdk-js']['version'], '0.2.3')
+        self.assertEqual(binding['clients']['honua-mcp-server']['version'], '0.2.1')
 
     def test_attempt_binding_rejects_changed_artifacts_or_browser_producer(self):
         state = {'schemaVersion': runner.SCHEMA, 'candidate': {'server': 'a'},

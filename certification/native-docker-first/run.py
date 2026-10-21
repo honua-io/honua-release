@@ -77,8 +77,6 @@ def candidate(manifest_path: Path) -> tuple[dict, dict]:
     server, console = (components.get(key) or {} for key in ('honua-server', 'honua-console'))
     sdk_js, mcp = (clients.get(key) or {} for key in ('honua-sdk-js', 'honua-mcp-server'))
     dotnet = clients.get('honua-sdk-dotnet') or {}
-    if sdk_js.get('version') != mcp.get('version') or tuple(int(x) for x in mcp.get('version', '0.0.0').split('.')[:3]) < (0, 2, 7):
-        raise Blocked('candidate requires coherent published SDK/MCP 0.2.7 or later; the old release manifest is refused')
     for name, component in (('server', server), ('console', console)):
         if not SHA.fullmatch(component.get('sha', '')) or not IMAGE.fullmatch(f"{component.get('image', '')}@{component.get('digest', '')}"):
             raise Blocked(f'{name} needs a source SHA and immutable published GHCR image')
@@ -276,6 +274,73 @@ def observed_install_call(transcript: str) -> dict:
             'toolCallId': installs[0]['id'], 'target': installed['target']}
 
 
+def observed_client_session(transcript: str, expected: str) -> None:
+    sessions = {event.get('session_id') for line in transcript.splitlines()
+                for event in [json.loads(line)] if isinstance(event, dict) and
+                event.get('type') == 'system' and event.get('subtype') == 'init'}
+    if sessions != {expected}:
+        raise Blocked('external client did not use the same persistent conversation')
+
+
+def observed_agent_task(transcript: str, workspace_id: str, turn_id: str,
+                        intent_id: str, input_file: Path) -> dict:
+    calls = []
+    results = {}
+    for line in transcript.splitlines():
+        try: event = json.loads(line)
+        except ValueError: continue
+        if not isinstance(event, dict): continue
+        message = event.get('message')
+        for item in message.get('content', []) if isinstance(message, dict) else []:
+            if isinstance(item, dict) and item.get('type') == 'tool_use': calls.append(item)
+            elif isinstance(item, dict) and item.get('type') == 'tool_result': results[item.get('tool_use_id')] = item
+    names = ('honua_workspace_conversation', 'honua_workspace_get_turn',
+             'honua_agent_connect', 'honua_workspace_create_dataset_import_task')
+    matches = [[call for call in calls if call.get('name') == 'mcp__honua__' + name] for name in names]
+    if any(len(group) != 1 for group in matches):
+        raise Blocked('same external client did not execute the exact read, bind and task sequence once')
+    conversation, turn, bind, task = (group[0] for group in matches)
+    if not (calls.index(conversation) < calls.index(turn) < calls.index(bind) < calls.index(task)):
+        raise Blocked('external client task sequence was not ordered after the human turn read')
+    if (conversation.get('input', {}).get('workspaceId') != workspace_id or
+            turn.get('input') != {'workspaceId': workspace_id, 'turnId': turn_id} or
+            bind.get('input') != {'workspaceId': workspace_id, 'turnId': turn_id}):
+        raise Blocked('external client read or bound a different human workspace turn')
+    def output(call):
+        result = results.get(call.get('id'))
+        if not result or result.get('is_error'):
+            raise Blocked('external client lacks an authoritative successful tool result')
+        return json.loads(result['content'])
+    conversation_value, turn_value, bound, created = (output(call) for call in
+                                                       (conversation, turn, bind, task))
+    if (not any(item.get('turnId') == turn_id and item.get('role') == 'user' for item in
+                conversation_value.get('messages', [])) or turn_value.get('turnId') != turn_id or
+            bound.get('state') != 'attached' or bound.get('turnBinding') !=
+            {'workspaceId': workspace_id, 'turnId': turn_id}):
+        raise Blocked('conversation, immutable turn or connector binding was not observed')
+    selection = turn_value.get('browserFileSelection') or {}
+    expected = {'fileName': input_file.name, 'totalBytes': input_file.stat().st_size,
+                'expectedSha256': sha256(input_file)}
+    if (any(selection.get(key) != value for key, value in expected.items()) or
+            not isinstance(selection.get('selectionId'), str) or not selection['selectionId']):
+        raise Blocked('human browser selection does not match the original local input')
+    context = turn_value.get('context') or {}
+    request = task.get('input', {}).get('request') or {}
+    source = request.get('source') or {}
+    if (task.get('input', {}).get('workspaceId') != workspace_id or
+            request.get('intentId') != intent_id or request.get('viewId') != context.get('viewId') or
+            request.get('contextRevision') != context.get('revision') or source.get('kind') != 'browser-file' or
+            source.get('browserSelectionId') != selection['selectionId'] or
+            any(source.get(key) != value for key, value in expected.items()) or
+            created.get('source') != source or not created.get('taskId') or
+            not isinstance(created.get('revision'), int) or not created.get('contentHash')):
+        raise Blocked('created import task did not bind the observed browser selection and intent')
+    return {'workspaceId': workspace_id, 'turnId': turn_id, 'intentId': intent_id,
+            'selection': selection, 'taskId': created['taskId'],
+            'revision': created['revision'], 'contentHash': created['contentHash'],
+            'destination': created.get('destination')}
+
+
 def phase_start(args, manifest, binding, harness, attempt):
     if attempt.exists() or args.install_dir.exists() or args.install_dir.is_symlink():
         raise Blocked('fresh attempt and install directories are required')
@@ -287,7 +352,8 @@ def phase_start(args, manifest, binding, harness, attempt):
         workspace = pins.resolve_client_workspace(manifest, attempt / 'published-clients')
         if workspace.status != 'pass':
             raise Blocked(workspace.reason or 'published clients unavailable')
-        bindir, reason, notes = pins.install_executables(workspace, attempt / 'client-install')
+        bindir, reason, notes = pins.install_executables(
+            workspace, attempt / 'client-install', require_default_peers=True)
         if bindir is None:
             raise Blocked(reason)
         mcp = client_entry(attempt / 'client-install', 'honua-agent-mcp')
@@ -340,7 +406,10 @@ def phase_install(args, state, binding, attempt):
     if args.model_key_env:
         mcp_config['mcpServers']['honua']['env']['HONUA_AGENT_PREVIEW_MODEL_KEY_ENV'] = args.model_key_env
     private_json(attempt / 'mcp.json', mcp_config, new=True)
+    state['mcpConfigSha256'] = sha256(attempt / 'mcp.json')
+    state['mcpExecutableSha256'] = sha256(Path(state['executables']['mcp']))
     state['stages']['install'] = 'started'
+    state['externalClientSessionId'] = str(uuid.uuid4())
     private_json(attempt / 'receipt.json', state)
     prompt = ('Use only the registered Honua MCP server. Inspect this fresh machine, then call '
               'honua_agent_install_local exactly once with confirm true and the quickstart profile. '
@@ -354,7 +423,8 @@ def phase_install(args, state, binding, attempt):
                '--disallowedTools', 'Bash,PowerShell,Agent,Read,Write,Edit,NotebookEdit,Glob,Grep,LSP,WebFetch,WebSearch,Workflow,Task',
                '--setting-sources', '', '--settings',
                '{"disableAllHooks":true}', '--strict-mcp-config', '--mcp-config', str(attempt / 'mcp.json'),
-               '--permission-mode', 'dontAsk', '--permission-prompts', 'none', '--no-session-persistence',
+               '--permission-mode', 'dontAsk', '--permission-prompts', 'none',
+               '--session-id', state['externalClientSessionId'],
                '--output-format', 'stream-json', '--verbose', '--print']
     try:
         result = subprocess.run(command, input=prompt, text=True, capture_output=True, timeout=900,
@@ -367,6 +437,7 @@ def phase_install(args, state, binding, attempt):
         state['clientTranscriptSha256'] = sha256(attempt / 'client-transcript.ndjson')
         if result.returncode:
             raise Blocked('external client exited unsuccessfully; inspect private transcript and reconcile')
+        observed_client_session(result.stdout, state['externalClientSessionId'])
         observed = observed_install_call(result.stdout)
         state['installToolCallId'] = observed['toolCallId']
         state['connectorTarget'] = observed['target']
@@ -395,6 +466,7 @@ def phase_install(args, state, binding, attempt):
                             'port': gateway_url.port, 'url': args.gateway_url}
         state['stages']['install'] = 'pass'
         state['stages']['pairing'] = 'awaiting-real-human-session'
+        state['stages']['agentTask'] = 'awaiting-human-browser-file-turn'
         private_json(attempt / 'receipt.json', state)
         print('Install observed; complete real human pairing and provide a private Playwright storage state.')
     except Exception as exc:
@@ -481,6 +553,75 @@ def phase_browser(args, state, manifest, binding, harness, attempt):
         raise
 
 
+def phase_agent_task(args, state, binding, attempt):
+    if state['stages'].get('agentTask') != 'awaiting-human-browser-file-turn':
+        raise Blocked('external client task stage is not ready or its outcome is uncertain')
+    if (not args.input_file or not args.input_file.is_file() or
+            not re.fullmatch(r'[A-Za-z0-9_-]{1,128}', args.workspace_id or '') or
+            not re.fullmatch(r'[A-Za-z0-9_-]{1,128}', args.turn_id or '')):
+        raise Blocked('actual local input and exact human workspace/turn IDs are required')
+    if installed_target(Path(state['installDirectory']), binding) != state.get('target'):
+        raise Blocked('installed target changed before the external client continuation')
+    mcp_config = attempt / 'mcp.json'
+    mcp_executable = Path(state['executables']['mcp'])
+    if (not mcp_config.is_file() or not mcp_executable.is_file() or
+            sha256(mcp_config) != state.get('mcpConfigSha256') or
+            sha256(mcp_executable) != state.get('mcpExecutableSha256')):
+        raise Blocked('external client registration/configuration changed before continuation')
+    intent_id = 'native-first-' + uuid.uuid4().hex
+    input_digest = sha256(args.input_file)
+    state['stages']['agentTask'] = 'started'
+    state['agentTaskIntentId'] = intent_id
+    private_json(attempt / 'receipt.json', state)
+    prompt = (f'The same paired human has selected a local GIS file and sent a new Console turn. '
+              f'Use only the registered Honua MCP tools in this same conversation. First call '
+              f'honua_workspace_conversation for workspaceId {args.workspace_id}, then '
+              f'honua_workspace_get_turn for turnId {args.turn_id}. Inspect the actual '
+              f'browserFileSelection; it must name {args.input_file.name}, contain '
+              f'{args.input_file.stat().st_size} bytes and SHA-256 {input_digest}. '
+              f'Call honua_agent_connect with exactly this workspaceId and turnId to bind the '
+              f'authorized turn, then create exactly one browser-file dataset-import task '
+              f'with intentId {intent_id}, that selection, its captured viewId/contextRevision, '
+              f'and a new public schema/table destination. Do not upload, submit or publish yet. '
+              f'If any result is denied or uncertain, stop without retrying the mutation.')
+    allowed = ['ToolSearch', 'ListMcpResourcesTool', 'ReadMcpResourceTool', 'WaitForMcpServers'] + [
+        'mcp__honua__' + name for name in ('honua_agent_status', 'honua_agent_connect',
+            'honua_workspace_conversation', 'honua_workspace_get_turn',
+            'honua_workspace_create_dataset_import_task', 'honua_workspace_get_dataset_import_intent')]
+    command = [args.claude, '--restricted', '--tools', 'default', '--allowedTools', ','.join(allowed),
+               '--disallowedTools', 'Bash,PowerShell,Agent,Read,Write,Edit,NotebookEdit,Glob,Grep,LSP,WebFetch,WebSearch,Workflow,Task',
+               '--setting-sources', '', '--settings', '{"disableAllHooks":true}', '--strict-mcp-config',
+               '--mcp-config', str(attempt / 'mcp.json'), '--permission-mode', 'dontAsk',
+               '--permission-prompts', 'none', '--resume', state['externalClientSessionId'],
+               '--output-format', 'stream-json', '--verbose', '--print']
+    try:
+        result = subprocess.run(command, input=prompt, text=True, capture_output=True,
+                                timeout=900, cwd=attempt, check=False)
+        transcript = attempt / 'agent-task-transcript.ndjson'
+        transcript.write_text(result.stdout)
+        transcript.chmod(0o600)
+        (attempt / 'agent-task-stderr.log').write_text(result.stderr)
+        (attempt / 'agent-task-stderr.log').chmod(0o600)
+        state['agentTaskTranscriptSha256'] = sha256(transcript)
+        if result.returncode:
+            raise Blocked('resumed external client failed; reconcile the original import intent without replay')
+        observed_client_session(result.stdout, state['externalClientSessionId'])
+        task = observed_agent_task(result.stdout, args.workspace_id, args.turn_id,
+                                   intent_id, args.input_file)
+        if sha256(args.input_file) != input_digest:
+            raise Blocked('original local input changed during external client task creation')
+        state['agentImportTask'] = task
+        state['stages']['agentTask'] = 'pass'
+        state['stages']['agentSubmission'] = 'awaiting-real-human-upload-and-prepare'
+        private_json(attempt / 'receipt.json', state)
+        print('Same external client created a turn-bound import task. Human must upload and prepare its exact source.')
+    except Exception as exc:
+        state['stages']['agentTask'] = 'blocked'
+        state['blocker'] = str(exc)
+        private_json(attempt / 'receipt.json', state)
+        raise
+
+
 def phase_witness(args, state, binding, attempt):
     if state['stages'].get('approval') != 'awaiting-separate-human-approval':
         raise Blocked('no pending separate-human approval to witness')
@@ -541,7 +682,7 @@ def phase_witness(args, state, binding, attempt):
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument('phase', choices=('start', 'install', 'browser', 'witness'))
+    parser.add_argument('phase', choices=('start', 'install', 'agent-task', 'browser', 'witness'))
     parser.add_argument('--manifest', type=Path, required=True)
     parser.add_argument('--attempt', type=Path, required=True)
     parser.add_argument('--install-dir', type=Path)
@@ -561,6 +702,8 @@ def main():
     parser.add_argument('--origin')
     parser.add_argument('--server-origin')
     parser.add_argument('--route')
+    parser.add_argument('--workspace-id')
+    parser.add_argument('--turn-id')
     args = parser.parse_args()
     try:
         args.attempt = args.attempt.resolve()
@@ -582,6 +725,8 @@ def main():
             check_state(state, binding, harness)
             if args.phase == 'install':
                 phase_install(args, state, binding, args.attempt)
+            elif args.phase == 'agent-task':
+                phase_agent_task(args, state, binding, args.attempt)
             elif args.phase == 'browser':
                 phase_browser(args, state, manifest, binding, harness, args.attempt)
             else:
