@@ -788,6 +788,120 @@ def phase_agent_submit(args, state, binding, attempt):
         raise
 
 
+def observed_agent_import(transcript: str, original: dict, submission: dict) -> dict:
+    """Observe the original durable job; an accepted request is not imported data."""
+    calls, results, call_positions, result_positions = ordered_tool_events(transcript)
+    bind_name = 'mcp__honua__honua_agent_connect'
+    read_name = 'mcp__honua__honua_workspace_get_dataset_import_submission'
+    allowed = {bind_name, read_name, 'mcp__honua__honua_agent_status', 'ToolSearch',
+               'ListMcpResourcesTool', 'ReadMcpResourceTool', 'WaitForMcpServers'}
+    if any(call.get('name') not in allowed for call in calls):
+        raise Blocked('import observation contains a tool outside the read-only continuation')
+    binds = [call for call in calls if call.get('name') == bind_name]
+    reads = [call for call in calls if call.get('name') == read_name]
+    if len(binds) != 1 or len(reads) != 1:
+        raise Blocked('external client must bind and read the original import exactly once')
+    bind, read = binds[0], reads[0]
+    require_results_before_dependencies((bind, read), results, call_positions, result_positions)
+    reference = {'workspaceId': original['workspaceId'], 'taskId': original['taskId'],
+                 'revision': original['revision'], 'contentHash': original['contentHash']}
+    turn = {'workspaceId': original['workspaceId'], 'turnId': original['turnId']}
+    bound, receipt = (json.loads(results[call['id']]['content']) for call in (bind, read))
+    if (bind.get('input') != turn or bound.get('state') != 'attached' or
+            bound.get('turnBinding') != turn or read.get('input') != reference):
+        raise Blocked('external client observed a different import task or authorized turn')
+    identity = {'taskId': original['taskId'], 'taskRevision': original['revision'],
+                'taskContentHash': original['contentHash'], 'state': 'accepted',
+                'operationId': submission['operationId']}
+    job = receipt.get('job') or {}
+    if (any(receipt.get(key) != value for key, value in identity.items()) or
+            job.get('jobId') != submission['jobId'] or
+            job.get('leaseId') != submission['leaseId'] or
+            submission['operationId'] != submission['jobId']):
+        raise Blocked('import observation does not bind the originally accepted durable job and lease')
+    status = job.get('status')
+    if status not in ('queued', 'provisioning', 'running', 'succeeded', 'failed', 'cancelled'):
+        raise Blocked('original import has an unknown durable job status')
+    observed = {'jobId': job['jobId'], 'leaseId': job['leaseId'], 'status': status}
+    if status == 'succeeded':
+        output = job.get('output') or {}
+        if (job.get('outcomePending') is not False or not job.get('completedAt') or
+                any(not isinstance(output.get(key), str) or not output[key].strip()
+                    for key in ('physicalTableName', 'schema')) or
+                type(output.get('featureCount')) is not int or output['featureCount'] <= 0 or
+                (output.get('detectedSrid') is not None and
+                 (type(output['detectedSrid']) is not int or output['detectedSrid'] <= 0))):
+            raise Blocked('successful import lacks a confirmed physical dataset and nonempty feature count')
+        observed['output'] = {key: output[key] for key in
+                              ('physicalTableName', 'schema', 'featureCount', 'detectedSrid')
+                              if key in output}
+        observed['completedAt'] = job['completedAt']
+    return observed
+
+
+def phase_agent_observe_import(args, state, binding, attempt):
+    # This phase is repeatable: it only binds the same turn and reads its job.
+    if state['stages'].get('agentSubmission') != 'pass':
+        raise Blocked('the original external-client submission has not been observed')
+    original, submission = state.get('agentImportTask') or {}, state.get('agentSubmission') or {}
+    if not all(submission.get(key) for key in ('operationId', 'jobId', 'leaseId')):
+        raise Blocked('original accepted import job binding is missing')
+    if installed_target(Path(state['installDirectory']), binding) != state.get('target'):
+        raise Blocked('installed target changed before the read-only import observation')
+    config, executable = attempt / 'mcp.json', Path(state['executables']['mcp'])
+    if (not config.is_file() or not executable.is_file() or
+            sha256(config) != state.get('mcpConfigSha256') or
+            sha256(executable) != state.get('mcpExecutableSha256')):
+        raise Blocked('external client registration/configuration changed before import observation')
+    observation_id = uuid.uuid4().hex
+    state['stages']['agentImportObservation'] = 'started-read-only'
+    private_json(attempt / 'receipt.json', state)
+    prompt = (f'Observe the original accepted import in this same Honua conversation. First bind '
+              f'with honua_agent_connect to workspaceId {original["workspaceId"]} and '
+              f'turnId {original["turnId"]}, then call honua_workspace_get_dataset_import_submission '
+              f'exactly once for taskId {original["taskId"]}, revision {original["revision"]}, '
+              f'contentHash {original["contentHash"]}. Read the actual job {submission["jobId"]}, '
+              f'lease {submission["leaseId"]} and its current output. An accepted job alone is not '
+              f'a successful import. Do not submit, retry, create, publish or mutate any GIS resource. '
+              f'If denied, pending or uncertain, report that exact state and stop.')
+    allowed = ['ToolSearch', 'ListMcpResourcesTool', 'ReadMcpResourceTool', 'WaitForMcpServers'] + [
+        'mcp__honua__' + name for name in ('honua_agent_connect', 'honua_agent_status',
+                                        'honua_workspace_get_dataset_import_submission')]
+    command = [args.claude, '--restricted', '--tools', 'default', '--allowedTools', ','.join(allowed),
+               '--disallowedTools', 'Bash,PowerShell,Agent,Read,Write,Edit,NotebookEdit,Glob,Grep,LSP,WebFetch,WebSearch,Workflow,Task',
+               '--setting-sources', '', '--settings', '{"disableAllHooks":true}', '--strict-mcp-config',
+               '--mcp-config', str(config), '--permission-mode', 'dontAsk', '--permission-prompts', 'none',
+               '--resume', state['externalClientSessionId'], '--output-format', 'stream-json', '--verbose', '--print']
+    try:
+        result = subprocess.run(command, input=prompt, text=True, capture_output=True,
+                                timeout=900, cwd=attempt, check=False)
+        transcript = attempt / f'agent-import-observation-{observation_id}.ndjson'
+        transcript.write_text(result.stdout)
+        transcript.chmod(0o600)
+        stderr = attempt / f'agent-import-observation-{observation_id}.stderr.log'
+        stderr.write_text(result.stderr)
+        stderr.chmod(0o600)
+        state['agentImportObservationTranscriptSha256'] = sha256(transcript)
+        state['agentImportObservationTranscriptFile'] = transcript.name
+        if result.returncode:
+            raise Blocked('read-only external-client observation failed; no import was replayed')
+        observed_client_session(result.stdout, state['externalClientSessionId'])
+        observed = observed_agent_import(result.stdout, original, submission)
+        state['agentImportObservation'] = observed
+        state['stages']['agentImportObservation'] = ('pass' if observed['status'] == 'succeeded'
+                                                    else observed['status'])
+        private_json(attempt / 'receipt.json', state)
+        print('Original external-client import job observed: ' + observed['status'] +
+              '. Service, map and publication qualification remain separate.')
+        if observed['status'] in ('failed', 'cancelled'):
+            raise Blocked('the originally accepted import did not succeed; never resubmit it automatically')
+    except Exception as exc:
+        state['stages']['agentImportObservation'] = 'blocked'
+        state['blocker'] = str(exc)
+        private_json(attempt / 'receipt.json', state)
+        raise
+
+
 def phase_witness(args, state, binding, attempt):
     if state['stages'].get('approval') != 'awaiting-separate-human-approval':
         raise Blocked('no pending separate-human approval to witness')
@@ -848,7 +962,8 @@ def phase_witness(args, state, binding, attempt):
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument('phase', choices=('start', 'install', 'agent-task', 'agent-submit', 'browser', 'witness'))
+    parser.add_argument('phase', choices=('start', 'install', 'agent-task', 'agent-submit',
+                                         'agent-observe-import', 'browser', 'witness'))
     parser.add_argument('--manifest', type=Path, required=True)
     parser.add_argument('--attempt', type=Path, required=True)
     parser.add_argument('--install-dir', type=Path)
@@ -895,6 +1010,8 @@ def main():
                 phase_agent_task(args, state, binding, args.attempt)
             elif args.phase == 'agent-submit':
                 phase_agent_submit(args, state, binding, args.attempt)
+            elif args.phase == 'agent-observe-import':
+                phase_agent_observe_import(args, state, binding, args.attempt)
             elif args.phase == 'browser':
                 phase_browser(args, state, manifest, binding, harness, args.attempt)
             else:
