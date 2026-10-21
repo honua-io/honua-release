@@ -59,10 +59,20 @@ def _cell(**overrides):
         "budget_observations": None,
     }
     value.update(overrides)
+    if str(value.get("client_lane", "")).startswith("grpc-"):
+        value.setdefault("client_package_digest", "sha512-" + base64.b64encode(b"x" * 64).decode()
+                         if value["client_lane"] == "grpc-typescript" else "sha256:" + "f" * 64)
+    if value.get("client_lane") == "sdk-python-certification":
+        value.setdefault("client_package", {"filename": f"honua_sdk-{value['client_version']}-py3-none-any.whl",
+                                            "sha256": "e" * 64, "source": "pypi"})
     if "evidence_receipt" not in overrides:
         identity = {
             field: value[field] for field in cert.RECEIPT_ID_FIELDS
         }
+        if "client_package" in value:
+            identity["client_package"] = copy.deepcopy(value["client_package"])
+        if "client_package_digest" in value:
+            identity["client_package_digest"] = value["client_package_digest"]
         if isinstance(value.get("test_ids"), list):
             identity["test_ids"] = value["test_ids"]
         value["evidence_receipt"] = {
@@ -322,7 +332,7 @@ def test_licensed_desktop_policy_is_governed_and_fresh():
 
 
 def test_server_harness_pass_binds_test_ids_and_certification_source_revision():
-    harness_sha = "c" * 40
+    harness_sha = SHA
     test_ids = ["EdrEndpointsTests.Edr_Cube_ReturnsCoverageJsonGridSubset"]
     cell = _cell(
         capability_key="serve.ogc-api-edr",
@@ -335,7 +345,28 @@ def test_server_harness_pass_binds_test_ids_and_certification_source_revision():
         producer_source_sha=harness_sha,
         image_digest=None,
         test_ids=test_ids,
+        contract_revision=f"server-protocol-harness@fixture-v1+{harness_sha}",
     )
+    execution = {
+        "client_id": cell["canonical_client"], "performed_by": cell["canonical_client"],
+        "runner_lane": cell["client_lane"], "protocol_version": "fixture-v1",
+        "protocol_profile": "source-test-host-http-adapter", "request_url": None,
+        "exercised_capabilities": cell["scenario_facets"],
+    }
+    cell.update(execution)
+    cell["evidence_receipt"]["identity"]["candidate_cut_at"] = CUT
+    cell["evidence_receipt"]["identity"]["producer_run"] = {
+        "repository": "honua-io/honua-server", "workflow": "protocol-harness-certification.yml",
+        "run_id": 123, "run_attempt": 1, "dispatch_id": "nightly-certification-123-1",
+    }
+    cell["evidence_receipt"]["payload_base64"] = base64.b64encode(json.dumps({
+        "contract_revision": cell["contract_revision"], "execution": execution,
+        "test_outcomes": {test_id: "pass" for test_id in test_ids},
+    }, sort_keys=True, separators=(",", ":")).encode()).decode()
+    cell["evidence_digest"] = cert._receipt_digest(cell["evidence_receipt"])
+    cell["evidence_uri"] = "https://evidence.honua.io/data/sha256/" + cell["evidence_digest"][7:]
+    for facet in cell["facet_results"].values():
+        facet["evidence_digest"] = cell["evidence_digest"]
     requirements = _requirements(cell)
     requirements["source_revisions"]["server-certification"] = {"commit": harness_sha}
     passing = _evaluate(_ledger(cell), "nightly", requirements=requirements, now=NOW)
@@ -353,20 +384,15 @@ def test_server_harness_pass_binds_test_ids_and_certification_source_revision():
         _ledger(wrong_tests), "nightly", requirements=requirements, now=NOW,
     )
     assert wrong_test_report["overall_status"] == "fail"
-    assert any("semantically bound" in finding["why"] for finding in wrong_test_report["findings"])
+    assert any("execution metadata" in finding["why"] for finding in wrong_test_report["findings"])
 
-    falsely_bound = _cell(
-        capability_key="serve.ogc-api-edr",
-        surface="ogc-api-edr",
-        operation="GET /edr/collections/{collectionId}/cube",
-        canonical_client="Honua server public protocol integration harness",
-        client_lane="server-protocol-harness",
-        client_version=f"source@{harness_sha}",
-        deployment_target="source-test-host",
-        producer_source_sha=harness_sha,
-        image_digest=DIGEST,
-        test_ids=test_ids,
-    )
+    falsely_bound = copy.deepcopy(cell)
+    falsely_bound["image_digest"] = DIGEST
+    falsely_bound["evidence_receipt"]["identity"]["image_digest"] = DIGEST
+    falsely_bound["evidence_digest"] = cert._receipt_digest(falsely_bound["evidence_receipt"])
+    falsely_bound["evidence_uri"] = "https://evidence.honua.io/data/sha256/" + falsely_bound["evidence_digest"][7:]
+    for facet in falsely_bound["facet_results"].values():
+        facet["evidence_digest"] = falsely_bound["evidence_digest"]
     false_report = _evaluate(
         _ledger(falsely_bound), "nightly", requirements=requirements, now=NOW,
     )
@@ -1642,3 +1668,173 @@ def test_pyqgis_is_the_full_surface_function_grid():
         "connect/discover", "add", "render", "identify", "query/filter", "edit",
         "raster read", "save/reopen", "auth",
     }
+
+
+def test_unproduced_wps_cite_required_skip_is_not_canonical_gp_evidence():
+    cell = _cell(
+        capability_key="serve.wps", surface="wps-2-0", operation="serve.wps",
+        canonical_client="OGC CITE", client_lane="cite-wps-2-0", client_version="WPS 2.0",
+        result="skip", skip_reason="Normalized candidate-bound WPS CITE producer absent",
+        evidence_receipt=None, evidence_uri=None, evidence_digest=None, facet_results=None,
+    )
+    report = _evaluate(_ledger(cell), "nightly", now=NOW)
+    assert report["overall_status"] == "fail"
+
+
+def test_grpc_package_digest_is_bound_to_receipt_and_requirement():
+    for lane in ("grpc-dotnet", "grpc-python", "grpc-typescript"):
+        cell = _cell(client_lane=lane)
+        assert cert._valid_receipt(cell, requirements_revision="requirements-test-v1")
+        for mutation in ("missing-observation", "wrong-observation", "missing-receipt", "wrong-receipt"):
+            changed = copy.deepcopy(cell)
+            if mutation == "missing-observation":
+                changed.pop("client_package_digest")
+            elif mutation == "wrong-observation":
+                changed["client_package_digest"] = "sha256:" + "0" * 64
+            elif mutation == "missing-receipt":
+                changed["evidence_receipt"]["identity"].pop("client_package_digest")
+            else:
+                changed["evidence_receipt"]["identity"]["client_package_digest"] = "sha256:" + "0" * 64
+            assert not cert._valid_receipt(changed, requirements_revision="requirements-test-v1"), mutation
+
+
+def test_grpc_repacked_identity_cannot_replace_the_governed_digest():
+    cell = _cell(client_lane="grpc-dotnet")
+    owned = _requirements(cell)
+    ledger = _ledger(cell)
+    changed = ledger["cells"][0]
+    changed["client_package_digest"] = "sha256:" + "0" * 64
+    changed["evidence_receipt"]["identity"]["client_package_digest"] = changed["client_package_digest"]
+    changed["evidence_digest"] = cert._receipt_digest(changed["evidence_receipt"])
+    changed["evidence_uri"] = "https://evidence.honua.io/data/sha256/" + changed["evidence_digest"][7:]
+    for value in changed["facet_results"].values():
+        value["evidence_digest"] = changed["evidence_digest"]
+    result = _evaluate(ledger, "nightly", requirements=owned)
+    assert result["overall_status"] == "fail"
+    assert any(item["check"] == "requirements_denominator" for item in result["findings"])
+
+
+def test_grpc_digest_algorithm_and_canonical_encoding_are_not_interchangeable():
+    sri = "sha512-" + base64.b64encode(b"x" * 64).decode()
+    assert cert._valid_client_package_digest("grpc-typescript", sri)
+    assert not cert._valid_client_package_digest("grpc-dotnet", sri)
+    assert not cert._valid_client_package_digest("grpc-typescript", "sha256:" + "a" * 64)
+    assert not cert._valid_client_package_digest("grpc-typescript", sri + "\n")
+
+
+def test_non_grpc_package_digest_cannot_expand_closed_identity_or_requirements():
+    schema = json.loads((Path(__file__).parents[1] / 'certification/protocol-certification.v1.schema.json').read_text())
+    validator = Draft202012Validator(schema)
+    original = _cell()
+    assert cert._valid_receipt(original, requirements_revision='requirements-test-v1')
+    assert not list(validator.iter_errors(_ledger(original)))
+    for value in (None, 'sha256:' + 'a' * 64):
+        for target in ('cell', 'identity', 'both'):
+            changed = copy.deepcopy(original)
+            if target in ('cell', 'both'):
+                changed['client_package_digest'] = value
+            if target in ('identity', 'both'):
+                changed['evidence_receipt']['identity']['client_package_digest'] = value
+            assert not cert._valid_receipt(changed, requirements_revision='requirements-test-v1'), target
+            assert list(validator.iter_errors(_ledger(changed))), target
+            result = _evaluate(_ledger(changed), 'nightly', now=NOW, requirements=_requirements(original))
+            assert result['overall_status'] == 'fail', target
+        owned = _requirements(original)
+        owned['requirements'][0]['client_package_digest'] = value
+        result = _evaluate(_ledger(original), 'nightly', now=NOW, requirements=owned)
+        assert any(item['check'] == 'requirements.client_package_digest' for item in result['findings'])
+
+
+def test_published_schemas_enforce_each_grpc_digest_algorithm_and_encoding():
+    root = Path(__file__).parents[1] / 'certification'
+    ledger_validator = Draft202012Validator(json.loads((root / 'protocol-certification.v1.schema.json').read_text()))
+    requirement_validator = Draft202012Validator(json.loads((root / 'protocol-certification-requirements.v1.schema.json').read_text()))
+    governed = json.loads((root / 'protocol-certification-requirements.v1.json').read_text())
+    sha256 = 'sha256:' + 'a' * 64
+    sri = 'sha512-' + base64.b64encode(b'x' * 64).decode()
+    for lane in ('grpc-dotnet', 'grpc-python', 'grpc-typescript'):
+        good = sri if lane == 'grpc-typescript' else sha256
+        wrong_algorithm = sha256 if lane == 'grpc-typescript' else sri
+        cell = _cell(client_lane=lane, client_package_digest=good)
+        assert not list(ledger_validator.iter_errors(_ledger(cell))), lane
+        requirements = copy.deepcopy(governed)
+        requirements['requirements'] = _requirements(cell)['requirements']
+        assert not list(requirement_validator.iter_errors(requirements)), lane
+        # Noncanonical pad bits decode to the same bytes but must not identify the package.
+        bad_values = (wrong_algorithm, good + '\n', 'sha512-' + 'e' * 86 + '==')
+        for value in bad_values:
+            assert not cert._valid_client_package_digest(lane, value), (lane, value)
+            for target in ('cell', 'identity'):
+                changed = copy.deepcopy(cell)
+                destination = changed if target == 'cell' else changed['evidence_receipt']['identity']
+                destination['client_package_digest'] = value
+                assert list(ledger_validator.iter_errors(_ledger(changed))), (lane, target, value)
+            changed_requirements = copy.deepcopy(requirements)
+            changed_requirements['requirements'][0]['client_package_digest'] = value
+            assert list(requirement_validator.iter_errors(changed_requirements)), (lane, value)
+    ordinary = _cell(client_package_digest=sha256)
+    requirements = copy.deepcopy(governed)
+    requirements['requirements'] = _requirements(ordinary)['requirements']
+    assert list(requirement_validator.iter_errors(requirements))
+    unknown = _cell(client_lane='grpc-unknown')
+    assert not cert._valid_receipt(unknown, requirements_revision='requirements-test-v1')
+    assert list(ledger_validator.iter_errors(_ledger(unknown)))
+
+
+def test_python_wheel_identity_is_governed_not_just_self_consistent():
+    cell = _cell(canonical_client="Honua SDK Python", client_lane="sdk-python-certification",
+                 client_version="0.1.10", contract_revision="sdk-python-certification@" + SHA)
+    cell["evidence_receipt"]["identity"]["candidate_cut_at"] = CUT
+    _rehash_python_wheel(cell)
+    owned = _requirements(cell)
+    assert _evaluate(_ledger(cell), "nightly", requirements=owned, now=NOW)["overall_status"] == "pass"
+    for field, value in (("filename", "other-0.1.10-py3-none-any.whl"),
+                         ("filename", "honua_sdk-0.1.11-py3-none-any.whl"),
+                         ("sha256", "f" * 64), ("sha256", "F" * 64),
+                         ("source", "local-build"), ("extra", "unowned")):
+        changed = copy.deepcopy(cell)
+        changed["client_package"][field] = value
+        changed["evidence_receipt"]["identity"]["client_package"] = copy.deepcopy(changed["client_package"])
+        _rehash_python_wheel(changed)
+        assert _evaluate(_ledger(changed), "nightly", requirements=owned, now=NOW)["overall_status"] == "fail"
+    for target in ("cell", "identity", "governed"):
+        changed, requirements = copy.deepcopy(cell), copy.deepcopy(owned)
+        destination = changed if target == "cell" else changed["evidence_receipt"]["identity"]
+        if target == "governed":
+            requirements["requirements"][0].pop("client_package")
+        else:
+            destination.pop("client_package")
+        _rehash_python_wheel(changed)
+        assert _evaluate(_ledger(changed), "nightly", requirements=requirements, now=NOW)["overall_status"] == "fail"
+
+
+def _rehash_python_wheel(cell):
+    cell["evidence_digest"] = cert._receipt_digest(cell["evidence_receipt"])
+    cell["evidence_uri"] = "https://evidence.honua.io/data/sha256/" + cell["evidence_digest"][7:]
+    for facet in cell["facet_results"].values():
+        facet["evidence_digest"] = cell["evidence_digest"]
+
+
+def test_shared_actual_python_producer_bytes_pass_the_release_consumer_and_reject_rebinding():
+    bundle = json.loads((Path(__file__).parent / "fixtures/python-receipt-v2-seam.json").read_text())
+    observation = bundle["fragment"]["observations"][0]
+    cell = {**bundle["requirements"]["requirements"][0], **observation, "budget_observations": None}
+    ledger = _ledger(cell)
+    ledger["requirements_revision"] = bundle["requirements"]["revision"]
+    assert bundle["fragment"]["operation_scope"]["complete"] is False
+    report = _evaluate(ledger, "nightly", requirements=bundle["requirements"], now=NOW)
+    assert report["overall_status"] == "pass", report["findings"]
+    for field, value in (("client_package", {"filename": "honua_sdk-9.9.9-py3-none-any.whl", "sha256": "e" * 64, "source": "pypi"}),
+                         ("producer_source_sha", "e" * 40), ("client_version", "9.9.8")):
+        changed = copy.deepcopy(ledger)
+        changed["cells"][0][field] = value
+        changed["cells"][0]["evidence_receipt"]["identity"][field] = value
+        _rehash_python_wheel(changed["cells"][0])
+        assert _evaluate(changed, "nightly", requirements=bundle["requirements"], now=NOW)["overall_status"] == "fail"
+
+
+def test_python_wheel_schema_is_closed_and_other_lanes_cannot_claim_it():
+    schema = json.loads((Path(__file__).parents[1] / "certification/protocol-certification.v1.schema.json").read_text())
+    cell = _cell(client_package={"filename": "honua_sdk-1.4.3-py3-none-any.whl", "sha256": "e" * 64, "source": "pypi"})
+    assert list(Draft202012Validator(schema).iter_errors(_ledger(cell)))
+    assert _evaluate(_ledger(cell), "nightly", now=NOW)["overall_status"] == "fail"

@@ -1,0 +1,96 @@
+{
+  "crs": {
+    "properties": {
+      "name": "EPSG:4326"
+    },
+    "type": "name"
+  },
+  "features": [
+    {
+      "geometry": {
+        "coordinates": [
+          0.0476107101,
+          -0.087136549
+        ],
+        "type": "Point"
+      },
+      "id": "s201",
+      "properties": {
+        "capacity": 80,
+        "is_open": true,
+        "name": "Cedar Central",
+        "source_id": "s201"
+      },
+      "type": "Feature"
+    },
+    {
+      "geometry": {
+        "coordinates": [
+          0.0556955476,
+          -0.087136549
+        ],
+        "type": "Point"
+      },
+      "id": "s202",
+      "properties": {
+        "capacity": 50,
+        "is_open": true,
+        "name": "Cedar Central",
+        "source_id": "s202"
+      },
+      "type": "Feature"
+    },
+    {
+      "geometry": {
+        "coordinates": [
+          0.0530006018,
+          -0.087136549
+        ],
+        "type": "Point"
+      },
+      "id": "s203",
+      "properties": {
+        "capacity": 75,
+        "is_open": true,
+        "name": "Hālau, \"North\" refuge",
+        "source_id": "s203"
+      },
+      "type": "Feature"
+    },
+    {
+      "geometry": {
+        "coordinates": [
+          0.0503056559,
+          -0.087136549
+        ],
+        "type": "Point"
+      },
+      "id": "s204",
+      "properties": {
+        "capacity": 120,
+        "is_open": false,
+        "name": "Centre d’accueil",
+        "source_id": "s204"
+      },
+      "type": "Feature"
+    },
+    {
+      "geometry": {
+        "coordinates": [
+          0.0449157642,
+          -0.087136549
+        ],
+        "type": "Point"
+      },
+      "id": "s205",
+      "properties": {
+        "capacity": null,
+        "is_open": true,
+        "name": "Mālama refuge",
+        "source_id": "s205"
+      },
+      "type": "Feature"
+    }
+  ],
+  "type": "FeatureCollection"
+}

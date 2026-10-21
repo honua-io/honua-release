@@ -1,0 +1,255 @@
+{
+  "crs": {
+    "properties": {
+      "name": "EPSG:3857"
+    },
+    "type": "name"
+  },
+  "features": [
+    {
+      "geometry": {
+        "coordinates": [
+          [
+            [
+              5000,
+              -10000
+            ],
+            [
+              5100,
+              -10000
+            ],
+            [
+              5100,
+              -9900
+            ],
+            [
+              5000,
+              -9900
+            ],
+            [
+              5000,
+              -10000
+            ]
+          ]
+        ],
+        "type": "Polygon"
+      },
+      "id": "p201",
+      "properties": {
+        "name": "Cedar parcel 1",
+        "owner": "Town",
+        "source_id": "p201",
+        "value": 100000
+      },
+      "type": "Feature"
+    },
+    {
+      "geometry": {
+        "coordinates": [
+          [
+            [
+              6000,
+              -10000
+            ],
+            [
+              6100,
+              -10000
+            ],
+            [
+              6100,
+              -9900
+            ],
+            [
+              6000,
+              -9900
+            ],
+            [
+              6000,
+              -10000
+            ]
+          ]
+        ],
+        "type": "Polygon"
+      },
+      "id": "p202",
+      "properties": {
+        "name": "Cedar parcel 2",
+        "owner": "Town",
+        "source_id": "p202",
+        "value": 101000
+      },
+      "type": "Feature"
+    },
+    {
+      "geometry": {
+        "coordinates": [
+          [
+            [
+              5800,
+              -10000
+            ],
+            [
+              5900,
+              -10000
+            ],
+            [
+              5900,
+              -9900
+            ],
+            [
+              5800,
+              -9900
+            ],
+            [
+              5800,
+              -10000
+            ]
+          ],
+          [
+            [
+              5820,
+              -9980
+            ],
+            [
+              5820,
+              -9940
+            ],
+            [
+              5860,
+              -9940
+            ],
+            [
+              5860,
+              -9980
+            ],
+            [
+              5820,
+              -9980
+            ]
+          ]
+        ],
+        "type": "Polygon"
+      },
+      "id": "p203",
+      "properties": {
+        "name": "Cedar parcel 3",
+        "owner": null,
+        "source_id": "p203",
+        "value": 102000
+      },
+      "type": "Feature"
+    },
+    {
+      "geometry": {
+        "coordinates": [
+          [
+            [
+              5200,
+              -10000
+            ],
+            [
+              5300,
+              -10000
+            ],
+            [
+              5300,
+              -9900
+            ],
+            [
+              5200,
+              -9900
+            ],
+            [
+              5200,
+              -10000
+            ]
+          ]
+        ],
+        "type": "Polygon"
+      },
+      "id": "p204",
+      "properties": {
+        "name": "Cedar parcel 4",
+        "owner": "Town",
+        "source_id": "p204",
+        "value": 103000
+      },
+      "type": "Feature"
+    },
+    {
+      "geometry": {
+        "coordinates": [
+          [
+            [
+              5600,
+              -10000
+            ],
+            [
+              5700,
+              -10000
+            ],
+            [
+              5700,
+              -9900
+            ],
+            [
+              5600,
+              -9900
+            ],
+            [
+              5600,
+              -10000
+            ]
+          ]
+        ],
+        "type": "Polygon"
+      },
+      "id": "p205",
+      "properties": {
+        "name": "Cedar parcel 5",
+        "owner": "Town",
+        "source_id": "p205",
+        "value": 104000
+      },
+      "type": "Feature"
+    },
+    {
+      "geometry": {
+        "coordinates": [
+          [
+            [
+              5400,
+              -10000
+            ],
+            [
+              5500,
+              -10000
+            ],
+            [
+              5500,
+              -9900
+            ],
+            [
+              5400,
+              -9900
+            ],
+            [
+              5400,
+              -10000
+            ]
+          ]
+        ],
+        "type": "Polygon"
+      },
+      "id": "p206",
+      "properties": {
+        "name": "Cedar parcel 6",
+        "owner": "Town",
+        "source_id": "p206",
+        "value": 105000
+      },
+      "type": "Feature"
+    }
+  ],
+  "type": "FeatureCollection"
+}

@@ -325,18 +325,18 @@ def _npm_install(prefix: Path, tarballs: list[str], extra: list[str]) -> subproc
         return f"npm install could not be executed: {exc}"
 
 
-def install_executables(workspace: ClientWorkspace, prefix: Path) -> tuple[Path | None, str, list[str]]:
+def install_executables(workspace: ClientWorkspace, prefix: Path,
+                        *, require_default_peers: bool = False) -> tuple[Path | None, str, list[str]]:
     """Install the already-verified tarballs so their executables are runnable.
 
     Only bytes that matched the manifest integrity pin are installed; npm is pointed
     at those local files, never at a version range, so no floating resolution can
     substitute a different client build.
 
-    The default resolution is attempted first. If it fails only because npm's
-    semver ranges exclude prerelease versions across differing patch tuples, the
-    install is retried with peer-range resolution relaxed and the deviation is
-    reported to the caller for the receipt. The installed bytes are identical
-    either way; only npm's range solver is bypassed.
+    The default resolution is attempted first. The native first-use release
+    consumer requires that result. Other diagnostic callers may permit a retry
+    with relaxed peer ranges for prerelease packages; that deviation is recorded
+    and never qualifies the native first-use candidate.
     """
     tarballs = [str(a.tarball) for a in workspace.resolved if a.tarball is not None]
     if not tarballs:
@@ -350,6 +350,8 @@ def install_executables(workspace: ClientWorkspace, prefix: Path) -> tuple[Path 
     if result.returncode != 0:
         output = (result.stderr or result.stdout).strip()
         if "ERESOLVE" in output:
+            if require_default_peers:
+                return None, "pinned client pair does not co-install under npm default peer resolution", notes
             peer = next(
                 (line.strip() for line in output.splitlines() if "peer " in line),
                 "peer dependency range conflict",

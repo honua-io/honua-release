@@ -138,9 +138,11 @@ def _target_environment(base: str) -> str:
 
 
 def run(base: str, admin_api_key: str | None, service_id: str | None, tile_layer_id: int | None,
-        assert_stac_non_empty: bool, geocode_budget_ms: float, candidate_sha: str | None) -> tuple[dict, dict]:
-    fetch = make_fetch()
-    admin_fetch = make_fetch({"X-API-Key": admin_api_key}) if admin_api_key else None
+        assert_stac_non_empty: bool, geocode_budget_ms: float, candidate_sha: str | None, *,
+        bound_candidate: bool = False) -> tuple[dict, dict]:
+    # Bound probes must exercise the observed deployment, never redirected responses.
+    fetch = make_fetch(follow_redirects=not bound_candidate)
+    admin_fetch = make_fetch({"X-API-Key": admin_api_key}, follow_redirects=not bound_candidate) if admin_api_key else None
 
     canonical = run_canonical(base, fetch, authenticated_fetch=admin_fetch,
                               frozen_server_sha=candidate_sha, enforcement="bootstrap")
@@ -241,10 +243,13 @@ def main(argv: list[str] | None = None) -> int:
                     help="fail (not just report) if STAC has 0 collections — on by default for the demo target")
     ap.add_argument("--geocode-budget-ms", type=float, default=3000.0)
     ap.add_argument("--candidate-sha", default=_best_effort_candidate_sha())
+    ap.add_argument("--bound-candidate", action="store_true",
+                    help="refuse HTTP redirects for selected deployed-lock burn probes")
     args = ap.parse_args(argv)
 
     report, envelope = run(args.base, args.admin_api_key, args.service_id, args.tile_layer_id,
-                           args.assert_stac_non_empty, args.geocode_budget_ms, args.candidate_sha)
+                           args.assert_stac_non_empty, args.geocode_budget_ms, args.candidate_sha,
+                           bound_candidate=args.bound_candidate)
 
     REPORT_PATH.write_text(json.dumps(report, indent=2) + "\n", encoding="utf-8")
     ENVELOPE_PATH.write_text(json.dumps(envelope, indent=2) + "\n", encoding="utf-8")

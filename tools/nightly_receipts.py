@@ -34,6 +34,8 @@ import subprocess
 import sys
 import time
 
+from protocol_producer_context import PRODUCERS as CONTEXT_PRODUCERS, context as producer_context
+
 SHA = re.compile(r'[0-9a-f]{40}\Z')
 RUN = re.compile(r'[1-9][0-9]*\Z')
 DISPATCH_REF = re.compile(r'refs/(?:heads|tags)/[A-Za-z0-9][A-Za-z0-9._/-]{0,199}\Z')
@@ -264,7 +266,12 @@ def dispatch_protocol(api, catalog: dict, manifest: dict, dispatch_id: str) -> l
             raise ValueError(f"producer {producer.get('producer')} has no pinned revision in {repository}")
         if producer.get('source_revision_key') in ('server', 'server-certification') and pin != candidate['server_sha']:
             raise ValueError(f"producer {producer.get('producer')} is pinned to {pin}, not the candidate server")
-        plan.append((producer, repository, pin, protocol_inputs(producer.get('inputs') or {}, candidate, dispatch_id)))
+        inputs = protocol_inputs(producer.get('inputs') or {}, candidate, dispatch_id)
+        if 'requirements_context' in inputs:
+            raise ValueError('producer inputs may not override the governed requirements context')
+        if producer.get('producer') in CONTEXT_PRODUCERS:
+            inputs['requirements_context'] = producer_context(catalog, producer, candidate, pin)
+        plan.append((producer, repository, pin, inputs))
     runs = []
     for producer, repository, pin, inputs in plan:
         workflow = str(producer.get('workflow') or '')

@@ -1,0 +1,16 @@
+{
+  "schemaVersion": 1,
+  "evidenceKey": "release.e2e.terminal-model-redis-off",
+  "receiptSchema": "terminal-model-redis-off-receipt-v1",
+  "profile": "redis-off-serving-refusal",
+  "stages": [
+    {"number": 1, "id": "serving-read", "command": "discover a published layer and query nonempty served features through the installed bounded proxy"},
+    {"number": 2, "id": "durable-refusal", "command": "attempt a valid durable geometry plan, observe the typed Redis refusal, then independently reread capabilities and acknowledge refusal"}
+  ],
+  "outcome": {"executionOutcome": "refused", "functionalGpExecuted": false},
+  "notes": [
+    "Every counted action must be selected by a genuine model; harness setup and independent verification are separate actions.",
+    "Serving queries are checked against an independent read. A refusal must carry code=unavailable and missingDependency=redis, with jobs.runner independently reporting dependency-unavailable.",
+    "This profile proves serving and refusal only. It does not prove functional GP, map persistence, publication, approval or final-URL behavior. Redis-on retains the unchanged full-workflow contract."
+  ]
+}

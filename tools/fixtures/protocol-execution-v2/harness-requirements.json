@@ -1,0 +1,1119 @@
+{
+  "schema": "honua.protocol-certification-requirements/v1",
+  "revision": "fixture-requirements.1",
+  "complete": true,
+  "receipt_schema_min": "v2",
+  "requirements": [
+    {
+      "capability_key": "ai.grounding",
+      "surface": "spec-grounding",
+      "operation": "POST /v1/grounding/spec/mutate",
+      "maturity": "supported",
+      "canonical_client": "Honua server public protocol integration harness",
+      "client_lane": "server-protocol-harness",
+      "client_version": "source@aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "deployment_target": "source-test-host",
+      "required_tier": "nightly",
+      "licensed": false,
+      "entitlement_policy_revision": null,
+      "addressable_by_client": true,
+      "addressability_reason": null,
+      "scenario_facets": [
+        "positive"
+      ],
+      "budget_expectations": null,
+      "contract_revision": "server-protocol-harness@2026-08-26.1+aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "auth_policy_revision": "server-test-host-v1",
+      "fixture_revision": "server-test-fixtures@aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "test_ids": [
+        "SpecGroundingEndpointTests.Mutate_EmptySpecUseDataset_ReturnsValidatedMutationPlan"
+      ]
+    },
+    {
+      "capability_key": "analytics.buffer-aggregate",
+      "surface": "feature-server",
+      "operation": "POST /rest/services/{serviceId}/FeatureServer/{layerId}/queryBufferAggregate",
+      "maturity": "supported",
+      "canonical_client": "Honua server public protocol integration harness",
+      "client_lane": "server-protocol-harness",
+      "client_version": "source@aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "deployment_target": "source-test-host",
+      "required_tier": "nightly",
+      "licensed": false,
+      "entitlement_policy_revision": null,
+      "addressable_by_client": true,
+      "addressability_reason": null,
+      "scenario_facets": [
+        "positive",
+        "media-schema"
+      ],
+      "budget_expectations": null,
+      "contract_revision": "server-protocol-harness@2026-08-26.1+aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "auth_policy_revision": "server-test-host-v1",
+      "fixture_revision": "server-test-fixtures@aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "test_ids": [
+        "SpatialAnalyticsRestTests.QueryBufferAggregate_DissolveTrue_ReturnsDissolvedPolygon"
+      ]
+    },
+    {
+      "capability_key": "analytics.clustering",
+      "surface": "feature-server",
+      "operation": "POST /rest/services/{serviceId}/FeatureServer/{layerId}/queryClusters",
+      "maturity": "supported",
+      "canonical_client": "Honua server public protocol integration harness",
+      "client_lane": "server-protocol-harness",
+      "client_version": "source@aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "deployment_target": "source-test-host",
+      "required_tier": "nightly",
+      "licensed": false,
+      "entitlement_policy_revision": null,
+      "addressable_by_client": true,
+      "addressability_reason": null,
+      "scenario_facets": [
+        "positive",
+        "media-schema"
+      ],
+      "budget_expectations": null,
+      "contract_revision": "server-protocol-harness@2026-08-26.1+aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "auth_policy_revision": "server-test-host-v1",
+      "fixture_revision": "server-test-fixtures@aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "test_ids": [
+        "SpatialAnalyticsRestTests.QueryClusters_Dbscan_PerFeature_ReturnsClusterAssignments"
+      ]
+    },
+    {
+      "capability_key": "analytics.content",
+      "surface": "analysis-content",
+      "operation": "POST /api/v1/analysis/content/items",
+      "maturity": "supported",
+      "canonical_client": "Honua server public protocol integration harness",
+      "client_lane": "server-protocol-harness",
+      "client_version": "source@aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "deployment_target": "source-test-host",
+      "required_tier": "nightly",
+      "licensed": false,
+      "entitlement_policy_revision": null,
+      "addressable_by_client": true,
+      "addressability_reason": null,
+      "scenario_facets": [
+        "positive",
+        "media-schema"
+      ],
+      "budget_expectations": null,
+      "contract_revision": "server-protocol-harness@2026-08-26.1+aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "auth_policy_revision": "server-test-host-v1",
+      "fixture_revision": "server-test-fixtures@aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "test_ids": [
+        "AnalysisContentEndpointsTests.SavedQuery_SaveVersionReopenPreviewAndArtifactBinding_ReturnsStableContracts"
+      ]
+    },
+    {
+      "capability_key": "analytics.content",
+      "surface": "analysis-content",
+      "operation": "GET /api/v1/analysis/content/items/{itemId}",
+      "maturity": "supported",
+      "canonical_client": "Honua server public protocol integration harness",
+      "client_lane": "server-protocol-harness",
+      "client_version": "source@aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "deployment_target": "source-test-host",
+      "required_tier": "nightly",
+      "licensed": false,
+      "entitlement_policy_revision": null,
+      "addressable_by_client": true,
+      "addressability_reason": null,
+      "scenario_facets": [
+        "positive",
+        "media-schema"
+      ],
+      "budget_expectations": null,
+      "contract_revision": "server-protocol-harness@2026-08-26.1+aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "auth_policy_revision": "server-test-host-v1",
+      "fixture_revision": "server-test-fixtures@aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "test_ids": [
+        "AnalysisContentEndpointsTests.SavedQuery_SaveVersionReopenPreviewAndArtifactBinding_ReturnsStableContracts"
+      ]
+    },
+    {
+      "capability_key": "analytics.content",
+      "surface": "analysis-content",
+      "operation": "GET /api/v1/analysis/content/items/{itemId}/versions/latest",
+      "maturity": "supported",
+      "canonical_client": "Honua server public protocol integration harness",
+      "client_lane": "server-protocol-harness",
+      "client_version": "source@aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "deployment_target": "source-test-host",
+      "required_tier": "nightly",
+      "licensed": false,
+      "entitlement_policy_revision": null,
+      "addressable_by_client": true,
+      "addressability_reason": null,
+      "scenario_facets": [
+        "positive",
+        "media-schema"
+      ],
+      "budget_expectations": null,
+      "contract_revision": "server-protocol-harness@2026-08-26.1+aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "auth_policy_revision": "server-test-host-v1",
+      "fixture_revision": "server-test-fixtures@aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "test_ids": [
+        "AnalysisContentEndpointsTests.SavedQuery_SaveVersionReopenPreviewAndArtifactBinding_ReturnsStableContracts"
+      ]
+    },
+    {
+      "capability_key": "analytics.content",
+      "surface": "analysis-content",
+      "operation": "GET /api/v1/analysis/content/items/{itemId}/versions/{contentVersion}",
+      "maturity": "supported",
+      "canonical_client": "Honua server public protocol integration harness",
+      "client_lane": "server-protocol-harness",
+      "client_version": "source@aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "deployment_target": "source-test-host",
+      "required_tier": "nightly",
+      "licensed": false,
+      "entitlement_policy_revision": null,
+      "addressable_by_client": true,
+      "addressability_reason": null,
+      "scenario_facets": [
+        "positive",
+        "media-schema"
+      ],
+      "budget_expectations": null,
+      "contract_revision": "server-protocol-harness@2026-08-26.1+aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "auth_policy_revision": "server-test-host-v1",
+      "fixture_revision": "server-test-fixtures@aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "test_ids": [
+        "AnalysisContentEndpointsTests.SavedQuery_SaveVersionReopenPreviewAndArtifactBinding_ReturnsStableContracts"
+      ]
+    },
+    {
+      "capability_key": "analytics.content",
+      "surface": "analysis-content",
+      "operation": "POST /api/v1/analysis/content/items/{itemId}/versions/{contentVersion}/preview",
+      "maturity": "supported",
+      "canonical_client": "Honua server public protocol integration harness",
+      "client_lane": "server-protocol-harness",
+      "client_version": "source@aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "deployment_target": "source-test-host",
+      "required_tier": "nightly",
+      "licensed": false,
+      "entitlement_policy_revision": null,
+      "addressable_by_client": true,
+      "addressability_reason": null,
+      "scenario_facets": [
+        "positive",
+        "media-schema"
+      ],
+      "budget_expectations": null,
+      "contract_revision": "server-protocol-harness@2026-08-26.1+aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "auth_policy_revision": "server-test-host-v1",
+      "fixture_revision": "server-test-fixtures@aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "test_ids": [
+        "AnalysisContentEndpointsTests.SavedQuery_SaveVersionReopenPreviewAndArtifactBinding_ReturnsStableContracts"
+      ]
+    },
+    {
+      "capability_key": "analytics.content",
+      "surface": "analysis-content",
+      "operation": "GET /api/v1/analysis/artifacts/{artifactId}",
+      "maturity": "supported",
+      "canonical_client": "Honua server public protocol integration harness",
+      "client_lane": "server-protocol-harness",
+      "client_version": "source@aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "deployment_target": "source-test-host",
+      "required_tier": "nightly",
+      "licensed": false,
+      "entitlement_policy_revision": null,
+      "addressable_by_client": true,
+      "addressability_reason": null,
+      "scenario_facets": [
+        "positive",
+        "media-schema"
+      ],
+      "budget_expectations": null,
+      "contract_revision": "server-protocol-harness@2026-08-26.1+aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "auth_policy_revision": "server-test-host-v1",
+      "fixture_revision": "server-test-fixtures@aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "test_ids": [
+        "AnalysisContentEndpointsTests.SavedQuery_SaveVersionReopenPreviewAndArtifactBinding_ReturnsStableContracts"
+      ]
+    },
+    {
+      "capability_key": "analytics.density",
+      "surface": "feature-server",
+      "operation": "POST /rest/services/{serviceId}/FeatureServer/{layerId}/queryDensity",
+      "maturity": "supported",
+      "canonical_client": "Honua server public protocol integration harness",
+      "client_lane": "server-protocol-harness",
+      "client_version": "source@aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "deployment_target": "source-test-host",
+      "required_tier": "nightly",
+      "licensed": false,
+      "entitlement_policy_revision": null,
+      "addressable_by_client": true,
+      "addressability_reason": null,
+      "scenario_facets": [
+        "positive",
+        "media-schema"
+      ],
+      "budget_expectations": null,
+      "contract_revision": "server-protocol-harness@2026-08-26.1+aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "auth_policy_revision": "server-test-host-v1",
+      "fixture_revision": "server-test-fixtures@aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "test_ids": [
+        "SpatialAnalyticsRestTests.QueryDensity_HexGrid_ReturnsCellsWithCounts"
+      ]
+    },
+    {
+      "capability_key": "analytics.h3",
+      "surface": "ogc-api-features",
+      "operation": "GET /ogc/features/collections/{collectionId}/h3",
+      "maturity": "supported",
+      "canonical_client": "Honua server public protocol integration harness",
+      "client_lane": "server-protocol-harness",
+      "client_version": "source@aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "deployment_target": "source-test-host",
+      "required_tier": "nightly",
+      "licensed": false,
+      "entitlement_policy_revision": null,
+      "addressable_by_client": true,
+      "addressability_reason": null,
+      "scenario_facets": [
+        "positive",
+        "negative"
+      ],
+      "budget_expectations": null,
+      "contract_revision": "server-protocol-harness@2026-08-26.1+aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "auth_policy_revision": "server-test-host-v1",
+      "fixture_revision": "server-test-fixtures@aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "test_ids": [
+        "ProviderRoutedTileAndH3EndpointTests.OgcH3_SourceBackedLayer_UsesBindingScopedFeatureReader",
+        "FeatureServerH3EntitlementTests.OgcH3_CommunityEdition_ReturnsPaymentRequired"
+      ]
+    },
+    {
+      "capability_key": "analytics.h3",
+      "surface": "feature-server",
+      "operation": "GET /rest/services/{serviceId}/FeatureServer/{layerId}/queryH3",
+      "maturity": "supported",
+      "canonical_client": "Honua server public protocol integration harness",
+      "client_lane": "server-protocol-harness",
+      "client_version": "source@aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "deployment_target": "source-test-host",
+      "required_tier": "nightly",
+      "licensed": false,
+      "entitlement_policy_revision": null,
+      "addressable_by_client": true,
+      "addressability_reason": null,
+      "scenario_facets": [
+        "positive",
+        "negative"
+      ],
+      "budget_expectations": null,
+      "contract_revision": "server-protocol-harness@2026-08-26.1+aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "auth_policy_revision": "server-test-host-v1",
+      "fixture_revision": "server-test-fixtures@aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "test_ids": [
+        "ProviderRoutedTileAndH3EndpointTests.QueryH3_SourceBackedLayer_UsesBindingScopedFeatureReader",
+        "FeatureServerH3EntitlementTests.QueryH3Get_CommunityEdition_ReturnsPaymentRequired"
+      ]
+    },
+    {
+      "capability_key": "analytics.h3",
+      "surface": "feature-server",
+      "operation": "POST /rest/services/{serviceId}/FeatureServer/{layerId}/queryH3",
+      "maturity": "supported",
+      "canonical_client": "Honua server public protocol integration harness",
+      "client_lane": "server-protocol-harness",
+      "client_version": "source@aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "deployment_target": "source-test-host",
+      "required_tier": "nightly",
+      "licensed": false,
+      "entitlement_policy_revision": null,
+      "addressable_by_client": true,
+      "addressability_reason": null,
+      "scenario_facets": [
+        "positive",
+        "negative"
+      ],
+      "budget_expectations": null,
+      "contract_revision": "server-protocol-harness@2026-08-26.1+aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "auth_policy_revision": "server-test-host-v1",
+      "fixture_revision": "server-test-fixtures@aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "test_ids": [
+        "ProviderRoutedTileAndH3EndpointTests.QueryH3Post_SourceBackedLayer_UsesBindingScopedFeatureReader",
+        "FeatureServerH3EntitlementTests.QueryH3Post_CommunityEdition_ReturnsPaymentRequired"
+      ]
+    },
+    {
+      "capability_key": "analytics.h3",
+      "surface": "ogc-api-features",
+      "operation": "GET /tiles/{layerId}/h3/{z}/{x}/{y}.mvt",
+      "maturity": "supported",
+      "canonical_client": "Honua server public protocol integration harness",
+      "client_lane": "server-protocol-harness",
+      "client_version": "source@aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "deployment_target": "source-test-host",
+      "required_tier": "nightly",
+      "licensed": false,
+      "entitlement_policy_revision": null,
+      "addressable_by_client": true,
+      "addressability_reason": null,
+      "scenario_facets": [
+        "positive",
+        "negative"
+      ],
+      "budget_expectations": null,
+      "contract_revision": "server-protocol-harness@2026-08-26.1+aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "auth_policy_revision": "server-test-host-v1",
+      "fixture_revision": "server-test-fixtures@aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "test_ids": [
+        "ProviderRoutedTileAndH3EndpointTests.H3Tile_SourceBackedLayer_UsesBindingScopedTileProvider",
+        "FeatureServerH3EntitlementTests.H3Tile_CommunityEdition_ReturnsPaymentRequired"
+      ]
+    },
+    {
+      "capability_key": "analytics.line-of-sight",
+      "surface": "elevation-query-profile",
+      "operation": "POST /elevation/{datasetId}/line-of-sight",
+      "maturity": "supported",
+      "canonical_client": "Honua server public protocol integration harness",
+      "client_lane": "server-protocol-harness",
+      "client_version": "source@aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "deployment_target": "source-test-host",
+      "required_tier": "nightly",
+      "licensed": false,
+      "entitlement_policy_revision": null,
+      "addressable_by_client": true,
+      "addressability_reason": null,
+      "scenario_facets": [
+        "positive",
+        "media-schema"
+      ],
+      "budget_expectations": null,
+      "contract_revision": "server-protocol-harness@2026-08-26.1+aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "auth_policy_revision": "server-test-host-v1",
+      "fixture_revision": "server-test-fixtures@aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "test_ids": [
+        "VisibilityAnalysisEndpointTests.PostLineOfSight_WithCoveredFlatTerrain_ReportsVisible"
+      ]
+    },
+    {
+      "capability_key": "analytics.slice",
+      "surface": "elevation-query-profile",
+      "operation": "POST /elevation/{datasetId}/slice",
+      "maturity": "supported",
+      "canonical_client": "Honua server public protocol integration harness",
+      "client_lane": "server-protocol-harness",
+      "client_version": "source@aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "deployment_target": "source-test-host",
+      "required_tier": "nightly",
+      "licensed": false,
+      "entitlement_policy_revision": null,
+      "addressable_by_client": true,
+      "addressability_reason": null,
+      "scenario_facets": [
+        "positive",
+        "media-schema"
+      ],
+      "budget_expectations": null,
+      "contract_revision": "server-protocol-harness@2026-08-26.1+aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "auth_policy_revision": "server-test-host-v1",
+      "fixture_revision": "server-test-fixtures@aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "test_ids": [
+        "SceneAnalysisEndpointTests.PostSlice_OverSurface_ReturnsIntersectionMetadata"
+      ]
+    },
+    {
+      "capability_key": "analytics.spatial-join",
+      "surface": "feature-server",
+      "operation": "POST /rest/services/{serviceId}/FeatureServer/{layerId}/spatialJoin",
+      "maturity": "supported",
+      "canonical_client": "Honua server public protocol integration harness",
+      "client_lane": "server-protocol-harness",
+      "client_version": "source@aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "deployment_target": "source-test-host",
+      "required_tier": "nightly",
+      "licensed": false,
+      "entitlement_policy_revision": null,
+      "addressable_by_client": true,
+      "addressability_reason": null,
+      "scenario_facets": [
+        "positive",
+        "media-schema"
+      ],
+      "budget_expectations": null,
+      "contract_revision": "server-protocol-harness@2026-08-26.1+aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "auth_policy_revision": "server-test-host-v1",
+      "fixture_revision": "server-test-fixtures@aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "test_ids": [
+        "SpatialAnalyticsRestTests.SpatialJoin_Intersects_ReturnsTargetFeaturesWithMatchCount"
+      ]
+    },
+    {
+      "capability_key": "analytics.sun-shadow",
+      "surface": "elevation-query-profile",
+      "operation": "POST /elevation/{datasetId}/sun-shadow",
+      "maturity": "supported",
+      "canonical_client": "Honua server public protocol integration harness",
+      "client_lane": "server-protocol-harness",
+      "client_version": "source@aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "deployment_target": "source-test-host",
+      "required_tier": "nightly",
+      "licensed": false,
+      "entitlement_policy_revision": null,
+      "addressable_by_client": true,
+      "addressability_reason": null,
+      "scenario_facets": [
+        "positive",
+        "media-schema"
+      ],
+      "budget_expectations": null,
+      "contract_revision": "server-protocol-harness@2026-08-26.1+aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "auth_policy_revision": "server-test-host-v1",
+      "fixture_revision": "server-test-fixtures@aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "test_ids": [
+        "SceneAnalysisEndpointTests.PostSunShadow_DaytimeSun_CastsShadowOverSurface"
+      ]
+    },
+    {
+      "capability_key": "analytics.viewshed",
+      "surface": "elevation-query-profile",
+      "operation": "POST /elevation/{datasetId}/viewshed",
+      "maturity": "supported",
+      "canonical_client": "Honua server public protocol integration harness",
+      "client_lane": "server-protocol-harness",
+      "client_version": "source@aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "deployment_target": "source-test-host",
+      "required_tier": "nightly",
+      "licensed": false,
+      "entitlement_policy_revision": null,
+      "addressable_by_client": true,
+      "addressability_reason": null,
+      "scenario_facets": [
+        "positive",
+        "media-schema"
+      ],
+      "budget_expectations": null,
+      "contract_revision": "server-protocol-harness@2026-08-26.1+aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "auth_policy_revision": "server-test-host-v1",
+      "fixture_revision": "server-test-fixtures@aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "test_ids": [
+        "VisibilityAnalysisEndpointTests.PostViewshed_WithCoveredFlatTerrain_ReturnsVisibleSamples"
+      ]
+    },
+    {
+      "capability_key": "editing.featureserver-edits",
+      "surface": "feature-server",
+      "operation": "POST /rest/services/{serviceId}/FeatureServer/applyEdits",
+      "maturity": "supported",
+      "canonical_client": "Honua server public protocol integration harness",
+      "client_lane": "server-protocol-harness",
+      "client_version": "source@aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "deployment_target": "source-test-host",
+      "required_tier": "nightly",
+      "licensed": false,
+      "entitlement_policy_revision": null,
+      "addressable_by_client": true,
+      "addressability_reason": null,
+      "scenario_facets": [
+        "mutation"
+      ],
+      "budget_expectations": null,
+      "contract_revision": "server-protocol-harness@2026-08-26.1+aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "auth_policy_revision": "server-test-host-v1",
+      "fixture_revision": "server-test-fixtures@aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "test_ids": [
+        "FeatureServerMutationScenarioTests.MutationEndpoints_AcceptValidEdits_AndRoundTripEachState",
+        "FeatureServerMutationScenarioTests.MutationEndpoints_RejectInvalidEdits_WithoutChangingStoredState"
+      ]
+    },
+    {
+      "capability_key": "editing.featureserver-edits",
+      "surface": "feature-server",
+      "operation": "POST /rest/services/{serviceId}/FeatureServer/{layerId}/applyEdits",
+      "maturity": "supported",
+      "canonical_client": "Honua server public protocol integration harness",
+      "client_lane": "server-protocol-harness",
+      "client_version": "source@aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "deployment_target": "source-test-host",
+      "required_tier": "nightly",
+      "licensed": false,
+      "entitlement_policy_revision": null,
+      "addressable_by_client": true,
+      "addressability_reason": null,
+      "scenario_facets": [
+        "mutation"
+      ],
+      "budget_expectations": null,
+      "contract_revision": "server-protocol-harness@2026-08-26.1+aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "auth_policy_revision": "server-test-host-v1",
+      "fixture_revision": "server-test-fixtures@aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "test_ids": [
+        "FeatureServerMutationScenarioTests.MutationEndpoints_AcceptValidEdits_AndRoundTripEachState",
+        "FeatureServerMutationScenarioTests.MutationEndpoints_RejectInvalidEdits_WithoutChangingStoredState"
+      ]
+    },
+    {
+      "capability_key": "editing.featureserver-edits",
+      "surface": "feature-server",
+      "operation": "POST /rest/services/{serviceId}/FeatureServer/{layerId}/addFeatures",
+      "maturity": "supported",
+      "canonical_client": "Honua server public protocol integration harness",
+      "client_lane": "server-protocol-harness",
+      "client_version": "source@aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "deployment_target": "source-test-host",
+      "required_tier": "nightly",
+      "licensed": false,
+      "entitlement_policy_revision": null,
+      "addressable_by_client": true,
+      "addressability_reason": null,
+      "scenario_facets": [
+        "mutation"
+      ],
+      "budget_expectations": null,
+      "contract_revision": "server-protocol-harness@2026-08-26.1+aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "auth_policy_revision": "server-test-host-v1",
+      "fixture_revision": "server-test-fixtures@aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "test_ids": [
+        "FeatureServerMutationScenarioTests.MutationEndpoints_AcceptValidEdits_AndRoundTripEachState",
+        "FeatureServerMutationScenarioTests.MutationEndpoints_RejectInvalidEdits_WithoutChangingStoredState"
+      ]
+    },
+    {
+      "capability_key": "editing.featureserver-edits",
+      "surface": "feature-server",
+      "operation": "POST /rest/services/{serviceId}/FeatureServer/{layerId}/updateFeatures",
+      "maturity": "supported",
+      "canonical_client": "Honua server public protocol integration harness",
+      "client_lane": "server-protocol-harness",
+      "client_version": "source@aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "deployment_target": "source-test-host",
+      "required_tier": "nightly",
+      "licensed": false,
+      "entitlement_policy_revision": null,
+      "addressable_by_client": true,
+      "addressability_reason": null,
+      "scenario_facets": [
+        "mutation"
+      ],
+      "budget_expectations": null,
+      "contract_revision": "server-protocol-harness@2026-08-26.1+aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "auth_policy_revision": "server-test-host-v1",
+      "fixture_revision": "server-test-fixtures@aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "test_ids": [
+        "FeatureServerMutationScenarioTests.MutationEndpoints_AcceptValidEdits_AndRoundTripEachState",
+        "FeatureServerMutationScenarioTests.MutationEndpoints_RejectInvalidEdits_WithoutChangingStoredState"
+      ]
+    },
+    {
+      "capability_key": "editing.featureserver-edits",
+      "surface": "feature-server",
+      "operation": "POST /rest/services/{serviceId}/FeatureServer/{layerId}/deleteFeatures",
+      "maturity": "supported",
+      "canonical_client": "Honua server public protocol integration harness",
+      "client_lane": "server-protocol-harness",
+      "client_version": "source@aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "deployment_target": "source-test-host",
+      "required_tier": "nightly",
+      "licensed": false,
+      "entitlement_policy_revision": null,
+      "addressable_by_client": true,
+      "addressability_reason": null,
+      "scenario_facets": [
+        "mutation"
+      ],
+      "budget_expectations": null,
+      "contract_revision": "server-protocol-harness@2026-08-26.1+aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "auth_policy_revision": "server-test-host-v1",
+      "fixture_revision": "server-test-fixtures@aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "test_ids": [
+        "FeatureServerMutationScenarioTests.MutationEndpoints_AcceptValidEdits_AndRoundTripEachState",
+        "FeatureServerMutationScenarioTests.MutationEndpoints_RejectInvalidEdits_WithoutChangingStoredState"
+      ]
+    },
+    {
+      "capability_key": "import.file",
+      "surface": "control-plane-admin",
+      "operation": "POST /api/v1/admin/import/upload",
+      "maturity": "supported",
+      "canonical_client": "Honua server public protocol integration harness",
+      "client_lane": "server-protocol-harness",
+      "client_version": "source@aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "deployment_target": "source-test-host",
+      "required_tier": "nightly",
+      "licensed": false,
+      "entitlement_policy_revision": null,
+      "addressable_by_client": true,
+      "addressability_reason": null,
+      "scenario_facets": [
+        "positive",
+        "media-schema"
+      ],
+      "budget_expectations": null,
+      "contract_revision": "server-protocol-harness@2026-08-26.1+aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "auth_policy_revision": "server-test-host-v1",
+      "fixture_revision": "server-test-fixtures@aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "test_ids": [
+        "ImportEndpointTests.ImportFile_V1_WithValidRequest_ReturnsImportResult"
+      ]
+    },
+    {
+      "capability_key": "printing.pdf-output",
+      "surface": "printing-tools",
+      "operation": "POST /rest/services/Utilities/PrintingTools/GPServer/Export Web Map Task/execute",
+      "maturity": "supported",
+      "canonical_client": "Honua server public protocol integration harness",
+      "client_lane": "server-protocol-harness",
+      "client_version": "source@aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "deployment_target": "source-test-host",
+      "required_tier": "nightly",
+      "licensed": false,
+      "entitlement_policy_revision": null,
+      "addressable_by_client": true,
+      "addressability_reason": null,
+      "scenario_facets": [
+        "positive",
+        "media-schema"
+      ],
+      "budget_expectations": null,
+      "contract_revision": "server-protocol-harness@2026-08-26.1+aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "auth_policy_revision": "server-test-host-v1",
+      "fixture_revision": "server-test-fixtures@aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "test_ids": [
+        "PrintingToolsEndpointTests.Execute_PdfFormat_ReturnsPdfDocument"
+      ]
+    },
+    {
+      "capability_key": "serve.geoservices-vectortileserver",
+      "surface": "vector-tile-server",
+      "operation": "GET /rest/services/{serviceId}/VectorTileServer",
+      "maturity": "supported",
+      "canonical_client": "Honua server public protocol integration harness",
+      "client_lane": "server-protocol-harness",
+      "client_version": "source@aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "deployment_target": "source-test-host",
+      "required_tier": "nightly",
+      "licensed": false,
+      "entitlement_policy_revision": null,
+      "addressable_by_client": true,
+      "addressability_reason": null,
+      "scenario_facets": [
+        "positive",
+        "media-schema"
+      ],
+      "budget_expectations": null,
+      "contract_revision": "server-protocol-harness@2026-08-26.1+aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "auth_policy_revision": "server-test-host-v1",
+      "fixture_revision": "server-test-fixtures@aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "test_ids": [
+        "VectorTileServerEndpointTests.VectorTileServer_Metadata_ReturnsServiceDescriptor"
+      ]
+    },
+    {
+      "capability_key": "serve.geoservices-vectortileserver",
+      "surface": "vector-tile-server",
+      "operation": "GET /rest/services/{serviceId}/VectorTileServer/tile/{z}/{y}/{x}.pbf",
+      "maturity": "supported",
+      "canonical_client": "Honua server public protocol integration harness",
+      "client_lane": "server-protocol-harness",
+      "client_version": "source@aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "deployment_target": "source-test-host",
+      "required_tier": "nightly",
+      "licensed": false,
+      "entitlement_policy_revision": null,
+      "addressable_by_client": true,
+      "addressability_reason": null,
+      "scenario_facets": [
+        "positive",
+        "media-schema"
+      ],
+      "budget_expectations": null,
+      "contract_revision": "server-protocol-harness@2026-08-26.1+aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "auth_policy_revision": "server-test-host-v1",
+      "fixture_revision": "server-test-fixtures@aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "test_ids": [
+        "VectorTileServerEndpointTests.VectorTileServer_Tile_InRange_ReturnsMvtBytesWithCacheHeader"
+      ]
+    },
+    {
+      "capability_key": "serve.ogc-api-features",
+      "surface": "ogc-api-features",
+      "operation": "POST /ogc/features/collections/{collectionId}/items",
+      "maturity": "supported",
+      "canonical_client": "Honua server public protocol integration harness",
+      "client_lane": "server-protocol-harness",
+      "client_version": "source@aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "deployment_target": "source-test-host",
+      "required_tier": "nightly",
+      "licensed": false,
+      "entitlement_policy_revision": null,
+      "addressable_by_client": true,
+      "addressability_reason": null,
+      "scenario_facets": [
+        "mutation"
+      ],
+      "budget_expectations": null,
+      "contract_revision": "server-protocol-harness@2026-08-26.1+aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "auth_policy_revision": "server-test-host-v1",
+      "fixture_revision": "server-test-fixtures@aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "test_ids": [
+        "OgcFeaturesMutationScenarioTests.MutationLifecycle_CreateReplacePatchDelete_RoundTripsEachState",
+        "OgcFeaturesMutationScenarioTests.InvalidMutations_AreRejectedWithoutChangingStoredState"
+      ]
+    },
+    {
+      "capability_key": "serve.ogc-api-features",
+      "surface": "ogc-api-features",
+      "operation": "PUT /ogc/features/collections/{collectionId}/items/{featureId}",
+      "maturity": "supported",
+      "canonical_client": "Honua server public protocol integration harness",
+      "client_lane": "server-protocol-harness",
+      "client_version": "source@aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "deployment_target": "source-test-host",
+      "required_tier": "nightly",
+      "licensed": false,
+      "entitlement_policy_revision": null,
+      "addressable_by_client": true,
+      "addressability_reason": null,
+      "scenario_facets": [
+        "mutation"
+      ],
+      "budget_expectations": null,
+      "contract_revision": "server-protocol-harness@2026-08-26.1+aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "auth_policy_revision": "server-test-host-v1",
+      "fixture_revision": "server-test-fixtures@aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "test_ids": [
+        "OgcFeaturesMutationScenarioTests.MutationLifecycle_CreateReplacePatchDelete_RoundTripsEachState",
+        "OgcFeaturesMutationScenarioTests.InvalidMutations_AreRejectedWithoutChangingStoredState"
+      ]
+    },
+    {
+      "capability_key": "serve.ogc-api-features",
+      "surface": "ogc-api-features",
+      "operation": "PATCH /ogc/features/collections/{collectionId}/items/{featureId}",
+      "maturity": "supported",
+      "canonical_client": "Honua server public protocol integration harness",
+      "client_lane": "server-protocol-harness",
+      "client_version": "source@aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "deployment_target": "source-test-host",
+      "required_tier": "nightly",
+      "licensed": false,
+      "entitlement_policy_revision": null,
+      "addressable_by_client": true,
+      "addressability_reason": null,
+      "scenario_facets": [
+        "mutation"
+      ],
+      "budget_expectations": null,
+      "contract_revision": "server-protocol-harness@2026-08-26.1+aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "auth_policy_revision": "server-test-host-v1",
+      "fixture_revision": "server-test-fixtures@aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "test_ids": [
+        "OgcFeaturesMutationScenarioTests.MutationLifecycle_CreateReplacePatchDelete_RoundTripsEachState",
+        "OgcFeaturesMutationScenarioTests.InvalidMutations_AreRejectedWithoutChangingStoredState"
+      ]
+    },
+    {
+      "capability_key": "serve.ogc-api-features",
+      "surface": "ogc-api-features",
+      "operation": "DELETE /ogc/features/collections/{collectionId}/items/{featureId}",
+      "maturity": "supported",
+      "canonical_client": "Honua server public protocol integration harness",
+      "client_lane": "server-protocol-harness",
+      "client_version": "source@aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "deployment_target": "source-test-host",
+      "required_tier": "nightly",
+      "licensed": false,
+      "entitlement_policy_revision": null,
+      "addressable_by_client": true,
+      "addressability_reason": null,
+      "scenario_facets": [
+        "mutation"
+      ],
+      "budget_expectations": null,
+      "contract_revision": "server-protocol-harness@2026-08-26.1+aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "auth_policy_revision": "server-test-host-v1",
+      "fixture_revision": "server-test-fixtures@aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "test_ids": [
+        "OgcFeaturesMutationScenarioTests.MutationLifecycle_CreateReplacePatchDelete_RoundTripsEachState",
+        "OgcFeaturesMutationScenarioTests.InvalidMutations_AreRejectedWithoutChangingStoredState"
+      ]
+    },
+    {
+      "capability_key": "serve.wfs",
+      "surface": "wfs-2.0",
+      "operation": "POST /wfs",
+      "maturity": "supported",
+      "canonical_client": "Honua server public protocol integration harness",
+      "client_lane": "server-protocol-harness",
+      "client_version": "source@aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "deployment_target": "source-test-host",
+      "required_tier": "nightly",
+      "licensed": false,
+      "entitlement_policy_revision": null,
+      "addressable_by_client": true,
+      "addressability_reason": null,
+      "scenario_facets": [
+        "mutation"
+      ],
+      "budget_expectations": null,
+      "contract_revision": "server-protocol-harness@2026-08-26.1+aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "auth_policy_revision": "server-test-host-v1",
+      "fixture_revision": "server-test-fixtures@aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "test_ids": [
+        "Wfs20MutationScenarioTests.Transaction_InsertUpdateReplaceDelete_RoundTripsEachState",
+        "Wfs20MutationScenarioTests.Transaction_InvalidInsertAndDelete_AreRejectedWithoutChangingStoredState"
+      ]
+    },
+    {
+      "capability_key": "styling.auto-suggest",
+      "surface": "control-plane-admin",
+      "operation": "POST /api/v1/admin/metadata/layers/{layerId}/suggest-style",
+      "maturity": "supported",
+      "canonical_client": "Honua server public protocol integration harness",
+      "client_lane": "server-protocol-harness",
+      "client_version": "source@aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "deployment_target": "source-test-host",
+      "required_tier": "nightly",
+      "licensed": false,
+      "entitlement_policy_revision": null,
+      "addressable_by_client": true,
+      "addressability_reason": null,
+      "scenario_facets": [
+        "positive",
+        "media-schema"
+      ],
+      "budget_expectations": null,
+      "contract_revision": "server-protocol-harness@2026-08-26.1+aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "auth_policy_revision": "server-test-host-v1",
+      "fixture_revision": "server-test-fixtures@aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "test_ids": [
+        "StyleSuggestionEndpointsTests.SuggestStyle_ReturnsStyleSuggestion"
+      ]
+    },
+    {
+      "capability_key": "temporal.extent-discovery",
+      "surface": "feature-server",
+      "operation": "GET /rest/services/{serviceId}/FeatureServer/{layerId}/temporalExtent",
+      "maturity": "supported",
+      "canonical_client": "Honua server public protocol integration harness",
+      "client_lane": "server-protocol-harness",
+      "client_version": "source@aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "deployment_target": "source-test-host",
+      "required_tier": "nightly",
+      "licensed": false,
+      "entitlement_policy_revision": null,
+      "addressable_by_client": true,
+      "addressability_reason": null,
+      "scenario_facets": [
+        "positive",
+        "media-schema"
+      ],
+      "budget_expectations": null,
+      "contract_revision": "server-protocol-harness@2026-08-26.1+aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "auth_policy_revision": "server-test-host-v1",
+      "fixture_revision": "server-test-fixtures@aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "test_ids": [
+        "FeatureServerTemporalExtentEndpointTests.TemporalExtent_TimeAwareLayer_ReturnsExtentWithFields"
+      ]
+    },
+    {
+      "capability_key": "temporal.filtering",
+      "surface": "feature-server",
+      "operation": "GET /rest/services/{serviceId}/FeatureServer/{layerId}/query?time={time}",
+      "maturity": "supported",
+      "canonical_client": "Honua server public protocol integration harness",
+      "client_lane": "server-protocol-harness",
+      "client_version": "source@aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "deployment_target": "source-test-host",
+      "required_tier": "nightly",
+      "licensed": false,
+      "entitlement_policy_revision": null,
+      "addressable_by_client": true,
+      "addressability_reason": null,
+      "scenario_facets": [
+        "positive",
+        "media-schema"
+      ],
+      "budget_expectations": null,
+      "contract_revision": "server-protocol-harness@2026-08-26.1+aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "auth_policy_revision": "server-test-host-v1",
+      "fixture_revision": "server-test-fixtures@aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "test_ids": [
+        "FeatureServerTemporalTests.GeoServicesQuery_SingleTimeInstant_UnixTimestamp_ReturnsMatchingFeatures"
+      ]
+    },
+    {
+      "capability_key": "temporal.histogram",
+      "surface": "feature-server",
+      "operation": "GET /rest/services/{serviceId}/FeatureServer/{layerId}/queryDateBins",
+      "maturity": "supported",
+      "canonical_client": "Honua server public protocol integration harness",
+      "client_lane": "server-protocol-harness",
+      "client_version": "source@aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "deployment_target": "source-test-host",
+      "required_tier": "nightly",
+      "licensed": false,
+      "entitlement_policy_revision": null,
+      "addressable_by_client": true,
+      "addressability_reason": null,
+      "scenario_facets": [
+        "positive",
+        "media-schema"
+      ],
+      "budget_expectations": null,
+      "contract_revision": "server-protocol-harness@2026-08-26.1+aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "auth_policy_revision": "server-test-host-v1",
+      "fixture_revision": "server-test-fixtures@aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "test_ids": [
+        "FeatureServerQueryDateBinsTests.QueryDateBins_CalendarBin_ReturnsBins"
+      ]
+    },
+    {
+      "capability_key": "serve.wps",
+      "surface": "wps-2.0.2",
+      "operation": "GET /wps?request=GetCapabilities",
+      "maturity": "supported",
+      "canonical_client": "Honua server public protocol integration harness",
+      "client_lane": "server-protocol-harness",
+      "client_version": "source@aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "deployment_target": "source-test-host",
+      "required_tier": "nightly",
+      "licensed": false,
+      "entitlement_policy_revision": null,
+      "addressable_by_client": true,
+      "addressability_reason": null,
+      "scenario_facets": [
+        "positive",
+        "media-schema"
+      ],
+      "budget_expectations": null,
+      "contract_revision": "server-protocol-harness@2026-08-26.1+aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "auth_policy_revision": "server-test-host-v1",
+      "fixture_revision": "server-test-fixtures@aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "test_ids": [
+        "Wps20EndpointsTests.GetCapabilities_AdvertisesAsyncExecutionForCanonicalProcesses"
+      ]
+    },
+    {
+      "capability_key": "serve.wps",
+      "surface": "wps-2.0.2",
+      "operation": "GET /wps?request=DescribeProcess",
+      "maturity": "supported",
+      "canonical_client": "Honua server public protocol integration harness",
+      "client_lane": "server-protocol-harness",
+      "client_version": "source@aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "deployment_target": "source-test-host",
+      "required_tier": "nightly",
+      "licensed": false,
+      "entitlement_policy_revision": null,
+      "addressable_by_client": true,
+      "addressability_reason": null,
+      "scenario_facets": [
+        "positive",
+        "negative",
+        "media-schema"
+      ],
+      "budget_expectations": null,
+      "contract_revision": "server-protocol-harness@2026-08-26.1+aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "auth_policy_revision": "server-test-host-v1",
+      "fixture_revision": "server-test-fixtures@aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "test_ids": [
+        "Wps20EndpointsTests.DescribeProcess_Kvp_ReturnsNamespaceCorrectDescription",
+        "Wps20EndpointsTests.DescribeProcess_NonJobProcess_ReturnsNoSuchProcess"
+      ]
+    },
+    {
+      "capability_key": "serve.wps",
+      "surface": "wps-2.0.2",
+      "operation": "POST /wps",
+      "maturity": "supported",
+      "canonical_client": "Honua server public protocol integration harness",
+      "client_lane": "server-protocol-harness",
+      "client_version": "source@aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "deployment_target": "source-test-host",
+      "required_tier": "nightly",
+      "licensed": false,
+      "entitlement_policy_revision": null,
+      "addressable_by_client": true,
+      "addressability_reason": null,
+      "scenario_facets": [
+        "positive",
+        "negative",
+        "media-schema"
+      ],
+      "budget_expectations": null,
+      "contract_revision": "server-protocol-harness@2026-08-26.1+aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "auth_policy_revision": "server-test-host-v1",
+      "fixture_revision": "server-test-fixtures@aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "test_ids": [
+        "Wps20EndpointsTests.Execute_XmlInputId_SubmitsCanonicalPlan",
+        "Wps20EndpointsTests.Execute_WithoutDurableJobStore_ProjectsCapabilityUnavailableReceiptIntoExceptionReport",
+        "Wps20EndpointsTests.Execute_XmlWithDtd_IsRejectedWithoutEntityExpansion"
+      ]
+    },
+    {
+      "capability_key": "serve.wps",
+      "surface": "wps-2.0.2",
+      "operation": "GET /wps?request=GetStatus",
+      "maturity": "supported",
+      "canonical_client": "Honua server public protocol integration harness",
+      "client_lane": "server-protocol-harness",
+      "client_version": "source@aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "deployment_target": "source-test-host",
+      "required_tier": "nightly",
+      "licensed": false,
+      "entitlement_policy_revision": null,
+      "addressable_by_client": true,
+      "addressability_reason": null,
+      "scenario_facets": [
+        "positive",
+        "negative",
+        "media-schema"
+      ],
+      "budget_expectations": null,
+      "contract_revision": "server-protocol-harness@2026-08-26.1+aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "auth_policy_revision": "server-test-host-v1",
+      "fixture_revision": "server-test-fixtures@aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "test_ids": [
+        "Wps20EndpointsTests.GetStatus_CanonicalRunningJob_ReturnsIdentityAndProgress",
+        "Wps20EndpointsTests.GetStatus_UnknownJob_ReturnsOwsExceptionReport"
+      ]
+    },
+    {
+      "capability_key": "serve.wps",
+      "surface": "wps-2.0.2",
+      "operation": "GET /wps?request=GetResult",
+      "maturity": "supported",
+      "canonical_client": "Honua server public protocol integration harness",
+      "client_lane": "server-protocol-harness",
+      "client_version": "source@aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "deployment_target": "source-test-host",
+      "required_tier": "nightly",
+      "licensed": false,
+      "entitlement_policy_revision": null,
+      "addressable_by_client": true,
+      "addressability_reason": null,
+      "scenario_facets": [
+        "positive",
+        "media-schema"
+      ],
+      "budget_expectations": null,
+      "contract_revision": "server-protocol-harness@2026-08-26.1+aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "auth_policy_revision": "server-test-host-v1",
+      "fixture_revision": "server-test-fixtures@aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "test_ids": [
+        "Wps20EndpointsTests.GetResult_MapsAdvertisedResultIdentifierAndLiteralMediaType",
+        "Wps20EndpointsTests.GetResult_ExposesEveryArtifactOutput"
+      ]
+    }
+  ],
+  "source_revisions": {
+    "server": {
+      "commit": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+    },
+    "server-certification": {
+      "commit": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+    }
+  }
+}

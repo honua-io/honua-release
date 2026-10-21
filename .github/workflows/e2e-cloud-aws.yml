@@ -1,6 +1,6 @@
-# AWS promise journeys: six required GA cells, {aws-ecs, aws-serverless, aws-eks} x Redis off/on, where
+# AWS promise journeys: four required GA cells, {aws-ecs, aws-serverless} x Redis off/on, plus EKS Preview, where
 # aws-serverless is Lambda + AWS Batch geoprocessing and aws-eks is the Helm chart on EKS (bring-your-own
-# Kubernetes, honua-release#203; owner decisions 12/18 of 2026-10-10 made it GA for 2026.1). The mixed
+# Kubernetes, honua-release#203; the 2026-10-16 owner amendment supersedes decisions 12/18). The mixed
 # ECS + Batch cell is out of the 2026.1 rc.3 matrix: its IaC root does not exist yet (restore it when
 # honua-iac#209 lands).
 # Every cell retains attempts, records its live cost estimate before teardown, and always runs its teardown job.
@@ -44,7 +44,7 @@ on:
         type: boolean
         default: true
       genuine_model_bedrock:
-        description: "Enable Bedrock on the aws-ecs/redis-off cell for the genuine-model journey (billed tokens)"
+        description: "Enable Bedrock on selected ECS/Lambda GA cells for the genuine-model journey (billed tokens)"
         type: boolean
         default: false
       lock_digest:
@@ -53,6 +53,9 @@ on:
         default: ""
   workflow_call:
     inputs:
+      update_rollback_run_id: { required: false, type: string, default: "" }
+      update_rollback_mode: { required: false, type: string, default: "rehearsal" }
+      update_rollback_prior_run_id: { required: false, type: string, default: "" }
       candidate_ref: { required: false, type: string, default: "" }
       prepared_ref: { required: false, type: string, default: "" }
       require_real:
@@ -79,6 +82,8 @@ on:
         type: string
         default: ""
     secrets:
+      UPDATE_ROLLBACK_CONTROLLER_ENV: { required: false }
+      UPDATE_ROLLBACK_APPROVAL_KEY: { required: false }
       RELEASE_GH_TOKEN:
         required: false
     outputs:
@@ -351,15 +356,16 @@ jobs:
       # which reads like a broken cell rather than a capacity ceiling. Observed on run 32193955519,
       # where four cells took slots and the rest failed.
       #
-      # max-parallel keeps concurrent VPC demand at 2 + the default VPC, leaving headroom for the
+      # Serial cells keep concurrent VPC demand at 1 + the default VPC, leaving headroom for the
       # demo VPC and any validation cell that has not been reaped yet (honua-iac#142). Raising the
       # quota is the other half of the fix and is tracked separately; this is the half that does not
       # depend on an AWS support ticket, and it stays correct afterwards. It bounds whole cells: a
       # cell's VPC lives from its provision job to its teardown job, inside one called workflow.
-      max-parallel: 2
+      # Finish each provision -> journey -> teardown chain before starting the next paid cell.
+      max-parallel: 1
       matrix:
         # aws-mixed is out for 2026.1 rc.3 (no examples/aws-mixed root); restore it when honua-iac#209 lands.
-        target: ${{ fromJSON((inputs.target == '' || inputs.target == 'all') && '["aws-serverless","aws-ecs","aws-eks"]' || format('["{0}"]', inputs.target)) }}
+        target: ${{ fromJSON(inputs.update_rollback_run_id != '' && '["aws-serverless","aws-ecs"]' || (inputs.target == '' || inputs.target == 'all') && '["aws-serverless","aws-ecs","aws-eks"]' || format('["{0}"]', inputs.target)) }}
         redis: ${{ fromJSON((inputs.redis_mode == '' || inputs.redis_mode == 'both') && '["off","on"]' || format('["{0}"]', inputs.redis_mode)) }}
     name: "${{ matrix.target }} / redis-${{ matrix.redis }}"
     permissions:
@@ -371,8 +377,8 @@ jobs:
       target: ${{ matrix.target }}
       redis: ${{ matrix.redis }}
       # A reusable-workflow call cannot carry continue-on-error; the cell's own jobs would, for a
-      # Preview cell. Every cell in this matrix is GA (aws-eks since honua-release#203), so none is.
-      preview: false
+      # Preview cell. EKS is informational under the explicit 2026-10-16 scope amendment.
+      preview: ${{ matrix.target == 'aws-eks' }}
       candidate_ref: ${{ inputs.candidate_ref }}
       prepared_ref: ${{ inputs.prepared_ref }}
       require_real: ${{ inputs.require_real || false }}
@@ -385,10 +391,15 @@ jobs:
       lambda_image: ${{ needs.candidate.outputs.lambda_image }}
       lambda_architecture: ${{ needs.candidate.outputs.lambda_architecture }}
       gp_batch_image: ${{ needs.candidate.outputs.gp_batch_image }}
-      # Bedrock is billed: only the genuine-model cell (ECS, Redis off), only when asked for.
-      enable_bedrock: ${{ (inputs.genuine_model_bedrock || false) && matrix.target == 'aws-ecs' && matrix.redis == 'off' }}
+      # Bedrock is billed: opt-in for the selected four GA cells; never EKS Preview.
+      enable_bedrock: ${{ (inputs.genuine_model_bedrock || false) && (matrix.target == 'aws-ecs' || matrix.target == 'aws-serverless') }}
       lock_digest: ${{ inputs.lock_digest || '' }}
+      update_rollback_run_id: ${{ inputs.update_rollback_run_id || '' }}
+      update_rollback_mode: ${{ inputs.update_rollback_mode || 'rehearsal' }}
+      update_rollback_prior_run_id: ${{ inputs.update_rollback_prior_run_id || '' }}
     secrets:
+      UPDATE_ROLLBACK_CONTROLLER_ENV: ${{ secrets.UPDATE_ROLLBACK_CONTROLLER_ENV }}
+      UPDATE_ROLLBACK_APPROVAL_KEY: ${{ secrets.UPDATE_ROLLBACK_APPROVAL_KEY }}
       RELEASE_GH_TOKEN: ${{ secrets.RELEASE_GH_TOKEN }}
 
   # ── iac-live: WRAP honua-iac's real cloud harness (terraform-manual-validation.yml, run_live) ────────
@@ -397,7 +408,8 @@ jobs:
     continue-on-error: true
     name: "iac-live (terraform-manual-validation, run_live=aws)"
     needs: candidate
-    if: ${{ github.event_name == 'schedule' || inputs.run_iac_live }}
+    # A reusable call inherits its caller's event: scheduled nightly must honor its explicit false.
+    if: ${{ (github.event_name == 'schedule' && github.workflow == 'e2e-cloud-aws') || inputs.run_iac_live }}
     runs-on: ubuntu-latest
     steps:
       - name: Dispatch + poll honua-iac terraform-manual-validation (run_live, AWS)
@@ -539,7 +551,7 @@ jobs:
           FULL_SCOPE: ${{ (github.event_name == 'schedule' || ((inputs.target == '' || inputs.target == 'all') && (inputs.redis_mode == '' || inputs.redis_mode == 'both') )) && 'true' || 'false' }}
           REQUESTED_TARGET: ${{ inputs.target || 'all' }}
           REQUESTED_REDIS: ${{ inputs.redis_mode || 'both' }}
-          REQUESTED_IAC_LIVE: ${{ github.event_name == 'schedule' || inputs.run_iac_live }}
+          REQUESTED_IAC_LIVE: ${{ (github.event_name == 'schedule' && github.workflow == 'e2e-cloud-aws') || inputs.run_iac_live }}
           HONUA_CLOUD_COST_CEILING_USD: ${{ inputs.cost_ceiling_usd || '20' }}
           AGGREGATION_STARTED_AT: ${{ steps.started.outputs.at }}
         # The meter step above wrote e2e/cloud-evidence/run-cost.json (the run's estimate) after every
@@ -565,7 +577,7 @@ jobs:
                     requestedScope:{target:$target,redis:$redis,runIacLive:($iac == "true")}}
               | if .status == "pass" and $full != "true" then
                   .status = "blocked"
-                  | .why = "focused dispatch is diagnostic only; all six GA target x Redis cells are required for certification"
+                  | .why = "focused dispatch is diagnostic only; all four GA target x Redis cells are required for certification"
                 else . end' \
              merged.json > out/gate-report-cloud.json
 

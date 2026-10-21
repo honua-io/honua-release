@@ -415,7 +415,7 @@ def test_lambda_image_pins_a_single_architecture_manifest():
     registry, _, child = _lambda_registry(NEW, 'manifest')
     result = registry.image('honua-server', _lambda_component(), NEW)
     assert result['awsLambdaDigest'] == child
-    assert result['awsLambdaImage'].endswith('@' + child)
+    assert result['awsLambdaImage'] == f'ghcr.io/honua-io/honua-server:nightly-lambda-aot-{NEW[:7]}-amd64'
     assert result['awsLambdaEcrDigest'] == 'pending-ecr-mirror'
 
 
@@ -423,8 +423,27 @@ def test_lambda_attested_index_pins_the_linux_amd64_child():
     registry, server_child, child = _lambda_registry(NEW, 'index')
     result = registry.image('honua-server', _lambda_component(), NEW)
     assert result['awsLambdaDigest'] == child
+    assert result['awsLambdaImage'] == f'ghcr.io/honua-io/honua-server:nightly-lambda-aot-{NEW[:7]}-amd64'
     assert result['awsLambdaDigest'] != result['digest']
     assert result['platformDigests'] == {'amd64': server_child}
+
+
+@pytest.mark.parametrize('shape', ['manifest', 'index'])
+def test_verified_lambda_identity_survives_the_deployment_dispatch(shape):
+    from nightly_deployments import lambda_inputs
+    registry, _, child = _lambda_registry(NEW, shape)
+    selected = registry.image('honua-server', _lambda_component(), NEW)
+    server = {**selected, 'sha': NEW, 'awsLambdaArchitecture': 'x86_64'}
+    inputs = lambda_inputs({'components': {'honua-server': server}}, b'operating policy')
+    assert inputs['source_image'] == f'ghcr.io/honua-io/honua-server:nightly-lambda-aot-{NEW[:7]}-amd64'
+    assert '@' not in inputs['source_image']
+    assert inputs['source_digest'] == child
+    # The producer executes tag@digest; the discovery tag never replaces the verified child.
+    assert inputs['source_image'] + '@' + inputs['source_digest'] == (
+        f'ghcr.io/honua-io/honua-server:nightly-lambda-aot-{NEW[:7]}-amd64@{child}')
+    captured = json.loads(inputs['prepared_manifest'])['manifest']['components']['honua-server']
+    assert captured['awsLambdaDigest'] == child
+    assert captured['awsLambdaImage'] == inputs['source_image']
 
 
 def test_lambda_index_without_a_linux_amd64_image_refuses():
@@ -1943,8 +1962,8 @@ def test_an_unreadable_server_vocabulary_refuses(body, message):
         resolver.advertised_capabilities(Server(), candidate)
 
 
-def test_green_passes_advisory_and_accepts_the_server_fixture_sha():
-    """c19f29d is green only when the resolver hands the advisory list to the evaluator."""
+def test_green_passes_advisory_but_refuses_historical_server_without_actual_job_observations():
+    """Keep captured bytes intact; an old name-only fixture cannot certify current execution."""
     captured = json.loads((
         resolver.ROOT / 'tools' / 'fixtures' / 'candidate-resolution-2026-10-06' / 'honua-server-c19f29d.json'
     ).read_text())
@@ -1966,13 +1985,14 @@ def test_green_passes_advisory_and_accepts_the_server_fixture_sha():
         raise AssertionError(path)
 
     github.pages = pages
+    github.json = lambda path: pytest.fail('historical fixture has no authoritative source/job observations')
     resolver.ci.evaluate = evaluate
     try:
         ok, why = github.green('honua-server', 'honua-io/honua-server', captured['sha'])
     finally:
         resolver.ci.evaluate = original
-    assert ok, why
-    assert 'full-matrix run 37435142851 completed successfully' in why
+    assert not ok
+    assert 'missing actual Actions job and pinned shard selection evidence' in why
     workflows = seen['advisory']['honua-server']['workflows']
     assert '.github/workflows/server-test-prebuild-observe.yml' in workflows
     assert '.github/workflows/ci.yml' not in workflows

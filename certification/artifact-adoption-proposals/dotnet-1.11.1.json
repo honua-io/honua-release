@@ -1,0 +1,46 @@
+{
+  "schema": "honua.client-artifact-adoption-proposal/v1",
+  "state": "review-required",
+  "client": "honua-sdk-dotnet",
+  "previousArtifact": {
+    "ecosystem": "nuget",
+    "package": "Honua.Sdk",
+    "version": "1.11.0",
+    "digest": "sha256:89a1001f1a9c922413b88cc262c7f21ec2d64b95d7c49a07386b3eded1cc62bb",
+    "repository": "honua-io/honua-sdk-dotnet",
+    "sourceSha": "5f09e4fca08a4cc6b9877c81e549fc5bc8648dba",
+    "publicationState": "published",
+    "registry": "nuget.org",
+    "targets": [
+      "net10.0"
+    ],
+    "filename": "honua.sdk.1.11.0.nupkg"
+  },
+  "proposedArtifact": {
+    "ecosystem": "nuget",
+    "package": "Honua.Sdk",
+    "version": "1.11.1",
+    "digest": "sha256:3d05bec8b22dc1bf0dd5547d8e0dfdc339f0610222a3f4356874c3e4e0aa06ee",
+    "repository": "honua-io/honua-sdk-dotnet",
+    "sourceSha": "5a57e5f2611ec874283d5637c2204551f6e1aeff",
+    "publicationState": "published",
+    "registry": "nuget.org",
+    "targets": [
+      "net10.0"
+    ],
+    "filename": "honua.sdk.1.11.1.nupkg"
+  },
+  "verifiedIdentity": {
+    "version": "1.11.1",
+    "sourceRevision": "5a57e5f2611ec874283d5637c2204551f6e1aeff",
+    "sha256": "sha256:3d05bec8b22dc1bf0dd5547d8e0dfdc339f0610222a3f4356874c3e4e0aa06ee"
+  },
+  "candidateQualification": "pending",
+  "nextSteps": [
+    "review registry-derived artifact adoption",
+    "regenerate governed requirements through normal automation",
+    "run normal resolver and NIGHTLY-STAGE",
+    "join exact candidate receipts through NIGHTLY-BIND"
+  ],
+  "manifestSha256": "sha256:56415ea297c71d666bac95ace006ab1f25dd6cfeff6ec1629979b70d4f9db2f5"
+}

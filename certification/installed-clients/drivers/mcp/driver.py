@@ -10,9 +10,9 @@ from __future__ import annotations
 
 import argparse
 import base64
+import copy
 import json
 import os
-import struct
 import sys
 import time
 import traceback
@@ -23,6 +23,9 @@ ROOT = Path(__file__).resolve().parents[4]
 # The shared stdio MCP session the installed-client MCP cells use.
 sys.path.insert(0, str(ROOT / "certification" / "terminal-journey"))
 import probes  # noqa: E402
+
+sys.path.insert(0, str(ROOT / "certification" / "installed-clients"))
+from mcp_plan_validation import buffer_plan  # noqa: E402
 
 PLAN = json.loads(open(os.environ["SDKREG_PLAN"], encoding="utf-8").read())
 BASE = PLAN["baseUrl"]
@@ -39,6 +42,11 @@ API = {
     "full-catalog": "honua-mcp-proxy tools/list {view: full} (HONUA_API_KEY)",
     "read": "honua-mcp-proxy tools/call honua_query_features",
     "render": "honua-mcp-proxy tools/call honua_render_map",
+    "process-catalog": "honua-mcp-proxy resources/read honua://catalog/processes (all chunks)",
+    "buffer-validate": "honua-mcp-proxy tools/call honua_validate_plan (geometry.buffer)",
+    "buffer-invalid": "honua-mcp-proxy tools/call honua_validate_plan (invalid WKB)",
+    "buffer-dry-run": "honua-mcp-proxy tools/call honua_dry_run_plan (geometry.buffer)",
+    "buffer-replay": "honua-mcp-proxy tools/call honua_execute_plan (same idempotency key)",
     "buffer-submit": "honua-mcp-proxy tools/call honua_execute_plan (geometry.buffer)",
     "buffer-poll": "honua-mcp-proxy resources/read honua://jobs/{jobId}",
     "buffer-result": "honua-mcp-proxy resources/read honua://jobs/{jobId}/results",
@@ -102,10 +110,31 @@ def tool(mcp: probes.McpProxySession, name: str, arguments: dict[str, Any]) -> d
 
 
 def resource(mcp: probes.McpProxySession, uri: str) -> dict[str, Any]:
-    contents = result_of(mcp.request("resources/read", {"uri": uri})).get("contents") or []
-    if len(contents) != 1 or not isinstance(contents[0].get("text"), str):
-        raise RpcError("malformed-resource")
-    return json.loads(contents[0]["text"])
+    chunks: list[str] = []
+    cursor = None
+    seen: set[str] = set()
+    size = 0
+    for _ in range(MAX_PAGES):
+        result = result_of(mcp.request("resources/read", {"uri": uri, **({"cursor": cursor} if cursor else {})}))
+        contents = result.get("contents") or []
+        if (len(contents) != 1 or contents[0].get("uri") != uri
+                or not isinstance(contents[0].get("text"), str)):
+            raise RpcError("malformed-resource")
+        chunk = contents[0]["text"]
+        size += len(chunk)
+        if size > 8_000_000:
+            raise RpcError("resource-too-large")
+        chunks.append(chunk)
+        cursor = result.get("nextCursor")
+        if cursor is None:
+            document = json.loads("".join(chunks))
+            if not isinstance(document, dict):
+                raise RpcError("malformed-resource-document")
+            return document
+        if not isinstance(cursor, str) or not cursor or cursor in seen:
+            raise RpcError("invalid-resource-cursor")
+        seen.add(cursor)
+    raise RpcError("unbounded-pagination")
 
 
 def view_of(result: dict[str, Any]) -> dict[str, Any]:
@@ -140,20 +169,6 @@ def anonymous_full_view(mcp: probes.McpProxySession) -> dict[str, Any]:
     result = result_of(mcp.request("tools/list", {"view": "full"}))
     return {"names": [tool.get("name") for tool in result.get("tools") or []], "pages": 1}
 
-
-def point_wkb(x: float, y: float) -> str:
-    return base64.b64encode(struct.pack("<BIdd", 1, 1, x, y)).decode()
-
-
-def buffer_plan(processes: dict[str, Any]) -> dict[str, Any]:
-    """One geometry.buffer step. The candidate's AnalysisPlan takes step kinds QueryFeatures, Geoprocess,
-    Aggregate, RenderMap or Export and `outputs` as artifact kinds; it refuses `kind: Process` with
-    invalid_argument."""
-    x, y = processes["point"]
-    return {"planId": "sdkreg-mcp-buffer", "intentId": "sdkreg-mcp-buffer", "outputs": ["FeatureLayer"],
-            "steps": [{"stepId": "buffer", "kind": "Geoprocess", "processId": processes["processId"], "inputs": {
-                "wkb": point_wkb(x, y), "srid": str(processes["srid"]), "distance": str(processes["distance"]),
-                "geodesic": "false"}}]}
 
 
 def run(proxy: str) -> None:
@@ -205,36 +220,55 @@ def run(proxy: str) -> None:
             return {"png": image.get("base64"), "mimeType": image.get("format")}
         step("render", render, state)
 
-        def submit() -> dict[str, Any]:
-            content = tool(operator, "honua_execute_plan", {"plan": buffer_plan(processes),
-                                                            "idempotencyKey": f"sdkreg-mcp-buffer-{time.time_ns()}"})
-            if content.get("jobId"):
-                state["job"] = content["jobId"]
-            return {"jobId": content.get("jobId"), "status": content.get("status")}
-        step("buffer-submit", submit, state)
+        run_gp(operator, processes)
 
-        def poll() -> dict[str, Any]:
-            deadline = time.monotonic() + processes["pollTimeoutSeconds"]
-            while True:
-                job = resource(operator, f"honua://jobs/{state['job']}")
-                if job.get("status") in TERMINAL_JOB_STATES or time.monotonic() > deadline:
-                    if job.get("status") == "Succeeded":
-                        state["succeeded"] = True
-                    return {"status": job.get("status")}
-                time.sleep(1)
-        step("buffer-poll", poll, state, ("job",))
 
-        def result() -> dict[str, Any]:
-            package = resource(operator, f"honua://jobs/{state['job']}/results")
-            artifacts = [item for item in package.get("artifacts") or [] if item.get("kind") == "FeatureLayer"]
-            if len(artifacts) != 1:
-                raise RpcError(f"{len(artifacts)}-feature-layer-artifacts")
-            uri = artifacts[0].get("uri") or ""
-            prefix = "data:application/geo+json;base64,"
-            if not uri.startswith(prefix):
-                raise RpcError("artifact-not-inline-geojson")
-            return {"geometry": json.loads(base64.b64decode(uri[len(prefix):], validate=True))}
-        step("buffer-result", result, state, ("succeeded",))
+def run_gp(operator: probes.McpProxySession, processes: dict[str, Any]) -> None:
+    """Run the release GP lifecycle through an initialized installed-proxy session."""
+    state: dict[str, Any] = {}
+    plan = buffer_plan(processes)
+    submission = {"plan": plan, "idempotencyKey": f"sdkreg-mcp-buffer-{time.time_ns()}"}
+
+    step("process-catalog", lambda: resource(operator, "honua://catalog/processes"), state)
+    step("buffer-validate", lambda: tool(operator, "honua_validate_plan", {"plan": plan}), state)
+    invalid = copy.deepcopy(plan)
+    invalid["steps"][0]["inputs"]["wkb"] = "not-base64"
+    step("buffer-invalid", lambda: tool(operator, "honua_validate_plan", {"plan": invalid}), state)
+    step("buffer-dry-run", lambda: tool(operator, "honua_dry_run_plan", {"plan": plan}), state)
+
+    def submit() -> dict[str, Any]:
+        content = tool(operator, "honua_execute_plan", submission)
+        if content.get("jobId"):
+            state["job"] = content["jobId"]
+        return {"jobId": content.get("jobId"), "status": content.get("status")}
+    step("buffer-submit", submit, state)
+    step("buffer-replay", lambda: tool(operator, "honua_execute_plan", submission), state, ("job",))
+
+    def poll() -> dict[str, Any]:
+        deadline = time.monotonic() + processes["pollTimeoutSeconds"]
+        while True:
+            job = resource(operator, f"honua://jobs/{state['job']}")
+            if job.get("status") in TERMINAL_JOB_STATES or time.monotonic() > deadline:
+                if job.get("status") == "Succeeded":
+                    state["succeeded"] = True
+                return {"jobId": job.get("jobId"), "status": job.get("status")}
+            time.sleep(1)
+    step("buffer-poll", poll, state, ("job",))
+
+    def result() -> dict[str, Any]:
+        package = resource(operator, f"honua://jobs/{state['job']}/results")
+        artifacts = [item for item in package.get("artifacts") or [] if item.get("kind") == "FeatureLayer"]
+        if len(artifacts) != 1:
+            raise RpcError(f"{len(artifacts)}-feature-layer-artifacts")
+        uri = artifacts[0].get("uri") or ""
+        prefix = "data:application/geo+json;base64,"
+        if not uri.startswith(prefix):
+            raise RpcError("artifact-not-inline-geojson")
+        return {"geometry": json.loads(base64.b64decode(uri[len(prefix):], validate=True)),
+                "jobId": package.get("jobId"), "status": package.get("status"),
+                "artifactId": artifacts[0].get("artifactId"), "errors": package.get("errors"),
+                "artifactsTruncated": package.get("artifactsTruncated")}
+    step("buffer-result", result, state, ("succeeded",))
 
 
 def main() -> int:

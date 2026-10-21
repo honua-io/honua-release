@@ -1,0 +1,18 @@
+{
+  "repoRoot": "/home/mike/honua-io/sdk-final-scaffold-proof-20261014",
+  "producerRevision": "bd178cf762574379c8c0cfe6e923fe9a39ce9832",
+  "template": "vanilla-ts",
+  "outputDirectory": "/home/mike/.local/state/honua-release-work/sdk2101/published-default-vanilla-ts-attempt1",
+  "sdk": {
+    "version": "0.2.2",
+    "sourceRevision": "076b4218f832725d57a8e23745fae75aeb9f4e5a",
+    "receiptPath": "/home/mike/.local/state/honua-release-work/sdk022-final-all8-attempt1.json",
+    "receiptSha256": "66a1a7f3ef97c49cd727d1ca6f216ea4c79778e2f634a6291f9a132252fe8f5b"
+  },
+  "scaffold": {
+    "version": "0.2.2",
+    "sourceRevision": "bd178cf762574379c8c0cfe6e923fe9a39ce9832",
+    "receiptPath": "/home/mike/.local/state/honua-release-work/sdk022-final-all8-attempt1.json",
+    "receiptSha256": "66a1a7f3ef97c49cd727d1ca6f216ea4c79778e2f634a6291f9a132252fe8f5b"
+  }
+}

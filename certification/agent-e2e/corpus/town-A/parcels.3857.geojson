@@ -1,0 +1,255 @@
+{
+  "crs": {
+    "properties": {
+      "name": "EPSG:3857"
+    },
+    "type": "name"
+  },
+  "features": [
+    {
+      "geometry": {
+        "coordinates": [
+          [
+            [
+              -19400,
+              -5000
+            ],
+            [
+              -19300,
+              -5000
+            ],
+            [
+              -19300,
+              -4900
+            ],
+            [
+              -19400,
+              -4900
+            ],
+            [
+              -19400,
+              -5000
+            ]
+          ]
+        ],
+        "type": "Polygon"
+      },
+      "id": "p1",
+      "properties": {
+        "name": "Kestrel parcel 1",
+        "owner": "Town",
+        "source_id": "p1",
+        "value": 100000
+      },
+      "type": "Feature"
+    },
+    {
+      "geometry": {
+        "coordinates": [
+          [
+            [
+              -19800,
+              -5000
+            ],
+            [
+              -19700,
+              -5000
+            ],
+            [
+              -19700,
+              -4900
+            ],
+            [
+              -19800,
+              -4900
+            ],
+            [
+              -19800,
+              -5000
+            ]
+          ]
+        ],
+        "type": "Polygon"
+      },
+      "id": "p2",
+      "properties": {
+        "name": "Kestrel parcel 2",
+        "owner": "Town",
+        "source_id": "p2",
+        "value": 101000
+      },
+      "type": "Feature"
+    },
+    {
+      "geometry": {
+        "coordinates": [
+          [
+            [
+              -19200,
+              -5000
+            ],
+            [
+              -19100,
+              -5000
+            ],
+            [
+              -19100,
+              -4900
+            ],
+            [
+              -19200,
+              -4900
+            ],
+            [
+              -19200,
+              -5000
+            ]
+          ],
+          [
+            [
+              -19180,
+              -4980
+            ],
+            [
+              -19180,
+              -4940
+            ],
+            [
+              -19140,
+              -4940
+            ],
+            [
+              -19140,
+              -4980
+            ],
+            [
+              -19180,
+              -4980
+            ]
+          ]
+        ],
+        "type": "Polygon"
+      },
+      "id": "p3",
+      "properties": {
+        "name": "Kestrel parcel 3",
+        "owner": null,
+        "source_id": "p3",
+        "value": 102000
+      },
+      "type": "Feature"
+    },
+    {
+      "geometry": {
+        "coordinates": [
+          [
+            [
+              -20000,
+              -5000
+            ],
+            [
+              -19900,
+              -5000
+            ],
+            [
+              -19900,
+              -4900
+            ],
+            [
+              -20000,
+              -4900
+            ],
+            [
+              -20000,
+              -5000
+            ]
+          ]
+        ],
+        "type": "Polygon"
+      },
+      "id": "p4",
+      "properties": {
+        "name": "Kestrel parcel 4",
+        "owner": "Town",
+        "source_id": "p4",
+        "value": 103000
+      },
+      "type": "Feature"
+    },
+    {
+      "geometry": {
+        "coordinates": [
+          [
+            [
+              -19000,
+              -5000
+            ],
+            [
+              -18900,
+              -5000
+            ],
+            [
+              -18900,
+              -4900
+            ],
+            [
+              -19000,
+              -4900
+            ],
+            [
+              -19000,
+              -5000
+            ]
+          ]
+        ],
+        "type": "Polygon"
+      },
+      "id": "p5",
+      "properties": {
+        "name": "Kestrel parcel 5",
+        "owner": "Town",
+        "source_id": "p5",
+        "value": 104000
+      },
+      "type": "Feature"
+    },
+    {
+      "geometry": {
+        "coordinates": [
+          [
+            [
+              -19600,
+              -5000
+            ],
+            [
+              -19500,
+              -5000
+            ],
+            [
+              -19500,
+              -4900
+            ],
+            [
+              -19600,
+              -4900
+            ],
+            [
+              -19600,
+              -5000
+            ]
+          ]
+        ],
+        "type": "Polygon"
+      },
+      "id": "p6",
+      "properties": {
+        "name": "Kestrel parcel 6",
+        "owner": "Town",
+        "source_id": "p6",
+        "value": 105000
+      },
+      "type": "Feature"
+    }
+  ],
+  "type": "FeatureCollection"
+}

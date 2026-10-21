@@ -10,6 +10,10 @@ honua-server:
   events:
     - schedule
     - workflow_dispatch
+  shardInventory:
+    path: .github/ci-shards.json
+    jobName: "Server Tests ({shard_name})"
+    testStep: Run server test shard
   requiredChecks:
     - name: Build & Format Check
     - name: .NET Foundation Tests

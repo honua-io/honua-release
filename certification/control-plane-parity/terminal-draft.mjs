@@ -42,6 +42,15 @@ export function operatorAuditActor(token, subject) {
   return `operatorbearer:subject:honua-operator-bearer:${subject}`;
 }
 
+export function operatorDraftOwner(token, identity) {
+  operatorAuditActor(token, identity.actor);
+  const claims = JSON.parse(Buffer.from(token.split('.')[1], 'base64url').toString('utf8'));
+  assert.equal(claims.tenant_id, identity.tenantId);
+  assert(typeof identity.tenantId === 'string' && identity.tenantId.length > 0);
+  // StudioAuthorizationService.ResolveCallerId binds a signed subject to issuer and tenant.
+  return `subject:${encodeURIComponent(claims.iss)}:${encodeURIComponent(identity.actor)}@tenant:${encodeURIComponent(identity.tenantId)}`;
+}
+
 export function assertTenantAudit(rows, draftId, correlationId, actor, count) {
   const denials = rows.filter(row => row.action === 'studio.read_draft');
   assert.equal(denials.length, count, 'One canonical authorization audit is required for each adapter pre-read');
@@ -61,11 +70,11 @@ export function assertTenantAudit(rows, draftId, correlationId, actor, count) {
 export function assertDraftOwnership(draft, expected, persisted) {
   assert.equal(draft.draftId, expected.draftId);
   assert(typeof draft.ownerId === 'string' && draft.ownerId.length > 0, 'Public draft owner must be present');
-  assert.equal(draft.ownerId, expected.actor);
+  assert.equal(draft.ownerId, expected.ownerId);
   if (persisted !== undefined) {
     assert.equal(persisted.length, 1, 'Exactly one persisted draft ownership row is required');
     assert.equal(persisted[0].draft_id, expected.draftId);
-    assert.equal(persisted[0].owner_id, expected.actor);
+    assert.equal(persisted[0].owner_id, expected.ownerId);
     assert(typeof persisted[0].tenant_id === 'string' && persisted[0].tenant_id.length > 0, 'Persisted tenant binding must be present');
     assert.equal(persisted[0].tenant_id, expected.tenantId);
   }

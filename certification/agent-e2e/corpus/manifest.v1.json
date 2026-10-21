@@ -1,0 +1,431 @@
+{
+  "corpusId": "honua-agent-town-v1",
+  "files": [
+    {
+      "bytes": 4521,
+      "path": "town-A/parcels.3857.geojson",
+      "sha256": "18d20134b96e905d4aa4bf4ca030c7b22d6514ffed2e30062f5b3952063c00cc",
+      "visibility": "selected-case-input"
+    },
+    {
+      "bytes": 5041,
+      "path": "town-A/parcels.4326.geojson",
+      "sha256": "561ce256cc4f4f45667ac70bafa64d9acfc27a09d6abcd74fef595f07ee5e63c",
+      "visibility": "selected-case-input"
+    },
+    {
+      "bytes": 761,
+      "path": "town-A/flood_zones.3857.geojson",
+      "sha256": "b8ea14ee38b0ef30df4ec16a0b1ed31ef495726f1507c4511cb972676f3d5c54",
+      "visibility": "selected-case-input"
+    },
+    {
+      "bytes": 836,
+      "path": "town-A/flood_zones.4326.geojson",
+      "sha256": "b85485037c72810ce2fb5694da5862a7b618bb9298db6eb2048cb69fd2f353ae",
+      "visibility": "selected-case-input"
+    },
+    {
+      "bytes": 1752,
+      "path": "town-A/shelters.3857.geojson",
+      "sha256": "481d6746d09e0a7be7ffbacfeafa9519569ff4df3203f97a70ed423ba1184153",
+      "visibility": "selected-case-input"
+    },
+    {
+      "bytes": 1826,
+      "path": "town-A/shelters.4326.geojson",
+      "sha256": "088043ddc3be1a6e498c7772c73bed8c212f0bf86319b94bda788b61f5900e5e",
+      "visibility": "selected-case-input"
+    },
+    {
+      "bytes": 505,
+      "path": "town-A/roads.3857.geojson",
+      "sha256": "cbb63ec11b1f1a0aeba516cc800b0a474fe83dd4110479f4f4814a1df702d615",
+      "visibility": "selected-case-input"
+    },
+    {
+      "bytes": 535,
+      "path": "town-A/roads.4326.geojson",
+      "sha256": "918afe08fa45619c4e58d5bb31785bd39a2af45e7c71e68560aed3d913a94fb7",
+      "visibility": "selected-case-input"
+    },
+    {
+      "bytes": 670968,
+      "path": "town-A/survey_points.3857.geojson",
+      "sha256": "5969344405b94b140d4ae624909c0700fed323db1a16fe210a55a621ecece08a",
+      "visibility": "selected-case-input"
+    },
+    {
+      "bytes": 701981,
+      "path": "town-A/survey_points.4326.geojson",
+      "sha256": "eae253dc3b42e229c8994eea4edc62135fb0d057c79e36034b5f64d0bfe715b9",
+      "visibility": "selected-case-input"
+    },
+    {
+      "bytes": 390,
+      "path": "town-A/diagnostic-empty-geometry.geojson",
+      "scenarioIds": [
+        "P04"
+      ],
+      "sha256": "6c7bd3041aa74b795db1ce0af0889b310d8495a38f498dacbab12b2b214166cf",
+      "visibility": "selected-case-input"
+    },
+    {
+      "bytes": 1244,
+      "path": "town-A/multipolygons.3857.geojson",
+      "sha256": "20531fe8f3c6a2b93c224eb4ba3fc67e12dbfe29a56f02a5377d649ca7a6c9c4",
+      "visibility": "selected-case-input"
+    },
+    {
+      "bytes": 712,
+      "path": "town-A/multilines.3857.geojson",
+      "sha256": "f1d5ce9d71b2ab9502988ed23365d884a1309b4dc30cf9ca9f8fd335308c5882",
+      "visibility": "selected-case-input"
+    },
+    {
+      "bytes": 401,
+      "path": "town-A/input-guide.json",
+      "sha256": "2a2cbca2414da07d84ab36904a2d41895587ef004230757e29257a00dd9721c4",
+      "visibility": "selected-case-input"
+    },
+    {
+      "bytes": 338,
+      "path": "town-A/shelters.csv",
+      "sha256": "cb2fb51557859841860bee70b93402aade259e568da71e279743954130bbb54c",
+      "visibility": "selected-case-input"
+    },
+    {
+      "bytes": 116,
+      "path": "town-A/invalid-rows.csv",
+      "scenarioIds": [
+        "P05"
+      ],
+      "sha256": "a46f82c6f96fb17022036ad19c48e39d322d879539c05c143f3aa3f81a2718a2",
+      "visibility": "selected-case-input"
+    },
+    {
+      "bytes": 487,
+      "path": "town-A/metadata.json",
+      "scenarioIds": [
+        "P19"
+      ],
+      "sha256": "b09ce34aa72954c5e6d4c1871b2285deca1c13b762e6e2558423c6c775264272",
+      "visibility": "selected-case-input"
+    },
+    {
+      "bytes": 520980,
+      "path": "town-A/postgis.sql",
+      "sha256": "81bce0b17cbb5de7a923e40b5954f6263a10e5a8563d6191ebf5db7116f9c9b5",
+      "visibility": "controller-only"
+    },
+    {
+      "bytes": 748724,
+      "path": "oracles/town-A.json",
+      "sha256": "91df808a112bdd9b698797bcbe7610bec10e0e2a665a413a0e6df6b6d622b0cb",
+      "visibility": "controller-only"
+    },
+    {
+      "bytes": 4504,
+      "path": "town-B/parcels.3857.geojson",
+      "sha256": "78adb08094629329be262eda964c489ba3f8097d6e4f37e7ed26f61702214321",
+      "visibility": "selected-case-input"
+    },
+    {
+      "bytes": 5026,
+      "path": "town-B/parcels.4326.geojson",
+      "sha256": "c6bc2b861d5468e3b675e879b9843f74df18460e899d8b69fa8d9fb8605a95f5",
+      "visibility": "selected-case-input"
+    },
+    {
+      "bytes": 759,
+      "path": "town-B/flood_zones.3857.geojson",
+      "sha256": "153368d6638cd3a4101630e5c39743dd4b34fc9086f5ea4dbc06f8b6b32e6159",
+      "visibility": "selected-case-input"
+    },
+    {
+      "bytes": 834,
+      "path": "town-B/flood_zones.4326.geojson",
+      "sha256": "f406a070d755a0e7500af9350e6432ac92371900b62829e0ac9391b3fb3bd77d",
+      "visibility": "selected-case-input"
+    },
+    {
+      "bytes": 1765,
+      "path": "town-B/shelters.3857.geojson",
+      "sha256": "08faa051304c5774a728fcbc5989213dc7082af667424ecec9b6ce91ab61ba11",
+      "visibility": "selected-case-input"
+    },
+    {
+      "bytes": 1840,
+      "path": "town-B/shelters.4326.geojson",
+      "sha256": "e1fe3e2d1d03c9a299cee89f19d163d7a76477bf04258cef425272bef8456985",
+      "visibility": "selected-case-input"
+    },
+    {
+      "bytes": 506,
+      "path": "town-B/roads.3857.geojson",
+      "sha256": "27625f29c0a7dbca4d783e9bc5d473bc96412a63515b00e91337862552321329",
+      "visibility": "selected-case-input"
+    },
+    {
+      "bytes": 536,
+      "path": "town-B/roads.4326.geojson",
+      "sha256": "ed0fd6c230a00b1400a7c8de7b0fc74bc9ac2f021bf6b7703ab39ffd8b5962db",
+      "visibility": "selected-case-input"
+    },
+    {
+      "bytes": 666757,
+      "path": "town-B/survey_points.3857.geojson",
+      "sha256": "25b132b9547dff14c8c6f3b3409c4594884934d1ba19c557d740a8f7b720320b",
+      "visibility": "selected-case-input"
+    },
+    {
+      "bytes": 697848,
+      "path": "town-B/survey_points.4326.geojson",
+      "sha256": "5d372112e661ba568e19c2c86e261f5eefc1541e798a1cb4eb0b3c30a792848c",
+      "visibility": "selected-case-input"
+    },
+    {
+      "bytes": 390,
+      "path": "town-B/diagnostic-empty-geometry.geojson",
+      "scenarioIds": [
+        "P04"
+      ],
+      "sha256": "02649d53d2be372343eeb2f0a8fe58af7a5deeddda854ab4cc194543d0567e84",
+      "visibility": "selected-case-input"
+    },
+    {
+      "bytes": 1260,
+      "path": "town-B/multipolygons.3857.geojson",
+      "sha256": "28815627e0c1ac20aa5b023b00ce58522d6867f8b1cb5871894ea7317f130500",
+      "visibility": "selected-case-input"
+    },
+    {
+      "bytes": 720,
+      "path": "town-B/multilines.3857.geojson",
+      "sha256": "7ea48cf42b1aa3e5f40cc001bde93a2ba6afec28ea1453c9b5fcb0f85bfc92c5",
+      "visibility": "selected-case-input"
+    },
+    {
+      "bytes": 400,
+      "path": "town-B/input-guide.json",
+      "sha256": "683b862ebfc6af515ae93caa9849b93aa09eb8f830bcc9312527d4cc8921d809",
+      "visibility": "selected-case-input"
+    },
+    {
+      "bytes": 342,
+      "path": "town-B/shelters.csv",
+      "sha256": "9c77ce87024f619b079678ca30cb9b2f62ad4a41565632948c40c1b28cb3789b",
+      "visibility": "selected-case-input"
+    },
+    {
+      "bytes": 116,
+      "path": "town-B/invalid-rows.csv",
+      "scenarioIds": [
+        "P05"
+      ],
+      "sha256": "a46f82c6f96fb17022036ad19c48e39d322d879539c05c143f3aa3f81a2718a2",
+      "visibility": "selected-case-input"
+    },
+    {
+      "bytes": 486,
+      "path": "town-B/metadata.json",
+      "scenarioIds": [
+        "P19"
+      ],
+      "sha256": "90c025c72db7aa93efcef5cfb0caa3aa32c59235e539a1499e5a97ead299aa58",
+      "visibility": "selected-case-input"
+    },
+    {
+      "bytes": 516764,
+      "path": "town-B/postgis.sql",
+      "sha256": "20ac3b27a37935a2eefa733536e87e4c83a4c3555e513d4778c93af8505c3f91",
+      "visibility": "controller-only"
+    },
+    {
+      "bytes": 744541,
+      "path": "oracles/town-B.json",
+      "sha256": "e67baf59fb3fd05502da2bc5b5168d8e51a7ca6626ec35ddded116d0f31e260f",
+      "visibility": "controller-only"
+    },
+    {
+      "bytes": 4481,
+      "path": "town-C/parcels.3857.geojson",
+      "sha256": "eb31cde70746a3810f2e6041dc9c965f838e4559a19d9069010276aae0c2a7f1",
+      "visibility": "selected-case-input"
+    },
+    {
+      "bytes": 5020,
+      "path": "town-C/parcels.4326.geojson",
+      "sha256": "3d026b65a5ebda734c98f3513be7ee1c123aaeb5bc62d4ac8c5469ab21144352",
+      "visibility": "selected-case-input"
+    },
+    {
+      "bytes": 756,
+      "path": "town-C/flood_zones.3857.geojson",
+      "sha256": "972360990edb2e5cca00ce714b6483b217715134538d00e6e6fbb4f362c2133a",
+      "visibility": "selected-case-input"
+    },
+    {
+      "bytes": 828,
+      "path": "town-C/flood_zones.4326.geojson",
+      "sha256": "c9142fd7a470629efa4da84b5abfcf01e397a26a78372d06aceb4968342132a8",
+      "visibility": "selected-case-input"
+    },
+    {
+      "bytes": 1758,
+      "path": "town-C/shelters.3857.geojson",
+      "sha256": "cc94cb1f1b0a6b105cca12c6816e44ee058052889879a4db560fc74a0e2c1a87",
+      "visibility": "selected-case-input"
+    },
+    {
+      "bytes": 1833,
+      "path": "town-C/shelters.4326.geojson",
+      "sha256": "7b90f81203bad3fa0cd4d2bec51581762aada6272572f834f3ac741b61835522",
+      "visibility": "selected-case-input"
+    },
+    {
+      "bytes": 503,
+      "path": "town-C/roads.3857.geojson",
+      "sha256": "455f05d29c299d156a09dab497aefbe5a34803055a419ca0c7c844cfb37b7c6a",
+      "visibility": "selected-case-input"
+    },
+    {
+      "bytes": 535,
+      "path": "town-C/roads.4326.geojson",
+      "sha256": "216395668e1c9d10d0a3c09031044c88e898eb4dd5501608d68638af5baa74bd",
+      "visibility": "selected-case-input"
+    },
+    {
+      "bytes": 662547,
+      "path": "town-C/survey_points.3857.geojson",
+      "sha256": "98aa65570a3283858a5d8ded01053fb82eb2a62c33cf55184989524e765c93f7",
+      "visibility": "selected-case-input"
+    },
+    {
+      "bytes": 695767,
+      "path": "town-C/survey_points.4326.geojson",
+      "sha256": "c2c33f020b54a8ab1a64920515fdb63b5bf0af8f0e8471674d85a09f47dae9aa",
+      "visibility": "selected-case-input"
+    },
+    {
+      "bytes": 390,
+      "path": "town-C/diagnostic-empty-geometry.geojson",
+      "scenarioIds": [
+        "P04"
+      ],
+      "sha256": "1cfdd1f83aa0ca23b47ca11ae0cc2ca295e45421c013f03b194efeef514af05c",
+      "visibility": "selected-case-input"
+    },
+    {
+      "bytes": 1270,
+      "path": "town-C/multipolygons.3857.geojson",
+      "sha256": "21efce5a907df3044e7f0c57179a4acb710df3042144d1bfffe1de64cbd586ca",
+      "visibility": "selected-case-input"
+    },
+    {
+      "bytes": 724,
+      "path": "town-C/multilines.3857.geojson",
+      "sha256": "37e3963fbafbb655f2e88b2d4253c195b9ec1b3cb2d7b14eac36a85860ffa365",
+      "visibility": "selected-case-input"
+    },
+    {
+      "bytes": 399,
+      "path": "town-C/input-guide.json",
+      "sha256": "f68fc727cf62519eeb7d9a71609ac9c26a9eea303b90f69a907006b977fac9f6",
+      "visibility": "selected-case-input"
+    },
+    {
+      "bytes": 335,
+      "path": "town-C/shelters.csv",
+      "sha256": "d137e1293ae9c652c21be1168013e81d385a0a84e1b4f17e576185511ec6b8e4",
+      "visibility": "selected-case-input"
+    },
+    {
+      "bytes": 116,
+      "path": "town-C/invalid-rows.csv",
+      "scenarioIds": [
+        "P05"
+      ],
+      "sha256": "a46f82c6f96fb17022036ad19c48e39d322d879539c05c143f3aa3f81a2718a2",
+      "visibility": "selected-case-input"
+    },
+    {
+      "bytes": 485,
+      "path": "town-C/metadata.json",
+      "scenarioIds": [
+        "P19"
+      ],
+      "sha256": "d82f11ddc7e70429fbccaaae4097c2e4aabe67ccbb7d02c424691874937bb729",
+      "visibility": "selected-case-input"
+    },
+    {
+      "bytes": 512518,
+      "path": "town-C/postgis.sql",
+      "sha256": "898098f45edc795f8033ddecc14694f5109085c7a215016dcfcf7223c51a5da1",
+      "visibility": "controller-only"
+    },
+    {
+      "bytes": 740308,
+      "path": "oracles/town-C.json",
+      "sha256": "2bc828d86f4b68f943870da1bb16ae9bcd8217e546d95f687c82e9c15aa4f9f8",
+      "visibility": "controller-only"
+    },
+    {
+      "bytes": 838726,
+      "path": "natural-earth/countries.geojson",
+      "sha256": "6866c877d39cba9c357620878839b336d569f8c662d3cfab4cb1dbe2d39c977f",
+      "visibility": "selected-case-input"
+    }
+  ],
+  "fixtures": [
+    {
+      "id": "synthetic-town",
+      "license": "CC0-1.0",
+      "source": "synthetic analytic geometry",
+      "variants": {
+        "A": {
+          "oracle": "oracles/town-A.json",
+          "path": "town-A",
+          "seed": 31001
+        },
+        "B": {
+          "oracle": "oracles/town-B.json",
+          "path": "town-B",
+          "seed": 31002
+        },
+        "C": {
+          "oracle": "oracles/town-C.json",
+          "path": "town-C",
+          "seed": 31003
+        }
+      }
+    },
+    {
+      "featureCount": 177,
+      "id": "natural-earth-countries",
+      "license": "public-domain",
+      "path": "natural-earth/countries.geojson",
+      "sourceCommit": "f1890d9f152c896d250a77557a5751a93d494776",
+      "sourceUrl": "https://raw.githubusercontent.com/nvkelso/natural-earth-vector/f1890d9f152c896d250a77557a5751a93d494776/geojson/ne_110m_admin_0_countries.geojson",
+      "termsUrl": "https://www.naturalearthdata.com/about/terms-of-use/",
+      "version": "5.1.2"
+    },
+    {
+      "bytes": 85688964,
+      "committed": false,
+      "featureCount": 330000,
+      "id": "large-import-s10",
+      "materializer": "e2e/fixtures/large_import.py",
+      "materializerBase": "repository-root",
+      "materializerContentNormalization": "LF",
+      "materializerGitBlob": "d13e7905b4069f38784aa85dea9910ca8b12d046",
+      "materializerSha256": "9bcee0a88ee43080fe720343d3eda92cac4117957bc92ba5b25c2502df807b67",
+      "minimumBytesExclusive": 67108864,
+      "name": "s10-large-import.geojson",
+      "sha256": "b17954756c76353b1b19452773032d1bd3bdaaac30ab1ace13ff63c9d4c79ca9"
+    }
+  ],
+  "generator": "generate.py",
+  "generatorSha256": "390d0d5c065086e4e51f953a4425b6b885787beae490bfe0f70062b5c1671d42",
+  "schemaVersion": 1
+}

@@ -178,7 +178,7 @@ def run_admin(state: dict[str, Any]) -> None:
     def create() -> dict[str, Any]:
         created = admin.create_connection(CreateSecureConnectionRequest(
             name=life["connectionName"], host=db["host"], port=db["port"], database_name=db["databaseName"],
-            username=db["username"], password=DB_PASSWORD, ssl_required=False, ssl_mode="Disable"))
+            username=db["username"], password=DB_PASSWORD, ssl_required=db.get("sslRequired", False), ssl_mode=db.get("sslMode", "Disable")))
         state["connection"] = created.connection_id
         return {"connectionId": created.connection_id}
 
@@ -342,10 +342,10 @@ def run_tiles(state: dict[str, Any]) -> None:
             return {"bytes": base64.b64encode(fetch(area["painted"])).decode()}
 
         def raster() -> dict[str, Any]:
-            # OgcTilesClient.tile(tile_matrix_set_id, tile_matrix, row, col, *, collection_id) takes no
-            # format, extra_params or Accept override, so a raster (PNG) tile of a vector collection
-            # cannot be requested through the published client.
-            raise Unsupported("OgcTilesClient.tile has no format/extra_params selector; only the default (vector) encoding is reachable")
+            spec = area["painted"]
+            data = tiles.tile(area["tileMatrixSet"], str(spec["tileMatrix"]), spec["tileRow"], spec["tileCol"],
+                              collection_id=area["collectionId"], response_format="png")
+            return {"bytes": base64.b64encode(data).decode()}
 
         def empty() -> dict[str, Any]:
             data = fetch(area["empty"])

@@ -157,11 +157,20 @@ def produce_eks(api, prepared_ref: str, out: Path) -> None:
     (out / 'eks-record.json').write_text(json.dumps({'cells': records}, indent=2, allow_nan=False) + '\n')
 
 
-def assemble(manifest: Path, matrix: Path, envelope: Path, lambda_record: Path, eks_record: Path, out: Path) -> None:
+def assemble(manifest: Path, matrix: Path, envelope: Path, lambda_record: Path, eks_record: Path | None, out: Path) -> None:
+    source_matrix = yaml.safe_load(matrix.read_text())
     result = {'schema': qualification.BUNDLE_SCHEMA, 'records': {
-        'awsLambda': qualification.read_json(lambda_record), 'awsEks': qualification.read_json(eks_record)}}
+        'awsLambda': qualification.read_json(lambda_record)}}
+    eks_rows = source_matrix['deploy']['honua-helm']['awsEks']['architectures']
+    eks_required = any(row.get('releaseScope') == 'ga-target' for row in eks_rows.values())
+    if eks_required and eks_record is None:
+        raise ValueError('reviewed EKS GA scope requires both complete qualification cells')
+    if eks_record is not None:
+        result['records']['awsEks'] = qualification.read_json(eks_record)
+    # Always verify the actual Lambda proof; Preview neither supplies nor fabricates GA evidence.
     verified = qualification.verify_bundle(result, yaml.safe_load(manifest.read_text()), envelope.read_bytes())
-    updated_matrix = qualification.project_verified_matrix(yaml.safe_load(matrix.read_text()), verified)
+    updated_matrix = (qualification.project_verified_matrix(source_matrix, verified)
+                      if eks_required else source_matrix)
     out.parent.mkdir(parents=True, exist_ok=True)
     with out.open('x') as stream:
         json.dump(result, stream, indent=2, allow_nan=False)
@@ -184,7 +193,7 @@ def main() -> None:
     join.add_argument('--matrix', type=Path, required=True)
     join.add_argument('--operating-envelope', type=Path, required=True)
     join.add_argument('--lambda-record', type=Path, required=True)
-    join.add_argument('--eks-record', type=Path, required=True)
+    join.add_argument('--eks-record', type=Path)
     join.add_argument('--out', type=Path, required=True)
     args = parser.parse_args()
     if args.command == 'lambda':

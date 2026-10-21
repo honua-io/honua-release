@@ -1,0 +1,10 @@
+{
+  "purpose": "TEST ONLY canonical input_digest_doc; never production import or actuator",
+  "repository": "honua-io/honua-iac",
+  "revision": "0b1af3640ff8b8b948174e3a886f51a1b04f1096",
+  "path": "scripts/lib/tf-exec-contract.sh",
+  "gitBlob": "8d02ba80178a99b33a8247ce20cedeefadcc70a6",
+  "sha256": "da86f5025725e488ba28b9122866c60f0c416ed362f6deff9aeb997931c7e018",
+  "sourceUrl": "https://github.com/honua-io/honua-iac/blob/0b1af3640ff8b8b948174e3a886f51a1b04f1096/scripts/lib/tf-exec-contract.sh",
+  "reusedIdenticalFixture": "honua-devops/tests/Honua.DevOps.Agent.Tests/fixtures/honua-iac/cleanup/tf-exec-contract.sh"
+}

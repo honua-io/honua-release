@@ -13,31 +13,66 @@
   "operations": {
     "setup": {
       "purpose": "create one clean workspace from exact candidate pins and return only credential references",
-      "requiredResponse": ["status", "workspaceId", "observation", "toolView", "credentialReferences"]
+      "requiredResponse": [
+        "status",
+        "workspaceId",
+        "observation",
+        "toolView",
+        "credentialReferences"
+      ]
     },
     "observe": {
       "purpose": "return current server-authored state and the bounded actions available for one imported journey stage",
-      "requiredResponse": ["status", "stageStatus", "observation", "toolView"]
+      "requiredResponse": [
+        "status",
+        "stageStatus",
+        "observation",
+        "toolView"
+      ]
     },
     "execute": {
       "purpose": "execute exactly the model-selected terminal command or tool call; report injectedError or recoveredError with the armed error ID when applicable",
-      "requiredResponse": ["status", "stageStatus", "result", "canonicalIds"]
+      "requiredResponse": [
+        "status",
+        "stageStatus",
+        "result",
+        "canonicalIds"
+      ]
     },
     "inject_error": {
       "purpose": "arm one recoverable error for the next matching model-selected action",
-      "requiredResponse": ["status", "errorId", "recoverable"]
+      "requiredResponse": [
+        "status",
+        "errorId",
+        "recoverable"
+      ]
     },
     "approve": {
       "purpose": "use the separate human approver profile after the model reaches AwaitingApproval",
-      "requiredResponse": ["status", "principalProfile", "proposalId", "approvalId", "proposerSelfApproval"]
+      "requiredResponse": [
+        "status",
+        "principalProfile",
+        "proposalId",
+        "approvalId",
+        "proposerSelfApproval"
+      ]
     },
     "verify": {
       "purpose": "verify final URL, pixel proof, exact IDs, isolation, RBAC, separation, and current authority",
-      "requiredResponse": ["status", "assertions", "finalUrlProof", "pixelProof", "canonicalIds"]
+      "requiredResponse": [
+        "status",
+        "assertions",
+        "finalUrlProof",
+        "pixelProof",
+        "canonicalIds"
+      ]
     },
     "teardown": {
       "purpose": "remove the isolated namespace within the declared budget",
-      "requiredResponse": ["status", "workspaceId"]
+      "requiredResponse": [
+        "status",
+        "workspaceId"
+      ]
     }
   },
   "prohibitions": [
@@ -45,5 +80,20 @@
     "execute must reject actions outside the server-authored bounded tool view",
     "approval must use a principal distinct from the proposer",
     "no operation may report pass from mocked or replayed state"
-  ]
+  ],
+  "optionalProfiles": {
+    "redis-off-serving-refusal": {
+      "contract": "certification/terminal-model-canary/redis-off-serving-refusal.v1.json",
+      "receiptSchema": "certification/terminal-model-canary/redis-off-receipt.schema.json",
+      "prerequisite": "explicit same-job stages 1-2 serving and stage 5 typed Redis refusal; retain raw sourceStatus; no failed stages",
+      "operations": [
+        "setup",
+        "observe",
+        "execute",
+        "verify",
+        "teardown"
+      ],
+      "outcome": "refused; functionalGpExecuted=false; no full-workflow or GP-completion claim"
+    }
+  }
 }

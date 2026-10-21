@@ -1,0 +1,104 @@
+{
+  "kind": "bounded-read-only-source-audit",
+  "executedTests": false,
+  "liveAwsExecution": false,
+  "sources": {
+    "honua-server": "9277d29ffbe4bfb954d59c4755b21d1ccefb9cbc",
+    "honua-release": "a5296ff13f34c6dd1a2109d1d31ad5c8d0e80935",
+    "honua-iac": "c476c9b08c3db9cfc6df64cfc0b884cb2cbc0601"
+  },
+  "weakAssertions": [
+    {
+      "area": "SQL Server read-only provider",
+      "source": "tests/dotnet/Honua.ProviderSmoke.Tests/SqlServerProviderSmokeTests.cs:176",
+      "detail": "Real HTTP create/update/delete each require sanitized 501, but lines210-216 only compare final secondary row count. Attribute mutation and primary-provider fallback write are not independently ruled out by this test. Add exact secondary rows and primary same-ID sentinel readback; preserve existing status/error assertions.",
+      "existingTracking": "honua-server#2983 provider extensions; original HTTP smoke issue #2947 closed",
+      "productionDefectProven": false
+    },
+    {
+      "area": "AWS logical restore validation",
+      "source": "infrastructure/terraform/validation/scripts/aws/run-aws-terraform-integration.sh:1490",
+      "detail": "Restores throwaway database, checks application table count and extensions; can create missing extensions. No source/restored row digest comparison or restored-DB application read in this helper. Do not treat it as full-platform AWS recovery.",
+      "existingTracking": "honua-release#337 AWS full-platform DR explicitly 2026.2; honua-iac#22 original runbook closed",
+      "productionDefectProven": false
+    }
+  ],
+  "strongCoverage": [
+    {
+      "source": "tests/dotnet/Honua.Server.Tests/Features/Security/DeniedPrincipalZeroRecordsTests.cs:111",
+      "proof": "Real populated denied/allowed resources across FeatureServer/OGC Features/OData, exact zero disclosures, authorization-bypass control exposing denied rows."
+    },
+    {
+      "source": "tests/dotnet/Honua.Ai.Tests/Source/PublishedOperationToolTests.cs:490",
+      "proof": "Unit same principal/params across tenants misses shared cache, original tenant still hits. This is not multi-node candidate qualification."
+    },
+    {
+      "source": "tests/dotnet/Honua.Protocols.SensorThings.Tests/Source/ObservationStreamTenantIsolationTests.cs:110",
+      "proof": "Two session managers over real Redis, matched tenant/schema only, wrong-schema and cross-tenant queues remain empty."
+    },
+    {
+      "source": "tests/dotnet/Honua.CloudIntegration.Tests/CandidateManagedApiKeyAotCertificationTests.cs:49",
+      "proof": "Optional candidate-image Docker lane with rotation/revocation races and post-restart denial; explicit image/Docker skips must not be interpreted as qualification."
+    },
+    {
+      "source": "tests/dotnet/Honua.ProviderSmoke.Tests/MySqlProviderSmokeTests.cs:93",
+      "proof": "HTTP read-only refusal followed by exact renamed-target unchanged name and deleted-target presence, plus count."
+    },
+    {
+      "source": "tests/dotnet/Honua.Server.Tests/Features/Protocols/Cog/CogHttpTileServingTests.cs:234",
+      "proof": "Real S3-compatible production reader and HTTP tile, all pixels equal independent GDAL decode; exact tile byte range, total bytes less than object, actual206. Emulator evidence is not AWS evidence."
+    },
+    {
+      "source": "scripts/conformance/cng/validate-canonical-artifacts.py:1085",
+      "proof": "Honua transcode graded through Rasterio formula-derived full pixel matrix/nodata/CRS/bounds plus rio-cogeo and GDAL; request/byte budgets at234; candidate binding in cng-conformance.yml:120/280."
+    },
+    {
+      "source": "tests/dotnet/Honua.Worker.Gdal.Tests/RasterExecutionProofTests.cs:141",
+      "proof": "Analytical Mercator grid/inverse samples, literal nodata/valid-zero tests and changed-pixel negative control at172."
+    },
+    {
+      "source": "tools/validate_dr_receipt.py:154",
+      "proof": "Every configured substrate: destroyed primary, clean restore, changed runtime identity, equal stateId/digest/count, ordered observations and measured RTO consistency; gate-dr.yml:124 pins trusted local-Docker workflow/trunk."
+    }
+  ],
+  "qualificationBoundaries": [
+    {
+      "issues": [
+        "honua-release#483",
+        "honua-release#377",
+        "honua-release#282"
+      ],
+      "detail": "Delivered PR654 b57cf24e provides executable four-cell update/rollback source, not a live AWS receipt. Per-transition actual Running job and exactly-once execution/output on Redis-on; Redis-off remains typed nonexecution. Governed build/lock/secret/IaC inputs and actual execution remain necessary."
+    },
+    {
+      "issues": [
+        "honua-iac#258",
+        "honua-iac#259",
+        "honua-release#483"
+      ],
+      "detail": "PR259 retained Batch revision control is source-validated only; approved IaC pin/input and actual Lambda Redis-on rollback still required."
+    },
+    {
+      "issues": [
+        "honua-release#65",
+        "honua-server#3377",
+        "honua-server#3102",
+        "honua-server#3273"
+      ],
+      "detail": "Canonical/local raster coverage is substantial. It does not itself prove real AWS S3/authenticated GP-asset range serving across the exact candidate/cells; retain existing issue scopes rather than repeat stale missing-client claims."
+    },
+    {
+      "issues": [
+        "honua-release#337"
+      ],
+      "detail": "AWS full-platform DR is explicitly outside 2026.1 local-Docker DR envelope. Do not silently promote it to a new .1 blocker."
+    },
+    {
+      "issues": [
+        "honua-iac#142"
+      ],
+      "detail": "Current TerraformTarget teardown treats destroy nonzero as failure and checks DNS leftovers; report completed means this actuator succeeded, not independent account-wide absence of every run-tagged AWS resource. Cost meter explicitly uses state inventory x elapsed time plus measured usage; lagged Cost Explorer is separately attributed."
+    }
+  ],
+  "exclusions": "No duplication of NC01-NC12 (rendering, zero-test, Actions provenance, DuckDB CRS, MCP cancellation), no issue/source mutations, no exhaustive coverage or candidate pass claim."
+}

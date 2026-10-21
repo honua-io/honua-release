@@ -5,7 +5,7 @@ server + DB + SDKs installed from a staging registry, NO mocks at the seams; dep
 real cloud targets for parity.
 
 - `scenarios/canonical-scenarios.md` — the scenario list (seeded from audit findings).
-- Tiers: **local-docker** (per-PR, full SDK × scenario) → **cloud parity** (nightly, slim canonical set per deploy target).
+- Tiers: **local-docker** (per-PR, full SDK × scenario) → **cloud parity** (canonical checks and live journeys, plus the full installed-client suite on the Redis-on GA cells).
 - Deploy targets: local docker, AWS {serverless, ECS, EKS}, Azure {ACA, AKS, Functions} — axis-decomposed (see docs/TEST-STRATEGY.md).
 - Build order: AWS-first (you have credits). OIDC (no static creds), ephemeral envs, teardown reaper, cost guardrails.
 
@@ -90,8 +90,12 @@ E2E_BASE=http://localhost:8080 E2E_API_KEY=honua-console-dev-key bash e2e/driver
 
 The "also run cloud integration" layer: deploy a **real** honua-server to a cloud target via the actual
 honua-iac, run the **canonical (slim) parity set** against its public endpoint, and assert it behaves
-identically to the reference (local docker). Per `docs/TEST-STRATEGY.md`, this does NOT re-run the full
-SDK × scenario matrix per target — it runs the small, data-independent canonical set and compares.
+identically to the reference (local docker). The canonical parity checks are supplemented by live
+journeys. ECS/Redis-on and Lambda+Batch/Redis-on also execute the complete published installed-client
+matrix against the deployed endpoint, using trusted fixture preparation and the encrypted application
+handoff. Redis-off retains serving and typed-refusal checks; it does not claim full SDK workflow coverage.
+Missing prerequisites and matrix blockers remain non-passes. See
+[`certification/installed-clients/README.md`](../certification/installed-clients/README.md#existing-aws-endpoint).
 
 **Matrix: all 3 AWS targets × Redis on/off** — so the platform is proven to behave identically across
 deploy shapes and with/without its cache:
@@ -170,9 +174,9 @@ reported there, never hidden.
 `python e2e/run_cloud.py --phase <provision|journey|admit|teardown> ...` runs one phase; without
 `--phase` all three run in one process.
 
-GA cells for 2026.1 are `{aws-ecs, aws-serverless, aws-eks} × {redis-off, redis-on}`: owner decisions
-12 and 18 of 2026-10-10 pulled honua-release#203 (bring-your-own Kubernetes) into 2026.1, so the EKS
-cells are no longer informational Preview and a red EKS cell reddens the full-scope cloud report. The
+GA cells for 2026.1 are `{aws-ecs, aws-serverless} × {redis-off, redis-on}` under the October 16
+owner amendment, superseding decisions 12/18. EKS is informational Preview: its raw failures remain
+visible and cannot replace required ECS/Lambda proofs. The
 mixed ECS + Batch cell is not in the rc.3 matrix: honua-iac has no
 `examples/aws-mixed` root yet, so the cell could only report a missing root. Restore it in
 `run_cloud.py` and `e2e-cloud-aws.yml` when honua-iac#209 lands.
@@ -204,7 +208,7 @@ step under `migration`. A server-side `HONUA_MIGRATE_ONLY` exit mode would repla
 tracked for 2026.1.x.
 
 ### The EKS cell (bring-your-own Kubernetes, honua-release#203)
-`aws-eks` is the 2026.1 Kubernetes GA cell (owner decisions 12/18 of 2026-10-10; GP on Kubernetes is
+`aws-eks` is an informational 2026.1 Preview cell (October 16 amendment supersedes decisions 12/18; GP on Kubernetes is
 honua-server#4719 and honua-helm#77). It runs the same provision → admit → journey → teardown chain as
 the ECS and Lambda cells. Provision applies `examples/aws-eks`, installs the manifest-pinned honua-helm
 chart with the manifest-pinned image by digest, and probes the Service's load balancer. Admit adds the

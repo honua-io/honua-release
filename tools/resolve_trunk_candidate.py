@@ -3,6 +3,8 @@
 
 A discovery tag is only a lookup key. Candidate images are repo@digest, with every
 linux architecture and its source revision checked against registry config bytes.
+Lambda retains its verified discovery tag plus a separate immutable platform digest
+for the existing tag@digest deployment producer.
 SDK source pins name the published primary package's source, never an unpublished head.
 """
 from __future__ import annotations
@@ -118,7 +120,7 @@ class GitHub:
         except json.JSONDecodeError as exc:
             raise ResolutionError(f'gh api {path} returned non-JSON ({exc})') from exc
 
-    def pages(self, path, key=None):
+    def pages(self, path, key=None, *, page_size=100):
         """Every row, or a refusal. Keyed pages must add up to their declared total_count.
 
         A keyed listing is read in full before any row is yielded, so a total_count that moves
@@ -128,7 +130,7 @@ class GitHub:
         for attempt in range(1, PAGING_ATTEMPTS + 1):
             page, seen, total, collected, moved = 1, 0, None, [], None
             while True:
-                result = self.json(f'{path}{separator}per_page=100&page={page}')
+                result = self.json(f'{path}{separator}per_page={page_size}&page={page}')
                 if key:
                     rows = result.get(key) if isinstance(result, dict) else None
                     count = result.get('total_count') if isinstance(result, dict) else None
@@ -146,7 +148,7 @@ class GitHub:
                     raise ResolutionError(f'gh api {path} page {page} contains a non-object row')
                 seen += len(rows)
                 collected.extend(rows)
-                if len(rows) < 100:
+                if len(rows) < page_size:
                     break
                 page += 1
             if moved is None:
@@ -178,10 +180,29 @@ class GitHub:
         runs = list(self.pages(f'repos/{repository}/actions/runs?head_sha={sha}', 'workflow_runs'))
         payload = ci._enrich_action_workflow_ids({'check_runs': checks}, {'workflow_runs': runs})
         payload['_workflow_runs'] = runs
+        policies = ci.load_full_matrix()
+        policy = policies.get(name)
+        if policy:
+            import full_matrix_evidence as matrix
+            def api_path(url):
+                prefix = 'https://api.github.com/'
+                if not url.startswith(prefix):
+                    raise ResolutionError('matrix evidence escaped the GitHub API origin')
+                return url[len(prefix):]
+            def collection(url, headers, key, *, page_size=100):
+                return {key: list(self.pages(api_path(url), key, page_size=page_size))}
+            try:
+                selected = matrix.selected_run(payload, policy, sha)
+                payload['_matrix_execution'] = matrix.collect(repository, sha, selected, policy, {}, collection,
+                                                              lambda url, headers: self.json(api_path(url)))
+            except (ValueError, ResolutionError):
+                # The same evaluator must refuse absent producer observations, including historical
+                # captured runs. Never manufacture jobs/selection to preserve a prior green result.
+                pass
         result = ci.evaluate({'components': {name: {'sha': sha}}}, lambda *_: payload,
                              enforcement='strict', env_gated=ci.load_env_gated(),
                              rollup=ci.load_rollup(), security=ci.load_security(),
-                             governance=ci.load_governance(), full_matrix=ci.load_full_matrix(),
+                             governance=ci.load_governance(), full_matrix=policies,
                              advisory=ci.load_advisory())
         row = result['components'][0]
         return row['decided'] == 'pass', row['why']
@@ -356,7 +377,7 @@ class Registry:
                     # A moved source pin cannot keep yesterday's mirror digest (honua-release#99).
                     ecr = existing if component.get('sha') == sha and (
                         existing == 'pending-ecr-mirror' or DIGEST.fullmatch(existing)) else 'pending-ecr-mirror'
-                    result.update(awsLambdaImage=f'ghcr.io/{repository}@{digest}', awsLambdaDigest=digest,
+                    result.update(awsLambdaImage=f'ghcr.io/{repository}:{lambda_tag}', awsLambdaDigest=digest,
                                   awsLambdaEcrDigest=ecr)
                 return result
             except (OSError, ValueError, subprocess.CalledProcessError) as exc:

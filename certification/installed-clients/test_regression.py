@@ -102,6 +102,57 @@ def observation(scenario, step, **payload):
     return {"scenario": scenario, "step": step, "api": api, **payload}
 
 
+class PythonTileDriverTests(unittest.TestCase):
+    def load_tile_driver(self):
+        area = {"tileMatrixSet": "WebMercatorQuad", "collectionId": "areas",
+                "painted": {"tileMatrix": 7, "tileRow": 45, "tileCol": 19},
+                "empty": {"tileMatrix": 7, "tileRow": 0, "tileCol": 0}}
+        # Only import placeholders: the SDK client boundary below records the calls. These
+        # controls do not substitute for the installed-wheel/candidate pixel proof.
+        modules = {name: mock.Mock() for name in
+                   ("honua_admin", "honua_admin._models", "honua_sdk", "honua_sdk.auth")}
+        env = {"SDKREG_API_KEY": "test-key", "SDKREG_BEARER": "test-bearer", "SDKREG_DB_PASSWORD": "test-db"}
+        with tempfile.TemporaryDirectory() as tmp, mock.patch.dict(sys.modules, modules), mock.patch.dict(os.environ, env):
+            path = Path(tmp) / "plan.json"
+            path.write_text(json.dumps({"baseUrl": "http://candidate.invalid", "area": area}))
+            return load_driver("python", path)
+
+    def test_python_raster_uses_sdk_png_selector_and_preserves_tile_bytes(self):
+        driver = self.load_tile_driver()
+        tiles = mock.Mock()
+        raster = png(2, 2, lambda x, y: x == y)
+        tiles.tile.side_effect = [b"vector-tile", raster, b""]
+        with mock.patch.object(driver, "data_client") as factory, mock.patch.object(driver, "emit") as emit:
+            factory.return_value.__enter__.return_value.ogc_tiles.return_value = tiles
+            driver.run_tiles({})
+        factory.assert_called_once_with(api_key="test-key")
+        self.assertEqual(tiles.tile.call_args_list, [
+            mock.call("WebMercatorQuad", "7", 45, 19, collection_id="areas"),
+            mock.call("WebMercatorQuad", "7", 45, 19, collection_id="areas", response_format="png"),
+            mock.call("WebMercatorQuad", "7", 0, 0, collection_id="areas"),
+        ])
+        self.assertEqual(emit.call_args_list, [
+            mock.call("sdk-ogc-tiles", "vector-tile", observed={"bytes": base64.b64encode(b"vector-tile").decode()}),
+            mock.call("sdk-ogc-tiles", "raster-tile", observed={"bytes": base64.b64encode(raster).decode()}),
+            mock.call("sdk-ogc-tiles", "empty-tile", observed={"empty": True, "size": 0}),
+        ])
+
+    def test_python_raster_sdk_failure_is_reported_as_error(self):
+        driver = self.load_tile_driver()
+        tiles = mock.Mock()
+        error = RuntimeError("candidate refused PNG")
+        error.status_code = 500
+        tiles.tile.side_effect = [b"vector-tile", error, b""]
+        with mock.patch.object(driver, "data_client") as factory, mock.patch.object(driver, "emit") as emit, \
+                mock.patch.object(driver.traceback, "print_exc"), mock.patch("builtins.print"):
+            factory.return_value.__enter__.return_value.ogc_tiles.return_value = tiles
+            driver.run_tiles({})
+        self.assertEqual(emit.call_args_list[1], mock.call(
+            "sdk-ogc-tiles", "raster-tile", error={"type": "RuntimeError", "status": 500}))
+        self.assertEqual(emit.call_args_list[2], mock.call(
+            "sdk-ogc-tiles", "empty-tile", observed={"empty": True, "size": 0}))
+
+
 class ContractTests(unittest.TestCase):
     def test_every_scenario_names_one_api_per_step_for_every_client_of_its_family(self):
         self.assertEqual(set(SCENARIOS), {"sdk-auth", "sdk-admin-lifecycle", "sdk-geoservices", "sdk-ogc-features",
@@ -244,6 +295,7 @@ class OracleTests(unittest.TestCase):
         everywhere = png(256, 256, lambda x, y: True)
         self.assertFalse(oracles.oracle_raster_tile({"bytes": base64.b64encode(everywhere).decode()}, FIXTURE)[0])
         self.assertFalse(oracles.oracle_raster_tile({"bytes": base64.b64encode(b"not a png").decode()}, FIXTURE)[0])
+        self.assertFalse(oracles.oracle_raster_tile({"bytes": "invalid@"}, FIXTURE)[0])
 
     def test_vector_tile_oracle(self):
         want = [round(v) for v in oracles._envelope_in_tile(FIXTURE["area"]["features"][0]["envelope"], FIXTURE["area"]["tiles"]["painted"], 4096)]
@@ -524,9 +576,17 @@ def passing_mcp_observations(setup=None):
         "read": {"observed": {"features": [{"attributes": {k: r[k] for k in ("gid", "name", "rank")}, "x": r["x"], "y": r["y"]}
                                            for r in oracles.filtered_sites(FIXTURE)]}},
         "render": {"observed": {"png": image, "mimeType": "image/png"}},
+        "process-catalog": {"observed": {"processes": [{"processId": FIXTURE["processes"]["processId"],
+            "executionKind": "Job", "supportedExecutionModes": ["Async"],
+            "parameters": [{"name": name} for name in ("wkb", "srid", "distance", "geodesic")]}]}},
+        "buffer-validate": {"observed": {"isExecutable": True, "requiresApproval": False, "violations": []}},
+        "buffer-invalid": {"observed": {"isExecutable": False, "violations": [{"code": "INVALID_PARAMETER_VALUE",
+            "fieldPath": "steps[buffer].inputs.wkb", "message": "expected base64-encoded WKB"}]}},
+        "buffer-dry-run": {"observed": {"estimatedArtifacts": ["FeatureLayer"], "sideEffects": []}},
         "buffer-submit": {"observed": {"jobId": "gp-1", "status": "Queued"}},
-        "buffer-poll": {"observed": {"status": "Succeeded"}},
-        "buffer-result": {"observed": {"geometry": {"type": "Feature", "geometry": {"type": "Polygon", "coordinates": [ring + [ring[0]]]}}}},
+        "buffer-replay": {"observed": {"jobId": "gp-1", "status": "Running"}},
+        "buffer-poll": {"observed": {"jobId": "gp-1", "status": "Succeeded"}},
+        "buffer-result": {"observed": {"jobId": "gp-1", "status": "Completed", "artifactId": "a-1", "errors": [], "artifactsTruncated": False, "geometry": {"type": "Feature", "properties": {"inputSrid": FIXTURE["processes"]["srid"], "processId": FIXTURE["processes"]["processId"]}, "geometry": {"type": "Polygon", "coordinates": [ring + [ring[0]]]}}}},
     })
 
 
@@ -636,6 +696,83 @@ class WorkflowTests(unittest.TestCase):
         self.assertIn("honua_admin_role_list", detail)
         self.assertFalse(judge(setup_view("default", list(PINNED_DEFAULT_VIEW), "default.v2"), FIXTURE, {}, {}, {})[0])
 
+    def test_gp_release_steps_reject_missing_and_corrupted_observations(self):
+        cell_, plan = workflow_cell("npm-mcp-workflow"), cli_plan()
+        mutations = {
+            "process-catalog": [{"processes": []}, {"processes": [{"processId": "geometry.buffer"}]}],
+            "buffer-validate": [{"isExecutable": False}, {"isExecutable": True, "requiresApproval": True, "violations": []}],
+            "buffer-invalid": [{"isExecutable": True, "violations": []}, {"isExecutable": False, "violations": []}],
+            "buffer-dry-run": [{"estimatedArtifacts": [], "sideEffects": []},
+                               {"estimatedArtifacts": ["FeatureLayer"], "sideEffects": [], "jobId": "unexpected"}],
+            "buffer-replay": [{"jobId": "gp-2", "status": "Queued"}, {"jobId": "gp-1", "status": "Failed"}],
+            "buffer-poll": [{"jobId": "gp-2", "status": "Succeeded"}, {"jobId": "gp-1", "status": "Cancelled"}],
+        }
+        for step, bad_values in mutations.items():
+            for value in [None, *bad_values]:
+                with self.subTest(step=step, value=value):
+                    observations = passing_mcp_observations()
+                    if value is None:
+                        del observations[("mcp-workflow", step)]
+                    else:
+                        observations[("mcp-workflow", step)]["observed"] = value
+                    status, detail, _ = evaluate_workflow(cell_, observations, "honua-mcp-server", plan)
+                    self.assertEqual(status, "fail", detail)
+        for patch in ({"jobId": "gp-2"}, {"status": "Failed"}, {"artifactId": None},
+                      {"errors": [{"message": "failed"}]}, {"artifactsTruncated": True}):
+            observations = passing_mcp_observations()
+            observations[("mcp-workflow", "buffer-result")]["observed"].update(patch)
+            status, detail, _ = evaluate_workflow(cell_, observations, "honua-mcp-server", plan)
+            self.assertEqual(status, "fail", detail)
+
+    def test_mcp_buffer_metadata_must_identify_the_process_and_crs(self):
+        for properties in ({}, {"inputSrid": 4326, "processId": "geometry.buffer"},
+                           {"inputSrid": 3857, "processId": "geometry.area"}):
+            observed = passing_mcp_observations()[("mcp-workflow", "buffer-result")]["observed"]
+            observed["geometry"]["properties"] = properties
+            self.assertFalse(oracles.oracle_mcp_buffer_result(observed, FIXTURE, {"jobId": "gp-1"})[0])
+
+    def test_resource_reader_reassembles_mid_token_chunks_and_preserves_cursor(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            plan = Path(tmp) / "plan.json"
+            plan.write_text(json.dumps({"baseUrl": "http://localhost:8080"}))
+            driver = load_driver("mcp", plan)
+        uri = "honua://catalog/processes"
+        session = mock.Mock()
+        session.request.side_effect = [
+            {"result": {"contents": [{"uri": uri, "text": '{"process'}], "nextCursor": "opaque+/="}},
+            {"result": {"contents": [{"uri": uri, "text": 'es":[]}'}]}},
+        ]
+        self.assertEqual(driver.resource(session, uri), {"processes": []})
+        self.assertEqual(session.request.call_args_list, [
+            mock.call("resources/read", {"uri": uri}),
+            mock.call("resources/read", {"uri": uri, "cursor": "opaque+/="}),
+        ])
+        for result in (
+            {"contents": [{"uri": "honua://wrong", "text": "{}"}]},
+            {"contents": [{"uri": uri, "text": "{}"}], "nextCursor": "loop"},
+            {"contents": [{"uri": uri, "text": "{}"}], "nextCursor": 123},
+            {"contents": [{"uri": uri, "text": "[]"}]},
+        ):
+            session.request.side_effect = None
+            session.request.return_value = {"result": result}
+            with self.subTest(result=result), self.assertRaises(driver.RpcError):
+                driver.resource(session, uri)
+        session.request.return_value = {"result": {"contents": [{"uri": uri, "text": '{"cut":'}]}}
+        with self.assertRaises(json.JSONDecodeError):
+            driver.resource(session, uri)
+
+    def test_buffer_oracle_rejects_diamond_holes_and_nonfinite_coordinates(self):
+        x, y = FIXTURE["processes"]["point"]
+        d = FIXTURE["processes"]["distance"]
+        diamond = [[x+d,y], [x,y+d], [x-d,y], [x,y-d], [x+d,y]]
+        good = passing_mcp_observations()[("mcp-workflow", "buffer-result")]["observed"]
+        for rings in ([diamond], [diamond, diamond], [[[float("nan"), y]] * 5],
+                      [[[True, y]] * 5], [[[]] * 5]):
+            bad = copy.deepcopy(good)
+            bad["geometry"]["geometry"]["coordinates"] = rings
+            with self.subTest(rings=rings):
+                self.assertFalse(oracles.oracle_buffer(bad, FIXTURE)[0])
+
     def test_mcp_setup_view_is_blocked_only_by_the_dropped_selector(self):
         # The committed cell is active: @honua/mcp-server 0.1.14 retains the setup view (sdk-js#1875).
         committed, plan = workflow_cell("npm-mcp-workflow"), cli_plan()
@@ -741,12 +878,109 @@ class WorkflowTests(unittest.TestCase):
         samples = oracles.render_expectations(FIXTURE)
         self.assertEqual(sum(1 for *_, inside in samples if inside), 3)
         self.assertEqual(len(samples), 8)
-        encode = lambda data: {"png": base64.b64encode(data).decode()}  # noqa: E731
+        encode = lambda data: {"png": base64.b64encode(data).decode(), "mimeType": "image/png"}  # noqa: E731
         self.assertTrue(oracles.oracle_map_render(encode(png(spec["width"], spec["height"], lambda x, y: 40 <= x < 220 and 40 <= y < 280)), FIXTURE)[0])
         self.assertFalse(oracles.oracle_map_render(encode(png(spec["width"], spec["height"], lambda x, y: False)), FIXTURE)[0])
         self.assertFalse(oracles.oracle_map_render(encode(png(spec["width"], spec["height"], lambda x, y: True)), FIXTURE)[0])
+        self.assertEqual(oracles.oracle_map_render(encode(png(spec["width"], spec["height"],
+            lambda x, y: 0 <= x < 180 and 40 <= y < 280)), FIXTURE)[1].split(":")[0], "alpha-mismatch")
         self.assertFalse(oracles.oracle_map_render(encode(png(64, 64, lambda x, y: True)), FIXTURE)[0])
-        self.assertFalse(oracles.oracle_map_render({"png": "not-base64!"}, FIXTURE)[0])
+        self.assertEqual(oracles.oracle_map_render(encode(b"not a PNG"), FIXTURE)[1], "invalid-png:signature")
+        self.assertEqual(oracles.oracle_map_render({"png": "not-base64!", "mimeType": "image/png"}, FIXTURE)[1],
+                         "invalid-png:base64")
+        self.assertEqual(oracles.oracle_map_render({**encode(png(1, 1, lambda x, y: True)),
+                                                    "mimeType": "application/octet-stream"}, FIXTURE)[1],
+                         "invalid-media-type: expected image/png")
+
+    def test_png_container_and_inflate_refusals_are_typed(self):
+        def chunk(kind, payload):
+            return struct.pack(">I", len(payload)) + kind + payload + struct.pack(">I", zlib.crc32(kind + payload))
+
+        def image(raw, width=1, height=1, color=6, before_idat=b""):
+            return b"\x89PNG\r\n\x1a\n" + chunk(b"IHDR", struct.pack(">IIBBBBB", width, height, 8, color, 0, 0, 0)) + \
+                   before_idat + chunk(b"IDAT", zlib.compress(raw)) + chunk(b"IEND", b"")
+
+        valid = image(b"\x00\0\0\xff\xff")
+        width, height, pixel = oracles.decode_png(valid)
+        self.assertEqual((width, height, pixel(0, 0)), (1, 1, (0, 0, 255, 255)))
+        rgb_transparent = image(b"\x00\0\0\xff", color=2,
+                                before_idat=chunk(b"tRNS", struct.pack(">HHH", 0, 0, 255)))
+        self.assertEqual(oracles.decode_png(rgb_transparent)[2](0, 0), (0, 0, 255, 0))
+        rgb_high_bits = image(b"\x00\0\0\xff", color=2,
+                              before_idat=chunk(b"tRNS", struct.pack(">HHH", 256, 0, 255)))
+        self.assertEqual(oracles.decode_png(rgb_high_bits)[2](0, 0), (0, 0, 255, 0))
+        gray_high_bits = image(b"\x00\x00", color=0,
+                               before_idat=chunk(b"tRNS", struct.pack(">H", 256)))
+        self.assertEqual(oracles.decode_png(gray_high_bits)[2](0, 0), (0, 0, 0, 0))
+        indexed = image(b"\x00\x00", color=3,
+                        before_idat=chunk(b"PLTE", b"\xff\0\0") + chunk(b"tRNS", b"\x80"))
+        self.assertEqual(oracles.decode_png(indexed)[2](0, 0), (255, 0, 0, 128))
+        compressed = zlib.compress(b"\x00\0\0\xff\xff")
+        idat_padding = (valid[:33] + chunk(b"IDAT", compressed + b"\x00\x00")
+                        + chunk(b"IEND", b""))
+        self.assertEqual(oracles.decode_png(idat_padding)[2](0, 0), (0, 0, 255, 255))
+        bad_crc = bytearray(valid)
+        bad_crc[-17] ^= 1
+        cases = {
+            "crc": bytes(bad_crc),
+            "missing-iend": valid[:-12],
+            "trailing-data": valid + b"x",
+            "idat-padding-order": valid[:33] + chunk(b"IDAT", compressed + b"\x00")
+                                  + chunk(b"IDAT", b"") + chunk(b"IEND", b""),
+            "truncated-chunk": valid[:-2],
+            "filter": image(b"\x05\0\0\xff\xff"),
+            "inflate-limit": image(b"\x00\0\0\xff\xff" + b"x" * 1024),
+            "inflate-length": image(b"\x00\0\0\xff"),
+            "dimensions": image(b"\x00\0\0\xff\xff", width=5000),
+            "critical-chunk": valid[:33] + chunk(b"ABCD", b"x") + valid[33:],
+        }
+        for expected, payload in cases.items():
+            with self.subTest(expected=expected), self.assertRaisesRegex(ValueError, f"^{expected}$"):
+                oracles.decode_png(payload)
+
+    def test_png_filters_reconstruct_authored_multiline_rgba(self):
+        def chunk(kind, payload):
+            return struct.pack(">I", len(payload)) + kind + payload + struct.pack(">I", zlib.crc32(kind + payload))
+
+        def image(width, height, color, filtered_rows):
+            return (b"\x89PNG\r\n\x1a\n"
+                    + chunk(b"IHDR", struct.pack(">IIBBBBB", width, height, 8, color, 0, 0, 0))
+                    + chunk(b"IDAT", zlib.compress(filtered_rows)) + chunk(b"IEND", b""))
+
+        gray = lambda value: (value, value, value, 255)  # noqa: E731
+        cases = [
+            ("Sub gray", 3, 1, 0, bytes((1, 10, 10, 10)), [[gray(10), gray(20), gray(30)]]),
+            ("Up gray", 3, 2, 0, bytes((0, 10, 20, 30, 2, 1, 2, 3)),
+             [[gray(10), gray(20), gray(30)], [gray(11), gray(22), gray(33)]]),
+            ("Average gray", 3, 2, 0, bytes((0, 10, 20, 30, 3, 5, 7, 9)),
+             [[gray(10), gray(20), gray(30)], [gray(10), gray(22), gray(35)]]),
+            # Each Paeth vector names the selected predictor for the bottom-right pixel.
+            ("Paeth left", 2, 2, 0, bytes((0, 10, 20, 4, 90, 1)),
+             [[gray(10), gray(20)], [gray(100), gray(101)]]),
+            ("Paeth up", 2, 2, 0, bytes((0, 20, 100, 4, 246, 1)),
+             [[gray(20), gray(100)], [gray(10), gray(101)]]),
+            ("Paeth corner", 2, 2, 0, bytes((0, 50, 100, 4, 206, 1)),
+             [[gray(50), gray(100)], [gray(0), gray(51)]]),
+            ("Paeth left-corner tie", 2, 2, 0, bytes((0, 20, 30, 4, 236, 1)),
+             [[gray(20), gray(30)], [gray(0), gray(1)]]),
+            ("Paeth up-corner tie", 2, 2, 0, bytes((0, 20, 0, 4, 10, 1)),
+             [[gray(20), gray(0)], [gray(30), gray(1)]]),
+            ("Sub RGB", 2, 1, 2, bytes((1, 10, 20, 30, 5, 6, 7)),
+             [[(10, 20, 30, 255), (15, 26, 37, 255)]]),
+            ("Up RGB", 2, 2, 2, bytes((0, 10, 20, 30, 15, 26, 37, 2, 1, 2, 3, 4, 5, 6)),
+             [[(10, 20, 30, 255), (15, 26, 37, 255)], [(11, 22, 33, 255), (19, 31, 43, 255)]]),
+            ("Average RGB", 2, 2, 2, bytes((0, 10, 20, 30, 15, 26, 37, 3, 1, 2, 3, 4, 5, 6)),
+             [[(10, 20, 30, 255), (15, 26, 37, 255)], [(6, 12, 18, 255), (14, 24, 33, 255)]]),
+            ("Paeth RGB", 2, 2, 2, bytes((0, 10, 20, 30, 15, 26, 37, 4, 1, 2, 3, 4, 5, 6)),
+             [[(10, 20, 30, 255), (15, 26, 37, 255)], [(11, 22, 33, 255), (19, 31, 43, 255)]]),
+            ("Sub RGBA", 2, 1, 6, bytes((1, 10, 20, 30, 40, 1, 2, 3, 4)),
+             [[(10, 20, 30, 40), (11, 22, 33, 44)]]),
+        ]
+        for name, width, height, color, filtered_rows, expected in cases:
+            with self.subTest(name=name):
+                actual_width, actual_height, pixel = oracles.decode_png(image(width, height, color, filtered_rows))
+                self.assertEqual((actual_width, actual_height), (width, height))
+                self.assertEqual([[pixel(x, y) for x in range(width)] for y in range(height)], expected)
 
     def test_mcp_job_oracles(self):
         self.assertTrue(oracles.oracle_mcp_job_accepted({"jobId": "gp-1", "status": "Queued"})[0])

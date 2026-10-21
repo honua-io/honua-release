@@ -798,3 +798,82 @@ def test_identifier_exception_cannot_cover_confidential_hits_or_nonliteral_patte
     for identifiers in [["*esri*"], [""], "esri", [12]]:
         with pytest.raises(SystemExit, match="exact nonempty lexical identifiers"):
             vt.load_allowlist(_allowlist(tmp_path, [{**entry, "identifiers": identifiers}]))
+
+
+@pytest.mark.parametrize("version,next_version", [("0.2.1", "0.2.2"), ("0.2.2", "0.2.3")])
+def test_published_coordinate_exception_is_exact_and_path_scoped(version, next_version):
+    directory = "sdk-" + version.replace(".", "")
+    publication = f"certification/sdk-publication-replay/{directory}/published-release-verification.v1.json"
+    observations = f"certification/sdk-publication-replay/{directory}/registry-observations.json"
+    entries = vt.load_allowlist(vt.ALLOWLIST)
+    selected = [entry for entry in entries if publication in entry.paths]
+    assert len(selected) == 1
+    entry = selected[0]
+    assert set(entry.paths) == {"platform-manifest.yaml", publication, observations}
+    classifier = vt.Classifier("honua-release", VOCABULARY, selected)
+    for path in (publication, observations):
+        hits = classifier.classify_text(path, (vt.ROOT / path).read_text())
+        assert hits and all(hit.exception is not None for hit in hits)
+    for identifier in entry.identifiers:
+        for path, value in [(publication, identifier + "-extra"), ("other.json", identifier)]:
+            hits = classifier.classify_text(path, json.dumps({"package": value}))
+            assert hits and all(hit.exception is None for hit in hits)
+        hits = classifier.classify_text(publication, json.dumps({"description": "endorsed by " + identifier}))
+        assert hits and all(hit.exception is None for hit in hits)
+    prose = classifier.classify_text(publication, json.dumps({"description": entry.tokens[0] + " compatibility"}))
+    assert prose and all(hit.exception is None for hit in prose)
+    changed_version = classifier.classify_text(publication, (vt.ROOT / publication).read_text().replace(version, next_version))
+    assert any(hit.exception is None for hit in changed_version)
+
+
+def test_default_consumer_lock_exception_preserves_exact_observed_coordinates_only():
+    paths = {
+        f"certification/sdk-publication-replay/sdk-022/default-{template}/sdk-package-lock.json"
+        for template in ("vanilla-ts", "react-ts")
+    }
+    selected = [entry for entry in vt.load_allowlist(vt.ALLOWLIST) if paths & set(entry.paths)]
+    assert len(selected) == 1 and set(selected[0].paths) == paths
+    classifier = vt.Classifier("honua-release", VOCABULARY, selected)
+    for path in paths:
+        raw = (vt.ROOT / path).read_text()
+        hits = classifier.classify_text(path, raw)
+        assert hits and all(hit.exception is not None for hit in hits)
+        changed = classifier.classify_text(path, raw.replace("0.1.18.tgz", "0.1.19.tgz"))
+        assert any(hit.exception is None for hit in changed)
+        for identifier in selected[0].identifiers:
+            for other_path, value in (("other.json", identifier), (path, identifier + "-extra")):
+                rejected = classifier.classify_text(other_path, json.dumps({"package": value}))
+                assert rejected and all(hit.exception is None for hit in rejected)
+            prose = classifier.classify_text(path, json.dumps({"description": "endorsed by " + identifier}))
+            assert prose and all(hit.exception is None for hit in prose)
+
+
+def test_immutable_gp_guide_exception_is_exact_and_remains_visible():
+    import hashlib
+
+    path = "certification/executable-docs/fixtures/site-geoprocessing-7d733c0.md"
+    raw = (vt.ROOT / path).read_bytes()
+    assert len(raw) == 4504
+    assert hashlib.sha256(raw).hexdigest() == "652c7bb512f161474088dce1e1f8faef322d74a9a025dd4873b13d22a65193aa"
+    entries = vt.load_allowlist(vt.ALLOWLIST)
+    selected = [entry for entry in entries if entry.covers("honua-release", path, "Esri")]
+    assert len(selected) == 1
+    entry = selected[0]
+    assert entry.paths == (path,) and entry.tokens == ("Esri",)
+    assert entry.owner == "@mikemcdougall"
+    source_entry = json.loads(vt.ALLOWLIST.read_text())["entries"][entry.index]
+    assert source_entry["issue"] == "honua-io/honua-release#721"
+    assert "652c7bb5" in entry.reason
+    for repo, candidate, content, excepted in [
+        ("honua-release", path, raw, True),
+        ("honua-release", path.replace("7d733c0", "sibling"), raw, False),
+        ("honua-site", path, raw, False),
+        ("honua-release", path, b"ArcGIS Online\n", False),
+    ]:
+        hits, skipped, scanned = vt.scan([(candidate, content)], repo, VOCABULARY, entries)
+        report = vt.build_report(repo, "0" * 40, hits, skipped, scanned)
+        assert report["counts"]["avoidable"] == 1
+        assert report["counts"]["avoidableExcepted"] == int(excepted)
+        baseline = {"schema": vt.BASELINE_SCHEMA, "repo": repo, "files": {}, "total": 0}
+        assert bool(vt.lint(report, baseline)) is not excepted
+        assert ("exception" in report["avoidable"][0]) is excepted

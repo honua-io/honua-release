@@ -24,7 +24,10 @@ jobs:
     if: github.ref == 'refs/heads/trunk'
     runs-on: ubuntu-latest
     timeout-minutes: 120
+    permissions:
+      contents: write
     outputs:
+      prepared_ref: ${{ steps.prepared.outputs.prepared_ref }}
       platform_label: ${{ steps.stamp.outputs.platform_label }}
       server_sha: ${{ steps.server.outputs.server_sha }}
       server_image: ${{ steps.server.outputs.server_image }}
@@ -81,6 +84,31 @@ jobs:
           print(f"server_sha={server['sha']}")
           print(f"server_image={image}")
           PY
+      - name: Publish unadmitted resolved inputs for capacity
+        id: prepared
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          git diff --cached --quiet
+          python - <<'PYTHON'
+          import json
+          marker = json.load(open("resolved-candidate/deployment-preparation.json", encoding="utf-8"))
+          if (marker.get("schema") != "honua.deployment-preparation/v1"
+                  or marker.get("status") != "unadmitted"
+                  or marker.get("candidateQualified") is not False):
+              raise SystemExit("resolved preparation must remain explicitly unadmitted")
+          PYTHON
+          for file in platform-manifest.yaml compatibility-matrix.yaml deployment-preparation.json; do
+            test -f "resolved-candidate/$file" && test ! -L "resolved-candidate/$file"
+            cp "resolved-candidate/$file" "$file"
+          done
+          git add platform-manifest.yaml compatibility-matrix.yaml deployment-preparation.json
+          tree="$(git write-tree)"
+          sha="$(GIT_AUTHOR_NAME='Mike McDougall' GIT_AUTHOR_EMAIL='mike@honua.io' \
+            GIT_COMMITTER_NAME='Mike McDougall' GIT_COMMITTER_EMAIL='mike@honua.io' \
+            git commit-tree "$tree" -p "$GITHUB_SHA" -m 'chore: prepare unadmitted capacity inputs')"
+          git push origin "${sha}:refs/prepared-deployments/${sha}"
+          echo "prepared_ref=${sha}" >> "$GITHUB_OUTPUT"
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: resolved-candidate
@@ -152,7 +180,7 @@ jobs:
     timeout-minutes: 330
     permissions:
       contents: read
-      actions: write
+      actions: read
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
@@ -163,13 +191,8 @@ jobs:
         with:
           name: prepared-deployment
           path: prepared-deployment
-      # Separate producer run: its successful completed attempt and immutable artifact bytes
-      # can be authenticated before this nightly run admits any candidate.
-      - name: Execute both complete EKS qualification cells
-        env:
-          GH_TOKEN: ${{ secrets.RELEASE_GH_TOKEN }}
-          PREPARED_REF: ${{ needs.lambda_deployment.outputs.prepared_ref }}
-        run: python tools/nightly_deployments.py eks --prepared-ref "$PREPARED_REF" --out-dir eks-proof
+      # EKS is Preview under the 2026-10-16 owner amendment. Its standalone cloud
+      # producer retains raw evidence; it does not block candidate admission or become a pass.
       - name: Verify and join actual deployment proof
         env:
           GH_TOKEN: ${{ secrets.RELEASE_GH_TOKEN }}
@@ -178,7 +201,7 @@ jobs:
             --manifest prepared-deployment/platform-manifest.yaml \
             --matrix prepared-deployment/compatibility-matrix.yaml \
             --operating-envelope docs/2026.1-operating-envelope.md \
-            --lambda-record prepared-deployment/lambda-record.json --eks-record eks-proof/eks-record.json \
+            --lambda-record prepared-deployment/lambda-record.json \
             --out qualification/deployment-qualification.json
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
@@ -315,10 +338,9 @@ jobs:
             ${{ runner.temp }}/protocol-ledger-binding.json
           if-no-files-found: warn
 
-  # capacity soaks the resolved server image in parallel with protocol_ledger: it reads only the
-  # server sha and image (fixed by resolve) and certification/capacity-envelope.v1.json at
-  # lock_ref, which a candidate snapshot never changes (candidate-input admits manifest, matrix and
-  # catalog data only), so this run's commit is the same envelope bytes.
+  # Capacity reads both the resolved manifest and unchanged capacity envelope from the same
+  # immutable, unadmitted preparation commit. It remains parallel with deployment/protocol proof;
+  # this input snapshot is never a qualified candidate or a mint authorization.
   capacity:
     needs: resolve
     runs-on: ubuntu-latest
@@ -340,7 +362,7 @@ jobs:
           GH_TOKEN: ${{ secrets.RELEASE_GH_TOKEN }}
           SERVER_SHA: ${{ needs.resolve.outputs.server_sha }}
           SERVER_IMAGE: ${{ needs.resolve.outputs.server_image }}
-          LOCK_REF: ${{ github.sha }}
+          LOCK_REF: ${{ needs.resolve.outputs.prepared_ref }}
         run: |
           set -euo pipefail
           repo=honua-io/honua-server
