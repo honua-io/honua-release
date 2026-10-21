@@ -796,6 +796,12 @@ jobs:
                   fi
                 fi
                 tail -n 60 /tmp/upgrade.log || true
+                # What the rolled-back prior said about the schema it found (e.g. schema_reader_incompatible).
+                for prev in "" --previous; do
+                  kubectl logs -n "$NS" -l app.kubernetes.io/instance=honua --all-containers --prefix --tail=400 $prev \
+                    >> /tmp/upg/rollback-prior.log 2>&1 || true
+                done
+                grep -hoE 'schema_reader_incompatible[^"]{0,300}' /tmp/upg/rollback-prior.log | head -n 1 || true
               fi
             else
               STATUS=fail; WHY="helm install of the prior baseline image failed"; tail -n 60 /tmp/install.log || true
