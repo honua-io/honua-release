@@ -71,10 +71,6 @@ try {
   const prefix = rendered.type === 'symbol' ? 'text' : rendered.type;
   const colorProperty = `${prefix}-color`, opacityProperty = `${prefix}-opacity`;
   const expression = ['match', ['get', thematic.name], thematic.values[0], '#eff3ff', '#c6dbef'];
-  await page.waitForFunction(layerId => {
-    const map = document.querySelector('honua-studio-canvas')?.mapView?.map;
-    return map?.getLayer(layerId) && map.queryRenderedFeatures({ layers: [layerId] }).length > 0;
-  }, handoff.layerId, { timeout: 60000 });
   await editor.getByRole('combobox', { name: 'Map layer for styling', exact: true }).selectOption(handoff.layerId);
   await editor.getByRole('combobox', { name: 'Actual source field', exact: true }).selectOption(thematic.name);
   await editor.getByRole('combobox', { name: 'Thematic method', exact: true }).selectOption('categories');
@@ -94,6 +90,11 @@ try {
   }
   assert(after.generation > before.generation, 'visual save must advance the exact draft');
   assert.deepEqual(after.envelope.body.mapSpec.layers.find(layer => layer.id === handoff.layerId).paint[colorProperty], expression);
+  await page.getByRole('button', { name: 'Return to map', exact: true }).click();
+  await page.waitForFunction(layerId => {
+    const map = document.querySelector('honua-studio-canvas')?.mapView?.map;
+    return map?.getLayer(layerId) && map.queryRenderedFeatures({ layers: [layerId] }).length > 0;
+  }, handoff.layerId, { timeout: 60000 });
   const prompt = `In current map ${handoff.packageKey}, change only render layer ${handoff.layerId} ` +
     `paint property ${opacityProperty} to 0.55. Preserve its existing ${colorProperty} thematic expression ` +
     `over field ${thematic.name}, all sources and all other layers. Save and reopen this same map, then ` +
