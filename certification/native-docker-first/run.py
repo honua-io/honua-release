@@ -1659,7 +1659,11 @@ def phase_agent_map_audience(args, state, binding, attempt):
                   if '=' in line and not line.startswith('#'))
     script = ROOT / 'certification/native-docker-first/agent-map-audience.mjs'
     handoff = attempt / 'agent-map-final-handoff.json'
-    private_json(handoff, state['agentMapFinish'], new=True)
+    if handoff.exists():
+        if read_json(handoff) != state['agentMapFinish']:
+            raise Blocked('final external map handoff changed before audience reconciliation')
+    else:
+        private_json(handoff, state['agentMapFinish'], new=True)
     env = {**os.environ, 'HONUA_AGENT_MAP_CONSOLE_ROOT': str(args.console_root),
            'HONUA_AGENT_MAP_FINAL_HANDOFF': str(handoff),
            'HONUA_AGENT_MAP_INITIAL_HANDOFF': str(attempt / 'agent-map-handoff.json'),
