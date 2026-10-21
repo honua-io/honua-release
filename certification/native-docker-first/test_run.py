@@ -15,6 +15,68 @@ spec.loader.exec_module(runner)
 
 
 class NativeFirstUseTests(unittest.TestCase):
+    def test_resumed_client_submits_only_original_prepared_task_and_reads_actual_job(self):
+        original = {'workspaceId': 'workspace-1', 'turnId': 'turn-1', 'taskId': 'task-1',
+                    'revision': 1, 'contentHash': 'a' * 64, 'ownerActorId': 'agent-1'}
+        reference = {'workspaceId': 'workspace-1', 'taskId': 'task-1',
+                     'revision': 1, 'contentHash': 'a' * 64}
+        identity = {'taskId': 'task-1', 'taskRevision': 1, 'taskContentHash': 'a' * 64}
+        authority = {**identity, 'originatingTurnId': 'turn-1', 'executorActorId': 'agent-1',
+                     'preparedOperationId': 'operation-1', 'authorityRevision': 2,
+                     'authorityFingerprint': 'b' * 64, 'policyContextFingerprint': 'c' * 64}
+        prepared = {**identity, 'state': 'prepared', 'operationId': 'operation-1',
+                    'authorityRevision': 2, 'authorityFingerprint': 'b' * 64,
+                    'policyContextFingerprint': 'c' * 64}
+        accepted = {**prepared, 'state': 'accepted',
+                    'job': {'jobId': 'operation-1', 'leaseId': 'lease-1', 'status': 'queued'}}
+        request = {'taskContentHash': 'a' * 64, 'authorityRevision': 2,
+                   'authorityFingerprint': 'b' * 64, 'policyContextFingerprint': 'c' * 64}
+        def call(name, identifier, value):
+            return {'message': {'content': [{'type': 'tool_use', 'name': 'mcp__honua__' + name,
+                                            'id': identifier, 'input': value}]}}
+        def result(identifier, value):
+            return {'message': {'content': [{'type': 'tool_result', 'tool_use_id': identifier,
+                                            'content': json.dumps(value)}]}}
+        events = [call('honua_agent_connect', 'bind', {'workspaceId': 'workspace-1', 'turnId': 'turn-1'}),
+                  result('bind', {'state': 'attached', 'turnBinding': {'workspaceId': 'workspace-1', 'turnId': 'turn-1'}}),
+                  call('honua_workspace_get_dataset_import_authority', 'authority', reference),
+                  result('authority', authority),
+                  call('honua_workspace_get_dataset_import_submission', 'before', reference),
+                  result('before', prepared),
+                  call('honua_workspace_submit_dataset_import', 'submit',
+                       {'workspaceId': 'workspace-1', 'taskId': 'task-1', 'revision': 1, 'request': request}),
+                  result('submit', accepted),
+                  call('honua_workspace_get_dataset_import_submission', 'after', reference),
+                  result('after', accepted)]
+        transcript = lambda items: '\n'.join(json.dumps(item) for item in items)
+        self.assertEqual(runner.observed_agent_submission(transcript(events), original)['jobId'], 'operation-1')
+        for broken in (events[:5] + [events[6], events[5]] + events[7:],
+                       events[:7] + [events[8], events[7]] + events[9:],
+                       events + [events[1]],
+                       events + [events[0]],
+                       [*events[:2], {**events[2], 'message': {'content': [
+                           {**events[2]['message']['content'][0], 'id': 'bind'}]}}, *events[3:]]):
+            with self.assertRaises(runner.Blocked):
+                runner.observed_agent_submission(transcript(broken), original)
+        with self.assertRaisesRegex(runner.Blocked, 'original agent'):
+            runner.observed_agent_submission(transcript(events), {**original, 'ownerActorId': 'foreign-agent'})
+        with self.assertRaises(runner.Blocked):
+            runner.observed_agent_submission(transcript(events), {key: value for key, value in original.items()
+                                                               if key != 'ownerActorId'})
+        for index, field in ((0, 'bind'), (6, 'revision'), (9, 'job'), (9, 'fingerprint')):
+            broken = json.loads(json.dumps(events))
+            if field in ('job', 'fingerprint'):
+                payload = json.loads(broken[index]['message']['content'][0]['content'])
+                if field == 'job': payload['job']['jobId'] = 'foreign-job'
+                else: payload['authorityFingerprint'] = 'd' * 64
+                broken[index]['message']['content'][0]['content'] = json.dumps(payload)
+            elif field == 'bind':
+                broken[index]['message']['content'][0]['input']['turnId'] = 'other-turn'
+            else:
+                broken[index]['message']['content'][0]['input']['request']['authorityRevision'] = 3
+            with self.assertRaises(runner.Blocked):
+                runner.observed_agent_submission(transcript(broken), original)
+
     def test_agent_continuation_refuses_changed_mcp_registration_bytes(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
@@ -80,15 +142,21 @@ class NativeFirstUseTests(unittest.TestCase):
                       call('honua_workspace_create_dataset_import_task', 'i', {'workspaceId': 'workspace-1', 'request': request}),
                       result('i', {'taskId': 'task-1', 'revision': 1, 'contentHash': 'a'*64,
                                    'workspaceId': 'workspace-1', 'targetId': 'target-1', 'tenantId': 'tenant-1',
+                                   'ownerActorId': 'agent-1',
                                    'source': {key: value for key, value in request['source'].items() if value is not None},
                                    'destination': request['destination']})]
             transcript = '\n'.join(events)
             runner.observed_client_session(transcript, 'session-1')
-            self.assertEqual(runner.observed_agent_task(transcript, 'workspace-1', 'turn-1', 'intent-1', source)['taskId'], 'task-1')
+            observed = runner.observed_agent_task(transcript, 'workspace-1', 'turn-1', 'intent-1', source)
+            self.assertEqual((observed['taskId'], observed['ownerActorId']), ('task-1', 'agent-1'))
+            for broken in (events[:2] + [events[3], events[2]] + events[4:],
+                           events + [events[8]], events + [events[1]]):
+                with self.assertRaises(runner.Blocked):
+                    runner.observed_agent_task('\n'.join(broken), 'workspace-1', 'turn-1', 'intent-1', source)
             with self.assertRaisesRegex(runner.Blocked, 'same persistent'):
                 runner.observed_client_session(transcript, 'different-session')
             for bad in ('turnBinding', 'browserFileSelection', 'task', 'workspace', 'target',
-                        'tenant', 'destination', 'artifact'):
+                        'tenant', 'destination', 'artifact', 'ownerActorId'):
                 broken = list(events)
                 index = {'turnBinding': 6, 'browserFileSelection': 4}.get(bad, 8)
                 payload = json.loads(broken[index])
@@ -100,6 +168,7 @@ class NativeFirstUseTests(unittest.TestCase):
                 elif bad == 'target': output['targetId'] = 'foreign-target'
                 elif bad == 'tenant': output['tenantId'] = 'foreign-tenant'
                 elif bad == 'destination': output['destination']['table'] = 'foreign_table'
+                elif bad == 'ownerActorId': output.pop('ownerActorId')
                 else: output['source']['artifact'] = {'projectId': 'foreign'}
                 payload['message']['content'][0]['content'] = json.dumps(output)
                 broken[index] = json.dumps(payload)
