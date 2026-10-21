@@ -6,9 +6,9 @@
 # Every cell retains attempts, records its live cost estimate before teardown, and always runs its teardown job.
 # Extended MCP / Studio / GP / demo seams use the local drivers on the live endpoint before teardown.
 # They and the pinned journey clients run in each cell's credential-free journey job
-# (e2e-cloud-aws-cell.yml, honua-release#381). The reviewed site's CSP genuinely BLOCKs top-demo on an
-# AWS hostname (honua-release#450); strict require_real still fails that cell. A driver FAIL always
-# fails, including bootstrap dispatches.
+# (e2e-cloud-aws-cell.yml, honua-release#381). Under require_real, a GA cell whose endpoint is not
+# https on honua.io fails at provision with the CSP hostname precondition (honua-release#450), before
+# top-demo can report that hostname as BLOCKED. A driver FAIL always fails, including bootstrap dispatches.
 name: e2e-cloud-aws
 
 on:

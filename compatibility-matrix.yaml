@@ -151,6 +151,10 @@ data:
     # (126_AddStudioContentHashInput.sql, 127_CompleteSensorThingsSensing.sql,
     # 128_AddNetworkTopologyPromotionRequestHash.sql); the client-compatibility floor stays >=115.
     requiresDbSchema: ">=115"
+    # Graph schema (metadataSchemaVersion), not the metadata API id under contracts.metadata.
+    # Same hand value as the manifest. It does not survive resolve until the server
+    # declaration at the pinned sha declares metadata and omits database.
+    metadataSchema: "2.0.0-alpha.1"
 
 # Capability lifecycle vocabulary. Every row under `capabilities:` takes exactly one of these values
 # (tools/validate_platform.py check_capability_lifecycle).

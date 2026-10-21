@@ -765,6 +765,26 @@ def check_coherence(manifest: dict, matrix: dict, f: Findings) -> None:
             f"manifest honua-server.dbSchema={manifest_db!r}"
         )
 
+    # The metadata graph schema is schemaVersions.metadata. contractVersions.metadata is the API id.
+    matrix_metadata = str(((matrix.get("data") or {}).get("honua-server") or {}).get("metadataSchema", "")).strip()
+    manifest_metadata = str(((server.get("schemaVersions") or {}).get("metadata") or "")).strip()
+    metadata_api = str(((server.get("contractVersions") or {}).get("metadata") or "")).strip()
+    if not manifest_metadata:
+        f.error(
+            "coherence: manifest honua-server.schemaVersions.metadata is required "
+            "(the graph schema, not the metadata API id)"
+        )
+    elif metadata_api and manifest_metadata == metadata_api:
+        f.error(
+            "coherence: honua-server.schemaVersions.metadata must be the graph schema, "
+            "not the metadata API identifier"
+        )
+    elif matrix_metadata != manifest_metadata:
+        f.error(
+            f"coherence: matrix data.honua-server.metadataSchema={matrix_metadata!r} disagrees with "
+            f"manifest honua-server.schemaVersions.metadata={manifest_metadata!r}"
+        )
+
 
 # --------------------------------------------------------------------------------------------------
 # drift — a range may only widen unless the contract version bumped

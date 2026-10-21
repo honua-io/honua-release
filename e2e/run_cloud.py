@@ -130,6 +130,24 @@ def installed_clients():
     return sys.modules[name]
 
 
+def ga_cell_hostname_precondition(target, scheme: str, host: str, *, require_real: bool,
+                                  evidence_tier: str) -> str | None:
+    """Under require_real, a GA cell that can name a per-run domain must be https on honua.io.
+
+    A stub target has no cell_domain, so this does not apply to it. Preview cells are out of
+    this precondition. The product itself is not restricted to honua.io hostnames; this is the
+    cert-cell name the demo CSP admits.
+    """
+    if not require_real or evidence_tier != "GA" or not callable(getattr(target, "cell_domain", None)):
+        return None
+    admitted = scheme == "https" and (host == "honua.io" or host.endswith(".honua.io"))
+    if admitted:
+        return None
+    shown = f"{scheme or 'unset'}://{host or 'unset'}"
+    return ("CSP hostname precondition: a require_real GA cell must serve https on honua.io "
+            f"so the top-demo origin is admitted; got {shown}")
+
+
 def provision_phase(target, target_name: str, *, require_real: bool, redis_enabled: bool,
                     journey_datasource: dict | None = None, installed_context: dict | None = None) -> dict:
     """Credentialed half: provision, probe and seed the cell. Nothing third-party runs here.
@@ -183,7 +201,14 @@ def provision_phase(target, target_name: str, *, require_real: bool, redis_enabl
         # an ECS cell with a per-run hostname is https; the receipt's "Candidate transport" notice
         # records the same pair). Identifiers only.
         parsed = urllib.parse.urlsplit(endpoint)
-        report["transport"] = {"scheme": parsed.scheme, "host": (parsed.hostname or "").lower()}
+        host = (parsed.hostname or "").lower().rstrip(".")
+        report["transport"] = {"scheme": parsed.scheme, "host": host}
+        precondition = ga_cell_hostname_precondition(
+            target, parsed.scheme, host, require_real=require_real, evidence_tier=report["evidenceTier"])
+        if precondition:
+            report["status"] = "fail"
+            report["why"] = precondition
+            return state
         if getattr(target, "migrates_before_serving", False):
             # The serverless root boots the Lambda with skip_migrations=true; migrate the cell's
             # database from this runner before anything is probed. A cell that cannot migrate fails

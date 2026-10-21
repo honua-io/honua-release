@@ -466,13 +466,6 @@ class JourneyExecutor:
                 size=self.fixture["renderSize"], rgba=self.fixture["pixelRgba"])
             return proof
         row = self._check(4, "pixel", "honua_render_map + decode PNG", prove)
-        reported = {layer.get("styleId") for layer in output.get("layers") or [] if isinstance(layer, dict)}
-        if row.status == "fail" and self.fixture.get("styleId") in reported:
-            # The candidate reports the applied preset on the rendered layer yet the
-            # pixels differ: the known server gap, not an unexplained failure.
-            row.blocked_by = [stages.STYLE_RENDER]
-            row.detail += "; the render reports the applied preset but rasterizes the layer's stored style"
-            self.evidence["checks"]["4"]["pixel"] = row.as_receipt()
         return row
 
     def check_job(self):
@@ -870,12 +863,6 @@ class JourneyExecutor:
             if missing:
                 cause = [stages.JOURNEY_DRIVER]
                 why = "candidate has not returned the canonical " + ", ".join(missing) + " for this stage"
-                applied = self.evidence["checks"].get("4", {}).get("style-applied", {}).get("status") == "pass"
-                if number == 4 and applied:
-                    # The preset was applied through style.apply-preset, whose MCP output
-                    # drops the operation handle: a tracked server gap.
-                    cause = [stages.STYLE_RENDER]
-                    why += "; honua_apply_style_preset applied the preset but its output omits the operation handle"
                 checks.append(probes.blocked(f"{number}.canonical-evidence", "http", receipt, why, cause))
             else:
                 checks.append(probes.Check(f"{number}.canonical-evidence", "http", receipt, "pass",
@@ -890,7 +877,10 @@ class JourneyExecutor:
                 setattr(result, stages.RECEIPT_ATTRS[key], job.get(key))
         result.policy_decision_id, result.actuator_id, result.verification_id = (
             ids.get("policyDecisionId"), ids.get("actuatorId"), ids.get("verificationId"))
-        result.approval_id = (self.evidence.get("approval") or {}).get("approvalId") if number == 8 else None
+        approval = self.evidence.get("approval") or {}
+        result.approval_id = approval.get("approvalId") if number == 8 else None
+        if number == 8:
+            result.resolved_by = approval.get("resolvedBy")
         result.topology_refusal = refusal
         return result
 

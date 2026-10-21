@@ -645,7 +645,8 @@ def test_workflow_runs_nightly_and_on_call_bound_to_a_lock_for_both_cells():
     env = local["env"]
     assert env["HONUA_CANARY_STUDIO_AI_ENABLED"] == "true"
     assert env["HONUA_CANARY_BEDROCK_REGION"] == "us-east-1"
-    assert "us.anthropic.claude-sonnet-4-5-20250929-v1:0" in env["HONUA_CANARY_BEDROCK_MODEL"]
+    assert "anthropic.claude-sonnet-4-5-20250929-v1:0" in env["HONUA_CANARY_BEDROCK_MODEL"]
+    assert "us.anthropic" not in env["HONUA_CANARY_BEDROCK_MODEL"]
     assert env["HONUA_CANARY_TRANSCRIPT_SIGNING_SEED"] == "${{ secrets.TERMINAL_MODEL_TRANSCRIPT_SIGNING_SEED }}"
 
     cloud = workflow["jobs"]["aws-ecs"]
@@ -662,7 +663,8 @@ def test_compose_routes_studio_ai_to_bedrock_only_when_the_canary_enables_it():
     assert env["StudioAiProxy__Enabled"] == "${HONUA_CANARY_STUDIO_AI_ENABLED:-false}"
     assert env["StudioAiProxy__DefaultProvider"] == "bedrock"
     assert env["StudioAiProxy__Providers__bedrock__Kind"] == "bedrock"
-    assert "us.anthropic.claude-sonnet-4-5-20250929-v1:0" in env["StudioAiProxy__Providers__bedrock__Model"]
+    assert "anthropic.claude-sonnet-4-5-20250929-v1:0" in env["StudioAiProxy__Providers__bedrock__Model"]
+    assert "us.anthropic" not in env["StudioAiProxy__Providers__bedrock__Model"]
     assert "us-east-1" in env["StudioAiProxy__Providers__bedrock__Region"]
     # The seed travels only by reference and from a secret; no static AWS key is declared.
     assert env["StudioAiProxy__TranscriptSigning__PrivateKeyReference"] == "${HONUA_CANARY_TRANSCRIPT_KEY_REFERENCE:-}"
@@ -1172,6 +1174,67 @@ def test_cli_binds_the_lock_bytes_and_refuses_an_unbound_or_mismatched_run(tmp_p
         canary.main(["--output", str(tmp_path / "x.json"), "--lock-digest", "sha256:nothex"])
     with pytest.raises(SystemExit):
         canary.main(["--output", str(tmp_path / "x.json"), "--lock", str(lock)])
+
+
+def test_certifying_cell_refuses_a_cross_region_profile_before_any_model_call(tmp_path, monkeypatch):
+    assert canary.certifying_model_refusal(canary.CERTIFYING_FOUNDATION_MODEL, "us-east-1") is None
+    assert canary.certifying_model_refusal(None, "us-west-2") is None
+    assert canary.certifying_model_refusal("eu.anthropic.claude-sonnet-4-5-20250929-v1:0", "us-east-1")
+    assert canary.certifying_model_refusal(canary.CERTIFYING_FOUNDATION_MODEL, "us-west-2")
+
+    def refuse_execute(*_args, **_kwargs):
+        raise AssertionError("model execution must not start")
+
+    monkeypatch.setattr(canary, "execute_live", refuse_execute)
+    monkeypatch.setattr(canary, "validate_deterministic_receipt", lambda *_a, **_k: {
+        "path": "artifacts/terminal-journey-receipt.json",
+        "sha256": "a" * 64,
+        "generatedAt": "2026-10-21T00:00:00Z",
+        "status": "pass",
+        "candidateVerified": True,
+        "freshnessVerified": True,
+    })
+    lock = tmp_path / "platform-lock.json"
+    lock.write_bytes(b"{}")
+    digest = canary.lock_digest_of(lock)
+    deterministic = tmp_path / "journey.json"
+    deterministic.write_text("{}", encoding="utf-8")
+    out = tmp_path / "refused.json"
+    argv = [
+        "--output", str(out),
+        "--base-url", "http://127.0.0.1:8137/api",
+        "--model", "us.anthropic.claude-sonnet-4-5-20250929-v1:0",
+        "--runtime", "aws-bedrock",
+        "--quantization", "provider-managed",
+        "--signing-manifest-sha256", "a" * 64,
+        "--no-api-key",
+        "--driver-command", str(canary.DEFAULT_DRIVER),
+        "--deterministic-receipt", str(deterministic),
+        "--lock", str(lock),
+        "--lock-digest", digest,
+        "--cell", "local-docker",
+    ]
+    assert canary.main(argv) == 1
+    receipt = json.loads(out.read_text(encoding="utf-8"))
+    assert receipt["status"] == "blocked" and receipt["totals"]["modelCalls"] == 0
+    assert receipt["failureAttribution"] == "infrastructure"
+    assert any("cross-region" in notice for notice in receipt["notices"])
+
+    called = {}
+
+    def stop_before_provider(builder, **_kwargs):
+        called["ran"] = True
+        builder.mark_blocked("stopped before a provider call")
+
+    monkeypatch.setattr(canary, "execute_live", stop_before_provider)
+    admitted = tmp_path / "admitted.json"
+    argv[argv.index("--model") + 1] = canary.CERTIFYING_FOUNDATION_MODEL
+    argv[argv.index("--output") + 1] = str(admitted)
+    assert canary.main(argv) == 1
+    assert called["ran"] is True
+    admitted_receipt = json.loads(admitted.read_text(encoding="utf-8"))
+    assert admitted_receipt["totals"]["modelCalls"] == 0
+    assert admitted_receipt["endpoint"]["model"] == canary.CERTIFYING_FOUNDATION_MODEL
 
 
 def test_live_run_without_lock_or_same_job_deterministic_receipt_is_refused():

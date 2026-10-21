@@ -35,9 +35,14 @@ defines it:
   `nightly`, `trunk`) and ranges (`^`, `~`, `>=`, `*`) are refused, as they are
   everywhere else in the lock (`tools/component_versions.py`).
 - `schemaVersions.database` is reserved. For `honua-server`, the resolver
-  derives it from the selected migration tree as `dbSchema`, so `honua-server`
-  may declare `schemaVersions: {}`. The candidate then carries
-  `{"database": "<floor>"}`.
+  derives it from the selected migration tree as `dbSchema`, so the declaration
+  omits `database`. It does declare every other schema it versions. The metadata
+  graph schema is the key `metadata` (today `2.0.0-alpha.1`, the value the server
+  advertises as `metadataSchemaVersion`). That key is not the API id
+  `metadata.honua.io/v2alpha1`, which belongs in `contractVersions.metadata`.
+  An empty `schemaVersions` map remains valid until the server declaration adds
+  `metadata`; once it does, the resolver keeps that key and then sets `database`
+  from the migration tree. A hand value in the manifest never survives a resolve.
 - Duplicate keys and unknown fields are refused.
 
 ## How the resolver reads it

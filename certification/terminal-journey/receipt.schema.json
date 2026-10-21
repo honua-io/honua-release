@@ -165,6 +165,18 @@
       }
     },
 
+    "approval": {
+      "description": "Stage 8 separate-principal approval as the candidate reported it. Present only when the run observed proposalId, resolvedBy and the approved replay's auditId. Absent on a receipt that did not observe that approval.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["proposalId", "resolvedBy", "auditId"],
+      "properties": {
+        "proposalId": {"type": "string", "minLength": 1},
+        "resolvedBy": {"type": "string", "minLength": 1},
+        "auditId": {"type": "string", "minLength": 1}
+      }
+    },
+
     "stages": {
       "description": "All eight numbered journey stages, always materialized in order. A short receipt is not a passing receipt.",
       "type": "array",
