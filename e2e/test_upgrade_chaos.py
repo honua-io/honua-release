@@ -119,7 +119,7 @@ kill_at_boundary migration.sql
 def test_concurrent_requires_both_healthy_and_always_removes_containers(tmp_path, mode, passed):
     result = run_driver(tmp_path, r'''
 restore_baseline() { :; }
-db_exec() { :; }
+db_exec() { [[ "$1" != "SELECT count(*) FROM pg_stat_activity"* ]] || echo 0; }
 sleep() { :; }
 compose() { [ "$MODE" != creation-failure ]; }
 docker() {
@@ -233,3 +233,163 @@ run_partial_failure
         "why": "not evidence: no probe interrupts a real migration inside the candidate runner "
                "(honua-io/honua-release#440)",
     }]
+
+
+@pytest.mark.parametrize("historical", [True, False])
+def test_concurrent_cleanup_is_owned_under_injected_child_exit(tmp_path, historical):
+    # This immutable original demonstrates the ownership defect under deliberate
+    # EXIT-handler inheritance. It is NOT a reproduction of the hosted fork/
+    # signal race, whose original observation remains the retained 3-rm failure.
+    # Source: c83e72cbe63ce22e838c89e23741ed632c22f1ff, driver blob
+    # 0a9d196c999668e997109d718c1590af8e268ff0, run_concurrent_start only.
+    import hashlib
+    original = REPO_ROOT / "e2e" / "fixtures" / "upgrade-concurrent-start-before-712.sh"
+    assert hashlib.sha256(original.read_bytes()).hexdigest() == "34e04542c4cf899c5a7a20ea409a551d2863c760ca2d84cd138f80b0be2b205c"
+    commands = ('source "$ORIGINAL_CONCURRENT_FIXTURE"\n' if historical else "") + r'''
+restore_baseline() { :; }
+db_exec() { :; }
+sleep() { :; }
+compose() {
+  printf '%s\n' "$BASHPID" > "$OUT/owner-pid"
+  trap -p EXIT > "$OUT/registered-exit-trap"
+  (
+    # Transfer the actual registered handler into a different Bash PID and
+    # exercise EXIT. This forces ownership independently of fork scheduling.
+    source "$OUT/registered-exit-trap"
+    printf '%s\n' "$BASHPID" > "$OUT/injected-child-pid"
+    exit 1
+  )
+  return 1
+}
+docker() {
+  if [ "$1" = rm ]; then
+    printf '%s %s %s\n' "$BASHPID" "$BASH_SUBSHELL" "$*" >> "$OUT/removed"
+  fi
+  return 0
+}
+run_concurrent_start
+'''
+    result = run_driver(tmp_path, commands, ORIGINAL_CONCURRENT_FIXTURE=str(original))
+    assert result.returncode != 0
+    owner = (tmp_path / "owner-pid").read_text().strip()
+    child = (tmp_path / "injected-child-pid").read_text().strip()
+    assert owner != child
+    removals = (tmp_path / "removed").read_text().splitlines()
+    pids = [line.split(" ", 1)[0] for line in removals]
+    if historical:
+        assert len(removals) >= 3 and child in pids, removals
+    else:
+        assert len(removals) == 2 and pids == [owner, owner], removals
+    assert all("_chaos_app_a" in line and "_chaos_app_b" in line for line in removals)
+
+
+def test_concurrent_creation_failure_waits_for_holder_exit_before_return(tmp_path):
+    result = run_driver(tmp_path, r'''
+restore_baseline() { :; }
+db_exec() {
+  if [[ "$1" == "SELECT count(*) FROM pg_stat_activity"* ]]; then echo 0; return 0; fi
+  if [[ "$1" == *pg_terminate_backend* ]]; then
+    printf '%s\n' "$1" > "$OUT/backend-termination"
+    kill "$(cat "$OUT/holder-pid")"
+    return 0
+  fi
+  trap -p EXIT > "$OUT/holder-inherited-exit"
+  trap 'command sleep 0.1; printf exited > "$OUT/holder-exited"' EXIT
+  trap 'exit 0' TERM
+  printf '%s\n' "$BASHPID" > "$OUT/holder-pid"
+  while :; do command sleep 0.01; done
+}
+sleep() {
+  while [ ! -s "$OUT/holder-pid" ]; do command sleep 0.01; done
+}
+compose() { return 1; }
+docker() {
+  [ "$1" != rm ] || printf '%s\n' "$*" >> "$OUT/removed"
+  return 0
+}
+if run_concurrent_start; then exit 9; fi
+[ -f "$OUT/holder-exited" ] || exit 8
+[ ! -s "$OUT/holder-inherited-exit" ] || exit 7
+if kill -0 "$(cat "$OUT/holder-pid")" 2>/dev/null; then exit 6; fi
+printf holder-completed-before-return
+''')
+    assert result.returncode == 0, result.stderr
+    assert result.stdout == "holder-completed-before-return"
+    removals = (tmp_path / "removed").read_text().splitlines()
+    assert len(removals) == 2
+
+
+def test_concurrent_creation_failure_waits_for_external_holder_child(tmp_path):
+    result = run_driver(tmp_path, r'''
+restore_baseline() { :; }
+db_exec() {
+  if [[ "$1" == "SELECT count(*) FROM pg_stat_activity"* ]]; then echo 0; return 0; fi
+  if [[ "$1" == *pg_terminate_backend* ]]; then
+    printf '%s\n' "$1" > "$OUT/backend-termination"
+    kill "$(cat "$OUT/external-pid")"
+    return 0
+  fi
+  printf '%s\n' "$1" > "$OUT/holder-query"
+  bash -c '
+    trap '"'"'command sleep 0.1; printf completed > "$OUT/external-exited"'"'"' EXIT
+    trap '"'"'exit 0'"'"' TERM
+    printf "%s\n" "$BASHPID" > "$OUT/external-pid"
+    while :; do command sleep 0.01; done
+  '
+  printf reaped > "$OUT/external-reaped"
+}
+sleep() {
+  while [ ! -s "$OUT/external-pid" ]; do command sleep 0.01; done
+}
+compose() { return 1; }
+docker() {
+  [ "$1" != rm ] || printf '%s\n' "$*" >> "$OUT/removed"
+  return 0
+}
+export OUT
+if run_concurrent_start; then exit 9; fi
+[ -f "$OUT/external-exited" ] && [ -f "$OUT/external-reaped" ] || exit 8
+if kill -0 "$(cat "$OUT/external-pid")" 2>/dev/null; then exit 6; fi
+printf external-child-completed-before-return
+''')
+    assert result.returncode == 0, result.stderr
+    assert result.stdout == "external-child-completed-before-return"
+    holder_query = (tmp_path / "holder-query").read_text()
+    termination = (tmp_path / "backend-termination").read_text()
+    import re
+    name = re.search(r"SET application_name = '(honua-chaos-[0-9a-f]{32})'", holder_query).group(1)
+    assert f"application_name = '{name}'" in termination
+    assert "datname = current_database()" in termination
+    assert "usename = current_user" in termination
+    assert "pid <> pg_backend_pid()" in termination
+    assert len((tmp_path / "removed").read_text().splitlines()) == 2
+
+
+@pytest.mark.parametrize("backend,passed", [("absent",True),("still-present",False),("observation-failed",False)])
+def test_concurrent_cleanup_requires_observed_backend_absence(tmp_path,backend,passed):
+    result = run_driver(tmp_path,r'''
+restore_baseline() { :; }
+db_exec() {
+  if [[ "$1" == *pg_terminate_backend* ]]; then echo f; return 0; fi
+  if [[ "$1" == "SELECT count(*) FROM pg_stat_activity"* ]]; then
+    [ "$BACKEND" != observation-failed ] || return 1
+    if [ "$BACKEND" = absent ]; then echo 0; else echo 1; fi
+  fi
+}
+sleep() { :; }
+compose() { return 0; }
+docker() {
+  case "$1" in
+    rm) printf '%s\n' "$*" >> "$OUT/removed" ;;
+    inspect) echo 'true healthy' ;;
+  esac
+  return 0
+}
+wait_for_journal() { return 0; }
+assert_state() { return 0; }
+run_concurrent_start
+''',BACKEND=backend,CHAOS_READY_ATTEMPTS="1")
+    # SQL command success with a false termination result is insufficient;
+    # only an independently observed absence can qualify completed cleanup.
+    assert (result.returncode == 0) == passed,result.stderr
+    assert len((tmp_path/"removed").read_text().splitlines()) == 2

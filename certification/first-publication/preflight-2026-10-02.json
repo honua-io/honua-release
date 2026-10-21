@@ -9,6 +9,14 @@
       "publication": "QGIS plugin honua"
     },
     {
+      "boundary": "The published tarball was downloaded, but its templates pin package/templates/react-ts/package.json @honua/sdk-js@0.2.2 maplibre-gl@6.4.1, package/templates/vanilla-ts/package.json @honua/sdk-js@0.2.2 maplibre-gl@6.4.1. npm version status for those @honua/sdk-js pins is {'0.2.2': 200}; the platform manifest pins @honua/sdk-js 0.2.3. maplibre-gl 6.1.0 is the GHSA-jrc7-96c5-q579 pin named by honua-release#57 (fixed in 6.9.0). A replacement create-honua-app release has to come from honua-sdk-js. This repo cannot publish that tarball.",
+      "channels": [
+        "npm:create-honua-app"
+      ],
+      "kind": "blocked-on-republish",
+      "publication": "npm create-honua-app@0.2.2 template pins"
+    },
+    {
       "boundary": "Anonymous GHCR token for repository:honua-io/charts/honua:pull was denied, so oci://ghcr.io/honua-io/charts/honua has no public tag list. honua-helm .github/workflows/release.yml refuses appVersion 0.0.0 and requires a published ghcr.io/honua-io/honua-server:v<semver>-aot image before it will push a chart. This repo does not invent that server SemVer or an appVersion.",
       "channels": [
         "helm:oci://ghcr.io/honua-io/charts/honua"
@@ -78,45 +86,45 @@
       "evidence_class": "downloaded-bytes",
       "files": [
         {
-          "filename": "mcp-server-0.2.2.tgz",
-          "registry_integrity": "sha512-OeqbWiX3GtE9L2X+8OgquuNZqmqcboPF/DXXcB6C+ZOoPx+nubOI5COH+QtjUu9s+Ehzm7Pm7g++x0VaGhG4QA==",
-          "sha256": "5be7d61f113c93150d776589647c18c64a0ee676113566752ecd2bf6d330b426",
-          "url": "https://registry.npmjs.org/@honua/mcp-server/-/mcp-server-0.2.2.tgz"
+          "filename": "mcp-server-0.2.3.tgz",
+          "registry_integrity": "sha512-dofuzsf5rb2hUBdhvf83XfenWdAzKgZlN2yEnsTWsc+b8+I/km+dDyFgU5M6P2G9o1HTFuRVZ+6uXiLIdCd+eA==",
+          "sha256": "d666a4ee3926dbace2a5d2ed40bdb9c232b6c7088dd1b0689faff6aaa8625ccc",
+          "url": "https://registry.npmjs.org/@honua/mcp-server/-/mcp-server-0.2.3.tgz"
         }
       ],
       "http_status": 200,
       "id": "npm:@honua/mcp-server",
-      "publication": "npm @honua/mcp-server@0.2.2",
-      "source_sha": "6601a8d12c971b8916679ea7cbbb0290fd1ad78c",
+      "publication": "npm @honua/mcp-server@0.2.3",
+      "source_sha": "d9fb8dbd9218958a16678a73e46523562afbe872",
       "urls": [
-        "https://registry.npmjs.org/@honua%2Fmcp-server/0.2.2",
-        "https://registry.npmjs.org/@honua/mcp-server/-/mcp-server-0.2.2.tgz"
+        "https://registry.npmjs.org/@honua%2Fmcp-server/0.2.3",
+        "https://registry.npmjs.org/@honua/mcp-server/-/mcp-server-0.2.3.tgz"
       ],
-      "version": "0.2.2"
+      "version": "0.2.3"
     },
     {
       "disposition": "published",
       "evidence_class": "downloaded-bytes",
       "files": [
         {
-          "filename": "sdk-js-0.2.2.tgz",
-          "registry_integrity": "sha512-qwDHad4gd3haLRvQsoGKLavjOTXUZMYfhZ8GfCIh6nyERjAf+K6xPGVn/3qXSmx52TzVHVcyQbC1LNa0Hs1IHQ==",
-          "sha256": "c48f1df95717a4c180af1b077f219485e132aaf0028f50f0b8f8be5fbbd6c957",
-          "url": "https://registry.npmjs.org/@honua/sdk-js/-/sdk-js-0.2.2.tgz"
+          "filename": "sdk-js-0.2.3.tgz",
+          "registry_integrity": "sha512-+nisbIalN8a65KvMxdslmkFzaijM1YGLgU77bXKWMwgC2Mh26iiVPP3JaFBYYrJo9G/UL14RvndA/7f1Jh1MGQ==",
+          "sha256": "e2b9546befb1dc7af8aecf810f37487ac8d6c4caa9ea0d75f8d96976d0605f3e",
+          "url": "https://registry.npmjs.org/@honua/sdk-js/-/sdk-js-0.2.3.tgz"
         }
       ],
       "http_status": 200,
       "id": "npm:@honua/sdk-js",
-      "publication": "npm @honua/sdk-js@0.2.2",
-      "source_sha": "076b4218f832725d57a8e23745fae75aeb9f4e5a",
+      "publication": "npm @honua/sdk-js@0.2.3",
+      "source_sha": "32ab864720d3cd2e3a00827ed942b1c2ebdd8d44",
       "urls": [
-        "https://registry.npmjs.org/@honua%2Fsdk-js/0.2.2",
-        "https://registry.npmjs.org/@honua/sdk-js/-/sdk-js-0.2.2.tgz"
+        "https://registry.npmjs.org/@honua%2Fsdk-js/0.2.3",
+        "https://registry.npmjs.org/@honua/sdk-js/-/sdk-js-0.2.3.tgz"
       ],
-      "version": "0.2.2"
+      "version": "0.2.3"
     },
     {
-      "disposition": "published",
+      "disposition": "blocked-on-republish",
       "evidence_class": "downloaded-bytes",
       "files": [
         {
@@ -128,7 +136,7 @@
       ],
       "http_status": 200,
       "id": "npm:create-honua-app",
-      "manifest_sdk_pin": "0.2.2",
+      "manifest_sdk_pin": "0.2.3",
       "maplibre_pins": [
         "6.4.1"
       ],
@@ -234,7 +242,8 @@
         "1.10.3",
         "1.10.4",
         "1.11.0",
-        "1.11.1"
+        "1.11.1",
+        "1.12.0"
       ]
     },
     {
@@ -242,25 +251,25 @@
       "evidence_class": "downloaded-bytes",
       "files": [
         {
-          "filename": "honua.sdk.1.11.1.nupkg",
-          "sha256": "3d05bec8b22dc1bf0dd5547d8e0dfdc339f0610222a3f4356874c3e4e0aa06ee",
-          "url": "https://api.nuget.org/v3-flatcontainer/honua.sdk/1.11.1/honua.sdk.1.11.1.nupkg"
+          "filename": "honua.sdk.1.12.0.nupkg",
+          "sha256": "45e63f896a524ae4c620bef4065b632a270a79e4cfa274a349f2ffbccb8f051d",
+          "url": "https://api.nuget.org/v3-flatcontainer/honua.sdk/1.12.0/honua.sdk.1.12.0.nupkg"
         },
         {
-          "filename": "honua.sdk.1.11.1.snupkg",
-          "sha256": "3245209c5e60433c577c04473aa01a65317acacc5330c1fc599a99cc313b7674",
-          "url": "https://globalcdn.nuget.org/symbol-packages/honua.sdk.1.11.1.snupkg"
+          "filename": "honua.sdk.1.12.0.snupkg",
+          "sha256": "bb4f00d8fe1eccb75d2a7318faea46fea3779bcd16d793b1c324635838553a18",
+          "url": "https://globalcdn.nuget.org/symbol-packages/honua.sdk.1.12.0.snupkg"
         }
       ],
       "flat_container_snupkg_status": 404,
       "http_status": 200,
       "id": "nuget:Honua.Sdk-newest",
-      "publication": "nuget.org Honua.Sdk 1.11.1",
+      "publication": "nuget.org Honua.Sdk 1.12.0",
       "urls": [
-        "https://api.nuget.org/v3-flatcontainer/honua.sdk/1.11.1/honua.sdk.1.11.1.nupkg",
-        "https://globalcdn.nuget.org/symbol-packages/honua.sdk.1.11.1.snupkg"
+        "https://api.nuget.org/v3-flatcontainer/honua.sdk/1.12.0/honua.sdk.1.12.0.nupkg",
+        "https://globalcdn.nuget.org/symbol-packages/honua.sdk.1.12.0.snupkg"
       ],
-      "version": "1.11.1"
+      "version": "1.12.0"
     },
     {
       "disposition": "listed",
@@ -282,7 +291,8 @@
         "1.10.3",
         "1.10.4",
         "1.11.0",
-        "1.11.1"
+        "1.11.1",
+        "1.12.0"
       ]
     },
     {
@@ -305,7 +315,8 @@
         "1.10.3",
         "1.10.4",
         "1.11.0",
-        "1.11.1"
+        "1.11.1",
+        "1.12.0"
       ]
     },
     {
@@ -328,7 +339,8 @@
         "1.10.3",
         "1.10.4",
         "1.11.0",
-        "1.11.1"
+        "1.11.1",
+        "1.12.0"
       ]
     },
     {
@@ -351,7 +363,8 @@
         "1.10.3",
         "1.10.4",
         "1.11.0",
-        "1.11.1"
+        "1.11.1",
+        "1.12.0"
       ]
     },
     {
@@ -374,7 +387,8 @@
         "1.10.3",
         "1.10.4",
         "1.11.0",
-        "1.11.1"
+        "1.11.1",
+        "1.12.0"
       ]
     },
     {
@@ -397,7 +411,8 @@
         "1.10.3",
         "1.10.4",
         "1.11.0",
-        "1.11.1"
+        "1.11.1",
+        "1.12.0"
       ]
     },
     {
@@ -420,7 +435,8 @@
         "1.10.3",
         "1.10.4",
         "1.11.0",
-        "1.11.1"
+        "1.11.1",
+        "1.12.0"
       ]
     },
     {
@@ -443,7 +459,8 @@
         "1.10.3",
         "1.10.4",
         "1.11.0",
-        "1.11.1"
+        "1.11.1",
+        "1.12.0"
       ]
     },
     {
@@ -466,7 +483,8 @@
         "1.10.3",
         "1.10.4",
         "1.11.0",
-        "1.11.1"
+        "1.11.1",
+        "1.12.0"
       ]
     },
     {
@@ -489,7 +507,8 @@
         "1.10.3",
         "1.10.4",
         "1.11.0",
-        "1.11.1"
+        "1.11.1",
+        "1.12.0"
       ]
     },
     {
@@ -512,7 +531,8 @@
         "1.10.3",
         "1.10.4",
         "1.11.0",
-        "1.11.1"
+        "1.11.1",
+        "1.12.0"
       ]
     },
     {
@@ -535,7 +555,8 @@
         "1.10.3",
         "1.10.4",
         "1.11.0",
-        "1.11.1"
+        "1.11.1",
+        "1.12.0"
       ]
     },
     {
@@ -558,7 +579,8 @@
         "1.10.3",
         "1.10.4",
         "1.11.0",
-        "1.11.1"
+        "1.11.1",
+        "1.12.0"
       ]
     },
     {
@@ -581,7 +603,8 @@
         "1.10.3",
         "1.10.4",
         "1.11.0",
-        "1.11.1"
+        "1.11.1",
+        "1.12.0"
       ]
     },
     {
@@ -604,7 +627,8 @@
         "1.10.3",
         "1.10.4",
         "1.11.0",
-        "1.11.1"
+        "1.11.1",
+        "1.12.0"
       ]
     },
     {
@@ -739,6 +763,6 @@
   },
   "issue": "honua-io/honua-release#57",
   "method": "Anonymous HTTPS with no Authorization header. published rows are sha256 of bytes this probe downloaded. listed rows are registry indexes only. Blocked rows name the publication and the operator boundary and do not carry package bytes. deferred-experimental rows are channels of a component the platform manifest lists under experimental:; they are not GA evidence and not release blockers.",
-  "observed_at": "2026-10-14T03:06:58Z",
+  "observed_at": "2026-10-19T21:52:30Z",
   "schema": "honua.first-publication-preflight/v1"
 }

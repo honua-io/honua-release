@@ -55,7 +55,7 @@
     },
     "demoCanaries": {
       "type": "array",
-      "minItems": 7,
+      "minItems": 2,
       "maxItems": 7,
       "items": {
         "$ref": "#/$defs/run"
@@ -148,6 +148,33 @@
       "items": {
         "$ref": "#/$defs/evidence"
       }
+    },
+    "profile": {
+      "enum": [
+        "ga",
+        "patch"
+      ]
+    },
+    "baseline": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "runId",
+        "lockDigest",
+        "releaseTag"
+      ],
+      "properties": {
+        "runId": {
+          "$ref": "#/$defs/runId"
+        },
+        "lockDigest": {
+          "$ref": "#/$defs/digest"
+        },
+        "releaseTag": {
+          "type": "string",
+          "pattern": "^honua-[0-9]+\\.[0-9]+\\.[0-9]+$"
+        }
+      }
     }
   },
   "$defs": {
@@ -214,6 +241,15 @@
         },
         "lockDigest": {
           "$ref": "#/$defs/digest"
+        },
+        "reusedComponents": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
         }
       }
     },
@@ -226,8 +262,16 @@
         "actuator",
         "fromDigest",
         "toDigest",
-        "inFlightJob",
-        "schemaBoundary"
+        "schemaBoundary",
+        "executionOutcome",
+        "functionalGpExecuted",
+        "cleanup",
+        "cost",
+        "prior",
+        "candidate",
+        "observations",
+        "updateOperation",
+        "rollbackOperation"
       ],
       "properties": {
         "cell": {
@@ -262,7 +306,10 @@
           "required": [
             "jobId",
             "initialState",
-            "terminalStates"
+            "terminalStates",
+            "attemptCount",
+            "executionEvents",
+            "output"
           ],
           "properties": {
             "jobId": {
@@ -276,13 +323,47 @@
               "type": "array",
               "minItems": 1,
               "items": {
-                "enum": [
-                  "succeeded",
-                  "failed",
-                  "cancelled"
-                ]
+                "const": "succeeded"
               },
               "maxItems": 1
+            },
+            "attemptCount": {
+              "const": 1
+            },
+            "executionEvents": {
+              "type": "object",
+              "required": [
+                "started",
+                "completed"
+              ],
+              "properties": {
+                "started": {
+                  "const": 1
+                },
+                "completed": {
+                  "const": 1
+                }
+              }
+            },
+            "output": {
+              "type": "object",
+              "required": [
+                "sha256",
+                "fixtureSha256",
+                "oracle"
+              ],
+              "properties": {
+                "sha256": {
+                  "$ref": "#/$defs/digest"
+                },
+                "fixtureSha256": {
+                  "$ref": "#/$defs/digest"
+                },
+                "oracle": {
+                  "type": "string",
+                  "minLength": 1
+                }
+              }
             }
           }
         },
@@ -330,6 +411,191 @@
                   "reasonCode"
                 ]
               }
+            }
+          ]
+        },
+        "executionOutcome": {
+          "enum": [
+            "succeeded",
+            "refused"
+          ]
+        },
+        "functionalGpExecuted": {
+          "type": "boolean"
+        },
+        "cleanup": {
+          "type": "object",
+          "required": [
+            "status"
+          ],
+          "properties": {
+            "status": {
+              "const": "pass"
+            }
+          }
+        },
+        "cost": {
+          "type": "object",
+          "required": [
+            "status"
+          ],
+          "properties": {
+            "status": {
+              "const": "pass"
+            }
+          }
+        },
+        "jobBeforeUpdate": {
+          "type": "object",
+          "required": [
+            "jobId",
+            "state",
+            "attemptCount"
+          ],
+          "properties": {
+            "jobId": {
+              "type": "string",
+              "pattern": "\\S"
+            },
+            "state": {
+              "const": "running"
+            },
+            "attemptCount": {
+              "const": 1
+            }
+          }
+        },
+        "jobAfterUpdate": {
+          "type": "object",
+          "required": [
+            "jobId",
+            "state",
+            "attemptCount"
+          ],
+          "properties": {
+            "jobId": {
+              "type": "string",
+              "pattern": "\\S"
+            },
+            "state": {
+              "const": "running"
+            },
+            "attemptCount": {
+              "const": 1
+            }
+          }
+        },
+        "jobBeforeRollback": {
+          "type": "object",
+          "required": [
+            "jobId",
+            "state",
+            "attemptCount"
+          ],
+          "properties": {
+            "jobId": {
+              "type": "string",
+              "pattern": "\\S"
+            },
+            "state": {
+              "const": "running"
+            },
+            "attemptCount": {
+              "const": 1
+            }
+          }
+        },
+        "jobAfterRollback": {
+          "type": "object",
+          "required": [
+            "jobId",
+            "state",
+            "attemptCount"
+          ],
+          "properties": {
+            "jobId": {
+              "type": "string",
+              "pattern": "\\S"
+            },
+            "state": {
+              "const": "running"
+            },
+            "attemptCount": {
+              "const": 1
+            }
+          }
+        },
+        "refusals": {
+          "type": "array",
+          "minItems": 3,
+          "maxItems": 3,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "status",
+              "outcome",
+              "functionalGpExecuted",
+              "code",
+              "capability",
+              "missingDependency"
+            ],
+            "properties": {
+              "status": {
+                "const": "pass"
+              },
+              "outcome": {
+                "const": "refused"
+              },
+              "functionalGpExecuted": {
+                "const": false
+              },
+              "code": {
+                "const": "dependency-unavailable"
+              },
+              "capability": {
+                "const": "jobs.runner"
+              },
+              "missingDependency": {
+                "const": "redis"
+              }
+            }
+          }
+        },
+        "rollbackInFlightJob": {
+          "$ref": "#/$defs/updateRollbackCell/properties/inFlightJob"
+        },
+        "prior": {
+          "$ref": "#/$defs/updateRollbackRelease"
+        },
+        "candidate": {
+          "$ref": "#/$defs/updateRollbackRelease"
+        },
+        "observations": {
+          "type": "array",
+          "minItems": 3,
+          "maxItems": 3,
+          "items": {
+            "$ref": "#/$defs/updateRollbackObservation"
+          }
+        },
+        "updateOperation": {
+          "oneOf": [
+            {
+              "$ref": "#/$defs/updateRollbackNativeOperation"
+            },
+            {
+              "$ref": "#/$defs/updateRollbackTerraformOperation"
+            }
+          ]
+        },
+        "rollbackOperation": {
+          "oneOf": [
+            {
+              "$ref": "#/$defs/updateRollbackNativeOperation"
+            },
+            {
+              "$ref": "#/$defs/updateRollbackTerraformOperation"
             }
           ]
         }
@@ -398,11 +664,117 @@
               }
             }
           }
+        },
+        {
+          "if": {
+            "properties": {
+              "cell": {
+                "enum": [
+                  "aws-ecs/redis-on",
+                  "aws-serverless/redis-on"
+                ]
+              }
+            }
+          },
+          "then": {
+            "required": [
+              "inFlightJob",
+              "jobBeforeUpdate",
+              "jobAfterUpdate",
+              "jobBeforeRollback",
+              "jobAfterRollback",
+              "rollbackInFlightJob"
+            ],
+            "properties": {
+              "executionOutcome": {
+                "const": "succeeded"
+              },
+              "functionalGpExecuted": {
+                "const": true
+              }
+            }
+          },
+          "else": {
+            "required": [
+              "refusals"
+            ],
+            "properties": {
+              "executionOutcome": {
+                "const": "refused"
+              },
+              "functionalGpExecuted": {
+                "const": false
+              }
+            },
+            "not": {
+              "anyOf": [
+                {
+                  "required": [
+                    "inFlightJob"
+                  ]
+                },
+                {
+                  "required": [
+                    "jobBeforeUpdate"
+                  ]
+                },
+                {
+                  "required": [
+                    "jobAfterUpdate"
+                  ]
+                },
+                {
+                  "required": [
+                    "jobBeforeRollback"
+                  ]
+                },
+                {
+                  "required": [
+                    "jobAfterRollback"
+                  ]
+                },
+                {
+                  "required": [
+                    "rollbackInFlightJob"
+                  ]
+                }
+              ]
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "actuator": {
+                "const": "terraform-exact-apply"
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "updateOperation": {
+                "$ref": "#/$defs/updateRollbackTerraformOperation"
+              },
+              "rollbackOperation": {
+                "$ref": "#/$defs/updateRollbackTerraformOperation"
+              }
+            }
+          },
+          "else": {
+            "properties": {
+              "updateOperation": {
+                "$ref": "#/$defs/updateRollbackNativeOperation"
+              },
+              "rollbackOperation": {
+                "$ref": "#/$defs/updateRollbackNativeOperation"
+              }
+            }
+          }
         }
       ]
     },
     "updateRollbackReceipt": {
-      "description": "Retained update-rollback class receipt, separate from the promotion record references. The checker also requires different from/to locks and image digests, toLockDigest == lockDigest, each target image matching the selected lock and its retained hash-bound manifest, one of each GA cell, and schemaBoundary.imageDigest == fromDigest. Standard JSON Schema cannot compare arbitrary sibling values. Exactly-once remains a separate runtime proof, not inferred from a terminal state.",
+      "description": "Actual four-cell AWS update/rollback proof. Redis-on requires a real job running before and after each switch, exactly one successful execution per transition and stable independently verified output. Redis-off requires three explicit typed Redis refusals and never gets GP completion credit. Every cell retains exact image/schema/cleanup/cost proof. Rehearsal records have no qualifying evidence class or signed-lock credit.",
       "type": "object",
       "required": [
         "class",
@@ -461,6 +833,274 @@
           "$ref": "#/$defs/time"
         }
       }
+    },
+    "updateRollbackRelease": {
+      "type": "object",
+      "required": [
+        "manifestDigest",
+        "sourceRevision",
+        "schemaVersion",
+        "imageDigest",
+        "lambdaImageDigest"
+      ],
+      "properties": {
+        "manifestDigest": {
+          "$ref": "#/$defs/digest"
+        },
+        "sourceRevision": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{40}$"
+        },
+        "schemaVersion": {
+          "type": "string",
+          "pattern": "\\S"
+        },
+        "imageDigest": {
+          "$ref": "#/$defs/digest"
+        },
+        "lambdaImageDigest": {
+          "$ref": "#/$defs/digest"
+        }
+      }
+    },
+    "updateRollbackObservation": {
+      "type": "object",
+      "required": [
+        "phase",
+        "observedAt",
+        "sourceRevision",
+        "native",
+        "schemaJournal",
+        "servingFixture"
+      ],
+      "properties": {
+        "phase": {
+          "enum": [
+            "baseline",
+            "candidate",
+            "rollback"
+          ]
+        },
+        "observedAt": {
+          "type": "number",
+          "exclusiveMinimum": 0
+        },
+        "sourceRevision": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{40}$"
+        },
+        "native": {
+          "type": "object",
+          "required": [
+            "kind",
+            "imageDigest"
+          ],
+          "properties": {
+            "kind": {
+              "enum": [
+                "ecs-native-routing",
+                "lambda-alias"
+              ]
+            },
+            "imageDigest": {
+              "$ref": "#/$defs/digest"
+            },
+            "version": {
+              "type": "string",
+              "pattern": "^[1-9][0-9]*$"
+            },
+            "taskCount": {
+              "type": "integer",
+              "minimum": 1
+            }
+          },
+          "allOf": [
+            {
+              "if": {
+                "properties": {
+                  "kind": {
+                    "const": "lambda-alias"
+                  }
+                }
+              },
+              "then": {
+                "required": [
+                  "version"
+                ]
+              },
+              "else": {
+                "required": [
+                  "taskCount"
+                ]
+              }
+            }
+          ]
+        },
+        "schemaJournal": {
+          "type": "object",
+          "required": [
+            "method",
+            "pendingScripts",
+            "extraScripts",
+            "readyForCoordinatedDeploy",
+            "candidateImageDigest"
+          ],
+          "properties": {
+            "method": {
+              "const": "live-bidirectional-migration-plan"
+            },
+            "pendingScripts": {
+              "const": 0
+            },
+            "extraScripts": {
+              "const": 0
+            },
+            "readyForCoordinatedDeploy": {
+              "const": true
+            },
+            "candidateImageDigest": {
+              "$ref": "#/$defs/digest"
+            }
+          }
+        },
+        "servingFixture": {
+          "type": "object",
+          "required": [
+            "serviceId",
+            "layerId",
+            "seedManifestSha256",
+            "seedScriptSha256",
+            "seedSqlSha256",
+            "expectedFeaturesSha256"
+          ],
+          "properties": {
+            "serviceId": {
+              "const": "e2e"
+            },
+            "layerId": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "seedManifestSha256": {
+              "type": "string",
+              "pattern": "^[0-9a-f]{64}$"
+            },
+            "seedScriptSha256": {
+              "type": "string",
+              "pattern": "^[0-9a-f]{64}$"
+            },
+            "seedSqlSha256": {
+              "type": "string",
+              "pattern": "^[0-9a-f]{64}$"
+            },
+            "expectedFeaturesSha256": {
+              "type": "string",
+              "pattern": "^[0-9a-f]{64}$"
+            }
+          }
+        }
+      }
+    },
+    "updateRollbackNativeOperation": {
+      "type": "object",
+      "required": [
+        "operationId",
+        "status",
+        "observedRevision",
+        "providerOperationIdSha256"
+      ],
+      "properties": {
+        "operationId": {
+          "type": "string",
+          "pattern": "\\S"
+        },
+        "status": {
+          "enum": [
+            "Succeeded",
+            "Observing",
+            "Protected",
+            "Reconciling",
+            "RolledBack"
+          ]
+        },
+        "observedRevision": {
+          "type": "string",
+          "pattern": "\\S"
+        },
+        "providerOperationIdSha256": {
+          "$ref": "#/$defs/digest"
+        }
+      }
+    },
+    "updateRollbackTerraformOperation": {
+      "type": "object",
+      "required": [
+        "actuator",
+        "status",
+        "planSha256",
+        "imageDigest"
+      ],
+      "properties": {
+        "actuator": {
+          "const": "terraform-exact-apply"
+        },
+        "status": {
+          "const": "applied"
+        },
+        "planSha256": {
+          "$ref": "#/$defs/digest"
+        },
+        "imageDigest": {
+          "$ref": "#/$defs/digest"
+        }
+      }
     }
-  }
+  },
+  "allOf": [
+    {
+      "if": {
+        "required": [
+          "profile"
+        ],
+        "properties": {
+          "profile": {
+            "const": "patch"
+          }
+        }
+      },
+      "then": {
+        "required": [
+          "baseline"
+        ],
+        "properties": {
+          "demoCanaries": {
+            "minItems": 2,
+            "maxItems": 2
+          }
+        }
+      },
+      "else": {
+        "not": {
+          "required": [
+            "baseline"
+          ]
+        },
+        "properties": {
+          "demoCanaries": {
+            "minItems": 7,
+            "maxItems": 7
+          },
+          "evidence": {
+            "items": {
+              "not": {
+                "required": [
+                  "reusedComponents"
+                ]
+              }
+            }
+          }
+        }
+      }
+    }
+  ]
 }

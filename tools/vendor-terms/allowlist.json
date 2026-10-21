@@ -219,6 +219,232 @@
       "reason": "Exact existing upstream repository and pinned matrix path identify the source ownership and unchanged operation set. This exception covers these two source identifiers only; desktop implementation details remain in the private source repository.",
       "owner": "@mikemcdougall",
       "issue": "honua-io/honua-release#576"
+    },
+    {
+      "repo": "honua-release",
+      "paths": [
+        "certification/installed-clients/produce_import_fidelity.py"
+      ],
+      "identifiers": [
+        "esri_census_states",
+        "esri_military_ops_area_z",
+        "esri_military_ops_line_zm",
+        "esri_usa_cities",
+        "esri_usa_highways",
+        "esri_wildfire_lines",
+        "//sampleserver6.arcgisonline.com/arcgis/rest/services/Census/MapServer",
+        "//sampleserver6.arcgisonline.com/arcgis/rest/services/Military/FeatureServer",
+        "//sampleserver6.arcgisonline.com/arcgis/rest/services/USA/MapServer",
+        "//sampleserver6.arcgisonline.com/arcgis/rest/services/Wildfire/FeatureServer",
+        "//geodata.hawaii.gov/arcgis/rest/services/HistoricCultural/MapServer",
+        "//geodata.hawaii.gov/arcgis/rest/services/Infrastructure/MapServer",
+        "arcgis-geoservices-rest"
+      ],
+      "reason": "Exact frozen source-case IDs and public source URLs from the server import-fidelity baseline, plus the published migration sourceKind wire value. Renaming these selects different source data or changes the SDK request contract. This exception covers only these exact upstream references in the producer; prose and new identifiers remain counted.",
+      "owner": "@mikemcdougall",
+      "issue": "honua-io/honua-release#418"
+    },
+    {
+      "repo": "honua-release",
+      "paths": [
+        "certification/installed-clients/test_produce_import_fidelity.py"
+      ],
+      "identifiers": [
+        "esri_census_states",
+        "esri_census_states/all_fields_diff",
+        "esri_census_states/core_query_parity"
+      ],
+      "reason": "The negative controls address these exact frozen baseline case/cell IDs from dotnet-import-fidelity.requirements.v1.json. Renaming them would stop testing the governed scorecard cells. Other test names, prose and identifiers remain counted.",
+      "owner": "@mikemcdougall",
+      "issue": "honua-io/honua-release#418"
+    },
+    {
+      "repo": "honua-release",
+      "paths": [
+        "certification/installed-clients/import-fidelity-consumer/Program.cs"
+      ],
+      "identifiers": [
+        "ArcGisServiceRoot.Parse",
+        "ArcGisSourceCredentialHandler",
+        "ArcGisSourceCredential",
+        "ArcGisCredentialMode.Token"
+      ],
+      "reason": "Exact public Honua.Sdk.GeoServices 1.11.0 service-root and source-credential API members. Their names belong to the manifest-pinned published package; renaming them invents an API or bypasses SDK credential handling. No prose or other consumer identifiers are covered.",
+      "owner": "@mikemcdougall",
+      "issue": "honua-io/honua-release#418"
+    },
+    {
+      "repo": "honua-release",
+      "paths": [
+        "certification/installed-clients/import_fidelity_journeys.py"
+      ],
+      "identifiers": [
+        "arcgis-geoservices-rest"
+      ],
+      "reason": "Exact published migration sourceKind wire value used by the SDK batch/scan APIs; changing it selects a different source family. No prose or other identifiers are covered.",
+      "owner": "@mikemcdougall",
+      "issue": "honua-io/honua-release#418"
+    },
+    {
+      "repo": "honua-release",
+      "paths": [
+        "certification/installed-clients/import_fidelity_reference.py",
+        "certification/installed-clients/import-fidelity-inputs.md"
+      ],
+      "identifiers": [
+        "honua-io/honua-esri-compat",
+        ".github/workflows/esri-sdk-certification.yml"
+      ],
+      "reason": "Exact existing owning repository and workflow path bind authenticated reference evidence to its actual producer. These names are identity checks, not new product terminology. Native desktop implementation details stay in the private producer repository.",
+      "owner": "@mikemcdougall",
+      "issue": "honua-io/honua-release#418"
+    },
+    {
+      "repo": "honua-release",
+      "paths": [
+        "certification/installed-clients/import_fidelity_reference.py",
+        "certification/installed-clients/test_import_fidelity_reference.py"
+      ],
+      "identifiers": [
+        "honua-and-esri-clients"
+      ],
+      "reason": "Exact frozen requirement ID crosscheck.honua-and-esri-clients from the unchanged requirements file; the consumer and negative control must address that governed cell. Other identifiers and prose remain checked.",
+      "owner": "@mikemcdougall",
+      "issue": "honua-io/honua-release#418"
+    },
+    {
+      "repo": "honua-release",
+      "paths": [
+        "certification/sdk-publication-replay/fixtures/reviewed-clients.yaml"
+      ],
+      "tokens": [
+        "esri"
+      ],
+      "identifiers": [
+        "honua-sdk-esri-compat",
+        "@honua/sdk-esri-compat",
+        "sdk-esri-compat-0.2.2.tgz"
+      ],
+      "reason": "This fixed historical SDK cohort fixture preserves the exact required manifest key, published npm coordinate and tarball filename. Substituting neutral names would stop exercising the real publication selector identity. Only these three lexical identifiers in this one fixture are covered; no prose, other paths or confidential terms are admitted. Revisit when the published package is renamed.",
+      "owner": "@mikemcdougall",
+      "issue": "honua-io/honua-release#181"
+    },
+    {
+      "repo": "honua-release",
+      "paths": [
+        "certification/coverage-audit.v1.json",
+        "certification/coverage-audit-summary.v1.json"
+      ],
+      "tokens": [
+        "esri",
+        "arcgis",
+        "honua_esri_compat",
+        "arcgis_python"
+      ],
+      "identifiers": [
+        "esri-compat",
+        "honua-io/honua-esri-compat",
+        "//github.com/honua-io/honua-esri-compat/issues/339",
+        "//github.com/honua-io/honua-esri-compat/pull/340",
+        "arcgis-python-",
+        "//github.com/honua-io/honua-esri-compat/blob/a795f5b019974804c4eca978651af9c03caf79dc/src/honua_esri_compat/lanes/arcgis_python.py"
+      ],
+      "reason": "Exact existing repository/source-key, client-lane and immutable source-path identifiers are needed to join the coverage audit to governed producers. Prose remains neutral; this does not admit licensed desktop detail or expand the baseline.",
+      "owner": "@mikemcdougall",
+      "issue": "honua-io/honua-release#652"
+    },
+    {
+      "repo": "honua-release",
+      "paths": [
+        "certification/coverage-audit.v1.json",
+        "certification/audits/2026-10-17/ai-gp-migration.json"
+      ],
+      "tokens": [
+        "arcgis"
+      ],
+      "identifiers": [
+        "//github.com/honua-io/honua-migrate/blob/6fec271367e29df9b98cdb04b7a606c0d064f6c6/src/honua_migrate/services/arcgis.py"
+      ],
+      "reason": "Exact immutable source path identifies the reviewed migration implementation. This admits only the source identifier, not product prose or licensed desktop detail.",
+      "owner": "@mikemcdougall",
+      "issue": "honua-io/honua-release#652"
+    },
+    {
+      "repo": "honua-release",
+      "paths": [
+        "certification/installed-clients/mcp_ingest_publish_state.py",
+        "certification/installed-clients/mcp_ingest_publish_validation_controls.py"
+      ],
+      "tokens": [
+        "esri"
+      ],
+      "identifiers": [
+        "esri-feature-layer"
+      ],
+      "reason": "Exact persisted Metadata v2 publicationType discriminator declared by JsonStringEnumMemberName in honua-server source 3ecd214c1ce20e96ad4911b6f8447055dee9089d, src/Honua.Core.Abstractions/Features/Metadata/Domain/V2/MetadataV2Enums.cs (https://github.com/honua-io/honua-server/blob/3ecd214c1ce20e96ad4911b6f8447055dee9089d/src/Honua.Core.Abstractions/Features/Metadata/Domain/V2/MetadataV2Enums.cs). The independent SQL observer must select this exact stored value, and the control verifies that source-bound selection. Renaming it would select no real publication. Only this complete wire identifier in these two files is covered; unrelated prose and identifiers remain checked. Revisit if the persisted wire contract changes.",
+      "owner": "@mikemcdougall",
+      "issue": "honua-io/honua-release#699"
+    },
+    {
+      "repo": "honua-release",
+      "paths": [
+        "certification/installed-clients/mcp_style_state.py",
+        "certification/installed-clients/mcp_style_validation_controls.py"
+      ],
+      "tokens": [
+        "esri"
+      ],
+      "identifiers": [
+        "esri-feature-layer"
+      ],
+      "reason": "Exact persisted publicationType wire discriminator declared by JsonStringEnumMemberName in honua-server3ecd214c1ce20e96ad4911b6f8447055dee9089d, src/Honua.Core.Abstractions/Features/Metadata/Domain/V2/MetadataV2Enums.cs (https://github.com/honua-io/honua-server/blob/3ecd214c1ce20e96ad4911b6f8447055dee9089d/src/Honua.Core.Abstractions/Features/Metadata/Domain/V2/MetadataV2Enums.cs). Canonical style state must select the actual public/storage publication and its active style graph; the control checks that exact identifier. Only this complete wire identifier in these two files is covered; no unrelated prose, baseline increase or compatibility claim. Revisit if the persisted contract changes.",
+      "owner": "@mikemcdougall",
+      "issue": "honua-io/honua-release#705"
+    },
+    {
+      "repo": "honua-release",
+      "paths": [
+        "certification/installed-clients/mcp_style_validation.py"
+      ],
+      "tokens": [
+        "esri"
+      ],
+      "identifiers": [
+        "esri-drawing-info",
+        "application/vnd.esri.drawinginfo"
+      ],
+      "reason": "Exact encoding and media-type identifiers advertised by GetStyleTool.SupportedEncodings in honua-server3ecd214c1ce20e96ad4911b6f8447055dee9089d (https://github.com/honua-io/honua-server/blob/3ecd214c1ce20e96ad4911b6f8447055dee9089d/src/Honua.Ai/Features/Protocols/Mcp/Mcp/MapTools/GetStyleTool.cs). The canonical style oracle must compare all advertised encoding/media identities exactly; neutralizing these wire bytes would silently weaken schema checks. Only these two complete identifiers in this one file are covered, without a compatibility claim, baseline increase or unrelated prose exception. Revisit if the upstream encoding contract changes. The existing classifier lexical boundary stops before the MIME plus suffix, so its exact lexical identifier is application/vnd.esri.drawinginfo; the complete +json wire value remains mandatory in the oracle. No classifier rule or baseline is changed.",
+      "owner": "@mikemcdougall",
+      "issue": "honua-io/honua-release#705"
+    },
+    {
+      "repo": "honua-release",
+      "paths": [
+        "certification/installed-clients/mcp_publish_result_state.py",
+        "certification/installed-clients/mcp_publish_result_validation.py",
+        "certification/installed-clients/mcp_publish_result_validation_controls.py"
+      ],
+      "tokens": [
+        "esri"
+      ],
+      "identifiers": [
+        "esri-feature-layer"
+      ],
+      "reason": "Exact persisted publicationType discriminator declared by JsonStringEnumMemberName in immutable honua-server ce5bcccecdb64dcff4094a0982d95eea875bad7f, src/Honua.Core.Abstractions/Features/Metadata/Domain/V2/MetadataV2Enums.cs (https://github.com/honua-io/honua-server/blob/ce5bcccecdb64dcff4094a0982d95eea875bad7f/src/Honua.Core.Abstractions/Features/Metadata/Domain/V2/MetadataV2Enums.cs). The independent worker-result publication observer and oracle must retain this exact stored discriminator to bind public routing to physical storage. Only this complete wire identifier in these three files is covered; no unrelated prose, compatibility claim, classifier or baseline change. Revisit if the persisted contract changes.",
+      "owner": "@mikemcdougall",
+      "issue": "honua-io/honua-release#710"
+    },
+    {
+      "repo": "honua-release",
+      "paths": [
+        "certification/executable-docs/fixtures/site-geoprocessing-7d733c0.md"
+      ],
+      "tokens": [
+        "Esri"
+      ],
+      "reason": "Verbatim immutable full 4504-byte honua-site docs/geoprocessing/index.md at protected 7d733c0f04822947c111c8bc9e43a977e5714f9f (SHA256 652c7bb512f161474088dce1e1f8faef322d74a9a025dd4873b13d22a65193aa). The fixture and full-document hash must preserve the actual upstream prose to test all six real executable blocks. Only this token in this exact historical fixture is covered; sibling paths, other terms, and current website prose remain checked. Revisit when the fixture is retired.",
+      "owner": "@mikemcdougall",
+      "issue": "honua-io/honua-release#721"
     }
   ]
 }

@@ -8,6 +8,10 @@ on:
         required: true
         type: string
   workflow_call:
+    secrets:
+      RELEASE_RUNNER_READ_TOKEN:
+        description: Read-only Actions metadata and organization runner-group access for dedicated runner verification
+        required: false
     inputs:
       candidate_ref: { required: false, type: string, default: "" }
       evidence_bundle_url:
@@ -18,6 +22,7 @@ on:
 permissions:
   contents: read
   attestations: read
+  actions: read
 
 jobs:
   frozen-slo:
@@ -61,7 +66,6 @@ jobs:
             --repo honua-io/honua-server \
             --signer-workflow github.com/honua-io/honua-server/.github/workflows/capacity-soak-candidate.yml \
             --source-digest "${{ steps.candidate.outputs.revision }}" \
-            --deny-self-hosted-runners \
             --predicate-type https://slsa.dev/provenance/v1 \
             --format json > "$RUNNER_TEMP/attestation-verification.json"
       - name: Extract bounded evidence files
@@ -70,6 +74,8 @@ jobs:
           --bundle "$RUNNER_TEMP/capacity-evidence.zip"
           --output "$RUNNER_TEMP/capacity-evidence"
       - name: Evaluate 8/8 GA workloads, 2 Preview exclusions, 8/8 sourced signals and the producer attestation
+        env:
+          GH_TOKEN: ${{ secrets.RELEASE_RUNNER_READ_TOKEN || github.token }}
         run: >-
           python3 tools/check_capacity_soak.py
           --lock certification/capacity-envelope.v1.json
@@ -79,7 +85,9 @@ jobs:
           --expected-image-digest "${{ steps.candidate.outputs.digest }}"
           --bundle "$RUNNER_TEMP/capacity-evidence.zip"
           --attestation "$RUNNER_TEMP/attestation-verification.json"
+          --runner-report "$RUNNER_TEMP/runner-admission.json"
       - name: Preserve immutable evidence bundle and verification
+        if: always()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: capacity-slo-receipt-${{ steps.lock.outputs.sha256 }}
@@ -87,5 +95,6 @@ jobs:
             ${{ runner.temp }}/capacity-evidence.zip
             ${{ runner.temp }}/capacity-evidence/
             ${{ runner.temp }}/attestation-verification.json
+            ${{ runner.temp }}/runner-admission*.json
           if-no-files-found: error
           retention-days: 90

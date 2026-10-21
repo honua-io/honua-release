@@ -13,6 +13,7 @@ from typing import Any
 from urllib.parse import urlparse
 
 from capacity_observations import validate_sources
+from release_runner_policy import admit as admit_release_runner
 
 
 APPROVED_PRODUCER_REPOSITORY = "honua-io/honua-server"
@@ -468,14 +469,41 @@ def evaluate(
 
 
 def bind_attestation(
-    verified: object, bundle_sha256: str, receipt: dict[str, Any], expected_revision: str
+    verified: object, bundle_sha256: str, receipt: dict[str, Any], expected_revision: str,
+    *, runner_report: Path | None = None,
 ) -> list[str]:
     """Bind `gh attestation verify --format json` output to the bundle and the receipt's producer.
 
     The workflow's `gh attestation verify` pins the signer workflow and source digest, but the
     receipt's own producer block (run id/attempt, workflow ref) is self-declared. Every verified
     attestation must sign exactly this bundle, come from the approved workflow on a GitHub-hosted
-    runner at the candidate source commit, and name the same run and workflow ref as the receipt.
+    or independently admitted dedicated runner at the candidate source commit, and name the same
+    run and workflow ref as the receipt. Dedicated admission reads GitHub metadata itself.
+    """
+    failures = bind_attestation_content(verified, bundle_sha256, receipt, expected_revision)
+    if not isinstance(verified, list) or not verified:
+        return failures
+    for index, entry in enumerate(verified):
+        result = _mapping(_mapping(entry).get("verificationResult"))
+        certificate = _mapping(_mapping(result.get("signature")).get("certificate"))
+        runner = certificate.get("runnerEnvironment")
+        if runner == "self-hosted":
+            report_path = (runner_report.with_name(f"{runner_report.stem}-{index}{runner_report.suffix}")
+                           if runner_report is not None else None)
+            failures.extend(admit_release_runner(certificate, report_path=report_path))
+        elif runner != "github-hosted":
+            failures.append(f"attestation {index}: unknown runner environment; expected GitHub-hosted or approved dedicated runner")
+    return failures
+
+
+def bind_attestation_content(
+    verified: object, bundle_sha256: str, receipt: dict[str, Any], expected_revision: str,
+) -> list[str]:
+    """Bind cryptographically verified content for producer preflight, without runner admission.
+
+    This is not a release verdict. An executing producer cannot prove its own run
+    completed successfully. The external release consumer must use bind_attestation,
+    which also admits the completed producing run through live runner policy.
     """
     failures: list[str] = []
     if not isinstance(verified, list) or not verified:
@@ -511,8 +539,6 @@ def bind_attestation(
                 f"{label}: attested source commit {certificate.get('sourceRepositoryDigest')} is not the "
                 f"candidate {expected_revision}; the producer must run at the candidate revision"
             )
-        if certificate.get("runnerEnvironment") != "github-hosted":
-            failures.append(f"{label}: attestation was not produced on a GitHub-hosted runner")
         if certificate.get("runInvocationURI") != expected_run:
             failures.append(f"{label}: attested workflow run is not the receipt's producer run")
         build = _mapping(_mapping(statement.get("predicate")).get("buildDefinition"))
@@ -562,6 +588,7 @@ def main() -> int:
     parser.add_argument(
         "--attestation", type=Path, required=True, help="`gh attestation verify --format json` output for --bundle"
     )
+    parser.add_argument("--runner-report", type=Path, help="retain independently fetched runner admission metadata")
     args = parser.parse_args()
     try:
         lock = json.loads(args.lock.read_text(encoding="utf-8"))
@@ -575,6 +602,7 @@ def main() -> int:
                 hashlib.sha256(args.bundle.read_bytes()).hexdigest(),
                 receipt,
                 args.expected_revision,
+                runner_report=args.runner_report,
             )
         )
         for name, records in informational_dimensions(lock, receipt).items():

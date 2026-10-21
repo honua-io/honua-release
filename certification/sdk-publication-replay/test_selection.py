@@ -18,7 +18,8 @@ import prepare
 
 class SelectionTests(unittest.TestCase):
     def setUp(self):
-        self.reviewed = yaml.safe_load((HERE.parents[1] / 'platform-manifest.yaml').read_text())
+        self.reviewed_text = (HERE / 'fixtures/reviewed-clients.yaml').read_text()
+        self.reviewed = yaml.safe_load(self.reviewed_text)
 
     def test_default_keeps_all_reviewed_independent_versions(self):
         self.assertEqual(selected_versions(self.reviewed), {
@@ -34,7 +35,7 @@ class SelectionTests(unittest.TestCase):
 
     def test_nonstable_or_nonexact_versions_fail(self):
         for version in ('latest', '^0.1.16', '0.1.16-beta.1', '0.1.16+build', '00.1.16', '../tag', ''):
-            with self.subTest(version=version), self.assertRaises(ValueError):
+            with self.subTest(version=version), self.assertRaisesRegex(ValueError, 'Expected an exact stable version'):
                 selected_versions(self.reviewed, version)
 
     def test_mixed_reviewed_sdk_family_fails(self):
@@ -93,7 +94,8 @@ class SelectionTests(unittest.TestCase):
             }).encode()))
         with tempfile.TemporaryDirectory() as directory:
             output = Path(directory) / 'candidate'
-            with patch.object(prepare, 'published_source', side_effect=sources), \
+            with patch.object(Path, 'read_text', return_value=self.reviewed_text), \
+                    patch.object(prepare, 'published_source', side_effect=sources), \
                     patch.object(prepare.urllib.request, 'urlopen', side_effect=metadata), \
                     patch.object(prepare.subprocess, 'run', side_effect=subprocess.CalledProcessError(1, 'verifier')) as verify, \
                     self.assertRaises(subprocess.CalledProcessError):
@@ -102,6 +104,22 @@ class SelectionTests(unittest.TestCase):
             self.assertTrue(verify.call_args.kwargs['check'])
             self.assertIn('tools/verify_client_artifacts.py', verify.call_args.args[0])
             self.assertEqual(verify.call_args.args[0][-2:], ['--ecosystem', 'npm'])
+
+    def test_mixed_cohort_preparation_refuses_before_publication_lookup(self):
+        changed = copy.deepcopy(self.reviewed)
+        changed['clientArtifacts']['honua-react']['version'] = '0.1.999'
+        with tempfile.TemporaryDirectory() as directory:
+            output = Path(directory) / 'candidate'
+            with patch.object(Path, 'read_text', return_value=yaml.safe_dump(changed)), \
+                    patch.object(prepare, 'published_source') as publication, \
+                    patch.object(prepare.urllib.request, 'urlopen') as registry, \
+                    patch.object(prepare.subprocess, 'run') as verifier, \
+                    self.assertRaisesRegex(ValueError, 'reviewed SDK family has inconsistent version/source'):
+                prepare.main(['--output', str(output)])
+            publication.assert_not_called()
+            registry.assert_not_called()
+            verifier.assert_not_called()
+            self.assertFalse(output.exists())
 
     def test_release_must_be_published_stable(self):
         for override in ({'draft': True}, {'prerelease': True}, {'published_at': None}):

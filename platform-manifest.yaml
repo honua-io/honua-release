@@ -622,17 +622,19 @@ components:
   honua-sdk-js:
     repository: "https://github.com/honua-io/honua-sdk-js"
     lifecycleStatus: GA
-    # R25 manual advance 2026-10-14: verified published SDK 0.2.2 bytes and source.
-    # Downloaded SRI, registry/provenance and js-sdk-v0.2.2 bind these inputs.
-    version: "0.2.2"
-    sha: "076b4218f832725d57a8e23745fae75aeb9f4e5a"
+    # R25 manual advance 2026-10-16: verified published SDK 0.2.3 bytes and source.
+    # npm gitHead 32ab86472 and dist.integrity bind these inputs. Companion
+    # packages other than @honua/mcp-server stay at 0.2.2 until
+    # create-honua-app 0.2.3 is published.
+    version: "0.2.3"
+    sha: "32ab864720d3cd2e3a00827ed942b1c2ebdd8d44"
     artifact: "npm:@honua/sdk-js"
     contractVersions:
       connect-parity: "1.0"
     schemaVersions:
       diagnostic-bundle: "1.0"
       certification-evidence-receipt: "2.0"
-    # Companion @honua/mcp-server 0.2.2 is clientArtifacts.honua-mcp-server; it is not a separate component.
+    # Companion @honua/mcp-server 0.2.3 is clientArtifacts.honua-mcp-server; it is not a separate component.
 
   honua-sdk-python:
     repository: "https://github.com/honua-io/honua-sdk-python"
@@ -806,12 +808,9 @@ components:
     # supersedes the Excluded decision applied by release#251; best-effort/no SLA,
     # with the security floor retained.
     # https://github.com/honua-io/honua-release/issues/210#issuecomment-5503276774
-    # 2026-10-10 owner decisions 12 ("EKS in rc.3 scope") and 18 ("GP on K8s job runners YES, full
-    # EKS cell after the ECS/Lambda final run") supersede R31's "Helm/EKS remain Preview" for the chart
-    # on Amazon EKS x86_64, which is now a GA target, qualification pending (honua-release#203;
-    # compatibility-matrix deploy.honua-helm.awsEks; ruling eks-ga-target-2026-10-10). Helm on any
-    # other Kubernetes distribution stays Preview (docs/2026.1-operating-envelope.md section 1).
-    lifecycleStatus: GA
+    # Owner amendment 2026-10-16 supersedes decisions 12/18: EKS/Helm is Preview in
+    # 2026.1, with security/isolation/integrity floors retained and no GA qualification claim.
+    lifecycleStatus: Preview
     version: "pre-release"             # no releases/tags; Chart.yaml chart 0.4.0 / appVersion "0.0.0" (un-released)
     # PIN SELECTION POLICY (honua-release#102, applied by #109/#110/#115): newest trunk commit whose
     # own CI is green. 9dd42621b was correct when taken, but honua-helm#61 landed after it and is the
@@ -892,23 +891,23 @@ clientArtifacts:
   honua-sdk-js:
     ecosystem: npm
     package: "@honua/sdk-js"
-    version: "0.2.2"
-    integrity: "sha512-qwDHad4gd3haLRvQsoGKLavjOTXUZMYfhZ8GfCIh6nyERjAf+K6xPGVn/3qXSmx52TzVHVcyQbC1LNa0Hs1IHQ=="
+    version: "0.2.3"
+    integrity: "sha512-+nisbIalN8a65KvMxdslmkFzaijM1YGLgU77bXKWMwgC2Mh26iiVPP3JaFBYYrJo9G/UL14RvndA/7f1Jh1MGQ=="
     repository: honua-io/honua-sdk-js
-    sourceSha: "076b4218f832725d57a8e23745fae75aeb9f4e5a"
+    sourceSha: "32ab864720d3cd2e3a00827ed942b1c2ebdd8d44"
     publicationState: "published"
     targets: [node, browser, honua-cli, honua-admin]
-    filename: "sdk-js-0.2.2.tgz"
+    filename: "sdk-js-0.2.3.tgz"
   honua-mcp-server:
     ecosystem: npm
     package: "@honua/mcp-server"
-    version: "0.2.2"
-    integrity: "sha512-OeqbWiX3GtE9L2X+8OgquuNZqmqcboPF/DXXcB6C+ZOoPx+nubOI5COH+QtjUu9s+Ehzm7Pm7g++x0VaGhG4QA=="
+    version: "0.2.3"
+    integrity: "sha512-dofuzsf5rb2hUBdhvf83XfenWdAzKgZlN2yEnsTWsc+b8+I/km+dDyFgU5M6P2G9o1HTFuRVZ+6uXiLIdCd+eA=="
     repository: honua-io/honua-sdk-js
-    sourceSha: "6601a8d12c971b8916679ea7cbbb0290fd1ad78c"
+    sourceSha: "d9fb8dbd9218958a16678a73e46523562afbe872"
     publicationState: "published"
     targets: [node, honua-mcp-proxy]
-    filename: "mcp-server-0.2.2.tgz"
+    filename: "mcp-server-0.2.3.tgz"
   honua-sdk:
     ecosystem: "npm"
     package: "@honua/sdk"
@@ -1064,7 +1063,8 @@ evidenceSources:
     # 2026-10-12: advanced to a86b2228 after verified SDK 0.1.16 publication (same invariant).
     # 2026-10-13: advanced to 0fd1a2b4 after verified SDK 0.2.1 publication (same invariant).
     # 2026-10-14: advanced to 076b4218 after verified SDK 0.2.2 publication; runtime qualification remains separate.
-    producerSha: "076b4218f832725d57a8e23745fae75aeb9f4e5a"
+    # 2026-10-16: advanced to 32ab86472 after verified SDK 0.2.3 publication (same invariant).
+    producerSha: "32ab864720d3cd2e3a00827ed942b1c2ebdd8d44"
     trustedEvents: [schedule, workflow_dispatch]
     trustedBranch: trunk
     artifactIdentity: sdk-conformance

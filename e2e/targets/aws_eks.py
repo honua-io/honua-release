@@ -1,4 +1,4 @@
-"""AWS EKS deploy target: cluster + Helm chart + Service LoadBalancer, run as a GA cell.
+"""AWS EKS deploy target: cluster + Helm chart + Service LoadBalancer, run as an informational Preview cell in 2026.1.
 
 Owner decisions 12 and 18 (2026-10-10) pull honua-release#203 (bring-your-own Kubernetes) into 2026.1,
 so the EKS cell runs the same provision -> admit -> journey -> teardown chain as the ECS and Lambda

@@ -69,7 +69,7 @@ Every receipt is one attempt of the `genuine-model` journey on one cell (fix uni
 rc.3 plan). The schema requires:
 
 - `mode` — always `genuine-model`.
-- `cell` — `local-docker` or `aws-ecs/redis-off` (`--cell`).
+- `cell` — `local-docker` or one of `{aws-ecs, aws-serverless}/redis-{off,on}` (`--cell`); EKS remains Preview.
 - `attempt` — `1` or `2` (`--attempt`); promotion allows one retry after an attributed failure.
 - `lockDigest` — `sha256:<hex>` of the exact `platform-lock.json` under certification
   (`--lock-digest`). With `--lock <path>` the harness hashes those bytes and fails the receipt if they
@@ -126,11 +126,55 @@ the model proxy: a driver that composed a local stack cannot certify a cloud cel
   surfaced as a notice. It counts for no lock and is never a pass.
 - **nightly train** — `nightly-certification.yml` passes `genuine_model` to `release-train.yml`, which
   forwards it with the qualification lock digest to its own cloud cells (`gate_cloud_parity`). The
-  ECS Redis-off cell uploads `journey-gate-report-nightly-model`, which the train's
+  selected GA cells upload distinct `journey-gate-report-nightly-model-<cell>-<attempt>` artifacts, which the train's
   `--declare-evidence` step reads. The canary runs inside that cell rather than a second workflow
   because the cell admits only its own run's journey runner.
 - **dispatch `target=endpoint`** — the original harness against an operator-named endpoint, on
   `ubuntu-latest` or `self-hosted`.
+
+### AWS GA topology support and qualification boundary
+
+The cloud workflow's explicit `genuine_model_bedrock` opt-in enables the model path on selected ECS
+and Lambda cells in both Redis modes. Defaults remain off, and EKS Preview is excluded. Both maintained
+Terraform target adapters require the pinned root to declare the provider inputs before passing them.
+The journey worker receives application credentials, datasource references and the run-owned tenant
+fixture through its sealed handoff; it receives no cloud or CI token environment.
+
+Each cloud canary passes `--target` with the same retained target configuration used by its deterministic
+journey. Its cell, SHA-256 and endpoint origin must agree. The driver verifies the linked receipt digest
+and deployment-image observation; ECS uses the generic server image and Lambda uses the distinct pinned
+`awsLambdaImage`/`awsLambdaDigest`. It observes the external endpoint, mints bounded application principals,
+and revokes them after the attempt. Target changes and stale attempt files cannot replace current execution.
+Harness fixture resets are recorded separately from model actions.
+
+Redis-on uses `--profile full-workflow` and retains all eight stages, actual model-selected calls,
+recoverable-error recovery, independent approval, security checks, pixel proof and final-URL proof.
+Redis-off uses the separately authored `redis-off-serving-refusal` profile and receipt schema. The model
+must select a serving query of the cell's authored `e2e_src_fs` publication that matches an independent
+GeoServices read and both exact seed rows (IDs, names and geometries), attempt a valid buffer
+plan, observe the actual typed `unavailable`/`missingDependency=redis` refusal, then select a subsequent
+capability read acknowledging that refusal. The independent oracle requires `jobs.runner` unavailable
+with `reasonCode=dependency-unavailable`. Authentication, anonymous/viewer denial and exact HTTP/proxy
+catalog checks must pass. Every model action still requires the same signed, non-replayed candidate
+transcript provenance. The profile reports `executionOutcome: refused` and `functionalGpExecuted: false`;
+it makes no GP-completion, map persistence, publication, approval or final-URL claim.
+
+The retained `extended/seed-manifest.json` resolves the allocated layer ID. Its SHA-256, the maintained
+seed-script and extracted-SQL hashes, and the expected fixture-data digest are chained into setup state
+and serving proof; later source/manifest changes are refused. Two equal but wrong adapters cannot qualify.
+
+The explicit Redis-off prerequisite accepts a fresh, same-candidate deterministic receipt whose stages
+1–2 passed and whose stage 5 records the actual typed dependency refusal. No failed stage is allowed.
+Later blocked full-workflow stages retain their raw status: the linked proof names the bounded profile
+and `sourceStatus`, and never changes the raw deterministic receipt to pass. Other profiles continue to
+require the entire deterministic journey green. The report, nightly evidence declaration and promotion
+consumer preserve and check the profile/outcome for each attempt. The broader deterministic cloud gate's
+handling of blocked Redis-off full journeys remains a separate qualification boundary.
+
+Unit and workflow tests establish these contracts only. Fresh exact-candidate signed model receipts are
+still required. AWS candidates also need the maintained signing-secret wiring in honua-iac#256, the
+server AWS signing-reference validator in honua-server#6292, reviewed operator key/ARN bindings and the
+published signing-manifest trust anchor. A public manifest hash does not supply a private signing key.
 
 ### Repository settings the owner configures
 

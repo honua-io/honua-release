@@ -433,6 +433,8 @@ jobs:
   gate_capacity_soak:          # exact-candidate capacity/SLO envelope under the pre-frozen lock
     needs: freeze
     uses: ./.github/workflows/capacity-soak.yml
+    secrets:
+      RELEASE_RUNNER_READ_TOKEN: ${{ secrets.RELEASE_RUNNER_READ_TOKEN }}
     with:
       candidate_ref: ${{ inputs.candidate_ref }}
       evidence_bundle_url: ${{ inputs.capacity_receipt_url }}

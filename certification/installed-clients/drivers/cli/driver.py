@@ -221,8 +221,8 @@ def run_npm(cli: Cli, state: dict[str, Any]) -> None:
 
     def create() -> dict[str, Any]:
         body = cli.private_body("datasource.json", {
-            "name": life["connectionName"], **life["database"], "password": os.environ["SDKREG_DB_PASSWORD"],
-            "sslRequired": False, "sslMode": "Disable"})
+            "name": life["connectionName"], "sslRequired": False, "sslMode": "Disable",
+            **life["database"], "password": os.environ["SDKREG_DB_PASSWORD"]})
         try:
             created = cli.json(["admin", "connect", "createConnection", "--body", body, "--yes", "--json"], admin)
         finally:
@@ -353,7 +353,7 @@ def run_pypi(cli: Cli, state: dict[str, Any]) -> None:
         created = cli.json(["datasource", "create", "--name", life["connectionName"], "--host", database["host"],
                             "--port", str(database["port"]), "--database", database["databaseName"],
                             "--username", database["username"], "--password-env", "HONUA_DB_PASSWORD",
-                            "--ssl-mode", "Disable", "--json"],
+                            "--ssl-mode", database.get("sslMode", "Disable"), "--json"],
                            {**admin, "HONUA_DB_PASSWORD": os.environ["SDKREG_DB_PASSWORD"]})
         state["connection"] = created.get("connectionId")
         return {"connectionId": state["connection"]}

@@ -180,7 +180,7 @@ jobs:
     timeout-minutes: 330
     permissions:
       contents: read
-      actions: write
+      actions: read
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
@@ -191,13 +191,8 @@ jobs:
         with:
           name: prepared-deployment
           path: prepared-deployment
-      # Separate producer run: its successful completed attempt and immutable artifact bytes
-      # can be authenticated before this nightly run admits any candidate.
-      - name: Execute both complete EKS qualification cells
-        env:
-          GH_TOKEN: ${{ secrets.RELEASE_GH_TOKEN }}
-          PREPARED_REF: ${{ needs.lambda_deployment.outputs.prepared_ref }}
-        run: python tools/nightly_deployments.py eks --prepared-ref "$PREPARED_REF" --out-dir eks-proof
+      # EKS is Preview under the 2026-10-16 owner amendment. Its standalone cloud
+      # producer retains raw evidence; it does not block candidate admission or become a pass.
       - name: Verify and join actual deployment proof
         env:
           GH_TOKEN: ${{ secrets.RELEASE_GH_TOKEN }}
@@ -206,7 +201,7 @@ jobs:
             --manifest prepared-deployment/platform-manifest.yaml \
             --matrix prepared-deployment/compatibility-matrix.yaml \
             --operating-envelope docs/2026.1-operating-envelope.md \
-            --lambda-record prepared-deployment/lambda-record.json --eks-record eks-proof/eks-record.json \
+            --lambda-record prepared-deployment/lambda-record.json \
             --out qualification/deployment-qualification.json
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:

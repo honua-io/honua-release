@@ -2,6 +2,17 @@ name: Installed client certification
 
 on:
   workflow_dispatch:
+    inputs:
+      qualify_import_fidelity:
+        description: Execute all 142 required published-SDK fidelity checks (missing prerequisites fail closed)
+        required: false
+        type: boolean
+        default: false
+      authored_source_manifest:
+        description: Checked-in authored real-source input manifest (empty leaves fixture checks blocked)
+        required: false
+        type: string
+        default: ""
   pull_request:
     paths:
       - e2e/licensing.py
@@ -26,9 +37,116 @@ concurrency:
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
+  execute-plan-redis-controls:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    services:
+      redis:
+        image: redis:7.2@sha256:29e8589c3f9ba699b5f7aa4b3c7733c58852a3626439e619aa0ee78de08c6ca0
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 20
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.12"
+      - name: Install pinned source-control dependencies
+        run: python -m pip install -r tools/requirements-nightly.txt
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: "22.23.3"
+      - name: Exercise actual read-only Redis census and refusal controls
+        env:
+          CONTROL_REDIS_CONTAINER: ${{ job.services.redis.id }}
+        run: |
+          control_failures=0
+          run_control() { "$@" || control_failures=1; }
+          run_control python -B certification/installed-clients/mcp_execute_plan_redis_controls.py
+          run_control python -B certification/installed-clients/mcp_ops_health_redis_controls.py
+          run_control python -B certification/installed-clients/mcp_ops_events_state_controls.py
+          run_control python -B certification/installed-clients/mcp_ops_events_config_controls.py
+          run_control python -B certification/installed-clients/mcp_ops_events_setup_controls.py
+          run_control python -B certification/installed-clients/mcp_ops_events_validation_controls.py
+          run_control python -B certification/installed-clients/mcp_ops_events_data_read_controls.py
+          run_control python -B certification/installed-clients/mcp_ops_events_journey_controls.py
+          run_control python -B certification/installed-clients/mcp_ops_events_docker_controls.py
+          run_control node --test --test-concurrency=1 certification/installed-clients/mcp_ops_events_validation.test.mjs certification/installed-clients/mcp_ops_events_execution_controls.test.mjs
+          run_control python -B certification/installed-clients/mcp_grounding_status_validation_controls.py
+          run_control python -B certification/installed-clients/mcp_grounding_status_journey_controls.py
+          run_control node --test --test-concurrency=1 certification/installed-clients/mcp_grounding_status_execution_controls.test.mjs
+          run_control python -B certification/installed-clients/mcp_managed_identity_fixture_controls.py
+          run_control python -B certification/installed-clients/mcp_managed_identity_redis_controls.py
+          run_control python -B certification/installed-clients/mcp_workspace_identity_profile_controls.py
+          run_control python -B certification/installed-clients/mcp_deployment_identity_configuration_controls.py
+          run_control python -B certification/installed-clients/mcp_deployment_identity_configuration_docker_controls.py
+          run_control python -B certification/installed-clients/mcp_deployment_identity_role_controls.py
+          run_control node --test certification/installed-clients/mcp_tenant_transport.test.mjs
+          run_control python -B certification/installed-clients/mcp_deployment_workspace_redis_controls.py
+          run_control python -B certification/installed-clients/mcp_deployment_workspace_validation_controls.py
+          run_control node --test certification/installed-clients/mcp_deployment_workspace_validation.test.mjs
+          run_control python -B certification/installed-clients/mcp_deployment_identity_fixture_controls.py
+          run_control python -B certification/installed-clients/mcp_deployment_identity_validation_controls.py
+          run_control python -B certification/installed-clients/mcp_deployment_workspace_full_controls.py
+          run_control python -B certification/installed-clients/mcp_deployment_workspace_full_mutation_controls.py
+          run_control node --test --test-concurrency=1 certification/installed-clients/mcp_deployment_workspace_cohort.test.mjs certification/installed-clients/mcp_deployment_workspace_factory.test.mjs
+          run_control python -B certification/installed-clients/mcp_planning_disclosure_controls.py
+          run_control node --test --test-concurrency=1 certification/installed-clients/mcp_planning_disclosure.test.mjs certification/installed-clients/mcp_planning_execution_controls.test.mjs
+          run_control python -B certification/installed-clients/mcp_direct_cancel_validation_controls.py
+          run_control python -B certification/installed-clients/mcp_direct_cancel_state_controls.py
+          run_control node --test --test-concurrency=1 certification/installed-clients/mcp_direct_cancel_execution_controls.test.mjs
+          exit "$control_failures"
+
+  publish-result-state-controls:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    services:
+      redis:
+        image: redis:7.2@sha256:29e8589c3f9ba699b5f7aa4b3c7733c58852a3626439e619aa0ee78de08c6ca0
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 20
+      postgis:
+        image: postgis/postgis:16-3.4@sha256:44126d872ac91993766c341e369c539e8196614321765d36a6f1bab0419a5fa5
+        env:
+          POSTGRES_USER: honua
+          POSTGRES_PASSWORD: isolated-control-database-only
+          POSTGRES_DB: honua_test
+        options: >-
+          --health-cmd "pg_isready -U honua -d honua_test"
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 20
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.12"
+      - name: Exercise actual typed orchestration census in isolated Redis
+        env:
+          CONTROL_REDIS_CONTAINER: ${{ job.services.redis.id }}
+        run: python -B certification/installed-clients/mcp_publish_result_redis_controls.py
+      - name: Exercise actual single-statement SQL mapping and geometry observations
+        env:
+          CONTROL_POSTGIS_CONTAINER: ${{ job.services.postgis.id }}
+        run: |
+          python -B certification/installed-clients/mcp_publish_result_sql_controls.py
+          python -B certification/installed-clients/mcp_deployment_identity_role_sql_controls.py
+          python -B certification/installed-clients/mcp_ops_health_sql_controls.py
+          python -B certification/installed-clients/mcp_deployment_workspace_sql_controls.py
+          python -B certification/installed-clients/mcp_ops_events_sql_controls.py
+
   exact-published-clients:
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 60
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
@@ -46,14 +164,48 @@ jobs:
         run: |
           python -m pip install pytest
           python -m pytest certification/installed-clients/test_run.py certification/installed-clients/test_import_fidelity.py \
+            certification/installed-clients/test_produce_import_fidelity.py \
+            certification/installed-clients/test_import_fidelity_journeys.py \
+            certification/installed-clients/test_import_fidelity_reference.py \
             certification/installed-clients/test_regression.py certification/installed-clients/interop/test_interop.py -q
+      - name: Verify configured readback through the actual public SDK process
+        run: python certification/installed-clients/check_import_client_readback.py
+      # Qualification is explicit until every external prerequisite has a complete fresh proof.
+      # Incomplete receipts are uploaded and fail; they never reactivate the blocked matrix row.
+      - name: Install the independent vector reader
+        if: ${{ inputs.qualify_import_fidelity == true }}
+        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends gdal-bin
+      - name: Produce published .NET SDK import-fidelity evidence
+        id: import_fidelity
+        if: ${{ inputs.qualify_import_fidelity == true }}
+        env:
+          EVIDENCE_URI: https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          AUTHORED_SOURCE_MANIFEST: ${{ inputs.authored_source_manifest }}
+          IMPORT_FIDELITY_AUTH_SOURCE_URL: ${{ vars.IMPORT_FIDELITY_AUTH_SOURCE_URL }}
+          IMPORT_FIDELITY_SOURCE_TOKEN: ${{ secrets.IMPORT_FIDELITY_SOURCE_TOKEN }}
+        run: |
+          source_args=()
+          if [ -n "$AUTHORED_SOURCE_MANIFEST" ]; then
+            # Input is data from this reviewed checkout; never execute a caller-provided program.
+            source_path="$(realpath -e -- "$AUTHORED_SOURCE_MANIFEST")"
+            case "$source_path" in "$GITHUB_WORKSPACE"/*) ;; *) exit 1 ;; esac
+            source_args=(--authored-source "$source_path")
+          fi
+          python certification/installed-clients/produce_import_fidelity.py "${source_args[@]}" --live \
+            --evidence-uri "$EVIDENCE_URI" \
+            --output artifacts/dotnet-import-fidelity-receipt.json
       # The fast subset: exact-byte installs plus the probe cells. The SDK regression scenarios
       # run in gate-installed-clients.yml, which the release train calls for the nightly class.
       - name: Validate release inputs and install every published client
+        if: ${{ !cancelled() && (success() || steps.import_fidelity.outcome == 'failure') }}
         env:
           EVIDENCE_URI: https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}
         run: |
-          python certification/installed-clients/run.py \
+          import_fidelity_args=()
+          if [ -f artifacts/dotnet-import-fidelity-receipt.json ]; then
+            import_fidelity_args=(--import-fidelity-receipt artifacts/dotnet-import-fidelity-receipt.json)
+          fi
+          python certification/installed-clients/run.py "${import_fidelity_args[@]}" \
             --live --subset fast \
             --evidence-uri "$EVIDENCE_URI" \
             --output artifacts/installed-client-certification.json || code=$?
@@ -66,4 +218,7 @@ jobs:
         if: always()
         with:
           name: installed-client-certification
-          path: artifacts/installed-client-certification.json
+          path: |
+            artifacts/installed-client-certification.json
+            artifacts/dotnet-import-fidelity-receipt.json
+            artifacts/import-fidelity-observations/

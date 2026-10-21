@@ -177,7 +177,11 @@ def load_full_matrix(path=FULL_MATRIX_PATH) -> dict[str, dict]:
             if isinstance(entry, dict) and str(entry.get("name", "")).strip()
         )
         if workflow and events and required:
-            policies[str(component)] = {"workflow": workflow, "events": events, "requiredChecks": required}
+            inventory = policy.get("shardInventory")
+            if not isinstance(inventory, dict) or set(inventory) != {"path", "jobName", "testStep"}:
+                raise ValueError("full-matrix policy needs an explicit pinned shard inventory")
+            policies[str(component)] = {"workflow": workflow, "events": events, "requiredChecks": required,
+                                        "repository": f"{ORG}/{component}", "shardInventory": inventory}
     return policies
 
 
@@ -327,54 +331,21 @@ def classify(payload, env_gated_names: frozenset[str] = frozenset(),
 
 
 def classify_full_matrix(payload: object, policy: dict, expected_sha: str | None = None) -> tuple[str, str]:
-    """Require a completed green full-matrix workflow and its named release-critical lanes."""
+    """Require authentic Actions jobs and the complete immutable shard selection/execution."""
+    import full_matrix_evidence as matrix
     if not isinstance(payload, dict):
         return "fail", "missing full-matrix evidence: no Actions payload"
-
-    workflow = policy["workflow"]
-    events = policy["events"]
-    candidates = [
-        run for run in (payload.get("_workflow_runs") or [])
-        if str(run.get("path", "")) == workflow and str(run.get("event", "")) in events
-        and (expected_sha is None or str(run.get("head_sha", "")) == expected_sha)
-    ]
-    completed = [run for run in candidates if run.get("status") == "completed"]
-    if not completed:
-        return "fail", f"missing completed full-matrix run for {workflow} on the pinned sha"
-
-    def marker(run: dict) -> tuple[str, int]:
-        try:
-            run_id = int(run.get("id") or 0)
-        except (TypeError, ValueError):
-            run_id = 0
-        return str(run.get("updated_at") or run.get("created_at") or ""), run_id
-
-    selected = max(completed, key=marker)
-    run_id = str(selected.get("id") or "")
-
-    def belongs_to_selected(check: dict) -> bool:
-        match = _ACTIONS_RUN_URL.search(str(check.get("details_url") or ""))
-        return bool(match and match.group(1) == run_id)
-
-    latest = _latest_named_runs([
-        check for check in (payload.get("check_runs") or []) if belongs_to_selected(check)
-    ])
-    by_name = {str(check.get("name", "")): check for check in latest}
-    missing = sorted(policy["requiredChecks"] - by_name.keys())
-    non_green = sorted(
-        name for name in policy["requiredChecks"] & by_name.keys()
-        if by_name[name].get("status") != "completed" or str(by_name[name].get("conclusion")) != "success"
-    )
-    problems = []
-    if missing:
-        problems.append(f"missing expected lanes {missing}")
-    if non_green:
-        problems.append(f"expected lanes not successful {non_green}")
+    try:
+        selected = matrix.selected_run(payload, policy, expected_sha)
+    except ValueError as error:
+        return "fail", str(error)
+    problems = matrix.verify(payload, selected, policy, expected_sha)
     if selected.get("conclusion") != "success":
-        problems.append(f"workflow conclusion={selected.get('conclusion') or 'none'}")
+        problems.append("workflow conclusion=" + str(selected.get("conclusion") or "none"))
     if problems:
-        return "fail", f"full-matrix run {run_id} is not certifiable: " + "; ".join(problems)
-    return "pass", f"full-matrix run {run_id} completed successfully with all expected lanes"
+        return "fail", f"full-matrix run {selected.get('id')} is not certifiable: " + "; ".join(problems)
+    return "pass", (f"full-matrix run {selected['id']} attempt {selected['run_attempt']} completed successfully "
+                    "with authentic expected lanes and complete pinned shard execution")
 
 
 Fetcher = Callable[[str, str], object]  # (repo, sha) -> payload | NOT_FOUND
@@ -384,14 +355,14 @@ _ACTIONS_RUN_URL = re.compile(r"/actions/runs/(\d+)(?:/|$)")
 _GITHUB_PAGE_SIZE = 100
 
 
-def _fetch_paginated_collection(url: str, headers: dict[str, str], key: str) -> dict:
+def _fetch_paginated_collection(url: str, headers: dict[str, str], key: str, *, page_size: int = _GITHUB_PAGE_SIZE) -> dict:
     """Fetch every page of a GitHub REST collection, preserving first-page metadata."""
     items: list[dict] = []
     first_page: dict | None = None
     page = 1
     while True:
         separator = "&" if "?" in url else "?"
-        page_url = f"{url}{separator}per_page={_GITHUB_PAGE_SIZE}&page={page}"
+        page_url = f"{url}{separator}per_page={page_size}&page={page}"
         request = urllib.request.Request(page_url, headers=headers)
         with urllib.request.urlopen(request, timeout=20) as response:
             payload = json.loads(response.read().decode("utf-8", "replace"))
@@ -402,13 +373,26 @@ def _fetch_paginated_collection(url: str, headers: dict[str, str], key: str) -> 
         batch = payload[key]
         items.extend(batch)
         total = payload.get("total_count")
-        if (isinstance(total, int) and len(items) >= total) or len(batch) < _GITHUB_PAGE_SIZE:
+        if type(total) is not int or total < 0:
+            raise ValueError("GitHub response did not declare its collection count")
+        if len(items) >= total:
             break
+        if len(batch) < page_size:
+            raise ValueError("GitHub collection ended before its declared count")
         page += 1
 
     result = dict(first_page or {})
     result[key] = items
     return result
+
+
+def _fetch_json(url: str, headers: dict) -> dict:
+    request = urllib.request.Request(url, headers=headers)
+    with urllib.request.urlopen(request, timeout=20) as response:
+        value = json.loads(response.read().decode("utf-8"))
+    if not isinstance(value, dict):
+        raise ValueError("GitHub API response is not an object")
+    return value
 
 
 def _enrich_action_workflow_ids(payload: dict, workflow_payload: dict) -> dict:
@@ -454,7 +438,7 @@ def _default_fetch(repo: str, sha: str) -> object:
         if e.code in (404, 403, 422):
             return NOT_FOUND
         raise
-    except (urllib.error.URLError, OSError):
+    except (urllib.error.URLError, OSError, ValueError):
         return NOT_FOUND
 
     # One additional request identifies the Actions workflow behind each job. This lets the
@@ -465,7 +449,14 @@ def _default_fetch(repo: str, sha: str) -> object:
     try:
         workflow_payload = _fetch_paginated_collection(actions_url, headers, "workflow_runs")
         payload["_workflow_runs"] = workflow_payload.get("workflow_runs") or []
-        return _enrich_action_workflow_ids(payload, workflow_payload)
+        _enrich_action_workflow_ids(payload, workflow_payload)
+        policy = load_full_matrix().get(repo)
+        if policy:
+            import full_matrix_evidence as matrix
+            selected = matrix.selected_run(payload, policy, sha)
+            payload["_matrix_execution"] = matrix.collect(f"{ORG}/{repo}", sha, selected, policy, headers,
+                                                          _fetch_paginated_collection, _fetch_json)
+        return payload
     except (urllib.error.HTTPError, urllib.error.URLError, OSError, ValueError):
         return payload
 
