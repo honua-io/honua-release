@@ -12,7 +12,7 @@
     "prepare:app": "python3 fetch-app-validation.py --destination .app-validation"
   },
   "dependencies": {
-    "@modelcontextprotocol/inspector": "2.10.1",
+    "@modelcontextprotocol/inspector": "2.11.0",
     "@modelcontextprotocol/sdk": "1.32.1"
   }
 }
