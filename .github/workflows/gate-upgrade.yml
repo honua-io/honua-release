@@ -688,7 +688,9 @@ jobs:
               esac
               if [ "$STATUS" != "fail" ] && helm upgrade honua "$CANDIDATE_CHART" --set image.repository="${CAND%@*}" --set image.tag='' --set image.digest="${CAND##*@}" \
                 --set-string config.env.Deployment__ImageDigest="${CAND##*@}" --set-string config.env.HONUA_PLATFORM_LOCK_DIGEST="$CANDIDATE_LOCK_DIGEST" \
-                "${UPGRADE_EXTRA[@]}" "${COMMON[@]}" >/tmp/upgrade.log 2>&1; then
+                "${COMMON[@]}" "${UPGRADE_EXTRA[@]}" >/tmp/upgrade.log 2>&1; then
+                # (Fault injection comes LAST: helm keeps the last --set for a key, so a bad-config
+                # override placed before COMMON was silently replaced by the good value, run 39677853038.)
                 helm test honua -n "$NS" --timeout 6m >/tmp/test.log 2>&1 && HT=ok || HT=failed
                 AFTER_VERSIONS="$(db_query 'SELECT count(*) FROM public.schema_versions;' 2>/tmp/after-db.log || true)"
                 CANDIDATE_SCHEMA="$(db_query "SELECT COALESCE(max(substring(scriptname from '([0-9]{3})_')::integer), 0) FROM public.schema_versions;" 2>/tmp/schema-floor.log || true)"
