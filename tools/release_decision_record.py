@@ -167,7 +167,7 @@ def normalize(item, previous=None):
 
 def org_repos():
     """Every org repository the caller can read; the release dashboard scans the same list."""
-    return pages('orgs/honua-io/repos?per_page=100')
+    return [r for r in pages('orgs/honua-io/repos?per_page=100') if r.get('has_issues', True)]
 
 
 def refresh(data):
