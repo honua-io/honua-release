@@ -124,7 +124,9 @@ jobs:
         run: python certification/terminal-journey/test_live_driver.py -v
 
       - name: Test native Docker first-use binding and approval discipline
-        run: python certification/native-docker-first/test_run.py -v
+        run: |
+          python certification/native-docker-first/test_run.py -v
+          python certification/native-docker-first/test_agent_service.py -v
 
       - name: Test cloud cell targets, minted principals and cloud receipt kinds
         run: python certification/terminal-journey/test_cloud_target.py -v
