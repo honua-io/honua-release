@@ -573,6 +573,10 @@ jobs:
                 '{e2e_src_fs:$src,maui_zoning:$zoning}' > "/tmp/upg/seed-checksums-${suffix}.json"
             }
             image_digest() {
+              # A digest-pinned reference IS its identity: the kind node pulls by it and reports it
+              # as the pod imageID. The local docker config Id is a different digest and never
+              # matches (run 39667428920 misclassified a recovered rollback as rollback-failed).
+              case "$1" in *@sha256:*) printf '%s\n' "${1##*@}"; return 0 ;; esac
               docker image inspect "$1" --format '{{.Id}}' 2>/dev/null | grep '^sha256:' || \
                 printf '%s' "$1" | sha256sum | awk '{print "sha256:"$1}'
             }
