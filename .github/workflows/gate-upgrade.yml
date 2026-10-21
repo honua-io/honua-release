@@ -521,8 +521,12 @@ jobs:
             - { name: operation-keyring, mountPath: /keyring, readOnly: true }
           YAML
 
+            # AllowedHosts: host validation rejects the chart's own in-cluster license-status hook
+            # ("untrusted host header 'honua-honua:80'", run 39669924148) and the port-forwarded
+            # probes unless their hosts are allowlisted.
             COMMON=(--namespace "$NS" --wait --timeout 12m
                     -f /tmp/upg-keyring-values.yaml
+                    --set-string 'config.env.AllowedHosts=honua-honua;127.0.0.1;localhost'
                     --set-string 'config.env.Operations__SecretChannel__KeyRingCertificatePath=/keyring/keyring.pfx'
                     --set-string "secret.env.Operations__SecretChannel__KeyRingCertificatePassword=$KEYRING_PASSWORD"
                     --set-string "secret.env.AuditLog__ChainVerification__Key=$AUDIT_CHAIN_KEY"
