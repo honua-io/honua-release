@@ -15,6 +15,88 @@ spec.loader.exec_module(runner)
 
 
 class NativeFirstUseTests(unittest.TestCase):
+    def test_import_observation_requires_original_job_and_confirmed_physical_output(self):
+        original = {'workspaceId': 'workspace-1', 'turnId': 'turn-1', 'taskId': 'task-1',
+                    'revision': 1, 'contentHash': 'a' * 64}
+        submission = {'operationId': 'operation-1', 'jobId': 'operation-1', 'leaseId': 'lease-1'}
+        turn = {'workspaceId': 'workspace-1', 'turnId': 'turn-1'}
+        reference = {key: original[key] for key in ('workspaceId', 'taskId', 'revision', 'contentHash')}
+        receipt = {'taskId': 'task-1', 'taskRevision': 1, 'taskContentHash': 'a' * 64,
+                   'state': 'accepted', 'operationId': 'operation-1',
+                   'job': {'jobId': 'operation-1', 'leaseId': 'lease-1', 'status': 'succeeded',
+                           'outcomePending': False, 'completedAt': '2026-10-21T04:00:00Z',
+                           'output': {'physicalTableName': 'actual_import', 'schema': 'public',
+                                      'featureCount': 3, 'detectedSrid': 4326}}}
+        def transcript(value):
+            def call(name, identifier, arguments):
+                return {'message': {'content': [{'type': 'tool_use', 'name': 'mcp__honua__' + name,
+                                                'id': identifier, 'input': arguments}]}}
+            def result(identifier, output):
+                return {'message': {'content': [{'type': 'tool_result', 'tool_use_id': identifier,
+                                                'content': json.dumps(output)}]}}
+            return [call('honua_agent_connect', 'bind', turn),
+                    result('bind', {'state': 'attached', 'turnBinding': turn}),
+                    call('honua_workspace_get_dataset_import_submission', 'read', reference),
+                    result('read', value)]
+        encoded = lambda events: '\n'.join(json.dumps(event) for event in events)
+        observe = lambda value: runner.observed_agent_import(encoded(transcript(value)), original, submission)
+        self.assertEqual(observe(receipt)['output']['physicalTableName'], 'actual_import')
+        for status in ('queued', 'provisioning', 'running', 'failed', 'cancelled'):
+            changed = json.loads(json.dumps(receipt))
+            changed['job']['status'] = status
+            self.assertNotIn('output', observe(changed), 'non-success must never qualify a physical output')
+        for field, value in (('jobId', 'other-job'), ('leaseId', 'other-lease'),
+                             ('status', 'unknown'), ('output', None), ('outcomePending', True),
+                             ('completedAt', None)):
+            changed = json.loads(json.dumps(receipt))
+            changed['job'][field] = value
+            with self.subTest(field=field), self.assertRaises(runner.Blocked):
+                observe(changed)
+        for field, value in (('physicalTableName', ''), ('schema', None),
+                             ('featureCount', True), ('featureCount', 0), ('detectedSrid', '4326')):
+            changed = json.loads(json.dumps(receipt))
+            changed['job']['output'][field] = value
+            with self.subTest(field=field), self.assertRaises(runner.Blocked):
+                observe(changed)
+        for field, value in (('taskId', 'other-task'), ('taskRevision', 2),
+                             ('taskContentHash', 'b' * 64), ('operationId', 'other-operation')):
+            changed = json.loads(json.dumps(receipt))
+            changed[field] = value
+            with self.subTest(field=field), self.assertRaises(runner.Blocked):
+                observe(changed)
+        events = transcript(receipt)
+        for broken in ([events[0], events[2], events[1], events[3]],
+                       events + [events[2]], events + [events[3]],
+                       events + [{'message': {'content': [{'type': 'tool_use',
+                           'name': 'mcp__honua__honua_workspace_submit_dataset_import',
+                           'id': 'mutation', 'input': {}}]}}]):
+            with self.assertRaises(runner.Blocked):
+                runner.observed_agent_import(encoded(broken), original, submission)
+
+    def test_import_observation_refuses_changed_target_or_registration_before_client(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            config, executable = root / 'mcp.json', root / 'mcp'
+            config.write_text('{}')
+            executable.write_text('original')
+            state = {'stages': {'agentSubmission': 'pass'}, 'installDirectory': str(root),
+                     'target': {'id': 'original'}, 'agentImportTask': {'taskId': 'task-1'},
+                     'agentSubmission': {'operationId': 'op-1', 'jobId': 'op-1', 'leaseId': 'lease-1'},
+                     'executables': {'mcp': str(executable)},
+                     'mcpConfigSha256': runner.sha256(config),
+                     'mcpExecutableSha256': runner.sha256(executable)}
+            with patch.object(runner, 'installed_target', return_value={'id': 'replacement'}), \
+                    patch.object(runner.subprocess, 'run') as client:
+                with self.assertRaisesRegex(runner.Blocked, 'target changed'):
+                    runner.phase_agent_observe_import(SimpleNamespace(), state, {}, root)
+                client.assert_not_called()
+            config.write_text('{"changed":true}')
+            with patch.object(runner, 'installed_target', return_value=state['target']), \
+                    patch.object(runner.subprocess, 'run') as client:
+                with self.assertRaisesRegex(runner.Blocked, 'registration/configuration changed'):
+                    runner.phase_agent_observe_import(SimpleNamespace(), state, {}, root)
+                client.assert_not_called()
+
     def test_resumed_client_submits_only_original_prepared_task_and_reads_actual_job(self):
         original = {'workspaceId': 'workspace-1', 'turnId': 'turn-1', 'taskId': 'task-1',
                     'revision': 1, 'contentHash': 'a' * 64, 'ownerActorId': 'agent-1'}
