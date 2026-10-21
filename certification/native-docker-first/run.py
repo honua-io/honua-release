@@ -691,7 +691,11 @@ def observed_agent_submission(transcript: str, original: dict) -> dict:
     request = {'taskContentHash': original['contentHash'], **reviewed}
     if submit.get('input') != {key: reference[key] for key in ('workspaceId', 'taskId', 'revision')} | {'request': request}:
         raise Blocked('external client submitted a different task or authority')
-    if submitted.get('state') != 'accepted' or accepted.get('state') != 'accepted':
+    if (submitted.get('state') != 'accepted' or accepted.get('state') != 'accepted' or
+            submitted.get('operationId') != authority['preparedOperationId'] or
+            accepted.get('operationId') != authority['preparedOperationId'] or
+            any(submitted.get(key) != value or accepted.get(key) != value
+                for key, value in reviewed.items())):
         raise Blocked('submitted import lacks matching authoritative accepted readback')
     submitted_job, job = submitted.get('job') or {}, accepted.get('job') or {}
     if (not job.get('jobId') or job.get('jobId') != authority['preparedOperationId'] or

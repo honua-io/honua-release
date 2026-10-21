@@ -50,16 +50,17 @@ class NativeFirstUseTests(unittest.TestCase):
                   result('after', accepted)]
         transcript = lambda items: '\n'.join(json.dumps(item) for item in items)
         self.assertEqual(runner.observed_agent_submission(transcript(events), original)['jobId'], 'operation-1')
-        for index, mutate in ((0, lambda x: x['message']['content'][0]['input'].update(turnId='other-turn')),
-                              (6, lambda x: x['message']['content'][0]['input']['request'].update(authorityRevision=3)),
-                              (9, lambda x: json.loads(x['message']['content'][0]['content']).update(job={}))) :
+        for index, field in ((0, 'bind'), (6, 'revision'), (9, 'job'), (9, 'fingerprint')):
             broken = json.loads(json.dumps(events))
-            if index == 9:
+            if field in ('job', 'fingerprint'):
                 payload = json.loads(broken[index]['message']['content'][0]['content'])
-                payload['job']['jobId'] = 'foreign-job'
+                if field == 'job': payload['job']['jobId'] = 'foreign-job'
+                else: payload['authorityFingerprint'] = 'd' * 64
                 broken[index]['message']['content'][0]['content'] = json.dumps(payload)
+            elif field == 'bind':
+                broken[index]['message']['content'][0]['input']['turnId'] = 'other-turn'
             else:
-                mutate(broken[index])
+                broken[index]['message']['content'][0]['input']['request']['authorityRevision'] = 3
             with self.assertRaises(runner.Blocked):
                 runner.observed_agent_submission(transcript(broken), original)
 
