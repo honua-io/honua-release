@@ -484,7 +484,31 @@ jobs:
               esac
             done
 
+            # With Redis connected in Production the server enables the durable operation secret
+            # channel and exits at startup without a key-ring certificate ("'Operations:SecretChannel:
+            # KeyRingCertificatePath' is required", run 39664663981). Mint a per-run PKCS#12 key ring
+            # (as certification/control-plane-parity does) and an audit chain key, mounted the same
+            # way for install, upgrade and rollback.
+            KEYRING_PASSWORD="$(openssl rand -hex 24)"; AUDIT_CHAIN_KEY="$(openssl rand -hex 32)"
+            echo "::add-mask::$KEYRING_PASSWORD"; echo "::add-mask::$AUDIT_CHAIN_KEY"
+            openssl req -x509 -newkey rsa:2048 -nodes -keyout /tmp/keyring.key -out /tmp/keyring.crt \
+              -days 2 -subj /CN=honua-upgrade-kind-keyring >/dev/null 2>&1
+            openssl pkcs12 -export -inkey /tmp/keyring.key -in /tmp/keyring.crt -out /tmp/keyring.pfx \
+              -passout "pass:$KEYRING_PASSWORD"
+            kubectl create secret generic honua-upgrade-keyring -n "$NS" --from-file=keyring.pfx=/tmp/keyring.pfx
+            cat > /tmp/upg-keyring-values.yaml <<'YAML'
+          extraVolumes:
+            - name: operation-keyring
+              secret: { secretName: honua-upgrade-keyring }
+          extraVolumeMounts:
+            - { name: operation-keyring, mountPath: /keyring, readOnly: true }
+          YAML
+
             COMMON=(--namespace "$NS" --wait --timeout 12m
+                    -f /tmp/upg-keyring-values.yaml
+                    --set-string 'config.env.Operations__SecretChannel__KeyRingCertificatePath=/keyring/keyring.pfx'
+                    --set-string "secret.env.Operations__SecretChannel__KeyRingCertificatePassword=$KEYRING_PASSWORD"
+                    --set-string "secret.env.AuditLog__ChainVerification__Key=$AUDIT_CHAIN_KEY"
                     --set postgresql.enabled=false
                     --set redis.enabled=false
                     --set 'secret.env.ConnectionStrings__DefaultConnection=Host=honua-postgis;Port=5432;Database=honua;Username=honua;Password=honua'
