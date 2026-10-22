@@ -151,3 +151,110 @@ def test_overrun_blocks_new_work_but_later_cleanup_charge_is_retained(tmp_path):
     assert [row['actualUsd'] for row in rows] == ['2','3']
     with pytest.raises(BudgetError, match='exceeded'):
         reserve(path, 'model', '1')
+
+
+def test_foss4g_amendment_requires_initialized_same_candidate_ledger(tmp_path):
+    path=tmp_path/'ledger.json'
+    with pytest.raises(BudgetError, match='initialized'):
+        update(path,'amend-foss4g',candidate_key=KEY)
+    update(path,'init',candidate_key=KEY)
+    original=path.read_bytes()
+    with pytest.raises(BudgetError, match='another candidate'):
+        update(path,'amend-foss4g',candidate_key='sha256:'+'3'*64)
+    assert path.read_bytes()==original
+
+
+def test_foss4g_amendment_preserves_attempts_operations_and_is_idempotent(tmp_path):
+    path=tmp_path/'ledger.json'
+    update(path,'init',candidate_key=KEY)
+    reserve(path,'model',40)
+    update(path,'settle',candidate_key=KEY,reservation_id='model',amount=30)
+    reserve_operation(path,rid='shared',amount=100)
+    before=json.loads(path.read_text())
+    result=update(path,'amend-foss4g',candidate_key=KEY)
+    amended=json.loads(path.read_text())
+    assert amended['schemaVersion']==3
+    assert amended['ceilingUsd']=='2000' and amended['cleanupReserveUsd']=='200'
+    assert amended['entries']==before['entries'] and amended['operations']==before['operations']
+    assert amended['policyAmendment']['priorLedger']==before
+    assert Decimal(result['liabilityUsd'])==130
+    bytes_before=path.read_bytes()
+    update(path,'amend-foss4g',candidate_key=KEY)
+    update(path,'init',candidate_key=KEY)
+    assert path.read_bytes()==bytes_before
+    # Settling a pre-amendment reservation is a permitted history transition.
+    update(path,'settle',candidate_key=KEY,reservation_id='shared',amount=80)
+    assert Decimal(update(path,'check',candidate_key=KEY)['liabilityUsd'])==110
+
+
+def test_foss4g_protects_200_cleanup_and_conserves_inherited_liability(tmp_path):
+    path=tmp_path/'ledger.json'
+    update(path,'init',candidate_key=KEY)
+    reserve(path,'old',100)
+    update(path,'amend-foss4g',candidate_key=KEY)
+    reserve_operation(path,rid='new',amount=1700)
+    with pytest.raises(BudgetError, match='reserve'):
+        reserve(path,'one-more',1)
+    reserve_operation(path,rid='cleanup',amount=200,kind='cleanup')
+    assert Decimal(update(path,'check',candidate_key=KEY)['remainingUsd'])==0
+
+
+def test_prior_actual_overrun_cannot_be_amended_away(tmp_path):
+    path=tmp_path/'ledger.json'
+    update(path,'init',candidate_key=KEY)
+    reserve(path,'old',1)
+    with pytest.raises(BudgetError):
+        update(path,'settle',candidate_key=KEY,reservation_id='old',amount=2)
+    original=path.read_bytes()
+    with pytest.raises(BudgetError, match='exceeded'):
+        update(path,'amend-foss4g',candidate_key=KEY)
+    assert path.read_bytes()==original
+
+
+@pytest.mark.parametrize('mutation',[
+    lambda l:l.update(ceilingUsd='2500'),
+    lambda l:l.update(cleanupReserveUsd='0'),
+    lambda l:l['policyAmendment'].update(policyId='arbitrary-policy'),
+    lambda l:l['policyAmendment'].update(priorLedgerDigest='sha256:'+'0'*64),
+    lambda l:l.update(entries=[]),
+    lambda l:l['entries'][0].update(actualUsd='0'),
+    lambda l:l['operations'][0].update(amountUsd='1'),
+    lambda l:l['policyAmendment']['priorLedger'].update(candidateKey='sha256:'+'4'*64),
+])
+def test_foss4g_fixed_policy_and_historical_rows_cannot_be_rewritten(tmp_path,mutation):
+    path=tmp_path/'ledger.json';update(path,'init',candidate_key=KEY)
+    reserve(path,'old',10);update(path,'settle',candidate_key=KEY,reservation_id='old',amount=9)
+    reserve_operation(path,rid='old-operation',amount=10)
+    update(path,'amend-foss4g',candidate_key=KEY)
+    ledger=json.loads(path.read_text());mutation(ledger)
+    with pytest.raises(BudgetError):validate(ledger)
+
+
+def test_reviewed_amendment_can_preserve_legacy_v1_without_reset(tmp_path):
+    path=tmp_path/'ledger.json'
+    path.write_text(json.dumps({'schemaVersion':1,'candidateKey':KEY,'ceilingUsd':'500',
+                               'cleanupReserveUsd':'50','entries':[]}))
+    reserve(path,'legacy',10)
+    update(path,'amend-foss4g',candidate_key=KEY)
+    reserve_operation(path,rid='new-operation',amount=10)
+    assert Decimal(update(path,'check',candidate_key=KEY)['liabilityUsd'])==20
+
+
+def test_post_amendment_overrun_is_retained_and_blocks_new_work(tmp_path):
+    path=tmp_path/'ledger.json';update(path,'init',candidate_key=KEY)
+    update(path,'amend-foss4g',candidate_key=KEY)
+    reserve(path,'work',1);reserve_operation(path,rid='cleanup',amount=1,kind='cleanup')
+    for reservation,actual in [('work',2),('cleanup',3)]:
+        with pytest.raises(BudgetError,match='exceeded'):
+            update(path,'settle',candidate_key=KEY,reservation_id=reservation,amount=actual)
+    assert json.loads(path.read_text())['operations'][0]['actualUsd']=='3'
+    with pytest.raises(BudgetError,match='exceeded'):
+        update(path,'amend-foss4g',candidate_key=KEY)
+
+
+def test_legacy_252_gate_rejects_amended_budget_schema(tmp_path):
+    import agent_e2e_gate as gate
+    path=tmp_path/'ledger.json';update(path,'init',candidate_key=KEY)
+    update(path,'amend-foss4g',candidate_key=KEY)
+    with pytest.raises(gate.Invalid,match='operation-aware'):
+        gate.validate_operation_reports(json.loads(path.read_text()),[],tmp_path)

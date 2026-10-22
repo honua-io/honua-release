@@ -10,6 +10,7 @@ download/update/upload of a remote ledger as well as this local file lock.
 from __future__ import annotations
 
 import argparse
+import copy
 from contextlib import contextmanager
 from decimal import Decimal, InvalidOperation
 import hashlib
@@ -21,6 +22,40 @@ import re
 
 class BudgetError(ValueError):
     pass
+
+
+FOSS4G_POLICY = 'foss4g-ai-2026-owner-2000-200'
+
+
+def history_digest(value):
+    return 'sha256:' + hashlib.sha256(json.dumps(value, sort_keys=True, separators=(',', ':'),
+                                               allow_nan=False).encode()).hexdigest()
+
+
+def validate_amendment(ledger):
+    amendment = ledger['policyAmendment']
+    if (not isinstance(amendment, dict) or set(amendment) != {'policyId', 'priorLedger', 'priorLedgerDigest'}
+            or amendment['policyId'] != FOSS4G_POLICY):
+        raise BudgetError('unknown or malformed owner budget amendment')
+    prior = amendment['priorLedger']
+    if (not isinstance(prior, dict) or type(prior.get('schemaVersion')) is not int
+            or prior['schemaVersion'] not in (1, 2) or prior.get('candidateKey') != ledger['candidateKey']
+            or history_digest(prior) != amendment['priorLedgerDigest']):
+        raise BudgetError('amendment history/candidate binding changed')
+    # A larger ceiling must never erase a historical unreserved charge.
+    validate(prior)
+    for field in ('entries', 'operations'):
+        old_rows, new_rows = prior.get(field, []), ledger[field]
+        if not isinstance(new_rows, list) or len(new_rows) < len(old_rows):
+            raise BudgetError('amendment history cannot be removed')
+        for before, after in zip(old_rows, new_rows):
+            if not isinstance(after, dict):
+                raise BudgetError('invalid amended history row')
+            expected = copy.deepcopy(before)
+            if before['state'] == 'reserved' and after.get('state') == 'settled':
+                expected.update(state='settled', actualUsd=after.get('actualUsd'))
+            if after != expected:
+                raise BudgetError('amendment history cannot be reset or rewritten')
 
 
 OPERATION_PURPOSES = {'bootstrap', 'shared-environment', 'semantics', 'telemetry', 'retention'}
@@ -41,15 +76,20 @@ def money(value):
 def validate(ledger, *, allow_overrun=False):
     if not isinstance(ledger, dict):
         raise BudgetError('invalid candidate ledger')
-    if (type(ledger.get("schemaVersion")) is not int or ledger['schemaVersion'] not in (1, 2)
+    if (type(ledger.get("schemaVersion")) is not int or ledger['schemaVersion'] not in (1, 2, 3)
             or not isinstance(ledger.get('candidateKey'), str)
             or not re.fullmatch(r"sha256:[0-9a-f]{64}", ledger['candidateKey'])):
         raise BudgetError("invalid candidate ledger")
     fields = {'schemaVersion', 'candidateKey', 'ceilingUsd', 'cleanupReserveUsd', 'entries'}
-    if set(ledger) != fields | ({'operations'} if ledger['schemaVersion'] == 2 else set()):
+    extra = {'operations', 'policyAmendment'} if ledger['schemaVersion'] == 3 else {'operations'} if ledger['schemaVersion'] == 2 else set()
+    if set(ledger) != fields | extra:
         raise BudgetError('unexpected or missing candidate ledger fields')
     ceiling, reserve = money(ledger["ceilingUsd"]), money(ledger["cleanupReserveUsd"])
-    if ceiling != 500 or reserve != 50:
+    if ledger['schemaVersion'] == 3:
+        if ceiling != 2000 or reserve != 200:
+            raise BudgetError('FOSS4G owner amendment requires exactly $2000/$200')
+        validate_amendment(ledger)
+    elif ceiling != 500 or reserve != 50:
         raise BudgetError("agent pack requires a $500 ceiling and $50 cleanup reserve")
     entries = ledger.get("entries")
     if not isinstance(entries, list):
@@ -130,14 +170,21 @@ def update(path, operation, *, candidate_key, **values):
         # A prior overrun blocks new work, but must not prevent retaining later
         # independently observed charges for already-reserved cleanup/resources.
         validate(ledger, allow_overrun=operation == 'settle')
-        if operation == "reserve":
+        if operation == 'amend-foss4g':
+            if ledger['schemaVersion'] != 3:
+                previous = copy.deepcopy(ledger)
+                ledger.update(schemaVersion=3, ceilingUsd='2000', cleanupReserveUsd='200',
+                              operations=ledger.get('operations', []),
+                              policyAmendment={'policyId': FOSS4G_POLICY, 'priorLedger': previous,
+                                               'priorLedgerDigest': history_digest(previous)})
+        elif operation == "reserve":
             ledger["entries"].append({"id": values["reservation_id"], "campaignId": values["campaign_id"],
                 "caseId": values["case_id"], "kind": values["kind"], "amountUsd": str(money(values["amount"])),
                 "attempt": values["attempt"],
                 "campaignMode": values.get("campaign_mode", "qualification"),
                 "basisDigest": values["basis_digest"], "state": "reserved", "actualUsd": None})
         elif operation == 'reserve-operation':
-            if ledger['schemaVersion'] != 2:
+            if ledger['schemaVersion'] not in (2, 3):
                 raise BudgetError('legacy history requires reviewed migration, never a budget reset')
             ledger['operations'].append({'id':values['reservation_id'], 'operationId':values['operation_id'],
                 'purpose':values['purpose'], 'kind':values['kind'], 'amountUsd':str(money(values['amount'])),
@@ -166,7 +213,7 @@ def update(path, operation, *, candidate_key, **values):
 
 def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("operation", choices=["init", "reserve", "reserve-operation", "settle", "check"])
+    parser.add_argument("operation", choices=["init", "amend-foss4g", "reserve", "reserve-operation", "settle", "check"])
     parser.add_argument("--ledger", required=True, type=Path)
     parser.add_argument("--candidate-key", required=True)
     parser.add_argument("--reservation-id")
