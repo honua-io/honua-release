@@ -111,6 +111,96 @@ def test_committed_receipt_is_valid_and_reports_no_publication():
         "tags", "releases", "git/refs/tags"}
 
 
+# --- release-program dispatch anchors are not publications ----------------------------------
+
+ANCHOR_COMMIT = "0e03bdd06b3ca3fb1b82388110bb5dfa19b9f8fa"
+
+
+def anchored(*anchors, tags=None, refs=None, releases=0, published=()):
+    """A receipt whose tag namespaces hold only the given dispatch anchors."""
+    value = receipt(dispatchAnchors=[{"ref": ref, "commit": commit} for ref, commit in anchors],
+                    publishedRefs=list(published))
+    value["sources"][0]["count"] = len(anchors) if tags is None else tags
+    value["sources"][1]["count"] = releases
+    value["sources"][2]["count"] = len(anchors) if refs is None else refs
+    if value["sources"][2]["count"]:
+        del value["sources"][2]["answer"]
+    return value
+
+
+def test_sha_named_dispatch_anchors_do_not_withdraw_the_model():
+    """nightly-candidate tags name a commit, not a version; no floor can point at one."""
+    value = anchored(("nightly-candidate-0e03bdd", ANCHOR_COMMIT),
+                     (f"nightly-candidate/{ANCHOR_COMMIT}", ANCHOR_COMMIT))
+    assert history.verify(value) == "honua-io/honua-server"
+
+
+@pytest.mark.parametrize("ref,commit", [
+    ("nightly-candidate-0e03bde", ANCHOR_COMMIT),            # names another commit
+    ("nightly-candidate/" + "f" * 40, ANCHOR_COMMIT),        # names another commit
+    ("nightly-candidate-0e03bdd0", ANCHOR_COMMIT),           # not the producers' 7-hex form
+    ("nightly-candidate-v2026.1.0", ANCHOR_COMMIT),          # carries a version
+    ("nightly-0e03bdd", ANCHOR_COMMIT),                      # not an anchor name at all
+    ("nightly-candidate-0e03bdd", "0e03bdd"),                # commit is not a full sha
+])
+def test_anything_but_an_exact_anchor_is_a_prior_publication(ref, commit):
+    with pytest.raises(ValueError, match="dispatch anchor"):
+        history.verify(anchored((ref, commit)))
+
+
+def test_a_release_on_an_anchor_is_still_a_publication():
+    value = anchored(("nightly-candidate-0e03bdd", ANCHOR_COMMIT), releases=1,
+                     published=["nightly-candidate-0e03bdd"])
+    with pytest.raises(ValueError, match="prior publication ref"):
+        history.verify(value)
+    with pytest.raises(ValueError, match="prior publication ref"):
+        history.verify(anchored(("nightly-candidate-0e03bdd", ANCHOR_COMMIT), releases=1))
+
+
+@pytest.mark.parametrize("tags,refs", [(2, 1), (1, 2)])
+def test_a_tag_the_anchors_do_not_account_for_is_a_prior_publication(tags, refs):
+    with pytest.raises(ValueError, match="unclassified ref"):
+        history.verify(anchored(("nightly-candidate-0e03bdd", ANCHOR_COMMIT), tags=tags, refs=refs))
+
+
+def test_a_version_tag_beside_anchors_still_withdraws_the_model():
+    value = anchored(("nightly-candidate-0e03bdd", ANCHOR_COMMIT), tags=2, refs=2,
+                     published=["v2026.1.0"])
+    with pytest.raises(ValueError, match="prior publication ref"):
+        history.verify(value)
+
+
+def test_duplicate_anchor_cannot_pad_the_count():
+    anchor = ("nightly-candidate-0e03bdd", ANCHOR_COMMIT)
+    with pytest.raises(ValueError, match="more than once"):
+        history.verify(anchored(anchor, anchor))
+
+
+def test_collect_classifies_anchors_by_the_commit_each_tag_resolves_to(monkeypatch):
+    pages = {
+        "tags": [{"name": "nightly-candidate-0e03bdd", "commit": {"sha": ANCHOR_COMMIT}},
+                 {"name": "nightly-candidate-1234567", "commit": {"sha": ANCHOR_COMMIT}},
+                 {"name": "v2026.1.0", "commit": {"sha": ANCHOR_COMMIT}}],
+        "releases": [],
+        "git/refs/tags": [{"ref": "refs/tags/nightly-candidate-0e03bdd"},
+                          {"ref": "refs/tags/nightly-candidate-1234567"},
+                          {"ref": "refs/tags/v2026.1.0"}],
+    }
+    monkeypatch.setattr(history, "_api", lambda path, **_: (
+        pages[path.split("honua-server/", 1)[1].split("?", 1)[0]], None))
+
+    def run(command, **_):
+        body = {"default_branch": "trunk"} if command[-1].endswith("honua-server") else {
+            "commit": {"sha": "a" * 40}}
+        return type("Result", (), {"stdout": json.dumps(body)})()
+    monkeypatch.setattr(history.subprocess, "run", run)
+    value = history.collect()
+    assert value["dispatchAnchors"] == [{"ref": "nightly-candidate-0e03bdd", "commit": ANCHOR_COMMIT}]
+    assert value["publishedRefs"] == ["nightly-candidate-1234567", "v2026.1.0"]
+    with pytest.raises(ValueError, match="prior publication ref"):
+        history.verify(value)
+
+
 # --- derivation -----------------------------------------------------------------------------
 
 def first_release_component(*, cite=RECEIPT_URI, sha=DIGEST, declared=None,
@@ -457,3 +547,54 @@ def test_the_offline_source_root_path_refuses_a_first_release_lock(tmp_path, cap
     path.write_text(json.dumps(lock), encoding="utf-8")
     assert verifier.main([str(path), "--source-root", str(tmp_path)]) == 1
     assert "offline run cannot prove" in capsys.readouterr().out
+
+
+# --- upgrade edges state only what the lock pins --------------------------------------------
+
+def edge_rows(server):
+    from generate_compatibility_table import render
+    lock = valid_lock()
+    lock["components"][PUBLISHER] = {**lock["components"].get(PUBLISHER, {}), **server,
+                                     "schemaVersions": {"database": "124"}}
+    return render(lock).split("## UPGRADE EDGES", 1)[1].split("\n\n", 2)[1].splitlines()[2:]
+
+
+def test_first_release_is_the_only_edge_the_lock_can_state():
+    rows = edge_rows(publisher())
+    assert rows[0] == (
+        "| none: honua-server has no earlier release | 1.0.0 / database schema 124 | fresh install "
+        "only; no upgrade edge into the first release exists | not applicable: no previous server "
+        f"| not applicable | not applicable | Publication-history receipt `{DIGEST}` ({RECEIPT_URI}) |")
+    assert rows[1:] == [
+        "| pre-release build (nightly or earlier candidate) | 1.0.0 / database schema 124 | "
+        "unqualified | unqualified | unqualified | unqualified | No edge receipt is pinned; "
+        "pre-release builds are not release identities |",
+        "| 1.0.0 / database schema 124 | next honua-server release | unqualified | unqualified | "
+        "unqualified | unqualified | No later release is locked; each column needs its own receipt |",
+    ]
+
+
+@pytest.mark.parametrize("server,reason", [
+    (publisher(pin=False), "No first-release publication history is pinned in this lock"),
+    (publisher(artifact_version="2.0.0"), "No locked honua-server artifact carries the first release version"),
+    (publisher(version=None, artifact_version=None), "No locked honua-server artifact carries the first release version"),
+])
+def test_without_a_pinned_unpublished_first_release_no_edge_is_stated(server, reason):
+    rows = edge_rows(server)
+    assert all("fresh install" not in row and "not applicable" not in row for row in rows)
+    assert rows[0].startswith("| unqualified | ") and rows[0].endswith(f"| {reason} |")
+
+
+def test_manifest_pins_the_receipt_the_sdk_baselines_cite():
+    """The lock pin, the committed bytes and every SDK's first-release evidence are one receipt."""
+    import yaml
+    manifest = yaml.safe_load((ROOT / "platform-manifest.yaml").read_text(encoding="utf-8"))
+    pin = manifest["components"][PUBLISHER]["publicationHistory"]
+    assert pin["path"] == RECEIPT_PATH
+    assert pin["sha256"] == "sha256:" + hashlib.sha256((ROOT / RECEIPT_PATH).read_bytes()).hexdigest()
+    cited = set()
+    for path in sorted((ROOT / "tools/fixtures/sdk-capability-baselines").glob("*.json")):
+        baseline = json.loads(path.read_text(encoding="utf-8"))
+        cited |= {(entry["evidence"]["uri"], entry["evidence"]["sha256"])
+                  for entry in baseline["capabilities"].values()}
+    assert cited == {(pin["uri"], pin["sha256"])}
