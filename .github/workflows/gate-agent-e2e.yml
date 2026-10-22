@@ -48,7 +48,15 @@ jobs:
     outputs:
       status: ${{ steps.verify.outputs.status || 'fail' }}
     steps:
+      # A standalone dispatch runs only the trunk verifier: a branch could otherwise stub its own.
+      - name: Refuse a standalone dispatch off trunk
+        if: github.event_name == 'workflow_dispatch' && github.ref != 'refs/heads/trunk'
+        run: |
+          echo "::error::gate-agent-e2e dispatches only from refs/heads/trunk (got $GITHUB_REF)"
+          exit 1
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
       - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
         with:
           python-version: '3.12'
@@ -98,6 +106,34 @@ jobs:
           run-id: ${{ inputs.candidate_run_id }}
           name: candidate-manifest
           path: candidate-input
+      # Trust the candidate bytes only from a completed trunk release-train/nightly run (schedule or
+      # dispatch) whose platform-manifest.yaml is exactly the one at that run's head commit.
+      - name: Authenticate the candidate artifact's producer run
+        if: github.event_name == 'workflow_dispatch'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          CANDIDATE_RUN_ID: ${{ inputs.candidate_run_id }}
+        run: |
+          set -euo pipefail
+          read -r branch path event status head < <(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$CANDIDATE_RUN_ID" \
+            --jq '[.head_branch, .path, .event, .status, .head_sha] | @tsv')
+          problems=()
+          [ "$branch" = trunk ] || problems+=("branch $branch is not trunk")
+          case "$path" in .github/workflows/release-train.yml|.github/workflows/nightly-certification.yml) ;;
+            *) problems+=("workflow $path is not release-train.yml or nightly-certification.yml") ;; esac
+          case "$event" in schedule|workflow_dispatch) ;; *) problems+=("event $event is not schedule/workflow_dispatch") ;; esac
+          [ "$status" = completed ] || problems+=("run status $status is not completed")
+          [[ "$head" =~ ^[0-9a-f]{40}$ ]] || problems+=("head sha $head is not a commit")
+          if [ "${#problems[@]}" -eq 0 ]; then
+            git cat-file -e "$head^{commit}" 2>/dev/null || git fetch -q origin "$head"
+            cmp -s <(git show "$head:platform-manifest.yaml") candidate-input/platform-manifest.yaml \
+              || problems+=("candidate-manifest platform-manifest.yaml differs from $head")
+          fi
+          if [ "${#problems[@]}" -gt 0 ]; then
+            for item in "${problems[@]}"; do echo "::error::candidate producer run $CANDIDATE_RUN_ID: $item"; done
+            exit 1
+          fi
+          echo "candidate producer: $path $event on trunk at $head"
       - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
           github-token: ${{ github.token }}
