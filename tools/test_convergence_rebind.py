@@ -131,7 +131,7 @@ def test_apply_changes_only_planned_repository_files(tmp_path, monkeypatch):
     plan, payloads, _ = MODULE.prepare(root, StubGitHub(root), "keep")
     monkeypatch.setattr(MODULE.subprocess, "run", lambda *a, **kw: type("R", (), {"stdout": "", "stderr": "", "returncode": 0})())
     # Assert the complete intended payload rather than mutating the real worktree.
-    assert set(payloads) == {str(MODULE.REVISIONS), str(MODULE.CATALOG), "certification/generate-protocol-requirements.py", "certification/sources/official-sdk-protocol-assignments.v1.json", "certification/sources/canonical-client-applicability.v1.json", "certification/sources/protocol-certification-production.v1.json", *(p for mappings in MODULE.VENDORED.values() for _, p in mappings)}
+    assert set(payloads) == {str(MODULE.REVISIONS), str(MODULE.CATALOG), "certification/generate-protocol-requirements.py", "certification/sources/official-sdk-protocol-assignments.v1.json", "certification/sources/canonical-client-applicability.v1.json", "certification/sources/protocol-certification-production.v1.json", str(MODULE.SERVER_SEED_FIXTURES), *(p for mappings in MODULE.VENDORED.values() for _, p in mappings)}
     assert plan["official_protocol_assignments"] == {
         "path": "certification/sources/official-sdk-protocol-assignments.v1.json",
         "added": [], "removed": [], "client_versions": [],
