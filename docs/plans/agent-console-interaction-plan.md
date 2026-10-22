@@ -348,3 +348,18 @@ Use isolated demo resources and reset them through the controller between rehear
 Before pilot enablement, run five representative user sessions covering authors and operators. Observe understanding of the current target, changes, approval boundary and recovery state. Serious wrong-target or authority-comprehension findings require correction and retest.
 
 **Completion means:** the RC passes its existing release gates; the enabled AI pilot passes its scoped corpus; the hosted demonstration and recording use verified artifacts; and the announcement accurately states what attendees can install and reproduce.
+
+### 7.6 Implementation and ticket checkpoint — 2026-10-22
+
+The coordinating release issue is [honua-release#378](https://github.com/honua-io/honua-release/issues/378); its canonical source update is [agent-delivery-spec#83](https://github.com/honua-io/agent-delivery-spec/pull/83). Reuse #619 for the full campaign, #652 for the platform audit and #277 for commercial pilot readiness. Their scope notes now link this coordinator. Related terminal/canary/GP tickets retain their unique unmet requirements; no complete duplicate was identified for closure.
+
+| Implementation | Current evidence and remaining work |
+|---|---|
+| [Release profile and budget policy](https://github.com/honua-io/honua-release/pull/816) | Five journeys and sixteen templates expand to 134 cases: local 57, ECS 77. A/B projection, explicit missing adapters and blocked report implemented. Fixed $2,000/$200 amendment preserves prior ledger history; 46 focused budget/profile checks pass. Pilot receipt producer and controller concurrency integration remain. |
+| [Console interaction probes and gated review](https://github.com/honua-io/honua-console/pull/456) | Natural context, distractor protection, exact persisted-turn binding, visual/agent edits, in-flight navigation and dashboard row/aggregate/save/reopen assertions implemented. Fifteen focused Node checks pass; no connected browser/model execution. Earlier default-off review remains separate from conference qualification. |
+| [Studio linked dashboard filtering](https://github.com/honua-io/honua-studio/pull/123) | Shared source clauses now drive chart/table rows, aggregation and pagination without changing cached source data. Four dependency-free adapter checks and targeted formatting pass. Vitest, typecheck, build and installed Console bundle integration remain. |
+| Guided external-client map continuation in the Release PR | Same-session draft edits, save/reopen, immutable version joins and independent HTTP readbacks added. This is supporting guided integration, not a natural-prompt pilot pass. Actual human publication, distinct approval and audience observations remain required. |
+
+Local dependency/build execution is blocked by `BUILD-RESERVATION-RECONCILE-REQUIRED` for the shared slot-2 reservation. It has not been cleared or bypassed. Live tests additionally require a coherent installed candidate and actual human sign-in state; no credentials or approval are synthesized.
+
+Operational repair, GP-to-map, the remaining interaction/fault adapters, frozen Docker/ECS qualification, five user sessions, recording and RC publication are still open. No paid campaign, hosted demo or passing live qualification is claimed by this checkpoint.
