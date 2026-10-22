@@ -54,6 +54,8 @@ JOURNEY_MODE = "genuine-model"
 CELLS = ("local-docker", "aws-ecs/redis-off", "aws-ecs/redis-on",
          "aws-serverless/redis-off", "aws-serverless/redis-on")
 LOCK_DIGEST = re.compile(r"sha256:[0-9a-f]{64}")
+# Credential presentation -> receipt authentication mode.
+API_KEY_HEADERS = {"bearer": "bearer-env", "x-api-key": "x-api-key-env"}
 MODEL = "model"
 INFRASTRUCTURE = "infrastructure"
 ASSERTION_NAMES = (
@@ -311,6 +313,10 @@ class EndpointConfig:
     # non-loopback host plain HTTP may reach. Its per-run application key is random and dies with
     # the cell; HTTPS on the cell is 2026.1.x hardening.
     allow_http_cell: str | None = None
+    # How the candidate credential is presented. A cell's application key travels as a bearer token;
+    # the local-docker stack authenticates its bootstrap admin key only through X-API-Key, because
+    # that stack enables OIDC and routes every bearer token to the JWT handler.
+    api_key_header: str = "bearer"
 
     @classmethod
     def from_environment(
@@ -325,8 +331,12 @@ class EndpointConfig:
         require_api_key: bool = False,
         signing_manifest_sha256: str | None = None,
         allow_http_cell: str | None = None,
+        api_key_header: str = "bearer",
     ) -> "EndpointConfig":
+        if api_key_header not in API_KEY_HEADERS:
+            raise CanaryError(f"unknown api key header mode {api_key_header!r}")
         return cls(
+            api_key_header=api_key_header,
             base_url=(base_url if base_url is not None else os.getenv("TERMINAL_MODEL_BASE_URL")) or None,
             model=(model if model is not None else os.getenv("TERMINAL_MODEL_NAME")) or None,
             api_key=(os.getenv(api_key_env) or None) if use_api_key else None,
@@ -417,7 +427,7 @@ class EndpointConfig:
             "quantization": self.quantization,
             "signingManifestSha256": self.signing_manifest_sha256,
             "authentication": {
-                "mode": "bearer-env" if self.api_key else "none",
+                "mode": API_KEY_HEADERS[self.api_key_header] if self.api_key else "none",
                 "credentialReference": f"env:{self.api_key_env}" if self.api_key else None,
                 "required": self.require_api_key,
             },
@@ -940,7 +950,10 @@ class CandidateProxyClient:
         payload = json.dumps(request_body).encode("utf-8")
         headers = {"Content-Type": "application/json", "Accept": "text/event-stream"}
         if self.config.api_key:
-            headers["Authorization"] = f"Bearer {self.config.api_key}"
+            if self.config.api_key_header == "x-api-key":
+                headers["X-API-Key"] = self.config.api_key
+            else:
+                headers["Authorization"] = f"Bearer {self.config.api_key}"
         manifest = self._manifest({key: value for key, value in headers.items() if key != "Content-Type"})
         request = urllib.request.Request(
             self.config.proxy_chat_url(), data=payload, headers=headers, method="POST"
@@ -1513,6 +1526,8 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--quantization")
     parser.add_argument("--signing-manifest-sha256")
     parser.add_argument("--api-key-env", default="TERMINAL_MODEL_API_KEY")
+    parser.add_argument("--api-key-header", choices=tuple(API_KEY_HEADERS), default="bearer",
+                        help="present the candidate credential as a bearer token or as X-API-Key")
     authentication = parser.add_mutually_exclusive_group()
     authentication.add_argument("--no-api-key", action="store_true")
     authentication.add_argument("--require-api-key", action="store_true")
@@ -1547,6 +1562,7 @@ def main(argv: list[str] | None = None) -> int:
         require_api_key=args.require_api_key,
         signing_manifest_sha256=args.signing_manifest_sha256,
         allow_http_cell=args.allow_http_cell,
+        api_key_header=args.api_key_header,
     )
     if args.profile == "redis-off-serving-refusal":
         import terminal_model_refusal
