@@ -4,8 +4,9 @@
 The live journey adapter is owned by honua-release#123. Until that adapter is available, this tool
 emits an honest skipped/blocked receipt and cannot claim model execution.
 
-Every receipt is one attempt of the `genuine-model` journey on one cell, bound to the exact
-platform-lock digest under certification. A receipt that does not pass names whether the model or
+Every receipt is one attempt of the `genuine-model` journey on one cell, bound either to the exact
+platform-lock digest a caller certifies or, without one, to the honua-server image digest the job
+composed (`serverImage`; operator ruling 2026-10-22: rc gates bind any build, not a minted lock). A receipt that does not pass names whether the model or
 the infrastructure (driver, candidate proxy, provider, configuration) failed; promotion reads that
 attribution from the attempt ledger (tools/check_promotion_readiness.py).
 """
@@ -82,6 +83,18 @@ class ModelFailure(CanaryError):
     """The model itself failed the journey: unparseable or invalid action selection, no progress
     within the bounded action budget, no recovery from the injected error, or a final state whose
     assertions fail after every infrastructure step succeeded."""
+
+
+def server_image_binding(manifest: dict[str, Any], cell: str) -> dict[str, Any] | None:
+    """The honua-server image@digest this cell runs: the reference the driver and #123 compose."""
+    server = (manifest.get("components") or {}).get("honua-server") or {}
+    image_name, digest_name = (("awsLambdaImage", "awsLambdaDigest") if cell.startswith("aws-serverless/")
+                               else ("image", "digest"))
+    image, digest = server.get(image_name), str(server.get(digest_name) or "")
+    if not image or not LOCK_DIGEST.fullmatch(digest):
+        return None
+    return {"reference": f"{str(image).split('@', 1)[0]}@{digest}", "digest": digest,
+            "sourceSha": server.get("sha")}
 
 
 def lock_digest_of(path: Path) -> str:
@@ -501,6 +514,7 @@ class ReceiptBuilder:
             "cell": cell,
             "attempt": attempt,
             "lockDigest": lock_digest,
+            "serverImage": server_image_binding(manifest, cell),
             # Nothing has run yet, so a receipt that stops here failed on infrastructure.
             # execute_live clears this when the model is first given control.
             "failureAttribution": INFRASTRUCTURE,
@@ -744,6 +758,16 @@ class ReceiptBuilder:
         totals["modelCalls"] += 1
         totals["elapsedMs"] += elapsed_ms
 
+    def bound(self) -> bool:
+        """Bound to a caller's lock, or to the composed server image the green #123 receipt verified."""
+        if LOCK_DIGEST.fullmatch(str(self.receipt["lockDigest"] or "")):
+            return True
+        image = self.receipt.get("serverImage") or {}
+        deterministic = self.receipt["linkedEvidence"]["deterministicReceipt"] or {}
+        return bool(LOCK_DIGEST.fullmatch(str(image.get("digest") or ""))
+                    and str(image.get("reference") or "").endswith("@" + str(image.get("digest")))
+                    and deterministic.get("candidateVerified") is True)
+
     def validate_invariants(self) -> None:
         transcript = {entry["sequence"]: entry for entry in self.receipt["transcript"]["entries"]}
         for action in self.receipt["actions"]:
@@ -761,8 +785,9 @@ class ReceiptBuilder:
         if self.receipt["status"] == "pass":
             if self.receipt["failureAttribution"] is not None:
                 raise CanaryError("a pass cannot carry a failure attribution")
-            if not LOCK_DIGEST.fullmatch(str(self.receipt["lockDigest"] or "")):
-                raise CanaryError("a pass must be bound to the platform-lock digest under certification")
+            if not self.bound():
+                raise CanaryError("a pass must be bound to the platform-lock digest under certification "
+                                  "or to the server image digest it ran against")
             if not self.receipt["endpoint"]["configured"] or not self.receipt["driver"]["configured"]:
                 raise CanaryError("a pass requires both model endpoint and #123 driver")
             if self.receipt["scope"]["executionToGreen"] != "pass":
@@ -1127,8 +1152,9 @@ def unavailable_receipt(
         )
     elif not builder.receipt["linkedEvidence"]["deterministicReceipt"]:
         builder.mark_blocked("live execution requires a validated green deterministic #123 receipt")
-    elif not builder.receipt["lockDigest"]:
-        builder.mark_blocked("live execution requires --lock-digest: an unbound receipt counts for no lock")
+    elif not builder.bound():
+        builder.mark_blocked("live execution requires --lock-digest or a manifest-pinned server image "
+                             "digest: an unbound receipt counts for no build")
     elif not endpoint.runtime or not endpoint.quantization:
         builder.mark_blocked("live execution requires explicit model runtime and quantization identifiers")
     else:
@@ -1560,7 +1586,7 @@ def main(argv: list[str] | None = None) -> int:
                 or args.driver_command is None
                 or not args.driver_command.is_file()
                 or not builder.receipt["linkedEvidence"]["deterministicReceipt"]
-                or not builder.receipt["lockDigest"]
+                or not builder.bound()
                 or not endpoint.runtime
                 or not endpoint.quantization
             ):

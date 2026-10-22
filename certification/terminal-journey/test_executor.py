@@ -1091,6 +1091,18 @@ def test_a_passing_render_carries_no_blocker():
     assert rejected.check_render(output).status == "fail"
 
 
+def test_render_reads_the_servers_format_field_and_refuses_conflicts():
+    # honua-server RenderMapTool returns image.format, not image.mimeType.
+    png = base64.b64encode(png_fixture()).decode()
+    engine = engine_for(mock.Mock(), execution=dict(RENDER_FIXTURE))
+    assert engine.check_render({"image": {"format": "image/png", "base64": png, "inlined": True},
+                                "layers": [{"styleId": "journey-solid-red"}]}).status == "pass"
+    for image in ({"format": "image/jpeg", "base64": png}, {"base64": png},
+                  {"format": "image/png", "mimeType": "image/jpeg", "base64": png}):
+        engine = engine_for(mock.Mock(), execution=dict(RENDER_FIXTURE))
+        assert engine.check_render({"image": image, "layers": [{"styleId": "journey-solid-red"}]}).status == "fail"
+
+
 def test_uri_render_rejects_a_conflicting_response_media_type():
     png = png_fixture()
     for header, status in (("image/jpeg", "fail"), ("application/octet-stream", "fail"),

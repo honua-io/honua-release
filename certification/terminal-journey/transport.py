@@ -159,6 +159,7 @@ class Transport:
         if data is not None:
             headers["Content-Type"] = "application/json"
         label = f"{method} {urllib.parse.urlsplit(url).path}"
+        discovery.record_call("rest", label)
         discovery.record_http(method, url, None, None)
         self.last_response_headers = {}
         try:
@@ -211,6 +212,7 @@ class Transport:
                 raise ExecutionError(name, "bounded authority changed since observation")
             if name not in {tool["name"] for tool in result["tools"]}:
                 raise ExecutionError(name, "tool is outside the initialize-bound view")
+            discovery.record_call("mcp", name)
             response = session.request("tools/call", {"name": name, "arguments": arguments})
             result = response.get("result")
             if "error" in response or not isinstance(result, dict):
@@ -248,6 +250,7 @@ class Transport:
         label = label or f"honua admin {group} {operation}"
         if not self.honua or not self.honua.is_file():
             raise ExecutionError(label, "verified installed honua CLI is unavailable", blocked=True)
+        discovery.record_call("cli", operation)
         args = [str(self.honua), "admin", group, operation, "--base-url", self.base_url, "--json"]
         for name, value in (path or {}).items():
             args += ["--path", f"{name}={value}"]
