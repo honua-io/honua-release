@@ -134,7 +134,7 @@ def document_record(document: dict[str, Any], revision: str, text: str,
             need = needs(block, current_defined)
             if any(need.values()):
                 row["needs"] = {k: v for k, v in need.items() if v}
-        current_defined.update(assigned_names(block))
+        current_defined.update(assigned_names(block, current_defined))
         rows.append(row)
     host = "github.com"
     record = {
