@@ -866,7 +866,9 @@ class TerraformTarget(DeployTarget):
         # proxied cell it must go through the proxy, or each scaled-out instance opens its own pool
         # straight to the db.t3.micro and the demo/journey reads hit 53300 (run 39603816191: ~45
         # direct connections beside the proxy's 25 while S9 ran; honua-iac rds-proxy.tf routing).
-        proxy = self._rds_proxy_endpoint()
+        # AwsEksTarget reuses this seed unbound and declares no proxy output.
+        lookup = getattr(self, "_rds_proxy_endpoint", None)
+        proxy = lookup() if callable(lookup) else None
         if proxy:
             connection["host"] = proxy
         return connection
