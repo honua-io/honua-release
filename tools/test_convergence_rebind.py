@@ -122,7 +122,7 @@ def test_plan_targets_published_sdk_pins_when_components_match(tmp_path):
         published = manifest["clientArtifacts"][artifact]["sourceSha"]
         assert pins[source] == (published, "manifest/frozen")
         assert manifest["components"][component]["sha"] == published
-    assert pins["server-certification"] == ("4709145cb5a4b235dbe74764f9fa590cea52f384", "manifest/frozen")
+    assert pins["server-certification"] == ("199bce77fe990eb14855831790b07cfbc103d4ba", "manifest/frozen")
     assert plan["receipt_schema_min"] == {"current": "v2", "proposed": "v2"}
     assert plan["bindings"]["PROTOCOL_CERTIFICATION_MATRIX_COMMIT"]["current"] == "pending"
     assert manifest["protocolCertification"]["ledger"]["status"] == "pending"
@@ -552,7 +552,7 @@ SERVICE_FILES = {
     "src/Honua.Scene/Grpc/HonuaSceneGrpcService.cs": "3" * 40,
     "src/Honua.Server/Program.cs": "4" * 40,
 }
-VERIFIED = "4709145cb5a4b235dbe74764f9fa590cea52f384"
+VERIFIED = "199bce77fe990eb14855831790b07cfbc103d4ba"
 NEXT_SERVER = "d1fc139a64ce33c817bd927bacb2103714221515"
 
 
