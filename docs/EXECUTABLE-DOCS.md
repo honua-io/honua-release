@@ -109,9 +109,10 @@ An owned checkpoint checks public `process.getActiveResourcesInfo()` after those
 only the exact harness I/O and checkpoint handles are unreferenced. Resource types are
 never ignored, and cleanup bookkeeping does not create extra reader idle events.
 An owned UDP socket that is still unbound after `beforeExit` listeners completes the way
-native Node does. The public active-resource list can still report `UDPWrap` for that
-inactive handle; the runner drops that socket's own ref through `unref()` and does not
-subtract resource types. A bound socket, referenced or unreferenced, is not treated as idle.
+native Node does, and only once no other referenced work remains. The public active-resource
+list can still report `UDPWrap` for that inactive handle; the runner drops that socket's own
+ref through `unref()` and does not subtract resource types. A bind, send, connect, or membership
+join marks the socket bound. A bound socket, referenced or unreferenced, is not treated as idle.
 The final native exit status also remains authoritative; nonzero `process.exitCode` fails
 and loses the context rather than passing because the interpreter stays alive.
 Top-level await that cannot settle at idle fails and stops the context; referenced work

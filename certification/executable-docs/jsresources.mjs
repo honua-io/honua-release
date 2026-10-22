@@ -178,14 +178,17 @@ export function ownResources(scope) {
           mark(record, false);
           return originalRef.apply(this, args);
         };
-        // bind/send/connect can leave the socket holding the loop before
-        // address() succeeds. Remember that request synchronously.
-        for (const method of ['bind', 'send', 'connect']) {
+        // These calls can leave the socket holding the loop before address()
+        // succeeds. addMembership and addSourceSpecificMembership bind implicitly.
+        function noteBound() {
+          record.bound = true;
+          mark(record, record.unreferenced);
+        }
+        for (const method of ['bind', 'send', 'connect', 'addMembership', 'addSourceSpecificMembership']) {
           const original = resource[method];
           resource[method] = function (...args) {
             const result = original.apply(this, args);
-            record.bound = true;
-            mark(record, record.unreferenced);
+            noteBound();
             return result;
           };
         }
@@ -231,13 +234,28 @@ export function ownResources(scope) {
         return new Error('unsupported owned unref resource: UDP');
       }
     },
+    // Owned work that would keep native Node alive, excluding a dormant unbound
+    // UDP socket. That socket is referenced at the handle but does not hold the loop.
+    hasReferencedWork(file) {
+      for (const record of byFile.get(file) || []) {
+        if (record.closed || record.closing) continue;
+        if (record.kind === 'UDP') {
+          if (udpBound(record) && !record.unreferenced) return true;
+          continue;
+        }
+        const timed = record.kind === 'Timeout' || record.kind === 'Immediate' || record.kind === 'MessagePort';
+        if (timed ? record.resource.hasRef() : !record.unreferenced) return true;
+      }
+      return false;
+    },
+    dormantUnbound(file) {
+      return udpRecords(file).filter(record => !udpBound(record) && !record.unreferenced);
+    },
     // Drop the event-loop ref on sockets that are still unbound. That removes
     // their own UDPWrap entry. It does not filter resource types, close the
     // socket, or unref a bound or referenced bound socket.
     detachUnboundUdp(file) {
-      for (const record of udpRecords(file)) {
-        if (udpBound(record)) continue;
-        if (record.unreferenced) continue;
+      for (const record of this.dormantUnbound(file)) {
         record.originalUnref.call(record.resource);
         record.unreferenced = true;
       }

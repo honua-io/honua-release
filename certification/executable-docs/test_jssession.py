@@ -825,6 +825,41 @@ def test_later_bind_of_detached_dormant_udp_is_refused(reader):
     assert reader.js.broken and reader.js.proc.poll() is not None
 
 
+@pytest.mark.parametrize('join', [
+    "dormantUdp.addMembership('239.255.0.1');",
+    "dormantUdp.addSourceSpecificMembership('192.0.2.1', '239.255.0.1');",
+])
+def test_later_membership_bind_of_dormant_udp_is_refused(reader, join):
+    first = run(reader, "let dormantUdp = require('node:dgram').createSocket('udp4');")
+    assert first.status == 'pass', first
+    result = run(reader, join)
+    assert result.status == 'fail' and 'unsupported owned unref resource: UDP' in result.stderr, result
+    assert reader.js.broken and reader.js.proc.poll() is not None
+
+
+def test_later_ref_and_membership_is_not_idle(reader):
+    first = run(reader, "let dormantUdp = require('node:dgram').createSocket('udp4');")
+    assert first.status == 'pass', first
+    # Membership binds. Native does not keep the loop alive for that join, but the
+    # reader must not pass a referenced bound socket or leave it for a later block.
+    result = run(reader, "dormantUdp.ref(); dormantUdp.addMembership('239.255.0.1');")
+    assert result.status == 'fail' and 'unsupported owned dormant resource: UDP' in result.stderr, result
+    assert reader.js.broken and reader.js.proc.poll() is not None
+
+
+def test_before_exit_timer_bind_keeps_referenced_udp_alive(reader):
+    source = "const udp = require('node:dgram').createSocket('udp4'); " \
+        "process.on('beforeExit', () => setTimeout(() => udp.bind(0, '127.0.0.1'), 20));"
+    native = Path(reader.cwd, 'native.cjs')
+    native.write_text(source)
+    with pytest.raises(subprocess.TimeoutExpired):
+        subprocess.run(['node', str(native)], cwd=reader.cwd, capture_output=True, text=True, timeout=0.4)
+    result = run(reader, source, timeout=1.5)
+    assert result.status == 'fail' and 'timed out' in result.detail, result
+    assert 'unsupported owned unref resource: UDP' not in result.stderr + result.detail
+    assert reader.js.broken and reader.js.proc.poll() is not None
+
+
 @pytest.mark.parametrize('source,kind', [
     ("require('node:child_process').spawn(process.execPath, ['-e', 'setInterval(() => {}, 1000)'], "
      "{stdio:'ignore'}).unref();", 'ChildProcess'),

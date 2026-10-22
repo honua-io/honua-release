@@ -93,9 +93,10 @@ native Node does, including an unbound socket the block has unreferenced. Native
 does not run its close callback, and neither does this completion. `process.getActiveResourcesInfo()`
 can still list `UDPWrap` for that inactive handle. The runner drops that socket's own
 event-loop ref through the public `unref()` API after listeners run. It does not subtract
-resource types from the list, and it does not unref a socket that `bind`, `send` or `connect`
-has already requested. Arbitrary native-addon schedulers and the full Node Module API are
-not established by this slice.
+resource types from the list. It does not unref while other referenced work is still
+listed, and it does not unref a socket that `bind`, `send`, `connect`, `addMembership`
+or `addSourceSpecificMembership` has already requested. Arbitrary native-addon schedulers
+and the full Node Module API are not established by this slice.
 This is bounded resource cleanup, not native process-exit fidelity: cleanup may invoke
 user close callbacks that native process exit would not invoke. The paired native-oracle
 control `test_cleanup_callbacks_are_captured_before_pass_with_explicit_native_difference`

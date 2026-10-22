@@ -68,9 +68,18 @@ function checkpoint() {
           if (completion.idleFailure) throw completion.idleFailure;
           const boundUdp = resources.boundUdpFailure(completion.file);
           if (boundUdp) throw boundUdp;
+          // Referenced work queued by beforeExit, such as a timer that binds
+          // later, must be seen before a dormant socket is unref'd. Unref first
+          // would turn that bind into an unreferenced bound socket. Native Node
+          // keeps the ref and the caller times out. The raw active-resource list
+          // is still the completion check; resource types are not removed.
+          const listed = activeResources();
+          const dormant = resources.dormantUnbound(completion.file);
+          if (resources.hasReferencedWork(completion.file) || (dormant.length && listed.length !== dormant.length)) {
+            return;
+          }
           // Do not close the socket. Drop only the ref of UDP sockets that are
-          // still unbound, so their UDPWrap entry leaves the public list
-          // without subtracting a resource type.
+          // still unbound, so their UDPWrap entry leaves the public list.
           resources.detachUnboundUdp(completion.file);
           if (activeResources().length) return;
           const code = Number(process.exitCode) & 255;
