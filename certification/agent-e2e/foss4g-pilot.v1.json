@@ -267,7 +267,7 @@
               "A": "Turn this map into a dashboard. Keep the map and add a bar chart counting features by {categoryField}, a table showing {categoryField} and {identityField}, and a dropdown for {categoryField} that filters the map, chart and table together. Show all fixture rows in the table. Update this working draft only; do not publish.",
               "B": "Keep this map and add a category count bar chart, a complete records table with {categoryField} and {identityField}, and a {categoryField} dropdown that filters the map, chart and table together. Change only the working draft; do not publish."
             },
-            "scope": "Supporting development fragment only: map-family composition, linked map/chart/table filtering, exact values/rows, save/reopen. Requires the Studio linked-filter change and installed-candidate execution; governed publication and full AI-03 remain unqualified.",
+            "scope": "Supporting development journey: map-family composition, linked map/chart/table filtering, exact values/rows, save/reopen, exact-version human-principal proposal and distinct approval, then anonymous audience interactions. The controller drives the human-principal browser sessions; this does not establish observed human review. Requires the checked Studio public-viewer bundle and installed-candidate execution; full AI-03 remains unqualified.",
             "bindings": "Substitute field names only from authorized fixture metadata; never inject source/draft/tool IDs."
           },
           "entrypoints": [
@@ -335,7 +335,7 @@
         "console": {
           "repository": "honua-io/honua-console",
           "path": "e2e/playwright/interactions/agent-console.spec.ts",
-          "scope": "supporting developer coverage only; no pilot receipt producer qualified"
+          "scope": "Supporting developer coverage only: agent-console.spec.ts delegates governed publication and anonymous map/chart/table/filter checks to dashboard-publication.ts. No connected execution or authenticated pilot receipt producer qualified."
         },
         "claude-code": {
           "repository": "honua-io/honua-release",

@@ -31,7 +31,12 @@ but cannot qualify new Console/external-client behavior.
 Console consumes the generated projection via `HONUA_FOSS4G_PROFILE_PROJECTION`
 in `e2e/playwright/playwright.interactions.config.ts`. The development browser
 cases cover natural selected-map references, visual/agent/visual editing,
-navigation while a real turn is busy, and a dashboard composition fragment.
+navigation while a real turn is busy, and a dashboard composition journey.
+The dashboard path covers exact rows/aggregates and linked filters, save/reopen,
+an exact-version publication proposal, distinct approval, and an anonymous
+audience's map/chart/table/filter interactions. The controller operates actual
+human-principal sessions for this integration path; it does not establish an
+observed human review or replace the representative user sessions.
 They require the installed candidate, real model and real signed-in human state.
 Recorded attachments are supporting observations, not authenticated pilot receipts.
 
@@ -47,10 +52,11 @@ The profile is an inventory with explicit blockers. It does not execute all 134
 cases. Operational repair, GP-to-map and the remaining interaction/fault adapters,
 the authenticated pilot receipt producer, pilot dispatch integration,
 live candidate matrix, cleanup qualification and five user sessions remain open.
-The authoring dashboard filter passed hosted Studio validation and its checked
-bundle was integrated into Console. Published-audience controls and their exact
-map/chart/table observations are being completed; installed-candidate execution
-is still required before any of these checks can qualify the pilot.
+Authoring and published-audience controls, including reviewed layer-alias and
+teardown-cancellation fixes, passed hosted Studio validation at `c8a698c`: 1,569
+unit tests, typecheck/build/style and three production Console-asset browser
+checks. Console `5c5ee04` contains that provenance-verified artifact.
+Installed-candidate execution is required before these checks can qualify the pilot.
 
 The [fixed budget amendment](foss4g-pilot-budget.md) preserves the same candidate's
 historical costs and liability. Candidate-scoped admissions enforce the
