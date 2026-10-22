@@ -45,14 +45,25 @@ pilot's natural, goal-only prompt requirement.
 
 The profile is an inventory with explicit blockers. It does not execute all 134
 cases. Operational repair, GP-to-map and the remaining interaction/fault adapters,
-the authenticated pilot receipt producer, controller concurrency enforcement,
+the authenticated pilot receipt producer, pilot dispatch integration,
 live candidate matrix, cleanup qualification and five user sessions remain open.
-The dashboard filter change also needs Studio build/test validation, bundle
-integration into Console, and installed-candidate execution before it can count.
+The authoring dashboard filter passed hosted Studio validation and its checked
+bundle was integrated into Console. Published-audience controls and their exact
+map/chart/table observations are being completed; installed-candidate execution
+is still required before any of these checks can qualify the pilot.
 
 The [fixed budget amendment](foss4g-pilot-budget.md) preserves the same candidate's
-historical costs and liability. The four-concurrent-attempt limit still requires
-controller leases before paid dispatch. No paid campaign is started by this change.
+historical costs and liability. Candidate-scoped admissions enforce the
+four-active-attempt ceiling and retain stale capacity until cleanup and all
+liabilities are settled. The existing controller's stricter single-owner lease
+remains; the legacy dispatcher refuses the amended policy rather than funding
+an unqualifiable campaign. Pilot dispatch must integrate these primitives before
+live execution. No paid campaign is started by this change.
+
+[Hosted candidate preparation](foss4g-hosted-candidate.md) records the verified
+existing AWS demo and the isolated Console/authentication deployment work. The
+healthy Lambda server at `demo.honua.io` does not establish an installed ECS/Redis
+Console candidate or its real human/model sessions.
 
 Scope overlap was reconciled into existing tickets: #619 retains the broad
 campaign, #652 the platform audit, #277 commercial readiness, #377/#480 the
