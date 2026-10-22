@@ -142,7 +142,8 @@ def test_published_release_pair_names_the_customer_public_reference():
                        release={"tag": "honua-2026.1", "url": "https://example/rel", "prerelease": True})
     assert out["prior_source"] == "published-release" and out["release_tag"] == "honua-2026.1"
     assert out["release_prerelease"] == "true"
-    assert out["prior_public_reference"] == "ghcr.io/honua-io/honua-server:nightly-" + A[:7] + "@sha256:" + "a" * 64
+    assert out["prior_public_reference"] == "ghcr.io/honua-io/honua-server@sha256:" + "a" * 64
+    assert out["prior_release_named_tag"] == "ghcr.io/honua-io/honua-server:nightly-" + A[:7]
     assert out["prior"] == "ghcr.io/honua-io/honua-server@sha256:" + "a" * 64 and out["prior_helm_sha"] == "e" * 40
     with pytest.raises(pair.PairError, match="needs the release"):
         pair.resolve(manifest(C, "c", 128), b"c", prior_source="published-release", history=[])
@@ -168,3 +169,11 @@ def test_trunk_cells_never_borrow_signed_lock_identities_and_backup_failure_fail
         assert "%s: ${{ matrix.pair != 'trunk-candidate' && steps.images.outputs.%s ||" % (name, out) in text
     assert "CROSS: ${{ matrix.pair != 'trunk-candidate' && steps.images.outputs.verified == '1'" in text
     assert 'WHY="mandatory pre-upgrade backup (pg_dump) failed' in text
+
+
+def test_unguarded_rollback_target_is_ineligible_and_restore_is_the_certified_path():
+    text = (Path(__file__).resolve().parents[1] / ".github/workflows/gate-upgrade.yml").read_text(encoding="utf-8")
+    assert "Honua.Server.Migrations.999_RollbackTargetGuardProbe.sql" in text
+    assert 'PRIOR_GUARD=absent' in text and 'ROLLBACK_OUTCOME=rollback-target-ineligible' in text
+    assert 'STATUS=fail; WHY="rollback-target-ineligible:' in text
+    assert 'certifiedRollbackPath:(if $guard=="absent"' in text
