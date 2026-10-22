@@ -204,6 +204,50 @@ jobs:
           echo "why=${WHY:-see log}" >> "$GITHUB_OUTPUT"
           { echo "## Observability / metric contract — ${STATUS}"; echo ""; echo "${WHY:-see log}"; } >> "$GITHUB_STEP_SUMMARY"
 
+      # WHEN THE CONFIGURED TARGET IS NOT THE PINNED BUILD, MEASURE THE PINNED BUILD ITSELF.
+      # demo.honua.io routinely runs another revision and answers from several Lambda instances, so
+      # the identity and continuity guards below (correctly) refuse it and the SLO verdict was
+      # `skipped` every night: the error budget was never evaluated for any candidate. Instead of
+      # widening those guards, boot the manifest-pinned image as ONE process on this runner with the
+      # e2e harness's compose stack and deterministic seed, and point the same probe at it. Identity
+      # is then still READ from the instance (not assumed), and both scrapes hit one process. This
+      # remains a synthetic canary over a bounded window, and the verdict text still says so.
+      - name: Boot the pinned candidate when the configured target is not it
+        id: local
+        env:
+          CONFIGURED_URL: ${{ vars.HONUA_METRICS_URL }}
+        run: |
+          set -uo pipefail
+          pinned="$(python -c "import yaml;print((yaml.safe_load(open('platform-manifest.yaml'))['components']['honua-server'] or {}).get('sha',''))" 2>/dev/null || true)"
+          served="$(python - <<'PY' 2>/dev/null || true
+          import json, os, sys, urllib.request
+          sys.path.insert(0, "tools")
+          from check_slo import capability_manifest_url, read_instance_revision
+          url = capability_manifest_url(os.environ.get("CONFIGURED_URL", ""))
+          if url:
+              with urllib.request.urlopen(urllib.request.Request(url, headers={"Accept": "application/json"}), timeout=20) as r:
+                  print(read_instance_revision(json.loads(r.read().decode("utf-8", "replace")))[0] or "")
+          PY
+          )"
+          if [ -n "$pinned" ] && [ "$served" = "$pinned" ]; then
+            echo "configured target already serves the pinned build ${pinned}; probing it"
+            exit 0
+          fi
+          echo "configured target serves '${served:-<unknown>}', pin is '${pinned:-<none>}': booting the pinned image locally"
+          export E2E_OUT="$RUNNER_TEMP/slo-local"
+          if bash e2e/harness/boot.sh up && bash e2e/harness/seed/seed.sh; then
+            {
+              echo "HONUA_METRICS_URL=http://localhost:${E2E_SERVER_PORT:-8080}/metrics"
+              echo "SLO_LOCAL_API_KEY=${E2E_API_KEY:-honua-console-dev-key}"
+            } >> "$GITHUB_ENV"
+            echo "target=local-pinned" >> "$GITHUB_OUTPUT"
+            { echo "SLO target: the manifest-pinned image booted on this runner (configured target served '${served:-<unknown>}')."; } >> "$GITHUB_STEP_SUMMARY"
+          else
+            # Leave HONUA_METRICS_URL as configured: the identity guard then blocks, exactly as before.
+            echo "::warning::local boot or seed of the pinned image failed; see $E2E_OUT/boot.json"
+            cat "$E2E_OUT/boot.json" 2>/dev/null || true
+          fi
+
       # Bind the scrape to the pinned candidate BEFORE measuring anything. The identity comes from
       # the same origin as HONUA_METRICS_URL by construction (check_slo.capability_manifest_url
       # rewrites only the path), so there is no second variable that could drift to a different host.
@@ -212,7 +256,7 @@ jobs:
       # present, in case a candidate locks the endpoint down.
       - name: Identify the scraped instance
         env:
-          HONUA_ADMIN_PASSWORD: ${{ secrets.HONUA_METRICS_API_KEY || secrets.HONUA_DEMO_API_KEY }}
+          HONUA_ADMIN_PASSWORD: ${{ env.SLO_LOCAL_API_KEY || secrets.HONUA_METRICS_API_KEY || secrets.HONUA_DEMO_API_KEY }}
         run: |
           set -uo pipefail
           python - >> "$GITHUB_ENV" <<'PY'
@@ -316,7 +360,7 @@ jobs:
         env:
           # honua-server maps /metrics with .RequireAuthorization("Admin"), so an unauthenticated
           # GET is a 401 that the scraper would report as "metric absent".
-          HONUA_ADMIN_PASSWORD: ${{ secrets.HONUA_METRICS_API_KEY || secrets.HONUA_DEMO_API_KEY }}
+          HONUA_ADMIN_PASSWORD: ${{ env.SLO_LOCAL_API_KEY || secrets.HONUA_METRICS_API_KEY || secrets.HONUA_DEMO_API_KEY }}
           # Burst size. Not arbitrary: a 1% budget cannot be resolved by a window smaller than 100
           # requests (one error would read as >1% no matter how healthy the release), and check_slo
           # blocks below that floor rather than pretending. 200 leaves headroom.
