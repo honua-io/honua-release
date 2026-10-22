@@ -1357,6 +1357,55 @@ def test_a_corrected_reply_proceeds_and_the_system_contract_is_strict(monkeypatc
     assert "no code fences" in system["content"]
 
 
+def test_user_turns_are_merged_so_the_conversation_strictly_alternates():
+    messages = [{"role": "system", "content": "s"}]
+    canary._append_user(messages, "observe-1")
+    messages.append({"role": "assistant", "content": "{}"})
+    canary._append_user(messages, "result-1")
+    canary._append_user(messages, "observe-2")
+    assert [m["role"] for m in messages] == ["system", "user", "assistant", "user"]
+    assert messages[-1]["content"] == "result-1\nobserve-2"
+
+
+def test_the_prompt_offers_only_the_stage_admitted_tools_from_the_server_view(monkeypatch):
+    calls = []
+
+    class Driver:
+        def __init__(self, *_):
+            pass
+
+        def invoke(self, operation, payload):
+            if operation == "setup":
+                return {"status": "ready", "workspaceId": "w", "toolView": {"v": 1}, "credentialReferences": [{"envVar": "K"}]}
+            if operation == "inject_error":
+                return {"status": "armed", "errorId": "recoverable-error-1", "recoverable": True}
+            if operation == "observe":
+                return {"status": "ready", "stageStatus": "ready", "observation": {},
+                        "toolView": {"tools": [{"name": "honua_list_capabilities"}, {"name": "honua_list_layers"}]},
+                        "stageTools": ["honua_list_capabilities", "honua_not_in_view"]}
+            return {"status": "pass"}
+
+    class Model:
+        def __init__(self, *_):
+            pass
+
+        def complete(self, messages, certification):
+            calls.append([dict(m) for m in messages])
+            return "prose", {}, 0, {}
+
+    monkeypatch.setattr(canary, "DriverAdapter", Driver)
+    monkeypatch.setattr(canary, "CandidateProxyClient", Model)
+    endpoint = replace(_endpoint(), base_url="http://127.0.0.1:8137/api")
+    builder = canary.build_receipt_builder(manifest_path=MANIFEST, journey_path=JOURNEY, protocol_path=PROTOCOL,
+                                           endpoint=endpoint, driver_command=None, lock_digest=LOCK)
+    canary.execute_live(builder, endpoint=endpoint, driver_command=canary.DEFAULT_DRIVER, max_actions_per_stage=2)
+    system = calls[0][0]["content"]
+    assert "Allowed tool_call names (the server-authored view for this stage): honua_list_capabilities." in system
+    assert "honua_list_layers" not in system and "honua_not_in_view" not in system
+    assert all(a["role"] != b["role"] for call in calls for a, b in zip(call[1:], call[2:]))
+    assert "This stage admits no tool_call" in canary._system_contract([])
+
+
 def test_parser_accepts_one_fenced_json_block_and_names_the_shape_of_a_refusal():
     action = {"kind": "terminal_command", "command": "honua status", "intent": "check"}
     for wrapped in (f"```json\n{json.dumps(action)}\n```", f"```\n{json.dumps(action)}\n```",

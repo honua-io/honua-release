@@ -423,7 +423,13 @@ def op_observe(request: dict[str, Any]) -> dict[str, Any]:
                                                     "sdkMethods": sorted(executor.SDK_METHODS),
                                                     "uploadCommand": executor.UPLOAD_COMMAND} if number == 3 else {},
                                 "evidence": checks},
-                "toolView": _tool_view(observation), "blockedBy": blockers}
+                "toolView": _tool_view(observation),
+                # The tool calls this stage admits (the executor refuses any other as an invalid action):
+                # the stage's set intersected with the server-authored view.
+                "stageTools": sorted(executor.STAGE_TOOLS.get(number, set())
+                                     & {t.get("name") for t in _tool_view(observation).get("tools", [])
+                                        if isinstance(t, dict)}),
+                "blockedBy": blockers}
     return {
         "status": "blocked" if status["status"] != "pass" else "pass",
         "stageStatus": status,
