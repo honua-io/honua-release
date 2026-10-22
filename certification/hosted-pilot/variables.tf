@@ -127,3 +127,39 @@ variable "audit_chain_kms_key_arn" {
   type    = string
   default = ""
 }
+
+variable "identity_redirects" {
+  description = "Exact reviewed HTTPS Console-edge redirects. Server BFF callback is on the Console origin, not the upstream Server origin. No wildcard, query, fragment, userinfo, port or loopback URLs."
+  type = object({
+    console_origin          = string
+    edge_callback_url       = string
+    edge_logout_url         = string
+    server_bff_callback_url = string
+    server_bff_logout_url   = string
+  })
+  validation {
+    condition = can(regex("^https://[a-z0-9]([a-z0-9-]*[a-z0-9])?(\\.[a-z0-9]([a-z0-9-]*[a-z0-9])?)+$", var.identity_redirects.console_origin)) && !contains([
+      "https://demo.honua.io", "https://honua.io", "https://www.honua.io", "https://127.0.0.1"
+    ], var.identity_redirects.console_origin) && !can(cidrnetmask("${trimprefix(var.identity_redirects.console_origin, "https://")}/32"))
+    error_message = "Bind a dedicated HTTPS DNS Console origin without a path, port or reserved public-demo hostname."
+  }
+  validation {
+    condition = (
+      var.identity_redirects.edge_callback_url == "${var.identity_redirects.console_origin}/oauth2/callback" &&
+      var.identity_redirects.server_bff_callback_url == "${var.identity_redirects.console_origin}/admin/auth/callback" &&
+      var.identity_redirects.edge_logout_url == "${var.identity_redirects.console_origin}/auth/login" &&
+      var.identity_redirects.server_bff_logout_url == "${var.identity_redirects.console_origin}/admin"
+    )
+    error_message = "Use exact same-origin edge /oauth2/callback, Server BFF /admin/auth/callback, edge logout /auth/login and Server logout /admin URLs."
+  }
+}
+
+variable "identity_secrets_kms_key_arn" {
+  description = "Optional reviewed KMS key for generated Cognito client secrets; empty uses the Secrets Manager managed key."
+  type        = string
+  default     = ""
+  validation {
+    condition     = var.identity_secrets_kms_key_arn == "" || can(regex("^arn:aws:kms:[a-z0-9-]+:[0-9]{12}:key/.+$", var.identity_secrets_kms_key_arn))
+    error_message = "Use an explicit KMS key ARN or the managed-key default."
+  }
+}

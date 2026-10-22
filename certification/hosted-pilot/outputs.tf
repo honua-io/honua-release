@@ -15,3 +15,20 @@ output "preparation" {
     public_audience_origin  = null
   }
 }
+
+output "identity_preparation" {
+  description = "Cognito reference contract only; no client secret values, users, active auth wiring or live qualification."
+  value = {
+    status                             = "cognito-prepared-consumers-unbound"
+    pool_id                            = aws_cognito_user_pool.pilot.id
+    issuer                             = "https://${aws_cognito_user_pool.pilot.endpoint}"
+    hosted_login_url                   = "https://${aws_cognito_user_pool_domain.pilot.domain}.auth.${var.region}.amazoncognito.com"
+    groups                             = local.identity_groups
+    redirects                          = var.identity_redirects
+    operator_bearer_signing_secret_arn = aws_secretsmanager_secret.operator_bearer.arn
+    clients = { for name, client in aws_cognito_user_pool_client.operators : name => {
+      client_id         = client.id
+      client_secret_arn = aws_secretsmanager_secret.oidc_client[name].arn
+    } }
+  }
+}

@@ -18,8 +18,9 @@ evidence that Console can reach Server.
 
 Only the Server has a proposed HTTPS hostname, restricted to explicitly supplied
 operator CIDRs; this root creates no DNS record. The certificate and DNS must
-actually match. Operations remain default-deny. No human roles, IdP, model,
-publication approval policy, audience origin or user session is fabricated.
+actually match. Operations remain default-deny. Cognito is the chosen identity
+provider; the isolated pool/client definitions below are preparation, not an
+active login. No model, publication policy, audience origin or user session is fabricated.
 The agent secret reference must already identify a separately authorized agent;
 the root neither creates its grants nor reads its secret value.
 Image syntax validation does not prove registry access: this task has no private
@@ -50,21 +51,76 @@ values make state sensitive even though no existing secret value is fetched.
 Supply reviewed inputs in an ignored tfvars file with secret **ARNs** only.
 Use short-lived executor credentials; do not retrieve or print secret values.
 
-Next implementation depends on the selected identity contract. Review either a
-maintained trusted OIDC proxy plus actual Server BFF authorization-code sign-in,
-or a signed ALB identity verifier. Qualify Cognito role projection and actual
-endpoint authorization; do not disable issuer/audience checks or promote the
-agent to an admin. Then add the private trusted edge ingress, HTTPS operator
-route, separate anonymous audience routing with stripped identity headers, and
-negative spoofing/operator-route tests. Preserve required Blazor negotiation and
-WebSockets. See [the source findings and acceptance sequence](../../docs/foss4g-hosted-candidate.md).
-For the identity-only/BFF option the existing role-mapping configuration can
-include `Oidc:ClaimsMapping:AdditionalRoleClaimTypes=[cognito:groups]`, subject to
-the real identity-claims-mapping entitlement. Configure an actual distinct
-approver group in `Oidc:AdminRoles`; the nonadmin proposer still needs explicit
-resource grants. Supply actual Generic OIDC client/secret references and the
-Server operator-bearer signing configuration, rather than forwarding raw Cognito
-access tokens. These deployment bindings remain absent from this root.
+## Cognito identity preparation
+
+`identity.tf` defines a new `${name_prefix}-operators` LITE user pool, isolated
+classic hosted-UI domain, separate confidential `console_edge` and `server_bff`
+clients, and explicit `${name_prefix}-authors` / `${name_prefix}-approvers` groups.
+It disables self-registration and self-service recovery, permits optional TOTP,
+and creates no users, memberships, invitations, IAM group roles or automatic
+application grants. User-pool deletion protection is enabled. A separately
+reviewed human provisioning step must keep proposer and approver subjects distinct.
+
+Both clients allow only authorization-code OAuth and `openid profile email`
+scopes. They have separate generated client secrets, token revocation enabled,
+15-minute access/ID tokens and eight-hour refresh tokens; direct password/SRP,
+implicit and client-credentials flows are not enabled. The hosted login still
+maintains its own session cookie; a short token lifetime does not force fresh
+credentials at every expiry. Applications must use PKCE S256 and validate actual
+issuer/client/nonce/state. See [AWS app-client contracts](https://docs.aws.amazon.com/cognito/latest/developerguide/user-pool-settings-client-apps.html)
+and [AWS managed-login token lifetime caveat](https://docs.aws.amazon.com/cognito/latest/developerguide/amazon-cognito-user-pools-using-the-access-token.html).
+
+Required `identity_redirects` inputs accept only a dedicated HTTPS DNS Console
+origin, its edge `/oauth2/callback` and BFF `/admin/auth/callback`, plus exact
+`/auth/login` and `/admin` logout destinations. No wildcard, fragment, query,
+userinfo, arbitrary port or IP callback is accepted. The Server BFF client's
+callback is on the **Console** origin: its existing broker retains the state and
+upstream Server cookie privately. Keep API `Public:BaseUrl` on the API origin.
+Usable separate-origin sign-in depends on the reviewed Server
+`Oidc:AdminAuthCallbackUri` option selecting this one exact Console callback for
+both authorization and exchange; global public-base rebinding is not a workaround.
+The configured callback must actually route to Console through the trusted edge.
+
+Cognito logout uses `client_id` and `logout_uri`, unlike a generic assumed
+`post_logout_redirect_uri` flow. Creating allowed destinations does not prove
+that Console/edge sign-out clears the hosted Cognito session. Test real logout
+and reauthentication explicitly. [AWS logout endpoint](https://docs.aws.amazon.com/cognito/latest/developerguide/logout-endpoint.html)
+also does not promise sign-out from external federated identity providers.
+Likewise, token revocation does not invalidate tokens already accepted by an
+offline signature/expiry verifier; test the actual Server/edge session boundary.
+See [AWS revocation limitations](https://docs.aws.amazon.com/cognito/latest/developerguide/token-revocation.html).
+
+Each Cognito client secret is stored in its own Secrets Manager secret/version.
+An independent 64-character alphanumeric operator-bearer signing key is generated
+separately and stored in another secret. Server `OperatorBearerOptions.cs` uses
+UTF-8 bytes with a 32-byte minimum, so no base64 decoding is assumed. Outputs
+contain only issuer, client IDs, group names, redirect URLs and individual secret
+ARNs. Generated secret values remain sensitive Terraform state; never print them
+or copy them to tfvars. No consumer is granted access by this identity slice:
+bind only the edge execution principal to its client secret, and only the Server
+execution principal to the BFF client and operator signing secrets, with scoped
+KMS access if using `identity_secrets_kms_key_arn`.
+
+The intended maintained-proxy path is **identity-only**: forward the verified
+stable `sub` and optional verified email, strip incoming/forwarded access-token
+and Authorization headers, and let actual Server Sign In/BFF exchange establish
+the Server-issued operator bearer. Do not enable `--pass-access-token` for this
+path. Server configuration uses `Oidc:Generic` with authority, client ID,
+secret environment indirection and `openid profile email`, plus
+`Authentication:OperatorBearer` signing configuration. A raw AWS secret-reference
+string is not resolved automatically by those application options: the execution
+role must inject its value into the configured environment variable.
+
+Existing entitled role mapping can use
+`Oidc:ClaimsMapping:AdditionalRoleClaimTypes=[cognito:groups]` and the actual
+approver group in `Oidc:AdminRoles`. The identity-claims-mapping entitlement and
+nonadmin author resource grants remain required and unqualified. App-client
+creation alone proves neither role projection nor any endpoint authorization.
+Do not forward raw Cognito access JWTs or promote the agent to an admin to avoid
+these checks. Trusted edge ingress, separate anonymous audience routing with
+stripped identity headers, Blazor/WebSocket continuity, actual logout and negative
+spoofing/operator-route tests remain installation work. See
+[the source findings and acceptance sequence](../../docs/foss4g-hosted-candidate.md).
 
 Retain only one Console task until restart/session recovery is qualified.
 SingleInstance Server plus Redis is not a multinode qualification. `ExpiresAt`
