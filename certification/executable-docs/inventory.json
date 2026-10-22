@@ -2784,13 +2784,7 @@
           "infoString": "bash",
           "intent": "run",
           "intentSource": "heuristic",
-          "sha256": "c11dd4928ee8d91050fdaa4463c4c073ab90c76f21bf4cadfadf135faf90a304",
-          "needs": {
-            "env": [
-              "LAYER_ID",
-              "SERVICE_NAME"
-            ]
-          }
+          "sha256": "c11dd4928ee8d91050fdaa4463c4c073ab90c76f21bf4cadfadf135faf90a304"
         }
       ]
     },
