@@ -404,3 +404,41 @@ def test_lifecycle_not_delivered_to_worker_image(tmp_path):
     files = bundle(tmp_path/'context')['files']
     assert 'agent_e2e_worker_lifecycle.py' not in files
     assert 'agent_e2e_state.py' not in files
+
+
+def test_foss4g_worker_start_requires_matching_active_admission_not_just_old_liabilities(tmp_path):
+    from agent_e2e_budget import update
+    from agent_e2e_worker_lifecycle import validate_reservations
+    path=tmp_path/'paid-ledger.json';update(path,'init',candidate_key=CANDIDATE)
+    update(path,'amend-foss4g',candidate_key=CANDIDATE)
+    lifecycle=WorkerLifecycle(CONFIG,states=None,ecs=None,db=None,clock=lambda:1000)
+    record=lifecycle._record(RESERVATIONS)
+    for kind,rid in RESERVATIONS.items():
+        update(path,'reserve',candidate_key=CANDIDATE,reservation_id=rid,kind=kind,
+               amount=CONFIG['liability']['maximumInfrastructureUsd' if kind=='infrastructure' else 'maximumCleanupUsd'],
+               basis_digest=CONFIG['liability']['basisDigest'],campaign_id=CONFIG['context']['campaignId'],
+               case_id=CONFIG['context']['caseId'],attempt=1,campaign_mode='development')
+    ledger=json.loads(path.read_text())
+    with pytest.raises(PackError,match='admission'):validate_reservations(record,ledger,now=1000)
+    update(path,'acquire-paid-attempt',candidate_key=CANDIDATE,admission_id=CONFIG['attemptId'],
+           owner_token='controller-owner-token-0000',campaign_id=CONFIG['context']['campaignId'],
+           case_id=CONFIG['context']['caseId'],attempt=1,campaign_mode='development',expires_epoch=1100,now_epoch=1000)
+    ledger=json.loads(path.read_text());validate_reservations(record,ledger,now=1000)
+    with pytest.raises(PackError,match='admission'):validate_reservations(record,ledger,now=1100)
+    for key,value in [('attemptId','other-attempt')]:
+        with pytest.raises(PackError,match='admission'):
+            validate_reservations({**record,key:value},ledger,now=1000)
+    for key,value in [('caseId','other-case'),('campaignId','other-campaign'),('attempt',2),('campaignMode','qualification')]:
+        changed=copy.deepcopy(record);changed['context'][key]=value
+        with pytest.raises(PackError,match='admission'):validate_reservations(changed,ledger,now=1000)
+    for rid in RESERVATIONS.values():update(path,'settle',candidate_key=CANDIDATE,reservation_id=rid,amount=1)
+    update(path,'release-paid-attempt',candidate_key=CANDIDATE,admission_id=CONFIG['attemptId'],
+           owner_token='controller-owner-token-0000',cleanup_status='pass',reservation_ids=RESERVATIONS,now_epoch=1200)
+    released=json.loads(path.read_text())
+    with pytest.raises(PackError,match='admission'):
+        validate_reservations(record,released,now=1000)
+    # Even if an old caller supplies reserved-looking costs, the released
+    # admission itself cannot fund another start.
+    for row in released['entries']:row.update(state='reserved',actualUsd=None)
+    with pytest.raises((PackError,ValueError)):
+        validate_reservations(record,released,now=1000)

@@ -36,9 +36,46 @@ it cannot silently qualify a candidate using the FOSS4G allowance. The pilot
 profile records this separate authorization but does not consume it automatically.
 At most four isolated paid attempts may run concurrently; this is not a
 four-attempt total across the matrix. The profile names this
-`maxConcurrentPaidAttempts`. A controller lease must enforce it before live use;
-this ledger amendment does not claim that integration exists. Per-case
-reservation attempt numbers retain their existing 1/2 meaning.
+`maxConcurrentPaidAttempts`. Schema 3 now provides candidate-scoped admission
+operations in the same retained ledger:
+
+```bash
+python3 tools/agent_e2e_budget.py acquire-paid-attempt \
+  --ledger retained-candidate-ledger.json --candidate-key "$CANDIDATE_KEY" \
+  --admission-id "$ADMISSION_ID" --owner-token "$CONTROLLER_OWNER_TOKEN" \
+  --campaign-id "$CAMPAIGN_ID" --case-id "$CASE_ID" --attempt 1 \
+  --expires-epoch "$PAID_ATTEMPT_EXPIRY"
+```
+
+The trusted controller supplies a distinct admission ID, a private owner token of
+20–128 permitted characters, and an absolute expiry no more than 6,000 seconds
+in the future. `check-paid-attempt` with the same candidate, ID and token refuses
+expired, released or foreign-owner admissions. An expired admission **still
+occupies capacity**: time passing does not prove its worker stopped. The same
+campaign/case/attempt cannot be readmitted under a new ID or token.
+
+`release-paid-attempt` requires the matching owner token, `--cleanup-status pass`,
+and `--infrastructure-reservation-id` / `--cleanup-reservation-id` referencing
+exact-attempt **settled** reservations. Only the trusted controller may assert
+cleanup pass, after independently observing worker/resource cleanup. A cleanup
+failure, unknown charge or reservation overrun retains both liabilities and the
+occupied admission for reconciliation. Release never removes history, costs or
+attempt identity. The owner token is not a model-facing credential and must not
+enter the agent sandbox.
+
+Existing local ledger locking and fenced DynamoDB/S3 snapshot publication retain
+these admission transitions. The existing worker launch guard also requires an
+active unexpired admission matching its candidate, attempt ID and exact
+campaign/case/attempt/mode, in addition to reserved liabilities; released or
+stale slots cannot fund a worker start. No competing controller or timeout-based lease
+recycling was added. The existing controller's candidate-wide lease remains
+stricter (one controller at a time). The RC252 dispatcher explicitly blocks a
+schema 3 ledger before backend preflight or model work: it has no pilot-case
+oracles or dispatch contract. Pilot dispatch still needs to invoke admission and
+check before paid work, independently observe cleanup, settle all charges, then
+release. These primitives do not claim pilot dispatch integration or four-way
+parallel execution is available. Per-case reservation attempt numbers retain
+their existing 1/2 meaning.
 
 No live ledger was amended and no paid run was started while implementing this
 support. Tests use temporary synthetic ledgers only.

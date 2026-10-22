@@ -34,11 +34,18 @@ def _json(raw):
     return json.loads(raw, object_pairs_hook=unique, parse_constant=constant)
 
 
-def validate_reservations(record, ledger):
+def validate_reservations(record, ledger, *, now=None):
     """Only retained, unsettled, exact-attempt liabilities permit a launch."""
     validate_budget(ledger)
     if ledger['candidateKey'] != record['candidateKey']:
         raise PackError('worker reservation belongs to another candidate')
+    if ledger['schemaVersion'] == 3:
+        observed = time.time() if now is None else now
+        admissions = [row for row in ledger.get('paidAdmissions', []) if row['id'] == record['attemptId']]
+        if (len(admissions) != 1 or admissions[0]['state'] != 'active'
+                or not admissions[0]['createdEpoch'] <= observed < admissions[0]['expiresEpoch']
+                or any(admissions[0][key] != record['context'][key] for key in ('campaignId', 'caseId', 'attempt', 'campaignMode'))):
+            raise PackError('worker launch lacks a matching active unexpired FOSS4G paid admission')
     for kind, minimum in (('infrastructure', 'maximumInfrastructureUsd'), ('cleanup', 'maximumCleanupUsd')):
         rows = [r for r in ledger['entries'] if r['id'] == record['reservationIds'][kind]]
         if (len(rows) != 1 or rows[0]['kind'] != kind or rows[0]['state'] != 'reserved'

@@ -249,3 +249,13 @@ def test_worker_documentation_mismatch_blocks_model_and_cleans_up(environment):
 def test_invalid_terminal_arguments_never_reach_backend(args):
     with pytest.raises(ModelFailure):
         validate_action({"type": "tool_use", "id": "one", "name": "terminal", "input": args})
+
+
+def test_legacy_dispatcher_refuses_amended_pilot_ledger_before_any_paid_work(environment):
+    update(environment['ledger'],'amend-foss4g',candidate_key=KEY)
+    result=run_goal(**environment)
+    assert result['status']=='blocked' and result['qualification'] is False
+    assert environment['backend'].operations==[]
+    assert environment['model'].inputs==[]
+    ledger=load_json(environment['ledger'])
+    assert ledger['entries']==[] and ledger['paidAdmissions']==[]

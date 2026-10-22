@@ -204,6 +204,10 @@ def run_goal(*, pack, corpus, case_id, campaign, backend, model, ledger, journal
         journal.emit("context", campaignMode=mode, knowledge=campaign["knowledge"],
                      conceptIds=scenario["conceptIds"], workflowIds=scenario["workflowIds"])
         budget_update(ledger, "check", candidate_key=candidate)
+        # This dispatcher selects only the frozen RC252 pack. Its campaign
+        # schema/oracles do not implement pilot cases or the amended policy.
+        if load_json(ledger)['schemaVersion'] == 3:
+            raise ControllerError('FOSS4G pilot dispatcher integration unavailable')
         preflight = backend.preflight(context)
         if preflight.get("target") != case["target"]:
             raise ControllerError("backend target differs from frozen case")

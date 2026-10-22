@@ -258,3 +258,101 @@ def test_legacy_252_gate_rejects_amended_budget_schema(tmp_path):
     update(path,'amend-foss4g',candidate_key=KEY)
     with pytest.raises(gate.Invalid,match='operation-aware'):
         gate.validate_operation_reports(json.loads(path.read_text()),[],tmp_path)
+
+
+def admit(path, index, *, now=1000, **overrides):
+    values={'candidate_key':KEY,'admission_id':f'admission-{index}','owner_token':f'controller-owner-token-{index:04}',
+            'campaign_id':f'campaign-{index}','case_id':'AI-01:service-migration:A:local-docker:console',
+            'attempt':1,'expires_epoch':1100,'now_epoch':now}
+    values.update(overrides)
+    return update(path,'acquire-paid-attempt',**values)
+
+
+def paid_ledger(tmp_path):
+    path=tmp_path/'paid.json';update(path,'init',candidate_key=KEY)
+    update(path,'amend-foss4g',candidate_key=KEY)
+    return path
+
+
+def settle_paid(path,index):
+    context={'candidate_key':KEY,'campaign_id':f'campaign-{index}',
+             'case_id':'AI-01:service-migration:A:local-docker:console','attempt':1,'basis_digest':BASIS}
+    for kind in ('infrastructure','cleanup'):
+        update(path,'reserve',reservation_id=f'{kind}-{index}',kind=kind,amount=1,**context)
+        update(path,'settle',candidate_key=KEY,reservation_id=f'{kind}-{index}',amount=1)
+    return {kind:f'{kind}-{index}' for kind in ('infrastructure','cleanup')}
+
+
+def test_fifth_candidate_admission_blocked_and_expiry_never_frees_capacity(tmp_path):
+    path=paid_ledger(tmp_path)
+    for n in range(4):admit(path,n)
+    before=path.read_bytes()
+    update(path,'amend-foss4g',candidate_key=KEY)
+    assert path.read_bytes()==before
+    for now in (1000,1200):
+        with pytest.raises(BudgetError,match='four concurrent'):
+            admit(path,4,now=now,expires_epoch=now+100)
+        assert path.read_bytes()==before
+    with pytest.raises(BudgetError,match='stale'):
+        update(path,'check-paid-attempt',candidate_key=KEY,admission_id='admission-0',
+               owner_token='controller-owner-token-0000',now_epoch=1200)
+
+
+def test_release_requires_current_owner_successful_cleanup_and_exact_settled_liabilities(tmp_path):
+    path=paid_ledger(tmp_path);admit(path,0)
+    values={'candidate_key':KEY,'admission_id':'admission-0','owner_token':'controller-owner-token-0000',
+            'reservation_ids':{'infrastructure':'infrastructure-0','cleanup':'cleanup-0'},'cleanup_status':'pass','now_epoch':1200}
+    with pytest.raises(BudgetError,match='accounting'):
+        update(path,'release-paid-attempt',**values)
+    settle_paid(path,0)
+    for patch in ({'owner_token':'wrong-owner-token-0000'},{'cleanup_status':'fail'},
+                  {'reservation_ids':{'infrastructure':'infrastructure-1','cleanup':'cleanup-1'}}):
+        with pytest.raises(BudgetError):update(path,'release-paid-attempt',**{**values,**patch})
+    update(path,'release-paid-attempt',**values)
+    assert json.loads(path.read_text())['paidAdmissions'][0]['state']=='released'
+    with pytest.raises(BudgetError,match='released'):
+        update(path,'check-paid-attempt',candidate_key=KEY,admission_id='admission-0',
+               owner_token='controller-owner-token-0000',now_epoch=1001)
+    with pytest.raises(BudgetError):admit(path,0,now=1200,expires_epoch=1300)
+    with pytest.raises(BudgetError,match='readmitted'):
+        admit(path,7,campaign_id='campaign-0',now=1200,expires_epoch=1300)
+    # New distinct attempt can use capacity, but old history/costs remain.
+    admit(path,1,now=1200,expires_epoch=1300)
+    assert len(json.loads(path.read_text())['paidAdmissions'])==2
+    assert Decimal(update(path,'check',candidate_key=KEY)['liabilityUsd'])==2
+
+
+@pytest.mark.parametrize('override',[{'expires_epoch':1000},{'expires_epoch':7001},{'expires_epoch':True},
+                                     {'attempt':3},{'owner_token':'short'}])
+def test_invalid_paid_admission_cannot_enter_history(tmp_path,override):
+    path=paid_ledger(tmp_path);before=path.read_bytes()
+    with pytest.raises(BudgetError):admit(path,0,**override)
+    assert path.read_bytes()==before
+
+
+def test_legacy_candidate_does_not_implicitly_opt_into_paid_admissions(tmp_path):
+    path=tmp_path/'legacy.json';update(path,'init',candidate_key=KEY)
+    with pytest.raises(BudgetError,match='amendment'):admit(path,0)
+
+
+def test_admission_cleanup_failure_does_not_remove_reservations_or_spending(tmp_path):
+    path=paid_ledger(tmp_path);admit(path,0);settle_paid(path,0)
+    before=path.read_bytes()
+    with pytest.raises(BudgetError,match='cleanup failure'):
+        update(path,'release-paid-attempt',candidate_key=KEY,admission_id='admission-0',
+               owner_token='controller-owner-token-0000',cleanup_status='blocked',
+               reservation_ids={'infrastructure':'infrastructure-0','cleanup':'cleanup-0'},now_epoch=1200)
+    assert path.read_bytes()==before
+
+
+def test_only_reconciled_release_of_one_of_four_admissions_allows_fifth(tmp_path):
+    path=paid_ledger(tmp_path)
+    for n in range(4):admit(path,n)
+    reservations=settle_paid(path,0)
+    update(path,'release-paid-attempt',candidate_key=KEY,admission_id='admission-0',
+           owner_token='controller-owner-token-0000',cleanup_status='pass',reservation_ids=reservations,now_epoch=1200)
+    admit(path,4,now=1200,expires_epoch=1300)
+    ledger=json.loads(path.read_text())
+    assert len(ledger['paidAdmissions'])==5
+    assert sum(r['state']=='active' for r in ledger['paidAdmissions'])==4
+    assert len(ledger['entries'])==2

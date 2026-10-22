@@ -199,15 +199,33 @@ def preserve_history(previous, current):
             continue
         if key not in current:
             raise PackError('cannot erase durable candidate history')
-        fields = ('entries', 'operations') if key == 'ledger' else ('attempts',)
+        fields = ('entries', 'operations', 'paidAdmissions') if key == 'ledger' else ('attempts',)
         if canonical_digest({k:v for k,v in previous[key].items() if k not in fields}) != canonical_digest(
                 {k:v for k,v in current[key].items() if k not in fields}):
-            raise PackError('cannot change durable candidate identity or budget policy')
+            # The only accepted policy change is the fixed owner amendment,
+            # whose embedded prior snapshot must be this exact retained ledger.
+            from agent_e2e_budget import validate as validate_budget
+            amendment = current[key].get('policyAmendment', {}) if key == 'ledger' else {}
+            if (key != 'ledger' or previous[key].get('schemaVersion') not in (1, 2)
+                    or current[key].get('schemaVersion') != 3
+                    or canonical_digest(amendment.get('priorLedger')) != canonical_digest(previous[key])):
+                raise PackError('cannot change durable candidate identity or budget policy')
+            validate_budget(current[key])
         for field in fields:
             old_rows, new_rows = previous[key].get(field, []), current[key].get(field, [])
             if len(new_rows) < len(old_rows):
                 raise PackError('cannot truncate durable candidate history')
             for old, new in zip(old_rows, new_rows):
+                if field == 'paidAdmissions':
+                    if old['state'] == 'released':
+                        if old != new: raise PackError('released admission history cannot change')
+                    else:
+                        immutable = set(old) - {'state', 'reservationIds', 'cleanupStatus'}
+                        if (set(old) != set(new) or any(old[k] != new[k] for k in immutable)
+                                or new['state'] not in ('active', 'released')
+                                or new['state'] == 'active' and (new['reservationIds'] is not None or new['cleanupStatus'] is not None)):
+                            raise PackError('paid admission cannot be reset, replaced or extended')
+                    continue
                 if key == 'registry' or old.get('state') == 'settled':
                     if canonical_digest(old) != canonical_digest(new):
                         raise PackError('retained outcome or charge cannot change')
@@ -217,6 +235,10 @@ def preserve_history(previous, current):
                         raise PackError('reservation identity or ceiling changed')
                     if new['state'] not in ('reserved', 'settled'):
                         raise PackError('invalid reservation transition')
+
+    if current.get('ledger', {}).get('schemaVersion') == 3:
+        from agent_e2e_budget import validate_admissions
+        validate_admissions(current['ledger'])
 
 
 class DurableExecution:
