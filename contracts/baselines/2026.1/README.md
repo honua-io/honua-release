@@ -47,6 +47,39 @@ what moved (honua-release#104):
   subpath at either pin (it is exported from `src/connect.ts`, which `package.json` does not
   publish), so it was never part of the consumer contract.
 
+## 2026.1-rc.1 re-pin review (2026-10-22)
+
+The scheduled gate had been red since the manifest moved past the 2026-09-26 capture
+(run 39596554904: every component "surface changed"). All four components were re-extracted at
+the current manifest pins with `contract_surface.py update`; no `_meta.sha` was hand-edited. Review
+of what moved:
+
+- `honua-server` @ `0e03bdd06b3c` (from `7ba422672e0c`): **0 operations, schemas, schema properties
+  or parameters removed; no parameter or property became required.** `openapi.json` adds the
+  `PortalTokenQuery` (`?token=`) security scheme as an extra alternative on the five item-write
+  operations (existing `ApiKeyAuth`/`BearerAuth` alternatives unchanged), adds `style`/`explode`
+  to `filter`, and widens `filter-lang` with the `cql-text` alias and an explicit default.
+  `ogc-coverages-openapi.json` adds optional `subset` and `scaleSize` query parameters.
+  `ogc-maps-openapi.json` adds `GET /ogc/maps/collections` and `/ogc/maps/collections/{collectionId}`,
+  the `MapsCollection` schema, and optional `crs`/`extent`/`storageCrs` on `LandingPage`. Tiles and
+  processes documents are byte-identical.
+- `honua-sdk-python` @ `5a79352066b8` (from `40ecf7318573`): **0 module exports removed**, 8 added
+  (`FailureKind`, `FieldFailure`, `ProtocolMetadata`, `TerminalFailureReceipt`, `ImportResult`,
+  `BackgroundImportResponse`, `OperationProposalSummary`, `OperationProposalDetail`). The admin
+  clients gain six methods (proposal list/get/approve/reject, `update_access_policy`,
+  `upload_file`) with none removed or re-signed; the HTTP/gRPC error constructors gain keyword-only
+  optional arguments (`receipt`, `initial_metadata`, `trailing_metadata`), which existing callers
+  do not pass.
+- `honua-sdk-dotnet` @ `5f09e4fca08a` (from `6ba49ec32ea8`): 4,986 to 5,341 digest lines, 357 added,
+  2 apparent removals that are digest artifacts, not API removals: the
+  `HonuaAdminApiException(HttpStatusCode, string, string? responseBody = null)` constructor still
+  exists with the same parameters, now split across lines (the syntactic digest records only the
+  first line), and `ReplicaSyncClient.SynchronizeReplicaAsync(serviceId, replicaId, syncDirection,
+  cancellationToken)` keeps its signature but is no longer `async` (it delegates to a core method);
+  `async` is not part of the public signature.
+- `honua-sdk-js` @ `32ab864720d3` (from `d7cec2d510e0`): **0 exports removed**, 610 added, one new
+  published entry point (`./client-compat`).
+
 ### Extractor change: the TypeScript surface is now keyed by entry point
 
 `_ts_export_surface` keyed every symbol by its declaring file and did not resolve

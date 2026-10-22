@@ -9,6 +9,7 @@ from datetime import datetime, timezone
 from check_conformance_evidence import (
     ConformanceEvidenceError,
     evaluate_conformance,
+    non_implemented_cite_suites,
     parse_cite_status,
     summarize_esri_bundle,
 )
@@ -284,5 +285,60 @@ def test_fail_outranks_blocked():
     # A real regression must not be masked by an unrelated bootstrap gap in the same run.
     rows, overall = evaluate_conformance(
         CANDIDATE, parse_cite_status(CITE_STATUS_MD), "diverged", None, None, CONFIG, now=NOW
+    )
+    assert overall == "fail"
+
+
+# ---------------------------------------------------------------------------------------------
+# Maturity scope (operator ruling 2026-10-22): non-implemented capabilities do not decide
+# ---------------------------------------------------------------------------------------------
+MATRIX = {
+    "capabilities": [
+        {"key": "serve.wfs", "maturity": {"implemented": 2}, "cite": ["WFS 2.0"]},
+        {"key": "serve.wmts", "maturity": {"preview": 1}, "cite": ["WMTS 1.0"]},
+        {"key": "serve.mixed", "maturity": {"implemented": 3, "preview": 1}, "cite": ["WMS 1.3"]},
+        {"key": "serve.empty", "maturity": {}, "cite": ["WCS 2.0"]},
+    ]
+}
+
+
+def _scoped_config():
+    cite = dict(CONFIG["cite"], nonImplementedSuites=non_implemented_cite_suites(MATRIX))
+    return dict(CONFIG, cite=cite)
+
+
+def test_only_wholly_non_implemented_capabilities_leave_the_verdict():
+    assert non_implemented_cite_suites(MATRIX) == {"WMTS 1.0": "serve.wmts preview"}
+    assert non_implemented_cite_suites(None) == {}
+
+
+def test_a_preview_suite_regression_is_reported_but_does_not_fail():
+    regressed = CITE_STATUS_MD.replace("| WMTS 1.0 | `default` | 60 / 60 |", "| WMTS 1.0 | `default` | 50 / 60 |")
+    rows, overall = evaluate_conformance(
+        CANDIDATE, parse_cite_status(regressed), "ancestor", None, None, _scoped_config(), now=NOW, sections=("cite",)
+    )
+    assert overall == "pass"
+    assert _status(rows, "cite:not-certified") == "advisory"
+    assert "WMTS 1.0 50/60" in next(r["why"] for r in rows if r["check"] == "cite:not-certified")
+
+
+def test_a_preview_suite_may_be_absent_but_an_implemented_one_may_not():
+    no_wmts = "\n".join(line for line in CITE_STATUS_MD.splitlines() if not line.startswith("| WMTS 1.0"))
+    _, overall = evaluate_conformance(
+        CANDIDATE, parse_cite_status(no_wmts), "ancestor", None, None, _scoped_config(), now=NOW, sections=("cite",)
+    )
+    assert overall == "pass"
+    no_wfs = "\n".join(line for line in CITE_STATUS_MD.splitlines() if not line.startswith("| WFS 2.0"))
+    rows, overall = evaluate_conformance(
+        CANDIDATE, parse_cite_status(no_wfs), "ancestor", None, None, _scoped_config(), now=NOW, sections=("cite",)
+    )
+    assert overall == "fail"
+    assert _status(rows, "cite:coverage") == "fail"
+
+
+def test_an_implemented_suite_regression_still_fails_under_scope():
+    regressed = CITE_STATUS_MD.replace("| WFS 2.0 | `basic` | 167 / 167 |", "| WFS 2.0 | `basic` | 160 / 167 |")
+    _, overall = evaluate_conformance(
+        CANDIDATE, parse_cite_status(regressed), "ancestor", None, None, _scoped_config(), now=NOW, sections=("cite",)
     )
     assert overall == "fail"

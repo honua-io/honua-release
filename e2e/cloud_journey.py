@@ -458,6 +458,17 @@ def documented_blockers(receipt):
     blockers = set()
     if any(notice.startswith(UNSUPPORTED_KIND_NOTICE) for notice in notices):
         blockers.add(UNSUPPORTED_KIND_ISSUE)
+    roster = receipt.get("roster") if isinstance(receipt.get("roster"), dict) else {}
+    if roster.get("status") == "fail":
+        return []
+    if roster.get("status") == "blocked":
+        # The candidate roster exports are a tracked upstream limitation, never a pass.
+        named = roster.get("blockedBy")
+        named = [named] if isinstance(named, str) else list(named or [])
+        named = [str(b) for b in named if str(b).strip()]
+        if not named:
+            return []
+        blockers.update(named)
     for stage in receipt.get("stages") or []:
         if stage.get("status") == "fail":
             return []
@@ -754,6 +765,13 @@ def attempt(cell, number, endpoint, admin_key, running_image=None, *, image_deta
         if proof.get("status") != "pass" and record["failureAttribution"] is None:
             record["failureAttribution"] = "infrastructure"
     return record
+
+
+def profile_blocked(record, raw_path):
+    """A Redis-off attempt whose serving/refusal profile is a documented block (no admissible
+    prerequisite), as opposed to a profile that ran and failed."""
+    import deterministic_refusal_profile as profile
+    return profile.blocked_record(record, Path(raw_path))
 
 
 def qualify_attempt(record, receipt, cell, *, raw_path, run_id, run_attempt,
