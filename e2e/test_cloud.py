@@ -2342,6 +2342,27 @@ def test_reset_deletes_attempt_ones_connection_and_style_so_attempt_two_can_crea
     assert "no journey_source connection was left" in empty[0]
 
 
+def test_a_retry_creates_its_own_connection_when_attempt_ones_is_still_in_use():
+    cj = run_cloud.cloud_journey
+    assert cj.attempt_datasource_name("journey_source", 1) == "journey_source"
+    assert cj.attempt_datasource_name("journey_source", 2) == "journey_source-attempt2"
+    cell = _CellHoldingAttempt1()
+    cell.in_use = True   # attempt 1 published a service on it: the cell refuses the delete (409)
+    (notice,) = cj.reset_prior_attempt("https://cell.example", "cell-admin-key", _JOURNEY_EXECUTION, 2,
+                                       request=cell)
+    assert "refused 409" in notice
+    # The retry no longer collides with the undeletable name.
+    assert cell.create_connection(cj.attempt_datasource_name("journey_source", 2)) == 201
+    # Attempt 3 resets attempt 2's per-attempt connection (and attempt 1's) by the authored base name.
+    cell.in_use = False
+    execution = {**_JOURNEY_EXECUTION, "datasource": {**_JOURNEY_EXECUTION["datasource"],
+                                                      "name": cj.attempt_datasource_name("journey_source", 3)}}
+    (again,) = cj.reset_prior_attempt("https://cell.example", "cell-admin-key", execution, 3, request=cell)
+    assert f"journey_source connection {_ATTEMPT1_CONNECTION} deleted" in again
+    assert f"journey_source connection {_ATTEMPT2_CONNECTION} deleted" in again
+    assert cell.connections == {_OTHER_CONNECTION: "customer_db"}
+
+
 def test_reset_is_a_no_op_for_the_first_attempt():
     cj = run_cloud.cloud_journey
     cell = _CellHoldingAttempt1()
@@ -5480,6 +5501,51 @@ def test_off_profile_native_after_observation_cannot_bypass_cost_or_teardown(mon
             assert 'native observation rejected' not in report.get('why', '')
         else:
             assert report['status'] == 'fail' and 'native observation rejected' in report['why']
+    finally:
+        shutil.rmtree(cj.EVIDENCE / 'offline-run', ignore_errors=True)
+
+
+def test_off_profile_teardown_admits_its_runner_and_reads_the_restored_root(monkeypatch, tmp_path):
+    """A fresh teardown runner reads both native observations: the restored Terraform root for the
+    image, and (on ECS) the cell endpoint behind an ALB that admits only listed /32s (run 39772292511)."""
+    cj = run_cloud.cloud_journey
+    monkeypatch.setenv('GITHUB_RUN_ID', 'offline-run')
+    monkeypatch.setenv('GITHUB_RUN_ATTEMPT', '2')
+    monkeypatch.setenv('HONUA_AWS_RUNNER_CIDR', '203.0.113.7/32')
+    cell = 'aws-ecs/redis-off'; directory = cj.cell_dir(cell)
+    directory.mkdir(parents=True, exist_ok=True)
+    sha, image = _manifest_server()
+    stub = _ServingStub()
+    stub._workdir = None
+    admitted, seen_roots = [], []
+    monkeypatch.setattr(stub, 'teardown', lambda **kwargs: None, raising=False)
+    monkeypatch.setattr(stub, '_iac_root', lambda: tmp_path, raising=False)
+    monkeypatch.setattr(stub, 'admit', lambda endpoint, cidr, **kw: admitted.append((endpoint, cidr)), raising=False)
+    monkeypatch.setattr(cj, 'cleanup', lambda cell: None)
+    monkeypatch.setattr(cj, 'check_cost', lambda *a, **k: {'status': 'pass'})
+    def observe(target, pinned):
+        seen_roots.append(target._workdir)
+        return image, 'native readback'
+    monkeypatch.setattr(cj, 'observe_ecs_image', observe)
+    def identity(endpoint):
+        # Only an admitted runner reads the identity.
+        return {'revision': sha, 'source': 'commit-sha'} if admitted else None
+    monkeypatch.setattr(cj, 'server_identity', identity)
+    try:
+        record = _artifact(directory, _ecs_receipt())
+        record['receipt'] = str((directory / 'receipt-1.json').relative_to(E2E_DIR))
+        state = {'cell': cell, 'target': 'aws-ecs', 'redis': 'redis-off', 'runId': 'offline-run', 'runAttempt': '2',
+            'candidateDigest': cj.candidate_digest(), 'endpoint': 'https://cell.invalid', 'startedAt': cj.now(),
+            'provisionAttempted': True, 'observedServer': {'revision': sha, 'source': 'commit-sha'}, 'runningImage': image,
+            'servingFixtureSha256': record['profileObservation']['seedManifestSha256'],
+            'report': {'cell': cell, 'endpoint': 'https://cell.invalid', 'readiness': {'ready': True},
+                       'checks': [], 'canaryProbes': [], 'journeyAttempts': []}}
+        report = run_cloud.teardown_phase(state, {'journeyAttempts': [record]}, stub,
+            reference_endpoint=None, cost_report=directory / 'meter.json')
+        assert admitted == [('https://cell.invalid', '203.0.113.7/32')]
+        assert seen_roots == [tmp_path]
+        assert record['profileObservation']['after'] == record['profileObservation']['before']
+        assert 'native observation rejected' not in report.get('why', '')
     finally:
         shutil.rmtree(cj.EVIDENCE / 'offline-run', ignore_errors=True)
 

@@ -462,6 +462,20 @@ def teardown_phase(state: dict, journey: dict, target, *, reference_endpoint: st
                     record.get("servingRefusal") for record in report["journeyAttempts"]):
                 try:
                     pinned = cloud_journey.manifest()
+                    # The teardown runner is fresh: point the target at the restored Terraform root
+                    # (both image observations read its outputs) and, on ECS, admit this runner's /32
+                    # to the cell ALB so the endpoint's own identity can be read. Without either, the
+                    # after-observation was always "unobserved" and every Redis-off ECS cell failed
+                    # here even with a passing profile (run 39772292511).
+                    if getattr(target, "_workdir", None) is None and hasattr(target, "_iac_root"):
+                        target._workdir = target._iac_root()
+                    runner_cidr = os.environ.get("HONUA_AWS_RUNNER_CIDR", "")
+                    if state["target"] == "aws-ecs" and runner_cidr and hasattr(target, "admit"):
+                        try:
+                            target.admit(state["endpoint"], runner_cidr, redis_enabled=False)
+                        except Exception as error:  # an unreadable identity then fails the check below
+                            print(f"{cell}: admitting the teardown runner raised {type(error).__name__}",
+                                  file=sys.stderr, flush=True)
                     after_image = (cloud_journey.observe_ecs_image(target, pinned)[0] if state["target"] == "aws-ecs"
                                    else cloud_journey.observed_lambda_image(target, pinned))
                     after = cloud_journey.observed_server(cloud_journey.server_identity(state["endpoint"]), after_image)
