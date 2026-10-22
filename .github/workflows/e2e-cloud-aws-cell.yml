@@ -40,7 +40,6 @@ on:
       lock_digest: { required: false, type: string, default: "" }
     secrets:
       UPDATE_ROLLBACK_CONTROLLER_ENV: { required: false }
-      UPDATE_ROLLBACK_APPROVAL_KEY: { required: false }
       RELEASE_GH_TOKEN:
         required: false
 
@@ -730,7 +729,6 @@ jobs:
           CELL_TARGET: ${{ inputs.target }}
           CELL_REDIS: ${{ inputs.redis }}
           PROOF_MODE: ${{ inputs.update_rollback_mode }}
-          HONUA_UPDATE_ROLLBACK_APPROVAL_KEY: ${{ secrets.UPDATE_ROLLBACK_APPROVAL_KEY }}
           HONUA_UPDATE_ROLLBACK_CONTROLLER_ROLE_ARN: ${{ vars.HONUA_UPDATE_ROLLBACK_CONTROLLER_ROLE_ARN }}
           HONUA_UPDATE_ROLLBACK_ECR_REPOSITORY: ${{ vars.HONUA_UPDATE_ROLLBACK_ECR_REPOSITORY }}
         run: |

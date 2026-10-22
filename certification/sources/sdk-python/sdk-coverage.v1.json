@@ -233,8 +233,8 @@
       "status": "covered",
       "sinceVersion": "unreleased (source preview; not yet published to PyPI)",
       "entrypoints": [
-        "honua_sdk.protocols.OgcTilesClient",
-        "honua_sdk.protocols.AsyncOgcTilesClient"
+        "honua_sdk.protocols.OgcTilesClient.tile",
+        "honua_sdk.protocols.AsyncOgcTilesClient.tile"
       ]
     },
     {

@@ -319,6 +319,9 @@ def run_cell(prior, candidate, cell, mode, runtime, *, run_id, run_attempt, slee
     try:
         preflight(prior, candidate, cell, mode)
         runtime.prerequisites(prior, candidate)
+        store = getattr(runtime, "controller_store", None)
+        if store:
+            receipt["controllerStore"] = store
         receipt["observations"].append(runtime.observe(prior, "baseline"))
         receipt["incompatibleTarget"] = runtime.incompatible_target()
         revisions = runtime.stage(candidate)

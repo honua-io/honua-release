@@ -49,8 +49,9 @@ class RegistryUnavailable(VerificationError):
 
 
 # Backoff before each attempt (seconds). Run 39630172050 refused the night on a single PyPI
-# integrity 503 ("Backend is unhealthy"); a bounded retry rides out that kind of blip.
-REQUEST_DELAYS = (0, 5, 15, 30, 60)
+# integrity 503 ("Backend is unhealthy"); run 39715081784 then stopped as transient on npm 502s that answered about half
+# the time for minutes; eight bounded attempts (about 4 minutes) ride out that kind of brownout.
+REQUEST_DELAYS = (0, 5, 10, 20, 30, 45, 60, 90)
 _TRANSIENT_HTTP = frozenset({429, 500, 502, 503, 504})
 _sleep = time.sleep
 
