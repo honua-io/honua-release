@@ -2769,6 +2769,18 @@ def test_documented_blockers_name_tracked_limitations_and_refuse_everything_else
     assert cj.documented_blockers(_ecs_receipt()) == []  # a pass is not blocked
 
 
+def test_documented_blockers_name_a_blocked_roster_and_refuse_an_unnamed_or_failed_one():
+    cj = run_cloud.cloud_journey
+    roster_issue = "https://github.com/honua-io/honua-server/issues/3363"
+    receipt = _blocked_receipt()
+    receipt["roster"] = {"status": "blocked", "reason": "exports unavailable", "blockedBy": roster_issue}
+    assert roster_issue in cj.documented_blockers(receipt)
+    receipt["roster"] = {"status": "blocked", "reason": "exports unavailable"}
+    assert cj.documented_blockers(receipt) == []
+    receipt["roster"] = {"status": "fail", "problems": ["x"]}
+    assert cj.documented_blockers(receipt) == []
+
+
 def _serverless_state(require_real):
     sha, _ = _manifest_server()
     return {"cell": SERVERLESS_OFF, "redis": "redis-off", "requireReal": require_real,
@@ -3192,6 +3204,45 @@ def test_cloud_seed_uses_cell_secret_without_passphrase_in_process_args(monkeypa
     monkeypatch.setattr(subprocess, 'run', psql)
     result = target.seed_database('SELECT 1')
     assert result['host'] == 'cell-db' and result['password'] == 'private-password'
+
+
+def test_cloud_seed_registers_the_rds_proxy_host_when_the_cell_has_one(monkeypatch):
+    target = ecs(run_id='seed-proxy')
+    target._workdir = Path('/tmp/cell')
+    connection = 'Host=cell-db;Port=5432;Database=honua;Username=honua;Password=private-password;SSL Mode=Require'
+    state = {'values': {'root_module': {'child_modules': [{'resources': [{
+        'type': 'aws_secretsmanager_secret_version', 'name': 'db_connection',
+        'values': {'secret_string': connection}}]}]}}}
+    def tf(root, *args, check=True):
+        if args[:2] == ('output', '-json'):
+            return subprocess.CompletedProcess(args, 0, json.dumps('cell-proxy.proxy-abc.us-east-1.rds.amazonaws.com'))
+        return subprocess.CompletedProcess(args, 0, json.dumps(state))
+    monkeypatch.setattr(target, '_tf', tf)
+    seen = {}
+    def psql(command, **kwargs):
+        seen['host'] = kwargs['env']['PGHOST']
+        return subprocess.CompletedProcess(command, 0)
+    monkeypatch.setattr(subprocess, 'run', psql)
+    result = target.seed_database('SELECT 1')
+    # psql runs from the runner over the direct endpoint; the server's data source uses the proxy.
+    assert seen['host'] == 'cell-db'
+    assert result['host'] == 'cell-proxy.proxy-abc.us-east-1.rds.amazonaws.com'
+
+
+def test_cloud_seed_keeps_the_direct_host_without_a_proxy_output(monkeypatch):
+    target = ecs(run_id='seed-noproxy')
+    target._workdir = Path('/tmp/cell')
+    connection = 'Host=cell-db;Port=5432;Database=honua;Username=honua;Password=private-password;SSL Mode=Require'
+    state = {'values': {'root_module': {'child_modules': [{'resources': [{
+        'type': 'aws_secretsmanager_secret_version', 'name': 'db_connection',
+        'values': {'secret_string': connection}}]}]}}}
+    def tf(root, *args, check=True):
+        if args[:2] == ('output', '-json'):
+            return subprocess.CompletedProcess(args, 0, 'null')
+        return subprocess.CompletedProcess(args, 0, json.dumps(state))
+    monkeypatch.setattr(target, '_tf', tf)
+    monkeypatch.setattr(subprocess, 'run', lambda command, **kwargs: subprocess.CompletedProcess(command, 0))
+    assert target.seed_database('SELECT 1')['host'] == 'cell-db'
 
 if __name__ == "__main__":
     import traceback
