@@ -550,6 +550,29 @@ jobs:
     outputs:
       overall_status: ${{ steps.assemble.outputs.overall_status }}
     steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Use the immutable candidate inputs
+        if: ${{ inputs.candidate_ref }}
+        uses: ./.github/actions/candidate-input
+        with:
+          candidate_ref: ${{ inputs.candidate_ref }}
+      - name: Set up Python
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: '3.11'
+
+      # Dated release-scope decisions (certification/conformance-evidence.yaml `releaseScope`). A lane
+      # in scope still runs and is reported with its own status, marked advisory with the decision's
+      # label; it does not decide overallStatus. A malformed decision fails this step.
+      - name: Resolve release-scope decisions
+        id: scope
+        run: |
+          set -euo pipefail
+          pip install --quiet pyyaml
+          SCOPE="$(python tools/conformance_release_scope.py --manifest platform-manifest.yaml)"
+          echo "release scope: $SCOPE"
+          echo "json=$SCOPE" >> "$GITHUB_OUTPUT"
+
       - name: Download fragments
         uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
@@ -563,21 +586,27 @@ jobs:
           PLATFORM_LABEL: ${{ inputs.platform_label }}
           ENFORCEMENT: ${{ inputs.enforcement }}
           RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          RELEASE_SCOPE: ${{ steps.scope.outputs.json }}
         run: |
           set -euo pipefail
           mkdir -p out
+          SCOPE_JSON="${RELEASE_SCOPE:-}"; [ -n "$SCOPE_JSON" ] || SCOPE_JSON='{}'
           GATES=$(find fragments -maxdepth 1 -name '*.json' 2>/dev/null | wc -l | tr -d ' ')
           echo "collected $GATES fragment(s)"
           jq -s \
             --arg label "$PLATFORM_LABEL" \
             --arg enf "$ENFORCEMENT" \
             --arg ts "$(date -u +%FT%TZ)" \
-            --arg run "$RUN_URL" '
+            --arg run "$RUN_URL" \
+            --argjson scope "$SCOPE_JSON" '
             def decided(enf):
               if .status=="pass" then "pass"
               elif .status=="blocked" then (if enf=="strict" then "fail" else "blocked" end)
               else "fail" end;
-            ( [ .[] | . + {decided: decided($enf)} ] ) as $g
+            ( [ .[] | ($scope[.gate]) as $s
+                | if $s then . + {decided: "advisory", certified: false, scope_decision: $s,
+                                  why: "\($s.reportAs) (\($s.reason)); lane status \(.status): \(.why)"}
+                  else . + {decided: decided($enf)} end ] ) as $g
             | {
                 gate: "certification",
                 platform_label: $label,
@@ -588,7 +617,8 @@ jobs:
                 summary: {
                   pass:    ([$g[]|select(.decided=="pass")]|length),
                   blocked: ([$g[]|select(.decided=="blocked")]|length),
-                  fail:    ([$g[]|select(.decided=="fail")]|length)
+                  fail:    ([$g[]|select(.decided=="fail")]|length),
+                  advisory: ([$g[]|select(.decided=="advisory")]|length)
                 },
                 overallStatus: (
                   if   any($g[]; .decided=="fail")    then "fail"

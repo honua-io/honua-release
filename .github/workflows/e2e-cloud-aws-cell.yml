@@ -449,7 +449,16 @@ jobs:
       # The seam drivers, then the imported journey (run_live installs the pinned clients with
       # --ignore-scripts), against the endpoint the handoff names. The handoff's run, attempt and
       # candidate digest must be this run's.
+      # Data-driven control-plane roster (operator ruling on honua-release#785): the server's Admin
+      # parity exports at the source sha of the candidate this cell deployed.
+      - name: Fetch the server parity exports at the candidate's source sha
+        id: roster
+        run: python certification/terminal-journey/fetch_roster.py --out "$RUNNER_TEMP/roster" --github-output "$GITHUB_OUTPUT"
       - name: "Run the ${{ inputs.target }} / redis-${{ inputs.redis }} journey"
+        env:
+          HONUA_CLOUD_REST_ROSTER: ${{ steps.roster.outputs.rest }}
+          HONUA_CLOUD_MCP_ROSTER: ${{ steps.roster.outputs.mcp }}
+          HONUA_CLOUD_ROSTER_SOURCE_SHA: ${{ steps.roster.outputs.sha }}
         run: |
           python e2e/run_cloud.py --phase journey --target "${{ inputs.target }}" --redis "${{ inputs.redis }}" \
             --sealed-key "$RUNNER_TEMP/journey-key/sealed/app-key.sealed" --private-key "$RUNNER_TEMP/journey-key/private.pem"
@@ -462,7 +471,7 @@ jobs:
         if: ${{ always() && inputs.enable_bedrock }}
         env:
           LOCK_DIGEST: ${{ inputs.lock_digest }}
-          TERMINAL_MODEL_NAME: ${{ vars.TERMINAL_MODEL_NAME || 'us.anthropic.claude-sonnet-4-5-20250929-v1:0' }}
+          TERMINAL_MODEL_NAME: ${{ vars.TERMINAL_MODEL_NAME || 'us.anthropic.claude-sonnet-5-5' }}
           TERMINAL_MODEL_RUNTIME: aws-bedrock
           TERMINAL_MODEL_QUANTIZATION: provider-managed
           TERMINAL_MODEL_SIGNING_MANIFEST_SHA256: ${{ vars.TERMINAL_MODEL_SIGNING_MANIFEST_SHA256 }}

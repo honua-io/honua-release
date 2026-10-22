@@ -24,7 +24,7 @@ and [#628](https://github.com/honua-io/honua-release/issues/628) release activat
   lifecycle orchestration and independent cleanup. Runtime APIs start/stop these
   predefined jobs. Worker output is untrusted; independent probes decide success.
 - Match the terminal canary model; currently its fallback is
-  `us.anthropic.claude-sonnet-4-5-20250929-v1:0` in `us-east-1`. Verify the requested
+  `us.anthropic.claude-sonnet-5-5` (operator ruling 2026-10-22) via `us-east-1`. Verify the requested
   and returned identities and pricing before freezing any campaign.
 
 ## Work packages and dependencies
