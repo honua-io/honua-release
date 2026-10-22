@@ -2476,11 +2476,11 @@
       "id": "honua-site-docs",
       "repo": "honua-io/honua-site",
       "path": "docs.html",
-      "revision": "f8296937f06a390169d04841e1df6956ae492852",
+      "revision": "99dee72bb8d7d77bb01d1ba16807b499ba7fb853",
       "revisionRule": {
         "defaultBranch": true
       },
-      "url": "https://github.com/honua-io/honua-site/blob/f8296937f06a390169d04841e1df6956ae492852/docs.html",
+      "url": "https://github.com/honua-io/honua-site/blob/99dee72bb8d7d77bb01d1ba16807b499ba7fb853/docs.html",
       "runtime": "python",
       "docker": true,
       "session": null,
@@ -2516,11 +2516,11 @@
       "id": "honua-site-docs-playbooks-install-with-docker-index",
       "repo": "honua-io/honua-site",
       "path": "docs/playbooks/install-with-docker/index.md",
-      "revision": "f8296937f06a390169d04841e1df6956ae492852",
+      "revision": "99dee72bb8d7d77bb01d1ba16807b499ba7fb853",
       "revisionRule": {
         "defaultBranch": true
       },
-      "url": "https://github.com/honua-io/honua-site/blob/f8296937f06a390169d04841e1df6956ae492852/docs/playbooks/install-with-docker/index.md",
+      "url": "https://github.com/honua-io/honua-site/blob/99dee72bb8d7d77bb01d1ba16807b499ba7fb853/docs/playbooks/install-with-docker/index.md",
       "runtime": "python",
       "docker": true,
       "session": null,
@@ -2586,7 +2586,7 @@
           "infoString": "bash",
           "intent": "run",
           "intentSource": "heuristic",
-          "sha256": "1441062ad66953a21b770eccc8b45d9a936a7df948fa65c0035f4685a7551ee9"
+          "sha256": "b692deedeab0ad3cbba9cbcf468feb61e3aa2def83ac117b0bc05f06ccb6ebdc"
         },
         {
           "index": 6,
@@ -2690,11 +2690,11 @@
       "id": "honua-site-docs-playbooks-publish-a-service-index",
       "repo": "honua-io/honua-site",
       "path": "docs/playbooks/publish-a-service/index.md",
-      "revision": "f8296937f06a390169d04841e1df6956ae492852",
+      "revision": "99dee72bb8d7d77bb01d1ba16807b499ba7fb853",
       "revisionRule": {
         "defaultBranch": true
       },
-      "url": "https://github.com/honua-io/honua-site/blob/f8296937f06a390169d04841e1df6956ae492852/docs/playbooks/publish-a-service/index.md",
+      "url": "https://github.com/honua-io/honua-site/blob/99dee72bb8d7d77bb01d1ba16807b499ba7fb853/docs/playbooks/publish-a-service/index.md",
       "runtime": "python",
       "docker": false,
       "session": null,
@@ -2721,7 +2721,7 @@
           "infoString": "bash",
           "intent": "run",
           "intentSource": "heuristic",
-          "sha256": "b9933d13f38ee23ea47c81fac50c4fcba94740811068b62ae84bfaf5f21c4919",
+          "sha256": "70ce1acf9224de129dd562229971038917dc61a8f951817ad2e17c5c207e7972",
           "needs": {
             "placeholders": [
               "<CONNECTION_NAME>",
@@ -2794,11 +2794,11 @@
       "id": "honua-site-docs-playbooks-run-a-bounded-gp-job-index",
       "repo": "honua-io/honua-site",
       "path": "docs/playbooks/run-a-bounded-gp-job/index.md",
-      "revision": "f8296937f06a390169d04841e1df6956ae492852",
+      "revision": "99dee72bb8d7d77bb01d1ba16807b499ba7fb853",
       "revisionRule": {
         "defaultBranch": true
       },
-      "url": "https://github.com/honua-io/honua-site/blob/f8296937f06a390169d04841e1df6956ae492852/docs/playbooks/run-a-bounded-gp-job/index.md",
+      "url": "https://github.com/honua-io/honua-site/blob/99dee72bb8d7d77bb01d1ba16807b499ba7fb853/docs/playbooks/run-a-bounded-gp-job/index.md",
       "runtime": "python",
       "docker": false,
       "session": null,
@@ -2811,7 +2811,7 @@
           "infoString": "bash",
           "intent": "run",
           "intentSource": "heuristic",
-          "sha256": "513e800046de0478f8e67e8994c426082a80f0d80cc0511a9d45e41024b0db2f",
+          "sha256": "f009f0a1ba82816a26334d0fa79e39f1dff81ba67bdd7ff44a4769c9f768c39b",
           "needs": {
             "optionalEnv": [
               "HONUA_ADMIN_PASSWORD"
@@ -2870,11 +2870,11 @@
       "id": "honua-site-docs-geoprocessing-index",
       "repo": "honua-io/honua-site",
       "path": "docs/geoprocessing/index.md",
-      "revision": "f8296937f06a390169d04841e1df6956ae492852",
+      "revision": "99dee72bb8d7d77bb01d1ba16807b499ba7fb853",
       "revisionRule": {
         "defaultBranch": true
       },
-      "url": "https://github.com/honua-io/honua-site/blob/f8296937f06a390169d04841e1df6956ae492852/docs/geoprocessing/index.md",
+      "url": "https://github.com/honua-io/honua-site/blob/99dee72bb8d7d77bb01d1ba16807b499ba7fb853/docs/geoprocessing/index.md",
       "runtime": "node",
       "docker": false,
       "session": null,
@@ -2910,7 +2910,7 @@
           "infoString": "bash",
           "intent": "run",
           "intentSource": "heuristic",
-          "sha256": "69ee3f174432db0d79299ffa36f98e3a7dbdfbfb3b1836d135bd908c1cf9f0cf"
+          "sha256": "809fb7617cb2b6f02580816ce865ba5c90e55d3e545985b7faae5d0b50489e19"
         },
         {
           "index": 3,
