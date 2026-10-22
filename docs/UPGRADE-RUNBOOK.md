@@ -86,7 +86,11 @@ serve it depends on that image:
 - **Older image below schema 135 (this includes 2026.1 at 106).** It refuses **any** migration it
   does not ship. It fails startup with the typed `schema_reader_incompatible` error and never
   serves silently.
-- **Across an approved contract migration.** No older image can serve the narrowed schema.
+- **Across an approved contract migration.** No older image can serve the narrowed schema
+  correctly. **2026.1 predates the schema-reader guard.** After `helm rollback` it starts and
+  answers on the narrowed schema with no refusal. The gate observed this in run 39724980788
+  (`imageRollbackServedSilentlyAcrossContract: true`). Do not treat that as a working rollback.
+  Restore the backup.
 
 In the last two cases the documented recovery is: stop the server, restore the pre-upgrade
 backup into a fresh database, and start the prior image. The gate does exactly this. It records
