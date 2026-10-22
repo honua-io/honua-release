@@ -1562,7 +1562,12 @@ def test_cloud_workflow_requires_four_ga_cells_and_keeps_eks_preview():
     job = workflow["jobs"]["parity"]
     assert set(cj.GA_CELLS) == {f"{target}/redis-{mode}" for target in ("aws-ecs", "aws-serverless") for mode in ("off", "on")}
     assert cj.PREVIEW_TARGETS == ("aws-eks",)
-    assert "aws-eks" in job["strategy"]["matrix"]["target"]
+    # Operator ruling 2026-10-22: target=all is the GA targets only; aws-eks (Preview) runs only
+    # on an explicit target=aws-eks dispatch, and the report names it "not certified (preview)".
+    matrix = job["strategy"]["matrix"]["target"]
+    assert "(inputs.target == '' || inputs.target == 'all') && '[\"aws-serverless\",\"aws-ecs\"]'" in matrix
+    assert '"aws-eks"' not in matrix
+    assert "aws-eks" in workflow[True]["workflow_dispatch"]["inputs"]["target"]["options"]
     # rc.3: examples/aws-mixed does not exist; the cell is out of the matrix until honua-iac#209.
     assert "aws-mixed" not in job["strategy"]["matrix"]["target"]
     assert "aws-mixed" not in workflow[True]["workflow_dispatch"]["inputs"]["target"]["options"]
