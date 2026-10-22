@@ -4857,6 +4857,8 @@ def test_model_canary_binds_each_attempt_to_the_lock_and_reports_the_nightly_row
         assert argv[argv.index("--allow-http-cell") + 1] == "cell.example"
         assert argv[argv.index("--deterministic-receipt") + 1].endswith("receipt-1.json")
         assert env["TERMINAL_MODEL_API_KEY"] == "cell-key" and "cell-key" not in argv
+        # Never a bearer token: an OIDC-enabled cell routes bearers to the JWT handler (#795).
+        assert argv[argv.index("--api-key-header") + 1] == "x-api-key"
         row = report["cells"][0]
         assert report["status"] == row["status"] == "pass"
         assert row["cell"] == cell
