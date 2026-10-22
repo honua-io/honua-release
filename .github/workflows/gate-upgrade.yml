@@ -310,6 +310,7 @@ jobs:
           repository: honua-io/honua-helm
           ref: ${{ steps.fallback.outputs.helm_sha }}
           path: _chart/trunk
+          token: ${{ secrets.RELEASE_GH_TOKEN || github.token }}
           persist-credentials: false
 
       - name: Fetch the prior's manifest-pinned chart source (trunk-candidate fallback)
@@ -320,6 +321,7 @@ jobs:
           repository: honua-io/honua-helm
           ref: ${{ steps.fallback.outputs.prior_helm_sha }}
           path: _chart/trunk-prior
+          token: ${{ secrets.RELEASE_GH_TOKEN || github.token }}
           persist-credentials: false
 
       - name: Pull lock-bound Helm chart packages
