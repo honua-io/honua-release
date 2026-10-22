@@ -84,11 +84,31 @@ def png_fixture(colour=(239, 32, 32, 255)):
 
 def test_pixel_proof_reads_the_authored_position_and_exact_colour():
     proof = oracles.prove_pixel(png_fixture(), bbox=[0, 0, 4, 4], point=[2, 3],
-                               size=[20, 10], rgba=[239, 32, 32, 255])
+                               size=[20, 10], rgba=[239, 32, 32, 255], media_type="image/png")
     assert (proof["x"], proof["y"]) == (10, 2)
     with pytest.raises(oracles.ProofError):
         oracles.prove_pixel(png_fixture((0, 0, 0, 0)), bbox=[0, 0, 4, 4], point=[2, 3],
-                            size=[20, 10], rgba=[239, 32, 32, 255])
+                            size=[20, 10], rgba=[239, 32, 32, 255], media_type="image/png")
+
+
+def test_pixel_proof_requires_image_png_and_the_shared_decoder():
+    kwargs = dict(bbox=[0, 0, 4, 4], point=[2, 3], size=[20, 10], rgba=[239, 32, 32, 255])
+    with pytest.raises(oracles.ProofError, match="media type"):
+        oracles.prove_pixel(png_fixture(), media_type="application/octet-stream", **kwargs)
+    rows = [bytearray(20 * 4) for _ in range(10)]
+    rows[2][40:44] = bytes((239, 32, 32, 255))
+    payload = zlib.compress(b"".join(b"\0" + bytes(row) for row in rows)) + b"\x00\x01"
+
+    def chunk(tag, body):
+        return struct.pack(">I", len(body)) + tag + body + struct.pack(">I", zlib.crc32(tag + body))
+
+    # Unused bytes inside the final IDAT follow PNG Third Edition handling.
+    padded = (b"\x89PNG\r\n\x1a\n" + chunk(b"IHDR", struct.pack(">IIBBBBB", 20, 10, 8, 6, 0, 0, 0))
+              + chunk(b"IDAT", payload) + chunk(b"IEND", b""))
+    assert oracles.prove_pixel(padded, media_type="image/png", **kwargs)["rgba"] == [239, 32, 32, 255]
+    broken = padded[:33] + chunk(b"ABCD", b"x") + padded[33:]
+    with pytest.raises(oracles.ProofError, match="critical-chunk"):
+        oracles.prove_pixel(broken, media_type="image/png", **kwargs)
 
 
 def test_feature_proof_compares_ordinates_ids_and_count():
@@ -1046,7 +1066,8 @@ RENDER_FIXTURE = {"bbox": [0, 0, 4, 4], "pixelPoint": [2, 3], "renderSize": [20,
 @pytest.mark.parametrize("reported", ["journey-solid-red", None])
 def test_stage_4_pixel_failure_stays_a_fail_without_citing_a_closed_issue(reported):
     engine = engine_for(mock.Mock(), execution=dict(RENDER_FIXTURE))
-    output = {"image": {"base64": base64.b64encode(png_fixture((45, 105, 165, 255))).decode()},
+    output = {"image": {"mimeType": "image/png",
+                        "base64": base64.b64encode(png_fixture((45, 105, 165, 255))).decode()},
               "layers": [{"serviceId": "svc", "layerId": 1, "styleId": reported}]}
     assert engine.check_render(output).status == "fail"
     row = engine.evidence["checks"]["4"]["pixel"]
@@ -1061,10 +1082,35 @@ def test_stage_4_pixel_failure_stays_a_fail_without_citing_a_closed_issue(report
 
 def test_a_passing_render_carries_no_blocker():
     engine = engine_for(mock.Mock(), execution=dict(RENDER_FIXTURE))
-    output = {"image": {"base64": base64.b64encode(png_fixture()).decode()},
+    output = {"image": {"mimeType": "image/png", "base64": base64.b64encode(png_fixture()).decode()},
               "layers": [{"styleId": "journey-solid-red"}]}
     assert engine.check_render(output).status == "pass"
     assert "blockedBy" not in engine.evidence["checks"]["4"]["pixel"]
+    rejected = engine_for(mock.Mock(), execution=dict(RENDER_FIXTURE))
+    output["image"]["mimeType"] = "image/jpeg"
+    assert rejected.check_render(output).status == "fail"
+
+
+def test_uri_render_rejects_a_conflicting_response_media_type():
+    png = png_fixture()
+    for header, status in (("image/jpeg", "fail"), ("application/octet-stream", "fail"),
+                           ("image/png; charset=binary", "pass")):
+        transport = mock.Mock(credentials={"proposer": "unit"})
+        transport.http.return_value = (png, 200)
+        transport.last_response_headers = {"content-type": header}
+        engine = engine_for(transport, execution=dict(RENDER_FIXTURE))
+        output = {"image": {"mimeType": "image/png", "uri": "/render.png"}, "layers": []}
+        assert engine.check_render(output).status == status
+        detail = engine.evidence["checks"]["4"]["pixel"]["detail"]
+        if status == "fail":
+            assert "media type" in detail
+        else:
+            assert engine.evidence["proofs"]["pixel"]["rgba"] == [239, 32, 32, 255]
+    transport = mock.Mock(credentials={"proposer": "unit"})
+    transport.http.return_value = (png_fixture((1, 2, 3, 255)), 200)
+    transport.last_response_headers = {"content-type": "image/png"}
+    engine = engine_for(transport, execution=dict(RENDER_FIXTURE))
+    assert engine.check_render({"image": {"mimeType": "image/png", "uri": "/render.png"}, "layers": []}).status == "fail"
 
 
 def test_failed_upload_proof_is_recorded_and_stops_the_stage_as_a_handled_failure():

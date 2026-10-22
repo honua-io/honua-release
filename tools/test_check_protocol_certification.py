@@ -1874,3 +1874,311 @@ def test_python_wheel_schema_is_closed_and_other_lanes_cannot_claim_it():
     cell = _cell(client_package={"filename": "honua_sdk-1.4.3-py3-none-any.whl", "sha256": "e" * 64, "source": "pypi"})
     assert list(Draft202012Validator(schema).iter_errors(_ledger(cell)))
     assert _evaluate(_ledger(cell), "nightly", now=NOW)["overall_status"] == "fail"
+
+
+def _mcp_package_versions():
+    package = json.loads(
+        (Path(__file__).resolve().parents[1] / "certification/sources/geospatial-mcp/package.json").read_text()
+    )
+    dependencies = package["dependencies"]
+    return dependencies["@modelcontextprotocol/sdk"], dependencies["@modelcontextprotocol/inspector"]
+
+
+def _mcp_obs(name, operation, result, mode, session, caller):
+    if ":" in operation:
+        method, target = operation.split(":", 1)
+    else:
+        method, target = operation, ""
+    request = {"method": method, "target": target}
+    outcome = "result" if result == "pass" else "error"
+    code = "ok" if result == "pass" else "unauthorized"
+    return {
+        "result": result,
+        "credential_mode": mode,
+        "forwarded_credential": False,
+        "session_id": session,
+        "caller_id": caller,
+        "request": request,
+        "response": {
+            "outcome": outcome,
+            "code": code,
+            "digest": cert._mcp_response_digest(name, request, outcome, code, session, caller),
+        },
+    }
+
+
+def _mcp_protected_observations(operation="tools/call:geocode_address"):
+    return {
+        "authenticated-success": _mcp_obs(
+            "authenticated-success", operation, "pass", "authenticated", "session-auth", "caller-auth"),
+        "fresh-anonymous-refusal": _mcp_obs(
+            "fresh-anonymous-refusal", operation, "refused", "anonymous", "session-anon", "caller-anon"),
+        "no-credential-forwarding": _mcp_obs(
+            "no-credential-forwarding", operation, "pass", "authenticated", "session-auth", "caller-auth"),
+        "no-authenticated-session-reuse": _mcp_obs(
+            "no-authenticated-session-reuse", operation, "refused", "anonymous", "session-reuse", "caller-anon"),
+        "caller-session-binding": _mcp_obs(
+            "caller-session-binding", operation, "refused", "authenticated", "session-auth", "caller-other"),
+    }
+
+
+def _mcp_anonymous_observations(operation="initialize"):
+    return {
+        "anonymous-success": _mcp_obs(
+            "anonymous-success", operation, "pass", "anonymous", "session-a", "caller-anon"),
+        "fresh-anonymous-session": _mcp_obs(
+            "fresh-anonymous-session", operation, "pass", "anonymous", "session-b", "caller-anon"),
+        "no-credentials": _mcp_obs(
+            "no-credentials", operation, "pass", "anonymous", "session-c", "caller-anon"),
+    }
+
+
+def _bind_mcp_payload(cell, payload):
+    cell["evidence_receipt"]["payload_base64"] = base64.b64encode(
+        json.dumps(payload, sort_keys=True, separators=(",", ":")).encode()
+    ).decode()
+    cell["evidence_digest"] = cert._receipt_digest(cell["evidence_receipt"])
+    cell["evidence_uri"] = "https://evidence.honua.io/data/sha256/" + cell["evidence_digest"][7:]
+    cell["facet_results"] = {
+        facet: {"result": "pass", "evidence_digest": cell["evidence_digest"]}
+        for facet in cell["scenario_facets"]
+    }
+    return cell
+
+
+def _mcp_payload(cell, observations):
+    return {
+        "schema": "honua.mcp-auth-observations/v1",
+        "auth_policy_revision": cell["auth_policy_revision"],
+        "policy_revision": "mcp-operation-auth-v1",
+        "canonical_client": cell["canonical_client"],
+        "client_lane": cell["client_lane"],
+        "client_version": cell["client_version"],
+        "operation": cell["operation"],
+        "producer_source_sha": cell["producer_source_sha"],
+        "observations": observations,
+    }
+
+
+def _mcp_cell(client, lane, version, operation, policy, observations):
+    cell = _cell(
+        capability_key="mcp.tool" if operation.startswith("tools/call:") else "mcp.transport",
+        surface="mcp",
+        operation=operation,
+        canonical_client=client,
+        client_lane=lane,
+        client_version=version,
+        scenario_facets=["positive", "negative", "media-schema", "auth"],
+        contract_revision="geospatial-mcp@" + SHA,
+        auth_policy_revision=policy,
+    )
+    return _bind_mcp_payload(cell, _mcp_payload(cell, observations))
+
+
+def test_passing_mcp_cells_bind_policy_cohort_and_do_not_qualify_a_candidate():
+    """A synthetic observation payload satisfies the checker only. It is not candidate proof."""
+    sdk, inspector = _mcp_package_versions()
+    protected = _mcp_cell(
+        "Official MCP TypeScript SDK", "mcp-typescript-sdk", sdk,
+        "tools/call:geocode_address", "mcp-protected-operation-v1", _mcp_protected_observations(),
+    )
+    anonymous = _mcp_cell(
+        "MCP Inspector", "mcp-inspector", inspector,
+        "initialize", "anonymous-public-v1", _mcp_anonymous_observations(),
+    )
+    for cell in (protected, anonymous):
+        report = _evaluate(_ledger(cell), "nightly", requirements=_requirements(cell), now=NOW)
+        assert report["overall_status"] == "pass", report["findings"]
+
+
+def test_passing_mcp_cells_refuse_mislabeled_sessions_policy_cohort_and_source():
+    sdk, _inspector = _mcp_package_versions()
+    cell = _mcp_cell(
+        "Official MCP TypeScript SDK", "mcp-typescript-sdk", sdk,
+        "tools/call:geocode_address", "mcp-protected-operation-v1", _mcp_protected_observations(),
+    )
+
+    def mutated(change):
+        changed = copy.deepcopy(cell)
+        payload = json.loads(base64.b64decode(changed["evidence_receipt"]["payload_base64"]))
+        change(payload)
+        _bind_mcp_payload(changed, payload)
+        report = _evaluate(_ledger(changed), "nightly", requirements=_requirements(changed), now=NOW)
+        assert report["overall_status"] == "fail"
+        return " ".join(item["why"] for item in report["findings"])
+
+    assert "anonymous label on an authenticated observation" in mutated(
+        lambda payload: payload["observations"]["fresh-anonymous-refusal"].__setitem__("credential_mode", "authenticated")
+    )
+    def reuse_authenticated_session(payload):
+        obs = payload["observations"]["no-authenticated-session-reuse"]
+        obs["session_id"] = "session-auth"
+        obs["response"]["digest"] = cert._mcp_response_digest(
+            "no-authenticated-session-reuse", obs["request"], obs["response"]["outcome"],
+            obs["response"]["code"], obs["session_id"], obs["caller_id"],
+        )
+
+    assert "reused authenticated session" in mutated(reuse_authenticated_session)
+    assert "MCP observation policy does not match the cell" in mutated(
+        lambda payload: payload.__setitem__("auth_policy_revision", "anonymous-public-v1")
+    )
+    assert "MCP observation cohort does not match the pinned canonical client" in mutated(
+        lambda payload: payload.__setitem__("client_version", "1.30.0")
+    )
+    assert "MCP observation source does not match the cell producer" in mutated(
+        lambda payload: payload.__setitem__("producer_source_sha", "e" * 40)
+    )
+    assert "MCP authorization observations are incomplete" in mutated(
+        lambda payload: payload["observations"].pop("caller-session-binding")
+    )
+
+
+def test_nonpassing_mcp_cell_does_not_require_authorization_observations():
+    _sdk, inspector = _mcp_package_versions()
+    in_scope = _cell(required_tier="pr")
+    cell = _cell(
+        surface="mcp",
+        operation="initialize",
+        canonical_client="MCP Inspector",
+        client_lane="mcp-inspector",
+        client_version=inspector,
+        result="fail",
+        required_tier="nightly",
+        scenario_facets=["positive", "negative", "media-schema", "auth"],
+        auth_policy_revision="anonymous-public-v1",
+        contract_revision="geospatial-mcp@" + SHA,
+    )
+    report = _evaluate(
+        _ledger(in_scope, cell), "pr", requirements=_requirements(in_scope, cell), now=NOW,
+    )
+    assert report["overall_status"] == "pass", report["findings"]
+    assert not any("MCP " in item["why"] for item in report["findings"])
+
+
+def test_copied_mcp_probe_does_not_certify_another_operation():
+    sdk, _inspector = _mcp_package_versions()
+    copied = _mcp_cell(
+        "Official MCP TypeScript SDK", "mcp-typescript-sdk", sdk,
+        "tools/call:geocode_address", "mcp-protected-operation-v1",
+        _mcp_protected_observations("tools/call:list_layers"),
+    )
+    report = _evaluate(_ledger(copied), "nightly", requirements=_requirements(copied), now=NOW)
+    assert report["overall_status"] == "fail"
+    assert any("request does not match the cell operation" in item["why"] for item in report["findings"])
+
+    cell = _mcp_cell(
+        "Official MCP TypeScript SDK", "mcp-typescript-sdk", sdk,
+        "tools/call:geocode_address", "mcp-protected-operation-v1", _mcp_protected_observations(),
+    )
+    payload = json.loads(base64.b64decode(cell["evidence_receipt"]["payload_base64"]))
+    payload["observations"]["authenticated-success"]["response"]["digest"] = (
+        payload["observations"]["no-credential-forwarding"]["response"]["digest"]
+    )
+    _bind_mcp_payload(cell, payload)
+    report = _evaluate(_ledger(cell), "nightly", requirements=_requirements(cell), now=NOW)
+    assert report["overall_status"] == "fail"
+    assert any("not bound to its request" in item["why"] for item in report["findings"])
+
+
+def _portal_document():
+    import portal_group_sharing as portal
+
+    shared = {"member": {name: True for name in portal.SURFACES}, "nonmember": {name: False for name in portal.SURFACES}}
+    hidden = {"member": {name: False for name in portal.SURFACES}, "nonmember": {name: False for name in portal.SURFACES}}
+    return {
+        "schema": portal.SCHEMA,
+        "candidateSourceSha": "a" * 40,
+        "candidateImage": "ghcr.io/example/server@sha256:" + "b" * 64,
+        "identities": {
+            "owner": "owner-1", "member": "member-1", "nonmember": "nonmember-1",
+            "group": "group-1", "item": "item-1",
+        },
+        "runtime": {
+            "beforeRestart": "process-before", "afterRestart": "process-after",
+            "replica": "process-replica", "store": "store-1",
+        },
+        "notSharedWith": ["everyone", "org"],
+        "publicCallerVisibilityUnchanged": True,
+        "policyRefusals": {name: "refused" for name in portal.POLICY_REFUSALS},
+        "phases": {
+            "shared": shared,
+            "sharedAfterRestart": copy.deepcopy(shared),
+            "sharedOnReplica": copy.deepcopy(shared),
+            "unshared": hidden,
+            "unsharedAfterRestart": copy.deepcopy(hidden),
+        },
+    }
+
+
+def _portal_cell(**overrides):
+    cell = _cell(
+        surface="portal-sharing",
+        operation="group-member-readback",
+        canonical_client="Portal group client",
+        client_lane="portal-group-sharing",
+        required_tier="nightly",
+        **overrides,
+    )
+    return cell
+
+
+def _bind_portal_payload(cell, document):
+    cell["evidence_receipt"]["payload_base64"] = base64.b64encode(
+        json.dumps(document, sort_keys=True, separators=(",", ":")).encode()
+    ).decode()
+    cell["evidence_digest"] = cert._receipt_digest(cell["evidence_receipt"])
+    cell["evidence_uri"] = "https://evidence.honua.io/data/sha256/" + cell["evidence_digest"][7:]
+    cell["facet_results"] = {
+        facet: {"result": "pass" if cell["result"] == "pass" else "fail", "evidence_digest": cell["evidence_digest"]}
+        for facet in cell["scenario_facets"]
+    }
+    return cell
+
+
+def test_nightly_portal_sharing_cells_call_qualify_and_do_not_pass(monkeypatch):
+    module = cert._portal_sharing_module()
+    calls = []
+    original = module.qualify
+
+    def spy(document):
+        calls.append(document)
+        verdict = original(document)
+        assert verdict.get("status") != "pass"
+        return verdict
+
+    monkeypatch.setattr(module, "qualify", spy)
+    absent = _portal_cell()
+    report = _evaluate(_ledger(absent), "nightly", requirements=_requirements(absent), now=NOW)
+    assert report["overall_status"] == "fail", report["findings"]
+    assert any("no-retained-observations" in item["why"] for item in report["findings"])
+    assert calls == [None]
+
+    complete = _bind_portal_payload(copy.deepcopy(absent), _portal_document())
+    calls.clear()
+    report = _evaluate(_ledger(complete), "nightly", requirements=_requirements(complete), now=NOW)
+    assert report["overall_status"] == "fail"
+    assert any("exact-candidate-execution-not-claimed" in item["why"] for item in report["findings"])
+    assert calls and calls[0]["schema"].endswith("portal-group-sharing-observations/v1")
+
+    incomplete = _portal_document()
+    incomplete["phases"]["shared"]["nonmember"]["feature"] = True
+    refused = _bind_portal_payload(_portal_cell(result="fail"), incomplete)
+    report = _evaluate(_ledger(refused), "nightly", requirements=_requirements(refused), now=NOW)
+    assert any("nonmember-readback" in item["why"] for item in report["findings"])
+    assert report["overall_status"] == "fail"
+
+    calls.clear()
+    in_scope = _cell(required_tier="pr")
+    parked = _portal_cell(result="fail")
+    report = _evaluate(
+        _ledger(in_scope, parked), "pr", requirements=_requirements(in_scope, parked), now=NOW,
+    )
+    assert report["overall_status"] == "pass", report["findings"]
+    assert calls == []
+
+    claimed = _portal_cell()
+    report = _evaluate(
+        _ledger(in_scope, claimed), "pr", requirements=_requirements(in_scope, claimed), now=NOW,
+    )
+    assert report["overall_status"] == "fail"
+    assert any("no-retained-observations" in item["why"] for item in report["findings"])
