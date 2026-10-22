@@ -231,10 +231,20 @@ jobs:
           echo "binding server image ${image}"
           echo "### Canary binding: server image \`${image}\`" >> "$GITHUB_STEP_SUMMARY"
 
+      # Data-driven control-plane roster (operator ruling on honua-release#785): the server's own
+      # Admin parity exports at the source sha of the image this job composes.
+      - name: Fetch the server parity exports at the image's source sha
+        id: roster
+        run: python certification/terminal-journey/fetch_roster.py --out "$RUNNER_TEMP/roster" --github-output "$GITHUB_OUTPUT"
+
       # Protocol: the canary requires a green deterministic receipt for this exact candidate from
       # within 24 hours. It is produced here, in the same job, before any AWS credential exists.
       - name: "Run the deterministic #123 journey on the candidate stack"
         id: deterministic
+        env:
+          REST_ROSTER: ${{ steps.roster.outputs.rest }}
+          MCP_ROSTER: ${{ steps.roster.outputs.mcp }}
+          ROSTER_SHA: ${{ steps.roster.outputs.sha }}
         run: |
           set -uo pipefail
           # A red journey must not skip the canary step: the canary validates this receipt and
@@ -244,6 +254,7 @@ jobs:
             --target certification/terminal-journey/targets/local-docker.json \
             --workdir "$RUNNER_TEMP/terminal-journey" \
             --output artifacts/terminal-journey-receipt.json \
+            --rest-roster "$REST_ROSTER" --mcp-roster "$MCP_ROSTER" --roster-source-sha "$ROSTER_SHA" \
             --evidence-uri "${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}" || rc=$?
           echo "exit=$rc" >> "$GITHUB_OUTPUT"
           [ "$rc" -eq 0 ] || echo "::warning::deterministic #123 journey exited $rc; the canary will refuse it"
