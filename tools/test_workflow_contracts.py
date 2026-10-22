@@ -828,10 +828,14 @@ def test_upgrade_gate_nightly_schedule_exercises_the_failed_rollback_scenario():
     assert '{"scenario":"rollback-failure","pair":"trunk-candidate"}' in matrix_scenario
     for scenario in ("post-migration-readiness", "bad-config", "migration-boundary"):
         assert '{"scenario":"%s","pair":"trunk-candidate"}' % scenario in matrix_scenario
-    # The headline customer path is the published-release pair; the trunk pair is scaffolding.
+    # Coordinator ruling 2026-10-22 (release#376 issuecomment-6335886760): the trunk-candidate pair is
+    # the required rc path and the default for dispatch and the train; the published-release pair
+    # still runs nightly but is advisory until a real release exists.
     assert '{"scenario":"normal","pair":"published-release"}' in matrix_scenario
     assert '{"scenario":"normal","pair":"trunk-candidate"}' in matrix_scenario
-    assert "inputs.upgrade_pair || 'published-release'" in matrix_scenario
+    assert "inputs.upgrade_pair || 'trunk-candidate'" in matrix_scenario
+    assert _triggers(workflow)["workflow_call"]["inputs"]["upgrade_pair"]["default"] == "trunk-candidate"
+    assert _triggers(workflow)["workflow_dispatch"]["inputs"]["upgrade_pair"]["default"] == "trunk-candidate"
 
 
 def test_upgrade_gate_treats_correctly_classified_rollback_failure_as_a_passing_negative():

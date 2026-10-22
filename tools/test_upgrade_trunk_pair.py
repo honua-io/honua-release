@@ -112,7 +112,7 @@ def test_workflow_runs_both_pairs_with_their_own_fragments_and_customer_steps():
     assert "python tools/upgrade_trunk_pair.py select-release" in text
     assert 'ARGS=(--prior-source "$PAIR")' in text
     assert "gate: upgrade-kind-${{ matrix.pair }}-${{ matrix.scenario }}" in text
-    assert "prior-source: published-release" in text and "scaffolding, not a customer release pair" in text
+    assert "prior-source: published-release" in text and "rc-required path, not a customer release pair" in text
     # The signed-lock fragment is forced back to blocked after a pair run, once per scenario.
     assert 'STATUS=blocked\n            WHY="$SIGNED_LOCK_WHY (the $MODE pair ran separately' in text
     assert "if: always() && matrix.pair == 'published-release'" in text
@@ -156,11 +156,14 @@ def test_receipts_say_which_pair_certifies_the_customer_path():
                                    observed={}, phases={}, run="", commit="")
     assert published["priorSource"] == "published-release" and published["certifiedReleasePair"] is False
     assert published["certification"]["role"] == "customer-upgrade-path"
+    assert published["certification"]["verdict"] == "advisory"
+    assert published["certification"]["advisoryRuling"].endswith("issues/376#issuecomment-6335886760")
     assert published["certification"]["publicReference"] == "ref@sha256:x"
     assert published["certification"]["release"] == {"tag": "honua-2026.1", "url": None, "prerelease": True}
     scaffold = pair.build_receipt({}, scenario="normal", status="pass", why="", signed_lock_why="x",
                                   observed={}, phases={}, run="", commit="")
-    assert scaffold["priorSource"] == "trunk-candidate" and scaffold["certification"]["role"] == "scaffolding"
+    assert scaffold["priorSource"] == "trunk-candidate" and scaffold["certification"]["role"] == "rc-required-path"
+    assert scaffold["certification"]["verdict"] == "required"
 
 
 def test_trunk_cells_never_borrow_signed_lock_identities_and_backup_failure_fails():
@@ -177,3 +180,48 @@ def test_unguarded_rollback_target_is_ineligible_and_restore_is_the_certified_pa
     assert 'PRIOR_GUARD=absent' in text and 'ROLLBACK_OUTCOME=rollback-target-ineligible' in text
     assert 'STATUS=fail; WHY="rollback-target-ineligible:' in text
     assert 'certifiedRollbackPath:(if $guard=="absent"' in text
+
+
+def _assemble(tmp_path, fragments, expected):
+    """Run the gate-upgrade report job's assemble step over the given fragments."""
+    import json
+    import os
+    import shutil
+    import subprocess
+
+    import yaml
+    if not shutil.which("jq") or not shutil.which("bash"):
+        pytest.skip("jq/bash unavailable")
+    workflow = yaml.safe_load((Path(__file__).resolve().parents[1] / ".github/workflows/gate-upgrade.yml").read_text())
+    step = next(s for s in workflow["jobs"]["report"]["steps"] if s.get("id") == "assemble")
+    (tmp_path / "fragments").mkdir(parents=True)
+    for index, (gate, status) in enumerate(fragments):
+        (tmp_path / "fragments" / f"{index}.json").write_text(json.dumps(
+            {"gate": gate, "status": status, "source": "kind", "why": "w", "enforcement": "bootstrap",
+             "evidence_url": "u"}))
+    env = {**os.environ, "PLATFORM_LABEL": "t", "ENFORCEMENT": "bootstrap", "RUN_URL": "u",
+           "ADVISORY_GATES": step["env"]["ADVISORY_GATES"], "ADVISORY_RULING": step["env"]["ADVISORY_RULING"],
+           "EXPECTED_TRUNK_CELLS": str(expected),
+           "GITHUB_OUTPUT": str(tmp_path / "out.txt"), "GITHUB_STEP_SUMMARY": str(tmp_path / "summary.md")}
+    subprocess.run(["bash", "-e", "-c", step["run"]], cwd=tmp_path, env=env, check=True, capture_output=True)
+    return json.loads((tmp_path / "out" / "gate-report.json").read_text())
+
+
+def test_published_release_pair_is_advisory_and_trunk_candidate_is_required(tmp_path):
+    """Coordinator ruling 2026-10-22 (release#376 issuecomment-6335886760)."""
+    advisory_red = [("upgrade-static-compat", "pass"), ("upgrade-kind-trunk-candidate-normal", "pass"),
+                    ("upgrade-kind-published-release-normal", "fail"), ("upgrade-kind-smoke-normal", "blocked")]
+    report = _assemble(tmp_path / "a", advisory_red, 1)
+    assert report["overallStatus"] == "pass"
+    decided = {g["gate"]: g["decided"] for g in report["gates"]}
+    assert decided["upgrade-kind-published-release-normal"] == "advisory-fail"
+    assert decided["upgrade-kind-smoke-normal"] == "advisory-blocked"
+    assert all(g["advisoryRuling"].endswith("issuecomment-6335886760") for g in report["gates"] if g.get("advisory"))
+    # The required pair still fails the gate.
+    required_red = [("upgrade-static-compat", "pass"), ("upgrade-kind-trunk-candidate-bad-config", "fail"),
+                    ("upgrade-kind-published-release-normal", "pass")]
+    assert _assemble(tmp_path / "b", required_red, 1)["overallStatus"] == "fail"
+    # A required trunk-candidate cell that never reported fails the gate.
+    missing = [("upgrade-static-compat", "pass"), ("upgrade-kind-published-release-normal", "pass")]
+    assert _assemble(tmp_path / "c", missing, 1)["overallStatus"] == "fail"
+    assert _assemble(tmp_path / "d", missing, 0)["overallStatus"] == "pass"

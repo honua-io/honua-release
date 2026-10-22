@@ -13,14 +13,16 @@ This module picks a truthful substitute pair so the sequence runs anyway:
              (`honua-2026.1`). Neither is a promoted platform release.
   candidate  the honua-server pin of the checked-out (or candidate_ref) platform-manifest.yaml.
 
-Two pairs, both certifying what a customer receives:
+Two pairs (coordinator ruling 2026-10-22, https://github.com/honua-io/honua-release/issues/376#issuecomment-6335886760):
 
-  published-release  (headline) prior = the server of the newest published honua-* GitHub release,
-                     pulled by the public GHCR digest its release assets name; the upgrade follows
-                     the documented customer steps (helm upgrade, contract-migration nonce approval,
-                     restore-from-backup at the documented rollback boundary).
-  trunk-candidate    (scaffolding) prior = the previous honua-server pin in manifest history. It is
-                     labelled scaffolding in its receipt and is never a customer release pair.
+  trunk-candidate    (required for rc) prior = the previous honua-server pin in manifest history
+                     (N-1 nightly) -> candidate -> rollback. Never a customer release pair.
+  published-release  (advisory until a real release exists) prior = the server of the newest
+                     published honua-* GitHub release, pulled by the public GHCR digest its release
+                     assets name; the upgrade follows the documented customer steps (helm upgrade,
+                     contract-migration nonce approval, restore-from-backup at the documented
+                     rollback boundary). The only published artefact today is the August 2026.1
+                     snapshot, which has no schema-reader guard.
 
 Neither has a signed prior lock yet, so `certifiedReleasePair: false` and the signed-lock
 requirement stays blocked.
@@ -199,6 +201,10 @@ def _load_json(path: Path, default):
         return default
 
 
+# Coordinator ruling 2026-10-22: the published-release pair is advisory until a real release exists.
+ADVISORY_RULING = "https://github.com/honua-io/honua-release/issues/376#issuecomment-6335886760"
+
+
 def build_receipt(pair: dict, *, scenario: str, status: str, why: str, signed_lock_why: str,
                   observed: dict, phases: dict, run: str, commit: str) -> dict:
     if status not in {"pass", "fail", "blocked"}:
@@ -207,6 +213,8 @@ def build_receipt(pair: dict, *, scenario: str, status: str, why: str, signed_lo
     if source == PUBLISHED_RELEASE:
         certification = {
             "role": "customer-upgrade-path",
+            "verdict": "advisory",
+            "advisoryRuling": ADVISORY_RULING,
             "customerReachable": True,
             "publicReference": pair.get("prior_public_reference"),
             "releaseNamedTag": pair.get("prior_release_named_tag"),
@@ -217,8 +225,8 @@ def build_receipt(pair: dict, *, scenario: str, status: str, why: str, signed_lo
                      "the candidate gates it; restore the pre-upgrade backup at the documented rollback boundary",
         }
     else:
-        certification = {"role": "scaffolding",
-                         "note": "previous trunk manifest pin -> candidate; not a customer release pair"}
+        certification = {"role": "rc-required-path", "verdict": "required",
+                         "note": "previous trunk manifest pin (N-1 nightly) -> candidate; not a customer release pair"}
     return {
         "schema": SCHEMA,
         "priorSource": source,

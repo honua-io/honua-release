@@ -15,8 +15,14 @@
 # pre-release, signed platform lock attached â€” tools/check_upgrade.py prior_platform_release, ruling
 # R26); until one exists the signed-lock kind smoke is blocked.
 #
-# These lanes certify the customer-facing platform, so the headline pair is what a customer runs:
-#   published-release  prior = the server of the newest published honua-* GitHub release, pulled by
+# Pairs (coordinator ruling 2026-10-22, https://github.com/honua-io/honua-release/issues/376#issuecomment-6335886760):
+#   trunk-candidate    REQUIRED for rc: previous trunk manifest pin (N-1 nightly) -> candidate ->
+#                      rollback, plus every fault scenario. Never a customer release pair.
+#   published-release  ADVISORY until a real release exists (the only published artefact is the
+#                      August 2026.1 snapshot, which has no schema-reader guard). Its fragments, and
+#                      the signed-lock fragment it carries, are reported with decided=advisory-* and
+#                      never change overallStatus. Runs nightly and on explicit dispatch.
+#                      prior = the server of the newest published honua-* GitHub release, pulled by
 #                      the public GHCR digest its release assets name, installed with that release's
 #                      chart; candidate = the manifest candidate with its chart. The upgrade follows
 #                      the documented customer steps (docs/UPGRADE-RUNBOOK.md): helm upgrade; when the
@@ -24,7 +30,6 @@
 #                      typed refusal and helm upgrade again with HONUA_APPROVE_CONTRACT_MIGRATIONS;
 #                      after helm rollback, an older image that refuses the migrated schema at the
 #                      documented boundary is recovered by restoring the pre-upgrade backup.
-#   trunk-candidate    scaffolding only: previous trunk manifest pin -> candidate, labelled so.
 # Each pair emits upgrade-kind-<pair>-<scenario>; receipts say priorSource and certification role,
 # `certifiedReleasePair: false`, and the signed-lock fragment stays blocked. A FAIL (migrations did not
 # advance after approval, seeded rows lost, the prior cannot serve after rollback or restore) fails the
@@ -73,18 +78,18 @@ on:
         options: [normal, post-migration-readiness, bad-config, migration-boundary, rollback-failure]
         default: normal
       upgrade_pair:
-        description: "published-release = the newest published honua-* release a customer runs -> candidate (headline); trunk-candidate = previous trunk pin -> candidate (scaffolding)"
+        description: "trunk-candidate = previous trunk pin -> candidate (required for rc); published-release = the newest published honua-* release -> candidate (advisory until a real release exists)"
         required: false
         type: choice
-        options: [published-release, trunk-candidate]
-        default: published-release
+        options: [trunk-candidate, published-release]
+        default: trunk-candidate
   workflow_call:
     inputs:
       candidate_ref: { required: false, type: string, default: "" }
       platform_label: { required: false, type: string, default: "dev-local" }
       enforcement:    { required: false, type: string, default: bootstrap }
       failure_scenario: { required: false, type: string, default: normal }
-      upgrade_pair: { required: false, type: string, default: published-release }
+      upgrade_pair: { required: false, type: string, default: trunk-candidate }
     secrets:
       RELEASE_GH_TOKEN: { required: false }
     outputs:
@@ -203,9 +208,9 @@ jobs:
     strategy:
       fail-fast: false
       # Headline: the published-release pair (what a customer upgrades from). The fault game days run
-      # on the trunk-candidate scaffolding pair.
+      # on the trunk-candidate pair (the required rc path).
       matrix:
-        include: ${{ fromJSON(github.event_name == 'schedule' && '[{"scenario":"normal","pair":"published-release"},{"scenario":"normal","pair":"trunk-candidate"},{"scenario":"post-migration-readiness","pair":"trunk-candidate"},{"scenario":"bad-config","pair":"trunk-candidate"},{"scenario":"migration-boundary","pair":"trunk-candidate"},{"scenario":"rollback-failure","pair":"trunk-candidate"}]' || format('[{{"scenario":"{0}","pair":"{1}"}}]', inputs.failure_scenario || 'normal', inputs.upgrade_pair || 'published-release')) }}
+        include: ${{ fromJSON(github.event_name == 'schedule' && '[{"scenario":"normal","pair":"published-release"},{"scenario":"normal","pair":"trunk-candidate"},{"scenario":"post-migration-readiness","pair":"trunk-candidate"},{"scenario":"bad-config","pair":"trunk-candidate"},{"scenario":"migration-boundary","pair":"trunk-candidate"},{"scenario":"rollback-failure","pair":"trunk-candidate"}]' || format('[{{"scenario":"{0}","pair":"{1}"}}]', inputs.failure_scenario || 'normal', inputs.upgrade_pair || 'trunk-candidate')) }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -1049,7 +1054,7 @@ jobs:
           PAIR_MODE="${{ steps.smoke.outputs.mode }}"
           if [ -n "$PAIR_MODE" ] && [ "$PAIR_MODE" != signed-lock ]; then
             # Labelled pair receipt: priorSource published-release (customer path) or trunk-candidate
-            # (scaffolding), certifiedReleasePair false, signed-lock requirement still blocked. Never
+            # (rc-required path), certifiedReleasePair false, signed-lock requirement still blocked. Never
             # attested as a signed-lock release receipt.
             if ! python tools/upgrade_trunk_pair.py receipt --pair /tmp/trunk-pair.json \
                  --scenario "${{ matrix.scenario }}" --status "${trunk_status:-fail}" --why "${trunk_why:-}" \
@@ -1145,7 +1150,7 @@ jobs:
           gate: upgrade-kind-${{ matrix.pair }}-${{ matrix.scenario }}
           status: ${{ env.trunk_status || 'fail' }}
           source: kind
-          why: "${{ matrix.pair == 'published-release' && format('prior-source: published-release {0} ({1}; customer upgrade path, no signed lock yet)', steps.fallback.outputs.release_tag, steps.fallback.outputs.prior_public_reference) || format('prior-source: trunk-candidate ({0} -> {1}; scaffolding, not a customer release pair)', steps.fallback.outputs.prior_source_revision, steps.fallback.outputs.candidate_source_revision) }}: ${{ env.trunk_why || 'job crashed before recording a result' }}"
+          why: "${{ matrix.pair == 'published-release' && format('prior-source: published-release {0} ({1}; customer upgrade path, advisory until a real release exists, no signed lock yet)', steps.fallback.outputs.release_tag, steps.fallback.outputs.prior_public_reference) || format('prior-source: trunk-candidate ({0} -> {1}; rc-required path, not a customer release pair)', steps.fallback.outputs.prior_source_revision, steps.fallback.outputs.candidate_source_revision) }}: ${{ env.trunk_why || 'job crashed before recording a result' }}"
           enforcement: ${{ inputs.enforcement }}
           prefix: upg-${{ matrix.pair }}-${{ matrix.scenario }}-
 
@@ -1170,11 +1175,20 @@ jobs:
           PLATFORM_LABEL: ${{ inputs.platform_label }}
           ENFORCEMENT: ${{ inputs.enforcement }}
           RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          # Advisory fragments: the published-release pair and the signed-lock fragment it carries
+          # (coordinator ruling 2026-10-22). Reported, never counted toward overallStatus.
+          ADVISORY_GATES: "^upgrade-kind-(published-release|smoke)-"
+          # The required trunk-candidate cells this run must report: all five scenarios on the
+          # schedule, one on a trunk-candidate dispatch or train call. A missing one fails the gate.
+          EXPECTED_TRUNK_CELLS: ${{ github.event_name == 'schedule' && '5' || ((inputs.upgrade_pair || 'trunk-candidate') == 'trunk-candidate' && '1' || '0') }}
+          ADVISORY_RULING: https://github.com/honua-io/honua-release/issues/376#issuecomment-6335886760
         run: |
           set -euo pipefail
           mkdir -p out
           jq -s \
             --arg label "$PLATFORM_LABEL" --arg enf "$ENFORCEMENT" \
+            --arg advisory "$ADVISORY_GATES" --arg ruling "$ADVISORY_RULING" \
+            --argjson expect "$EXPECTED_TRUNK_CELLS" \
             --arg ts "$(date -u +%FT%TZ)" --arg run "$RUN_URL" '
             def decided(enf):
               if .status=="pass" then "pass"
@@ -1185,14 +1199,24 @@ jobs:
               elif .status=="skipped" then (if enf=="strict" then "fail" else "skipped" end)
               elif .status=="blocked" then (if enf=="strict" then "fail" else "blocked" end)
               else "fail" end;
-            ( [ .[] | . + {decided: decided($enf)} ] ) as $g
+            ( [ .[] | if (.gate|test($advisory))
+                        then . + {advisory:true, advisoryRuling:$ruling,
+                                  decided:(if .status=="pass" then "pass" else "advisory-\(.status)" end)}
+                        else . + {decided: decided($enf)} end ] ) as $g
             | { gate:"upgrade", platform_label:$label, enforcement:$enf, generatedAt:$ts, evidence_url:$run,
                 gates:$g,
                 summary:{ pass:([$g[]|select(.decided=="pass")]|length),
                           skipped:([$g[]|select(.decided=="skipped")]|length),
                           blocked:([$g[]|select(.decided=="blocked")]|length),
-                          fail:([$g[]|select(.decided=="fail")]|length) },
-                overallStatus:( if any($g[];.decided=="fail") then "fail"
+                          fail:([$g[]|select(.decided=="fail")]|length),
+                          advisory:([$g[]|select(.advisory==true)]|length),
+                          required:([$g[]|select(.advisory!=true)]|length),
+                          trunkCandidateCells:([$g[]|select(.gate|startswith("upgrade-kind-trunk-candidate-"))]|length),
+                          expectedTrunkCandidateCells:$expect },
+                # Advisory fragments never decide the verdict; at least one required fragment must exist.
+                overallStatus:( if ([$g[]|select(.advisory!=true)]|length)==0 then "fail"
+                                elif ([$g[]|select(.gate|startswith("upgrade-kind-trunk-candidate-"))]|length) < $expect then "fail"
+                                elif any($g[];.decided=="fail") then "fail"
                                 elif any($g[];.decided=="blocked") then "blocked" else "pass" end) }' \
             fragments/*.json > out/gate-report.json
           cat out/gate-report.json
@@ -1202,6 +1226,7 @@ jobs:
             echo "## Upgrade gate — $OVERALL";
             echo "| layer | status | why |"; echo "|---|---|---|";
             jq -r '.gates[] | "| \(.gate) | \(.decided) | \(.why) |"' out/gate-report.json;
+            echo; echo "Advisory rows (published-release pair, signed-lock fragment) do not affect the verdict: $ADVISORY_RULING";
           } >> "$GITHUB_STEP_SUMMARY"
 
       - name: Upload gate-report

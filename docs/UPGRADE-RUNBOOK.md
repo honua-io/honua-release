@@ -108,8 +108,11 @@ schema-135+ image refusing an expand-only edge, fails the gate.
 `gate-upgrade` (scheduled daily) runs `upgrade-kind-published-release-normal` and uploads
 `published-release-upgrade-receipt.json`. The receipt records `priorSource: published-release`,
 the release tag and its pre-release flag, the exact public image reference, the contract-approval
-steps with the nonce and gated scripts, the backup, and the rollback outcome. The
-`trunk-candidate` pair (previous trunk pin → candidate) is labelled `certification.role:
-scaffolding` and is never a customer release pair. Neither pair has a signed prior lock yet
+steps with the nonce and gated scripts, the backup, and the rollback outcome. For 2026.1 rc this
+pair is **advisory** (`certification.verdict: advisory`) until a real release exists: the only
+published artefact is the August 2026.1 snapshot, which has no schema-reader guard (coordinator
+ruling, honua-release#376). The required rc path is the `trunk-candidate` pair (previous trunk
+pin → candidate → rollback, plus the fault scenarios), labelled `certification.role:
+rc-required-path`; it is never a customer release pair. Neither pair has a signed prior lock yet
 (`certifiedReleasePair: false`), so the signed-lock fragment stays `blocked` until the first
 promoted release.
