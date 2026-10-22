@@ -1,9 +1,9 @@
 These are unedited registry index bytes. honua-server was re-captured on 2026-10-22 for the
-4709145 rc re-pin; honua-console was re-captured for the fbe0195d rc re-pin (release#775):
+199bce7 rc re-pin #2; honua-console was re-captured for the a0c04a68 rc re-pin #2:
 
 ```sh
-docker buildx imagetools inspect ghcr.io/honua-io/honua-server@sha256:041ee4aada686b1e85cfe0f9ff388e0fd66cec6ae3f6cdeec4c6dfe6199efcbf --raw > honua-server/index.json
-docker buildx imagetools inspect ghcr.io/honua-io/honua-console@sha256:ab67fe43afe36069a4012522a451b6abacaede695fe395009d096dd3347d4eff --raw > honua-console/index.json
+docker buildx imagetools inspect ghcr.io/honua-io/honua-server@sha256:f2e54ed3db51dc057fbf01fa261a7d3c81520f1e04441b029f280a35e1853454 --raw > honua-server/index.json
+docker buildx imagetools inspect ghcr.io/honua-io/honua-console@sha256:6612319d53ed9d3fab1a62848b6402d4340f57c227296003614ac88fe48de4f3 --raw > honua-console/index.json
 ```
 
 The SHA-256 of each file equals the pinned index digest. Expected architecture
