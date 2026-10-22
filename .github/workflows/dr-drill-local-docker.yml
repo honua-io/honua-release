@@ -16,8 +16,10 @@ on:
         type: string
         required: false
         default: ""
+  # Twice weekly: gate-dr follows each trunk run and the rc gate window is seven days, so a single
+  # weekly slot (whose start GitHub routinely delays by hours) would leave the gate out of window.
   schedule:
-    - cron: "17 9 * * 1"
+    - cron: "17 9 * * 1,4"
 
 # The drill jobs execute pull-request-controlled code (`e2e/dr-drill/**`), so they never hold OIDC
 # or attestation write. Minting a producer attestation and publishing the receipt are separate jobs
