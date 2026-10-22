@@ -540,6 +540,50 @@ def test_candidate_proxy_binds_trust_anchor_event_names_and_requested_model(monk
     assert evidence["provider"] == "bedrock"
 
 
+def test_a_provider_error_stream_names_the_proxy_error_and_stays_refused(monkeypatch):
+    manifest = {"requiredForCertification": True, "keys": []}
+    digest = hashlib.sha256(json.dumps(manifest, sort_keys=True, separators=(",", ":")).encode()).hexdigest()
+    endpoint = replace(_endpoint(), base_url="http://127.0.0.1:8000/api", signing_manifest_sha256=digest,
+                       model="us.anthropic.claude-sonnet-5-5")
+
+    class Response:
+        def __init__(self, payload):
+            self.payload = payload
+        def __enter__(self):
+            return self
+        def __exit__(self, *_):
+            return False
+        def read(self, _limit):
+            return self.payload
+
+    sse = "\n\n".join([
+        'event: message_start\ndata: {"type": "MessageStart", "provider": "bedrock"}',
+        'event: error\ndata: {"type": "Error", "errorCode": "provider_access_denied", "errorMessage": "AccessDeniedException:\\n not authorized"}',
+        'event: transcript_provenance\ndata: {"type": "TranscriptProvenance", "provenance": {}}',
+    ]).encode()
+    capabilities = {"providers": [{"provider": "bedrock", "configured": True, "kind": "bedrock"}],
+                    "transcriptSigning": manifest}
+    responses = iter([Response(json.dumps(capabilities).encode()), Response(sse)])
+    monkeypatch.setattr(canary.CandidateProxyClient, "_open", staticmethod(lambda *args, **kwargs: next(responses)))
+    with pytest.raises(canary.CanaryError, match="provenance event.*proxy error provider_access_denied: AccessDeniedException"):
+        canary.CandidateProxyClient(endpoint).complete([{"role": "user", "content": "advance"}], {"runNonce": "n"})
+
+    # Candidate text crossing into the receipt passes the Redactor boundary (credentials, bearer
+    # tokens, the configured key) and the code keeps identifier characters only.
+    leaky = "\n\n".join([
+        'event: message_start\ndata: {"type": "MessageStart", "provider": "bedrock"}',
+        'event: error\ndata: {"type": "Error", "errorCode": "bad <script>code", "errorMessage": "Authorization: Bearer abc.def.ghi failed for key top-secret-key"}',
+        'event: transcript_provenance\ndata: {"type": "TranscriptProvenance", "provenance": {}}',
+    ]).encode()
+    responses = iter([Response(json.dumps(capabilities).encode()), Response(leaky)])
+    keyed = replace(endpoint, api_key="top-secret-key")
+    with pytest.raises(canary.CanaryError) as refused:
+        canary.CandidateProxyClient(keyed).complete([{"role": "user", "content": "advance"}], {"runNonce": "n"})
+    text = str(refused.value)
+    assert "abc.def.ghi" not in text and "top-secret-key" not in text and "<script>" not in text
+    assert "proxy error badscriptcode" in text
+
+
 def test_run_nonces_are_random_and_run_scoped():
     first = canary._new_run_nonce()
     second = canary._new_run_nonce()
