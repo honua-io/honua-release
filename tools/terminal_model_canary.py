@@ -1113,7 +1113,7 @@ class DriverAdapter:
             # Only an explicit, validated invalid-action refusal is model feedback. A valid action that
             # failed in the candidate (request, JSON-RPC error, evidence or proof) is infrastructure.
             if not (operation == "execute" and isinstance(response, dict) and response.get("status") == "fail"
-                    and response.get("refusal") == "invalid-action"):
+                    and response.get("refusal") in MODEL_FEEDBACK_REFUSALS):
                 result = response.get("result") if isinstance(response, dict) else None
                 reason = result.get("reason") if isinstance(result, dict) else None
                 detail = f": {str(reason)[:240]}" if operation == "execute" and reason else ""
@@ -1128,6 +1128,11 @@ class DriverAdapter:
             raise CanaryError(f"#123 driver {operation} response omitted required fields: {missing}")
         return response
 
+
+# Driver refusals that are feedback for the model's next turn: its action was invalid for the stage, or
+# the candidate refused a well-formed call with a typed client-side error (not found, invalid argument,
+# wrong state). If the model never completes the stage, the failure is the model's.
+MODEL_FEEDBACK_REFUSALS = frozenset({"invalid-action", "candidate-refusal"})
 
 _FENCED_JSON = re.compile(r"\A```(?:json)?[ \t]*\r?\n(?P<body>.*?)\r?\n```\Z", re.DOTALL)
 
@@ -1495,6 +1500,14 @@ def execute_live(
                         "task": "advance exactly this imported #123 stage from observed state",
                         "candidateRelease": receipt["candidate"]["platformRelease"],
                         "stage": stage,
+                        # The stage's declared order and what already exists, so the model can sequence
+                        # (e.g. publish a service before querying it).
+                        "requiredSequence": stage.get("command"),
+                        "currentState": {
+                            key: value for key, value in
+                            ((observed.get("observation") or {}).get("resources") or {}).items()
+                            if value not in (None, "", [], {})
+                        } if isinstance((observed.get("observation") or {}).get("resources"), dict) else {},
                         "observation": observed.get("observation"),
                         "serverAuthoredToolView": observed.get("toolView"),
                     },
@@ -1566,8 +1579,12 @@ def execute_live(
                     # string stays out of the receipt (digest-only retention).
                     tool = model_action.get("tool") if kind == "tool_call" else None
                     target = f" {tool}" if tool in _tool_names(observed.get("toolView")) else ""
-                    builder.notice(f"stage {stage_id}: the driver refused the model-selected {kind}{target}: "
-                                   f"{str(refused.get('reason') or execution.get('status'))[:240]}")
+                    label = {"invalid-action": "an action outside the stage's admitted set",
+                             "candidate-refusal": "a well-formed call the candidate refused (e.g. out of order)"}.get(
+                                 str(execution.get("refusal")), "a failed action")
+                    builder.notice(f"stage {stage_id}: model finding - the model-selected {kind}{target} was "
+                                   f"{label}: {str(refused.get('reason') or execution.get('status'))[:240]}; "
+                                   "the result was returned to the model")
                 injected = fault_evidence(execution, "injectedError")
                 if isinstance(injected, dict) and injected.get("id") == receipt["errorInjection"]["id"]:
                     if injected.get("recoverable") is not True:

@@ -1493,6 +1493,9 @@ def test_a_refused_model_action_is_returned_to_the_model_not_raised_as_a_driver_
     driver = canary.DriverAdapter(script, json.loads(PROTOCOL.read_text()), timeout_seconds=30)
     refused = driver.invoke("execute", {"workspaceId": "w", "stage": "s", "action": {}})
     assert refused["status"] == "fail" and refused["refusal"] == "invalid-action"
+    # A typed client-side candidate refusal of a well-formed call is model feedback too.
+    candidate = driver.invoke("execute", {"workspaceId": "w", "stage": "s", "action": {}, "refusal": "candidate-refusal"})
+    assert candidate["refusal"] == "candidate-refusal"
     # A valid action that failed in the candidate is infrastructure, never model feedback.
     with pytest.raises(canary.CanaryError, match="execute failed with exit code 1: tool is outside"):
         driver.invoke("execute", {"workspaceId": "w", "stage": "s", "action": {}, "refusal": "candidate-execution"})
