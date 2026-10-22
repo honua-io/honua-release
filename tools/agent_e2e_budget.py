@@ -99,6 +99,11 @@ def validate_admissions(ledger):
 
 
 def validate_release_accounting(ledger, admission, reservations):
+    same_attempt = [row for row in ledger['entries']
+                    if all(row.get(key) == admission[key] for key in ('campaignId', 'caseId', 'attempt'))
+                    and row.get('campaignMode', 'qualification') == admission['campaignMode']]
+    if any(row['state'] != 'settled' for row in same_attempt):
+        raise BudgetError('all paid attempt liabilities, including model calls, must settle before release')
     if (not isinstance(reservations, dict) or set(reservations) != {'infrastructure', 'cleanup'}
             or len(set(reservations.values())) != 2):
         raise BudgetError('release requires exact settled infrastructure and cleanup reservations')

@@ -356,3 +356,26 @@ def test_only_reconciled_release_of_one_of_four_admissions_allows_fifth(tmp_path
     assert len(ledger['paidAdmissions'])==5
     assert sum(r['state']=='active' for r in ledger['paidAdmissions'])==4
     assert len(ledger['entries'])==2
+
+
+def test_outstanding_model_liability_prevents_admission_release_until_observed_settlement(tmp_path):
+    path=paid_ledger(tmp_path);admit(path,0)
+    reservations=settle_paid(path,0)
+    update(path,'reserve',candidate_key=KEY,reservation_id='model-in-flight',kind='model',amount=2,
+           basis_digest=BASIS,campaign_id='campaign-0',
+           case_id='AI-01:service-migration:A:local-docker:console',attempt=1)
+    release={'candidate_key':KEY,'admission_id':'admission-0','owner_token':'controller-owner-token-0000',
+             'cleanup_status':'pass','reservation_ids':reservations,'now_epoch':1200}
+    before=path.read_bytes()
+    with pytest.raises(BudgetError,match='including model'):
+        update(path,'release-paid-attempt',**release)
+    assert path.read_bytes()==before
+    assert json.loads(path.read_text())['paidAdmissions'][0]['state']=='active'
+    assert Decimal(update(path,'check',candidate_key=KEY)['liabilityUsd'])==4
+    # Only independently supplied actual accounting settles the model liability.
+    update(path,'settle',candidate_key=KEY,reservation_id='model-in-flight',amount='1.25')
+    update(path,'release-paid-attempt',**release)
+    retained=json.loads(path.read_text())
+    assert retained['paidAdmissions'][0]['state']=='released'
+    assert next(r for r in retained['entries'] if r['id']=='model-in-flight')['actualUsd']=='1.25'
+    assert Decimal(update(path,'check',candidate_key=KEY)['liabilityUsd'])==Decimal('3.25')
