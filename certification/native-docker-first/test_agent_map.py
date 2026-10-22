@@ -275,5 +275,86 @@ class AgentMapTests(unittest.TestCase):
             helper.observed_audience_resume(runner, self.encode(changed), self.original, receipt)
 
 
+    def test_requalification_failure_cannot_retain_previous_pass(self):
+        from types import SimpleNamespace
+        from unittest.mock import patch
+        import tempfile
+        for failure in ('witness', 'resume', 'readback', 'context'):
+            with self.subTest(failure=failure), tempfile.TemporaryDirectory() as directory:
+                root = Path(directory)
+                observed, handoff = self.observe(), self.pending_handoff()
+                runner.private_json(root / 'external-publication-handoff.json', handoff)
+                (root / '.env').write_text('HONUA_AGENT_API_KEY=synthetic-offline-key\n')
+                operator = root / 'operator.json'; operator.write_text('{}')
+                witness_ref = {'path': 'previous-witness.json', 'sha256': 'a' * 64}
+                runner.private_json(root / witness_ref['path'], {'offline': True})
+                state = {'stages': {key: 'pass' for key in ('prepare', 'install', 'agentTask', 'agentSubmission',
+                         'agentImportObservation', 'agentService', 'agentMap', 'agentPublication', 'agentAudience')},
+                         'agentImportTask': self.original, 'agentMap': observed, 'externalPublication': handoff,
+                         'target': {'origins': {'console': 'http://127.0.0.1:8081', 'server': 'http://127.0.0.1:8080'}},
+                         'installDirectory': str(root), 'externalClientSessionId': 'same-session',
+                         'status': 'same-external-agent-with-human-governance-pass',
+                         'oneExternalAgentConversationQualified': True, 'qualificationScope': 'previous observed scope',
+                         'externalAudienceWitness': witness_ref,
+                         'agentAudienceResume': {'transcriptSha256': 'b' * 64}, 'externalAudience': {'status': 'pass'}}
+                args = SimpleNamespace(operator_state=operator, origin='http://127.0.0.1:8081',
+                         server_origin='http://127.0.0.1:8080', console_root=root, claude='offline-only')
+                def execute(command, **kwargs):
+                    if 'env' in kwargs:
+                        if failure == 'witness': return SimpleNamespace(returncode=1, stdout='', stderr='failed witness')
+                        witness = {**handoff, 'status': 'pass', 'resolvedBy': 'human2'}
+                        runner.private_json(Path(kwargs['env']['HONUA_WORKSPACE_E2E_PUBLICATION_WITNESS']), witness, new=True)
+                        return SimpleNamespace(returncode=0, stdout='', stderr='')
+                    return SimpleNamespace(returncode=1 if failure == 'resume' else 0, stdout='', stderr='')
+                with patch.object(helper, 'validate_session', side_effect=runner.Blocked('context changed') if failure == 'context' else None), \
+                        patch.object(runner, 'playwright_command', return_value=['offline-witness']), \
+                        patch.object(helper.subprocess, 'run', side_effect=execute), \
+                        patch.object(runner, 'observed_client_session'), \
+                        patch.object(helper, 'observed_audience_resume', return_value={'status': 'pass'}), \
+                        patch.object(helper, 'independent_map_readback', side_effect=runner.Blocked('readback changed') if failure == 'readback' else None):
+                    with self.assertRaises(runner.Blocked):
+                        helper.phase_audience(runner, args, state, {}, root)
+                retained = runner.read_json(root / 'receipt.json')
+                self.assertFalse(retained['oneExternalAgentConversationQualified'])
+                self.assertEqual(retained['status'], 'blocked-fresh-external-observation')
+                self.assertEqual(retained['stages']['agentAudience'], 'blocked-read-only-observation')
+                self.assertNotIn('qualificationScope', retained)
+                self.assertEqual(retained['priorExternalQualifications'][0]['audienceWitness'], witness_ref)
+                self.assertTrue((root / witness_ref['path']).exists())
+
+    def test_failed_map_reobservation_does_not_resurrect_prior_qualification(self):
+        from unittest.mock import patch
+        import tempfile
+        for failure in ('context', 'readback'):
+            with self.subTest(failure=failure), tempfile.TemporaryDirectory() as directory:
+                root = Path(directory)
+                state = {'stages': {'agentMap': 'pass', 'agentPublication': 'pass', 'agentAudience': 'pass'},
+                         'agentMap': self.observe(), 'oneExternalAgentConversationQualified': True,
+                         'status': 'same-external-agent-with-human-governance-pass',
+                         'qualificationScope': 'prior', 'externalAudienceWitness': {'path': 'old', 'sha256': 'a'*64}}
+                with patch.object(helper, 'validate_session', side_effect=runner.Blocked('context changed') if failure == 'context' else None), \
+                        patch.object(helper, 'independent_map_readback', side_effect=runner.Blocked('readback failed')):
+                    with self.assertRaises(runner.Blocked):
+                        helper.phase_observe_map(runner, None, state, {}, root)
+                self.assertFalse(runner.read_json(root / 'receipt.json')['oneExternalAgentConversationQualified'])
+                self.assertEqual(state['stages']['agentMap'], 'blocked-read-only-observation')
+                self.assertNotEqual(state['stages']['agentPublication'], 'pass')
+
+    def test_successful_map_only_reobservation_still_requires_fresh_audience(self):
+        from unittest.mock import patch
+        import tempfile
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            state = {'stages': {'agentMap': 'pass', 'agentPublication': 'pass', 'agentAudience': 'pass'},
+                     'agentMap': self.observe(), 'oneExternalAgentConversationQualified': True,
+                     'status': 'same-external-agent-with-human-governance-pass', 'qualificationScope': 'prior'}
+            with patch.object(helper, 'validate_session'), patch.object(helper, 'independent_map_readback', return_value={'status': 'pass'}):
+                helper.phase_observe_map(runner, None, state, {}, root)
+            self.assertEqual(state['stages']['agentMap'], 'pass')
+            self.assertFalse(state['oneExternalAgentConversationQualified'])
+            self.assertEqual(state['stages']['agentAudience'], 'awaiting-fresh-observation')
+            self.assertEqual(len(state['priorExternalQualifications']), 1)
+
+
 if __name__ == '__main__':
     unittest.main()

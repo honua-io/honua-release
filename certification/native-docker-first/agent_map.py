@@ -401,7 +401,7 @@ def observed_audience_resume(runner, transcript, original, observed):
             'anonymousAudienceObservedBy': 'independent-controller-browser'}
 
 
-def phase_audience(runner, args, state, binding, attempt):
+def _phase_audience(runner, args, state, binding, attempt):
     if (state['stages'].get('agentMap') != 'pass' or
             state['stages'].get('agentPublication') not in ('awaiting-separate-human-approval', 'pass')):
         raise runner.Blocked('same-map audience continuation needs the original pending human publication')
@@ -480,12 +480,13 @@ def phase_audience(runner, args, state, binding, attempt):
     state['stages']['agentPublication'] = 'pass'
     state['status'] = 'same-external-agent-with-human-governance-pass'
     state['oneExternalAgentConversationQualified'] = True
+    state.pop('blocker', None)
     state['qualificationScope'] = 'guided local Docker external import/service/map/save/reopen with actual human proposal, separate approval and independently observed audience; not AI-01..05 pilot qualification'
     runner.private_json(attempt / 'receipt.json', state)
     print('Same external conversation and canonical Console map matched real human governance and independent audience reads. Broader pilot profile remains unqualified.')
 
 
-def phase_observe_map(runner, args, state, binding, attempt):
+def _phase_observe_map(runner, args, state, binding, attempt):
     """Recover an independent GET failure after a fully joined MCP map receipt."""
     if not isinstance(state.get('agentMap'), dict):
         raise runner.Blocked('no fully observed external map receipt; uncertain mutations require operator inspection')
@@ -503,3 +504,52 @@ def phase_observe_map(runner, args, state, binding, attempt):
     state.pop('blocker', None)
     runner.private_json(attempt / 'receipt.json', state)
     print('Original external map receipt independently observed; no model or mutation was replayed.')
+
+
+def _begin_fresh_observation(runner, state, attempt, stage):
+    """A retained prior pass is history, never the result of a fresh observation."""
+    if state.get('oneExternalAgentConversationQualified'):
+        historical = {
+            'status': state.get('status'),
+            'qualificationScope': state.get('qualificationScope'),
+            'audienceWitness': state.get('externalAudienceWitness'),
+            'resumeTranscriptSha256': state.get('agentAudienceResume', {}).get('transcriptSha256'),
+        }
+        history = state.get('priorExternalQualifications', [])
+        if not history or history[-1] != historical:
+            history = [*history, historical]
+        state['priorExternalQualifications'] = history[-8:]
+    state['oneExternalAgentConversationQualified'] = False
+    state['status'] = 'awaiting-fresh-external-observation'
+    for key in ('qualificationScope', 'externalAudienceWitness', 'externalAudience', 'agentAudienceResume'):
+        state.pop(key, None)
+    if state['stages'].get('agentPublication') == 'pass':
+        state['stages']['agentPublication'] = 'awaiting-separate-human-approval'
+    state['stages']['agentAudience'] = 'awaiting-fresh-observation'
+    state['stages'][stage] = 'observing'
+    if stage == 'agentMap':
+        state.pop('agentMapReadback', None)
+    runner.private_json(attempt / 'receipt.json', state)
+
+
+def _fresh_observation(runner, args, state, binding, attempt, stage, observe):
+    _begin_fresh_observation(runner, state, attempt, stage)
+    try:
+        return observe(runner, args, state, binding, attempt)
+    except Exception as exc:
+        state['oneExternalAgentConversationQualified'] = False
+        state['status'] = 'blocked-fresh-external-observation'
+        state['stages'][stage] = 'blocked-read-only-observation'
+        state['stages']['agentAudience'] = 'blocked-read-only-observation'
+        state.pop('qualificationScope', None)
+        state['blocker'] = str(exc)
+        runner.private_json(attempt / 'receipt.json', state)
+        raise
+
+
+def phase_audience(runner, args, state, binding, attempt):
+    return _fresh_observation(runner, args, state, binding, attempt, 'agentAudience', _phase_audience)
+
+
+def phase_observe_map(runner, args, state, binding, attempt):
+    return _fresh_observation(runner, args, state, binding, attempt, 'agentMap', _phase_observe_map)
