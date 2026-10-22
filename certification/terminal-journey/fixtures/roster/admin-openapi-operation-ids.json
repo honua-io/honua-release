@@ -1,0 +1,56 @@
+{
+  "schemaVersion": "1.0.0",
+  "authority": "docs/developer/api-specs/admin-api.json",
+  "generatedCliFields": [
+    "status",
+    "operationId",
+    "operationInstanceId",
+    "correlationId",
+    "auditId"
+  ],
+  "generatedConsoleFields": [
+    "status",
+    "operationId",
+    "operationInstanceId",
+    "correlationId",
+    "auditId"
+  ],
+  "operations": [
+    {
+      "operationId": "createAdminApiKey",
+      "catalogOperationId": "admin.api-key.create",
+      "method": "POST",
+      "path": "/api-keys"
+    },
+    {
+      "operationId": "listAdminApiKeys",
+      "catalogOperationId": "admin.api-key.list",
+      "method": "GET",
+      "path": "/api-keys"
+    },
+    {
+      "operationId": "revokeAdminApiKey",
+      "catalogOperationId": "admin.api-key.revoke",
+      "method": "POST",
+      "path": "/api-keys/{id}/revoke"
+    },
+    {
+      "operationId": "getAdminVersion",
+      "catalogOperationId": null,
+      "method": "GET",
+      "path": "/version"
+    },
+    {
+      "operationId": "uploadImportFile",
+      "catalogOperationId": null,
+      "method": "POST",
+      "path": "/import/upload"
+    },
+    {
+      "operationId": "approveOperationProposal",
+      "catalogOperationId": null,
+      "method": "POST",
+      "path": "/proposals/{id}/approve"
+    }
+  ]
+}

@@ -645,7 +645,6 @@ def attempt(cell, number, endpoint, admin_key, running_image=None, *, image_deta
     directory.mkdir(parents=True, exist_ok=True)
     workdir = directory / f"work-{number}"
     contract = driver.load(HERE / "journey.v1.json")
-    policy = driver.load(HERE / "control-plane-roster.v1.json")
     pinned = manifest()
     template = driver.load(adapter.DEFAULT_TARGET)
     targets = cloud_targets()
@@ -680,6 +679,7 @@ def attempt(cell, number, endpoint, admin_key, running_image=None, *, image_deta
     attribution = None
     if "discovery" in sys.modules:
         sys.modules["discovery"].reset_trace()
+        sys.modules["discovery"].reset_calls()
     try:
         if endpoint is not None:
             # pins.CANDIDATE_ENV_ALLOWLIST is the only environment run_live keeps.
@@ -717,9 +717,14 @@ def attempt(cell, number, endpoint, admin_key, running_image=None, *, image_deta
     if build_only:
         target["kind"] = "none"
     receipt = driver.build_receipt(
-        manifest=pinned, journey=contract, roster=driver.roster_verdict(policy,
+        manifest=pinned, journey=contract, roster=driver.roster_verdict(
             driver.load(Path(os.environ["HONUA_CLOUD_REST_ROSTER"])) if os.environ.get("HONUA_CLOUD_REST_ROSTER") else None,
-            driver.load(Path(os.environ["HONUA_CLOUD_MCP_ROSTER"])) if os.environ.get("HONUA_CLOUD_MCP_ROSTER") else None),
+            driver.load(Path(os.environ["HONUA_CLOUD_MCP_ROSTER"])) if os.environ.get("HONUA_CLOUD_MCP_ROSTER") else None,
+            sys.modules["discovery"].calls() if "discovery" in sys.modules else [],
+            source=driver.roster_source(
+                Path(os.environ["HONUA_CLOUD_REST_ROSTER"]) if os.environ.get("HONUA_CLOUD_REST_ROSTER") else None,
+                Path(os.environ["HONUA_CLOUD_MCP_ROSTER"]) if os.environ.get("HONUA_CLOUD_MCP_ROSTER") else None,
+                os.environ.get("HONUA_CLOUD_ROSTER_SOURCE_SHA"), pinned)),
         evidence_uri=evidence_uri,
         mode="build" if build_only else "live", target=target,
         target_path=target_path, target_base_url=endpoint, workspace=workspace,

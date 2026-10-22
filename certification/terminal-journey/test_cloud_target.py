@@ -436,7 +436,7 @@ def live_receipt(kind, stage_results=None):
     workspace = driver.pins.ClientWorkspace(status="blocked", root=None, reason="offline")
     return driver.build_receipt(
         manifest=manifest, journey=journey,
-        roster=driver.roster_verdict(json.loads((HERE / "control-plane-roster.v1.json").read_text()), None, None),
+        roster=driver.roster_verdict(None, None),
         evidence_uri="urn:test:cloud#honua-run=1/1", mode="live", target=target, target_path=None,
         target_base_url=target["replicaBaseUrl"], workspace=workspace,
         stage_results=stage_results or [stages.StageResult(n, s["id"], s["command"], "blocked",

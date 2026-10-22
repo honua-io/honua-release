@@ -393,7 +393,7 @@ def test_candidate_proxy_configuration_rejects_direct_provider_urls():
 
 @pytest.mark.parametrize("mutation", [None, "provider", "model", "event-name", "signed-value", "event-digest", "duplicate-key", "after-stop", "signature", "binding", "adapter", "custom-model", "imported-model", "application-profile", "model-alias"])
 @pytest.mark.parametrize("model", ["anthropic.claude-sonnet-4-6",
-                                   "us.anthropic.claude-sonnet-4-6",
+                                   "us.anthropic.claude-sonnet-4-6", "us.anthropic.claude-sonnet-5-5",
                                    "global.anthropic.claude-sonnet-4-5-20250929-v1:0"])
 def test_candidate_proxy_binds_trust_anchor_event_names_and_requested_model(monkeypatch, mutation, model):
     key = Ed25519PrivateKey.generate()
@@ -645,7 +645,7 @@ def test_workflow_runs_nightly_and_on_call_bound_to_a_lock_for_both_cells():
     env = local["env"]
     assert env["HONUA_CANARY_STUDIO_AI_ENABLED"] == "true"
     assert env["HONUA_CANARY_BEDROCK_REGION"] == "us-east-1"
-    assert "us.anthropic.claude-sonnet-4-5-20250929-v1:0" in env["HONUA_CANARY_BEDROCK_MODEL"]
+    assert "us.anthropic.claude-sonnet-5-5" in env["HONUA_CANARY_BEDROCK_MODEL"]
     assert env["HONUA_CANARY_TRANSCRIPT_SIGNING_SEED"] == "${{ secrets.TERMINAL_MODEL_TRANSCRIPT_SIGNING_SEED }}"
 
     cloud = workflow["jobs"]["aws-ecs"]
@@ -662,7 +662,7 @@ def test_compose_routes_studio_ai_to_bedrock_only_when_the_canary_enables_it():
     assert env["StudioAiProxy__Enabled"] == "${HONUA_CANARY_STUDIO_AI_ENABLED:-false}"
     assert env["StudioAiProxy__DefaultProvider"] == "bedrock"
     assert env["StudioAiProxy__Providers__bedrock__Kind"] == "bedrock"
-    assert "us.anthropic.claude-sonnet-4-5-20250929-v1:0" in env["StudioAiProxy__Providers__bedrock__Model"]
+    assert "us.anthropic.claude-sonnet-5-5" in env["StudioAiProxy__Providers__bedrock__Model"]
     assert "us-east-1" in env["StudioAiProxy__Providers__bedrock__Region"]
     # The seed travels only by reference and from a secret; no static AWS key is declared.
     assert env["StudioAiProxy__TranscriptSigning__PrivateKeyReference"] == "${HONUA_CANARY_TRANSCRIPT_KEY_REFERENCE:-}"
@@ -1123,7 +1123,10 @@ def test_receipt_carries_lock_mode_cell_attempt_and_attribution_and_schema_requi
                          ("lockDigest", "sha256:short"), ("failureAttribution", None)):
         assert list(validator.iter_errors({**receipt, field: value})), field
     passing = {**receipt, "status": "pass", "failureAttribution": None}
-    assert list(validator.iter_errors({**passing, "lockDigest": None}))
+    assert list(validator.iter_errors({**passing, "lockDigest": None, "serverImage": None}))
+    # Operator ruling 2026-10-22: without a caller's lock, the composed server image binds a pass.
+    assert not list(validator.iter_errors({**passing, "lockDigest": None}))
+    assert list(validator.iter_errors({**passing, "serverImage": {**receipt["serverImage"], "digest": "sha256:x"}}))
     assert list(validator.iter_errors({**passing, "failureAttribution": "model"}))
 
 
@@ -1145,6 +1148,29 @@ def test_pass_requires_a_lock_digest_and_no_attribution():
     builder.receipt["failureAttribution"] = "model"
     with pytest.raises(canary.CanaryError, match="failure attribution"):
         builder.validate_invariants()
+
+
+def test_receipt_records_the_manifest_server_image_it_composes():
+    manifest = canary.load_manifest(MANIFEST)
+    server = manifest["components"]["honua-server"]
+    receipt = _builder(_endpoint()).receipt
+    assert receipt["serverImage"] == {"reference": f"{server['image'].split('@', 1)[0]}@{server['digest']}",
+                                      "digest": server["digest"], "sourceSha": server["sha"]}
+    assert canary.server_image_binding({"components": {"honua-server": {"image": "x"}}}, "local-docker") is None
+
+
+def test_image_bound_pass_requires_the_verified_deterministic_receipt():
+    builder = _builder(_endpoint())
+    builder.receipt["lockDigest"] = None
+    assert builder.receipt["serverImage"]["digest"]
+    # The image is only what the job composed once the green #123 receipt verified that candidate.
+    assert not builder.bound()
+    builder.receipt["linkedEvidence"]["deterministicReceipt"] = {"candidateVerified": True}
+    assert builder.bound()
+    builder.receipt["serverImage"] = {**builder.receipt["serverImage"], "reference": "ghcr.io/x@sha256:" + "0" * 64}
+    assert not builder.bound()
+    builder.receipt["serverImage"] = None
+    assert not builder.bound()
 
 
 def test_cli_binds_the_lock_bytes_and_refuses_an_unbound_or_mismatched_run(tmp_path: Path, monkeypatch):
