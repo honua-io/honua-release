@@ -5,7 +5,7 @@
   "authPolicyRevision": "installed-client-auth-v1",
   "cells": [
     {"id": "npm-node-geoservices-error", "artifact": "honua-sdk-js", "driver": "npm", "scenario": "geoservices-error-surfacing", "status": "active"},
-    {"id": "npm-mcp-tools-list", "artifact": "honua-mcp-server", "driver": "npm-mcp", "scenario": "mcp-tools-list", "status": "active", "executables": {"honua-mcp": "mcp-stdio", "honua-mcp-proxy": "mcp-proxy", "honua-zero-to-map-release": "help"}},
+    {"id": "npm-mcp-tools-list", "artifact": "honua-mcp-server", "driver": "npm-mcp", "scenario": "mcp-tools-list", "status": "active", "executables": {"honua-agent-gateway": "help", "honua-agent-mcp": "help", "honua-mcp": "mcp-stdio", "honua-mcp-proxy": "mcp-proxy", "honua-zero-to-map-release": "help"}},
     {"id": "npm-mcp-setup-view-tools-list", "artifact": "honua-mcp-server", "driver": "npm-mcp-setup-view", "scenario": "mcp-setup-view-tools-list", "status": "active", "expect": {"workflowView": "setup", "toolCount": 37}},
     {"id": "pypi-python-geoservices-error", "artifact": "honua-sdk-python-wheel", "driver": "pypi", "scenario": "geoservices-error-surfacing", "status": "active"},
     {"id": "pypi-admin-clean-install", "artifact": "honua-admin-python-wheel", "driver": "pypi-admin", "scenario": "clean-install-import", "status": "active"},

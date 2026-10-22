@@ -199,7 +199,9 @@ class MatrixExpectationTests(unittest.TestCase):
         cell = next(c for c in matrix["cells"] if c["id"] == "npm-mcp-tools-list")
         self.assertEqual(
             cell["executables"],
-            {"honua-mcp": "mcp-stdio", "honua-mcp-proxy": "mcp-proxy", "honua-zero-to-map-release": "help"},
+            # @honua/mcp-server 0.2.6 adds the honua-agent-gateway and honua-agent-mcp bins (help probes).
+            {"honua-agent-gateway": "help", "honua-agent-mcp": "help", "honua-mcp": "mcp-stdio",
+             "honua-mcp-proxy": "mcp-proxy", "honua-zero-to-map-release": "help"},
         )
 
     def test_validation_rejects_implicit_expectations(self):
