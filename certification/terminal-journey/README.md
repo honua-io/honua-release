@@ -188,12 +188,12 @@ python certification/terminal-journey/test_run.py -v
 
 ## Control-plane roster gate
 
-Once server#3363 publishes the authoritative Admin OpenAPI/CLI and MCP projection
-exports, pass both files to `--rest-roster` and `--mcp-roster`; the gate requires an
-exact 396 = 385 + 11 partition, unique IDs, and no overlap. Secret/session exclusions
-stay REST/CLI-only and use a private secret sink. Anonymous MCP discovery never implies
-call authorization. Until those exports exist the roster verdict is `blocked`, never
-`pass`.
+Pass `admin-openapi-operation-ids.json` and `admin-mcp-projection-manifest.json`
+to `--rest-roster` and `--mcp-roster` when the candidate publishes them. The gate
+requires an exact 396 = 385 + 11 partition, unique IDs, and no overlap.
+Secret/session exclusions stay REST/CLI-only and use a private secret sink.
+Anonymous MCP discovery never implies call authorization. Until those two files
+exist the roster verdict is `blocked`, never `pass`.
 
 ## What the live lane proves today
 

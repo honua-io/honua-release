@@ -23,32 +23,13 @@ from probes import Check, CredentialProbe, HttpResult, McpError, blocked
 # Upstream dependency identities. These are the only things a stage may cite as
 # a reason it cannot run.
 # ---------------------------------------------------------------------------
-SERVER = "https://github.com/honua-io/honua-server/issues"
 RELEASE = "https://github.com/honua-io/honua-release/issues"
 
-# server#3411 (operation envelope/runtime) and server#3431 (scope narrowing through
-# approval replay) are closed; the candidate now emits the canonical operation
-# identities and stage evidence is keyed on them. Their former placeholder checks cite
-# the executable-stages driver instead, which is what still has to observe them.
-# server#3474 (proposal authorization), #3475 (source evidence posture), #3583 (Redis-off
-# typed refusal) and #3599 (approval command) are closed too; their placeholder checks
-# likewise cite the executable-stages driver.
-AUTH_SESSION = f"{SERVER}/3430"               # auth-before-tenant, session binding
-ROLLBACK_TRUTH = f"{SERVER}/3301"             # rollback capability truth
-ROSTER_EXPORTS = f"{SERVER}/3363"             # authoritative Admin roster exports
-SETUP_VIEW = f"{SERVER}/3428"                 # bounded server-authored terminal setup view
+# Closed server issues are not blockers. Placeholder checks cite the open
+# executable-stages driver, which is what still has to observe the candidate.
 INSTALLED_CLIENTS = f"{RELEASE}/7"            # installed-client execution engine
 JOURNEY_DRIVER = f"{RELEASE}/123"             # executable stages and per-run observations
-# honua_render_map rasterizes the layer's stored style, not the preset
-# honua_apply_style_preset associates, and the apply output drops the
-# style.apply-preset operation handle (server PR #5744).
-STYLE_RENDER = f"{SERVER}/5744"
 NO_REDIS_VARIANT = f"{RELEASE}/202"           # Redis-optional local install variant
-
-# In-flight PRs that would unblock the corresponding contract.
-UNBLOCKING_PR = {
-    SETUP_VIEW: "https://github.com/honua-io/honua-server/pull/3591",
-}
 
 # Tool names each stage needs from the server-authored MCP surface.
 STYLE_TOOLS = ("honua_get_style", "honua_apply_style_preset", "honua_render_map")
@@ -134,6 +115,8 @@ class StageResult:
     approval_id: str | None = None
     actuator_id: str | None = None
     verification_id: str | None = None
+    # Stage 8: the principal the candidate reported as resolving the proposal.
+    resolved_by: str | None = None
     # A Redis-off stage recorded by the candidate's typed refusal (executor.TOPOLOGY_REFUSAL_STAGES).
     topology_refusal: dict | None = None
 
@@ -305,7 +288,7 @@ def stage_1(observation: Observation, workspace_blockers: Callable[[int], list[s
                 "GET /api/v1/admin/version without credentials",
                 "pass",
                 f"anonymous admin access refused with HTTP {observation.anonymous_admin_status} "
-                f"(authentication precedes tenant resolution, {AUTH_SESSION})",
+                "(authentication precedes tenant resolution)",
             )
         )
     else:
@@ -361,7 +344,7 @@ def stage_1(observation: Observation, workspace_blockers: Callable[[int], list[s
                 "server-authored bounded setup/profile tool view",
                 (observation.setup_discovery or {}).get("error") or
                 "initialize-bound setup discovery has not been verified through both HTTP and the installed proxy",
-                [SETUP_VIEW],
+                [JOURNEY_DRIVER],
             )
         )
     return checks
@@ -577,5 +560,6 @@ def run_stages(
 
 
 def unblocking_prs(blockers: list[str]) -> dict[str, str]:
-    """Map cited blockers to the in-flight PR that would close them."""
-    return {b: UNBLOCKING_PR[b] for b in blockers if b in UNBLOCKING_PR}
+    """No closed issue is mapped to an in-flight PR."""
+    del blockers
+    return {}

@@ -151,6 +151,11 @@ data:
     # (126_AddStudioContentHashInput.sql, 127_CompleteSensorThingsSensing.sql,
     # 128_AddNetworkTopologyPromotionRequestHash.sql); the client-compatibility floor stays >=115.
     requiresDbSchema: ">=115"
+    # Graph schema (metadataSchemaVersion), not the metadata API id under contracts.metadata.
+    # The manifest carries it as honua-server schemaVersions.metadata only once the server's
+    # release/component-versions.json declares it (the resolver copies that declaration; no hand
+    # value). Until then coherence warns; once declared it must equal this value.
+    metadataSchema: "2.0.0-alpha.1"
 
 # Capability lifecycle vocabulary. Every row under `capabilities:` takes exactly one of these values
 # (tools/validate_platform.py check_capability_lifecycle).

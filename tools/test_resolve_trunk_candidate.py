@@ -682,7 +682,7 @@ CONTENT_FILES = {resolver.OKF_CONTENT_SOURCE[1]: b'{"version": "honua.okf-bundle
 class MigrationSource:
     """The selected honua-server tree: two numbered roots plus files DbUp never embeds."""
 
-    def __init__(self, paths=None, declaration=ADOPTION_DECLARATION, truncated=False):
+    def __init__(self, paths=None, declaration=ADOPTION_DECLARATION, truncated=False, schema_versions=None):
         self.paths = paths if paths is not None else [
             'src/Honua.Server/Migrations/002_AddThing.sql',
             'src/Honua.Server/Migrations/001_CreateHonuaSchema.sql',
@@ -693,6 +693,7 @@ class MigrationSource:
             'src/Honua.Server/Startup/ServerCoreSchemaMigrations.cs',
         ]
         self.declaration, self.truncated, self.reads = declaration, truncated, []
+        self.schema_versions = {} if schema_versions is None else schema_versions
 
     def json(self, path):
         self.reads.append(path)
@@ -703,7 +704,7 @@ class MigrationSource:
         self.reads.append(path)
         assert (repository, revision) == ('honua-io/honua-server', NEW)
         if path == resolver.COMPONENT_VERSIONS_PATH:
-            return declaration_bytes('honua-server', schemaVersions={})
+            return declaration_bytes('honua-server', schemaVersions=dict(self.schema_versions))
         if path in CONTENT_FILES:
             return CONTENT_FILES[path]
         if path == resolver.SERVER_CAPABILITY_KEYS[1]:
@@ -1249,6 +1250,15 @@ def test_server_may_leave_schema_versions_to_the_derived_database_floor():
         declared('honua-server', declaration_bytes('honua-server', contractVersions={}))
 
 
+def test_server_declaration_keeps_metadata_and_still_omits_database():
+    versions, _ = declared('honua-server', declaration_bytes(
+        'honua-server', schemaVersions={'metadata': '2.0.0-alpha.1'}))
+    assert versions['schemaVersions'] == {'metadata': '2.0.0-alpha.1'}
+    with pytest.raises(resolver.ResolutionError, match='schemaVersions'):
+        declared('honua-server', declaration_bytes(
+            'honua-server', schemaVersions={'metadata': '2.0.0-alpha.1', 'database': '128'}))
+
+
 @pytest.mark.parametrize('name', ['honua-mobile', 'honua-collect'])
 def test_source_pinned_previews_allow_missing_and_empty_declarations(name):
     row = {'repository': f'https://github.com/honua-io/{name}', 'sha': NEW,
@@ -1350,12 +1360,13 @@ def test_resolve_replaces_hand_version_maps_with_the_declarations(monkeypatch, m
         'experimental': experimental, 'components': {
             'honua-server': {'repository': 'https://github.com/honua-io/honua-server', 'sha': NEW,
                              'dbSchema': '1', 'contractVersions': {'hand': '9'},
-                             'schemaVersions': {'database': '1'}},
+                             'schemaVersions': {'database': '1', 'metadata': 'hand'}},
             'honua-console': {'repository': 'https://github.com/honua-io/honua-console', 'sha': NEW,
                               'contractVersions': {'hand': '9'}}}})
     server = candidate['components']['honua-server']
     # The server declares its contracts; the database floor comes from the selected migration tree.
     assert server['contractVersions'] == {'admin': 'v1'}
+    # A hand metadata value does not survive an empty server declaration. database is derived.
     assert server['schemaVersions'] == {'database': '109'} and server['dbSchema'] == '109'
     assert candidate['components']['honua-console']['contractVersions'] == {'console-api': '2'}
     assert candidate['components']['honua-console']['schemaVersions'] == {'workspace': '3'}
@@ -1363,6 +1374,16 @@ def test_resolve_replaces_hand_version_maps_with_the_declarations(monkeypatch, m
     assert candidate['experimental']['honua-mobile']['contractVersions'] == {}
     assert candidate['experimental']['honua-mobile']['schemaVersions'] == {}
     assert ('honua-io/honua-mobile', OLD, path) in source.declarations.reads
+
+
+def test_resolve_keeps_declared_metadata_beside_the_derived_database_floor(monkeypatch):
+    source = MigrationSource(schema_versions={'metadata': '2.0.0-alpha.1'})
+    candidate, _ = resolve_fixture(monkeypatch, source, 'sha256:' + 'f' * 64,
+        contractVersions={'hand': '9'}, schemaVersions={'metadata': 'hand', 'database': '1'})
+    server = candidate['components']['honua-server']
+    assert server['schemaVersions'] == {'metadata': '2.0.0-alpha.1', 'database': '109'}
+    assert server['dbSchema'] == '109'
+    assert server['contractVersions'] == {'admin': 'v1'}
 
 
 def test_resolve_names_every_component_without_a_declaration_and_keeps_no_hand_map(monkeypatch):

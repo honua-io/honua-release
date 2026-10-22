@@ -15,6 +15,7 @@ import hashlib
 import io
 import json
 import tarfile
+import time
 import urllib.error
 import urllib.parse
 import urllib.request
@@ -127,8 +128,33 @@ class Response:
         self.url = url
 
 
+# A registry 5xx/429 or a dropped connection is an outage, not an answer about the package.
+# Retry it with bounded backoff (npm answered 502 on pinned version documents for over an hour on
+# 2026-10-22 while the tarballs served). A persistent outage still fails; a 4xx is never retried.
+REQUEST_DELAYS = (0, 5, 15, 30)
+TRANSIENT_STATUSES = frozenset({429, 500, 502, 503, 504})
+_sleep = time.sleep
+
+
 class UrllibTransport:
     def get(self, url: str) -> Response:
+        last: Response | None = None
+        for delay in REQUEST_DELAYS:
+            if delay:
+                _sleep(delay)
+            try:
+                response = self._get_once(url)
+            except _TransientProbeFailure as exc:
+                if delay == REQUEST_DELAYS[-1]:
+                    raise PreflightError(f"registry probe failed for {url}: {exc.__cause__}") from exc.__cause__
+                continue
+            if response.status not in TRANSIENT_STATUSES:
+                return response
+            last = response
+        assert last is not None
+        return last
+
+    def _get_once(self, url: str) -> Response:
         _require_host(url)
         request = urllib.request.Request(url, headers=dict(ANONYMOUS_HEADERS))
         if request.has_header("Authorization"):
@@ -143,7 +169,11 @@ class UrllibTransport:
             _require_host(final)
             return Response(exc.code, exc.read(), final)
         except (urllib.error.URLError, TimeoutError) as exc:
-            raise PreflightError(f"registry probe failed for {url}: {exc}") from exc
+            raise _TransientProbeFailure() from exc
+
+
+class _TransientProbeFailure(Exception):
+    """A connection-level failure; UrllibTransport.get retries it and then reports the cause."""
 
 
 def _require_host(url: str) -> None:

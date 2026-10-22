@@ -21,7 +21,7 @@
   ],
   "upstreamRoster": {
     "status": "blocked",
-    "blockedBy": "https://github.com/honua-io/honua-server/issues/3363",
+    "reason": "authoritative exports admin-openapi-operation-ids.json and admin-mcp-projection-manifest.json are not published with the candidate",
     "requiredExports": ["admin-openapi-operation-ids.json", "admin-mcp-projection-manifest.json"]
   }
 }
