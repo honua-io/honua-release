@@ -192,8 +192,12 @@ jobs:
             -H 'Accept: application/vnd.github.raw+json' \
             "https://api.github.com/repos/honua-io/honua-server/contents/docs/gis/data/capability-matrix.v1.json?ref=$server_sha" \
             -o "$RUNNER_TEMP/server-capability-matrix.v1.json"
+          # The snapshot omits ten empty assessment arrays. Any other byte still fails this compare.
+          python3 tools/normalize_capability_matrix_snapshot.py \
+            "$RUNNER_TEMP/server-capability-matrix.v1.json" \
+            "$RUNNER_TEMP/server-capability-matrix.compared.json"
           cmp certification/sources/server/capability-matrix.v1.json \
-            "$RUNNER_TEMP/server-capability-matrix.v1.json"
+            "$RUNNER_TEMP/server-capability-matrix.compared.json"
           sdk_js_sha="$(jq -r '.sources["sdk-js"].commit' certification/sources/source-revisions.v1.json)"
           test "${#sdk_js_sha}" -eq 40
           curl --fail --silent --show-error \

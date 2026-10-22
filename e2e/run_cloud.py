@@ -1572,8 +1572,8 @@ def _phase_update_rollback(args) -> int:
         # Original application key stays in the owned Secrets Manager handoff; never persist it.
         admin_key, _ = cloud_journey.unpack_handoff(read_secret(app_key_secret_name(cell)))
         os.environ["HONUA_ADMIN_PASSWORD"] = admin_key
+        # The controller store and its approver are hermetic and minted per run (AwsRuntime).
         runtime = AwsRuntime(target, state, admin_key=admin_key,
-            approval_key=os.environ.get("HONUA_UPDATE_ROLLBACK_APPROVAL_KEY", ""),
             serving_fixture=args.serving_fixture, controller_env=args.controller_env,
             mirror_repository=os.environ.get("HONUA_UPDATE_ROLLBACK_ECR_REPOSITORY"), vertices=args.gp_vertices, workload_path=args.gp_workload)
         receipt = run_cell(prior, candidate, cell, args.update_rollback_mode, runtime,
@@ -1790,7 +1790,7 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--transition-inputs", type=Path, help="retained authenticated destination input directory")
     ap.add_argument("--update-rollback-mode", choices=("rehearsal", "qualification"), default="rehearsal")
     ap.add_argument("--serving-fixture", type=Path, help="baseline extended/seed-manifest.json bound by sealed provision state")
-    ap.add_argument("--controller-env", type=Path, help="protected independent controller startup configuration; never uploaded")
+    ap.add_argument("--controller-env", type=Path, help="optional private controller startup supplement (no store, wiring or credentials); never uploaded")
     ap.add_argument("--gp-workload", type=Path, help="reviewed real GP execution+independent feature fixture bound by BOTH retained manifests")
     ap.add_argument("--gp-vertices", type=int, default=65536, help="reviewed symmetric centroid workload size; fast completion fails")
     ap.add_argument("--cost-ceiling-usd", default=os.environ.get("HONUA_CLOUD_COST_CEILING_USD", "20"))

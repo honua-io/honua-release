@@ -672,6 +672,41 @@ def test_coherence_db_schema_mismatch_fails():
     assert not f.ok and any("requiresDbSchema" in e for e in f.errors)
 
 
+def test_matrix_records_the_metadata_graph_schema_beside_the_api_id():
+    manifest, matrix = _real_files()
+    server = manifest["components"]["honua-server"]
+    assert server["contractVersions"]["metadata"] == "metadata.honua.io/v2alpha1"
+    assert matrix["data"]["honua-server"]["metadataSchema"] == "2.0.0-alpha.1"
+
+
+def test_coherence_tolerates_an_undeclared_metadata_schema_until_the_server_declares_it():
+    # A resolved candidate carries only what the server declaration names; that must not refuse.
+    manifest, matrix = _real_files()
+    undeclared = copy.deepcopy(manifest)
+    (undeclared["components"]["honua-server"].get("schemaVersions") or {}).pop("metadata", None)
+    findings = vp.validate(undeclared, matrix, None)
+    assert not any("schemaVersions.metadata" in error for error in findings.errors)
+    assert any("schemaVersions.metadata is not declared" in w for w in findings.warnings)
+
+
+def test_coherence_refuses_a_metadata_schema_that_is_the_api_id_or_disagrees():
+    manifest, matrix = _real_files()
+    drifted = copy.deepcopy(manifest)
+    drifted["components"]["honua-server"].setdefault("schemaVersions", {})["metadata"] = "metadata.honua.io/v2alpha1"
+    findings = vp.validate(drifted, matrix, None)
+    assert not findings.ok and any("metadata API identifier" in error for error in findings.errors)
+
+    declared = copy.deepcopy(manifest)
+    declared["components"]["honua-server"].setdefault("schemaVersions", {})["metadata"] = "2.0.0-alpha.1"
+    findings = vp.validate(declared, matrix, None)
+    assert not any("schemaVersions.metadata" in error for error in findings.errors)
+
+    matrix = copy.deepcopy(matrix)
+    matrix["data"]["honua-server"]["metadataSchema"] = "9.9.9"
+    findings = vp.validate(declared, matrix, None)
+    assert not findings.ok and any("metadataSchema" in error for error in findings.errors)
+
+
 # ---- drift rules can fail -------------------------------------------------------------------------
 def test_drift_narrowing_without_contract_bump_fails():
     manifest, matrix = _real_files()

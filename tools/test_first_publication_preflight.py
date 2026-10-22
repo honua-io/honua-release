@@ -706,3 +706,55 @@ def test_public_nuget_pin_refuses_studio_bytes_that_are_not_the_named_package():
         _public_pin_receipt(_public_pin_world(bodies=wrong), _public_pin_manifest())
     with pytest.raises(preflight.PreflightError, match="not a valid .nupkg"):
         _public_pin_receipt(_public_pin_world(bodies={"Honua.Sdk.Studio": b"nupkg-bytes"}), _public_pin_manifest())
+
+
+def _scripted_urlopen(monkeypatch, outcomes):
+    """Replace urlopen with a script of HTTP statuses (int) or connection errors (Exception)."""
+    import urllib.error
+    calls = []
+
+    class _Body(io.BytesIO):
+        status = 200
+
+        def geturl(self):
+            return "https://registry.npmjs.org/x"
+
+    def urlopen(request, timeout):  # noqa: ARG001
+        calls.append(request.full_url)
+        outcome = outcomes.pop(0)
+        if isinstance(outcome, Exception):
+            raise outcome
+        if outcome != 200:
+            raise urllib.error.HTTPError(request.full_url, outcome, "status", {}, io.BytesIO(b"{}"))
+        return _Body(b"{}")
+
+    monkeypatch.setattr(preflight.urllib.request, "urlopen", urlopen)
+    sleeps = []
+    monkeypatch.setattr(preflight, "_sleep", sleeps.append)
+    return calls, sleeps
+
+
+def test_transport_retries_a_registry_outage_then_reads(monkeypatch):
+    import urllib.error
+    calls, sleeps = _scripted_urlopen(monkeypatch, [502, urllib.error.URLError("reset"), 200])
+    response = preflight.UrllibTransport().get("https://registry.npmjs.org/x")
+    assert response.status == 200 and len(calls) == 3 and sleeps == [5, 15]
+
+
+def test_transport_returns_the_outage_status_after_bounded_attempts(monkeypatch):
+    calls, _ = _scripted_urlopen(monkeypatch, [503] * len(preflight.REQUEST_DELAYS))
+    response = preflight.UrllibTransport().get("https://registry.npmjs.org/x")
+    assert response.status == 503 and len(calls) == len(preflight.REQUEST_DELAYS)
+
+
+def test_transport_never_retries_a_not_found(monkeypatch):
+    calls, sleeps = _scripted_urlopen(monkeypatch, [404, 200])
+    assert preflight.UrllibTransport().get("https://registry.npmjs.org/x").status == 404
+    assert len(calls) == 1 and sleeps == []
+
+
+def test_transport_reports_a_persistent_connection_failure(monkeypatch):
+    import urllib.error
+    _scripted_urlopen(monkeypatch, [urllib.error.URLError("down")] * len(preflight.REQUEST_DELAYS))
+    with pytest.raises(preflight.PreflightError, match="registry probe failed"):
+        preflight.UrllibTransport().get("https://registry.npmjs.org/x")

@@ -84,8 +84,12 @@ def validate_policy(policy: dict[str, Any]) -> None:
 def roster_verdict(policy: dict[str, Any], rest: dict[str, Any] | None, mcp: dict[str, Any] | None) -> dict[str, Any]:
     validate_policy(policy)
     if rest is None or mcp is None:
-        upstream = policy["upstreamRoster"]
-        return {"status": "blocked", "reason": "authoritative candidate roster exports unavailable", **upstream}
+        upstream = {key: value for key, value in policy["upstreamRoster"].items() if key != "blockedBy"}
+        missing = ", ".join(upstream.get("requiredExports") or [])
+        reason = "authoritative candidate roster exports unavailable"
+        if missing:
+            reason = f"{reason}: {missing}"
+        return {"status": "blocked", "reason": reason, **{key: value for key, value in upstream.items() if key != "reason"}}
     rest_ids = rest.get("operationIds", [])
     projected = mcp.get("projectedOperationIds", [])
     excluded = mcp.get("exclusions", [])
@@ -305,6 +309,17 @@ def build_receipt(
                 }
             )
 
+    approval = None
+    if stage_results is not None:
+        stage_eight = next((result for result in stage_results if result.number == 8), None)
+        if (stage_eight is not None and stage_eight.proposal_id and stage_eight.resolved_by
+                and stage_eight.audit_id):
+            approval = {
+                "proposalId": stage_eight.proposal_id,
+                "resolvedBy": stage_eight.resolved_by,
+                "auditId": stage_eight.audit_id,
+            }
+
     if roster["status"] == "fail" or any(row["status"] == "fail" for row in stage_rows):
         status = "fail"
     elif all(row["status"] == "pass" for row in stage_rows) and roster["status"] == "pass" and workspace.status == "pass":
@@ -363,6 +378,7 @@ def build_receipt(
         "authPolicyRevision": revisions.get("authPolicyRevision", "terminal-separate-principals-v1"),
         "roster": roster,
         "stages": stage_rows,
+        **({"approval": approval} if approval else {}),
         "failure": failure,
         "notices": notices,
         "linkedEvidence": {

@@ -298,6 +298,18 @@ class ReceiptTests(unittest.TestCase):
         self.assertEqual(receipt["status"], "blocked")
         self.assertEqual(len(receipt["stages"]), 8)
         self.assertTrue(all(s["status"] == "blocked" and s["blockedBy"] for s in receipt["stages"]))
+        self.assertNotIn("approval", receipt)
+
+    def test_observed_stage_eight_records_proposal_resolver_and_audit(self):
+        results = [stagelib.StageResult(number, f"s{number}", "cmd", "blocked", [stagelib.JOURNEY_DRIVER])
+                   for number in range(1, 9)]
+        results[7].proposal_id = "proposal-1"
+        results[7].resolved_by = "actor-approver"
+        results[7].audit_id = "audit-1"
+        receipt = build(stage_results=results)
+        self.assertEqual(receipt["approval"], {
+            "proposalId": "proposal-1", "resolvedBy": "actor-approver", "auditId": "audit-1"})
+        validate(receipt)
 
     def test_live_receipt_records_effective_target_url(self):
         receipt = build(
@@ -469,8 +481,9 @@ class ReceiptTests(unittest.TestCase):
         self.assertTrue(legacy <= set(JOURNEY["receiptOptional"]))
         self.assertTrue({"operationInstanceId", "correlationId", "auditId", "proposalId"} <= set(JOURNEY["receiptRequired"]))
         closed = {f"https://github.com/honua-io/honua-server/issues/{n}"
-                  for n in (3411, 3431, 3474, 3475, 3583, 3599, 3741)}
+                  for n in (3301, 3363, 3411, 3428, 3430, 3431, 3474, 3475, 3583, 3599, 3741, 5744)}
         self.assertFalse(closed & {b for s in JOURNEY["stages"] for b in s["blockedBy"]})
+        self.assertNotIn("3363", json.dumps(POLICY["upstreamRoster"]))
         placeholders = [c for fn in stagelib.STAGE_IMPLEMENTATIONS.values()
                         for c in fn(stagelib.Observation(), lambda number: [])]
         self.assertFalse(closed & {b for c in placeholders for b in c.blocked_by})

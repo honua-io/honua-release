@@ -769,7 +769,8 @@ def test_canonical_client_applicability_decisions_are_complete_and_governed():
         "not-client-addressable",
     }
 
-    assert len(decisions) == 41
+    assert len(decisions) == 42
+    assert {"capability_key": "analytics.h3", "classification": "official-sdk-required"} in decisions
     assert len(capability_keys) == len(set(capability_keys))
     assert all(decision["classification"] in allowed for decision in decisions)
     assert all(
@@ -1451,6 +1452,32 @@ def _desktop_source():
     )
 
 
+def _pinned_matrix():
+    matrix = json.loads(
+        (cert.REQUIREMENTS_PATH.parent / "sources" / "server" / "capability-matrix.v1.json").read_text(encoding="utf-8")
+    )
+    keys = {row["key"] for row in matrix["capabilities"]}
+    implemented = {
+        row["key"] for row in matrix["capabilities"] if row.get("maturity", {}).get("implemented")
+    }
+    return keys, implemented
+
+
+def _ui_must_fix(source, field):
+    """Must-fix UI cells for capabilities the pinned matrix has implemented."""
+    matrix_keys, implemented = _pinned_matrix()
+    ui = source["ui"]
+    core = set()
+    for surface in ui["surfaces"]:
+        key = surface["capability_key"]
+        if key in matrix_keys and key not in implemented:
+            continue
+        core.update((surface["surface"], function) for function in surface[field])
+    if ui["auth_capability"] not in matrix_keys or ui["auth_capability"] in implemented:
+        core.update((ui["auth_surface"], mode) for mode in ui["auth_modes"])
+    return core
+
+
 def test_ledger_cell_must_carry_and_bind_the_client_driver():
     """R40: the ledger cell carries the requirement's driver, and the receipt binds that driver."""
     cell = _release_line_cell(client_driver="pyqgis", release_bucket="must-fix-before-cut")
@@ -1531,19 +1558,14 @@ def test_owned_denominator_splits_desktop_rows_by_driver():
         for row in rows
         if row.get("client_driver") == "pro-ui" and row["release_bucket"] == must_fix
     }
-    assert pro_core == {
-        ("feature-server", "connect"), ("feature-server", "add-layer"), ("feature-server", "render"),
-        ("feature-server", "identify"), ("feature-server", "query"), ("feature-server", "edit"),
-        ("map-server", "connect"), ("map-server", "add-layer"), ("map-server", "render"),
-        ("map-server", "identify"), ("map-server", "query"),
-        ("image-server", "render"),
-        ("auth", "anonymous"), ("auth", "token-api-key"), ("auth", "portal-sign-in"),
-    }
+    assert pro_core == _ui_must_fix(source, "pro_core")
+    assert ("image-server", "render") not in pro_core
     qgis_core = {
         (row["surface"], row["operation"])
         for row in rows
         if row.get("client_driver") == "qgis-ui" and row["release_bucket"] == must_fix
     }
+    assert qgis_core == _ui_must_fix(source, "qgis_core")
     assert pro_core < qgis_core
     for surface, functions in {
         "wms": {"connect", "add-layer", "render", "identify", "query"},
@@ -1629,26 +1651,40 @@ def test_licensed_scripting_driver_keeps_the_metadata_facet():
 
 
 def test_pyqgis_is_the_full_surface_function_grid():
-    """R40: pyqgis is every server-declared surface crossed with every function, and a function
-    PyQGIS has no client for is not-applicable with that reason declared on the row."""
+    """R40: pyqgis is every implemented server-declared surface crossed with every function, and a
+    function PyQGIS has no client for is not-applicable with that reason declared on the row.
+    A capability the pinned matrix has not implemented contributes no row."""
     requirements, _ = cert.load_ledger(cert.REQUIREMENTS_PATH)
     grid = json.loads(
         (Path(__file__).parents[1] / "certification" / "sources" / "pyqgis-function-grid.v1.json")
         .read_text(encoding="utf-8")
     )
+    matrix_keys, implemented = _pinned_matrix()
     operations = [item["operation"] for item in grid["functions"]]
+
+    def withheld(capability_key: str) -> bool:
+        return capability_key in matrix_keys and capability_key not in implemented
+
     expected = {
         (surface["surface"], operation): surface["not_applicable"].get(operation)
         for surface in grid["surfaces"]
+        if not withheld(surface["capability_key"])
         for operation in operations
     }
     for dropped in grid["dropped_functions"]:
+        if withheld(dropped["surface"]):
+            continue
         expected[(dropped["surface"], dropped["operation"])] = dropped["addressability_reason"]
+    withheld_surfaces = {
+        surface["surface"] for surface in grid["surfaces"] if withheld(surface["capability_key"])
+    }
+    assert "sensorthings" in withheld_surfaces
     rows = [
         row for row in requirements["requirements"]
         if row.get("client_driver") == "pyqgis" and row["client_lane"] == "desktop-pyqgis"
         and row["surface"] != "ogc"
     ]
+    assert not any(row["surface"] in withheld_surfaces for row in rows)
     present = {(row["surface"], row["operation"]): row for row in rows}
     assert set(present) == set(expected)
     assert all(row["release_bucket"] == "must-fix-before-cut" for row in rows)

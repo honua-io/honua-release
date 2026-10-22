@@ -9,6 +9,7 @@ import subprocess
 import sys
 
 import pytest
+import yaml
 
 ROOT = Path(__file__).resolve().parents[1]
 CATALOG = Path("certification/protocol-certification-requirements.v1.json")
@@ -40,6 +41,18 @@ def change_declaration(checkout, source, version):
     path.write_text(json.dumps(declaration) + "\n")
 
 
+def align_published_python_wheel(checkout, version):
+    """Keep the coherent pin check satisfied. This does not publish a new wheel."""
+    path = checkout / "platform-manifest.yaml"
+    manifest = yaml.safe_load(path.read_text())
+    manifest["components"]["honua-sdk-python"]["version"] = version
+    artifact = manifest["clientArtifacts"]["honua-sdk-python-wheel"]
+    artifact["version"] = version
+    artifact["filename"] = f"honua_sdk-{version}-py3-none-any.whl"
+    path.write_text(yaml.safe_dump(manifest, sort_keys=False))
+    return artifact["digest"]
+
+
 def test_existing_source_versions_leave_historical_catalog_byte_identical(checkout):
     original = (checkout / CATALOG).read_bytes()
     result = generate(checkout)
@@ -52,6 +65,7 @@ def test_new_source_version_updates_both_lanes_without_changing_other_rows(check
     _, _, client, version = DECLARATIONS[source]
     before = json.loads((checkout / CATALOG).read_text())
     change_declaration(checkout, source, version)
+    published_digest = align_published_python_wheel(checkout, version) if source == "sdk-python" else None
     result = generate(checkout)
     assert result.returncode == 0, result.stderr
     after = json.loads((checkout / CATALOG).read_text())
@@ -61,12 +75,19 @@ def test_new_source_version_updates_both_lanes_without_changing_other_rows(check
     affected = [row for row in new_rows if row["canonical_client"] == client and row["client_lane"] in lanes]
     assert {row["client_lane"] for row in affected} == lanes
     assert {row["client_version"] for row in affected} == {version}
+    skip = {"id", "client_version", "client_package"} if source == "sdk-python" else {"id", "client_version"}
     for old, new in zip(old_rows, new_rows):
         if old["canonical_client"] == client and old["client_lane"] in lanes:
-            assert {key: value for key, value in old.items() if key not in {"id", "client_version"}} == {
-                key: value for key, value in new.items() if key not in {"id", "client_version"}}
+            assert {key: value for key, value in old.items() if key not in skip} == {
+                key: value for key, value in new.items() if key not in skip}
         else:
             assert old == new
+    if source == "sdk-python":
+        packages = [row["client_package"] for row in affected if row["client_lane"] == "sdk-python-certification"]
+        assert packages
+        assert {package["filename"] for package in packages} == {f"honua_sdk-{version}-py3-none-any.whl"}
+        assert {package["sha256"] for package in packages} == {published_digest.removeprefix("sha256:")}
+        assert {package["source"] for package in packages} == {"pypi"}
     assert before["source_revisions"] == after["source_revisions"]
 
 

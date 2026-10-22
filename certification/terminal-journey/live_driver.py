@@ -139,7 +139,7 @@ def _tool_view(observation: stagelib.Observation) -> dict[str, Any]:
         "tools": discovery.get("tools", []) if observation.setup_view_present else [],
         "metadata": discovery.get("metadata") if observation.setup_view_present else None,
         "catalogToolCount": len(observation.tool_names),
-        "blockedBy": [] if observation.setup_view_present else [stagelib.SETUP_VIEW],
+        "blockedBy": [] if observation.setup_view_present else [stagelib.JOURNEY_DRIVER],
         "detail": (
             "the candidate negotiates a bounded server-authored setup view"
             if observation.setup_view_present
@@ -304,7 +304,7 @@ def op_setup(request: dict[str, Any]) -> dict[str, Any]:
     if workspace.status != "pass" or bindir is None:
         blockers.append(stagelib.INSTALLED_CLIENTS)
     if not observation.setup_view_present:
-        blockers.append(stagelib.SETUP_VIEW)
+        blockers.append(stagelib.JOURNEY_DRIVER)
     if stack_up and observation.ready:
         try:
             local_fixture.credentials(target, workdir, base_url, mint=True,
