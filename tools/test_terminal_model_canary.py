@@ -568,6 +568,21 @@ def test_a_provider_error_stream_names_the_proxy_error_and_stays_refused(monkeyp
     with pytest.raises(canary.CanaryError, match="provenance event.*proxy error provider_access_denied: AccessDeniedException"):
         canary.CandidateProxyClient(endpoint).complete([{"role": "user", "content": "advance"}], {"runNonce": "n"})
 
+    # Candidate text crossing into the receipt passes the Redactor boundary (credentials, bearer
+    # tokens, the configured key) and the code keeps identifier characters only.
+    leaky = "\n\n".join([
+        'event: message_start\ndata: {"type": "MessageStart", "provider": "bedrock"}',
+        'event: error\ndata: {"type": "Error", "errorCode": "bad <script>code", "errorMessage": "Authorization: Bearer abc.def.ghi failed for key top-secret-key"}',
+        'event: transcript_provenance\ndata: {"type": "TranscriptProvenance", "provenance": {}}',
+    ]).encode()
+    responses = iter([Response(json.dumps(capabilities).encode()), Response(leaky)])
+    keyed = replace(endpoint, api_key="top-secret-key")
+    with pytest.raises(canary.CanaryError) as refused:
+        canary.CandidateProxyClient(keyed).complete([{"role": "user", "content": "advance"}], {"runNonce": "n"})
+    text = str(refused.value)
+    assert "abc.def.ghi" not in text and "top-secret-key" not in text and "<script>" not in text
+    assert "proxy error badscriptcode" in text
+
 
 def test_run_nonces_are_random_and_run_scoped():
     first = canary._new_run_nonce()

@@ -836,10 +836,13 @@ class _NoRedirect(urllib.request.HTTPRedirectHandler):
 class CandidateProxyClient:
     """Dependency-free client for the candidate's signed Studio SSE proxy."""
 
-    def __init__(self, config: EndpointConfig, *, timeout_seconds: int = 120):
+    def __init__(self, config: EndpointConfig, *, timeout_seconds: int = 120,
+                 redactor: "Redactor | None" = None):
         if not config.configured:
             raise CanaryError("model endpoint configuration is incomplete")
         self.config = config
+        # Candidate-supplied text (e.g. a proxy error message) crosses into receipts only through this.
+        self.redactor = redactor or Redactor([config.api_key] if config.api_key else [])
         self.timeout_seconds = timeout_seconds
         self._consumed_digests: set[str] = set()
 
@@ -998,8 +1001,11 @@ class CandidateProxyClient:
             detail = ""
             if reported:
                 error = reported[0]
-                code = str(error.get("errorCode") or "unspecified")[:80]
-                message = re.sub(r"\s+", " ", str(error.get("errorMessage") or ""))[:240]
+                # Untrusted candidate text: the code is reduced to identifier characters and the message
+                # passes the same Redactor boundary as every other candidate-supplied value before it
+                # can reach the receipt's notices.
+                code = re.sub(r"[^A-Za-z0-9_.:-]", "", str(error.get("errorCode") or "unspecified"))[:80] or "unspecified"
+                message = self.redactor.text(re.sub(r"\s+", " ", str(error.get("errorMessage") or "")))[:240]
                 detail = f"; proxy error {code}: {message}" if message else f"; proxy error {code}"
             elif not events:
                 detail = "; the response carried no SSE events"
@@ -1249,6 +1255,7 @@ def execute_live(
 ) -> dict[str, Any]:
     """Execute when #123 eventually supplies its live adapter; otherwise callers never enter here."""
     client = CandidateProxyClient(endpoint)
+    client.redactor = builder.redactor  # the receipt's own redaction boundary, including run secrets
     run_nonce = _new_run_nonce()
     driver = DriverAdapter(driver_command, builder.protocol)
     receipt = builder.receipt
