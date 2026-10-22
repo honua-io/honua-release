@@ -1530,7 +1530,14 @@ def model_canary_phase(state: dict, *, admin_key: str, lock_digest: str | None, 
                     # Owner ruling canary-http-cell-2026-10-08: plain HTTP only to this cell's own
                     # harness-provisioned ALB host, never to any other non-loopback host.
                     "--allow-http-cell", urllib.parse.urlsplit(endpoint).hostname or "",
-                    "--require-api-key", "--profile", profile, "--cell", cell, "--attempt", str(number),
+                    "--require-api-key",
+                    # The cell's application key goes as X-API-Key, never as a bearer token: a cell
+                    # composed with the tenant fixture enables OIDC (oidc_static_jwt), which routes
+                    # every bearer token to the JWT handler, so the Studio AI proxy would answer 401
+                    # (the local-docker canary's failure, fixed the same way in #795). X-API-Key
+                    # is how every other harness call already presents this key (admin_request).
+                    "--api-key-header", "x-api-key",
+                    "--profile", profile, "--cell", cell, "--attempt", str(number),
                     "--driver-command", str(E2E_DIR.parent / "certification" / "terminal-journey" / "live_driver.py"),
                     "--target", str(target),
                     *binding,
