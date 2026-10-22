@@ -572,13 +572,6 @@ components:
     #   $ docker exec <db> psql -U honua -d honua -Atc \
     #       "select scriptname from public.schema_versions order by scriptname desc limit 1;"
     #   Honua.Server.Migrations.128_AddNetworkTopologyPromotionRequestHash.sql
-    # Graph schema (metadataSchemaVersion 2.0.0-alpha.1), not
-    # contractVersions.metadata, which stays the API id metadata.honua.io/v2alpha1.
-    # This hand value does not survive resolve. The server declaration at the
-    # pinned sha still has to declare metadata and omit database; the resolver
-    # then keeps metadata and derives schemaVersions.database from migrations.
-    schemaVersions:
-      metadata: "2.0.0-alpha.1"
     dbSchema: "128"
 
   honua-console:

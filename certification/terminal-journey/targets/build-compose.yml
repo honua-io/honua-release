@@ -41,7 +41,7 @@ services:
       StudioAiProxy__Enabled: "${HONUA_CANARY_STUDIO_AI_ENABLED:-false}"
       StudioAiProxy__DefaultProvider: bedrock
       StudioAiProxy__Providers__bedrock__Kind: bedrock
-      StudioAiProxy__Providers__bedrock__Model: "${HONUA_CANARY_BEDROCK_MODEL:-anthropic.claude-sonnet-4-5-20250929-v1:0}"
+      StudioAiProxy__Providers__bedrock__Model: "${HONUA_CANARY_BEDROCK_MODEL:-us.anthropic.claude-sonnet-4-5-20250929-v1:0}"
       StudioAiProxy__Providers__bedrock__Region: "${HONUA_CANARY_BEDROCK_REGION:-us-east-1}"
       # Transcript signing: a key id plus a secret reference to a base64 Ed25519 seed, never the seed
       # itself in configuration. The seed comes from the TERMINAL_MODEL_TRANSCRIPT_SIGNING_SEED secret.

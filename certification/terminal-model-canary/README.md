@@ -22,13 +22,11 @@ and requires signed Claude-on-Bedrock provenance. It never calls a provider dire
   or the complete `/v1/studio/ai/chat` URL. Plain HTTP is restricted to loopback;
   redirects and direct provider URLs are refused before credentials are sent.
 - `TERMINAL_MODEL_NAME` — exact Claude model identifier accepted by the candidate's
-  Bedrock adapter. A certifying cell (local-docker and the AWS GA cells) uses a
-  foundation model id in `us-east-1` and refuses a system inference profile prefixed
-  with `us.`, `eu.`, `apac.`, or `global.`, because that profile can route the call
-  outside `us-east-1`. The default is `anthropic.claude-sonnet-4-5-20250929-v1:0`.
-  Operator-controlled aliases, custom/imported model ARNs, and application inference
-  profiles cannot certify the model family and are rejected. Supply IDs rather than
-  ARNs. See the
+  Bedrock adapter: an AWS-controlled `anthropic.claude-*` foundation model ID or a
+  system inference profile ID prefixed with `us.`, `eu.`, `apac.`, or `global.`
+  (for example, `us.anthropic.claude-sonnet-4-6`). Operator-controlled aliases,
+  custom/imported model ARNs, and application inference profiles cannot certify the
+  model family and are rejected. Supply IDs rather than ARNs. See the
   [AWS model ID documentation](https://docs.aws.amazon.com/bedrock/latest/userguide/models-get-info.html).
 - `TERMINAL_MODEL_API_KEY` — optional bearer credential for hosted/key-based endpoints. Local endpoints
   select authentication `none`, so this hosted credential is neither read nor forwarded. Hosted runs
@@ -185,7 +183,7 @@ published signing-manifest trust anchor. A public manifest hash does not supply 
 | variable | `HONUA_AWS_ROLE_ARN` | OIDC role the local-docker job assumes; it must allow `bedrock:InvokeModel` and `bedrock:InvokeModelWithResponseStream` on the Sonnet 4.5 inference profile and its foundation-model ARNs (honua-iac `bootstrap/aws-release-cells` `runtime_bedrock_model_arns`). The cloud cell uses the same role to provision; Bedrock there is the ECS task role from `modules/aws-ecs/bedrock.tf`. |
 | secret | `TERMINAL_MODEL_TRANSCRIPT_SIGNING_SEED` | Base64 32-byte Ed25519 seed the local-docker candidate signs transcripts with (`StudioAiProxy:TranscriptSigning`, key id `terminal-model-canary`, reference `env://HONUA_CANARY_TRANSCRIPT_SIGNING_SEED`). |
 | variable | `TERMINAL_MODEL_SIGNING_MANIFEST_SHA256` | SHA-256 of the canonical signing manifest the candidate publishes for that key: the trust anchor. |
-| variable | `TERMINAL_MODEL_NAME` (optional) | Model id; defaults to `anthropic.claude-sonnet-4-5-20250929-v1:0` in `us-east-1`. A `us.`/`eu.`/`apac.`/`global.` profile is refused on a certifying cell. |
+| variable | `TERMINAL_MODEL_NAME` (optional) | Model id; defaults to `us.anthropic.claude-sonnet-4-5-20250929-v1:0`. |
 | secret | `RELEASE_GH_TOKEN` | Already required by the journey for pinned client sources. |
 
 Bedrock model access for Claude Sonnet 4.5 must be enabled in the release account.

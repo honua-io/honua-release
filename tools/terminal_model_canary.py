@@ -53,11 +53,6 @@ JOURNEY_MODE = "genuine-model"
 CELLS = ("local-docker", "aws-ecs/redis-off", "aws-ecs/redis-on",
          "aws-serverless/redis-off", "aws-serverless/redis-on")
 LOCK_DIGEST = re.compile(r"sha256:[0-9a-f]{64}")
-# A us./eu./apac./global. inference profile can route to member regions the certifying
-# role does not allow. The certifying id is the foundation model in us-east-1.
-CROSS_REGION_PROFILE = re.compile(r"(?:us|eu|apac|global)\.")
-CERTIFYING_BEDROCK_REGION = "us-east-1"
-CERTIFYING_FOUNDATION_MODEL = "anthropic.claude-sonnet-4-5-20250929-v1:0"
 MODEL = "model"
 INFRASTRUCTURE = "infrastructure"
 ASSERTION_NAMES = (
@@ -1474,29 +1469,6 @@ def _origin(url: str) -> tuple[str, str, int | None]:
     return parsed.scheme, (parsed.hostname or "").lower().rstrip("."), port
 
 
-def certifying_bedrock_region() -> str:
-    return (os.environ.get("HONUA_CANARY_BEDROCK_REGION")
-            or os.environ.get("TERMINAL_MODEL_BEDROCK_REGION")
-            or CERTIFYING_BEDROCK_REGION)
-
-
-def certifying_model_refusal(model: str | None, region: str | None) -> str | None:
-    """Why this model cannot certify a cell, or None when the id is admissible.
-
-    Absent model is not this gate (the endpoint-missing path still applies). A cross-region
-    profile is refused even when the requested region is us-east-1, because the profile can
-    route the call outside that region. A foundation id is refused outside us-east-1.
-    """
-    if not model:
-        return None
-    if CROSS_REGION_PROFILE.match(model):
-        return ("certifying canary refuses a cross-region inference profile; "
-                f"use the foundation model id in {CERTIFYING_BEDROCK_REGION}")
-    if (region or CERTIFYING_BEDROCK_REGION) != CERTIFYING_BEDROCK_REGION:
-        return f"certifying canary region must be {CERTIFYING_BEDROCK_REGION}"
-    return None
-
-
 def write_receipt(path: Path, receipt: dict[str, Any]) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps(receipt, indent=2, sort_keys=True) + "\n", encoding="utf-8")
@@ -1594,17 +1566,13 @@ def main(argv: list[str] | None = None) -> int:
             ):
                 unavailable_receipt(builder, endpoint, args.driver_command)
             else:
-                refusal = certifying_model_refusal(endpoint.model, certifying_bedrock_region())
-                if refusal:
-                    builder.mark_blocked(refusal)
-                else:
-                    execute_live(
-                        builder,
-                        endpoint=endpoint,
-                        driver_command=args.driver_command,
-                        max_actions_per_stage=args.max_actions_per_stage,
-                        target_path=args.target,
-                    )
+                execute_live(
+                    builder,
+                    endpoint=endpoint,
+                    driver_command=args.driver_command,
+                    max_actions_per_stage=args.max_actions_per_stage,
+                    target_path=args.target,
+                )
         schema = _load_json(args.receipt_schema)
         receipt = builder.validated_receipt(schema)
         write_receipt(args.output, receipt)

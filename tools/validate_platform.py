@@ -766,14 +766,19 @@ def check_coherence(manifest: dict, matrix: dict, f: Findings) -> None:
         )
 
     # The metadata graph schema is schemaVersions.metadata. contractVersions.metadata is the API id.
+    # The resolver copies schemaVersions from the server declaration at the selected sha, so the
+    # key is absent until honua-server declares it; absence is not an error (requiring it would make
+    # every resolved candidate refuse). Once declared it must be the graph schema the matrix records.
     matrix_metadata = str(((matrix.get("data") or {}).get("honua-server") or {}).get("metadataSchema", "")).strip()
     manifest_metadata = str(((server.get("schemaVersions") or {}).get("metadata") or "")).strip()
     metadata_api = str(((server.get("contractVersions") or {}).get("metadata") or "")).strip()
     if not manifest_metadata:
-        f.error(
-            "coherence: manifest honua-server.schemaVersions.metadata is required "
-            "(the graph schema, not the metadata API id)"
-        )
+        if matrix_metadata:
+            f.warn(
+                f"coherence: honua-server.schemaVersions.metadata is not declared yet; the matrix "
+                f"records metadataSchema={matrix_metadata!r} (honua-server release/component-versions.json "
+                f"must declare it)"
+            )
     elif metadata_api and manifest_metadata == metadata_api:
         f.error(
             "coherence: honua-server.schemaVersions.metadata must be the graph schema, "

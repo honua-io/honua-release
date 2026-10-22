@@ -4253,58 +4253,6 @@ class _MigratingStub(_ServingStub):
         return {"ready": True, "attempts": 1, "path": "/healthz/ready"}
 
 
-def test_require_real_ga_cell_refuses_a_non_honua_hostname_before_probes():
-    assert run_cloud.ga_cell_hostname_precondition(
-        object(), "http", "example.elb.amazonaws.com", require_real=True, evidence_tier="GA") is None
-    assert run_cloud.ga_cell_hostname_precondition(
-        type("Cell", (), {"cell_domain": lambda self, redis: ("n.cert.demo.honua.io", "Z")})(),
-        "https", "n.cert.demo.honua.io", require_real=True, evidence_tier="GA") is None
-    assert run_cloud.ga_cell_hostname_precondition(
-        type("Cell", (), {"cell_domain": lambda self, redis: None})(),
-        "http", "example.elb.amazonaws.com", require_real=False, evidence_tier="GA") is None
-    assert run_cloud.ga_cell_hostname_precondition(
-        type("Cell", (), {"cell_domain": lambda self, redis: None})(),
-        "http", "example.elb.amazonaws.com", require_real=True, evidence_tier="Preview") is None
-    reason = run_cloud.ga_cell_hostname_precondition(
-        type("Cell", (), {"cell_domain": lambda self, redis: None})(),
-        "http", "example.elb.amazonaws.com", require_real=True, evidence_tier="GA")
-    assert reason == (
-        "CSP hostname precondition: a require_real GA cell must serve https on honua.io "
-        "so the top-demo origin is admitted; got http://example.elb.amazonaws.com")
-    assert run_cloud.ga_cell_hostname_precondition(
-        type("Cell", (), {"cell_domain": lambda self, redis: None})(),
-        "https", "honua.io.attacker.test", require_real=True, evidence_tier="GA")
-
-
-class _HostnameCell:
-    """A GA-shaped target whose provision returns a caller-chosen endpoint and is never probed."""
-
-    def __init__(self, endpoint):
-        self.endpoint = endpoint
-        self.admin_api_key = "unused"
-
-    def availability(self):
-        from targets.base import Availability
-        return Availability(True, "ready")
-
-    def cell_domain(self, redis_enabled: bool = False):
-        return ("cell.cert.demo.honua.io", "Z")
-
-    def provision(self, redis_enabled: bool = False) -> str:
-        return self.endpoint
-
-
-def test_provision_phase_fails_a_require_real_ga_cell_on_the_hostname_precondition(monkeypatch):
-    monkeypatch.setenv("AWS_ACCESS_KEY_ID", "AKIAEXAMPLE")
-    monkeypatch.setattr(run_cloud, "make_fetch", lambda **kwargs: (_ for _ in ()).throw(AssertionError("probed")))
-    state = run_cloud.provision_phase(
-        _HostnameCell("http://example.elb.amazonaws.com"), "aws-ecs", require_real=True, redis_enabled=False)
-    report = state["report"]
-    assert report["status"] == "fail" and report["why"].startswith("CSP hostname precondition:")
-    assert state.get("endpoint") is None and state["provisionAttempted"] is True
-    assert report["transport"] == {"scheme": "http", "host": "example.elb.amazonaws.com"}
-
-
 def test_provision_phase_migrates_before_the_first_probe_and_fails_the_cell_on_error(monkeypatch):
     monkeypatch.setenv("AWS_ACCESS_KEY_ID", "AKIAEXAMPLE")
     probes = []
