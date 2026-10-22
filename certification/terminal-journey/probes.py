@@ -126,7 +126,16 @@ class HttpResult:
         return json.loads(self.body)
 
 
+def _record_call(surface: str, name: str) -> None:
+    try:
+        import discovery  # noqa: PLC0415 - optional: the probes also run outside the journey driver
+    except ImportError:
+        return
+    discovery.record_call(surface, name)
+
+
 def http_get(url: str, *, headers: dict[str, str] | None = None) -> HttpResult:
+    _record_call("rest", "GET " + (urllib.parse.urlsplit(url).path or "/"))
     request = urllib.request.Request(url, headers=headers or {}, method="GET")
     try:
         with urllib.request.urlopen(request, timeout=HTTP_TIMEOUT_SECONDS) as response:
@@ -502,6 +511,8 @@ def _envelope_data(document: Any) -> Any:
 def _run_honua(
     honua: Path, args: list[str], env: dict[str, str]
 ) -> subprocess.CompletedProcess[str] | str:
+    if len(args) >= 3 and args[0] == "admin":
+        _record_call("cli", args[2])
     try:
         return subprocess.run(
             [str(honua), *args],
