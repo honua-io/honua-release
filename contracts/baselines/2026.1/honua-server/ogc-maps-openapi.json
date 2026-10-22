@@ -109,14 +109,52 @@
     "schemas": {
       "LandingPage": {
         "properties": {
+          "crs": {
+            "description": "CRS identifiers the caller-visible dataset as a whole can be requested in.",
+            "items": {
+              "format": "uri",
+              "type": "string"
+            },
+            "type": "array"
+          },
           "description": {
             "type": "string"
+          },
+          "extent": {
+            "description": "Extent of the caller-visible dataset, omitted when no bounds can be described.",
+            "properties": {
+              "spatial": {
+                "properties": {
+                  "bbox": {
+                    "items": {
+                      "items": {
+                        "type": "number"
+                      },
+                      "maxItems": 6,
+                      "minItems": 4,
+                      "type": "array"
+                    },
+                    "type": "array"
+                  },
+                  "crs": {
+                    "type": "string"
+                  }
+                },
+                "type": "object"
+              }
+            },
+            "type": "object"
           },
           "links": {
             "items": {
               "$ref": "#/components/schemas/Link"
             },
             "type": "array"
+          },
+          "storageCrs": {
+            "description": "The common native storage CRS, present only when one non-CRS84 reference system describes every mapped collection.",
+            "format": "uri",
+            "type": "string"
           },
           "title": {
             "type": "string"
@@ -145,6 +183,57 @@
         },
         "required": [
           "href"
+        ],
+        "type": "object"
+      },
+      "MapsCollection": {
+        "properties": {
+          "description": {
+            "type": "string"
+          },
+          "extent": {
+            "properties": {
+              "spatial": {
+                "properties": {
+                  "bbox": {
+                    "items": {
+                      "items": {
+                        "type": "number"
+                      },
+                      "maxItems": 6,
+                      "minItems": 4,
+                      "type": "array"
+                    },
+                    "type": "array"
+                  },
+                  "crs": {
+                    "type": "string"
+                  }
+                },
+                "type": "object"
+              }
+            },
+            "type": "object"
+          },
+          "id": {
+            "type": "string"
+          },
+          "itemType": {
+            "type": "string"
+          },
+          "links": {
+            "items": {
+              "$ref": "#/components/schemas/Link"
+            },
+            "type": "array"
+          },
+          "title": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "links"
         ],
         "type": "object"
       },
@@ -393,6 +482,155 @@
           }
         },
         "summary": "Get OGC API Maps landing page"
+      }
+    },
+    "/ogc/maps/collections": {
+      "get": {
+        "description": "Returns map collection descriptions filtered by the caller's tenant, access policy and enabled protocols.",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "f",
+            "schema": {
+              "enum": [
+                "json",
+                "html"
+              ],
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "collections": {
+                      "items": {
+                        "$ref": "#/components/schemas/MapsCollection"
+                      },
+                      "type": "array"
+                    },
+                    "links": {
+                      "items": {
+                        "$ref": "#/components/schemas/Link"
+                      },
+                      "type": "array"
+                    }
+                  },
+                  "required": [
+                    "collections",
+                    "links"
+                  ],
+                  "type": "object"
+                }
+              },
+              "text/html": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            },
+            "description": "Accessible map collections"
+          }
+        },
+        "summary": "List accessible collections that serve maps"
+      }
+    },
+    "/ogc/maps/collections/{collectionId}": {
+      "get": {
+        "description": "Describes a collection that serves maps: its CRS84 extent and the map links (`https://www.opengis.net/def/rel/ogc/1.0/map`, its `[ogc-rel:map]` CURIE and the registered `http://www.opengis.net/def/rel/ogc/1.0/map` form that GDAL reads) that map clients follow to `/map`. Answers for exactly the collections that serve `/map`.",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "collectionId",
+            "required": true,
+            "schema": {
+              "minimum": 0,
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "f",
+            "required": false,
+            "schema": {
+              "enum": [
+                "json",
+                "html"
+              ],
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MapsCollection"
+                }
+              },
+              "text/html": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            },
+            "description": "Collection description"
+          },
+          "400": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            },
+            "description": "Invalid query parameter"
+          },
+          "401": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            },
+            "description": "Authentication required for the requested collection"
+          },
+          "403": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            },
+            "description": "Requested collection is not accessible"
+          },
+          "404": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            },
+            "description": "Collection not found"
+          }
+        },
+        "security": [
+          {},
+          {
+            "ApiKeyAuth": []
+          },
+          {
+            "BearerAuth": []
+          }
+        ],
+        "summary": "Get collection description"
       }
     },
     "/ogc/maps/collections/{collectionId}/map": {
