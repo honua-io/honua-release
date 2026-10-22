@@ -161,6 +161,23 @@ jobs:
           if-no-files-found: error
           overwrite: true
 
+      # Honua.Sdk 1.12.0's global.json pins SDK 10.0.401 with rollForward disable and a
+      # workloadVersion. The runner image ships a different patch and no 10.0.401 workload set, so
+      # install exactly the pinned SDK and drop only the workload-set pin; the seam probes use no workload.
+      - uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68 # v6.0.0
+        with:
+          global-json-file: _e2e-sdk-dotnet/global.json
+      - name: Drop the pinned .NET SDK's workload-set pin
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import json
+          path = "_e2e-sdk-dotnet/global.json"
+          data = json.load(open(path))
+          data.get("sdk", {}).pop("workloadVersion", None)
+          json.dump(data, open(path, "w"), indent=2)
+          PY
+
       - name: Install the frozen SDK artifacts for the seam probes
         env:
           GH_TOKEN: ${{ secrets.RELEASE_GH_TOKEN || github.token }}
