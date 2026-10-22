@@ -105,12 +105,12 @@ deploy:
     # TODO: encode against a released server version once honua-server cuts a tag; today server is
     # pinned by sha and immutable GHCR digest, so the deploy range is sha-pinned, not semver-ranged.
     # Tracks components.honua-server.sha by construction — validate_platform.check_coherence hard-fails
-    # if it drifts. Advanced with the 2026-10-22 rc re-pin #2 (4709145 -> 199bce7).
-    deploysServerImage: "sha:199bce77fe990eb14855831790b07cfbc103d4ba"
+    # if it drifts. Advanced with the 2026-10-22 rc re-pin #3 (199bce7 -> 8cb074f).
+    deploysServerImage: "sha:8cb074f77d01c0a00617ebe426460aa24c7d890b"
   honua-helm:
     # Chart.yaml appVersion is "0.0.0" (placeholder); chart version is 0.4.0 (un-released).
-    # Same coupling as honua-iac above; advanced with the 2026-10-22 rc re-pin #2 (199bce7).
-    appVersion: "sha:199bce77fe990eb14855831790b07cfbc103d4ba"
+    # Same coupling as honua-iac above; advanced with the 2026-10-22 rc re-pin #3 (8cb074f).
+    appVersion: "sha:8cb074f77d01c0a00617ebe426460aa24c7d890b"
     awsEks:
       target: aws-eks
       architectures:
@@ -154,6 +154,7 @@ data:
     # 133_CreatePortalSharing.sql); the client-compatibility floor stays >=115.
     # 2026-10-22 rc re-pin #2 to 199bce7 moves it to 135 (134_VersionCanonicalDeployments.sql,
     # 135_RecordMigrationReaderCompatibility.sql); the floor stays >=115.
+    # 2026-10-22 rc re-pin #3 to 8cb074f moves it to 136 (136_CreateAdminApiKeys.sql); the floor stays >=115.
     requiresDbSchema: ">=115"
     # Graph schema (metadataSchemaVersion), not the metadata API id under contracts.metadata.
     # The manifest carries it as honua-server schemaVersions.metadata only once the server's

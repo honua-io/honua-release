@@ -51,14 +51,14 @@
 
 platformRelease: "2026.1-rc.2"         # calendar label; -rc.N until promoted
 status: rc                             # draft | rc | released
-snapshotDate: "2026-10-22"             # rc re-pin #2: honua-server 4709145 -> 199bce7 (fresh-PostGIS preflight #6497, SecretRef #6502, #6414); honua-console -> a0c04a68 (#452)
+snapshotDate: "2026-10-22"             # rc re-pin #3: honua-server 199bce7 -> 8cb074f (#6501, #6503, #6505, #6506, #6508, #6509, #6483); honua-iac -> a71477e0 (#281)
 snapshotKind: candidate-manifest-snapshot  # hand snapshot of trunk; replaced by train-generated manifest in Phase 2
 
 # Producer-recorded dispatch identity. Release intake accepts candidates dispatched only from
 # honua-server's protected default branch; tools/validate_platform.py --exact-candidate fails closed
 # and names this ref when it is anything other than the literal `trunk`.
 candidate:
-  ref: "199bce77fe990eb14855831790b07cfbc103d4ba"
+  ref: "8cb074f77d01c0a00617ebe426460aa24c7d890b"
   refSource: "trunk"
 
 # Pipeline-owned certification boundary. Dispatchers cannot replace the cut or ledger. `pending`
@@ -73,12 +73,13 @@ protocolCertification:
   # 2026-10-11 hand re-pin to certified trunk build 93cad86: UTC time this working candidate was refreshed.
   # 2026-10-12 hand re-pin to certified trunk build 0e03bdd: UTC time this working candidate was refreshed.
   # 2026-10-22 rc re-pin to certified trunk build 4709145: UTC time this working candidate was refreshed.
+  # 2026-10-22 rc re-pin #3 to certified trunk build 8cb074f: UTC time this working candidate was refreshed.
   # 2026-10-22 rc re-pin #2 to certified trunk build 199bce7: UTC time this working candidate was refreshed.
-  candidateCutAt: "2026-10-22T16:00:00Z"
+  candidateCutAt: "2026-10-22T20:00:00Z"
   # The source-test-host harness must certify the exact frozen honua-server candidate.
   # validate_platform.check_structure enforces byte-equality with components.honua-server.sha, so this
   # moves in lockstep with the server re-pin below and is not independently selectable.
-  serverCertificationProducerSha: "199bce77fe990eb14855831790b07cfbc103d4ba"
+  serverCertificationProducerSha: "8cb074f77d01c0a00617ebe426460aa24c7d890b"
   # #181: the historical ledger certifies e3ab87ce, not this working snapshot.
   # The published Python 0.1.11 artifact also predates its certification contract;
   # advancing the working component pin does not change that package's provenance.
@@ -233,6 +234,12 @@ components:
     # FORWARD-MIGRATION REFRESH 2026-08-31: this immutable nightly is the newest published
     # multi-architecture AOT image and contains 107_AddRbacRoleTombstones.sql. The prior promoted
     # honua-2026.1 image is schema 106, so gate-upgrade must observe this exact 106 -> 107 edge.
+    # ====================== 2026-10-22 SERVER RE-PIN #3 (rc, hand) ===============================
+    # 199bce7 -> 8cb074f77d01c0a00617ebe426460aa24c7d890b (trunk 2026-10-22T19:36Z, #6483). Adds #6501/#6503
+    # (clean refusals), #6505 (docs on SDK 0.1.18/0.2.6), #6506 (cross-instance admin keys), #6508 (Batch
+    # lease), #6509 (adapter mirror) and #6483 (skip-migrations guard). Migrations run through 136
+    # (136_CreateAdminApiKeys.sql). Program.cs gRPC block, all gRPC source blobs, contractVersions and the
+    # MCP tool roster (serverSha 2ef82ca0) are unchanged against 199bce7.
     # ====================== 2026-10-22 SERVER RE-PIN #2 (rc, hand) ===============================
     # 4709145 -> 199bce77fe990eb14855831790b07cfbc103d4ba (2026-10-22T13:02Z, #6502), the newest
     # certified trunk sha the imaging selector picked. Contains honua-server #6497 (fresh-PostGIS preflight:
@@ -370,8 +377,8 @@ components:
     # dated nightly tags backwards, so they were not taken. 679f637 is an ancestor; 19 commits
     # separate this pin from trunk HEAD at re-pin time.
     # contractVersions below are CARRIED FORWARD and remain UNVERIFIED (release#282 item 4).
-    sha: "199bce77fe990eb14855831790b07cfbc103d4ba"
-    image: "ghcr.io/honua-io/honua-server:nightly-199bce7"   # immutable per-sha tag (NOT a floating tag)
+    sha: "8cb074f77d01c0a00617ebe426460aa24c7d890b"
+    image: "ghcr.io/honua-io/honua-server:nightly-8cb074f"   # immutable per-sha tag (NOT a floating tag)
     # Multi-arch index. Child manifests re-read from GHCR on 2026-10-12
     # (docker buildx imagetools inspect --raw); the index digest matched. Each child config is linux
     # and labels org.opencontainers.image.revision=0e03bdd06b3ca3fb1b82388110bb5dfa19b9f8fa.
@@ -433,7 +440,7 @@ components:
     # manifest plus an attestation descriptor; awsLambdaDigest pins the linux/amd64 child, whose
     # config is architecture amd64, os linux,
     # org.opencontainers.image.revision=0e03bdd06b3ca3fb1b82388110bb5dfa19b9f8fa, Entrypoint ["/var/task/Honua.Server"].
-    awsLambdaImage: "ghcr.io/honua-io/honua-server:nightly-lambda-aot-199bce7-amd64"
+    awsLambdaImage: "ghcr.io/honua-io/honua-server:nightly-lambda-aot-8cb074f-amd64"
     awsLambdaDigest: "sha256:24bb5279ece9dc55da46a69c4bbed5430a773490fcb11476c5ab615f7305e7d3"
     # ECR may convert an OCI manifest to Docker schema 2 while preserving the exact config/rootfs; when it
     # does, this digest is NOT derivable from GHCR and NOT reproducible with a stock registry (checked:
@@ -607,7 +614,7 @@ components:
     #   $ docker exec <db> psql -U honua -d honua -Atc \
     #       "select scriptname from public.schema_versions order by scriptname desc limit 1;"
     #   Honua.Server.Migrations.128_AddNetworkTopologyPromotionRequestHash.sql
-    dbSchema: "135"
+    dbSchema: "136"
 
   honua-console:
     repository: "https://github.com/honua-io/honua-console"
