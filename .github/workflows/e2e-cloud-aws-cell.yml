@@ -345,6 +345,15 @@ jobs:
       # ubuntu24.04 chromium + font set (--with-deps, less headed-only xvfb), so a runner image move
       # fails this step loudly instead of letting Playwright pick packages. npm skips lifecycle
       # scripts; the browser download runs as the runner user. This job holds no cloud credential.
+      # Browser bytes are keyed on the exact Playwright version and runner image, so one CDN outage
+      # does not decide a cell (run 39603816191 logged getaddrinfo ENOTFOUND
+      # playwright.download.prss.microsoft.com). A cache hit still runs `playwright install`, which
+      # finds the pinned revisions present and downloads nothing.
+      - name: Restore the pinned Playwright browsers
+        uses: actions/cache@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # v5.0.3
+        with:
+          path: ~/.cache/ms-playwright
+          key: playwright-1.61.1-chromium-ubuntu-24.04-${{ runner.arch }}
       - name: Install pinned extended driver clients
         env:
           E2E_PW_HOME: ${{ runner.temp }}/cloud-playwright
@@ -364,7 +373,20 @@ jobs:
           mkdir -p "$E2E_PW_HOME"
           npm install --prefix "$E2E_PW_HOME" --ignore-scripts --no-audit --no-fund \
             --save-exact playwright@1.61.1
-          node "$E2E_PW_HOME/node_modules/playwright/cli.js" install chromium
+          # Bounded retry. After the first miss, pin the download host to cdn.playwright.dev (the
+          # mirror that served every byte when the default host's DNS failed) rather than rotating
+          # through a host that does not resolve.
+          for attempt in 1 2 3; do
+            if node "$E2E_PW_HOME/node_modules/playwright/cli.js" install chromium; then
+              break
+            fi
+            if [ "$attempt" = 3 ]; then
+              echo "::error ::chromium download failed on 3 attempts (default hosts, then PLAYWRIGHT_DOWNLOAD_HOST=https://cdn.playwright.dev)"
+              exit 1
+            fi
+            export PLAYWRIGHT_DOWNLOAD_HOST=https://cdn.playwright.dev
+            sleep $((attempt * 20))
+          done
           echo "E2E_PW_HOME=$E2E_PW_HOME" >> "$GITHUB_ENV"
           echo "E2E_PLAYWRIGHT_VERSION=1.61.1" >> "$GITHUB_ENV"
           echo "E2E_SITE_DIR=$GITHUB_WORKSPACE/_site" >> "$GITHUB_ENV"
@@ -381,12 +403,30 @@ jobs:
       - name: Wait for the sealed application key
         env:
           NAME: cloud-cell-key-${{ env.CELL_ARTIFACT }}
+          CELL: ${{ inputs.target }} / redis-${{ inputs.redis }}
         run: |
           set -uo pipefail
-          for _ in $(seq 1 45); do
-            count="$(curl -fsS "https://api.github.com/repos/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID/artifacts?name=$NAME" \
-              | jq -r '.total_count' 2>/dev/null || echo 0)"
-            [ "$count" = 1 ] && exit 0
+          key_count() {
+            curl -fsS "https://api.github.com/repos/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID/artifacts?name=$NAME" \
+              | jq -r '.total_count' 2>/dev/null || echo 0
+          }
+          for i in $(seq 1 45); do
+            [ "$(key_count)" = 1 ] && exit 0
+            # Every third poll (anonymous reads are rate-limited), look at the admit job itself: one
+            # that already ended unsuccessfully will never deliver, so report its real cause now
+            # instead of after 15 minutes of waiting.
+            if [ $((i % 3)) = 0 ]; then
+              peer="$(curl -fsS "https://api.github.com/repos/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID/attempts/$GITHUB_RUN_ATTEMPT/jobs?per_page=100" \
+                | jq -r --arg cell "$CELL" '[.jobs[] | select(.name | endswith("admit")) | select(.name | contains($cell))][0]
+                    | select(.status == "completed" and .conclusion != "success")
+                    | "\(.conclusion) at step \([.steps[]? | select(.conclusion == "failure") | .name][0] // "(none recorded: runner lost?)")"' \
+                2>/dev/null || true)"
+              if [ -n "$peer" ]; then
+                [ "$(key_count)" = 1 ] && exit 0
+                echo "::error::the admit job ended ($peer) without delivering the cell's sealed application key"
+                exit 1
+              fi
+            fi
             sleep 20
           done
           echo "::error::the admit job never delivered the cell's sealed application key"
@@ -501,14 +541,28 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.RELEASE_GH_TOKEN || github.token }}
           NAME: cloud-cell-journey-hello-${{ env.CELL_ARTIFACT }}
+          CELL: ${{ inputs.target }} / redis-${{ inputs.redis }}
         run: |
           set -euo pipefail
-          for _ in $(seq 1 120); do
+          hello() {
             found="$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID/artifacts?name=$NAME" \
               --jq '.total_count' 2>/dev/null || echo 0)"
-            if [ "$found" = 1 ]; then
-              gh run download "$GITHUB_RUN_ID" --repo "$GITHUB_REPOSITORY" --name "$NAME" --dir "$RUNNER_TEMP/journey-hello"
-              exit 0
+            [ "$found" = 1 ] || return 1
+            gh run download "$GITHUB_RUN_ID" --repo "$GITHUB_REPOSITORY" --name "$NAME" --dir "$RUNNER_TEMP/journey-hello"
+          }
+          # A journey job that already ended (failed, cancelled, or its runner process died) will
+          # never introduce itself: fail now with its conclusion and failed step, not after 20 min.
+          peer_filter='[.jobs[] | select(.name | endswith("journey")) | select(.name | contains($cell))][0]
+            | select(.status == "completed" and .conclusion != "success")
+            | "\(.conclusion) at step \([.steps[]? | select(.conclusion == "failure") | .name][0] // "(none recorded: runner lost?)")"'
+          for _ in $(seq 1 120); do
+            hello && exit 0
+            peer="$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID/attempts/$GITHUB_RUN_ATTEMPT/jobs?per_page=100" 2>/dev/null \
+              | jq -r --arg cell "$CELL" "$peer_filter" 2>/dev/null || true)"
+            if [ -n "$peer" ]; then
+              hello && exit 0
+              echo "::error::the journey runner ended ($peer) before introducing itself"
+              exit 1
             fi
             sleep 10
           done
