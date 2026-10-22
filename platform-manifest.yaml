@@ -591,25 +591,16 @@ components:
     #   skipped 631594c: no published SHA-bound image
     # The index and per-architecture digests below were re-read from GHCR with the resolver's own
     # Registry.image() (tag candidate-c652ef22612d-37509939284-1) and match that run.
-    # 2026-10-22 ADVANCE (honua-release#775): c652ef22 -> fbe0195d, trunk HEAD. c652ef22 predates the
-    # live-spec repairs the S4 cell needs: honua-console#425 (148fcc96, focused operator live checks),
-    # #449 (00b17bec, governed session kept alive for the full suite) and #451 (fbe0195d, operate
-    # sections opened from More tools). Against nightly-0e03bdd, c652ef22 failed six S4 specs
-    # (e2e-local-docker run 39600043366); five were those stale markers. fbe0195d has every push
-    # check green (CI, Console E2E, Console Live Integration (PR), Security) and a SHA-bound image from
-    # Console Container run 39721316309. The identity below is the resolver's own Registry.image()
-    # output for that sha, read 2026-10-22:
-    #   ghcr.io/honua-io/honua-console@sha256:ab67fe43afe36069a4012522a451b6abacaede695fe395009d096dd3347d4eff
-    sha: "fbe0195d0d9ca28563b2e08770a1f97cd3d6eded"   # trunk HEAD (2026-10-22), honua-console#451 merge
-    # Public multi-architecture candidate built from this SHA by Console Container run 39721316309.
-    image: "ghcr.io/honua-io/honua-console:candidate-fbe0195d0d9c-39721316309-1"
-    digest: "sha256:ab67fe43afe36069a4012522a451b6abacaede695fe395009d096dd3347d4eff"
-    artifactSourceRevision: "fbe0195d0d9ca28563b2e08770a1f97cd3d6eded"
+    sha: "c652ef22612d83277f8d39384be61411915dda1d"   # resolver-selected trunk commit (2026-10-06)
+    # Public multi-architecture candidate built from this SHA by Console Container run 37509939284.
+    image: "ghcr.io/honua-io/honua-console:candidate-c652ef22612d-37509939284-1"
+    digest: "sha256:686b104fc3f106df694782c243423c1c7110d568779abf5829514ab97349a908"
+    artifactSourceRevision: "c652ef22612d83277f8d39384be61411915dda1d"
     architectures: [amd64, arm64]
-    # Read from this pinned index by the resolver's Registry.image() on 2026-10-22.
+    # Read from this pinned index by the resolver's Registry.image() on 2026-10-08.
     platformDigests:
-      amd64: sha256:630338b2f0afce43987c5f6b8ae9ef4bfd0b12ca39a19a107debb8b89d681972
-      arm64: sha256:a6204b75f67fc6de1b67e7448df769e2ab19f7b69a6e0316e898a8b0d1a3e184
+      amd64: sha256:02442e11801af8c741a7ee868e7ec8b782e49372d0dc93bd246cf3f9b464b252
+      arm64: sha256:ac43db0c0963972f27724dbc7b7091d5de5019b43eff1e7071bd93d2322aa7f9
 
   honua-sdk-dotnet:
     repository: "https://github.com/honua-io/honua-sdk-dotnet"
