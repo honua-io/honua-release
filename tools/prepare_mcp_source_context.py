@@ -75,7 +75,8 @@ def preserve_obligations(before, after, source):
         if row['surface'] == 'mcp':
             row['client_version'] = versions[row['client_lane']]
     normalise = lambda value: {**value, 'requirements': sorted(value['requirements'], key=lambda row: json.dumps(row, sort_keys=True))}
-    if len(before['requirements']) < 3008 or normalise(expected) != normalise(after):
+    # 2713 is the complete denominator after the .NET release profile and unpromoted matrix rows.
+    if len(before['requirements']) < 2713 or normalise(expected) != normalise(after):
         raise PreparationError('generated source context changes original scope, policy, facets, tiers or unrelated source')
     return versions
 

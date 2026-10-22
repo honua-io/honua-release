@@ -388,3 +388,74 @@ def test_scoped_cli_reports_exact_selected_artifacts_without_full_platform_claim
     assert 'SCOPE npm-only; full platform package verification was not requested' in output
     assert 'verified 2 required published npm client artifact(s)' in output
     assert calls[0]['ecosystem'] == 'npm'
+
+
+def _http_error(url, code):
+    import urllib.error
+    return urllib.error.HTTPError(url, code, 'Backend is unhealthy' if code == 503 else 'Not Found', {}, None)
+
+
+PYPI_PROVENANCE = ('https://pypi.org/integrity/honua-admin/0.1.12/'
+                   'honua_admin-0.1.12-py3-none-any.whl/provenance')
+
+
+def test_registry_5xx_is_retried_with_backoff_then_succeeds(monkeypatch):
+    calls, sleeps = [], []
+    answers = [_http_error(PYPI_PROVENANCE, 503), _http_error(PYPI_PROVENANCE, 502), b'{"ok": true}']
+
+    def open_(url, headers):
+        calls.append(url)
+        answer = answers.pop(0)
+        if isinstance(answer, Exception):
+            raise answer
+        return answer
+
+    monkeypatch.setattr(vca, '_open', open_)
+    monkeypatch.setattr(vca, '_sleep', sleeps.append)
+    assert vca._request(PYPI_PROVENANCE) == b'{"ok": true}'
+    assert len(calls) == 3
+    assert sleeps == list(vca.REQUEST_DELAYS[1:3])
+
+
+def test_registry_5xx_that_outlasts_the_retries_is_transient_not_a_refusal(monkeypatch):
+    calls = []
+
+    def open_(url, headers):
+        calls.append(url)
+        raise _http_error(url, 503)
+
+    monkeypatch.setattr(vca, '_open', open_)
+    monkeypatch.setattr(vca, '_sleep', lambda seconds: None)
+    with pytest.raises(vca.RegistryUnavailable, match='transient-registry-unavailable') as caught:
+        vca._request(PYPI_PROVENANCE)
+    assert len(calls) == len(vca.REQUEST_DELAYS)
+    assert caught.value.outcome == 'transient-registry-unavailable'
+    # Still a VerificationError subtype so no caller can mistake it for a verified pin.
+    assert isinstance(caught.value, vca.VerificationError)
+
+
+def test_registry_404_is_refused_immediately_and_is_not_transient(monkeypatch):
+    calls = []
+
+    def open_(url, headers):
+        calls.append(url)
+        raise _http_error(url, 404)
+
+    monkeypatch.setattr(vca, '_open', open_)
+    monkeypatch.setattr(vca, '_sleep', lambda seconds: pytest.fail('a 404 must not be retried'))
+    with pytest.raises(vca.VerificationError, match='unreachable') as caught:
+        vca._request(PYPI_PROVENANCE)
+    assert not isinstance(caught.value, vca.RegistryUnavailable)
+    assert len(calls) == 1
+
+
+def test_verifier_cli_reports_a_registry_outage_with_its_own_exit_status(monkeypatch, tmp_path, capsys):
+    manifest = tmp_path / 'm.yaml'
+    manifest.write_text('clientArtifacts: {}\n')
+
+    def outage(*args, **kwargs):
+        raise vca.RegistryUnavailable('transient-registry-unavailable: registry did not answer')
+
+    monkeypatch.setattr(vca, 'verify_manifest', outage)
+    assert vca.main(['--manifest', str(manifest)]) == 75
+    assert 'TRANSIENT' in capsys.readouterr().out

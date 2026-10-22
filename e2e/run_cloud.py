@@ -381,8 +381,11 @@ def journey_phase(state: dict, *, admin_key: str, max_attempts: int = 2,
             if passed:
                 break
             blockers.append(cloud_journey.documented_blockers(receipt))
-            if blockers[-1] and not record.get("servingRefusal"):
-                break  # only the explicit profile gets the existing retry budget past a raw block
+            if blockers[-1] and (not record.get("servingRefusal")
+                                 or cloud_journey.profile_blocked(record, E2E_DIR / record["receipt"])):
+                # Only a profile that ran gets the retry budget past a raw block; a profile with no
+                # admissible prerequisite (a tracked limitation) would meet the same block again.
+                break
         else:
             journey["status"] = "fail"
             journey["why"] = "journey did not pass within the recorded attempt budget"
@@ -470,7 +473,8 @@ def teardown_phase(state: dict, journey: dict, target, *, reference_endpoint: st
                         path = E2E_DIR / record["receipt"]
                         accepted = cloud_journey.qualify_attempt(record, json.loads(path.read_bytes()), cell, raw_path=path,
                             run_id=state["runId"], run_attempt=state["runAttempt"])
-                        if record is report["journeyAttempts"][-1] and not accepted:
+                        if (record is report["journeyAttempts"][-1] and not accepted
+                                and not cloud_journey.profile_blocked(record, path)):
                             raise ValueError("final serving/refusal profile did not qualify")
                 except Exception as exc:
                     report.update(status="fail", why="serving/refusal native observation rejected: " + type(exc).__name__)
@@ -1572,8 +1576,8 @@ def _phase_update_rollback(args) -> int:
         # Original application key stays in the owned Secrets Manager handoff; never persist it.
         admin_key, _ = cloud_journey.unpack_handoff(read_secret(app_key_secret_name(cell)))
         os.environ["HONUA_ADMIN_PASSWORD"] = admin_key
+        # The controller store and its approver are hermetic and minted per run (AwsRuntime).
         runtime = AwsRuntime(target, state, admin_key=admin_key,
-            approval_key=os.environ.get("HONUA_UPDATE_ROLLBACK_APPROVAL_KEY", ""),
             serving_fixture=args.serving_fixture, controller_env=args.controller_env,
             mirror_repository=os.environ.get("HONUA_UPDATE_ROLLBACK_ECR_REPOSITORY"), vertices=args.gp_vertices, workload_path=args.gp_workload)
         receipt = run_cell(prior, candidate, cell, args.update_rollback_mode, runtime,
@@ -1790,7 +1794,7 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--transition-inputs", type=Path, help="retained authenticated destination input directory")
     ap.add_argument("--update-rollback-mode", choices=("rehearsal", "qualification"), default="rehearsal")
     ap.add_argument("--serving-fixture", type=Path, help="baseline extended/seed-manifest.json bound by sealed provision state")
-    ap.add_argument("--controller-env", type=Path, help="protected independent controller startup configuration; never uploaded")
+    ap.add_argument("--controller-env", type=Path, help="optional private controller startup supplement (no store, wiring or credentials); never uploaded")
     ap.add_argument("--gp-workload", type=Path, help="reviewed real GP execution+independent feature fixture bound by BOTH retained manifests")
     ap.add_argument("--gp-vertices", type=int, default=65536, help="reviewed symmetric centroid workload size; fast completion fails")
     ap.add_argument("--cost-ceiling-usd", default=os.environ.get("HONUA_CLOUD_COST_CEILING_USD", "20"))

@@ -105,12 +105,12 @@ deploy:
     # TODO: encode against a released server version once honua-server cuts a tag; today server is
     # pinned by sha and immutable GHCR digest, so the deploy range is sha-pinned, not semver-ranged.
     # Tracks components.honua-server.sha by construction — validate_platform.check_coherence hard-fails
-    # if it drifts. Advanced with the 2026-10-12 hand server re-pin (93cad86 -> 0e03bdd).
-    deploysServerImage: "sha:0e03bdd06b3ca3fb1b82388110bb5dfa19b9f8fa"
+    # if it drifts. Advanced with the 2026-10-22 rc server re-pin (0e03bdd -> 4709145).
+    deploysServerImage: "sha:4709145cb5a4b235dbe74764f9fa590cea52f384"
   honua-helm:
     # Chart.yaml appVersion is "0.0.0" (placeholder); chart version is 0.4.0 (un-released).
-    # Same coupling as honua-iac above; advanced with the 2026-10-12 hand server re-pin (0e03bdd).
-    appVersion: "sha:0e03bdd06b3ca3fb1b82388110bb5dfa19b9f8fa"
+    # Same coupling as honua-iac above; advanced with the 2026-10-22 rc server re-pin (4709145).
+    appVersion: "sha:4709145cb5a4b235dbe74764f9fa590cea52f384"
     awsEks:
       target: aws-eks
       architectures:
@@ -150,7 +150,14 @@ data:
     # 2026-10-12 hand re-pin to 0e03bdd moves manifest honua-server.dbSchema to 128
     # (126_AddStudioContentHashInput.sql, 127_CompleteSensorThingsSensing.sql,
     # 128_AddNetworkTopologyPromotionRequestHash.sql); the client-compatibility floor stays >=115.
+    # 2026-10-22 rc re-pin to 4709145 moves manifest honua-server.dbSchema to 133 (129..133, through
+    # 133_CreatePortalSharing.sql); the client-compatibility floor stays >=115.
     requiresDbSchema: ">=115"
+    # Graph schema (metadataSchemaVersion), not the metadata API id under contracts.metadata.
+    # The manifest carries it as honua-server schemaVersions.metadata only once the server's
+    # release/component-versions.json declares it (the resolver copies that declaration; no hand
+    # value). Until then coherence warns; once declared it must equal this value.
+    metadataSchema: "2.0.0-alpha.1"
 
 # Capability lifecycle vocabulary. Every row under `capabilities:` takes exactly one of these values
 # (tools/validate_platform.py check_capability_lifecycle).

@@ -24,6 +24,9 @@ class StubGitHub:
         return {"honua-io/honua-esri-compat": "1" * 40, "cloudnativegeo/cloud-optimized-geospatial-formats-guide": "2" * 40}[repository]
 
     def content(self, repository, path, revision):
+        if path == "tests/seed/base-schema.sql":
+            # A moved server-certification pin re-reads the seed at the new commit (project_server_seed_fixture).
+            return f"-- stub server seed at {revision}\n".encode()
         local = next(local for source, mappings in MODULE.VENDORED.items() for upstream, local in mappings if upstream == path and repository.endswith(MODULE.load_json(self.root, MODULE.REVISIONS)["sources"][source]["repository"].split("/")[-1]))
         return (self.root / local).read_bytes()
 
@@ -119,7 +122,7 @@ def test_plan_targets_published_sdk_pins_when_components_match(tmp_path):
         published = manifest["clientArtifacts"][artifact]["sourceSha"]
         assert pins[source] == (published, "manifest/frozen")
         assert manifest["components"][component]["sha"] == published
-    assert pins["server-certification"] == ("0e03bdd06b3ca3fb1b82388110bb5dfa19b9f8fa", "manifest/frozen")
+    assert pins["server-certification"] == ("4709145cb5a4b235dbe74764f9fa590cea52f384", "manifest/frozen")
     assert plan["receipt_schema_min"] == {"current": "v2", "proposed": "v2"}
     assert plan["bindings"]["PROTOCOL_CERTIFICATION_MATRIX_COMMIT"]["current"] == "pending"
     assert manifest["protocolCertification"]["ledger"]["status"] == "pending"
@@ -131,7 +134,7 @@ def test_apply_changes_only_planned_repository_files(tmp_path, monkeypatch):
     plan, payloads, _ = MODULE.prepare(root, StubGitHub(root), "keep")
     monkeypatch.setattr(MODULE.subprocess, "run", lambda *a, **kw: type("R", (), {"stdout": "", "stderr": "", "returncode": 0})())
     # Assert the complete intended payload rather than mutating the real worktree.
-    assert set(payloads) == {str(MODULE.REVISIONS), str(MODULE.CATALOG), "certification/generate-protocol-requirements.py", "certification/sources/official-sdk-protocol-assignments.v1.json", "certification/sources/canonical-client-applicability.v1.json", "certification/sources/protocol-certification-production.v1.json", *(p for mappings in MODULE.VENDORED.values() for _, p in mappings)}
+    assert set(payloads) == {str(MODULE.REVISIONS), str(MODULE.CATALOG), "certification/generate-protocol-requirements.py", "certification/sources/official-sdk-protocol-assignments.v1.json", "certification/sources/canonical-client-applicability.v1.json", "certification/sources/protocol-certification-production.v1.json", str(MODULE.SERVER_SEED_FIXTURES), *(p for mappings in MODULE.VENDORED.values() for _, p in mappings)}
     assert plan["official_protocol_assignments"] == {
         "path": "certification/sources/official-sdk-protocol-assignments.v1.json",
         "added": [], "removed": [], "client_versions": [],
@@ -549,7 +552,7 @@ SERVICE_FILES = {
     "src/Honua.Scene/Grpc/HonuaSceneGrpcService.cs": "3" * 40,
     "src/Honua.Server/Program.cs": "4" * 40,
 }
-VERIFIED = "0e03bdd06b3ca3fb1b82388110bb5dfa19b9f8fa"
+VERIFIED = "4709145cb5a4b235dbe74764f9fa590cea52f384"
 NEXT_SERVER = "d1fc139a64ce33c817bd927bacb2103714221515"
 
 
@@ -656,9 +659,9 @@ def test_plan_reports_source_derived_official_client_version_changes(tmp_path):
     manifest_path.write_text(yaml.safe_dump(manifest, sort_keys=False))
     plan, _, _ = MODULE.prepare(root, StubGitHub(root), "keep")
     assert plan["official_protocol_assignments"]["client_versions"] == [{
-        "source": "sdk-js", "name": "@honua/sdk-js", "current": "0.1.9-beta.0", "proposed": "0.2.0",
+        "source": "sdk-js", "name": "@honua/sdk-js", "current": "0.2.3", "proposed": "0.2.0",
     }]
-    assert "sdk-js (@honua/sdk-js): 0.1.9-beta.0 -> 0.2.0" in MODULE.human(plan, root)
+    assert "sdk-js (@honua/sdk-js): 0.2.3 -> 0.2.0" in MODULE.human(plan, root)
 
 
 @pytest.mark.parametrize("field,value", [("sha256", "e" * 64), ("source", "local"),
@@ -685,3 +688,27 @@ def test_nightly_binding_refuses_missing_governed_or_measured_python_wheel(locat
     rehash(cell)
     assert "Python wheel differs from governed published artifact" in refusal(
         ledger=recorded["ledger"], catalog=recorded["catalog"])
+
+
+def test_server_seed_fixture_moves_with_the_server_certification_pin(tmp_path):
+    root = tmp_path / "repo"
+    (root / MODULE.SERVER_SEED_FIXTURES).parent.mkdir(parents=True)
+    shutil.copy(ROOT / MODULE.SERVER_SEED_FIXTURES, root / MODULE.SERVER_SEED_FIXTURES)
+    seed_bytes = b"-- seed at the next server\n"
+    calls = []
+
+    class SeedGitHub:
+        def content(self, repository, path, revision):
+            calls.append((repository, path, revision))
+            return seed_bytes
+
+    current = MODULE.load_json(root, MODULE.SERVER_SEED_FIXTURES)["server_seed"]
+    path, data = MODULE.project_server_seed_fixture(root, SeedGitHub(), {"server-certification": current["commit"]})
+    assert calls == [] and data == (root / path).read_bytes()
+
+    nxt = "b" * 40
+    path, data = MODULE.project_server_seed_fixture(root, SeedGitHub(), {"server-certification": nxt})
+    seed = json.loads(data)["server_seed"]
+    assert calls == [("honua-io/honua-server", "tests/seed/base-schema.sql", nxt)]
+    assert seed["commit"] == nxt
+    assert seed["sha256"] == "sha256:" + hashlib.sha256(seed_bytes).hexdigest()

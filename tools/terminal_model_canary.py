@@ -4,8 +4,9 @@
 The live journey adapter is owned by honua-release#123. Until that adapter is available, this tool
 emits an honest skipped/blocked receipt and cannot claim model execution.
 
-Every receipt is one attempt of the `genuine-model` journey on one cell, bound to the exact
-platform-lock digest under certification. A receipt that does not pass names whether the model or
+Every receipt is one attempt of the `genuine-model` journey on one cell, bound either to the exact
+platform-lock digest a caller certifies or, without one, to the honua-server image digest the job
+composed (`serverImage`; operator ruling 2026-10-22: rc gates bind any build, not a minted lock). A receipt that does not pass names whether the model or
 the infrastructure (driver, candidate proxy, provider, configuration) failed; promotion reads that
 attribution from the attempt ledger (tools/check_promotion_readiness.py).
 """
@@ -53,6 +54,8 @@ JOURNEY_MODE = "genuine-model"
 CELLS = ("local-docker", "aws-ecs/redis-off", "aws-ecs/redis-on",
          "aws-serverless/redis-off", "aws-serverless/redis-on")
 LOCK_DIGEST = re.compile(r"sha256:[0-9a-f]{64}")
+# Credential presentation -> receipt authentication mode.
+API_KEY_HEADERS = {"bearer": "bearer-env", "x-api-key": "x-api-key-env"}
 MODEL = "model"
 INFRASTRUCTURE = "infrastructure"
 ASSERTION_NAMES = (
@@ -82,6 +85,18 @@ class ModelFailure(CanaryError):
     """The model itself failed the journey: unparseable or invalid action selection, no progress
     within the bounded action budget, no recovery from the injected error, or a final state whose
     assertions fail after every infrastructure step succeeded."""
+
+
+def server_image_binding(manifest: dict[str, Any], cell: str) -> dict[str, Any] | None:
+    """The honua-server image@digest this cell runs: the reference the driver and #123 compose."""
+    server = (manifest.get("components") or {}).get("honua-server") or {}
+    image_name, digest_name = (("awsLambdaImage", "awsLambdaDigest") if cell.startswith("aws-serverless/")
+                               else ("image", "digest"))
+    image, digest = server.get(image_name), str(server.get(digest_name) or "")
+    if not image or not LOCK_DIGEST.fullmatch(digest):
+        return None
+    return {"reference": f"{str(image).split('@', 1)[0]}@{digest}", "digest": digest,
+            "sourceSha": server.get("sha")}
 
 
 def lock_digest_of(path: Path) -> str:
@@ -298,6 +313,10 @@ class EndpointConfig:
     # non-loopback host plain HTTP may reach. Its per-run application key is random and dies with
     # the cell; HTTPS on the cell is 2026.1.x hardening.
     allow_http_cell: str | None = None
+    # How the candidate credential is presented. A cell's application key travels as a bearer token;
+    # the local-docker stack authenticates its bootstrap admin key only through X-API-Key, because
+    # that stack enables OIDC and routes every bearer token to the JWT handler.
+    api_key_header: str = "bearer"
 
     @classmethod
     def from_environment(
@@ -312,8 +331,12 @@ class EndpointConfig:
         require_api_key: bool = False,
         signing_manifest_sha256: str | None = None,
         allow_http_cell: str | None = None,
+        api_key_header: str = "bearer",
     ) -> "EndpointConfig":
+        if api_key_header not in API_KEY_HEADERS:
+            raise CanaryError(f"unknown api key header mode {api_key_header!r}")
         return cls(
+            api_key_header=api_key_header,
             base_url=(base_url if base_url is not None else os.getenv("TERMINAL_MODEL_BASE_URL")) or None,
             model=(model if model is not None else os.getenv("TERMINAL_MODEL_NAME")) or None,
             api_key=(os.getenv(api_key_env) or None) if use_api_key else None,
@@ -404,7 +427,7 @@ class EndpointConfig:
             "quantization": self.quantization,
             "signingManifestSha256": self.signing_manifest_sha256,
             "authentication": {
-                "mode": "bearer-env" if self.api_key else "none",
+                "mode": API_KEY_HEADERS[self.api_key_header] if self.api_key else "none",
                 "credentialReference": f"env:{self.api_key_env}" if self.api_key else None,
                 "required": self.require_api_key,
             },
@@ -501,6 +524,7 @@ class ReceiptBuilder:
             "cell": cell,
             "attempt": attempt,
             "lockDigest": lock_digest,
+            "serverImage": server_image_binding(manifest, cell),
             # Nothing has run yet, so a receipt that stops here failed on infrastructure.
             # execute_live clears this when the model is first given control.
             "failureAttribution": INFRASTRUCTURE,
@@ -744,6 +768,16 @@ class ReceiptBuilder:
         totals["modelCalls"] += 1
         totals["elapsedMs"] += elapsed_ms
 
+    def bound(self) -> bool:
+        """Bound to a caller's lock, or to the composed server image the green #123 receipt verified."""
+        if LOCK_DIGEST.fullmatch(str(self.receipt["lockDigest"] or "")):
+            return True
+        image = self.receipt.get("serverImage") or {}
+        deterministic = self.receipt["linkedEvidence"]["deterministicReceipt"] or {}
+        return bool(LOCK_DIGEST.fullmatch(str(image.get("digest") or ""))
+                    and str(image.get("reference") or "").endswith("@" + str(image.get("digest")))
+                    and deterministic.get("candidateVerified") is True)
+
     def validate_invariants(self) -> None:
         transcript = {entry["sequence"]: entry for entry in self.receipt["transcript"]["entries"]}
         for action in self.receipt["actions"]:
@@ -761,8 +795,9 @@ class ReceiptBuilder:
         if self.receipt["status"] == "pass":
             if self.receipt["failureAttribution"] is not None:
                 raise CanaryError("a pass cannot carry a failure attribution")
-            if not LOCK_DIGEST.fullmatch(str(self.receipt["lockDigest"] or "")):
-                raise CanaryError("a pass must be bound to the platform-lock digest under certification")
+            if not self.bound():
+                raise CanaryError("a pass must be bound to the platform-lock digest under certification "
+                                  "or to the server image digest it ran against")
             if not self.receipt["endpoint"]["configured"] or not self.receipt["driver"]["configured"]:
                 raise CanaryError("a pass requires both model endpoint and #123 driver")
             if self.receipt["scope"]["executionToGreen"] != "pass":
@@ -915,7 +950,10 @@ class CandidateProxyClient:
         payload = json.dumps(request_body).encode("utf-8")
         headers = {"Content-Type": "application/json", "Accept": "text/event-stream"}
         if self.config.api_key:
-            headers["Authorization"] = f"Bearer {self.config.api_key}"
+            if self.config.api_key_header == "x-api-key":
+                headers["X-API-Key"] = self.config.api_key
+            else:
+                headers["Authorization"] = f"Bearer {self.config.api_key}"
         manifest = self._manifest({key: value for key, value in headers.items() if key != "Content-Type"})
         request = urllib.request.Request(
             self.config.proxy_chat_url(), data=payload, headers=headers, method="POST"
@@ -1127,8 +1165,9 @@ def unavailable_receipt(
         )
     elif not builder.receipt["linkedEvidence"]["deterministicReceipt"]:
         builder.mark_blocked("live execution requires a validated green deterministic #123 receipt")
-    elif not builder.receipt["lockDigest"]:
-        builder.mark_blocked("live execution requires --lock-digest: an unbound receipt counts for no lock")
+    elif not builder.bound():
+        builder.mark_blocked("live execution requires --lock-digest or a manifest-pinned server image "
+                             "digest: an unbound receipt counts for no build")
     elif not endpoint.runtime or not endpoint.quantization:
         builder.mark_blocked("live execution requires explicit model runtime and quantization identifiers")
     else:
@@ -1487,6 +1526,8 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--quantization")
     parser.add_argument("--signing-manifest-sha256")
     parser.add_argument("--api-key-env", default="TERMINAL_MODEL_API_KEY")
+    parser.add_argument("--api-key-header", choices=tuple(API_KEY_HEADERS), default="bearer",
+                        help="present the candidate credential as a bearer token or as X-API-Key")
     authentication = parser.add_mutually_exclusive_group()
     authentication.add_argument("--no-api-key", action="store_true")
     authentication.add_argument("--require-api-key", action="store_true")
@@ -1521,6 +1562,7 @@ def main(argv: list[str] | None = None) -> int:
         require_api_key=args.require_api_key,
         signing_manifest_sha256=args.signing_manifest_sha256,
         allow_http_cell=args.allow_http_cell,
+        api_key_header=args.api_key_header,
     )
     if args.profile == "redis-off-serving-refusal":
         import terminal_model_refusal
@@ -1560,7 +1602,7 @@ def main(argv: list[str] | None = None) -> int:
                 or args.driver_command is None
                 or not args.driver_command.is_file()
                 or not builder.receipt["linkedEvidence"]["deterministicReceipt"]
-                or not builder.receipt["lockDigest"]
+                or not builder.bound()
                 or not endpoint.runtime
                 or not endpoint.quantization
             ):

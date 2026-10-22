@@ -456,23 +456,33 @@ class JourneyExecutor:
             self.fixture["features"]))
 
     def check_render(self, output):
+        def media_type_of(value):
+            if not isinstance(value, str):
+                return ""
+            return value.split(";", 1)[0].strip().lower()
+
         def prove():
             image = output["image"]
+            # honua-server's McpRenderedImage names the media type `format` (RenderMapTool.cs);
+            # `mimeType` is the MCP content-block spelling. Both, when present, must agree.
+            spellings = {media_type_of(image.get(key)) for key in ("format", "mimeType") if key in image}
+            if len(spellings) > 1:
+                raise oracles.ProofError("render image declares conflicting media types")
+            declared = spellings.pop() if spellings else ""
             if image.get("base64"):
                 raw = base64.b64decode(image["base64"], validate=True)
+                media_type = declared
             else:
                 raw, _ = self.transport.http("GET", image["uri"], principal=self.principal(4))
+                fetched = media_type_of(self.transport.last_response_headers.get("content-type", ""))
+                # A declared image/png must match the bytes the client actually fetched.
+                if not fetched or (declared and declared != fetched):
+                    raise oracles.ProofError("render response media type conflicts with the declared image type")
+                media_type = fetched
             proof = oracles.prove_pixel(raw, bbox=self.fixture["bbox"], point=self.fixture["pixelPoint"],
-                size=self.fixture["renderSize"], rgba=self.fixture["pixelRgba"])
+                size=self.fixture["renderSize"], rgba=self.fixture["pixelRgba"], media_type=media_type)
             return proof
         row = self._check(4, "pixel", "honua_render_map + decode PNG", prove)
-        reported = {layer.get("styleId") for layer in output.get("layers") or [] if isinstance(layer, dict)}
-        if row.status == "fail" and self.fixture.get("styleId") in reported:
-            # The candidate reports the applied preset on the rendered layer yet the
-            # pixels differ: the known server gap, not an unexplained failure.
-            row.blocked_by = [stages.STYLE_RENDER]
-            row.detail += "; the render reports the applied preset but rasterizes the layer's stored style"
-            self.evidence["checks"]["4"]["pixel"] = row.as_receipt()
         return row
 
     def check_job(self):
@@ -870,12 +880,6 @@ class JourneyExecutor:
             if missing:
                 cause = [stages.JOURNEY_DRIVER]
                 why = "candidate has not returned the canonical " + ", ".join(missing) + " for this stage"
-                applied = self.evidence["checks"].get("4", {}).get("style-applied", {}).get("status") == "pass"
-                if number == 4 and applied:
-                    # The preset was applied through style.apply-preset, whose MCP output
-                    # drops the operation handle: a tracked server gap.
-                    cause = [stages.STYLE_RENDER]
-                    why += "; honua_apply_style_preset applied the preset but its output omits the operation handle"
                 checks.append(probes.blocked(f"{number}.canonical-evidence", "http", receipt, why, cause))
             else:
                 checks.append(probes.Check(f"{number}.canonical-evidence", "http", receipt, "pass",
@@ -890,7 +894,10 @@ class JourneyExecutor:
                 setattr(result, stages.RECEIPT_ATTRS[key], job.get(key))
         result.policy_decision_id, result.actuator_id, result.verification_id = (
             ids.get("policyDecisionId"), ids.get("actuatorId"), ids.get("verificationId"))
-        result.approval_id = (self.evidence.get("approval") or {}).get("approvalId") if number == 8 else None
+        approval = self.evidence.get("approval") or {}
+        result.approval_id = approval.get("approvalId") if number == 8 else None
+        if number == 8:
+            result.resolved_by = approval.get("resolvedBy")
         result.topology_refusal = refusal
         return result
 

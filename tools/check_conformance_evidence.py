@@ -181,6 +181,31 @@ def summarize_esri_bundle(cert_docs: list[dict] | None) -> dict | None:
     }
 
 
+CAPABILITY_MATRIX_PATH = ROOT / "certification" / "sources" / "server" / "capability-matrix.v1.json"
+
+
+def non_implemented_cite_suites(matrix: dict | None) -> dict[str, str]:
+    """{suite: "<capability> <maturity>"} for CITE suites whose capability has no implemented entry.
+
+    Operator ruling 2026-10-22: capabilities the server capability matrix marks preview,
+    experimental or internal do not decide the certification verdict. A suite joined to a capability
+    with at least one `implemented` entry stays enforced, and so does a suite the matrix does not
+    join to any capability (GML, GeoPackage, KML, ...): only an explicit non-implemented maturity
+    moves a suite out of the verdict.
+    """
+    out: dict[str, str] = {}
+    for cap in (matrix or {}).get("capabilities") or []:
+        maturity = cap.get("maturity") or {}
+        if not maturity or maturity.get("implemented"):
+            continue
+        label = "/".join(sorted(k for k, v in maturity.items() if v))
+        for suite in cap.get("cite") or []:
+            name = suite.get("suite") if isinstance(suite, dict) else suite
+            if isinstance(name, str) and name:
+                out[name] = f"{cap.get('key')} {label}"
+    return out
+
+
 # --------------------------------------------------------------------------------------------
 # Decision core
 # --------------------------------------------------------------------------------------------
@@ -266,9 +291,24 @@ def _evaluate_cite(candidate_sha, cite, lineage, cfg, now, rows) -> None:
         )
 
     # --- results -----------------------------------------------------------------------------
-    suites = cite.get("suites") or []
-    required = set((cfg or {}).get("requiredSuites") or [])
-    if not suites:
+    all_suites = cite.get("suites") or []
+    not_certified = (cfg or {}).get("nonImplementedSuites") or {}
+    suites = [s for s in all_suites if s["suite"] not in not_certified]
+    advisory = [s for s in all_suites if s["suite"] in not_certified]
+    required = set((cfg or {}).get("requiredSuites") or []) - set(not_certified)
+    if advisory:
+        detail = ", ".join(
+            f"{s['suite']} {s['passed']}/{s['total']} [{not_certified[s['suite']]}]" for s in advisory
+        )
+        rows.append(
+            _row(
+                "cite:not-certified",
+                "advisory",
+                f"not certified (preview/experimental) for this release, reported but not enforced "
+                f"(operator ruling 2026-10-22): {detail}",
+            )
+        )
+    if not all_suites:
         rows.append(_row("cite:suites", "blocked", "cite-status.md carried no parseable per-suite table"))
     else:
         regressed = [s for s in suites if s["passed"] < s["total"]]
@@ -517,6 +557,11 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--stac-report", help="path to the STAC validator JSON report")
     parser.add_argument("--esri-bundle", help="directory of honua-esri-compat .cert.json evidence")
     parser.add_argument("--config", default=str(CONFIG_PATH))
+    parser.add_argument(
+        "--capability-matrix",
+        default=str(CAPABILITY_MATRIX_PATH),
+        help="server capability matrix; suites of non-implemented capabilities are reported, not enforced",
+    )
     parser.add_argument("--json-out", help="write the full row set here for the gate fragment")
     parser.add_argument(
         "--sections",
@@ -531,6 +576,9 @@ def main(argv: list[str] | None = None) -> int:
         config.setdefault("esri", {})["expectedImage"] = candidate_image
     if candidate_digest:
         config.setdefault("esri", {})["expectedDigest"] = candidate_digest
+    config.setdefault("cite", {})["nonImplementedSuites"] = non_implemented_cite_suites(
+        _read_json(args.capability_matrix)
+    )
 
     try:
         cite = parse_cite_status(_read_text(args.cite_status))

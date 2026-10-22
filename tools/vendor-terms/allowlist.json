@@ -175,12 +175,13 @@
         "@honua/sdk-esri-compat",
         "honua-sdk-esri-compat",
         "sdk-esri-compat-0.2.2.tgz",
+        "sdk-esri-compat-0.2.6.tgz",
         "@honua/sdk-esri-compat@0.2.2",
         "40honua/sdk-esri-compat@0.2.2",
         "2Fsdk-esri-compat/0.2.2",
         "//registry.npmjs.org/@honua/sdk-esri-compat/-/sdk-esri-compat-0.2.2.tgz"
       ],
-      "reason": "Exact SDK 0.2.2 published package identity, provenance subject, registry URL and tarball filename in the selected manifest and byte-identical official publication observations. Changing these values would falsify the verified registry artifact. Other paths, identifiers, versions, prose and endorsement claims remain checked.",
+      "reason": "Exact SDK 0.2.2 published package identity, provenance subject, registry URL and tarball filename in the selected manifest and byte-identical official publication observations; the 2026-10-22 rc re-pin adds the selected 0.2.6 tarball filename. Changing these values would falsify the verified registry artifact. Other paths, identifiers, versions, prose and endorsement claims remain checked.",
       "owner": "@mikemcdougall",
       "issue": "honua-io/honua-release#181"
     },

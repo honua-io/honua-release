@@ -8,6 +8,7 @@ on:
       - e2e/harness/boot.sh
       - e2e/harness/compose.candidate.yml
       - certification/terminal-journey/**
+      - certification/native-docker-first/**
       - certification/terminal-model-canary/**
       - e2e/cloud_journey.py
       - e2e/run_cloud.py
@@ -121,6 +122,11 @@ jobs:
 
       - name: Test driver stage binding and unarmed fault state
         run: python certification/terminal-journey/test_live_driver.py -v
+
+      - name: Test native Docker first-use binding and approval discipline
+        run: |
+          python certification/native-docker-first/test_run.py -v
+          python certification/native-docker-first/test_agent_service.py -v
 
       - name: Test cloud cell targets, minted principals and cloud receipt kinds
         run: python certification/terminal-journey/test_cloud_target.py -v

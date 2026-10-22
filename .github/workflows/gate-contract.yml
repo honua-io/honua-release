@@ -228,7 +228,10 @@ jobs:
           set -uo pipefail
           REPO="$(python -c "import yaml;print(yaml.safe_load(open('certification/contract-suppression-policy.yaml'))['suppression']['repository'])")"
           echo "reading repository variables for $REPO (names only are ever printed)"
-          if gh api "repos/$REPO/actions/variables" --paginate > variables.json 2>/tmp/vars.err; then
+          # --paginate alone concatenates one JSON document per page (30 variables each), which is not
+          # parseable once the repository has more than 30 variables; slurp the pages and merge them.
+          if gh api "repos/$REPO/actions/variables?per_page=100" --paginate --slurp > variables.pages.json 2>/tmp/vars.err \
+             && jq '{total_count: (.[0].total_count // 0), variables: [.[].variables[]]}' variables.pages.json > variables.json; then
             echo "readable=1" >> "$GITHUB_OUTPUT"
             jq -r '.variables[].name' variables.json | sort | sed 's/^/  var: /'
           else

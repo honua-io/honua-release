@@ -330,3 +330,35 @@ def test_real_profile_driver_setup_and_execute_receive_only_private_tenant_conte
             assert adapter.op_teardown({'workspaceId': setup['workspaceId']})['status'] == 'pass'
         assert 'HONUA_CANARY_TENANT_SIGNING_KEY' not in os.environ
     assert seen == [True, False]
+
+
+def test_inadmissible_prerequisite_of_a_roster_blocked_receipt_is_a_documented_block(sample, tmp_path):
+    raw_path = tmp_path / 'receipt-1.json'
+    raw = {'status': 'blocked', 'roster': {'status': 'blocked',
+           'blockedBy': 'https://github.com/honua-io/honua-server/issues/3363'}}
+    raw_path.write_text(json.dumps(raw))
+    record = {'runId': '9', 'runAttempt': '1', 'number': 1}
+    import terminal_model_canary as canary
+    with mock.patch.object(canary, 'validate_deterministic_receipt',
+                           side_effect=canary.CanaryError('deterministic #123 receipt is not green')):
+        proof = profile.produce(record, raw_path, tmp_path / 'target-1.json', adapter=None,
+                                pinned={}, digest='d' * 64, cell='aws-ecs/redis-off')
+    assert proof['status'] == 'blocked' and 'not green' in proof['why']
+    sidecar = tmp_path / 'serving-refusal-1.json'
+    sidecar.write_text(json.dumps(proof))
+    record['servingRefusal'] = {'file': sidecar.name, 'sha256': profile.sha(sidecar.read_bytes())}
+    # Never a qualifying success, and distinguishable from a profile that ran and failed.
+    assert profile.failed_record(record, raw, raw_path) is True
+    assert profile.blocked_record(record, raw_path) is True
+
+
+def test_inadmissible_prerequisite_of_a_failed_receipt_still_raises(tmp_path):
+    raw_path = tmp_path / 'receipt-1.json'
+    raw_path.write_text(json.dumps({'status': 'fail', 'roster': {'status': 'blocked', 'blockedBy': 'x'}}))
+    import terminal_model_canary as canary
+    with mock.patch.object(canary, 'validate_deterministic_receipt',
+                           side_effect=canary.CanaryError('deterministic #123 receipt is not green')):
+        with pytest.raises(canary.CanaryError):
+            profile.produce({'runId': '9', 'runAttempt': '1', 'number': 1}, raw_path,
+                            tmp_path / 'target-1.json', adapter=None, pinned={}, digest='d' * 64,
+                            cell='aws-ecs/redis-off')

@@ -481,10 +481,8 @@ def test_private_transition_handoff_refuses_before_any_plan(tmp_path, monkeypatc
 @pytest.mark.parametrize("bad", [False, True])
 def test_actual_candidate_schema_probe_removes_only_owned_network_admission_and_never_migrates(tmp_path, monkeypatch, bad):
     runtime = native.AwsRuntime.__new__(native.AwsRuntime)
-    config = tmp_path / "controller.env"
-    config.write_text("ConnectionStrings__DefaultConnection=operator-db\nConnectionStrings__Redis=operator-queue\nControlPlane__TelemetryConnections__0__ConnectionId=approved\n")
-    config.chmod(0o600)
-    runtime.controller_env = config; runtime.api = SimpleNamespace(credential="synthetic-admin")
+    # The probe needs no operator file: its Production startup profile is minted per run.
+    runtime.controller_env = None; runtime.api = SimpleNamespace(credential="synthetic-admin")
     runtime.probe_cleanup_failures = []; runtime.sleep = lambda _: None
     runtime.journal = {"method": "live-bidirectional-migration-plan", "pendingScripts": 0, "extraScripts": 0, "readyForCoordinatedDeploy": True}
     target = ecs(run_id="123"); target._workdir = tmp_path
@@ -505,10 +503,16 @@ def test_actual_candidate_schema_probe_removes_only_owned_network_admission_and_
     runtime.aws = aws
     def runner(argv, **kwargs):
         docker_calls.append(argv)
+        if argv[0] == "openssl": return SimpleNamespace(stdout="", returncode=0)
         if argv[:2] == ["docker", "run"]:
             env = Path(argv[argv.index("--env-file") + 1]).read_text()
             assert "HONUA_SKIP_MIGRATIONS=true" in env and "Host=cell-db" in env
-            assert "operator-db" not in env and "operator-queue" not in env and "ControlPlane__" not in env
+            assert "ConnectionStrings__redis" not in env and "ControlPlane__" not in env
+            assert "Operations__SecretChannel__KeyRingCertificatePath=/keyring/keyring.pfx" in env
+            # The cell's own master key (it decrypts the cell database) replaces the profile's.
+            assert [l for l in env.splitlines() if l.startswith("Security__ConnectionEncryption__MasterKey=")] == [
+                "Security__ConnectionEncryption__MasterKey=synthetic-master"]
+            assert any(a.endswith(":/keyring/keyring.pfx:ro") for a in argv)
             assert "AWS_ACCESS_KEY_ID=approved-controller-role" in env and argv[-1] == release("b").image
         return SimpleNamespace(stdout="container", returncode=0)
     runtime.run = runner
@@ -686,3 +690,137 @@ def test_terraform_proof_refuses_missing_saved_plan_before_apply(tmp_path, monke
     with pytest.raises(Exception, match='plan identity missing'):
         target.update('ghcr.io/honua-io/honua-server@sha256:'+'b'*64, capture_evidence=True)
     assert not any(args[0] == 'apply' for args in calls)
+
+
+class StoreApi:
+    """Loopback admin API of the image-A migrator / retained controller (no network)."""
+    def __init__(self, scenario):
+        self.scenario, self.calls = scenario, []
+
+    def __call__(self, endpoint, credential, **kwargs):
+        api = SimpleNamespace(endpoint=endpoint, credential=credential)
+        def request(method, path, body=None):
+            self.calls.append((endpoint, credential, method, path, body))
+            if path == "/api/v1/admin/api-keys":
+                key = "synthetic-admin" if self.scenario == "same-key" else "minted-approver"
+                granted = ["admin"] if self.scenario == "broad" else list(body["permissions"])
+                identity = {} if self.scenario == "unechoed" else {"permissions": granted}
+                return (201 if self.scenario != "refused" else 403), {"data": {"key": key, "apiKey": identity}}
+            pending = ["Honua.Server.Migrations.999_Later.sql"] if self.scenario == "pending" else []
+            return 200, {"readyForCoordinatedDeploy": True, "migration": {
+                "planAvailable": True, "upgradeRequired": bool(pending), "pendingScripts": pending,
+                "executedButNotDiscoveredScripts": [], "planError": None}}
+        api.request = request
+        api.get = lambda path: request("GET", path)[1]
+        return api
+
+
+def hermetic_runtime(tmp_path, monkeypatch, scenario="ok", supplement=None):
+    runtime = native.AwsRuntime.__new__(native.AwsRuntime)
+    runtime.cell = "aws-ecs/redis-on"; runtime.sleep = lambda _: None
+    runtime.api = SimpleNamespace(credential="synthetic-admin")
+    runtime.store_containers, runtime.profile_dir, runtime._profile = [], None, None
+    runtime.probe_cleanup_failures, runtime.submitted_job, runtime.controller_name = [], None, None
+    runtime.registered_tasks, runtime.retained_batch_definitions = [], []
+    runtime.controller_env = supplement
+    runtime.safety = {"target_id": "owned-canary", "parameters": {"aws.ecs.canary_service": "owned-canary", "aws.region": "us-east-1"}}
+    runtime.target = SimpleNamespace(region="us-east-1", _state_secrets=lambda *a: ["cell-queue.cache.amazonaws.com:6379"])
+    monkeypatch.setattr(runtime, "controller_credentials", lambda: {"AWS_ACCESS_KEY_ID": "approved-controller-role"})
+    calls, envs = [], {}
+    def runner(argv, **kwargs):
+        calls.append(list(argv))
+        if argv[:2] == ["docker", "run"] and "--env-file" in argv:
+            envs[argv[argv.index("--name") + 1]] = Path(argv[argv.index("--env-file") + 1]).read_text()
+        return SimpleNamespace(stdout="", returncode=0)
+    runtime.run = runner
+    api = StoreApi(scenario)
+    monkeypatch.setattr(native, "Api", api)
+    return runtime, calls, envs, api
+
+
+def test_hermetic_store_is_migrated_by_image_a_and_the_controller_never_migrates(tmp_path, monkeypatch):
+    runtime, calls, envs, api = hermetic_runtime(tmp_path, monkeypatch)
+    prior, candidate = release("a"), release("b")
+    runtime.start_controller(prior, candidate)
+    runs = [c for c in calls if c[:2] == ["docker", "run"]]
+    names = [c[c.index("--name") + 1] for c in runs]
+    # Order: store database, store Redis, image-A migrator, then the retained controller.
+    assert [n.split("-")[2] for n in names] == ["pg", "redis", "migrate", names[3].split("-")[2]]
+    assert runs[0][-1] == native.CONTROLLER_STORE_IMAGES["postgis"] and "127.0.0.1:55432:5432" in runs[0]
+    assert runs[1][-4:] == [native.CONTROLLER_STORE_IMAGES["redis"], "redis-server", "--appendonly", "yes"]
+    migrator, controller = names[2], names[3]
+    assert runs[2][-1] == prior.image and runs[3][-1] == prior.image
+    assert "HONUA_SKIP_MIGRATIONS=false" in envs[migrator] and "HONUA_SKIP_MIGRATIONS=true" in envs[controller]
+    store_dsn = [l for l in envs[migrator].splitlines() if l.startswith("ConnectionStrings__DefaultConnection=")]
+    assert store_dsn and store_dsn[0] in envs[controller].splitlines() and "Host=127.0.0.1;Port=55432" in store_dsn[0]
+    assert "ConnectionStrings__redis=127.0.0.1:56379,defaultDatabase=0" in envs[controller]
+    # The migrator is removed before the controller starts; it never sees AWS or deploy wiring.
+    assert ["docker", "rm", "-f", migrator] in calls and calls.index(["docker", "rm", "-f", migrator]) < calls.index(runs[3])
+    assert "AWS_" not in envs[migrator] and "ControlPlane__" not in envs[migrator]
+    for name in (migrator, controller):
+        assert "Operations__SecretChannel__KeyRingCertificatePath=/keyring/keyring.pfx" in envs[name]
+    # A per-run approver minted in the store, distinct from the owned admin key, approves.
+    minted = [c for c in api.calls if c[3] == "/api/v1/admin/api-keys"]
+    assert len(minted) == 1 and minted[0][4]["permissions"] == ["admin:read", "admin:approve"]
+    assert minted[0][0].endswith(":%d" % native.STORE_MIGRATOR_PORT)
+    assert runtime.approval_key == "minted-approver" != runtime.api.credential
+    assert runtime.deploy.approval_api.credential == "minted-approver"
+    # The store images are digest-pinned and recorded for the receipt.
+    assert all("@sha256:" in image and len(image.rsplit(":", 1)[1]) == 64 for image in native.CONTROLLER_STORE_IMAGES.values())
+    assert runtime.controller_store["images"] == native.CONTROLLER_STORE_IMAGES
+    assert runtime.controller_store["migratedBy"] == prior.image and runtime.controller_store["topology"] == "hermetic-per-run"
+    # Cleanup removes the controller and the whole store, volumes included.
+    assert runtime.close() == []
+    assert ["docker", "rm", "-f", "-v", names[0]] in calls and ["docker", "rm", "-f", "-v", names[1]] in calls
+
+
+@pytest.mark.parametrize("scenario,message", [("pending", "did not migrate the controller store"),
+                                              ("same-key", "distinct API key"), ("broad", "exactly admin:read"),
+                                              ("unechoed", "exactly admin:read"),
+                                              ("refused", "could not be created")])
+def test_hermetic_store_refuses_unmigrated_store_and_unsafe_approver(tmp_path, monkeypatch, scenario, message):
+    runtime, calls, envs, api = hermetic_runtime(tmp_path, monkeypatch, scenario)
+    with pytest.raises(proof.ProofError, match=message):
+        runtime.start_controller(release("a"), release("b"))
+    assert not any(c[:2] == ["docker", "run"] and c[c.index("--name") + 1].startswith("honua-rollback-") and
+                   "HONUA_SKIP_MIGRATIONS=true" in envs.get(c[c.index("--name") + 1], "") for c in calls)
+    runtime.close()
+    removed = {c[-1] for c in calls if c[:3] == ["docker", "rm", "-f"]}
+    started = {c[c.index("--name") + 1] for c in calls if c[:2] == ["docker", "run"]}
+    assert started <= removed, "every hermetic store container is removed even when the proof refuses"
+
+
+def test_hermetic_store_never_shares_the_cell_queue(tmp_path, monkeypatch):
+    runtime, calls, envs, api = hermetic_runtime(tmp_path, monkeypatch)
+    runtime.target._state_secrets = lambda *a: ["127.0.0.1:56379,defaultDatabase=0"]
+    with pytest.raises(proof.ProofError, match="independent durable Redis store"):
+        runtime.start_controller(release("a"), release("b"))
+
+
+@pytest.mark.skipif(sys.platform == "win32", reason="POSIX file-mode privacy check")
+@pytest.mark.parametrize("line", ["ConnectionStrings__redis=operator-queue", "ControlPlane__DeployTargets__0__TargetId=x",
+                                  "HONUA_ADMIN_PASSWORD=x", "operations:secretchannel:keyringcertificatepath=/x"])
+def test_operator_startup_supplement_cannot_override_the_hermetic_store_or_wiring(tmp_path, monkeypatch, line):
+    supplement = tmp_path / "controller.env"
+    supplement.write_text("Logging__LogLevel__Default=Information\n" + line + "\n")
+    supplement.chmod(0o600)
+    runtime, calls, envs, api = hermetic_runtime(tmp_path, monkeypatch, supplement=supplement)
+    with pytest.raises(proof.ProofError, match="must not override"):
+        runtime.startup_profile()
+
+
+def test_empty_operator_supplement_is_allowed_and_ignored(tmp_path, monkeypatch):
+    supplement = tmp_path / "controller.env"
+    supplement.write_text("")
+    runtime, calls, envs, api = hermetic_runtime(tmp_path, monkeypatch, supplement=supplement)
+    lines, mounts = runtime.startup_profile()
+    assert lines[0] == "ASPNETCORE_ENVIRONMENT=Production" and mounts[0] == "-v"
+
+
+def test_receipt_records_the_hermetic_controller_store_identity():
+    runtime = Runtime()
+    runtime.controller_store = {"topology": "hermetic-per-run", "images": dict(native.CONTROLLER_STORE_IMAGES),
+                                "migratedBy": release("a").image, "approverPermissions": ["admin:read", "admin:approve"]}
+    receipt = run(runtime)
+    assert receipt["controllerStore"]["images"] == native.CONTROLLER_STORE_IMAGES
+    assert "controllerStore" not in run(Runtime())

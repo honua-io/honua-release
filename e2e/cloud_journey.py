@@ -458,6 +458,17 @@ def documented_blockers(receipt):
     blockers = set()
     if any(notice.startswith(UNSUPPORTED_KIND_NOTICE) for notice in notices):
         blockers.add(UNSUPPORTED_KIND_ISSUE)
+    roster = receipt.get("roster") if isinstance(receipt.get("roster"), dict) else {}
+    if roster.get("status") == "fail":
+        return []
+    if roster.get("status") == "blocked":
+        # The candidate roster exports are a tracked upstream limitation, never a pass.
+        named = roster.get("blockedBy")
+        named = [named] if isinstance(named, str) else list(named or [])
+        named = [str(b) for b in named if str(b).strip()]
+        if not named:
+            return []
+        blockers.update(named)
     for stage in receipt.get("stages") or []:
         if stage.get("status") == "fail":
             return []
@@ -634,7 +645,6 @@ def attempt(cell, number, endpoint, admin_key, running_image=None, *, image_deta
     directory.mkdir(parents=True, exist_ok=True)
     workdir = directory / f"work-{number}"
     contract = driver.load(HERE / "journey.v1.json")
-    policy = driver.load(HERE / "control-plane-roster.v1.json")
     pinned = manifest()
     template = driver.load(adapter.DEFAULT_TARGET)
     targets = cloud_targets()
@@ -669,6 +679,7 @@ def attempt(cell, number, endpoint, admin_key, running_image=None, *, image_deta
     attribution = None
     if "discovery" in sys.modules:
         sys.modules["discovery"].reset_trace()
+        sys.modules["discovery"].reset_calls()
     try:
         if endpoint is not None:
             # pins.CANDIDATE_ENV_ALLOWLIST is the only environment run_live keeps.
@@ -706,9 +717,14 @@ def attempt(cell, number, endpoint, admin_key, running_image=None, *, image_deta
     if build_only:
         target["kind"] = "none"
     receipt = driver.build_receipt(
-        manifest=pinned, journey=contract, roster=driver.roster_verdict(policy,
+        manifest=pinned, journey=contract, roster=driver.roster_verdict(
             driver.load(Path(os.environ["HONUA_CLOUD_REST_ROSTER"])) if os.environ.get("HONUA_CLOUD_REST_ROSTER") else None,
-            driver.load(Path(os.environ["HONUA_CLOUD_MCP_ROSTER"])) if os.environ.get("HONUA_CLOUD_MCP_ROSTER") else None),
+            driver.load(Path(os.environ["HONUA_CLOUD_MCP_ROSTER"])) if os.environ.get("HONUA_CLOUD_MCP_ROSTER") else None,
+            sys.modules["discovery"].calls() if "discovery" in sys.modules else [],
+            source=driver.roster_source(
+                Path(os.environ["HONUA_CLOUD_REST_ROSTER"]) if os.environ.get("HONUA_CLOUD_REST_ROSTER") else None,
+                Path(os.environ["HONUA_CLOUD_MCP_ROSTER"]) if os.environ.get("HONUA_CLOUD_MCP_ROSTER") else None,
+                os.environ.get("HONUA_CLOUD_ROSTER_SOURCE_SHA"), pinned)),
         evidence_uri=evidence_uri,
         mode="build" if build_only else "live", target=target,
         target_path=target_path, target_base_url=endpoint, workspace=workspace,
@@ -749,6 +765,13 @@ def attempt(cell, number, endpoint, admin_key, running_image=None, *, image_deta
         if proof.get("status") != "pass" and record["failureAttribution"] is None:
             record["failureAttribution"] = "infrastructure"
     return record
+
+
+def profile_blocked(record, raw_path):
+    """A Redis-off attempt whose serving/refusal profile is a documented block (no admissible
+    prerequisite), as opposed to a profile that ran and failed."""
+    import deterministic_refusal_profile as profile
+    return profile.blocked_record(record, Path(raw_path))
 
 
 def qualify_attempt(record, receipt, cell, *, raw_path, run_id, run_attempt,

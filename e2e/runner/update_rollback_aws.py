@@ -10,6 +10,8 @@ import hashlib
 import json
 import math
 import os
+import secrets
+import shutil
 import struct
 import subprocess
 import tempfile
@@ -39,13 +41,43 @@ def env_key(line):
     return line.partition("=")[0].replace(":", "__").lower()
 
 
+# Hermetic retained-controller store (run-local, on the producer runner's loopback). Nothing is
+# standing, so no schema drifts between pairs and an older controller image never meets a store
+# a newer build migrated (honua-server#6477).
+# Pinned by multi-arch index digest (tags noted for review): an upstream retag cannot change the
+# bytes a pair's controller store runs on. Both digests are recorded in the cell receipt.
+CONTROLLER_STORE_IMAGES = {
+    "postgis": "postgis/postgis@sha256:681931a625df344215e9b8998bf34daf146b6a395ceacee4439eb9c85869239f",  # 16-3.4-alpine
+    "redis": "redis@sha256:35011bb2d34be3185c72935a847f25da61094c8a0a207ee17db6a7f8c3de9eb1",  # 7.2-alpine
+}
+CONTROLLER_STORE_PORTS = {"postgis": 55432, "redis": 56379}
+CONTROLLER_PORT, SCHEMA_PROBE_PORT, STORE_MIGRATOR_PORT = 18082, 18083, 18084
+APPROVER_PERMISSIONS = ["admin:read", "admin:approve"]
+KEYRING_MOUNT = "/keyring/keyring.pfx"
+# Keys an optional operator startup supplement may never set: the hermetic store, the derived
+# target/release wiring, the bind address and the bootstrap credential are owned by the producer.
+RESERVED_STARTUP_KEYS = ("connectionstrings__", "controlplane__", "aspnetcore_urls", "honua_admin_password",
+                         "honua_skip_migrations", "licensing__mode", "aws_", "operations__secretchannel__",
+                         "security__connectionencryption__masterkey", "auditlog__chainverification__key")
+
+
+def redis_store(value):
+    parts = value.split(",")
+    options = dict(part.split("=", 1) for part in parts[1:] if "=" in part)
+    database = next((v for k, v in options.items() if k.lower() == "defaultdatabase"), "0")
+    return parts[0].strip().lower(), database.strip()
+
+
 class AwsRuntime:
-    def __init__(self, target, state, *, admin_key, approval_key, serving_fixture, controller_env=None,
+    def __init__(self, target, state, *, admin_key, serving_fixture, approval_key=None, controller_env=None,
                  mirror_repository=None, vertices=65536, workload_path=None, run=subprocess.run, sleep=time.sleep):
         self.target, self.state, self.run, self.sleep = target, state, run, sleep
         self.cell = state["cell"]
         self.api = Api(state["endpoint"], admin_key)
-        self.approval_key, self.controller_env = approval_key, controller_env
+        # The approver is minted per run in the hermetic controller store (start_controller); an
+        # externally supplied key is never trusted, because it cannot exist in a run-local store.
+        self.approval_key, self.controller_env = None, controller_env
+        self.store_containers, self.profile_dir, self._profile = [], None, None
         self.serving_fixture, self.mirror_repository = Path(serving_fixture), mirror_repository
         self.workload = centroid_workload(vertices)
         self.process_id = "geometry.centroid"
@@ -75,8 +107,8 @@ class AwsRuntime:
     def prerequisites(self, prior, candidate):
         require(self.state.get("ready") is True and self.state.get("provisionAttempted") is True,
                 "restored ready baseline provisioning obligation required")
-        require(self.api.credential != self.approval_key and self.approval_key,
-                "independent operator approval credential required")
+        require(bool(self.api.credential) and not self.api.credential.startswith("Bearer "),
+                "owned application API key required")
         # Reuse the authored fixture parser/oracle used by the journey, never use the candidate's
         # response to define expected data. Both source script and publication manifest are hashed.
         import cloud_journey
@@ -116,7 +148,6 @@ class AwsRuntime:
                     "IaC retained ECS safety contract unavailable")
         self.schema_probe(candidate)
         if self.cell != "aws-ecs/redis-off":
-            require(self.controller_env and Path(self.controller_env).is_file(), "protected independent controller environment required")
             self.start_controller(prior, candidate)
 
     def schema_journal(self, api=None):
@@ -140,10 +171,7 @@ class AwsRuntime:
         probe has no Redis/target catalog and receives no runner AWS credentials.
         Startup secret resolution uses only the explicitly approved controller role.
         """
-        require(self.controller_env and Path(self.controller_env).is_file(), "protected startup configuration required for schema preflight")
-        protected = Path(self.controller_env)
-        require(not protected.is_symlink() and protected.stat().st_mode & 0o077 == 0,
-                "schema probe configuration must be private")
+        profile, mounts = self.startup_profile()
         connection = self.target._connection_string()
         parts = {k.strip().lower(): v.strip() for k, v in (p.split("=", 1) for p in connection.split(";") if "=" in p)}
         host, port = parts.get("host"), int(parts.get("port", "5432"))
@@ -173,11 +201,9 @@ class AwsRuntime:
                 ids = [r["SecurityGroupRuleId"] for r in added.get("SecurityGroupRules", [])]
                 require(bool(ids), "owned database admission identity unavailable")
                 rules.extend((group, identity) for identity in ids)
-            lines = protected.read_text().splitlines()
-            # Disable durable dispatch and do not connect to the operator controller's DB/Redis.
-            lines = [line for line in lines if not env_key(line).startswith(("controlplane__", "connectionstrings__", "honua_admin_password",
-                     "licensing__mode", "honua_skip_migrations", "aspnetcore_urls", "aws_"))]
-            derived = {"ASPNETCORE_URLS": "http://127.0.0.1:18083", "HONUA_ADMIN_PASSWORD": self.api.credential,
+            # Production startup only: no durable dispatch, no controller store, no Redis.
+            lines = list(profile)
+            derived = {"ASPNETCORE_URLS": "http://127.0.0.1:%d" % SCHEMA_PROBE_PORT, "HONUA_ADMIN_PASSWORD": self.api.credential,
                        "ConnectionStrings__DefaultConnection": connection, "HONUA_SKIP_MIGRATIONS": "true", "Licensing__Mode": "Disabled"}
             keys = self.target._state_secrets(("master_key",))
             if len(keys) == 1:
@@ -185,14 +211,17 @@ class AwsRuntime:
             derived.update(self.controller_credentials())
             with tempfile.NamedTemporaryFile(mode="w", prefix="honua-schema-", delete=False) as temporary:
                 path = Path(temporary.name); path.chmod(0o600)
+                # Derived values (the cell's own master key, credentials) replace profile defaults.
+                owned = {key.lower() for key in derived}
+                lines = [line for line in lines if env_key(line) not in owned]
                 temporary.write("\n".join(lines + [key + "=" + str(value) for key, value in derived.items()]) + "\n")
             try:
-                checked(self.run, ["docker", "run", "-d", "--name", probe, "--network", "host", "--env-file", str(path),
+                checked(self.run, ["docker", "run", "-d", "--name", probe, "--network", "host", "--env-file", str(path), *mounts,
                                   "--cap-drop", "ALL", "--security-opt", "no-new-privileges", candidate.image],
                         "candidate read-only schema probe could not start", timeout=180)
             finally:
                 path.unlink(missing_ok=True)
-            api = Api("http://127.0.0.1:18083", self.api.credential, loopback=True)
+            api = Api("http://127.0.0.1:%d" % SCHEMA_PROBE_PORT, self.api.credential, loopback=True)
             for _ in range(90):
                 try:
                     view = self.schema_journal(api)
@@ -227,32 +256,159 @@ class AwsRuntime:
         return {"AWS_ACCESS_KEY_ID": credentials["AccessKeyId"], "AWS_SECRET_ACCESS_KEY": credentials["SecretAccessKey"],
                 "AWS_SESSION_TOKEN": credentials["SessionToken"], "AWS_REGION": self.target.region}
 
+    def startup_profile(self):
+        """Run-local Production startup configuration shared by the probe, migrator and controller.
+
+        Mints a PKCS#12 operation key ring (Production with Redis refuses to start without one), an
+        encryption master key and an audit chain key. An optional operator supplement
+        (--controller-env, e.g. telemetry or storage settings) is appended, but it may not set any
+        reserved key: the store, target/release wiring and credentials belong to this producer.
+        Returns (env lines, docker mount arguments).
+        """
+        if getattr(self, "_profile", None) is not None:
+            return self._profile
+        self.profile_dir = Path(tempfile.mkdtemp(prefix="honua-controller-profile-"))
+        self.profile_dir.chmod(0o700)
+        password = secrets.token_hex(24)
+        key, cert, pfx = (self.profile_dir / name for name in ("keyring.key", "keyring.crt", "keyring.pfx"))
+        checked(self.run, ["openssl", "req", "-x509", "-newkey", "rsa:2048", "-nodes", "-keyout", str(key), "-out", str(cert),
+                           "-days", "2", "-subj", "/CN=honua-update-rollback-controller"], "controller key ring generation failed", timeout=60)
+        checked(self.run, ["openssl", "pkcs12", "-export", "-inkey", str(key), "-in", str(cert), "-out", str(pfx),
+                           "-passout", "pass:" + password], "controller key ring export failed", timeout=60)
+        key.unlink(missing_ok=True)
+        if pfx.exists():
+            pfx.chmod(0o644)  # read by the image's non-root user through a read-only mount
+        lines = ["ASPNETCORE_ENVIRONMENT=Production",
+                 "Operations__SecretChannel__KeyRingCertificatePath=" + KEYRING_MOUNT,
+                 "Operations__SecretChannel__KeyRingCertificatePassword=" + password,
+                 "Security__ConnectionEncryption__MasterKey=" + secrets.token_hex(32),
+                 "AuditLog__ChainVerification__Key=" + secrets.token_hex(32)]
+        if self.controller_env and Path(self.controller_env).is_file() and Path(self.controller_env).stat().st_size:
+            supplement = Path(self.controller_env)
+            require(not supplement.is_symlink() and supplement.stat().st_mode & 0o077 == 0,
+                    "controller startup supplement must be a private regular file")
+            extra = [line for line in supplement.read_text().splitlines() if "=" in line and not line.startswith("#")]
+            require(not any(env_key(line).startswith(RESERVED_STARTUP_KEYS) for line in extra),
+                    "controller startup supplement must not override the hermetic store, derived wiring or credentials")
+            lines.extend(extra)
+        self._profile = (lines, ["-v", str(pfx) + ":" + KEYRING_MOUNT + ":ro"])
+        return self._profile
+
+    def provision_controller_store(self):
+        """Start a run-local PostGIS + Redis reserved for this run's retained controller."""
+        suffix = hashlib.sha256((self.cell + str(os.getpid())).encode()).hexdigest()[:12]
+        password = secrets.token_hex(24)
+        pg, redis = "honua-rollback-pg-" + suffix, "honua-rollback-redis-" + suffix
+        with tempfile.NamedTemporaryFile(mode="w", prefix="honua-store-", delete=False) as temporary:
+            path = Path(temporary.name)
+            path.chmod(0o600)
+            temporary.write("POSTGRES_USER=honua\nPOSTGRES_DB=honua\nPOSTGRES_PASSWORD=" + password + "\n")
+        try:
+            self.store_containers.append(pg)
+            checked(self.run, ["docker", "run", "-d", "--name", pg, "--env-file", str(path),
+                               "-p", "127.0.0.1:%d:5432" % CONTROLLER_STORE_PORTS["postgis"], CONTROLLER_STORE_IMAGES["postgis"]],
+                    "controller store database could not start", timeout=300)
+        finally:
+            path.unlink(missing_ok=True)
+        self.store_containers.append(redis)
+        checked(self.run, ["docker", "run", "-d", "--name", redis, "-p", "127.0.0.1:%d:6379" % CONTROLLER_STORE_PORTS["redis"],
+                           CONTROLLER_STORE_IMAGES["redis"], "redis-server", "--appendonly", "yes"],
+                "controller store Redis could not start", timeout=300)
+        for probe, message in ((["docker", "exec", pg, "pg_isready", "-h", "127.0.0.1", "-U", "honua", "-d", "honua"],
+                                "controller store database not ready"),
+                               (["docker", "exec", redis, "redis-cli", "ping"], "controller store Redis not ready")):
+            for _ in range(60):
+                try:
+                    checked(self.run, probe, message, timeout=30)
+                    break
+                except ProofError:
+                    self.sleep(2)
+            else:
+                raise ProofError(message)
+        return {"ConnectionStrings__DefaultConnection": "Host=127.0.0.1;Port=%d;Database=honua;Username=honua;Password=%s"
+                % (CONTROLLER_STORE_PORTS["postgis"], password),
+                "ConnectionStrings__redis": "127.0.0.1:%d,defaultDatabase=0" % CONTROLLER_STORE_PORTS["redis"]}
+
+    def migrate_controller_store(self, prior, store):
+        """Let image A itself migrate the fresh store, prove the set matches A, and mint the approver.
+
+        A runs its normal startup (migrations enabled) on loopback with no deploy target or AWS
+        identity. Its own bidirectional migration plan must then be empty both ways, so the store is
+        exactly A's schema. The approver is a separate principal holding only admin:read +
+        admin:approve, created through A's admin API in that store. The migrator is then removed.
+        """
+        lines, mounts = self.startup_profile()
+        derived = {"ASPNETCORE_URLS": "http://127.0.0.1:%d" % STORE_MIGRATOR_PORT, "HONUA_ADMIN_PASSWORD": self.api.credential,
+                   "Licensing__Mode": "Disabled", "HONUA_SKIP_MIGRATIONS": "false", **store}
+        migrator = "honua-rollback-migrate-" + hashlib.sha256((self.cell + str(os.getpid())).encode()).hexdigest()[:12]
+        with tempfile.NamedTemporaryFile(mode="w", prefix="honua-migrate-", delete=False) as temporary:
+            path = Path(temporary.name)
+            path.chmod(0o600)
+            temporary.write("\n".join(lines + [k + "=" + str(v) for k, v in derived.items()]) + "\n")
+        self.store_containers.append(migrator)
+        try:
+            checked(self.run, ["docker", "run", "-d", "--name", migrator, "--network", "host", "--env-file", str(path), *mounts,
+                               "--cap-drop", "ALL", "--security-opt", "no-new-privileges", prior.image],
+                    "controller store migration (image A) could not start", timeout=180)
+        finally:
+            path.unlink(missing_ok=True)
+        api = Api("http://127.0.0.1:%d" % STORE_MIGRATOR_PORT, self.api.credential, loopback=True)
+        for _ in range(90):
+            try:
+                # The migrator has no deploy target, so only the migration half of the preflight
+                # applies: A's own live plan must be empty in both directions.
+                plan = api.get("/api/v1/admin/deploy/preflight?includeDiagnostics=true").get("migration", {})
+                require(plan.get("planAvailable") is True and plan.get("upgradeRequired") is False
+                        and plan.get("pendingScripts") == [] and plan.get("executedButNotDiscoveredScripts") == []
+                        and not plan.get("planError"), "controller store migration set differs from image A")
+                migration = {"method": "image-a-migrated-hermetic-store", "pendingScripts": 0, "extraScripts": 0}
+                break
+            except ProofError:
+                self.sleep(2)
+        else:
+            raise ProofError("image A did not migrate the controller store to its own migration set")
+        self.approval_key = self.mint_approver(api)
+        checked(self.run, ["docker", "rm", "-f", migrator], "controller store migrator cleanup failed", timeout=60)
+        self.store_containers.remove(migrator)
+        return migration
+
+    def mint_approver(self, api):
+        status, response = api.request("POST", "/api/v1/admin/api-keys", {
+            "name": "update-rollback-approver-" + secrets.token_hex(4), "permissions": list(APPROVER_PERMISSIONS)})
+        require(status in (200, 201), "per-run approver principal could not be created")
+        data = response.get("data", response)
+        key = data.get("key") if isinstance(data, dict) else None
+        require(isinstance(key, str) and key and not any(c in key for c in "\r\n") and key != self.api.credential,
+                "per-run approver credential must be a distinct API key")
+        identity = data.get("apiKey") if isinstance(data.get("apiKey"), dict) else {}
+        granted = identity.get("permissions")
+        # The creation response must echo the effective grants exactly: a missing list could hide a
+        # default or broader grant, so absence refuses just like a wider set does.
+        require(isinstance(granted, list) and all(isinstance(g, str) for g in granted)
+                and sorted(granted) == sorted(APPROVER_PERMISSIONS),
+                "per-run approver must hold exactly admin:read + admin:approve")
+        return key
+
     def start_controller(self, prior, candidate):
         """Retain a separate server process/durable store for the entire switch and rollback.
 
-        The protected env file supplies normal Production startup/audit/storage/Redis and telemetry
-        configuration. Target identity/backend parameters come only from this restored IaC root.
-        An explicitly approved role ARN must match the maintained safety output; only that
-        controller assumes it. The runner keeps the provisioning identity for exact Terraform staging.
+        The store is hermetic: a run-local PostGIS + Redis that image A migrates itself, with a
+        per-run approver principal minted in it. The controller then runs A with migrations
+        disabled. Target identity/backend parameters come only from this restored IaC root. An
+        explicitly approved role ARN must match the maintained safety output; only that controller
+        assumes it. The runner keeps the provisioning identity for exact Terraform staging.
         """
-        protected = Path(self.controller_env)
-        require(not protected.is_symlink() and protected.stat().st_mode & 0o077 == 0, "controller env must be a private regular file")
-        env = protected.read_text()
         require(self.api.credential and not self.api.credential.startswith("Bearer "), "controller bootstrap requires the owned API key")
-        entries = {env_key(line): line.split("=", 1)[1] for line in env.splitlines() if "=" in line and not line.startswith("#")}
-        require(entries.get("connectionstrings__redis") and entries.get("connectionstrings__defaultconnection"),
-                "retained controller requires its protected persistent database and Redis")
-        controller_redis = entries["connectionstrings__redis"]
-        def redis_store(value):
-            parts = value.split(",")
-            options = dict(part.split("=", 1) for part in parts[1:] if "=" in part)
-            database = next((v for k, v in options.items() if k.lower() == "defaultdatabase"), "0")
-            return parts[0].strip().lower(), database.strip()
+        store = self.provision_controller_store()
         for cell_redis in self.target._state_secrets(("redis_connection",)):
-            require(redis_store(controller_redis) != redis_store(cell_redis),
+            require(redis_store(store["ConnectionStrings__redis"]) != redis_store(cell_redis),
                     "controller must use an independent durable Redis store, never the candidate execution queue")
-        require(not any(env_key(line).startswith(("controlplane__deploytargets__", "controlplane__platformrelease__", "aspnetcore_urls"))
-                        for line in env.splitlines()), "protected controller env must not override derived target/release wiring")
+        self.store_migration = self.migrate_controller_store(prior, store)
+        self.controller_store = {"topology": "hermetic-per-run", "images": dict(CONTROLLER_STORE_IMAGES),
+                                 "migratedBy": prior.image, "migration": self.store_migration,
+                                 "approverPermissions": list(APPROVER_PERMISSIONS)}
+        lines, mounts = self.startup_profile()
+        env = "\n".join(lines + [k + "=" + v for k, v in store.items()])
         target_id = self.safety["target_id"] if self.safety else self.output_value("control_plane_target_id")
         target_name = (self.safety["parameters"]["aws.ecs.canary_service"] if self.safety
                        else self.output_value("control_plane_target_name"))
@@ -260,7 +416,7 @@ class AwsRuntime:
         parameters = dict(self.safety["parameters"]) if self.safety else {
             "aws.lambda.function_name": self.output_value("lambda_function_name"), "aws.lambda.alias_name": "live",
             "aws.region": self.target.region}
-        derived = {"ASPNETCORE_URLS": "http://127.0.0.1:18082", "HONUA_ADMIN_PASSWORD": self.api.credential,
+        derived = {"ASPNETCORE_URLS": "http://127.0.0.1:%d" % CONTROLLER_PORT, "HONUA_ADMIN_PASSWORD": self.api.credential,
             "Licensing__Mode": "Disabled", "HONUA_SKIP_MIGRATIONS": "true", "ControlPlane__DeployTargets__0__TargetId": target_id,
             "ControlPlane__DeployTargets__0__TargetKind": "AwsEcs" if self.safety else "AwsLambda",
             "ControlPlane__DeployTargets__0__Backend": backend, "ControlPlane__DeployTargets__0__TargetName": target_name,
@@ -279,11 +435,11 @@ class AwsRuntime:
             temporary.write(env.rstrip() + "\n" + "\n".join(key + "=" + str(value) for key, value in derived.items()) + "\n")
         try:
             checked(self.run, ["docker", "run", "-d", "--name", self.controller_name, "--network", "host",
-                    "--env-file", str(path), "--cap-drop", "ALL", "--security-opt", "no-new-privileges", prior.image],
+                    "--env-file", str(path), *mounts, "--cap-drop", "ALL", "--security-opt", "no-new-privileges", prior.image],
                     "retained controller startup failed", timeout=180)
         finally:
             path.unlink(missing_ok=True)
-        controller = Api("http://127.0.0.1:18082", self.api.credential, loopback=True)
+        controller = Api("http://127.0.0.1:%d" % CONTROLLER_PORT, self.api.credential, loopback=True)
         for _ in range(90):
             try:
                 preflight = controller.get("/api/v1/admin/deploy/preflight")
@@ -294,7 +450,7 @@ class AwsRuntime:
             self.sleep(2)
         else:
             raise ProofError("independent controller did not become ready")
-        approval = Api("http://127.0.0.1:18082", self.approval_key, loopback=True)
+        approval = Api("http://127.0.0.1:%d" % CONTROLLER_PORT, self.approval_key, loopback=True)
         self.deploy = DeployApi(controller, target_id, backend, approval_api=approval, sleep=self.sleep)
 
     def incompatible_target(self):
@@ -594,6 +750,14 @@ class AwsRuntime:
                 self.aws("ecs", "deregister-task-definition", "--task-definition", task)
             except Exception:
                 failures.append("staged-task-definition")
+        # The hermetic controller store and its key ring never outlive the run.
+        for container in reversed(getattr(self, "store_containers", [])):
+            try:
+                checked(self.run, ["docker", "rm", "-f", "-v", container], "controller store cleanup failed", timeout=60)
+            except Exception:
+                failures.append("controller-store")
+        if getattr(self, "profile_dir", None):
+            shutil.rmtree(self.profile_dir, ignore_errors=True)
         return failures
 
 

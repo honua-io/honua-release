@@ -45,10 +45,42 @@ def _strip_single_quoted_heredocs(code: str) -> str:
     return "\n".join(out)
 
 
-def assigned_names(block: Block) -> set[str]:
+# A block may write NAME=value lines to a dotenv-style file that a later shell block sources
+# (`. ./publish.env`). The names it writes are recorded as file-scoped markers in the defined set;
+# they define NAME only for a later shell block that actually sources that file.
+ENV_FILE_LITERAL = re.compile(r"""["']((?:\./)?[\w./-]*\.env)["']""")
+ENV_FILE_NAME = re.compile(r"""(?:["']|\\n)([A-Za-z_][A-Za-z0-9_]*)=""")
+SHELL_SOURCE = re.compile(r"""(?:^|[\s;&|(])(?:\.|source)\s+["']?([^\s;&|"')]+)""", re.M)
+_FILE_MARK = "\0env-file:"
+
+
+def _env_file_key(path: str) -> str:
+    return path[2:] if path.startswith("./") else path
+
+
+def _written_env_files(block: Block) -> set[str]:
+    """File-scoped markers for NAME= lines a non-shell block writes to a quoted *.env path."""
+    if block.language == "shell" or not re.search(r"\bopen\(|write_text\(|writeFileSync\(|WriteAllText\(", block.code):
+        return set()
+    names = set(ENV_FILE_NAME.findall(block.code))
+    return {f"{_FILE_MARK}{_env_file_key(path)}\0{name}" for path in ENV_FILE_LITERAL.findall(block.code) for name in names}
+
+
+def _sourced_names(block: Block, defined: set[str]) -> set[str]:
     if block.language != "shell":
         return set()
-    return set(SHELL_ASSIGN.findall(block.code)) | set(SHELL_LOOP.findall(block.code))
+    out: set[str] = set()
+    for path in SHELL_SOURCE.findall(block.code):
+        prefix = f"{_FILE_MARK}{_env_file_key(path)}\0"
+        out |= {entry[len(prefix):] for entry in defined if entry.startswith(prefix)}
+    return out
+
+
+def assigned_names(block: Block, defined: set[str] | None = None) -> set[str]:
+    if block.language != "shell":
+        return _written_env_files(block)
+    return (set(SHELL_ASSIGN.findall(block.code)) | set(SHELL_LOOP.findall(block.code))
+            | _sourced_names(block, defined or set()))
 
 
 def needs(block: Block, defined: set[str]) -> dict[str, list[str]]:
@@ -57,7 +89,7 @@ def needs(block: Block, defined: set[str]) -> dict[str, list[str]]:
     optional: set[str] = set()
     code = block.code
     if block.language == "shell":
-        own = assigned_names(block)
+        own = assigned_names(block, defined)
         for braced, modifier, bare in SHELL_REF.findall(_strip_single_quoted_heredocs(code)):
             name = braced or bare
             if not name or name in SHELL_BUILTIN_ENV or name in own or name in defined or name.isdigit():

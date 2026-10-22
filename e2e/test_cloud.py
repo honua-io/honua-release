@@ -1562,7 +1562,12 @@ def test_cloud_workflow_requires_four_ga_cells_and_keeps_eks_preview():
     job = workflow["jobs"]["parity"]
     assert set(cj.GA_CELLS) == {f"{target}/redis-{mode}" for target in ("aws-ecs", "aws-serverless") for mode in ("off", "on")}
     assert cj.PREVIEW_TARGETS == ("aws-eks",)
-    assert "aws-eks" in job["strategy"]["matrix"]["target"]
+    # Operator ruling 2026-10-22: target=all is the GA targets only; aws-eks (Preview) runs only
+    # on an explicit target=aws-eks dispatch, and the report names it "not certified (preview)".
+    matrix = job["strategy"]["matrix"]["target"]
+    assert "(inputs.target == '' || inputs.target == 'all') && '[\"aws-serverless\",\"aws-ecs\"]'" in matrix
+    assert '"aws-eks"' not in matrix
+    assert "aws-eks" in workflow[True]["workflow_dispatch"]["inputs"]["target"]["options"]
     # rc.3: examples/aws-mixed does not exist; the cell is out of the matrix until honua-iac#209.
     assert "aws-mixed" not in job["strategy"]["matrix"]["target"]
     assert "aws-mixed" not in workflow[True]["workflow_dispatch"]["inputs"]["target"]["options"]
@@ -2769,6 +2774,18 @@ def test_documented_blockers_name_tracked_limitations_and_refuse_everything_else
     assert cj.documented_blockers(_ecs_receipt()) == []  # a pass is not blocked
 
 
+def test_documented_blockers_name_a_blocked_roster_and_refuse_an_unnamed_or_failed_one():
+    cj = run_cloud.cloud_journey
+    roster_issue = "https://github.com/honua-io/honua-server/issues/3363"
+    receipt = _blocked_receipt()
+    receipt["roster"] = {"status": "blocked", "reason": "exports unavailable", "blockedBy": roster_issue}
+    assert roster_issue in cj.documented_blockers(receipt)
+    receipt["roster"] = {"status": "blocked", "reason": "exports unavailable"}
+    assert cj.documented_blockers(receipt) == []
+    receipt["roster"] = {"status": "fail", "problems": ["x"]}
+    assert cj.documented_blockers(receipt) == []
+
+
 def _serverless_state(require_real):
     sha, _ = _manifest_server()
     return {"cell": SERVERLESS_OFF, "redis": "redis-off", "requireReal": require_real,
@@ -3193,6 +3210,45 @@ def test_cloud_seed_uses_cell_secret_without_passphrase_in_process_args(monkeypa
     result = target.seed_database('SELECT 1')
     assert result['host'] == 'cell-db' and result['password'] == 'private-password'
 
+
+def test_cloud_seed_registers_the_rds_proxy_host_when_the_cell_has_one(monkeypatch):
+    target = ecs(run_id='seed-proxy')
+    target._workdir = Path('/tmp/cell')
+    connection = 'Host=cell-db;Port=5432;Database=honua;Username=honua;Password=private-password;SSL Mode=Require'
+    state = {'values': {'root_module': {'child_modules': [{'resources': [{
+        'type': 'aws_secretsmanager_secret_version', 'name': 'db_connection',
+        'values': {'secret_string': connection}}]}]}}}
+    def tf(root, *args, check=True):
+        if args[:2] == ('output', '-json'):
+            return subprocess.CompletedProcess(args, 0, json.dumps('cell-proxy.proxy-abc.us-east-1.rds.amazonaws.com'))
+        return subprocess.CompletedProcess(args, 0, json.dumps(state))
+    monkeypatch.setattr(target, '_tf', tf)
+    seen = {}
+    def psql(command, **kwargs):
+        seen['host'] = kwargs['env']['PGHOST']
+        return subprocess.CompletedProcess(command, 0)
+    monkeypatch.setattr(subprocess, 'run', psql)
+    result = target.seed_database('SELECT 1')
+    # psql runs from the runner over the direct endpoint; the server's data source uses the proxy.
+    assert seen['host'] == 'cell-db'
+    assert result['host'] == 'cell-proxy.proxy-abc.us-east-1.rds.amazonaws.com'
+
+
+def test_cloud_seed_keeps_the_direct_host_without_a_proxy_output(monkeypatch):
+    target = ecs(run_id='seed-noproxy')
+    target._workdir = Path('/tmp/cell')
+    connection = 'Host=cell-db;Port=5432;Database=honua;Username=honua;Password=private-password;SSL Mode=Require'
+    state = {'values': {'root_module': {'child_modules': [{'resources': [{
+        'type': 'aws_secretsmanager_secret_version', 'name': 'db_connection',
+        'values': {'secret_string': connection}}]}]}}}
+    def tf(root, *args, check=True):
+        if args[:2] == ('output', '-json'):
+            return subprocess.CompletedProcess(args, 0, 'null')
+        return subprocess.CompletedProcess(args, 0, json.dumps(state))
+    monkeypatch.setattr(target, '_tf', tf)
+    monkeypatch.setattr(subprocess, 'run', lambda command, **kwargs: subprocess.CompletedProcess(command, 0))
+    assert target.seed_database('SELECT 1')['host'] == 'cell-db'
+
 if __name__ == "__main__":
     import traceback
 
@@ -3390,9 +3446,11 @@ _REDIS_OFF_DETAIL = ("The operation proposal and approval control plane requires
                      "listed, inspected, approved, or rejected.")
 
 
-def test_durable_control_plane_roster_is_the_23_redis_gated_admin_tools():
-    assert len(_FULL_ROSTER) == 129 and len(set(_FULL_ROSTER)) == 129
-    assert len(_DURABLE_ONLY) == 23 and set(_DURABLE_ONLY) <= set(_FULL_ROSTER)
+def test_durable_control_plane_roster_is_the_24_redis_gated_admin_tools():
+    # 4709145 re-pin: 132 tools (+honua_admin_import_upload_object, honua_diagnose_job, honua_job_evidence),
+    # 24 durable-control-plane names (+honua_admin_import_upload_object).
+    assert len(_FULL_ROSTER) == 132 and len(set(_FULL_ROSTER)) == 132
+    assert len(_DURABLE_ONLY) == 24 and set(_DURABLE_ONLY) <= set(_FULL_ROSTER)
     assert all(n.startswith(("honua_admin_layer_", "honua_admin_services_", "honua_admin_connections_",
                                       "honua_admin_import_")) for n in _DURABLE_ONLY)
     assert not set(_DURABLE_ONLY) & set(_EXPECTED_TOOLS["criticalTools"])
@@ -3532,16 +3590,16 @@ def test_s2_redis_on_full_129_catalog_passes():
     assert row["evidence"]["topology"]["durableControlPlaneTools"]["state"] == "required"
 
 
-def test_s2_redis_off_106_catalog_passes_with_topology_recorded():
+def test_s2_redis_off_108_catalog_passes_with_topology_recorded():
     catalog = [n for n in _FULL_ROSTER if n not in _DURABLE_ONLY]
-    assert len(catalog) == 106
+    assert len(catalog) == 108
     for signal in ("jobs.runner", "operations.proposals", "admin-proposals"):
         row = _s2(catalog, "redis-off", "off", signal)
         assert row["status"] == "pass", (signal, row["why"])
         topo = row["evidence"]["topology"]
         assert topo["topology"] == "redis-off" and topo["declared"] == "off" and topo["mismatch"] is None
         assert topo["reasonCode"] and topo["signal"].startswith(("manifest:", "admin-proposals:"))
-        assert topo["durableControlPlaneTools"] == {"state": "absent", "count": 23}
+        assert topo["durableControlPlaneTools"] == {"state": "absent", "count": 24}
         assert "redis-off" in row["why"]
 
 
