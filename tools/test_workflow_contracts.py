@@ -805,11 +805,15 @@ def test_upgrade_gate_nightly_schedule_exercises_the_failed_rollback_scenario():
     exercised in the targeted nightly lane, not merely reachable via a manual workflow_dispatch game
     day that an operator has to remember to run."""
     workflow = _workflow("gate-upgrade.yml")
-    matrix_scenario = workflow["jobs"]["kind-upgrade"]["strategy"]["matrix"]["scenario"]
+    matrix_scenario = workflow["jobs"]["kind-upgrade"]["strategy"]["matrix"]["include"]
     assert "'schedule'" in matrix_scenario
-    assert '"rollback-failure"' in matrix_scenario
-    for scenario in ("normal", "post-migration-readiness", "bad-config", "migration-boundary"):
-        assert f'"{scenario}"' in matrix_scenario
+    assert '{"scenario":"rollback-failure","pair":"trunk-candidate"}' in matrix_scenario
+    for scenario in ("post-migration-readiness", "bad-config", "migration-boundary"):
+        assert '{"scenario":"%s","pair":"trunk-candidate"}' % scenario in matrix_scenario
+    # The headline customer path is the published-release pair; the trunk pair is scaffolding.
+    assert '{"scenario":"normal","pair":"published-release"}' in matrix_scenario
+    assert '{"scenario":"normal","pair":"trunk-candidate"}' in matrix_scenario
+    assert "inputs.upgrade_pair || 'published-release'" in matrix_scenario
 
 
 def test_upgrade_gate_treats_correctly_classified_rollback_failure_as_a_passing_negative():
