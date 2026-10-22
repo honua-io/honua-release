@@ -1,6 +1,17 @@
 # FOSS4G hosted candidate preparation
 
-Status: private infrastructure and Cognito configuration prepared for review, 2026-10-22. The [private root](../certification/hosted-pilot/README.md) defines isolated Server/Redis/storage and a Console task with no ingress. No apply, installed Console candidate, or passing hosted AI journey has been produced by this work. Existing RC gates and the bounded pilot scope remain unchanged.
+Status: private infrastructure and Cognito configuration prepared for review, 2026-10-22. The [private root](../certification/hosted-pilot/README.md) defines isolated Server/Redis/storage and a Console task with no ingress. No apply, installed Console candidate, or passing hosted AI journey has been produced by this work. Both AI gates are required for RC admission under the latest owner instruction; the bounded pilot profile does not replace the full agent campaign.
+
+## Infrastructure execution rule
+
+The owner accepts this release-owned Terraform root. Infrastructure creation and
+configuration must run through checked-in IaC and versioned deployment workflows;
+read-only CLI inspection is permitted. Do not use ad hoc AWS CLI mutations,
+AWS Console setup or local manual Terraform apply. DNS/certificates, Cognito,
+IAM/secret bindings, ingress, service deployment and cleanup must be covered by
+that path before installation. The current contract workflow validates offline;
+it is not an apply workflow. A reviewed saved-plan deployment workflow remains
+required. The existing public demo retains its `honua-demo-infra` ownership.
 
 ## Observed demo and candidate separation
 
@@ -20,7 +31,7 @@ Source paths below are repository-relative, prefixed by repository name; they id
 
 ## Private preparation and remaining hosted implementation
 
-The release-owned `certification/hosted-pilot` root now pins the reusable module and validates digest-only candidate inputs, configures one private Console task with scoped secret-reference permissions, and records nonsecret resource references. Its [module prerequisite](https://github.com/honua-io/honua-iac/pull/284), pinned at `5aae2ea96206911aabc8ee9aca50dc7fdd6bbb02`, exposes VPC/private-subnet/ALB identities and adds typed browser-authentication settings with scoped secret injection for Server tasks. This is a preparation slice: Console has no ingress, public route or audience route; native inference and Server provider access remain disabled. Terraform validation and mocked plan tests establish configuration contracts, not deployability or installed behavior.
+The release-owned `certification/hosted-pilot` root now pins the reusable module and validates digest-only candidate inputs, configures one private Console task with scoped secret-reference permissions, and records nonsecret resource references. Its [module prerequisite](https://github.com/honua-io/honua-iac/pull/284), pinned at `5eff1c5e2fc2b4cf358457d87ff46e85b650df88`, exposes VPC/private-subnet/ALB identities and adds typed browser-authentication settings with scoped secret injection for Server tasks. This is a preparation slice: Console has no ingress, public route or audience route; native inference and Server provider access remain disabled. Terraform validation and mocked plan tests establish configuration contracts, not deployability or installed behavior.
 
 Complete the following parts after identity, transport and artifact inputs are bound:
 

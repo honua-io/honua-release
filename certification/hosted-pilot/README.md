@@ -31,6 +31,13 @@ health check. ECS running status and circuit-breaker success do not establish
 authentication or BFF readiness; Production can boot while refusing operator
 login. Independent application preflight remains required.
 
+Infrastructure creation/configuration must run through versioned IaC and a
+checked-in deployment workflow. Read-only CLI inspection is permitted; ad hoc
+AWS mutations, Console setup and local manual Terraform apply are excluded.
+The current workflow performs offline checks only. The saved-plan apply workflow,
+its backend/bootstrap bindings and all remaining runtime resources must be
+implemented before installation.
+
 Offline checks (provider/module downloads during init, no AWS API calls):
 
 ```bash
@@ -45,11 +52,12 @@ configuration and refusal boundaries, not the module's runtime or actual IAM.
 Never interpret them as installed qualification.
 
 Before any coordinated cloud plan/apply, bind the candidate digests and verify
-published provenance; copy `backend.tf.example` to ignored `backend.tf` and
-replace every placeholder using a dedicated encrypted/locked state backend and
-separate backend-access role. The generated bootstrap admin/database/encryption
+published provenance. The deployment workflow must render the reviewed
+`backend.tf.example` binding using a dedicated encrypted/locked state backend
+and separate backend-access role; it must refuse unresolved placeholders. The generated bootstrap admin/database/encryption
 values make state sensitive even though no existing secret value is fetched.
-Supply reviewed inputs in an ignored tfvars file with secret **ARNs** only.
+Supply reviewed workflow inputs with secret **ARNs** only; the workflow must
+keep any rendered tfvars file private and ephemeral.
 Use short-lived executor credentials; do not retrieve or print secret values.
 
 ## Cognito identity preparation
