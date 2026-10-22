@@ -773,7 +773,7 @@ jobs:
                       >> /tmp/upg/contract-gate.log 2>&1 || true
                   done
                   APPROVAL_NONCE="$(grep -hoE 'HONUA_APPROVE_CONTRACT_MIGRATIONS=[0-9a-f]{8,64}' /tmp/upg/contract-gate.log | head -n 1 | cut -d= -f2 || true)"
-                  GATED_SCRIPTS="$(grep -hoE 'pending contract-phase migration[(]s[)] on an existing database: [^.]+[.]sql([^.]*[.]sql)*' /tmp/upg/contract-gate.log | head -n 1 | sed 's/.*database: //' || true)"
+                  GATED_SCRIPTS="$(sed -n 's/.*pending contract-phase migration(s) on an existing database: \(.*[.]sql\)[.] These reviewed.*/\1/p' /tmp/upg/contract-gate.log | head -n 1 || true)"
                   if [ -n "$APPROVAL_NONCE" ]; then
                     CONTRACT_APPROVAL=contract-approval-required
                     echo "CONTRACT-APPROVAL-REQUIRED (expected customer step): nonce $APPROVAL_NONCE for: $GATED_SCRIPTS"
@@ -804,7 +804,23 @@ jobs:
                 # 3) ROLLBACK IMAGE only; retain migrated DB and query seed data through the prior app.
                 elif helm rollback honua 1 -n "$NS" --wait --timeout 12m >/tmp/rollback.log 2>&1; then
                   capture_phase rollback "$PRIOR" "$PRIOR_SOURCE_REVISION" "$PRIOR_LOCK_DIGEST" "$CANDIDATE_SCHEMA" || STATUS=fail
-                  if [ "$STATUS" != fail ] && [ "$HT" = "ok" ] && serves_seed /tmp/rollback-query.json; then
+                  if [ "$STATUS" != fail ] && [ -n "$APPROVAL_NONCE" ]; then
+                    # Across approved contract migrations the documented rollback is the backup restore,
+                    # whatever the older image does. An image that predates the schema-reader guard can
+                    # start on the narrowed schema; record that it served silently, then do the
+                    # documented restore and require the prior to serve from it.
+                    BOUNDARY=contract-migrations-approved
+                    serves_seed /tmp/rollback-silent-query.json && SERVED_SILENTLY=true || SERVED_SILENTLY=false
+                    if [ "$BACKUP_TAKEN" = true ] && restore_pre_upgrade_backup && [ "$HT" = ok ] && serves_seed /tmp/rollback-query.json \
+                       && capture_phase rollback "$PRIOR" "$PRIOR_SOURCE_REVISION" "$PRIOR_LOCK_DIGEST" "$PRIOR_SCHEMA"; then
+                      ROLLBACK_OUTCOME=restored-from-pre-upgrade-backup
+                      STATUS=pass; WHY="schema_versions advanced $BEFORE_VERSIONS->$AFTER_VERSIONS (schema $CANDIDATE_SCHEMA, contract approval: $CONTRACT_APPROVAL); seeded rows survived; rollback across the approved contract migrations restored the pre-upgrade backup and the prior image served 2 seeded features (image-only rollback served silently on the narrowed schema: $SERVED_SILENTLY)"
+                    else
+                      ROLLBACK_OUTCOME=restore-did-not-recover
+                      STATUS=fail; WHY="rollback across approved contract migrations: restoring the pre-upgrade backup did not bring the prior back"
+                      tail -n 40 /tmp/upg/restore.log || true
+                    fi
+                  elif [ "$STATUS" != fail ] && [ "$HT" = "ok" ] && serves_seed /tmp/rollback-query.json; then
                     ROLLBACK_OUTCOME=image-rollback-served
                     STATUS=pass; WHY="schema_versions advanced $BEFORE_VERSIONS->$AFTER_VERSIONS (schema $CANDIDATE_SCHEMA, contract approval: $CONTRACT_APPROVAL); seeded rows survived; prior image served 2 seeded features against the migrated schema"
                   else
@@ -943,7 +959,7 @@ jobs:
               --arg helmTest "${HT:-}" --arg rollbackCount "$(jq -r '.count // empty' /tmp/rollback-query.json 2>/dev/null || true)" \
               --arg approval "${CONTRACT_APPROVAL:-not-required}" --arg nonce "${APPROVAL_NONCE:-}" --arg gated "${GATED_SCRIPTS:-}" \
               --arg rollback "${ROLLBACK_OUTCOME:-}" --arg boundary "${BOUNDARY:-}" --arg backup "${BACKUP_TAKEN:-false}" \
-              --arg floor "$READER_EXPAND_FLOOR" --arg priorSchema "${PRIOR_SCHEMA:-}" \
+              --arg floor "$READER_EXPAND_FLOOR" --arg priorSchema "${PRIOR_SCHEMA:-}" --arg silent "${SERVED_SILENTLY:-}" \
               '{schemaVersionsRows:{beforeUpgrade:$before,afterUpgrade:$after},observedSchema:$schema,declaredCandidateSchema:$declared,
                 seededRows:{e2e_src_fs:{before:$beforeSrc,after:$afterSrc},maui_zoning:{before:$beforeZoning,after:$afterZoning}},
                 helmTest:$helmTest,rollbackPriorQueryCount:$rollbackCount,
@@ -952,7 +968,8 @@ jobs:
                     steps:(if $nonce=="" then [] else ["helm upgrade (unattended): candidate refused with the typed contract-migration gate and printed the one-shot nonce",
                            "helm upgrade with HONUA_APPROVE_CONTRACT_MIGRATIONS=<nonce>"] end)},
                   migrateOnly:"not used (HONUA_MIGRATE_ONLY, honua-server#6479, is not in this candidate)",
-                  rollback:{outcome:$rollback,boundary:$boundary,readerExpandFloorSchema:$floor,priorSchema:$priorSchema}}}' > /tmp/upg/trunk-observed.json
+                  rollback:{outcome:$rollback,boundary:$boundary,readerExpandFloorSchema:$floor,priorSchema:$priorSchema,
+                            imageRollbackServedSilentlyAcrossContract:(if $silent=="" then null else ($silent=="true") end)}}}' > /tmp/upg/trunk-observed.json
             cp /tmp/migration-journal.json /tmp/upg/trunk-migration-journal.json 2>/dev/null || true
             echo "trunk_status=$STATUS" >> "$GITHUB_ENV"
             echo "trunk_why=$(printf '%s' "$WHY" | tr '\n' ' ')" >> "$GITHUB_ENV"
