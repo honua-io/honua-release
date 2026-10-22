@@ -44,12 +44,12 @@ def gp_source():
 def test_actual_guide_binds_all_six_frozen_blocks_and_only_documented_key():
     doc, text = gp_source()
     # Full source bytes from honua-site 7d733c0, Git blob 066553902e5914673dec395382dad69d189828b7
-    # (the same blob at the inventory revision dcde0d9f7c0719b4d607a353c714993dfc8d622a).
+    # (the same blob at the inventory revision f8296937f06a390169d04841e1df6956ae492852).
     assert hashlib.sha256(text.encode()).hexdigest() == "652c7bb512f161474088dce1e1f8faef322d74a9a025dd4873b13d22a65193aa"
     plan = compile_plan(doc, extract(text, "markdown"))
     frozen = json.loads((HERE / "inventory.json").read_text())
     row = next(d for d in frozen["documents"] if d["id"] == "honua-site-docs-geoprocessing-index")
-    assert row["revision"] == "dcde0d9f7c0719b4d607a353c714993dfc8d622a"
+    assert row["revision"] == "f8296937f06a390169d04841e1df6956ae492852"
     assert [b.sha256 for b in extract(text, "markdown")] == [b["sha256"] for b in row["blocks"]]
     assert [plan[i]["runtime"] for i in range(6)] == ["node", "node", "python", "python", "dotnet", "dotnet"]
     variables = load_vars(HERE / "vars", row["id"])
