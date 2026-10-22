@@ -1196,3 +1196,12 @@ def test_public_feature_sample_binds_its_exact_documented_service_token():
     assert substitute(code, table) == code.replace("your-feature-service", "maui-zoning")
     # The former bracketed key left the actual reader input untouched.
     assert substitute(code, {"<your-feature-service>": "maui-zoning"}) == code
+
+
+def test_another_tools_html_comment_does_not_hide_the_file_cue():
+    text = ("Make a directory and put this in it as `compose.yaml`:\n\n"
+            "<!-- docs-validation:install.compose mode=run -->\n```yaml\nservices: {}\n```\n")
+    block = extract(text, "markdown")[0]
+    assert (block.intent, block.file) == ("file", "compose.yaml")
+    plain = extract("Some prose.\n\n<!-- a comment -->\n```yaml\nservices: {}\n```\n", "markdown")[0]
+    assert plain.intent != "file"
