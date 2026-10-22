@@ -108,12 +108,10 @@ nested nextTick/Promise jobs and later idle events caused by their referenced wo
 An owned checkpoint checks public `process.getActiveResourcesInfo()` after those jobs;
 only the exact harness I/O and checkpoint handles are unreferenced. Resource types are
 never ignored, and cleanup bookkeeping does not create extra reader idle events.
-Dormant, unbound UDP sockets also fail explicitly before completion, although native
-Node permits that script to exit successfully. Node's public active-resource list still
-reports `UDPWrap` at native idle in this case; the runner does not subtract resource
-types or claim native-equivalent support. This temporary limitation remains under open
-[#683](https://github.com/honua-io/honua-release/issues/683); no governed document or
-acceptance row is waived by it.
+An owned UDP socket that is still unbound after `beforeExit` listeners completes the way
+native Node does. The public active-resource list can still report `UDPWrap` for that
+inactive handle; the runner drops that socket's own ref through `unref()` and does not
+subtract resource types. A bound socket, referenced or unreferenced, is not treated as idle.
 The final native exit status also remains authoritative; nonzero `process.exitCode` fails
 and loses the context rather than passing because the interpreter stays alive.
 Top-level await that cannot settle at idle fails and stops the context; referenced work
@@ -123,9 +121,11 @@ unreferenced sockets, listening servers, message ports and `fs.watch` watchers a
 through public APIs. Close callbacks remain captured by their original block; errors or
 cleanup that exceeds that block's timeout fail the context. Idle SDK connections close
 without removing listeners, and a later query by the same client must reconnect. Unsupported
-owned unreferenced UDP/child/worker/stat-watcher/promise-watch resources fail before pass.
-This bounded cleanup can run close callbacks that native process exit would omit. It is
-not full native exit fidelity, which remains open under #683 along with the ESM limitations.
+owned unreferenced child/worker/stat-watcher/promise-watch resources, and a bound unreferenced
+UDP socket, fail before pass. This bounded cleanup can run close callbacks that native
+process exit would omit. That difference stays explicit in the native-oracle control
+`test_cleanup_callbacks_are_captured_before_pass_with_explicit_native_difference`. It is
+not full native exit fidelity. ESM limitations beyond the implemented reader also remain.
 
 ## Results
 

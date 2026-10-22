@@ -46,7 +46,7 @@ const emit = process.emit;
 process.emit = function (event, ...args) {
   if (this === process && event === 'beforeExit' && active) {
     // Snapshot at the actual native idle event, before listeners can start new
-    // work. Dormant UDP completion remains an explicit partial-support refusal.
+    // work. Bound UDP is refused here. Unbound UDP is not: native exit allows it.
     active.idleFailure = resources.idleFailure(active.file);
     return output.run(active.file, () => emit.call(this, event, ...args));
   }
@@ -66,6 +66,12 @@ function checkpoint() {
           // All beforeExit listeners and their nextTick/Promise jobs have run.
           // Reader reference work requires the next natural beforeExit event.
           if (completion.idleFailure) throw completion.idleFailure;
+          const boundUdp = resources.boundUdpFailure(completion.file);
+          if (boundUdp) throw boundUdp;
+          // Do not close the socket. Drop only the ref of UDP sockets that are
+          // still unbound, so their UDPWrap entry leaves the public list
+          // without subtracting a resource type.
+          resources.detachUnboundUdp(completion.file);
           if (activeResources().length) return;
           const code = Number(process.exitCode) & 255;
           if (code) return completion.reject(new Error(`Node script completed with exit code ${code}`));

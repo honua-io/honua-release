@@ -159,31 +159,87 @@ export function ownResources(scope) {
 
   // These public resources can outlive their process. Until their cleanup is
   // supported, an owned unref is a failure rather than a false completion.
+  // Unbound UDP is the exception: native exit succeeds and does not run close.
   for (const [name, field, kind] of [['udp.socket', 'socket', 'UDP'],
     ['child_process', 'process', 'ChildProcess'], ['worker_threads', 'worker', 'Worker']]) {
     channel(name).subscribe(message => {
       const resource = message[field];
       const record = track(resource, kind, undefined);
       if (!record) return;
-      const original = resource.unref;
+      const originalUnref = resource.unref;
+      record.originalUnref = originalUnref;
       resource.unref = function (...args) {
         mark(record, true);
-        return original.apply(this, args);
+        return originalUnref.apply(this, args);
       };
+      if (kind === 'UDP') {
+        const originalRef = resource.ref;
+        resource.ref = function (...args) {
+          mark(record, false);
+          return originalRef.apply(this, args);
+        };
+        // bind/send/connect can leave the socket holding the loop before
+        // address() succeeds. Remember that request synchronously.
+        for (const method of ['bind', 'send', 'connect']) {
+          const original = resource[method];
+          resource[method] = function (...args) {
+            const result = original.apply(this, args);
+            record.bound = true;
+            mark(record, record.unreferenced);
+            return result;
+          };
+        }
+      }
       resource.once(kind === 'UDP' ? 'close' : 'exit', () => forget(record));
     });
   }
 
+  function udpState(socket) {
+    try {
+      socket.address();
+      return 'bound';
+    } catch (error) {
+      if (error?.code === 'EBADF') return 'unbound';
+      if (error?.code === 'ERR_SOCKET_DGRAM_NOT_RUNNING') return 'closed';
+      throw error;
+    }
+  }
+  function udpRecords(file) {
+    return [...(byFile.get(file) || [])].filter(record => !record.closed && record.kind === 'UDP');
+  }
+  function udpBound(record) {
+    const state = udpState(record.resource);
+    if (state === 'closed') return false;
+    return record.bound || state === 'bound';
+  }
+
   return {
     idleFailure(file) {
-      // Native beforeExit can occur with an unbound UDP socket even though the
-      // public active-resource list still includes UDPWrap. Do not subtract a
-      // resource type or turn that ambiguity into a false completion.
-      for (const record of byFile.get(file) || []) {
-        if (!record.closed && record.kind === 'UDP') {
-          const state = record.unreferenced ? 'unref' : 'dormant';
-          return new Error(`unsupported owned ${state} resource: UDP`);
-        }
+      // Snapshot only sockets that are already bound. An unbound UDP handle can
+      // still be listed as UDPWrap; refusing it here would reject native exit.
+      for (const record of udpRecords(file)) {
+        if (udpState(record.resource) !== 'bound') continue;
+        const state = record.unreferenced ? 'unref' : 'dormant';
+        return new Error(`unsupported owned ${state} resource: UDP`);
+      }
+    },
+    // beforeExit listeners may bind after the snapshot. A bound unref is still
+    // not idle. A bound ref keeps the loop; the raw resource list must say so.
+    boundUdpFailure(file) {
+      for (const record of udpRecords(file)) {
+        if (!udpBound(record) || !record.unreferenced) continue;
+        return new Error('unsupported owned unref resource: UDP');
+      }
+    },
+    // Drop the event-loop ref on sockets that are still unbound. That removes
+    // their own UDPWrap entry. It does not filter resource types, close the
+    // socket, or unref a bound or referenced bound socket.
+    detachUnboundUdp(file) {
+      for (const record of udpRecords(file)) {
+        if (udpBound(record)) continue;
+        if (record.unreferenced) continue;
+        record.originalUnref.call(record.resource);
+        record.unreferenced = true;
       }
     },
     dispose(file) {
@@ -195,7 +251,12 @@ export function ownResources(scope) {
         const timer = record.kind === 'Timeout' || record.kind === 'Immediate';
         const unreferenced = timer || record.kind === 'MessagePort' ? !record.resource.hasRef() : record.unreferenced;
         if (!unreferenced) continue;
-        if (!record.dispose) throw new Error(`unsupported owned unref resource: ${record.kind}`);
+        if (!record.dispose) {
+          // Native exit does not run close for an unbound UDP socket. Leave it
+          // open. Bound unref, children, and workers stay explicit refusals.
+          if (record.kind === 'UDP' && !udpBound(record)) continue;
+          throw new Error(`unsupported owned unref resource: ${record.kind}`);
+        }
         if (!record.closing) {
           record.closing = true;
           record.dispose();
