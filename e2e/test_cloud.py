@@ -3446,9 +3446,11 @@ _REDIS_OFF_DETAIL = ("The operation proposal and approval control plane requires
                      "listed, inspected, approved, or rejected.")
 
 
-def test_durable_control_plane_roster_is_the_23_redis_gated_admin_tools():
-    assert len(_FULL_ROSTER) == 129 and len(set(_FULL_ROSTER)) == 129
-    assert len(_DURABLE_ONLY) == 23 and set(_DURABLE_ONLY) <= set(_FULL_ROSTER)
+def test_durable_control_plane_roster_is_the_24_redis_gated_admin_tools():
+    # 4709145 re-pin: 132 tools (+honua_admin_import_upload_object, honua_diagnose_job, honua_job_evidence),
+    # 24 durable-control-plane names (+honua_admin_import_upload_object).
+    assert len(_FULL_ROSTER) == 132 and len(set(_FULL_ROSTER)) == 132
+    assert len(_DURABLE_ONLY) == 24 and set(_DURABLE_ONLY) <= set(_FULL_ROSTER)
     assert all(n.startswith(("honua_admin_layer_", "honua_admin_services_", "honua_admin_connections_",
                                       "honua_admin_import_")) for n in _DURABLE_ONLY)
     assert not set(_DURABLE_ONLY) & set(_EXPECTED_TOOLS["criticalTools"])
@@ -3588,16 +3590,16 @@ def test_s2_redis_on_full_129_catalog_passes():
     assert row["evidence"]["topology"]["durableControlPlaneTools"]["state"] == "required"
 
 
-def test_s2_redis_off_106_catalog_passes_with_topology_recorded():
+def test_s2_redis_off_108_catalog_passes_with_topology_recorded():
     catalog = [n for n in _FULL_ROSTER if n not in _DURABLE_ONLY]
-    assert len(catalog) == 106
+    assert len(catalog) == 108
     for signal in ("jobs.runner", "operations.proposals", "admin-proposals"):
         row = _s2(catalog, "redis-off", "off", signal)
         assert row["status"] == "pass", (signal, row["why"])
         topo = row["evidence"]["topology"]
         assert topo["topology"] == "redis-off" and topo["declared"] == "off" and topo["mismatch"] is None
         assert topo["reasonCode"] and topo["signal"].startswith(("manifest:", "admin-proposals:"))
-        assert topo["durableControlPlaneTools"] == {"state": "absent", "count": 23}
+        assert topo["durableControlPlaneTools"] == {"state": "absent", "count": 24}
         assert "redis-off" in row["why"]
 
 

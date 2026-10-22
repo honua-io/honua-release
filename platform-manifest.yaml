@@ -51,14 +51,14 @@
 
 platformRelease: "2026.1-rc.2"         # calendar label; -rc.N until promoted
 status: rc                             # draft | rc | released
-snapshotDate: "2026-10-12"             # honua-server hand re-pin 93cad86 -> certified trunk build 0e03bdd (shared MCP sessions, control-plane Lambda dispatch, degraded start, role-default session settings); other components unchanged
+snapshotDate: "2026-10-22"             # rc re-pin: honua-server 0e03bdd -> certified trunk build 4709145; honua-console -> fbe0195d; JS cohort 0.2.6; Honua.Sdk 1.12.0; honua-sdk unchanged (0.1.16)
 snapshotKind: candidate-manifest-snapshot  # hand snapshot of trunk; replaced by train-generated manifest in Phase 2
 
 # Producer-recorded dispatch identity. Release intake accepts candidates dispatched only from
 # honua-server's protected default branch; tools/validate_platform.py --exact-candidate fails closed
 # and names this ref when it is anything other than the literal `trunk`.
 candidate:
-  ref: "0e03bdd06b3ca3fb1b82388110bb5dfa19b9f8fa"
+  ref: "4709145cb5a4b235dbe74764f9fa590cea52f384"
   refSource: "trunk"
 
 # Pipeline-owned certification boundary. Dispatchers cannot replace the cut or ledger. `pending`
@@ -72,11 +72,12 @@ protocolCertification:
   # 2026-10-10 hand re-pin to certified trunk build 798d517: UTC time this working candidate was refreshed.
   # 2026-10-11 hand re-pin to certified trunk build 93cad86: UTC time this working candidate was refreshed.
   # 2026-10-12 hand re-pin to certified trunk build 0e03bdd: UTC time this working candidate was refreshed.
-  candidateCutAt: "2026-10-12T09:45:00Z"
+  # 2026-10-22 rc re-pin to certified trunk build 4709145: UTC time this working candidate was refreshed.
+  candidateCutAt: "2026-10-22T09:00:00Z"
   # The source-test-host harness must certify the exact frozen honua-server candidate.
   # validate_platform.check_structure enforces byte-equality with components.honua-server.sha, so this
   # moves in lockstep with the server re-pin below and is not independently selectable.
-  serverCertificationProducerSha: "0e03bdd06b3ca3fb1b82388110bb5dfa19b9f8fa"
+  serverCertificationProducerSha: "4709145cb5a4b235dbe74764f9fa590cea52f384"
   # #181: the historical ledger certifies e3ab87ce, not this working snapshot.
   # The published Python 0.1.11 artifact also predates its certification contract;
   # advancing the working component pin does not change that package's provenance.
@@ -231,6 +232,20 @@ components:
     # FORWARD-MIGRATION REFRESH 2026-08-31: this immutable nightly is the newest published
     # multi-architecture AOT image and contains 107_AddRbacRoleTombstones.sql. The prior promoted
     # honua-2026.1 image is schema 106, so gate-upgrade must observe this exact 106 -> 107 edge.
+    # ====================== 2026-10-22 SERVER RE-PIN (rc, hand, certified trunk build) ===========
+    # 0e03bdd -> 4709145cb5a4b235dbe74764f9fa590cea52f384 (2026-10-19, #6416). Operator instruction for
+    # rc.1: any recent build that boots. Newer nightlies do not boot on a fresh PostGIS database:
+    # nightly-6302c5e and today's nightly-jit-3145172 (same source as the pending 31451720 AOT build)
+    # abort at the PostGIS preflight with exit 139 (honua-server#6488, known gap). nightly-4709145 boots
+    # on the docs/CUSTOMER-INSTALL.md compose (fresh pgrouting 17-3.5-3.7.3) exactly as nightly-0e03bdd
+    # does, verified locally 2026-10-22. It contains honua-server#6054 (a7e13593, preserve omitted
+    # secret-reference ports; Console #425+ sends Port=null). Certified by ci.yml run 39351090881
+    # (workflow_dispatch); Nightly Container Build run 39408731370 logged "Selected 4709145cb5a4...
+    # (nightly-4709145)". Both child configs and the Lambda AOT amd64 config label
+    # org.opencontainers.image.revision=4709145cb5a4b235dbe74764f9fa590cea52f384; the Lambda entrypoint is
+    # /var/task/Honua.Server, and ECR holds nightly-lambda-aot-4709145-amd64 at the same digest.
+    # release/component-versions.json at 4709145 declares the same contractVersions; migrations run
+    # through 133 (dbSchema 128 -> 133).
     # ====================== 2026-10-12 SERVER RE-PIN (hand, certified trunk build) ===============
     # 93cad86 -> 0e03bdd06b3ca3fb1b82388110bb5dfa19b9f8fa (75 commits ahead, trunk head at the
     # nightly dispatch). Carries honua-server#5809 (MCP sessions are shared across instances through
@@ -341,8 +356,8 @@ components:
     # dated nightly tags backwards, so they were not taken. 679f637 is an ancestor; 19 commits
     # separate this pin from trunk HEAD at re-pin time.
     # contractVersions below are CARRIED FORWARD and remain UNVERIFIED (release#282 item 4).
-    sha: "0e03bdd06b3ca3fb1b82388110bb5dfa19b9f8fa"
-    image: "ghcr.io/honua-io/honua-server:nightly-0e03bdd"   # immutable per-sha tag (NOT a floating tag)
+    sha: "4709145cb5a4b235dbe74764f9fa590cea52f384"
+    image: "ghcr.io/honua-io/honua-server:nightly-4709145"   # immutable per-sha tag (NOT a floating tag)
     # Multi-arch index. Child manifests re-read from GHCR on 2026-10-12
     # (docker buildx imagetools inspect --raw); the index digest matched. Each child config is linux
     # and labels org.opencontainers.image.revision=0e03bdd06b3ca3fb1b82388110bb5dfa19b9f8fa.
@@ -350,11 +365,11 @@ components:
     #   linux/arm64 sha256:0d18c33537636d13c0c64c2a824295a19418e8f28344fb50207bf4dd61168dff
     # (:nightly-aot-0e03bdd resolves to the same index digest.)
     # Rollback certification dereferences platformDigests.amd64, not this index.
-    digest: "sha256:dcf3296f17a456a876c23133fae50b5b32628d4ec710e8bdab58f57d2394d750"
+    digest: "sha256:041ee4aada686b1e85cfe0f9ff388e0fd66cec6ae3f6cdeec4c6dfe6199efcbf"
     architectures: [amd64, arm64]
     platformDigests:
-      amd64: "sha256:8a211f46bbc92fe6907b72fb8bcdc36a808924f3ca001a090591c0752360d2bd"
-      arm64: "sha256:0d18c33537636d13c0c64c2a824295a19418e8f28344fb50207bf4dd61168dff"
+      amd64: "sha256:ec2bf4d540d1b909b32990adc489cf213d41b1728ea7483e3efe9457cc41e378"
+      arm64: "sha256:6f6c97a49a6624956f9d05e378eb19df329a4ffb1985aeb8bcbcfb5d4be98ec6"
     # ARM64-ON-FARGATE EXCLUSION — CARRIED FORWARD, NOT RE-VERIFIED (honua-release#98).
     # The exclusion was established against the OLD pin (5cad074, index
     # sha256:7b3cffafebf481ca77d9576f7ee2d6d1a6e8e29a1752761763c4887e655467cd), whose ARM64 child
@@ -404,8 +419,8 @@ components:
     # manifest plus an attestation descriptor; awsLambdaDigest pins the linux/amd64 child, whose
     # config is architecture amd64, os linux,
     # org.opencontainers.image.revision=0e03bdd06b3ca3fb1b82388110bb5dfa19b9f8fa, Entrypoint ["/var/task/Honua.Server"].
-    awsLambdaImage: "ghcr.io/honua-io/honua-server:nightly-lambda-aot-0e03bdd-amd64"
-    awsLambdaDigest: "sha256:3d6a38e38f3fcef66a571be1dddf7855d64bbe60d252221ae3e67404079991ab"
+    awsLambdaImage: "ghcr.io/honua-io/honua-server:nightly-lambda-aot-4709145-amd64"
+    awsLambdaDigest: "sha256:add1ed04c09de41da9d9fb7e631bd06b780143badee7c1fda9c8d9df036ea216"
     # ECR may convert an OCI manifest to Docker schema 2 while preserving the exact config/rootfs; when it
     # does, this digest is NOT derivable from GHCR and NOT reproducible with a stock registry (checked:
     # pushing the same image through registry:2 preserves sha256:7182e8b7…, whereas ECR turned that
@@ -433,7 +448,9 @@ components:
     # (sha256:12afffef...) belonged to the previous pin. The first e2e-cloud-aws run on this pin
     # (run 38239455958) mirrored nightly-lambda-aot-0e03bdd-amd64 into us-east-1 ECR and ECR
     # returned sha256:3d6a38e3... (unchanged from awsLambdaDigest, as observed), recorded here.
-    awsLambdaEcrDigest: "sha256:3d6a38e38f3fcef66a571be1dddf7855d64bbe60d252221ae3e67404079991ab"   # e2e-cloud-aws run 38239455958 mirrored nightly-lambda-aot-0e03bdd-amd64 into ECR (#99); ECR preserved the manifest, so it equals awsLambdaDigest
+    # 2026-10-22 rc re-pin to 4709145: us-east-1 ECR already holds nightly-lambda-aot-4709145-amd64 at
+    # sha256:add1ed04... (aws ecr describe-images, read-only), equal to awsLambdaDigest.
+    awsLambdaEcrDigest: "sha256:add1ed04c09de41da9d9fb7e631bd06b780143badee7c1fda9c8d9df036ea216"   # ECR holds nightly-lambda-aot-4709145-amd64 at this digest (#99); equals awsLambdaDigest
     awsLambdaArchitecture: "x86_64"
     # release#282 item 4: all contract versions remain UNVERIFIED until re-read from the booted candidate.
     contractVersions:
@@ -572,12 +589,18 @@ components:
     #   $ docker exec <db> psql -U honua -d honua -Atc \
     #       "select scriptname from public.schema_versions order by scriptname desc limit 1;"
     #   Honua.Server.Migrations.128_AddNetworkTopologyPromotionRequestHash.sql
-    dbSchema: "128"
+    dbSchema: "133"
 
   honua-console:
     repository: "https://github.com/honua-io/honua-console"
     lifecycleStatus: GA
     version: "pre-release"             # no releases/tags; package.json declares 0.1.0 (un-released)
+    # 2026-10-22 ADVANCE (rc re-pin, release#775): c652ef22 -> fbe0195d (trunk 2026-10-22T04:11Z). It
+    # carries the focused-shell spec repairs (honua-console#425, #449, #451) whose absence failed five
+    # S4-console-studio cases. Check runs at fbe0195d: 11 success, 1 skipped. Public multi-architecture
+    # candidate from Console Container run 39721316309 (tag candidate-fbe0195d0d9c-39721316309-1, also
+    # nightly-fbe0195d0d9c); index and per-architecture digests re-read with docker buildx imagetools.
+    # Earlier history:
     # 2026-10-08 ADVANCE (2026.1 rc.3 plan J5): dcb9eb2b -> c652ef22, the revision the candidate
     # resolver selects (R18). dcb9eb2b predates the governed operator session (honua-console#405,
     # merge b3e2cba5, 2026-10-02), so S4-console-studio failed every nightly e2e-local-docker run
@@ -591,20 +614,23 @@ components:
     #   skipped 631594c: no published SHA-bound image
     # The index and per-architecture digests below were re-read from GHCR with the resolver's own
     # Registry.image() (tag candidate-c652ef22612d-37509939284-1) and match that run.
-    sha: "c652ef22612d83277f8d39384be61411915dda1d"   # resolver-selected trunk commit (2026-10-06)
-    # Public multi-architecture candidate built from this SHA by Console Container run 37509939284.
-    image: "ghcr.io/honua-io/honua-console:candidate-c652ef22612d-37509939284-1"
-    digest: "sha256:686b104fc3f106df694782c243423c1c7110d568779abf5829514ab97349a908"
-    artifactSourceRevision: "c652ef22612d83277f8d39384be61411915dda1d"
+    sha: "fbe0195d0d9ca28563b2e08770a1f97cd3d6eded"   # trunk commit (2026-10-22)
+    # Public multi-architecture candidate built from this SHA by Console Container run 39721316309.
+    image: "ghcr.io/honua-io/honua-console:candidate-fbe0195d0d9c-39721316309-1"
+    digest: "sha256:ab67fe43afe36069a4012522a451b6abacaede695fe395009d096dd3347d4eff"
+    artifactSourceRevision: "fbe0195d0d9ca28563b2e08770a1f97cd3d6eded"
     architectures: [amd64, arm64]
-    # Read from this pinned index by the resolver's Registry.image() on 2026-10-08.
+    # Read from this pinned index with docker buildx imagetools inspect on 2026-10-22.
     platformDigests:
-      amd64: sha256:02442e11801af8c741a7ee868e7ec8b782e49372d0dc93bd246cf3f9b464b252
-      arm64: sha256:ac43db0c0963972f27724dbc7b7091d5de5019b43eff1e7071bd93d2322aa7f9
+      amd64: sha256:630338b2f0afce43987c5f6b8ae9ef4bfd0b12ca39a19a107debb8b89d681972
+      arm64: sha256:a6204b75f67fc6de1b67e7448df769e2ab19f7b69a6e0316e898a8b0d1a3e184
 
   honua-sdk-dotnet:
     repository: "https://github.com/honua-io/honua-sdk-dotnet"
     lifecycleStatus: GA
+    # R25 manual advance 2026-10-22 (rc re-pin): Honua.Sdk 1.12.0 is listed on nuget.org; its catalog
+    # repository.commit, nuspec <repository commit> and the dotnet-sdk-v1.12.0 tag are all aada6d89.
+    # Downloaded nupkg sha256 45e63f89. Earlier advance follows.
     # R25 manual advance 2026-10-12: Honua.Sdk 1.11.0 is listed on nuget.org (publish run
     # 38207282456); its catalog repository.commit, nuspec <repository commit> and the
     # dotnet-sdk-v1.11.0 tag are all 5f09e4fc, which carries release/component-versions.json
@@ -613,8 +639,8 @@ components:
     # honua-sdk-dotnet#425; no installed-client matrix cell flips (the pinned server lacks #5794).
     # The 2026-10-12 server re-pin to 0e03bdd carries #5794, so interop-proposal-approval's
     # publication-url and published-content steps flip to active there.
-    version: "1.11.0"
-    sha: "5f09e4fca08a4cc6b9877c81e549fc5bc8648dba"
+    version: "1.12.0"
+    sha: "aada6d8987db0802a3c9de0d976f471afa943c0a"
     artifact: "nuget:Honua.Sdk"
     contractVersions:
       sdk-certification: "v1"
@@ -622,12 +648,15 @@ components:
   honua-sdk-js:
     repository: "https://github.com/honua-io/honua-sdk-js"
     lifecycleStatus: GA
-    # R25 manual advance 2026-10-16: verified published SDK 0.2.3 bytes and source.
-    # npm gitHead 32ab86472 and dist.integrity bind these inputs. Companion
-    # packages other than @honua/mcp-server stay at 0.2.2 until
-    # create-honua-app 0.2.3 is published.
-    version: "0.2.3"
-    sha: "32ab864720d3cd2e3a00827ed942b1c2ebdd8d44"
+    # R25 manual advance 2026-10-22 (rc re-pin, release#789): the whole @honua/* cohort moves to the
+    # published 0.2.6 set. 0.2.6 is the first cohort whose @honua/sdk-js depends on
+    # @honua/honua-migrate@0.3.0-beta.0 (peer @honua/sdk ^0.2.3), so the pinned set installs under the
+    # registry guard; 0.2.2/0.2.3 required @honua/sdk ^0.1.15. npm gitHead 45e2fb2c (= js-sdk-v0.2.6)
+    # and dist.integrity bind these inputs; the JS SDK check is green at that tag. 0.2.7's tag has no
+    # JS SDK run and 0.2.8's (048aec0, run 39569210699) is red, so neither is taken.
+    # create-honua-app stays 0.2.2 (no newer publish).
+    version: "0.2.6"
+    sha: "45e2fb2c7c35216521319f0e3447661988f2981f"
     artifact: "npm:@honua/sdk-js"
     contractVersions:
       connect-parity: "1.0"
@@ -639,7 +668,12 @@ components:
   honua-sdk-python:
     repository: "https://github.com/honua-io/honua-sdk-python"
     lifecycleStatus: GA
-    # R25 published-doc repair: SDK 0.1.16 from python-sdk-v0.1.16.
+    # 2026-10-22 rc re-pin: NOT advanced to the published 0.1.18 (python-sdk-v0.1.18, 361978e8). The
+    # protocol catalog binds the governed Python wheel only while this pin equals
+    # certification/sources/source-revisions.v1.json sdk-python (5a793520); moving it alone makes the
+    # committed catalog drop that binding, and moving the source revision is a convergence rebind that
+    # R18 reserves for the nightly. 0.1.18 follows through the nightly rebind.
+    # Earlier: R25 published-doc repair: SDK 0.1.16 from python-sdk-v0.1.16.
     # Registry wheel bytes and PEP 740 source provenance are verified independently;
     # honua-admin 0.1.12 retains its original publication under clientArtifacts.
     version: "0.1.16"
@@ -891,73 +925,73 @@ clientArtifacts:
   honua-sdk-js:
     ecosystem: npm
     package: "@honua/sdk-js"
-    version: "0.2.3"
-    integrity: "sha512-+nisbIalN8a65KvMxdslmkFzaijM1YGLgU77bXKWMwgC2Mh26iiVPP3JaFBYYrJo9G/UL14RvndA/7f1Jh1MGQ=="
+    version: "0.2.6"
+    integrity: "sha512-Hq0g50tERfIyNiw7gtoEpshAyDWG2UosRk/SBo96c/CrcwJR4pcTKiLsDOHqkPUtP3OUIa1/SaH7AV6bejHtlg=="
     repository: honua-io/honua-sdk-js
-    sourceSha: "32ab864720d3cd2e3a00827ed942b1c2ebdd8d44"
+    sourceSha: "45e2fb2c7c35216521319f0e3447661988f2981f"
     publicationState: "published"
     targets: [node, browser, honua-cli, honua-admin]
-    filename: "sdk-js-0.2.3.tgz"
+    filename: "sdk-js-0.2.6.tgz"
   honua-mcp-server:
     ecosystem: npm
     package: "@honua/mcp-server"
-    version: "0.2.3"
-    integrity: "sha512-dofuzsf5rb2hUBdhvf83XfenWdAzKgZlN2yEnsTWsc+b8+I/km+dDyFgU5M6P2G9o1HTFuRVZ+6uXiLIdCd+eA=="
+    version: "0.2.6"
+    integrity: "sha512-82N2lefwbafZ3umcGV/3ZfmQPvyJGbthFOS8y9uQt5HCOlIcadLl6u13bM4vV/6gvd8bbAey+td50Jh3G4fnZA=="
     repository: honua-io/honua-sdk-js
-    sourceSha: "d9fb8dbd9218958a16678a73e46523562afbe872"
+    sourceSha: "54ae5bc51387771264d19fc3fb9a7255a6fff2ab"
     publicationState: "published"
     targets: [node, honua-mcp-proxy]
-    filename: "mcp-server-0.2.3.tgz"
+    filename: "mcp-server-0.2.6.tgz"
   honua-sdk:
     ecosystem: "npm"
     package: "@honua/sdk"
-    version: "0.2.2"
-    integrity: "sha512-WmsWIIeNlaCWdme/I8Lo+1s6EjlaElPKwX1Npu1W+EeNyJAC/xQH0MQQeoqorqg+4Uu2kki/XhX+G11SzsO2mQ=="
+    version: "0.2.6"
+    integrity: "sha512-GJklpJ0SZC6Ef2zr91FEeRs0YV7AfztdXx2TdYW6+fX3BZFbmMR379gJi6xjXR32HL+s3rz0YtyZBjEFo1Vppg=="
     repository: "honua-io/honua-sdk-js"
-    sourceSha: "076b4218f832725d57a8e23745fae75aeb9f4e5a"
+    sourceSha: "45e2fb2c7c35216521319f0e3447661988f2981f"
     publicationState: "published"
     targets: [node, browser]
-    filename: "sdk-0.2.2.tgz"
+    filename: "sdk-0.2.6.tgz"
   honua-sdk-esri-compat:
     ecosystem: "npm"
     package: "@honua/sdk-esri-compat"
-    version: "0.2.2"
-    integrity: "sha512-dtZof0KD0tGLmZ91dN6ftt/MBiHQlAEu3hxlFeDXMwtmVMq7qMzNEMZ51xay7DVlfQbwnuTP8cxqv8op0ulNww=="
+    version: "0.2.6"
+    integrity: "sha512-1HOppeBmYSYyuHPAaOXhXohvo3erk8iOVveal1I0r+blYOMeTXa1B5dmANe28N1AEb2iU+QQaxPLSXzjCyn4bA=="
     repository: "honua-io/honua-sdk-js"
-    sourceSha: "076b4218f832725d57a8e23745fae75aeb9f4e5a"
+    sourceSha: "45e2fb2c7c35216521319f0e3447661988f2981f"
     publicationState: "published"
     targets: [node, browser]
-    filename: "sdk-esri-compat-0.2.2.tgz"
+    filename: "sdk-esri-compat-0.2.6.tgz"
   honua-react:
     ecosystem: "npm"
     package: "@honua/react"
-    version: "0.2.2"
-    integrity: "sha512-7itehFw6gNf+68i9CinEEnojsc3AOL1r0d+a3TgMqFA+T506sMH6gWlF1VD1C7y3/oxbsB5458RAfJVarDmoAg=="
+    version: "0.2.6"
+    integrity: "sha512-HI+ZupSM6psakjjTNToZTwdnX0fHgp8ci+kBbVdWp3m3icF9QSoLl8SEqwWjhZsTdxSXjRH/WF2/SZv+3hCRBQ=="
     repository: "honua-io/honua-sdk-js"
-    sourceSha: "076b4218f832725d57a8e23745fae75aeb9f4e5a"
+    sourceSha: "45e2fb2c7c35216521319f0e3447661988f2981f"
     publicationState: "published"
     targets: [node, browser]
-    filename: "react-0.2.2.tgz"
+    filename: "react-0.2.6.tgz"
   honua-geometry:
     ecosystem: "npm"
     package: "@honua/geometry"
-    version: "0.2.2"
-    integrity: "sha512-qmkj++av60PydTtPqaCf356VmCN1mk3Bsl/2YuKRTIk/VCPDooqOUQZ2wWqS4PO21G0dKJLB20BWm82ZVFLc1w=="
+    version: "0.2.6"
+    integrity: "sha512-QJL+9U7jAjHqTUdYPoe2a716TvsvHZu9gkXcu1mowFTIFa4W8wMUcaAkZusDJd4sRziIJDe/FtW2gJ+hJv50OA=="
     repository: "honua-io/honua-sdk-js"
-    sourceSha: "076b4218f832725d57a8e23745fae75aeb9f4e5a"
+    sourceSha: "45e2fb2c7c35216521319f0e3447661988f2981f"
     publicationState: "published"
     targets: [node, browser]
-    filename: "geometry-0.2.2.tgz"
+    filename: "geometry-0.2.6.tgz"
   honua-app-platform:
     ecosystem: "npm"
     package: "@honua/app-platform"
-    version: "0.2.2"
-    integrity: "sha512-qXE6C5lY+6RPBOHE1Afv9nDT2fw+lRBrjIiYLvPlv9zStT4J4dyZylVyxpF/phs6n/Wd7V7mRzkMGka1OCeqGw=="
+    version: "0.2.6"
+    integrity: "sha512-wvlLgq1q60QeKbEY+otJTZij52AhnVaWval2tuSUXPxe8BFt0uP1LKVfMPbuO8WwgIDLsiDg6XnMG7+GfyZ83w=="
     repository: "honua-io/honua-sdk-js"
-    sourceSha: "076b4218f832725d57a8e23745fae75aeb9f4e5a"
+    sourceSha: "45e2fb2c7c35216521319f0e3447661988f2981f"
     publicationState: "published"
     targets: [node, browser]
-    filename: "app-platform-0.2.2.tgz"
+    filename: "app-platform-0.2.6.tgz"
   create-honua-app:
     ecosystem: "npm"
     package: "create-honua-app"
@@ -981,14 +1015,14 @@ clientArtifacts:
   honua-sdk-dotnet:
     ecosystem: nuget
     package: "Honua.Sdk"
-    version: "1.11.0"
-    digest: "sha256:89a1001f1a9c922413b88cc262c7f21ec2d64b95d7c49a07386b3eded1cc62bb"
+    version: "1.12.0"
+    digest: "sha256:45e63f896a524ae4c620bef4065b632a270a79e4cfa274a349f2ffbccb8f051d"
     repository: honua-io/honua-sdk-dotnet
-    sourceSha: "5f09e4fca08a4cc6b9877c81e549fc5bc8648dba"
+    sourceSha: "aada6d8987db0802a3c9de0d976f471afa943c0a"
     publicationState: published
     registry: nuget.org
     targets: [net10.0]
-    filename: honua.sdk.1.11.0.nupkg
+    filename: "honua.sdk.1.12.0.nupkg"
 
 # Non-shipping workflows whose observations can affect promotion. A full producer commit is the
 # trust root; workflow/event/branch identity prevents evidence from an unreviewed execution path.
@@ -1064,7 +1098,8 @@ evidenceSources:
     # 2026-10-13: advanced to 0fd1a2b4 after verified SDK 0.2.1 publication (same invariant).
     # 2026-10-14: advanced to 076b4218 after verified SDK 0.2.2 publication; runtime qualification remains separate.
     # 2026-10-16: advanced to 32ab86472 after verified SDK 0.2.3 publication (same invariant).
-    producerSha: "32ab864720d3cd2e3a00827ed942b1c2ebdd8d44"
+    # 2026-10-22: advanced to 45e2fb2c after verified SDK 0.2.6 publication (same invariant; rc re-pin).
+    producerSha: "45e2fb2c7c35216521319f0e3447661988f2981f"
     trustedEvents: [schedule, workflow_dispatch]
     trustedBranch: trunk
     artifactIdentity: sdk-conformance
