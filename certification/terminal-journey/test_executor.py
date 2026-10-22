@@ -1388,3 +1388,20 @@ def test_the_run_credentials_are_scrubbed_from_every_retained_error_field():
         "code": f"bad-{OPERATOR_KEY}", "kind": OPERATOR_KEY, "message": "ok"}}, [OPERATOR_KEY])
     assert OPERATOR_KEY not in json.dumps(fields)
     assert fields["code"] == "bad-[redacted]" and fields["kind"] == "[redacted]"
+
+
+def test_only_pre_execution_refusals_of_the_selected_action_are_action_rejections():
+    """Model feedback (ActionRejected) vs candidate/execution failure (plain ExecutionError)."""
+    from transport import ActionRejected
+    engine = engine_for(mock.Mock())
+    for action in ({"kind": "prose"}, {"kind": "tool_call", "tool": "honua_not_in_view", "arguments": {}},
+                   {"kind": "terminal_command", "command": "rm -rf /"}):
+        with pytest.raises(ActionRejected):
+            engine.execute(4, action)
+    # A valid in-view render whose candidate request fails is an execution failure, not a rejection.
+    transport = mock.Mock(credentials={"proposer": "k"})
+    transport.tool.side_effect = ExecutionError("honua_render_map", "candidate request failed")
+    engine = engine_for(transport)
+    with pytest.raises(ExecutionError) as failed:
+        engine.execute(4, {"kind": "tool_call", "tool": "honua_render_map", "arguments": {}})
+    assert not isinstance(failed.value, ActionRejected)

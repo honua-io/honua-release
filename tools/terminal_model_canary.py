@@ -1096,8 +1096,14 @@ class DriverAdapter:
             # that is the candidate/executor refusing the model's selected action: a domain result the
             # model must see and may recover from, not a driver crash. Every other non-zero exit, and
             # any exit without a protocol response, stays an infrastructure failure.
-            if not (operation == "execute" and isinstance(response, dict) and response.get("status") == "fail"):
-                raise CanaryError(f"#123 driver {operation} failed with exit code {completed.returncode}")
+            # Only an explicit, validated invalid-action refusal is model feedback. A valid action that
+            # failed in the candidate (request, JSON-RPC error, evidence or proof) is infrastructure.
+            if not (operation == "execute" and isinstance(response, dict) and response.get("status") == "fail"
+                    and response.get("refusal") == "invalid-action"):
+                result = response.get("result") if isinstance(response, dict) else None
+                reason = result.get("reason") if isinstance(result, dict) else None
+                detail = f": {str(reason)[:240]}" if operation == "execute" and reason else ""
+                raise CanaryError(f"#123 driver {operation} failed with exit code {completed.returncode}{detail}")
         if response is None:
             raise CanaryError(f"#123 driver {operation} returned non-JSON output")
         if not isinstance(response, dict):
@@ -1507,7 +1513,10 @@ def execute_live(
                     # Name the refusal by the harness-authored reason and the action kind (and, for a
                     # tool call, the server-authored tool name); never echo model-written text.
                     refused = execution.get("result") if isinstance(execution.get("result"), dict) else {}
-                    target = f" {model_action.get('tool')}" if kind == "tool_call" else ""
+                    # Only a name the server-authored view lists is retained; any other model-written
+                    # string stays out of the receipt (digest-only retention).
+                    tool = model_action.get("tool") if kind == "tool_call" else None
+                    target = f" {tool}" if tool in _tool_names(observed.get("toolView")) else ""
                     builder.notice(f"stage {stage_id}: the driver refused the model-selected {kind}{target}: "
                                    f"{str(refused.get('reason') or execution.get('status'))[:240]}")
                 injected = fault_evidence(execution, "injectedError")

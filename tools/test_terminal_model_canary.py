@@ -1383,13 +1383,16 @@ def test_a_refused_model_action_is_returned_to_the_model_not_raised_as_a_driver_
     script.write_text(
         "import json,sys\n"
         "req=json.load(sys.stdin)\n"
-        "json.dump({'status':'fail','stageStatus':'ready','result':{'accepted':False,"
-        "'reason':'unsupported command','injectedError':None,'recoveredError':None},"
-        "'canonicalIds':{},'blockedBy':[]},sys.stdout)\n"
+        "json.dump({'status':'fail','stageStatus':'ready','refusal':req.get('refusal','invalid-action'),"
+        "'result':{'accepted':False,'reason':'tool is outside the current stage and bounded view',"
+        "'injectedError':None,'recoveredError':None},'canonicalIds':{},'blockedBy':[]},sys.stdout)\n"
         "sys.exit(1 if req['operation']=='execute' else 0)\n")
     driver = canary.DriverAdapter(script, json.loads(PROTOCOL.read_text()), timeout_seconds=30)
     refused = driver.invoke("execute", {"workspaceId": "w", "stage": "s", "action": {}})
-    assert refused["status"] == "fail" and refused["result"]["reason"] == "unsupported command"
+    assert refused["status"] == "fail" and refused["refusal"] == "invalid-action"
+    # A valid action that failed in the candidate is infrastructure, never model feedback.
+    with pytest.raises(canary.CanaryError, match="execute failed with exit code 1: tool is outside"):
+        driver.invoke("execute", {"workspaceId": "w", "stage": "s", "action": {}, "refusal": "candidate-execution"})
     # Any other operation exiting non-zero is still an infrastructure failure.
     with pytest.raises(canary.CanaryError, match="observe failed with exit code 1"):
         script.write_text("import sys\nsys.stdout.write('{\"status\":\"fail\"}')\nsys.exit(1)\n")
