@@ -78,3 +78,29 @@ def test_workflow_compares_the_normalized_server_snapshot():
     workflow = (ROOT / ".github/workflows/manifest-validate.yml").read_text(encoding="utf-8")
     assert "tools/normalize_capability_matrix_snapshot.py" in workflow
     assert "cmp certification/sources/server/capability-matrix.v1.json" in workflow
+
+
+def test_convergence_vendoring_matches_the_workflow_compare():
+    text = MATRIX.read_text(encoding="utf-8")
+    # Producer bytes at the frozen server are normalized to the committed snapshot.
+    assert snap.normalize_vendored(reinject(text)) == text
+    # Bytes without any of the ten arrays (already the snapshot, or an older server) pass through.
+    assert snap.normalize_vendored(text) == text
+
+
+def test_convergence_vendoring_refuses_a_partial_set():
+    lines = reinject(MATRIX.read_text(encoding="utf-8")).splitlines(keepends=True)
+    key = None
+    kept: list[str] = []
+    dropped = False
+    for line in lines:
+        found = _key_of(line)
+        if found is not None:
+            key = found
+        if not dropped and key == "serve.wps" and line == snap.EMPTY_LINE:
+            dropped = True
+            continue
+        kept.append(line)
+    assert dropped
+    with pytest.raises(SystemExit, match="expected one empty assessment array"):
+        snap.normalize_vendored("".join(kept))
