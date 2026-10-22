@@ -992,7 +992,19 @@ class CandidateProxyClient:
         terminals = [name for name, _ in events if name in {"message_stop", "error"}]
         if (len(provenance) != 1 or len(terminals) != 1 or events[-1][0] != "transcript_provenance"
                 or len(events) < 3 or events[0][0] != "message_start" or events[-2][0] != "message_stop"):
-            raise CanaryError("candidate proxy omitted the unique terminal signed provenance event")
+            # Name the proxy's own failure when it reported one: the server guarantees errorCode carries
+            # no prompt or key material, and the message is bounded. Attribution is unchanged.
+            reported = [event for name, event in events if name == "error"]
+            detail = ""
+            if reported:
+                error = reported[0]
+                code = str(error.get("errorCode") or "unspecified")[:80]
+                message = re.sub(r"\s+", " ", str(error.get("errorMessage") or ""))[:240]
+                detail = f"; proxy error {code}: {message}" if message else f"; proxy error {code}"
+            elif not events:
+                detail = "; the response carried no SSE events"
+            raise CanaryError("candidate proxy omitted the unique terminal signed provenance event"
+                              f" (events: {[name for name, _ in events][:12]}){detail}")
         if terminals[0] != "message_stop":
             raise CanaryError("candidate proxy ended the certified call with an error")
         signed = provenance[0].get("provenance")
