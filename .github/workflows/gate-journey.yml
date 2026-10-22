@@ -38,6 +38,11 @@ on:
         required: true
         type: string
         default: "1"
+      prepared_ref:
+        description: The prepared_ref the producer run was dispatched with (refs/prepared-deployments/<sha>); its manifest is the candidate under test. Empty when the producer used the checked-in manifest.
+        required: false
+        type: string
+        default: ""
 
 permissions:
   contents: read
@@ -59,14 +64,26 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           RECEIPTS_RUN_ID: ${{ inputs.receipts_run_id }}
+          PREPARED_REF: ${{ inputs.prepared_ref }}
         run: |
           set -euo pipefail
           [[ "$RECEIPTS_RUN_ID" =~ ^[1-9][0-9]*$ ]]
           HEAD_SHA="$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$RECEIPTS_RUN_ID" --jq .head_sha)"
           [[ "$HEAD_SHA" =~ ^[0-9a-f]{40}$ ]]
+          SOURCE="$HEAD_SHA"
+          if [ -n "$PREPARED_REF" ]; then
+            # The producer consumed an unadmitted prepared snapshot (e.g. a newer server image);
+            # judge its receipts against those exact bytes. The snapshot must be the named prepared
+            # ref and descend directly from trunk history the producer ran on.
+            [[ "$PREPARED_REF" =~ ^[0-9a-f]{40}$ ]]
+            git fetch --no-tags origin "refs/prepared-deployments/${PREPARED_REF}:refs/prepared-deployments/${PREPARED_REF}"
+            test "$(git rev-parse "refs/prepared-deployments/${PREPARED_REF}")" = "$PREPARED_REF"
+            git merge-base --is-ancestor "${PREPARED_REF}^" "$HEAD_SHA"
+            SOURCE="$PREPARED_REF"
+          fi
           mkdir -p candidate
-          git show "$HEAD_SHA:platform-manifest.yaml" > candidate/platform-manifest.yaml
-          echo "producer head $HEAD_SHA"
+          git show "$SOURCE:platform-manifest.yaml" > candidate/platform-manifest.yaml
+          echo "producer head $HEAD_SHA; candidate manifest from $SOURCE"
           echo "digest=$(sha256sum candidate/platform-manifest.yaml | cut -d' ' -f1)" >> "$GITHUB_OUTPUT"
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
