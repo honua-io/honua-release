@@ -238,7 +238,14 @@ class ContractTests(unittest.TestCase):
                     run.validate_release_inputs(manifest, matrix)
 
     def test_suite_cell_validation(self):
-        cell = next(c for c in MATRIX["cells"] if c["id"] == "pypi-sdk-geoservices")
+        # The committed cell is active since honua-server#5407 was fixed (4709145 pin); the validation
+        # cases still need a blocked suite cell, so rebuild the shape it carried before that flip.
+        active = next(c for c in MATRIX["cells"] if c["id"] == "pypi-sdk-geoservices")
+        issue = "https://github.com/honua-io/honua-server/issues/5407"
+        cell = {**active, "status": "blocked", "blockedBy": [issue], "blockedSteps": {
+            "apply-edits-update": {"blockedBy": issue, "signature": "\\(status 500\\)$"},
+            "edits-state": {"blockedBy": issue, "signature": "differ from fixture"}}}
+        regression.validate_suite_cell(copy.deepcopy(cell), SCENARIOS, run.BLOCKER)
         cases = [
             (lambda c: c.update(scenario="sdk-unknown"), "unknown scenario"),
             (lambda c: c.update(driver="npm-sdk"), "does not drive"),

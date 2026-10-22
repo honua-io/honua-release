@@ -74,8 +74,9 @@ def _http_error(code: int):
 def test_fixture_is_the_s4_roster_shape():
     r = roster()
     assert r['schemaVersion'] == 1
-    assert len(r['static']) == 59 and len(r['projectedAdmin']) == 70
-    assert len(r['requiresDurableControlPlane']) == 23
+    # Re-copied verbatim at the 4709145 re-pin (roster body last changed at server 2ef82ca0).
+    assert len(r['static']) == 61 and len(r['projectedAdmin']) == 71
+    assert len(r['requiresDurableControlPlane']) == 24
     assert set(r['views']) == {'analyze', 'configure', 'default', 'operate', 'setup'}
     assert r['retired'] == ['honua_propose_operation']
 
@@ -94,7 +95,8 @@ def test_committed_expected_tools_matches_the_roster_in_both_topologies():
         summary = cmr.check(committed, roster(), topology=topology)
         assert summary['status'] == 'pass', (topology, summary['reasons'])
     durable = committed['fullCatalog']['requiresDurableControlPlane']['tools']
-    assert CONNECT_IMPORT <= set(durable) and len(durable) == 23
+    # 24 since the 4709145 re-pin added honua_admin_import_upload_object (fixture re-copied at 4709145).
+    assert CONNECT_IMPORT <= set(durable) and len(durable) == 24
 
 
 def test_missing_tool_fails():
