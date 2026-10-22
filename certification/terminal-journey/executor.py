@@ -463,7 +463,12 @@ class JourneyExecutor:
 
         def prove():
             image = output["image"]
-            declared = media_type_of(image.get("mimeType"))
+            # honua-server's McpRenderedImage names the media type `format` (RenderMapTool.cs);
+            # `mimeType` is the MCP content-block spelling. Both, when present, must agree.
+            spellings = {media_type_of(image.get(key)) for key in ("format", "mimeType") if key in image}
+            if len(spellings) > 1:
+                raise oracles.ProofError("render image declares conflicting media types")
+            declared = spellings.pop() if spellings else ""
             if image.get("base64"):
                 raw = base64.b64decode(image["base64"], validate=True)
                 media_type = declared

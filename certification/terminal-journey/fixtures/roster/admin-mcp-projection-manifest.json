@@ -1,0 +1,80 @@
+{
+  "schemaVersion": "1.0.0",
+  "authority": "AdminApiOperationCatalog -> PublishedOperationTool",
+  "roster": {
+    "status": "ready",
+    "exports": [
+      "docs/gis/data/admin-openapi-operation-ids.json",
+      "docs/gis/data/admin-mcp-projection-manifest.json"
+    ]
+  },
+  "catalogFields": [
+    "status",
+    "operationId",
+    "operationInstanceId",
+    "correlationId",
+    "auditId"
+  ],
+  "generatedCliFields": [
+    "status",
+    "operationId",
+    "operationInstanceId",
+    "correlationId",
+    "auditId"
+  ],
+  "generatedConsoleFields": [
+    "status",
+    "operationId",
+    "operationInstanceId",
+    "correlationId",
+    "auditId"
+  ],
+  "exclusions": {
+    "digest": "0000000000000000000000000000000000000000000000000000000000000000",
+    "operations": [
+      {
+        "OpenApiOperationId": "createAdminApiKey",
+        "OperationId": "admin.api-key.create",
+        "ToolName": "honua_admin_api_key_create",
+        "ReasonCode": "one-time-secret",
+        "Explanation": "Creates one-time API-key secret material."
+      }
+    ]
+  },
+  "operations": [
+    {
+      "operationId": "admin.api-key.list",
+      "toolName": "honua_admin_api_key_list",
+      "title": "List Admin API keys",
+      "inputFields": [],
+      "outputFields": [
+        "status",
+        "operationId",
+        "operationInstanceId",
+        "correlationId",
+        "auditId"
+      ],
+      "readOnly": true,
+      "destructive": false,
+      "idempotent": true
+    },
+    {
+      "operationId": "admin.api-key.revoke",
+      "toolName": "honua_admin_api_key_revoke",
+      "title": "Revoke Admin API key",
+      "inputFields": [
+        "id"
+      ],
+      "outputFields": [
+        "status",
+        "operationId",
+        "operationInstanceId",
+        "correlationId",
+        "auditId"
+      ],
+      "readOnly": false,
+      "destructive": true,
+      "idempotent": true
+    }
+  ]
+}

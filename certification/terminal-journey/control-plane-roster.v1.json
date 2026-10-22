@@ -1,4 +1,5 @@
 {
+  "retired": "Historical fixture. Operator ruling on honua-release#785 (2026-10-22): the roster is data-driven from the server parity exports and these pinned counts no longer gate.",
   "schemaVersion": 1,
   "contract": "admin-v1",
   "expected": {
