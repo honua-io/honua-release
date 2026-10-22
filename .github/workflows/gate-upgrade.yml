@@ -718,6 +718,31 @@ jobs:
                   ;;
                 *) STATUS=fail; WHY="unknown recovery failure scenario: $FAILURE_SCENARIO" ;;
               esac
+              # Rollback-target eligibility probe (honua-server#5333, #6484): does the prior image refuse
+              # a journal entry it does not ship? Insert one unknown entry, restart the prior, and see
+              # whether it starts. A guarded image refuses with schema_reader_incompatible; an
+              # unguarded one (2026.1) starts, so an image-only rollback to it can never be certified.
+              PRIOR_GUARD=unprobed
+              if [ "$STATUS" != fail ] && [ "$FAILURE_SCENARIO" = normal ]; then
+                mkdir -p /tmp/upg
+                PROBE_SCRIPT='Honua.Server.Migrations.999_RollbackTargetGuardProbe.sql'
+                if db_query "INSERT INTO public.schema_versions (scriptname, applied) VALUES ('$PROBE_SCRIPT', now());" >/tmp/upg/guard-probe.log 2>&1 \
+                   && kubectl rollout restart -n "$NS" deployment -l app.kubernetes.io/instance=honua >>/tmp/upg/guard-probe.log 2>&1; then
+                  if kubectl rollout status -n "$NS" deployment -l app.kubernetes.io/instance=honua --timeout=180s >>/tmp/upg/guard-probe.log 2>&1; then
+                    PRIOR_GUARD=absent
+                  else
+                    kubectl logs -n "$NS" -l app.kubernetes.io/instance=honua --all-containers --prefix --tail=300 >>/tmp/upg/guard-probe.log 2>&1 || true
+                    kubectl logs -n "$NS" -l app.kubernetes.io/instance=honua --all-containers --prefix --tail=300 --previous >>/tmp/upg/guard-probe.log 2>&1 || true
+                    if grep -q 'schema_reader_incompatible' /tmp/upg/guard-probe.log; then PRIOR_GUARD=present; else PRIOR_GUARD=inconclusive; fi
+                  fi
+                fi
+                db_query "DELETE FROM public.schema_versions WHERE scriptname = '$PROBE_SCRIPT';" >>/tmp/upg/guard-probe.log 2>&1 || true
+                kubectl rollout restart -n "$NS" deployment -l app.kubernetes.io/instance=honua >>/tmp/upg/guard-probe.log 2>&1 || true
+                if ! kubectl rollout status -n "$NS" deployment -l app.kubernetes.io/instance=honua --timeout=300s >>/tmp/upg/guard-probe.log 2>&1; then
+                  STATUS=fail; WHY="prior did not return to ready after the rollback-target guard probe was removed"
+                fi
+                echo "ROLLBACK-TARGET GUARD PROBE: prior guard $PRIOR_GUARD"
+              fi
               # Customer step before any upgrade: back up the database. It is the documented last-resort
               # rollback path and is restored only at the documented rollback boundary (below).
               # A failed backup fails the cell before any upgrade: the runbook makes it mandatory, and
@@ -810,22 +835,24 @@ jobs:
                 # 3) ROLLBACK IMAGE only; retain migrated DB and query seed data through the prior app.
                 elif helm rollback honua 1 -n "$NS" --wait --timeout 12m >/tmp/rollback.log 2>&1; then
                   capture_phase rollback "$PRIOR" "$PRIOR_SOURCE_REVISION" "$PRIOR_LOCK_DIGEST" "$CANDIDATE_SCHEMA" || STATUS=fail
-                  if [ "$STATUS" != fail ] && [ -n "$APPROVAL_NONCE" ]; then
-                    # Across approved contract migrations the documented rollback is the backup restore,
-                    # whatever the older image does. An image that predates the schema-reader guard can
-                    # start on the narrowed schema; record that it served silently, then do the
-                    # documented restore and require the prior to serve from it.
-                    BOUNDARY=contract-migrations-approved
+                  if [ "$PRIOR_GUARD" = absent ]; then
+                    # rollback-target-ineligible: the prior has no schema-reader guard, so it starts on
+                    # any newer schema and "prior still serves" proves nothing (honua-server#6484). The
+                    # image-only rollback is never graded a pass; the certified customer rollback for
+                    # this release is the backup restore, which is still executed and recorded.
+                    BOUNDARY=rollback-target-unguarded
                     serves_seed /tmp/rollback-silent-query.json && SERVED_SILENTLY=true || SERVED_SILENTLY=false
-                    if [ "$BACKUP_TAKEN" = true ] && restore_pre_upgrade_backup && [ "$HT" = ok ] && serves_seed /tmp/rollback-query.json \
+                    RESTORE_VERIFIED=false
+                    if [ "$BACKUP_TAKEN" = true ] && restore_pre_upgrade_backup && serves_seed /tmp/rollback-query.json \
                        && capture_phase rollback "$PRIOR" "$PRIOR_SOURCE_REVISION" "$PRIOR_LOCK_DIGEST" "$PRIOR_SCHEMA"; then
-                      ROLLBACK_OUTCOME=restored-from-pre-upgrade-backup
-                      STATUS=pass; WHY="schema_versions advanced $BEFORE_VERSIONS->$AFTER_VERSIONS (schema $CANDIDATE_SCHEMA, contract approval: $CONTRACT_APPROVAL); seeded rows survived; rollback across the approved contract migrations restored the pre-upgrade backup and the prior image served 2 seeded features (image-only rollback served silently on the narrowed schema: $SERVED_SILENTLY)"
-                    else
-                      ROLLBACK_OUTCOME=restore-did-not-recover
-                      STATUS=fail; WHY="rollback across approved contract migrations: restoring the pre-upgrade backup did not bring the prior back"
-                      tail -n 40 /tmp/upg/restore.log || true
+                      RESTORE_VERIFIED=true
                     fi
+                    ROLLBACK_OUTCOME=rollback-target-ineligible
+                    STATUS=fail; WHY="rollback-target-ineligible: prior $PRIOR_SOURCE_REVISION (schema $PRIOR_SCHEMA) has no schema-reader guard (probe: it started on an unrecognised journal entry; honua-server#5333, #6484), so an image-only rollback to it cannot be certified (it served silently on schema $CANDIDATE_SCHEMA: $SERVED_SILENTLY); certified rollback path for this release: restore the pre-upgrade backup (verified: $RESTORE_VERIFIED). Upgrade itself: schema_versions $BEFORE_VERSIONS->$AFTER_VERSIONS, schema $CANDIDATE_SCHEMA, contract approval $CONTRACT_APPROVAL, seeded rows survived"
+                  elif [ "$STATUS" != fail ] && [ -n "$APPROVAL_NONCE" ]; then
+                    # A guarded prior must refuse a schema narrowed by approved contract migrations.
+                    ROLLBACK_OUTCOME=guarded-prior-served-across-contract
+                    STATUS=fail; WHY="prior image (guard $PRIOR_GUARD) started on a schema narrowed by approved contract migrations instead of refusing with schema_reader_incompatible"
                   elif [ "$STATUS" != fail ] && [ "$HT" = "ok" ] && serves_seed /tmp/rollback-query.json; then
                     ROLLBACK_OUTCOME=image-rollback-served
                     STATUS=pass; WHY="schema_versions advanced $BEFORE_VERSIONS->$AFTER_VERSIONS (schema $CANDIDATE_SCHEMA, contract approval: $CONTRACT_APPROVAL); seeded rows survived; prior image served 2 seeded features against the migrated schema"
@@ -966,6 +993,7 @@ jobs:
               --arg approval "${CONTRACT_APPROVAL:-not-required}" --arg nonce "${APPROVAL_NONCE:-}" --arg gated "${GATED_SCRIPTS:-}" \
               --arg rollback "${ROLLBACK_OUTCOME:-}" --arg boundary "${BOUNDARY:-}" --arg backup "${BACKUP_TAKEN:-false}" \
               --arg floor "$READER_EXPAND_FLOOR" --arg priorSchema "${PRIOR_SCHEMA:-}" --arg silent "${SERVED_SILENTLY:-}" \
+              --arg guard "${PRIOR_GUARD:-unprobed}" --arg restored "${RESTORE_VERIFIED:-}" \
               '{schemaVersionsRows:{beforeUpgrade:$before,afterUpgrade:$after},observedSchema:$schema,declaredCandidateSchema:$declared,
                 seededRows:{e2e_src_fs:{before:$beforeSrc,after:$afterSrc},maui_zoning:{before:$beforeZoning,after:$afterZoning}},
                 helmTest:$helmTest,rollbackPriorQueryCount:$rollbackCount,
@@ -975,7 +1003,10 @@ jobs:
                            "helm upgrade with HONUA_APPROVE_CONTRACT_MIGRATIONS=<nonce>"] end)},
                   migrateOnly:"not used (HONUA_MIGRATE_ONLY, honua-server#6479, is not in this candidate)",
                   rollback:{outcome:$rollback,boundary:$boundary,readerExpandFloorSchema:$floor,priorSchema:$priorSchema,
-                            imageRollbackServedSilentlyAcrossContract:(if $silent=="" then null else ($silent=="true") end)}}}' > /tmp/upg/trunk-observed.json
+                            priorSchemaReaderGuard:$guard,
+                            certifiedRollbackPath:(if $guard=="absent" or $boundary!="" then "restore-pre-upgrade-backup" else "image-rollback" end),
+                            restoreVerified:(if $restored=="" then null else ($restored=="true") end),
+                            imageRollbackServedSilently:(if $silent=="" then null else ($silent=="true") end)}}}' > /tmp/upg/trunk-observed.json
             cp /tmp/migration-journal.json /tmp/upg/trunk-migration-journal.json 2>/dev/null || true
             echo "trunk_status=$STATUS" >> "$GITHUB_ENV"
             echo "trunk_why=$(printf '%s' "$WHY" | tr '\n' ' ')" >> "$GITHUB_ENV"

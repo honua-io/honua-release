@@ -125,13 +125,19 @@ def select_release(releases) -> dict:
     return {"tag": newest["tag_name"], "url": newest.get("html_url", ""), "prerelease": bool(newest.get("prerelease"))}
 
 
-def public_reference(manifest: dict) -> str:
-    """The reference a customer copies from the release: tag@digest when the release names a tag."""
+def public_reference(manifest: dict) -> tuple[str, str]:
+    """(digest reference a customer deploys, the tag the release happens to name).
+
+    Tags are mutable: the tag honua-2026.1 names has since moved (honua-release#776), so the only
+    customer reference this lane certifies is repository@digest from the release manifest.
+    """
     server = ((manifest or {}).get("components") or {}).get(SERVER) or {}
     image, digest = str(server.get("image") or ""), str(server.get("digest") or "")
     if not DIGEST.fullmatch(digest):
         raise PairError("published release does not name an immutable server digest")
-    return image.split("@", 1)[0] + "@" + digest
+    named = image.split("@", 1)[0]
+    repository = named.rsplit(":", 1)[0] if ":" in named.rsplit("/", 1)[-1] else named
+    return repository + "@" + digest, named
 
 
 def resolve(candidate_manifest: dict, candidate_bytes: bytes, *, prior_manifest: dict | None = None,
@@ -163,7 +169,8 @@ def resolve(candidate_manifest: dict, candidate_bytes: bytes, *, prior_manifest:
     if prior_source == PUBLISHED_RELEASE:
         extra = {"release_tag": release["tag"], "release_url": release.get("url", ""),
                  "release_prerelease": "true" if release.get("prerelease") else "false",
-                 "prior_public_reference": public_reference(prior_manifest)}
+                 "prior_public_reference": public_reference(prior_manifest)[0],
+                 "prior_release_named_tag": public_reference(prior_manifest)[1]}
     return {
         "ready": "1",
         "prior_source": prior_source,
@@ -202,6 +209,8 @@ def build_receipt(pair: dict, *, scenario: str, status: str, why: str, signed_lo
             "role": "customer-upgrade-path",
             "customerReachable": True,
             "publicReference": pair.get("prior_public_reference"),
+            "releaseNamedTag": pair.get("prior_release_named_tag"),
+            "tagNote": "tags are mutable (the 2026.1 tag has moved, honua-release#776); deploy and verify by digest",
             "release": {"tag": pair.get("release_tag"), "url": pair.get("release_url"),
                         "prerelease": pair.get("release_prerelease") == "true"},
             "steps": "helm upgrade with the release's chart and values; contract-migration nonce approval when "

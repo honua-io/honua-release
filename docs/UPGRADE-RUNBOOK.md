@@ -18,9 +18,10 @@ Take every reference from the release, never from a floating tag:
 - **Schema.** Use `components.honua-server.dbSchema`, the migration number the release requires.
 
 **2026.1 note.** The `honua-2026.1` GitHub release is a published **pre-release snapshot**, not a
-GA cut. Its notes name `ghcr.io/honua-io/honua-server:nightly-aot-f897700`. Use the digest
-`sha256:78e3088d64d832d3e2752c87d80bfcad201b414f4525989ca5d9a242cd5fee8a` from its
-`finalized-manifest.yaml` (schema 106, chart `4c0a5d2d`). GHCR has no release-named tag for it.
+GA cut. Its notes name the tag `ghcr.io/honua-io/honua-server:nightly-aot-f897700`, and **that
+tag has since moved** (honua-release#776). Deploy only the digest its `finalized-manifest.yaml`
+recorded: `ghcr.io/honua-io/honua-server@sha256:78e3088d64d832d3e2752c87d80bfcad201b414f4525989ca5d9a242cd5fee8a`
+(schema 106, chart `4c0a5d2d`). GHCR has no release-named tag for it.
 
 ## 2. Back up the database
 
@@ -87,10 +88,14 @@ serve it depends on that image:
   does not ship. It fails startup with the typed `schema_reader_incompatible` error and never
   serves silently.
 - **Across an approved contract migration.** No older image can serve the narrowed schema
-  correctly. **2026.1 predates the schema-reader guard.** After `helm rollback` it starts and
-  answers on the narrowed schema with no refusal. The gate observed this in run 39724980788
-  (`imageRollbackServedSilentlyAcrossContract: true`). Do not treat that as a working rollback.
-  Restore the backup.
+  correctly.
+- **2026.1 is not an image-rollback target at all.** It predates the schema-reader guard
+  (honua-server#5333), so it starts on **any** newer schema, contract-narrowed or not, with no
+  refusal (honua-server#6484). The gate probes every prior image with an unrecognised journal
+  entry. For 2026.1 it reports `rollback-target-ineligible`, and that fails the gate: "the old
+  image still serves" proves nothing. **The certified rollback path from any later release to
+  2026.1 is restoring the pre-upgrade backup.** The gate also executes that restore and verifies
+  it (`certifiedRollbackPath: restore-pre-upgrade-backup`, `restoreVerified`).
 
 In the last two cases the documented recovery is: stop the server, restore the pre-upgrade
 backup into a fresh database, and start the prior image. The gate does exactly this. It records
