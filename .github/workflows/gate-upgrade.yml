@@ -1179,8 +1179,9 @@ jobs:
           # (coordinator ruling 2026-10-22). Reported, never counted toward overallStatus.
           ADVISORY_GATES: "^upgrade-kind-(published-release|smoke)-"
           # The required trunk-candidate cells this run must report: all five scenarios on the
-          # schedule, one on a trunk-candidate dispatch or train call. A missing one fails the gate.
-          EXPECTED_TRUNK_CELLS: ${{ github.event_name == 'schedule' && '5' || ((inputs.upgrade_pair || 'trunk-candidate') == 'trunk-candidate' && '1' || '0') }}
+          # schedule, one on a trunk-candidate dispatch or train call, none on a pull request (the kind
+          # lane does not run there). A missing one fails the gate.
+          EXPECTED_TRUNK_CELLS: ${{ github.event_name == 'schedule' && '5' || (github.event_name != 'pull_request' && (inputs.upgrade_pair || 'trunk-candidate') == 'trunk-candidate') && '1' || '0' }}
           ADVISORY_RULING: https://github.com/honua-io/honua-release/issues/376#issuecomment-6335886760
         run: |
           set -euo pipefail
