@@ -381,8 +381,11 @@ def journey_phase(state: dict, *, admin_key: str, max_attempts: int = 2,
             if passed:
                 break
             blockers.append(cloud_journey.documented_blockers(receipt))
-            if blockers[-1] and not record.get("servingRefusal"):
-                break  # only the explicit profile gets the existing retry budget past a raw block
+            if blockers[-1] and (not record.get("servingRefusal")
+                                 or cloud_journey.profile_blocked(record, E2E_DIR / record["receipt"])):
+                # Only a profile that ran gets the retry budget past a raw block; a profile with no
+                # admissible prerequisite (a tracked limitation) would meet the same block again.
+                break
         else:
             journey["status"] = "fail"
             journey["why"] = "journey did not pass within the recorded attempt budget"
@@ -470,7 +473,8 @@ def teardown_phase(state: dict, journey: dict, target, *, reference_endpoint: st
                         path = E2E_DIR / record["receipt"]
                         accepted = cloud_journey.qualify_attempt(record, json.loads(path.read_bytes()), cell, raw_path=path,
                             run_id=state["runId"], run_attempt=state["runAttempt"])
-                        if record is report["journeyAttempts"][-1] and not accepted:
+                        if (record is report["journeyAttempts"][-1] and not accepted
+                                and not cloud_journey.profile_blocked(record, path)):
                             raise ValueError("final serving/refusal profile did not qualify")
                 except Exception as exc:
                     report.update(status="fail", why="serving/refusal native observation rejected: " + type(exc).__name__)
