@@ -73,8 +73,13 @@ rc.3 plan). The schema requires:
 - `attempt` — `1` or `2` (`--attempt`); promotion allows one retry after an attributed failure.
 - `lockDigest` — `sha256:<hex>` of the exact `platform-lock.json` under certification
   (`--lock-digest`). With `--lock <path>` the harness hashes those bytes and fails the receipt if they
-  differ. A live run without a lock digest is refused (`blocked`): an unbound receipt counts for no
-  lock. A pass without one is rejected by both the harness and the schema.
+  differ.
+- `serverImage` — the honua-server `image@digest` the cell composes from `platform-manifest.yaml`
+  (the same reference the deterministic #123 receipt must name). Operator ruling 2026-10-22: rc
+  gates need a green trunk run against any build, so a run without a caller's lock binds this image
+  instead. It binds a pass only once the green deterministic receipt verified that candidate. A live
+  run bound to neither is refused (`blocked`), and a pass bound to neither is rejected by both the
+  harness and the schema. An image-bound receipt counts for no lock in promotion readiness.
 - `failureAttribution` — `null` exactly when the attempt passed; otherwise `model` or
   `infrastructure`. `model` means the model failed: no parseable or valid action, no stage progress
   within the bounded action budget, no recovery from the injected error, never reaching the approval
@@ -114,8 +119,8 @@ the model proxy: a driver that composed a local stack cannot certify a cloud cel
   `StudioAiProxy` to Bedrock (`StudioAiProxy__Enabled`, `DefaultProvider=bedrock`,
   `Providers__bedrock__{Kind,Model,Region}`) only when the job sets `HONUA_CANARY_STUDIO_AI_ENABLED`.
   The session credentials reach the server container under non-ambient `HONUA_CANARY_AWS_*` names;
-  no `AWS_*` variable enters the job environment. Without a `lock_digest` input it binds the latest
-  minted `nightly-lock/*` tag and certifies that lock's manifest.
+  no `AWS_*` variable enters the job environment. Without a `lock_digest` input (the schedule) it binds the
+  manifest-pinned server image the job composes; it no longer needs a minted `nightly-lock/*` tag.
 - **dispatch or call `target=aws-ecs/redis-off`** — calls `e2e-cloud-aws.yml` for the ECS Redis-off
   cell with `genuine_model_bedrock: true`. The cell is provisioned with `enable_bedrock_ai=true` and
   `bedrock_ai_region=us-east-1` (`ECS_SPEC.opt_in_vars`, `HONUA_ENABLE_BEDROCK_AI`), and its credential-free journey job

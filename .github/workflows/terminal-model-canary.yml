@@ -19,7 +19,7 @@ name: Terminal model canary harness
 on:
   schedule:
     # 08:45 UTC: after the nightly deterministic local-docker (07:00) and cloud (07:17) journeys.
-    # The schedule supplies no inputs and runs the local-docker canary on the latest minted lock.
+    # The schedule supplies no inputs and runs the local-docker canary bound to the server image it runs.
     - cron: "45 8 * * *"
   workflow_dispatch:
     inputs:
@@ -33,7 +33,7 @@ on:
           - aws-ecs/redis-off
           - endpoint
       lock_digest:
-        description: sha256:<hex> of the platform lock under certification; empty binds the latest minted nightly lock
+        description: sha256:<hex> of the platform lock under certification; empty binds the manifest-pinned server image the job runs
         required: false
         type: string
       runner:
@@ -201,29 +201,35 @@ jobs:
       - name: Install harness dependencies
         run: python -m pip install "pyyaml>=6.0" "jsonschema>=4.23" "cryptography>=45.0"
 
-      # The receipt counts only for the lock it names. A caller passes the lock it is certifying; a
-      # scheduled or unbound dispatch binds the latest minted nightly lock and certifies its manifest.
-      - name: Select the platform lock under certification
+      # A caller certifying a lock passes it, and the receipt counts only for that lock. A scheduled
+      # or unbound dispatch binds the server image it actually runs (operator ruling 2026-10-22: rc
+      # gates need one green trunk run against any build, not a minted nightly lock). The deterministic
+      # journey and the driver both compose exactly this image@digest from platform-manifest.yaml, the
+      # deterministic receipt is checked against it, and the canary records it as serverImage.
+      - name: Select the binding under certification
         id: lock
         env:
           LOCK_DIGEST: ${{ inputs.lock_digest }}
         run: |
           set -euo pipefail
-          mkdir -p "$RUNNER_TEMP/lock"
           if [ -n "$LOCK_DIGEST" ]; then
             [[ "$LOCK_DIGEST" =~ ^sha256:[0-9a-f]{64}$ ]] || { echo "::error::lock_digest must be sha256:<hex>"; exit 1; }
             echo "digest=$LOCK_DIGEST" >> "$GITHUB_OUTPUT"
-            echo "path=" >> "$GITHUB_OUTPUT"
+            echo "binding platform lock ${LOCK_DIGEST}"
             exit 0
           fi
-          git fetch --no-tags origin '+refs/tags/nightly-lock/*:refs/tags/nightly-lock/*'
-          tag="$(git tag -l 'nightly-lock/*' --sort=-v:refname | head -n 1)"
-          [ -n "$tag" ] || { echo "::error::no minted nightly lock to bind the canary to"; exit 1; }
-          git show "${tag}:platform-lock.json" > "$RUNNER_TEMP/lock/platform-lock.json"
-          git show "${tag}:platform-manifest.yaml" > platform-manifest.yaml
-          echo "binding ${tag}"
-          echo "digest=sha256:$(sha256sum "$RUNNER_TEMP/lock/platform-lock.json" | cut -d' ' -f1)" >> "$GITHUB_OUTPUT"
-          echo "path=$RUNNER_TEMP/lock/platform-lock.json" >> "$GITHUB_OUTPUT"
+          image="$(python - <<'PY'
+          import re, yaml
+          server = yaml.safe_load(open("platform-manifest.yaml"))["components"]["honua-server"]
+          digest = str(server.get("digest") or "")
+          if not re.fullmatch(r"sha256:[0-9a-f]{64}", digest) or not server.get("image"):
+              raise SystemExit("platform-manifest.yaml pins no honua-server image digest to bind")
+          print(f"{str(server['image']).split('@', 1)[0]}@{digest}")
+          PY
+          )"
+          echo "digest=" >> "$GITHUB_OUTPUT"
+          echo "binding server image ${image}"
+          echo "### Canary binding: server image \`${image}\`" >> "$GITHUB_STEP_SUMMARY"
 
       # Protocol: the canary requires a green deterministic receipt for this exact candidate from
       # within 24 hours. It is produced here, in the same job, before any AWS credential exists.
@@ -257,7 +263,6 @@ jobs:
           HONUA_CANARY_AWS_SECRET_ACCESS_KEY: ${{ steps.aws.outputs.aws-secret-access-key }}
           HONUA_CANARY_AWS_SESSION_TOKEN: ${{ steps.aws.outputs.aws-session-token }}
           LOCK_DIGEST: ${{ steps.lock.outputs.digest }}
-          LOCK_PATH: ${{ steps.lock.outputs.path }}
           INJECT_STAGE: ${{ inputs.inject_stage }}
         run: |
           set -uo pipefail
@@ -270,10 +275,10 @@ jobs:
             --no-api-key
             --cell local-docker
             --attempt 1
-            --lock-digest "$LOCK_DIGEST"
             --output artifacts/terminal-model-canary-receipt.json
           )
-          [ -n "$LOCK_PATH" ] && args+=(--lock "$LOCK_PATH")
+          # Without a caller's lock the receipt binds the composed server image (serverImage).
+          [ -n "$LOCK_DIGEST" ] && args+=(--lock-digest "$LOCK_DIGEST")
           [ -n "${INJECT_STAGE:-}" ] && args+=(--inject-stage "$INJECT_STAGE")
           # A red deterministic run leaves no green receipt: the canary is then refused (blocked).
           [ -f artifacts/terminal-journey-receipt.json ] && \

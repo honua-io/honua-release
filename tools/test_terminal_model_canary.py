@@ -1123,7 +1123,10 @@ def test_receipt_carries_lock_mode_cell_attempt_and_attribution_and_schema_requi
                          ("lockDigest", "sha256:short"), ("failureAttribution", None)):
         assert list(validator.iter_errors({**receipt, field: value})), field
     passing = {**receipt, "status": "pass", "failureAttribution": None}
-    assert list(validator.iter_errors({**passing, "lockDigest": None}))
+    assert list(validator.iter_errors({**passing, "lockDigest": None, "serverImage": None}))
+    # Operator ruling 2026-10-22: without a caller's lock, the composed server image binds a pass.
+    assert not list(validator.iter_errors({**passing, "lockDigest": None}))
+    assert list(validator.iter_errors({**passing, "serverImage": {**receipt["serverImage"], "digest": "sha256:x"}}))
     assert list(validator.iter_errors({**passing, "failureAttribution": "model"}))
 
 
@@ -1145,6 +1148,29 @@ def test_pass_requires_a_lock_digest_and_no_attribution():
     builder.receipt["failureAttribution"] = "model"
     with pytest.raises(canary.CanaryError, match="failure attribution"):
         builder.validate_invariants()
+
+
+def test_receipt_records_the_manifest_server_image_it_composes():
+    manifest = canary.load_manifest(MANIFEST)
+    server = manifest["components"]["honua-server"]
+    receipt = _builder(_endpoint()).receipt
+    assert receipt["serverImage"] == {"reference": f"{server['image'].split('@', 1)[0]}@{server['digest']}",
+                                      "digest": server["digest"], "sourceSha": server["sha"]}
+    assert canary.server_image_binding({"components": {"honua-server": {"image": "x"}}}, "local-docker") is None
+
+
+def test_image_bound_pass_requires_the_verified_deterministic_receipt():
+    builder = _builder(_endpoint())
+    builder.receipt["lockDigest"] = None
+    assert builder.receipt["serverImage"]["digest"]
+    # The image is only what the job composed once the green #123 receipt verified that candidate.
+    assert not builder.bound()
+    builder.receipt["linkedEvidence"]["deterministicReceipt"] = {"candidateVerified": True}
+    assert builder.bound()
+    builder.receipt["serverImage"] = {**builder.receipt["serverImage"], "reference": "ghcr.io/x@sha256:" + "0" * 64}
+    assert not builder.bound()
+    builder.receipt["serverImage"] = None
+    assert not builder.bound()
 
 
 def test_cli_binds_the_lock_bytes_and_refuses_an_unbound_or_mismatched_run(tmp_path: Path, monkeypatch):
