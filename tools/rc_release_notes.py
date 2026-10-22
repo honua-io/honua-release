@@ -16,13 +16,15 @@ from pathlib import Path
 import yaml
 
 NOT_CERTIFIED_RC = (
-    "ArcGIS Pro / ArcPy and QGIS / PyQGIS client certification (operator ruling 2026-10-22: deferred past rc)",
+    "Third-party desktop GIS client and desktop-scripting certification (operator ruling 2026-10-22: deferred past rc; "
+    "reported as advisory)",
     "EKS / Helm deployment (Preview, per the 2026-10-16 plan amendment)",
     "Multi-tenancy (internal only for 2026.1)",
     "Licensing enforcement (ships Disabled; the documented posture is `Licensing__Mode=Disabled`)",
     "Every capability whose maturity is `preview`, `experimental` or `internal` in the server capability matrix "
     "(operator ruling 2026-10-22: these neither run certification tests nor block the release; gate verdicts rest on "
     "`implemented` rows only)",
+    "AI agent end-to-end campaign gate (no campaign producer yet; see the post-cut hardening epic)",
 )
 
 
