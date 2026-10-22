@@ -1292,7 +1292,7 @@ def test_live_run_without_lock_or_same_job_deterministic_receipt_is_refused():
     assert builder.receipt["failureAttribution"] == "infrastructure"
 
 
-def _attribution_run(monkeypatch, *, setup=None, model_reply="{}"):
+def _attribution_run(monkeypatch, *, setup=None, model_reply="{}", replies=None, calls=None):
     class Driver:
         def __init__(self, *_):
             pass
@@ -1312,7 +1312,10 @@ def _attribution_run(monkeypatch, *, setup=None, model_reply="{}"):
             pass
 
         def complete(self, messages, certification):
-            return model_reply, {}, 0, {}
+            if calls is not None:
+                calls.append([dict(m) for m in messages])
+            reply = replies.pop(0) if replies else model_reply
+            return reply, {}, 0, {}
 
     monkeypatch.setattr(canary, "DriverAdapter", Driver)
     monkeypatch.setattr(canary, "CandidateProxyClient", Model)
@@ -1328,6 +1331,44 @@ def test_a_model_that_selects_no_valid_action_is_a_model_failure(monkeypatch):
     assert receipt["status"] == "fail" and receipt["failureAttribution"] == "model"
     # Teardown still ran; its later evidence cannot re-attribute the model failure.
     assert receipt["actions"][-1]["kind"] == "teardown"
+
+
+def test_prose_twice_is_a_model_failure_after_exactly_one_corrective_retry(monkeypatch):
+    calls = []
+    receipt = _attribution_run(monkeypatch, replies=["I would run honua status", "Sure: honua status"],
+                               calls=calls)
+    assert receipt["status"] == "fail" and receipt["failureAttribution"] == "model"
+    assert len(calls) == 2
+    corrective = calls[1][-1]
+    assert corrective["role"] == "user" and "not a single JSON action object" in corrective["content"]
+    assert any("one corrective retry was issued" in notice for notice in receipt["notices"])
+    # The refusal describes the reply's shape, never its content.
+    assert any("starts as prose" in notice for notice in receipt["notices"])
+    assert not any("honua status" in notice for notice in receipt["notices"])
+
+
+def test_a_corrected_reply_proceeds_and_the_system_contract_is_strict(monkeypatch):
+    action = json.dumps({"kind": "tool_call", "tool": "honua_read", "arguments": {}})
+    calls = []
+    _attribution_run(monkeypatch, replies=["Here is my plan.", action], calls=calls)
+    assert len(calls) >= 2 and calls[1][-1]["role"] == "user"
+    system = calls[0][0]
+    assert system["role"] == "system" and "exactly one JSON object and nothing else" in system["content"]
+    assert "no code fences" in system["content"]
+
+
+def test_parser_accepts_one_fenced_json_block_and_names_the_shape_of_a_refusal():
+    action = {"kind": "terminal_command", "command": "honua status", "intent": "check"}
+    for wrapped in (f"```json\n{json.dumps(action)}\n```", f"```\n{json.dumps(action)}\n```",
+                    f"  {json.dumps(action)}\n"):
+        assert canary.parse_model_action(wrapped) == ("terminal_command", action)
+    for refused, shape in (("Sure! ```json\n{}\n```", "starts as prose"),
+                           ("```json\n{\"kind\": \"tool_call\"}\n```\nand also", "starts as code-fence"),
+                           ("", "starts as empty")):
+        with pytest.raises(canary.ModelFailure, match=shape):
+            canary.parse_model_action(refused)
+    assert canary._tool_names({"tools": [{"name": "b"}, {"name": "a"}, {"x": 1}]}) == ["a", "b"]
+    assert "Allowed tool_call names (the server-authored view for this stage): a, b." in canary._system_contract(["a", "b"])
 
 
 def test_a_model_that_never_finishes_a_stage_is_a_model_failure(monkeypatch):
