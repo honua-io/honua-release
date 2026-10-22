@@ -704,7 +704,8 @@ class StoreApi:
             if path == "/api/v1/admin/api-keys":
                 key = "synthetic-admin" if self.scenario == "same-key" else "minted-approver"
                 granted = ["admin"] if self.scenario == "broad" else list(body["permissions"])
-                return (201 if self.scenario != "refused" else 403), {"data": {"key": key, "apiKey": {"permissions": granted}}}
+                identity = {} if self.scenario == "unechoed" else {"permissions": granted}
+                return (201 if self.scenario != "refused" else 403), {"data": {"key": key, "apiKey": identity}}
             pending = ["Honua.Server.Migrations.999_Later.sql"] if self.scenario == "pending" else []
             return 200, {"readyForCoordinatedDeploy": True, "migration": {
                 "planAvailable": True, "upgradeRequired": bool(pending), "pendingScripts": pending,
@@ -764,13 +765,18 @@ def test_hermetic_store_is_migrated_by_image_a_and_the_controller_never_migrates
     assert minted[0][0].endswith(":%d" % native.STORE_MIGRATOR_PORT)
     assert runtime.approval_key == "minted-approver" != runtime.api.credential
     assert runtime.deploy.approval_api.credential == "minted-approver"
+    # The store images are digest-pinned and recorded for the receipt.
+    assert all("@sha256:" in image and len(image.rsplit(":", 1)[1]) == 64 for image in native.CONTROLLER_STORE_IMAGES.values())
+    assert runtime.controller_store["images"] == native.CONTROLLER_STORE_IMAGES
+    assert runtime.controller_store["migratedBy"] == prior.image and runtime.controller_store["topology"] == "hermetic-per-run"
     # Cleanup removes the controller and the whole store, volumes included.
     assert runtime.close() == []
     assert ["docker", "rm", "-f", "-v", names[0]] in calls and ["docker", "rm", "-f", "-v", names[1]] in calls
 
 
 @pytest.mark.parametrize("scenario,message", [("pending", "did not migrate the controller store"),
-                                              ("same-key", "distinct API key"), ("broad", "only admin:read"),
+                                              ("same-key", "distinct API key"), ("broad", "exactly admin:read"),
+                                              ("unechoed", "exactly admin:read"),
                                               ("refused", "could not be created")])
 def test_hermetic_store_refuses_unmigrated_store_and_unsafe_approver(tmp_path, monkeypatch, scenario, message):
     runtime, calls, envs, api = hermetic_runtime(tmp_path, monkeypatch, scenario)
@@ -809,3 +815,12 @@ def test_empty_operator_supplement_is_allowed_and_ignored(tmp_path, monkeypatch)
     runtime, calls, envs, api = hermetic_runtime(tmp_path, monkeypatch, supplement=supplement)
     lines, mounts = runtime.startup_profile()
     assert lines[0] == "ASPNETCORE_ENVIRONMENT=Production" and mounts[0] == "-v"
+
+
+def test_receipt_records_the_hermetic_controller_store_identity():
+    runtime = Runtime()
+    runtime.controller_store = {"topology": "hermetic-per-run", "images": dict(native.CONTROLLER_STORE_IMAGES),
+                                "migratedBy": release("a").image, "approverPermissions": ["admin:read", "admin:approve"]}
+    receipt = run(runtime)
+    assert receipt["controllerStore"]["images"] == native.CONTROLLER_STORE_IMAGES
+    assert "controllerStore" not in run(Runtime())

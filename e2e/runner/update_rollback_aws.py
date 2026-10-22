@@ -44,7 +44,12 @@ def env_key(line):
 # Hermetic retained-controller store (run-local, on the producer runner's loopback). Nothing is
 # standing, so no schema drifts between pairs and an older controller image never meets a store
 # a newer build migrated (honua-server#6477).
-CONTROLLER_STORE_IMAGES = {"postgis": "postgis/postgis:16-3.4-alpine", "redis": "redis:7.2-alpine"}
+# Pinned by multi-arch index digest (tags noted for review): an upstream retag cannot change the
+# bytes a pair's controller store runs on. Both digests are recorded in the cell receipt.
+CONTROLLER_STORE_IMAGES = {
+    "postgis": "postgis/postgis@sha256:681931a625df344215e9b8998bf34daf146b6a395ceacee4439eb9c85869239f",  # 16-3.4-alpine
+    "redis": "redis@sha256:35011bb2d34be3185c72935a847f25da61094c8a0a207ee17db6a7f8c3de9eb1",  # 7.2-alpine
+}
 CONTROLLER_STORE_PORTS = {"postgis": 55432, "redis": 56379}
 CONTROLLER_PORT, SCHEMA_PROBE_PORT, STORE_MIGRATOR_PORT = 18082, 18083, 18084
 APPROVER_PERMISSIONS = ["admin:read", "admin:approve"]
@@ -377,8 +382,11 @@ class AwsRuntime:
                 "per-run approver credential must be a distinct API key")
         identity = data.get("apiKey") if isinstance(data.get("apiKey"), dict) else {}
         granted = identity.get("permissions")
-        require(granted is None or sorted(granted) == sorted(APPROVER_PERMISSIONS),
-                "per-run approver must hold only admin:read + admin:approve")
+        # The creation response must echo the effective grants exactly: a missing list could hide a
+        # default or broader grant, so absence refuses just like a wider set does.
+        require(isinstance(granted, list) and all(isinstance(g, str) for g in granted)
+                and sorted(granted) == sorted(APPROVER_PERMISSIONS),
+                "per-run approver must hold exactly admin:read + admin:approve")
         return key
 
     def start_controller(self, prior, candidate):
@@ -396,6 +404,9 @@ class AwsRuntime:
             require(redis_store(store["ConnectionStrings__redis"]) != redis_store(cell_redis),
                     "controller must use an independent durable Redis store, never the candidate execution queue")
         self.store_migration = self.migrate_controller_store(prior, store)
+        self.controller_store = {"topology": "hermetic-per-run", "images": dict(CONTROLLER_STORE_IMAGES),
+                                 "migratedBy": prior.image, "migration": self.store_migration,
+                                 "approverPermissions": list(APPROVER_PERMISSIONS)}
         lines, mounts = self.startup_profile()
         env = "\n".join(lines + [k + "=" + v for k, v in store.items()])
         target_id = self.safety["target_id"] if self.safety else self.output_value("control_plane_target_id")

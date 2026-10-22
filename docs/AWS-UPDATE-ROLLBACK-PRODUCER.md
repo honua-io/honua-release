@@ -60,7 +60,7 @@ read access for opt-in authentication. The ordinary reusable cloud jobs retain t
 GITHUB_TOKEN permission floor; no caller's grants are silently raised.
 
 The retained controller's store is **hermetic and per run**. For every Redis-on/Lambda cell the
-producer starts its own PostGIS (`127.0.0.1:55432`) and Redis (`127.0.0.1:56379`, AOF on) on the
+producer starts its own digest-pinned PostGIS (`127.0.0.1:55432`) and Redis (`127.0.0.1:56379`, AOF on) on the
 runner. Image A itself migrates that store with its normal startup, and A's own bidirectional
 migration plan must then be empty in both directions. A separate approver principal holding only
 `admin:read` + `admin:approve` is minted through A's admin API in that store; it must differ from
