@@ -106,12 +106,57 @@ def test_receipt_normalises_unknown_status_to_fail(tmp_path):
     assert receipt["status"] == "fail"
 
 
-def test_workflow_runs_the_fallback_only_without_signed_locks_and_keeps_its_own_fragment():
+def test_workflow_runs_both_pairs_with_their_own_fragments_and_customer_steps():
     text = (Path(__file__).resolve().parents[1] / ".github/workflows/gate-upgrade.yml").read_text(encoding="utf-8")
-    assert "if: steps.images.outputs.verified != '1'" in text
-    assert "python tools/upgrade_trunk_pair.py resolve" in text
-    assert "gate: upgrade-kind-trunk-candidate-${{ matrix.scenario }}" in text
-    assert "prior-source: trunk-candidate" in text
-    # The signed-lock fragment is forced back to blocked after a fallback run.
-    assert 'STATUS=blocked\n            WHY="$SIGNED_LOCK_WHY (trunk-candidate fallback ran separately' in text
-    assert "steps.smoke.outputs.mode != 'trunk-candidate'" in text
+    assert "if: steps.images.outputs.verified != '1' || matrix.pair == 'trunk-candidate'" in text
+    assert "python tools/upgrade_trunk_pair.py select-release" in text
+    assert 'ARGS=(--prior-source "$PAIR")' in text
+    assert "gate: upgrade-kind-${{ matrix.pair }}-${{ matrix.scenario }}" in text
+    assert "prior-source: published-release" in text and "scaffolding, not a customer release pair" in text
+    # The signed-lock fragment is forced back to blocked after a pair run, once per scenario.
+    assert 'STATUS=blocked\n            WHY="$SIGNED_LOCK_WHY (the $MODE pair ran separately' in text
+    assert "if: always() && matrix.pair == 'published-release'" in text
+    assert "steps.smoke.outputs.mode == 'signed-lock'" in text
+    # Documented customer steps: backup, nonce approval, restore at the rollback boundary.
+    assert "pg_dump -U honua -d honua -Fc -f /tmp/pre-upgrade.dump" in text
+    assert "HONUA_APPROVE_CONTRACT_MIGRATIONS=[0-9a-f]{8,64}" in text
+    assert '--set-string "config.env.HONUA_APPROVE_CONTRACT_MIGRATIONS=$APPROVAL_NONCE"' in text
+    assert 'READER_EXPAND_FLOOR: "135"' in text and "restore_pre_upgrade_backup" in text
+
+
+def test_select_release_takes_the_newest_published_honua_release_and_labels_prereleases():
+    releases = [
+        {"tag_name": "honua-2026.1", "published_at": "2026-08-20T16:49:02Z", "prerelease": True, "html_url": "u1"},
+        {"tag_name": "honua-2026.2", "published_at": "2026-12-01T00:00:00Z", "draft": True},
+        {"tag_name": "sdk-v1", "published_at": "2026-12-02T00:00:00Z"},
+    ]
+    assert pair.select_release(releases) == {"tag": "honua-2026.1", "url": "u1", "prerelease": True}
+    with pytest.raises(pair.PairError, match="no published honua-"):
+        pair.select_release([{"tag_name": "honua-x", "draft": True, "published_at": "2026-01-01T00:00:00Z"}])
+
+
+def test_published_release_pair_names_the_customer_public_reference():
+    prior = manifest(A, "a", 106, amd64=False, helm="e" * 40)
+    out = pair.resolve(manifest(C, "c", 128), b"c", prior_manifest=prior, prior_bytes=b"p",
+                       prior_source="published-release",
+                       release={"tag": "honua-2026.1", "url": "https://example/rel", "prerelease": True})
+    assert out["prior_source"] == "published-release" and out["release_tag"] == "honua-2026.1"
+    assert out["release_prerelease"] == "true"
+    assert out["prior_public_reference"] == "ghcr.io/honua-io/honua-server:nightly-" + A[:7] + "@sha256:" + "a" * 64
+    assert out["prior"] == "ghcr.io/honua-io/honua-server@sha256:" + "a" * 64 and out["prior_helm_sha"] == "e" * 40
+    with pytest.raises(pair.PairError, match="needs the release"):
+        pair.resolve(manifest(C, "c", 128), b"c", prior_source="published-release", history=[])
+
+
+def test_receipts_say_which_pair_certifies_the_customer_path():
+    published = pair.build_receipt({"prior_source": "published-release", "prior_public_reference": "ref@sha256:x",
+                                    "release_tag": "honua-2026.1", "release_prerelease": "true"},
+                                   scenario="normal", status="pass", why="", signed_lock_why="x",
+                                   observed={}, phases={}, run="", commit="")
+    assert published["priorSource"] == "published-release" and published["certifiedReleasePair"] is False
+    assert published["certification"]["role"] == "customer-upgrade-path"
+    assert published["certification"]["publicReference"] == "ref@sha256:x"
+    assert published["certification"]["release"] == {"tag": "honua-2026.1", "url": None, "prerelease": True}
+    scaffold = pair.build_receipt({}, scenario="normal", status="pass", why="", signed_lock_why="x",
+                                  observed={}, phases={}, run="", commit="")
+    assert scaffold["priorSource"] == "trunk-candidate" and scaffold["certification"]["role"] == "scaffolding"
