@@ -361,3 +361,18 @@ def test_server_gp_canary_is_env_gated_but_its_harness_checks_stay_core():
         ("harness-checks", "failure"), ("geometry-buffer", "failure")))
     assert status == "fail"
     assert _red_names(why) == "1/1 core check-run(s) red (['failure']: ['harness-checks'])"
+
+
+def test_grpc_certify_harness_ruling_is_advisory_but_protocol_lanes_stay_core():
+    core = [("Conformance Fixtures", "success"), ("Validate Protocol Schemas", "success")]
+    # Coordinator ruling 2026-10-22 (#376): certify at tag v1.0.3 loads the previous tag's fixtures
+    # (runs 36619225117, 39745208615); grpc#148 run 39705695180 certified the 1.0.3 clients 42/42.
+    status, why = _classify("geospatial-grpc", _runs_named(*core, ("certify", "failure")))
+    assert status == "pass", why
+    assert "advisory" in why and "certify" in why
+    status, why = _classify("geospatial-grpc", _runs_named(
+        ("Conformance Fixtures", "failure"), ("Validate Protocol Schemas", "success"), ("certify", "failure")))
+    assert status == "fail"
+    assert _red_names(why) == "1/2 core check-run(s) red (['failure']: ['Conformance Fixtures'])"
+    status, why = _classify("geospatial-grpc", _runs_named(("certify", "failure")))
+    assert status == "blocked", why
