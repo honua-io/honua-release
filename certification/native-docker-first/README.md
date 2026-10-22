@@ -164,12 +164,14 @@ is performed. Outputs are create-only and the final handoff is never accepted
 from an operator-supplied passing receipt.
 
 The current server deliberately creates its publication-request row only after
-approval actuation. Its pending response can supply request identity before the
-persisted handle exposes resource IDs. In that case the capture explicitly sets
-`requestIdentityVerified:false`: the original server-returned request ID in the
-human Console journal is **provisional**, and final qualification must match it
-to the actual canonical request/operation and anonymous published route after
-separate approval. The command ID is observed from the human Console journal,
+approval actuation. A legitimate pending response may contain only the operation
+and proposal IDs, with no request ID. Capture binds their exact canonical pending
+status and proposal diff to the saved item/version/hash; it does not invent a
+request ID. `requestIdentityVerified:false` records that no canonical request has
+yet been observed. If the journal already has a request ID, final qualification
+must match it. The trusted read-only witness derives the final request ID from
+the same canonical operation and joins the request and anonymous published route
+after separate approval. The command ID is observed from the human Console journal,
 not misrepresented as an independently queryable server command contract. The
 private `external-publication-handoff.json` is an awaiting-approval reference,
 not a passing publication receipt.
@@ -228,4 +230,4 @@ python3 certification/native-docker-first/run.py witness \
   --server-origin http://127.0.0.1:8080
 ```
 
-`witness` is read-only and can be repeated while approval is pending. It uses the paired human session to read the proposal and the installer's separate `admin:read` workspace key to read the exact operation handle from the local server; the key is never sent to the browser page or written into a receipt. The handle must bind the original proposal, publication request, item and version. It also requires the nonempty submitting human actor captured at submission and a nonempty, different resolving human actor. It then checks the exact immutable publish request, saved content hash, and an unauthenticated public route read for the original map/content hash. A proposal response without a canonical request ID blocks; no latest-list matching or resubmission substitutes it. A joined integration pass is written only after all of these reads agree. Private storage state, install `.env`, model transcript, and browser logs remain outside version control. There is no cloud apply, release promotion, or claim that this one smoke qualifies the broader P24/252-case pack or human task evaluation.
+`witness` is read-only and can be repeated while approval is pending. It uses the paired human session to read the proposal and the installer's separate `admin:read` workspace key to read the exact operation handle from the local server; the key is never sent to the browser page or written into a receipt. The handle must bind the original proposal, publication request, item and version. It also requires the nonempty submitting human actor captured at submission and a nonempty, different resolving human actor. It then checks the exact immutable publish request, saved content hash, and an unauthenticated public route read for the original map/content hash. A pending proposal may omit the request ID; after approval the original canonical operation must expose a nonempty final request ID, and any previously observed request ID must agree. No latest-list matching or resubmission substitutes that join. A joined integration pass is written only after all of these reads agree. Private storage state, install `.env`, model transcript, and browser logs remain outside version control. There is no cloud apply, release promotion, or claim that this one smoke qualifies the broader P24/252-case pack or human task evaluation.

@@ -289,7 +289,9 @@ def observed_pending_publication(runner, state, handoff, observed, proposal_id, 
             handoff.get('status') != 'awaiting-separate-human-approval' or handoff.get('route') != route or
             handoff.get('proposalId') != proposal_id or handoff.get('renderedMapVerified') is not True or
             any(not isinstance(handoff.get(key), str) or not handoff[key].strip() for key in
-                ('proposalId', 'requestedBy', 'operationInstanceId', 'commandId', 'requestId'))):
+                ('proposalId', 'requestedBy', 'operationInstanceId', 'commandId'))) or (
+            'requestId' in handoff and
+            (not isinstance(handoff['requestId'], str) or not handoff['requestId'].strip())):
         raise runner.Blocked('human pending publication capture differs from the external map or exact proposal')
     proposal = handoff.get('canonicalProposal') or {}
     expected_diff = [f'itemId={observed["itemId"]}', f'versionId={observed["versionId"]}',
@@ -305,12 +307,16 @@ def observed_pending_publication(runner, state, handoff, observed, proposal_id, 
             operation.get('proposalId') != proposal_id or operation.get('status', '').lower() != 'requiresapproval'):
         raise runner.Blocked('canonical publication operation is not pending on the captured human proposal')
     resources = operation.get('resourceIds') or {}
-    if resources and any(resources.get(key) != handoff[key] for key in ('itemId', 'versionId', 'requestId')):
+    if 'requestId' in resources and (not isinstance(resources['requestId'], str) or not resources['requestId'].strip()):
+        raise runner.Blocked('pending canonical publication request identity is malformed')
+    if resources and (any(resources.get(key) != handoff[key] for key in ('itemId', 'versionId')) or
+                      (handoff.get('requestId') is not None and resources.get('requestId') != handoff['requestId'])):
         raise runner.Blocked('pending canonical publication resource identities differ')
-    # The publication row does not exist until approval actuation. The original
-    # server-returned request ID retained in the human Console journal is therefore
-    # provisional here and must match the actual final request/handle in audience.
-    return {**handoff, 'requestIdentityVerified': bool(resources),
+    # Approval actuation creates the publication row. Pending receipts may have
+    # no request ID; any ID already observed must match the final canonical one.
+    if resources.get('requestId'):
+        handoff = {**handoff, 'requestId': resources['requestId']}
+    return {**handoff, 'requestIdentityVerified': bool(resources.get('requestId')),
             'pendingBinding': 'canonical-proposal-diff-and-operation',
             'commandIdentityObservedBy': 'human-console-journal'}
 
@@ -401,6 +407,18 @@ def observed_audience_resume(runner, transcript, original, observed):
             'anonymousAudienceObservedBy': 'independent-controller-browser'}
 
 
+def validate_audience_witness(runner, handoff, witness):
+    if (witness.get('status') != 'pass' or
+            any(witness.get(key) != handoff.get(key) for key in
+                ('proposalId', 'operationInstanceId', 'commandId', 'itemId', 'versionId', 'contentHash', 'route', 'requestedBy')) or
+            not isinstance(witness.get('requestId'), str) or not witness['requestId'].strip() or
+            (handoff.get('requestId') is not None and witness['requestId'] != handoff['requestId']) or
+            not isinstance(witness.get('requestedBy'), str) or not witness['requestedBy'].strip() or
+            not isinstance(witness.get('resolvedBy'), str) or not witness['resolvedBy'].strip() or
+            witness['requestedBy'] == witness['resolvedBy']):
+        raise runner.Blocked('audience witness lacks exact map/publication and distinct real human identities')
+
+
 def _phase_audience(runner, args, state, binding, attempt):
     if (state['stages'].get('agentMap') != 'pass' or
             state['stages'].get('agentPublication') not in ('awaiting-separate-human-approval', 'pass')):
@@ -434,13 +452,7 @@ def _phase_audience(runner, args, state, binding, attempt):
         runner.private_json(attempt / 'receipt.json', state)
         raise runner.Blocked('separate human approval or anonymous audience read is pending/failed; no mutation was repeated')
     witness = runner.read_json(witness_path)
-    if (witness.get('status') != 'pass' or
-            any(witness.get(key) != handoff.get(key) for key in
-                ('proposalId', 'operationInstanceId', 'commandId', 'requestId', 'itemId', 'versionId', 'contentHash', 'route', 'requestedBy')) or
-            not isinstance(witness.get('requestedBy'), str) or not witness['requestedBy'].strip() or
-            not isinstance(witness.get('resolvedBy'), str) or not witness['resolvedBy'].strip() or
-            witness['requestedBy'] == witness['resolvedBy']):
-        raise runner.Blocked('audience witness lacks exact map/publication and distinct real human identities')
+    validate_audience_witness(runner, handoff, witness)
     state['externalAudienceWitness'] = {'path': witness_path.name, 'sha256': runner.sha256(witness_path)}
     runner.private_json(attempt / 'receipt.json', state)
     # Read-only resume may be repeated. Each transcript gets a new immutable name;

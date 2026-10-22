@@ -188,6 +188,12 @@ class AgentMapTests(unittest.TestCase):
         result = helper.observed_pending_publication(runner, {}, handoff, self.observe(), 'proposal1', '/review-map',
                                                      read=lambda _:self.pending_operation())
         self.assertFalse(result['requestIdentityVerified'])
+        canonical = {**self.pending_operation(), 'resourceIds': {
+            'itemId': 'item1', 'versionId': 'version1', 'requestId': 'request1'}}
+        joined = helper.observed_pending_publication(runner, {}, handoff, self.observe(), 'proposal1', '/review-map',
+                                                     read=lambda _: canonical)
+        self.assertEqual(joined['requestId'], 'request1')
+        self.assertTrue(joined['requestIdentityVerified'])
         self.assertEqual(result['pendingBinding'],'canonical-proposal-diff-and-operation')
         for field,value in [('status','Succeeded'),('requestedByAgent','agent1'),('resolvedBy','human2'),
                             ('diff',['itemId=other']),('proposalId','other')]:
@@ -202,6 +208,32 @@ class AgentMapTests(unittest.TestCase):
             with self.subTest(field=field),self.assertRaises(runner.Blocked):
                 helper.observed_pending_publication(runner, {}, handoff, self.observe(),'proposal1','/review-map',
                                                      read=lambda _:operation)
+
+    def test_pending_capture_accepts_absent_request_id_but_rejects_wrong_observed_id(self):
+        handoff = self.pending_handoff()
+        handoff.pop('requestId')
+        result = helper.observed_pending_publication(runner, {}, handoff, self.observe(), 'proposal1', '/review-map',
+                                                     read=lambda _: self.pending_operation())
+        self.assertNotIn('requestId', result)
+        self.assertFalse(result['requestIdentityVerified'])
+        operation = {**self.pending_operation(), 'resourceIds': {
+            'itemId': 'item1', 'versionId': 'version1', 'requestId': 'other'}}
+        with self.assertRaises(runner.Blocked):
+            helper.observed_pending_publication(runner, {}, self.pending_handoff(), self.observe(),
+                                               'proposal1', '/review-map', read=lambda _: operation)
+
+    def test_audience_requires_final_request_and_same_operation_with_optional_pending_id(self):
+        handoff = self.pending_handoff()
+        witness = {**handoff, 'status': 'pass', 'resolvedBy': 'human2'}
+        helper.validate_audience_witness(runner, handoff, witness)
+        pending_without_id = {key: value for key, value in handoff.items() if key != 'requestId'}
+        helper.validate_audience_witness(runner, pending_without_id, witness)
+        for field, value in [('requestId', None), ('requestId', ''), ('operationInstanceId', 'other'),
+                             ('proposalId', 'other'), ('itemId', 'other'), ('versionId', 'other')]:
+            with self.subTest(field=field, value=value), self.assertRaises(runner.Blocked):
+                helper.validate_audience_witness(runner, pending_without_id, {**witness, field: value})
+        with self.assertRaises(runner.Blocked):
+            helper.validate_audience_witness(runner, handoff, {**witness, 'requestId': 'other'})
 
     def test_read_only_human_capture_can_retry_lost_response_without_publication(self):
         from types import SimpleNamespace

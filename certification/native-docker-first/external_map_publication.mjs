@@ -73,7 +73,7 @@ try {
     return values;
   });
   const matching=records.filter(value=>value.itemId===map.itemId && value.versionId===map.versionId && value.receipt?.proposalId===proposalId && value.receipt?.status==='awaiting-approval' && value.contentHash===map.contentHash && value.input?.intent?.route===route && value.input?.intent?.visibility==='public');
-  check(matching.length===1 && matching[0].receipt.operationInstanceId && matching[0].receipt.requestId,'Exact durable publication operation/request unavailable.');
+  check(matching.length===1 && matching[0].receipt.operationInstanceId,'Exact durable pending publication operation unavailable.');
   const handoff={schemaVersion:'honua.native-docker.publication-handoff/v1',status:'awaiting-separate-human-approval',
     ...map,principalId:session.principalId,environmentId:session.environmentId,versionNumber:version.versionNumber,
     audience:'public',route,proposalId,requestedBy:proposal.requestedBy,commandId:matching[0].commandId,
