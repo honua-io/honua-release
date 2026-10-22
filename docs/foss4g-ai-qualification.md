@@ -52,10 +52,17 @@ The profile is an inventory with explicit blockers. It does not execute all 134
 cases. Operational repair, GP-to-map and the remaining interaction/fault adapters,
 the authenticated pilot receipt producer, pilot dispatch integration,
 live candidate matrix, cleanup qualification and five user sessions remain open.
-Authoring and published-audience controls, including reviewed layer-alias and
-teardown-cancellation fixes, passed hosted Studio validation at `c8a698c`: 1,569
-unit tests, typecheck/build/style and three production Console-asset browser
-checks. Console `5c5ee04` contains that provenance-verified artifact.
+Authoring and published-audience controls, including consistent widget/control
+alias resolution and teardown cancellation, passed hosted Studio validation at
+`dabd2c6`: 1,592 unit tests, typecheck/build/style and all smoke jobs. Console
+`7237e8c` contains that provenance-verified artifact and passed its normal hosted
+core, E2E and pinned-server integration checks. Bounded-count follow-up
+[Studio #124](https://github.com/honua-io/honua-studio/pull/124) keeps informational
+notices separate from rendering errors; at `fda6681`, all 1,598 unit tests and
+hosted typecheck/build/style and all smoke jobs pass. Console `41d8cc1` vendors
+that verified bundle and passes 93 focused checks; its normal CI and Studio
+sequential review are pending. The original PR merged during second review; the separately labeled
+post-merge audit does not establish historical pre-merge clearance.
 Installed-candidate execution is required before these checks can qualify the pilot.
 
 The [fixed budget amendment](foss4g-pilot-budget.md) preserves the same candidate's
