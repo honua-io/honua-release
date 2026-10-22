@@ -23,11 +23,13 @@
         "ArcPyScriptSource",
         "ArcPyToolCall",
         "AsyncHonuaAdminClient",
+        "BackgroundImportResponse",
         "ColumnInfo",
         "ConnectionTestResult",
         "CreateSecureConnectionRequest",
         "EncryptionValidationResult",
         "HonuaAdminClient",
+        "ImportResult",
         "KeyRotationResult",
         "LayerStyleResponse",
         "LayerStyleUpdateRequest",
@@ -74,6 +76,8 @@
         "OgcStyleSummary",
         "OgcStylesList",
         "OgcStylesheet",
+        "OperationProposalDetail",
+        "OperationProposalSummary",
         "PublishLayerRequest",
         "PublishedLayerSummary",
         "ResourceMetadata",
@@ -782,6 +786,11 @@
               "kind": "method",
               "signature": "(self, request: 'ManifestApplyRequest', *, idempotency_key: 'str | None' = None, timeout: 'float | httpx.Timeout | None' = None, extra_headers: 'Mapping[str, str] | None' = None) -> 'ManifestApplyResult'"
             },
+            "approve_proposal": {
+              "async": true,
+              "kind": "method",
+              "signature": "(self, id: 'str', *, timeout: 'float | httpx.Timeout | None' = None, extra_headers: 'Mapping[str, str] | None' = None, idempotency_key: 'str | None' = None) -> 'OperationProposalDetail'"
+            },
             "check_compatibility": {
               "async": true,
               "kind": "method",
@@ -856,6 +865,11 @@
               "kind": "method",
               "signature": "(self, kind: 'str', ns: 'str', name: 'str', *, timeout: 'float | httpx.Timeout | None' = None, extra_headers: 'Mapping[str, str] | None' = None) -> 'tuple[MetadataResource, str | None]'"
             },
+            "get_proposal": {
+              "async": true,
+              "kind": "method",
+              "signature": "(self, id: 'str', *, timeout: 'float | httpx.Timeout | None' = None, extra_headers: 'Mapping[str, str] | None' = None) -> 'OperationProposalDetail'"
+            },
             "get_service_settings": {
               "async": true,
               "kind": "method",
@@ -891,6 +905,11 @@
               "kind": "method",
               "signature": "(self, kind: 'str | None' = None, namespace: 'str | None' = None, *, timeout: 'float | httpx.Timeout | None' = None, extra_headers: 'Mapping[str, str] | None' = None) -> 'list[MetadataResource]'"
             },
+            "list_proposals": {
+              "async": true,
+              "kind": "method",
+              "signature": "(self, *, status: 'str | None' = None, kind: 'str | None' = None, requested_by: 'str | None' = None, timeout: 'float | httpx.Timeout | None' = None, extra_headers: 'Mapping[str, str] | None' = None) -> 'list[OperationProposalSummary]'"
+            },
             "list_services": {
               "async": true,
               "kind": "method",
@@ -905,6 +924,11 @@
               "async": true,
               "kind": "method",
               "signature": "(self, conn_id: 'str', request: 'PublishLayerRequest', *, idempotency_key: 'str | None' = None, timeout: 'float | httpx.Timeout | None' = None, extra_headers: 'Mapping[str, str] | None' = None) -> 'PublishedLayerSummary'"
+            },
+            "reject_proposal": {
+              "async": true,
+              "kind": "method",
+              "signature": "(self, id: 'str', reason: 'str', *, timeout: 'float | httpx.Timeout | None' = None, extra_headers: 'Mapping[str, str] | None' = None, idempotency_key: 'str | None' = None) -> 'OperationProposalDetail'"
             },
             "rotate_encryption_key": {
               "async": true,
@@ -936,6 +960,11 @@
               "kind": "method",
               "signature": "(self, request: 'CreateSecureConnectionRequest', *, timeout: 'float | httpx.Timeout | None' = None, extra_headers: 'Mapping[str, str] | None' = None, idempotency_key: 'str | None' = None) -> 'ConnectionTestResult'"
             },
+            "update_access_policy": {
+              "async": true,
+              "kind": "method",
+              "signature": "(self, name: 'str', *, allow_anonymous: 'bool | None' = None, allow_anonymous_write: 'bool | None' = None, allowed_roles: 'list[str] | None' = None, allowed_write_roles: 'list[str] | None' = None, timeout: 'float | httpx.Timeout | None' = None, extra_headers: 'Mapping[str, str] | None' = None, idempotency_key: 'str | None' = None) -> 'ServiceSettingsResponse'"
+            },
             "update_connection": {
               "async": true,
               "kind": "method",
@@ -966,6 +995,11 @@
               "kind": "method",
               "signature": "(self, style_id: 'str', style: 'Mapping[str, Any]', *, strict: 'bool' = False, timeout: 'float | httpx.Timeout | None' = None, extra_headers: 'Mapping[str, str] | None' = None, idempotency_key: 'str | None' = None) -> 'None'"
             },
+            "upload_file": {
+              "async": true,
+              "kind": "method",
+              "signature": "(self, file: 'bytes | BinaryIO', *, filename: 'str', table_name: 'str', content_type: 'str' = 'application/octet-stream', timeout: 'float | httpx.Timeout | None' = None, extra_headers: 'Mapping[str, str] | None' = None, idempotency_key: 'str | None' = None) -> 'ImportResult | BackgroundImportResponse'"
+            },
             "validate_encryption": {
               "async": true,
               "kind": "method",
@@ -984,6 +1018,61 @@
           "module": "honua_admin._async_client",
           "qualname": "AsyncHonuaAdminClient",
           "signature": "(base_url: 'str', *, timeout: 'float' = 30.0, api_key: 'str | None' = None, bearer_token: 'str | None' = None, auth_provider: 'AuthProvider | None' = None, follow_redirects: 'bool' = False, client: 'httpx.AsyncClient | None' = None, transport: 'httpx.AsyncBaseTransport | None' = None, max_retries: 'int' = 3) -> 'None'"
+        },
+        "BackgroundImportResponse": {
+          "fields": [
+            {
+              "annotation": "str",
+              "name": "job_id"
+            },
+            {
+              "annotation": "str",
+              "name": "message"
+            },
+            {
+              "annotation": "str",
+              "name": "status_url"
+            },
+            {
+              "annotation": "str",
+              "name": "cancel_url"
+            },
+            {
+              "annotation": "str | None",
+              "default": "None",
+              "name": "upload_id"
+            },
+            {
+              "annotation": "str | None",
+              "default": "None",
+              "name": "operation_instance_id"
+            },
+            {
+              "annotation": "str | None",
+              "default": "None",
+              "name": "correlation_id"
+            },
+            {
+              "annotation": "str | None",
+              "default": "None",
+              "name": "audit_id"
+            },
+            {
+              "annotation": "str | None",
+              "default": "None",
+              "name": "proposal_id"
+            }
+          ],
+          "kind": "class",
+          "methods": {
+            "from_dict": {
+              "kind": "classmethod",
+              "signature": "(cls, data: 'dict[str, Any]') -> 'BackgroundImportResponse'"
+            }
+          },
+          "module": "honua_admin._models",
+          "qualname": "BackgroundImportResponse",
+          "signature": "(job_id: 'str', message: 'str', status_url: 'str', cancel_url: 'str', upload_id: 'str | None' = None, operation_instance_id: 'str | None' = None, correlation_id: 'str | None' = None, audit_id: 'str | None' = None, proposal_id: 'str | None' = None) -> None"
         },
         "ColumnInfo": {
           "fields": [
@@ -1158,6 +1247,10 @@
               "kind": "method",
               "signature": "(self, request: 'ManifestApplyRequest', *, idempotency_key: 'str | None' = None, timeout: 'float | httpx.Timeout | None' = None, extra_headers: 'Mapping[str, str] | None' = None) -> 'ManifestApplyResult'"
             },
+            "approve_proposal": {
+              "kind": "method",
+              "signature": "(self, id: 'str', *, timeout: 'float | httpx.Timeout | None' = None, extra_headers: 'Mapping[str, str] | None' = None, idempotency_key: 'str | None' = None) -> 'OperationProposalDetail'"
+            },
             "check_compatibility": {
               "kind": "method",
               "signature": "(self, *, timeout: 'float | httpx.Timeout | None' = None, extra_headers: 'Mapping[str, str] | None' = None) -> 'AdminCompatibilityCheckResult'"
@@ -1218,6 +1311,10 @@
               "kind": "method",
               "signature": "(self, kind: 'str', ns: 'str', name: 'str', *, timeout: 'float | httpx.Timeout | None' = None, extra_headers: 'Mapping[str, str] | None' = None) -> 'tuple[MetadataResource, str | None]'"
             },
+            "get_proposal": {
+              "kind": "method",
+              "signature": "(self, id: 'str', *, timeout: 'float | httpx.Timeout | None' = None, extra_headers: 'Mapping[str, str] | None' = None) -> 'OperationProposalDetail'"
+            },
             "get_service_settings": {
               "kind": "method",
               "signature": "(self, name: 'str', *, timeout: 'float | httpx.Timeout | None' = None, extra_headers: 'Mapping[str, str] | None' = None) -> 'ServiceSettingsResponse'"
@@ -1246,6 +1343,10 @@
               "kind": "method",
               "signature": "(self, kind: 'str | None' = None, namespace: 'str | None' = None, *, timeout: 'float | httpx.Timeout | None' = None, extra_headers: 'Mapping[str, str] | None' = None) -> 'list[MetadataResource]'"
             },
+            "list_proposals": {
+              "kind": "method",
+              "signature": "(self, *, status: 'str | None' = None, kind: 'str | None' = None, requested_by: 'str | None' = None, timeout: 'float | httpx.Timeout | None' = None, extra_headers: 'Mapping[str, str] | None' = None) -> 'list[OperationProposalSummary]'"
+            },
             "list_services": {
               "kind": "method",
               "signature": "(self, *, timeout: 'float | httpx.Timeout | None' = None, extra_headers: 'Mapping[str, str] | None' = None) -> 'list[ServiceSummary]'"
@@ -1257,6 +1358,10 @@
             "publish_layer": {
               "kind": "method",
               "signature": "(self, conn_id: 'str', request: 'PublishLayerRequest', *, idempotency_key: 'str | None' = None, timeout: 'float | httpx.Timeout | None' = None, extra_headers: 'Mapping[str, str] | None' = None) -> 'PublishedLayerSummary'"
+            },
+            "reject_proposal": {
+              "kind": "method",
+              "signature": "(self, id: 'str', reason: 'str', *, timeout: 'float | httpx.Timeout | None' = None, extra_headers: 'Mapping[str, str] | None' = None, idempotency_key: 'str | None' = None) -> 'OperationProposalDetail'"
             },
             "rotate_encryption_key": {
               "kind": "method",
@@ -1282,6 +1387,10 @@
               "kind": "method",
               "signature": "(self, request: 'CreateSecureConnectionRequest', *, timeout: 'float | httpx.Timeout | None' = None, extra_headers: 'Mapping[str, str] | None' = None, idempotency_key: 'str | None' = None) -> 'ConnectionTestResult'"
             },
+            "update_access_policy": {
+              "kind": "method",
+              "signature": "(self, name: 'str', *, allow_anonymous: 'bool | None' = None, allow_anonymous_write: 'bool | None' = None, allowed_roles: 'list[str] | None' = None, allowed_write_roles: 'list[str] | None' = None, timeout: 'float | httpx.Timeout | None' = None, extra_headers: 'Mapping[str, str] | None' = None, idempotency_key: 'str | None' = None) -> 'ServiceSettingsResponse'"
+            },
             "update_connection": {
               "kind": "method",
               "signature": "(self, id: 'str', request: 'UpdateSecureConnectionRequest', *, timeout: 'float | httpx.Timeout | None' = None, extra_headers: 'Mapping[str, str] | None' = None, idempotency_key: 'str | None' = None) -> 'SecureConnectionSummary'"
@@ -1306,6 +1415,10 @@
               "kind": "method",
               "signature": "(self, style_id: 'str', style: 'Mapping[str, Any]', *, strict: 'bool' = False, timeout: 'float | httpx.Timeout | None' = None, extra_headers: 'Mapping[str, str] | None' = None, idempotency_key: 'str | None' = None) -> 'None'"
             },
+            "upload_file": {
+              "kind": "method",
+              "signature": "(self, file: 'bytes | BinaryIO', *, filename: 'str', table_name: 'str', content_type: 'str' = 'application/octet-stream', timeout: 'float | httpx.Timeout | None' = None, extra_headers: 'Mapping[str, str] | None' = None, idempotency_key: 'str | None' = None) -> 'ImportResult | BackgroundImportResponse'"
+            },
             "validate_encryption": {
               "kind": "method",
               "signature": "(self, *, timeout: 'float | httpx.Timeout | None' = None, extra_headers: 'Mapping[str, str] | None' = None, idempotency_key: 'str | None' = None) -> 'EncryptionValidationResult'"
@@ -1322,6 +1435,102 @@
           "module": "honua_admin._client",
           "qualname": "HonuaAdminClient",
           "signature": "(base_url: 'str', *, timeout: 'float' = 30.0, api_key: 'str | None' = None, bearer_token: 'str | None' = None, auth_provider: 'AuthProvider | None' = None, follow_redirects: 'bool' = False, client: 'httpx.Client | None' = None, transport: 'httpx.BaseTransport | None' = None, max_retries: 'int' = 3) -> 'None'"
+        },
+        "ImportResult": {
+          "fields": [
+            {
+              "annotation": "bool",
+              "name": "success"
+            },
+            {
+              "annotation": "str",
+              "name": "table_name"
+            },
+            {
+              "annotation": "str | int",
+              "name": "format"
+            },
+            {
+              "annotation": "int",
+              "default": "0",
+              "name": "feature_count"
+            },
+            {
+              "annotation": "str | None",
+              "default": "None",
+              "name": "physical_table_name"
+            },
+            {
+              "annotation": "str | None",
+              "default": "None",
+              "name": "schema"
+            },
+            {
+              "annotation": "str",
+              "default": "'file'",
+              "name": "source_kind"
+            },
+            {
+              "annotation": "str | None",
+              "default": "None",
+              "name": "source_url"
+            },
+            {
+              "annotation": "str | None",
+              "default": "None",
+              "name": "upload_id"
+            },
+            {
+              "annotation": "str | None",
+              "default": "None",
+              "name": "cloud_file_id"
+            },
+            {
+              "annotation": "int | None",
+              "default": "None",
+              "name": "detected_srid"
+            },
+            {
+              "annotation": "str | None",
+              "default": "None",
+              "name": "error_message"
+            },
+            {
+              "annotation": "str | None",
+              "default": "None",
+              "name": "error_code"
+            },
+            {
+              "annotation": "list[dict[str, Any]]",
+              "defaultFactory": "list",
+              "name": "validation_errors"
+            },
+            {
+              "annotation": "int",
+              "default": "0",
+              "name": "repaired_geometry_count"
+            },
+            {
+              "annotation": "str | None",
+              "default": "None",
+              "name": "duration"
+            },
+            {
+              "annotation": "list[str]",
+              "defaultFactory": "list",
+              "name": "warnings"
+            }
+          ],
+          "kind": "class",
+          "methods": {
+            "from_dict": {
+              "kind": "classmethod",
+              "signature": "(cls, data: 'dict[str, Any]') -> 'ImportResult'"
+            }
+          },
+          "module": "honua_admin._models",
+          "qualname": "ImportResult",
+          "signature": "(success: 'bool', table_name: 'str', format: 'str | int', feature_count: 'int' = 0, physical_table_name: 'str | None' = None, schema: 'str | None' = None, source_kind: 'str' = 'file', source_url: 'str | None' = None, upload_id: 'str | None' = None, cloud_file_id: 'str | None' = None, detected_srid: 'int | None' = None, error_message: 'str | None' = None, error_code: 'str | None' = None, validation_errors: 'list[dict[str, Any]]' = <factory>, repaired_geometry_count: 'int' = 0, duration: 'str | None' = None, warnings: 'list[str]' = <factory>) -> None"
         },
         "KeyRotationResult": {
           "fields": [
@@ -3104,6 +3313,189 @@
           "qualname": "OgcStylesheet",
           "signature": "(style_id: 'str', encoding: \"'StyleEncoding'\", media_type: 'str', content: 'str') -> None"
         },
+        "OperationProposalDetail": {
+          "fields": [
+            {
+              "annotation": "str",
+              "name": "proposal_id"
+            },
+            {
+              "annotation": "str",
+              "name": "kind"
+            },
+            {
+              "annotation": "str",
+              "name": "status"
+            },
+            {
+              "annotation": "str",
+              "name": "summary"
+            },
+            {
+              "annotation": "str",
+              "name": "risk_level"
+            },
+            {
+              "annotation": "list[str]",
+              "defaultFactory": "list",
+              "name": "diff"
+            },
+            {
+              "annotation": "list[str]",
+              "defaultFactory": "list",
+              "name": "dry_run"
+            },
+            {
+              "annotation": "list[str]",
+              "defaultFactory": "list",
+              "name": "blocking_reasons"
+            },
+            {
+              "annotation": "list[str]",
+              "defaultFactory": "list",
+              "name": "warnings"
+            },
+            {
+              "annotation": "str | None",
+              "default": "None",
+              "name": "created_at"
+            },
+            {
+              "annotation": "str | None",
+              "default": "None",
+              "name": "updated_at"
+            },
+            {
+              "annotation": "str | None",
+              "default": "None",
+              "name": "requested_by"
+            },
+            {
+              "annotation": "str | None",
+              "default": "None",
+              "name": "requested_by_agent"
+            },
+            {
+              "annotation": "str | None",
+              "default": "None",
+              "name": "finding_id"
+            },
+            {
+              "annotation": "str | None",
+              "default": "None",
+              "name": "autonomy_rule"
+            },
+            {
+              "annotation": "str | None",
+              "default": "None",
+              "name": "action_discriminator"
+            },
+            {
+              "annotation": "str | None",
+              "default": "None",
+              "name": "guardrail_tier"
+            },
+            {
+              "annotation": "str | None",
+              "default": "None",
+              "name": "resolved_by"
+            },
+            {
+              "annotation": "str | None",
+              "default": "None",
+              "name": "resolution_reason"
+            },
+            {
+              "annotation": "str | None",
+              "default": "None",
+              "name": "execution_operation_id"
+            },
+            {
+              "annotation": "str | None",
+              "default": "None",
+              "name": "resolved_at"
+            }
+          ],
+          "kind": "class",
+          "methods": {
+            "from_dict": {
+              "kind": "classmethod",
+              "signature": "(cls, data: 'dict[str, Any]') -> 'OperationProposalDetail'"
+            }
+          },
+          "module": "honua_admin._models",
+          "qualname": "OperationProposalDetail",
+          "signature": "(proposal_id: 'str', kind: 'str', status: 'str', summary: 'str', risk_level: 'str', diff: 'list[str]' = <factory>, dry_run: 'list[str]' = <factory>, blocking_reasons: 'list[str]' = <factory>, warnings: 'list[str]' = <factory>, created_at: 'str | None' = None, updated_at: 'str | None' = None, requested_by: 'str | None' = None, requested_by_agent: 'str | None' = None, finding_id: 'str | None' = None, autonomy_rule: 'str | None' = None, action_discriminator: 'str | None' = None, guardrail_tier: 'str | None' = None, resolved_by: 'str | None' = None, resolution_reason: 'str | None' = None, execution_operation_id: 'str | None' = None, resolved_at: 'str | None' = None) -> None"
+        },
+        "OperationProposalSummary": {
+          "fields": [
+            {
+              "annotation": "str",
+              "name": "proposal_id"
+            },
+            {
+              "annotation": "str",
+              "name": "kind"
+            },
+            {
+              "annotation": "str",
+              "name": "status"
+            },
+            {
+              "annotation": "str",
+              "name": "summary"
+            },
+            {
+              "annotation": "str",
+              "name": "risk_level"
+            },
+            {
+              "annotation": "str | None",
+              "default": "None",
+              "name": "created_at"
+            },
+            {
+              "annotation": "str | None",
+              "default": "None",
+              "name": "updated_at"
+            },
+            {
+              "annotation": "str | None",
+              "default": "None",
+              "name": "requested_by"
+            },
+            {
+              "annotation": "str | None",
+              "default": "None",
+              "name": "requested_by_agent"
+            },
+            {
+              "annotation": "str | None",
+              "default": "None",
+              "name": "finding_id"
+            },
+            {
+              "annotation": "str | None",
+              "default": "None",
+              "name": "autonomy_rule"
+            },
+            {
+              "annotation": "str | None",
+              "default": "None",
+              "name": "action_discriminator"
+            }
+          ],
+          "kind": "class",
+          "methods": {
+            "from_dict": {
+              "kind": "classmethod",
+              "signature": "(cls, data: 'dict[str, Any]') -> 'OperationProposalSummary'"
+            }
+          },
+          "module": "honua_admin._models",
+          "qualname": "OperationProposalSummary",
+          "signature": "(proposal_id: 'str', kind: 'str', status: 'str', summary: 'str', risk_level: 'str', created_at: 'str | None' = None, updated_at: 'str | None' = None, requested_by: 'str | None' = None, requested_by_agent: 'str | None' = None, finding_id: 'str | None' = None, autonomy_rule: 'str | None' = None, action_discriminator: 'str | None' = None) -> None"
+        },
         "PublishLayerRequest": {
           "fields": [
             {
@@ -4014,11 +4406,13 @@
         "DegradedReason",
         "EditOperationResult",
         "Extent",
+        "FailureKind",
         "Feature",
         "FeatureQuery",
         "FeatureQueryResult",
         "FeatureSet",
         "Field",
+        "FieldFailure",
         "GeocodeResult",
         "GeocodeSuggestion",
         "HonuaAuthError",
@@ -4037,6 +4431,7 @@
         "PROTOCOL_ALIASES",
         "Pagination",
         "Protocol",
+        "ProtocolMetadata",
         "Query",
         "QueryFeature",
         "QueryProtocol",
@@ -4048,6 +4443,7 @@
         "SourceDescriptor",
         "SourceLocator",
         "StaticAuthProvider",
+        "TerminalFailureReceipt",
         "TokenStore",
         "__version__",
         "capability_set",
@@ -4629,6 +5025,21 @@
           "qualname": "Extent",
           "signature": "(xmin: 'float', ymin: 'float', xmax: 'float', ymax: 'float', srid: 'int | None' = None) -> None"
         },
+        "FailureKind": {
+          "kind": "enum",
+          "members": {
+            "AUTHENTICATION": "authentication",
+            "AUTHORIZATION": "authorization",
+            "CONFLICT": "conflict",
+            "NOT_FOUND": "not-found",
+            "THROTTLED": "throttled",
+            "UNAVAILABLE": "unavailable",
+            "UNKNOWN": "unknown",
+            "VALIDATION": "validation"
+          },
+          "module": "honua_sdk.errors",
+          "qualname": "FailureKind"
+        },
         "Feature": {
           "fields": [
             {
@@ -4893,6 +5304,44 @@
           "qualname": "Field",
           "signature": "(name: 'str', type: 'str', alias: 'str | None' = None, length: 'int | None' = None, nullable: 'bool' = True, editable: 'bool' = True, default_value: 'Any' = None, domain: 'Mapping[str, Any] | None' = None) -> None"
         },
+        "FieldFailure": {
+          "fields": [
+            {
+              "annotation": "str | None",
+              "default": "None",
+              "name": "code"
+            },
+            {
+              "annotation": "str | None",
+              "default": "None",
+              "name": "severity"
+            },
+            {
+              "annotation": "str | None",
+              "default": "None",
+              "name": "path"
+            },
+            {
+              "annotation": "str | None",
+              "default": "None",
+              "name": "field_id"
+            },
+            {
+              "annotation": "int | None",
+              "default": "None",
+              "name": "item_index"
+            },
+            {
+              "annotation": "str | None",
+              "default": "None",
+              "name": "message"
+            }
+          ],
+          "kind": "class",
+          "module": "honua_sdk.errors",
+          "qualname": "FieldFailure",
+          "signature": "(code: 'str | None' = None, severity: 'str | None' = None, path: 'str | None' = None, field_id: 'str | None' = None, item_index: 'int | None' = None, message: 'str | None' = None) -> None"
+        },
         "GeocodeResult": {
           "fields": [
             {
@@ -4945,7 +5394,7 @@
           "kind": "class",
           "module": "honua_sdk.errors",
           "qualname": "HonuaAuthError",
-          "signature": "(status_code: 'int', message: 'str', *, body: 'Any | None' = None, request_id: 'str | None' = None, headers: 'Mapping[str, str] | None' = None, error_code: 'int | None' = None) -> 'None'"
+          "signature": "(status_code: 'int', message: 'str', *, body: 'Any | None' = None, request_id: 'str | None' = None, headers: 'Mapping[str, str] | None' = None, error_code: 'int | None' = None, receipt: 'TerminalFailureReceipt | None' = None) -> 'None'"
         },
         "HonuaCapabilityNotSupportedError": {
           "kind": "class",
@@ -5146,19 +5595,19 @@
           "kind": "class",
           "module": "honua_sdk.errors",
           "qualname": "HonuaGrpcError",
-          "signature": "(code: 'Any', message: 'str', details: 'Any' = None) -> 'None'"
+          "signature": "(code: 'Any', message: 'str', details: 'Any' = None, *, initial_metadata: 'Mapping[str, Any] | None' = None, trailing_metadata: 'Mapping[str, Any] | None' = None) -> 'None'"
         },
         "HonuaHttpError": {
           "kind": "class",
           "module": "honua_sdk.errors",
           "qualname": "HonuaHttpError",
-          "signature": "(status_code: 'int', message: 'str', *, body: 'Any | None' = None, request_id: 'str | None' = None, headers: 'Mapping[str, str] | None' = None, error_code: 'int | None' = None) -> 'None'"
+          "signature": "(status_code: 'int', message: 'str', *, body: 'Any | None' = None, request_id: 'str | None' = None, headers: 'Mapping[str, str] | None' = None, error_code: 'int | None' = None, receipt: 'TerminalFailureReceipt | None' = None) -> 'None'"
         },
         "HonuaRateLimitError": {
           "kind": "class",
           "module": "honua_sdk.errors",
           "qualname": "HonuaRateLimitError",
-          "signature": "(status_code: 'int', message: 'str', *, body: 'Any | None' = None, retry_after: 'float | None' = None, request_id: 'str | None' = None, headers: 'Mapping[str, str] | None' = None, error_code: 'int | None' = None) -> 'None'"
+          "signature": "(status_code: 'int', message: 'str', *, body: 'Any | None' = None, retry_after: 'float | None' = None, request_id: 'str | None' = None, headers: 'Mapping[str, str] | None' = None, error_code: 'int | None' = None, receipt: 'TerminalFailureReceipt | None' = None) -> 'None'"
         },
         "HonuaTimeoutError": {
           "kind": "class",
@@ -5303,6 +5752,22 @@
           "kind": "constant",
           "type": "_LiteralGenericAlias",
           "value": "typing.Literal['grpc', 'geoservices-feature-service', 'geoservices-map-service', 'geoservices-image-service', 'geoservices-geometry-service', 'geoservices-gp-service', 'ogc-features', 'ogc-tiles', 'ogc-maps', 'stac', 'wfs', 'wms', 'wmts', 'odata', 'maplibre-vector', 'maplibre-raster', 'maplibre-geojson']"
+        },
+        "ProtocolMetadata": {
+          "fields": [
+            {
+              "annotation": "ProtocolValues",
+              "name": "initial"
+            },
+            {
+              "annotation": "ProtocolValues",
+              "name": "trailing"
+            }
+          ],
+          "kind": "class",
+          "module": "honua_sdk.errors",
+          "qualname": "ProtocolMetadata",
+          "signature": "(initial: 'ProtocolValues', trailing: 'ProtocolValues') -> None"
         },
         "Query": {
           "fields": [
@@ -5753,6 +6218,50 @@
           "qualname": "StaticAuthProvider",
           "signature": "(headers: 'Mapping[str, str]') -> 'None'"
         },
+        "TerminalFailureReceipt": {
+          "fields": [
+            {
+              "annotation": "int | None",
+              "name": "transport_status"
+            },
+            {
+              "annotation": "str | None",
+              "name": "protocol_code"
+            },
+            {
+              "annotation": "FailureKind",
+              "name": "kind"
+            },
+            {
+              "annotation": "str",
+              "name": "code"
+            },
+            {
+              "annotation": "bool",
+              "name": "retryable"
+            },
+            {
+              "annotation": "float | None",
+              "name": "retry_after_seconds"
+            },
+            {
+              "annotation": "str | None",
+              "name": "correlation_id"
+            },
+            {
+              "annotation": "tuple[FieldFailure, ...]",
+              "name": "field_errors"
+            },
+            {
+              "annotation": "ProtocolMetadata",
+              "name": "protocol_metadata"
+            }
+          ],
+          "kind": "class",
+          "module": "honua_sdk.errors",
+          "qualname": "TerminalFailureReceipt",
+          "signature": "(transport_status: 'int | None', protocol_code: 'str | None', kind: 'FailureKind', code: 'str', retryable: 'bool', retry_after_seconds: 'float | None', correlation_id: 'str | None', field_errors: 'tuple[FieldFailure, ...]', protocol_metadata: 'ProtocolMetadata') -> None"
+        },
         "TokenStore": {
           "kind": "class",
           "methods": {
@@ -6042,7 +6551,7 @@
           "kind": "class",
           "module": "honua_sdk.errors",
           "qualname": "HonuaGrpcError",
-          "signature": "(code: 'Any', message: 'str', details: 'Any' = None) -> 'None'"
+          "signature": "(code: 'Any', message: 'str', details: 'Any' = None, *, initial_metadata: 'Mapping[str, Any] | None' = None, trailing_metadata: 'Mapping[str, Any] | None' = None) -> 'None'"
         },
         "QueryFeaturesRequest": {
           "fields": [
