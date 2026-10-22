@@ -56,6 +56,17 @@ AI_GATES: tuple[str, ...] = (
     "gate-agent-e2e.yml",
     "terminal-model-canary.yml",
 )
+# Operator triage 2026-10-22 (release#376): these gates are deferred to GA. They are reported, never
+# required, for rc.N. capacity-soak needs a producer bundle the nightly cannot yet mint; rollback-
+# certification needs a signed lock (gate-upgrade's rollback leg covers rc); gate-journey needs cloud-cell
+# receipts plus the data-driven roster; gate-agent-e2e has no campaign producer yet (#619).
+GA_DEFERRED: tuple[str, ...] = (
+    "capacity-soak.yml",
+    "rollback-certification.yml",
+    "gate-journey.yml",
+    "gate-agent-e2e.yml",
+)
+RC_GATES: tuple[str, ...] = tuple(g for g in TRAIN_GATES + AI_GATES if g not in GA_DEFERRED)
 
 
 def _get(url: str, token: str) -> dict:
@@ -160,7 +171,11 @@ def render_markdown(result: dict) -> str:
     head = (f"Window: {result['window_days']:g} days ending {result['evaluated_at']}. "
             f"Admissible: **{'yes' if result['admissible'] else 'no'}**"
             + (f" — red: {', '.join(result['red'])}" if result["red"] else "") + "\n\n")
-    return head + "\n".join(lines) + "\n"
+    tail = ""
+    if result.get("deferred_to_ga"):
+        tail = ("\nDeferred to GA (reported, not required for rc): "
+                + ", ".join(f"`{g}`" for g in result["deferred_to_ga"]) + "\n")
+    return head + "\n".join(lines) + "\n" + tail
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -171,6 +186,8 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--gate", action="append", default=None,
                     help="workflow file to evaluate (repeatable); default: train gates + AI gates")
     ap.add_argument("--without-ai-gates", action="store_true")
+    ap.add_argument("--set", choices=("rc", "ga"), default="rc",
+                    help="rc: train + AI gates minus the GA-deferred set (default); ga: every gate")
     ap.add_argument("--out", default="gate-window.json")
     ap.add_argument("--markdown", default=None)
     ap.add_argument("--enforce", action="store_true", help="exit 1 unless every gate is green")
@@ -181,10 +198,16 @@ def main(argv: list[str] | None = None) -> int:
     if not token:
         print("GH_TOKEN is required (anonymous Actions API calls 404)", file=sys.stderr)
         return 2
-    gates = tuple(args.gate) if args.gate else TRAIN_GATES + (() if args.without_ai_gates else AI_GATES)
+    if args.gate:
+        gates = tuple(args.gate)
+    else:
+        gates = TRAIN_GATES + (() if args.without_ai_gates else AI_GATES)
+        if args.set == "rc":
+            gates = tuple(g for g in gates if g not in GA_DEFERRED)
     records = {g: fetch_gate_runs(args.repo, g, token, args.branch) for g in gates}
     result = evaluate(records, dt.datetime.now(dt.timezone.utc), args.window_days)
-    result["repo"], result["branch"] = args.repo, args.branch
+    result["repo"], result["branch"], result["set"] = args.repo, args.branch, args.set
+    result["deferred_to_ga"] = list(GA_DEFERRED) if args.set == "rc" and not args.gate else []
     with open(args.out, "w", encoding="utf-8") as fh:
         json.dump(result, fh, indent=2, sort_keys=True)
     md = render_markdown(result)

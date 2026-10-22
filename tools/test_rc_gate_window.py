@@ -60,3 +60,15 @@ def test_gate_list_matches_release_train_uses():
     train = Path(__file__).resolve().parents[1] / ".github" / "workflows" / "release-train.yml"
     called = set(re.findall(r"uses:\s*\./\.github/workflows/([\w.-]+\.yml)", train.read_text()))
     assert called == set(w.TRAIN_GATES), (called ^ set(w.TRAIN_GATES))
+
+
+def test_ga_deferred_gates_are_real_gates_and_excluded_from_rc_set():
+    assert set(w.GA_DEFERRED) <= set(w.TRAIN_GATES + w.AI_GATES)
+    assert not set(w.GA_DEFERRED) & set(w.RC_GATES)
+    assert "gate-build-test.yml" in w.RC_GATES and "terminal-model-canary.yml" in w.RC_GATES
+
+
+def test_markdown_names_deferred_gates():
+    result = w.evaluate({"a.yml": {"latest_success": _run(1), "latest": _run(1)}}, NOW, 7)
+    result["deferred_to_ga"] = ["gate-journey.yml"]
+    assert "Deferred to GA" in w.render_markdown(result) and "gate-journey.yml" in w.render_markdown(result)
