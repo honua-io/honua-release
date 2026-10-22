@@ -685,3 +685,27 @@ def test_nightly_binding_refuses_missing_governed_or_measured_python_wheel(locat
     rehash(cell)
     assert "Python wheel differs from governed published artifact" in refusal(
         ledger=recorded["ledger"], catalog=recorded["catalog"])
+
+
+def test_server_seed_fixture_moves_with_the_server_certification_pin(tmp_path):
+    root = tmp_path / "repo"
+    (root / MODULE.SERVER_SEED_FIXTURES).parent.mkdir(parents=True)
+    shutil.copy(ROOT / MODULE.SERVER_SEED_FIXTURES, root / MODULE.SERVER_SEED_FIXTURES)
+    seed_bytes = b"-- seed at the next server\n"
+    calls = []
+
+    class SeedGitHub:
+        def content(self, repository, path, revision):
+            calls.append((repository, path, revision))
+            return seed_bytes
+
+    current = MODULE.load_json(root, MODULE.SERVER_SEED_FIXTURES)["server_seed"]
+    path, data = MODULE.project_server_seed_fixture(root, SeedGitHub(), {"server-certification": current["commit"]})
+    assert calls == [] and data == (root / path).read_bytes()
+
+    nxt = "b" * 40
+    path, data = MODULE.project_server_seed_fixture(root, SeedGitHub(), {"server-certification": nxt})
+    seed = json.loads(data)["server_seed"]
+    assert calls == [("honua-io/honua-server", "tests/seed/base-schema.sql", nxt)]
+    assert seed["commit"] == nxt
+    assert seed["sha256"] == "sha256:" + hashlib.sha256(seed_bytes).hexdigest()

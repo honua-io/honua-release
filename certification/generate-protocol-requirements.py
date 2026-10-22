@@ -508,6 +508,27 @@ def pinned_python_fixture(contract: dict) -> str:
     return fixture
 
 
+def server_seed_fixture(fixtures: dict, revisions: dict) -> str:
+    """The applied server seed is pinned with the server-certification source, never apart from it."""
+    seed = fixtures.get("server_seed")
+    if not isinstance(seed, dict):
+        raise ValueError("canonical-client-fixtures is missing server_seed")
+    source = seed.get("source")
+    if source != "server-certification" or seed.get("path") != "tests/seed/base-schema.sql":
+        raise ValueError("server_seed must name server-certification tests/seed/base-schema.sql")
+    if seed.get("repository") != revisions[source]["repository"]:
+        raise ValueError("server_seed repository differs from the server-certification source")
+    if seed.get("commit") != revisions[source]["commit"]:
+        raise ValueError(
+            f"server_seed is pinned at {seed.get('commit')!r}, but server-certification is "
+            f"{revisions[source]['commit']!r}; re-pin the seed digest in the same rebind"
+        )
+    digest = seed.get("sha256")
+    if not isinstance(digest, str) or not re.fullmatch(r"sha256:[0-9a-f]{64}", digest):
+        raise ValueError("server_seed sha256 must be sha256:<64 lowercase hex>")
+    return digest
+
+
 def dotnet_release_profile(contract: dict) -> dict[str, int]:
     """releaseProfile.excluded and each operation's releaseDenominator are one decision."""
     profile = contract.get("releaseProfile")
@@ -657,9 +678,13 @@ def main() -> None:
     format_source = json.loads(
         (ROOT / "sources" / "cloud-native-format-requirements.v1.json").read_text(encoding="utf-8")
     )
-    fixture_pins = json.loads(
+    fixture_doc = json.loads(
         (ROOT / "sources" / "canonical-client-fixtures.v1.json").read_text(encoding="utf-8")
-    )["fixtures"]
+    )
+    fixture_pins = fixture_doc["fixtures"]
+    # The .NET certification producer binds the seed it applied to the candidate
+    # (honua-sdk-dotnet sdk-certification.yml), so the row carries that digest.
+    dotnet_certification_fixture = server_seed_fixture(fixture_doc, revisions)
     requirements = [
         bound
         for row in format_source["requirements"]
@@ -850,7 +875,7 @@ def main() -> None:
             operation=operation["id"], client="Honua SDK .NET", lane="sdk-dotnet-certification",
             version=dotnet_version, contract=f"sdk-dotnet-certification@{revisions['sdk-dotnet']['commit']}",
             auth_policy="api-key-protected-v1",
-            fixture="sha256:1165029a4c750c38a9b180f79f560dea41b84d8f0725618c9d96d3864be2d419",
+            fixture=dotnet_certification_fixture,
             facets=facets, required_tier=required_tier,
         )
     dotnet_emitted = len(requirements) - dotnet_rows_before

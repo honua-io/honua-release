@@ -42,6 +42,7 @@ from typing import Any, Protocol
 import yaml
 
 from check_protocol_certification import _valid_python_wheel
+from normalize_capability_matrix_snapshot import normalize_vendored as normalize_capability_matrix
 
 ROOT = Path(__file__).resolve().parents[1]
 REVISIONS = Path("certification/sources/source-revisions.v1.json")
@@ -256,6 +257,13 @@ def fetch_snapshots(root: Path, gh: GitHub, revisions: dict[str, Any], pins: dic
                 json.loads(data)
             except (UnicodeDecodeError, json.JSONDecodeError) as exc:
                 raise Finding(f"upstream fetch mismatch: {repository}/{upstream}@{pins[source]} is invalid JSON: {exc}") from exc
+            if local == "certification/sources/server/capability-matrix.v1.json":
+                # The vendored snapshot is the bytes manifest-validate compares, not the raw
+                # producer file; vendoring the raw file would grow the vendor-term baseline.
+                try:
+                    data = normalize_capability_matrix(data.decode("utf-8")).encode("utf-8")
+                except SystemExit as exc:
+                    raise Finding(f"upstream capability matrix {repository}@{pins[source]}: {exc}") from exc
             fetched[local] = data
     return fetched
 
@@ -409,6 +417,30 @@ def project_wps_production_gap(root: Path) -> tuple[str, bytes]:
     return _project_reviewed_http_gap(root, "serve.wps", expected, "WPS HTTP", "+wps-http-gap-v1")
 
 
+SERVER_SEED_FIXTURES = Path("certification/sources/canonical-client-fixtures.v1.json")
+
+
+def project_server_seed_fixture(root: Path, gh: GitHub, pins: dict[str, str]) -> tuple[str, bytes]:
+    """Re-pin the applied server seed digest with the server-certification pin.
+
+    The digest is the SHA-256 of the seed file at that exact commit, which is what
+    the .NET certification producer measures and applies. An unchanged pin keeps
+    the recorded digest; a moved pin fetches the seed at the new commit.
+    """
+    doc = load_json(root, SERVER_SEED_FIXTURES)
+    seed = doc.get("server_seed")
+    if not isinstance(seed, dict) or seed.get("source") != "server-certification":
+        raise Finding("canonical-client-fixtures has no server-certification server_seed")
+    target = pins["server-certification"]
+    if seed.get("commit") != target:
+        data = gh.content(seed["repository"], seed["path"], target)
+        if not data:
+            raise Finding(f"server seed {seed['repository']}/{seed['path']}@{target} is empty")
+        seed["commit"] = target
+        seed["sha256"] = "sha256:" + hashlib.sha256(data).hexdigest()
+    return str(SERVER_SEED_FIXTURES), (json.dumps(doc, indent=4) + "\n").encode("utf-8")
+
+
 def run_catalog(root: Path, receipt_min: str) -> None:
     generator = root / "certification/generate-protocol-requirements.py"
     text = generator.read_text(encoding="utf-8")
@@ -448,6 +480,8 @@ def prepare(root: Path, gh: GitHub, receipt_min_arg: str) -> tuple[dict[str, Any
         (trial / production_path).write_bytes(production_bytes)
         production_path, production_bytes = project_wps_production_gap(trial)
         (trial / production_path).write_bytes(production_bytes)
+        seed_path, seed_bytes = project_server_seed_fixture(trial, gh, pins)
+        (trial / seed_path).write_bytes(seed_bytes)
         run_catalog(trial, receipt_min)
         new_catalog_bytes = (trial / CATALOG).read_bytes()
         new_generator_bytes = (trial / "certification/generate-protocol-requirements.py").read_bytes()
@@ -494,6 +528,11 @@ def prepare(root: Path, gh: GitHub, receipt_min_arg: str) -> tuple[dict[str, Any
         "removed": [row for row in load_json(root, Path(applicability_path))["decisions"]
                     if row not in json.loads(applicability_bytes)["decisions"]],
     }
+    plan["server_seed_fixture"] = {
+        "path": seed_path,
+        "current": load_json(root, SERVER_SEED_FIXTURES)["server_seed"]["sha256"],
+        "proposed": json.loads(seed_bytes)["server_seed"]["sha256"],
+    }
     plan["production_gap_ownership"] = {
         "path": production_path,
         "added": [row for row in json.loads(production_bytes)["unproduced"]
@@ -504,6 +543,7 @@ def prepare(root: Path, gh: GitHub, receipt_min_arg: str) -> tuple[dict[str, Any
     payloads[assignments_path] = assignments_bytes
     payloads[applicability_path] = applicability_bytes
     payloads[production_path] = production_bytes
+    payloads[seed_path] = seed_bytes
     revised = copy.deepcopy(source_doc)
     for name, pin in pins.items(): revised["sources"][name]["commit"] = pin
     payloads[str(REVISIONS)] = (json.dumps(revised, indent=2) + "\n").encode()
@@ -533,6 +573,10 @@ def human(plan: dict[str, Any], root: Path = ROOT) -> str:
         lines += ["", f"Canonical client applicability: {applicability['path']}",
                   f"  added decisions: {json.dumps(applicability['added'], sort_keys=True)}",
                   f"  removed decisions: {json.dumps(applicability['removed'], sort_keys=True)}"]
+    seed = plan.get("server_seed_fixture")
+    if seed:
+        lines += ["", f"Server seed fixture: {seed['path']}",
+                  f"  {seed['current']} -> {seed['proposed']}"]
     ownership = plan.get("production_gap_ownership")
     if ownership:
         lines += ["", f"Production gap ownership: {ownership['path']}",

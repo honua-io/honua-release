@@ -226,3 +226,31 @@ def test_blank_python_fixture_revision_refuses_generation(copied: Path) -> None:
 
     assert result.returncode != 0
     assert "missing fixtureRevision" in result.stderr
+
+
+SEED = "sources/canonical-client-fixtures.v1.json"
+APPLIED_SEED = "sha256:3bba01b45aa9c90589f03b7c72cd49918a14b0700cb125fd26d987a1bc743f3e"
+
+
+def test_dotnet_certification_rows_carry_the_applied_server_seed():
+    """The .NET producer binds the seed it applied at the candidate; the rows must carry the same digest."""
+    catalog = load(CERTIFICATION / CATALOG)
+    seed = load(CERTIFICATION / SEED)["server_seed"]
+    server = load(CERTIFICATION / "sources/source-revisions.v1.json")["sources"]["server-certification"]
+    assert seed["commit"] == server["commit"]
+    assert seed["sha256"] == APPLIED_SEED  # tests/seed/base-schema.sql at 0e03bdd
+    fixtures = {
+        row["fixture_revision"] for row in catalog["requirements"]
+        if row["client_lane"] == "sdk-dotnet-certification"
+    }
+    assert fixtures == {APPLIED_SEED}
+
+
+def test_server_seed_cannot_lag_the_server_certification_pin(copied: Path):
+    path = copied / SEED
+    doc = load(path)
+    doc["server_seed"]["commit"] = "a" * 40
+    write(path, doc)
+    result = run(copied, "generate-protocol-requirements.py")
+    assert result.returncode != 0
+    assert "re-pin the seed digest in the same rebind" in result.stderr
