@@ -246,11 +246,13 @@ class DockerRegressions(unittest.TestCase):
             if "Immediate" not in schedule:
                 self.assertEqual(before, b"")
             controls.append(["timeout", "interval", "immediate", "promiseTimer"][index] + "NoAfterPassEffects")
-        refreshed = healthy.run_js("let fires = 0; const reusable = setTimeout(() => fires++, 5); "
-            "await new Promise(resolve => setTimeout(resolve, 10)); console.log(fires);", "javascript", 20)
+        # The refreshed timer must outlive the refreshing block's own completion and cleanup on a loaded
+        # runner; with 5 ms it could fire before cleanup (trunk run 39747049567: "2" != "1").
+        refreshed = healthy.run_js("let fires = 0; const reusable = setTimeout(() => fires++, 250); "
+            "await new Promise(resolve => setTimeout(resolve, 500)); console.log(fires);", "javascript", 20)
         self.assertEqual(refreshed.stdout, "1\n")
         self.assertEqual(healthy.run_js("reusable.refresh().unref();", "javascript", 20).status, "pass")
-        self.assertEqual(healthy.run_js("await new Promise(resolve => setTimeout(resolve, 40)); "
+        self.assertEqual(healthy.run_js("await new Promise(resolve => setTimeout(resolve, 600)); "
             "console.log(fires);", "javascript", 20).stdout, "1\n")
         controls.append("refreshedTimeoutFreshOwnership")
         healthy.put("node", Path(healthy.cwd, "scheduler.mjs"), "import {writeFileSync} from 'node:fs'; "

@@ -231,6 +231,16 @@ jobs:
           echo "binding server image ${image}"
           echo "### Canary binding: server image \`${image}\`" >> "$GITHUB_STEP_SUMMARY"
 
+      # One per-run bootstrap admin credential for the candidate stack (deterministic journey, driver
+      # and canary all compose with it). The Studio AI proxy admits administrators and interactive
+      # sessions only, so the canary presents this key as X-API-Key; it never leaves the runner.
+      - name: Mint the candidate stack's per-run admin credential
+        run: |
+          set -euo pipefail
+          key="$(python -c 'import secrets; print(secrets.token_hex(32))')"
+          echo "::add-mask::$key"
+          echo "HONUA_ADMIN_PASSWORD=$key" >> "$GITHUB_ENV"
+
       # Data-driven control-plane roster (operator ruling on honua-release#785): the server's own
       # Admin parity exports at the source sha of the image this job composes.
       - name: Fetch the server parity exports at the image's source sha
@@ -287,13 +297,15 @@ jobs:
             --driver-protocol certification/terminal-model-canary/driver-protocol.v1.json
             --receipt-schema certification/terminal-model-canary/receipt.schema.json
             --base-url "http://127.0.0.1:8137/api"
-            --no-api-key
+            --require-api-key
+            --api-key-header x-api-key
             --cell local-docker
             --attempt 1
             --output artifacts/terminal-model-canary-receipt.json
           )
           # Without a caller's lock the receipt binds the composed server image (serverImage).
           [ -n "$LOCK_DIGEST" ] && args+=(--lock-digest "$LOCK_DIGEST")
+          export TERMINAL_MODEL_API_KEY="$HONUA_ADMIN_PASSWORD"
           [ -n "${INJECT_STAGE:-}" ] && args+=(--inject-stage "$INJECT_STAGE")
           # A red deterministic run leaves no green receipt: the canary is then refused (blocked).
           [ -f artifacts/terminal-journey-receipt.json ] && \

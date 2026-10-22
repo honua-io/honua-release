@@ -391,6 +391,32 @@ def test_candidate_proxy_configuration_rejects_direct_provider_urls():
     assert "top-secret-key" not in json.dumps(hosted.evidence())
 
 
+def test_local_docker_presents_the_bootstrap_admin_key_as_x_api_key(monkeypatch):
+    """The local stack enables OIDC, so a bearer admin key is never admitted by the Studio AI proxy."""
+    monkeypatch.setenv("TERMINAL_MODEL_API_KEY", "per-run-admin-key")
+    config = canary.EndpointConfig.from_environment(
+        base_url="http://127.0.0.1:8137/api", model="us.anthropic.claude-sonnet-5-5", runtime="aws-bedrock",
+        quantization="provider-managed", require_api_key=True, api_key_header="x-api-key")
+    assert config.evidence()["authentication"] == {
+        "mode": "x-api-key-env", "credentialReference": "env:TERMINAL_MODEL_API_KEY", "required": True}
+    seen = []
+
+    class Stop(Exception):
+        pass
+
+    def opener(request, *, timeout):
+        seen.append(dict(request.header_items()))
+        raise Stop()
+
+    monkeypatch.setattr(canary.CandidateProxyClient, "_open", staticmethod(opener))
+    client = canary.CandidateProxyClient(config)
+    with pytest.raises(Stop):
+        client._manifest({"X-API-Key": config.api_key, "Accept": "text/event-stream"})
+    with pytest.raises(canary.CanaryError):
+        canary.EndpointConfig.from_environment(api_key_header="cookie")
+    assert "per-run-admin-key" not in json.dumps(config.evidence())
+
+
 @pytest.mark.parametrize("mutation", [None, "provider", "model", "event-name", "signed-value", "event-digest", "duplicate-key", "after-stop", "signature", "binding", "adapter", "custom-model", "imported-model", "application-profile", "model-alias"])
 @pytest.mark.parametrize("model", ["anthropic.claude-sonnet-4-6",
                                    "us.anthropic.claude-sonnet-4-6", "us.anthropic.claude-sonnet-5-5",
@@ -642,6 +668,12 @@ def test_workflow_runs_nightly_and_on_call_bound_to_a_lock_for_both_cells():
     for flag in ("--deterministic-receipt artifacts/terminal-journey-receipt.json", "--lock-digest",
                  "--cell local-docker", "--attempt 1"):
         assert flag in canary_run
+    # The candidate's Studio AI proxy needs the per-run bootstrap admin key, as X-API-Key.
+    assert "--require-api-key" in canary_run and "--api-key-header x-api-key" in canary_run
+    assert "--no-api-key" not in canary_run
+    assert 'TERMINAL_MODEL_API_KEY="$HONUA_ADMIN_PASSWORD"' in canary_run
+    assert any("HONUA_ADMIN_PASSWORD=" in str(step.get("run", "")) and "add-mask" in str(step.get("run", ""))
+               for step in steps[:deterministic])
     env = local["env"]
     assert env["HONUA_CANARY_STUDIO_AI_ENABLED"] == "true"
     assert env["HONUA_CANARY_BEDROCK_REGION"] == "us-east-1"
