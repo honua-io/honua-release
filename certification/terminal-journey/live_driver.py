@@ -225,6 +225,8 @@ def _cloud_image(target, manifest, target_digest, proof, *, profile=None):
 
 
 def op_setup(request: dict[str, Any]) -> dict[str, Any]:
+    if request.get("workflowMode", "imperative") != "imperative":
+        raise DriverError("this driver implements the imperative journey only")
     target_path = Path(request.get("target") or DEFAULT_TARGET)
     target_bytes = target_path.read_bytes()
     target = json.loads(target_bytes)
@@ -322,6 +324,7 @@ def op_setup(request: dict[str, Any]) -> dict[str, Any]:
 
     return {
         "status": "blocked" if blockers else "ready",
+        **({"workflowMode": "imperative"} if "workflowMode" in request else {}),
         "workspaceId": workspace_id,
         "baseUrl": base_url,
         "observation": _observation_payload(observation),

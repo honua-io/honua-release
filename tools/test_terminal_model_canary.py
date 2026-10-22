@@ -1292,7 +1292,7 @@ def test_live_run_without_lock_or_same_job_deterministic_receipt_is_refused():
     assert builder.receipt["failureAttribution"] == "infrastructure"
 
 
-def _attribution_run(monkeypatch, *, setup=None, model_reply="{}", replies=None, calls=None):
+def _attribution_run(monkeypatch, *, setup=None, model_reply="{}", replies=None, calls=None, toil=None):
     class Driver:
         def __init__(self, *_):
             pass
@@ -1323,7 +1323,54 @@ def _attribution_run(monkeypatch, *, setup=None, model_reply="{}", replies=None,
     builder = canary.build_receipt_builder(manifest_path=MANIFEST, journey_path=JOURNEY, protocol_path=PROTOCOL,
                                            endpoint=endpoint, driver_command=None, lock_digest=LOCK)
     return canary.execute_live(builder, endpoint=endpoint, driver_command=canary.DEFAULT_DRIVER,
-                               max_actions_per_stage=2)
+                               max_actions_per_stage=2, toil=toil)
+
+
+def test_toil_observes_model_and_actions_without_changing_rc_receipt(monkeypatch):
+    from workflow_toil import ToilRecorder
+    stage_ids = [s["id"] for s in canary.load_journey(JOURNEY)["stages"]]
+    recorder = ToilRecorder({"experimentId": "integration", "arm": "imperative", "trial": 1}, stage_ids)
+    receipt = _attribution_run(monkeypatch, toil=recorder,
+                              setup={"status": "ready", "workspaceId": "w", "toolView": {"v": 1},
+                                     "credentialReferences": [{"envVar": "K"}], "workflowMode": "imperative"},
+                              model_reply='{"kind":"tool_call","tool":"honua_list_services","arguments":{},"intent":"inspect"}')
+    assert "toil" not in receipt
+    assert receipt["status"] == "fail"  # Bounded fake driver never completes; no false qualification.
+    counters = recorder.rows[stage_ids[0]]["metrics"]
+    assert counters["modelCalls"] == 2 and counters["toolCalls"] == 2
+    assert counters["inputTokens"] is None
+
+
+def test_toil_refuses_unadvertised_spec_arm_before_driver_setup(monkeypatch):
+    from workflow_toil import ToilRecorder
+    recorder = ToilRecorder({"experimentId": "integration", "arm": "spec", "trial": 1},
+                             [s["id"] for s in canary.load_journey(JOURNEY)["stages"]])
+    receipt = _attribution_run(monkeypatch, toil=recorder)
+    assert receipt["status"] == "fail"
+    assert receipt["actions"] == []
+    assert "does not advertise" in receipt["notices"][-1]
+
+
+def test_toil_refuses_driver_mode_mismatch_and_still_tears_down(monkeypatch):
+    from workflow_toil import ToilRecorder
+    recorder = ToilRecorder({"experimentId": "integration", "arm": "imperative", "trial": 1},
+                             [s["id"] for s in canary.load_journey(JOURNEY)["stages"]])
+    receipt = _attribution_run(monkeypatch, toil=recorder)
+    assert receipt["status"] == "fail"
+    assert receipt["totals"]["modelCalls"] == 0
+    assert receipt["actions"][-1]["kind"] == "teardown"
+
+
+def test_toil_cli_rejects_receipt_overwrite_before_any_io(tmp_path):
+    receipt = tmp_path / "receipt.json"
+    receipt.write_text("existing receipt")
+    link = tmp_path / "sidecar.json"
+    link.symlink_to(receipt)
+    for output in (receipt, link):
+        with pytest.raises(SystemExit) as error:
+            canary.main(["--output", str(receipt), "--toil-config", "not-read.json", "--toil-output", str(output)])
+        assert error.value.code == 2
+        assert receipt.read_text() == "existing receipt"
 
 
 def test_a_model_that_selects_no_valid_action_is_a_model_failure(monkeypatch):
