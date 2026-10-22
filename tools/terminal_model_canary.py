@@ -968,6 +968,20 @@ class CandidateProxyClient:
         try:
             with self._open(request, timeout=self.timeout_seconds) as response:
                 body = self._read(response).decode("utf-8")
+        except urllib.error.HTTPError as exc:
+            # Name the proxy's own typed refusal (problem code/title/detail), redacted and bounded, so a
+            # 4xx says which request rule it broke. Attribution stays infrastructure.
+            detail = ""
+            try:
+                problem = json.loads(exc.read(65536).decode("utf-8", "replace"))
+                if isinstance(problem, dict):
+                    fields = [str(problem.get(key)) for key in ("code", "errorCode", "title", "detail")
+                              if isinstance(problem.get(key), (str, int)) and str(problem.get(key)).strip()]
+                    detail = self.redactor.text(re.sub(r"\s+", " ", "; ".join(fields)))[:300]
+            except (ValueError, OSError):
+                detail = ""
+            raise CanaryError(f"candidate Studio proxy request failed: {exc}"
+                              + (f" ({detail})" if detail else "")) from exc
         except (urllib.error.URLError, TimeoutError, UnicodeDecodeError) as exc:
             raise CanaryError(f"candidate Studio proxy request failed: {exc}") from exc
         elapsed_ms = round((time.monotonic() - started) * 1000)
@@ -1227,6 +1241,23 @@ def unavailable_receipt(
     return builder.receipt
 
 
+_OBSERVATION_PREFIX = '{"task":"advance exactly this imported #123 stage'
+_SUPERSEDED = '{"supersededObservation":"an earlier observation of this stage; the latest one follows"}'
+
+
+def _compact_observations(messages: list[dict[str, str]]) -> None:
+    """Keep exactly one full stage observation in the prompt. Each observation carries the whole bounded
+    tool view (~130k characters), so repeating it every turn exceeds the proxy's prompt limit by the
+    second action of a stage (HTTP 400, trunk run 39855873207). Earlier copies become a marker."""
+    for index, message in enumerate(messages):
+        if message.get("role") != "user":
+            continue
+        parts = message["content"].split("\n")
+        compacted = [_SUPERSEDED if part.startswith(_OBSERVATION_PREFIX) else part for part in parts]
+        if compacted != parts:
+            messages[index] = {"role": "user", "content": "\n".join(compacted)}
+
+
 def _append_user(messages: list[dict[str, str]], content: str) -> None:
     """Keep strict user/assistant alternation: Bedrock refuses two consecutive user turns (HTTP 400),
     so an action result followed by the next observation travel as one user turn."""
@@ -1471,6 +1502,8 @@ def execute_live(
                 )
                 builder.capture_transcript("system", system, stage_id=stage_id)
                 builder.capture_transcript("user", user_content, stage_id=stage_id)
+                if user_content.startswith(_OBSERVATION_PREFIX):
+                    _compact_observations(messages)
                 _append_user(messages, user_content)
                 def ask() -> tuple[str, int]:
                     content, usage, elapsed_ms, provenance_evidence = client.complete(
