@@ -135,7 +135,7 @@
           "additionalProperties": false,
           "required": ["mode", "credentialReference", "required"],
           "properties": {
-            "mode": {"enum": ["bearer-env", "none"]},
+            "mode": {"enum": ["bearer-env", "x-api-key-env", "none"]},
             "credentialReference": {"type": ["string", "null"]},
             "required": {"type": "boolean"}
           }
