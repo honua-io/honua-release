@@ -138,13 +138,23 @@ def _bootstrap(target):
     return probes.resolve_env_default(target["adminPassword"]["env"], target["adminPassword"].get("default", ""))
 
 
+# A validated bearer token is scope-governed: with no recognized honua.mcp.* scope the server refuses
+# every governed call as insufficient_scope (OperatorScopeAuthorizer), so the run-signed proposer could
+# never reach stage 6 (e2e-cloud-aws run 39746615094). These are exactly the proposer's operations:
+# read, studio.draft.create (create), save-version (update) and create-publication-request (publish).
+# Approval stays with the separate approver principal. The other-tenant token carries the same scopes
+# so its denial proves tenant isolation, not a missing scope.
+TENANT_TOKEN_SCOPE = "honua.mcp.read honua.mcp.create honua.mcp.update honua.mcp.publish"
+
+
 def _tenant_token(signing_key, *, subject, tenant, role):
     def encode(value):
         return base64.urlsafe_b64encode(json.dumps(value, separators=(",", ":")).encode()).rstrip(b"=")
     now = int(time.time())
     body = encode({"alg": "HS256", "typ": "JWT"}) + b"." + encode({
         "iss": ISSUER, "aud": AUDIENCE, "sub": subject, "tenant_id": tenant,
-        "role": role, "iat": now, "nbf": now, "exp": now + 300, "jti": secrets.token_hex(16)})
+        "role": role, "scope": TENANT_TOKEN_SCOPE,
+        "iat": now, "nbf": now, "exp": now + 300, "jti": secrets.token_hex(16)})
     signature = base64.urlsafe_b64encode(hmac.new(signing_key.encode(), body, hashlib.sha256).digest()).rstrip(b"=")
     return "Bearer " + (body + b"." + signature).decode()
 
