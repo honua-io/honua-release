@@ -464,10 +464,11 @@ components:
     # returned sha256:3d6a38e3... (unchanged from awsLambdaDigest, as observed), recorded here.
     # 2026-10-22 rc re-pin to 4709145: us-east-1 ECR already holds nightly-lambda-aot-4709145-amd64 at
     # sha256:add1ed04... (aws ecr describe-images, read-only), equal to awsLambdaDigest.
-    # 2026-10-22 rc re-pin #2 to 199bce7: reset to the sentinel. nightly-lambda-aot-199bce7-amd64 (child
-    # sha256:24bb5279..., config amd64, revision 199bce77..., entrypoint /var/task/Honua.Server) is not
-    # yet in us-east-1 ECR (aws ecr describe-images, read-only); the first e2e-cloud-aws run mirrors it.
-    awsLambdaEcrDigest: "pending-ecr-mirror"
+    # 2026-10-22 rc re-pin #2 to 199bce7: the Lambda AOT amd64 child sha256:24bb5279... (config amd64,
+    # revision 199bce77..., entrypoint /var/task/Honua.Server) was mirrored into us-east-1 ECR by digest
+    # (crane copy) as rc-2026.1-rc.1-lambda-aot-199bce7-amd64; aws ecr describe-images (read-only)
+    # reports sha256:24bb5279..., equal to awsLambdaDigest.
+    awsLambdaEcrDigest: "sha256:24bb5279ece9dc55da46a69c4bbed5430a773490fcb11476c5ab615f7305e7d3"
     awsLambdaArchitecture: "x86_64"
     # release#282 item 4: all contract versions remain UNVERIFIED until re-read from the booted candidate.
     contractVersions:
