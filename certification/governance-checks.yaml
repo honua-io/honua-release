@@ -29,10 +29,11 @@ honua-server:
       verdicts. The original exclusion reason no longer holds: run 32038145537 (5 integrity
       failures and 19 native outcome failures) was reader defects fixed in honua-server#3521, not
       the current promotion window. The ledger is still not promotion_gate_ready. Its own rule is
-      7 consecutive green days with receipt loss under 5%. The 2026-10-20 scheduled audit succeeded
-      with consecutive_green_days 1 of 7
-      (https://github.com/honua-io/honua-server/actions/runs/39471979464). The prior scheduled run
-      failed closed on request-budget exhaustion, not reader defects
+      7 consecutive green days with receipt loss under 5%. The 2026-10-21 scheduled audit succeeded
+      with consecutive_green_days 2 of 7, 0 integrity failures and 0.28% receipt loss
+      (https://github.com/honua-io/honua-server/actions/runs/39651147494), after the 2026-10-20 run
+      at 1 of 7 (https://github.com/honua-io/honua-server/actions/runs/39471979464). The 2026-10-19
+      scheduled run failed closed on request-budget exhaustion, not reader defects
       (https://github.com/honua-io/honua-server/actions/runs/39311450010). Review this exclusion on
       or after 2026-10-27, and remove it only after that audit reports promotion_gate_ready.
   - name: "Post exact-head Claude review evidence"

@@ -341,9 +341,10 @@ def test_impact_routing_ledger_stays_excluded_until_its_promotion_window():
     assert "measured receipt loss over the 5% budget" in why
     assert "Cohort drift, superseded heads" in why
     assert "in-flight builds, and tombstoned evidence" in why
+    assert "https://github.com/honua-io/honua-server/actions/runs/39651147494" in why
     assert "https://github.com/honua-io/honua-server/actions/runs/39471979464" in why
     assert "https://github.com/honua-io/honua-server/actions/runs/39311450010" in why
-    assert "consecutive_green_days 1 of 7" in why
+    assert "consecutive_green_days 2 of 7" in why
     assert "promotion_gate_ready" in why
     assert "2026-10-27" in why
     assert "no longer holds" in why
