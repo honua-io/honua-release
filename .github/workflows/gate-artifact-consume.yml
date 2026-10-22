@@ -724,9 +724,19 @@ jobs:
             echo "::group::LOCAL fallback — build honua-iac customer tarball from source"
             if bash "$GITHUB_WORKSPACE/tools/checkout_component.sh" honua-iac "$IAC_SHA" src >/tmp/tf-clone.log 2>&1; then
               ( cd src && make dist >/tmp/tf-dist.log 2>&1 ) || true
-              DIST_TGZ="$(find src -name 'honua-iac-*.tar.gz' | head -n1)"
+              DIST_TGZ="$(find src -name 'honua-iac-*.tar.gz' | sort | head -n1)"
               if [ -n "$DIST_TGZ" ]; then
                 cp "$DIST_TGZ" "$WORK/" && SOURCE=local && STATUS=have-tarball
+              elif [ -f src/scripts/package-customer-dist.sh ]; then
+                # honua-iac's own customer packaging (modules/, examples/<stack>/, bootstrap/, ...),
+                # the exact layout an operator extracts. Tarring one arbitrary .tf directory instead
+                # dropped ../../modules and failed init nondeterministically (find order; trunk run
+                # 39744957421 vs branch run 39733651258).
+                if bash src/scripts/package-customer-dist.sh "$WORK/honua-iac-local.tar.gz" >/tmp/tf-dist.log 2>&1; then
+                  SOURCE=local; STATUS=have-tarball
+                else
+                  STATUS=fail; WHY="honua-iac scripts/package-customer-dist.sh failed"; tail -n 20 /tmp/tf-dist.log || true
+                fi
               else
                 # No packaging target — emulate the customer artifact by tarring the terraform root.
                 TFROOT="$(dirname "$(find src -name '*.tf' -not -path '*/.*' | head -n1)")"
@@ -748,7 +758,15 @@ jobs:
             mkdir -p "$WORK/extract" && tar xzf "$TARBALL" -C "$WORK/extract"
             # The customer's first command is `terraform init`. backend=false avoids needing real
             # cloud creds; it still resolves every module + provider, which is what iac#81 broke.
-            INITDIR="$(dirname "$(find "$WORK/extract" -maxdepth 3 -name '*.tf' | head -n1)")"
+            # The GA customer quickstart root (examples/aws, ECS) when the tarball has the customer
+            # layout; otherwise the first root in a stable order.
+            if [ -f "$WORK/extract/examples/aws/main.tf" ]; then
+              INITDIR="$WORK/extract/examples/aws"
+            else
+              FIRST_TF="$(find "$WORK/extract" -maxdepth 3 -name '*.tf' | sort | head -n1)"
+              INITDIR="${FIRST_TF:+$(dirname "$FIRST_TF")}"
+            fi
+            echo "terraform init root: ${INITDIR#"$WORK/extract/"}"
             if [ -z "$INITDIR" ]; then
               STATUS=fail; WHY="tarball from ${SOURCE} contains no .tf files"
             elif ( cd "$INITDIR" && terraform init -backend=false -input=false >/tmp/tf-init.log 2>&1 && terraform validate -no-color >>/tmp/tf-init.log 2>&1 ); then
