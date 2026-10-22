@@ -89,19 +89,33 @@ def check_refusal(value):
 
 def produce(record, raw_path, target_path, *, adapter, pinned, digest, cell):
     """Fixed actions through the same pinned driver, in the existing credential-free job."""
-    from terminal_model_canary import validate_deterministic_receipt, load_journey
+    from terminal_model_canary import CanaryError, validate_deterministic_receipt, load_journey
     require(cell in CELLS, 'serving/refusal profile is only for approved Redis-off cells')
     raw_bytes = raw_path.read_bytes()
     raw = json.loads(raw_bytes)
+    try:
+        prerequisite = validate_deterministic_receipt(raw_path, manifest=pinned,
+            journey=load_journey(ROOT / 'certification/terminal-journey/journey.v1.json'),
+            cell=cell, prerequisite_profile=PROFILE)
+    except CanaryError as exc:
+        roster = raw.get('roster') if isinstance(raw.get('roster'), dict) else {}
+        if raw.get('status') == 'blocked' and roster.get('status') == 'blocked' and roster.get('blockedBy'):
+            # The raw receipt is blocked by a tracked limitation (the candidate roster exports), so
+            # the bounded profile has no admissible prerequisite and does not run. That is neither a
+            # pass nor a profile failure: the attempt stays an attributed, documented block.
+            return {'schemaVersion': 'deterministic-redis-off-serving-refusal.v1', 'profile': PROFILE,
+                    'status': 'blocked', 'why': 'prerequisite receipt not admissible: ' + str(exc),
+                    'blockedBy': roster['blockedBy'], 'cell': cell, 'runId': record['runId'],
+                    'runAttempt': record['runAttempt'], 'attempt': record['number'],
+                    'rawReceiptSha256': sha(raw_bytes), 'sourceStatus': raw.get('status'),
+                    'generatedAt': datetime.now(timezone.utc).isoformat().replace('+00:00', 'Z')}
+        raise
     fixture_path = target_path.parent / 'extended/seed-manifest.json'
     shared = oracle()
     fixture = shared.fixture_binding(fixture_path)
     target = json.loads(target_path.read_bytes())
     args = plan(target, record['runId'], record['number'])
     shared.validate_durable_plan(args, target['execution'])
-    prerequisite = validate_deterministic_receipt(raw_path, manifest=pinned,
-        journey=load_journey(ROOT / 'certification/terminal-journey/journey.v1.json'),
-        cell=cell, prerequisite_profile=PROFILE)
     result = {'schemaVersion': 'deterministic-redis-off-serving-refusal.v1', 'profile': PROFILE,
         'mode': 'deterministic', 'cell': cell, 'runId': record['runId'], 'runAttempt': record['runAttempt'],
         'attempt': record['number'], 'candidateDigest': digest, 'server': raw['server'],
@@ -248,4 +262,16 @@ def failed_record(record, raw, raw_path):
     require(isinstance(proof, dict) and proof.get('file') == path.name
         and path.is_file() and not path.is_symlink()
         and proof.get('sha256') == sha(path.read_bytes()), 'missing or changed serving/refusal sidecar')
-    return json.loads(path.read_bytes()).get('status') == 'fail'
+    # A blocked profile (no admissible prerequisite) cannot satisfy a required success either.
+    return json.loads(path.read_bytes()).get('status') in ('fail', 'blocked')
+
+
+def blocked_record(record, raw_path):
+    """True when the attempt's recorded profile is a documented block, not a profile failure."""
+    proof = record.get('servingRefusal')
+    if not isinstance(proof, dict):
+        return False
+    path = raw_path.parent / f"serving-refusal-{record['number']}.json"
+    require(proof.get('file') == path.name and path.is_file() and not path.is_symlink()
+            and proof.get('sha256') == sha(path.read_bytes()), 'missing or changed serving/refusal sidecar')
+    return json.loads(path.read_bytes()).get('status') == 'blocked'
