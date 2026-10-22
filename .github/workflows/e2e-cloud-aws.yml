@@ -364,7 +364,10 @@ jobs:
       max-parallel: 1
       matrix:
         # aws-mixed is out for 2026.1 rc.3 (no examples/aws-mixed root); restore it when honua-iac#209 lands.
-        target: ${{ fromJSON(inputs.update_rollback_run_id != '' && '["aws-serverless","aws-ecs"]' || (inputs.target == '' || inputs.target == 'all') && '["aws-serverless","aws-ecs","aws-eks"]' || format('["{0}"]', inputs.target)) }}
+        # Operator ruling 2026-10-22: Preview deployment targets (aws-eks, per the 2026-10-16 amendment)
+        # do not run in the cloud gate and never block it; `all` is the GA cells only and the report
+        # names the EKS cells "not certified (preview)". An explicit target=aws-eks dispatch still runs it.
+        target: ${{ fromJSON(inputs.update_rollback_run_id != '' && '["aws-serverless","aws-ecs"]' || (inputs.target == '' || inputs.target == 'all') && '["aws-serverless","aws-ecs"]' || format('["{0}"]', inputs.target)) }}
         redis: ${{ fromJSON((inputs.redis_mode == '' || inputs.redis_mode == 'both') && '["off","on"]' || format('["{0}"]', inputs.redis_mode)) }}
     name: "${{ matrix.target }} / redis-${{ matrix.redis }}"
     permissions:
@@ -462,11 +465,34 @@ jobs:
               fi
             fi
           fi
-          echo "iac-live -> $STATUS ($WHY)"
+          # Cleanup obligation (cloud_journey.cleanup_failure): read it from the honua-iac run's own
+          # AWS job, never assume it. Nothing dispatched, or the apply step never ran, provisions
+          # nothing; otherwise its always-run reap step must have succeeded. Unknown stays unknown.
+          PROVISIONED=unknown; TD_ATTEMPTED=false; TD_COMPLETED=false
+          if [ "${RUN_ID:-}" = "" ] || [ "${RUN_ID:-}" = "null" ]; then
+            [ "$STATUS" = "skipped" ] && PROVISIONED=false
+            [ "$STATUS" = "fail" ] && [ -z "${RUN_ID:-}" ] && PROVISIONED=false
+          elif gh api "repos/honua-io/honua-iac/actions/runs/$RUN_ID/jobs?per_page=100" > /tmp/iac-jobs.json 2>/dev/null; then
+            APPLY="$(jq -r '[.jobs[] | select(.name=="AWS Live Validation") | .steps[]?
+                      | select(.name=="Run AWS validation with the OIDC session") | .conclusion][0] // "absent"' /tmp/iac-jobs.json)"
+            REAP="$(jq -r '[.jobs[] | select(.name=="AWS Live Validation") | .steps[]?
+                      | select(.name | startswith("Reap this run")) | .conclusion][0] // "absent"' /tmp/iac-jobs.json)"
+            echo "honua-iac run $RUN_ID: apply step=$APPLY, reap step=$REAP"
+            case "$APPLY" in
+              skipped) PROVISIONED=false ;;
+              success|failure|cancelled) PROVISIONED=true
+                [ "$REAP" != "absent" ] && [ "$REAP" != "skipped" ] && TD_ATTEMPTED=true
+                [ "$REAP" = "success" ] && TD_COMPLETED=true ;;
+            esac
+          fi
+          echo "iac-live -> $STATUS ($WHY); provisionAttempted=$PROVISIONED teardown=$TD_ATTEMPTED/$TD_COMPLETED"
           mkdir -p out
-          jq -n --arg s "$STATUS" --arg w "$WHY" \
+          jq -n --arg s "$STATUS" --arg w "$WHY" --arg p "$PROVISIONED" \
+            --argjson ta "$TD_ATTEMPTED" --argjson tc "$TD_COMPLETED" \
             --arg run "${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}" \
-            '{gate:"cloud-iac-live", status:$s, why:$w, evidence_url:$run}' > out/gate-report-cloud.json
+            '{gate:"cloud-iac-live", status:$s, why:$w, evidence_url:$run}
+             + (if $p == "unknown" then {} else {provisionAttempted:($p == "true"),
+                  teardown:{attempted:$ta, completed:$tc}} end)' > out/gate-report-cloud.json
           cat out/gate-report-cloud.json
 
       - name: Upload iac-live report
@@ -532,8 +558,9 @@ jobs:
           REQUESTED_REDIS: ${{ inputs.redis_mode || 'both' }}
         run: |
           set -euo pipefail
-          # Every cell the parity matrix dispatched (Preview included) must account for its cost.
-          TARGETS="aws-serverless aws-ecs aws-eks"; [ "$REQUESTED_TARGET" = all ] || TARGETS="$REQUESTED_TARGET"
+          # Every cell the parity matrix dispatched (an explicitly requested Preview included) must
+          # account for its cost. `all` dispatches the GA targets only (operator ruling 2026-10-22).
+          TARGETS="aws-serverless aws-ecs"; [ "$REQUESTED_TARGET" = all ] || TARGETS="$REQUESTED_TARGET"
           MODES="off on"; [ "$REQUESTED_REDIS" = both ] || MODES="$REQUESTED_REDIS"
           CELLS=""
           for t in $TARGETS; do for r in $MODES; do CELLS="${CELLS:+$CELLS,}$t/redis-$r"; done; done
@@ -570,6 +597,9 @@ jobs:
              --arg target "$REQUESTED_TARGET" --arg redis "$REQUESTED_REDIS" \
              --arg iac "$REQUESTED_IAC_LIVE" \
              '. + {enforcement:$enf, evidence_url:$run, generatedAt:(now|todateiso8601),
+                    notCertified:(if $target == "all" then
+                      [{cell:"aws-eks/redis-off", status:"not certified (preview)"},
+                       {cell:"aws-eks/redis-on", status:"not certified (preview)"}] else [] end),
                     certifying:false,
                     certifyingScope:($full == "true"),
                     requestedScope:{target:$target,redis:$redis,runIacLive:($iac == "true")}}
