@@ -49,17 +49,17 @@
       "evidence_class": "downloaded-bytes",
       "files": [
         {
-          "filename": "378b2de6519a360672605ec515d07608770101bd.tar.gz",
-          "sha256": "b022dcd5e51825166476db8da796a19e429fc63d7e4617cd5c928a1c4400b6b3",
-          "url": "https://codeload.github.com/honua-io/honua-iac/tar.gz/378b2de6519a360672605ec515d07608770101bd"
+          "filename": "a71477e0f68c00e8faa39ec4b30a5f2d946120cc.tar.gz",
+          "sha256": "f6394aa35780c15eef7ee53fd839255d12262b28addc48ad57ef5eeedbcb40fe",
+          "url": "https://codeload.github.com/honua-io/honua-iac/tar.gz/a71477e0f68c00e8faa39ec4b30a5f2d946120cc"
         }
       ],
       "id": "iac:git-archive",
-      "publication": "honua-iac Git archive 378b2de6519a360672605ec515d07608770101bd",
+      "publication": "honua-iac Git archive a71477e0f68c00e8faa39ec4b30a5f2d946120cc",
       "registry_http_status": 404,
       "urls": [
         "https://registry.terraform.io/v1/modules/honua-io",
-        "https://github.com/honua-io/honua-iac/archive/378b2de6519a360672605ec515d07608770101bd.tar.gz"
+        "https://github.com/honua-io/honua-iac/archive/a71477e0f68c00e8faa39ec4b30a5f2d946120cc.tar.gz"
       ]
     },
     {

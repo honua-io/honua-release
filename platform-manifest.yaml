@@ -852,11 +852,20 @@ components:
     # drop the HTTP-only keys and the import threshold to stay under the 4096-byte Lambda environment cap
     # (3790/3787/3793 B; the API function sits at 4077 B on the full Redis-on cell). The serverless cell
     # passes the file-storage inputs once this root declares them (release#569).
+    # 2026-10-22 rc re-pin #3 ADVANCE 378b2de6 -> trunk a71477e0 (honua-iac#281 merge commit): generated
+    # database passwords exclude '=', so the ECS cells no longer hit the unparseable connection string at
+    # random. Also carries #279 (rollback target eligibility docs), the opt-in one-shot migration task
+    # (migrate-only mode) and the Lambda trust-principal policy-gate fix. Check runs at a71477e0: Static
+    # Terraform Validate x2, Terraform 1.5 Floor Validate, Terraform Policy Gates x2 and the standing
+    # certification controls succeed; AWS Live Validation failed only because the job could not load AWS
+    # credentials ("Could not load credentials from any providers"), not on a module. Locally:
+    # terraform validate passes on modules/aws-ecs and examples/aws (1.13.5) and on modules/aws-serverless
+    # with terraform 1.15.0 (its tests need >= 1.15 to init).
     version: "pre-release"             # untagged trunk commit; v0.2.0 is the newest tag
-    sha: "378b2de6519a360672605ec515d07608770101bd"   # branch: trunk HEAD 2026-10-12 (honua-iac#244 merge commit)
-    artifact: "archive:https://github.com/honua-io/honua-iac/archive/378b2de6519a360672605ec515d07608770101bd.tar.gz"
-    artifactSourceRevision: "378b2de6519a360672605ec515d07608770101bd"   # the tarball's pax comment
-    artifactSha256: "sha256:b022dcd5e51825166476db8da796a19e429fc63d7e4617cd5c928a1c4400b6b3"   # two anonymous downloads, identical bytes
+    sha: "a71477e0f68c00e8faa39ec4b30a5f2d946120cc"   # branch: trunk HEAD 2026-10-22 (honua-iac#281 merge commit)
+    artifact: "archive:https://github.com/honua-io/honua-iac/archive/a71477e0f68c00e8faa39ec4b30a5f2d946120cc.tar.gz"
+    artifactSourceRevision: "a71477e0f68c00e8faa39ec4b30a5f2d946120cc"   # the tarball's pax comment
+    artifactSha256: "sha256:f6394aa35780c15eef7ee53fd839255d12262b28addc48ad57ef5eeedbcb40fe"   # two anonymous downloads, identical bytes
 
   honua-helm:
     repository: "https://github.com/honua-io/honua-helm"
