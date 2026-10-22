@@ -38,8 +38,10 @@ jobs:
   # committed on a cut branch, where it is used as-is (and must already carry its attestation). On
   # trunk the lock is generated from the checked-out manifest and matrix the way the nightly train's
   # freeze does (--qualification) and attested here, which gives certify's `gh attestation verify` a
-  # real subject. As in freeze, any generator refusal stops the gate: a partial draft is never
-  # relabelled as a gate input.
+  # real subject. For rc this gate certifies that DRAFT lock (coordinator ruling 2026-10-22,
+  # https://github.com/honua-io/honua-release/issues/376#issuecomment-6335886760): AT-CUT and PUBLISH
+  # refusals are deferred to the cut with --allow-deferred-fields and named in the gate report;
+  # MECHANICAL or unclassified refusals still stop the gate. GA restores the signed-lock rule.
   manual_freeze:
     if: inputs.candidate_lock_artifact == ''
     runs-on: ubuntu-latest
@@ -68,7 +70,8 @@ jobs:
             cp platform-lock.json frozen-lock/platform-lock.json
           else
             python tools/generate_platform_lock.py --manifest platform-manifest.yaml \
-              --matrix compatibility-matrix.yaml --output frozen-lock/platform-lock.json --qualification
+              --matrix compatibility-matrix.yaml --output frozen-lock/platform-lock.json --qualification \
+              --allow-deferred-fields frozen-lock/deferred-fields.json
           fi
       - name: Record the candidate lock source
         id: lock
@@ -146,7 +149,13 @@ jobs:
             --repository "$GITHUB_REPOSITORY" \
             --report out/rollback-certification/gate-report.json
           if [ -n "$MANUAL_LOCK_SOURCE" ]; then
-            jq --arg source "$MANUAL_LOCK_SOURCE" '. + {candidate_lock_source: $source}' \
+            deferred='null'
+            if [ -f _candidate/frozen-lock/deferred-fields.json ]; then
+              cp _candidate/frozen-lock/deferred-fields.json out/rollback-certification/deferred-fields.json
+              deferred="$(jq -c '{mode, ruling, signable, deferredByResolution, deferred}' _candidate/frozen-lock/deferred-fields.json)"
+            fi
+            jq --arg source "$MANUAL_LOCK_SOURCE" --argjson deferred "$deferred" \
+              '. + {candidate_lock_source: $source} + (if $deferred then {candidate_lock_mode: $deferred.mode, candidate_lock_deferred_fields: $deferred} else {} end)' \
               out/rollback-certification/gate-report.json > out/rollback-certification/gate-report.tmp
             mv out/rollback-certification/gate-report.tmp out/rollback-certification/gate-report.json
           fi
@@ -235,6 +244,11 @@ jobs:
               sentence = f"First lock-bearing release: no earlier attested platform lock exists; self-rollback to retained candidate {report['candidate_lock_digest']}: {report['overall_status']}."
           else:
               sentence = f"Retained-lock rollback certification: {report.get('overall_status', 'fail')}."
+          if report.get("candidate_lock_mode"):
+              deferred = report["candidate_lock_deferred_fields"]
+              sentence += (f" Draft lock certified under {report['candidate_lock_mode']} ({deferred['ruling']}):"
+                           f" {len(deferred['deferred'])} release field(s) deferred to the cut"
+                           f" {deferred['deferredByResolution']}; this lock is not signable.")
           with open(os.environ["GITHUB_STEP_SUMMARY"], "a") as summary:
               summary.write(sentence + "\n")
           print(json.dumps(report, sort_keys=True))

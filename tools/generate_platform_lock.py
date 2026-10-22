@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import argparse
 import hashlib
+import json
 import re
 import sys
 from dataclasses import dataclass, field
@@ -454,6 +455,32 @@ def _release_facts(manifest: dict[str, Any], lock: dict[str, Any], refuse: Any, 
         refuse(f"$.notes: {exc}", "AT-CUT")
 
 
+# rc draft mode (--allow-deferred-fields). Only release facts that are bound at the cut or at
+# publication may be deferred; a MECHANICAL refusal (a malformed or conflicting declaration) or an
+# unclassified one (no platform identity) is never deferrable. GA restores the signed-lock rule.
+DEFERRED_FIELDS_MODE = "rc-draft-allow-deferred-fields"
+DEFERRED_FIELDS_RULING = "https://github.com/honua-io/honua-release/issues/376#issuecomment-6335886760"
+DEFERRABLE_RESOLUTIONS = ("AT-CUT", "PUBLISH")
+
+
+def deferred_fields_report(unresolved: list[str]) -> dict[str, Any]:
+    deferrable = tuple(f"[{resolution}] " for resolution in DEFERRABLE_RESOLUTIONS)
+    deferred = [item for item in unresolved if item.startswith(deferrable)]
+    fatal = [item for item in unresolved if not item.startswith(deferrable)]
+    return {
+        "schema": "honua.lock-deferred-fields/v1",
+        "mode": DEFERRED_FIELDS_MODE,
+        "ruling": DEFERRED_FIELDS_RULING,
+        "signable": False,
+        "deferred": deferred,
+        "deferredByResolution": {
+            resolution: sum(item.startswith(f"[{resolution}] ") for item in deferred)
+            for resolution in DEFERRABLE_RESOLUTIONS
+        },
+        "fatal": fatal,
+    }
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--manifest", type=Path, default=REPO_ROOT / "platform-manifest.yaml")
@@ -461,6 +488,11 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--output", type=Path, default=REPO_ROOT / "platform-lock.v1.draft.yaml")
     parser.add_argument("--qualification", action="store_true",
                         help="unsigned nightly draft with explicit post-gate pending fields")
+    parser.add_argument(
+        "--allow-deferred-fields", metavar="REPORT", type=Path,
+        help="rc draft mode for rollback-certification only (coordinator ruling 2026-10-22, "
+             f"{DEFERRED_FIELDS_RULING}): AT-CUT and PUBLISH refusals are written to REPORT as "
+             "deferred-to-cut and do not fail; any other refusal still fails. Never signable.")
     args = parser.parse_args(argv)
     try:
         draft = generate(args.manifest, args.matrix, image_inspector=registry_image_platform_digests,
@@ -473,6 +505,17 @@ def main(argv: list[str] | None = None) -> int:
         args.output.write_bytes(canonical_bytes(draft.lock))
     else:
         args.output.write_text(yaml.safe_dump(draft.lock, sort_keys=False), encoding="utf-8")
+    if args.allow_deferred_fields is not None:
+        report = deferred_fields_report(draft.unresolved)
+        args.allow_deferred_fields.parent.mkdir(parents=True, exist_ok=True)
+        args.allow_deferred_fields.write_text(json.dumps(report, indent=2) + "\n", encoding="utf-8")
+        if not report["fatal"]:
+            print(f"DEFERRED ({DEFERRED_FIELDS_MODE}): wrote draft {args.output}; "
+                  f"{len(report['deferred'])} release field(s) deferred to the cut, listed in "
+                  f"{args.allow_deferred_fields}:", file=sys.stderr)
+            for item in report["deferred"]:
+                print(f"- {item}", file=sys.stderr)
+            return 0
     if draft.unresolved:
         print(f"BLOCKED: wrote {args.output}; {len(draft.unresolved)} release field(s) remain unresolved:", file=sys.stderr)
         if draft.deferred_until_cut:

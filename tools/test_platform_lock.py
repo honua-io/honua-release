@@ -880,3 +880,49 @@ def test_generator_keeps_sdk_semver_independent_of_the_platform_version(tmp_path
     draft = draft_of(tmp_path, manifest)
     assert draft.lock["components"]["honua-sdk-dotnet"]["artifacts"][0]["version"] == "1.6.2"
     assert _version_items(draft, "honua-sdk-dotnet") == []
+
+
+# rc draft mode (coordinator ruling 2026-10-22, release#376 issuecomment-6335886760): the rollback
+# gate certifies the draft lock; AT-CUT and PUBLISH refusals are reported as deferred, never waived
+# silently, and every other refusal still fails.
+def _fake_draft(monkeypatch, unresolved):
+    def fake(*_args, **_kwargs):
+        return generator.Draft(lock={"platform": {"id": "honua-2026.1-rc.9"}}, unresolved=list(unresolved))
+    monkeypatch.setattr(generator, "generate", fake)
+
+
+def test_deferred_fields_mode_reports_at_cut_and_publish_refusals(tmp_path, monkeypatch, capsys):
+    import json
+    unresolved = ["[AT-CUT] $.contentDigests.okf: OKF digest is not declared",
+                  "[PUBLISH] $.components.honua-helm.artifacts[0].digest: immutable registry digest is not declared"]
+    _fake_draft(monkeypatch, unresolved)
+    report = tmp_path / "deferred.json"
+    status = generator.main(["--output", str(tmp_path / "lock.json"), "--qualification",
+                             "--allow-deferred-fields", str(report)])
+    assert status == 0
+    value = json.loads(report.read_text())
+    assert value["mode"] == generator.DEFERRED_FIELDS_MODE == "rc-draft-allow-deferred-fields"
+    assert value["ruling"].endswith("issues/376#issuecomment-6335886760")
+    assert value["signable"] is False and value["fatal"] == []
+    assert value["deferred"] == unresolved
+    assert value["deferredByResolution"] == {"AT-CUT": 1, "PUBLISH": 1}
+    assert "DEFERRED (rc-draft-allow-deferred-fields)" in capsys.readouterr().err
+
+
+@pytest.mark.parametrize("fatal", [
+    "[MECHANICAL] $.components.honua-server.schemaVersions.database: conflicts with dbSchema",
+    "$.platform.id: platformManifest.platformRelease is absent",
+])
+def test_deferred_fields_mode_still_refuses_non_deferrable_fields(tmp_path, monkeypatch, fatal):
+    import json
+    _fake_draft(monkeypatch, ["[AT-CUT] $.contentDigests.okf: OKF digest is not declared", fatal])
+    report = tmp_path / "deferred.json"
+    status = generator.main(["--output", str(tmp_path / "lock.json"), "--qualification",
+                             "--allow-deferred-fields", str(report)])
+    assert status == 1
+    assert json.loads(report.read_text())["fatal"] == [fatal]
+
+
+def test_refusals_stay_fatal_without_the_deferred_fields_mode(tmp_path, monkeypatch):
+    _fake_draft(monkeypatch, ["[AT-CUT] $.contentDigests.okf: OKF digest is not declared"])
+    assert generator.main(["--output", str(tmp_path / "lock.json"), "--qualification"]) == 1

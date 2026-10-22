@@ -141,6 +141,13 @@ def _run_with_refusing_generator(command: str, root: Path, variables: dict) -> t
         "if script.endswith('generate_platform_lock.py'):\n"
         "    output = sys.argv[sys.argv.index('--output') + 1]\n"
         "    open(output, 'w').write('platform: {id: partial}\\n')\n"
+        # Under the rollback gate's rc draft mode (release#376 ruling 2026-10-22) AT-CUT/PUBLISH
+        # refusals are deferred, so the refusal modelled here is a non-deferrable one: the mode must
+        # still stop the step on it, like every other gate input.
+        "    if '--allow-deferred-fields' in sys.argv:\n"
+        "        report = sys.argv[sys.argv.index('--allow-deferred-fields') + 1]\n"
+        "        os.makedirs(os.path.dirname(report) or '.', exist_ok=True)\n"
+        "        open(report, 'w').write('{\"fatal\": [\"[MECHANICAL] modelled\"]}')\n"
         "    sys.exit(1)\n"
         "if script.startswith('tools/'):\n"
         "    sys.exit(0)\n"
@@ -180,6 +187,19 @@ def test_generator_refusal_is_not_statically_suppressed():
         for line in command.replace("\\\n", " ").splitlines():
             if "generate_platform_lock.py" in line:
                 assert not re.search(r"\|\|\s*(true|:)", line), (path.name, line)
+
+
+def test_deferred_fields_mode_is_confined_to_the_rollback_draft_lock():
+    """Coordinator ruling 2026-10-22 (release#376 issuecomment-6335886760): only rollback-certification's
+    manual draft lock may defer AT-CUT/PUBLISH refusals; every other gate input keeps them fatal, and
+    the rollback gate must name the mode and the deferred fields in its report."""
+    users = [(path.name, step.get("name")) for path, _, _, _, step in _generator_steps()
+             if "--allow-deferred-fields" in step["run"]]
+    assert users == [("rollback-certification.yml", "Bind the checked-out candidate lock")]
+    workflow = _workflow("rollback-certification.yml")
+    assert "--allow-deferred-fields" not in str(workflow["jobs"]["certify"]["steps"][:4])
+    commands = "\n".join(_step_text(step) for step in workflow["jobs"]["certify"]["steps"])
+    assert "candidate_lock_mode" in commands and "candidate_lock_deferred_fields" in commands
 
 
 # These steps run on ubuntu runners and manifest-validate runs this suite there. On Windows `bash`
