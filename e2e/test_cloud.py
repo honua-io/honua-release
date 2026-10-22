@@ -5505,6 +5505,51 @@ def test_off_profile_native_after_observation_cannot_bypass_cost_or_teardown(mon
         shutil.rmtree(cj.EVIDENCE / 'offline-run', ignore_errors=True)
 
 
+def test_off_profile_teardown_admits_its_runner_and_reads_the_restored_root(monkeypatch, tmp_path):
+    """A fresh teardown runner reads both native observations: the restored Terraform root for the
+    image, and (on ECS) the cell endpoint behind an ALB that admits only listed /32s (run 39772292511)."""
+    cj = run_cloud.cloud_journey
+    monkeypatch.setenv('GITHUB_RUN_ID', 'offline-run')
+    monkeypatch.setenv('GITHUB_RUN_ATTEMPT', '2')
+    monkeypatch.setenv('HONUA_AWS_RUNNER_CIDR', '203.0.113.7/32')
+    cell = 'aws-ecs/redis-off'; directory = cj.cell_dir(cell)
+    directory.mkdir(parents=True, exist_ok=True)
+    sha, image = _manifest_server()
+    stub = _ServingStub()
+    stub._workdir = None
+    admitted, seen_roots = [], []
+    monkeypatch.setattr(stub, 'teardown', lambda **kwargs: None, raising=False)
+    monkeypatch.setattr(stub, '_iac_root', lambda: tmp_path, raising=False)
+    monkeypatch.setattr(stub, 'admit', lambda endpoint, cidr, **kw: admitted.append((endpoint, cidr)), raising=False)
+    monkeypatch.setattr(cj, 'cleanup', lambda cell: None)
+    monkeypatch.setattr(cj, 'check_cost', lambda *a, **k: {'status': 'pass'})
+    def observe(target, pinned):
+        seen_roots.append(target._workdir)
+        return image, 'native readback'
+    monkeypatch.setattr(cj, 'observe_ecs_image', observe)
+    def identity(endpoint):
+        # Only an admitted runner reads the identity.
+        return {'revision': sha, 'source': 'commit-sha'} if admitted else None
+    monkeypatch.setattr(cj, 'server_identity', identity)
+    try:
+        record = _artifact(directory, _ecs_receipt())
+        record['receipt'] = str((directory / 'receipt-1.json').relative_to(E2E_DIR))
+        state = {'cell': cell, 'target': 'aws-ecs', 'redis': 'redis-off', 'runId': 'offline-run', 'runAttempt': '2',
+            'candidateDigest': cj.candidate_digest(), 'endpoint': 'https://cell.invalid', 'startedAt': cj.now(),
+            'provisionAttempted': True, 'observedServer': {'revision': sha, 'source': 'commit-sha'}, 'runningImage': image,
+            'servingFixtureSha256': record['profileObservation']['seedManifestSha256'],
+            'report': {'cell': cell, 'endpoint': 'https://cell.invalid', 'readiness': {'ready': True},
+                       'checks': [], 'canaryProbes': [], 'journeyAttempts': []}}
+        report = run_cloud.teardown_phase(state, {'journeyAttempts': [record]}, stub,
+            reference_endpoint=None, cost_report=directory / 'meter.json')
+        assert admitted == [('https://cell.invalid', '203.0.113.7/32')]
+        assert seen_roots == [tmp_path]
+        assert record['profileObservation']['after'] == record['profileObservation']['before']
+        assert 'native observation rejected' not in report.get('why', '')
+    finally:
+        shutil.rmtree(cj.EVIDENCE / 'offline-run', ignore_errors=True)
+
+
 def test_off_profile_transient_failure_keeps_raw_block_and_spends_only_existing_retry(monkeypatch):
     cj = run_cloud.cloud_journey
     monkeypatch.setenv('GITHUB_RUN_ID', 'offline-run')
