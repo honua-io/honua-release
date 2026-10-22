@@ -43,6 +43,13 @@ services:
       StudioAiProxy__Providers__bedrock__Kind: bedrock
       StudioAiProxy__Providers__bedrock__Model: "${HONUA_CANARY_BEDROCK_MODEL:-us.anthropic.claude-sonnet-5-5}"
       StudioAiProxy__Providers__bedrock__Region: "${HONUA_CANARY_BEDROCK_REGION:-us-east-1}"
+      # The signed transcript_provenance event carries the canonical request (every prompt message,
+      # base64) and the provider events, so one journey turn exceeds the server's default
+      # MaxEventBytes (262144) and the proxy refuses it with studio_ai/provider_output_too_large
+      # (trunk run 39820677864). Admit one provenance event up to 4 MiB inside an 8 MiB response,
+      # which is the canary client's own read bound. Both values are within the server's validated ranges.
+      StudioAiProxy__MaxEventBytes: "4194304"
+      StudioAiProxy__MaxResponseBytes: "8388608"
       # Transcript signing: a key id plus a secret reference to a base64 Ed25519 seed, never the seed
       # itself in configuration. The seed comes from the TERMINAL_MODEL_TRANSCRIPT_SIGNING_SEED secret.
       StudioAiProxy__TranscriptSigning__KeyId: "${HONUA_CANARY_TRANSCRIPT_KEY_ID:-}"
