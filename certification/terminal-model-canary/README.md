@@ -185,13 +185,13 @@ published signing-manifest trust anchor. A public manifest hash does not supply 
 
 | Kind | Name | Purpose |
 |---|---|---|
-| variable | `HONUA_AWS_ROLE_ARN` | OIDC role the local-docker job assumes; it must allow `bedrock:InvokeModel` and `bedrock:InvokeModelWithResponseStream` on the Sonnet 4.5 inference profile and its foundation-model ARNs (honua-iac `bootstrap/aws-release-cells` `runtime_bedrock_model_arns`). The cloud cell uses the same role to provision; Bedrock there is the ECS task role from `modules/aws-ecs/bedrock.tf`. |
+| variable | `HONUA_AWS_ROLE_ARN` | OIDC role the local-docker job assumes; it must allow `bedrock:InvokeModel` and `bedrock:InvokeModelWithResponseStream` on the Sonnet 5.5 `us.` inference profile and its foundation-model ARNs (honua-iac `bootstrap/aws-release-cells` `runtime_bedrock_model_arns`). The cloud cell uses the same role to provision; Bedrock there is the ECS task role from `modules/aws-ecs/bedrock.tf`. |
 | secret | `TERMINAL_MODEL_TRANSCRIPT_SIGNING_SEED` | Base64 32-byte Ed25519 seed the local-docker candidate signs transcripts with (`StudioAiProxy:TranscriptSigning`, key id `terminal-model-canary`, reference `env://HONUA_CANARY_TRANSCRIPT_SIGNING_SEED`). |
 | variable | `TERMINAL_MODEL_SIGNING_MANIFEST_SHA256` | SHA-256 of the canonical signing manifest the candidate publishes for that key: the trust anchor. |
-| variable | `TERMINAL_MODEL_NAME` (optional) | Model id; defaults to `us.anthropic.claude-sonnet-4-5-20250929-v1:0`. |
+| variable | `TERMINAL_MODEL_NAME` (optional) | Model id; defaults to `us.anthropic.claude-sonnet-5-5`. |
 | secret | `RELEASE_GH_TOKEN` | Already required by the journey for pinned client sources. |
 
-Bedrock model access for Claude Sonnet 4.5 must be enabled in the release account.
+Bedrock model access for Claude Sonnet 5.5 must be enabled in the release account.
 
 Until #123's live adapter drives the candidate to green, the honest terminal state is `skipped`,
 `blocked` or an attributed `fail`.

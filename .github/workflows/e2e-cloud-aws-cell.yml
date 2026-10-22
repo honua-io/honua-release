@@ -462,7 +462,7 @@ jobs:
         if: ${{ always() && inputs.enable_bedrock }}
         env:
           LOCK_DIGEST: ${{ inputs.lock_digest }}
-          TERMINAL_MODEL_NAME: ${{ vars.TERMINAL_MODEL_NAME || 'us.anthropic.claude-sonnet-4-5-20250929-v1:0' }}
+          TERMINAL_MODEL_NAME: ${{ vars.TERMINAL_MODEL_NAME || 'us.anthropic.claude-sonnet-5-5' }}
           TERMINAL_MODEL_RUNTIME: aws-bedrock
           TERMINAL_MODEL_QUANTIZATION: provider-managed
           TERMINAL_MODEL_SIGNING_MANIFEST_SHA256: ${{ vars.TERMINAL_MODEL_SIGNING_MANIFEST_SHA256 }}
