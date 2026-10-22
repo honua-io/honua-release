@@ -2,8 +2,8 @@
   "schema": "honua.sdk-python-protocol-certification/v1",
   "sourceRepository": "honua-io/honua-sdk-python",
   "canonicalClient": "Honua SDK Python",
-  "clientVersion": "0.1.16",
-  "fixtureRevision": "geospatial-grpc@1.0.0",
+  "clientVersion": "0.1.18",
+  "fixtureRevision": "geospatial-grpc@1.0.3",
   "operations": [
     {
       "capability_key": "serve.geoservices-root",
@@ -93,6 +93,36 @@
       "scenario_facets": [
         "positive",
         "metadata"
+      ]
+    },
+    {
+      "capability_key": "grpc.featureservice",
+      "surface": "grpc-feature-service",
+      "operation": "query-features",
+      "scenario_facets": [
+        "positive",
+        "negative",
+        "media-schema"
+      ]
+    },
+    {
+      "capability_key": "grpc.featureservice",
+      "surface": "grpc-feature-service",
+      "operation": "query-features-stream",
+      "scenario_facets": [
+        "positive",
+        "negative",
+        "media-schema"
+      ]
+    },
+    {
+      "capability_key": "editing.featureserver-edits",
+      "surface": "geoservices-featureserver",
+      "operation": "apply-edits",
+      "scenario_facets": [
+        "positive",
+        "negative",
+        "media-schema"
       ]
     }
   ]
