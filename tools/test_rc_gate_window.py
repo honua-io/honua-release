@@ -68,6 +68,33 @@ def test_ga_deferred_gates_are_real_gates_and_excluded_from_rc_set():
     assert "gate-build-test.yml" in w.RC_GATES and "terminal-model-canary.yml" in w.RC_GATES
 
 
+def test_default_rc_set_requires_twenty_gates_including_both_ai_gates():
+    assert len(w.RC_GATES) == 20
+    assert set(w.AI_GATES) == {"gate-agent-e2e.yml", "terminal-model-canary.yml"}
+    assert {"gate-agent-e2e.yml", "terminal-model-canary.yml"} <= set(w.RC_GATES)
+    assert set(w.GA_DEFERRED) == {"capacity-soak.yml", "rollback-certification.yml", "gate-journey.yml"}
+
+
+def test_each_missing_ai_gate_prevents_rc_admission_with_all_other_gates_green():
+    for missing in ("gate-agent-e2e.yml", "terminal-model-canary.yml"):
+        for latest_success, latest in ((None, None), (None, _run(0.1, "failure")),
+                                       (_run(7.01), _run(7.01))):
+            records = {gate: {"latest_success": _run(1), "latest": _run(1)} for gate in w.RC_GATES}
+            records[missing] = {"latest_success": latest_success, "latest": latest}
+            result = w.evaluate(records, NOW, 7)
+            assert result["admissible"] is False, (missing, latest)
+            assert result["red"] == [missing]
+
+
+def test_rc_release_uses_default_required_set_and_enforces_before_publish():
+    workflow = (Path(__file__).resolve().parents[1] / ".github/workflows/rc-release.yml").read_text()
+    invocation = re.search(r"python tools/rc_gate_window\.py.*?--enforce", workflow, re.DOTALL)
+    assert invocation is not None
+    assert "--without-ai-gates" not in invocation.group() and "--gate " not in invocation.group()
+    assert "needs: gate-window" in workflow
+    assert "needs.gate-window.outputs.admissible == 'true'" in workflow
+
+
 def test_markdown_names_deferred_gates():
     result = w.evaluate({"a.yml": {"latest_success": _run(1), "latest": _run(1)}}, NOW, 7)
     result["deferred_to_ga"] = ["gate-journey.yml"]
