@@ -2342,6 +2342,27 @@ def test_reset_deletes_attempt_ones_connection_and_style_so_attempt_two_can_crea
     assert "no journey_source connection was left" in empty[0]
 
 
+def test_a_retry_creates_its_own_connection_when_attempt_ones_is_still_in_use():
+    cj = run_cloud.cloud_journey
+    assert cj.attempt_datasource_name("journey_source", 1) == "journey_source"
+    assert cj.attempt_datasource_name("journey_source", 2) == "journey_source-attempt2"
+    cell = _CellHoldingAttempt1()
+    cell.in_use = True   # attempt 1 published a service on it: the cell refuses the delete (409)
+    (notice,) = cj.reset_prior_attempt("https://cell.example", "cell-admin-key", _JOURNEY_EXECUTION, 2,
+                                       request=cell)
+    assert "refused 409" in notice
+    # The retry no longer collides with the undeletable name.
+    assert cell.create_connection(cj.attempt_datasource_name("journey_source", 2)) == 201
+    # Attempt 3 resets attempt 2's per-attempt connection (and attempt 1's) by the authored base name.
+    cell.in_use = False
+    execution = {**_JOURNEY_EXECUTION, "datasource": {**_JOURNEY_EXECUTION["datasource"],
+                                                      "name": cj.attempt_datasource_name("journey_source", 3)}}
+    (again,) = cj.reset_prior_attempt("https://cell.example", "cell-admin-key", execution, 3, request=cell)
+    assert f"journey_source connection {_ATTEMPT1_CONNECTION} deleted" in again
+    assert f"journey_source connection {_ATTEMPT2_CONNECTION} deleted" in again
+    assert cell.connections == {_OTHER_CONNECTION: "customer_db"}
+
+
 def test_reset_is_a_no_op_for_the_first_attempt():
     cj = run_cloud.cloud_journey
     cell = _CellHoldingAttempt1()

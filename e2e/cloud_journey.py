@@ -567,6 +567,23 @@ def _deleted(status):
                  "meet the existing object)"}.get(status, f"answered {status or 'nothing'}")
 
 
+ATTEMPT_SUFFIX = "-attempt"
+
+
+def attempt_datasource_name(base, number):
+    """Attempt 1 keeps the authored datasource name; a retry gets its own. Attempt 1's connection
+    usually cannot be deleted (the service it published still references it: 409), so a retry that
+    re-used the name failed at CreateConnectionAsync before any stage could recover (runs
+    39705901768, 39746615094, 39772292511)."""
+    base = str(base or "")
+    return base if number <= 1 or not base else f"{base}{ATTEMPT_SUFFIX}{number}"
+
+
+def _base_datasource_name(name):
+    head, sep, tail = str(name or "").rpartition(ATTEMPT_SUFFIX)
+    return head if sep and tail.isdigit() and head else str(name or "")
+
+
 def reset_prior_attempt(endpoint, admin_key, execution, number, *, request=None):
     """Delete attempt N-1's fixed-name journey objects before attempt N; returns the receipt notice.
 
@@ -577,7 +594,7 @@ def reset_prior_attempt(endpoint, admin_key, execution, number, *, request=None)
         return []
     request = request or admin_request
     base = (endpoint or "").rstrip("/")
-    name = str(((execution or {}).get("datasource") or {}).get("name") or "")
+    name = _base_datasource_name(((execution or {}).get("datasource") or {}).get("name"))
     style = str((execution or {}).get("styleId") or "")
     steps = []
     if name:
@@ -586,8 +603,10 @@ def reset_prior_attempt(endpoint, admin_key, execution, number, *, request=None)
         if status != 200 or not isinstance(rows, list):
             steps.append(f"listing connections answered {status or 'nothing'}, so no {name} connection was deleted")
         else:
+            # Every earlier attempt's connection: the authored name and its per-attempt variants.
             ids = [str(row.get("connectionId")) for row in rows
-                   if isinstance(row, dict) and row.get("name") == name]
+                   if isinstance(row, dict) and (row.get("name") == name
+                       or _base_datasource_name(row.get("name")) == name != row.get("name"))]
             if not ids:
                 steps.append(f"no {name} connection was left")
             for connection_id in ids:
@@ -658,6 +677,9 @@ def attempt(cell, number, endpoint, admin_key, running_image=None, *, image_deta
         target.update(id=cell, kind=kind or "none")
         target["adminPassword"] = {"env": "HONUA_CLOUD_JOURNEY_ADMIN", "default": ""}
         target["compose"]["notes"] = "Externally provisioned cloud cell; the cloud harness owns teardown."
+    datasource = (target.get("execution") or {}).get("datasource")
+    if kind is not None and isinstance(datasource, dict) and datasource.get("name"):
+        datasource["name"] = attempt_datasource_name(datasource["name"], number)
     target_path = directory / f"target-{number}.json"
     target_path.write_text(json.dumps(target) + "\n")
     notices = [f"Imported adapter protocol: {adapter.PROTOCOL}"]
