@@ -91,6 +91,24 @@ run "refuse_world_open_server" {
   expect_failures = [var.allowed_operator_cidrs]
 }
 
+run "refuse_noncanonical_world_open_server" {
+  command = plan
+  variables { allowed_operator_cidrs = ["1.2.3.4/0"] }
+  expect_failures = [var.allowed_operator_cidrs]
+}
+
+run "refuse_malformed_operator_cidr" {
+  command = plan
+  variables { allowed_operator_cidrs = ["not-a-cidr"] }
+  expect_failures = [var.allowed_operator_cidrs]
+}
+
+run "refuse_ipv6_operator_cidr" {
+  command = plan
+  variables { allowed_operator_cidrs = ["2001:db8::/64"] }
+  expect_failures = [var.allowed_operator_cidrs]
+}
+
 run "refuse_literal_secret" {
   command = plan
   variables { console_agent_secret_arn = "not-a-secret-reference" }

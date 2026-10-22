@@ -73,7 +73,7 @@ variable "allowed_operator_cidrs" {
   description = "Explicit Server HTTPS ingress while operator identity is unbound; no world-open ingress."
   type        = list(string)
   validation {
-    condition     = length(var.allowed_operator_cidrs) > 0 && alltrue([for cidr in var.allowed_operator_cidrs : can(cidrnetmask(cidr)) && cidr != "0.0.0.0/0"])
+    condition     = length(var.allowed_operator_cidrs) > 0 && alltrue([for cidr in var.allowed_operator_cidrs : try(cidrnetmask(cidr) != "0.0.0.0", false)])
     error_message = "Supply explicit non-world-open IPv4 operator CIDRs."
   }
 }
