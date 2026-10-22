@@ -28,7 +28,7 @@ resource "random_password" "bootstrap_admin" {
 }
 
 module "server" {
-  source = "git::https://github.com/honua-io/honua-iac.git//infrastructure/terraform/modules/aws-ecs?ref=3763229d9305673181c9eca1faccdd8541026b72"
+  source = "git::https://github.com/honua-io/honua-iac.git//infrastructure/terraform/modules/aws-ecs?ref=5aae2ea96206911aabc8ee9aca50dc7fdd6bbb02"
 
   name_prefix                                       = var.name_prefix
   environment                                       = "pilot"
