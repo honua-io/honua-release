@@ -160,3 +160,11 @@ def test_receipts_say_which_pair_certifies_the_customer_path():
     scaffold = pair.build_receipt({}, scenario="normal", status="pass", why="", signed_lock_why="x",
                                   observed={}, phases={}, run="", commit="")
     assert scaffold["priorSource"] == "trunk-candidate" and scaffold["certification"]["role"] == "scaffolding"
+
+
+def test_trunk_cells_never_borrow_signed_lock_identities_and_backup_failure_fails():
+    text = (Path(__file__).resolve().parents[1] / ".github/workflows/gate-upgrade.yml").read_text(encoding="utf-8")
+    for name, out in (("PRIOR", "prior"), ("CAND", "candidate"), ("PRIOR_LOCK_DIGEST", "prior_lock_digest")):
+        assert "%s: ${{ matrix.pair != 'trunk-candidate' && steps.images.outputs.%s ||" % (name, out) in text
+    assert "CROSS: ${{ matrix.pair != 'trunk-candidate' && steps.images.outputs.verified == '1'" in text
+    assert 'WHY="mandatory pre-upgrade backup (pg_dump) failed' in text
