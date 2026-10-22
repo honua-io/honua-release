@@ -55,8 +55,11 @@ STAGE_TOOLS = {
 # key) publishes the service, styles it and runs GP. The Studio author is a
 # deliberately non-admin principal: an admin caller publishes immediately and never
 # produces the AwaitingApproval proposal stage 7 must observe. Targets that supply
-# no operator credential fall back to the proposer for every stage.
-STAGE_PRINCIPALS = {3: "operator", 4: "operator", 5: "operator", 6: "proposer", 7: "proposer", 8: "operator"}
+# no operator credential fall back to the proposer for every stage. Stages 1-2 (install/handoff and
+# credential preflight) verify the operator's own install: honua_list_capabilities needs Catalog Discover,
+# which the proposer's write:journey key does not carry (permission_denied, trunk run 39850688596).
+STAGE_PRINCIPALS = {1: "operator", 2: "operator", 3: "operator", 4: "operator", 5: "operator",
+                    6: "proposer", 7: "proposer", 8: "operator"}
 SDK_METHODS = {"CreateConnectionAsync", "TestConnectionAsync"}
 # Cross-replica read through a cloud cell's single endpoint (honua-server#5790): how many times the
 # saved map is re-read, the pause between sequential reads, and the bound on an instance id the server stamps
