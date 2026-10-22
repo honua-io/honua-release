@@ -350,3 +350,30 @@ def test_impact_routing_ledger_stays_excluded_until_its_promotion_window():
     assert "no longer holds" in why
     assert "32038145537" in why
     assert "honua-server#3521" in why
+
+
+def test_grpc_certify_pin_lag_is_advisory_but_protocol_lanes_stay_core():
+    core = [("Conformance Fixtures", "success"), ("Validate Protocol Schemas", "success")]
+    # Ruling 2026-10-09 (pin-lag rule) applied to the v1.0.3 tag: the certify lane there reads
+    # v1.0.2 fixtures with 1.0.3 runners and is red by construction (run 36619225117).
+    status, why = _classify("geospatial-grpc", _runs_named(*core, ("certify", "failure")))
+    assert status == "pass", why
+    assert "advisory" in why and "certify" in why
+    # The protocol's own fixture and schema lanes still refuse.
+    status, why = _classify("geospatial-grpc", _runs_named(
+        ("Conformance Fixtures", "failure"), ("Validate Protocol Schemas", "success"), ("certify", "failure")))
+    assert status == "fail"
+    assert _red_names(why) == "1/2 core check-run(s) red (['failure']: ['Conformance Fixtures'])"
+    status, why = _classify("geospatial-grpc", _runs_named(("certify", "failure")))
+    assert status == "blocked", why
+
+
+def test_server_gp_canary_is_env_gated_but_its_harness_checks_stay_core():
+    status, why = _classify("honua-server", _runs_named(
+        ("harness-checks", "success"), ("geometry-buffer", "failure")))
+    assert status == "pass", why
+    assert "env-gated" in why and "geometry-buffer" in why
+    status, why = _classify("honua-server", _runs_named(
+        ("harness-checks", "failure"), ("geometry-buffer", "failure")))
+    assert status == "fail"
+    assert _red_names(why) == "1/1 core check-run(s) red (['failure']: ['harness-checks'])"
