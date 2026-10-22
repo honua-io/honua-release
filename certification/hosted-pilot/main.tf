@@ -1,5 +1,23 @@
 locals {
   server_origin = "https://${var.server_domain}"
+  server_generic_oidc = {
+    authority                 = "https://${aws_cognito_user_pool.pilot.endpoint}"
+    client_id                 = aws_cognito_user_pool_client.operators["server_bff"].id
+    client_secret_arn         = aws_secretsmanager_secret.oidc_client["server_bff"].arn
+    client_secret_kms_key_arn = var.identity_secrets_kms_key_arn
+    scopes                    = ["openid", "profile", "email"]
+    admin_auth_callback_uri   = var.identity_redirects.server_bff_callback_url
+  }
+  server_operator_bearer = {
+    signing_key_secret_arn  = aws_secretsmanager_secret.operator_bearer.arn
+    signing_key_kms_key_arn = var.identity_secrets_kms_key_arn
+    max_lifetime_minutes    = 15
+  }
+  server_identity_environment = {
+    Oidc__ClaimsMapping__AdditionalRoleClaimTypes__0 = "cognito:groups"
+    Oidc__AdminRoles__0                              = local.identity_groups.approvers
+    Oidc__AdminRoles__1                              = local.identity_groups.approvers
+  }
 }
 
 # New-install bootstrap secrets are generated independently. Terraform state is
@@ -10,7 +28,7 @@ resource "random_password" "bootstrap_admin" {
 }
 
 module "server" {
-  source = "git::https://github.com/honua-io/honua-iac.git//infrastructure/terraform/modules/aws-ecs?ref=e2ddbdf02907c3c7a2c142d92a709817975ce3f5"
+  source = "git::https://github.com/honua-io/honua-iac.git//infrastructure/terraform/modules/aws-ecs?ref=3763229d9305673181c9eca1faccdd8541026b72"
 
   name_prefix                                       = var.name_prefix
   environment                                       = "pilot"
@@ -30,6 +48,9 @@ module "server" {
   alb_certificate_arn         = var.certificate_arn
   domain_alias_record_enabled = false
   public_base_url             = local.server_origin
+  generic_oidc                = local.server_generic_oidc
+  operator_bearer             = local.server_operator_bearer
+  additional_env              = local.server_identity_environment
   allow_https_ingress_cidrs   = var.allowed_operator_cidrs
   allow_http_ingress_cidrs    = []
   alb_enable_http_redirect    = false
@@ -37,7 +58,11 @@ module "server" {
   enable_nat_gateway          = true
   single_nat_gateway          = true
   log_retention_days          = 14
-  # No model provider, human issuer or publication grants guessed here.
+  # Cognito is selected explicitly; actual identities/grants and edge routing
+  # remain uninstalled. Both configured AdminRoles indices replace the Server's
+  # two appsettings admin role names. A compatible Server must also replace
+  # constructor defaults when binding. Shared policy aliases remain; qualify
+  # actual author refusal and approver acceptance before enabling the journey.
   enable_bedrock_ai               = false
   studio_end_user_authorization   = true
   operations_policy_rules         = []
@@ -45,6 +70,13 @@ module "server" {
   file_storage_aws_s3_bucket_name = aws_s3_bucket.artifacts.id
   file_storage_aws_s3_region      = var.region
   file_storage_aws_s3_key_prefix  = "${var.name_prefix}/"
+
+  # ECS needs populated secret versions on its first task launch. Depending on
+  # the ARN alone would permit tasks to start before the secret values exist.
+  depends_on = [
+    aws_secretsmanager_secret_version.oidc_client,
+    aws_secretsmanager_secret_version.operator_bearer,
+  ]
 }
 
 resource "aws_s3_bucket" "artifacts" {

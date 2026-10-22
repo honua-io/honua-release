@@ -1,7 +1,7 @@
 output "preparation" {
   description = "Resource references only; not installed provenance or a passing pilot receipt."
   value = {
-    status                  = "private-preparation-identity-unbound"
+    status                  = "private-preparation-cognito-edge-unbound"
     claimed_candidate       = var.candidate
     server_origin           = local.server_origin
     server_alb              = module.server.alb_dns_name
@@ -17,9 +17,9 @@ output "preparation" {
 }
 
 output "identity_preparation" {
-  description = "Cognito reference contract only; no client secret values, users, active auth wiring or live qualification."
+  description = "Cognito and Server binding references only; no secret values, users, installed trusted edge or live qualification."
   value = {
-    status                             = "cognito-prepared-consumers-unbound"
+    status                             = "cognito-configured-server-edge-unbound"
     pool_id                            = aws_cognito_user_pool.pilot.id
     issuer                             = "https://${aws_cognito_user_pool.pilot.endpoint}"
     hosted_login_url                   = "https://${aws_cognito_user_pool_domain.pilot.domain}.auth.${var.region}.amazoncognito.com"

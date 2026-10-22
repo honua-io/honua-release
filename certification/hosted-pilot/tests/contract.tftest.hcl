@@ -119,6 +119,44 @@ run "isolated_cognito_preparation" {
   }
 }
 
+# Apply only to mocked resources so generated references can be compared. The
+# Server module remains overridden; its own suite verifies ECS/IAM injection.
+run "server_auth_bindings" {
+  command = apply
+  assert {
+    condition = (
+      local.server_generic_oidc.admin_auth_callback_uri == "${var.identity_redirects.console_origin}/admin/auth/callback" &&
+      local.server_origin == "https://${var.server_domain}" &&
+      local.server_origin != var.identity_redirects.console_origin &&
+      local.server_generic_oidc.scopes == ["openid", "profile", "email"] &&
+      local.server_operator_bearer.max_lifetime_minutes == 15
+    )
+    error_message = "BFF login must return to Console while API origin, minimal scopes and short operator lifetime remain explicit."
+  }
+  assert {
+    condition = (
+      local.server_generic_oidc.authority == output.identity_preparation.issuer &&
+      local.server_generic_oidc.client_id == output.identity_preparation.clients.server_bff.client_id &&
+      local.server_generic_oidc.client_secret_arn == output.identity_preparation.clients.server_bff.client_secret_arn &&
+      local.server_operator_bearer.signing_key_secret_arn == output.identity_preparation.operator_bearer_signing_secret_arn &&
+      local.server_generic_oidc.client_secret_arn != output.identity_preparation.clients.console_edge.client_secret_arn &&
+      local.server_generic_oidc.client_secret_arn != local.server_operator_bearer.signing_key_secret_arn
+    )
+    error_message = "Server must use its own Cognito client and independent signing secret, never the edge client secret."
+  }
+  assert {
+    condition = (
+      local.server_identity_environment.Oidc__ClaimsMapping__AdditionalRoleClaimTypes__0 == "cognito:groups" &&
+      local.server_identity_environment.Oidc__AdminRoles__0 == local.identity_groups.approvers &&
+      local.server_identity_environment.Oidc__AdminRoles__1 == local.identity_groups.approvers &&
+      local.identity_groups.approvers != local.identity_groups.authors &&
+      !contains(values(local.server_identity_environment), "admin") &&
+      !contains(values(local.server_identity_environment), "administrator")
+    )
+    error_message = "Configured role names must use the distinct approver group; actual Server binding and entitled mapping require separate verification."
+  }
+}
+
 run "refuse_http_identity_origin" {
   command = plan
   variables {

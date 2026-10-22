@@ -1,7 +1,8 @@
 # Private hosted-pilot infrastructure preparation
 
 This root is an offline-reviewed preparation slice, not a usable hosted Console
-pilot. It consumes an immutable `aws-ecs` module commit (outputs prerequisite:
+pilot. It consumes an immutable `aws-ecs` module commit (network outputs and
+browser-authentication secret binding:
 [honua-iac PR284](https://github.com/honua-io/honua-iac/pull/284)), isolates a new
 Server/RDS/Redis/S3 stack, and defines one private Console task with a dedicated
 empty application role and scoped execution-role secret access. Images must be
@@ -96,10 +97,11 @@ separately and stored in another secret. Server `OperatorBearerOptions.cs` uses
 UTF-8 bytes with a 32-byte minimum, so no base64 decoding is assumed. Outputs
 contain only issuer, client IDs, group names, redirect URLs and individual secret
 ARNs. Generated secret values remain sensitive Terraform state; never print them
-or copy them to tfvars. No consumer is granted access by this identity slice:
-bind only the edge execution principal to its client secret, and only the Server
-execution principal to the BFF client and operator signing secrets, with scoped
-KMS access if using `identity_secrets_kms_key_arn`.
+or copy them to tfvars. The Server module receives only its BFF client and
+operator signing secret references, with execution-role access and optional
+scoped KMS access through `identity_secrets_kms_key_arn`. Its first task depends
+on populated secret versions. The edge consumer remains uninstalled and has no
+secret access binding. No runtime credential has been retrieved or exercised.
 
 The intended maintained-proxy path is **identity-only**: forward the verified
 stable `sub` and optional verified email, strip incoming/forwarded access-token
@@ -116,6 +118,12 @@ Existing entitled role mapping can use
 approver group in `Oidc:AdminRoles`. The identity-claims-mapping entitlement and
 nonadmin author resource grants remain required and unqualified. App-client
 creation alone proves neither role projection nor any endpoint authorization.
+Both configured role indices replace the two appsettings defaults; a compatible
+Server must also replace constructor-default arrays during configuration binding.
+Existing shared authorization policies still recognize legacy admin aliases;
+this is not a global approver-only policy. Keep Cognito group administration
+restricted, provision only the intended groups, and demonstrate author refusal
+and distinct approver acceptance against actual endpoints.
 Do not forward raw Cognito access JWTs or promote the agent to an admin to avoid
 these checks. Trusted edge ingress, separate anonymous audience routing with
 stripped identity headers, Blazor/WebSocket continuity, actual logout and negative
