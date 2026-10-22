@@ -1367,6 +1367,60 @@ def test_user_turns_are_merged_so_the_conversation_strictly_alternates():
     assert messages[-1]["content"] == "result-1\nobserve-2"
 
 
+def test_only_the_latest_stage_observation_stays_in_the_prompt():
+    observation = lambda n: json.dumps({"task": "advance exactly this imported #123 stage from observed state",
+                                        "n": n, "big": "x" * 1000}, separators=(",", ":"))
+    messages = [{"role": "system", "content": "s"}]
+    for n in range(3):
+        if n:
+            messages.append({"role": "assistant", "content": "{}"})
+            canary._append_user(messages, '{"untrustedActionResult":{}}')
+        canary._compact_observations(messages)
+        canary._append_user(messages, observation(n))
+    text = json.dumps(messages)
+    assert text.count('\\"big\\"') == 1 and '\\"n\\":2' in text
+    assert text.count("supersededObservation") == 2
+    assert [m["role"] for m in messages] == ["system", "user", "assistant", "user", "assistant", "user"]
+
+
+def test_a_proxy_http_refusal_names_its_problem_fields_redacted(monkeypatch):
+    import io
+    import urllib.error
+    manifest = {"requiredForCertification": True, "keys": []}
+    digest = hashlib.sha256(json.dumps(manifest, sort_keys=True, separators=(",", ":")).encode()).hexdigest()
+    endpoint = replace(_endpoint(), base_url="http://127.0.0.1:8000/api", signing_manifest_sha256=digest,
+                       model="us.anthropic.claude-sonnet-4-5-20250929-v1:0", api_key="top-secret-key")
+
+    class Response:
+        def __init__(self, payload):
+            self.payload = payload
+        def __enter__(self):
+            return self
+        def __exit__(self, *_):
+            return False
+        def read(self, _limit):
+            return self.payload
+
+    capabilities = {"providers": [{"provider": "bedrock", "configured": True, "kind": "bedrock"}],
+                    "transcriptSigning": manifest}
+    body = json.dumps({"code": "studio_ai/prompt_too_large", "title": "Prompt too large",
+                       "detail": "prompt has 270000 characters; key top-secret-key"}).encode()
+    calls = iter([Response(json.dumps(capabilities).encode()),
+                  urllib.error.HTTPError("http://x", 400, "Bad Request", {}, io.BytesIO(body))])
+
+    def opener(*_args, **_kwargs):
+        item = next(calls)
+        if isinstance(item, Exception):
+            raise item
+        return item
+
+    monkeypatch.setattr(canary.CandidateProxyClient, "_open", staticmethod(opener))
+    with pytest.raises(canary.CanaryError) as refused:
+        canary.CandidateProxyClient(endpoint).complete([{"role": "user", "content": "x"}], {"runNonce": "n"})
+    assert "HTTP Error 400" in str(refused.value) and "studio_ai/prompt_too_large" in str(refused.value)
+    assert "top-secret-key" not in str(refused.value)
+
+
 def test_the_prompt_offers_only_the_stage_admitted_tools_from_the_server_view(monkeypatch):
     calls = []
 
