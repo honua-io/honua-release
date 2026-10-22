@@ -1,5 +1,33 @@
 name: gate-agent-e2e
+# Consumer of the authenticated 252-case agent campaign (honua-release#619). The release train and
+# nightly do not call it yet (#628). workflow_dispatch runs it standalone on trunk: it takes the
+# producer identity from its inputs or, when empty, from the frozen repository variables
+# AGENT_E2E_RUN_ID / AGENT_E2E_RUN_ATTEMPT / AGENT_E2E_SOURCE_SHA / AGENT_E2E_CAMPAIGN_DIGEST, and the
+# candidate-manifest artifact from candidate_run_id (a release-train or nightly run). The producer,
+# .github/workflows/agent-e2e-campaign.yml (#627), does not exist yet, so a standalone run fails closed.
 on:
+  workflow_dispatch:
+    inputs:
+      run_id:
+        description: agent-e2e-campaign.yml producer run id (empty uses vars.AGENT_E2E_RUN_ID)
+        required: false
+        type: string
+      run_attempt:
+        description: Producer run attempt (empty uses vars.AGENT_E2E_RUN_ATTEMPT)
+        required: false
+        type: string
+      source_sha:
+        description: Producer trunk source sha (empty uses vars.AGENT_E2E_SOURCE_SHA)
+        required: false
+        type: string
+      campaign_digest:
+        description: Pre-execution frozen campaign digest sha256:<hex> (empty uses vars.AGENT_E2E_CAMPAIGN_DIGEST)
+        required: false
+        type: string
+      candidate_run_id:
+        description: Run whose candidate-manifest artifact names the candidate under qualification
+        required: true
+        type: string
   workflow_call:
     inputs:
       run_id: {required: true, type: string}
@@ -25,36 +53,66 @@ jobs:
         with:
           python-version: '3.12'
       - name: Require configured real campaign identity
+        id: identity
         env:
-          RUN_ID: ${{ inputs.run_id }}
-          RUN_ATTEMPT: ${{ inputs.run_attempt }}
-          SOURCE_SHA: ${{ inputs.source_sha }}
-          CAMPAIGN_DIGEST: ${{ inputs.campaign_digest }}
+          RUN_ID: ${{ inputs.run_id || vars.AGENT_E2E_RUN_ID }}
+          RUN_ATTEMPT: ${{ inputs.run_attempt || vars.AGENT_E2E_RUN_ATTEMPT }}
+          SOURCE_SHA: ${{ inputs.source_sha || vars.AGENT_E2E_SOURCE_SHA }}
+          CAMPAIGN_DIGEST: ${{ inputs.campaign_digest || vars.AGENT_E2E_CAMPAIGN_DIGEST }}
+          CANDIDATE_RUN_ID: ${{ inputs.candidate_run_id }}
+          GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
-          [[ "$RUN_ID" =~ ^[1-9][0-9]*$ ]]
-          [[ "$RUN_ATTEMPT" =~ ^[1-9][0-9]*$ ]]
-          [[ "$SOURCE_SHA" =~ ^[0-9a-f]{40}$ ]]
-          [[ "$CAMPAIGN_DIGEST" =~ ^sha256:[0-9a-f]{64}$ ]]
+          missing=()
+          [[ "$RUN_ID" =~ ^[1-9][0-9]*$ ]] || missing+=("run_id / AGENT_E2E_RUN_ID")
+          [[ "$RUN_ATTEMPT" =~ ^[1-9][0-9]*$ ]] || missing+=("run_attempt / AGENT_E2E_RUN_ATTEMPT")
+          [[ "$SOURCE_SHA" =~ ^[0-9a-f]{40}$ ]] || missing+=("source_sha / AGENT_E2E_SOURCE_SHA")
+          [[ "$CAMPAIGN_DIGEST" =~ ^sha256:[0-9a-f]{64}$ ]] || missing+=("campaign_digest / AGENT_E2E_CAMPAIGN_DIGEST")
+          if [ "$GITHUB_EVENT_NAME" = workflow_dispatch ]; then
+            [[ "$CANDIDATE_RUN_ID" =~ ^[1-9][0-9]*$ ]] || missing+=("candidate_run_id")
+            # Fail closed with the reason rather than at an artifact download: the gate admits only
+            # the attested trunk producer, which honua-release#627 has not landed.
+            gh api "repos/$GITHUB_REPOSITORY/contents/.github/workflows/agent-e2e-campaign.yml?ref=trunk" \
+              --silent 2>/dev/null || missing+=("producer .github/workflows/agent-e2e-campaign.yml on trunk (honua-release#627)")
+          fi
+          if [ "${#missing[@]}" -gt 0 ]; then
+            for item in "${missing[@]}"; do echo "::error::agent E2E campaign identity missing: $item"; done
+            exit 1
+          fi
+          {
+            echo "run_id=$RUN_ID"
+            echo "run_attempt=$RUN_ATTEMPT"
+            echo "source_sha=$SOURCE_SHA"
+            echo "campaign_digest=$CAMPAIGN_DIGEST"
+          } >> "$GITHUB_OUTPUT"
       - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        if: github.event_name != 'workflow_dispatch'
         with:
+          name: candidate-manifest
+          path: candidate-input
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        if: github.event_name == 'workflow_dispatch'
+        with:
+          github-token: ${{ github.token }}
+          repository: honua-io/honua-release
+          run-id: ${{ inputs.candidate_run_id }}
           name: candidate-manifest
           path: candidate-input
       - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
           github-token: ${{ github.token }}
           repository: honua-io/honua-release
-          run-id: ${{ inputs.run_id }}
-          name: agent-e2e-campaign-${{ inputs.run_attempt }}
+          run-id: ${{ steps.identity.outputs.run_id }}
+          name: agent-e2e-campaign-${{ steps.identity.outputs.run_attempt }}
           path: campaign-input
       - name: Authenticate controller and evaluate all 252 cases
         id: verify
         env:
           GH_TOKEN: ${{ github.token }}
-          RUN_ID: ${{ inputs.run_id }}
-          RUN_ATTEMPT: ${{ inputs.run_attempt }}
-          SOURCE_SHA: ${{ inputs.source_sha }}
-          CAMPAIGN_DIGEST: ${{ inputs.campaign_digest }}
+          RUN_ID: ${{ steps.identity.outputs.run_id }}
+          RUN_ATTEMPT: ${{ steps.identity.outputs.run_attempt }}
+          SOURCE_SHA: ${{ steps.identity.outputs.source_sha }}
+          CAMPAIGN_DIGEST: ${{ steps.identity.outputs.campaign_digest }}
         run: |
           set -euo pipefail
           python tools/verify_agent_e2e_campaign.py --bundle campaign-input \
