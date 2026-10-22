@@ -906,6 +906,8 @@ def test_local_fixture_mints_expiring_keys_and_fresh_signed_other_tenant_bearers
     header, payload, signature = token.split(".")
     claims = json.loads(base64.urlsafe_b64decode(payload + "=="))
     assert claims["tenant_id"] == "journey-other"
+    # Scope-governed bearer: the tenant denial must not be a missing-scope denial.
+    assert claims["scope"].split() == ["honua.mcp.read", "honua.mcp.create", "honua.mcp.update", "honua.mcp.publish"]
     assert claims["exp"] - claims["iat"] == 300
     import hashlib
     import hmac
