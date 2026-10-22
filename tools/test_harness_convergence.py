@@ -187,7 +187,7 @@ def test_applicability_cannot_invent_or_omit_implemented_decisions(candidate, mu
 
 
 def change_client_versions(candidate):
-    versions = {"sdk-js": "0.2.0", "sdk-python": "0.1.16", "sdk-dotnet": "1.11.0"}
+    versions = {"sdk-js": "0.2.0", "sdk-python": "0.1.18", "sdk-dotnet": "1.11.0"}
     for source in ("sdk-js", "sdk-python"):
         path = candidate / "sources" / source / "protocol-certification.v1.json"
         contract = read(path)
