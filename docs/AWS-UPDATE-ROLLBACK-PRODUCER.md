@@ -59,13 +59,23 @@ Use `RELEASE_GH_TOKEN` with the existing cross-repository read access plus image
 read access for opt-in authentication. The ordinary reusable cloud jobs retain their existing
 GITHUB_TOKEN permission floor; no caller's grants are silently raised.
 
-Protected secret `UPDATE_ROLLBACK_CONTROLLER_ENV` contains the normal Production startup,
-audit/storage/secret-reference configuration and the retained controller's own database/Redis.
-It must not override derived targets, release identity or bind address. The controller Redis
-endpoint/database must differ from the cell queue, and must be reserved for this run. Secret
-`UPDATE_ROLLBACK_APPROVAL_KEY` must identify a separately authorized principal valid in that
-controller store; equality with the submitting application key is rejected. This source does
-not create either identity or claim the broader self-approval security probe.
+The retained controller's store is **hermetic and per run**. For every Redis-on/Lambda cell the
+producer starts its own PostGIS (`127.0.0.1:55432`) and Redis (`127.0.0.1:56379`, AOF on) on the
+runner. Image A itself migrates that store with its normal startup, and A's own bidirectional
+migration plan must then be empty in both directions. A separate approver principal holding only
+`admin:read` + `admin:approve` is minted through A's admin API in that store; it must differ from
+the submitting application key. The migrator is removed, and the controller runs A against the
+store with `HONUA_SKIP_MIGRATIONS=true`. A per-run PKCS#12 operation key ring, master key and
+audit chain key make up its Production startup profile. Store containers (with volumes) and the
+key ring are removed in every outcome. Nothing is standing, so no store schema drifts between
+pairs and an older controller image never meets a store a newer build migrated
+(honua-server#6477). The controller Redis must still differ from the cell queue.
+
+Secret `UPDATE_ROLLBACK_CONTROLLER_ENV` is now an **optional** supplement, such as telemetry or
+storage settings. It may be empty. It may not set connection strings, `ControlPlane__*`, the bind
+address, the admin password, `HONUA_SKIP_MIGRATIONS`, licensing, `AWS_*`, the secret channel, the
+master key or the audit chain key. There is no approval-key secret any more. This source does
+not claim the broader self-approval security probe.
 
 Variable `HONUA_UPDATE_ROLLBACK_CONTROLLER_ROLE_ARN` names the operator-approved independent
 role. It must match the maintained ECS safety output for the Redis-on ECS cell. The trusted

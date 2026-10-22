@@ -83,7 +83,6 @@ on:
         default: ""
     secrets:
       UPDATE_ROLLBACK_CONTROLLER_ENV: { required: false }
-      UPDATE_ROLLBACK_APPROVAL_KEY: { required: false }
       RELEASE_GH_TOKEN:
         required: false
     outputs:
@@ -399,7 +398,6 @@ jobs:
       update_rollback_prior_run_id: ${{ inputs.update_rollback_prior_run_id || '' }}
     secrets:
       UPDATE_ROLLBACK_CONTROLLER_ENV: ${{ secrets.UPDATE_ROLLBACK_CONTROLLER_ENV }}
-      UPDATE_ROLLBACK_APPROVAL_KEY: ${{ secrets.UPDATE_ROLLBACK_APPROVAL_KEY }}
       RELEASE_GH_TOKEN: ${{ secrets.RELEASE_GH_TOKEN }}
 
   # ── iac-live: WRAP honua-iac's real cloud harness (terraform-manual-validation.yml, run_live) ────────
