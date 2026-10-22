@@ -377,7 +377,7 @@ jobs:
           set -uo pipefail
           echo "$GH_TOKEN" | docker login ghcr.io -u honua --password-stdin >/dev/null 2>&1 || true
           OK=1
-          for IMG in "${{ steps.images.outputs.prior || steps.fallback.outputs.prior }}" "${{ steps.images.outputs.candidate || steps.fallback.outputs.candidate }}"; do
+          for IMG in "${{ matrix.pair != 'trunk-candidate' && steps.images.outputs.prior || steps.fallback.outputs.prior }}" "${{ matrix.pair != 'trunk-candidate' && steps.images.outputs.candidate || steps.fallback.outputs.candidate }}"; do
             [ -n "$IMG" ] && docker pull "$IMG" >/tmp/pull.log 2>&1 || { OK=0; echo "cannot pull $IMG"; tail -n 3 /tmp/pull.log || true; }
           done
           echo "pullable=$OK" >> "$GITHUB_OUTPUT"
@@ -392,19 +392,19 @@ jobs:
         id: smoke
         if: always()
         env:
-          # Signed-lock values when both locks verified; otherwise the matrix pair (published-release /
-          # trunk-candidate).
+          # Signed-lock values only for the published-release cell with both locks verified; a
+          # trunk-candidate cell always uses its own resolved pair, even when signed locks exist.
           # In fallback mode the *_LOCK_DIGEST values are manifest/identity digests, not lock digests.
-          PRIOR: ${{ steps.images.outputs.prior || steps.fallback.outputs.prior }}
-          CAND: ${{ steps.images.outputs.candidate || steps.fallback.outputs.candidate }}
-          DECLARED_SCHEMA: ${{ steps.images.outputs.candidate_schema || steps.fallback.outputs.candidate_schema }}
-          DECLARED_JOURNAL_SHA: ${{ steps.images.outputs.declared_journal_sha }}
-          PRIOR_SOURCE_REVISION: ${{ steps.images.outputs.prior_source_revision || steps.fallback.outputs.prior_source_revision }}
-          CANDIDATE_SOURCE_REVISION: ${{ steps.images.outputs.candidate_source_revision || steps.fallback.outputs.candidate_source_revision }}
-          PRIOR_LOCK_DIGEST: ${{ steps.images.outputs.prior_lock_digest || steps.fallback.outputs.prior_manifest_digest }}
-          CANDIDATE_LOCK_DIGEST: ${{ steps.images.outputs.candidate_lock_digest || steps.fallback.outputs.candidate_manifest_digest }}
+          PRIOR: ${{ matrix.pair != 'trunk-candidate' && steps.images.outputs.prior || steps.fallback.outputs.prior }}
+          CAND: ${{ matrix.pair != 'trunk-candidate' && steps.images.outputs.candidate || steps.fallback.outputs.candidate }}
+          DECLARED_SCHEMA: ${{ matrix.pair != 'trunk-candidate' && steps.images.outputs.candidate_schema || steps.fallback.outputs.candidate_schema }}
+          DECLARED_JOURNAL_SHA: ${{ matrix.pair != 'trunk-candidate' && steps.images.outputs.declared_journal_sha || '' }}
+          PRIOR_SOURCE_REVISION: ${{ matrix.pair != 'trunk-candidate' && steps.images.outputs.prior_source_revision || steps.fallback.outputs.prior_source_revision }}
+          CANDIDATE_SOURCE_REVISION: ${{ matrix.pair != 'trunk-candidate' && steps.images.outputs.candidate_source_revision || steps.fallback.outputs.candidate_source_revision }}
+          PRIOR_LOCK_DIGEST: ${{ matrix.pair != 'trunk-candidate' && steps.images.outputs.prior_lock_digest || steps.fallback.outputs.prior_manifest_digest }}
+          CANDIDATE_LOCK_DIGEST: ${{ matrix.pair != 'trunk-candidate' && steps.images.outputs.candidate_lock_digest || steps.fallback.outputs.candidate_manifest_digest }}
           ENF: ${{ inputs.enforcement }}
-          CROSS: ${{ steps.images.outputs.verified == '1' && steps.images.outputs.cross_release || steps.fallback.outputs.cross }}
+          CROSS: ${{ matrix.pair != 'trunk-candidate' && steps.images.outputs.verified == '1' && steps.images.outputs.cross_release || steps.fallback.outputs.cross }}
           FAILURE_SCENARIO: ${{ matrix.scenario }}
           PAIR: ${{ matrix.pair }}
           PRIOR_SCHEMA: ${{ steps.fallback.outputs.prior_schema }}
@@ -720,10 +720,16 @@ jobs:
               esac
               # Customer step before any upgrade: back up the database. It is the documented last-resort
               # rollback path and is restored only at the documented rollback boundary (below).
-              if [ "$STATUS" != fail ] && [ "$FAILURE_SCENARIO" = normal ] && \
-                 kubectl exec -n "$NS" deployment/honua-postgis -- pg_dump -U honua -d honua -Fc -f /tmp/pre-upgrade.dump \
-                   >/tmp/backup.log 2>&1; then
-                BACKUP_TAKEN=true
+              # A failed backup fails the cell before any upgrade: the runbook makes it mandatory, and
+              # without it the documented recovery path is not proven available.
+              if [ "$STATUS" != fail ] && [ "$FAILURE_SCENARIO" = normal ]; then
+                if kubectl exec -n "$NS" deployment/honua-postgis -- pg_dump -U honua -d honua -Fc -f /tmp/pre-upgrade.dump \
+                     >/tmp/backup.log 2>&1; then
+                  BACKUP_TAKEN=true
+                else
+                  STATUS=fail; WHY="mandatory pre-upgrade backup (pg_dump) failed; the documented recovery path is unavailable"
+                  tail -n 20 /tmp/backup.log || true
+                fi
               fi
               serves_seed() {
                 local rc=1
