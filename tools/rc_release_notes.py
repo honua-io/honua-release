@@ -20,6 +20,9 @@ NOT_CERTIFIED_RC = (
     "EKS / Helm deployment (Preview, per the 2026-10-16 plan amendment)",
     "Multi-tenancy (internal only for 2026.1)",
     "Licensing enforcement (ships Disabled; the documented posture is `Licensing__Mode=Disabled`)",
+    "Every capability whose maturity is `preview`, `experimental` or `internal` in the server capability matrix "
+    "(operator ruling 2026-10-22: these neither run certification tests nor block the release; gate verdicts rest on "
+    "`implemented` rows only)",
 )
 
 
