@@ -77,8 +77,8 @@ origin, its edge `/oauth2/callback` and BFF `/admin/auth/callback`, plus exact
 userinfo, arbitrary port or IP callback is accepted. The Server BFF client's
 callback is on the **Console** origin: its existing broker retains the state and
 upstream Server cookie privately. Keep API `Public:BaseUrl` on the API origin.
-Usable separate-origin sign-in depends on the reviewed Server
-`Oidc:AdminAuthCallbackUri` option selecting this one exact Console callback for
+Usable separate-origin sign-in depends on [Server PR 6518](https://github.com/honua-io/honua-server/pull/6518)
+and its `Oidc:AdminAuthCallbackUri` option selecting this one exact Console callback for
 both authorization and exchange; global public-base rebinding is not a workaround.
 The configured callback must actually route to Console through the trusted edge.
 
