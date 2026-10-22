@@ -126,25 +126,3 @@ honua-server:
       checkout at 928507999, then CS0103 for BaseUrlResolver. c19f29d's own CI workflow
       is not this file. Build & Format Check and the full-matrix lanes stay core, and a
       prebuild check with no recorded workflow path stays core too.
-
-geospatial-grpc:
-  - name: "certify"
-    why: >-
-      Pin lag inside the certification harness on the published source, the same rule as the
-      honua-sdk-dotnet `certify` entry (ruling 2026-10-09). The manifest pins tag v1.0.3
-      (00fca4de), the commit the published Geospatial.Grpc / geospatial-grpc / @honua/geospatial-grpc
-      1.0.3 clients were built from. At that commit `.github/workflows/protocol-certification.yml`
-      (job `certify`) checks its conformance fixtures out from the PREVIOUS tag v1.0.2 (2571c63) while
-      the 1.0.3 runners read fixtures that only exist from 00fca4de on, so the lane is red by
-      construction: scheduled run 36619225117 (2026-09-29) failed with ENOENT for
-      conformance/fixtures/feature_apply_edits_missing_target_request.json (absent at 2571c63,
-      present at 00fca4de), plus UNIMPLEMENTED for Form/Workspace RPCs that geospatial-grpc#132 later
-      took out of the 2026.1 governed scope. The workflow pins its server image and fixture ref, so
-      a rerun at 00fca4de reproduces the same red. The SAME published 1.0.3 client bytes are
-      certified green by the repaired harness on geospatial-grpc trunk every day (#135 binds the
-      lanes to the published 1.0.3 clients; scheduled run 39654816765 on e6be0824, 2026-10-21,
-      installs Geospatial.Grpc 1.0.3, geospatial-grpc==1.0.3 and @honua/geospatial-grpc@1.0.3).
-      Every other lane on 00fca4de stays core (Conformance Fixtures, Lint and Validate Protobuf,
-      Validate Protocol Schemas, Build Once and Smoke, Prove Clean Public Consumption, the code
-      generation and pack lanes), and the release train's certification and gate-installed-clients gates still judge the published
-      clients. Re-evaluate this entry whenever geospatial-grpc is re-pinned. honua-release#775 sweep.
