@@ -1053,7 +1053,7 @@ evidenceSources:
     # published image. They are different questions and are allowed to differ. As of the 2026-09-16
     # re-pins the producer sha is an ANCESTOR of the component pin (compare 7885b4eb...87966c3f ->
     # ahead_by=17, behind_by=0 at the third re-pin), so the published cite-status is evidence from inside this candidate.
-    producerSha: "7885b4ebbc76c2aaf77c269b4085f3b22c1d8a03"
+    producerSha: "035ce3d24371359c76acb7ef7d75e251d992337d"  # 2026-10-22: honua-server#6486, cite-status bound to run 38904075523 @ 2882cf07
     trustedEvents: [schedule, workflow_dispatch]
     trustedBranch: trunk
     artifactIdentity: cite-status
