@@ -237,12 +237,16 @@ jobs:
         id: deterministic
         run: |
           set -uo pipefail
+          # A red journey must not skip the canary step: the canary validates this receipt and
+          # writes its own refused (blocked/fail, attributed) receipt, which fails the job.
+          rc=0
           python certification/terminal-journey/run.py --mode live \
             --target certification/terminal-journey/targets/local-docker.json \
             --workdir "$RUNNER_TEMP/terminal-journey" \
             --output artifacts/terminal-journey-receipt.json \
-            --evidence-uri "${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}"
-          echo "exit=$?" >> "$GITHUB_OUTPUT"
+            --evidence-uri "${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}" || rc=$?
+          echo "exit=$rc" >> "$GITHUB_OUTPUT"
+          [ "$rc" -eq 0 ] || echo "::warning::deterministic #123 journey exited $rc; the canary will refuse it"
 
       # Credentials go to the candidate server container only, under non-ambient names that
       # targets/build-compose.yml maps to AWS_*; no AWS_* variable enters this job's environment.
