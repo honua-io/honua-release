@@ -1,3 +1,7 @@
 # Runner deps. Probes pull SDKs from staging separately (npm/pip/nuget) — see local-docker/.env.example.
 PyYAML>=6.0
 jsonschema>=4.23
+# The Redis-off serving/refusal profile (journey and teardown phases) validates its prerequisite with
+# tools/terminal_model_canary.py, which verifies Ed25519 provenance; without it every Redis-off profile
+# ended "profile prerequisite failed: ModuleNotFoundError" (e2e-cloud-aws runs 39603816191, 39705901768).
+cryptography>=45.0

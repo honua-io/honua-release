@@ -1356,7 +1356,11 @@ def test_cloud_matrix_is_the_ga_set_including_eks_and_threads_the_batch_image():
     triggers = _triggers(workflow)
     assert triggers["workflow_dispatch"]["inputs"]["target"]["options"] == [
         "all", "aws-serverless", "aws-ecs", "aws-eks"]
-    assert "'[\"aws-serverless\",\"aws-ecs\",\"aws-eks\"]'" in text
+    # Operator ruling 2026-10-22: `all` dispatches the GA targets only; aws-eks (Preview) runs
+    # only on an explicit target=aws-eks dispatch and is reported "not certified (preview)".
+    assert "(inputs.target == '' || inputs.target == 'all') && '[\"aws-serverless\",\"aws-ecs\"]'" in text
+    assert "'[\"aws-serverless\",\"aws-ecs\",\"aws-eks\"]'" not in text
+    assert 'status:"not certified (preview)"' in text
     assert "aws-mixed\"" not in text and "'aws-mixed'" not in text
     parity = workflow["jobs"]["parity"]["with"]
     assert parity["preview"] == "${{ matrix.target == 'aws-eks' }}"
