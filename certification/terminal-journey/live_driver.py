@@ -451,7 +451,12 @@ def op_execute(request: dict[str, Any]) -> dict[str, Any]:
             result = engine.execute(status["number"], action)
         except ExecutionError as exc:
             _write_state(state["workspaceId"], state)
+            from transport import ActionRejected  # noqa: PLC0415 - same module path as the executor
             return {"status": "blocked" if exc.blocked else "fail", "stageStatus": status,
+                    # invalid-action: the selected action was refused before any candidate request
+                    # (model feedback). candidate-execution: a valid action failed in the candidate or
+                    # its proof (never model feedback).
+                    "refusal": "invalid-action" if isinstance(exc, ActionRejected) else "candidate-execution",
                     "result": {"accepted": False, "command": exc.command, "reason": exc.reason,
                                "injectedError": None, "recoveredError": None},
                     "canonicalIds": {k: None for k in executor.ID_FIELDS},

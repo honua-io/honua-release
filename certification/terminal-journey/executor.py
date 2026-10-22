@@ -21,7 +21,7 @@ import probes
 import sdk
 import stages
 import discovery
-from transport import (ExecutionError, Transport, credential_values, describe_fields, describe_tool_error,
+from transport import (ActionRejected, ExecutionError, Transport, credential_values, describe_fields, describe_tool_error,
                        masked_fields, tool_error)
 
 ID_FIELDS = ("operationId", "operationInstanceId", "proposalId", "jobId", "correlationId", "auditId")
@@ -196,16 +196,16 @@ class JourneyExecutor:
         if kind == "terminal_command":
             return self.execute_sdk_command(number, action, view)
         if kind != "tool_call":
-            raise ExecutionError("model action", "only structured calls from the bounded server view may execute")
+            raise ActionRejected("model action", "only structured calls from the bounded server view may execute")
         name, arguments = action.get("tool"), action.get("arguments")
         descriptors = [t for t in view["tools"] if t["name"] == name]
         if name not in STAGE_TOOLS.get(number, set()) or len(descriptors) != 1 or not isinstance(arguments, dict):
-            raise ExecutionError("model action", "tool is outside the current stage and bounded view")
+            raise ActionRejected("model action", "tool is outside the current stage and bounded view")
         import jsonschema
         try:
             jsonschema.validate(arguments, descriptors[0]["inputSchema"])
         except jsonschema.ValidationError as exc:
-            raise ExecutionError(name, "arguments do not satisfy the observed tool schema") from exc
+            raise ActionRejected(name, "arguments do not satisfy the observed tool schema") from exc
         fault = self.state.get("armedError")
         injected = recovered = None
         send_arguments = arguments
@@ -261,29 +261,29 @@ class JourneyExecutor:
         if number == 3 and command == UPLOAD_COMMAND:
             # Fixed, fixture-bound upload: the model chooses the step, never its arguments.
             if "honua_ingest_dataset" not in {tool["name"] for tool in view["tools"]}:
-                raise ExecutionError(UPLOAD_COMMAND, "upload is outside the observed bounded ingest view")
+                raise ActionRejected(UPLOAD_COMMAND, "upload is outside the observed bounded ingest view")
             self.upload_dataset()
             return {"status": "pass", "accepted": True, "resources": dict(self.resources),
                     "injectedError": None, "recoveredError": None,
                     "canonicalIds": self.evidence["canonicalIds"].get("3", {})}
         pieces = command.split(" ", 2) if isinstance(command, str) else []
         if number != 3 or len(pieces) != 3 or pieces[0] != "honua-journey-sdk" or pieces[1] not in SDK_METHODS:
-            raise ExecutionError("model terminal command", "command is outside the typed published SDK bridge")
+            raise ActionRejected("model terminal command", "command is outside the typed published SDK bridge")
         method = pieces[1]
         if "honua_ingest_dataset" not in {tool["name"] for tool in view["tools"]}:
-            raise ExecutionError(method, "SDK operation is outside the observed bounded ingest/publication view")
+            raise ActionRejected(method, "SDK operation is outside the observed bounded ingest/publication view")
         try:
             arguments = discovery.parse(pieces[2].encode("utf-8"))
         except (discovery.DiscoveryError, UnicodeError) as exc:
-            raise ExecutionError(method, "SDK arguments must be a strict JSON array") from exc
+            raise ActionRejected(method, "SDK arguments must be a strict JSON array") from exc
         if not isinstance(arguments, list):
-            raise ExecutionError(method, "SDK arguments must be an array")
+            raise ActionRejected(method, "SDK arguments must be an array")
         expected = {
             "CreateConnectionAsync": [self.fixture["datasource"]],
             "TestConnectionAsync": [self.resources.get("connectionId")],
         }[method]
         if arguments != expected or any(value is None for value in expected):
-            raise ExecutionError(method, "SDK arguments do not bind the authored fixture and observed resource identities")
+            raise ActionRejected(method, "SDK arguments do not bind the authored fixture and observed resource identities")
         if method == "CreateConnectionAsync":
             arguments = [self.datasource_arguments()]
         output = self.sdk_call(method, arguments)

@@ -26,6 +26,12 @@ class ExecutionError(RuntimeError):
         super().__init__(f"{command}: {reason}")
 
 
+class ActionRejected(ExecutionError):
+    """The selected action itself was refused before any candidate request: outside the stage's bounded
+    view, not a typed call, or arguments that fail the observed schema or fixture bindings. Only this
+    class is model feedback; every other ExecutionError is a candidate or execution failure."""
+
+
 # The typed fields of an MCP tool error (honua-server McpToolHelpers.ErrorResult mirrors the problem
 # envelope in structuredContent) that a receipt may name. Only these scalar members are kept; the
 # message is masked and bounded. Nothing else of the tool output reaches a receipt.
