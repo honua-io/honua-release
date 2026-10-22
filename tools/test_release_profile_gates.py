@@ -15,7 +15,7 @@ CERTIFICATION = ROOT / "certification"
 CATALOG = "protocol-certification-requirements.v1.json"
 DEMOTED = ("alerts.evaluation", "fieldops.offline-sync", "serve.sensorthings")
 PYTHON_CLIENT = "Honua SDK Python"
-PYTHON_VERSION = "0.1.16"
+PYTHON_VERSION = "0.1.18"
 
 
 def load(path: Path) -> dict:
@@ -189,7 +189,7 @@ def test_python_coverage_uses_the_pinned_contract_fixture() -> None:
     contract = load(CERTIFICATION / "sources/sdk-python/protocol-certification.v1.json")
     catalog = load(CERTIFICATION / CATALOG)
     fixture = contract["fixtureRevision"]
-    assert fixture == "geospatial-grpc@1.0.0"
+    assert fixture == "geospatial-grpc@1.0.3"
     rows = [
         row for row in catalog["requirements"]
         if row["canonical_client"] == PYTHON_CLIENT and row["client_version"] == PYTHON_VERSION

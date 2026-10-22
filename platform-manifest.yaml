@@ -51,7 +51,7 @@
 
 platformRelease: "2026.1-rc.2"         # calendar label; -rc.N until promoted
 status: rc                             # draft | rc | released
-snapshotDate: "2026-10-22"             # rc re-pin: honua-server 0e03bdd -> certified trunk build 4709145; honua-console -> fbe0195d; JS cohort 0.2.6; Honua.Sdk 1.12.0; honua-sdk unchanged (0.1.16)
+snapshotDate: "2026-10-22"             # rc re-pin: honua-server 0e03bdd -> certified trunk build 4709145; honua-console -> fbe0195d; JS cohort 0.2.6; Honua.Sdk 1.12.0; honua-sdk 0.1.18 (hand rebind)
 snapshotKind: candidate-manifest-snapshot  # hand snapshot of trunk; replaced by train-generated manifest in Phase 2
 
 # Producer-recorded dispatch identity. Release intake accepts candidates dispatched only from
@@ -668,16 +668,16 @@ components:
   honua-sdk-python:
     repository: "https://github.com/honua-io/honua-sdk-python"
     lifecycleStatus: GA
-    # 2026-10-22 rc re-pin: NOT advanced to the published 0.1.18 (python-sdk-v0.1.18, 361978e8). The
-    # protocol catalog binds the governed Python wheel only while this pin equals
-    # certification/sources/source-revisions.v1.json sdk-python (5a793520); moving it alone makes the
-    # committed catalog drop that binding, and moving the source revision is a convergence rebind that
-    # R18 reserves for the nightly. 0.1.18 follows through the nightly rebind.
+    # 2026-10-22 rc hand rebind (operator ruling: the any-build rc rule supersedes R18's nightly-only
+    # rebind for rc): honua-sdk 0.1.18 from python-sdk-v0.1.18 (361978e8; release-please sdk-python#307,
+    # publish run 39750933528). source-revisions sdk-python and the vendored sdk-python
+    # protocol-certification/sdk-coverage declarations move to the same commit, and the protocol
+    # catalog is regenerated so the governed wheel binding follows. Wheel sha256 from PyPI (bdist_wheel).
     # Earlier: R25 published-doc repair: SDK 0.1.16 from python-sdk-v0.1.16.
     # Registry wheel bytes and PEP 740 source provenance are verified independently;
     # honua-admin 0.1.12 retains its original publication under clientArtifacts.
-    version: "0.1.16"
-    sha: "5a79352066b8aa23f1bae45b5c38e6d83efd003f"
+    version: "0.1.18"
+    sha: "361978e86e816a35d93ee527b029a0c8f6e97efa"
     artifact: "pypi:honua-sdk"
     contractVersions:
       protocol-factories: "1"
@@ -1005,11 +1005,11 @@ clientArtifacts:
   honua-sdk-python-wheel:
     ecosystem: pypi
     package: "honua-sdk"
-    version: "0.1.16"
-    filename: "honua_sdk-0.1.16-py3-none-any.whl"
-    digest: "sha256:b0520257e5cd3d323ece4cca183971a4480214406582b9b3aad1a713557aa5fc"
+    version: "0.1.18"
+    filename: "honua_sdk-0.1.18-py3-none-any.whl"
+    digest: "sha256:11d5c0074a8c3065b2ca2777a33efab6672dd1f03e0d664abc5f9f964727b033"
     repository: honua-io/honua-sdk-python
-    sourceSha: "5a79352066b8aa23f1bae45b5c38e6d83efd003f"
+    sourceSha: "361978e86e816a35d93ee527b029a0c8f6e97efa"
     publicationState: published
     targets: [python3]
   honua-sdk-dotnet:
@@ -1053,7 +1053,7 @@ evidenceSources:
     # published image. They are different questions and are allowed to differ. As of the 2026-09-16
     # re-pins the producer sha is an ANCESTOR of the component pin (compare 7885b4eb...87966c3f ->
     # ahead_by=17, behind_by=0 at the third re-pin), so the published cite-status is evidence from inside this candidate.
-    producerSha: "7885b4ebbc76c2aaf77c269b4085f3b22c1d8a03"
+    producerSha: "035ce3d24371359c76acb7ef7d75e251d992337d"  # 2026-10-22: honua-server#6486, cite-status bound to run 38904075523 @ 2882cf07
     trustedEvents: [schedule, workflow_dispatch]
     trustedBranch: trunk
     artifactIdentity: cite-status
