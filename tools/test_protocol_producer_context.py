@@ -79,8 +79,8 @@ def test_cite_fixture_mapping_is_closed_and_preserves_unrelated_catalog_fields(t
         'WPS 2.0': 'docker/cite/wps20/crs84-echo.xml',
     }
     assert namespace['CITE_FIXTURES'] == expected
-    # Execute the actual generator. Only the eight existing mapped CITE rows
-    # change fixture identity; this historical source contains no WPS row.
+    # Execute the actual generator. Each mapped CITE suite changes fixture identity,
+    # including the pinned candidate's WPS 2.0 row.
     import subprocess
     import sys
     result = subprocess.run([sys.executable, str(root / 'certification/generate-protocol-requirements.py')], cwd=root, capture_output=True, text=True)
@@ -100,5 +100,18 @@ def test_cite_fixture_mapping_is_closed_and_preserves_unrelated_catalog_fields(t
             assert before['client_version'] in expected
             assert after['fixture_revision'] == expected[before['client_version']] + '@{source_sha}'
             assert {k: v for k, v in after.items() if k != 'fixture_revision'} == {k: v for k, v in before.items() if k != 'fixture_revision'}
-            changed.append(before['surface'])
-    assert len(changed) == 8
+            changed.append(before['client_version'])
+    matrix = json.loads((ROOT / 'certification/sources/server/capability-matrix.v1.json').read_text())
+    implemented_suites = set()
+    withheld_suites = set()
+    for capability in matrix['capabilities']:
+        promoted = bool(capability.get('maturity', {}).get('implemented'))
+        for cite in capability.get('cite', []):
+            suite = cite['suite']
+            if suite not in expected:
+                continue
+            (implemented_suites if promoted else withheld_suites).add(suite)
+    # The closed map still names every suite. A suite whose capability the pinned
+    # matrix has not implemented is not a catalog row; an implemented suite must move.
+    assert set(changed) == implemented_suites
+    assert withheld_suites - implemented_suites == {'WMTS 1.0'}

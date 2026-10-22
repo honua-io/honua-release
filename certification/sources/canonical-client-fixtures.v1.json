@@ -1,7 +1,15 @@
 {
-    "schema_version":  1,
-    "description":  "Release-owned immutable fixture pins for canonical-client certification.",
-    "fixtures":  {
-                     "sdk-js":  "0.2.0-alpha.1"
-                 }
+    "schema_version": 1,
+    "description": "Release-owned immutable fixture pins for canonical-client certification.",
+    "fixtures": {
+        "sdk-js": "0.2.0-alpha.1"
+    },
+    "server_seed": {
+        "description": "The server seed the .NET certification producer applies: SHA-256 of honua-server tests/seed/base-schema.sql at the server-certification pin. It moves with that pin in the same rebind.",
+        "source": "server-certification",
+        "repository": "honua-io/honua-server",
+        "path": "tests/seed/base-schema.sql",
+        "commit": "0e03bdd06b3ca3fb1b82388110bb5dfa19b9f8fa",
+        "sha256": "sha256:3bba01b45aa9c90589f03b7c72cd49918a14b0700cb125fd26d987a1bc743f3e"
+    }
 }
