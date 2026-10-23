@@ -225,6 +225,7 @@ class JourneyExecutor:
         if name == "honua_render_map":
             self.evidence.setdefault("proofs", {}).pop("pixel", None)
             self.evidence["checks"].setdefault("4", {}).pop("pixel", None)
+            self.evidence.pop("renderDimensions", None)
         result = self.transport.tool(name, send_arguments, view, self.principal(number))
         if fault and fault["status"] == "submitted":
             error = result.get("structuredContent") or {}
@@ -243,7 +244,7 @@ class JourneyExecutor:
         if name == "honua_publish_service":
             self.record_publication(output)
         if name == "honua_render_map":
-            self.check_render(output)
+            self.check_render(output, selected_arguments=arguments)
             if (fault and fault["status"] == "observed"
                     and self.evidence["checks"].get("4", {}).get("pixel", {}).get("status") == "pass"):
                 fault["status"] = "recovered"
@@ -496,7 +497,9 @@ class JourneyExecutor:
             self.transport.get_json(self.fixture["featurePath"].format(**self.resources), principal=self.principal(3)),
             self.fixture["features"]))
 
-    def check_render(self, output):
+    def check_render(self, output, *, selected_arguments=None):
+        self.evidence.pop("renderDimensions", None)
+
         def media_type_of(value):
             if not isinstance(value, str):
                 return ""
@@ -520,11 +523,41 @@ class JourneyExecutor:
                 if not fetched or (declared and declared != fetched):
                     raise oracles.ProofError("render response media type conflicts with the declared image type")
                 media_type = fetched
+            # Record only independently decoded dimensions, never image-declared
+            # width/height. This distinguishes a model-selected wrong size from
+            # a renderer returning different bytes than the model requested.
+            if media_type == "image/png":
+                try:
+                    width, height, _ = oracles.decode_png(raw)
+                except oracles.PngError as exc:
+                    raise oracles.ProofError(f"PNG decoder refused: {exc.code}") from exc
+                selected = [(selected_arguments or {}).get(key) for key in ("width", "height")]
+                self.evidence["renderDimensions"] = {
+                    "expected": list(self.fixture["renderSize"]),
+                    "requested": selected if all(type(v) is int and 0 < v <= 16384 for v in selected) else None,
+                    "decoded": [width, height], "sha256": hashlib.sha256(raw).hexdigest()}
             proof = oracles.prove_pixel(raw, bbox=self.fixture["bbox"], point=self.fixture["pixelPoint"],
                 size=self.fixture["renderSize"], rgba=self.fixture["pixelRgba"], media_type=media_type)
             return proof
         row = self._check(4, "pixel", "honua_render_map + decode PNG", prove)
         return row
+
+    def repairable_render_selection(self, number, check):
+        """A correct render of a wrong selected size is unfinished model work.
+
+        The failed pixel assertion remains unchanged. Missing selection, invalid
+        PNG, wrong pixels, transport failures and a renderer ignoring the request
+        are never admitted through this narrow feedback path.
+        """
+        dimensions = self.evidence.get("renderDimensions") or {}
+        requested = dimensions.get("requested")
+        return (number == 4 and check.id == "4.pixel" and check.status == "fail"
+                and check.detail == "PNG dimensions differ from the authored render size"
+                and isinstance(requested, list) and len(requested) == 2
+                and all(type(v) is int and 0 < v <= 16384 for v in requested)
+                and requested == dimensions.get("decoded")
+                and dimensions.get("expected") == self.fixture.get("renderSize")
+                and requested != dimensions["expected"])
 
     def check_job(self):
         def prove():

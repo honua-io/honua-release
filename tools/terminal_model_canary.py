@@ -1104,7 +1104,17 @@ def driver_failure_diagnostic(response: Any) -> str:
             reason = "render-png-invalid"
         rows.append(identifier + "=" + check["status"] + "/" + reason)
     if rows:
-        return "; checks=" + ",".join(rows)
+        diagnostic = "; checks=" + ",".join(rows)
+        observation = response.get("observation")
+        dimensions = observation.get("renderDimensions") if isinstance(observation, dict) else None
+        if isinstance(dimensions, dict):
+            pairs = {key: dimensions.get(key) for key in ("requested", "expected", "decoded")}
+            if all(isinstance(pair, list) and len(pair) == 2 and
+                   all(type(value) is int and 0 < value <= 16384 for value in pair)
+                   for pair in pairs.values()):
+                diagnostic += "; renderSize=" + ",".join(
+                    key + "=" + "x".join(str(value) for value in pair) for key, pair in pairs.items())
+        return diagnostic
     error = response.get("error")
     category = response.get("errorCategory")
     if not isinstance(category, str):
