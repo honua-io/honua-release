@@ -408,6 +408,28 @@ def test_datasource_reference_cannot_override_fixture_or_other_sdk_arguments(met
     invoke.assert_not_called()
 
 
+def test_observed_sdk_command_examples_survive_redaction_and_execute_exactly(monkeypatch):
+    monkeypatch.syspath_prepend(str(Path(__file__).resolve().parents[2] / "tools"))
+    from terminal_model_canary import Redactor
+
+    engine = sdk_engine()
+    monkeypatch.setenv("JOURNEY_TEST_PASSWORD", "private-database-key")
+    redactor = Redactor(["private-database-key", "private-proposer"])
+    surface = redactor.value(engine.terminal_surface(3))
+    assert "TestConnectionAsync" not in surface["sdkCommandExamples"]
+    with mock.patch.object(executor.sdk, "invoke", return_value={"connectionId": "connection-1"}) as invoke:
+        engine.execute(3, {"kind": "terminal_command", "command": surface["sdkCommandExamples"]["CreateConnectionAsync"]})
+    assert invoke.call_count == 1
+    assert invoke.call_args.args[2] == [{"name": "source", "password": "private-database-key"}]
+    surface = redactor.value(engine.terminal_surface(3))
+    with mock.patch.object(executor.sdk, "invoke", return_value={"connectionId": "connection-1", "isHealthy": True}) as invoke:
+        engine.execute(3, {"kind": "terminal_command", "command": surface["sdkCommandExamples"]["TestConnectionAsync"]})
+    assert invoke.call_args.args[2] == ["connection-1"]
+    assert engine.evidence["checks"]["3"]["datasource"]["status"] == "pass"
+    assert "private-database-key" not in json.dumps(surface)
+    engine.transport.tool.assert_not_called()
+
+
 @pytest.mark.parametrize("command,number", [
     ("sh -c echo secret", 3), ("honua-journey-sdk DeleteConnectionAsync []", 3),
     ("honua-journey-sdk TestConnectionAsync [null]", 3),
@@ -1204,6 +1226,17 @@ def test_failed_upload_proof_is_recorded_and_stops_the_stage_as_a_handled_failur
     assert raised.value.blocked is False
     assert engine.evidence["checks"]["3"]["import-complete"]["status"] == "fail"
     assert "importTable" not in engine.resources
+
+
+def test_repeated_model_upload_is_recoverable_action_feedback_without_second_write():
+    from transport import ActionRejected
+    engine = upload_engine()
+    engine.resources.update(importTable="owned_uploaded_table", importSchema="public")
+    before = copy.deepcopy(engine.resources)
+    with pytest.raises(ActionRejected, match="already been uploaded"):
+        engine.execute(3, {"kind": "terminal_command", "command": executor.UPLOAD_COMMAND})
+    engine.transport.cli_admin.assert_not_called()
+    assert engine.resources == before
 
 
 def test_run_build_records_a_failed_upload_instead_of_aborting(monkeypatch):
