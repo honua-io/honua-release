@@ -38,6 +38,9 @@ def amended(environment):
     declaration = {name: load_json(ledger)['policyAmendment'][name] for name in ('policyId', 'priorLedgerDigest')}
     frozen, _ = policy.freeze_policy({'budgetPolicy': declaration, 'bootstrap': reference}, key, original, imported)
     pack_path = Path(__file__).resolve().parents[1]/'certification/agent-e2e/pack.v2.json'
+    # The generic controller fixture shortens its turn limit for other tests.
+    # This path must exercise the actual frozen pack, including its limits.
+    env['pack'] = load_json(pack_path)
     env['campaign'].update(totalBudgetUsd=2000, budgetPolicy=frozen, packDigest=digest_bytes(pack_path.read_bytes()))
     preflight = env['backend'].preflight
     env['expiry'] = int(time.time())+1200
@@ -85,14 +88,16 @@ def test_fifth_attempt_preserves_all_four_existing_holds_without_effects(amended
             owner_token='x'*32, expires_epoch=amended['expiry'], campaign_id='other-campaign',
             case_id='P'+str(i), attempt=1, campaign_mode='development')
     before = load_json(amended['ledger'])
-    assert execute(amended)['status'] == 'blocked'
+    result = execute(amended)
+    assert result['status'] == 'blocked' and result['reason'] == 'candidate-budget-blocked'
     assert load_json(amended['ledger']) == before
     assert not amended['backend'].operations and not amended['model'].inputs
 
 
 def test_expired_original_worker_policy_cannot_be_extended_or_started(amended):
     amended['expiry'] = int(time.time())-1
-    assert execute(amended)['status'] == 'blocked'
+    result = execute(amended)
+    assert result['status'] == 'blocked' and result['reason'] == 'candidate-budget-blocked'
     assert not load_json(amended['ledger'])['paidAdmissions']
     assert not amended['backend'].operations and not amended['model'].inputs
 
