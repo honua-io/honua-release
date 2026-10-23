@@ -106,6 +106,11 @@ jobs:
           git merge-base --is-ancestor "$ROOT_SHA" origin/trunk
           git checkout --detach "$ROOT_SHA"
           test "$(git rev-parse HEAD)" = "$ROOT_SHA"
+      - name: Verify exact candidate-independent configuration and release compiler before AWS credentials
+        working-directory: foundation-source
+        env:
+          CONFIG_PATH: ${{ inputs.config_path }}
+        run: python3 scripts/check-hosted-pilot-foundation-inputs.py --configuration-path "$CONFIG_PATH" --release-source ../release-source
       - name: Verify recovery metadata producer when recovering initial custody
         if: inputs.recovery_run_id != ''
         env:

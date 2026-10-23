@@ -133,3 +133,65 @@ class HistoryPrivacy(unittest.TestCase):
             for reference in report['evidence'].values():
                 self.assertTrue(reference['responseSha256'].startswith('sha256:'))
                 self.assertEqual(reference['projection'], 'identity-and-aggregate-usage-only')
+
+
+class CreationIdentityCollection(HistoryPrivacy):
+    def original(self):
+        import bootstrap
+        identity={'foundation_source_sha':'a'*40,'release_root_sha':'b'*40,
+            'config_path':'certification/hosted-pilot/bootstrap/deployments/foss4g-images.tfvars.json',
+            'config_sha256':'c'*64,'provider_lock_sha256':'d'*64}
+        tags=bootstrap.creation_tags(identity,'42')
+        name='honua-release-pilot-foss4g-foundation-apply'
+        native={'eventID':'creation-event','eventName':'CreateRole','awsRegion':'us-east-1','recipientAccountId':ACCOUNT,
+            'eventTime':'2026-10-23T15:00:00Z','requestParameters':{'roleName':name,'policy':self.SENTINEL},
+            'userIdentity':{'type':'IAMUser','accountId':ACCOUNT,'arn':'arn:aws:iam::'+ACCOUNT+':user/pipeline',
+                'principalId':'AIDAEXAMPLE123','accessKeyId':self.SENTINEL,'private':self.SENTINEL}}
+        return tags,{'Events':[{'EventId':'creation-event','EventName':'CreateRole','CloudTrailEvent':json.dumps(native)}]}
+    def test_real_collector_shape_retains_native_identity_and_tags_without_raw_credentials(self):
+        tags,original=self.original();calls=[]
+        def call(argv):
+            calls.append(argv)
+            if argv[0]=='gh':
+                if '/branches/' in argv[-1]:return {'name':'trunk','protected':True,'commit':{'sha':'a'*40}}
+                if '/contents/' in argv[-1]:return []
+                return [{'total_count':0,'workflow_runs':[]}]
+            command=tuple(argv[1:3])
+            if command==('sts','get-caller-identity'):return {'Account':ACCOUNT,'Arn':'arn:aws:iam::'+ACCOUNT+':user/operator'}
+            if command==('cloudtrail','lookup-events'):
+                return original if 'AttributeKey=EventName,AttributeValue=CreateRole' in argv else {'Events':[]}
+            if command==('iam','list-role-tags'):return {'Tags':[{'Key':key,'Value':value} for key,value in tags.items()]+
+                [{'Key':'private-secret','Value':self.SENTINEL}], 'private':self.SENTINEL}
+            if command==('iam','list-roles'):return {'Roles':[]}
+            if command==('s3api','list-buckets'):return {'Buckets':[]}
+            if command==('dynamodb','list-tables'):return {'TableNames':[]}
+            if command==('ce','get-cost-and-usage'):return self.usage()
+            raise AssertionError(argv)
+        cutoff=datetime.now(timezone.utc)-timedelta(minutes=1)
+        with tempfile.TemporaryDirectory() as temp:
+            path=Path(temp)/'history'
+            report=collect((cutoff-timedelta(days=1)).isoformat(),cutoff.isoformat(),path,call=call)
+            event=report['cloudTrail']['CreateRole']['pilotEvents'][0]
+            self.assertEqual(event['principal'],{'type':'IAMUser','accountId':ACCOUNT,
+                'arn':'arn:aws:iam::'+ACCOUNT+':user/pipeline','principalId':'AIDAEXAMPLE123'})
+            self.assertTrue(event['nativeEventIdMatches'])
+            observation=event['resourceTagObservation']
+            self.assertTrue(observation['complete']);self.assertEqual(observation['tags'],tags)
+            self.assertEqual(sum(tuple(row[1:3])==('iam','list-role-tags') for row in calls),1)
+            for file in path.iterdir():self.assertNotIn(self.SENTINEL,file.read_text())
+    def test_unknown_identity_never_becomes_an_empty_history_or_caller_human_label(self):
+        from budget_history import event_history
+        _,original=self.original();native=json.loads(original['Events'][0]['CloudTrailEvent'])
+        native['userIdentity']={'type':'caller-says-bootstrap','arn':self.SENTINEL,'accessKeyId':self.SENTINEL}
+        original['Events'][0]['CloudTrailEvent']=json.dumps(native)
+        projected=event_history(original,'CreateRole')
+        self.assertEqual(projected['totalEvents'],1);self.assertEqual(len(projected['pilotEvents']),1)
+        self.assertIsNone(projected['pilotEvents'][0]['principal'])
+        self.assertNotIn(self.SENTINEL,json.dumps(projected))
+    def test_partial_or_malformed_native_creation_tags_remain_unqualified(self):
+        from budget_history import creation_tags_projection
+        tags,_=self.original();tags['BootstrapConfigSha256']=self.SENTINEL
+        projected=creation_tags_projection({'Tags':[{'Key':key,'Value':value} for key,value in tags.items()]})
+        self.assertFalse(projected['complete']);self.assertNotIn(self.SENTINEL,json.dumps(projected))
+        with self.assertRaisesRegex(ValueError,'truncated'):
+            creation_tags_projection({'Tags':[],'IsTruncated':True})

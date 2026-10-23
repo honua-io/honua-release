@@ -392,6 +392,37 @@ def save_recovery(binding, cfg, identity, work):
     return remote
 
 
+def execution_identity(caller, identity, account, run_id, attempt):
+    """Only STS public identity enters the receipt; never credential material."""
+    arn,principal=caller.get('Arn'),caller.get('UserId')
+    require(caller.get('Account')==account and isinstance(arn,str) and isinstance(principal,str) and
+        re.fullmatch(r'arn:aws:(?:iam::'+re.escape(account)+r':user/[A-Za-z0-9+=,.@_/-]+|sts::'+re.escape(account)+r':assumed-role/[A-Za-z0-9+=,.@_/-]+)',arn) and
+        re.fullmatch(r'(?:AIDA|AROA)[A-Z0-9]+(?::[A-Za-z0-9+=,.@_-]+)?',principal),
+        'foundation requires an actual supported STS principal identity')
+    return {'schema':'honua.hosted-pilot-bootstrap-execution-identity/v1',**identity,
+        'run_id':run_id,'run_attempt':attempt,'account_id':account,'principal_arn':arn,'principal_id':principal,
+        'run_unique_session':False,
+        'attribution_limit':'static or pre-existing credentials are not a run-unique session; require exact planned resources and original creation tags'}
+
+
+def planned_creation_resources(value):
+    """Project only names and creation tags of the three audited creation APIs."""
+    fields={'aws_iam_role':'name','aws_s3_bucket':'bucket','aws_sfn_state_machine':'name'}
+    result=[]
+    for row in value.get('resource_changes',[]):
+        if row.get('type') not in fields or 'create' not in row.get('change',{}).get('actions',[]):continue
+        after=row['change'].get('after') or {};name=after.get(fields[row['type']])
+        require(isinstance(name,str) and re.fullmatch(r'[A-Za-z0-9+=,.@_-]{1,128}',name),
+            'audited creation requires an exact planned physical name')
+        tags=after.get('tags_all') or after.get('tags') or {}
+        selected={key:tags[key] for key in ['ManagedBy','BootstrapExecution',*IDENTITY_TAGS.values()] if key in tags}
+        require(set(selected)=={'ManagedBy','BootstrapExecution',*IDENTITY_TAGS.values()} and
+            selected==creation_tags({key:selected[tag] for key,tag in IDENTITY_TAGS.items()},selected['BootstrapExecution']),
+            'audited creation lost its exact source and execution tags')
+        result.append({'address':row['address'],'type':row['type'],'name':name,'creation_tags':selected})
+    return result
+
+
 def plan(cfg_path, work, *, custody_only=False):
     path = work / ('custody.tfplan' if custody_only else 'saved.tfplan')
     cmd = ['terraform', 'plan', '-input=false', '-no-color', f'-var-file={cfg_path}',
@@ -401,7 +432,14 @@ def plan(cfg_path, work, *, custody_only=False):
         cmd += ['-target=' + address for address in sorted(CUSTODY)]
     run(cmd, log=work / 'plan.log')
     expected_sha = digest(path)
-    changes = summarize(json.loads(run(['terraform', 'show', '-json', str(path)])))
+    shown = json.loads(run(['terraform', 'show', '-json', str(path)]))
+    changes = summarize(shown)
+    scope_path=work/'creation-resources.json'
+    scope=json.loads(scope_path.read_text()) if scope_path.exists() else []
+    for resource in planned_creation_resources(shown):
+        require(not any(row['address']==resource['address'] and row!=resource for row in scope),'planned creation identity changed within one bootstrap')
+        if resource not in scope:scope.append(resource)
+    private_json(scope_path,scope)
     if custody_only:
         require(all(allowed_address(row['address']) or (row['address'] == 'data.aws_caller_identity.current' and row['actions'] in (['read'], ['no-op'])) for row in changes), 'initial custody plan attempts noncustody infrastructure')
     return path, changes, expected_sha
@@ -437,7 +475,8 @@ def main():
     cfg = resolve_image_funding(cfg, ROOT, e['PILOT_RELEASE_ROOT_SHA'], config_path=cfg_path.relative_to(source_root).as_posix())
     require(cfg['region'] == e['AWS_REGION'], 'bootstrap region mismatch')
     require(re.fullmatch(r'honua-pilot-[a-z0-9-]{4,16}', cfg['name_prefix']), 'invalid isolated prefix')
-    account = aws('sts', 'get-caller-identity')['Account']
+    caller = aws('sts', 'get-caller-identity')
+    account = caller['Account']
     require(cfg['account_id'] == account, 'foundation AWS account differs from reviewed configuration')
     os.environ['PILOT_BOOTSTRAP_ACCOUNT_ID'] = account
     binding = {'bucket': f'honua-release-{cfg["name_prefix"].removeprefix("honua-")}-foundation-state-{account}',
@@ -445,6 +484,8 @@ def main():
     identity = {'foundation_source_sha': e['GITHUB_SHA'], 'release_root_sha': e['PILOT_RELEASE_ROOT_SHA'],
                 'config_path': args.config, 'config_sha256': digest(cfg_path),
                 'provider_lock_sha256': digest(TF / '.terraform.lock.hcl')}
+    actor = execution_identity(caller,identity,account,e['GITHUB_RUN_ID'],e['GITHUB_RUN_ATTEMPT'])
+    private_json(work/'execution-identity.json',actor)
     resolved_cfg_path = work / 'foundation-resolved.tfvars.json'
     private_json(resolved_cfg_path, cfg)
     resolved_cfg_digest = digest(resolved_cfg_path)
@@ -478,7 +519,7 @@ def main():
         if not remote:
             run(['terraform', 'init', '-backend=false', '-lockfile=readonly', '-input=false', '-no-color'], log=work / 'init.log')
         initial, changes, initial_sha = plan(resolved_cfg_path, work, custody_only=True)
-        private_json(work / 'review.json', {'schema': 'honua.hosted-pilot-bootstrap-plan/v1', **identity, 'resolved_config_sha256': resolved_cfg_digest, 'phase': 'custody-only', 'resource_changes': changes, 'plan_sha256': digest(initial)})
+        private_json(work / 'review.json', {'schema': 'honua.hosted-pilot-bootstrap-plan/v1', **identity, 'resolved_config_sha256': resolved_cfg_digest, 'execution_identity':actor,'creation_resources':json.loads((work/'creation-resources.json').read_text()),'phase': 'custody-only', 'resource_changes': changes, 'plan_sha256': digest(initial)})
         if args.mode == 'plan':
             print('Custody-only plan metadata prepared; no binary plan/state/log is uploaded.')
             return
@@ -496,7 +537,7 @@ def main():
             save_recovery(binding, cfg, identity, work)
             raise ValueError('initial custody/migration failed; application/identity phase refused. Retain custody-recovery metadata and inspect encrypted recovery custody before retrying') from None
     full, changes, full_sha = plan(resolved_cfg_path, work)
-    private_json(work / 'review.json', {'schema': 'honua.hosted-pilot-bootstrap-plan/v1', **identity, 'resolved_config_sha256': resolved_cfg_digest, 'phase': 'remote-backed-foundation', 'resource_changes': changes, 'plan_sha256': digest(full)})
+    private_json(work / 'review.json', {'schema': 'honua.hosted-pilot-bootstrap-plan/v1', **identity, 'resolved_config_sha256': resolved_cfg_digest, 'execution_identity':actor,'creation_resources':json.loads((work/'creation-resources.json').read_text()),'phase': 'remote-backed-foundation', 'resource_changes': changes, 'plan_sha256': digest(full)})
     if args.mode == 'plan':
         print('Remote-backed foundation plan metadata prepared; no infrastructure applied.')
         return
@@ -509,6 +550,7 @@ def main():
         'release_root_sha': e['PILOT_RELEASE_ROOT_SHA'], 'foundation_source_sha': e['GITHUB_SHA'],
         'foundation_run_id': e['GITHUB_RUN_ID'], 'foundation_run_attempt': e['GITHUB_RUN_ATTEMPT'],
         'config_path': args.config, 'config_sha256': digest(cfg_path), 'resolved_config_sha256': resolved_cfg_digest,
+        'execution_identity':actor,'creation_resources':json.loads((work/'creation-resources.json').read_text()),
         'saved_plan_sha256': plan_sha,
         **{key: outputs[key]['value'] for key in ['deployment_bindings', 'permissions_boundary_arn', 'budget_binding']}})
     with open(e['GITHUB_STEP_SUMMARY'], 'a') as summary:

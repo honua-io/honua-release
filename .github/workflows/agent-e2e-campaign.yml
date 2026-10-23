@@ -557,7 +557,7 @@ jobs:
           path: candidate-input
       - name: Authenticate original candidate and seal reviewed nonzero accounting
         env:
-          GH_TOKEN: ${{ github.token }}
+          GH_TOKEN: ${{ secrets.RELEASE_GH_TOKEN }}
           CANDIDATE_RUN: ${{ inputs.candidate_run_id }}
           CANDIDATE_ATTEMPT: ${{ inputs.candidate_run_attempt }}
         run: |
