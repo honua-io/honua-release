@@ -74,6 +74,26 @@ Resource/action summaries use the opaque alias rather than the email.
 The campaign returns this under `application_deployment.human_enrollment`, with
 its same application identity references in `application_deployment.identity_preparation`.
 
+After the authenticated saved-plan apply succeeds, `enrollment_receipt.py` retains
+an identity-only carrier in the existing private plan bucket. It binds the actual
+Cognito subjects and reviewed roles to the candidate, application task revisions,
+configuration, original plan version, original review artifact and apply attempt.
+The exact original value-free `review.json` is retained alongside it under
+`hosted-pilot/plans/<run>/<plan-attempt>/`. Each apply attempt uses its own
+`human-identities-<apply-attempt>.json`; conditional writes and exact readback
+preserve earlier objects. A lost write reply permits readback, never a blind
+mutation retry. An unresolved result remains a failed apply job.
+
+Only `human-enrollment-reference.json` is published as a GitHub artifact. The
+carrier and full Terraform outputs stay private. The reference names an immutable
+version, digest and original custody key; it contains no user identities. A null
+enrollment produces no carrier. Missing task revisions, mismatched subjects,
+changed roles, a foreign target or a failed Terraform apply cannot produce an
+accepted enrollment receipt. The native membership helper must independently
+authenticate the successful original workflow job and review before using it.
+Provisioning always records `qualification: false`; neither this receipt nor a
+successful deployment proves that a human logged in or approved anything.
+
 ## First login and qualification
 
 After successful apply, the operator securely hands each person their own
