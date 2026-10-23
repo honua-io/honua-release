@@ -1438,7 +1438,9 @@ def execute_live(
                 builder.arm_injection(stage_id=stage_id, result=injection_response)
 
             messages: list[dict[str, str]] = [{"role": "system", "content": _system_contract()}]
-            for _ in range(max_actions_per_stage):
+            # One final observation may verify the last permitted action. It
+            # cannot select another model action or increase the action budget.
+            for action_slot in range(max_actions_per_stage + 1):
                 observed = builder.redactor.value(
                     driver.invoke("observe", {"workspaceId": workspace_id, "stage": stage_id})
                 )
@@ -1478,6 +1480,9 @@ def execute_live(
                 if stage_status == "complete":
                     if not builder._stage_record(stage_id)["modelActionSequences"]:
                         raise CanaryError(f"stage {stage_id} completed without a model-selected action")
+                    if (stage_id == receipt["errorInjection"]["stageId"]
+                            and receipt["errorInjection"]["status"] != "recovered"):
+                        raise ModelFailure("stage completed without proving recovery of the injected error")
                     builder.mark_stage(stage_id, "pass")
                     break
                 if stage_status != "ready":
@@ -1489,6 +1494,10 @@ def execute_live(
                                       f"{problem.get('invocation', stage['command'])}: "
                                       f"{problem.get('detail', 'driver cannot advance')}; blockedBy={blockers}")
 
+                if action_slot == max_actions_per_stage:
+                    raise ModelFailure(
+                        f"stage {stage_id} exceeded the bounded limit of {max_actions_per_stage} model actions"
+                    )
                 stage_tools = observed.get("stageTools")
                 allowed = (sorted(t for t in stage_tools if isinstance(t, str) and t)
                            if isinstance(stage_tools, list) else _tool_names(observed.get("toolView")))
@@ -1595,6 +1604,12 @@ def execute_live(
                     builder.observe_injected_error(action_sequence)
                 elif receipt["errorInjection"]["status"] == "observed" and action_status == "pass":
                     recovered = fault_evidence(execution, "recoveredError")
+                    # Inspection can legitimately precede repair. It consumes the
+                    # same bounded action budget and proves no recovery by itself.
+                    # The injection stage cannot complete until a later candidate
+                    # result explicitly proves recovery of this exact error ID.
+                    if recovered is None:
+                        continue
                     if (
                         not isinstance(recovered, dict)
                         or recovered.get("id") != receipt["errorInjection"]["id"]

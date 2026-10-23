@@ -866,7 +866,9 @@ def test_failed_setup_still_tears_down_allocated_workspace(monkeypatch):
 
 
 @pytest.mark.parametrize("owned_verification", [False, True])
-def test_loop_handoffs_preserve_error_context_and_multiple_approval_boundaries(monkeypatch, owned_verification):
+@pytest.mark.parametrize("recovery_mode", ["direct", "inspect-then-repair", "final-slot-repair", "never-repair",
+                                          "premature-complete", "wrong-error", "not-recovered"])
+def test_loop_handoffs_preserve_error_context_and_multiple_approval_boundaries(monkeypatch, owned_verification, recovery_mode):
     """State-machine unit test only; it makes no candidate or genuine-model claim."""
     builder = _builder(_endpoint())
     stages = builder.journey["stages"]
@@ -894,7 +896,11 @@ def test_loop_handoffs_preserve_error_context_and_multiple_approval_boundaries(m
             if operation == "inject_error":
                 return {"status": "armed", "errorId": error_id, "recoverable": True}
             if operation == "observe":
-                if attempts[stage_id] < (2 if stage_id == injection_stage else 1):
+                required = 2 if recovery_mode in ("direct", "premature-complete") else 3
+                if recovery_mode == "final-slot-repair":
+                    required = 4
+                if ((stage_id == injection_stage and recovery_mode == "never-repair") or
+                        attempts[stage_id] < (required if stage_id == injection_stage else 1)):
                     return {"status": "ready", "stageStatus": "ready", "observation": {}, "toolView": {}}
                 if stage_id in approval_stages and stage_id not in approved:
                     return {"status": "ready", "stageStatus": "awaiting_approval", "proposalId": stage_id}
@@ -908,7 +914,13 @@ def test_loop_handoffs_preserve_error_context_and_multiple_approval_boundaries(m
                     return {"status": "fail", "result": {"injectedError": {"id": error_id, "recoverable": True},
                             "detail": "test fault: inspect state before retry"}}
                 if stage_id == injection_stage:
-                    return {"status": "pass", "result": {"recoveredError": {"id": error_id, "recovered": True}}}
+                    if (recovery_mode in ("never-repair", "premature-complete") or
+                            (recovery_mode == "final-slot-repair" and attempts[stage_id] < 4) or
+                            (recovery_mode != "direct" and attempts[stage_id] == 2)):
+                        return {"status": "pass", "result": {"inspection": "current candidate state"}}
+                    return {"status": "pass", "result": {"recoveredError": {
+                        "id": "unrelated-error" if recovery_mode == "wrong-error" else error_id,
+                        "recovered": recovery_mode != "not-recovered"}}}
                 return {"status": "pass"}
             if operation == "approve":
                 approved.add(stage_id)
@@ -934,10 +946,26 @@ def test_loop_handoffs_preserve_error_context_and_multiple_approval_boundaries(m
     monkeypatch.setattr(canary, "CandidateProxyClient", Model)
     receipt = canary.execute_live(builder, endpoint=_endpoint(), driver_command=canary.DEFAULT_DRIVER,
                                   max_actions_per_stage=4)
+    if recovery_mode not in ("direct", "inspect-then-repair", "final-slot-repair"):
+        assert receipt["status"] == "fail", receipt["notices"]
+        assert receipt["failureAttribution"] == "model"
+        assert receipt["errorInjection"]["recoveryModelActionSequence"] is None
+        assert not any(operation in ("verify", "approve") for operation, _ in calls)
+        assert attempts[injection_stage] <= 4
+        if recovery_mode == "never-repair":
+            assert attempts[injection_stage] == 4
+            assert any("bounded limit" in notice for notice in receipt["notices"])
+        if recovery_mode == "premature-complete":
+            assert any("completed without proving recovery" in notice for notice in receipt["notices"])
+        return
     assert receipt["status"] == "pass", receipt["notices"]
     assert approved == approval_stages
     assert [a["kind"] for a in receipt["actions"]].count("approval") == 2
     assert receipt["errorInjection"]["status"] == "recovered"
+    recovery_action = receipt["errorInjection"]["recoveryModelActionSequence"]
+    fault_action = receipt["errorInjection"]["triggeringModelActionSequence"]
+    assert recovery_action == fault_action + {"direct": 1, "inspect-then-repair": 2, "final-slot-repair": 3}[recovery_mode]
+    assert attempts[injection_stage] <= 4
     recovery_prompt = [messages for stage_id, messages in prompts if stage_id == injection_stage][1]
     assert "test fault: inspect state before retry" in json.dumps(recovery_prompt)
     assert any(m["role"] == "assistant" for m in recovery_prompt)
