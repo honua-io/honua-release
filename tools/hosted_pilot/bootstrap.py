@@ -29,16 +29,25 @@ IDENTITY_TAGS = {'foundation_source_sha': 'BootstrapFoundationSha',
                  'config_sha256': 'BootstrapConfigSha256', 'provider_lock_sha256': 'BootstrapLockSha256'}
 
 
-def resolve_image_funding(cfg, source_root, source_sha):
+def resolve_image_funding(cfg, source_root, source_sha, *, config_path=None):
     """Bind candidate-independent image funding to actual checked workflow source."""
     cfg = copy.deepcopy(cfg)
+    fixed_input = 'certification/hosted-pilot/bootstrap/deployments/foss4g-images.tfvars.json'
+    if config_path == fixed_input:
+        require(cfg.get('image_preparation_funding') is True, 'fixed image input requires its reviewed funding compiler mode')
     if 'image_preparation_funding' not in cfg:
         return cfg
-    require(cfg.pop('image_preparation_funding') is True and re.fullmatch(r'[a-f0-9]{40}', source_sha),
+    require(cfg['image_preparation_funding'] is True and re.fullmatch(r'[a-f0-9]{40}', source_sha),
             'image preparation funding requires the actual reviewed release source')
     ledger = cfg['budget_ledger']
     require(ledger['source_sha'] is None and ledger['config_sha256'] is None,
             'source-resolved image funding cannot replace an existing source/config binding')
+    original_input = json.loads(run(['git', 'show', source_sha+':certification/hosted-pilot/bootstrap/deployments/foss4g-images.tfvars.json']))
+    def canonical_input(value):
+        return json.dumps(value, sort_keys=True, separators=(',', ':'), ensure_ascii=False, allow_nan=False)
+    require(canonical_input(cfg) == canonical_input(original_input),
+            'complete bootstrap input differs from the exact reviewed release source')
+    cfg.pop('image_preparation_funding')
     relative = 'certification/hosted-pilot/deployments/foss4g-image-preparation.tfvars.json'
     path = Path(source_root)/relative
     require(path.is_file() and not path.is_symlink(), 'tracked image funding configuration missing')
@@ -425,7 +434,7 @@ def main():
     work = Path(e['RUNNER_TEMP']) / 'hosted-pilot-bootstrap-private'
     work.mkdir(mode=0o700, exist_ok=True)
     cfg = json.loads(cfg_path.read_text())
-    cfg = resolve_image_funding(cfg, ROOT, e['PILOT_RELEASE_ROOT_SHA'])
+    cfg = resolve_image_funding(cfg, ROOT, e['PILOT_RELEASE_ROOT_SHA'], config_path=cfg_path.relative_to(source_root).as_posix())
     require(cfg['region'] == e['AWS_REGION'], 'bootstrap region mismatch')
     require(re.fullmatch(r'honua-pilot-[a-z0-9-]{4,16}', cfg['name_prefix']), 'invalid isolated prefix')
     account = aws('sts', 'get-caller-identity')['Account']
