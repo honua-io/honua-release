@@ -10,6 +10,7 @@ import re
 from urllib.parse import urlsplit
 
 from agent_e2e_job_observer import PROCESS, detail, identifier, selected_plan
+from agent_e2e_job_history import transitions, advance
 from agent_e2e_pack import PackError, canonical_digest
 from agent_e2e_studio_observer import instant
 
@@ -81,6 +82,7 @@ def observation(report, declaration, context):
     binding = {'requesterPrincipalId': declaration['relationships']['requesterPrincipalId'], 'notBefore': context['startedAt']}
     observer = declaration['observers'][str(context['attempt'])]
     states, last_time, steps = [], None, set()
+    history_mode, previous_history, previous_version = None, None, None
     for pair in records:
         value = original(pair, observer=observer, candidate=context['componentBindingDigest'], path='/api/v1/admin/jobs/'+job)
         row = detail(value, selection=selected, binding=binding, observed_at=instant(context['completedAt']))
@@ -89,6 +91,16 @@ def observation(report, declaration, context):
         require(step not in steps and (last_time is None or last_time <= updated),
                 'job read sequence reuses an original or moves native time backwards')
         steps.add(step); last_time = updated
+        history = transitions(row, not_before=binding['notBefore'], observed_at=instant(context['completedAt']))
+        if history_mode is None:
+            history_mode = history is not None
+        require(history_mode == (history is not None), 'native history disappeared or changed representation between reads')
+        if history is not None:
+            if previous_history is not None:
+                advance(previous_history, history, previous_version=previous_version, current_version=row['version'])
+            previous_history, previous_version = history, row['version']
+            states = [event['toStatus'] for event in history]
+            continue
         if not states or states[-1] != row['status']:
             require(not states or states[-1] not in ('Succeeded', 'Failed', 'Cancelled'), 'job changed after a terminal observation')
             states.append(row['status'])
