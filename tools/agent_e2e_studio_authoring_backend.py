@@ -47,15 +47,20 @@ class Session(WorkerSession):
         # SQL teardown still runs after worker stop, even when a native job needs
         # separate retirement. Its receipt cannot stand in for that retirement.
         sql = PublicationSession.cleanup_fixture(self, ownership)
+        if getattr(self, 'config', {}).get('managedJob') is not None:
+            self.retain('managed-job-sql-cleanup', sql)
+        return sql
+
+    def cleanup_resources(self):
+        # A job may have been dispatched before any Studio draft existed.
+        # Inventory runs after the worker-stop and SQL attempts independently.
         if getattr(self, 'config', {}).get('managedJob') is None:
-            return sql
-        self.retain('managed-job-sql-cleanup', sql)
+            return
         from agent_e2e_job_cleanup import inventory
         remaining = inventory(self)
         self.retain('managed-job-cleanup', remaining)
         require(remaining['status'] == 'pass',
                 'managed job retirement is unresolved; retain original cleanup liabilities')
-        return sql
 
     def validate_observer(self, http, secrets):
         studio = self.config['studio']
@@ -156,9 +161,17 @@ class Session(WorkerSession):
         return JobObserver(http=self.http('observer'), binding=binding, retain=self.retain)
 
     def job_selections(self):
-        return sorted((row['value'] for row in self.durable.state.get('scenarioOperations', {}).values() if
-            row.get('producer') == self.PROFILE and row.get('identity') == identity(self.context) and
-            row.get('phase', '').startswith('job-ordinal-')), key=lambda row: row['ordinal'])
+        selections = {}
+        for row in self.durable.state.get('scenarioOperations', {}).values():
+            if (row.get('producer') != self.PROFILE or row.get('identity') != identity(self.context) or
+                    not row.get('phase', '').startswith(('job-selected-', 'job-ordinal-'))):
+                continue
+            selected = row['value']
+            previous = selections.get(selected['ordinal'])
+            require(previous is None or canonical_digest(previous) == canonical_digest(selected),
+                    'durable job selection copies disagree; retain original evidence')
+            selections[selected['ordinal']] = selected
+        return sorted(selections.values(), key=lambda row: row['ordinal'])
 
     def observe_job_action(self, action, dispatch, observed):
         if getattr(self, 'config', {}).get('managedJob') is None:
@@ -166,8 +179,7 @@ class Session(WorkerSession):
         observer = self.job_observer()
         if observer.eligible(action):
             try:
-                selected = observer.selected(action, dispatch, observed)
-                self.retain('job-ordinal-'+str(dispatch['ordinal']), selected)
+                observer.selected(action, dispatch, observed)
             except (PackError, ValueError, TypeError, KeyError) as error:
                 self.retain('job-rejected-'+str(dispatch['ordinal']), {'errorType': type(error).__name__, 'actionId': dispatch['actionId']})
         else:

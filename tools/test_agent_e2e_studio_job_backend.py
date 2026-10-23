@@ -191,6 +191,79 @@ def cleanup_worker(session):
     return effects
 
 
+def test_cleanup_inventories_dispatched_job_without_studio_ownership(job_session, server):
+    session, native, action = job_session
+    action(EXECUTE, native.action['input']['arguments'])
+    native.succeed()
+    effects = cleanup_worker(session)
+    session.cleanup_ownership = lambda: None
+    original_ledger = copy.deepcopy(session.durable.state['ledger'])
+    observed = session.cleanup()
+    assert effects == ['stop']
+    assert observed['status'] == 'blocked'
+    assert {'component': 'sql-cleanup', 'errorType': 'PackError'} in observed['failures']
+    inventory = session.value('managed-job-cleanup')
+    assert inventory['resourceIds'] == ['honua://jobs/gp-actual-job']
+    assert inventory['jobs'][0]['jobId'] == 'gp-actual-job'
+    assert inventory['jobs'][0]['retirementObserved'] is False
+    assert any(path == '/api/v1/admin/jobs/gp-actual-job/artifacts?limit=200' for _, path, *_ in server.seen)
+    assert session.durable.state['ledger'] == original_ledger
+
+
+def test_recovery_reads_original_observer_selection_without_ordinal_copy(job_session, authoring):
+    session, native, action = job_session
+    retain = session.retain
+    def retain_before_interruption(phase, value):
+        reference = retain(phase, value)
+        if phase.startswith('job-selected-'):
+            raise RuntimeError('controller interrupted after durable selection')
+        return reference
+    session.retain = retain_before_interruption
+    with pytest.raises(RuntimeError, match='controller interrupted'):
+        action(EXECUTE, native.action['input']['arguments'])
+    session.retain = retain
+    assert not any(row['phase'].startswith('job-ordinal-') for row in session.durable.state['scenarioOperations'].values()
+                   if row.get('producer') == session.PROFILE)
+    selected = session.job_selections()
+    assert len(selected) == 1 and selected[0]['jobId'] == 'gp-actual-job'
+    native.succeed()
+    cleanup_worker(session)
+    assert session.cleanup()['status'] == 'blocked'
+    assert session.value('managed-job-cleanup')['resourceIds'] == ['honua://jobs/gp-actual-job']
+    assert session.value('managed-job-cleanup')['unresolvedExecutions'] == []
+
+
+@pytest.mark.parametrize('copies', ['legacy-only', 'matching', 'conflicting'])
+def test_recovered_selection_preserves_legacy_records_and_rejects_conflicting_copies(job_session, copies):
+    session, native, action = job_session
+    action(EXECUTE, native.action['input']['arguments'])
+    original = session.job_selections()[0]
+    alias = copy.deepcopy(original)
+    if copies == 'conflicting':
+        alias['jobId'] = 'different-job'
+    session.retain('job-ordinal-'+str(original['ordinal']), alias)
+    if copies == 'legacy-only':
+        del session.durable.state['scenarioOperations'][session.phase_key('job-selected-'+original['actionId'])]
+    if copies == 'conflicting':
+        with pytest.raises(PackError, match='selection copies disagree'):
+            session.job_selections()
+    else:
+        assert session.job_selections() == [original]
+
+
+def test_unknown_execute_without_studio_ownership_still_retains_cleanup_obligation(job_session):
+    session, native, _ = job_session
+    session.retain('model-action-1', {'action': native.action, 'dispatch': native.dispatch})
+    effects = cleanup_worker(session)
+    session.cleanup_ownership = lambda: None
+    original_ledger = copy.deepcopy(session.durable.state['ledger'])
+    assert session.cleanup()['status'] == 'blocked'
+    assert effects == ['stop']
+    remaining = session.value('managed-job-cleanup')
+    assert remaining['resourceIds'] == [] and len(remaining['unresolvedExecutions']) == 1
+    assert session.durable.state['ledger'] == original_ledger
+
+
 @pytest.mark.parametrize('status', [200, 403, 404, 503])
 def test_sql_and_worker_cleanup_do_not_retire_a_native_job_or_settle_its_hold(job_session, authoring, server, status):
     session, native, _ = job_session
@@ -208,7 +281,7 @@ def test_sql_and_worker_cleanup_do_not_retire_a_native_job_or_settle_its_hold(jo
     observed = session.cleanup()
     assert effects == ['stop', 'sql']
     assert observed['status'] == 'blocked'
-    assert observed['failures'] == [{'component': 'sql-cleanup', 'errorType': 'PackError'}]
+    assert observed['failures'] == [{'component': 'resource-cleanup', 'errorType': 'PackError'}]
     assert session.value('managed-job-sql-cleanup')['resourceIds'] == []
     remaining = session.value('managed-job-cleanup')
     assert remaining['resourceIds'] == ['honua://jobs/gp-actual-job']
@@ -245,5 +318,6 @@ def test_no_dispatched_gp_action_has_no_gp_cleanup_obligation(job_session):
     cleanup_worker(session)
     # Only the scoped fixture hook is called: no compute receipt is invented.
     assert session.cleanup_fixture({'ownership': 'exact-sql-fixture'})['resourceIds'] == []
+    session.cleanup_resources()
     assert session.value('managed-job-cleanup') == {'status': 'pass',
         'reason': 'no-managed-execution-dispatched', 'resourceIds': [], 'jobs': [], 'unresolvedExecutions': []}
