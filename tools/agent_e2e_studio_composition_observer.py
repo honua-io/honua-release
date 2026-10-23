@@ -151,6 +151,8 @@ class StudioCompositionObserver:
                     'model edit lacks its native actor/generation transition')
             require(all(value.get(key) == item for key, item in observed.items()), 'worker edit output differs from native persisted draft')
         record = {'tool': tool, 'actionId': dispatch['actionId'], 'requestDigest': dispatch['requestDigest'],
+            'ordinal': dispatch.get('ordinal'), 'request': {key: copy.deepcopy(action[key]) for key in ('name', 'input')},
+            'publicResult': copy.deepcopy(worker_result['agentResult']),
             'workerResultDigest': canonical_digest(worker_result['agentResult']), 'bindingDigest': canonical_digest(self.binding),
             'resource': copy.deepcopy(observed), 'nativeReferences': references}
         self.retain('authoring-selected-'+dispatch['actionId'], record)

@@ -1,6 +1,6 @@
 output "controller_handoff" {
   description = "Nonsecret checked-source handoff contract. Snapshot this reviewed output into certification/agent-e2e/controller-handoff.json before dispatch. Does not assert readiness or create an accounting generation."
-  value = {
+  value = var.dispatch_budget == null ? null : {
     schemaVersion     = 1
     region            = var.region
     accountId         = var.account_id
@@ -17,14 +17,14 @@ output "controller_handoff" {
     maxSeconds        = var.controller_max_seconds
   }
   precondition {
-    condition     = var.dispatch_budget.state == module.accounting.state_config
+    condition     = var.dispatch_budget == null ? true : var.dispatch_budget.state == module.accounting.state_config
     error_message = "The original retained candidate accounting namespace must match this root; import/reconcile existing history instead of resetting or substituting a fresh allowance."
   }
 }
 output "dispatcher_role_arn" { value = aws_iam_role.dispatcher.arn }
 output "fixture_handoff" {
   description = "Exact nonsecret private P10 transfer task; SQL role provisioning is a separate checked prerequisite."
-  value       = local.fixture_handoff
+  value       = var.dispatch_budget == null ? null : local.fixture_handoff
 }
 output "target_readiness" {
   value = { service = module.target.ecs_service_name, workerSecurityGroupIds = [aws_security_group.worker.id] }
@@ -50,4 +50,9 @@ output "fixture_staging" {
     condition     = var.issued_native_keys == null || var.issued_agent_key_id == null ? true : var.issued_native_keys.agent.apiKeyId == var.issued_agent_key_id
     error_message = "The legacy explicit agent key ID and retained native-bootstrap identity must agree."
   }
+}
+
+output "accounting_staging" {
+  description = "Actual create-only accounting destination. A missing generation permits no controller dispatch. Initialize through the checked source workflow and review its original receipt before enabling dispatch_budget."
+  value       = { state = module.accounting.state_config, candidateKey = var.candidate_digest, dispatchEnabled = var.dispatch_budget != null }
 }

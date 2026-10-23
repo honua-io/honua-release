@@ -13,8 +13,8 @@ variable "native_bootstrap" {
 locals {
   native_bootstrap_config = var.native_bootstrap == null ? null : merge(var.native_bootstrap, {
     schemaVersion        = 1, region = var.region, accountId = var.account_id, candidateKey = var.candidate_digest,
-    generationDigest     = var.dispatch_budget.generationDigest,
-    state                = var.dispatch_budget.state, databaseHost = nonsensitive(module.target.db_endpoint), database = local.database,
+    generationDigest     = var.dispatch_budget == null ? null : var.dispatch_budget.generationDigest,
+    state                = module.accounting.state_config, databaseHost = nonsensitive(module.target.db_endpoint), database = local.database,
     appRole              = local.app_role, cleanupRole = local.fixture_roles.cleanup, observerRole = local.fixture_roles.observer,
     endpoint             = local.origin, secretArns = { for kind, secret in aws_secretsmanager_secret.api : kind => secret.arn },
     bucket               = aws_s3_bucket.handoff.id, receiptKey = "native/bootstrap/${local.candidate_hex}/${var.native_bootstrap.operation.operationId}.json",
@@ -65,19 +65,27 @@ resource "aws_iam_role_policy" "native_bootstrap" {
   ] })
 }
 resource "aws_iam_role_policy" "dispatch_native_bootstrap" {
-  count = var.native_bootstrap == null ? 0 : 1
+  count = var.native_bootstrap == null || var.dispatch_budget == null ? 0 : 1
   role  = aws_iam_role.dispatcher.id
   policy = jsonencode({ Version = "2012-10-17", Statement = [
     { Effect = "Allow", Action = "ecs:RunTask", Resource = aws_ecs_task_definition.native_bootstrap[0].arn, Condition = { ArnEquals = { "ecs:cluster" = local.target_cluster_arn } } },
+    { Effect = "Allow", Action = "iam:PassRole", Resource = [aws_iam_role.native_bootstrap[0].arn, aws_iam_role.execution["fixture"].arn], Condition = { StringEquals = { "iam:PassedToService" = "ecs-tasks.amazonaws.com" } } }
+  ] })
+}
+# A missing allowance disables new launches, while retaining observation and
+# bounded stop authority for any original task that still needs cleanup.
+resource "aws_iam_role_policy" "observe_native_bootstrap" {
+  count = var.native_bootstrap == null ? 0 : 1
+  role  = aws_iam_role.dispatcher.id
+  policy = jsonencode({ Version = "2012-10-17", Statement = [
     { Effect = "Allow", Action = "ecs:DescribeTaskDefinition", Resource = aws_ecs_task_definition.native_bootstrap[0].arn },
     { Effect = "Allow", Action = "ecs:StopTask", Resource = "arn:aws:ecs:${var.region}:${var.account_id}:task/${module.target.ecs_cluster_name}/*" },
-    { Effect = "Allow", Action = "iam:PassRole", Resource = [aws_iam_role.native_bootstrap[0].arn, aws_iam_role.execution["fixture"].arn], Condition = { StringEquals = { "iam:PassedToService" = "ecs-tasks.amazonaws.com" } } },
     { Effect = "Allow", Action = ["s3:GetObject", "s3:GetObjectVersion"], Resource = "${aws_s3_bucket.handoff.arn}/native/bootstrap/${local.candidate_hex}/*" }
   ] })
 }
 output "native_bootstrap_handoff" {
   description = "Review this actual nonsecret task binding into source before invoking the checked private bootstrap workflow. A null output grants no initialization path."
-  value = var.native_bootstrap == null ? null : {
+  value = var.native_bootstrap == null || var.dispatch_budget == null ? null : {
     schemaVersion     = 1, region = var.region, accountId = var.account_id, clusterArn = local.target_cluster_arn,
     taskDefinitionArn = aws_ecs_task_definition.native_bootstrap[0].arn, taskRoleArn = aws_iam_role.native_bootstrap[0].arn,
     executionRoleArn  = aws_iam_role.execution["fixture"].arn, containerName = "native-bootstrap", imageUri = var.controller_image.uri,

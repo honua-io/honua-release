@@ -145,7 +145,7 @@ def reserve_overhead(durable, context, coverage):
     return allocation
 
 
-def measured_settlement(durable, context, compute, coverage, *, retain):
+def measured_settlement(durable, context, compute, coverage, *, retain, recover=False):
     """Charge native usage once, leaving exact prepaid overhead unresolved."""
     durable._require_live_lease()
     require(compute.get('producer') == 'native-ecs-duration-and-official-price' and
@@ -155,7 +155,7 @@ def measured_settlement(durable, context, compute, coverage, *, retain):
     require(overhead is not None and overhead['candidateKey'] == durable.store.candidate and
             overhead['coverageDigest'] == canonical_digest(coverage), 'measured cost lacks exact before-effect overhead admission')
     retained = durable.state.setdefault('nativeCostAllocations', {})
-    require(allocation_id not in retained, 'measured task cost already retained; do not double count')
+    require(recover or allocation_id not in retained, 'measured task cost already retained; do not double count')
     rows = [row for row in durable.state['ledger']['entries'] if row['state'] == 'reserved' and
             all(row.get(key) == context[key] for key in ('campaignId', 'caseId', 'attempt', 'campaignMode'))]
     funded = {kind: [row for row in rows if row['kind'] == kind] for kind in ('infrastructure', 'cleanup')}
@@ -172,8 +172,11 @@ def measured_settlement(durable, context, compute, coverage, *, retain):
         'infrastructureUsd': compute['listPriceComputeUsd'], 'cleanupUsd': '0',
         'cleanupCostIncludedIn': 'infrastructureUsd; noncompute cleanup remains in operation liabilities',
         'overheadStatus': 'liability-retained'}
-    retained[allocation_id] = copy.deepcopy(allocation)
-    durable._persist()
+    if allocation_id in retained:
+        require(retained[allocation_id] == allocation, 'recovered measured task cost differs from original allocation')
+    else:
+        retained[allocation_id] = copy.deepcopy(allocation)
+        durable._persist()
     retain('measured-cost-allocation', allocation)
     return {'status': 'settled', 'infrastructureUsd': allocation['infrastructureUsd'],
             'cleanupUsd': allocation['cleanupUsd'], 'allocationDigest': canonical_digest(allocation),

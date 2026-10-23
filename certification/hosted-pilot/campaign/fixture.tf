@@ -11,8 +11,8 @@ locals {
     region               = var.region
     accountId            = var.account_id
     candidateKey         = var.candidate_digest
-    generationDigest     = var.dispatch_budget.generationDigest
-    state                = var.dispatch_budget.state
+    generationDigest     = var.dispatch_budget == null ? null : var.dispatch_budget.generationDigest
+    state                = module.accounting.state_config
     bucket               = aws_s3_bucket.handoff.id
     requestPrefix        = "fixture/requests/${local.candidate_hex}/"
     receiptPrefix        = "fixture/receipts/${local.candidate_hex}/"

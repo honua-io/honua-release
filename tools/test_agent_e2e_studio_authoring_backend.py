@@ -69,6 +69,30 @@ def test_unsaved_edit_after_model_save_cannot_qualify_old_version_as_current_com
     assert session.value('authoring-final') is None
 
 
+def test_session_joins_new_saved_id_to_original_model_action_and_keeps_frozen_content(session, authoring):
+    from agent_e2e_native_authoring_bindings import PROFILE
+    session.case['assertions'].append('state.saved')
+    session.retain('prepare-start', {'startedAt': authoring.binding['notBefore']})
+    session.durable._fixture_identity = lambda _: session.key
+    path = session.bundle/'expectations.json'
+    expected = json.loads(path.read_text())
+    case = expected['cases'][session.context['caseId']]
+    desired_body = {'title': 'Model selected draft', 'layers': [{'id': 'parcels', 'sourceId': 'native-source', 'visible': True}],
+                    'view': {'bbox': [0, 0, 100, 100], 'crs': 'EPSG:3857'}}
+    case['assertions']['state.saved'] = {'resourceId': authoring.binding['itemId'], 'versionId': {'$native': 'save.savedVersionId'},
+        'documentSha256': canonical_digest(desired_body)[7:]}
+    case['nativeBindings'] = {'save': {'profile': PROFILE, 'fields': ['savedVersionId'], 'relationships': {
+        **{key: authoring.binding[key] for key in ('itemId', 'family', 'namespace', 'ownerPrincipalId')},
+        'startingVersionId': None, 'minimumVersionNumber': 1}, 'observers': {'1': {
+            'endpoint': authoring.observer.http.client.endpoint, 'attemptId': authoring.observer.http.identity['attemptId'], 'credentialKind': 'api-key'}}}}
+    path.write_text(json.dumps(expected))
+    create_and_compose(authoring, session, save=True)
+    assert session.verify()['failedAssertions'] == ['render.actual']
+    report = session.durable.state['nativeBindings'][session.key+'/save/saved']
+    assert report['values']['savedVersionId'] == authoring.state.current
+    assert session.value('verification')['observations']['state.saved']['documentSha256'] == case['assertions']['state.saved']['documentSha256']
+
+
 @pytest.mark.parametrize('mode,case', [('qualification', 'P08:A:aws-ecs-redis-on'),
     ('development', 'P08:C:aws-ecs-redis-on'), ('development', 'P08:A:aws-eks'),
     ('development', 'P04:A:aws-ecs-redis-on'), ('development', 'L03:A:aws-lambda')])

@@ -8,8 +8,11 @@ import re
 import subprocess
 import tempfile
 
-from deploy import ROOT, require
+from deploy import ROOT, require, budget
 from controller_archive import contract
+from image_retention import verify as verify_retention
+
+MAX_IMAGE_BYTES = 4*1024*1024*1024
 
 
 def call(args, *, cwd=ROOT, capture=False, input=None):
@@ -32,6 +35,8 @@ def main():
     require(run_id.isdecimal() and attempt.isdecimal() and int(run_id) > 0 and int(attempt) > 0, 'positive producing run identity required')
     account = json.loads(call(['aws', 'sts', 'get-caller-identity', '--output', 'json'], capture=True))
     require(account['Account'] == e['PILOT_ACCOUNT_ID'], 'controller image account mismatch')
+    retention = verify_retention(repository[len(prefix):], e['PILOT_ACCOUNT_ID'], e['PILOT_REGION'], call=call, kind='controller')
+    original_budget = budget()
     tag = source + '-' + run_id + '-' + attempt
     image = repository + ':' + tag
     source_tree = call(['git', 'rev-parse', source + '^{tree}'], capture=True)
@@ -46,6 +51,8 @@ def main():
         call(['docker', 'build', '--platform', 'linux/amd64', '--build-arg', 'RELEASE_SOURCE_SHA=' + source,
               '--build-arg', 'RELEASE_TREE_ID=' + source_tree, '--build-arg', 'RELEASE_ARCHIVE_SHA256=' + archive_digest,
               '-f', str(context / 'certification/hosted-pilot/controller/Dockerfile'), '-t', image, str(context)])
+        size = int(call(['docker', 'image', 'inspect', '--format', '{{.Size}}', image], capture=True))
+        require(0 < size <= MAX_IMAGE_BYTES, 'controller image exceeds its bounded artifact-storage liability')
         call(['docker', 'run', '--rm', '--read-only', '--network', 'none', '--entrypoint', 'python', image,
               'tools/hosted_pilot/controller_source.py', 'verify', '--source-sha', source, '--tree-id', source_tree,
               '--archive-sha256', archive_digest, '--receipt', '/opt/honua-controller-source.json'])
@@ -53,6 +60,12 @@ def main():
               'import sys; sys.path.insert(0,"tools"); import boto3, psycopg, yaml, jsonschema, cryptography, agent_e2e_campaign, agent_e2e_fixture_database'])
         call(['docker', 'run', '--rm', '--read-only', '--network', 'none', '--entrypoint', 'python', image, '-c',
               'import os,pathlib,tempfile; assert os.geteuid()==10001; p=pathlib.Path(tempfile.mkstemp(dir="/work")[1]); p.write_text("private"); p.unlink(); assert not os.access("/controller",os.W_OK)'])
+        call(['docker', 'run', '--rm', '--read-only', '--network', 'none', '--cap-drop', 'ALL',
+              '--security-opt', 'no-new-privileges', '--tmpfs', '/work:rw,nosuid,nodev,mode=1777',
+              '-e', 'HOME=/work', '-e', 'TMPDIR=/work', '--entrypoint', '/usr/local/bin/node', image,
+              'certification/hosted-pilot/controller/browser/smoke.mjs'])
+        require(verify_retention(repository[len(prefix):], e['PILOT_ACCOUNT_ID'], e['PILOT_REGION'], call=call, kind='controller') == retention,
+                'controller artifact expiry changed before publication')
         # Only the registry login token enters docker's stdin, never logs/artifacts.
         password = subprocess.run(['aws', 'ecr', 'get-login-password', '--region', e['PILOT_REGION']], capture_output=True)
         require(password.returncode == 0, 'controller registry login refused')
@@ -63,7 +76,7 @@ def main():
             call(['docker', 'logout', repository.split('/')[0]])
     digest = call(['aws', 'ecr', 'describe-images', '--region', e['PILOT_REGION'], '--repository-name', repository[len(prefix):], '--image-ids', 'imageTag=' + tag, '--query', 'imageDetails[0].imageDigest', '--output', 'text'], capture=True)
     require(re.fullmatch('sha256:[a-f0-9]{64}', digest), 'immutable controller registry digest missing')
-    receipt = {'schema': 'honua.hosted-controller-image/v1', 'repository': e['GITHUB_REPOSITORY'], 'source_sha': source, 'tree_id': source_tree, 'archive_sha256': archive_digest, 'workflow': 'hosted-pilot-controller-image.yml', 'run_id': run_id, 'run_attempt': attempt, 'image': repository + '@' + digest, 'image_digest': digest, 'platform': 'linux/amd64', 'runtime_contract_sha256': runtime_contract}
+    receipt = {'schema': 'honua.hosted-controller-image/v1', 'repository': e['GITHUB_REPOSITORY'], 'source_sha': source, 'tree_id': source_tree, 'archive_sha256': archive_digest, 'workflow': 'hosted-pilot-controller-image.yml', 'run_id': run_id, 'run_attempt': attempt, 'image': repository + '@' + digest, 'image_digest': digest, 'platform': 'linux/amd64', 'runtime_contract_sha256': runtime_contract, 'image_bytes': size, 'owner_budget': original_budget, 'retention': retention}
     (Path(e['RUNNER_TEMP']) / 'hosted-pilot-controller-image.json').write_text(json.dumps(receipt, sort_keys=True) + '\n')
     print('Verified trusted controller image published with immutable source receipt.')
 

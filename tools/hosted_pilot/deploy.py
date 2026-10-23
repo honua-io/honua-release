@@ -14,11 +14,12 @@ import sys
 
 ROOT = Path(__file__).resolve().parents[2]
 TF_ROOT = os.environ.get('PILOT_TERRAFORM_ROOT', 'certification/hosted-pilot')
-if TF_ROOT not in ('certification/hosted-pilot', 'certification/hosted-pilot/bootstrap', 'certification/hosted-pilot/campaign'):
+if TF_ROOT not in ('certification/hosted-pilot', 'certification/hosted-pilot/bootstrap', 'certification/hosted-pilot/campaign', 'certification/hosted-pilot/worker'):
     raise ValueError('unreviewed Terraform root')
 TF = ROOT / TF_ROOT
 BOOTSTRAP = TF_ROOT.endswith('/bootstrap')
 CAMPAIGN = TF_ROOT.endswith('/campaign')
+WORKER = TF_ROOT.endswith('/worker')
 SHA = re.compile(r'[a-f0-9]{64}')
 
 
@@ -83,9 +84,14 @@ def backend():
     require(e['PILOT_STATE_KEY'].startswith('honua/hosted-pilot/') and '..' not in e['PILOT_STATE_KEY'], 'isolated backend key required')
     require(re.fullmatch(r'arn:aws:kms:' + re.escape(e['PILOT_REGION']) + ':' + e['PILOT_ACCOUNT_ID'] + r':key/[a-f0-9-]+', e['PILOT_PLAN_KMS_ARN']), 'explicit regional plan KMS key required')
     state_key = e['PILOT_STATE_KEY']
-    if CAMPAIGN:
+    if CAMPAIGN or WORKER:
         require(state_key.endswith('/terraform.tfstate'), 'campaign deployment requires original reviewed base state binding')
-        state_key = state_key.removesuffix('terraform.tfstate') + 'campaign.tfstate'
+        if WORKER:
+            value = json.loads(config(e['PILOT_CONFIG_PATH']).read_text())
+            require(re.fullmatch(r'[a-z0-9-]{3,40}', value['attempt_id']), 'worker state requires exact original attempt identity')
+            state_key = state_key.removesuffix('terraform.tfstate') + 'workers/'+value['attempt_id']+'/terraform.tfstate'
+        else:
+            state_key = state_key.removesuffix('terraform.tfstate') + 'campaign.tfstate'
     values = {'bucket': e['PILOT_STATE_BUCKET'], 'key': state_key, 'region': e['PILOT_REGION'], 'encrypt': True, 'kms_key_id': e['PILOT_STATE_KMS_ARN'], 'use_lockfile': True, 'assume_role': {'role_arn': e['PILOT_BACKEND_ROLE_ARN']}}
     private_json(TF / 'backend.tf.json', {'terraform': {'backend': {'s3': values}}})
     return hashlib.sha256(json.dumps(values, sort_keys=True).encode()).hexdigest()
@@ -183,6 +189,9 @@ def main():
     cfg = config(args.config)
     backend_hash = initialize(work)
     custody()
+    if WORKER and os.environ['PILOT_OPERATION'] == 'apply':
+        from worker_allowance import verify as verify_worker_allowance
+        verify_worker_allowance(json.loads(cfg.read_text()), work, aws=aws, require=require)
     binding = budget() if os.environ['PILOT_OPERATION'] == 'apply' and not BOOTSTRAP else {'version_id': os.environ['PILOT_BUDGET_VERSION_ID'], 'sha256': os.environ['PILOT_BUDGET_SHA256']}
     e = os.environ
     key = f"hosted-pilot/plans/{e['GITHUB_RUN_ID']}/{e['PILOT_PLAN_ATTEMPT']}/saved.tfplan"

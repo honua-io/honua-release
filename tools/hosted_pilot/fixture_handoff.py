@@ -12,6 +12,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from agent_e2e_pack import PackError, canonical_digest
 
 COMMAND = ['python', 'tools/hosted_pilot/fixture_provisioner.py', 'transfer-ownership']
+IMPORT_PROFILE = 'honua.model-import-owned-tables/v1'
 CONFIG_FIELDS = {'schemaVersion', 'region', 'accountId', 'clusterArn', 'taskDefinitionArn',
                  'containerName', 'imageUri', 'controllerRoleArn', 'executionRoleArn',
                  'subnetIds', 'securityGroupIds', 'requestBucket', 'requestPrefix',
@@ -35,8 +36,9 @@ def sdk(service, region):
 
 
 def validate_request(request):
-    require(isinstance(request, dict) and set(request) == {'schemaVersion', 'candidateKey', 'database',
-            'baselineDigest', 'expectedCleanupRole', 'tables'} and request['schemaVersion'] == 1,
+    fields = {'schemaVersion', 'candidateKey', 'database', 'baselineDigest', 'expectedCleanupRole', 'tables'}
+    imported = isinstance(request, dict) and request.get('profile') == IMPORT_PROFILE
+    require(isinstance(request, dict) and set(request) == fields | ({'profile', 'nativeImports'} if imported else set()) and request['schemaVersion'] == 1,
             'invalid fixture ownership request shape')
     for key in ('candidateKey', 'baselineDigest'):
         require(isinstance(request[key], str) and re.fullmatch(r'sha256:[a-f0-9]{64}', request[key]), 'fixture ownership digest missing')
@@ -49,14 +51,27 @@ def validate_request(request):
             'fixture ownership lacks observed isolated database identity')
     require(re.fullmatch(r'[a-z][a-z0-9_]{0,62}', request['expectedCleanupRole']), 'invalid cleanup SQL role')
     tables = request['tables']
-    require(isinstance(tables, list) and len(tables) == 3, 'ownership transfer requires exactly three P10 tables')
+    require(isinstance(tables, list) and (1 <= len(tables) <= 16 if imported else len(tables) == 3),
+            'model import requires 1..16 exact outputs; legacy ownership requires exactly three P10 tables')
     for table in tables:
         require(isinstance(table, dict) and set(table) == {'oid', 'schema', 'name', 'owner'} and
                 table['schema'] == 'honua_data' and type(table['oid']) is int and table['oid'] > 0 and
                 all(isinstance(table[key], str) and re.fullmatch(r'[a-z][a-z0-9_]{0,62}', table[key]) for key in ('name', 'owner')) and
                 table['owner'] != request['expectedCleanupRole'], 'invalid or already-transferred observed fixture table')
-    require(len({row['oid'] for row in tables}) == 3 and len({row['name'] for row in tables}) == 3,
+    require(len({row['oid'] for row in tables}) == len(tables) and len({row['name'] for row in tables}) == len(tables),
             'duplicate fixture table ownership identity')
+    if imported:
+        imports = request['nativeImports']
+        require(isinstance(imports, list) and len(imports) == len(tables), 'model import needs one original native job per physical table')
+        for item in imports:
+            require(isinstance(item, dict) and set(item) == {'taskId', 'taskRevision', 'taskContentHash', 'jobId', 'leaseId', 'tableOid', 'taskReference', 'submissionReference'} and
+                    type(item['taskRevision']) is int and item['taskRevision'] > 0 and re.fullmatch(r'[a-f0-9]{64}', item['taskContentHash']) and
+                    all(isinstance(item[key], str) and re.fullmatch(r'[A-Za-z0-9_-]{1,200}', item[key]) for key in ('taskId', 'jobId', 'leaseId')) and
+                    type(item['tableOid']) is int and item['tableOid'] in {row['oid'] for row in tables}, 'model import lacks bounded actual native task/job/lease binding')
+            for reference in (item['taskReference'], item['submissionReference']):
+                require(isinstance(reference, dict) and set(reference) == {'key', 'sha256'} and isinstance(reference['key'], str) and
+                        0 < len(reference['key']) <= 512 and re.fullmatch(r'sha256:[a-f0-9]{64}', reference['sha256']), 'model import original GET reference is missing')
+        require(len({item['tableOid'] for item in imports}) == len(tables) and len({item['jobId'] for item in imports}) == len(tables), 'model import repeats a job or physical output')
 
 
 def validate_configuration(config):
@@ -99,6 +114,26 @@ def verify_task(definition, config):
     return container
 
 
+
+def ownership_claim(request, context, retained):
+    """Original P10/legacy claims stay fixed; distinct import outputs get claims.
+
+    A request digest never grants SQL authority. The private provisioner must
+    independently replay the exact retained request and original native oracles.
+    """
+    attempt = canonical_digest({key: context[key] for key in ('campaignId', 'caseId', 'attempt')})
+    request_digest = canonical_digest(request)
+    imported = request.get('profile') == IMPORT_PROFILE
+    allowed = (attempt, attempt+'/'+request_digest) if imported else (attempt,)
+    require(set(retained) == {'key', 'sha256'} and retained['key'] in allowed and retained['sha256'] == request_digest,
+            'ownership claim differs from its exact original retained request')
+    binding = {'candidateKey': request['candidateKey'], 'context': context,
+               'kind': 'model-import-ownership' if imported else 'fixture-ownership'}
+    if imported and retained['key'] != attempt:
+        binding['requestDigest'] = request_digest
+    return canonical_digest(binding)
+
+
 def transfer_ownership(request, *, durable, context, configuration, timeout=300):
     """One native task launch; an ambiguous result never authorizes a retry."""
     validate_request(request)
@@ -110,7 +145,8 @@ def transfer_ownership(request, *, durable, context, configuration, timeout=300)
             config['receiptPrefix'].split('/')[2] == request['candidateKey'][7:], 'fixture handoff belongs to another candidate')
     # The retained baseline/request and reserved liabilities remain authoritative;
     # a request object alone grants no SQL privilege to the task.
-    retained = durable.retain_fixture_transfer_request(context, request)
+    retained = (durable.retain_import_transfer_request(context, request) if request.get('profile') == IMPORT_PROFILE
+                else durable.retain_fixture_transfer_request(context, request))
     require(retained['sha256'] == canonical_digest(request), 'fixture request was not durably retained')
     durable._require_live_lease()
     head = durable.store.db.get_item(TableName=durable.store.table, Key=durable.store.key, ConsistentRead=True)['Item']
@@ -125,7 +161,7 @@ def transfer_ownership(request, *, durable, context, configuration, timeout=300)
     body = encoded(envelope)
     require(len(body) <= 65536, 'fixture ownership handoff exceeds bounded size')
     request_digest = 'sha256:' + hashlib.sha256(body).hexdigest()
-    claim_key = canonical_digest({'candidateKey': request['candidateKey'], 'context': envelope['context'], 'kind': 'fixture-ownership'})
+    claim_key = ownership_claim(request, envelope['context'], retained)
     s3, ecs = sdk('s3', config['region']), sdk('ecs', config['region'])
     verify_task(ecs.describe_task_definition(taskDefinition=config['taskDefinitionArn']), config)
     require(s3.get_bucket_versioning(Bucket=config['requestBucket']).get('Status') == 'Enabled', 'fixture handoff bucket must retain immutable versions')
@@ -172,6 +208,7 @@ def transfer_ownership(request, *, durable, context, configuration, timeout=300)
             receipt['database'] == request['database'] and receipt['before'] == request['tables'] and
             receipt['after'] == [row | {'owner': request['expectedCleanupRole']} for row in request['tables']],
             'fixture task receipt does not bind exact source/task/database/OID ownership effects')
+    require(request.get('profile') != IMPORT_PROFILE or receipt.get('profile') == IMPORT_PROFILE, 'model import receipt changed its distinct ownership profile')
     durable._require_live_lease()
     return receipt | {'receiptObject': {'bucket': config['requestBucket'], 'key': receipt_key,
             'versionId': response['VersionId'], 'sha256': 'sha256:' + hashlib.sha256(raw).hexdigest()}}

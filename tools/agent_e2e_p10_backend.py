@@ -403,9 +403,10 @@ class Session:
                 raise PackError('P10 launched worker intent is missing')
         except Exception as exc:
             failures.append({'component': 'worker-stop', 'errorType': type(exc).__name__})
-        ownership = self.durable.state.get('fixtureOwnership', {}).get(self.key)
         sql = None
         try:
+            self.prepare_cleanup_ownership()
+            ownership = self.cleanup_ownership()
             require(ownership is not None, 'P10 exact fixture ownership is unresolved')
             sql = self.cleanup_fixture(ownership)
             self.retain('sql-cleanup', sql)
@@ -424,9 +425,17 @@ class Session:
         self.retain('official-price-receipt', self.price_receipt)
         self.retain('native-compute-cost', compute)
         settlement = measured_settlement(self.durable, self.context, compute,
-            self.config['accounting']['overheadCoverage'], retain=self.retain)
+            self.config['accounting']['overheadCoverage'], retain=self.retain,
+            recover=self.context.get('importCleanupPass', 1) > 1)
         return {**cleanup, 'accountingStatus': 'settled', 'observedInfrastructureUsd': settlement['infrastructureUsd'],
                 'observedCleanupUsd': settlement['cleanupUsd']}
+
+    def prepare_cleanup_ownership(self):
+        """Case adapters may adopt final native outputs only after worker stop."""
+        return None
+
+    def cleanup_ownership(self):
+        return self.durable.state.get('fixtureOwnership', {}).get(self.key)
 
     def cleanup_fixture(self, ownership):
         self.setup = self.http('setup-cleanup', timeout=300)
@@ -464,7 +473,9 @@ class Session:
         cleanup_ref = evidence('cleanup', {'resourceIds': cleanup_value['fixtureSql']['resourceIds']}) if (
             result['cleanup']['status'] == 'pass' and cleanup_value['fixtureSql'] is not None) else evidence('cleanup', cleanup_value)
         evidence('fixture-baseline', self.durable.state.get('fixtureBaselines', {}).get(self.key))
-        evidence('fixture-ownership', self.durable.state.get('fixtureOwnership', {}).get(self.key))
+        evidence('fixture-ownership', self.cleanup_ownership())
+        evidence('fixture-ownership-history', {key: value for key, value in self.durable.state.get('fixtureOwnership', {}).items()
+            if key == self.key or key.startswith(self.key+'/import-cleanup-')})
         evidence('fixture-cleanup-stages', {key: value for key, value in self.durable.state.get('fixtureCleanup', {}).items()
                                           if key.startswith(self.key+'/')})
         oracle = None

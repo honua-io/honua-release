@@ -82,6 +82,28 @@ class FoundationEnvironment(unittest.TestCase):
         self.run_check(create=True)
         self.assertEqual([row[0] for row in self.calls if row[0] != 'GET'], ['POST'])
 
+class AccountingEnvironment(FoundationEnvironment):
+    def setUp(self):
+        super().setUp()
+        self.policy = json.loads((module.ROOT/'certification/hosted-pilot/accounting-environment.json').read_text())
+        self.detail['name'] = self.policy['environment']
+    def test_admin_bypass_is_refused(self):
+        self.detail['can_admins_bypass'] = True
+        with self.assertRaisesRegex(ValueError, 'administrator bypass'): self.run_check()
+        self.assertTrue(all(row[0]=='GET' for row in self.calls))
+    def test_create_explicitly_disables_administrator_bypass(self):
+        self.present = False; self.branches = []
+        self.run_check(create=True)
+        settings = next(row[2] for row in self.calls if row[0]=='PUT')
+        self.assertIs(settings['can_admins_bypass'], False)
+        self.assertEqual(settings['reviewers'], [{'type':'User','id':12301237}])
+    def test_accounting_schema_cannot_select_another_repository_environment_or_bypass(self):
+        original = copy.deepcopy(self.policy)
+        for field,value in [('repository','honua-io/foreign'),('environment','terraform-live-approval'),('can_admins_bypass',True)]:
+            self.policy = original | {field:value}
+            with self.subTest(field=field),self.assertRaises(ValueError): self.run_check(create=True)
+        self.assertEqual(self.calls, [])
+
 
 if __name__ == '__main__':
     unittest.main()

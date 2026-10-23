@@ -12,9 +12,13 @@ from deploy import ROOT, require
 
 
 def validate_policy(policy):
-    require(policy['schema'] == 'honua.hosted-pilot-foundation-environment/v1', 'unknown environment policy')
-    require(policy['repository'] == 'honua-io/honua-iac' and policy['environment'] == 'terraform-live-approval'
+    targets = {'honua.hosted-pilot-foundation-environment/v1': ('honua-io/honua-iac', 'terraform-live-approval'),
+               'honua.hosted-pilot-accounting-environment/v1': ('honua-io/honua-release', 'hosted-pilot-accounting-initialize')}
+    require(policy['schema'] in targets, 'unknown environment policy')
+    require((policy['repository'], policy['environment']) == targets[policy['schema']]
             and policy['branch'] == 'trunk', 'foundation environment target differs')
+    require(policy['schema'] != 'honua.hosted-pilot-accounting-environment/v1' or policy.get('can_admins_bypass') is False,
+            'accounting initializer environment cannot bypass human credential approval')
     require(isinstance(policy['prevent_self_review'], bool), 'invalid review policy')
     reviewers = policy['reviewers']
     require(bool(reviewers) and all(row['type'] == 'User' and isinstance(row['id'], int)
@@ -30,6 +34,8 @@ def verify_detail(policy, detail):
     actual = {(row['type'], row['reviewer']['id'], row['reviewer']['login']) for row in rules[0].get('reviewers', [])}
     expected = {(row['type'], row['id'], row['login']) for row in policy['reviewers']}
     require(actual == expected, 'reviewer identity policy differs; review configuration before changing it')
+    if 'can_admins_bypass' in policy:
+        require(detail.get('can_admins_bypass') == policy['can_admins_bypass'], 'environment administrator bypass differs')
 
 
 def reconcile(policy, *, create=False):
@@ -50,11 +56,14 @@ def reconcile(policy, *, create=False):
         for row in policy['reviewers']:
             user = api('GET', 'users/' + row['login'])
             require(user['id'] == row['id'] and user['type'] == 'User', 'reviewer account identity differs')
-        api('PUT', endpoint, {
+        settings = {
             'reviewers': [{'type': row['type'], 'id': row['id']} for row in policy['reviewers']],
             'prevent_self_review': policy['prevent_self_review'],
             'deployment_branch_policy': {'protected_branches': False, 'custom_branch_policies': True},
-        })
+        }
+        if 'can_admins_bypass' in policy:
+            settings['can_admins_bypass'] = policy['can_admins_bypass']
+        api('PUT', endpoint, settings)
     verify_detail(policy, api('GET', endpoint))
     branches = api('GET', endpoint + '/deployment-branch-policies?per_page=100')['branch_policies']
     if not branches and create:
@@ -67,11 +76,16 @@ def reconcile(policy, *, create=False):
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument('mode', choices=['check', 'create'])
+    parser.add_argument('--policy', choices=['foundation', 'accounting'], default='foundation')
     args = parser.parse_args()
     if args.mode == 'create':
         require(os.environ.get('GITHUB_REPOSITORY') == 'honua-io/honua-release'
                 and os.environ.get('GITHUB_REF') == 'refs/heads/trunk', 'environment setup only runs from release trunk')
-    policy = json.loads((ROOT / 'certification/hosted-pilot/foundation-environment.json').read_text())
+        if args.policy == 'accounting':
+            require(os.environ.get('GITHUB_WORKFLOW_REF') ==
+                    'honua-io/honua-release/.github/workflows/hosted-pilot-accounting-environment.yml@refs/heads/trunk',
+                    'accounting environment administration requires its exact checked workflow')
+    policy = json.loads((ROOT / ('certification/hosted-pilot/'+args.policy+'-environment.json')).read_text())
     reconcile(policy, create=args.mode == 'create')
     print('Foundation environment matches its reviewed human-approval and trunk policy.')
 
