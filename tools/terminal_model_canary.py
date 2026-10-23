@@ -1106,7 +1106,9 @@ def driver_failure_diagnostic(response: Any) -> str:
     if rows:
         return "; checks=" + ",".join(rows)
     error = response.get("error")
-    category = error.split(":", 1)[0] if isinstance(error, str) else ""
+    category = response.get("errorCategory")
+    if not isinstance(category, str):
+        category = error.split(":", 1)[0] if isinstance(error, str) else ""
     if category in {"DriverError", "ExecutionError", "KeyError", "ValueError", "TypeError",
                     "AttributeError", "OSError", "RuntimeError", "JSONDecodeError", "NameError"}:
         return "; driverError=" + category

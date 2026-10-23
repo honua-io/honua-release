@@ -1573,6 +1573,27 @@ def test_driver_exception_diagnostics_never_include_arbitrary_error_values(error
     assert canary.driver_failure_diagnostic({"status": "fail", "error": error}) == expected
 
 
+@pytest.mark.parametrize("category,exception", [
+    ("DriverError", "live_driver.DriverError('private-sentinel')"),
+    ("ExecutionError", "live_driver.ExecutionError('private-command', 'private-sentinel')"),
+])
+def test_real_driver_handled_exceptions_preserve_category_without_error_text(tmp_path, category, exception):
+    script = tmp_path / "driver.py"
+    script.write_text(
+        "import sys\n"
+        + "sys.path.insert(0," + repr(str(REPO_ROOT / 'certification' / 'terminal-journey')) + ")\n"
+        + "import live_driver\n"
+        + "def fail(request):\n    raise " + exception + "\n"
+        + "live_driver.OPERATIONS['observe'] = fail\n"
+        + "raise SystemExit(live_driver.main())\n")
+    driver = canary.DriverAdapter(script, json.loads(PROTOCOL.read_text()))
+    with pytest.raises(canary.CanaryError) as failed:
+        driver.invoke("observe", {"workspaceId": "w", "stage": "style-render"})
+    assert str(failed.value) == "#123 driver observe failed with exit code 1; driverError=" + category
+    assert "private-" not in str(failed.value)
+    assert canary.driver_failure_diagnostic({"status": "fail", "errorCategory": "private-sentinel"}) == "; structuredFailure=true"
+
+
 def test_driver_on_another_endpoint_than_the_model_proxy_cannot_certify_the_cell(monkeypatch):
     # The cloud cell's proxy cannot be certified by a driver that composed a local stack.
     receipt = _attribution_run(monkeypatch, setup={
