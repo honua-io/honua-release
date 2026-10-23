@@ -82,6 +82,35 @@ def restore_datasource_environment(target):
         os.environ.setdefault("HONUA_JOURNEY_DATASOURCE_PASSWORD", "honua")
 
 
+def prepare_style_catalog(target, transport):
+    """Install the authored input preset, without applying it to any layer.
+
+    The model needs the same catalog input as the deterministic driver. It must
+    still discover, select and apply it, and prove the actual rendered pixels.
+    The deterministic driver keeps its unconditional create and HTTP 201 check:
+    a cloud retry must not pass by reusing a prior attempt's retained style.
+    Never replace a pre-existing catalog document with different content.
+    """
+    fixture = target.get("execution") or {}
+    style_id, style = fixture.get("styleId"), fixture.get("style")
+    if (not isinstance(style_id, str) or not KEY_ID.fullmatch(style_id)
+            or not isinstance(style, dict)):
+        raise ExecutionError("prepare style catalog", "authored style fixture is unavailable")
+    path = "/ogc/styles/" + style_id
+    headers = {"Accept": "application/vnd.mapbox.style+json"}
+    raw, status = transport.http("GET", path, principal="operator", expected=(200, 404), extra_headers=headers)
+    if status == 404:
+        transport.http("POST", "/ogc/styles", principal="operator", body=style, expected=(201,),
+                       extra_headers={"X-Style-Id": style_id})
+        raw, _ = transport.http("GET", path, principal="operator", extra_headers=headers)
+    try:
+        observed = json.loads(raw)
+    except (ValueError, TypeError) as exc:
+        raise ExecutionError("prepare style catalog", "candidate did not return a style document") from exc
+    if observed != style:
+        raise ExecutionError("prepare style catalog", "candidate style differs from the authored fixture")
+
+
 def compose_env(target, workdir):
     if target.get("kind") != "local-docker":
         return {}
