@@ -1,7 +1,7 @@
-"""Narrow, replayable Server IDs under a source-frozen Studio relationship.
+"""Narrow, replayable Server IDs under a source-frozen native relationship.
 
-Random proposal/audit IDs cannot be frozen before submission. Only the two
-explicit Studio assertion fields below may refer to them. A trusted controller
+Random proposal, audit, version and job IDs cannot be frozen before submission.
+Only each finite profile's explicit assertion fields may refer to them. A trusted controller
 collects paired immutable ScenarioHttp GET originals; the gate replays those
 same native relationships. This module never sends requests, accepts model JSON
 as an original, approves an operation, or modifies frozen expectations.
@@ -41,6 +41,9 @@ def native_id(value):
 
 
 def contract(value):
+    if isinstance(value, dict) and value.get('profile') == 'honua.managed-job-bindings/v1':
+        from agent_e2e_native_job_bindings import contract as job_contract
+        return job_contract(value)
     if isinstance(value, dict) and value.get('profile') == 'honua.studio-authoring-bindings/v1':
         from agent_e2e_native_authoring_bindings import contract as authoring_contract
         return authoring_contract(value)
@@ -77,7 +80,7 @@ def marker(value):
     if isinstance(value, dict) and '$native' in value:
         exact(value, {'$native'}, 'native reference cannot carry fallback/literal fields')
         reference = value['$native']
-        require(isinstance(reference, str) and re.fullmatch(r'[a-z][a-z0-9-]{0,40}\.(?:proposalId|approvalAuditId|savedVersionId)', reference),
+        require(isinstance(reference, str) and re.fullmatch(r'[a-z][a-z0-9-]{0,40}\.(?:proposalId|approvalAuditId|savedVersionId|jobId)', reference),
                 'invalid native reference')
         return reference.split('.')
     return None
@@ -93,7 +96,7 @@ def validate_case(value):
     require(isinstance(value, dict) and set(value) in ({'assertions', 'cleanup'}, {'assertions', 'cleanup', 'nativeBindings'}),
             'invalid frozen case expectation fields')
     contracts = value.get('nativeBindings', {})
-    require(isinstance(contracts, dict) and len(contracts) <= 1, 'only one reviewed Studio binding is supported per case')
+    require(isinstance(contracts, dict) and len(contracts) <= 1, 'only one reviewed native binding is supported per case')
     used = {name: set() for name in contracts}
     for name, declaration in contracts.items():
         require(isinstance(name, str) and re.fullmatch(r'[a-z][a-z0-9-]{0,40}', name), 'invalid frozen native binding name')
@@ -116,6 +119,9 @@ def validate_case(value):
 
 
 def allowed(assertion, field, declaration):
+    if declaration.get('profile') == 'honua.managed-job-bindings/v1':
+        from agent_e2e_native_job_bindings import ALLOWED as job_allowed
+        return job_allowed.get((assertion, field))
     if declaration.get('profile') == 'honua.studio-authoring-bindings/v1':
         from agent_e2e_native_authoring_bindings import ALLOWED as authoring_allowed
         return authoring_allowed.get((assertion, field))
@@ -149,6 +155,9 @@ def original(pair, *, observer, candidate, path):
 
 def replay(report, declaration, context, *, complete=True):
     """Resolve from raw originals, retaining every ordinary oracle predicate."""
+    if declaration.get('profile') == 'honua.managed-job-bindings/v1':
+        from agent_e2e_native_job_bindings import replay as job_replay
+        return job_replay(report, declaration, context, complete=complete)
     if declaration.get('profile') == 'honua.studio-authoring-bindings/v1':
         from agent_e2e_native_authoring_bindings import replay as authoring_replay
         return authoring_replay(report, declaration, context, complete=complete)

@@ -15,6 +15,7 @@ import re
 from urllib.parse import urlsplit
 
 from agent_e2e_gp_fingerprint import fingerprint
+from agent_e2e_job_history import STATUSES, transitions
 from agent_e2e_pack import PackError, canonical_digest
 from agent_e2e_scenario_backend import successful
 from agent_e2e_studio_observer import instant
@@ -60,10 +61,11 @@ def detail(value, *, selection, binding, observed_at):
     require(instant(binding['notBefore']) <= created == instant(selection['createdAt']) <= updated <= observed_at,
             'native job is outside original attempt or has inconsistent timestamps')
     state = value.get('status')
-    require(state in ('Queued', 'Running', 'Succeeded', 'Failed', 'Cancelled', 'Retrying', 'CancelRequested'),
+    require(state in STATUSES,
             'native job has an unsupported lifecycle state')
     if state in ('Succeeded', 'Failed', 'Cancelled'):
         require(created <= instant(value.get('completedAt')) <= updated, 'terminal native job lacks actual completion time')
+    transitions(value, not_before=binding['notBefore'], observed_at=observed_at)
     return copy.deepcopy(value)
 
 

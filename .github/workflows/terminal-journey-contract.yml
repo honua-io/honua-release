@@ -125,6 +125,7 @@ jobs:
           python -m pytest certification/terminal-journey/test_live_driver.py
           certification/terminal-journey/test_style_fixture.py
           certification/terminal-journey/test_executor.py
+          certification/terminal-journey/test_map_readback.py
           tools/test_terminal_model_canary.py -q
 
       - name: Test native Docker first-use binding and approval discipline
