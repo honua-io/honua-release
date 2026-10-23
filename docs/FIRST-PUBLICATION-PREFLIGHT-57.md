@@ -50,7 +50,13 @@ from `globalcdn.nuget.org` (the flat-container `.snupkg` URL returned 404).
 |---|---|---|
 | `oci://ghcr.io/honua-io/charts/honua` | `blocked-on-candidate` | Anonymous GHCR pull token was denied (HTTP 403). honua-helm `release.yml` refuses `appVersion` `0.0.0` and requires a published `ghcr.io/honua-io/honua-server:v<semver>-aot` image. This repo does not invent that SemVer. |
 | QGIS plugin `honua` | `blocked-on-operator` | Unauthenticated GitHub API for `honua-io/honua-qgis-plugin` returned 404, and `https://plugins.qgis.org/plugins/honua/` returned 404. CI builds a ZIP only. Visibility, signing review, the release ZIP, and OSGeo submission remain honua-qgis-plugin#29. No signing secret is recorded here. |
-| `create-honua-app@0.1.7` template pins | `blocked-on-republish` | The tarball was downloaded (sha256 `f915cf5ea24c428256372935e3728f261f95e9a6f421700d8242078ff4f59117`). Both templates pin `@honua/sdk-js@0.1.13`, which is published (HTTP 200) but off-train now that the platform manifest pins 0.1.14, and `maplibre-gl@6.4.1`, still below the GHSA-jrc7-96c5-q579 fix in 6.9.0. A replacement release has to come from honua-sdk-js ([honua-sdk-js#1943](https://github.com/honua-io/honua-sdk-js/issues/1943)). |
+| `create-honua-app@0.1.7` template pins | `blocked-on-republish` | Historical October 6 observation: the tarball was downloaded (sha256 `f915cf5ea24c428256372935e3728f261f95e9a6f421700d8242078ff4f59117`). Both templates pin `@honua/sdk-js@0.1.13`, which was published (HTTP 200) but off-train against the then-current manifest pin 0.1.14. The `maplibre-gl@6.4.1` pin is patched according to the [upstream advisory](https://github.com/maplibre/maplibre-gl-js/security/advisories/GHSA-jrc7-96c5-q579); the former 6.9.0 claim was incorrect. The current machine receipt supersedes this historical SDK blocker. |
+
+The template check applies the upstream MapLibre affected range (`<=6.4.0`), with
+`6.4.1` as the first patched release. It requires exact stable pins; dependency
+ranges, tags and prereleases remain blocked until their resolved bytes can be
+reviewed. An aligned, published SDK pin and a patched MapLibre pin clear this
+template blocker only after the scaffold tarball has been downloaded and hashed.
 
 ## Deferred: experimental components
 

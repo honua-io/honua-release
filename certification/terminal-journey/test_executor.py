@@ -1405,3 +1405,11 @@ def test_only_pre_execution_refusals_of_the_selected_action_are_action_rejection
     with pytest.raises(ExecutionError) as failed:
         engine.execute(4, {"kind": "tool_call", "tool": "honua_render_map", "arguments": {}})
     assert not isinstance(failed.value, ActionRejected)
+
+
+def test_install_and_preflight_stages_act_as_the_operator_when_one_exists():
+    # honua_list_capabilities needs Catalog Discover; the proposer's write:journey key lacks it.
+    with_operator = engine_for(mock.Mock(credentials={"operator": "o", "proposer": "p"}))
+    assert [with_operator.principal(n) for n in (1, 2, 6, 7)] == ["operator", "operator", "proposer", "proposer"]
+    without = engine_for(mock.Mock(credentials={"proposer": "p"}))
+    assert without.principal(1) == "proposer"

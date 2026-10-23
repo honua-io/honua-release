@@ -50,6 +50,11 @@ services:
       # which is the canary client's own read bound. Both values are within the server's validated ranges.
       StudioAiProxy__MaxEventBytes: "4194304"
       StudioAiProxy__MaxResponseBytes: "8388608"
+      # One journey observation carries the whole bounded tool view (~130k characters, near the default
+      # MaxPromptCharacters of 128000). The canary keeps only the latest observation in the prompt; this
+      # headroom covers that observation plus the stage's action history (server range allows 500000).
+      StudioAiProxy__MaxPromptCharacters: "400000"
+      StudioAiProxy__MaxRequestBytes: "4194304"
       # Transcript signing: a key id plus a secret reference to a base64 Ed25519 seed, never the seed
       # itself in configuration. The seed comes from the TERMINAL_MODEL_TRANSCRIPT_SIGNING_SEED secret.
       StudioAiProxy__TranscriptSigning__KeyId: "${HONUA_CANARY_TRANSCRIPT_KEY_ID:-}"
