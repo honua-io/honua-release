@@ -56,6 +56,12 @@ workflow; see [human enrollment](HUMAN-ENROLLMENT.md). No invitations are sent.
 Application grants, the independently scoped agent, and actual human sign-in
 and approval evidence remain separate requirements.
 The two configured Server admin-role slots contain only the approver group.
+The Server receives `Identity__RequiredManagedIssuers__0` from this pool's exact
+issuer, also used for SCIM. A compatible Server must require current managed
+issuer/subject membership before granting authority; Cognito group claims alone
+must not restore missing or inactive membership. This binding requires native
+missing-member refusal controls and the corresponding installed image before
+runtime qualification. Other deployments retain the native empty-list default.
 
 ## Saved-plan workflow
 
