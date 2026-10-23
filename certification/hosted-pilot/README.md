@@ -1,148 +1,176 @@
-# Private hosted-pilot infrastructure preparation
+# Governed hosted pilot
 
-This root is an offline-reviewed preparation slice, not a usable hosted Console
-pilot. It consumes an immutable `aws-ecs` module commit (network outputs and
-browser-authentication secret binding:
-[honua-iac PR284](https://github.com/honua-io/honua-iac/pull/284)), isolates a new
-Server/RDS/Redis/S3 stack, and defines one private Console task with a dedicated
-empty application role and scoped execution-role secret access. Images must be
-digest-pinned and accompanied by manifest/source bindings. No credentials or
-artifact IDs are supplied in an example deployment configuration.
+This root configures an isolated Cognito-authenticated Console/Server/embedded
+Studio deployment. It does not establish a passing human session, agent campaign
+or FOSS4G demonstration. Native inference and Server Bedrock remain disabled;
+operations policy remains default-deny. It never changes the public demo.
 
-Console has no ingress rule, listener, target group or public DNS. Production
-authentication stays fail-closed; native model and Server provider execution are
-disabled. No arbitrary `auth-ready` flag enables exposure. The task's HTTPS
-egress does not prove Server connectivity: before enabling the real journey,
-bind and test a private/authenticated transport, hostname resolution and the
-Server ALB ingress for the actual task/NAT source. Operator CIDRs alone are not
-evidence that Console can reach Server.
+All creation, configuration and teardown use these versioned roots and workflows.
+Read-only inspection is permitted. Do not run local Terraform apply or make AWS
+CLI/Console mutations. Nothing in this change applies or bootstraps resources.
 
-Only the Server has a proposed HTTPS hostname, restricted to explicitly supplied
-operator CIDRs; this root creates no DNS record. The certificate and DNS must
-actually match. Operations remain default-deny. Cognito is the chosen identity
-provider; the isolated pool/client definitions below are preparation, not an
-active login. No model, publication policy, audience origin or user session is fabricated.
-The agent secret reference must already identify a separately authorized agent;
-the root neither creates its grants nor reads its secret value.
-Image syntax validation does not prove registry access: this task has no private
-registry `repositoryCredentials`; bind publicly pullable artifacts or ECR images
-actually readable by its execution role. The task has no application readiness
-health check. ECS running status and circuit-breaker success do not establish
-authentication or BFF readiness; Production can boot while refusing operator
-login. Independent application preflight remains required.
+## Deployment and authentication
 
-Infrastructure creation/configuration must run through versioned IaC and a
-checked-in deployment workflow. Read-only CLI inspection is permitted; ad hoc
-AWS mutations, Console setup and local manual Terraform apply are excluded.
-The current workflow performs offline checks only. The saved-plan apply workflow,
-its backend/bootstrap bindings and all remaining runtime resources must be
-implemented before installation.
+The Server module is pinned to reviewed `honua-iac` commit
+`1d9b3f40e1c481cbae0a61e4c7f88d1621f06595` (PR284). The root reuses its VPC
+module version 5.21.0 at the parent level so Server ingress can allow the exact
+single NAT address without creating a dependency cycle. Tasks have private IPs.
+Console reaches Server through that NAT over certificate-validated HTTPS. Only
+explicit operator CIDRs and that NAT /32 enter the public HTTPS ALB; HTTP ingress
+and public task addresses are disabled.
 
-Offline checks (provider/module downloads during init, no AWS API calls):
+This root issues a DNS-validated ACM certificate for both dedicated hostnames,
+manages validation and CNAME records in an existing delegated Route53 zone, and
+installs exact host rules. Unknown hosts receive 404. Choose two unused names
+inside that zone; neither the zone apex nor an existing non-wildcard certificate
+can substitute for these bindings. Account IDs and actual ARN bindings belong
+in reviewed deployment configuration, not public documentation.
 
-```bash
-terraform -chdir=certification/hosted-pilot fmt -check -recursive
-terraform -chdir=certification/hosted-pilot init -backend=false -input=false
-terraform -chdir=certification/hosted-pilot validate
-terraform -chdir=certification/hosted-pilot test
-```
+Console listens on loopback port 8081. The ALB targets only its oauth2-proxy
+sidecar on 8080. The default proxy is official v7.15.5 Alpine, pinned to
+`sha256:8e4bec4f9fe4de10de63070209204075e4407503170aa19893d6e8d99f083d1b`.
+Its actual structured configuration/entrypoint is tested against that image.
+Changing this digest requires checking its structured schema and security fixes.
+The sidecar validates issuer, audience, nonce, verified email and PKCE S256,
+requires membership in the isolated author or approver group, and replaces
+incoming subject/email/trust headers. It strips incoming Authorization,
+X-API-Key and X-Forwarded-Access-Token. It injects no Cognito bearer into Console.
+Separate generated edge cookie/trust secrets enter only through Secrets Manager.
+The Console execution role can read its own edge client secret, never the BFF
+client or Server signing secret; all workload roles carry the bootstrap boundary.
 
-Tests mock providers and override the Server module; they check this root's
-configuration and refusal boundaries, not the module's runtime or actual IAM.
-Never interpret them as installed qualification.
+Both confidential clients use code-only OAuth and minimal `openid profile email`
+scopes. The BFF callback is exactly Console `/admin/auth/callback`; Server API
+`Public:BaseUrl` stays on the Server origin. This requires Server PR6518's
+`Oidc:AdminAuthCallbackUri` fix. The Console image must also implement
+`Honua:Console:Auth:EdgeForwarded:ServerSessionIssuer`, set here to the exact
+Cognito issuer, checking Server session issuer/subject before bearer issuance
+and refresh. An older image that ignores that setting is not qualified.
+The edge identity is raw Cognito `sub`, never an email or forwarded role.
+State/profile/server binding alone does not prove same-subject BFF identity.
 
-Before any coordinated cloud plan/apply, bind the candidate digests and verify
-published provenance. The deployment workflow must render the reviewed
-`backend.tf.example` binding using a dedicated encrypted/locked state backend
-and separate backend-access role; it must refuse unresolved placeholders. The generated bootstrap admin/database/encryption
-values make state sensitive even though no existing secret value is fetched.
-Supply reviewed workflow inputs with secret **ARNs** only; the workflow must
-keep any rendered tfvars file private and ephemeral.
-Use short-lived executor credentials; do not retrieve or print secret values.
+The pool disables public registration and self-service account recovery. No users,
+memberships, invitations or application grants are silently created. Real distinct
+author/approver subjects and the independently scoped agent still require a
+reviewed identity/application provisioning workflow and separate runtime proof.
+The two configured Server admin-role slots contain only the approver group.
 
-## Cognito identity preparation
+## Saved-plan workflow
 
-`identity.tf` defines a new `${name_prefix}-operators` LITE user pool, isolated
-classic hosted-UI domain, separate confidential `console_edge` and `server_bff`
-clients, and explicit `${name_prefix}-authors` / `${name_prefix}-approvers` groups.
-It disables self-registration and self-service recovery, permits optional TOTP,
-and creates no users, memberships, invitations, IAM group roles or automatic
-application grants. User-pool deletion protection is enabled. A separately
-reviewed human provisioning step must keep proposer and approver subjects distinct.
+`hosted-pilot-deploy.yml` runs only reviewed trunk source and a tracked
+`deployments/*.tfvars.json` file. Inputs contain secret ARNs, digest-only images,
+a manifest digest and full component source SHAs. Ambient Terraform arguments,
+variable files, public-demo names, broad ingress and unresolved bindings fail.
+The apply deadline must be within seven days. Destroy can run after expiry.
 
-Both clients allow only authorization-code OAuth and `openid profile email`
-scopes. They have separate generated client secrets, token revocation enabled,
-15-minute access/ID tokens and eight-hour refresh tokens; direct password/SRP,
-implicit and client-credentials flows are not enabled. The hosted login still
-maintains its own session cookie; a short token lifetime does not force fresh
-credentials at every expiry. Applications must use PKCE S256 and validate actual
-issuer/client/nonce/state. See [AWS app-client contracts](https://docs.aws.amazon.com/cognito/latest/developerguide/user-pool-settings-client-apps.html)
-and [AWS managed-login token lifetime caveat](https://docs.aws.amazon.com/cognito/latest/developerguide/amazon-cognito-user-pools-using-the-access-token.html).
+Plan and apply use different exact-environment OIDC roles, plus a separate STS
+state-access role. A value-free review artifact records source/config/provider
+lock/backend/operation/run/attempt/plan digests and resource actions. The binary
+plan, Terraform logs, state and output values never enter GitHub public artifacts
+or logs. The binary lives in private KMS-encrypted versioned S3 with conditional
+creation and deletion protection. Apply downloads that exact object version,
+checks its digest/encryption and every binding, and runs only `terraform apply
+saved.tfplan`. A plan older than 24 hours fails. Existing environment approval
+rules are honored; no additional independent reviewer is required by this root.
 
-Required `identity_redirects` inputs accept only a dedicated HTTPS DNS Console
-origin, its edge `/oauth2/callback` and BFF `/admin/auth/callback`, plus exact
-`/auth/login` and `/admin` logout destinations. No wildcard, fragment, query,
-userinfo, arbitrary port or IP callback is accepted. The Server BFF client's
-callback is on the **Console** origin: its existing broker retains the state and
-upstream Server cookie privately. Keep API `Public:BaseUrl` on the API origin.
-Usable separate-origin sign-in depends on [Server PR 6518](https://github.com/honua-io/honua-server/pull/6518)
-and its `Oidc:AdminAuthCallbackUri` option selecting this one exact Console callback for
-both authorization and exchange; global public-base rebinding is not a workaround.
-The configured callback must actually route to Console through the trusted edge.
+The existing pilot $2,000 budget, $200 cleanup reserve and four-attempt maximum
+remain distinct from the legacy RC campaign policy. A short-lived owner ledger
+object, created by bootstrap IaC, binds source/config, spend, reservations and
+available deployment allocation. A conditional immutable reservation object
+limits each ledger reservation to one workflow run. Plan/apply roles cannot
+change the ledger. This does not independently measure actual cloud spend;
+the shared budget owner must reconcile spend/reservations before another run.
+Destroy does not consume a paid deployment reservation or require an unexpired
+ledger, preserving the cleanup path.
 
-Cognito logout uses `client_id` and `logout_uri`, unlike a generic assumed
-`post_logout_redirect_uri` flow. Creating allowed destinations does not prove
-that Console/edge sign-out clears the hosted Cognito session. Test real logout
-and reauthentication explicitly. [AWS logout endpoint](https://docs.aws.amazon.com/cognito/latest/developerguide/logout-endpoint.html)
-also does not promise sign-out from external federated identity providers.
-Likewise, token revocation does not invalidate tokens already accepted by an
-offline signature/expiry verifier; test the actual Server/edge session boundary.
-See [AWS revocation limitations](https://docs.aws.amazon.com/cognito/latest/developerguide/token-revocation.html).
+After apply the workflow waits for ECS stability and records task/image identity
+through read-only AWS APIs. GitHub-hosted runners do not need admin ALB ingress.
+Network refusal checks are available with `readiness.py` on an already permitted
+operator runner; do not widen the allowlist for dynamic GitHub runner addresses.
+Its receipt explicitly distinguishes skipped network checks, real human
+issuer/subject binding, author refusal, approver acceptance, and model journeys.
+ECS readiness is not a passing authentication/campaign receipt.
 
-Each Cognito client secret is stored in its own Secrets Manager secret/version.
-An independent 64-character alphanumeric operator-bearer signing key is generated
-separately and stored in another secret. Server `OperatorBearerOptions.cs` uses
-UTF-8 bytes with a 32-byte minimum, so no base64 decoding is assumed. Outputs
-contain only issuer, client IDs, group names, redirect URLs and individual secret
-ARNs. Generated secret values remain sensitive Terraform state; never print them
-or copy them to tfvars. The Server module receives only its BFF client and
-operator signing secret references, with execution-role access and optional
-scoped KMS access through `identity_secrets_kms_key_arn`. Its first task depends
-on populated secret versions. The edge consumer remains uninstalled and has no
-secret access binding. No runtime credential has been retrieved or exercised.
+For cleanup, apply a reviewed configuration with `deletion_protection=false`
+first, then dispatch operation `destroy` against the same backend. A nonempty
+versioned artifact bucket refuses deletion unless `destroy_artifact_data=true`
+is explicitly reviewed. Pilot RDS follows the module's nonproduction no-final-
+snapshot policy; any data that must survive needs a governed backup before
+teardown. Bootstrap custody is retained with `prevent_destroy`. Private binary
+plans expire after seven days through the bootstrap S3 lifecycle policy.
 
-The intended maintained-proxy path is **identity-only**: forward the verified
-stable `sub` and optional verified email, strip incoming/forwarded access-token
-and Authorization headers, and let actual Server Sign In/BFF exchange establish
-the Server-issued operator bearer. Do not enable `--pass-access-token` for this
-path. Server configuration uses `Oidc:Generic` with authority, client ID,
-secret environment indirection and `openid profile email`, plus
-`Authentication:OperatorBearer` signing configuration. A raw AWS secret-reference
-string is not resolved automatically by those application options: the execution
-role must inject its value into the configured environment variable.
+## Bootstrap and exact prerequisites
 
-Existing entitled role mapping can use
-`Oidc:ClaimsMapping:AdditionalRoleClaimTypes=[cognito:groups]` and the actual
-approver group in `Oidc:AdminRoles`. The identity-claims-mapping entitlement and
-nonadmin author resource grants remain required and unqualified. App-client
-creation alone proves neither role projection nor any endpoint authorization.
-Both configured role indices replace the two appsettings defaults; a compatible
-Server must also replace constructor-default arrays during configuration binding.
-Existing shared authorization policies still recognize legacy admin aliases;
-this is not a global approver-only policy. Keep Cognito group administration
-restricted, provision only the intended groups, and demonstrate author refusal
-and distinct approver acceptance against actual endpoints.
-Do not forward raw Cognito access JWTs or promote the agent to an admin to avoid
-these checks. Trusted edge ingress, separate anonymous audience routing with
-stripped identity headers, Blazor/WebSocket continuity, actual logout and negative
-spoofing/operator-route tests remain installation work. See
-[the source findings and acceptance sequence](../../docs/foss4g-hosted-candidate.md).
+`bootstrap/` defines the state/plan buckets, KMS key, OIDC plan/apply roles,
+state-access role, immutable-plan/reservation policies, workload boundary and
+owner budget ledger. The runtime boundary admits module-generated CMK decryption
+only for this pilot ResetBoundary tag, its Secrets Manager encryption context and
+regional Secrets Manager service; custody-key access is excluded. Foundation names are outside the workload namespace.
+The account-specific provisioning policy is an explicit reviewed input, with
+no global action wildcard; grants must cover this root's tagged network,
+ECS/RDS/Redis, scoped IAM, Cognito, DNS/certificate and S3 operations. No blanket
+administrator policy is supplied for the deployment executor.
 
-Retain only one Console task until restart/session recovery is qualified.
-SingleInstance Server plus Redis is not a multinode qualification. `ExpiresAt`
-is an ownership tag, not a scheduler: a reviewed teardown/reaper binding is still
-required before retention. RDS/ALB deletion protection and nonempty versioned S3
-storage deliberately require an explicit cleanup review; this root does not
-silently destroy retained data. NAT, ALB, database, Redis, Fargate and log/storage
-charges accrue while resources exist. No apply, live inference, demo mutation or
-hosted acceptance pass has been performed by this slice.
+The concrete foundation workflow patch is
+`bootstrap/foundation-bootstrap-workflow.yml`, installed as
+`.github/workflows/hosted-pilot-bootstrap.yml` in `honua-iac`. Both repositories
+are public. Existing IaC foundation AWS secrets stay in its workflow runner;
+no foundation AWS credential is exported to release. The exact release-root SHA
+must be on reviewed trunk and configuration must be tracked in IaC trunk.
+
+Initial bootstrap keeps plan/apply in one source-reviewed ephemeral job. It
+first saves and checks a custody-only plan, applies that exact local plan,
+persists an encrypted versioned recovery copy, and migrates state into the new
+KMS-encrypted locked backend. No IAM/application phase starts until the remote
+state object is verified. The full foundation then uses that remote backend and
+another exact local saved plan. Plan-only mode publishes value-free review
+metadata; its binary is discarded. No binary plan, Terraform state or private
+log is ever uploaded to GitHub. Normal deployment remains the separate OIDC
+saved-plan workflow described above.
+
+A failed initial custody apply can leave resources. The workflow retains only
+a source/config-bound custody resource-ID import journal, while writing actual
+state only to verified private, KMS-encrypted, versioned S3 when available.
+Read-only discovery requires exact ManagedBy/ResetBoundary ownership tags on
+deterministic bucket names and uses KMS creation
+tags (`ResetBoundary` and `BootstrapExecution`) for API acknowledgements lost
+before local state flush. Recovery inputs verify the producing workflow and
+journal digest, then generate constrained Terraform import blocks for custody
+resources only. A fixed helper can recover an older journal through a reviewed
+entry in `bootstrap/recovery-compatibility.json`: bind the old release/foundation
+SHAs, unchanged config digest/path, old/new provider locks and the new bootstrap
+contract content digest, with a reason. The contract digest includes runtime
+helper, Terraform and workflow sources; its map is excluded to avoid a
+self-referential hash. The old journal is still tied to its observed producing
+run on trunk. The new helper runs from the new reviewed root; no execution of a
+broken old helper or manual AWS/import command is required. The default map is
+empty. Incomplete ownership discovery or failed state migration stops
+the bootstrap with explicit recovery liability; it never proceeds to IAM or
+silently retries another namespace. Remote custody and creation tags survive
+runner loss. A failure in the later phase retains partial resource state in the
+already encrypted remote backend.
+
+GitHub configuration is separate: `hosted-pilot-bind.yml` uses the existing
+release GitHub token to verify the exact successful foundation producer and
+nonsecret bindings digest, then reconcile `github-bindings.json`. It creates
+trunk-only pilot environments and workflow variables and preserves any existing
+reviewer policy. It needs no new GitHub admin token in IaC. Actual token
+permissions must permit workflow dispatch, run/artifact reads and release
+environment/variable writes.
+
+Before installation, integrate the foundation workflow patch; review its
+tracked bootstrap configuration and scoped provisioning policy; supply the
+existing account GitHub OIDC provider ARN, owner ledger allocation and independent
+secret references; run its plan/deploy and GitHub binding workflows; and review
+actual deployment inputs (unused hostnames inside the delegated zone, explicit
+operator CIDRs, compatible immutable component artifacts including both auth
+fixes (Console PR456 at a73b0f0181dac325fd5adda102edbb573d578eae), manifest/source digests, owner and cleanup deadline). No live ARNs, users,
+installed artifact identity or successful qualification are fabricated here.
+
+## Offline verification
+
+The contract workflow validates both roots, runs provider-mocked refusal/custody
+tests, verifies the actual rendered proxy command/config against its pinned image
+with networking disabled, and runs adversarial saved-plan/refusal checks. Mocks
+never call AWS or create infrastructure. They cannot prove actual cloud IAM,
+registry authorization, certificates, RBAC, Cognito login or application grants.

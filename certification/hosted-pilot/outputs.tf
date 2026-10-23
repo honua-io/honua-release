@@ -1,7 +1,7 @@
-output "preparation" {
-  description = "Resource references only; not installed provenance or a passing pilot receipt."
+output "deployment" {
+  description = "Deployment references only; not installed provenance or a passing human qualification receipt."
   value = {
-    status                  = "private-preparation-cognito-edge-unbound"
+    status                  = "configured-cognito-edge-awaiting-readiness"
     claimed_candidate       = var.candidate
     server_origin           = local.server_origin
     server_alb              = module.server.alb_dns_name
@@ -11,15 +11,17 @@ output "preparation" {
     artifacts_bucket        = aws_s3_bucket.artifacts.id
     reset_prefix            = var.name_prefix
     expires_at              = var.expires_at
-    public_console_origin   = null
+    public_console_origin   = var.identity_redirects.console_origin
+    ecs_cluster             = module.server.ecs_cluster_name
+    server_service          = module.server.ecs_service_name
     public_audience_origin  = null
   }
 }
 
 output "identity_preparation" {
-  description = "Cognito and Server binding references only; no secret values, users, installed trusted edge or live qualification."
+  description = "Cognito and Server binding references only; no secret values, users or live human qualification."
   value = {
-    status                             = "cognito-configured-server-edge-unbound"
+    status                             = "cognito-configured-awaiting-human-qualification"
     pool_id                            = aws_cognito_user_pool.pilot.id
     issuer                             = "https://${aws_cognito_user_pool.pilot.endpoint}"
     hosted_login_url                   = "https://${aws_cognito_user_pool_domain.pilot.domain}.auth.${var.region}.amazoncognito.com"

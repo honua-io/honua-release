@@ -28,7 +28,13 @@ resource "random_password" "bootstrap_admin" {
 }
 
 module "server" {
-  source = "git::https://github.com/honua-io/honua-iac.git//infrastructure/terraform/modules/aws-ecs?ref=5eff1c5e2fc2b4cf358457d87ff46e85b650df88"
+  source = "git::https://github.com/honua-io/honua-iac.git//infrastructure/terraform/modules/aws-ecs?ref=1d9b3f40e1c481cbae0a61e4c7f88d1621f06595"
+
+  permissions_boundary_arn    = var.permissions_boundary_arn
+  existing_vpc_id             = module.network.vpc_id
+  existing_vpc_cidr           = module.network.vpc_cidr_block
+  existing_public_subnet_ids  = module.network.public_subnets
+  existing_private_subnet_ids = module.network.private_subnets
 
   name_prefix                                       = var.name_prefix
   environment                                       = "pilot"
@@ -37,6 +43,8 @@ module "server" {
   connection_encryption_master_key                  = null
   desired_count                                     = 1
   max_capacity                                      = 1
+  alb_deletion_protection                           = var.deletion_protection
+  rds_deletion_protection                           = var.deletion_protection
   deployment_mode                                   = "SingleInstance"
   redis_enabled                                     = true
   operation_key_ring_certificate_secret_arn         = var.operation_certificate_secret_arn
@@ -45,21 +53,21 @@ module "server" {
   audit_chain_key_secret_kms_key_arn                = var.audit_chain_kms_key_arn
 
   domain_name                 = var.server_domain
-  alb_certificate_arn         = var.certificate_arn
+  alb_certificate_arn         = aws_acm_certificate_validation.pilot.certificate_arn
   domain_alias_record_enabled = false
   public_base_url             = local.server_origin
   generic_oidc                = local.server_generic_oidc
   operator_bearer             = local.server_operator_bearer
   additional_env              = local.server_identity_environment
-  allow_https_ingress_cidrs   = var.allowed_operator_cidrs
+  allow_https_ingress_cidrs   = concat(var.allowed_operator_cidrs, [for ip in module.network.nat_public_ips : "${ip}/32"])
   allow_http_ingress_cidrs    = []
   alb_enable_http_redirect    = false
   assign_public_ip            = false
   enable_nat_gateway          = true
   single_nat_gateway          = true
   log_retention_days          = 14
-  # Cognito is selected explicitly; actual identities/grants and edge routing
-  # remain uninstalled. Both configured AdminRoles indices replace the Server's
+  # Cognito is selected explicitly; actual identities/grants
+  # require runtime qualification. Both configured AdminRoles indices replace the Server's
   # two appsettings admin role names. A compatible Server must also replace
   # constructor defaults when binding. Shared policy aliases remain; qualify
   # actual author refusal and approver acceptance before enabling the journey.
@@ -81,7 +89,7 @@ module "server" {
 
 resource "aws_s3_bucket" "artifacts" {
   bucket_prefix = "${var.name_prefix}-"
-  force_destroy = false
+  force_destroy = var.destroy_artifact_data
 }
 
 resource "aws_s3_bucket_public_access_block" "artifacts" {

@@ -1,15 +1,17 @@
-name: Hosted pilot preparation contract
+name: Hosted pilot deployment contract
 
 on:
   pull_request:
     paths:
       - certification/hosted-pilot/**
-      - .github/workflows/hosted-pilot-contract.yml
+      - .github/workflows/hosted-pilot-*.yml
+      - tools/hosted_pilot/**
   push:
     branches: [trunk]
     paths:
       - certification/hosted-pilot/**
-      - .github/workflows/hosted-pilot-contract.yml
+      - .github/workflows/hosted-pilot-*.yml
+      - tools/hosted_pilot/**
   workflow_dispatch:
 
 permissions:
@@ -17,6 +19,9 @@ permissions:
 
 jobs:
   offline-contract:
+    strategy:
+      matrix:
+        root: [certification/hosted-pilot, certification/hosted-pilot/bootstrap]
     runs-on: ubuntu-latest
     timeout-minutes: 10
     env:
@@ -29,9 +34,15 @@ jobs:
           terraform_version: 1.13.5
           terraform_wrapper: false
       - name: Validate private infrastructure preparation without cloud credentials
-        working-directory: certification/hosted-pilot
+        working-directory: ${{ matrix.root }}
         run: |
           terraform fmt -check -recursive
           terraform init -backend=false -input=false -lockfile=readonly -no-color
           terraform validate -no-color
-          terraform test -no-color
+          terraform test -no-color -json -verbose > "$RUNNER_TEMP/hosted-pilot-tests.jsonl"
+      - name: Validate actual rendered edge configuration against pinned proxy
+        if: matrix.root == 'certification/hosted-pilot'
+        run: python3 tools/hosted_pilot/check_edge_config.py "$RUNNER_TEMP/hosted-pilot-tests.jsonl"
+      - name: Verify saved-plan tampering and refusal boundaries
+        if: matrix.root == 'certification/hosted-pilot'
+        run: python3 -m unittest discover -s tools/hosted_pilot -p 'test_*.py' -v

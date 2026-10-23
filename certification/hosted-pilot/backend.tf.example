@@ -6,6 +6,7 @@ terraform {
     bucket       = "REPLACE_WITH_REVIEWED_STATE_BUCKET"
     key          = "honua/hosted-pilot/REPLACE_WITH_UNIQUE_ATTEMPT/terraform.tfstate"
     region       = "us-west-2"
+    kms_key_id   = "REPLACE_WITH_REVIEWED_STATE_KMS_KEY_ARN"
     encrypt      = true
     use_lockfile = true
     assume_role = {

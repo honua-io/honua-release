@@ -61,16 +61,8 @@ variable "server_domain" {
   }
 }
 
-variable "certificate_arn" {
-  type = string
-  validation {
-    condition     = can(regex("^arn:aws:acm:[a-z0-9-]+:[0-9]{12}:certificate/.+$", var.certificate_arn))
-    error_message = "An existing HTTPS certificate ARN is required."
-  }
-}
-
 variable "allowed_operator_cidrs" {
-  description = "Explicit Server HTTPS ingress while operator identity is unbound; no world-open ingress."
+  description = "Explicit human HTTPS ingress. Dedicated Console NAT /32 is added by IaC; no world-open ingress."
   type        = list(string)
   validation {
     condition     = length(var.allowed_operator_cidrs) > 0 && alltrue([for cidr in var.allowed_operator_cidrs : try(cidrnetmask(cidr) != "0.0.0.0", false)])
@@ -162,4 +154,44 @@ variable "identity_secrets_kms_key_arn" {
     condition     = var.identity_secrets_kms_key_arn == "" || can(regex("^arn:aws:kms:[a-z0-9-]+:[0-9]{12}:key/.+$", var.identity_secrets_kms_key_arn))
     error_message = "Use an explicit KMS key ARN or the managed-key default."
   }
+}
+
+variable "edge_proxy_image" {
+  default     = "quay.io/oauth2-proxy/oauth2-proxy@sha256:8e4bec4f9fe4de10de63070209204075e4407503170aa19893d6e8d99f083d1b"
+  description = "Reviewed oauth2-proxy Alpine image digest, with /bin/sh and /bin/oauth2-proxy; structured schema must match edge.tf. No floating tag."
+  type        = string
+  validation {
+    condition     = can(regex("^[A-Za-z0-9][A-Za-z0-9._-]*(:[0-9]+)?(/[A-Za-z0-9._-]+)+@sha256:[0-9a-f]{64}$", var.edge_proxy_image))
+    error_message = "Bind a reviewed digest-only edge proxy image."
+  }
+}
+
+variable "route53_zone_id" {
+  description = "Existing reviewed public DNS zone containing both dedicated pilot hostnames."
+  type        = string
+  validation {
+    condition     = can(regex("^Z[A-Z0-9]+$", var.route53_zone_id))
+    error_message = "Supply an existing Route53 public zone ID."
+  }
+}
+
+variable "deletion_protection" {
+  description = "Protect Cognito, ALB and RDS. Disable in a saved-plan apply before destroy; no local mutation."
+  type        = bool
+  default     = true
+}
+
+variable "permissions_boundary_arn" {
+  description = "Workload-only boundary created by the governed bootstrap; executor identities cannot change it."
+  type        = string
+  validation {
+    condition     = can(regex("^arn:aws:iam::[0-9]{12}:policy/honua-release-.*-runtime-boundary$", var.permissions_boundary_arn))
+    error_message = "Bind the dedicated governed workload boundary."
+  }
+}
+
+variable "destroy_artifact_data" {
+  description = "Explicitly permit Terraform to delete versioned pilot artifacts on destroy; false retains a nonempty bucket by refusing teardown."
+  type        = bool
+  default     = false
 }

@@ -1,0 +1,50 @@
+name: Hosted pilot foundation bootstrap dispatch
+on:
+  workflow_dispatch:
+    inputs:
+      config_path:
+        description: Reviewed honua-iac certification/hosted-pilot/bootstrap/deployments/*.tfvars.json
+        required: true
+        type: string
+      region:
+        required: true
+        type: string
+        default: us-west-2
+      mode:
+        required: true
+        type: choice
+        options: [plan, deploy]
+      recovery_run_id:
+        description: Optional failed initial custody run to reconcile through metadata-only imports
+        type: string
+      recovery_artifact_id:
+        description: Optional exact custody recovery metadata artifact ID
+        type: string
+      recovery_sha256:
+        description: Optional custody-recovery.json metadata digest
+        type: string
+permissions:
+  contents: read
+jobs:
+  dispatch-foundation-bootstrap:
+    if: github.ref == 'refs/heads/trunk'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Dispatch versioned foundation bootstrap without exporting AWS credentials
+        env:
+          GH_TOKEN: ${{ secrets.RELEASE_GH_TOKEN }}
+          ROOT_SHA: ${{ github.sha }}
+          CONFIG: ${{ inputs.config_path }}
+          REGION: ${{ inputs.region }}
+          MODE: ${{ inputs.mode }}
+          RECOVERY_RUN: ${{ inputs.recovery_run_id }}
+          RECOVERY_ARTIFACT: ${{ inputs.recovery_artifact_id }}
+          RECOVERY_SHA: ${{ inputs.recovery_sha256 }}
+        run: |
+          set -euo pipefail
+          gh workflow run hosted-pilot-bootstrap.yml --repo honua-io/honua-iac --ref trunk \
+            -f "release_root_sha=$ROOT_SHA" -f "config_path=$CONFIG" -f "region=$REGION" \
+            -f "mode=$MODE" -f "recovery_run_id=$RECOVERY_RUN" -f "recovery_artifact_id=$RECOVERY_ARTIFACT" \
+            -f "recovery_sha256=$RECOVERY_SHA"
+          echo 'Foundation bootstrap dispatched. Only value-free review/recovery/binding metadata may be published.'

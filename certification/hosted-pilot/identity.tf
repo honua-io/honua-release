@@ -15,11 +15,11 @@ locals {
   }
 }
 
-# Preparation only: no users, memberships, invitations, issuer activation or
-# Console ingress. Separate author/approver subjects must be provisioned later.
+# No users, memberships or invitations. Provision separate real human subjects
+# through a reviewed identity workflow before claiming runtime qualification.
 resource "aws_cognito_user_pool" "pilot" {
   name                = "${var.name_prefix}-operators"
-  deletion_protection = "ACTIVE"
+  deletion_protection = var.deletion_protection ? "ACTIVE" : "INACTIVE"
   user_pool_tier      = "LITE"
   username_attributes = ["email"]
   username_configuration {
