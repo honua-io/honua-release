@@ -186,9 +186,11 @@ def observed(adapter, server, tmp_path, monkeypatch):
             'taskDefinitionArn': worker_definition['taskDefinitionArn'], 'stateMachineArn': 'arn:aws:states:'+region+':'+account+':stateMachine:honua-agent-custody',
             'definitionDigest': 'sha256:'+'7'*64, 'stateMachineRoleArn': role.replace('-worker', '-lifecycle'),
             'claimTable': 'fixture-claims', 'expiresEpoch': 4102444800}}
-    transport = {'commandQueueUrl': 'https://sqs.us-east-1.amazonaws.com/'+account+'/honua-agent-custody-commands',
-                 'replyQueueUrl': 'https://sqs.us-east-1.amazonaws.com/'+account+'/honua-agent-custody-replies'}
+    transport = {'attemptId': 'custody', 'expiresEpoch': int(datetime.now(timezone.utc).timestamp())+3600,
+        'commandQueueUrl': 'https://sqs.us-east-1.amazonaws.com/'+account+'/honua-agent-custody-commands.fifo',
+        'replyQueueUrl': 'https://sqs.us-east-1.amazonaws.com/'+account+'/honua-agent-custody-replies.fifo'}
     session.worker_config['transport'] = transport
+    session.worker_config['lifecycle']['expiresEpoch'] = transport['expiresEpoch']
     worker_definition['containerDefinitions'][0]['environment'][0]['value'] = json.dumps(transport)
     worker_task = {'taskArn': producer_task[:-32]+'2'*32, 'taskDefinitionArn': worker_definition['taskDefinitionArn'],
         'clusterArn': config['clusterArn'], 'launchType': 'FARGATE', 'tags': [
@@ -216,8 +218,8 @@ def observed(adapter, server, tmp_path, monkeypatch):
     iam.list_role_policies.return_value = {'PolicyNames': ['queue-only']}
     policy = {'Version': '2012-10-17', 'Statement': [
         {'Effect': 'Allow', 'Action': ['sqs:ReceiveMessage', 'sqs:DeleteMessage'],
-         'Resource': 'arn:aws:sqs:'+region+':'+account+':honua-agent-custody-commands'},
-        {'Effect': 'Allow', 'Action': ['sqs:SendMessage'], 'Resource': 'arn:aws:sqs:'+region+':'+account+':honua-agent-custody-replies'}]}
+         'Resource': 'arn:aws:sqs:'+region+':'+account+':honua-agent-custody-commands.fifo'},
+        {'Effect': 'Allow', 'Action': ['sqs:SendMessage'], 'Resource': 'arn:aws:sqs:'+region+':'+account+':honua-agent-custody-replies.fifo'}]}
     iam.get_role_policy.return_value = {'RoleName': 'honua-agent-custody-worker', 'PolicyName': 'queue-only', 'PolicyDocument': policy}
     session.open_worker = lambda: None
     from agent_e2e_worker_lifecycle import WorkerLifecycle
@@ -272,6 +274,34 @@ def test_actual_sdk_datetime_fields_are_preserved_as_json_safe_originals(observe
     assert proof['definition']['registeredAt'] == observed.worker_definition['registeredAt'].isoformat()
     assert proof['nativeTasks']['tasks'][0]['startedAt'] == observed.worker_task['startedAt'].isoformat()
     assert json.loads(json.dumps(proof)) == proof
+
+
+def test_custody_uses_the_real_workers_required_fifo_transport_contract(observed):
+    from agent_e2e_worker import Worker
+    from agent_e2e_studio_custody_observer import queue_document
+    worker = observed.session.worker_config
+    Worker(None, worker['transport'])
+    assert queue_document(worker) == observed.policy
+    assert all(row['Resource'].endswith('.fifo') for row in observed.policy['Statement'])
+
+
+@pytest.mark.parametrize('change', ['standard', 'foreign-account', 'foreign-region', 'trailing-slash', 'query',
+    'same-queues', 'wrong-attempt', 'missing-expiry', 'different-expiry'])
+def test_fifo_suffix_does_not_relax_exact_queue_account_origin_attempt_or_lifetime(observed, change):
+    from agent_e2e_studio_custody_observer import queue_document
+    worker = observed.session.worker_config
+    transport = worker['transport']
+    key = 'commandQueueUrl'
+    if change == 'standard': transport[key] = transport[key][:-5]
+    elif change == 'foreign-account': transport[key] = transport[key].replace('/585192672263/', '/999999999999/')
+    elif change == 'foreign-region': transport[key] = transport[key].replace('us-east-1', 'us-west-2')
+    elif change == 'trailing-slash': transport[key] += '/'
+    elif change == 'query': transport[key] += '?configuration=other'
+    elif change == 'same-queues': transport[key] = transport['replyQueueUrl']
+    elif change == 'wrong-attempt': transport['attemptId'] = 'other-attempt'
+    elif change == 'missing-expiry': del transport['expiresEpoch']
+    elif change == 'different-expiry': transport['expiresEpoch'] += 1
+    with pytest.raises(PackError): queue_document(worker)
 
 
 @pytest.mark.parametrize('change', ['old-active', '403', '404', 'wrong-principal', 'no-original-positive', 'missing-original-turn',

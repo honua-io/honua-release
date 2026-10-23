@@ -29,6 +29,11 @@ def require(value, reason):
 
 
 def queue_document(config):
+    transport = config['transport']
+    require(isinstance(transport, dict) and set(transport) == {'attemptId', 'expiresEpoch', 'commandQueueUrl', 'replyQueueUrl'} and
+            transport['attemptId'] == config['attemptId'] and type(transport['expiresEpoch']) is int and
+            transport['expiresEpoch'] == config['lifecycle']['expiresEpoch'] and
+            transport['commandQueueUrl'] != transport['replyQueueUrl'], 'worker queue transport differs from its exact attempt/lifetime')
     def arn(queue):
         uri = urlsplit(queue)
         require(uri.scheme == 'https' and uri.hostname == 'sqs.'+config['lifecycle']['region']+'.amazonaws.com' and
@@ -36,7 +41,9 @@ def queue_document(config):
                 'worker queue origin differs from reviewed transport')
         parts = uri.path.strip('/').split('/')
         require(len(parts) == 2 and parts[0] == config['taskRoleArn'].split(':')[4] and
-                re.fullmatch('[A-Za-z0-9_-]{1,80}', parts[1]), 'worker queue account/name differs')
+                re.fullmatch(r'[A-Za-z0-9_-]{1,75}\.fifo', parts[1]) and
+                queue == 'https://sqs.'+config['lifecycle']['region']+'.amazonaws.com/'+parts[0]+'/'+parts[1],
+                'worker requires its exact account and canonical FIFO queue name')
         return 'arn:aws:sqs:'+config['lifecycle']['region']+':'+parts[0]+':'+parts[1]
     return {'Version': '2012-10-17', 'Statement': [
         {'Effect': 'Allow', 'Action': ['sqs:ReceiveMessage', 'sqs:DeleteMessage'], 'Resource': arn(config['transport']['commandQueueUrl'])},
@@ -311,6 +318,8 @@ class StudioCustodyObserver:
         session.open_worker()
         session.durable.require_worker_launch(session.launch)
         observed, reads = self.observe_lifecycle()
+        require(datetime.now(timezone.utc).timestamp() < session.worker_config['lifecycle']['expiresEpoch'],
+                'custody worker lifetime expired; retain original liabilities without reuse')
         require(observed.get('taskStatus') == 'RUNNING' and observed.get('executionStatus') == 'RUNNING' and
                 observed.get('taskArn') and observed['taskArn'] != original['preparation']['taskArn'],
                 'task worker is missing, reused or no longer running')

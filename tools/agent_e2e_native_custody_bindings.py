@@ -108,7 +108,8 @@ def replay(report, declaration, context, *, complete=True):
     # start/readback proves an actual start; an unknown StartExecution reply is
     # never resent or replaced by a caller-provided task ARN.
     executions = [row['response'] for row in reads if row['operation'] == 'describe_execution']
-    require(len(executions) == 1 and begin <= instant(executions[0].get('startDate')) <= end,
+    require(len(executions) == 1 and begin <= instant(executions[0].get('startDate')) <= end and
+            config['expiresEpoch']-6000 <= instant(executions[0]['startDate']).timestamp() and end.timestamp() < config['expiresEpoch'],
             'original native execution start is missing or stale')
     actual = proof.get('observation', {})
     relationships = declaration['relationships']
