@@ -255,3 +255,23 @@ expectation resolution; that backend is not implemented here. The gate already
 rejects arbitrary observation blobs, missing assertions, altered corpus bytes,
 overlapping target campaigns, and repeated failures hidden behind new campaign IDs.
 All 252 cases remain unqualified until actual independent evidence is available.
+
+The P14 development producer can collect `tenant.denied` when its private
+`studio.tenantIsolation` configuration names an exact pre-existing private item
+and saved version plus a separate, immutable owner-bearer secret binding. The
+protected item must already be present in the original Studio SQL baseline before
+P14's publication fixture is prepared. Read-only SQL checks preserve its actual
+tenant, owner, current/unpublished pointers, content and related rows. The native
+HTTP matrix joins fresh owner, observer and task principal projections, requires
+an authorized owner read of the same private version, and distinguishes the
+native cross-tenant 404 from a generic missing-resource or agent-scope refusal.
+The deliberately public publication stays publicly readable.
+
+This requires a real independently validated second-tenant human session; ordinary
+API keys have no per-key tenant issuance field. The bearer remains on the private
+controller and its exact injected version is independently read from ECS. The
+observer only performs GETs and does not create a tenant, broaden permissions or
+approve publication. Missing configuration remains an explicit unsupported
+assertion, and a configured but invalid proof fails the assertion. Separate human
+publication approval and the remaining custody assertions are unchanged. Local
+HTTP and PostgreSQL controls do not qualify real IdP custody or a campaign run.

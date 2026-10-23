@@ -71,6 +71,27 @@ class StudioFixtureDatabase(FixtureDatabase):
             'protectedRegistry': {table: rows[table] for table in self.PROTECTED},
             'tableOids': {row['relname']: row['oid'] for row in oids}, 'deleteTriggers': triggers}
 
+    def observe_private_tenant_source(self, baseline, *, item_id, version_id, authorize):
+        """Read protected baseline rows only; never adopt them for case cleanup."""
+        from agent_e2e_studio_tenant_observer import private_source
+        require(callable(authorize) and baseline.get('candidateKey') == self.config['candidateKey'],
+                'private tenant observation requires its original candidate baseline and live fence')
+        original = private_source(baseline['snapshot'], item_id=item_id, version_id=version_id)
+        record = {'itemId': item_id, 'draftId': original['sourceDraftId']}
+        authorize()
+        with self.connection() as (connection, identity):
+            require(baseline['database'] == {key: identity[key] for key in baseline['database']},
+                    'private tenant source database differs from original baseline')
+            current = self.snapshot(connection)
+        require(current['tableOids'] == baseline['snapshot']['tableOids'] and
+                canonical_digest(private_source(current, item_id=item_id, version_id=version_id)) == canonical_digest(original) and
+                canonical_digest(self.owned(current, record)) == canonical_digest(self.owned(baseline['snapshot'], record)),
+                'unrelated private tenant source changed or no longer matches its original native rows')
+        authorize()
+        return {'source': original, 'baselineDigest': canonical_digest(baseline),
+            'database': copy.deepcopy(baseline['database']), 'observerPrincipal': identity['principal'],
+            'protectedRowsDigest': canonical_digest(self.owned(current, record))}
+
     def owned(self, snapshot, record):
         rows = snapshot['studio']
         item = record['itemId']
