@@ -4,10 +4,15 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 import tempfile
 import unittest
-from budget_history import ACCOUNT, cache_projection, collect, costs, dispatch_history, event_history, producer_path
+from budget_history import ACCOUNT, cache_projection, collect, cost_period, costs, dispatch_history, event_history, producer_path
 
 
 class BudgetHistory(unittest.TestCase):
+    def test_billing_exclusive_end_covers_partial_utc_cutoff_day_and_exact_midnight(self):
+        begin=datetime.fromisoformat('2026-10-01T00:00:00+00:00')
+        for cutoff,end in [('2026-10-23T08:40:00+00:00','2026-10-24'),('2026-10-23T00:00:00+00:00','2026-10-23'),
+                           ('2026-10-22T22:40:00-10:00','2026-10-24')]:
+            with self.subTest(cutoff=cutoff):self.assertEqual(cost_period(begin,datetime.fromisoformat(cutoff)),{'Start':'2026-10-01','End':end})
     def run_row(self, id=1, path='.github/workflows/terminal-model-canary.yml'):
         return dict(id=id, path=path, head_sha='a'*40, head_branch='trunk', created_at='2026-10-22T00:00:00Z',
                     event='workflow_dispatch', status='completed', conclusion='success', run_attempt=1)
@@ -116,6 +121,10 @@ class HistoryPrivacy(unittest.TestCase):
             path = Path(temporary)/'history'
             report = collect(start.isoformat(), cutoff.isoformat(), path, call=call)
             self.assertEqual(report['billing']['grossUsageUsd'], '149.4013538965')
+            self.assertEqual(report['billing']['queryPeriod'],cost_period(start,cutoff))
+            command=report['evidence']['account-costs']['command']
+            self.assertEqual(command[command.index('--time-period')+1],
+                'Start='+report['billing']['queryPeriod']['Start']+',End='+report['billing']['queryPeriod']['End'])
             self.assertFalse(report['wholeAccountZeroSpend'])
             self.assertEqual(report['cloudTrail']['RunTask']['totalEvents'], 1)
             self.assertEqual(len(report['cloudTrail']['RunTask']['pilotEvents']), 1)

@@ -1,5 +1,6 @@
 """Initial accounting retains uncertain nonzero liabilities and refuses resets."""
 import copy
+from datetime import datetime, timedelta, timezone
 import json
 import tempfile
 from pathlib import Path
@@ -31,6 +32,12 @@ class InitialAccounting(unittest.TestCase):
         self.history = {'schema': 'honua.hosted-pilot-budget-history/v1', 'wholeAccountZeroSpend': False,
             'repositories': {'honua-io/honua-release': {'producerRuns': []}},
             'cloudTrail': {'RunTask': {'pilotEvents': []}}, 'billing': {'grossUsageUsd': '149.4013538965'}}
+        now = datetime.now(timezone.utc)
+        cutoff = (now-timedelta(minutes=10)).replace(microsecond=123456)
+        self.history.update(observedAt=(now-timedelta(minutes=5)).isoformat(),
+            coverage={'start':(cutoff-timedelta(days=1)).isoformat(), 'cutoff':cutoff.isoformat()})
+        self.history['billing']['queryPeriod'] = {'Start':(cutoff-timedelta(days=1)).date().isoformat(),
+            'End':(cutoff+timedelta(days=1)).date().isoformat()}
         self.ledger = {'schemaVersion': 2, 'candidateKey': self.candidate, 'ceilingUsd': '500', 'cleanupReserveUsd': '50', 'entries': [], 'operations': []}
         for id, purpose, kind, amount, basis in [('initialization-history-usage', 'telemetry', 'infrastructure', '151', canonical_digest(self.history)),
                 ('bootstrap-infra', 'bootstrap', 'infrastructure', '100', 'sha256:'+'b'*64),
@@ -139,3 +146,24 @@ class InitialAccounting(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, 'substitute a fresh accounting namespace'):
             initialize_accounting.initialize(self.config, Path('artifact'), Path('unused'), verify=authenticated, open_state=opened, sts=self.sts)
         authenticated.assert_not_called(); opened.assert_not_called()
+
+    def test_history_cannot_outlive_fixed_recent_cutoff_even_with_far_future_config_expiry(self):
+        self.history['coverage']['cutoff']=(datetime.now(timezone.utc)-timedelta(hours=2)).isoformat()
+        self.history['observedAt']=(datetime.now(timezone.utc)-timedelta(hours=2)+timedelta(minutes=1)).isoformat()
+        config,lock,provenance,live,_,_=self.producer_case()
+        with patch('budget_bootstrap.reviewed',side_effect=[self.history,live]),patch.dict('os.environ',
+                {'GITHUB_SHA':'e'*40,'GITHUB_RUN_ID':'5','GITHUB_RUN_ATTEMPT':'1'}):
+            with self.assertRaisesRegex(ValueError,'stale, future or inconsistent'):
+                budget_bootstrap.produce(config,lock,provenance,provenance['qualificationLockDigest'])
+        with tempfile.TemporaryDirectory() as folder:
+            with self.assertRaisesRegex(ValueError,'stale, future or inconsistent'):self.initialize(Path(folder)/'ledger.json')
+        self.assertIsNone(self.store.state)
+    def test_future_or_timezone_less_cutoff_and_omitted_cutoff_day_refuse(self):
+        original=copy.deepcopy(self.history)
+        for change in ('future-observation','timezone-less','cutoff-after-observation','exclusive-end-omits-day'):
+            value=copy.deepcopy(original)
+            if change=='future-observation':value['observedAt']=(datetime.now(timezone.utc)+timedelta(minutes=1)).isoformat()
+            elif change=='timezone-less':value['coverage']['cutoff']='2026-10-23T08:40:00'
+            elif change=='cutoff-after-observation':value['coverage']['cutoff']=value['observedAt'];value['observedAt']=original['coverage']['cutoff']
+            else:value['billing']['queryPeriod']['End']=datetime.fromisoformat(value['coverage']['cutoff']).date().isoformat()
+            with self.subTest(change=change),self.assertRaises(ValueError):budget_bootstrap.validate_history(value,self.ledger)

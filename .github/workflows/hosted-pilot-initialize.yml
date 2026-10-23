@@ -1,6 +1,12 @@
 name: Hosted pilot retained accounting initialization
 on:
   workflow_dispatch:
+    inputs:
+      recover:
+        description: Recover a lost receipt from the matching committed generation without creating or replacing state
+        type: boolean
+        required: false
+        default: false
 permissions:
   contents: read
   actions: read
@@ -65,13 +71,19 @@ jobs:
           aws-region: us-east-1
           allowed-account-ids: '585192672263'
           role-session-name: pilot-initialize-${{ github.run_id }}
-      - name: Authenticate completed bootstrap producer and create original generation without reset
+      - name: Authenticate original producer and initialize or recover the committed receipt
         env:
           GH_TOKEN: ${{ github.token }}
+          RECOVER_ACCOUNTING_RECEIPT: ${{ inputs.recover }}
         run: |
           set -euo pipefail
           umask 077
+          recovery_args=()
+          if [ "$RECOVER_ACCOUNTING_RECEIPT" = true ]; then
+            recovery_args=(--recover)
+          fi
           python tools/hosted_pilot/initialize_accounting.py \
+            "${recovery_args[@]}" \
             --configuration certification/agent-e2e/initialize.json \
             --artifact bootstrap-import/bootstrap-accounting.json \
             --ledger "$RUNNER_TEMP/initial-accounting-ledger.json" \

@@ -77,3 +77,14 @@ before obtaining credentials. Its application-level workflow identity checks
 remain additional checks. After a reviewed retained `dispatch_budget` is
 installed, the campaign root removes the initializer's S3/DynamoDB mutation
 policy; the original accounting/history and administrator custody are preserved.
+
+If initialization committed its first generation but the workflow lost its
+receipt, dispatch the same checked initialization workflow with `recover=true`.
+This mode authenticates the original bootstrap again and opens only existing
+state in the same namespace. A missing head, mismatched bootstrap or altered
+original liabilities is refused; recovery never creates or replaces a
+generation. It retains later liabilities and emits the actual current ledger
+digest alongside the original bootstrap ledger digest. The original historical
+report need not become fresh again to observe that committed generation; fresh
+initialization still requires the current history admission checks. The original
+configuration expiry and protected environment remain enforced.

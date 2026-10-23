@@ -2,7 +2,7 @@
 """Seal reviewed nonzero accounting under the actual campaign producer identity."""
 from __future__ import annotations
 import argparse
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from decimal import Decimal, ROUND_CEILING
 import json
 import os
@@ -14,6 +14,7 @@ from agent_e2e_gate import component_binding
 from agent_e2e_pack import canonical_digest, digest_bytes, load_json
 from controller_archive import canonical, portable, require
 from controller_handoff import ROOT, git
+from budget_history import cost_period
 
 
 def reviewed(reference):
@@ -27,7 +28,24 @@ def reviewed(reference):
     return load_json(path)
 
 
-def validate_history(history, ledger):
+MAX_HISTORY_AGE = timedelta(hours=1)
+
+
+def validate_history(history, ledger, *, now=None, require_fresh=True):
+    if require_fresh:
+        now = now or datetime.now(timezone.utc)
+        coverage = history.get('coverage', {})
+        def instant(value):
+            require(isinstance(value, str), 'fresh initialization history cutoff/observation timestamps are required')
+            parsed = datetime.fromisoformat(value.replace('Z', '+00:00'))
+            require(parsed.tzinfo is not None, 'initialization history timestamps require explicit timezone')
+            return parsed.astimezone(timezone.utc)
+        begin, cutoff, observed = (instant(value) for value in (coverage.get('start'), coverage.get('cutoff'), history.get('observedAt')))
+        require(begin < cutoff <= observed <= now and now-cutoff <= MAX_HISTORY_AGE and now-observed <= MAX_HISTORY_AGE,
+                'initialization history is stale, future or inconsistent; recollect while preserving original holds and liabilities')
+        query = history.get('billing', {}).get('queryPeriod', {})
+        require(query == cost_period(begin, cutoff),
+                'initialization billing query does not cover the actual UTC cutoff day')
     require(history['schema'] == 'honua.hosted-pilot-budget-history/v1' and history['wholeAccountZeroSpend'] is False and
             not any(row['producerRuns'] for row in history['repositories'].values()) and
             not any(row['pilotEvents'] for row in history['cloudTrail'].values()),

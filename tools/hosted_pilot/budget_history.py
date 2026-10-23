@@ -159,6 +159,12 @@ def costs(value):
         'creditsReduceConservativeHold': False}
 
 
+def cost_period(begin, cutoff):
+    begin, cutoff = begin.astimezone(timezone.utc), cutoff.astimezone(timezone.utc)
+    exclusive_end = cutoff.date()+(timedelta(days=1) if cutoff.time() != datetime.min.time() else timedelta())
+    return {'Start': begin.date().isoformat(), 'End': exclusive_end.isoformat()}
+
+
 def collect(start, cutoff, output, *, call=invoke):
     begin = datetime.fromisoformat(start.replace('Z', '+00:00'))
     end = datetime.fromisoformat(cutoff.replace('Z', '+00:00'))
@@ -207,11 +213,13 @@ def collect(start, cutoff, output, *, call=invoke):
         'pilotTables': [name for name in tables['TableNames'] if name.startswith(PREFIXES)]}
     # One explicitly accounted billable request. Its own charge may not yet be
     # represented in this lagged response, so retain an additional nonzero hold.
+    billing_period = cost_period(begin, end)
     usage = query('account-costs', ['aws', 'ce', 'get-cost-and-usage', '--region', REGION,
-        '--time-period', 'Start='+begin.date().isoformat()+',End='+end.date().isoformat(),
+        '--time-period', 'Start='+billing_period['Start']+',End='+billing_period['End'],
         '--granularity', 'DAILY', '--metrics', 'UnblendedCost', '--group-by',
         'Type=DIMENSION,Key=SERVICE', 'Type=DIMENSION,Key=RECORD_TYPE', '--output', 'json'])
     usage_totals = costs(usage)
+    usage_totals['queryPeriod'] = billing_period
     usage_totals['collectorRequestFeeLowerBoundUsd'] = '0.01'
     usage_totals['pricingSource'] = 'https://aws.amazon.com/aws-cost-management/aws-cost-explorer/pricing/'
     no_observed_producer = not any(row['producerRuns'] for row in repos.values()) and not any(row['pilotEvents'] for row in cloud.values())
@@ -227,7 +235,9 @@ def collect(start, cutoff, output, *, call=invoke):
             'carry gross usage and diagnostic fees as unresolved holds until attribution/settlement',
             'retain all existing legacy liabilities and current live resource/cleanup obligations',
             'recheck namespace and durable object history before any create-only generation write'],
-        'limitations': ['CloudTrail ingestion and billing have reporting lag', 'named events in us-east-1 do not prove absence of all spending or all resource classes',
+        'limitations': ['CloudTrail ingestion and billing have reporting lag; current-day estimates are not settled charges',
+            'billing uses UTC days and conservatively includes the cutoff day when cutoff is after midnight',
+            'named events in us-east-1 do not prove absence of all spending or all resource classes',
             'deleted GitHub runs and activity outside the covered window are not reconstructed', 'absence of current resources is never an independent zero-cost proof'],
         'evidence': evidence}
     (output/'history.json').write_bytes(canonical(report)+b'\n')
