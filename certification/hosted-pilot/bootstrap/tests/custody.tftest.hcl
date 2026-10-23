@@ -264,3 +264,35 @@ run "human_enrollment_separates_observation_from_provisioning" {
     error_message = "Only the apply executor may provision users, and both readers and writers must be confined to this tagged pilot pool."
   }
 }
+
+run "original_custody_tags_are_separate_from_current_phase_identity" {
+  command = plan
+  variables {
+    bootstrap_execution_id = "200"
+    bootstrap_creation_identity = {
+      foundation_source_sha = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+      release_root_sha      = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+      config_path           = "certification/hosted-pilot/bootstrap/deployments/test.tfvars.json"
+      config_sha256         = "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
+      provider_lock_sha256  = "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd"
+    }
+    bootstrap_custody_creation_tags = {
+      ManagedBy              = "honua-release-hosted-pilot-bootstrap"
+      BootstrapExecution     = "199"
+      BootstrapFoundationSha = "1111111111111111111111111111111111111111"
+      BootstrapReleaseSha    = "2222222222222222222222222222222222222222"
+      BootstrapConfigPath    = "certification/hosted-pilot/bootstrap/deployments/test.tfvars.json"
+      BootstrapConfigSha256  = "3333333333333333333333333333333333333333333333333333333333333333"
+      BootstrapLockSha256    = "4444444444444444444444444444444444444444444444444444444444444444"
+    }
+  }
+  assert {
+    condition     = aws_kms_key.custody.tags == var.bootstrap_custody_creation_tags && alltrue([for bucket in aws_s3_bucket.custody : bucket.tags == var.bootstrap_custody_creation_tags])
+    error_message = "The actual retained key and both buckets must preserve the original custody creator, not this later phase's source/run."
+  }
+}
+run "incomplete_original_custody_identity_refused" {
+  command = plan
+  variables { bootstrap_custody_creation_tags = { ManagedBy = "honua-release-hosted-pilot-bootstrap" } }
+  expect_failures = [var.bootstrap_custody_creation_tags]
+}
