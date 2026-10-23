@@ -4,8 +4,9 @@ An already cached immutable PostGIS image runs in an owned, bounded local contai
 These transactions test cleanup safety, not live model/product qualification.
 """
 import copy
+import importlib
 import os
-from pathlib import Path
+import re
 import shutil
 import subprocess
 import time
@@ -21,10 +22,14 @@ from agent_e2e_pack import PackError, canonical_digest
 def postgres():
     if os.environ.get('HONUA_AGENT_POSTGRES_TESTS') != '1':
         pytest.skip('opt-in actual PostgreSQL transaction checks')
-    psycopg = pytest.importorskip('psycopg')
+    # Explicit opt-in must fail if its actual database dependency is unavailable.
+    psycopg = importlib.import_module('psycopg')
     assert shutil.which('docker'), 'Docker is required for requested actual PostgreSQL checks'
     name = 'honua-agent-sql-'+uuid4().hex[:12]
-    image = subprocess.check_output(['docker', 'image', 'inspect', 'postgis/postgis:18-3.6',
+    reference = os.environ.get('HONUA_AGENT_POSTGRES_TEST_IMAGE',
+        'postgis/postgis@sha256:b4466ea2ba7e3af54fcbba996d45325720f4b3ecb4f43f99b2f41367dc196f23')
+    assert re.fullmatch(r'postgis/postgis@sha256:[0-9a-f]{64}', reference), 'use the reviewed immutable PostGIS fixture image'
+    image = subprocess.check_output(['docker', 'image', 'inspect', reference,
                                      '--format', '{{.Id}}'], text=True).strip()
     subprocess.run(['docker', 'run', '--detach', '--pull', 'never', '--name', name,
         '--user', '999:999', '--read-only', '--cap-drop', 'ALL', '--security-opt', 'no-new-privileges',

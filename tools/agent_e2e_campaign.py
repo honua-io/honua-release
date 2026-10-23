@@ -18,6 +18,7 @@ import subprocess
 
 import agent_e2e_gate as gate
 from agent_e2e_controller import Backend, BedrockModel, run_goal
+from agent_e2e_backend import InProcessBackend
 from agent_e2e_pack import PackError, canonical_digest, digest_bytes, load_json, portable_path, verify_corpus
 from agent_e2e_telemetry import atomic_write
 from agent_e2e_state import DurableExecution, open_store
@@ -93,8 +94,12 @@ def inputs(mode='qualification'):
                              ruling['ownerDecisionUrl']),
                 'reviewed owner ruling must explicitly reconcile 252-case EKS coverage with Preview RC scope')
     backend = config['backend']
-    require(set(backend) == {'script', 'scriptSha256', 'interpreter'}, 'invalid backend configuration')
+    require(set(backend) == {'kind', 'script', 'scriptSha256', 'configuration'} and
+            backend['kind'] == 'in-process', 'campaign backend must share the producer-owned durable lease')
     backend['script'] = str(source_file(backend['script'], backend['scriptSha256']))
+    reference = backend['configuration']
+    require(isinstance(reference, dict) and set(reference) == {'path', 'sha256'}, 'missing reviewed backend configuration')
+    reference['path'] = str(source_file(reference['path'], reference['sha256']))
     for name in ('expectations', 'knowledge'):
         require(set(config[name]) == {'path', 'sha256'}, 'invalid reviewed ' + name)
         source_file(config[name]['path'], config[name]['sha256'])
@@ -303,13 +308,14 @@ def execute(config, bundle, target, shard, shards, *, case_ids=None, backend=Non
     require(selected and set(selected) <= set(load_json(root/'expectations.json')['cases']),
             'selected cases lack reviewed frozen expectations')
     target = gate.inventory(pack)[selected[0]]['target']
-    backend = backend or Backend(config['backend'])
+    backend = backend or InProcessBackend(config['backend'])
     # Qualification preflights the entire backend. Explicit development scopes
     # may integrate implemented A/B cases before all other adapters exist.
     ready = backend.call('campaign_preflight', {'campaign': campaign, 'target': target, 'caseIds': selected})
     available = set(ready.get('caseIds', []))
     coverage = available == supported if campaign['campaignMode'] == 'qualification' else supported <= available
-    require(ready.get('status') == 'ready' and required <= set(ready.get('capabilities', [])) and coverage and
+    require(ready.get('status') == 'configured' and ready.get('readOnly') is True and
+            required <= set(ready.get('capabilities', [])) and coverage and
             ready.get('qualificationLockDigest') == campaign['qualificationLockDigest'],
             'isolated scenario backend unavailable for required scope; qualification requires all 252 cases including EKS')
     store = open_store(config['state'], campaign['componentBindingDigest'])
@@ -327,6 +333,8 @@ def execute(config, bundle, target, shard, shards, *, case_ids=None, backend=Non
                                for row in durable.state.get('registry', {}).get('attempts', [])}
         require(ledger_attempts == registered_attempts,
                 'candidate has unresolved accounting/receipt history; reconcile before paid execution')
+        if isinstance(backend, InProcessBackend):
+            backend.bind_execution(durable, campaign, root)
         campaign_key = canonical_digest(campaign)
         campaigns = durable.state.setdefault('campaigns', {})
         if campaign['campaignId'] in campaigns:
@@ -383,9 +391,11 @@ def finalize(config, bundle, *, backend=None):
     require(campaign['controller'] == controller_identity(), 'final producer differs from frozen controller')
     require(campaign['campaignMode'] == 'qualification', 'development shards cannot emit qualifying evidence')
     require(config == load_json(root/'producer-inputs.json'), 'reviewed inputs changed after freeze')
-    backend = backend or Backend(config['backend'])
+    backend = backend or InProcessBackend(config['backend'])
     durable = DurableExecution(open_store(config['state'], campaign['componentBindingDigest']), root/'budget-ledger.json')
     try:
+        if isinstance(backend, InProcessBackend):
+            backend.bind_execution(durable, campaign, root)
         require(durable.state.get('campaigns', {}).get(campaign['campaignId']) == canonical_digest(campaign),
                 'final campaign differs from durably frozen execution inputs')
         receipts = materialize(durable, campaign, root)
