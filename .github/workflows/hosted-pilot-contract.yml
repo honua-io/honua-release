@@ -21,7 +21,7 @@ jobs:
   offline-contract:
     strategy:
       matrix:
-        root: [certification/hosted-pilot, certification/hosted-pilot/bootstrap]
+        root: [certification/hosted-pilot, certification/hosted-pilot/bootstrap, certification/hosted-pilot/campaign]
     runs-on: ubuntu-latest
     timeout-minutes: 10
     env:

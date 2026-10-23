@@ -102,6 +102,25 @@ class SavedPlanContract(unittest.TestCase):
                 deploy.run(['terraform', 'apply'])
         self.assertNotIn('SECRET', str(caught.exception))
 
+    def test_campaign_root_cannot_apply_base_root_saved_plan(self):
+        with patch.object(deploy, 'TF_ROOT', 'certification/hosted-pilot/campaign'):
+            with self.assertRaisesRegex(ValueError, 'root_path'):
+                self.verify()
+
+    def test_campaign_backend_derives_separate_state_and_rejects_substituted_base_binding(self):
+        env = {'PILOT_REGION': 'us-east-1', 'PILOT_ACCOUNT_ID': '123456789012',
+            'PILOT_STATE_BUCKET': 'private-state', 'PILOT_STATE_KMS_ARN': 'arn:aws:kms:us-east-1:123456789012:key/1234',
+            'PILOT_PLAN_BUCKET': 'private-plans', 'PILOT_PLAN_KMS_ARN': 'arn:aws:kms:us-east-1:123456789012:key/1234',
+            'PILOT_STATE_KEY': 'honua/hosted-pilot/honua-pilot-bound/terraform.tfstate',
+            'PILOT_BACKEND_ROLE_ARN': 'arn:aws:iam::123456789012:role/pilot-backend'}
+        with patch.dict(os.environ, env), patch.object(deploy, 'CAMPAIGN', True):
+            deploy.backend()
+            actual = json.loads((self.tf / 'backend.tf.json').read_text())['terraform']['backend']['s3']
+            self.assertEqual(actual['key'], 'honua/hosted-pilot/honua-pilot-bound/campaign.tfstate')
+            with patch.dict(os.environ, {'PILOT_STATE_KEY': 'honua/hosted-pilot/honua-pilot-bound/campaign.tfstate'}):
+                with self.assertRaisesRegex(ValueError, 'original reviewed base'):
+                    deploy.backend()
+
 
 class RefusalProbeContract(unittest.TestCase):
     def test_forged_request_still_requires_exact_oidc_pkce_login(self):

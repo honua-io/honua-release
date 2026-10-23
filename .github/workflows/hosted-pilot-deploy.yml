@@ -3,8 +3,14 @@ name: Hosted pilot reviewed deployment
 on:
   workflow_dispatch:
     inputs:
+      terraform_root:
+        description: Exact reviewed infrastructure root
+        required: true
+        default: certification/hosted-pilot
+        type: choice
+        options: [certification/hosted-pilot, certification/hosted-pilot/campaign]
       config_path:
-        description: Reviewed checked-in certification/hosted-pilot/deployments/*.tfvars.json
+        description: Reviewed checked-in deployments/*.tfvars.json beneath the selected root
         required: true
         type: string
       operation:
@@ -33,6 +39,7 @@ env:
   AWS_EC2_METADATA_DISABLED: 'true'
   TF_IN_AUTOMATION: 'true'
   PILOT_CONFIG_PATH: ${{ inputs.config_path }}
+  PILOT_TERRAFORM_ROOT: ${{ inputs.terraform_root }}
   PILOT_OPERATION: ${{ inputs.operation }}
   PILOT_BUDGET_VERSION_ID: ${{ inputs.budget_version_id }}
   PILOT_BUDGET_SHA256: ${{ inputs.budget_sha256 }}
@@ -106,8 +113,8 @@ jobs:
       - name: Remove private executor material
         if: always()
         run: |
-          rm -rf "$RUNNER_TEMP/hosted-pilot-private" certification/hosted-pilot/.terraform
-          rm -f certification/hosted-pilot/backend.tf.json "$RUNNER_TEMP/pilot-budget.json"
+          rm -rf "$RUNNER_TEMP/hosted-pilot-private" "$PILOT_TERRAFORM_ROOT/.terraform"
+          rm -f "$PILOT_TERRAFORM_ROOT/backend.tf.json" "$RUNNER_TEMP/pilot-budget.json"
 
   apply:
     needs: plan
@@ -146,8 +153,11 @@ jobs:
           PILOT_PLAN_ATTEMPT: ${{ needs.plan.outputs.plan_attempt }}
         run: python3 tools/hosted_pilot/deploy.py apply --config "$PILOT_CONFIG_PATH"
       - name: Inspect infrastructure and refuse anonymous or forged Console identity
-        if: inputs.operation == 'apply'
+        if: inputs.operation == 'apply' && inputs.terraform_root == 'certification/hosted-pilot'
         run: python3 tools/hosted_pilot/readiness.py --infrastructure-only
+      - name: Inspect actual campaign target, controller lifecycle and custody
+        if: inputs.operation == 'apply' && inputs.terraform_root == 'certification/hosted-pilot/campaign'
+        run: python3 tools/hosted_pilot/campaign_readiness.py
       - name: Publish value-free infrastructure readiness
         if: inputs.operation == 'apply'
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
@@ -159,5 +169,5 @@ jobs:
       - name: Remove private executor material
         if: always()
         run: |
-          rm -rf "$RUNNER_TEMP/hosted-pilot-private" certification/hosted-pilot/.terraform
-          rm -f certification/hosted-pilot/backend.tf.json "$RUNNER_TEMP/pilot-budget.json"
+          rm -rf "$RUNNER_TEMP/hosted-pilot-private" "$PILOT_TERRAFORM_ROOT/.terraform"
+          rm -f "$PILOT_TERRAFORM_ROOT/backend.tf.json" "$RUNNER_TEMP/pilot-budget.json"

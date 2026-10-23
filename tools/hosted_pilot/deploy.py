@@ -14,10 +14,11 @@ import sys
 
 ROOT = Path(__file__).resolve().parents[2]
 TF_ROOT = os.environ.get('PILOT_TERRAFORM_ROOT', 'certification/hosted-pilot')
-if TF_ROOT not in ('certification/hosted-pilot', 'certification/hosted-pilot/bootstrap'):
+if TF_ROOT not in ('certification/hosted-pilot', 'certification/hosted-pilot/bootstrap', 'certification/hosted-pilot/campaign'):
     raise ValueError('unreviewed Terraform root')
 TF = ROOT / TF_ROOT
 BOOTSTRAP = TF_ROOT.endswith('/bootstrap')
+CAMPAIGN = TF_ROOT.endswith('/campaign')
 SHA = re.compile(r'[a-f0-9]{64}')
 
 
@@ -63,7 +64,8 @@ def config(path):
     require(value.get('region', 'us-west-2') == os.environ['PILOT_REGION'], 'configuration and workflow regions differ')
     require(isinstance(value, dict), 'configuration must be a JSON object')
     require(not any(re.search(r'password|token|api_key|client_secret|signing_key', key, re.I) for key in value if not key.endswith(('_arn', '_arns'))), 'only secret references are accepted')
-    require(re.fullmatch(r'honua-pilot-[a-z0-9-]{4,16}', value.get('name_prefix', '')), 'isolated pilot prefix required')
+    prefix_pattern = r'honua-pilot-[a-z0-9-]{4,16}-agent' if CAMPAIGN else r'honua-pilot-[a-z0-9-]{4,16}'
+    require(re.fullmatch(prefix_pattern, value.get('name_prefix', '')), 'isolated pilot prefix required')
     expiry = datetime.fromisoformat(value['expires_at'].replace('Z', '+00:00'))
     require(expiry.tzinfo is not None, 'expiry must include a timezone')
     if os.environ['PILOT_OPERATION'] == 'apply':
@@ -80,7 +82,11 @@ def backend():
     require(re.fullmatch(r'arn:aws:iam::' + e['PILOT_ACCOUNT_ID'] + r':role/[\w+=,.@/-]+', e['PILOT_BACKEND_ROLE_ARN']), 'backend role must belong to pilot account')
     require(e['PILOT_STATE_KEY'].startswith('honua/hosted-pilot/') and '..' not in e['PILOT_STATE_KEY'], 'isolated backend key required')
     require(re.fullmatch(r'arn:aws:kms:' + re.escape(e['PILOT_REGION']) + ':' + e['PILOT_ACCOUNT_ID'] + r':key/[a-f0-9-]+', e['PILOT_PLAN_KMS_ARN']), 'explicit regional plan KMS key required')
-    values = {'bucket': e['PILOT_STATE_BUCKET'], 'key': e['PILOT_STATE_KEY'], 'region': e['PILOT_REGION'], 'encrypt': True, 'kms_key_id': e['PILOT_STATE_KMS_ARN'], 'use_lockfile': True, 'assume_role': {'role_arn': e['PILOT_BACKEND_ROLE_ARN']}}
+    state_key = e['PILOT_STATE_KEY']
+    if CAMPAIGN:
+        require(state_key.endswith('/terraform.tfstate'), 'campaign deployment requires original reviewed base state binding')
+        state_key = state_key.removesuffix('terraform.tfstate') + 'campaign.tfstate'
+    values = {'bucket': e['PILOT_STATE_BUCKET'], 'key': state_key, 'region': e['PILOT_REGION'], 'encrypt': True, 'kms_key_id': e['PILOT_STATE_KMS_ARN'], 'use_lockfile': True, 'assume_role': {'role_arn': e['PILOT_BACKEND_ROLE_ARN']}}
     private_json(TF / 'backend.tf.json', {'terraform': {'backend': {'s3': values}}})
     return hashlib.sha256(json.dumps(values, sort_keys=True).encode()).hexdigest()
 

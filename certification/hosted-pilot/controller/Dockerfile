@@ -23,5 +23,6 @@ RUN python -m pip install --no-cache-dir --require-hashes -r certification/hoste
        --source-sha "$RELEASE_SOURCE_SHA" --tree-id "$RELEASE_TREE_ID" \
        --archive-sha256 "$RELEASE_ARCHIVE_SHA256" --receipt /opt/honua-controller-source.json \
     && chmod -R a-w /controller
+VOLUME ["/work"]
 USER 10001:10001
 CMD ["python", "-c", "raise SystemExit('An explicit reviewed controller command and frozen bundle are required.')"]
