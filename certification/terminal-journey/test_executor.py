@@ -1,6 +1,7 @@
 """Independent proof fixtures and actual HTTP refusal tests (no release claim)."""
 import base64
 import copy
+import hashlib
 import io
 import json
 import math
@@ -535,7 +536,8 @@ def test_failed_cli_upload_is_not_a_pass():
 
 PUBLISH_OUTPUT = {"status": "Completed", "requiresApproval": False, "operationId": "service.publish",
                   "operationInstanceId": "opinst-publish-1", "correlationId": "00-corr-publish",
-                  "auditId": "audit-publish-1", "layerId": "7", "serviceName": "journey"}
+                  "auditId": "audit-publish-1", "layerId": "7", "serviceName": "journey",
+                  "serviceUri": "honua://published-services/journey"}
 
 
 def publish_arguments(engine, **changes):
@@ -617,6 +619,65 @@ def test_publish_awaiting_operator_approval_is_not_a_published_layer():
         engine.execute(3, {"kind": "tool_call", "tool": "honua_publish_service",
                            "arguments": publish_arguments(engine)})
     assert "layerId" not in engine.resources
+
+
+@pytest.mark.parametrize("service", ["native-published", "default", 'Hālau district/"North"'])
+def test_returned_publication_identity_replaces_fixture_alias_without_changing_expected_content(service):
+    engine = upload_engine()
+    fixture = copy.deepcopy(engine.fixture)
+    engine.resources.update(importTable="imported_journey_source", importSchema="public")
+    returned = {**PUBLISH_OUTPUT, "serviceName": service,
+        "serviceUri": "honua://published-services/" + executor.urllib.parse.quote(service, safe="")}
+    engine.transport.tool.return_value = {"structuredContent": returned}
+    engine.transport.get_json.return_value = {"type": "FeatureCollection", "features": copy.deepcopy(fixture["features"])}
+    result = engine.execute(3, {"kind": "tool_call", "tool": "honua_publish_service",
+        "arguments": publish_arguments(engine, serviceName="model-requested")})
+    assert engine.resources["serviceName"] == engine.resources["serviceId"] == service
+    assert engine.resources["serviceUri"] == returned["serviceUri"] and engine.resources["layerId"] == 7
+    assert result["resources"] == engine.resources
+    assert result["nativePublication"]["fixtureServiceNameMatches"] is False
+    assert result["nativePublication"]["serviceNameSha256"] == hashlib.sha256(service.encode()).hexdigest()
+    assert engine.fixture == fixture and engine.evidence["checks"]["3"]["imported-content"]["status"] == "pass"
+
+
+@pytest.mark.parametrize("changes", [{"serviceName": None}, {"serviceUri": None},
+    {"serviceUri": "honua://published-services/other"}, {"serviceUri": "https://foreign.test/journey"},
+    {"serviceName": "not/a/service"}, {"serviceName": ""}, {"serviceName": " padded "},
+    {"serviceName": "line\nbreak"}, {"serviceName": "a" * 201},
+    {"requiresApproval": None}, {"requiresApproval": 0},
+    {"layerId": None}, {"layerId": True}, {"layerId": "not-a-layer"}])
+def test_completed_publish_cannot_supply_partial_or_contradictory_identity_from_requested_names(changes):
+    engine = upload_engine()
+    engine.resources.update(importTable="imported_journey_source", importSchema="public")
+    engine.transport.tool.return_value = {"structuredContent": {**PUBLISH_OUTPUT, **changes}}
+    with pytest.raises(ExecutionError):
+        engine.execute(3, {"kind": "tool_call", "tool": "honua_publish_service", "arguments": publish_arguments(engine)})
+    assert not {"serviceName", "serviceId", "serviceUri", "layerId"} & set(engine.resources)
+    assert "nativePublication" not in engine.evidence
+    engine.transport.get_json.assert_not_called()
+
+
+def test_publication_identity_cannot_echo_the_operator_credential_into_context_or_public_hash():
+    engine = upload_engine(operator="private-operator")
+    engine.resources.update(importTable="imported_journey_source", importSchema="public")
+    engine.transport.tool.return_value = {"structuredContent": {**PUBLISH_OUTPUT, "serviceName": "private-operator",
+        "serviceUri": "honua://published-services/private-operator"}}
+    with pytest.raises(ExecutionError, match="credential material"):
+        engine.execute(3, {"kind": "tool_call", "tool": "honua_publish_service", "arguments": publish_arguments(engine)})
+    assert "nativePublication" not in engine.evidence and "private-operator" not in json.dumps(engine.resources)
+
+
+@pytest.mark.parametrize("layer", ["012345678901234567", 12345678901234567, "12345678901234567", "０１２３４５６７８９０１２３４５６７"])
+def test_decimal_layer_identity_cannot_normalize_a_credential_into_model_context_or_receipt(layer):
+    secret = "012345678901234567"
+    engine = upload_engine(operator=secret)
+    engine.resources.update(importTable="imported_journey_source", importSchema="public")
+    engine.transport.tool.return_value = {"structuredContent": {**PUBLISH_OUTPUT, "layerId": layer}}
+    with pytest.raises(ExecutionError):
+        engine.execute(3, {"kind": "tool_call", "tool": "honua_publish_service", "arguments": publish_arguments(engine)})
+    assert "nativePublication" not in engine.evidence and "layerId" not in engine.resources
+    assert secret not in json.dumps(engine.evidence)
+    engine.transport.get_json.assert_not_called()
 
 
 OPERATOR_KEY = "hk_operator_0123456789abcdef"
@@ -1182,6 +1243,127 @@ def test_a_passing_render_carries_no_blocker():
     rejected = engine_for(mock.Mock(), execution=dict(RENDER_FIXTURE))
     output["image"]["mimeType"] = "image/jpeg"
     assert rejected.check_render(output).status == "fail"
+
+
+def test_wrong_selected_size_stays_failed_until_a_later_render_repairs_it_over_real_http():
+    import live_driver
+    served, reads = [png_fixture()], []
+
+    class Handler(BaseHTTPRequestHandler):
+        def do_GET(self):
+            reads.append(self.path)
+            self.send_response(200)
+            self.send_header("Content-Type", "image/png")
+            self.end_headers()
+            self.wfile.write(served[0])
+
+        def log_message(self, *_):
+            pass
+
+    server = ThreadingHTTPServer(("127.0.0.1", 0), Handler)
+    thread = threading.Thread(target=server.serve_forever)
+    thread.start()
+    try:
+        transport = transport_for(f"http://127.0.0.1:{server.server_port}")
+        # The frozen authored goal is deliberately different from the first
+        # PNG. Nothing changes that expected size to accommodate the result.
+        fixture = {**RENDER_FIXTURE, "renderSize": [40, 20]}
+        engine = engine_for(transport, execution=fixture)
+        engine.state.update(stackUp=True, executionEnabled=True)
+        engine.state["armedError"] = {"id": "fault", "stageNumber": 4, "status": "observed"}
+        engine._check(4, "style-applied", "style", lambda: {"styleId": "journey-solid-red"})
+        output = {"image": {"format": "image/png", "uri": "/render.png"},
+                  "operation": {**STUDIO_ENVELOPE["operation"], "operationId": "map.render"}}
+        stage = json.loads((live_driver.HERE / "journey.v1.json").read_text())["stages"][3]
+        status = {"number": 4, "id": stage["id"], "command": stage["command"], "checks": [], "status": "ready"}
+
+        def observe():
+            with mock.patch.object(live_driver, "_rehydrate", return_value=(engine.state, {}, {}, engine.observation, None)), \
+                 mock.patch.object(live_driver, "_executor", return_value=engine), \
+                 mock.patch.object(live_driver, "_stage_status", return_value=status), \
+                 mock.patch.object(live_driver, "_write_state"):
+                return live_driver.op_observe({"stage": stage["id"]})
+
+        with mock.patch.object(transport, "tool", return_value={"structuredContent": output}):
+            result = engine.execute(4, {"kind": "tool_call", "tool": "honua_render_map",
+                                        "arguments": {"width": 20, "height": 10}})
+            assert result["recoveredError"] is None
+            assert engine.result(4).status == "fail"
+            assert "pixel" not in engine.evidence["proofs"]
+            observed = observe()
+            assert observed["stageStatus"]["status"] == "ready"
+            assert observed["observation"]["repairableChecks"] == ["4.pixel"]
+            assert next(c for c in observed["stageStatus"]["checks"] if c["id"] == "4.pixel")["status"] == "fail"
+            assert engine.state["armedError"]["status"] == "observed"
+            for blocked in (False, True):
+                def refuse():
+                    raise ExecutionError("style", "candidate style failure", blocked=blocked)
+                engine._check(4, "style-applied", "style", refuse)
+                assert observe()["stageStatus"]["status"] == ("blocked" if blocked else "fail")
+            engine._check(4, "style-applied", "style", lambda: {"styleId": "journey-solid-red"})
+
+            # A genuine decoded PNG of the authored size and independently
+            # computed point colour is required for the repair.
+            def chunk(tag, body):
+                return struct.pack(">I", len(body)) + tag + body + struct.pack(">I", zlib.crc32(tag + body))
+            rows = [bytearray(40 * 4) for _ in range(20)]
+            rows[5][80:84] = bytes(RENDER_FIXTURE["pixelRgba"])
+            served[0] = (b"\x89PNG\r\n\x1a\n" + chunk(b"IHDR", struct.pack(">IIBBBBB", 40, 20, 8, 6, 0, 0, 0))
+                         + chunk(b"IDAT", zlib.compress(b"".join(b"\0" + row for row in rows))) + chunk(b"IEND", b""))
+            result = engine.execute(4, {"kind": "tool_call", "tool": "honua_render_map",
+                                        "arguments": {"width": 40, "height": 20}})
+            assert result["recoveredError"] == {"id": "fault", "recovered": True}
+            assert engine.result(4).status == "pass"
+            assert observe()["stageStatus"]["status"] == "pass"
+            assert engine.fixture["renderSize"] == [40, 20]
+            assert reads == ["/render.png", "/render.png"]
+    finally:
+        server.shutdown()
+        thread.join()
+        server.server_close()
+
+
+@pytest.mark.parametrize("selected", [{"width": 40, "height": 20}, {}, {"width": 20},
+                                      {"width": "20", "height": 10}, {"width": True, "height": 10}])
+def test_render_ignoring_selected_size_or_missing_selection_stays_terminal(selected):
+    engine = engine_for(mock.Mock(), execution={**RENDER_FIXTURE, "renderSize": [40, 20]})
+    # Declared dimensions cannot override the actual decoded 20x10 PNG.
+    output = {"image": {"format": "image/png", "width": 40, "height": 20,
+                        "base64": base64.b64encode(png_fixture()).decode()}}
+    check = engine.check_render(output, selected_arguments=selected)
+    assert check.status == "fail"
+    assert engine.evidence["renderDimensions"]["decoded"] == [20, 10]
+    assert not engine.repairable_render_selection(4, check)
+
+
+def test_matching_wrong_size_with_incorrect_pixels_cannot_be_repaired_away():
+    engine = engine_for(mock.Mock(), execution={**RENDER_FIXTURE, "renderSize": [40, 20]})
+    output = {"image": {"format": "image/png",
+                        "base64": base64.b64encode(png_fixture((0, 0, 0, 0))).decode()}}
+    check = engine.check_render(output, selected_arguments={"width": 20, "height": 10})
+    assert check.status == "fail" and "render pixel at (10, 2)" in check.detail
+    assert engine.evidence["renderDimensions"]["requested"] == engine.evidence["renderDimensions"]["decoded"] == [20, 10]
+    assert engine.evidence["renderDimensions"]["requestedPixelVerified"] is False
+    assert not engine.repairable_render_selection(4, check)
+    assert "pixel" not in engine.evidence["proofs"]
+
+
+@pytest.mark.parametrize("failure", ["pixel", "media", "png", "transport"])
+def test_render_feedback_never_suppresses_other_pixel_or_transport_failures(failure):
+    transport = mock.Mock(credentials={"proposer": "unit"})
+    engine = engine_for(transport, execution=dict(RENDER_FIXTURE))
+    image = {"format": "image/png", "base64": base64.b64encode(png_fixture((0, 0, 0, 0))).decode()}
+    if failure == "media":
+        image["format"] = "image/jpeg"
+    elif failure == "png":
+        image["base64"] = base64.b64encode(b"not a PNG").decode()
+    elif failure == "transport":
+        image = {"format": "image/png", "uri": "/render.png"}
+        transport.http.side_effect = ExecutionError("render", "candidate failed")
+    check = engine.check_render({"image": image}, selected_arguments={"width": 20, "height": 10})
+    assert check.status == "fail"
+    assert not engine.repairable_render_selection(4, check)
+    assert "pixel" not in engine.evidence["proofs"]
 
 
 def test_render_reads_the_servers_format_field_and_refuses_conflicts():

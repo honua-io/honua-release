@@ -814,6 +814,42 @@ def test_receipt_payload_allowlist_excludes_unknown_secrets_and_raw_output():
     assert list(Draft202012Validator(_schema()).iter_errors(forged))
 
 
+def test_native_publication_diagnostic_retains_only_bounded_hashes_and_original_action_link():
+    builder = _builder()
+    stage_id = builder.journey["stages"][2]["id"]
+    selected = builder.capture_transcript("assistant", "model action", stage_id=stage_id)
+    diagnostic = {"serviceNameSha256": hashlib.sha256(b'actual-native').hexdigest(),
+        "serviceUriSha256": hashlib.sha256(b'honua://published-services/actual-native').hexdigest(),
+        "layerId": 17, "fixtureServiceNameMatches": False}
+    result = {"status": "pass", "result": {"nativePublication": diagnostic,
+        "resources": {"serviceName": "opaque-private-name", "secret": "opaque-unclassified-value"}}}
+    sequence = builder.record_action(stage_id=stage_id, attribution=canary.MODEL_SELECTED, kind="tool_call",
+        status="pass", request={"kind": "tool_call"}, result=result, transcript_sequence=selected)
+    receipt = builder.validated_receipt(_schema())
+    notice = receipt["notices"][-1]
+    assert notice.startswith(f"action {sequence} native publication: ")
+    assert json.loads(notice.split(": ", 1)[1]) == diagnostic
+    assert "opaque-private-name" not in json.dumps(receipt) and "opaque-unclassified-value" not in json.dumps(receipt)
+    assert receipt["actions"][sequence - 1]["result"] == builder.summarize(result)
+
+
+@pytest.mark.parametrize("change", ["extra", "raw-name", "layer-bool", "match-string"])
+def test_native_publication_diagnostic_cannot_retain_raw_or_unbounded_candidate_fields(change):
+    builder = _builder()
+    stage_id = builder.journey["stages"][2]["id"]
+    selected = builder.capture_transcript("assistant", "model action", stage_id=stage_id)
+    diagnostic = {"serviceNameSha256": "a" * 64, "serviceUriSha256": "b" * 64,
+        "layerId": 17, "fixtureServiceNameMatches": False}
+    if change == "extra": diagnostic["serviceName"] = "opaque-unclassified-value"
+    elif change == "raw-name": diagnostic["serviceNameSha256"] = "opaque-unclassified-value"
+    elif change == "layer-bool": diagnostic["layerId"] = True
+    else: diagnostic["fixtureServiceNameMatches"] = "false"
+    with pytest.raises(canary.CanaryError, match="invalid native publication diagnostic"):
+        builder.record_action(stage_id=stage_id, attribution=canary.MODEL_SELECTED, kind="tool_call", status="pass",
+            request={}, result={"result": {"nativePublication": diagnostic}}, transcript_sequence=selected)
+    assert "opaque-unclassified-value" not in json.dumps(builder.receipt)
+
+
 def test_stage_evidence_binding_rejects_contradiction_and_wrong_stage():
     stage = canary.load_journey(JOURNEY)["stages"][0]
     evidence = {"id": stage["id"], "number": stage["number"], "command": stage["command"],
@@ -866,7 +902,9 @@ def test_failed_setup_still_tears_down_allocated_workspace(monkeypatch):
 
 
 @pytest.mark.parametrize("owned_verification", [False, True])
-def test_loop_handoffs_preserve_error_context_and_multiple_approval_boundaries(monkeypatch, owned_verification):
+@pytest.mark.parametrize("recovery_mode", ["direct", "inspect-then-repair", "final-slot-repair", "never-repair",
+                                          "premature-complete", "wrong-error", "not-recovered"])
+def test_loop_handoffs_preserve_error_context_and_multiple_approval_boundaries(monkeypatch, owned_verification, recovery_mode):
     """State-machine unit test only; it makes no candidate or genuine-model claim."""
     builder = _builder(_endpoint())
     stages = builder.journey["stages"]
@@ -894,7 +932,11 @@ def test_loop_handoffs_preserve_error_context_and_multiple_approval_boundaries(m
             if operation == "inject_error":
                 return {"status": "armed", "errorId": error_id, "recoverable": True}
             if operation == "observe":
-                if attempts[stage_id] < (2 if stage_id == injection_stage else 1):
+                required = 2 if recovery_mode in ("direct", "premature-complete") else 3
+                if recovery_mode == "final-slot-repair":
+                    required = 4
+                if ((stage_id == injection_stage and recovery_mode == "never-repair") or
+                        attempts[stage_id] < (required if stage_id == injection_stage else 1)):
                     return {"status": "ready", "stageStatus": "ready", "observation": {}, "toolView": {}}
                 if stage_id in approval_stages and stage_id not in approved:
                     return {"status": "ready", "stageStatus": "awaiting_approval", "proposalId": stage_id}
@@ -908,7 +950,13 @@ def test_loop_handoffs_preserve_error_context_and_multiple_approval_boundaries(m
                     return {"status": "fail", "result": {"injectedError": {"id": error_id, "recoverable": True},
                             "detail": "test fault: inspect state before retry"}}
                 if stage_id == injection_stage:
-                    return {"status": "pass", "result": {"recoveredError": {"id": error_id, "recovered": True}}}
+                    if (recovery_mode in ("never-repair", "premature-complete") or
+                            (recovery_mode == "final-slot-repair" and attempts[stage_id] < 4) or
+                            (recovery_mode != "direct" and attempts[stage_id] == 2)):
+                        return {"status": "pass", "result": {"inspection": "current candidate state"}}
+                    return {"status": "pass", "result": {"recoveredError": {
+                        "id": "unrelated-error" if recovery_mode == "wrong-error" else error_id,
+                        "recovered": recovery_mode != "not-recovered"}}}
                 return {"status": "pass"}
             if operation == "approve":
                 approved.add(stage_id)
@@ -934,10 +982,26 @@ def test_loop_handoffs_preserve_error_context_and_multiple_approval_boundaries(m
     monkeypatch.setattr(canary, "CandidateProxyClient", Model)
     receipt = canary.execute_live(builder, endpoint=_endpoint(), driver_command=canary.DEFAULT_DRIVER,
                                   max_actions_per_stage=4)
+    if recovery_mode not in ("direct", "inspect-then-repair", "final-slot-repair"):
+        assert receipt["status"] == "fail", receipt["notices"]
+        assert receipt["failureAttribution"] == "model"
+        assert receipt["errorInjection"]["recoveryModelActionSequence"] is None
+        assert not any(operation in ("verify", "approve") for operation, _ in calls)
+        assert attempts[injection_stage] <= 4
+        if recovery_mode == "never-repair":
+            assert attempts[injection_stage] == 4
+            assert any("bounded limit" in notice for notice in receipt["notices"])
+        if recovery_mode == "premature-complete":
+            assert any("completed without proving recovery" in notice for notice in receipt["notices"])
+        return
     assert receipt["status"] == "pass", receipt["notices"]
     assert approved == approval_stages
     assert [a["kind"] for a in receipt["actions"]].count("approval") == 2
     assert receipt["errorInjection"]["status"] == "recovered"
+    recovery_action = receipt["errorInjection"]["recoveryModelActionSequence"]
+    fault_action = receipt["errorInjection"]["triggeringModelActionSequence"]
+    assert recovery_action == fault_action + {"direct": 1, "inspect-then-repair": 2, "final-slot-repair": 3}[recovery_mode]
+    assert attempts[injection_stage] <= 4
     recovery_prompt = [messages for stage_id, messages in prompts if stage_id == injection_stage][1]
     assert "test fault: inspect state before retry" in json.dumps(recovery_prompt)
     assert any(m["role"] == "assistant" for m in recovery_prompt)
@@ -1513,6 +1577,70 @@ def test_a_refused_model_action_is_returned_to_the_model_not_raised_as_a_driver_
 def test_driver_setup_failure_is_an_infrastructure_failure(monkeypatch):
     receipt = _attribution_run(monkeypatch, setup={"status": "blocked", "workspaceId": "w"})
     assert receipt["status"] == "fail" and receipt["failureAttribution"] == "infrastructure"
+
+
+@pytest.mark.parametrize("detail,code", [
+    ("PNG dimensions differ from the authored render size", "render-size-mismatch"),
+    ("render pixel at (10, 10) is rgba(0, 0, 0, 0), not the authored style colour rgba(255, 0, 0, 255)", "render-pixel-mismatch"),
+    ("PNG decoder refused: private-sentinel", "render-png-invalid"),
+    ("unexpected body with password=private-sentinel", "assertion-refused"),
+])
+def test_failed_observation_preserves_only_bounded_assertion_diagnostics(tmp_path, detail, code):
+    script = tmp_path / "driver.py"
+    response = {"status": "fail", "stageStatus": {"checks": [
+        {"id": "4.pixel", "status": "fail", "detail": detail, "invocation": "private-sentinel"},
+        {"id": "private-sentinel", "status": "fail", "detail": "private-sentinel"},
+        {"id": "4.malformed", "status": {}, "detail": "private-sentinel"},
+    ]}, "payload": "private-sentinel", "result": {"injectedError": {"recoverable": True}}}
+    script.write_text("import json,sys\njson.dump(" + repr(response) + ",sys.stdout)\nsys.exit(1)\n")
+    driver = canary.DriverAdapter(script, json.loads(PROTOCOL.read_text()))
+    with pytest.raises(canary.CanaryError) as failed:
+        driver.invoke("observe", {"workspaceId": "w", "stage": "style-render"})
+    assert str(failed.value) == "#123 driver observe failed with exit code 1; checks=4.pixel=fail/" + code
+    assert "private-sentinel" not in str(failed.value)
+
+
+@pytest.mark.parametrize("error,expected", [
+    ("TypeError: private-sentinel", "; driverError=TypeError"),
+    ("private-sentinel: arbitrary error", "; structuredFailure=true"),
+    ({"private-sentinel": True}, "; structuredFailure=true"),
+])
+def test_driver_exception_diagnostics_never_include_arbitrary_error_values(error, expected):
+    assert canary.driver_failure_diagnostic({"status": "fail", "error": error}) == expected
+
+
+def test_render_dimension_diagnostic_only_retains_bounded_integer_pairs():
+    response = {"stageStatus": {"checks": [{"id": "4.pixel", "status": "fail",
+        "detail": "PNG dimensions differ from the authored render size"}]},
+        "observation": {"renderDimensions": {"requested": [512, 512], "expected": [256, 256],
+            "decoded": [512, 512], "private": "private-sentinel"}}}
+    diagnostic = canary.driver_failure_diagnostic(response)
+    assert diagnostic == ("; checks=4.pixel=fail/render-size-mismatch; "
+                          "renderSize=requested=512x512,expected=256x256,decoded=512x512")
+    for value in (None, ["private-sentinel", 2], [True, 2], [0, 2], [16385, 2], [1, 2, 3]):
+        response["observation"]["renderDimensions"]["requested"] = value
+        assert canary.driver_failure_diagnostic(response) == "; checks=4.pixel=fail/render-size-mismatch"
+
+
+@pytest.mark.parametrize("category,exception", [
+    ("DriverError", "live_driver.DriverError('private-sentinel')"),
+    ("ExecutionError", "live_driver.ExecutionError('private-command', 'private-sentinel')"),
+])
+def test_real_driver_handled_exceptions_preserve_category_without_error_text(tmp_path, category, exception):
+    script = tmp_path / "driver.py"
+    script.write_text(
+        "import sys\n"
+        + "sys.path.insert(0," + repr(str(REPO_ROOT / 'certification' / 'terminal-journey')) + ")\n"
+        + "import live_driver\n"
+        + "def fail(request):\n    raise " + exception + "\n"
+        + "live_driver.OPERATIONS['observe'] = fail\n"
+        + "raise SystemExit(live_driver.main())\n")
+    driver = canary.DriverAdapter(script, json.loads(PROTOCOL.read_text()))
+    with pytest.raises(canary.CanaryError) as failed:
+        driver.invoke("observe", {"workspaceId": "w", "stage": "style-render"})
+    assert str(failed.value) == "#123 driver observe failed with exit code 1; driverError=" + category
+    assert "private-" not in str(failed.value)
+    assert canary.driver_failure_diagnostic({"status": "fail", "errorCategory": "private-sentinel"}) == "; structuredFailure=true"
 
 
 def test_driver_on_another_endpoint_than_the_model_proxy_cannot_certify_the_cell(monkeypatch):

@@ -408,7 +408,12 @@ def op_observe(request: dict[str, Any]) -> dict[str, Any]:
         unfinished = result and any(c.detail == "required live assertion has not executed" for c in result.checks)
         if result and not unfinished:
             concrete = prerequisites + result.checks
-        failed = any(c.status == "fail" for c in concrete)
+        # Keep the failed oracle visible while a model can repair its own
+        # selected size within the unchanged action budget. Candidate defects
+        # and every other failed assertion remain terminal. Completion still
+        # requires engine.result() to pass the original pixel oracle.
+        repairable = {c.id for c in concrete if engine.repairable_render_selection(number, c)}
+        failed = any(c.status == "fail" and c.id not in repairable for c in concrete)
         blocked = any(c.status == "blocked" for c in concrete)
         blockers = list(dict.fromkeys(b for c in concrete if c.status == "blocked" for b in c.blocked_by))
         _write_state(state["workspaceId"], state)
@@ -423,6 +428,8 @@ def op_observe(request: dict[str, Any]) -> dict[str, Any]:
                 "observation": {**_observation_payload(observation), "resources": dict(engine.resources),
                                 "fixture": _target.get("execution", {}),
                                 "terminalSurface": engine.terminal_surface(number),
+                                "renderDimensions": engine.evidence.get("renderDimensions"),
+                                "repairableChecks": sorted(repairable),
                                 "evidence": checks},
                 "toolView": _tool_view(observation),
                 # The tool calls this stage admits (the executor refuses any other as an invalid action):
@@ -693,10 +700,10 @@ def handle(request: dict[str, Any]) -> dict[str, Any]:
     try:
         response = handler(request)
     except DriverError as exc:
-        return {"status": "fail", "operation": operation, "error": str(exc)}
+        return {"status": "fail", "operation": operation, "errorCategory": "DriverError", "error": str(exc)}
     except ExecutionError as exc:
         return {"status": "blocked" if exc.blocked else "fail", "operation": operation,
-                "error": f"{exc.command}: {exc.reason}"}
+                "errorCategory": "ExecutionError", "error": f"{exc.command}: {exc.reason}"}
     except Exception as exc:  # noqa: BLE001 - a driver crash must never read as pass
         return {"status": "fail", "operation": operation, "error": f"{type(exc).__name__}: {exc}"}
     response.setdefault("protocol", PROTOCOL)

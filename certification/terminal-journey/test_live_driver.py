@@ -171,6 +171,27 @@ def test_observe_exposes_the_actual_stage_terminal_bridge_contract():
     assert not engine.evidence["actions"]
 
 
+def test_next_stage_context_exposes_native_publication_identity_separately_from_fixture():
+    import executor
+    target = {"execution": {"serviceId": "journey"}}
+    engine = executor.JourneyExecutor({"workspaceId": "unit", "stackUp": True, "executionEnabled": True}, target,
+        stages.Observation(setup_view_present=True), mock.Mock(credentials={"proposer": "private-proposer"}))
+    with mock.patch.object(engine, "check_features"):
+        engine.record_publication({"status": "Completed", "requiresApproval": False, "layerId": "17",
+            "serviceName": "observed-published", "serviceUri": "honua://published-services/observed-published"})
+    stage = json.loads((live_driver.HERE / "journey.v1.json").read_text())["stages"][3]
+    status = {"number": 4, "id": stage["id"], "command": stage["command"], "checks": [], "status": "blocked"}
+    with mock.patch.object(live_driver, "_rehydrate", return_value=(engine.state, target, {}, engine.observation, None)), \
+         mock.patch.object(live_driver, "_executor", return_value=engine), \
+         mock.patch.object(live_driver, "_stage_status", return_value=status), mock.patch.object(live_driver, "_write_state"):
+        response = live_driver.op_observe({"stage": stage["id"]})
+    actual = response["observation"]["resources"]
+    assert actual["serviceId"] == actual["serviceName"] == "observed-published" and actual["layerId"] == 17
+    assert actual["serviceUri"] == "honua://published-services/observed-published"
+    assert response["observation"]["fixture"] == {"serviceId": "journey"}
+    assert "private-proposer" not in json.dumps(response)
+
+
 def _cloud_target_file(path, cell="aws-ecs/redis-on"):
     import cloud_target
     target = cloud_target.build(json.loads(live_driver.DEFAULT_TARGET.read_text()),
