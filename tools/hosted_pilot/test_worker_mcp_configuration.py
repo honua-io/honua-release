@@ -33,11 +33,19 @@ class WorkerMcpCustody(unittest.TestCase):
             'agentContext': {'workspaceId': workspace['workspaceId'], 'turnId': turn['turnId']},
             'workspace': workspace, 'turn': turn, 'issuedAgentKey': key, 'nativeOriginals': {},
             'nativeBootstrapReference': {'key': 'original-key-agent', 'sha256': canonical_digest(issued)}}
+        human = {'actorId': 'actual-human', 'studioOwnerId': 'actual-human', 'tenantId': 'native-tenant',
+                 'authenticationKind': 'operator-bearer', 'isHumanSession': True}
+        principal = {'actorId': 'apikey:api-key:'+key['apiKeyId'], 'studioOwnerId': key['apiKeyId'],
+                     'tenantId': 'native-tenant', 'authenticationKind': 'api-key', 'isHumanSession': False}
+        value.update(studioOwnerPrincipalId=key['apiKeyId'], workspaceAgentPrincipalId=principal['actorId'],
+                     agentPrincipal=principal, humanCreatorPrincipal=human)
         originals = {'original-key-agent': issued}
         for name, path, body in [('workspaceReadback', '/api/v1/agent/workspaces/actual-workspace?viewId=studio-native', workspace),
-                                 ('turnReadback', '/api/v1/agent/workspaces/actual-workspace/turns/actual-turn', turn)]:
+                                 ('turnReadback', '/api/v1/agent/workspaces/actual-workspace/turns/actual-turn', turn),
+                                 ('agentTarget', '/api/v1/agent/target', {'targetId': 'actual-target', 'principal': principal}),
+                                 ('target', '/api/v1/agent/target', {'targetId': 'actual-target', 'principal': human})]:
             intent = {'candidateKey': self.candidate, 'attemptId': 'native-context-'+self.phase[7:31],
-                'method': 'GET', 'path': path, 'endpoint': native['endpoint'], 'credentialKind': 'api-key'}
+                'method': 'GET', 'path': path, 'endpoint': native['endpoint'], 'credentialKind': 'bearer' if name == 'target' else 'api-key'}
             intent_ref = {'key': name+'-intent', 'sha256': canonical_digest(intent)}
             response = {'candidateKey': self.candidate, 'attemptId': intent['attemptId'], 'intentReference': intent_ref,
                 'intentDigest': canonical_digest(intent), 'response': {'httpStatus': 200, 'body': body}}

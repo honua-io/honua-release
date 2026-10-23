@@ -176,3 +176,37 @@ run "native_bootstrap_is_private_and_separates_sql_root_from_controller" {
     error_message = "Native provisioning must stay in its separate private task; SQL/root credentials cannot reach the controller, dispatcher or model."
   }
 }
+
+run "accounting_can_stage_without_inventing_a_generation" {
+  command = plan
+  variables { dispatch_budget = null }
+  assert {
+    condition = (
+      output.controller_handoff == null && output.fixture_handoff == null &&
+      output.native_bootstrap_handoff == null &&
+      output.accounting_staging.dispatchEnabled == false &&
+      output.accounting_staging.state == module.accounting.state_config &&
+      !strcontains(aws_iam_role_policy.dispatcher.policy, "states:StartExecution")
+    )
+    error_message = "Accounting staging must not fabricate a generation or enable dispatch before authenticated create-only initialization."
+  }
+}
+
+run "actual_human_session_is_private_and_immutable" {
+  command = plan
+  variables {
+    human_operator_credential = {
+      secretArn = "arn:aws:secretsmanager:us-east-1:123456789012:secret:honua-pilot-offline-agent/human-session/operator-ABC123"
+      versionId = "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee"
+    }
+  }
+  assert {
+    condition = (
+      one([for secret in jsondecode(aws_ecs_task_definition.controller.container_definitions)[0].secrets : secret.valueFrom if secret.name == "HONUA_SOURCE_CONTRIBUTOR_OPERATOR_TOKEN"]) == "${var.human_operator_credential.secretArn}:::${var.human_operator_credential.versionId}" &&
+      !strcontains(aws_ecs_task_definition.fixture.container_definitions, "HONUA_SOURCE_CONTRIBUTOR_OPERATOR_TOKEN") &&
+      !strcontains(aws_iam_role_policy.execution["fixture"].policy, var.human_operator_credential.secretArn) &&
+      strcontains(aws_iam_role_policy.execution["controller"].policy, var.human_operator_credential.secretArn)
+    )
+    error_message = "Only the trusted controller may receive the actual immutable human session credential."
+  }
+}

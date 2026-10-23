@@ -19,6 +19,7 @@ from agent_e2e_pack import canonical_digest, load_json
 from agent_e2e_state import DurableExecution, open_store
 from agent_e2e_studio_backend import BootstrapHttp, prepare_initial_fixture
 from agent_e2e_scenario_operations import body
+from worker_mcp_configuration import verify_injected_secret
 from controller_archive import canonical, digest, portable, require
 from controller_handoff import ROOT, PREPARE_WORKFLOW, PREPARATIONS, bundle_identity, git
 
@@ -39,21 +40,30 @@ def source_configuration(reference):
 
 
 def native_context(durable, config):
-    fields = {'candidateKey', 'operation', 'nativeBootstrapOperationId', 'endpoint', 'requesterCredentialEnv', 'viewId', 'turnId'}
+    fields = {'candidateKey', 'operation', 'nativeBootstrapOperationId', 'endpoint', 'requesterCredentialEnv', 'viewId', 'turnId', 'humanCreator'}
     require(fields <= set(config) <= fields | {'mcpConfiguration'} and
             config['candidateKey'] == durable.store.candidate and config['requesterCredentialEnv'] == 'HONUA_AGENT_REQUESTER_KEY' and
             config['viewId'] == 'studio-native' and re.fullmatch(r'[A-Za-z0-9_-]{1,100}', config['turnId']), 'native context setup must use its actual issued agent key and reviewed turn')
+    human = config['humanCreator']
+    require(set(human) == {'credentialEnv', 'secretArn', 'versionId'} and
+            human['credentialEnv'] == 'HONUA_SOURCE_CONTRIBUTOR_OPERATOR_TOKEN' and
+            re.fullmatch(r'arn:aws:secretsmanager:us-east-1:[0-9]{12}:secret:honua-pilot-[a-z0-9-]+/human-session/[A-Za-z0-9/_-]+-[A-Za-z0-9]{6}', human['secretArn']) and
+            re.fullmatch(r'[A-Za-z0-9-]{32,64}', human['versionId']), 'actual human session must use reviewed immutable private custody')
+    verify_injected_secret(human, human['credentialEnv'], 'us-east-1')
     native_key = canonical_digest({'kind': 'native-bootstrap', 'candidateKey': config['candidateKey'], 'operationId': config['nativeBootstrapOperationId']})
     issued = durable.state.get('scenarioOperations', {}).get(native_key+'/key-agent', {})
     require(issued.get('producer') == 'private-native-bootstrap' and issued.get('candidateKey') == config['candidateKey'], 'native context lacks actual retained agent key issuance')
     key_record = issued['value']
     require('agent:workspace' in key_record['permissions'] and isinstance(key_record['apiKeyId'], str), 'native context key lacks observed workspace grant')
-    phase = canonical_digest({'kind': 'native-agent-context', 'candidateKey': config['candidateKey'], 'operation': config['operation'], 'keyId': key_record['apiKeyId']})
+    phase = canonical_digest({'kind': 'native-agent-context', 'candidateKey': config['candidateKey'], 'operation': config['operation'], 'keyId': key_record['apiKeyId'], 'humanCreator': human})
     stages = durable.state.setdefault('studioBootstrapOperations', {})
     require(phase+'/start' not in stages, 'native context setup already started; reconcile original observations without replay')
-    client = BootstrapHttp(operation=config['operation'], durable=durable, context={'componentBindingDigest': config['candidateKey']},
-        endpoint=config['endpoint'], credential_env=config['requesterCredentialEnv'], credential_kind='api-key',
-        attempt_id='native-context-'+phase[7:31], timeout=300)
+    def transport(credential_env, credential_kind, agent_context=None):
+        return BootstrapHttp(operation=config['operation'], durable=durable, context={'componentBindingDigest': config['candidateKey']},
+            endpoint=config['endpoint'], credential_env=credential_env, credential_kind=credential_kind,
+            attempt_id='native-context-'+phase[7:31], timeout=300, agent_context=agent_context)
+    client = transport(human['credentialEnv'], 'bearer')
+    agent = transport(config['requesterCredentialEnv'], 'api-key')
     def retain(stage, value):
         client.authorize()
         require(phase+'/'+stage not in stages, 'native context stage already retained')
@@ -63,7 +73,22 @@ def native_context(durable, config):
         'producerTaskArn': os.environ['PILOT_CONTROLLER_TASK_ARN']})
     target_answer = client.json('native-target', 'GET', '/api/v1/agent/target')
     target = body(target_answer)
-    require(isinstance(target.get('targetId'), str) and target['targetId'], 'native target did not report actual deployment identity')
+    human_principal = target.get('principal', {})
+    require(isinstance(target.get('targetId'), str) and target['targetId'] and
+            human_principal.get('isHumanSession') is True and
+            human_principal.get('authenticationKind') in ('operator-bearer', 'interactive') and
+            isinstance(human_principal.get('actorId'), str) and human_principal['actorId'],
+            'native workspace creator must be a server-observed actual human session')
+    agent_target_answer = agent.json('native-agent-target', 'GET', '/api/v1/agent/target')
+    agent_target = body(agent_target_answer)
+    agent_principal = agent_target.get('principal', {})
+    require(agent_target.get('targetId') == target['targetId'] and agent_principal.get('isHumanSession') is False and
+            agent_principal.get('authenticationKind') == 'api-key' and
+            agent_principal.get('actorId') == 'apikey:api-key:'+key_record['apiKeyId'] and
+            agent_principal.get('studioOwnerId') == key_record['apiKeyId'] and
+            human_principal['actorId'] != agent_principal['actorId'] and
+            human_principal.get('tenantId') == agent_principal.get('tenantId'),
+            'native agent principal, Studio owner or human/agent tenant binding differs')
     workspace_answer = client.json('native-workspace-create', 'POST', '/api/v1/agent/workspaces',
         {'viewId': config['viewId'], 'targetId': target['targetId']})
     workspace = body(workspace_answer, (200, 201))
@@ -77,20 +102,22 @@ def native_context(durable, config):
          'prompt': 'Prepare this isolated fixture context; do not execute a campaign task.'})
     turn = body(turn_answer)
     require(turn.get('turnId') == config['turnId'] and turn.get('context') == workspace, 'native server did not capture the requested actual context/turn')
-    workspace_read_answer = client.json('native-workspace-readback', 'GET',
+    agent = transport(config['requesterCredentialEnv'], 'api-key', {'workspaceId': workspace['workspaceId'], 'turnId': turn['turnId']})
+    workspace_read_answer = agent.json('native-workspace-readback', 'GET',
         '/api/v1/agent/workspaces/'+workspace['workspaceId']+'?viewId='+config['viewId'])
-    turn_read_answer = client.json('native-turn-readback', 'GET',
+    turn_read_answer = agent.json('native-turn-readback', 'GET',
         '/api/v1/agent/workspaces/'+workspace['workspaceId']+'/turns/'+turn['turnId'])
     workspace_read, turn_read = body(workspace_read_answer), body(turn_read_answer)
     require(workspace_read == workspace and turn_read.get('turnId') == turn['turnId'] and
             turn_read.get('context') == workspace and turn_read.get('status') == turn.get('status'),
             'actual issued agent cannot read back its installed workspace membership and captured turn')
     value = {'schema': 'honua.native-agent-context/v1', 'candidateKey': config['candidateKey'],
-        'issuedAgentKey': key_record, 'ownerPrincipalId': 'apikey:api-key:'+key_record['apiKeyId'],
+        'issuedAgentKey': key_record, 'studioOwnerPrincipalId': agent_principal['studioOwnerId'],
+        'workspaceAgentPrincipalId': agent_principal['actorId'], 'agentPrincipal': agent_principal, 'humanCreatorPrincipal': human_principal, 'humanCredentialBinding': human,
         'nativeBootstrapReference': {'key': native_key+'/key-agent', 'sha256': canonical_digest(issued)},
         'agentContext': {'workspaceId': workspace['workspaceId'], 'turnId': turn['turnId']},
         'target': target, 'workspace': workspace, 'turn': turn,
-        'nativeOriginals': {'target': target_answer, 'workspace': workspace_answer, 'turn': turn_answer,
+        'nativeOriginals': {'target': target_answer, 'agentTarget': agent_target_answer, 'workspace': workspace_answer, 'turn': turn_answer,
             'workspaceReadback': workspace_read_answer, 'turnReadback': turn_read_answer},
         'producerTaskArn': os.environ['PILOT_CONTROLLER_TASK_ARN'], 'qualification': False}
     retain('completed', value)

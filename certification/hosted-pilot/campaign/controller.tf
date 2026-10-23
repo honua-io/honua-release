@@ -37,8 +37,8 @@ module "accounting" {
   controller_role_arn = aws_iam_role.controller.arn
   # Dispatcher IAM grants only GetObjectVersion/GetItem on retained state. Its
   # explicit resource-policy exception permits observation, never ledger writes.
-  state_admin_role_arns  = setunion(var.state_admin_role_arns, [aws_iam_role.dispatcher.arn, aws_iam_role.fixture.arn], [for role in aws_iam_role.native_bootstrap : role.arn])
-  claim_writer_role_arns = []
+  state_admin_role_arns  = setunion(var.state_admin_role_arns, [aws_iam_role.dispatcher.arn, aws_iam_role.fixture.arn, aws_iam_role.initializer.arn], [for role in aws_iam_role.native_bootstrap : role.arn])
+  claim_writer_role_arns = local.worker_claim_writers
 }
 resource "aws_s3_bucket" "handoff" {
   bucket        = "${var.name_prefix}-controller-${var.account_id}"
@@ -126,6 +126,8 @@ locals {
     HONUA_AGENT_SETUP_KEY     = "${aws_secretsmanager_secret.api["setup"].arn}:::${var.issued_native_keys.setup.versionId}"
     HONUA_AGENT_OBSERVER_KEY  = "${aws_secretsmanager_secret.api["observer"].arn}:::${var.issued_native_keys.observer.versionId}"
     HONUA_AGENT_REQUESTER_KEY = "${aws_secretsmanager_secret.api["agent"].arn}:::${var.issued_native_keys.agent.versionId}"
+    }, var.human_operator_credential == null ? {} : {
+    HONUA_SOURCE_CONTRIBUTOR_OPERATOR_TOKEN = "${var.human_operator_credential.secretArn}:::${var.human_operator_credential.versionId}"
   })
   fixture_secrets = merge(local.fixture_sql_secrets, {
     PILOT_FIXTURE_MASTER_CONNECTION = module.target.db_connection_secret_arn
@@ -139,7 +141,7 @@ resource "aws_iam_role_policy" "execution" {
     { Effect = "Allow", Action = ["ecr:GetAuthorizationToken"], Resource = "*" },
     { Effect = "Allow", Action = ["ecr:BatchGetImage", "ecr:GetDownloadUrlForLayer", "ecr:BatchCheckLayerAvailability"], Resource = "arn:aws:ecr:${var.region}:${var.account_id}:repository/${split("/", split("@", var.controller_image.uri)[0])[1]}" },
     { Effect = "Allow", Action = ["logs:CreateLogStream", "logs:PutLogEvents"], Resource = "${aws_cloudwatch_log_group.controller[each.key].arn}:*" },
-    { Effect = "Allow", Action = "secretsmanager:GetSecretValue", Resource = each.key == "fixture" ? concat([module.target.db_connection_secret_arn, module.target.admin_password_secret_arn], [for secret in aws_secretsmanager_secret.fixture : secret.arn]) : concat([for secret in aws_secretsmanager_secret.fixture : secret.arn], var.issued_native_keys == null ? [] : [for secret in aws_secretsmanager_secret.api : secret.arn]) },
+    { Effect = "Allow", Action = "secretsmanager:GetSecretValue", Resource = each.key == "fixture" ? concat([module.target.db_connection_secret_arn, module.target.admin_password_secret_arn], [for secret in aws_secretsmanager_secret.fixture : secret.arn]) : concat([for secret in aws_secretsmanager_secret.fixture : secret.arn], var.issued_native_keys == null ? [] : [for secret in aws_secretsmanager_secret.api : secret.arn], var.human_operator_credential == null ? [] : [var.human_operator_credential.secretArn]) },
     { Effect = "Allow", Action = "kms:Decrypt", Resource = "arn:aws:kms:${var.region}:${var.account_id}:key/*", Condition = { StringEquals = { "kms:ViaService" = "secretsmanager.${var.region}.amazonaws.com", "aws:ResourceTag/ResetBoundary" = var.name_prefix }, ArnLike = { "kms:EncryptionContext:SecretARN" = "arn:aws:secretsmanager:${var.region}:${var.account_id}:secret:${var.name_prefix}*" } } }
   ] })
 }

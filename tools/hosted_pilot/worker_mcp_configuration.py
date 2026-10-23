@@ -44,8 +44,18 @@ def retained_context(durable, reference, endpoint):
     require('agent:workspace' in permissions and 'admin:read' in permissions and
             all(permission != '*' and (not permission.startswith('admin:') or permission == 'admin:read') for permission in permissions),
             'MCP configuration cannot carry privileged setup or approval credentials')
+    principal = value.get('agentPrincipal', {})
+    human = value.get('humanCreatorPrincipal', {})
+    require(value.get('studioOwnerPrincipalId') == value['issuedAgentKey']['apiKeyId'] == principal.get('studioOwnerId') and
+            value.get('workspaceAgentPrincipalId') == 'apikey:api-key:'+value['issuedAgentKey']['apiKeyId'] == principal.get('actorId') and
+            principal.get('authenticationKind') == 'api-key' and principal.get('isHumanSession') is False and
+            human.get('isHumanSession') is True and human.get('authenticationKind') in ('interactive', 'operator-bearer') and
+            isinstance(human.get('actorId'), str) and human['actorId'] != principal['actorId'] and
+            human.get('tenantId') == principal.get('tenantId'),
+            'MCP native human/agent pairing or Studio owner differs')
     paths = {'workspaceReadback': '/api/v1/agent/workspaces/'+workspace['workspaceId']+'?viewId='+workspace['viewId'],
-             'turnReadback': '/api/v1/agent/workspaces/'+workspace['workspaceId']+'/turns/'+turn['turnId']}
+             'turnReadback': '/api/v1/agent/workspaces/'+workspace['workspaceId']+'/turns/'+turn['turnId'],
+             'agentTarget': '/api/v1/agent/target', 'target': '/api/v1/agent/target'}
     for name, path in paths.items():
         selected = value['nativeOriginals'][name]['reference']
         response = originals.get(selected['key'])
@@ -54,18 +64,23 @@ def retained_context(durable, reference, endpoint):
         intent = originals.get(origin.get('key'))
         require(isinstance(intent, dict) and canonical_digest(intent) == origin.get('sha256') and
                 intent.get('method') == 'GET' and intent.get('path') == path and intent.get('endpoint') == endpoint and
-                intent.get('credentialKind') == 'api-key' and intent.get('candidateKey') == durable.store.candidate and
+                intent.get('credentialKind') == ('bearer' if name == 'target' else 'api-key') and intent.get('candidateKey') == durable.store.candidate and
                 intent.get('attemptId') == 'native-context-'+reference['key'][7:31] and response.get('attemptId') == intent.get('attemptId') and
                 response.get('candidateKey') == durable.store.candidate and response.get('intentDigest') == canonical_digest(intent) and
                 response.get('response', {}).get('httpStatus') == 200, 'MCP context is not an authenticated native original on the exact target')
         raw = response['response']['body']
-        require(raw == workspace if name == 'workspaceReadback' else isinstance(raw, dict) and
-                raw.get('turnId') == turn['turnId'] and raw.get('context') == workspace and raw.get('status') == turn.get('status'),
-                'MCP retained native context changed after observation')
+        if name in ('target', 'agentTarget'):
+            require(isinstance(raw, dict) and raw.get('targetId') == workspace['targetId'] and
+                    raw.get('principal') == (human if name == 'target' else principal),
+                    'MCP native principal differs from authenticated original')
+        else:
+            require(raw == workspace if name == 'workspaceReadback' else isinstance(raw, dict) and
+                    raw.get('turnId') == turn['turnId'] and raw.get('context') == workspace and raw.get('status') == turn.get('status'),
+                    'MCP retained native context changed after observation')
     return value
 
 
-def verify_injected_credential(context, region, *, ecs=None):
+def verify_injected_secret(binding, credential_env, region, *, ecs=None):
     task_arn = os.environ.get('PILOT_CONTROLLER_TASK_ARN', '')
     require(re.fullmatch('arn:aws:ecs:'+re.escape(region)+r':[0-9]{12}:task/honua-pilot-[a-z0-9-]+/[a-f0-9]{32}', task_arn),
             'private MCP custody needs the independently observed current controller task')
@@ -77,9 +92,12 @@ def verify_injected_credential(context, region, *, ecs=None):
     definition = ecs.describe_task_definition(taskDefinition=observed['tasks'][0]['taskDefinitionArn'])['taskDefinition']
     containers = definition['containerDefinitions']
     require(len(containers) == 1 and containers[0]['name'] == 'campaign-controller', 'MCP current controller container differs')
-    injected = [secret['valueFrom'] for secret in containers[0].get('secrets', []) if secret['name'] == 'HONUA_AGENT_REQUESTER_KEY']
-    key = context['issuedAgentKey']
-    require(injected == [key['secretArn']+':::'+key['versionId']], 'MCP environment credential is not the exact original immutable issued-agent version')
+    injected = [secret['valueFrom'] for secret in containers[0].get('secrets', []) if secret['name'] == credential_env]
+    require(injected == [binding['secretArn']+':::'+binding['versionId']], 'private environment credential is not the exact original immutable issued-agent version')
+
+
+def verify_injected_credential(context, region, *, ecs=None):
+    verify_injected_secret(context['issuedAgentKey'], 'HONUA_AGENT_REQUESTER_KEY', region, ecs=ecs)
 
 
 def provision(durable, reference, operation, configuration, *, secrets=None, ecs=None):

@@ -26,7 +26,9 @@ def project(result, outcome):
     if result['operation'] == 'prepare-native-context':
         context = value['value']
         review['agentContext'] = context['agentContext']
-        review['ownerPrincipalId'] = context['ownerPrincipalId']
+        review['studioOwnerPrincipalId'] = context['studioOwnerPrincipalId']
+        review['workspaceAgentPrincipalId'] = context['workspaceAgentPrincipalId']
+        review['humanCreatorPrincipal'] = context['humanCreatorPrincipal']
         review['agentApiKeyId'] = context['issuedAgentKey']['apiKeyId']
         if 'mcpConfiguration' in value:
             review['workerMcpConfiguration'] = value['mcpConfiguration']

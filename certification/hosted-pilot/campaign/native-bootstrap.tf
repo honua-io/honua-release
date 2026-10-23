@@ -13,8 +13,8 @@ variable "native_bootstrap" {
 locals {
   native_bootstrap_config = var.native_bootstrap == null ? null : merge(var.native_bootstrap, {
     schemaVersion        = 1, region = var.region, accountId = var.account_id, candidateKey = var.candidate_digest,
-    generationDigest     = var.dispatch_budget.generationDigest,
-    state                = var.dispatch_budget.state, databaseHost = nonsensitive(module.target.db_endpoint), database = local.database,
+    generationDigest     = var.dispatch_budget == null ? null : var.dispatch_budget.generationDigest,
+    state                = module.accounting.state_config, databaseHost = nonsensitive(module.target.db_endpoint), database = local.database,
     appRole              = local.app_role, cleanupRole = local.fixture_roles.cleanup, observerRole = local.fixture_roles.observer,
     endpoint             = local.origin, secretArns = { for kind, secret in aws_secretsmanager_secret.api : kind => secret.arn },
     bucket               = aws_s3_bucket.handoff.id, receiptKey = "native/bootstrap/${local.candidate_hex}/${var.native_bootstrap.operation.operationId}.json",
@@ -77,7 +77,7 @@ resource "aws_iam_role_policy" "dispatch_native_bootstrap" {
 }
 output "native_bootstrap_handoff" {
   description = "Review this actual nonsecret task binding into source before invoking the checked private bootstrap workflow. A null output grants no initialization path."
-  value = var.native_bootstrap == null ? null : {
+  value = var.native_bootstrap == null || var.dispatch_budget == null ? null : {
     schemaVersion     = 1, region = var.region, accountId = var.account_id, clusterArn = local.target_cluster_arn,
     taskDefinitionArn = aws_ecs_task_definition.native_bootstrap[0].arn, taskRoleArn = aws_iam_role.native_bootstrap[0].arn,
     executionRoleArn  = aws_iam_role.execution["fixture"].arn, containerName = "native-bootstrap", imageUri = var.controller_image.uri,

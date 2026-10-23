@@ -98,8 +98,9 @@ variable "issued_native_keys" {
 variable "dispatch_budget" {
   description = "Original authenticated shared-operation binding; this root never creates or resets a campaign allowance."
   type        = object({ state = object({ region = string, bucket = string, table = string }), generationDigest = string, reservationId = string, operationId = string, basisDigest = string, perDispatchCeilingUsd = string, maximumDispatches = number })
+  default     = null
   validation {
-    condition     = can(regex("^sha256:[a-f0-9]{64}$", var.dispatch_budget.generationDigest)) && can(regex("^sha256:[a-f0-9]{64}$", var.dispatch_budget.basisDigest)) && var.dispatch_budget.maximumDispatches >= 1 && var.dispatch_budget.maximumDispatches <= 256 && tonumber(var.dispatch_budget.perDispatchCeilingUsd) > 0
+    condition     = var.dispatch_budget == null ? true : can(regex("^sha256:[a-f0-9]{64}$", var.dispatch_budget.generationDigest)) && can(regex("^sha256:[a-f0-9]{64}$", var.dispatch_budget.basisDigest)) && var.dispatch_budget.maximumDispatches >= 1 && var.dispatch_budget.maximumDispatches <= 256 && tonumber(var.dispatch_budget.perDispatchCeilingUsd) > 0
     error_message = "Bind existing durable generation and original reservation, with bounded dispatch capacity."
   }
 }
