@@ -45,7 +45,7 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           repository: honua-io/honua-release
-          ref: ${{ inputs.release_root_sha }}
+          ref: trunk
           fetch-depth: 0
           persist-credentials: false
       - name: Verify reviewed source and existing foundation approval policy
@@ -58,8 +58,9 @@ jobs:
         run: |
           set -euo pipefail
           [[ "$ROOT_SHA" =~ ^[0-9a-f]{40}$ ]]
-          test "$(git rev-parse HEAD)" = "$ROOT_SHA"
           git merge-base --is-ancestor "$ROOT_SHA" origin/trunk
+          git checkout --detach "$ROOT_SHA"
+          test "$(git rev-parse HEAD)" = "$ROOT_SHA"
           if [ -n "$RECOVERY_ARTIFACT" ] || [ -n "$RECOVERY_SHA" ]; then
             test -n "$RECOVERY_RUN" && [[ "$RECOVERY_ARTIFACT" =~ ^[0-9]+$ ]]
             [[ "$RECOVERY_SHA" =~ ^[0-9a-f]{64}$ ]]
@@ -91,7 +92,7 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           repository: honua-io/honua-release
-          ref: ${{ inputs.release_root_sha }}
+          ref: trunk
           path: release-source
           fetch-depth: 0
           persist-credentials: false
@@ -103,6 +104,8 @@ jobs:
           set -euo pipefail
           [[ "$ROOT_SHA" =~ ^[0-9a-f]{40}$ ]]
           git merge-base --is-ancestor "$ROOT_SHA" origin/trunk
+          git checkout --detach "$ROOT_SHA"
+          test "$(git rev-parse HEAD)" = "$ROOT_SHA"
       - name: Verify recovery metadata producer when recovering initial custody
         if: inputs.recovery_run_id != ''
         env:
