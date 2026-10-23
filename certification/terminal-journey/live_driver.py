@@ -629,6 +629,7 @@ def op_verify(request: dict[str, Any]) -> dict[str, Any]:
 def _executor(state, target, observation):
     workdir = Path(state["workdir"])
     bindir = workdir / "install" / "node_modules" / ".bin"
+    local_fixture.restore_datasource_environment(target)
     credentials = local_fixture.credentials(target, workdir, state["baseUrl"],
         **({"tenant_signing_key": os.environ["HONUA_CANARY_TENANT_SIGNING_KEY"]}
            if state.get("external") and os.environ.get("HONUA_CANARY_TENANT_SIGNING_KEY") else {}))

@@ -71,6 +71,17 @@ def _save(path, value):
         json.dump(value, stream)
 
 
+def restore_datasource_environment(target):
+    """Restore the public isolated Compose fixture in every driver process.
+
+    Driver operations are separate subprocesses, so setup's environment does not
+    reach later SDK calls. Cloud references must still come from their sealed
+    handoff; never give a cloud target the local fixture default.
+    """
+    if target.get("kind") == "local-docker":
+        os.environ.setdefault("HONUA_JOURNEY_DATASOURCE_PASSWORD", "honua")
+
+
 def compose_env(target, workdir):
     if target.get("kind") != "local-docker":
         return {}
@@ -78,8 +89,7 @@ def compose_env(target, workdir):
     if not path.exists():
         _save(path, {"signingKey": secrets.token_urlsafe(48), "keys": {}})
     secret = json.loads(path.read_text())["signingKey"]
-    # The authored datasource uses the isolated compose database only.
-    os.environ.setdefault("HONUA_JOURNEY_DATASOURCE_PASSWORD", "honua")
+    restore_datasource_environment(target)
     return {"HONUA_JOURNEY_SIGNING_KEY": secret,
             "HONUA_JOURNEY_REPLICA_PORT": str(replica_port(target))}
 
