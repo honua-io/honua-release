@@ -446,16 +446,28 @@ class JourneyExecutor:
                                  + (f" ({describe_fields(seen)})" if seen else ""))
         # McpPublishServiceOutput projects these from the completed canonical
         # handle. Requested serviceName and the fixture are not publication proof.
-        service = identity(output.get("serviceName"), "honua_publish_service")
+        service = output.get("serviceName")
+        if (not isinstance(service, str) or not 0 < len(service) <= 200
+                or not service.isprintable() or service.strip() != service):
+            raise ExecutionError("honua_publish_service", "candidate omitted a bounded published service name")
+        try:
+            service_bytes = service.encode("utf-8")
+        except UnicodeEncodeError as exc:
+            raise ExecutionError("honua_publish_service", "candidate returned an invalid published service name") from exc
         if any(secret and secret in service for secret in credential_values(self.transport.credentials)):
             raise ExecutionError("honua_publish_service", "candidate returned credential material as a service identity")
         uri = output.get("serviceUri")
-        if uri != "honua://published-services/" + urllib.parse.quote(service, safe=""):
+        if uri != "honua://published-services/" + urllib.parse.quote_from_bytes(service_bytes, safe=""):
             raise ExecutionError("honua_publish_service", "candidate omitted or contradicted the published service URI")
         layer = output.get("layerId")
+        raw_layer = str(layer) if isinstance(layer, str) or type(layer) is int else None
+        if raw_layer is not None and any(secret and (secret == raw_layer or
+                secret.isdecimal() and raw_layer.isdecimal() and secret.lstrip("0") == raw_layer.lstrip("0"))
+                for secret in credential_values(self.transport.credentials)):
+            raise ExecutionError("honua_publish_service", "candidate returned credential material as a layer identity")
         if type(layer) is int and layer >= 0:
             layer_id = layer
-        elif isinstance(layer, str) and layer.isdigit() and len(layer) <= 18:
+        elif isinstance(layer, str) and re.fullmatch(r"[0-9]{1,18}", layer):
             layer_id = int(layer)
         else:
             raise ExecutionError("honua_publish_service", "candidate omitted the published layer identity")
@@ -463,7 +475,7 @@ class JourneyExecutor:
         # Keep the returned name too, so this normalization stays explicit.
         self.resources.update(serviceName=service, serviceId=service, serviceUri=uri, layerId=layer_id)
         self.evidence["nativePublication"] = {
-            "serviceNameSha256": hashlib.sha256(service.encode()).hexdigest(),
+            "serviceNameSha256": hashlib.sha256(service_bytes).hexdigest(),
             "serviceUriSha256": hashlib.sha256(uri.encode()).hexdigest(),
             "layerId": layer_id,
             "fixtureServiceNameMatches": service == self.fixture.get("serviceId"),
