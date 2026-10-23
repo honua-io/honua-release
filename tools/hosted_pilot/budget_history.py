@@ -22,6 +22,10 @@ REGION = 'us-east-1'
 REPOSITORIES = ('honua-io/honua-release', 'honua-io/honua-iac')
 PREFIXES = ('honua-pilot-', 'honua-release-pilot-', 'honua-agent-')
 EVENTS = ('StartExecution', 'CreateStateMachine', 'RunTask', 'CreateRole', 'CreateBucket')
+CREATION_TAGS = {'ManagedBy':r'honua-release-hosted-pilot-bootstrap', 'BootstrapExecution':r'[0-9]+',
+    'BootstrapFoundationSha':r'[a-f0-9]{40}', 'BootstrapReleaseSha':r'[a-f0-9]{40}',
+    'BootstrapConfigPath':r'certification/hosted-pilot/bootstrap/deployments/[A-Za-z0-9_-]+\.tfvars\.json',
+    'BootstrapConfigSha256':r'[a-f0-9]{64}', 'BootstrapLockSha256':r'[a-f0-9]{64}'}
 
 
 def require(condition, reason):
@@ -100,21 +104,56 @@ def event_history(value, event_name):
         # and hashed, never copied into the report or response cache.
         if any(prefix in canonical(bindings).decode() for prefix in PREFIXES):
             identities = resource_identities(row, native)
+            field={'CreateRole':'roleName','CreateBucket':'bucketName','CreateStateMachine':'name'}.get(event_name)
+            name=(native.get('requestParameters') or {}).get(field) if field else None
+            if not (isinstance(name,str) and re.fullmatch(r'[A-Za-z0-9+=,.@_-]{1,128}',name)):name=None
             error = native.get('errorCode')
             if error is not None and (not isinstance(error, str) or not re.fullmatch(r'[A-Za-z0-9_.]{1,80}', error)):
                 error = 'unclassified'
             matches.append({'eventId': row['EventId'], 'eventTime': native['eventTime'],
                 'eventName': event_name, 'resourceIdentities': identities, 'errorCode': error,
+                'principal': principal_projection(native.get('userIdentity') or {}),
+                'creationResourceName':name,'nativeEventIdMatches':native.get('eventID')==row['EventId'],
+                'recipientAccountId':native.get('recipientAccountId') if re.fullmatch(r'[0-9]{12}',str(native.get('recipientAccountId'))) else None,
                 'unprojectedNamespaceReference': not any(prefix in identity for prefix in PREFIXES for identity in identities),
                 'nativeEventSha256': digest(canonical(native))})
     return {'totalEvents': len(rows), 'pilotEvents': matches,
             'allEventIdsDigest': digest(canonical(sorted(row['EventId'] for row in rows)))}
 
 
+def principal_projection(value):
+    """Actual AWS public identity only; never accessKeyId or bearer/session data."""
+    if value.get('type') not in ('IAMUser','AssumedRole'):return None
+    fields={'type':value['type'],'accountId':value.get('accountId'),'arn':value.get('arn'),'principalId':value.get('principalId')}
+    if not (re.fullmatch(r'[0-9]{12}',str(fields['accountId'])) and isinstance(fields['arn'],str) and
+        re.fullmatch(r'arn:aws:(?:iam|sts)::[0-9]{12}:(?:user|assumed-role)/[A-Za-z0-9+=,.@_/-]{1,256}',fields['arn']) and
+        isinstance(fields['principalId'],str) and re.fullmatch(r'(?:AIDA|AROA)[A-Z0-9]+(?::[A-Za-z0-9+=,.@_-]{1,64})?',fields['principalId'])):
+        return None
+    issuer=(value.get('sessionContext') or {}).get('sessionIssuer') or {}
+    if fields['type']=='AssumedRole':
+        selected={key:issuer.get(key) for key in ('type','accountId','arn','principalId')}
+        if not (selected['type']=='Role' and selected['accountId']==fields['accountId'] and
+            isinstance(selected['arn'],str) and re.fullmatch(r'arn:aws:iam::[0-9]{12}:role/[A-Za-z0-9+=,.@_/-]{1,128}',selected['arn']) and
+            isinstance(selected['principalId'],str) and re.fullmatch(r'AROA[A-Z0-9]+',selected['principalId'])):return None
+        fields['sessionIssuer']=selected
+    return fields
+
+
+def creation_tags_projection(value):
+    require(not value.get('IsTruncated') and not value.get('Marker'),'creation tag observation is truncated')
+    rows=value.get('Tags',value.get('TagSet',[]))
+    require(isinstance(rows,list) and len({row['Key'] for row in rows})==len(rows),'creation tag observation is duplicated')
+    tags={row['Key']:row['Value'] for row in rows if row['Key'] in CREATION_TAGS and isinstance(row['Value'],str) and
+        re.fullmatch(CREATION_TAGS[row['Key']],row['Value'])}
+    return {'tags':tags,'complete':set(tags)==set(CREATION_TAGS)}
+
+
 def cache_projection(label, value):
     """Persist only evidence needed for this audit; never an API response dump."""
     if label.startswith('cloudtrail-'):
         return event_history(value, label.removeprefix('cloudtrail-'))
+    if label.startswith('creation-tags-'):
+        return creation_tags_projection(value)
     if label == 'caller':
         return {'Account': value['Account'], 'Arn': value['Arn']}
     if label.endswith('-trunk'):
@@ -202,6 +241,19 @@ def collect(start, cutoff, output, *, call=invoke):
             '--lookup-attributes', 'AttributeKey=EventName,AttributeValue='+name,
             '--start-time', start, '--end-time', cutoff, '--output', 'json'])
         cloud[name] = event_history(value, name)
+        for index,event in enumerate(cloud[name]['pilotEvents']):
+            if name not in ('CreateRole','CreateBucket'):continue
+            native=json.loads(next(row['CloudTrailEvent'] for row in value['Events'] if row['EventId']==event['eventId']))
+            field='roleName' if name=='CreateRole' else 'bucketName'
+            resource=(native.get('requestParameters') or {}).get(field)
+            if not (isinstance(resource,str) and resource.startswith('honua-release-pilot-foss4g-foundation-') and
+                re.fullmatch(r'[A-Za-z0-9+=,.@_-]{1,128}',resource)):continue
+            argv=['aws','iam','list-role-tags','--role-name',resource] if name=='CreateRole' else [
+                'aws','s3api','get-bucket-tagging','--bucket',resource,'--region',REGION]
+            label='creation-tags-'+name+'-'+str(index)
+            tags=query(label,[*argv,'--output','json'])
+            event['resourceTagObservation']={'resourceName':resource,**creation_tags_projection(tags),
+                'evidence':evidence[label]}
     roles = query('roles', ['aws', 'iam', 'list-roles', '--output', 'json'])
     require(not roles.get('IsTruncated') and not roles.get('Marker'), 'IAM role history incomplete')
     pilot_roles = [row['Arn'] for row in roles['Roles'] if row['RoleName'].startswith(PREFIXES)]

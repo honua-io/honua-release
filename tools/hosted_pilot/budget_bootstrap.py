@@ -20,7 +20,8 @@ from budget_history import cost_period
 def reviewed(reference):
     require(set(reference) == {'path', 'sha256'}, 'reviewed budget source reference missing')
     portable(reference['path'])
-    require(reference['path'].startswith(('certification/agent-e2e/', 'certification/hosted-pilot/history/')) and
+    require((reference['path'].startswith(('certification/agent-e2e/', 'certification/hosted-pilot/history/')) or
+            reference['path']=='certification/hosted-pilot/foundation-funding-basis.json') and
             reference['path'].endswith('.json'), 'budget source escaped reviewed namespace')
     path = ROOT/reference['path']
     require(path.is_file() and not path.is_symlink() and digest_bytes(path.read_bytes()) == reference['sha256'], 'reviewed budget source changed')
@@ -32,6 +33,11 @@ MAX_HISTORY_AGE = timedelta(hours=1)
 
 
 def validate_history(history, ledger, *, now=None, require_fresh=True):
+    envelope = history if history.get('schema')=='honua.hosted-pilot-reconciled-history/v1' else None
+    prior=[]
+    if envelope is not None:
+        from history_reconciliation import envelope as unwrap
+        history,prior,merged=unwrap(envelope,read=reviewed)
     if require_fresh:
         now = now or datetime.now(timezone.utc)
         coverage = history.get('coverage', {})
@@ -46,18 +52,33 @@ def validate_history(history, ledger, *, now=None, require_fresh=True):
         query = history.get('billing', {}).get('queryPeriod', {})
         require(query == cost_period(begin, cutoff),
                 'initialization billing query does not cover the actual UTC cutoff day')
-    require(history['schema'] == 'honua.hosted-pilot-budget-history/v1' and history['wholeAccountZeroSpend'] is False and
-            not any(row['producerRuns'] for row in history['repositories'].values()) and
-            not any(row['pilotEvents'] for row in history['cloudTrail'].values()),
-            'pilot producer history requires reconciliation before initial import')
+    require(history['schema'] == 'honua.hosted-pilot-budget-history/v1' and history['wholeAccountZeroSpend'] is False,
+            'original nonzero-account history must be retained')
+    if envelope is None:
+        require(not any(row['producerRuns'] for row in history['repositories'].values()) and
+                not any(row['pilotEvents'] for row in history['cloudTrail'].values()),
+                'pilot producer history requires reconciliation before initial import')
+    else:
+        from history_reconciliation import reconcile
+        reconcile(merged,ledger,envelope['producerReconciliations'],read=reviewed,
+            cutoff=history['coverage']['cutoff'],authenticate_originals=require_fresh)
     # Gross account usage is intentionally a conservative unresolved attribution
     # hold; credits never reduce it. The extra dollar covers observed diagnostic
     # fees without pretending that billing has settled or stopped accruing.
-    minimum = Decimal(history['billing']['grossUsageUsd']).to_integral_value(rounding=ROUND_CEILING)+1
+    minimum = max(Decimal(row['billing']['grossUsageUsd']).to_integral_value(rounding=ROUND_CEILING)+1 for row in [*prior,history])
     rows = [row for row in ledger['operations'] if row['id'] == 'initialization-history-usage']
-    require(len(rows) == 1 and rows[0]['purpose'] == 'telemetry' and rows[0]['kind'] == 'infrastructure' and
-            rows[0]['state'] == 'reserved' and rows[0]['actualUsd'] is None and
-            rows[0]['basisDigest'] == canonical_digest(history) and Decimal(rows[0]['amountUsd']) >= minimum,
+    bases={canonical_digest(row) for row in [*prior,history]}
+    extensions=[]
+    if envelope is not None:
+        extensions=[row for row in ledger['operations'] if row['id'].startswith('initialization-history-usage-extension-')]
+        require(extensions and any(row['basisDigest']==canonical_digest(envelope) for row in extensions),
+                'reviewed reconciliation requires a positive appended allowance bound to its exact envelope')
+        bases.add(canonical_digest(envelope))
+    require(len(rows) == 1 and all(row['purpose'] == 'telemetry' and row['kind'] == 'infrastructure' and
+            row['state'] == 'reserved' and row['actualUsd'] is None and row['basisDigest'] in bases and
+            Decimal(row['amountUsd']).is_finite() and Decimal(row['amountUsd'])>0 and
+            row['operationId']==rows[0]['operationId'] for row in rows+extensions) and
+            sum(Decimal(row['amountUsd']) for row in rows+extensions)>=minimum,
             'initial import must retain nonzero gross usage and diagnostic hold, never settle unknown charges as zero')
 
 
