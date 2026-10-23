@@ -293,3 +293,38 @@ def test_api_key_credential_is_header_only(wiring, server):
     assert headers['X-Api-Key'] == 'private-setup-token'
     assert 'Authorization' not in headers
     assert 'private-setup-token' not in json.dumps(list(wiring.records.values()))
+
+
+def anonymous_client(wiring, server):
+    return SetupHttp(server.url, None, credential_kind='anonymous', identity=IDENTITY,
+                     authorize=lambda: None, retain=wiring.retain, private_values=['private-setup-token'])
+
+
+def test_actual_anonymous_http_sends_no_identity_and_retains_native_denial(wiring, server):
+    server.respond = lambda *_: (401, {}, b'{"status":401}')
+    reply = anonymous_client(wiring, server).json('public-probe', 'GET', '/api/v1/studio/published/owned')
+    assert reply['observation']['httpStatus'] == 401
+    headers = {key.lower(): value for key, value in server.seen[0][2].items()}
+    assert not ({'authorization', 'x-api-key', 'cookie'} & set(headers))
+    assert wiring.records['intent', 'public-probe']['credentialKind'] == 'anonymous'
+
+
+@pytest.mark.parametrize('method', ['POST', 'PUT'])
+def test_anonymous_transport_cannot_mutate_before_intent_or_http(wiring, server, method):
+    with pytest.raises(PackError, match='only GET'):
+        anonymous_client(wiring, server).json('mutation', method, '/api/v1/operations/anything/submit', {})
+    assert not wiring.records and not server.seen
+
+
+def test_anonymous_transport_cannot_accept_a_credential_reference(wiring, server):
+    with pytest.raises(PackError, match='credential reference'):
+        wiring.client(credential_kind='anonymous')
+    assert not wiring.records and not server.seen
+
+
+@pytest.mark.parametrize('raw', [b'{"x":1,"x":2}', b'{"x":NaN}', b'{"secret":"private-setup-token"}'])
+def test_anonymous_response_keeps_strict_json_and_private_canary_checks(wiring, server, raw):
+    server.respond = lambda *_: (200, {}, raw)
+    with pytest.raises(PackError):
+        anonymous_client(wiring, server).json('public-probe', 'GET', '/read')
+    assert ('response', 'public-probe') not in wiring.records
