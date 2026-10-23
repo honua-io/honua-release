@@ -41,6 +41,9 @@ def native_id(value):
 
 
 def contract(value):
+    if isinstance(value, dict) and value.get('profile') == 'honua.worker-custody-bindings/v1':
+        from agent_e2e_native_custody_bindings import contract as custody_contract
+        return custody_contract(value)
     if isinstance(value, dict) and value.get('profile') == 'honua.managed-job-bindings/v1':
         from agent_e2e_native_job_bindings import contract as job_contract
         return job_contract(value)
@@ -80,7 +83,7 @@ def marker(value):
     if isinstance(value, dict) and '$native' in value:
         exact(value, {'$native'}, 'native reference cannot carry fallback/literal fields')
         reference = value['$native']
-        require(isinstance(reference, str) and re.fullmatch(r'[a-z][a-z0-9-]{0,40}\.(?:proposalId|approvalAuditId|savedVersionId|jobId)', reference),
+        require(isinstance(reference, str) and re.fullmatch(r'[a-z][a-z0-9-]{0,40}\.(?:proposalId|approvalAuditId|savedVersionId|jobId|taskWorkerId)', reference),
                 'invalid native reference')
         return reference.split('.')
     return None
@@ -96,7 +99,13 @@ def validate_case(value):
     require(isinstance(value, dict) and set(value) in ({'assertions', 'cleanup'}, {'assertions', 'cleanup', 'nativeBindings'}),
             'invalid frozen case expectation fields')
     contracts = value.get('nativeBindings', {})
-    require(isinstance(contracts, dict) and len(contracts) <= 1, 'only one reviewed native binding is supported per case')
+    require(isinstance(contracts, dict) and len(contracts) <= 2 and all(isinstance(row, dict) for row in contracts.values()),
+            'only reviewed finite native binding pairs are supported per case')
+    profiles = [row.get('profile') for row in contracts.values()]
+    require(len(profiles) == len(set(profiles)) and (len(profiles) <= 1 or frozenset(profiles) in {
+        frozenset({'honua.studio-publication-bindings/v1', 'honua.worker-custody-bindings/v1'}),
+        frozenset({'honua.studio-authoring-bindings/v1', 'honua.managed-job-bindings/v1'})}),
+        'native bindings must be distinct reviewed publication/custody or authoring/job profiles')
     used = {name: set() for name in contracts}
     for name, declaration in contracts.items():
         require(isinstance(name, str) and re.fullmatch(r'[a-z][a-z0-9-]{0,40}', name), 'invalid frozen native binding name')
@@ -119,6 +128,9 @@ def validate_case(value):
 
 
 def allowed(assertion, field, declaration):
+    if declaration.get('profile') == 'honua.worker-custody-bindings/v1':
+        from agent_e2e_native_custody_bindings import ALLOWED as custody_allowed
+        return custody_allowed.get((assertion, field))
     if declaration.get('profile') == 'honua.managed-job-bindings/v1':
         from agent_e2e_native_job_bindings import ALLOWED as job_allowed
         return job_allowed.get((assertion, field))
@@ -155,6 +167,9 @@ def original(pair, *, observer, candidate, path):
 
 def replay(report, declaration, context, *, complete=True):
     """Resolve from raw originals, retaining every ordinary oracle predicate."""
+    if declaration.get('profile') == 'honua.worker-custody-bindings/v1':
+        from agent_e2e_native_custody_bindings import replay as custody_replay
+        return custody_replay(report, declaration, context, complete=complete)
     if declaration.get('profile') == 'honua.managed-job-bindings/v1':
         from agent_e2e_native_job_bindings import replay as job_replay
         return job_replay(report, declaration, context, complete=complete)
