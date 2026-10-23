@@ -119,13 +119,13 @@ resource "aws_cloudwatch_log_group" "controller" {
 }
 locals {
   fixture_sql_secrets = {
-    HONUA_AGENT_FIXTURE_CLEANUP_DSN  = "${aws_secretsmanager_secret.fixture["cleanup"].arn}::${aws_secretsmanager_secret_version.fixture["cleanup"].version_id}"
-    HONUA_AGENT_FIXTURE_OBSERVER_DSN = "${aws_secretsmanager_secret.fixture["observer"].arn}::${aws_secretsmanager_secret_version.fixture["observer"].version_id}"
+    HONUA_AGENT_FIXTURE_CLEANUP_DSN  = "${aws_secretsmanager_secret.fixture["cleanup"].arn}:::${aws_secretsmanager_secret_version.fixture["cleanup"].version_id}"
+    HONUA_AGENT_FIXTURE_OBSERVER_DSN = "${aws_secretsmanager_secret.fixture["observer"].arn}:::${aws_secretsmanager_secret_version.fixture["observer"].version_id}"
   }
   controller_secrets = merge(local.fixture_sql_secrets, var.issued_native_keys == null ? {} : {
-    HONUA_AGENT_SETUP_KEY     = "${aws_secretsmanager_secret.api["setup"].arn}::${var.issued_native_keys.setup.versionId}"
-    HONUA_AGENT_OBSERVER_KEY  = "${aws_secretsmanager_secret.api["observer"].arn}::${var.issued_native_keys.observer.versionId}"
-    HONUA_AGENT_REQUESTER_KEY = "${aws_secretsmanager_secret.api["agent"].arn}::${var.issued_native_keys.agent.versionId}"
+    HONUA_AGENT_SETUP_KEY     = "${aws_secretsmanager_secret.api["setup"].arn}:::${var.issued_native_keys.setup.versionId}"
+    HONUA_AGENT_OBSERVER_KEY  = "${aws_secretsmanager_secret.api["observer"].arn}:::${var.issued_native_keys.observer.versionId}"
+    HONUA_AGENT_REQUESTER_KEY = "${aws_secretsmanager_secret.api["agent"].arn}:::${var.issued_native_keys.agent.versionId}"
   })
   fixture_secrets = merge(local.fixture_sql_secrets, {
     PILOT_FIXTURE_MASTER_CONNECTION = module.target.db_connection_secret_arn

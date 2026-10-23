@@ -82,6 +82,7 @@ run "private_sql_and_credential_custody" {
       jsondecode(aws_ecs_task_definition.controller.container_definitions)[0].user == "10001:10001" &&
       jsondecode(aws_ecs_task_definition.controller.container_definitions)[0].readonlyRootFilesystem &&
       !contains([for secret in jsondecode(aws_ecs_task_definition.controller.container_definitions)[0].secrets : secret.name], "PILOT_FIXTURE_MASTER_CONNECTION") &&
+      alltrue([for secret in jsondecode(aws_ecs_task_definition.controller.container_definitions)[0].secrets : can(regex(":::[^:]+$", secret.valueFrom)) && !strcontains(secret.valueFrom, "::::")]) &&
       !strcontains(aws_iam_role_policy.dispatcher.policy, "secretsmanager:") &&
       !strcontains(aws_iam_role_policy.controller.policy, "bedrock:InvokeModel")
     )
@@ -99,6 +100,26 @@ run "private_sql_and_credential_custody" {
       output.fixture_staging.nativeAgentConfigured == false
     )
     error_message = "Dispatch must use one published bounded no-redrive task, retain immutable claims and refuse missing native readiness."
+  }
+}
+
+run "installed_native_keys_use_actual_immutable_version_ids" {
+  command = plan
+  variables {
+    issued_native_keys = {
+      setup    = { apiKeyId = "11111111-1111-1111-1111-111111111111", versionId = "1111111111111111111111111111111111111111111111111111111111111111" }
+      observer = { apiKeyId = "22222222-2222-2222-2222-222222222222", versionId = "2222222222222222222222222222222222222222222222222222222222222222" }
+      agent    = { apiKeyId = "33333333-3333-3333-3333-333333333333", versionId = "3333333333333333333333333333333333333333333333333333333333333333" }
+    }
+  }
+  assert {
+    condition = (
+      local.native_agent_key_id == var.issued_native_keys.agent.apiKeyId &&
+      length(jsondecode(aws_ecs_task_definition.controller.container_definitions)[0].secrets) == 5 &&
+      alltrue([for secret in jsondecode(aws_ecs_task_definition.controller.container_definitions)[0].secrets : can(regex(":::[^:]+$", secret.valueFrom)) && !strcontains(secret.valueFrom, "::::")]) &&
+      endswith(local.controller_secrets.HONUA_AGENT_REQUESTER_KEY, ":::${var.issued_native_keys.agent.versionId}")
+    )
+    error_message = "Reviewed native keys must install the actual agent principal and inject immutable version IDs, never version stages or latest values."
   }
 }
 

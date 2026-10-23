@@ -13,9 +13,9 @@ import urllib.request
 
 from controller_archive import BUNDLE_LIMIT, SOURCE_LIMIT, bundle_bytes, canonical, contract, digest, extract, require, seal_source
 from controller_budget import read_allowance, read_version
-from controller_handoff import CONFIG_PATH, WORKFLOW, invocation_identity, sdk, validate_configuration, put_once
+from controller_handoff import CONFIG_PATH, WORKFLOW, PREPARE_WORKFLOW, PREPARATIONS, bundle_identity, sdk, validate_configuration, put_once
 
-INPUTS = ('campaign.json', 'producer-inputs.json', 'qualification-lock.json', 'expectations.json', 'candidate-provenance.json')
+INPUTS = ('campaign.json', 'producer-inputs.json', 'qualification-lock.json', 'expectations.json', 'candidate-provenance.json', 'preparation.json')
 FINAL_FILES = {'campaign.json', 'producer-inputs.json', 'qualification-lock.json', 'expectations.json', 'candidate-provenance.json', 'trusted-inventory.json', 'budget-ledger.json', 'attempt-registry.json', 'qualification-summary.json'}
 
 
@@ -29,9 +29,9 @@ def http_json(url, *, limit=1024 * 1024):
 
 def github_provenance(identity, source):
     """Independent native workflow/source observation; caller fields grant no trust."""
-    require(identity['repository'] == 'honua-io/honua-release' and identity['workflow'] == WORKFLOW and source['sourceSha'] == identity['sourceSha'] and re.fullmatch(r'[a-f0-9]{40}', source['sourceSha']) and type(identity['runId']) is int and identity['runId'] > 0 and type(identity['runAttempt']) is int and identity['runAttempt'] > 0, 'invalid original GitHub execution identity')
+    require(identity['repository'] == 'honua-io/honua-release' and identity['workflow'] in (WORKFLOW, PREPARE_WORKFLOW) and source['sourceSha'] == identity['sourceSha'] and re.fullmatch(r'[a-f0-9]{40}', source['sourceSha']) and type(identity['runId']) is int and identity['runId'] > 0 and type(identity['runAttempt']) is int and identity['runAttempt'] > 0, 'invalid original GitHub execution identity')
     base = 'https://api.github.com/repos/honua-io/honua-release'
-    workflow = http_json(base + '/actions/workflows/' + WORKFLOW)
+    workflow = http_json(base + '/actions/workflows/' + identity['workflow'])
     run = http_json(base + f"/actions/runs/{identity['runId']}/attempts/{identity['runAttempt']}")
     require(run['workflow_id'] == workflow['id'] and run['head_sha'] == source['sourceSha'] and run['head_branch'] == 'trunk' and run['event'] == 'workflow_dispatch' and run['repository']['full_name'] == identity['repository'] and run['run_attempt'] == identity['runAttempt'], 'native GitHub producer differs from frozen campaign')
     branch = http_json(base + '/branches/trunk')
@@ -128,16 +128,18 @@ def main():
     bundle = extract(bundle_raw, '/work/campaign', limit=BUNDLE_LIMIT)
     require(json.loads((source / CONFIG_PATH).read_text()) == config and contract(source) == config['image']['runtimeContractSha256'], 'downloaded execution source changes reviewed config or fixed entry/dependencies')
     seal_source(source, request['source']['treeId'])
-    campaign = json.loads((bundle / 'campaign.json').read_text())
     selected = request['invocation']
-    expected = invocation_identity(campaign, operation=selected['operation'], case_id=selected['caseId'], target=selected['target'], shard=selected['shard'], shards=selected['shards'])
-    require(selected == expected and json.loads((bundle / 'producer-inputs.json').read_text())['state'] == config['dispatchBudget']['state'], 'restored frozen bundle differs from exact invocation/state')
+    campaign, expected, state = bundle_identity(bundle, operation=selected['operation'], case_id=selected['caseId'], target=selected['target'], shard=selected['shard'], shards=selected['shards'])
+    require(selected == expected and state == config['dispatchBudget']['state'], 'restored bundle differs from exact invocation/state')
     immutable_inputs = {name: digest((bundle / name).read_bytes()) for name in INPUTS if (bundle / name).is_file()}
-    require({'campaign.json', 'producer-inputs.json', 'qualification-lock.json', 'expectations.json'} <= set(immutable_inputs), 'private frozen inputs are incomplete')
+    required = {'preparation.json'} if selected['operation'] in PREPARATIONS else {'campaign.json', 'producer-inputs.json', 'qualification-lock.json', 'expectations.json'}
+    require(required <= set(immutable_inputs), 'private frozen inputs are incomplete')
     evidence = Path('/work/controller-evidence')
     evidence.mkdir(mode=0o700)
     (evidence / 'native-provenance.json').write_bytes(canonical(provenance))
     command = [sys.executable, 'tools/agent_e2e_campaign.py', selected['operation'], '--bundle', str(bundle)]
+    if selected['operation'] in PREPARATIONS:
+        command = [sys.executable, 'tools/hosted_pilot/prepare.py', 'execute', '--bundle', str(bundle), '--output', str(evidence/'preparation-result.json')]
     if selected['caseId']:
         command += ['--case-id', selected['caseId']]
     if selected['target']:
@@ -145,6 +147,7 @@ def main():
     env = os.environ.copy()
     producer = campaign['controller']
     env.update(GITHUB_REPOSITORY=producer['repository'], GITHUB_REF='refs/heads/trunk', GITHUB_EVENT_NAME='workflow_dispatch', GITHUB_SHA=producer['sourceSha'], GITHUB_RUN_ID=str(producer['runId']), GITHUB_RUN_ATTEMPT=str(producer['runAttempt']), PYTHONDONTWRITEBYTECODE='1', PGSSLROOTCERT='/controller/certification/hosted-pilot/controller/rds-global-bundle.pem')
+    env['PILOT_CONTROLLER_TASK_ARN'] = task_arn
     started = datetime.now(timezone.utc).isoformat()
     # The task lifetime includes image pull/startup; source work gets only the
     # remaining original native execution deadline, never a fresh full timeout.

@@ -20,6 +20,8 @@ ROOT = Path(__file__).resolve().parents[2]
 COMMAND = ['python', 'tools/hosted_pilot/controller_entry.py']
 CONFIG_PATH = 'certification/agent-e2e/controller-handoff.json'
 WORKFLOW = 'agent-e2e-campaign.yml'
+PREPARE_WORKFLOW = 'hosted-pilot-prepare.yml'
+PREPARATIONS = {'prepare-native-context', 'prepare-studio-fixture'}
 
 
 def sdk(service, region):
@@ -76,6 +78,27 @@ def invocation_identity(campaign, *, operation, case_id, target, shard, shards):
     return {'schema': 'honua.private-controller-invocation/v1', 'candidateKey': campaign['componentBindingDigest'],
         'campaignDigest': digest(canonical(campaign)), 'controller': campaign['controller'],
         'operation': operation, 'caseId': case_id, 'target': target, 'shard': shard, 'shards': shards}
+
+
+def bundle_identity(bundle, *, operation, case_id, target, shard, shards):
+    """Preparation has its own manifest and workflow; it is never a frozen campaign."""
+    bundle = Path(bundle)
+    if operation not in PREPARATIONS:
+        document = json.loads((bundle/'campaign.json').read_text())
+        return document, invocation_identity(document, operation=operation, case_id=case_id, target=target, shard=shard, shards=shards), json.loads((bundle/'producer-inputs.json').read_text())['state']
+    require(case_id is None and target is None and shard == 0 and shards == 6, 'preparation cannot select model cases or shards')
+    document = json.loads((bundle/'preparation.json').read_text())
+    require(set(document) == {'schema', 'componentBindingDigest', 'controller', 'expiresAt', 'state', 'operation', 'configuration'} and
+            document['schema'] == 'honua.private-controller-preparation/v1' and document['operation'] == operation and
+            document['controller']['workflow'] == PREPARE_WORKFLOW and
+            re.fullmatch(r'sha256:[a-f0-9]{64}', document['componentBindingDigest']), 'invalid distinct private preparation manifest')
+    reference = document['configuration']
+    require(set(reference) == {'path', 'sha256'} and re.fullmatch(r'sha256:[a-f0-9]{64}', reference['sha256']), 'preparation needs exact reviewed source configuration')
+    portable(reference['path'])
+    require(reference['path'].startswith('certification/agent-e2e/') and reference['path'].endswith('.json'), 'preparation configuration escaped reviewed source namespace')
+    return document, {'schema': 'honua.private-controller-preparation-invocation/v1',
+        'candidateKey': document['componentBindingDigest'], 'preparationDigest': digest(canonical(document)),
+        'controller': document['controller'], 'operation': operation, 'caseId': None, 'target': None, 'shard': 0, 'shards': 6}, document['state']
 
 
 def verify_lifecycle(sm, ecs, config):
@@ -135,7 +158,7 @@ def restore_artifacts(outcome, *, configuration, bundle, evidence_directory):
     import tempfile
     config, custody = configuration, configuration['custody']
     s3 = sdk('s3', config['region'])
-    immutable_names = {'campaign.json', 'producer-inputs.json', 'qualification-lock.json', 'expectations.json', 'candidate-provenance.json'}
+    immutable_names = {'campaign.json', 'producer-inputs.json', 'qualification-lock.json', 'expectations.json', 'candidate-provenance.json', 'preparation.json'}
     final_names = immutable_names | {'trusted-inventory.json', 'budget-ledger.json', 'attempt-registry.json', 'qualification-summary.json'}
     expected_inputs = {name: digest((Path(bundle) / name).read_bytes()) for name in immutable_names if (Path(bundle) / name).is_file()}
     prefix = custody['evidencePrefix'] + outcome['invocationId'] + '/'
@@ -179,11 +202,11 @@ def dispatch_campaign(bundle, *, configuration, operation='execute', case_id=Non
     validate_configuration(config)
     require(type(timeout) is int and 60 <= timeout <= config['maxSeconds'], 'controller caller timeout exceeds reviewed maximum')
     bundle = Path(bundle)
-    campaign = json.loads((bundle / 'campaign.json').read_text())
-    identity = invocation_identity(campaign, operation=operation, case_id=case_id, target=target, shard=shard, shards=shards)
+    campaign, identity, state = bundle_identity(bundle, operation=operation, case_id=case_id, target=target, shard=shard, shards=shards)
     producer = campaign['controller']
-    require(producer['repository'] == 'honua-io/honua-release' and producer['workflow'] == WORKFLOW and producer['sourceSha'] == os.environ['GITHUB_SHA'] and str(producer['runId']) == os.environ['GITHUB_RUN_ID'] and int(producer['runAttempt']) <= int(os.environ['GITHUB_RUN_ATTEMPT']) and os.environ['GITHUB_REF'] == 'refs/heads/trunk' and os.environ['GITHUB_EVENT_NAME'] == 'workflow_dispatch', 'controller dispatch differs from frozen trusted producer')
-    require(campaign['componentBindingDigest'] == config['dispatchBudget']['candidateKey'] and json.loads((bundle / 'producer-inputs.json').read_text())['state'] == config['dispatchBudget']['state'], 'frozen campaign and private controller accounting target differ')
+    expected_workflow = PREPARE_WORKFLOW if operation in PREPARATIONS else WORKFLOW
+    require(producer['repository'] == 'honua-io/honua-release' and producer['workflow'] == expected_workflow and producer['sourceSha'] == os.environ['GITHUB_SHA'] and str(producer['runId']) == os.environ['GITHUB_RUN_ID'] and int(producer['runAttempt']) <= int(os.environ['GITHUB_RUN_ATTEMPT']) and os.environ['GITHUB_REF'] == 'refs/heads/trunk' and os.environ['GITHUB_EVENT_NAME'] == 'workflow_dispatch', 'controller dispatch differs from frozen trusted producer')
+    require(campaign['componentBindingDigest'] == config['dispatchBudget']['candidateKey'] and state == config['dispatchBudget']['state'], 'private invocation accounting target differs')
     require(datetime.fromisoformat(campaign['expiresAt'].replace('Z', '+00:00')) > datetime.now(timezone.utc), 'frozen campaign expired')
     source_sha = git('rev-parse', 'HEAD').decode().strip()
     require(source_sha == producer['sourceSha'], 'controller execution source differs from frozen producer')
@@ -249,7 +272,7 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--configuration', type=Path, required=True)
     parser.add_argument('--bundle', type=Path, required=True)
-    parser.add_argument('--operation', choices=['execute', 'finalize', 'reconcile-accounting'], required=True)
+    parser.add_argument('--operation', choices=['execute', 'finalize', 'reconcile-accounting', *sorted(PREPARATIONS)], required=True)
     parser.add_argument('--case-id')
     parser.add_argument('--target')
     parser.add_argument('--shard', type=int, default=0)
