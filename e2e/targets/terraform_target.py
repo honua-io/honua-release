@@ -759,6 +759,13 @@ class TerraformTarget(DeployTarget):
             return
         mode = False if redis_enabled is None else redis_enabled
         self._last_vars = self._last_vars or self._read_transition_vars(root, mode)
+        if self.name == "aws-serverless":
+            from normal_cell_retirement import retire
+            try:
+                retire(self, root, self._last_vars or self._vars(mode, destroy=True), mode)
+            except Exception as error:
+                raise ProvisionError(f"{self.name} reviewed retirement failed: {type(error).__name__}") from error
+            return
         try:
             destroy = self._tf(root, "destroy", "-auto-approve",
                                *(self._last_vars or self._vars(mode, destroy=True)), check=False)

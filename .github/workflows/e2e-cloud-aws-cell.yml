@@ -641,11 +641,24 @@ jobs:
           path: _honua-iac
           token: ${{ secrets.RELEASE_GH_TOKEN || github.token }}
         continue-on-error: true
+      - name: Checkout the reviewed complete-cell retirement helper
+        if: inputs.target == 'aws-serverless'
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: honua-io/honua-iac
+          ref: 1587c8ae47ee754202994049f06fbc33ead1c5d3
+          path: _retirement-tools
+          fetch-depth: 0
+          token: ${{ secrets.RELEASE_GH_TOKEN || github.token }}
+      - name: Require retirement helper trunk ancestry
+        if: inputs.target == 'aws-serverless'
+        run: git -C _retirement-tools merge-base --is-ancestor HEAD origin/trunk
       - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
         with:
           python-version: "3.12"
       - uses: hashicorp/setup-terraform@dfe3c3f87815947d99a8997f908cb6525fc44e9e # v4.0.1
         with:
+          terraform_version: 1.17.0
           terraform_wrapper: false
       - run: python -m pip install -r e2e/requirements.txt
       - name: Configure AWS credentials (OIDC)
@@ -799,6 +812,7 @@ jobs:
         # The runner separates Preview qualification from mandatory cleanup; no error is swallowed.
         env:
           HONUA_IAC_DIR: ${{ github.workspace }}/_honua-iac
+          HONUA_SERVERLESS_RETIREMENT_HELPER: ${{ github.workspace }}/_retirement-tools/infrastructure/terraform/validation/scripts/aws/serverless_cell_retirement.py
           HONUA_CLOUD_PROVISION_MARKER: ${{ runner.temp }}/honua-cloud-provision-attempted
           # honua-iac#216: the Redis-on ECS cell needs the operator-owned key-ring certificate secret
           # (owner step in e2e/README.md). Empty when the repository variables are unset.
@@ -854,6 +868,8 @@ jobs:
           name: e2e-cloud-aws-gate-report-${{ inputs.target }}-redis-${{ inputs.redis }}
           path: |
             e2e/gate-report-cloud.json
+            e2e/cloud-evidence/**/cell-retirement.json
+            e2e/cloud-evidence/**/state-retirement.enc
             e2e/cloud-evidence/**/update-rollback-cell.json
             e2e/cloud-evidence/**/extended/gate-report.json
             e2e/cloud-evidence/**/receipt-*.json

@@ -9,9 +9,85 @@ from datetime import datetime, timezone
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import Mock, patch
+import pytest
 from botocore.exceptions import ClientError
 
 from retire_cloud_cell import RecoveryRefused, compute_absence, original_request, verify_handoff, perform, preflight
+
+
+@pytest.mark.parametrize("failure", [None, "apply", "absence", "seal"])
+def test_ordinary_retirement_retains_original_key_and_reseals_actual_state(tmp_path, monkeypatch, failure):
+    import normal_cell_retirement as normal
+    import run_cloud
+
+    root = tmp_path / "iac/infrastructure/terraform/examples/aws-serverless"
+    root.mkdir(parents=True)
+    (root / "terraform.tfstate").write_text('original private state')
+    evidence = tmp_path / "evidence"
+    for key, value in {"GITHUB_REF": "refs/heads/trunk", "GITHUB_REPOSITORY": "honua-io/honua-release",
+                       "GITHUB_RUN_ID": "12345", "GITHUB_RUN_ATTEMPT": "2", "HONUA_IAC_DIR": str(tmp_path/'iac'),
+                       "HONUA_SERVERLESS_RETIREMENT_HELPER": str(tmp_path/'reviewed-helper.py')}.items():
+        monkeypatch.setenv(key, value)
+    monkeypatch.setattr(run_cloud.cloud_journey, "cell_dir", lambda _: evidence)
+    monkeypatch.setattr(normal, "private_retirement_directory", lambda *_: None)
+    actual = Mock()
+    actual.client.return_value.get_caller_identity.return_value = {"Account": "585192672263"}
+    target = SimpleNamespace(run_id="12345", region="us-east-1", _cell_dns_leftovers=Mock())
+    variables = ["-var=redis_enabled=true", "-var=name_prefix=original"]
+    def apply(_root, _module, **kwargs):
+        assert kwargs['variables'] == variables and kwargs['cell'] == 'aws-serverless/redis-on'
+        assert kwargs['run_id'] == '12345'
+        (root / "terraform.tfstate").write_text('updated private state')
+        if failure == 'apply':
+            raise ValueError('private diagnostic must not be published')
+        return {'terraformRetired': True, 'destroyCount': 126, 'planSha256': 'a'*64}
+    def absence(*_):
+        if failure == 'absence':
+            raise ValueError('native resource remains')
+        return {'resources': [{'absent': True}], 'pendingSecretDeletion': ['original-secret']}
+    monkeypatch.setattr(normal, 'compute_absence', absence)
+    sealed = []
+    def seal(_root, destination, name):
+        sealed.append((name, (root/'terraform.tfstate').read_text()))
+        if failure == 'seal':
+            raise ValueError('sealing failed')
+        destination.write_bytes(b'encrypted ciphertext fixture')
+        return 'b'*64
+    def execute():
+        normal.retire(target, root, variables, True, loader=lambda _: SimpleNamespace(retire=apply),
+                      session=actual, sealer=seal)
+    if failure:
+        with pytest.raises(ValueError):
+            execute()
+    else:
+        execute()
+    receipt = json.loads((evidence/'cell-retirement.json').read_text())
+    assert receipt == target.retirement_receipt
+    assert receipt['originalStateKeyRetained'] is True and receipt['costReconciled'] is False
+    assert receipt['recoveryStateSealed'] is (failure != 'seal')
+    assert sealed == [(run_cloud.state_secret_name('aws-serverless/redis-on')+'-retirement-12345-2', 'updated private state')]
+    assert 'private diagnostic' not in json.dumps(receipt) and 'private state' not in json.dumps(receipt)
+    assert receipt['status'] == ('incomplete' if failure else 'compute-retired-cost-and-recovery-pending')
+
+
+def test_ordinary_retirement_refuses_an_unreviewed_helper_before_import(tmp_path):
+    from normal_cell_retirement import load_helper
+    source = tmp_path/'helper.py'
+    source.write_text('raise RuntimeError("must never import")')
+    with pytest.raises(RecoveryRefused, match='exact reviewed'):
+        load_helper(source)
+
+
+def test_ordinary_retirement_refuses_nontrunk_before_aws_or_state_writes(monkeypatch, tmp_path):
+    from normal_cell_retirement import retire
+    monkeypatch.setenv('GITHUB_REF', 'refs/heads/unreviewed')
+    loader, sealer, session = Mock(), Mock(), Mock()
+    with pytest.raises(RecoveryRefused, match='original protected'):
+        retire(SimpleNamespace(run_id='12345'), tmp_path, [], False,
+               loader=loader, sealer=sealer, session=session)
+    loader.assert_not_called()
+    sealer.assert_not_called()
+    session.client.assert_not_called()
 
 
 class RecoveryBindingTests(unittest.TestCase):
