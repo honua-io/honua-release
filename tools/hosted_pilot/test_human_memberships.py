@@ -193,7 +193,7 @@ class HumanMembershipContracts(unittest.TestCase):
                 result = original(kind, method, path, payload)
                 if case.rollout_on_write and method == 'POST':
                     case.ecs.describe_services.return_value['services'][0]['deployments'][0]['rolloutState'] = 'IN_PROGRESS'
-                if case.crash == method:
+                if case.crash in (method, (method, path)):
                     case.crash = None
                     raise SystemExit('controller interrupted after real HTTP commit')
                 return result
@@ -375,3 +375,60 @@ class HumanMembershipContracts(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, 'actual native deployment'):
             self.run_helper()
         self.assertFalse(any(method != 'GET' for method, _ in self.requests))
+
+    def test_replacement_native_user_id_cannot_inherit_original_assignment_on_resume(self):
+        self.crash = ('GET', '/api/v1/admin/users/managed-actual_approver')
+        with self.assertRaises(SystemExit): self.run_helper()
+        user = self.users.pop('managed-actual_approver')
+        user['id'] = 'replacement-actual_approver'
+        self.users[user['id']] = user
+        effects = [row for row in self.requests if row[0] != 'GET']
+        with self.assertRaisesRegex(ValueError, 'native identity changed'):
+            self.run_helper()
+        self.assertEqual(effects, [row for row in self.requests if row[0] != 'GET'])
+
+    def test_replacement_role_id_cannot_receive_grants_from_original_creation(self):
+        old_id = '00000000-0000-4000-8000-000000000001'
+        self.crash = ('GET', '/api/v1/admin/roles/'+old_id+'/permissions')
+        with self.assertRaises(SystemExit): self.run_helper()
+        role = self.roles.pop(old_id)
+        role['roleId'] = '99999999-9999-4999-8999-999999999999'
+        self.roles[role['roleId']] = role
+        effects = [row for row in self.requests if row[0] != 'GET']
+        with self.assertRaisesRegex(ValueError, 'native identity changed'):
+            self.run_helper()
+        self.assertEqual(effects, [row for row in self.requests if row[0] != 'GET'])
+
+    def legacy_partial_snapshot(self, *, only_response=False):
+        self.crash = ('GET', '/api/v1/admin/users/managed-actual_approver')
+        with self.assertRaises(SystemExit): self.run_helper()
+        # Model the prior persisted format: it had acknowledgements/readbacks,
+        # but no dedicated identity pin. This is test fixture construction only.
+        snapshot = copy.deepcopy(self.durable.state)
+        for key in list(snapshot['scenarioOperations']):
+            if key.endswith('-identity') or only_response and (
+                key.endswith('/user-actual_approver-acknowledged') or '/user-actual_approver-observed-' in key):
+                del snapshot['scenarioOperations'][key]
+        self.durable.state = snapshot
+
+    def test_legacy_original_readbacks_reconcile_the_same_native_identity(self):
+        self.legacy_partial_snapshot()
+        result = self.run_helper()
+        self.assertEqual(result['users']['actual_approver']['userId'], 'managed-actual_approver')
+        self.assertEqual(sum(row == ('POST', '/scim/v2/Users') for row in self.requests), 2)
+
+    def test_legacy_original_readbacks_refuse_replacement_without_new_pin(self):
+        self.legacy_partial_snapshot()
+        user = self.users.pop('managed-actual_approver'); user['id'] = 'replacement-actual_approver'
+        self.users[user['id']] = user
+        effects = [row for row in self.requests if row[0] != 'GET']
+        with self.assertRaisesRegex(ValueError, 'native identity changed'): self.run_helper()
+        self.assertEqual(effects, [row for row in self.requests if row[0] != 'GET'])
+
+    def test_original_201_response_alone_refuses_replacement_after_acknowledgement_crash(self):
+        self.legacy_partial_snapshot(only_response=True)
+        user = self.users.pop('managed-actual_approver'); user['id'] = 'replacement-actual_approver'
+        self.users[user['id']] = user
+        effects = [row for row in self.requests if row[0] != 'GET']
+        with self.assertRaisesRegex(ValueError, 'native identity changed'): self.run_helper()
+        self.assertEqual(effects, [row for row in self.requests if row[0] != 'GET'])

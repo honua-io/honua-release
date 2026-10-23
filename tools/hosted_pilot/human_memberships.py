@@ -348,13 +348,45 @@ def provision_human_memberships(*, configuration, bootstrap, durable, native, gu
             require(isinstance(body, dict) and body.get('success') is True and 'data' in body, 'native role read lacks successful envelope')
             body = body['data']
         return body, reference
-    def once(stage, kind, method, path, payload, observe, matches, empty):
+    def once(stage, kind, method, path, payload, observe, matches, empty, *, identity_field=None):
         intent = {'credential': configuration['credentials'][kind], 'method': method, 'path': path, 'body': payload}
+        def pin_identity(current):
+            if identity_field is None:
+                return
+            def resource_id(value):
+                if isinstance(value, list):
+                    require(len(value) == 1, 'original native identity is ambiguous')
+                    value = value[0]
+                require(isinstance(value, dict) and isinstance(value.get(identity_field), str) and value[identity_field],
+                    'original native identity is missing')
+                return value[identity_field]
+            identity = resource_id(current)
+            known = original(stage+'-identity')
+            require(known is None or known == {identity_field: identity}, 'original native identity changed during provisioning')
+            # Support already-retained stages from before identity pinning. An
+            # acknowledgement, readback, or original 201 response is evidence of
+            # the first resource ID even if a crash preceded the dedicated pin.
+            for key, record in list(records.items()):
+                if key == prefix+'/'+stage+'-acknowledged' or key.startswith(prefix+'/'+stage+'-observed-'):
+                    require(record.get('producer') == producer and record.get('candidateKey') == bootstrap['candidateKey'],
+                        'original native identity observation has another producer')
+                    require(resource_id(record['value']['value']) == identity, 'original native identity changed during provisioning')
+                elif key.startswith(prefix+'/http-'+stage+'-mutation-'):
+                    require(record.get('producer') == producer and record.get('candidateKey') == bootstrap['candidateKey'] and
+                        record['value'].get('request') == intent and record['value'].get('response', {}).get('httpStatus') == 201,
+                        'original native identity creation response differs')
+                    value = record['value']['response']['body']
+                    if kind == 'root':
+                        require(value.get('success') is True and 'data' in value, 'original native identity envelope is missing')
+                        value = value['data']
+                    require(resource_id(value) == identity, 'original native identity changed during provisioning')
+            retain(stage+'-identity', {identity_field: identity})
         existed = original(stage+'-intent')
         require(existed is None or existed == intent, 'original human membership mutation identity changed')
         before, before_ref = observe()
         if existed is not None:
             require(matches(before), 'original membership mutation outcome unresolved; observe without repeating it')
+            pin_identity(before)
             retain(stage+'-observed-'+canonical_digest({'value': before, 'reference': before_ref})[7:], {'value': before, 'reference': before_ref})
             return before
         require(empty(before), 'human membership setup refuses preexisting or unknown authority')
@@ -369,12 +401,14 @@ def provision_human_memberships(*, configuration, bootstrap, durable, native, gu
             server_fence()
             current, reference = observe()
             require(matches(current), 'original membership mutation outcome unresolved; preserve its liability')
+            pin_identity(current)
             retain(stage+'-observed-'+canonical_digest({'value': current, 'reference': reference})[7:], {'value': current, 'reference': reference})
             return current
         server_fence()
         retain(stage+'-acknowledged', {'value': response, 'reference': response_ref})
         current, reference = observe()
         require(matches(current), 'native mutation did not produce the exact reviewed membership authority')
+        pin_identity(current)
         retain(stage+'-observed-'+canonical_digest({'value': current, 'reference': reference})[7:], {'value': current, 'reference': reference})
         return current
     capability, capability_ref = request('scim-capability', 'scim', 'GET', '/scim/v2/ServiceProviderConfig')
@@ -403,7 +437,7 @@ def provision_human_memberships(*, configuration, bootstrap, durable, native, gu
                 values[0].get('isBuiltIn') is False and isinstance(values[0].get('roleId'), str) and
                 str(UUID(values[0]['roleId'])) == values[0]['roleId'])
         result = once('role-'+kind, 'root', 'POST', '/api/v1/admin/roles',
-            {'name': role_name, 'description': description}, role_read, role_matches, lambda values: values == [])
+            {'name': role_name, 'description': description}, role_read, role_matches, lambda values: values == [], identity_field='roleId')
         role_id = result[0]['roleId']
         path = '/api/v1/admin/roles/'+role_id+'/permissions'
         wanted = author_grants if kind == 'authors' else []
@@ -433,7 +467,7 @@ def provision_human_memberships(*, configuration, bootstrap, durable, native, gu
                 isinstance(values[0].get('id'), str) and re.fullmatch(r'[A-Za-z0-9_.:-]{1,256}', values[0]['id']) is not None)
         selected = once('user-'+alias, 'scim', 'POST', '/scim/v2/Users',
             {'schemas': ['urn:ietf:params:scim:schemas:core:2.0:User'], 'userName': alias,
-             'externalId': person['subjectId'], 'active': True}, user_read, user_matches, lambda value: value == [])
+             'externalId': person['subjectId'], 'active': True}, user_read, user_matches, lambda value: value == [], identity_field='id')
         user_id = selected[0]['id']
         role = roles[person['role']]
         def assigned_roles(alias=alias, user_id=user_id):
