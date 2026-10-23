@@ -63,5 +63,6 @@ def advance(previous, current, *, previous_version, current_version):
     """A later native GET must preserve every previously observed transition."""
     require(current_version >= previous_version and len(current) >= len(previous) and
             current[:len(previous)] == previous and
+            all(event['version'] > previous_version for event in current[len(previous):]) and
             (current_version > previous_version or current == previous),
             'native job history changed or regressed between independent reads')

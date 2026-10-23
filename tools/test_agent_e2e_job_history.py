@@ -75,7 +75,7 @@ def test_fast_completion_uses_actual_history_even_when_every_get_is_terminal(his
     'too-large-version', 'foreign-job', 'missing-initial', 'fake-initial', 'duplicate-version', 'future-version',
     'discontinuous', 'repeated-status', 'unknown-status', 'changed-terminal', 'backward-clock',
     'before-attempt', 'after-observation', 'changed-prefix', 'lower-current-version', 'empty-later',
-    'future-attempt', 'backward-attempt', 'current-state-mismatch'])
+    'future-attempt', 'backward-attempt', 'current-state-mismatch', 'retroactive-version', 'previous-version'])
 def test_consistently_rehashed_invalid_history_cannot_supply_missed_states(history_job, change):
     report = history_job['report']
     row = report['records'][1]['response']['response']['body']['data']
@@ -106,6 +106,8 @@ def test_consistently_rehashed_invalid_history_cannot_supply_missed_states(histo
     elif change == 'future-attempt': events[-1]['attemptCount'] = 2
     elif change == 'backward-attempt': events[-1]['attemptCount'] = 0
     elif change == 'current-state-mismatch': events[-1]['toStatus'] = 'Failed'
+    elif change == 'retroactive-version': events[-1]['version'] = 6
+    elif change == 'previous-version': events[-1]['version'] = 7
     rehash(report)
     with pytest.raises((PackError, ValueError)):
         replay(history_job)
