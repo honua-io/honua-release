@@ -32,6 +32,19 @@ def approved_model_environment(config, campaign, producer, environment):
     return expected
 
 
+def approved_model_environment(config, campaign, producer, environment):
+    pin = config.get('model')
+    expected = model_runtime(pin, config['region'], config['accountId'])
+    model = producer['model']
+    require(all(model[name] == pin[name] for name in ('modelId', 'returnedModelId', 'profileArn', 'tokenCountingModelArn')) and
+            model['profile']['sha256'] == pin['profileSha256'] and
+            all(campaign[name] == pin[name] for name in ('modelId', 'returnedModelId')),
+            'frozen campaign model differs from installed controller runtime binding')
+    require(all(environment.get(name) == value for name, value in expected.items()),
+            'private controller model environment is missing or changed')
+    return expected
+
+
 def http_json(url, *, limit=1024 * 1024):
     request = urllib.request.Request(url, headers={'Accept': 'application/vnd.github+json', 'User-Agent': 'honua-private-controller'})
     with urllib.request.urlopen(request, timeout=10) as response:

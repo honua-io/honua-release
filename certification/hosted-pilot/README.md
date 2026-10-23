@@ -122,15 +122,45 @@ are public. Existing IaC foundation AWS secrets stay in its workflow runner;
 no foundation AWS credential is exported to release. The exact release-root SHA
 must be on reviewed trunk and configuration must be tracked in IaC trunk.
 
-Initial bootstrap keeps plan/apply in one source-reviewed ephemeral job. It
-first saves and checks a custody-only plan, applies that exact local plan,
-persists an encrypted versioned recovery copy, and migrates state into the new
-KMS-encrypted locked backend. No IAM/application phase starts until the remote
-state object is verified. The full foundation then uses that remote backend and
-another exact local saved plan. Plan-only mode publishes value-free review
-metadata; its binary is discarded. No binary plan, Terraform state or private
-log is ever uploaded to GitHub. Normal deployment remains the separate OIDC
-saved-plan workflow described above.
+The workflow selects exactly one phase: `custody-only` or
+`remote-backed-foundation`. `mode=plan` publishes value-free metadata and destroys
+its private binary. `mode=apply` prepares a fresh saved binary in one ephemeral
+job, publishes its metadata, and waits while a separate `terraform-live-approval`
+job obtains actual human review. That protected job emits a source/run/attempt,
+phase, configuration and plan-hash-bound receipt. The original runner verifies
+native job success and human review, applies only that original binary, and stops.
+It cannot silently replan, reuse an old plan-only artifact or continue into a
+second phase. The old combined `deploy` mode is refused before cloud operations.
+
+Initial custody apply persists encrypted, versioned recovery state and migrates
+it to the new KMS-encrypted locked backend. A distinct foundation dispatch then
+requires that secured canonical state and another exact saved-plan review.
+Foundation refuses custody updates, deletion or replacement. Original creation
+identity is independently checked on the retained KMS key and both buckets, its
+successful original producer and protected source; custody keeps those tags while
+new foundation resources use the current producer identity.
+
+Approval expires within twenty minutes of preparation; its separately reserved
+execution window is at most fifteen further minutes. Both are clipped to original
+funding/infrastructure expiry. The watchdog has no AWS credentials; its fixed
+helper can cancel only its own source-bound workflow on failure or expiry, using
+`actions:write` confined to that job. A timeout or interrupted apply retains all
+liabilities and recovery evidence; it never settles costs or claims qualification.
+No binary plan, Terraform state or private log is uploaded to GitHub. Normal
+application deployment remains the separate OIDC saved-plan workflow above.
+
+A successful custody completion is retained separately from its original creator
+under an immutable content-addressed key in the existing encrypted recovery
+prefix. If that creator failed, full foundation requires the independently
+successful recovery's original native plan, real human approval, admission and
+completed apply. The creator stays failed and its tags remain unchanged. Source
+compatibility is checked; unrelated or forged recovery metadata is refused.
+
+If custody reached canonical state but completion acknowledgement was lost,
+`custody-only` can reconcile that state through another reviewed plan containing
+only reads/no-ops, with no imports or physical infrastructure changes. It cannot
+retag or maintain custody. Its metadata/state writes retain the same original
+scope, funding holds and expiry; they do not settle costs or erase failed runs.
 
 A failed initial custody apply can leave resources. Actual state is written only
 to verified private, KMS-encrypted, versioned S3. Metadata-only recovery journals

@@ -41,7 +41,7 @@ def main():
     path = Path(e['RUNNER_TEMP']) / 'pilot-foundation-bindings/bindings.json'
     require(digest(path) == e['PILOT_BINDINGS_SHA256'], 'foundation bindings digest mismatch')
     binding = json.loads(path.read_text())
-    require(binding['schema'] == 'honua.hosted-pilot-bootstrap-bindings/v1' and binding['foundation_run_id'] == e['PILOT_BOOTSTRAP_RUN_ID'], 'foundation binding identity mismatch')
+    require(binding['schema'] in ('honua.hosted-pilot-bootstrap-bindings/v1', 'honua.hosted-pilot-bootstrap-bindings/v2') and binding['foundation_run_id'] == e['PILOT_BOOTSTRAP_RUN_ID'], 'foundation binding identity mismatch')
     verify_release_source(binding)
     producer = api('GET', f"repos/honua-io/honua-iac/actions/runs/{e['PILOT_BOOTSTRAP_RUN_ID']}")
     workflow = api('GET', 'repos/honua-io/honua-iac/actions/workflows/hosted-pilot-bootstrap.yml')
