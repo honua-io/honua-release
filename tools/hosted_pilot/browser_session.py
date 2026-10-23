@@ -63,7 +63,7 @@ def deployment(value, *, ecs=None):
         re.fullmatch(r'arn:aws:ecs:us-east-1:585192672263:task-definition/honua-pilot-[a-z0-9-]+-console:[1-9][0-9]*', value['taskDefinitionArn']) and
         re.fullmatch(r'ghcr.io/honua-io/honua-console@sha256:[a-f0-9]{64}', value['imageUri']) and
         re.fullmatch(r'[A-Za-z0-9./_-]+@sha256:[a-f0-9]{64}', value['edgeImageUri']) and
-        re.fullmatch(r'https://cognito-idp.us-east-1.amazonaws.com/us-east-1_[A-Za-z0-9]+', value['issuer']),
+        re.fullmatch(r'https://cognito-idp\.us-east-1\.amazonaws\.com/us-east-1_[A-Za-z0-9]+', value['issuer']),
         'browser requires source-reviewed exact production Console/OIDC deployment')
     ecs = ecs or sdk('ecs', value['region'])
     response = ecs.describe_services(cluster=value['clusterArn'], services=[value['serviceArn']])

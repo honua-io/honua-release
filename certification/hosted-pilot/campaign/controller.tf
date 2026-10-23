@@ -128,6 +128,8 @@ locals {
     HONUA_AGENT_REQUESTER_KEY = "${aws_secretsmanager_secret.api["agent"].arn}:::${var.issued_native_keys.agent.versionId}"
     }, var.human_operator_credential == null ? {} : {
     HONUA_SOURCE_CONTRIBUTOR_OPERATOR_TOKEN = "${var.human_operator_credential.secretArn}:::${var.human_operator_credential.versionId}"
+    }, var.human_browser == null ? {} : {
+    HONUA_CONSOLE_BROWSER_STORAGE_STATE = "${var.human_browser.storageState.secretArn}:::${var.human_browser.storageState.versionId}"
   })
   fixture_secrets = merge(local.fixture_sql_secrets, {
     PILOT_FIXTURE_MASTER_CONNECTION = module.target.db_connection_secret_arn

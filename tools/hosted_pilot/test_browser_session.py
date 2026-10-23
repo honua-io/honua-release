@@ -80,6 +80,29 @@ class BrowserSession(unittest.TestCase):
         self.public_session['expiresAt']=(datetime.now(timezone.utc)+timedelta(minutes=10)).isoformat()
         self.target['targetId']='foreign-target'
         with self.assertRaisesRegex(ValueError,'selected target'): self.observe()
+    def test_same_shape_lookalike_issuer_host_refuses_before_native_observation(self):
+        original=self.deployment['issuer']
+        for host in ('cognito-idpXus-east-1.amazonaws.com','cognito-idp.us-east-1Xamazonaws.com','cognito-idp.us-east-1.amazonawsXcom'):
+            lookalike='https://'+host+'/us-east-1_Unit'
+            self.deployment['issuer']=lookalike
+            self.edge['providers'][0]['oidcConfig']['issuerURL']=lookalike
+            env=self.task['containerDefinitions'][0]['environment']
+            for entry in env:
+                if entry['name']=='Honua__Console__Auth__EdgeForwarded__ServerSessionIssuer':entry['value']=lookalike
+            self.ecs.reset_mock()
+            with self.subTest(host=host),self.assertRaisesRegex(ValueError,'source-reviewed exact production'):
+                self.observe()
+            self.ecs.describe_services.assert_not_called()
+        self.deployment['issuer']=original
+    def test_partition_matches_genuine_dotnet_utf16_golden_vector(self):
+        # Real compiled AgentGatewayBinding.OperatorPartition, assembly SHA256
+        # f633bdaee233d69ee0ac8e83c9b4eb891d1112e2101878152253781c65b0eb2c.
+        # The original C# reflection control observed UTF16 lengths 7 and 9.
+        profile={'id':'profile𐐷','serverUri':'https://agent.pilot.demo.honua.io/'}
+        self.assertEqual(session.operator_partition('human😀',profile),
+            '08a8ee3ec381c19a3bfa73060340f2302a706a8b8c5b4f1a585bb44cbcdfd6f3')
+        self.assertEqual(session.operator_partition('human😀',profile),
+            session.operator_partition('human😀',profile|{'serverUri':profile['serverUri'].rstrip('/')}))
     def test_actual_subject_profile_or_origin_mismatch_cannot_join_console_partition(self):
         original=copy.deepcopy((self.target,self.profile,self.public_session))
         for change in ('missing-subject','foreign-subject','actor-as-subject','studio-owner-as-subject','profile','origin'):

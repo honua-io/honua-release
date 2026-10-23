@@ -63,6 +63,27 @@ time.sleep(10)
 '''
         with self.assertRaisesRegex(ValueError, 'preserve original attempt'): self.run_child(code, authorize=fence)
         self.assertEqual([p.name for p in self.root.iterdir()], ['child.py'])
+    def test_dependency_paths_preserve_private_home_and_reject_credentials(self):
+        code = '''request=json.loads(sys.stdin.readline())
+assert os.environ['HOME']==os.environ['TMPDIR']
+assert os.path.isdir(os.environ['HOME'])
+assert os.environ['PLAYWRIGHT_BROWSERS_PATH']=='/opt/honua-render/browsers'
+assert os.environ['HONUA_RENDER_CHROMIUM']=='/exact/canonical/chromium'
+print('{"type":"authorize","id":1}',flush=True)
+assert json.loads(sys.stdin.readline())=={'type':'authorized','id':1}
+print(json.dumps({'type':'report','report':{'browserRuntime':request['runtime']}}),flush=True)
+print('{"type":"complete"}',flush=True)
+'''
+        render.run_browser(contract={}, runtime=self.runtime, state=self.state,
+            authorize_effect=self.authorize, timeout=2, command=self.child(code), work_directory=self.root,
+            environment={'HONUA_RENDER_CHROMIUM': '/exact/canonical/chromium'})
+        self.assertEqual([p.name for p in self.root.iterdir()], ['child.py'])
+        for override in ({'AWS_ACCESS_KEY_ID': 'private-sentinel'}, {'HOME': '/ambient/home'}):
+            with self.subTest(override=next(iter(override))), self.assertRaisesRegex(ValueError, 'unreviewed environment authority'):
+                render.run_browser(contract={}, runtime=self.runtime, state=self.state,
+                    authorize_effect=self.authorize, timeout=2, command=self.child(code), work_directory=self.root,
+                    environment=override)
+        self.assertEqual([p.name for p in self.root.iterdir()], ['child.py'])
     def test_nonreading_child_is_bounded_by_deadline(self):
         self.state = {'cookies': [{'value': 'a'*200000}], 'origins': []}
         with self.assertRaisesRegex(ValueError, 'private browser observation failed'):

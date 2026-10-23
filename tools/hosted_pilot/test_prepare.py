@@ -122,3 +122,20 @@ class PreparationBoundary(unittest.TestCase):
         self.assertTrue(projected['requiresSourceReviewBeforeFreeze'])
         with self.assertRaisesRegex(ValueError, 'verified native outcome'):
             preparation_review.project(result, outcome | {'taskArn': 'other-task'})
+
+    def test_browser_capture_review_exports_only_bound_observed_identity(self):
+        result = {'schema': 'honua.private-controller-preparation-result/v1', 'operation': 'capture-console-session',
+            'candidateKey': 'sha256:'+'a'*64, 'sourceConfiguration': {}, 'producerTaskArn': 'actual-task', 'qualification': False,
+            'requiresSourceReviewBeforeFreeze': True, 'result': {'key': 'console-human-capture:'+'b'*64,
+                'sha256': 'sha256:'+'c'*64, 'session': {'principalId': 'actual-partition', 'environmentId': 'actual-profile', 'authenticated': True},
+                'privateBody': 'must-not-project'}}
+        outcome = {'status': 'completed', 'exitCode': 0, 'taskArn': 'actual-task', 'outcomeObject': {'sha256': 'original'},
+            'invocation': {'candidateKey': result['candidateKey'], 'operation': result['operation']}}
+        projected = preparation_review.project(result, outcome)
+        self.assertEqual(projected['consoleSession'], result['result']['session'])
+        self.assertNotIn('must-not-project', json.dumps(projected))
+        for change in ({'authenticated': False}, {'csrfToken': 'private-sentinel'}):
+            changed = copy.deepcopy(result)
+            changed['result']['session'].update(change)
+            with self.subTest(change=next(iter(change))), self.assertRaisesRegex(ValueError, 'identity-only observation'):
+                preparation_review.project(changed, outcome)

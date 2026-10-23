@@ -15,8 +15,9 @@ def project(result, outcome):
             result['candidateKey'] == outcome['invocation']['candidateKey'] and result['operation'] == outcome['invocation']['operation'],
             'native preparation result does not match its verified native outcome')
     value = result['result']
-    require(re.fullmatch(r'sha256:[a-f0-9]{64}', value['key']) if result['operation'] == 'prepare-studio-fixture' else
-            re.fullmatch(r'sha256:[a-f0-9]{64}/completed', value['key']), 'preparation state reference differs')
+    patterns = {'prepare-studio-fixture': r'sha256:[a-f0-9]{64}', 'prepare-native-context': r'sha256:[a-f0-9]{64}/completed',
+                'capture-console-session': r'console-human-capture:[a-f0-9]{64}'}
+    require(result['operation'] in patterns and re.fullmatch(patterns[result['operation']], value['key']), 'preparation state reference differs')
     require(re.fullmatch(r'sha256:[a-f0-9]{64}', value['sha256']), 'preparation state digest missing')
     review = {'schema': 'honua.private-preparation-source-review/v1', 'operation': result['operation'],
         'candidateKey': result['candidateKey'], 'sourceConfiguration': result['sourceConfiguration'],
@@ -32,6 +33,11 @@ def project(result, outcome):
         review['agentApiKeyId'] = context['issuedAgentKey']['apiKeyId']
         if 'mcpConfiguration' in value:
             review['workerMcpConfiguration'] = value['mcpConfiguration']
+    elif result['operation'] == 'capture-console-session':
+        session = value['session']
+        require(set(session) == {'principalId', 'environmentId', 'authenticated'} and session['authenticated'] is True,
+                'private browser capture lacks its identity-only observation')
+        review['consoleSession'] = session
     else:
         fixture = value['fixture']
         review['fixture'] = {key: fixture[key] for key in ('itemId', 'draftId', 'versionId', 'contentHash', 'namespace', 'ownerPrincipalId')}

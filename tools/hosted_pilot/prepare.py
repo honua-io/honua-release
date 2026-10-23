@@ -139,6 +139,9 @@ def execute(bundle, output):
         require(durable.state.get('bootstrapImport', {}).get('artifactDigest') == config['bootstrapArtifactDigest'], 'private preparation cannot substitute authenticated history')
         if config['action'] == 'prepare-native-context':
             result = native_context(durable, config['configuration'])
+        elif config['action'] == 'capture-console-session':
+            from browser_session import capture
+            result = capture(durable=durable, configuration=config['configuration'])
         else:
             result = prepare_initial_fixture(durable=durable, configuration=config['configuration'])
             require(result.get('qualification') is False, 'fixture preparation cannot qualify a campaign')

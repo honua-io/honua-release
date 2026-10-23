@@ -75,14 +75,18 @@ def saved_original(durable, context, native_binding, selection):
 
 def run_browser(*, contract, runtime, state, authorize_effect, timeout, command=COMMAND, environment=None, work_directory='/work'):
     """No shell, credential env, stderr retention, traces or temporary cookies."""
+    if environment is not None:
+        require(isinstance(environment, dict) and set(environment) <= {
+            'PATH', 'LD_LIBRARY_PATH', 'HONUA_RENDER_PLAYWRIGHT', 'HONUA_RENDER_CHROMIUM', 'PLAYWRIGHT_BROWSERS_PATH'} and
+            all(isinstance(value, str) for value in environment.values()), 'browser dependency override contains unreviewed environment authority')
     private_directory = tempfile.TemporaryDirectory(prefix='private-browser-', dir=work_directory)
     child_env = {'PATH': '/usr/local/bin:/usr/bin:/bin', 'HOME': private_directory.name, 'TMPDIR': private_directory.name,
         'PLAYWRIGHT_BROWSERS_PATH': '/opt/honua-render/browsers',
         'HONUA_RENDER_PLAYWRIGHT': '/opt/honua-render/node_modules/playwright-core/index.mjs'}
     if environment is not None:
-        # Dependency injection is only a unit-test seam; production never passes
-        # ambient controller/AWS/model/SQL/native credentials to the child.
-        child_env = environment
+        # Tests may select exact installed dependency paths. Preserve private
+        # HOME/TMPDIR and the fixed browser path; never import ambient secrets.
+        child_env.update(environment)
     contract_json = json.dumps(contract, sort_keys=True, separators=(',', ':'), ensure_ascii=False, allow_nan=False)
     payload = json.dumps({'contractJson': contract_json, 'runtime': runtime, 'storageState': state},
                         separators=(',', ':'), ensure_ascii=False, allow_nan=False).encode()+b'\n'

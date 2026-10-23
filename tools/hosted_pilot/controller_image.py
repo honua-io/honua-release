@@ -53,6 +53,10 @@ def main():
               'import sys; sys.path.insert(0,"tools"); import boto3, psycopg, yaml, jsonschema, cryptography, agent_e2e_campaign, agent_e2e_fixture_database'])
         call(['docker', 'run', '--rm', '--read-only', '--network', 'none', '--entrypoint', 'python', image, '-c',
               'import os,pathlib,tempfile; assert os.geteuid()==10001; p=pathlib.Path(tempfile.mkstemp(dir="/work")[1]); p.write_text("private"); p.unlink(); assert not os.access("/controller",os.W_OK)'])
+        call(['docker', 'run', '--rm', '--read-only', '--network', 'none', '--cap-drop', 'ALL',
+              '--security-opt', 'no-new-privileges', '--tmpfs', '/work:rw,nosuid,nodev,mode=1777',
+              '-e', 'HOME=/work', '-e', 'TMPDIR=/work', '--entrypoint', '/usr/local/bin/node', image,
+              'certification/hosted-pilot/controller/browser/smoke.mjs'])
         # Only the registry login token enters docker's stdin, never logs/artifacts.
         password = subprocess.run(['aws', 'ecr', 'get-login-password', '--region', e['PILOT_REGION']], capture_output=True)
         require(password.returncode == 0, 'controller registry login refused')
