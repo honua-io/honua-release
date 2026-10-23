@@ -139,6 +139,11 @@ run "immutable_human_browser_storage_reaches_only_private_controller" {
       jsondecode(aws_iam_role_policy.browser_execution[0].policy).Statement[0].Resource == var.human_browser.storageState.secretArn &&
       jsondecode(aws_iam_role_policy.browser_execution[0].policy).Statement[0].Condition.StringEquals["secretsmanager:VersionId"] == var.human_browser.storageState.versionId &&
       toset([for statement in jsondecode(aws_iam_role_policy.browser_observation[0].policy).Statement : statement.Action]) == toset(["ecs:DescribeServices", "ecs:DescribeTaskDefinition"]) &&
+      one([for statement in jsondecode(aws_iam_role_policy.browser_observation[0].policy).Statement : statement if statement.Action == "ecs:DescribeTaskDefinition"]) == {
+        Effect    = "Allow", Action = "ecs:DescribeTaskDefinition", Resource = "*",
+        Condition = { StringEquals = { "aws:RequestedRegion" = var.region } }
+      } &&
+      one([for statement in jsondecode(aws_iam_role_policy.browser_observation[0].policy).Statement : statement if statement.Action == "ecs:DescribeServices"]).Resource == var.human_browser.consoleDeployment.serviceArn &&
       !strcontains(aws_iam_role_policy.browser_observation[0].policy, "secretsmanager:")
     )
     error_message = "Only the trusted controller may receive immutable human browser custody; its separate native deployment observations must remain read-only."

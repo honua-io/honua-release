@@ -1,3 +1,4 @@
+# DescribeTaskDefinition has no IAM resource-level support; callers still pin exact revisions.
 locals {
   state_bucket_arn  = "arn:aws:s3:::${module.accounting.state_config.bucket}"
   state_table_arn   = "arn:aws:dynamodb:${var.region}:${var.account_id}:table/${module.accounting.state_config.table}"
@@ -13,7 +14,7 @@ resource "aws_iam_role_policy" "dispatcher" {
     { Effect = "Allow", Action = ["dynamodb:GetItem", "dynamodb:PutItem", "dynamodb:UpdateItem"], Resource = aws_dynamodb_table.claims["dispatch"].arn },
     { Effect = "Allow", Action = "states:DescribeStateMachine", Resource = aws_sfn_state_machine.controller.state_machine_version_arn },
     { Effect = "Allow", Action = ["states:DescribeExecution", "states:GetExecutionHistory"], Resource = local.execution_pattern },
-    { Effect = "Allow", Action = "ecs:DescribeTaskDefinition", Resource = aws_ecs_task_definition.controller.arn },
+    { Effect = "Allow", Action = "ecs:DescribeTaskDefinition", Resource = "*", Condition = { StringEquals = { "aws:RequestedRegion" = var.region } } },
     { Effect = "Allow", Action = "ecs:DescribeTasks", Resource = "arn:aws:ecs:${var.region}:${var.account_id}:task/${module.application.ecs_cluster_name}/*" },
     { Effect = "Allow", Action = "ecr:BatchGetImage", Resource = "arn:aws:ecr:${var.region}:${var.account_id}:repository/${split("/", split("@", var.controller_image.uri)[0])[1]}" }
   ], var.dispatch_budget == null ? [] : [{ Effect = "Allow", Action = "states:StartExecution", Resource = aws_sfn_state_machine.controller.state_machine_version_arn }]) })
@@ -28,7 +29,7 @@ resource "aws_iam_role_policy" "controller" {
     { Effect = "Allow", Action = ["dynamodb:GetItem", "dynamodb:PutItem", "dynamodb:UpdateItem"], Resource = aws_dynamodb_table.claims["fixture"].arn },
     { Effect = "Allow", Action = ["states:DescribeExecution", "states:GetExecutionHistory"], Resource = local.execution_pattern },
     { Effect = "Allow", Action = ["ecs:DescribeTasks", "ecs:StopTask"], Resource = "arn:aws:ecs:${var.region}:${var.account_id}:task/${module.application.ecs_cluster_name}/*" },
-    { Effect = "Allow", Action = "ecs:DescribeTaskDefinition", Resource = "arn:aws:ecs:${var.region}:${var.account_id}:task-definition/${var.name_prefix}-*" },
+    { Effect = "Allow", Action = "ecs:DescribeTaskDefinition", Resource = "*", Condition = { StringEquals = { "aws:RequestedRegion" = var.region } } },
     { Effect = "Allow", Action = ["ecs:ListTasks", "ecs:DescribeServices"], Resource = "*", Condition = { ArnEquals = { "ecs:cluster" = local.target_cluster_arn } } },
     { Effect = "Allow", Action = "elasticache:DescribeReplicationGroups", Resource = "arn:aws:elasticache:${var.region}:${var.account_id}:replicationgroup:${var.name_prefix}*" }
     ], [for statement in [

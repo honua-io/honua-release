@@ -146,6 +146,28 @@ run "private_sql_and_credential_custody" {
   }
 }
 
+run "task_definition_reads_use_only_region_scoped_wildcards" {
+  command = plan
+  assert {
+    condition = alltrue([for policy in [aws_iam_role_policy.dispatcher.policy, aws_iam_role_policy.controller.policy] :
+      one([for statement in jsondecode(policy).Statement : statement if statement.Action == "ecs:DescribeTaskDefinition"]) == {
+        Effect    = "Allow", Action = "ecs:DescribeTaskDefinition", Resource = "*",
+        Condition = { StringEquals = { "aws:RequestedRegion" = var.region } }
+      }
+    ])
+    error_message = "DescribeTaskDefinition must be isolated to its supported region-scoped wildcard, without adding other actions."
+  }
+  assert {
+    condition = (
+      one([for statement in jsondecode(aws_iam_role_policy.dispatcher.policy).Statement : statement if statement.Action == "ecs:DescribeTasks"]).Resource == "arn:aws:ecs:${var.region}:${var.account_id}:task/${module.application.ecs_cluster_name}/*" &&
+      one([for statement in jsondecode(aws_iam_role_policy.controller.policy).Statement : statement if try(toset(statement.Action), toset([])) == toset(["ecs:DescribeTasks", "ecs:StopTask"])]).Resource == "arn:aws:ecs:${var.region}:${var.account_id}:task/${module.application.ecs_cluster_name}/*" &&
+      one([for statement in jsondecode(aws_iam_role_policy.controller.policy).Statement : statement if statement.Action == "ecs:RunTask"]).Resource == aws_ecs_task_definition.fixture.arn &&
+      one([for statement in jsondecode(aws_iam_role_policy.controller.policy).Statement : statement if statement.Action == "iam:PassRole"]).Resource == [aws_iam_role.fixture.arn, aws_iam_role.execution["fixture"].arn]
+    )
+    error_message = "Task reads, stopping, launching and role passing must retain their original exact resources."
+  }
+}
+
 run "installed_native_keys_use_actual_immutable_version_ids" {
   command = plan
   variables {
@@ -370,6 +392,14 @@ run "setup_retirement_has_separate_original_credentials_and_no_sql_or_model" {
       !strcontains(aws_iam_role_policy.setup_retirement[0].policy, "bedrock:") &&
       one([for statement in jsondecode(aws_iam_role_policy.setup_retirement[0].policy).Statement : statement if statement.Action == "dynamodb:GetItem"]).Resource == aws_dynamodb_table.claims["dispatch"].arn &&
       jsondecode(aws_ecs_task_definition.setup_retirement[0].container_definitions)[0].readonlyRootFilesystem &&
+      alltrue([for policy in [aws_iam_role_policy.setup_retirement[0].policy, aws_iam_role_policy.observe_setup_retirement[0].policy] :
+        one([for statement in jsondecode(policy).Statement : statement if statement.Action == "ecs:DescribeTaskDefinition"]) == {
+          Effect    = "Allow", Action = "ecs:DescribeTaskDefinition", Resource = "*",
+          Condition = { StringEquals = { "aws:RequestedRegion" = var.region } }
+        }
+      ]) &&
+      one([for statement in jsondecode(aws_iam_role_policy.observe_setup_retirement[0].policy).Statement : statement if statement.Action == "ecs:StopTask"]).Resource == "arn:aws:ecs:${var.region}:${var.account_id}:task/${module.application.ecs_cluster_name}/*" &&
+      one([for statement in jsondecode(aws_iam_role_policy.dispatch_setup_retirement[0].policy).Statement : statement if statement.Action == "ecs:RunTask"]).Resource == aws_ecs_task_definition.setup_retirement[0].arn &&
       output.setup_retirement_handoff.configuration == local.retirement_config
     )
     error_message = "Retirement must receive only its original setup key and independent administrator; no model, SQL, minting, or task-launch privilege may enter that task."
@@ -462,7 +492,7 @@ run "worker_custody_read_is_absent_without_declared_attempts" {
     error_message = "Unconfigured custody observation cannot grant IAM or task-definition reads."
   }
 }
-run "worker_custody_read_has_only_exact_declared_roles_and_families" {
+run "worker_custody_read_has_exact_roles_and_region_scoped_definition_read" {
   command = plan
   variables { worker_attempt_ids = ["p14-first", "p14-second"] }
   assert {
@@ -470,9 +500,9 @@ run "worker_custody_read_has_only_exact_declared_roles_and_families" {
       { Effect = "Allow", Action = ["iam:GetRolePolicy", "iam:ListRolePolicies", "iam:ListAttachedRolePolicies"],
       Resource = ["arn:aws:iam::123456789012:role/honua-agent-p14-first-worker", "arn:aws:iam::123456789012:role/honua-agent-p14-second-worker"] },
       { Effect = "Allow", Action = "ecs:DescribeTaskDefinition",
-      Resource = ["arn:aws:ecs:us-east-1:123456789012:task-definition/honua-agent-p14-first:*", "arn:aws:ecs:us-east-1:123456789012:task-definition/honua-agent-p14-second:*"] }
+      Resource = "*", Condition = { StringEquals = { "aws:RequestedRegion" = var.region } } }
     ] })
-    error_message = "Custody may read only the two declared worker policies/task families, without launch, secret, other-role or wildcard IAM authority."
+    error_message = "Custody must retain exact worker role reads and isolate the region-scoped task-definition wildcard without launch, secrets or wildcard IAM authority."
   }
 }
 run "worker_custody_attempt_cannot_expand_to_a_role_wildcard" {
