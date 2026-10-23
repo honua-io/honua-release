@@ -20,10 +20,21 @@ import fixture_provisioner as provisioner
 
 
 @pytest.mark.parametrize('changed', [False, True])
-def test_private_provisioner_independently_replays_actual_retained_task_job_http_originals(retained, changed):
+@pytest.mark.parametrize('retention', ['current', 'legacy', 'duplicate-alias', 'wrong-retained-key'])
+def test_private_provisioner_independently_replays_actual_retained_task_job_http_originals(retained, changed, retention):
     durable, context, key, request = retained
     reference = DurableExecution.retain_import_transfer_request(durable, context, request)
     state = copy.deepcopy(durable.state)
+    base = canonical_digest({name: context[name] for name in ('campaignId', 'caseId', 'attempt')})
+    compound = base+'/'+canonical_digest(request)
+    assert reference == {'key': compound, 'sha256': canonical_digest(request)}
+    if retention == 'legacy':
+        state['importTransferRequests'][base] = state['importTransferRequests'].pop(compound)
+        reference = {'key': base, 'sha256': canonical_digest(request)}
+    elif retention == 'duplicate-alias':
+        state['importTransferRequests'][base] = copy.deepcopy(request)
+    elif retention == 'wrong-retained-key':
+        reference = {'key': base, 'sha256': canonical_digest(request)}
     if changed:
         del state['scenarioOperations'][request['nativeImports'][0]['submissionReference']['key']]
     generation = 'sha256:'+'b'*64
@@ -39,8 +50,8 @@ def test_private_provisioner_independently_replays_actual_retained_task_job_http
     envelope = {'request': request, 'context': context, 'retained': reference, 'fence': {'candidateKey': durable.store.candidate,
         'owner': 'original-controller', 'fence': 8, 'stateTable': 'original-state', 'stateBucket': 'original-custody',
         'stateKey': {'candidateKey': {'S': durable.store.candidate}}}}
-    if changed:
-        with pytest.raises(PackError, match='absent or changed'):
+    if changed or retention in ('duplicate-alias', 'wrong-retained-key'):
+        with pytest.raises(PackError, match='absent or changed|cannot migrate an original request'):
             provisioner.observe_authority(config, envelope, s3, db)
     else:
         assert provisioner.observe_authority(config, envelope, s3, db) == row

@@ -18,7 +18,7 @@ import time
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from agent_e2e_pack import canonical_digest
 from agent_e2e_budget import validate as validate_ledger
-from fixture_handoff import IMPORT_PROFILE, encoded, require, sdk, validate_request
+from fixture_handoff import IMPORT_PROFILE, encoded, ownership_claim, require, sdk, validate_request
 from controller_budget import read_version
 
 
@@ -43,18 +43,26 @@ def observe_authority(config, envelope, s3, db):
             snapshot['version'] == int(row['stateVersion']['N']), 'fixture retained state digest differs')
     identity = {key: context[key] for key in ('campaignId', 'caseId', 'attempt')}
     key = canonical_digest(identity)
-    require(context['campaignMode'] in ('development', 'qualification') and envelope['retained'] == {'key': key, 'sha256': canonical_digest(request)},
-            'fixture retained request identity differs')
+    imported = request.get('profile') == IMPORT_PROFILE
+    request_digest = canonical_digest(request)
+    retained_key = envelope['retained'].get('key')
+    allowed_keys = (key, key+'/'+request_digest) if imported else (key,)
+    require(context['campaignMode'] in ('development', 'qualification') and
+            set(envelope['retained']) == {'key', 'sha256'} and retained_key in allowed_keys and
+            envelope['retained']['sha256'] == request_digest, 'fixture retained request identity differs')
     state = snapshot['payload']
     validate_ledger(state['ledger'])
     require(state['ledger']['candidateKey'] == config['candidateKey'], 'fixture allowance belongs to another candidate')
-    imported = request.get('profile') == IMPORT_PROFILE
     if imported:
         from agent_e2e_state import validate_retained_import_transfer
         require(validate_retained_import_transfer(state, context, request, config['candidateKey']) == key,
                 'model import native original revalidation differs from original attempt')
     request_map = 'importTransferRequests' if imported else 'fixtureTransferRequests'
-    require(state.get(request_map, {}).get(key) == request and
+    if imported:
+        identical = {name for name, value in state.get(request_map, {}).items()
+                     if (name == key or name.startswith(key+'/')) and value == request}
+        require(identical == {retained_key}, 'model import cannot migrate an original request into a new claim')
+    require(state.get(request_map, {}).get(retained_key) == request and
             canonical_digest(state.get('fixtureBaselines', {}).get(key)) == request['baselineDigest'],
             'fixture transfer is absent from authenticated retained state')
     baseline = state['fixtureBaselines'][key]
@@ -148,10 +156,9 @@ def main():
             envelope['provisionerConfigSha256'] == canonical_digest(config), 'fixture request configuration differs')
     request = envelope['request']
     validate_request(request)
-    claim_kind = 'model-import-ownership' if request.get('profile') == IMPORT_PROFILE else 'fixture-ownership'
     require(request['database']['database'] == config['database'] and request['expectedCleanupRole'] == config['cleanupRole'] and
             all(table['owner'] == config['appRole'] for table in request['tables']) and
-            pointer['claimKey'] == canonical_digest({'candidateKey': request['candidateKey'], 'context': envelope['context'], 'kind': claim_kind}) and
+            pointer['claimKey'] == ownership_claim(request, envelope['context'], envelope['retained']) and
             pointer['key'] == config['requestPrefix'] + pointer['claimKey'][7:] + '.json', 'fixture effect differs from exact reviewed application-owned request')
     metadata_uri = os.environ['ECS_CONTAINER_METADATA_URI_V4']
     require(re.fullmatch(r'http://169\.254\.170\.2/v4/[A-Za-z0-9_-]+', metadata_uri), 'fixture native task metadata missing')

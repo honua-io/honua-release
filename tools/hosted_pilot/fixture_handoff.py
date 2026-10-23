@@ -114,6 +114,26 @@ def verify_task(definition, config):
     return container
 
 
+
+def ownership_claim(request, context, retained):
+    """Original P10/legacy claims stay fixed; distinct import outputs get claims.
+
+    A request digest never grants SQL authority. The private provisioner must
+    independently replay the exact retained request and original native oracles.
+    """
+    attempt = canonical_digest({key: context[key] for key in ('campaignId', 'caseId', 'attempt')})
+    request_digest = canonical_digest(request)
+    imported = request.get('profile') == IMPORT_PROFILE
+    allowed = (attempt, attempt+'/'+request_digest) if imported else (attempt,)
+    require(set(retained) == {'key', 'sha256'} and retained['key'] in allowed and retained['sha256'] == request_digest,
+            'ownership claim differs from its exact original retained request')
+    binding = {'candidateKey': request['candidateKey'], 'context': context,
+               'kind': 'model-import-ownership' if imported else 'fixture-ownership'}
+    if imported and retained['key'] != attempt:
+        binding['requestDigest'] = request_digest
+    return canonical_digest(binding)
+
+
 def transfer_ownership(request, *, durable, context, configuration, timeout=300):
     """One native task launch; an ambiguous result never authorizes a retry."""
     validate_request(request)
@@ -141,8 +161,7 @@ def transfer_ownership(request, *, durable, context, configuration, timeout=300)
     body = encoded(envelope)
     require(len(body) <= 65536, 'fixture ownership handoff exceeds bounded size')
     request_digest = 'sha256:' + hashlib.sha256(body).hexdigest()
-    claim_kind = 'model-import-ownership' if request.get('profile') == IMPORT_PROFILE else 'fixture-ownership'
-    claim_key = canonical_digest({'candidateKey': request['candidateKey'], 'context': envelope['context'], 'kind': claim_kind})
+    claim_key = ownership_claim(request, envelope['context'], retained)
     s3, ecs = sdk('s3', config['region']), sdk('ecs', config['region'])
     verify_task(ecs.describe_task_definition(taskDefinition=config['taskDefinitionArn']), config)
     require(s3.get_bucket_versioning(Bucket=config['requestBucket']).get('Status') == 'Enabled', 'fixture handoff bucket must retain immutable versions')
