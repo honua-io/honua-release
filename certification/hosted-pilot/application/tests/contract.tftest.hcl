@@ -197,6 +197,8 @@ run "server_auth_bindings" {
   }
   assert {
     condition = (
+      local.server_identity_environment.Identity__RequiredManagedIssuers__0 == output.identity_preparation.issuer &&
+      local.server_identity_environment.Identity__RequiredManagedIssuers__0 == local.server_generic_oidc.authority &&
       local.server_identity_environment.Oidc__ClaimsMapping__AdditionalRoleClaimTypes__0 == "cognito:groups" &&
       local.server_identity_environment.Oidc__AdminRoles__0 == local.identity_groups.approvers &&
       local.server_identity_environment.Oidc__AdminRoles__1 == local.identity_groups.approvers &&
@@ -205,6 +207,30 @@ run "server_auth_bindings" {
       !contains(values(local.server_identity_environment), "administrator")
     )
     error_message = "Configured role names must use the distinct approver group; actual Server binding and entitled mapping require separate verification."
+  }
+}
+
+# A different actual pool must change the required managed issuer. This keeps
+# both the managed-membership boundary and SCIM on the deployed pool's issuer.
+run "managed_membership_uses_actual_pool_issuer" {
+  command   = apply
+  state_key = "managed-membership-alternate-pool"
+  override_resource {
+    target = aws_cognito_user_pool.pilot
+    values = {
+      id       = "us-west-2_Another456"
+      endpoint = "cognito-idp.us-west-2.amazonaws.com/us-west-2_Another456"
+    }
+  }
+  assert {
+    condition = (
+      local.server_identity_environment.Identity__RequiredManagedIssuers__0 == "https://cognito-idp.us-west-2.amazonaws.com/us-west-2_Another456" &&
+      local.server_identity_environment.Identity__RequiredManagedIssuers__0 == local.server_generic_oidc.authority &&
+      local.server_identity_environment.Identity__RequiredManagedIssuers__0 == output.identity_preparation.issuer &&
+      local.server_identity_environment.Identity__RequiredManagedIssuers__0 != "https://cognito-idp.us-west-2.amazonaws.com/us-west-2_Offline123" &&
+      length([for name in keys(local.server_identity_environment) : name if startswith(name, "Identity__RequiredManagedIssuers__")]) == 1
+    )
+    error_message = "Managed membership must use only the actual Cognito pool issuer, identical to the SCIM/OIDC issuer; a copied default or extra issuer is not admitted."
   }
 }
 
