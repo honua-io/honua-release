@@ -18,7 +18,7 @@ import time
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from agent_e2e_pack import canonical_digest
 from agent_e2e_budget import validate as validate_ledger
-from fixture_handoff import encoded, require, sdk, validate_request
+from fixture_handoff import IMPORT_PROFILE, encoded, require, sdk, validate_request
 from controller_budget import read_version
 
 
@@ -48,7 +48,13 @@ def observe_authority(config, envelope, s3, db):
     state = snapshot['payload']
     validate_ledger(state['ledger'])
     require(state['ledger']['candidateKey'] == config['candidateKey'], 'fixture allowance belongs to another candidate')
-    require(state.get('fixtureTransferRequests', {}).get(key) == request and
+    imported = request.get('profile') == IMPORT_PROFILE
+    if imported:
+        from agent_e2e_state import validate_retained_import_transfer
+        require(validate_retained_import_transfer(state, context, request, config['candidateKey']) == key,
+                'model import native original revalidation differs from original attempt')
+    request_map = 'importTransferRequests' if imported else 'fixtureTransferRequests'
+    require(state.get(request_map, {}).get(key) == request and
             canonical_digest(state.get('fixtureBaselines', {}).get(key)) == request['baselineDigest'],
             'fixture transfer is absent from authenticated retained state')
     baseline = state['fixtureBaselines'][key]
@@ -99,6 +105,13 @@ def transfer(connection, request, *, authorize):
             WHERE c.oid = ANY(%s::oid[]) AND c.relkind = 'r' ORDER BY c.oid''',
             ([table['oid'] for table in request['tables']],)).fetchall()
         require(rows == sorted(request['tables'], key=lambda row: row['oid']), 'fixture source OID/name/owner changed before transfer')
+        require(connection.execute("SELECT 1 FROM pg_event_trigger WHERE evtenabled <> 'D' LIMIT 1").fetchone() is None,
+                'fixture ownership refuses unknown DDL event triggers')
+        if request.get('profile') == IMPORT_PROFILE:
+            markers = connection.execute("SELECT oid::bigint AS oid, obj_description(oid, 'pg_class') AS marker FROM pg_class WHERE oid=ANY(%s::oid[])",
+                                         ([table['oid'] for table in rows],)).fetchall()
+            require(len(markers) == len(rows) and all(row['marker'] == 'honua:import-owned:v1' for row in markers),
+                    'model import output lost its actual native import-owned table marker')
         authorize()
         for table in rows:
             connection.execute(sql.SQL('ALTER TABLE {} OWNER TO {}').format(
@@ -135,9 +148,10 @@ def main():
             envelope['provisionerConfigSha256'] == canonical_digest(config), 'fixture request configuration differs')
     request = envelope['request']
     validate_request(request)
+    claim_kind = 'model-import-ownership' if request.get('profile') == IMPORT_PROFILE else 'fixture-ownership'
     require(request['database']['database'] == config['database'] and request['expectedCleanupRole'] == config['cleanupRole'] and
             all(table['owner'] == config['appRole'] for table in request['tables']) and
-            pointer['claimKey'] == canonical_digest({'candidateKey': request['candidateKey'], 'context': envelope['context'], 'kind': 'fixture-ownership'}) and
+            pointer['claimKey'] == canonical_digest({'candidateKey': request['candidateKey'], 'context': envelope['context'], 'kind': claim_kind}) and
             pointer['key'] == config['requestPrefix'] + pointer['claimKey'][7:] + '.json', 'fixture effect differs from exact reviewed application-owned request')
     metadata_uri = os.environ['ECS_CONTAINER_METADATA_URI_V4']
     require(re.fullmatch(r'http://169\.254\.170\.2/v4/[A-Za-z0-9_-]+', metadata_uri), 'fixture native task metadata missing')
@@ -171,6 +185,8 @@ def main():
         'claimKey': pointer['claimKey'], 'taskArn': task_arn, 'taskDefinitionArn': task['taskDefinitionArn'],
         'imageUri': config['imageUri'], 'provisionerConfigSha256': canonical_digest(config),
         'database': request['database'], 'before': request['tables'], 'after': after}
+    if request.get('profile') == IMPORT_PROFILE:
+        receipt['profile'] = IMPORT_PROFILE
     s3.put_object(Bucket=config['bucket'], Key=config['receiptPrefix'] + pointer['claimKey'][7:] + '.json',
                   Body=encoded(receipt), IfNoneMatch='*', ServerSideEncryption='AES256', ContentType='application/json')
     return 0

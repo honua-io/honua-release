@@ -21,6 +21,7 @@ CONTRACT_PATHS = (
     'tools/hosted_pilot/fixture_provisioner.py',
     'tools/hosted_pilot/native_bootstrap.py',
     'tools/hosted_pilot/prepare.py',
+    'tools/hosted_pilot/worker_mcp_configuration.py',
 )
 SOURCE_LIMIT = 256 * 1024 * 1024
 BUNDLE_LIMIT = 128 * 1024 * 1024

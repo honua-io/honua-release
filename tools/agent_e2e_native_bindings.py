@@ -41,6 +41,9 @@ def native_id(value):
 
 
 def contract(value):
+    if isinstance(value, dict) and value.get('profile') == 'honua.studio-authoring-bindings/v1':
+        from agent_e2e_native_authoring_bindings import contract as authoring_contract
+        return authoring_contract(value)
     exact(value, {'profile', 'fields', 'observers', 'relationships'}, 'invalid frozen native binding contract')
     require(value['profile'] == PROFILE and isinstance(value['fields'], list) and value['fields'] and
             len(value['fields']) == len(set(value['fields'])) and
@@ -74,7 +77,7 @@ def marker(value):
     if isinstance(value, dict) and '$native' in value:
         exact(value, {'$native'}, 'native reference cannot carry fallback/literal fields')
         reference = value['$native']
-        require(isinstance(reference, str) and re.fullmatch(r'[a-z][a-z0-9-]{0,40}\.(?:proposalId|approvalAuditId)', reference),
+        require(isinstance(reference, str) and re.fullmatch(r'[a-z][a-z0-9-]{0,40}\.(?:proposalId|approvalAuditId|savedVersionId)', reference),
                 'invalid native reference')
         return reference.split('.')
     return None
@@ -103,13 +106,20 @@ def validate_case(value):
             reference = marker(item)
             if reference is not None:
                 name, native_field = reference
-                require(ALLOWED.get((assertion, field)) == native_field and name in contracts and
+                require(name in contracts and allowed(assertion, field, contracts[name]) == native_field and
                         native_field in contracts[name]['fields'], 'native reference is outside frozen field/relationship allowlist')
                 used[name].add(native_field)
             else:
                 require(not contains_marker(item), 'nested/dynamic expression native references are unsupported')
     require(all(used[name] == set(declaration['fields']) for name, declaration in contracts.items()),
             'frozen native fields must exactly match assertion references')
+
+
+def allowed(assertion, field, declaration):
+    if declaration.get('profile') == 'honua.studio-authoring-bindings/v1':
+        from agent_e2e_native_authoring_bindings import ALLOWED as authoring_allowed
+        return authoring_allowed.get((assertion, field))
+    return ALLOWED.get((assertion, field))
 
 
 def original(pair, *, observer, candidate, path):
@@ -139,6 +149,9 @@ def original(pair, *, observer, candidate, path):
 
 def replay(report, declaration, context, *, complete=True):
     """Resolve from raw originals, retaining every ordinary oracle predicate."""
+    if declaration.get('profile') == 'honua.studio-authoring-bindings/v1':
+        from agent_e2e_native_authoring_bindings import replay as authoring_replay
+        return authoring_replay(report, declaration, context, complete=complete)
     contract(declaration)
     exact(report, {'schemaVersion', 'profile', 'name', 'context', 'contractDigest', 'stage', 'records', 'values'},
           'invalid native binding report')
@@ -249,7 +262,7 @@ def resolve(assertion, expected, declarations, reports, context):
         if reference is None:
             continue
         name, native_field = reference
-        require(ALLOWED.get((assertion, field)) == native_field and name in declarations and name in reports and
+        require(name in declarations and allowed(assertion, field, declarations[name]) == native_field and name in reports and
                 reports[name]['name'] == name, 'native assertion identity is unbound or unauthorized')
         result[field] = replay(reports[name], declarations[name], context)[native_field]
     return result
@@ -260,6 +273,8 @@ def export(durable, context, declarations, evidence):
     durable._require_live_lease()
     require(durable.store.candidate == context['componentBindingDigest'], 'native export belongs to another candidate')
     prefix = canonical_digest({key: context[key] for key in ('campaignId', 'caseId', 'attempt')})+'/'
+    context = {**context, 'modelActions': [row for row in durable.state.get('journals', {}).get(prefix[:-1], [])
+                                          if row.get('event') == 'action']}
     reports = {key: report for key, report in durable.state.get('nativeBindings', {}).items() if key.startswith(prefix)}
     require({report['name'] for report in reports.values()} == set(declarations),
             'native export differs from exact frozen binding names')

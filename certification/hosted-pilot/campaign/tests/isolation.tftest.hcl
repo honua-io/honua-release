@@ -83,6 +83,9 @@ run "private_sql_and_credential_custody" {
       jsondecode(aws_ecs_task_definition.controller.container_definitions)[0].readonlyRootFilesystem &&
       !contains([for secret in jsondecode(aws_ecs_task_definition.controller.container_definitions)[0].secrets : secret.name], "PILOT_FIXTURE_MASTER_CONNECTION") &&
       alltrue([for secret in jsondecode(aws_ecs_task_definition.controller.container_definitions)[0].secrets : can(regex(":::[^:]+$", secret.valueFrom)) && !strcontains(secret.valueFrom, "::::")]) &&
+      aws_secretsmanager_secret.worker_mcp.name == "honua-agent-${substr(local.candidate_hex, 0, 24)}-mcp" &&
+      jsondecode(aws_iam_role_policy.controller_mcp_configuration.policy).Statement[0].Action == "secretsmanager:PutSecretValue" &&
+      jsondecode(aws_iam_role_policy.controller_mcp_configuration.policy).Statement[0].Resource == aws_secretsmanager_secret.worker_mcp.arn &&
       !strcontains(aws_iam_role_policy.dispatcher.policy, "secretsmanager:") &&
       !strcontains(aws_iam_role_policy.controller.policy, "bedrock:InvokeModel")
     )

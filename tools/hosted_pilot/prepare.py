@@ -39,7 +39,8 @@ def source_configuration(reference):
 
 
 def native_context(durable, config):
-    require(set(config) == {'candidateKey', 'operation', 'nativeBootstrapOperationId', 'endpoint', 'requesterCredentialEnv', 'viewId', 'turnId'} and
+    fields = {'candidateKey', 'operation', 'nativeBootstrapOperationId', 'endpoint', 'requesterCredentialEnv', 'viewId', 'turnId'}
+    require(fields <= set(config) <= fields | {'mcpConfiguration'} and
             config['candidateKey'] == durable.store.candidate and config['requesterCredentialEnv'] == 'HONUA_AGENT_REQUESTER_KEY' and
             config['viewId'] == 'studio-native' and re.fullmatch(r'[A-Za-z0-9_-]{1,100}', config['turnId']), 'native context setup must use its actual issued agent key and reviewed turn')
     native_key = canonical_digest({'kind': 'native-bootstrap', 'candidateKey': config['candidateKey'], 'operationId': config['nativeBootstrapOperationId']})
@@ -86,13 +87,18 @@ def native_context(durable, config):
             'actual issued agent cannot read back its installed workspace membership and captured turn')
     value = {'schema': 'honua.native-agent-context/v1', 'candidateKey': config['candidateKey'],
         'issuedAgentKey': key_record, 'ownerPrincipalId': 'apikey:api-key:'+key_record['apiKeyId'],
+        'nativeBootstrapReference': {'key': native_key+'/key-agent', 'sha256': canonical_digest(issued)},
         'agentContext': {'workspaceId': workspace['workspaceId'], 'turnId': turn['turnId']},
         'target': target, 'workspace': workspace, 'turn': turn,
         'nativeOriginals': {'target': target_answer, 'workspace': workspace_answer, 'turn': turn_answer,
             'workspaceReadback': workspace_read_answer, 'turnReadback': turn_read_answer},
         'producerTaskArn': os.environ['PILOT_CONTROLLER_TASK_ARN'], 'qualification': False}
     retain('completed', value)
-    return {'key': phase+'/completed', 'sha256': canonical_digest(value), 'value': value, 'qualification': False}
+    result = {'key': phase+'/completed', 'sha256': canonical_digest(value), 'value': value, 'qualification': False}
+    if 'mcpConfiguration' in config:
+        from worker_mcp_configuration import provision
+        result['mcpConfiguration'] = provision(durable, {key: result[key] for key in ('key', 'sha256')}, config['operation'], config['mcpConfiguration'])
+    return result
 
 
 def execute(bundle, output):

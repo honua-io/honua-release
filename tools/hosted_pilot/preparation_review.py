@@ -28,6 +28,8 @@ def project(result, outcome):
         review['agentContext'] = context['agentContext']
         review['ownerPrincipalId'] = context['ownerPrincipalId']
         review['agentApiKeyId'] = context['issuedAgentKey']['apiKeyId']
+        if 'mcpConfiguration' in value:
+            review['workerMcpConfiguration'] = value['mcpConfiguration']
     else:
         fixture = value['fixture']
         review['fixture'] = {key: fixture[key] for key in ('itemId', 'draftId', 'versionId', 'contentHash', 'namespace', 'ownerPrincipalId')}

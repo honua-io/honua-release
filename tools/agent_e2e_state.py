@@ -32,6 +32,96 @@ def open_store(config, candidate_key):
         bucket=config['bucket'], table=config['table'], candidate_key=candidate_key)
 
 
+def validate_retained_import_transfer(state, context, request, candidate):
+    """Replay exact native task/job originals for the controller and private handoff."""
+    from agent_e2e_import_database import PROFILE
+    from agent_e2e_budget import validate as validate_budget
+    validate_budget(state['ledger'])
+    if state['ledger']['candidateKey'] != candidate or context.get('componentBindingDigest', candidate) != candidate:
+        raise PackError('model import revalidation belongs to another candidate')
+    scoped = [row for row in state['ledger']['entries'] if row['state'] == 'reserved' and
+              all(row.get(field) == context[field] for field in ('campaignId', 'caseId', 'attempt')) and
+              row.get('campaignMode', 'qualification') == context['campaignMode']]
+    if not {'infrastructure', 'cleanup'} <= {row['kind'] for row in scoped}:
+        raise PackError('model import revalidation lacks original live attempt liabilities')
+    key = canonical_digest({field: context[field] for field in ('campaignId', 'caseId', 'attempt')})
+    baseline = state.get('fixtureBaselines', {}).get(key)
+    fields = {'schemaVersion', 'profile', 'candidateKey', 'database', 'baselineDigest',
+              'expectedCleanupRole', 'tables', 'nativeImports'}
+    if (set(request) != fields or request['schemaVersion'] != 1 or request['profile'] != PROFILE or
+            request['candidateKey'] != candidate or baseline is None or
+            request['baselineDigest'] != canonical_digest(baseline) or request['database'] != baseline['database'] or
+            not isinstance(request['expectedCleanupRole'], str) or
+            not re.fullmatch(r'[a-z][a-z0-9_]{0,62}', request['expectedCleanupRole']) or
+            not isinstance(request['tables'], list) or not 1 <= len(request['tables']) <= 16 or
+            not isinstance(request['nativeImports'], list) or len(request['nativeImports']) != len(request['tables'])):
+        raise PackError('model import transfer differs from original candidate/baseline/native output scope')
+    before = {row['oid'] for row in baseline['snapshot']['relations']}
+    tables = {}
+    for table in request['tables']:
+        if (set(table) != {'oid', 'schema', 'name', 'owner'} or type(table['oid']) is not int or table['oid'] <= 0 or
+                table['oid'] in before or table['oid'] in tables or table['schema'] != 'honua_data' or
+                any(not isinstance(table[field], str) or not re.fullmatch(r'[a-z][a-z0-9_]{0,62}', table[field])
+                    for field in ('name', 'owner'))):
+            raise PackError('model import transfer has preexisting/duplicate/ambiguous physical OIDs')
+        tables[table['oid']] = table
+    attempts = [attempt for attempt, launch in state.get('workerLaunches', {}).items()
+                if all(launch.get('context', {}).get(field) == context[field]
+                       for field in ('campaignId', 'caseId', 'attempt', 'campaignMode'))]
+    originals = state.get('scenarioOperations', {})
+    def read(reference):
+        if not isinstance(reference, dict) or set(reference) != {'key', 'sha256'}:
+            raise PackError('model import transfer requires original retained native GET references')
+        response = originals.get(reference['key'])
+        if not isinstance(response, dict) or canonical_digest(response) != reference['sha256']:
+            raise PackError('model import native GET response is absent or changed')
+        intent_ref = response.get('intentReference', {})
+        intent = originals.get(intent_ref.get('key'))
+        if (not isinstance(intent, dict) or canonical_digest(intent) != intent_ref.get('sha256') or
+                intent.get('method') != 'GET' or intent.get('candidateKey') != candidate or
+                intent.get('credentialKind') not in ('api-key', 'bearer') or
+                response.get('candidateKey') != candidate or
+                response.get('intentDigest') != canonical_digest(intent) or
+                not any(intent.get('attemptId', '').startswith(attempt+'-') for attempt in attempts) or
+                response.get('attemptId') != intent.get('attemptId') or
+                response.get('response', {}).get('httpStatus') != 200):
+            raise PackError('model import original is not an authenticated same-attempt native GET')
+        raw = response['response'].get('body')
+        if not isinstance(raw, dict) or raw.get('success', True) is False:
+            raise PackError('model import original native body is unsuccessful')
+        return raw.get('data', raw), intent
+    used_oids, used_jobs = set(), set()
+    for native in request['nativeImports']:
+        if set(native) != {'taskId', 'taskRevision', 'taskContentHash', 'jobId', 'leaseId', 'tableOid',
+                           'taskReference', 'submissionReference'} or native['tableOid'] not in tables:
+            raise PackError('model import handoff lacks an exact task/job/relation mapping')
+        task, task_intent = read(native['taskReference'])
+        receipt, receipt_intent = read(native['submissionReference'])
+        if (not isinstance(task, dict) or not isinstance(receipt, dict) or not isinstance(receipt.get('job'), dict) or
+                not isinstance(receipt['job'].get('output'), dict) or type(native['taskRevision']) is not int or native['taskRevision'] < 1 or
+                not isinstance(native['taskContentHash'], str) or not re.fullmatch(r'[0-9a-f]{64}', native['taskContentHash'])):
+            raise PackError('model import original has no successful actual task/job/output binding')
+        from urllib.parse import urlencode
+        path = '/api/v1/agent/workspaces/'+str(task.get('workspaceId'))+'/dataset-import-tasks/'+str(native['taskId'])+'/versions/'+str(native['taskRevision'])
+        job, physical = receipt.get('job', {}), receipt.get('job', {}).get('output', {})
+        table = tables[native['tableOid']]
+        if (task.get('taskId') != native['taskId'] or task.get('revision') != native['taskRevision'] or
+                task.get('contentHash') != native['taskContentHash'] or receipt.get('taskId') != native['taskId'] or
+                receipt.get('taskRevision') != native['taskRevision'] or receipt.get('taskContentHash') != native['taskContentHash'] or
+                receipt.get('state') != 'accepted' or receipt.get('operationId') != native['jobId'] or
+                job.get('jobId') != native['jobId'] or job.get('leaseId') != native['leaseId'] or
+                job.get('status') != 'succeeded' or job.get('outcomePending') is not False or
+                physical.get('schema') != table['schema'] or physical.get('physicalTableName') != table['name'] or
+                task_intent.get('path') != path or receipt_intent.get('path') != path+'/submission?'+urlencode({'contentHash': native['taskContentHash']}) or
+                task_intent.get('endpoint') != receipt_intent.get('endpoint') or
+                task_intent.get('agentContext', {}).get('workspaceId') != task.get('workspaceId') or
+                receipt_intent.get('agentContext') != task_intent.get('agentContext') or
+                native['tableOid'] in used_oids or native['jobId'] in used_jobs):
+            raise PackError('model import original task/job GETs do not corroborate exact actual physical output')
+        used_oids.add(native['tableOid']); used_jobs.add(native['jobId'])
+    return key
+
+
 class StateStore:
     def __init__(self, *, s3, dynamodb, bucket, table, candidate_key, owner=None, clock=time.time):
         self.s3, self.db, self.bucket, self.table = s3, dynamodb, bucket, table
@@ -182,7 +272,7 @@ def preserve_history(previous, current):
         return
     for field in ('campaigns', 'attemptArtifacts', 'scenarioOperations', 'fixtureBaselines', 'fixtureOwnership',
                   'fixtureCleanup', 'fixtureTransferRequests', 'nativeCostAllocations', 'nativeOverheadAllocations', 'nativeBindings',
-                  'studioBootstrapOperations', 'studioBootstrapFixtures'):
+                  'studioBootstrapOperations', 'studioBootstrapFixtures', 'importTransferRequests'):
         for key, value in previous.get(field, {}).items():
             if canonical_digest(current.get(field, {}).get(key)) != canonical_digest(value):
                 raise PackError('cannot rewrite or erase retained campaign evidence')
@@ -459,6 +549,18 @@ class DurableExecution:
         requests = self.state.setdefault('fixtureTransferRequests', {})
         if key in requests:
             raise PackError('fixture transfer already retained; observe without redispatch')
+        requests[key] = copy.deepcopy(request)
+        self._persist()
+        return {'key': key, 'sha256': canonical_digest(request)}
+
+    def retain_import_transfer_request(self, context, request):
+        """Admit bounded exact native import outputs, preserving legacy P10 three."""
+        key = self._fixture_identity(context)
+        if validate_retained_import_transfer(self.state, context, request, self.store.candidate) != key:
+            raise PackError('model import request identity changed during revalidation')
+        requests = self.state.setdefault('importTransferRequests', {})
+        if key in requests:
+            raise PackError('model import transfer already retained; observe without redispatch')
         requests[key] = copy.deepcopy(request)
         self._persist()
         return {'key': key, 'sha256': canonical_digest(request)}

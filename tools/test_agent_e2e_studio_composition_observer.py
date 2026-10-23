@@ -49,7 +49,8 @@ def authoring(adapter, server):
                     version = {'versionId': str(uuid4()), 'itemId': item, 'sourceDraftId': draft_id,
                         'ownerId': binding['ownerPrincipalId'], 'workspaceId': binding['namespace'], 'packageKey': binding['namespace'],
                         'versionNumber': len(state.versions)+1, 'contentHash': canonical_digest(state.draft['envelope'])[7:],
-                        'envelope': copy.deepcopy(state.draft['envelope'])}
+                        'envelope': copy.deepcopy(state.draft['envelope']), 'createdBy': binding['ownerPrincipalId'],
+                        'createdAt': created.isoformat()}
                     state.versions[version['versionId']] = copy.deepcopy(version)
                     state.current = version['versionId']
                     state.draft['generation'] += 1
@@ -99,8 +100,13 @@ def authoring(adapter, server):
         action = {'name': 'mcp_call_tool', 'input': {'name': tool, 'arguments': arguments}}
         payload = run(action, actor, 30)
         assert payload['error'] is None
-        worker = {'agentResult': {'content': payload['result']}}
-        dispatch = {'actionId': canonical_digest({'ordinal': state.ordinal})[7:], 'requestDigest': canonical_digest(action)}
+        worker = {'agentResult': {'content': payload['result'], 'isError': False, 'errorCategory': None}}
+        dispatch = {'ordinal': state.ordinal, 'actionId': canonical_digest({**{key: adapter.http.context[key]
+            for key in ('campaignId', 'caseId', 'attempt', 'componentBindingDigest')}, 'ordinal': state.ordinal})[7:],
+            'requestDigest': canonical_digest(action)}
+        attempt = canonical_digest({key: adapter.http.context[key] for key in ('campaignId', 'caseId', 'attempt')})
+        adapter.durable.state.setdefault('journals', {}).setdefault(attempt, []).append({'event': 'action', 'action': state.ordinal,
+            'kind': 'mcp_call_tool', 'requestDigest': dispatch['requestDigest'], 'resultDigest': canonical_digest(worker['agentResult']), 'isError': False})
         return observer.selected(action, dispatch, worker) if observe else (action, dispatch, worker)
     create_args = {'itemId': item, 'workspaceId': binding['namespace'], 'packageKey': binding['namespace'],
                    'family': binding['family'], 'schemaVersion': '1.0', 'body': {'title': 'Model selected draft', 'layers': []}}

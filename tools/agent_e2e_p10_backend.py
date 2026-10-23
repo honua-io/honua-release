@@ -403,9 +403,10 @@ class Session:
                 raise PackError('P10 launched worker intent is missing')
         except Exception as exc:
             failures.append({'component': 'worker-stop', 'errorType': type(exc).__name__})
-        ownership = self.durable.state.get('fixtureOwnership', {}).get(self.key)
         sql = None
         try:
+            self.prepare_cleanup_ownership()
+            ownership = self.durable.state.get('fixtureOwnership', {}).get(self.key)
             require(ownership is not None, 'P10 exact fixture ownership is unresolved')
             sql = self.cleanup_fixture(ownership)
             self.retain('sql-cleanup', sql)
@@ -427,6 +428,10 @@ class Session:
             self.config['accounting']['overheadCoverage'], retain=self.retain)
         return {**cleanup, 'accountingStatus': 'settled', 'observedInfrastructureUsd': settlement['infrastructureUsd'],
                 'observedCleanupUsd': settlement['cleanupUsd']}
+
+    def prepare_cleanup_ownership(self):
+        """Case adapters may adopt final native outputs only after worker stop."""
+        return None
 
     def cleanup_fixture(self, ownership):
         self.setup = self.http('setup-cleanup', timeout=300)
