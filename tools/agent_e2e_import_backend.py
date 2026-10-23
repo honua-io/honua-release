@@ -247,10 +247,26 @@ class Session(WorkerSession):
         require(self.value('worker-stopped') is not None, 'native import ownership cannot change before task worker is independently stopped')
         observer = self.observer_for_recovery()
         cleaned = {}
-        for key, record in self.durable.state.get('fixtureOwnership', {}).items():
+        for key, record in list(self.durable.state.get('fixtureOwnership', {}).items()):
             if key != self.key and not key.startswith(self.key+'/import-cleanup-'):
                 continue
             absence = self.durable.state.get('fixtureCleanup', {}).get(key+'/observation')
+            if absence is None and self.cleanup_number() is not None and key != self.key+'/import-cleanup-'+str(self.cleanup_number()):
+                # Reconcile unfinished original SQL custody before claiming any
+                # newly observed output. A lost COMMIT reply is observed; a
+                # rolled-back transaction may drop only the original OID set.
+                previous_context = {k: v for k, v in self.context.items() if k != 'importCleanupPass'}
+                if key != self.key:
+                    previous_context['importCleanupPass'] = int(key.rsplit('-', 1)[1])
+                def retained(kind, value):
+                    existing = self.durable.state.get('fixtureCleanup', {}).get(key+'/'+kind)
+                    if existing is not None:
+                        require(kind == 'intent' and existing == value, 'original cleanup stage cannot be rebound')
+                        return {'key': key+'/'+kind, 'sha256': canonical_digest(existing)}
+                    return self.durable.retain_fixture_cleanup(previous_context, kind, value)
+                self.database.cleanup(record, recover=True,
+                    authorize=lambda owned: self.durable.require_fixture_ownership(previous_context, owned), retain=retained)
+                absence = self.durable.state['fixtureCleanup'][key+'/observation']
             if absence is not None:
                 previous = self.database.previously_cleaned(record, absence)
                 require(not set(cleaned) & set(previous), 'duplicate prior cleanup job ownership')

@@ -425,7 +425,8 @@ class Session:
         self.retain('official-price-receipt', self.price_receipt)
         self.retain('native-compute-cost', compute)
         settlement = measured_settlement(self.durable, self.context, compute,
-            self.config['accounting']['overheadCoverage'], retain=self.retain)
+            self.config['accounting']['overheadCoverage'], retain=self.retain,
+            recover=self.context.get('importCleanupPass', 1) > 1)
         return {**cleanup, 'accountingStatus': 'settled', 'observedInfrastructureUsd': settlement['infrastructureUsd'],
                 'observedCleanupUsd': settlement['cleanupUsd']}
 

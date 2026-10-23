@@ -109,6 +109,19 @@ def test_crash_reconciliation_settles_only_retained_native_amounts_without_repla
     assert reconcile_measured(durable, campaign)['settlements'] == 0
 
 
+def test_cleanup_recovery_reuses_only_identical_original_measurement(accounting):
+    durable, coverage = accounting
+    reserve_overhead(durable, CONTEXT, coverage)
+    compute = fargate_compute(*native())
+    initial = measured_settlement(durable, CONTEXT, compute, coverage, retain=lambda *_: None)
+    original = copy.deepcopy(durable.state)
+    assert measured_settlement(durable, CONTEXT, compute, coverage, retain=lambda *_: None, recover=True) == initial
+    assert durable.state == original
+    with pytest.raises(PackError, match='differs from original'):
+        measured_settlement(durable, CONTEXT, {**compute,'listPriceComputeUsd':'0.01'},coverage,
+                            retain=lambda *_: None,recover=True)
+
+
 def test_shared_capacity_is_consumed_before_effects_and_cannot_fund_unlimited_cases(accounting):
     durable, coverage = accounting
     for index in range(4):

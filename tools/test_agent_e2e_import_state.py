@@ -87,15 +87,18 @@ def test_legacy_request_is_readable_but_cannot_be_migrated_to_another_claim(reta
     assert list(durable.state['importTransferRequests']) == [key]
 
 
-def test_cleanup_passes_append_immutable_original_outcomes_and_cannot_skip_ambiguous_effects(retained):
+def test_cleanup_passes_link_unfinished_original_without_rewriting_or_inventing_outcome(retained):
     durable, context, key, _ = retained
     assert DurableExecution.begin_import_cleanup(durable, context) == 1
     before = copy.deepcopy(durable.state)
-    with pytest.raises(PackError, match='ambiguous'): DurableExecution.begin_import_cleanup(durable, context)
-    DurableExecution.finish_import_cleanup(durable, {**context, 'importCleanupPass': 1}, {'status': 'blocked'})
     assert DurableExecution.begin_import_cleanup(durable, context) == 2
+    assert key+'/import-cleanup-1' not in durable.state.get('importCleanupOutcomes', {})
+    assert durable.state['importCleanupPasses'][key+'/import-cleanup-2']['unfinishedPreviousPassDigest'] == canonical_digest(
+        before['importCleanupPasses'][key+'/import-cleanup-1'])
+    DurableExecution.finish_import_cleanup(durable, {**context, 'importCleanupPass': 2}, {'status': 'blocked'})
+    assert DurableExecution.begin_import_cleanup(durable, context) == 3
     preserve_history(before, durable.state)
     for field in ('importCleanupPasses', 'importCleanupOutcomes'):
         changed = copy.deepcopy(durable.state)
-        changed[field].pop(key+'/import-cleanup-1')
+        changed[field].pop(next(iter(changed[field])))
         with pytest.raises(PackError, match='rewrite or erase'): preserve_history(durable.state, changed)

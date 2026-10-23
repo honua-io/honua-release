@@ -193,3 +193,69 @@ def test_two_cleanup_passes_preserve_original_absence_and_finish_only_later_term
     before_repeat = copy.deepcopy(session.durable.state)
     assert session.cleanup() == second_result
     assert session.durable.state == before_repeat
+
+
+@pytest.mark.parametrize('window', ['after-begin','after-stop','after-ownership','after-intent',
+    'commit-before-observation','after-observation','after-cost','before-outcome'])
+def test_process_loss_recovers_original_sql_custody_without_erasing_history_or_double_charge(recovery, window):
+    from agent_e2e_native_costs import reserve_overhead, OVERHEAD
+    from test_agent_e2e_native_costs import native
+    session, submit, _, _, _, handoffs = recovery
+    task, definition, prices = native()
+    stop = {'taskArn':task['taskArn'],'taskStatus':'STOPPED','stopRecorded':True,'testOnly':True}
+    session.launch = {'attemptId':'import','testOnly':True}
+    session.open_worker = lambda: None
+    session.await_worker = lambda **_: copy.deepcopy(stop)
+    session.lifecycle = SimpleNamespace(stop=lambda *_:copy.deepcopy(stop),_task=lambda _:copy.deepcopy(task))
+    session.price_receipt = prices
+    session.retain('worker-definition',definition)
+    session.durable.state['ledger']['operations'].append({'id':'shared-overhead','operationId':'crash-control',
+        'purpose':'shared-environment','kind':'infrastructure','amountUsd':'1','basisDigest':'sha256:'+'d'*64,
+        'state':'reserved','actualUsd':None})
+    coverage = {'schemaVersion':1,'allocation':'compute-infrastructure-including-cleanup','bindings':[{
+        'reservationId':'shared-overhead','basisDigest':'sha256:'+'d'*64,'categories':sorted(OVERHEAD),
+        'perAttemptCeilingUsd':'0.25','maximumAttempts':4}]}
+    session.config['accounting'] = {'overheadCoverage':coverage}
+    reserve_overhead(session.durable,session.context,coverage)
+    submit(complete=True)
+    durable, key = session.durable, session.key+'/import-cleanup-1'
+    original_ledger = copy.deepcopy(durable.state['ledger'])
+    persist, interrupted = durable._persist, []
+    def crash():
+        state = durable.state
+        phases = {row.get('phase') for row in state.get('scenarioOperations',{}).values()}
+        ready = {
+            'after-begin': key in state.get('importCleanupPasses',{}),
+            'after-stop': 'import-cleanup-1/worker-stopped' in phases,
+            'after-ownership':key in state.get('fixtureOwnership',{}),
+            'after-intent':key+'/intent' in state.get('fixtureCleanup',{}),
+            'commit-before-observation':key+'/observation' in state.get('fixtureCleanup',{}),
+            'after-observation':key+'/observation' in state.get('fixtureCleanup',{}),
+            'after-cost':bool(state.get('nativeCostAllocations')),
+            'before-outcome':key in state.get('importCleanupOutcomes',{}),
+        }[window]
+        if ready and not interrupted:
+            interrupted.append(window)
+            if window not in ('commit-before-observation','before-outcome'):
+                persist()
+            raise SystemExit('simulated process termination at '+window)
+        persist()
+    durable._persist = crash
+    with pytest.raises(SystemExit): session.cleanup()
+    assert interrupted == [window]
+    durable._persist = persist
+    durable.state = copy.deepcopy(durable.snapshots[-1])
+    before_recovery = copy.deepcopy(durable.state)
+    assert key not in durable.state.get('importCleanupOutcomes',{})
+    result = session.cleanup()
+    assert result['status'] == 'pass', result
+    assert result['fixtureSql']['resourceIds'] == []
+    assert result['observedInfrastructureUsd'] != '0'
+    assert len(handoffs) == 1
+    assert len(durable.state['nativeCostAllocations']) == 1
+    assert durable.state['ledger'] == original_ledger
+    assert session.database.baseline()['snapshot'] == durable.state['fixtureBaselines'][session.key]['snapshot']
+    from agent_e2e_state import preserve_history
+    preserve_history(before_recovery,durable.state)
+    after_recovery = copy.deepcopy(durable.state)
+    assert session.cleanup() == result and durable.state == after_recovery

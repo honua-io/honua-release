@@ -628,14 +628,19 @@ class DurableExecution:
         previous = None
         if prior:
             previous = self.state.get('importCleanupOutcomes', {}).get(prior[-1][1])
-            if previous is None or previous['result']['status'] != 'blocked':
-                raise PackError('previous import cleanup is ambiguous or already complete; reconcile without replay')
+            if previous is not None and previous['result']['status'] != 'blocked':
+                raise PackError('previous import cleanup is already complete; reconcile without replay')
         number = len(prior)+1
         if number > 240 or [row[0] for row in prior] != list(range(1, number)):
             raise PackError('cleanup pass history is missing or exceeds its bound')
         row = {'schemaVersion': 1, 'candidateKey': self.store.candidate,
             'identity': {field: context[field] for field in ('campaignId', 'caseId', 'attempt', 'campaignMode')},
             'passNumber': number, 'previousOutcomeDigest': None if previous is None else canonical_digest(previous)}
+        if prior and previous is None:
+            # A new fenced read/reconciliation pass preserves the unfinished
+            # declaration and all of its effects; absence of an outcome is not
+            # permission to discard or repeat a retained mutation blindly.
+            row['unfinishedPreviousPassDigest'] = canonical_digest(prior[-1][2])
         key = base+'/import-cleanup-'+str(number)
         passes[key] = copy.deepcopy(row)
         self._persist()

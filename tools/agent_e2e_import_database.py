@@ -134,7 +134,7 @@ class ImportedFixtureDatabase(FixtureDatabase):
         result['relations'] = [row for row in result['relations'] if row['oid'] not in owned]
         return result
 
-    def cleanup(self, record, *, authorize, retain):
+    def cleanup(self, record, *, authorize, retain, recover=False):
         from psycopg import sql
         require(record.get('profile') == PROFILE and record.get('candidateKey') == self.config['candidateKey'],
                 'import cleanup lacks exact retained native physical ownership')
@@ -146,16 +146,25 @@ class ImportedFixtureDatabase(FixtureDatabase):
         acknowledgement = retain('intent', intent)
         require(isinstance(acknowledgement, dict) and acknowledgement.get('sha256') == canonical_digest(intent), 'import cleanup intent not retained')
         with self.connection(cleanup=True) as (connection, cleanup_identity):
-            for table in sorted(record['tables'], key=lambda row: row['oid']):
-                connection.execute(sql.SQL('LOCK TABLE {} IN ACCESS EXCLUSIVE MODE').format(sql.Identifier(table['schema'], table['name'])))
+            before = self.snapshot(connection)
+            committed = recover and before == preservation
+            if not committed:
+                # A prior COMMIT may have succeeded without its final receipt.
+                # Only the exact retained full OID/owner set can be dropped;
+                # partial disappearance or a replacement remains a refusal.
+                require(all(table in before['relations'] for table in record['tables']),
+                        'original import cleanup relation set changed or is partially absent')
+                for table in sorted(record['tables'], key=lambda row: row['oid']):
+                    connection.execute(sql.SQL('LOCK TABLE {} IN ACCESS EXCLUSIVE MODE').format(sql.Identifier(table['schema'], table['name'])))
             require(connection.execute("SELECT 1 FROM pg_event_trigger WHERE evtenabled <> 'D' LIMIT 1").fetchone() is None,
                     'import cleanup refuses unreviewed DDL event triggers')
             current = self.snapshot(connection)
-            require(self.without_owned(current, record) == preservation and
+            require(current == preservation if committed else self.without_owned(current, record) == preservation and
                     all(table in current['relations'] for table in record['tables']), 'owned import OIDs/owners or unrelated state changed')
             authorize(record)
-            for table in record['tables']:
-                connection.execute(sql.SQL('DROP TABLE {} RESTRICT').format(sql.Identifier(table['schema'], table['name'])))
+            if not committed:
+                for table in record['tables']:
+                    connection.execute(sql.SQL('DROP TABLE {} RESTRICT').format(sql.Identifier(table['schema'], table['name'])))
             require(self.snapshot(connection) == preservation, 'import transaction failed to preserve exact unrelated objects')
             authorize(record)
         with self.connection() as (connection, observer_identity):
