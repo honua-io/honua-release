@@ -102,6 +102,20 @@ def recovery_prefix(cfg, run_id):
     return f"honua/hosted-pilot/{cfg['name_prefix']}/foundation-recovery/{run_id}/"
 
 
+def discover_customer_key_tags(key_id):
+    """Exclude only a positively described AWS-managed key from custody discovery."""
+    answer = aws('kms', 'describe-key', '--key-id', key_id)
+    metadata = answer.get('KeyMetadata') if isinstance(answer, dict) else None
+    require(isinstance(metadata, dict) and metadata.get('KeyId') == key_id and
+            metadata.get('AWSAccountId') == os.environ['PILOT_BOOTSTRAP_ACCOUNT_ID'] and
+            metadata.get('KeyManager') in ('AWS', 'CUSTOMER'),
+            'KMS discovery requires actual same-account key identity and manager metadata')
+    if metadata['KeyManager'] == 'AWS':
+        return None
+    return {tag['TagKey']: tag['TagValue'] for tag in
+            aws('kms', 'list-resource-tags', '--key-id', key_id).get('Tags', [])}
+
+
 def retrieve_recovery(binding, cfg, identity, work):
     """Recover independently of replaceable GitHub artifacts, including key-only failures."""
     run_id = os.environ.get('PILOT_RECOVERY_RUN_ID', '')
@@ -131,7 +145,9 @@ def retrieve_recovery(binding, cfg, identity, work):
     # remains an unresolved ownership liability, never an inferred import.
     candidates = []
     for key in aws('kms', 'list-keys').get('Keys', []):
-        tags = {tag['TagKey']: tag['TagValue'] for tag in aws('kms', 'list-resource-tags', '--key-id', key['KeyId']).get('Tags', [])}
+        tags = discover_customer_key_tags(key['KeyId'])
+        if tags is None:
+            continue
         if tags.get('ManagedBy') == 'honua-release-hosted-pilot-bootstrap' and tags.get('ResetBoundary') == cfg['name_prefix'] and tags.get('BootstrapExecution') == run_id:
             require(all(tag in tags for tag in IDENTITY_TAGS.values()), 'creation tags lack durable source/config identity; retain liability')
             candidates.append({key: tags[tag] for key, tag in IDENTITY_TAGS.items()})
@@ -226,7 +242,9 @@ def journal(cfg, identity, work, *, remote_state=None, run_id=None):
         if 'aws_kms_key.custody' not in discovered:
             matches = []
             for key in aws('kms', 'list-keys').get('Keys', []):
-                tags = {tag['TagKey']: tag['TagValue'] for tag in aws('kms', 'list-resource-tags', '--key-id', key['KeyId']).get('Tags', [])}
+                tags = discover_customer_key_tags(key['KeyId'])
+                if tags is None:
+                    continue
                 if tags.get('ManagedBy') == 'honua-release-hosted-pilot-bootstrap' and tags.get('ResetBoundary') == cfg['name_prefix'] and tags.get('BootstrapExecution') == run_id:
                     require(all(tags.get(key) == val for key, val in expected_tags.items()), 'creation key identity tags differ')
                     matches.append(key['KeyId'])
@@ -288,7 +306,9 @@ def refuse_unbound_initial_custody(cfg, work):
     expected = creation_tags({key: recovery[key] for key in IDENTITY_TAGS}, recovery['bootstrap_run_id']) if recovery else None
     owned_keys = []
     for key in aws('kms', 'list-keys').get('Keys', []):
-        tags = {tag['TagKey']: tag['TagValue'] for tag in aws('kms', 'list-resource-tags', '--key-id', key['KeyId']).get('Tags', [])}
+        tags = discover_customer_key_tags(key['KeyId'])
+        if tags is None:
+            continue
         if tags.get('ManagedBy') == 'honua-release-hosted-pilot-bootstrap' and tags.get('ResetBoundary') == cfg['name_prefix']:
             require(expected is not None, 'existing custody key requires explicit original recovery_run_id; no new initial plan')
             require(all(tags.get(name) == value for name, value in expected.items()), 'existing custody key differs from original recovery binding; retain all creation liability')
