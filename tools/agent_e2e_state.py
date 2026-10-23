@@ -180,6 +180,12 @@ def preserve_history(previous, current):
     """A new campaign cannot delete spending or reclassify retained attempts."""
     if previous is None:
         return
+    for field in ('campaigns', 'attemptArtifacts', 'scenarioOperations', 'fixtureBaselines', 'fixtureOwnership',
+                  'fixtureCleanup', 'fixtureTransferRequests', 'nativeCostAllocations', 'nativeOverheadAllocations', 'nativeBindings',
+                  'studioBootstrapOperations', 'studioBootstrapFixtures'):
+        for key, value in previous.get(field, {}).items():
+            if canonical_digest(current.get(field, {}).get(key)) != canonical_digest(value):
+                raise PackError('cannot rewrite or erase retained campaign evidence')
     for key, record in previous.get('workerLaunches', {}).items():
         if canonical_digest(current.get('workerLaunches', {}).get(key)) != canonical_digest(record):
             raise PackError('cannot rewrite or erase retained worker launch intent')
@@ -199,15 +205,33 @@ def preserve_history(previous, current):
             continue
         if key not in current:
             raise PackError('cannot erase durable candidate history')
-        fields = ('entries', 'operations') if key == 'ledger' else ('attempts',)
+        fields = ('entries', 'operations', 'paidAdmissions') if key == 'ledger' else ('attempts',)
         if canonical_digest({k:v for k,v in previous[key].items() if k not in fields}) != canonical_digest(
                 {k:v for k,v in current[key].items() if k not in fields}):
-            raise PackError('cannot change durable candidate identity or budget policy')
+            # The only accepted policy change is the fixed owner amendment,
+            # whose embedded prior snapshot must be this exact retained ledger.
+            from agent_e2e_budget import validate as validate_budget
+            amendment = current[key].get('policyAmendment', {}) if key == 'ledger' else {}
+            if (key != 'ledger' or previous[key].get('schemaVersion') not in (1, 2)
+                    or current[key].get('schemaVersion') != 3
+                    or canonical_digest(amendment.get('priorLedger')) != canonical_digest(previous[key])):
+                raise PackError('cannot change durable candidate identity or budget policy')
+            validate_budget(current[key])
         for field in fields:
             old_rows, new_rows = previous[key].get(field, []), current[key].get(field, [])
             if len(new_rows) < len(old_rows):
                 raise PackError('cannot truncate durable candidate history')
             for old, new in zip(old_rows, new_rows):
+                if field == 'paidAdmissions':
+                    if old['state'] == 'released':
+                        if old != new: raise PackError('released admission history cannot change')
+                    else:
+                        immutable = set(old) - {'state', 'reservationIds', 'cleanupStatus'}
+                        if (set(old) != set(new) or any(old[k] != new[k] for k in immutable)
+                                or new['state'] not in ('active', 'released')
+                                or new['state'] == 'active' and (new['reservationIds'] is not None or new['cleanupStatus'] is not None)):
+                            raise PackError('paid admission cannot be reset, replaced or extended')
+                    continue
                 if key == 'registry' or old.get('state') == 'settled':
                     if canonical_digest(old) != canonical_digest(new):
                         raise PackError('retained outcome or charge cannot change')
@@ -217,6 +241,10 @@ def preserve_history(previous, current):
                         raise PackError('reservation identity or ceiling changed')
                     if new['state'] not in ('reserved', 'settled'):
                         raise PackError('invalid reservation transition')
+
+    if current.get('ledger', {}).get('schemaVersion') == 3:
+        from agent_e2e_budget import validate_admissions
+        validate_admissions(current['ledger'])
 
 
 class DurableExecution:
@@ -363,6 +391,101 @@ class DurableExecution:
         if self.stop.is_set() or self.heartbeat_error:
             raise PackError('durable controller lease is unavailable')
         self.store.renew()
+
+    def _fixture_identity(self, context):
+        from agent_e2e_budget import validate
+        self._require_live_lease()
+        validate(self.state['ledger'])
+        if (context.get('componentBindingDigest') != self.store.candidate or
+                type(context.get('attempt')) is not int or context['attempt'] not in (1, 2) or
+                context.get('campaignMode') not in ('development', 'qualification')):
+            raise PackError('fixture belongs to another candidate or invalid attempt')
+        identity = {key: context[key] for key in ('campaignId', 'caseId', 'attempt')}
+        rows = [row for row in self.state['ledger']['entries'] if row['state'] == 'reserved' and
+                all(row.get(key) == value for key, value in identity.items()) and
+                row.get('campaignMode', 'qualification') == context['campaignMode']]
+        if not {'infrastructure', 'cleanup'} <= {row['kind'] for row in rows}:
+            raise PackError('fixture effects lack retained infrastructure and cleanup liability')
+        return canonical_digest(identity)
+
+    def retain_fixture_baseline(self, context, baseline):
+        """Persist independent identity/baseline before any fixture creation."""
+        key = self._fixture_identity(context)
+        if baseline.get('candidateKey') != self.store.candidate:
+            raise PackError('fixture baseline belongs to another candidate')
+        baselines = self.state.setdefault('fixtureBaselines', {})
+        if key in baselines:
+            raise PackError('fixture baseline already retained; reconcile without repeating setup')
+        baselines[key] = copy.deepcopy(baseline)
+        self._persist()
+        return {'key': key, 'sha256': canonical_digest(baseline)}
+
+    def retain_fixture_ownership(self, context, record):
+        """Bind actual created OIDs/revisions to the independently retained baseline."""
+        key = self._fixture_identity(context)
+        if (record.get('candidateKey') != self.store.candidate or
+                key not in self.state.get('fixtureBaselines', {}) or
+                canonical_digest(record.get('baseline')) != canonical_digest(self.state['fixtureBaselines'][key])):
+            raise PackError('fixture ownership differs from retained independent baseline')
+        owned = self.state.setdefault('fixtureOwnership', {})
+        if key in owned:
+            raise PackError('fixture ownership already retained; do not rebind resources')
+        owned[key] = copy.deepcopy(record)
+        self._persist()
+
+    def retain_fixture_transfer_request(self, context, request):
+        """Bind one exact observed owner handoff before the private provisioner."""
+        key = self._fixture_identity(context)
+        baseline = self.state.get('fixtureBaselines', {}).get(key)
+        tables = request.get('tables')
+        if (set(request) != {'schemaVersion', 'candidateKey', 'database', 'baselineDigest', 'expectedCleanupRole', 'tables'} or
+                request.get('schemaVersion') != 1 or request.get('candidateKey') != self.store.candidate or
+                baseline is None or request.get('baselineDigest') != canonical_digest(baseline) or
+                request.get('database') != baseline.get('database') or
+                not isinstance(request.get('expectedCleanupRole'), str) or
+                not re.fullmatch(r'[a-z][a-z0-9_]{0,62}', request['expectedCleanupRole']) or
+                not isinstance(tables, list) or len(tables) != 3):
+            raise PackError('fixture transfer differs from exact independently retained baseline')
+        before = {row['oid'] for row in baseline['snapshot']['relations']}
+        for table in tables:
+            if (not isinstance(table, dict) or set(table) != {'oid', 'schema', 'name', 'owner'} or
+                    type(table['oid']) is not int or table['oid'] <= 0 or table['oid'] in before or
+                    table['schema'] != 'honua_data' or
+                    any(not isinstance(table[field], str) or not re.fullmatch(r'[a-z][a-z0-9_]{0,62}', table[field])
+                        for field in ('name', 'owner'))):
+                raise PackError('fixture transfer table identity is ambiguous or preexisting')
+        if len({table['oid'] for table in tables}) != 3 or len({table['name'] for table in tables}) != 3:
+            raise PackError('fixture transfer contains duplicate relations')
+        requests = self.state.setdefault('fixtureTransferRequests', {})
+        if key in requests:
+            raise PackError('fixture transfer already retained; observe without redispatch')
+        requests[key] = copy.deepcopy(request)
+        self._persist()
+        return {'key': key, 'sha256': canonical_digest(request)}
+
+    def require_fixture_ownership(self, context, record):
+        key = self._fixture_identity(context)
+        retained = self.state.get('fixtureOwnership', {}).get(key)
+        if retained is None or canonical_digest(retained) != canonical_digest(record):
+            raise PackError('cleanup differs from exact retained fixture ownership')
+
+    def retain_fixture_cleanup(self, context, kind, value):
+        key = self._fixture_identity(context)
+        record = self.state.get('fixtureOwnership', {}).get(key)
+        if (kind not in ('intent', 'observation') or record is None or
+                value.get('ownershipDigest') != canonical_digest(record) or
+                value.get('candidateKey') != self.store.candidate):
+            raise PackError('cleanup evidence differs from retained fixture ownership')
+        self.require_fixture_ownership(context, record)
+        references = self.state.setdefault('fixtureCleanup', {})
+        if kind == 'observation' and key+'/intent' not in references:
+            raise PackError('cleanup observation lacks retained before-effect intent')
+        key += '/'+kind
+        if key in references:
+            raise PackError('fixture cleanup stage already retained; reconcile without repeating effects')
+        references[key] = copy.deepcopy(value)
+        self._persist()
+        return {'key': key, 'sha256': canonical_digest(value)}
 
     def retain_worker_action(self, record, launch):
         """Publish reply references before returning any public action result."""

@@ -1,0 +1,173 @@
+name: Hosted pilot reviewed deployment
+
+on:
+  workflow_dispatch:
+    inputs:
+      terraform_root:
+        description: Exact reviewed infrastructure root
+        required: true
+        default: certification/hosted-pilot
+        type: choice
+        options: [certification/hosted-pilot, certification/hosted-pilot/campaign]
+      config_path:
+        description: Reviewed checked-in deployments/*.tfvars.json beneath the selected root
+        required: true
+        type: string
+      operation:
+        description: Exact saved-plan action; destroy requires prior reviewed identity deprotection
+        required: true
+        type: choice
+        options: [apply, destroy]
+      budget_version_id:
+        description: Immutable owner ledger S3 version (destroy does not spend deployment allocation)
+        required: true
+        type: string
+      budget_sha256:
+        description: SHA256 of owner ledger, bound to source/config and single-use reservation
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+# The state key and shared pilot budget cannot be mutated by concurrent runs.
+concurrency:
+  group: hosted-pilot-deployment
+  cancel-in-progress: false
+
+env:
+  AWS_EC2_METADATA_DISABLED: 'true'
+  TF_IN_AUTOMATION: 'true'
+  PILOT_CONFIG_PATH: ${{ inputs.config_path }}
+  PILOT_TERRAFORM_ROOT: ${{ inputs.terraform_root }}
+  PILOT_OPERATION: ${{ inputs.operation }}
+  PILOT_BUDGET_VERSION_ID: ${{ inputs.budget_version_id }}
+  PILOT_BUDGET_SHA256: ${{ inputs.budget_sha256 }}
+  PILOT_REGION: ${{ vars.HOSTED_PILOT_REGION }}
+  PILOT_ACCOUNT_ID: ${{ vars.HOSTED_PILOT_ACCOUNT_ID }}
+  PILOT_STATE_BUCKET: ${{ vars.HOSTED_PILOT_STATE_BUCKET }}
+  PILOT_STATE_KMS_ARN: ${{ vars.HOSTED_PILOT_STATE_KMS_ARN }}
+  PILOT_STATE_KEY: ${{ vars.HOSTED_PILOT_STATE_KEY }}
+  PILOT_BACKEND_ROLE_ARN: ${{ vars.HOSTED_PILOT_BACKEND_ROLE_ARN }}
+  PILOT_PLAN_BUCKET: ${{ vars.HOSTED_PILOT_PLAN_BUCKET }}
+  PILOT_PLAN_KMS_ARN: ${{ vars.HOSTED_PILOT_PLAN_KMS_ARN }}
+
+jobs:
+  plan:
+    if: github.ref == 'refs/heads/trunk'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    environment: hosted-pilot-plan
+    permissions:
+      contents: read
+      id-token: write
+    outputs:
+      review_artifact_id: ${{ steps.review.outputs.artifact-id }}
+      review_sha256: ${{ steps.plan.outputs.review_sha256 }}
+      plan_attempt: ${{ steps.plan.outputs.plan_attempt }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - name: Verify approval separation and repository environment protection
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PLAN_ROLE: ${{ vars.HOSTED_PILOT_PLAN_ROLE_ARN }}
+          APPLY_ROLE: ${{ vars.HOSTED_PILOT_APPLY_ROLE_ARN }}
+        run: |
+          set -euo pipefail
+          test -n "$PLAN_ROLE" && test -n "$APPLY_ROLE" && test "$PLAN_ROLE" != "$APPLY_ROLE"
+          test "$PILOT_BACKEND_ROLE_ARN" != "$PLAN_ROLE" && test "$PILOT_BACKEND_ROLE_ARN" != "$APPLY_ROLE"
+          gh api "repos/$GITHUB_REPOSITORY/environments/hosted-pilot-apply" > "$RUNNER_TEMP/pilot-environment.json"
+          python3 - <<'PY'
+          import json, os
+          from pathlib import Path
+          policy = json.loads((Path(os.environ['RUNNER_TEMP']) / 'pilot-environment.json').read_text())
+          branches = policy.get('deployment_branch_policy') or {}
+          assert branches.get('custom_branch_policies') or branches.get('protected_branches'), 'environment branch restriction missing'
+          PY
+      - uses: hashicorp/setup-terraform@dfe3c3f87815947d99a8997f908cb6525fc44e9e # v4.0.1
+        with:
+          terraform_version: 1.13.5
+          terraform_wrapper: false
+      - uses: aws-actions/configure-aws-credentials@e1253824e5c10ff9df46874f81ed3ec929e19cfd # v6.3.0
+        with:
+          role-to-assume: ${{ vars.HOSTED_PILOT_PLAN_ROLE_ARN }}
+          aws-region: ${{ vars.HOSTED_PILOT_REGION }}
+          allowed-account-ids: ${{ vars.HOSTED_PILOT_ACCOUNT_ID }}
+          role-session-name: pilot-plan-${{ github.run_id }}
+      - name: Save private immutable plan and redact review metadata
+        id: plan
+        env:
+          PILOT_PLAN_ATTEMPT: ${{ github.run_attempt }}
+        run: python3 tools/hosted_pilot/deploy.py plan --config "$PILOT_CONFIG_PATH"
+      - name: Publish value-free plan identity and resource actions for approval
+        id: review
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: hosted-pilot-review-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/hosted-pilot-private/review.json
+          if-no-files-found: error
+          retention-days: 7
+      - name: Remove private executor material
+        if: always()
+        run: |
+          rm -rf "$RUNNER_TEMP/hosted-pilot-private" "$PILOT_TERRAFORM_ROOT/.terraform"
+          rm -f "$PILOT_TERRAFORM_ROOT/backend.tf.json" "$RUNNER_TEMP/pilot-budget.json"
+
+  apply:
+    needs: plan
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    # GitHub approval is over the already published immutable review artifact.
+    # Trunk-only deployment and distinct OIDC role trust are governed bindings.
+    # Existing environment approval policy is honored; no new reviewer is required.
+    environment: hosted-pilot-apply
+    permissions:
+      contents: read
+      actions: read
+      id-token: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          artifact-ids: ${{ needs.plan.outputs.review_artifact_id }}
+          path: ${{ runner.temp }}/hosted-pilot-private
+      - uses: hashicorp/setup-terraform@dfe3c3f87815947d99a8997f908cb6525fc44e9e # v4.0.1
+        with:
+          terraform_version: 1.13.5
+          terraform_wrapper: false
+      - uses: aws-actions/configure-aws-credentials@e1253824e5c10ff9df46874f81ed3ec929e19cfd # v6.3.0
+        with:
+          role-to-assume: ${{ vars.HOSTED_PILOT_APPLY_ROLE_ARN }}
+          aws-region: ${{ vars.HOSTED_PILOT_REGION }}
+          allowed-account-ids: ${{ vars.HOSTED_PILOT_ACCOUNT_ID }}
+          role-session-name: pilot-apply-${{ github.run_id }}
+      - name: Verify identity and apply exactly the saved plan
+        env:
+          PILOT_REVIEW_SHA256: ${{ needs.plan.outputs.review_sha256 }}
+          PILOT_PLAN_ATTEMPT: ${{ needs.plan.outputs.plan_attempt }}
+        run: python3 tools/hosted_pilot/deploy.py apply --config "$PILOT_CONFIG_PATH"
+      - name: Inspect infrastructure and refuse anonymous or forged Console identity
+        if: inputs.operation == 'apply' && inputs.terraform_root == 'certification/hosted-pilot'
+        run: python3 tools/hosted_pilot/readiness.py --infrastructure-only
+      - name: Inspect actual campaign target, controller lifecycle and custody
+        if: inputs.operation == 'apply' && inputs.terraform_root == 'certification/hosted-pilot/campaign'
+        run: python3 tools/hosted_pilot/campaign_readiness.py
+      - name: Publish value-free infrastructure readiness
+        if: inputs.operation == 'apply'
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: hosted-pilot-infrastructure-readiness-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/hosted-pilot-private/readiness.json
+          if-no-files-found: error
+          retention-days: 7
+      - name: Remove private executor material
+        if: always()
+        run: |
+          rm -rf "$RUNNER_TEMP/hosted-pilot-private" "$PILOT_TERRAFORM_ROOT/.terraform"
+          rm -f "$PILOT_TERRAFORM_ROOT/backend.tf.json" "$RUNNER_TEMP/pilot-budget.json"

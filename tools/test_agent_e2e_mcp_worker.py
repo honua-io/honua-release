@@ -12,6 +12,21 @@ from test_agent_e2e_worker import CONFIG
 from test_agent_e2e_mcp import server, standard, result
 
 
+def test_worker_mcp_carries_issued_native_workspace_turn_through_session_lifecycle(server):
+    context = {'workspaceId': 'native-workspace-17', 'turnId': 'native-turn-29'}
+    actor = {'endpoint': server.url, 'credentialKind': 'api-key', 'credential': 'private-issued-agent-key',
+             'workflowView': None, 'agentContext': context}
+    observed = run({'name': 'mcp_call_tool', 'input': {'name': 'query', 'arguments': {}}}, actor, 30)
+    assert observed['error'] is None and observed['sessionCleanup']['status'] == 'pass'
+    assert server.seen
+    for _, _, headers, _ in server.seen:
+        normalized = {key.lower(): value for key, value in headers.items()}
+        assert normalized['x-honua-workspace'] == context['workspaceId']
+        assert normalized['x-honua-turn'] == context['turnId']
+        assert normalized['x-api-key'] == actor['credential']
+    assert actor['credential'] not in json.dumps(observed)
+
+
 def request():
     return {'protocol':MCP_PROTOCOL, 'attemptId':'attempt-1', 'actionId':'action-1',
             'deadlineEpoch':1120, 'timeoutSeconds':120, 'action':{'name':'mcp_list_tools','input':{}}}

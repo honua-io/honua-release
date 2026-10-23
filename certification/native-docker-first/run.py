@@ -30,6 +30,9 @@ SCHEMA = 'honua.native-docker-first/v1'
 SHA = re.compile(r'^[a-f0-9]{40}$')
 DIGEST = re.compile(r'^[a-f0-9]{64}$')
 IMAGE = re.compile(r'^ghcr\.io/honua-io/[a-z0-9-]+:[a-zA-Z0-9._-]+@sha256:[a-f0-9]{64}$')
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+import agent_map  # noqa: E402
+
 SERVICE_PROMPT = 'Create a service from this imported dataset.'
 
 
@@ -1140,7 +1143,7 @@ def phase_witness(args, state, binding, attempt):
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('phase', choices=('start', 'install', 'agent-task', 'agent-submit',
-                                         'agent-observe-import', 'agent-service', 'browser', 'witness'))
+                                         'agent-observe-import', 'agent-service', 'agent-map', 'agent-observe-map', 'agent-publication', 'agent-audience', 'browser', 'witness'))
     parser.add_argument('--manifest', type=Path, required=True)
     parser.add_argument('--attempt', type=Path, required=True)
     parser.add_argument('--install-dir', type=Path)
@@ -1162,6 +1165,8 @@ def main():
     parser.add_argument('--route')
     parser.add_argument('--workspace-id')
     parser.add_argument('--turn-id')
+    parser.add_argument('--proposal-id')
+    parser.add_argument('--human-browser-cdp')
     args = parser.parse_args()
     try:
         args.attempt = args.attempt.resolve()
@@ -1191,6 +1196,14 @@ def main():
                 phase_agent_observe_import(args, state, binding, args.attempt)
             elif args.phase == 'agent-service':
                 phase_agent_service(args, state, binding, args.attempt)
+            elif args.phase == 'agent-map':
+                agent_map.phase_map(sys.modules[__name__], args, state, binding, args.attempt)
+            elif args.phase == 'agent-observe-map':
+                agent_map.phase_observe_map(sys.modules[__name__], args, state, binding, args.attempt)
+            elif args.phase == 'agent-publication':
+                agent_map.phase_publication(sys.modules[__name__], args, state, binding, args.attempt)
+            elif args.phase == 'agent-audience':
+                agent_map.phase_audience(sys.modules[__name__], args, state, binding, args.attempt)
             elif args.phase == 'browser':
                 phase_browser(args, state, manifest, binding, harness, args.attempt)
             else:

@@ -1,0 +1,22 @@
+name: Hosted pilot foundation approval environment
+on:
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: hosted-pilot-foundation-environment
+  cancel-in-progress: false
+jobs:
+  configure:
+    if: github.repository == 'honua-io/honua-release' && github.ref == 'refs/heads/trunk'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - name: Reconcile only the checked-in foundation environment
+        env:
+          GH_TOKEN: ${{ secrets.RELEASE_GH_TOKEN }}
+        run: python3 tools/hosted_pilot/foundation_environment.py create

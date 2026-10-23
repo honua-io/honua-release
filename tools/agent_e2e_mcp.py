@@ -73,9 +73,16 @@ class NoRedirect(urllib.request.HTTPRedirectHandler):
         raise McpError('endpoint-redirect-refused')
 
 
+def validate_agent_context(value):
+    require(value is None or isinstance(value, dict) and set(value) == {'workspaceId', 'turnId'} and
+            all(isinstance(item, str) and re.fullmatch(r'[A-Za-z0-9_-]{1,200}', item) for item in value.values()),
+            'invalid-native-agent-context')
+    return None if value is None else dict(value)
+
+
 class Client:
     def __init__(self, endpoint, *, credential_env=None, credential_kind='bearer', workflow_view=None,
-                 timeout=60, clock=time.monotonic):
+                 timeout=60, clock=time.monotonic, agent_context=None):
         require(isinstance(endpoint, str) and all(ord(c) > 0x20 for c in endpoint), 'invalid-endpoint')
         try:
             parsed = urllib.parse.urlsplit(endpoint)
@@ -89,6 +96,7 @@ class Client:
         require(credential_kind in ('bearer','api-key'), 'invalid-credential-kind')
         self._validate_view(workflow_view)
         self.workflow_view = workflow_view
+        self.agent_context = validate_agent_context(agent_context)
         require(type(timeout) in (int,float) and 0 < timeout <= 120, 'invalid-deadline')
         self.endpoint, self.clock, self.deadline = endpoint, clock, clock()+timeout
         self.secret = None
@@ -139,6 +147,8 @@ class Client:
         require(body is None or len(body) <= MAX_BODY, 'request-too-large')
         headers = {'Accept':'application/json, text/event-stream', 'Content-Type':'application/json',
                    'MCP-Protocol-Version':VERSION}
+        if self.agent_context is not None:
+            headers.update({'X-Honua-Workspace': self.agent_context['workspaceId'], 'X-Honua-Turn': self.agent_context['turnId']})
         if self.secret:
             headers['Authorization' if self.credential_kind == 'bearer' else 'X-API-Key'] = (
                 'Bearer '+self.secret if self.credential_kind == 'bearer' else self.secret)

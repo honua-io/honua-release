@@ -1,0 +1,16 @@
+# Template for the versioned deployment workflow to render with reviewed bindings.
+# No local manual apply; refuse placeholders and use dedicated state infrastructure.
+# No credentials belong in this file. Executor uses short-lived STS identity.
+terraform {
+  backend "s3" {
+    bucket       = "REPLACE_WITH_REVIEWED_STATE_BUCKET"
+    key          = "honua/hosted-pilot/REPLACE_WITH_UNIQUE_ATTEMPT/terraform.tfstate"
+    region       = "us-west-2"
+    kms_key_id   = "REPLACE_WITH_REVIEWED_STATE_KMS_KEY_ARN"
+    encrypt      = true
+    use_lockfile = true
+    assume_role = {
+      role_arn = "REPLACE_WITH_DISTINCT_BACKEND_ACCESS_ROLE_ARN"
+    }
+  }
+}

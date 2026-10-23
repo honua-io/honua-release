@@ -18,7 +18,7 @@ import urllib.error
 import urllib.parse
 import urllib.request
 
-from agent_e2e_mcp import parse
+from agent_e2e_mcp import validate_agent_context, parse
 from agent_e2e_pack import PackError, canonical_digest, digest_bytes
 from agent_e2e_semantics import MAX_RESPONSE_BYTES, response_evidence
 
@@ -35,7 +35,7 @@ class NoRedirect(urllib.request.HTTPRedirectHandler):
 
 class SetupHttp:
     def __init__(self, endpoint, credential_env, *, identity, authorize, retain,
-                 credential_kind='api-key', private_values=(), timeout=300, clock=time.monotonic):
+                 credential_kind='api-key', private_values=(), timeout=300, clock=time.monotonic, agent_context=None):
         require(isinstance(endpoint, str) and all(ord(c) > 32 for c in endpoint)
                 and '\\' not in endpoint, 'invalid setup endpoint')
         try:
@@ -47,11 +47,16 @@ class SetupHttp:
                 and url.path in ('', '/') and (url.scheme == 'https' or
                 url.scheme == 'http' and url.hostname in ('localhost', '127.0.0.1', '::1')),
                 'setup endpoint requires pinned TLS origin or loopback')
-        require(isinstance(credential_env, str) and re.fullmatch(r'[A-Za-z_][A-Za-z0-9_]*', credential_env)
-                and credential_kind in ('api-key', 'bearer'), 'invalid setup credential reference')
-        token = os.environ.get(credential_env)
-        require(isinstance(token, str) and 0 < len(token) <= 8192 and all(33 <= ord(c) <= 126 for c in token),
-                'missing or invalid setup credential')
+        require(credential_kind in ('api-key', 'bearer', 'anonymous'), 'invalid setup credential reference')
+        if credential_kind == 'anonymous':
+            require(credential_env is None, 'anonymous observation cannot carry a credential reference')
+            token = None
+        else:
+            require(isinstance(credential_env, str) and re.fullmatch(r'[A-Za-z_][A-Za-z0-9_]*', credential_env),
+                    'invalid setup credential reference')
+            token = os.environ.get(credential_env)
+            require(isinstance(token, str) and 0 < len(token) <= 8192 and all(33 <= ord(c) <= 126 for c in token),
+                    'missing or invalid setup credential')
         require(isinstance(identity, dict) and set(identity) == {'candidateKey', 'attemptId'}
                 and isinstance(identity['candidateKey'], str) and re.fullmatch(r'sha256:[0-9a-f]{64}', identity['candidateKey'])
                 and isinstance(identity['attemptId'], str) and re.fullmatch(r'[A-Za-z0-9-]{1,80}', identity['attemptId']),
@@ -62,7 +67,9 @@ class SetupHttp:
                 'invalid private setup values')
         require(type(timeout) in (int, float) and 0 < timeout <= 600, 'invalid setup deadline')
         self.endpoint, self.token, self.kind = endpoint.rstrip('/'), token, credential_kind
-        self.private_values = (token, *private_values)
+        self.agent_context = validate_agent_context(agent_context)
+        require(self.agent_context is None or credential_kind != 'anonymous', 'anonymous observation cannot carry agent context')
+        self.private_values = (*(() if token is None else (token,)), *private_values)
         self.identity, self.authorize, self.retain = dict(identity), authorize, retain
         self.clock, self.deadline, self.attempted = clock, clock()+timeout, set()
         self.opener = urllib.request.build_opener(urllib.request.ProxyHandler({}), NoRedirect(),
@@ -106,6 +113,7 @@ class SetupHttp:
         require(method in ('GET', 'POST', 'PUT') and isinstance(path, str) and path.startswith('/')
                 and not path.startswith('//') and '\\' not in path and '#' not in path
                 and all(33 <= ord(c) <= 126 for c in path), 'invalid setup request')
+        require(self.kind != 'anonymous' or method == 'GET', 'anonymous observation permits only GET')
         decoded_path = urllib.parse.unquote(path)
         require(all(secret not in path and secret not in decoded_path for secret in self.private_values),
                 'setup request URL disclosed credential')
@@ -118,8 +126,10 @@ class SetupHttp:
         self.remaining()
         self.authorize()
         intent = {'schemaVersion': 1, **self.identity, 'step': step, 'endpoint': self.endpoint,
-                  'method': method, 'path': path, 'contentType': content_type,
+                  'method': method, 'path': path, 'credentialKind': self.kind, 'contentType': content_type,
                   'requestBodyDigest': digest_bytes(body or b'')}
+        if self.agent_context is not None:
+            intent['agentContext'] = dict(self.agent_context)
         self.check_private_metadata(intent)
         self.attempted.add(step)
         # Required to reject every pre-existing key, even identical intent bytes.
@@ -127,8 +137,11 @@ class SetupHttp:
         self.authorize()
         timeout = self.remaining()
         headers = {'Content-Type': content_type, 'Accept': 'application/json'}
-        headers['X-API-Key' if self.kind == 'api-key' else 'Authorization'] = (
-            self.token if self.kind == 'api-key' else 'Bearer '+self.token)
+        if self.agent_context is not None:
+            headers.update({'X-Honua-Workspace': self.agent_context['workspaceId'], 'X-Honua-Turn': self.agent_context['turnId']})
+        if self.kind != 'anonymous':
+            headers['X-API-Key' if self.kind == 'api-key' else 'Authorization'] = (
+                self.token if self.kind == 'api-key' else 'Bearer '+self.token)
         request = urllib.request.Request(self.endpoint+path, data=body, headers=headers, method=method)
         try:
             try:
@@ -147,6 +160,7 @@ class SetupHttp:
                 for secret in self.private_values:
                     require(secret.encode() not in raw, 'setup response disclosed credential')
                     parse(bytes(raw), secret=secret)  # Also reject escaped values and ambiguous JSON.
+                parse(bytes(raw))  # Anonymous responses must also reject ambiguous/nonfinite JSON.
                 observation = response_evidence(response.code, bytes(raw))
         except PackError:
             raise
