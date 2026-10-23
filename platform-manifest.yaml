@@ -97,6 +97,15 @@ protocolCertification:
 # Certified component set (experimental+disabled surfaces are excluded — see `experimental:` below).
 components:
   honua-server:
+    # 2026-10-23 RC RE-PIN #3: certified source 8cb074f77d01c0a00617ebe426460aa24c7d890b.
+    # Nightly image workflow 39876804619 attempt 2 completed successfully. The exact
+    # index and its linux/amd64 + linux/arm64 children were read from GHCR; the
+    # amd64 child passed fresh customer pgRouting and Production PostGIS boots.
+    # Both live boots reported this source revision and 80 capabilities; the fresh
+    # migration journal contains 136_CreateAdminApiKeys.sql. Evidence is recorded
+    # in certification/rc-repin-3/boot-observations.json. Lambda's amd64 child also
+    # labels this revision and /var/task/Honua.Server. Checked-in workflow run
+    # 39890789827 observed the actual ECR mirror digest recorded below.
     repository: "https://github.com/honua-io/honua-server"
     lifecycleStatus: GA
     version: "pre-release"             # no GitHub releases or tags; pinned by sha
@@ -386,11 +395,11 @@ components:
     #   linux/arm64 sha256:0d18c33537636d13c0c64c2a824295a19418e8f28344fb50207bf4dd61168dff
     # (:nightly-aot-0e03bdd resolves to the same index digest.)
     # Rollback certification dereferences platformDigests.amd64, not this index.
-    digest: "sha256:f2e54ed3db51dc057fbf01fa261a7d3c81520f1e04441b029f280a35e1853454"
+    digest: "sha256:2d7877c4d1cb3b30647fb225893d41b13728f0448997997cdf4bf40fe99be07d"
     architectures: [amd64, arm64]
     platformDigests:
-      amd64: "sha256:35641c7b528f641439ab7703bdba949cd698862fcdbe7fb0f23991d794e10a93"
-      arm64: "sha256:01de0a2cd582e204e4b99aa9bec3c1b50ef2addaa9fad86cd09504b08564e362"
+      amd64: "sha256:f50d1c58ef25798fe0c9156b680d3f76febfcb3745fd92bcc497de0a16c2da05"
+      arm64: "sha256:cd5a7be39163f711861176dce58bdc915098bd12e5c91d10af7bc4702bdf8965"
     # ARM64-ON-FARGATE EXCLUSION — CARRIED FORWARD, NOT RE-VERIFIED (honua-release#98).
     # The exclusion was established against the OLD pin (5cad074, index
     # sha256:7b3cffafebf481ca77d9576f7ee2d6d1a6e8e29a1752761763c4887e655467cd), whose ARM64 child
@@ -441,7 +450,7 @@ components:
     # config is architecture amd64, os linux,
     # org.opencontainers.image.revision=0e03bdd06b3ca3fb1b82388110bb5dfa19b9f8fa, Entrypoint ["/var/task/Honua.Server"].
     awsLambdaImage: "ghcr.io/honua-io/honua-server:nightly-lambda-aot-8cb074f-amd64"
-    awsLambdaDigest: "sha256:24bb5279ece9dc55da46a69c4bbed5430a773490fcb11476c5ab615f7305e7d3"
+    awsLambdaDigest: "sha256:a77ece8e57735e4ff97535e4f74e70eed197cc3aca6e1f17592fc9caea041160"
     # ECR may convert an OCI manifest to Docker schema 2 while preserving the exact config/rootfs; when it
     # does, this digest is NOT derivable from GHCR and NOT reproducible with a stock registry (checked:
     # pushing the same image through registry:2 preserves sha256:7182e8b7…, whereas ECR turned that
@@ -475,7 +484,11 @@ components:
     # revision 199bce77..., entrypoint /var/task/Honua.Server) was mirrored into us-east-1 ECR by digest
     # (crane copy) as rc-2026.1-rc.1-lambda-aot-199bce7-amd64; aws ecr describe-images (read-only)
     # reports sha256:24bb5279..., equal to awsLambdaDigest.
-    awsLambdaEcrDigest: "sha256:24bb5279ece9dc55da46a69c4bbed5430a773490fcb11476c5ab615f7305e7d3"
+    # 2026-10-23 rc re-pin #3 to 8cb074f: checked-in e2e-cloud-aws run39890789827
+    # mirrored the exact Lambda child, verified config/layers, and observed sha256:a77ece8e...
+    # in us-east-1 ECR. Its pending-mirror sentinel then stopped provisioning; this is
+    # artifact provenance only, not a passing cloud qualification run.
+    awsLambdaEcrDigest: "sha256:a77ece8e57735e4ff97535e4f74e70eed197cc3aca6e1f17592fc9caea041160"
     awsLambdaArchitecture: "x86_64"
     # release#282 item 4: all contract versions remain UNVERIFIED until re-read from the booted candidate.
     contractVersions:

@@ -4,7 +4,7 @@
   "manifests": [
     {
       "mediaType": "application/vnd.oci.image.manifest.v1+json",
-      "digest": "sha256:35641c7b528f641439ab7703bdba949cd698862fcdbe7fb0f23991d794e10a93",
+      "digest": "sha256:f50d1c58ef25798fe0c9156b680d3f76febfcb3745fd92bcc497de0a16c2da05",
       "size": 2903,
       "platform": {
         "architecture": "amd64",
@@ -13,10 +13,10 @@
     },
     {
       "mediaType": "application/vnd.oci.image.manifest.v1+json",
-      "digest": "sha256:a788c6b8be9093183410348b57016b96a915291c8adc7294f67ed8789ae5d35e",
+      "digest": "sha256:589ba4774022e3357c7479f724d101726ccce36ca4e3ee6162a763bc524d7522",
       "size": 1112,
       "annotations": {
-        "vnd.docker.reference.digest": "sha256:35641c7b528f641439ab7703bdba949cd698862fcdbe7fb0f23991d794e10a93",
+        "vnd.docker.reference.digest": "sha256:f50d1c58ef25798fe0c9156b680d3f76febfcb3745fd92bcc497de0a16c2da05",
         "vnd.docker.reference.type": "attestation-manifest"
       },
       "platform": {
@@ -26,7 +26,7 @@
     },
     {
       "mediaType": "application/vnd.oci.image.manifest.v1+json",
-      "digest": "sha256:01de0a2cd582e204e4b99aa9bec3c1b50ef2addaa9fad86cd09504b08564e362",
+      "digest": "sha256:cd5a7be39163f711861176dce58bdc915098bd12e5c91d10af7bc4702bdf8965",
       "size": 2903,
       "platform": {
         "architecture": "arm64",
@@ -35,10 +35,10 @@
     },
     {
       "mediaType": "application/vnd.oci.image.manifest.v1+json",
-      "digest": "sha256:14154c7a9a87ee693fb42528492600d2e4e6cb4de43a3653fe0ee946e9a94d6a",
+      "digest": "sha256:a88fcaba271a13d63f02d1d7bc947027d574dd222b157c99fdc741d294a00494",
       "size": 1112,
       "annotations": {
-        "vnd.docker.reference.digest": "sha256:01de0a2cd582e204e4b99aa9bec3c1b50ef2addaa9fad86cd09504b08564e362",
+        "vnd.docker.reference.digest": "sha256:cd5a7be39163f711861176dce58bdc915098bd12e5c91d10af7bc4702bdf8965",
         "vnd.docker.reference.type": "attestation-manifest"
       },
       "platform": {
@@ -48,6 +48,6 @@
     }
   ],
   "annotations": {
-    "org.opencontainers.image.revision": "199bce77fe990eb14855831790b07cfbc103d4ba"
+    "org.opencontainers.image.revision": "8cb074f77d01c0a00617ebe426460aa24c7d890b"
   }
 }
