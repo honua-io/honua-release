@@ -19,6 +19,7 @@ from agent_e2e_p10_backend import verify_worker_definition, worker_task_role
 from agent_e2e_native_costs import serializable
 from agent_e2e_worker_lifecycle import WorkerLifecycle
 from datetime import datetime, timezone
+from uuid import UUID
 
 ASSERTIONS = {'custody.bootstrap-revoked', 'custody.worker-replaced'}
 
@@ -26,6 +27,18 @@ ASSERTIONS = {'custody.bootstrap-revoked', 'custody.worker-replaced'}
 def require(value, reason):
     if not value:
         raise PackError(reason)
+
+
+def public_key_id(value):
+    """Native key IDs are UUID metadata, never an authentication key value."""
+    require(isinstance(value, str), 'native key identifier is not UUID metadata')
+    try:
+        identity = UUID(value)
+    except (ValueError, AttributeError):
+        raise PackError('native key identifier is not UUID metadata') from None
+    public = str(identity)
+    require(public == value, 'native key identifier is not canonical UUID metadata')
+    return public
 
 
 def queue_document(config):
@@ -254,7 +267,8 @@ class StudioCustodyObserver:
 
     def revoked(self, *, step):
         original = self.originals()
-        path = '/api/v1/admin/api-keys/'+original['setup']['apiKeyId']+'/effective-permissions'
+        identity = public_key_id(original['setup']['apiKeyId'])
+        path = '/api/v1/admin/api-keys/'+identity+'/effective-permissions'
         live = self.http.json(step+'-independent-setup', 'GET', path)
         self.effective(data(live), original['setup'], status='revoked', authenticates=False)
         denied = self.session.http('setup').json(step+'-old-setup', 'GET', path)
@@ -272,7 +286,7 @@ class StudioCustodyObserver:
         require(canonical_digest(intent) == response['intentReference']['sha256'], 'original task principal intent changed')
         original['taskPrincipalRead'] = {'intent': copy.deepcopy(intent), 'response': copy.deepcopy(response)}
         result = {'bootstrapPrincipalId': original['setupPrincipal']['actorId'],
-            'revokedCredentialIds': [original['setup']['apiKeyId']], 'postRevocationProbeStatus': 401}
+            'revokedCredentialIds': [identity], 'postRevocationProbeStatus': 401}
         self.session.retain(step+'-revocation', {'observation': result, 'references': [row['reference'] for row in (live, denied, denied_target, target)],
             'originalReferences': copy.deepcopy(self.config)})
         return result, original

@@ -45,14 +45,16 @@ def observed(adapter, server, tmp_path, monkeypatch):
     agent = next(r['value'] for k, r in state['scenarioOperations'].items() if k.endswith('/key-agent'))
     agent.update(secretArn=config['setupKey']['secretArn'].replace('/setup-', '/agent-'), versionId='f'*64,
                  permissions=['admin:read', 'agent:workspace', *agent['permissions'][1:]])
+    agent_identity = custody.public_key_id(agent['apiKeyId'])
     setup = next(r['value'] for k, r in state['scenarioOperations'].items() if k.endswith('/key-setup'))
+    setup_identity = custody.public_key_id(setup['apiKeyId'])
     native_prefix = canonical_digest({'kind': 'native-bootstrap', 'candidateKey': candidate,
                                      'operationId': config['nativeBootstrapOperationId']})
     phase = canonical_digest({'kind': 'actual-context-contract'})
     reference = {'key': phase+'/completed'}
     workspace = {'workspaceId': 'observed-workspace', 'viewId': 'setup', 'targetId': 'observed-target', 'revision': 0}
     turn = {'turnId': 'observed-turn', 'status': 'Active', 'context': workspace}
-    principal = {'actorId': 'apikey:api-key:'+agent['apiKeyId'], 'studioOwnerId': agent['apiKeyId'],
+    principal = {'actorId': 'apikey:api-key:'+agent_identity, 'studioOwnerId': agent_identity,
                  'tenantId': 'public', 'isHumanSession': False, 'authenticationKind': 'api-key'}
     human = {'actorId': 'human-subject', 'studioOwnerId': 'opaque-human-owner', 'tenantId': 'public',
              'isHumanSession': True, 'authenticationKind': 'operator-bearer'}
@@ -71,7 +73,7 @@ def observed(adapter, server, tmp_path, monkeypatch):
         old = headers.get('x-api-key') == retirement.setup
         if path.endswith('/effective-permissions'):
             if old and status.setup == 'revoked': return status.refusal, {}, b'{"status":401}'
-            value = {'id': setup['apiKeyId'], 'status': status.setup, 'permissions': setup['permissions'],
+            value = {'id': setup_identity, 'status': status.setup, 'permissions': setup['permissions'],
                      'canAuthenticate': status.setup == 'active'}
         elif path == '/api/v1/agent/target':
             if old and status.setup == 'revoked': return status.refusal, {}, b'{"status":401}'
@@ -83,7 +85,7 @@ def observed(adapter, server, tmp_path, monkeypatch):
         return 200, {}, json.dumps(value).encode()
     server.respond = respond
     context = {'schema': 'honua.native-agent-context/v1', 'candidateKey': candidate, 'issuedAgentKey': agent,
-        'studioOwnerPrincipalId': agent['apiKeyId'], 'workspaceAgentPrincipalId': principal['actorId'],
+        'studioOwnerPrincipalId': agent_identity, 'workspaceAgentPrincipalId': principal['actorId'],
         'agentPrincipal': principal, 'humanCreatorPrincipal': human, 'target': {'targetId': workspace['targetId'], 'principal': human},
         'nativeBootstrapReference': {'key': native_prefix+'/key-agent',
             'sha256': canonical_digest(state['scenarioOperations'][native_prefix+'/key-agent'])},
@@ -123,7 +125,7 @@ def observed(adapter, server, tmp_path, monkeypatch):
     receipt = {'schema': 'honua.private-setup-key-retirement/v1', 'candidateKey': candidate,
         'configurationDigest': canonical_digest(config), 'operation': config['operation'], 'setupKey': config['setupKey'],
         'fixtureReference': config['fixtureReference'], 'preparation': preparation, 'native': retirement.native,
-        'revokedKeyId': setup['apiKeyId'], 'postRevocationProbeStatus': 401, 'retainedPrefix': prefix}
+        'revokedKeyId': setup_identity, 'postRevocationProbeStatus': 401, 'retainedPrefix': prefix}
     records = state['scenarioOperations']
     def retain_original(name, value):
         records[prefix+'/'+name] = {'producer': 'private-setup-key-retirement', 'candidateKey': candidate, 'value': copy.deepcopy(value)}
@@ -131,10 +133,10 @@ def observed(adapter, server, tmp_path, monkeypatch):
     retain_original('start', {key: receipt[key] for key in ('configurationDigest', 'setupKey', 'fixtureReference', 'preparation', 'native')})
     for stage, status_name, authenticates, code in [('active-setup-read', 'active', True, 200),
             ('revoked-independent-read', 'revoked', False, 200), ('old-setup-denied', None, False, 401)]:
-        retain_original(stage, {'httpStatus': code, 'body': {'data': {'id': setup['apiKeyId'], 'status': status_name,
+        retain_original(stage, {'httpStatus': code, 'body': {'data': {'id': setup_identity, 'status': status_name,
             'canAuthenticate': authenticates, 'permissions': setup['permissions']}}})
     retain_original('active-setup-target-read', {'httpStatus': 200, 'body': {'targetId': workspace['targetId'],
-        'principal': {'actorId': 'original-observed-setup-actor', 'studioOwnerId': setup['apiKeyId'],
+        'principal': {'actorId': 'original-observed-setup-actor', 'studioOwnerId': setup_identity,
             'authenticationKind': 'api-key', 'isHumanSession': False}}})
     retain_original('old-setup-target-denied', {'httpStatus': 401, 'body': {'status': 401}})
     receipt['setupTargetReference'] = {'key': prefix+'/active-setup-target-read',
@@ -274,6 +276,18 @@ def test_actual_sdk_datetime_fields_are_preserved_as_json_safe_originals(observe
     assert proof['definition']['registeredAt'] == observed.worker_definition['registeredAt'].isoformat()
     assert proof['nativeTasks']['tasks'][0]['startedAt'] == observed.worker_task['startedAt'].isoformat()
     assert json.loads(json.dumps(proof)) == proof
+
+
+def test_authentication_key_material_cannot_enter_public_identifier_paths_or_digest_records(observed, monkeypatch):
+    original = observed.observer.originals()
+    secret = 'private-authentication-material-that-is-not-a-native-uuid'
+    original = {**original, 'setup': {**original['setup'], 'apiKeyId': secret}}
+    monkeypatch.setattr(observed.observer, 'originals', lambda: original)
+    calls = len(observed.server.seen)
+    with pytest.raises(PackError, match='UUID metadata'):
+        observed.observer.revoked(step='invalid-public-identifier')
+    assert len(observed.server.seen) == calls
+    assert secret not in json.dumps(observed.session.durable.state)
 
 
 def test_custody_uses_the_real_workers_required_fifo_transport_contract(observed):
