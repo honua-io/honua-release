@@ -333,10 +333,22 @@ def world_tarball() -> bytes:
     return _tarball(TARBALL_DEPS)
 
 
-def test_a_fixed_template_is_not_a_republish_blocker():
-    receipt = _receipt(dependencies={"@honua/sdk-js": "0.1.9-beta.0", "maplibre-gl": "6.9.0"})
+@pytest.mark.parametrize("maplibre_pin", ["6.4.1", "6.9.0", "6.10.0", "7.0.0"])
+def test_a_fixed_template_is_not_a_republish_blocker(maplibre_pin):
+    receipt = _receipt(dependencies={"@honua/sdk-js": "0.1.9-beta.0", "maplibre-gl": maplibre_pin})
     assert _channel(receipt, "npm:create-honua-app")["disposition"] == "published"
     assert not any(item["kind"] == "blocked-on-republish" for item in receipt["blockers"])
+
+
+@pytest.mark.parametrize("maplibre_pin", [
+    "5.12.0", "6.0.0", "6.1.0", "6.3.9", "6.4.0",
+    "6.4.1-rc.1", "^6.4.1", ">=6.0.0", "latest", "06.4.1",
+])
+def test_affected_or_unresolved_maplibre_template_pin_blocks_republish(maplibre_pin):
+    receipt = _receipt(dependencies={"@honua/sdk-js": "0.1.9-beta.0", "maplibre-gl": maplibre_pin})
+    create = _channel(receipt, "npm:create-honua-app")
+    assert create["disposition"] == "blocked-on-republish"
+    assert create["maplibre_pins"] == [maplibre_pin]
 
 
 def test_a_resolvable_off_manifest_template_sdk_pin_still_blocks_republish():
