@@ -38,5 +38,7 @@ resource "aws_iam_role_policy" "controller" {
       { Effect = "Allow", Action = "iam:PassRole", Resource = [aws_iam_role.fixture.arn, aws_iam_role.execution["fixture"].arn], Condition = { StringEquals = { "iam:PassedToService" = "ecs-tasks.amazonaws.com" } } }
     ] : statement if var.dispatch_budget != null], var.dispatch_budget == null || length(var.controller_model_resource_arns) == 0 ? [] : [
     { Effect = "Allow", Action = ["bedrock:InvokeModel", "bedrock:InvokeModelWithResponseStream"], Resource = var.controller_model_resource_arns }
+    ], var.dispatch_budget == null || var.controller_model == null ? [] : [
+    { Effect = "Allow", Action = "bedrock:CountTokens", Resource = [var.controller_model.tokenCountingModelArn] }
   ]) })
 }
