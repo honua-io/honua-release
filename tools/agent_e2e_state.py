@@ -297,6 +297,11 @@ def preserve_history(previous, current):
     """A new campaign cannot delete spending or reclassify retained attempts."""
     if previous is None:
         return
+    if 'interactiveFunding' in previous and current.get('interactiveFunding') != previous['interactiveFunding']:
+        raise PackError('cannot rewrite or erase original interactive funding source')
+    if 'bootstrapImport' in current and 'interactiveAccounting' in current.get('ledger', {}):
+        from agent_e2e_interactive_budget import validate_retained_funding
+        validate_retained_funding(current)
     for field in ('campaigns', 'attemptArtifacts', 'scenarioOperations', 'fixtureBaselines', 'fixtureOwnership',
                   'fixtureCleanup', 'fixtureTransferRequests', 'nativeCostAllocations', 'nativeOverheadAllocations', 'nativeBindings',
                   'studioBootstrapOperations', 'studioBootstrapFixtures', 'importTransferRequests',
@@ -323,7 +328,7 @@ def preserve_history(previous, current):
             continue
         if key not in current:
             raise PackError('cannot erase durable candidate history')
-        fields = ('entries', 'operations', 'paidAdmissions') if key == 'ledger' else ('attempts',)
+        fields = ('entries', 'operations', 'paidAdmissions', 'interactiveEntries', 'interactivePaidAdmissions', 'interactiveAccounting') if key == 'ledger' else ('attempts',)
         if canonical_digest({k:v for k,v in previous[key].items() if k not in fields}) != canonical_digest(
                 {k:v for k,v in current[key].items() if k not in fields}):
             # The only accepted policy change is the fixed owner amendment,
@@ -336,11 +341,15 @@ def preserve_history(previous, current):
                 raise PackError('cannot change durable candidate identity or budget policy')
             validate_budget(current[key])
         for field in fields:
+            if field == 'interactiveAccounting':
+                if field in previous[key] and current[key].get(field) != previous[key][field]:
+                    raise PackError('cannot replace or extend original interactive funding binding')
+                continue
             old_rows, new_rows = previous[key].get(field, []), current[key].get(field, [])
             if len(new_rows) < len(old_rows):
                 raise PackError('cannot truncate durable candidate history')
             for old, new in zip(old_rows, new_rows):
-                if field == 'paidAdmissions':
+                if field in ('paidAdmissions', 'interactivePaidAdmissions'):
                     if old['state'] == 'released':
                         if old != new: raise PackError('released admission history cannot change')
                     else:
@@ -361,8 +370,8 @@ def preserve_history(previous, current):
                         raise PackError('invalid reservation transition')
 
     if current.get('ledger', {}).get('schemaVersion') == 3:
-        from agent_e2e_budget import validate_admissions
-        validate_admissions(current['ledger'])
+        from agent_e2e_budget import validate as validate_budget
+        validate_budget(current['ledger'], allow_overrun=True)
 
 
 class DurableExecution:
@@ -397,6 +406,11 @@ class DurableExecution:
                 # A failed remote settlement may leave a newer local charge.
                 # Never overwrite it with an older snapshot and lose the cost.
                 preserve_history({'ledger':load_json(self.path)}, {'ledger':state['ledger']})
+            if any(field in state['ledger'] for field in ('interactiveAccounting', 'interactiveEntries', 'interactivePaidAdmissions')):
+                from agent_e2e_interactive_budget import validate_retained_funding
+                from agent_e2e_budget import validate as validate_budget
+                validate_retained_funding(state)
+                validate_budget(state['ledger'], allow_overrun=True)
             atomic_write(self.path, json.dumps(state['ledger'], allow_nan=False).encode())
         except Exception:
             try:
@@ -467,6 +481,33 @@ class DurableExecution:
                 self.state['ledger'] = current
                 self._persist()
         return result
+
+    def enable_interactive_accounting(self, *, source_reader=None, now_epoch=None):
+        """Checked installer only: bind exact original Git source before activation.
+
+        No runtime placeholder or current-source fallback is supported. The
+        installed private runtime later replays the retained immutable source.
+        """
+        from agent_e2e_interactive_budget import funding_binding, validate_retained_funding
+        self._require_live_lease()
+        if self.state.get('ledger', {}).get('interactiveAccounting') is not None:
+            validate_retained_funding(self.state)
+            return copy.deepcopy(self.state['ledger']['interactiveAccounting'])
+        if 'bootstrapImport' not in self.state:
+            raise PackError('interactive execution requires actual original authenticated bootstrap import')
+        if self.state['ledger']['schemaVersion'] != 3:
+            raise PackError('interactive execution requires the actual named original-history amendment')
+        options = {'now_epoch': now_epoch}
+        if source_reader is not None: options['source_reader'] = source_reader
+        binding, raw = funding_binding(self.state['bootstrapImport'], **options)
+        self.state['interactiveFunding'] = {'binding': copy.deepcopy(binding), 'configuration': raw.decode('utf-8')}
+        try:
+            self.update(self.path, 'enable-interactive-accounting', candidate_key=self.store.candidate,
+                        binding=binding, **({'now_epoch': now_epoch} if now_epoch is not None else {}))
+        finally:
+            if 'interactiveAccounting' not in self.state['ledger']:
+                self.state.pop('interactiveFunding', None)
+        return binding
 
     def event(self, row):
         key = canonical_digest({k:row[k] for k in ('campaignId','caseId','attempt')})

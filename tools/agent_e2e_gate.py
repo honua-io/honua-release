@@ -288,6 +288,11 @@ def validate(pack_path: Path, campaign_path: Path, lock_path: Path, trusted_path
     ledger = read_json(budget_path)
     require(ledger['candidateKey'] == campaign['componentBindingDigest'], 'budget belongs to another candidate')
     budget_summary = bind_ledger(campaign, ledger, campaign_path.parent)
+    # Ordinary human turns have financial identity, never synthetic RC case IDs.
+    # Their eventual independent retirement reports need a dedicated consumer;
+    # until wired, do not silently ignore that candidate-wide history here.
+    require(not ledger.get('interactiveEntries') and not ledger.get('interactivePaidAdmissions'),
+            'candidate interactive execution history requires independent financial reconciliation')
     admissions = ledger.get('paidAdmissions', [])
     if ledger['schemaVersion'] == 3:
         require(all(row['state'] == 'released' for row in admissions),
