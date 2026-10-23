@@ -47,6 +47,7 @@ def publication_session(studio, adapter, tmp_path):
     value.case = {'assertions': ['approval.separate', 'publication.public', 'tenant.denied',
         'custody.bootstrap-revoked', 'custody.worker-replaced', 'source-content.unchanged']}
     value.attempt_id = 'publication-worker-fixture'
+    value.config = {'studio': {}}
     value.durable._fixture_identity = lambda context: value.key
     value.observer_for_recovery = lambda: studio.observer
     studio.observer.retain = value.retain
@@ -101,3 +102,14 @@ def test_multiple_model_submissions_cannot_be_reduced_to_one_successful_publicat
     studio.state.approved = True
     assert 'publication.public' in value.verify()['failedAssertions']
     assert value.value('verification')['selectedActionId'] is None
+
+
+def test_configured_tenant_verification_cannot_manufacture_a_missing_before_worker_proof(publication_session, studio):
+    value = publication_session
+    value.config['studio']['tenantIsolation'] = {'configuration': 'present-without-original-proof'}
+    value.retain('publication-ordinal-1', select(studio))
+    studio.state.approved = True
+    result = value.verify()
+    assert 'tenant.denied' in result['failedAssertions']
+    assert 'tenant.denied' not in value.value('verification')['unsupportedAssertions']
+    assert value.value('tenant-verification-refused') == {'reasonCode': 'native-tenant-proof-refused'}
