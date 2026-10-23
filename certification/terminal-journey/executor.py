@@ -240,9 +240,9 @@ class JourneyExecutor:
             if output.get("applied") is not True or output.get("styleId") != arguments.get("styleId"):
                 raise ExecutionError(name, "candidate did not apply the selected canonical style")
             self._check(4, "style-applied", name, lambda: {"styleId": identity(output["styleId"], name)})
-        self._record(number, name, output)
         if name == "honua_publish_service":
             self.record_publication(output)
+        self._record(number, name, output)
         if name == "honua_render_map":
             self.check_render(output, selected_arguments=arguments)
             if (fault and fault["status"] == "observed"
@@ -260,7 +260,9 @@ class JourneyExecutor:
             self.check_proposal()
         return {"status": "pass", "accepted": True, "injectedError": injected, "recoveredError": recovered,
                 "canonicalIds": self.evidence["canonicalIds"].get(str(number), {}),
-                "resources": dict(self.resources)}
+                "resources": dict(self.resources),
+                **({"nativePublication": dict(self.evidence["nativePublication"])}
+                   if name == "honua_publish_service" else {})}
 
     def terminal_surface(self, number):
         """Describe the harness bridge grammar without choosing or executing an action."""
@@ -434,7 +436,7 @@ class JourneyExecutor:
             raise ActionRejected("honua_publish_service", "publication does not bind the uploaded dataset and connection")
 
     def record_publication(self, output):
-        if output.get("status") != "Completed" or output.get("requiresApproval"):
+        if output.get("status") != "Completed" or output.get("requiresApproval") is not False:
             # service.publish is synchronous on the candidate (the submit handle is terminal), so name
             # the terminal state it returned instead (masked; never the raw tool output).
             seen = masked_fields({name: output.get(name) for name in (
@@ -442,13 +444,30 @@ class JourneyExecutor:
                 credential_values(self.transport.credentials))
             raise ExecutionError("honua_publish_service", "service.publish did not complete for the operator"
                                  + (f" ({describe_fields(seen)})" if seen else ""))
+        # McpPublishServiceOutput projects these from the completed canonical
+        # handle. Requested serviceName and the fixture are not publication proof.
+        service = identity(output.get("serviceName"), "honua_publish_service")
+        if any(secret and secret in service for secret in credential_values(self.transport.credentials)):
+            raise ExecutionError("honua_publish_service", "candidate returned credential material as a service identity")
+        uri = output.get("serviceUri")
+        if uri != "honua://published-services/" + urllib.parse.quote(service, safe=""):
+            raise ExecutionError("honua_publish_service", "candidate omitted or contradicted the published service URI")
         layer = output.get("layerId")
         if type(layer) is int and layer >= 0:
-            self.resources["layerId"] = layer
+            layer_id = layer
         elif isinstance(layer, str) and layer.isdigit() and len(layer) <= 18:
-            self.resources["layerId"] = int(layer)
+            layer_id = int(layer)
         else:
             raise ExecutionError("honua_publish_service", "candidate omitted the published layer identity")
+        # Native map tools accept the published service name as serviceId.
+        # Keep the returned name too, so this normalization stays explicit.
+        self.resources.update(serviceName=service, serviceId=service, serviceUri=uri, layerId=layer_id)
+        self.evidence["nativePublication"] = {
+            "serviceNameSha256": hashlib.sha256(service.encode()).hexdigest(),
+            "serviceUriSha256": hashlib.sha256(uri.encode()).hexdigest(),
+            "layerId": layer_id,
+            "fixtureServiceNameMatches": service == self.fixture.get("serviceId"),
+        }
         self.check_features()
 
     def record_job(self, output):
