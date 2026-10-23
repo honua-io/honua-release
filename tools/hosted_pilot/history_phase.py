@@ -77,6 +77,9 @@ def applied(record, receipt, jobs, *, native_artifact, api, source_file, call):
         require(receipt.get('schema') == 'honua.hosted-pilot-custody-applied/v1' and record['ownerLedger'] is None,
             'custody-only execution cannot invent a published owner ledger')
         review = receipt['review']; proof = receipt['approval']
+        creator = receipt.get('original_creation')
+        require(isinstance(creator, dict) and set(creator) == {'run_id', 'identity'} and re.fullmatch(r'[0-9]+', creator['run_id']) and
+            set(creator['identity']) == {'foundation_source_sha', 'release_root_sha', 'config_path', 'config_sha256', 'provider_lock_sha256'} and creator == review.get('original_creation'), 'original custody creation identity was lost')
         require(review['phase'] == 'custody-only', 'custody-only receipt names a different phase')
     else:
         review = receipt['phase_review']; proof = receipt['phase_approval']
@@ -126,4 +129,4 @@ def applied(record, receipt, jobs, *, native_artifact, api, source_file, call):
         'original exact-plan admission, execution deadline or liability retention differs')
     # Supply the same original actor/creation-resource shape used by independent
     # CloudTrail actor + exact planned-name + actual current tag authentication.
-    return dict(review, foundation_run_id=review['run_id'], foundation_run_attempt=review['run_attempt'], saved_plan_sha256=review['plan_sha256']) if custody else receipt
+    return dict(review, original_creation=receipt['original_creation'], foundation_run_id=review['run_id'], foundation_run_attempt=review['run_attempt'], saved_plan_sha256=review['plan_sha256']) if custody else receipt

@@ -21,12 +21,15 @@ CONFIG = {'expires_at': (NOW+timedelta(hours=2)).isoformat(),
 
 
 def review():
-    return {'schema': phase.SCHEMA, 'phase': 'custody-only', 'run_id': '123', 'run_attempt': '2',
+    value = {'schema': phase.SCHEMA, 'phase': 'custody-only', 'run_id': '123', 'run_attempt': '2',
             'foundation_source_sha': 'a'*40, 'release_root_sha': 'b'*40,
             'config_path': 'certification/hosted-pilot/bootstrap/deployments/foss4g-images.tfvars.json',
             **{key: 'c'*64 for key in ('config_sha256','provider_lock_sha256','resolved_config_sha256','plan_sha256')},
             'resource_changes': [{'address': 'aws_kms_key.custody', 'actions': ['create']}],
             **phase.deadlines(CONFIG, now=NOW)}
+
+    value['original_creation']={'run_id':value['run_id'],'identity':{key:value[key] for key in ('foundation_source_sha','release_root_sha','config_path','config_sha256','provider_lock_sha256')}}
+    return value
 
 
 class Native:
@@ -180,7 +183,7 @@ class ExactPhaseApply(unittest.TestCase):
     def setUp(self):
         self.temp=tempfile.TemporaryDirectory();self.addCleanup(self.temp.cleanup)
         self.work=Path(self.temp.name);self.binary=self.work/'custody.tfplan';self.binary.write_bytes(b'private original plan')
-        self.cfg=copy.deepcopy(CONFIG);self.identity={key:value for key,value in review().items() if key in ['foundation_source_sha','release_root_sha','config_path','config_sha256','provider_lock_sha256']}
+        self.cfg=copy.deepcopy(CONFIG)|{'name_prefix':'honua-pilot-fixture'};self.identity={key:value for key,value in review().items() if key in ['foundation_source_sha','release_root_sha','config_path','config_sha256','provider_lock_sha256']}
         self.actor={'principal_arn':'actual-native-sts-identity'}
         self.r=review();self.r['plan_sha256']=bootstrap.digest(self.binary);self.r['execution_identity']=self.actor
         self.r['resolved_config_sha256']='d'*64
@@ -194,6 +197,11 @@ class ExactPhaseApply(unittest.TestCase):
         patch.object(bootstrap,'secure_backend',return_value={'bucket':'custody','key':'original','kms_key_id':'key'}).start()
         patch.object(bootstrap,'save_recovery',return_value={'version_id':'immutable'}).start()
         patch.object(bootstrap,'exists',return_value=True).start()
+        def aws(*args):
+            if args[:2]==('s3api','get-object'):
+                Path(args[-1]).write_bytes((self.work/'custody-applied.json').read_bytes())
+            return {'VersionId':'immutable-version','ServerSideEncryption':'aws:kms','SSEKMSKeyId':'key'}
+        patch.object(bootstrap,'aws',side_effect=aws).start()
 
     def execute(self):
         bootstrap.private_json(self.work/'prepared.json',self.prepared)
@@ -260,10 +268,11 @@ class MainPhaseRouting(unittest.TestCase):
         self.old_tags=bootstrap.creation_tags({'foundation_source_sha':'1'*40,'release_root_sha':'2'*40,'config_path':self.config_path,'config_sha256':'3'*64,'provider_lock_sha256':'4'*64},'99')
         patch.object(bootstrap,'observe_original_custody',return_value=self.old_tags).start()
         self.plan_changes=[{'address':'aws_iam_role.executor["plan"]','actions':['create']}]
-        def plan(config,work,*,custody_only=False):
+        self.custody_changes=[{'address':'aws_kms_key.custody','actions':['create']}]
+        def plan(config,work,*,custody_only=False,observation_only=False):
             path=work/('custody.tfplan' if custody_only else 'saved.tfplan');path.write_bytes(b'exact binary')
             bootstrap.private_json(work/'creation-resources.json',[])
-            return path,([{'address':'aws_kms_key.custody','actions':['create']}] if custody_only else self.plan_changes),bootstrap.digest(path)
+            return path,(self.custody_changes if custody_only else self.plan_changes),bootstrap.digest(path)
         self.plan=patch.object(bootstrap,'plan',side_effect=plan).start()
         self.apply=patch.object(bootstrap,'exact_apply').start()
 
@@ -275,10 +284,20 @@ class MainPhaseRouting(unittest.TestCase):
         self.plan.assert_not_called();self.apply.assert_not_called()
         self.assertFalse(any(cmd[0]=='terraform' for cmd in self.commands))
 
-    def test_initial_custody_refuses_existing_canonical_state(self):
+    def test_existing_custody_refuses_any_infrastructure_change(self):
         self.exists.return_value=True
         with self.assertRaises(ValueError):self.execute('custody-only')
-        self.plan.assert_not_called();self.apply.assert_not_called()
+        self.assertEqual(self.plan.call_count,1);self.apply.assert_not_called()
+
+    def test_canonical_custody_can_reconcile_only_noop_original_plan(self):
+        self.exists.return_value=True;self.custody_changes=[{'address':'aws_kms_key.custody','actions':['no-op']}]
+        self.execute('custody-only')
+        self.assertTrue(self.plan.call_args.kwargs['observation_only'])
+        self.apply.assert_not_called()
+        work=self.root/'runner/hosted-pilot-bootstrap-private'
+        original=json.loads((work/'review.json').read_text())
+        self.assertTrue(original['custody_observation_only'])
+        self.assertEqual(original['original_creation']['run_id'],'99')
 
     def test_fresh_custody_preparation_produces_only_its_private_binary(self):
         self.execute('custody-only')
@@ -324,6 +343,14 @@ class WorkflowGraph(unittest.TestCase):
         self.assertEqual(jobs['phase-watchdog']['permissions'],{'contents':'read','actions':'write'})
         self.assertEqual(workflow['permissions'],{'contents':'read','actions':'read'})
         self.assertNotIn('AWS',json.dumps(jobs['phase-watchdog'].get('env',{})))
+        for name in ('review-ready','phase-approval','phase-watchdog'):
+            steps=jobs[name]['steps']
+            self.assertEqual(steps[0]['with']['ref'],'trunk')
+            self.assertEqual(steps[0]['with']['fetch-depth'],0)
+            self.assertIn('git merge-base --is-ancestor "$PILOT_RELEASE_ROOT_SHA" origin/trunk',steps[1]['run'])
+            self.assertIn("--jq '.protected'",steps[1]['run'])
+            self.assertIn('git checkout --detach "$PILOT_RELEASE_ROOT_SHA"',steps[1]['run'])
+
         self.assertTrue(all('configure-aws-credentials' not in str(step) for step in jobs['phase-watchdog']['steps']))
         names=[step.get('name','') for step in jobs['bootstrap']['steps']]
         self.assertLess(names.index('Publish value-free review before waiting for native approval'),names.index('Wait for original exact-plan approval from the separate protected job'))

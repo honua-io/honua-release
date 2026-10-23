@@ -28,3 +28,12 @@ actual STS actor, exact planned resource and independent current creation tags.
 Full foundation emits versioned bindings with the same retained phase proof.
 These rules do not create financial rows, settle unknown costs, reset earlier
 history or turn missing/failed/cancelled observations into successful execution.
+
+
+A recovered custody receipt carries the original creation scope separately from
+the successful recovery executor. CloudTrail actor/time checks still bind the
+actual executing run; independent tag checks bind the retained original scope.
+A failed original remains a failed original and its liabilities stay visible.
+Successful recovery does not transform earlier failure into zero spend or paid
+qualification. Completion acknowledgement can be reconciled with an approved
+no-op custody plan; physical changes and imports remain refused.

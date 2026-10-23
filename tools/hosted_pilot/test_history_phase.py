@@ -30,7 +30,7 @@ class OriginalPhaseHistory(unittest.TestCase):
         n.add(f'hosted-pilot-phase-admitted-123-2-{selected}','apply-admitted.json',self.admission)
         self.record={'kind':'foundation-custody' if selected=='custody-only' else 'foundation','producer':{'repository':phase.REPOSITORY,'runId':123,'runAttempt':2,'sourceSha':'a'*40,'workflow':phase.WORKFLOW},
             'planArtifact':{'id':1,'name':n.rows[0]['name'],'sha256':n.rows[0]['digest']},'ownerLedger':None,'cloudEvents':[]}
-        self.receipt={'schema':'honua.hosted-pilot-custody-applied/v1','review':n.public,'approval':self.proof,'apply_admission_sha256':hashlib.sha256(phase.canonical(self.admission)).hexdigest()}
+        self.receipt={'schema':'honua.hosted-pilot-custody-applied/v1','original_creation':n.public['original_creation'],'review':n.public,'approval':self.proof,'apply_admission_sha256':hashlib.sha256(phase.canonical(self.admission)).hexdigest()}
         if selected!='custody-only':self.receipt={'schema':'honua.hosted-pilot-bootstrap-bindings/v2','phase_review':n.public,'phase_approval':self.proof,'apply_admission_sha256':self.receipt['apply_admission_sha256']}
 
     def setUp(self):self.fixture()

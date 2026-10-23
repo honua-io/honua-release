@@ -46,3 +46,12 @@ A previous custody plan is never authorization for full-foundation apply. Recove
 can identify the original producer without an Actions artifact; consult the
 bootstrap recovery instructions before retrying. Neither phase qualifies a hosted
 candidate or launches a model worker.
+
+
+Recovery retains a successful exact-plan completion separately from the original
+creator's status and tags. When a creator failed, foundation preparation must
+verify that later successful native recovery and its original human approval.
+If only completion acknowledgement was interrupted after canonical state was
+secured, custody reconciliation permits a freshly reviewed reads/no-ops plan
+only. No imports, creation, update, deletion, retagging, financial settlement or
+expiry extension is permitted by that path.

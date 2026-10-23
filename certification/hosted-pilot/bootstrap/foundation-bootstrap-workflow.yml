@@ -245,8 +245,17 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           repository: honua-io/honua-release
-          ref: ${{ inputs.release_root_sha }}
+          ref: trunk
+          fetch-depth: 0
           persist-credentials: false
+      - name: Verify exact protected release ancestor before helper execution
+        run: |
+          set -euo pipefail
+          [[ "$PILOT_RELEASE_ROOT_SHA" =~ ^[0-9a-f]{40}$ ]]
+          test "$(gh api repos/honua-io/honua-release/branches/trunk --jq '.protected')" = true
+          git merge-base --is-ancestor "$PILOT_RELEASE_ROOT_SHA" origin/trunk
+          git checkout --detach "$PILOT_RELEASE_ROOT_SHA"
+          test "$(git rev-parse HEAD)" = "$PILOT_RELEASE_ROOT_SHA"
       - run: python3 tools/hosted_pilot/bootstrap_phase.py review-ready --phase "$PHASE"
   phase-approval:
     needs: [approval-policy, review-ready]
@@ -262,8 +271,17 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           repository: honua-io/honua-release
-          ref: ${{ inputs.release_root_sha }}
+          ref: trunk
+          fetch-depth: 0
           persist-credentials: false
+      - name: Verify exact protected release ancestor before helper execution
+        run: |
+          set -euo pipefail
+          [[ "$PILOT_RELEASE_ROOT_SHA" =~ ^[0-9a-f]{40}$ ]]
+          test "$(gh api repos/honua-io/honua-release/branches/trunk --jq '.protected')" = true
+          git merge-base --is-ancestor "$PILOT_RELEASE_ROOT_SHA" origin/trunk
+          git checkout --detach "$PILOT_RELEASE_ROOT_SHA"
+          test "$(git rev-parse HEAD)" = "$PILOT_RELEASE_ROOT_SHA"
       - name: Create exact-plan approval receipt from native human review history
         run: python3 tools/hosted_pilot/bootstrap_phase.py approve --phase "$PHASE"
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
@@ -290,6 +308,15 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           repository: honua-io/honua-release
-          ref: ${{ inputs.release_root_sha }}
+          ref: trunk
+          fetch-depth: 0
           persist-credentials: false
+      - name: Verify exact protected release ancestor before helper execution
+        run: |
+          set -euo pipefail
+          [[ "$PILOT_RELEASE_ROOT_SHA" =~ ^[0-9a-f]{40}$ ]]
+          test "$(gh api repos/honua-io/honua-release/branches/trunk --jq '.protected')" = true
+          git merge-base --is-ancestor "$PILOT_RELEASE_ROOT_SHA" origin/trunk
+          git checkout --detach "$PILOT_RELEASE_ROOT_SHA"
+          test "$(git rev-parse HEAD)" = "$PILOT_RELEASE_ROOT_SHA"
       - run: python3 tools/hosted_pilot/bootstrap_phase.py watchdog --phase "$PHASE"

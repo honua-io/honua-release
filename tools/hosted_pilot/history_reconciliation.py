@@ -183,7 +183,7 @@ def authenticate(record, *, call=invoke):
             'certification/hosted-pilot/bootstrap/.terraform.lock.hcl',
             *[str(path.relative_to(ROOT)) for path in sorted((ROOT/'certification/hosted-pilot/bootstrap').glob('*.tf')) if path.name!='recovery-imports.tf']]
         if phase_protocol:
-            paths.append('tools/hosted_pilot/bootstrap_phase.py')
+            paths += ['tools/hosted_pilot/bootstrap_phase.py', 'tools/hosted_pilot/custody_completion.py']
         verify_sources('honua-io/honua-release',execution_sha,original_sources[1] if original_sources is not None else file_hashes(paths),call)
         config=source_file(p['repository'],p['sourceSha'],receipt['config_path'],call)
         require(digest_bytes(config)=='sha256:'+receipt['config_sha256'] and json.loads(config).get('image_preparation_funding') is True,
@@ -333,10 +333,13 @@ def authenticate_event(event,record,run,jobs,receipt,candidate_key):
         matches=[row for row in rows if row['name']==name]
         require(len(matches)==1,'creation event lacks its exact original saved-plan physical resource')
         planned=matches[0]
-        require(planned['creation_tags'].get('BootstrapExecution')==str(record['producer']['runId']) and
-            planned['creation_tags'].get('BootstrapFoundationSha')==record['producer']['sourceSha'] and
-            planned['creation_tags'].get('BootstrapReleaseSha')==receipt['release_root_sha'] and
-            all(planned['creation_tags'].get(tag)==actor.get(key) for key,tag in {
+        original=receipt.get('original_creation') if record['kind']=='foundation-custody' else None
+        scope=original['identity'] if original else actor
+        creator=original['run_id'] if original else str(record['producer']['runId'])
+        require(planned['creation_tags'].get('BootstrapExecution')==creator and
+            planned['creation_tags'].get('BootstrapFoundationSha')==scope.get('foundation_source_sha') and
+            planned['creation_tags'].get('BootstrapReleaseSha')==scope.get('release_root_sha') and
+            all(planned['creation_tags'].get(tag)==scope.get(key) for key,tag in {
                 'config_path':'BootstrapConfigPath','config_sha256':'BootstrapConfigSha256',
                 'provider_lock_sha256':'BootstrapLockSha256'}.items()),
             'planned resource does not belong to this original source/run')

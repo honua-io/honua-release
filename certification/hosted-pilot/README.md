@@ -149,6 +149,19 @@ liabilities and recovery evidence; it never settles costs or claims qualificatio
 No binary plan, Terraform state or private log is uploaded to GitHub. Normal
 application deployment remains the separate OIDC saved-plan workflow above.
 
+A successful custody completion is retained separately from its original creator
+under an immutable content-addressed key in the existing encrypted recovery
+prefix. If that creator failed, full foundation requires the independently
+successful recovery's original native plan, real human approval, admission and
+completed apply. The creator stays failed and its tags remain unchanged. Source
+compatibility is checked; unrelated or forged recovery metadata is refused.
+
+If custody reached canonical state but completion acknowledgement was lost,
+`custody-only` can reconcile that state through another reviewed plan containing
+only reads/no-ops, with no imports or physical infrastructure changes. It cannot
+retag or maintain custody. Its metadata/state writes retain the same original
+scope, funding holds and expiry; they do not settle costs or erase failed runs.
+
 A failed initial custody apply can leave resources. Actual state is written only
 to verified private, KMS-encrypted, versioned S3. Metadata-only recovery journals
 are also retained there under immutable content-addressed keys with exact object

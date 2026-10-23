@@ -85,6 +85,13 @@ def validate_review(review, *, phase, environment=None, now=None, approval=True,
     require(prepared < deadline <= prepared + timedelta(minutes=20) and deadline + timedelta(minutes=15) <= execution <= prepared + timedelta(minutes=35), 'review deadlines are not bounded')
     current = now or utcnow()
     require(prepared <= current and (observation_only or current < (deadline if approval else execution)), 'phase approval or execution expired')
+    creator = review.get('original_creation')
+    require(isinstance(creator, dict) and set(creator) == {'run_id', 'identity'} and isinstance(creator['run_id'], str) and re.fullmatch(r'[0-9]+', creator['run_id']), 'original custody creation run is absent')
+    origin = creator['identity']
+    require(isinstance(origin, dict) and set(origin) == {'foundation_source_sha', 'release_root_sha', 'config_path', 'config_sha256', 'provider_lock_sha256'} and
+        all(isinstance(origin[key], str) and re.fullmatch(r'[a-f0-9]{40}', origin[key]) for key in ('foundation_source_sha', 'release_root_sha')) and
+        all(isinstance(origin[key], str) and re.fullmatch(r'[a-f0-9]{64}', origin[key]) for key in ('config_sha256', 'provider_lock_sha256')) and
+        isinstance(origin['config_path'], str) and re.fullmatch(r'certification/hosted-pilot/bootstrap/deployments/[A-Za-z0-9._-]+\.tfvars\.json', origin['config_path']), 'original custody creation source is invalid')
     require(isinstance(review.get('resource_changes'), list), 'resource review is absent')
     return review
 

@@ -328,7 +328,7 @@ def bootstrap_contract_digest():
     # hash. The selected root SHA is independently bound to reviewed trunk.
     base = ROOT / 'certification/hosted-pilot/bootstrap'
     paths = sorted(path for path in base.glob('*.tf') if path.name != 'recovery-imports.tf')
-    paths += [base / '.terraform.lock.hcl', base / 'foundation-bootstrap-workflow.yml', ROOT / 'tools/hosted_pilot/bootstrap.py', ROOT / 'tools/hosted_pilot/deploy.py', ROOT / 'tools/hosted_pilot/bootstrap_phase.py']
+    paths += [base / '.terraform.lock.hcl', base / 'foundation-bootstrap-workflow.yml', ROOT / 'tools/hosted_pilot/bootstrap.py', ROOT / 'tools/hosted_pilot/deploy.py', ROOT / 'tools/hosted_pilot/bootstrap_phase.py', ROOT / 'tools/hosted_pilot/custody_completion.py']
     value = hashlib.sha256()
     for path in paths:
         value.update(str(path.relative_to(ROOT)).encode() + b'\0' + path.read_bytes() + b'\0')
@@ -443,7 +443,7 @@ def planned_creation_resources(value):
     return result
 
 
-def plan(cfg_path, work, *, custody_only=False):
+def plan(cfg_path, work, *, custody_only=False, observation_only=False):
     path = work / ('custody.tfplan' if custody_only else 'saved.tfplan')
     cmd = ['terraform', 'plan', '-input=false', '-no-color', f'-var-file={cfg_path}',
            '-var=bootstrap_execution_id=' + os.environ.get('PILOT_CREATION_RUN_ID', os.environ['GITHUB_RUN_ID']),
@@ -454,6 +454,10 @@ def plan(cfg_path, work, *, custody_only=False):
     expected_sha = digest(path)
     shown = json.loads(run(['terraform', 'show', '-json', str(path)]))
     changes = summarize(shown)
+    if observation_only:
+        require(custody_only and all(row['actions'] in (['read'], ['no-op']) for row in changes) and
+            not any(row.get('change', {}).get('importing') for row in shown.get('resource_changes', [])),
+            'canonical custody reconciliation cannot create, import, update or destroy infrastructure')
     scope_path=work/'creation-resources.json'
     scope=json.loads(scope_path.read_text()) if scope_path.exists() else []
     for resource in planned_creation_resources(shown):
@@ -473,7 +477,7 @@ def exact_apply(path, expected, work):
     return expected
 
 
-def observe_original_custody(binding, identity, cfg, source_root, work):
+def observe_original_custody(binding, identity, cfg, source_root, work, *, permit_unfinished=False):
     """Preserve actual original custody tags, separately from this phase's new resources."""
     from bootstrap_phase import api
     secured = secure_backend(binding)
@@ -495,17 +499,24 @@ def observe_original_custody(binding, identity, cfg, source_root, work):
         require(re.fullmatch(r'[a-f0-9]{40}', original[key]), 'original custody source is invalid')
     for key in ('config_sha256', 'provider_lock_sha256'):
         require(re.fullmatch(r'[a-f0-9]{64}', original[key]), 'original custody source digest is invalid')
-    require(original['config_path'] == identity['config_path'], 'custody uses a different reviewed configuration path')
+    require(re.fullmatch(r'certification/hosted-pilot/bootstrap/deployments/[A-Za-z0-9._-]+\.tfvars\.json', original['config_path']), 'custody original configuration path is invalid')
     run(['git', '-C', str(source_root), 'merge-base', '--is-ancestor', original['foundation_source_sha'], identity['foundation_source_sha']])
     run(['git', '-C', str(ROOT), 'merge-base', '--is-ancestor', original['release_root_sha'], identity['release_root_sha']])
-    require(hashlib.sha256(run(['git', '-C', str(source_root), 'show', original['foundation_source_sha']+':'+original['config_path']])).hexdigest() == original['config_sha256'], 'custody original configuration source differs')
+    original_config = run(['git', '-C', str(source_root), 'show', original['foundation_source_sha']+':'+original['config_path']])
+    require(hashlib.sha256(original_config).hexdigest() == original['config_sha256'], 'custody original configuration source differs')
+    original_value = json.loads(original_config)
+    require(all(original_value.get(field) == cfg[field] for field in ('account_id', 'region', 'name_prefix')), 'custody original account, region or namespace differs')
     require(hashlib.sha256(run(['git', '-C', str(ROOT), 'show', original['release_root_sha']+':certification/hosted-pilot/bootstrap/.terraform.lock.hcl'])).hexdigest() == original['provider_lock_sha256'], 'custody original provider lock differs')
     producer = api('repos/honua-io/honua-iac/actions/runs/'+tags['BootstrapExecution'])
     workflow = api('repos/honua-io/honua-iac/actions/workflows/hosted-pilot-bootstrap.yml')
     require(producer.get('id') == int(tags['BootstrapExecution']) and producer.get('workflow_id') == workflow.get('id') and
             workflow.get('path') == '.github/workflows/hosted-pilot-bootstrap.yml' and producer.get('head_sha') == original['foundation_source_sha'] and
-            producer.get('head_branch') == 'trunk' and producer.get('event') == 'workflow_dispatch' and producer.get('status') == 'completed' and producer.get('conclusion') == 'success',
-            'custody original native producer is not successful at its observed source')
+            producer.get('head_branch') == 'trunk' and producer.get('event') == 'workflow_dispatch' and producer.get('status') == 'completed' and producer.get('conclusion') in ('success', 'failure', 'cancelled', 'timed_out'),
+            'custody original native producer differs or is still incomplete')
+    creator = {'run_id': tags['BootstrapExecution'], 'identity': original}
+    if producer['conclusion'] != 'success' and not permit_unfinished:
+        from custody_completion import observe_successful_recovery
+        observe_successful_recovery(cfg, secured, creator, work, aws=aws)
     private_json(work/'creation-identity.json', {'run_id': tags['BootstrapExecution'], 'identity': original})
     return tags
 
@@ -515,7 +526,11 @@ def phase_review(identity, actor, cfg, cfg_digest, phase, changes, plan_path, wo
     review = {'schema': SCHEMA, **identity, 'resolved_config_sha256': cfg_digest,
         'execution_identity': actor, 'creation_resources': json.loads((work/'creation-resources.json').read_text()),
         'phase': phase, 'resource_changes': changes, 'plan_sha256': digest(plan_path),
-        'run_id': os.environ['GITHUB_RUN_ID'], 'run_attempt': os.environ['GITHUB_RUN_ATTEMPT'], **deadlines(cfg)}
+        'run_id': os.environ['GITHUB_RUN_ID'], 'run_attempt': os.environ['GITHUB_RUN_ATTEMPT'], **deadlines(cfg),
+        'custody_observation_only': (work/'custody-observation-only.json').exists(),
+        'original_creation': {'run_id': os.environ.get('PILOT_CREATION_RUN_ID', os.environ['GITHUB_RUN_ID']),
+            'identity': json.loads(os.environ.get('PILOT_CREATION_IDENTITY', json.dumps(identity)))},
+        'custody_recovery': json.loads((work/'original-successful-custody.json').read_text()) if (work/'original-successful-custody.json').exists() else None}
     private_json(work/'review.json', review)
     return review
 
@@ -571,8 +586,11 @@ def apply_prepared(identity, actor, cfg, cfg_digest, phase, binding, work):
         if prepared['remote']:
             save_recovery(binding, cfg, identity, work)
         # This receipt contains no application bindings; the foundation has not run.
+        creator = review['original_creation']
         private_json(work/'custody-applied.json', {'schema': 'honua.hosted-pilot-custody-applied/v1', 'review': review,
-            'approval': proof, 'state_binding': secured, 'apply_admission_sha256': digest(work/'apply-admitted.json'), 'custody_recovery_sha256': digest(work/'custody-recovery.json')})
+            'approval': proof, 'original_creation': creator, 'state_binding': secured, 'apply_admission_sha256': digest(work/'apply-admitted.json'), 'custody_recovery_sha256': digest(work/'custody-recovery.json')})
+        from custody_completion import retain
+        retain(json.loads((work/'custody-applied.json').read_text()), cfg, secured, work, aws=aws, exists=exists)
         print('Only reviewed custody applied and canonical state verified; foundation phase has not run.')
         return
     outputs = json.loads(run(['terraform', 'output', '-json']))
@@ -662,22 +680,29 @@ def main():
             require((work / 'recovery-input/custody-recovery.json').exists(), 'partial insecure custody requires its governed recovery journal; no application infrastructure will run')
     if args.phase == 'remote-backed-foundation':
         require(remote and has_state, 'foundation phase requires existing secured canonical custody; custody apply is a separate reviewed run')
-    if args.phase == 'custody-only':
-        require(not has_state, 'canonical custody already exists; initial custody phase cannot maintain or replace it')
+    custody_observation = args.phase == 'custody-only' and remote and has_state
+    if custody_observation:
+        private_json(work/'custody-observation-only.json', {'schema': 'honua.custody-observation-only/v1', 'infrastructure_mutation_allowed': False})
     if remote and has_state:
-        cfg['bootstrap_custody_creation_tags'] = observe_original_custody(binding, identity, cfg, source_root, work)
+        cfg['bootstrap_custody_creation_tags'] = observe_original_custody(binding, identity, cfg, source_root, work, permit_unfinished=custody_observation)
         # Only custody retains original producer tags; this phase's newly created
         # IAM/orchestration resources belong to the current native run.
-        e['PILOT_CREATION_RUN_ID'] = e['GITHUB_RUN_ID']
-        e['PILOT_CREATION_IDENTITY'] = json.dumps(identity)
+        if custody_observation:
+            e['PILOT_CREATION_RUN_ID'] = cfg['bootstrap_custody_creation_tags']['BootstrapExecution']
+            e['PILOT_CREATION_IDENTITY'] = json.dumps({key: cfg['bootstrap_custody_creation_tags'][tag] for key, tag in IDENTITY_TAGS.items()})
+        else:
+            e['PILOT_CREATION_RUN_ID'] = e['GITHUB_RUN_ID']
+            e['PILOT_CREATION_IDENTITY'] = json.dumps(identity)
         private_json(resolved_cfg_path, cfg)
         resolved_cfg_digest = digest(resolved_cfg_path)
     private_json(work/'prepared-config.json', cfg)
-    if not remote or not has_state:
+    if not remote or not has_state or custody_observation:
         refuse_unbound_initial_custody(cfg, work)
         if not remote:
             run(['terraform', 'init', '-backend=false', '-lockfile=readonly', '-input=false', '-no-color'], log=work / 'init.log')
-        initial, changes, initial_sha = plan(resolved_cfg_path, work, custody_only=True)
+        initial, changes, initial_sha = plan(resolved_cfg_path, work, custody_only=True, observation_only=True) if custody_observation else plan(resolved_cfg_path, work, custody_only=True)
+        if custody_observation:
+            require(all(row['actions'] in (['read'], ['no-op']) for row in changes), 'canonical custody cannot be maintained or replaced by reconciliation')
         if args.mode == 'prepare':
             prepare_phase(identity, actor, cfg, resolved_cfg_digest, 'custody-only', changes, initial, binding, remote, work)
         else:
