@@ -43,3 +43,24 @@ response inspected transiently in memory. A namespace reference in excluded
 payload data still counts as observed history requiring reconciliation; removing
 payloads cannot turn it into a zero-history finding. The original dated report,
 amounts, response digests and existing private cache custody remain unchanged.
+
+The later authenticated collection at `20261023T134500Z.json` retains the same
+coverage start and a 13:45 UTC cutoff. Its UTC-day cost query ends exclusively
+on October 24 and observes 157.0291032026 USD in gross usage, including 0.16 USD
+Cost Explorer usage. Preserve the original 151 USD hold and its evidence; add
+an 8 USD extension for a minimum 159 USD unresolved usage/diagnostic hold.
+This amount is neither a settled attributable pilot charge nor an upper bound
+on later accrual or cleanup. The new report retains the actual GitHub-only
+foundation-environment producer39937421185 instead of pretending no run exists.
+Its exact original source/jobs are projected separately for reconciliation.
+
+`legacy-lambda-liabilities-20261023.json` preserves both original 20 USD cell
+ceilings, incomplete retirement, encrypted-state identities and actual estimates
+0.3224/0.3944 USD. These estimates are not settlements; the original resource
+and cleanup obligations remain. `legacy-model-liabilities-20261023.json` retains
+the three available genuine model receipt totals and original hashes. Its 20 USD
+per-run amounts are additional conservative reservations, not measured prices.
+The 13:54 completed canary is outside the 13:45 billing/history cutoff and remains
+separately reserved. Older unknown charges are not released by this projection.
+No raw model transcript, browser cookies, secret values or Terraform state is
+committed here.
