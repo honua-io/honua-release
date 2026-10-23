@@ -56,6 +56,10 @@ def preflight(*, config, initial, expected, item_id):
         'style task lacks independent source-frozen expected content and exact map identity')
     require(canonical_digest(style)[7:] != expected['styleDocumentSha256'],
             'prepared fixture already contains the completed style task')
+    initial = project(style, config, require_label=False)
+    require(any(canonical_digest(initial[key]) != canonical_digest(expected[key]) for key in
+                ('labelField', 'floodColor', 'floodOpacity')),
+            'prepared fixture already contains the completed style task semantics')
 
 
 def label_field(expression):
@@ -75,7 +79,7 @@ def label_field(expression):
     return field
 
 
-def project(style, config):
+def project(style, config, *, require_label=True):
     def owner(row):
         metadata = row.get('metadata', {})
         require(isinstance(metadata, dict), 'map style ownership metadata is malformed')
@@ -97,15 +101,18 @@ def project(style, config):
         0 <= paint['fill-opacity'] <= 1, 'flood style lacks explicit actual color/opacity')
     labels = [row for row in shelters if row.get('type') == 'symbol' and
               isinstance(row.get('layout'), dict) and 'text-field' in row['layout']]
-    require(len(labels) == 1, 'shelter names need one actual owned symbol label layer')
-    label = labels[0]
-    label_paint = label.get('paint', {})
-    require(label['layout'].get('visibility', 'visible') == 'visible' and isinstance(label_paint, dict) and
-        type(label_paint.get('text-opacity', 1)) in (int, float) and
-        math.isfinite(label_paint.get('text-opacity', 1)) and 0 < label_paint.get('text-opacity', 1) <= 1,
-        'saved shelter label is hidden or transparent')
+    require(len(labels) == 1 or not require_label and not labels, 'shelter names need one actual owned symbol label layer')
+    field = None
+    if labels:
+        label = labels[0]
+        label_paint = label.get('paint', {})
+        require(label['layout'].get('visibility', 'visible') == 'visible' and isinstance(label_paint, dict) and
+            type(label_paint.get('text-opacity', 1)) in (int, float) and
+            math.isfinite(label_paint.get('text-opacity', 1)) and 0 < label_paint.get('text-opacity', 1) <= 1,
+            'saved shelter label is hidden or transparent')
+        field = label_field(label['layout']['text-field'])
     return {'styleDocumentSha256': canonical_digest(style)[7:],
-        'labelField': label_field(label['layout']['text-field']),
+        'labelField': field,
         'floodColor': paint['fill-color'], 'floodOpacity': paint['fill-opacity']}
 
 
@@ -118,6 +125,9 @@ def observe(observer, *, config, initial, saved, save_selection, selections):
         saved['versionNumber'] > initial['versionNumber'], 'style task must save a demonstrably new version')
     initial_style, style = document(initial, config), document(saved, config)
     require(canonical_digest(initial_style) != canonical_digest(style), 'unchanged prepared style cannot satisfy model styling')
+    before, after = project(initial_style, config, require_label=False), project(style, config)
+    require(any(canonical_digest(before[key]) != canonical_digest(after[key]) for key in
+                ('labelField', 'floodColor', 'floodOpacity')), 'style task semantics were already complete before the model mutation')
     require(save_selection.get('tool') == SAVE and canonical_digest(save_selection.get('resource')) == canonical_digest(saved) and
         type(save_selection.get('ordinal')) is int and save_selection['ordinal'] > 0,
         'style observation lacks the original model save selection')

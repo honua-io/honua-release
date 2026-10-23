@@ -120,6 +120,34 @@ def test_unrelated_initial_style_cannot_already_be_the_completed_task(authoring)
     with pytest.raises(PackError, match='unchanged prepared style'): check(authoring, initial, edit, saved)
 
 
+@pytest.mark.parametrize('entry', ['preflight', 'observation'])
+def test_preexisting_semantic_style_cannot_be_credited_by_changing_unrelated_document_metadata(authoring, entry):
+    from agent_e2e_studio_style_observer import preflight
+    body = copy.deepcopy(DESIRED)
+    body['mapSpec']['metadata'] = {'unrelated': 'initial-map-note'}
+    initial = prepare(authoring, body)
+    with pytest.raises(PackError, match='completed style task semantics|style task semantics were already complete'):
+        if entry == 'preflight':
+            preflight(config=CONFIG, initial=initial, expected={'mapId': authoring.binding['itemId'], **EXPECTED},
+                      item_id=authoring.binding['itemId'])
+        else:
+            edit, saved = mutate_and_save(authoring)
+            check(authoring, initial, edit, saved)
+
+
+@pytest.mark.parametrize('incomplete', ['flood-paint', 'shelter-label'])
+def test_a_remaining_real_style_task_is_not_confused_with_an_unrelated_document_change(authoring, incomplete):
+    from agent_e2e_studio_style_observer import preflight
+    body = copy.deepcopy(DESIRED)
+    if incomplete == 'flood-paint': body['mapSpec']['layers'][0]['paint'] = INITIAL['mapSpec']['layers'][0]['paint']
+    else: body['mapSpec']['layers'].pop()
+    initial = prepare(authoring, body)
+    preflight(config=CONFIG, initial=initial, expected={'mapId': authoring.binding['itemId'], **EXPECTED},
+              item_id=authoring.binding['itemId'])
+    edit, saved = mutate_and_save(authoring)
+    assert check(authoring, initial, edit, saved)['actual'] == {'mapId': authoring.binding['itemId'], **EXPECTED}
+
+
 def test_style_observation_configuration_cannot_select_model_derived_hashes_or_invent_layer_aliases():
     for config in [{'floodLayerId': 'same', 'shelterLayerId': 'same'}, {**CONFIG, 'styleDocumentSha256': 'a'*64}]:
         with pytest.raises(PackError): validate(config)
