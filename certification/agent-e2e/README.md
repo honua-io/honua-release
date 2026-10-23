@@ -275,3 +275,31 @@ approve publication. Missing configuration remains an explicit unsupported
 assertion, and a configured but invalid proof fails the assertion. Separate human
 publication approval and the remaining custody assertions are unchanged. Local
 HTTP and PostgreSQL controls do not qualify real IdP custody or a campaign run.
+
+Private `prepare-native-context` can adopt a Console-authored turn through optional
+`configuration.consoleTurn`: `{workspaceId, sessionCustody: {key, sha256}, pack:
+{path: "certification/agent-e2e/pack.v2.json", sha256}, caseId, contextSha256,
+sourceSha256}`. `turnId` and `viewId` remain the reviewed outer configuration.
+The prompt must equal that original case/variant's frozen prompt. The context hash
+covers the exact native captured context; the source hash covers the object
+`{draft, localProcessSnapshot, datasetImportContext, browserFileSelection}` with
+missing fields represented as null. Review these original input references before
+execution. They never replace expected output bodies or oracle predicates.
+Adoption uses only GETs under the real human and issued agent. It requires the
+native original `originatingActorId`, a matching validated human/Console subject
+and partition, unchanged source/context, independent agent readback, and the exact
+immutable MCP version. The old empty fixture-preparation path remains preparation.
+Missing native author projection, ordinary-human admission, real sign-in custody,
+linked workspace membership, or scoped grants blocks actual use.
+
+A case may declare controller-only `consoleConversation: {nativeContext: {key,
+sha256}, workerMcp: {key, sha256}}`, where `workerMcp` refers to the original
+private MCP completed record. Before starting the case, the controller verifies
+that the native context was adopted for this case and that the exact worker
+revision injects that immutable MCP version. The existing funded external model
+remains the sole model path; Console's native model can stay disabled. The final
+provider response is retained privately with its original journal digest/request
+identity and appended verbatim through the turn-bound conversation API. Native
+GET readback resolves lost append replies without another POST or model request.
+Unknown outcomes retain their originals. Conversation text remains conversation;
+resource outcomes still require the independent native and browser oracles.

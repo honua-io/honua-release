@@ -41,9 +41,12 @@ def source_configuration(reference):
 
 def native_context(durable, config):
     fields = {'candidateKey', 'operation', 'nativeBootstrapOperationId', 'endpoint', 'requesterCredentialEnv', 'viewId', 'turnId', 'humanCreator'}
-    require(fields <= set(config) <= fields | {'mcpConfiguration'} and
+    require(fields <= set(config) <= fields | {'mcpConfiguration', 'consoleTurn'} and
             config['candidateKey'] == durable.store.candidate and config['requesterCredentialEnv'] == 'HONUA_AGENT_REQUESTER_KEY' and
-            config['viewId'] == 'studio-native' and re.fullmatch(r'[A-Za-z0-9_-]{1,100}', config['turnId']), 'native context setup must use its actual issued agent key and reviewed turn')
+            (config['viewId'] == 'studio-native' or 'consoleTurn' in config and re.fullmatch(r'[A-Za-z0-9_-]{1,100}', config['viewId'])) and re.fullmatch(r'[A-Za-z0-9_-]{1,100}', config['turnId']), 'native context setup must use its actual issued agent key and reviewed turn')
+    if 'consoleTurn' in config:
+        from console_turn import declaration
+        declaration(config['consoleTurn'])
     human = config['humanCreator']
     require(set(human) == {'credentialEnv', 'secretArn', 'versionId'} and
             human['credentialEnv'] == 'HONUA_SOURCE_CONTRIBUTOR_OPERATOR_TOKEN' and
@@ -57,7 +60,10 @@ def native_context(durable, config):
     require('agent:workspace' in key_record['permissions'] and isinstance(key_record['apiKeyId'], str), 'native context key lacks observed workspace grant')
     # One original operation owns this namespace even if a caller substitutes a
     # different issued key. Exact public key identity remains in retained custody.
-    phase = canonical_digest({'kind': 'native-agent-context', 'candidateKey': config['candidateKey'], 'operation': config['operation'], 'nativeBootstrapOperationId': config['nativeBootstrapOperationId'], 'humanCreator': human})
+    phase_identity = {'kind': 'native-agent-context', 'candidateKey': config['candidateKey'], 'operation': config['operation'], 'nativeBootstrapOperationId': config['nativeBootstrapOperationId'], 'humanCreator': human}
+    if 'consoleTurn' in config:
+        phase_identity['consoleTurn'] = config['consoleTurn']
+    phase = canonical_digest(phase_identity)
     stages = durable.state.setdefault('studioBootstrapOperations', {})
     require(phase+'/start' not in stages, 'native context setup already started; reconcile original observations without replay')
     def transport(credential_env, credential_kind, agent_context=None):
@@ -91,19 +97,33 @@ def native_context(durable, config):
             human_principal['actorId'] != agent_principal['actorId'] and
             human_principal.get('tenantId') == agent_principal.get('tenantId'),
             'native agent principal, Studio owner or human/agent tenant binding differs')
-    workspace_answer = client.json('native-workspace-create', 'POST', '/api/v1/agent/workspaces',
-        {'viewId': config['viewId'], 'targetId': target['targetId']})
-    workspace = body(workspace_answer, (200, 201))
-    require(isinstance(workspace.get('workspaceId'), str) and re.fullmatch(r'[A-Za-z0-9_-]{1,200}', workspace['workspaceId']) and
-            workspace.get('viewId') == config['viewId'] and workspace.get('targetId') == target['targetId'] and
-            type(workspace.get('revision')) is int and workspace['revision'] == 0 and
-            workspace.get('selectedResources') == [] and workspace.get('task') is None,
-            'native initial context is not its exact actual empty workspace')
-    turn_answer = client.json('native-turn-capture', 'POST', '/api/v1/agent/workspaces/'+workspace['workspaceId']+'/turns',
-        {'turnId': config['turnId'], 'viewId': config['viewId'], 'contextRevision': workspace['revision'],
-         'prompt': 'Prepare this isolated fixture context; do not execute a campaign task.'})
-    turn = body(turn_answer)
-    require(turn.get('turnId') == config['turnId'] and turn.get('context') == workspace, 'native server did not capture the requested actual context/turn')
+    console_observation = None
+    if 'consoleTurn' in config:
+        from console_turn import observe_session, validate_turn
+        adopted = config['consoleTurn']
+        console_observation = observe_session(durable, adopted['sessionCustody'], config['endpoint'], human_principal)
+        require(console_observation['nativeTarget'] == target, 'Console and native bearer target differ')
+        workspace_path = '/api/v1/agent/workspaces/'+adopted['workspaceId']
+        workspace_answer = client.json('native-human-workspace-read', 'GET', workspace_path+'?viewId='+config['viewId'])
+        turn_answer = client.json('native-human-turn-read', 'GET', workspace_path+'/turns/'+config['turnId'])
+        workspace, turn = body(workspace_answer), body(turn_answer)
+        require(workspace.get('viewId') == config['viewId'] and workspace.get('targetId') == target['targetId'],
+            'Console workspace selected a different view or native target')
+        validate_turn(adopted, turn=turn, workspace=workspace, turn_id=config['turnId'], human=human_principal)
+    else:
+        workspace_answer = client.json('native-workspace-create', 'POST', '/api/v1/agent/workspaces',
+            {'viewId': config['viewId'], 'targetId': target['targetId']})
+        workspace = body(workspace_answer, (200, 201))
+        require(isinstance(workspace.get('workspaceId'), str) and re.fullmatch(r'[A-Za-z0-9_-]{1,200}', workspace['workspaceId']) and
+                workspace.get('viewId') == config['viewId'] and workspace.get('targetId') == target['targetId'] and
+                type(workspace.get('revision')) is int and workspace['revision'] == 0 and
+                workspace.get('selectedResources') == [] and workspace.get('task') is None,
+                'native initial context is not its exact actual empty workspace')
+        turn_answer = client.json('native-turn-capture', 'POST', '/api/v1/agent/workspaces/'+workspace['workspaceId']+'/turns',
+            {'turnId': config['turnId'], 'viewId': config['viewId'], 'contextRevision': workspace['revision'],
+             'prompt': 'Prepare this isolated fixture context; do not execute a campaign task.'})
+        turn = body(turn_answer)
+        require(turn.get('turnId') == config['turnId'] and turn.get('context') == workspace, 'native server did not capture the requested actual context/turn')
     agent = transport(config['requesterCredentialEnv'], 'api-key', {'workspaceId': workspace['workspaceId'], 'turnId': turn['turnId']})
     workspace_read_answer = agent.json('native-workspace-readback', 'GET',
         '/api/v1/agent/workspaces/'+workspace['workspaceId']+'?viewId='+config['viewId'])
@@ -113,6 +133,8 @@ def native_context(durable, config):
     require(workspace_read == workspace and turn_read.get('turnId') == turn['turnId'] and
             turn_read.get('context') == workspace and turn_read.get('status') == turn.get('status'),
             'actual issued agent cannot read back its installed workspace membership and captured turn')
+    if 'consoleTurn' in config:
+        require(turn_read == turn, 'issued agent cannot read the exact original human turn/source')
     value = {'schema': 'honua.native-agent-context/v1', 'candidateKey': config['candidateKey'],
         'issuedAgentKey': key_record, 'studioOwnerPrincipalId': agent_principal['studioOwnerId'],
         'workspaceAgentPrincipalId': agent_principal['actorId'], 'agentPrincipal': agent_principal, 'humanCreatorPrincipal': human_principal, 'humanCredentialBinding': human,
@@ -122,6 +144,8 @@ def native_context(durable, config):
         'nativeOriginals': {'target': target_answer, 'agentTarget': agent_target_answer, 'workspace': workspace_answer, 'turn': turn_answer,
             'workspaceReadback': workspace_read_answer, 'turnReadback': turn_read_answer},
         'producerTaskArn': os.environ['PILOT_CONTROLLER_TASK_ARN'], 'qualification': False}
+    if 'consoleTurn' in config:
+        value['consoleTurn'] = {'configuration': config['consoleTurn'], 'sessionObservation': console_observation}
     retain('completed', value)
     result = {'key': phase+'/completed', 'sha256': canonical_digest(value), 'value': value, 'qualification': False}
     if 'mcpConfiguration' in config:

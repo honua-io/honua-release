@@ -34,6 +34,10 @@ CONTRACT_PATHS = (
     'tools/hosted_pilot/setup_key_retirement.py',
     'tools/hosted_pilot/setup_key_retirement_dispatch.py',
     'tools/hosted_pilot/prepare.py',
+    'tools/hosted_pilot/console_turn.py',
+    'tools/agent_e2e_console_conversation.py',
+    'tools/agent_e2e_backend.py',
+    'tools/agent_e2e_controller.py',
     'tools/hosted_pilot/worker_mcp_configuration.py',
 )
 SOURCE_LIMIT = 256 * 1024 * 1024

@@ -160,3 +160,79 @@ class WorkerMcpCustody(unittest.TestCase):
             self.provision()
         self.secrets.get_secret_value.assert_not_called()
         self.assertEqual(self.secrets.put_secret_value.call_count, 1)
+
+
+class AdoptedWorkerMcp(unittest.TestCase):
+    setUp = WorkerMcpCustody.setUp
+    provision = WorkerMcpCustody.provision
+
+    def adopt(self):
+        from agent_e2e_pack import digest_bytes, load_json, select
+        from browser_session import operator_partition
+        from pathlib import Path
+        value = self.durable.state['studioBootstrapOperations'][self.reference['key']]
+        records = self.durable.state['scenarioOperations']
+        human = value['humanCreatorPrincipal']; human['subjectId'] = 'actual-console-subject'
+        pack_path = Path(__file__).resolve().parents[2]/'certification/agent-e2e/pack.v2.json'
+        case_id = 'P14:A:aws-ecs-redis-on'
+        case, scenario = select(load_json(pack_path), case_id)
+        turn = value['turn']
+        turn.update(originatingActorId=human['actorId'], status='accepted', messages=[
+            {'id': turn['turnId']+'-user', 'turnId': turn['turnId'], 'role': 'user', 'content': scenario['prompts'][case['variant']]}])
+        profile = {'id': 'actual-profile', 'serverUri': self.cfg['endpoint'].removesuffix('/mcp')}
+        observed = {'consoleProfile': profile, 'nativeTarget': {'targetId': value['workspace']['targetId'], 'principal': human},
+            'session': {'authenticated': True, 'environmentId': profile['id'], 'principalId': operator_partition(human['subjectId'], profile)},
+            'deployment': {'actual': 'deployment'}}
+        custody = {'schema': 'honua.private-console-human-session/v1', 'producer': 'private-console-human-capture',
+            'candidateKey': self.candidate, 'qualification': False, 'configuration': {'consoleProfile': profile}, 'observed': observed}
+        records['original-session'] = custody
+        declaration = {'workspaceId': value['workspace']['workspaceId'], 'sessionCustody': {'key': 'original-session', 'sha256': canonical_digest(custody)},
+            'pack': {'path': 'certification/agent-e2e/pack.v2.json', 'sha256': digest_bytes(pack_path.read_bytes())}, 'caseId': case_id,
+            'contextSha256': canonical_digest(value['workspace']), 'sourceSha256': canonical_digest({
+                name: None for name in ('draft', 'localProcessSnapshot', 'datasetImportContext', 'browserFileSelection')})}
+        value['consoleTurn'] = {'configuration': declaration, 'sessionObservation': observed}
+        for name, original_name in [('workspace', 'workspaceReadback'), ('turn', 'turnReadback')]:
+            source = value['nativeOriginals'][original_name]['reference']
+            response = copy.deepcopy(records[source['key']])
+            original_intent = records[response['intentReference']['key']]
+            intent = dict(original_intent, credentialKind='bearer')
+            intent_ref = {'key': name+'-human-intent', 'sha256': canonical_digest(intent)}
+            records[intent_ref['key']] = intent
+            response.update(intentReference=intent_ref, intentDigest=intent_ref['sha256'])
+            records[name+'-human-response'] = response
+            value['nativeOriginals'][name] = {'reference': {'key': name+'-human-response', 'sha256': canonical_digest(response)}}
+        for name in ('target', 'turnReadback', 'workspace', 'turn'):
+            reference = value['nativeOriginals'][name]['reference']
+            reference['sha256'] = canonical_digest(records[reference['key']])
+        self.reference['sha256'] = canonical_digest(value)
+        return value
+
+    def test_original_turn_gets_a_distinct_immutable_version_without_rebinding_fixture_context(self):
+        preparatory = self.provision()
+        value = self.adopt()
+        adopted = self.provision()
+        self.assertNotEqual(preparatory['versionId'], adopted['versionId'])
+        self.assertEqual(adopted['nativeContext'], self.reference)
+        self.assertEqual(self.provision(), adopted)
+        self.assertEqual(self.secrets.put_secret_value.call_count, 2)
+        self.assertEqual(value['turn']['originatingActorId'], value['humanCreatorPrincipal']['actorId'])
+
+    def test_rehashed_turn_with_wrong_original_author_refuses_before_secret_write(self):
+        value = self.adopt()
+        value['turn']['originatingActorId'] = 'different-human'
+        for name in ('turn', 'turnReadback'):
+            ref = value['nativeOriginals'][name]['reference']
+            self.durable.state['scenarioOperations'][ref['key']]['response']['body'] = value['turn']
+            ref['sha256'] = canonical_digest(self.durable.state['scenarioOperations'][ref['key']])
+        self.reference['sha256'] = canonical_digest(value)
+        with self.assertRaisesRegex(ValueError, 'human-authored'):
+            self.provision()
+        self.secrets.put_secret_value.assert_not_called()
+
+    def test_missing_original_human_turn_read_cannot_be_replaced_by_agent_readback(self):
+        value = self.adopt()
+        reference = value['nativeOriginals']['turn']['reference']
+        del self.durable.state['scenarioOperations'][reference['key']]
+        with self.assertRaisesRegex(ValueError, 'absent or changed'):
+            self.provision()
+        self.secrets.put_secret_value.assert_not_called()
