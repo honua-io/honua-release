@@ -49,7 +49,8 @@ def test_actual_guide_binds_all_six_frozen_blocks_and_only_documented_key():
     plan = compile_plan(doc, extract(text, "markdown"))
     frozen = json.loads((HERE / "inventory.json").read_text())
     row = next(d for d in frozen["documents"] if d["id"] == "honua-site-docs-geoprocessing-index")
-    assert row["revision"] == "99dee72bb8d7d77bb01d1ba16807b499ba7fb853"
+    # Inventory advanced; the full source blob remains 77366a018f0d13d9106f8cadc457fa1805a461bf.
+    assert row["revision"] == "6c5ab1ee3ecbf52dc32de79d30c16e0e13912735"
     assert [b.sha256 for b in extract(text, "markdown")] == [b["sha256"] for b in row["blocks"]]
     assert [plan[i]["runtime"] for i in range(6)] == ["node", "node", "python", "python", "dotnet", "dotnet"]
     variables = load_vars(HERE / "vars", row["id"])

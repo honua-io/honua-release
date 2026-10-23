@@ -1185,7 +1185,7 @@ def test_public_feature_sample_binds_its_exact_documented_service_token():
     document = next(d for d in inventory["documents"] if d["id"] == ident)
     code = "export HONUA_BASE_URL=http://localhost:8080\nexport HONUA_SAMPLE_SERVICE=your-feature-service\n"
     block = extract("```bash\n" + code + "```\n", "markdown")[0]
-    assert document["revision"] == "adab3d070a44b0472f16c8f97a407e8bccf84db3"  # README blob 900e416 unchanged since 65253c9
+    assert document["revision"] == "4322cb5efcd0cc0a64e9f9cb9b6b9cc2a0b0ca1b"  # Verified unchanged README blob 900e416031983354a9a2deff96f779b74f9144aa.
     assert block.sha256 == document["blocks"][0]["sha256"]
     variables = load_vars(HERE / "vars", ident)
     assert set(variables["substitute"]) == {"your-feature-service"}
