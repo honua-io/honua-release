@@ -3,6 +3,7 @@
 from __future__ import annotations
 import json
 import os
+from datetime import datetime, timezone
 from pathlib import Path
 import re
 import sys
@@ -18,10 +19,10 @@ from fixture_handoff import sdk
 from native_bootstrap import NoRedirect, authorize
 
 
-def validate(config):
+def validate(config, *, allow_expired=False):
     fields = {'schemaVersion', 'candidateKey', 'generationDigest', 'bootstrapArtifactDigest', 'state', 'operation',
         'region', 'accountId', 'endpoint', 'nativeBootstrapOperationId', 'setupKey', 'fixtureReference',
-        'preparationOutcome', 'bucket', 'receiptKey', 'clusterArn', 'taskDefinitionFamily', 'imageUri', 'rootSecretArn', 'taskRoleArn', 'executionRoleArn', 'mode', 'originalClaim', 'claimTable'}
+        'preparationOutcome', 'bucket', 'receiptKey', 'clusterArn', 'taskDefinitionFamily', 'imageUri', 'rootSecretArn', 'taskRoleArn', 'executionRoleArn', 'mode', 'originalClaim', 'claimTable', 'expiresAt', 'retirementProtocol'}
     require(set(config) == fields and config['schemaVersion'] == 1 and config['accountId'] == '585192672263' and
             config['region'] == 'us-east-1' and config['state']['region'] == config['region'] and
             all(re.fullmatch(r'sha256:[a-f0-9]{64}', config[key]) for key in ('candidateKey', 'generationDigest', 'bootstrapArtifactDigest')),
@@ -32,6 +33,10 @@ def validate(config):
             re.fullmatch(r'[a-f0-9]{64}', config['setupKey']['versionId']) and
             re.fullmatch(r'arn:aws:secretsmanager:us-east-1:585192672263:secret:honua-pilot-[a-z0-9-]+-agent/native-agent/setup-[A-Za-z0-9]{6}', config['setupKey']['secretArn']),
             'setup retirement cannot select a new credential or another identity')
+    require(isinstance(config['operation'], dict) and set(config['operation']) == {'operationId', 'liabilityBasisDigest', 'reservationIds'} and
+            set(config['operation']['reservationIds']) == {'infrastructure', 'cleanup'} and
+            len(set(config['operation']['reservationIds'].values())) == 2,
+            'retirement requires both distinct original bootstrap infrastructure and cleanup reservations')
     require(set(config['fixtureReference']) == {'key', 'sha256'} and
             all(re.fullmatch(r'sha256:[a-f0-9]{64}', value) for value in config['fixtureReference'].values()),
             'actual retained saved fixture reference required')
@@ -40,10 +45,13 @@ def validate(config):
             re.fullmatch(r'arn:aws:iam::585192672263:role/honua-pilot-[a-z0-9-]+-retire-execution', config['executionRoleArn']) and
             re.fullmatch(r'585192672263\.dkr\.ecr\.us-east-1\.amazonaws\.com/honua-pilot-[a-z0-9-]+-trusted-controller@sha256:[a-f0-9]{64}', config['imageUri']),
             'retirement must retain separate private issuer/task/execution custody')
-    require(config['mode'] in ('retire', 'observe') and re.fullmatch(r'honua-pilot-[a-z0-9-]+-controller-dispatch-claims', config['claimTable']),
+    expiry = datetime.fromisoformat(config['expiresAt'].replace('Z', '+00:00'))
+    require(expiry.tzinfo is not None and (allow_expired or datetime.now(timezone.utc) < expiry) and config['retirementProtocol'] == 2,
+            'retirement requires its original immutable unexpired request protocol/deadline')
+    require(config['mode'] in ('retire', 'observe', 'resume') and re.fullmatch(r'honua-pilot-[a-z0-9-]+-controller-dispatch-claims', config['claimTable']),
             'retirement needs a fixed effect/observation mode and original dispatch claims')
     original = config['originalClaim']
-    if config['mode'] == 'observe':
+    if config['mode'] != 'retire':
         require(isinstance(original, dict) and set(original) == {'table', 'key', 'bindingDigest', 'taskArn', 'taskDefinitionArn'} and
                 original['table'] == config['claimTable'] and re.fullmatch(r'dispatch:[a-f0-9]{64}', original['key']) and
                 re.fullmatch(r'sha256:[a-f0-9]{64}', original['bindingDigest']) and
@@ -53,7 +61,7 @@ def validate(config):
     else:
         require(original is None, 'a new revoke cannot select another original claim')
     candidate = config['candidateKey'][7:]
-    receipt_suffix = 'retire' if original is None else 'observe-'+original['key'].split(':', 1)[1]
+    receipt_suffix = 'retire' if original is None else config['mode']+'-'+original['key'].split(':', 1)[1]
     require(config['preparationOutcome']['bucket'] == config['bucket'] and
             config['preparationOutcome']['key'].startswith('controller/outcomes/'+candidate+'/') and
             config['receiptKey'] == 'native/setup-key-retirement/'+candidate+'/'+config['setupKey']['apiKeyId']+'/'+receipt_suffix+'.json' and
@@ -146,7 +154,7 @@ def observe_preparation(config, *, s3, ecs, directory, states=None):
 def native_http(config, credential, method, path):
     root = '/api/v1/admin/api-keys/'+config['setupKey']['apiKeyId']
     require((method, path) in (('GET', root+'/effective-permissions'), ('POST', root+'/revoke')) and
-            (method == 'GET' or config['mode'] == 'retire'),
+            (method == 'GET' or config['mode'] in ('retire', 'resume')),
             'retirement HTTP may only observe or revoke the original setup key')
     request = urllib.request.Request(config['endpoint']+path, method=method,
         headers={'X-API-Key': credential, 'Accept': 'application/json'}, data=b'' if method == 'POST' else None)
@@ -165,87 +173,111 @@ def native_http(config, credential, method, path):
                 'bodyFormat': 'json' if value is not None else 'empty' if not raw else 'non-json'}
 
 
+def retention_prefix(config, native):
+    base = canonical_digest({'kind': 'setup-key-retirement', 'candidateKey': config['candidateKey'],
+        'operationId': config['operation']['operationId'], 'setupKeyId': config['setupKey']['apiKeyId'], 'fixture': config['fixtureReference']})
+    return base if config['mode'] == 'retire' else base+'/recoveries/'+config['mode']+'/'+canonical_digest({'taskArn': native['taskArn']})[7:]
+
+
 def retire(config, durable, *, root_credential, setup_credential, preparation, native, http=native_http, original=None):
     validate(config)
     issued, fixture = retained_authority(config, durable)
     require(len(root_credential) >= 32 and len(setup_credential) >= 32 and root_credential != setup_credential and
             preparation['taskArn'] != native['taskArn'] and preparation['lastStatus'] == 'STOPPED',
             'retirement requires distinct original private issuer/setup credentials and a fresh private task')
-    prefix = canonical_digest({'kind': 'setup-key-retirement', 'candidateKey': config['candidateKey'],
-        'operationId': config['operation']['operationId'], 'setupKeyId': config['setupKey']['apiKeyId'], 'fixture': config['fixtureReference']})
     records = durable.state.setdefault('scenarioOperations', {})
-    if config['mode'] == 'retire':
-        require(prefix+'/start' not in records, 'setup retirement already started; reconcile its original native observations without another revoke')
-    else:
-        require(original is not None and original['taskArn'] == config['originalClaim']['taskArn'] and original['lastStatus'] == 'STOPPED',
-                'observation-only recovery needs the exact independently stopped original task')
-        original_start = records.get(prefix+'/start', {})
-        original_before = records.get(prefix+'/active-setup-read', {}).get('value', {})
-        original_active = (original_before.get('body') or {}).get('data', {})
-        require(original_start.get('producer') == 'private-setup-key-retirement' and
-                original_start.get('value', {}).get('native', {}).get('taskArn') == original['taskArn'] and
-                original_before.get('httpStatus') == 200 and original_active.get('id') == issued['apiKeyId'] and
-                original_active.get('status') == 'active' and original_active.get('canAuthenticate') is True and
-                sorted(original_active.get('permissions', [])) == sorted(issued['permissions']) and
-                prefix+'/revoke-intent' in records, 'observation-only recovery lacks original positive control or revoke intent')
-        prefix += '/observations/'+canonical_digest({'taskArn': native['taskArn']})[7:]
-        require(prefix+'/start' not in records, 'retirement recovery already observed; preserve original result')
-    def retain(stage, value):
+    prefix = retention_prefix(config, native)
+    require(prefix+'/start' not in records, 'setup retirement already started; reconcile original task without replay')
+    if config['mode'] != 'retire':
+        require(original is not None and original['taskArn'] == config['originalClaim']['taskArn'] and original['lastStatus'] == 'STOPPED' and
+                original.get('claim') == config['originalClaim'], 'retirement recovery needs exact independently stopped original task/claim')
+        if config['mode'] == 'observe':
+            initial = original['originalPrefix']
+            before = records.get(initial+'/active-setup-read', {}).get('value', {})
+            active = (before.get('body') or {}).get('data', {})
+            require(before.get('httpStatus') == 200 and active.get('id') == issued['apiKeyId'] and active.get('status') == 'active' and
+                    active.get('canAuthenticate') is True and sorted(active.get('permissions', [])) == sorted(issued['permissions']) and
+                    initial+'/revoke-intent' in records, 'observation-only recovery lacks original positive control or revoke intent')
+    def guard():
         authorize(config, durable)
+        require(datetime.now(timezone.utc) < datetime.fromisoformat(config['expiresAt'].replace('Z', '+00:00')),
+                'original retirement expiry exhausted; retain original observations and liabilities')
+    def retain(stage, value):
+        guard()
         require(prefix+'/'+stage not in records, 'setup retirement observation already retained')
-        # Raw credentials never enter durable state, receipts, source or logs.
         require(root_credential.encode() not in canonical(value) and setup_credential.encode() not in canonical(value), 'setup retirement cannot retain credential material')
         records[prefix+'/'+stage] = {'producer': 'private-setup-key-retirement', 'candidateKey': config['candidateKey'], 'value': value}
         durable._persist()
+    def effective(answer, status, authenticates):
+        value = (answer.get('body') or {}).get('data', {})
+        return answer['httpStatus'] == 200 and value.get('id') == issued['apiKeyId'] and value.get('status') == status and \
+            value.get('canAuthenticate') is authenticates and sorted(value.get('permissions', [])) == sorted(issued['permissions'])
     path = '/api/v1/admin/api-keys/'+issued['apiKeyId']
     retain('start', {'configurationDigest': canonical_digest(config), 'fixtureReference': config['fixtureReference'],
         'setupKey': config['setupKey'], 'preparation': preparation, 'native': native})
-    if config['mode'] == 'retire':
-        before = http(config, setup_credential, 'GET', path+'/effective-permissions')
-        active = (before.get('body') or {}).get('data', {})
-        require(before['httpStatus'] == 200 and active.get('id') == issued['apiKeyId'] and active.get('status') == 'active' and
-                active.get('canAuthenticate') is True and sorted(active.get('permissions', [])) == sorted(issued['permissions']),
-                'original setup credential lacks its actual authenticated positive control')
-        retain('active-setup-read', before)
-        retain('revoke-intent', {'method': 'POST', 'path': path+'/revoke', 'setupKeyId': issued['apiKeyId'], 'credentialKind': 'independent-bootstrap-admin'})
-        authorize(config, durable)
-        try:
-            revoked = http(config, root_credential, 'POST', path+'/revoke')
-        except (TimeoutError, urllib.error.URLError):
-            # Reconcile a lost mutation acknowledgement by reads, never another POST.
-            retain('revoke-acknowledgement', {'status': 'unknown'})
-        else:
-            record = (revoked.get('body') or {}).get('data', {})
-            require(revoked['httpStatus'] == 200 and record.get('id') == issued['apiKeyId'] and record.get('status') == 'revoked',
-                    'native setup key revocation did not confirm original identity')
-            retain('revoke-response', revoked)
-    else:
+    if original is not None:
         retain('original-retirement', original)
-    authorize(config, durable)
+    before_status = None
+    if config['mode'] in ('retire', 'resume'):
+        guard()
+        before = http(config, setup_credential, 'GET', path+'/effective-permissions')
+        before_status = before['httpStatus']
+        if effective(before, 'active', True):
+            retain('active-setup-read', before)
+            if config['mode'] == 'resume':
+                guard()
+                independent = http(config, root_credential, 'GET', path+'/effective-permissions')
+                require(effective(independent, 'active', True), 'resumed revoke lacks fresh independent exact-key active control')
+                retain('active-independent-read', independent)
+            retain('revoke-intent', {'method': 'POST', 'path': path+'/revoke', 'setupKeyId': issued['apiKeyId'],
+                'credentialKind': 'independent-bootstrap-admin'})
+            # Durable admission separates known pre-send failures from ambiguous
+            # transmission. An admitted request is never described as unsent.
+            # Exact-ID native revoke uses COALESCE(revoked_at,@now): recovery
+            # preserves original RevokedAt while another audit/UpdatedAt may
+            # occur. Keep that uncertainty and its original cost liabilities.
+            retain('revoke-dispatch-admission', {'taskArn': native['taskArn'], 'setupKeyId': issued['apiKeyId'],
+                'originalClaim': config['originalClaim'], 'priorSendState': original['sendState'] if original else 'not-issued',
+                'possibleAdditionalAudit': config['mode'] == 'resume' and original['sendState'] == 'possibly-issued'})
+            guard()
+            try:
+                revoked = http(config, root_credential, 'POST', path+'/revoke')
+            except (TimeoutError, urllib.error.URLError):
+                retain('revoke-acknowledgement', {'status': 'unknown', 'requestMayHaveBeenSent': True})
+            else:
+                value = (revoked.get('body') or {}).get('data', {})
+                require(revoked['httpStatus'] == 200 and value.get('id') == issued['apiKeyId'] and value.get('status') == 'revoked',
+                        'native setup key revocation did not confirm original identity')
+                retain('revoke-response', revoked)
+        else:
+            require(config['mode'] == 'resume' and before['httpStatus'] == 401,
+                    'original setup credential lacks its actual authenticated positive control')
+            retain('already-denied-read', before)
+    guard()
     after = http(config, root_credential, 'GET', path+'/effective-permissions')
-    record = (after.get('body') or {}).get('data', {})
-    require(after['httpStatus'] == 200 and record.get('id') == issued['apiKeyId'] and record.get('status') == 'revoked' and
-            record.get('canAuthenticate') is False and sorted(record.get('permissions', [])) == sorted(issued['permissions']),
-            'independent native read did not prove original setup authority revoked')
+    require(effective(after, 'revoked', False), 'independent native read did not prove original setup authority revoked')
     retain('revoked-independent-read', after)
+    guard()
     denied = http(config, setup_credential, 'GET', path+'/effective-permissions')
     require(denied['httpStatus'] == 401, 'old setup credential still authenticates or only lacks scope; 403 is not revocation proof')
     retain('old-setup-denied', denied)
     receipt = {'schema': 'honua.private-setup-key-retirement/v1', 'candidateKey': config['candidateKey'],
         'configurationDigest': canonical_digest(config), 'operation': config['operation'], 'setupKey': config['setupKey'],
         'fixtureReference': config['fixtureReference'], 'preparation': preparation, 'native': native,
-        'revokedKeyId': issued['apiKeyId'], 'beforeStatus': 200, 'postRevocationProbeStatus': 401,
-        'retainedPrefix': prefix, 'mode': config['mode'], 'originalRetirement': original, 'qualification': False}
+        'revokedKeyId': issued['apiKeyId'], 'beforeStatus': before_status, 'postRevocationProbeStatus': 401,
+        'retainedPrefix': prefix, 'mode': config['mode'], 'originalRetirement': original,
+        'possibleAdditionalAudit': bool(original and original['sendState'] == 'possibly-issued' and before_status == 200),
+        'qualification': False}
     retain('completed', receipt)
     return receipt
 
 
-
-def observe_original_retirement(config, durable, *, ecs, db):
+def observe_original_retirement(config, durable, *, ecs, db, seen=()):
     """Read the exact old dispatch/terminal record; never start or revoke again."""
     authorize(config, durable)
     original = config['originalClaim']
-    require(config['mode'] == 'observe' and original is not None, 'original retirement observation mode required')
+    require(config['mode'] in ('observe', 'resume') and original is not None and len(seen) < 8 and original['key'] not in seen,
+            'bounded exact original retirement recovery chain required')
     row = db.get_item(TableName=original['table'], Key={'claimKey': {'S': original['key']}}, ConsistentRead=True).get('Item', {})
     require(row.get('bindingDigest', {}).get('S') == original['bindingDigest'] and row.get('taskArn', {}).get('S') == original['taskArn'],
             'original retirement dispatch does not match its actual retained claim')
@@ -260,20 +292,20 @@ def observe_original_retirement(config, durable, *, ecs, db):
     environment = definition['containerDefinitions'][0].get('environment', [])
     require(len(environment) == 1 and environment[0]['name'] == 'PILOT_SETUP_RETIREMENT_CONFIG', 'original retirement task configuration is absent')
     initial = json.loads(environment[0]['value'])
-    validate(initial)
+    validate(initial, allow_expired=True)
     from setup_key_retirement_dispatch import verify_definition
     verify_definition(definition, initial)
     same = ('candidateKey', 'generationDigest', 'bootstrapArtifactDigest', 'state', 'operation', 'region', 'accountId',
-        'endpoint', 'nativeBootstrapOperationId', 'setupKey', 'fixtureReference', 'preparationOutcome', 'bucket', 'rootSecretArn', 'claimTable')
-    require(initial['mode'] == 'retire' and all(initial[name] == config[name] for name in same) and
+        'endpoint', 'nativeBootstrapOperationId', 'setupKey', 'fixtureReference', 'preparationOutcome', 'bucket', 'rootSecretArn', 'claimTable',
+        'clusterArn', 'taskDefinitionFamily', 'taskRoleArn', 'executionRoleArn', 'expiresAt', 'retirementProtocol')
+    require(all(initial[name] == config[name] for name in same) and
             terminal['imageUri'] == initial['imageUri'], 'observation cannot substitute original setup, fixture, target or liabilities')
-    prefix = canonical_digest({'kind': 'setup-key-retirement', 'candidateKey': config['candidateKey'],
-        'operationId': config['operation']['operationId'], 'setupKeyId': config['setupKey']['apiKeyId'], 'fixture': config['fixtureReference']})
+    prefix = retention_prefix(initial, {'taskArn': original['taskArn']})
     start = durable.state.get('scenarioOperations', {}).get(prefix+'/start', {})
-    require(start.get('producer') == 'private-setup-key-retirement' and start.get('candidateKey') == config['candidateKey'] and
+    require((not start and config['mode'] == 'resume') or (start.get('producer') == 'private-setup-key-retirement' and start.get('candidateKey') == config['candidateKey'] and
             start.get('value', {}).get('configurationDigest') == canonical_digest(initial) and
             start['value']['native']['taskArn'] == original['taskArn'] and
-            start['value']['native']['taskDefinitionArn'] == original['taskDefinitionArn'],
+            start['value']['native']['taskDefinitionArn'] == original['taskDefinitionArn']),
             'original retirement task/config differs from actual before-effect custody')
     observed = ecs.describe_tasks(cluster=config['clusterArn'], tasks=[original['taskArn']])
     if observed.get('tasks'):
@@ -289,7 +321,11 @@ def observe_original_retirement(config, durable, *, ecs, db):
         # response before inspecting application exit or receipt publication.
         require(observed.get('failures') and all(error.get('reason') == 'MISSING' for error in observed['failures']),
                 'original retirement metadata failure cannot be reinterpreted as termination')
-    return terminal | {'claim': original, 'originalConfigurationDigest': canonical_digest(initial)}
+    ancestor = observe_original_retirement(initial, durable, ecs=ecs, db=db, seen=(*seen, original['key'])) if initial['mode'] != 'retire' else None
+    admitted = prefix+'/revoke-dispatch-admission' in durable.state.get('scenarioOperations', {})
+    return terminal | {'claim': original, 'originalConfigurationDigest': canonical_digest(initial), 'originalPrefix': prefix,
+        'sendState': 'possibly-issued' if admitted or ancestor and ancestor['sendState'] == 'possibly-issued' else 'not-issued',
+        'originalStartRetained': bool(start), 'ancestor': ancestor}
 
 
 def run():
@@ -317,7 +353,7 @@ def run():
     preparation = observe_preparation(config, s3=s3, ecs=ecs, states=sdk('stepfunctions', config['region']), directory='/work')
     durable = DurableExecution(open_store(config['state'], config['candidateKey']), '/work/setup-retirement-ledger.json')
     try:
-        original = observe_original_retirement(config, durable, ecs=ecs, db=sdk('dynamodb', config['region'])) if config['mode'] == 'observe' else None
+        original = observe_original_retirement(config, durable, ecs=ecs, db=sdk('dynamodb', config['region'])) if config['mode'] != 'retire' else None
         receipt = retire(config, durable, root_credential=os.environ['PILOT_SETUP_RETIRE_ROOT_KEY'],
                          setup_credential=os.environ['PILOT_SETUP_RETIRE_KEY'], preparation=preparation, native=native, original=original)
         s3.put_object(Bucket=config['bucket'], Key=config['receiptKey'], Body=canonical(receipt),

@@ -14,6 +14,7 @@ from agent_e2e_pack import canonical_digest, digest_bytes, load_json
 from bundle_agent_e2e_container import bundle
 from controller_image import call
 from deploy import ROOT, budget, require
+from image_retention import verify as verify_retention
 
 
 def configuration(path):
@@ -40,6 +41,7 @@ def main():
     require(e['PILOT_ACCOUNT_ID'] == '585192672263' and e['PILOT_REGION'] == 'us-east-1' and repository.startswith(prefix) and
             re.fullmatch(r'honua-pilot-[a-z0-9-]+-worker', repository[len(prefix):]), 'worker repository must be the existing isolated foundation destination')
     require(json.loads(call(['aws', 'sts', 'get-caller-identity', '--output', 'json'], capture=True))['Account'] == e['PILOT_ACCOUNT_ID'], 'worker publisher account differs')
+    retention = verify_retention(repository[len(prefix):], e['PILOT_ACCOUNT_ID'], e['PILOT_REGION'], call=call)
     # The existing create-only owner reservation can fund only this workflow run.
     # Its immutable source SHA also binds worker-image.json and selected exports.
     original_budget = budget()
@@ -63,6 +65,8 @@ def main():
               '--tmpfs', '/journal:rw,uid=10001,gid=10001', '-v', str(smoke)+':/smoke.py:ro', '--entrypoint', 'python', image, '/smoke.py'])
         password = subprocess.run(['aws', 'ecr', 'get-login-password', '--region', e['PILOT_REGION']], capture_output=True)
         require(password.returncode == 0, 'worker registry login refused')
+        require(verify_retention(repository[len(prefix):], e['PILOT_ACCOUNT_ID'], e['PILOT_REGION'], call=call) == retention,
+                'worker artifact expiry changed before publication')
         call(['docker', 'login', '--username', 'AWS', '--password-stdin', repository.split('/')[0]], input=password.stdout)
         try:
             call(['docker', 'push', image])
@@ -74,7 +78,7 @@ def main():
     receipt = {'schema': 'honua.hosted-worker-image/v1', 'sourceSha': e['GITHUB_SHA'], 'runId': e['GITHUB_RUN_ID'], 'runAttempt': e['GITHUB_RUN_ATTEMPT'],
         'image': repository+'@'+image_digest, 'imageBytes': size, 'platform': 'linux/amd64', 'caseId': config['caseId'], 'pack': config['pack'],
         'knowledge': actual, 'publicBundleDigest': public_digest, 'runtimeBundleDigest': canonical_digest(index), 'ownerBudget': original_budget,
-        'qualification': False, 'modelExecution': 'not-run'}
+        'retention': retention, 'qualification': False, 'modelExecution': 'not-run'}
     (Path(e['RUNNER_TEMP'])/'hosted-pilot-worker-image.json').write_text(json.dumps(receipt, sort_keys=True)+'\n')
     print('Selected public A/B worker image published. Real native worker/model/cleanup evidence remains required.')
 

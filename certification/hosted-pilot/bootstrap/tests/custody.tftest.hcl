@@ -127,3 +127,20 @@ run "refuse_global_action_grant" {
   }
   expect_failures = [var.provision_policy_document]
 }
+run "immutable_worker_publications_have_finite_service_managed_expiry" {
+  command = plan
+  assert {
+    condition = (
+      aws_ecr_lifecycle_policy.worker.repository == aws_ecr_repository.worker.name &&
+      jsondecode(aws_ecr_lifecycle_policy.worker.policy).rules[0].selection.tagStatus == "untagged" &&
+      jsondecode(aws_ecr_lifecycle_policy.worker.policy).rules[0].selection.countNumber == 1 &&
+      jsondecode(aws_ecr_lifecycle_policy.worker.policy).rules[1].selection.tagStatus == "any" &&
+      jsondecode(aws_ecr_lifecycle_policy.worker.policy).rules[1].selection.countType == "sinceImagePushed" &&
+      jsondecode(aws_ecr_lifecycle_policy.worker.policy).rules[1].selection.countNumber == 14 &&
+      jsondecode(aws_ecr_lifecycle_policy.worker.policy).rules[1].action.type == "expire" &&
+      contains(jsondecode(aws_iam_role_policy.controller_image.policy).Statement[1].Action, "ecr:GetLifecyclePolicy") &&
+      !strcontains(aws_iam_role_policy.controller_image.policy, "ecr:BatchDeleteImage")
+    )
+    error_message = "Every immutable image, including an acknowledged-lost push, must expire without granting arbitrary publisher deletion."
+  }
+}

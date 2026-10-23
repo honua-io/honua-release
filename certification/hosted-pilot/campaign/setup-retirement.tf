@@ -11,7 +11,7 @@ variable "setup_key_retirement" {
   })
   default = null
   validation {
-    condition     = var.setup_key_retirement == null ? true : (var.setup_key_retirement.mode == "retire" ? var.setup_key_retirement.originalClaim == null : var.setup_key_retirement.mode == "observe" && var.setup_key_retirement.originalClaim != null)
+    condition     = var.setup_key_retirement == null ? true : (var.setup_key_retirement.mode == "retire" ? var.setup_key_retirement.originalClaim == null : contains(["observe", "resume"], var.setup_key_retirement.mode) && var.setup_key_retirement.originalClaim != null)
     error_message = "Retirement has one effect mode with no prior claim, or observation-only recovery bound to its original permanent task claim."
   }
 }
@@ -22,11 +22,11 @@ locals {
     schemaVersion    = 1, region = var.region, accountId = var.account_id, candidateKey = var.candidate_digest,
     generationDigest = var.dispatch_budget.generationDigest, state = module.accounting.state_config,
     endpoint         = local.origin, setupKey = merge(var.issued_native_keys.setup, { secretArn = aws_secretsmanager_secret.api["setup"].arn }),
-    bucket           = aws_s3_bucket.handoff.id, receiptKey = "native/setup-key-retirement/${local.candidate_hex}/${var.issued_native_keys.setup.apiKeyId}/${var.setup_key_retirement.mode == "retire" ? "retire" : "observe-${trimprefix(var.setup_key_retirement.originalClaim.key, "dispatch:")}"}.json",
+    bucket           = aws_s3_bucket.handoff.id, receiptKey = "native/setup-key-retirement/${local.candidate_hex}/${var.issued_native_keys.setup.apiKeyId}/${var.setup_key_retirement.mode == "retire" ? "retire" : "${var.setup_key_retirement.mode}-${trimprefix(var.setup_key_retirement.originalClaim.key, "dispatch:")}"}.json",
     clusterArn       = local.target_cluster_arn, taskDefinitionFamily = "arn:aws:ecs:${var.region}:${var.account_id}:task-definition/${var.name_prefix}-setup-key-retirement",
     imageUri         = var.controller_image.uri, rootSecretArn = module.target.admin_password_secret_arn,
     taskRoleArn      = aws_iam_role.setup_retirement[0].arn, executionRoleArn = aws_iam_role.retirement_execution[0].arn,
-    claimTable       = aws_dynamodb_table.claims["dispatch"].name
+    claimTable       = aws_dynamodb_table.claims["dispatch"].name, expiresAt = var.expires_at, retirementProtocol = 2
   })
 }
 resource "aws_iam_role" "setup_retirement" {

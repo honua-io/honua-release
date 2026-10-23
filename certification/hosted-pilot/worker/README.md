@@ -70,3 +70,15 @@ schedule expression, timezone, exact start/end timestamps, disabled flexible
 window, target role/input, retry policy, DLQ and completion action with applied
 IaC and the worker's original absolute expiry. No schedule read is a launch or a
 passing runtime-cleanup receipt.
+
+Immutable worker image storage is finite even if a push succeeds and receipt
+publication fails. The versioned bootstrap root installs an ECR lifecycle policy
+that makes untagged artifacts eligible after one day and all worker images,
+including uniquely tagged retry images, eligible after fourteen days. The
+publisher independently reads and compares the actual policy before spending a
+build allowance and again before push, then retains its policy digest in the
+image receipt. AWS performs service-managed expiry asynchronously, normally
+within 24 hours after eligibility; metadata, budgets, original claims and
+private evidence remain retained. Publishers receive no arbitrary image-delete
+permission. Use a newly verified digest for later runtime work; image receipt
+retention does not imply indefinite registry retention.

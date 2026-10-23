@@ -38,7 +38,8 @@ class SetupRetirement(unittest.TestCase):
             'rootSecretArn': 'arn:aws:secretsmanager:us-east-1:585192672263:secret:honua-pilot-unit-agent-admin-password-ABC123',
             'taskRoleArn': 'arn:aws:iam::585192672263:role/honua-pilot-unit-agent-setup-retire',
             'executionRoleArn': 'arn:aws:iam::585192672263:role/honua-pilot-unit-agent-retire-execution',
-            'mode': 'retire', 'originalClaim': None, 'claimTable': 'honua-pilot-unit-agent-controller-dispatch-claims'}
+            'mode': 'retire', 'originalClaim': None, 'claimTable': 'honua-pilot-unit-agent-controller-dispatch-claims',
+            'expiresAt':'2099-01-01T00:00:00Z','retirementProtocol':2}
         prefix = canonical_digest({'kind': 'native-bootstrap', 'candidateKey': candidate, 'operationId': 'original-bootstrap'})
         originals = {**original_http, **{prefix+'/key-'+kind: {'producer': 'private-native-bootstrap', 'candidateKey': candidate, 'value': record}
                                        for kind, record in issued.items()}}
@@ -80,8 +81,9 @@ class SetupRetirement(unittest.TestCase):
                 'secrets': [{'name': 'PILOT_SETUP_RETIRE_ROOT_KEY', 'valueFrom': config['rootSecretArn']},
                     {'name': 'PILOT_SETUP_RETIRE_KEY', 'valueFrom': config['setupKey']['secretArn']+':::'+config['setupKey']['versionId']}]}]}
 
-    def recovery(self, *, exit_code=1):
+    def recovery(self, *, exit_code=1, mode='observe'):
         original_config = copy.deepcopy(self.config)
+        original_definition = self.definition(original_config)
         task = {'taskArn': self.native['taskArn'], 'taskDefinitionArn': self.native['taskDefinitionArn'], 'lastStatus': 'STOPPED',
                 'containers': [{'image': self.config['imageUri'], 'exitCode': exit_code}], 'enableExecuteCommand': False}
         terminal = {'taskArn': task['taskArn'], 'taskDefinitionArn': task['taskDefinitionArn'],
@@ -90,11 +92,12 @@ class SetupRetirement(unittest.TestCase):
                  'taskArn': task['taskArn'], 'taskDefinitionArn': task['taskDefinitionArn']}
         row = {'bindingDigest': {'S': claim['bindingDigest']}, 'taskArn': {'S': task['taskArn']},
                'terminalDigest': {'S': digest(canonical(terminal))}, 'terminalObservation': {'S': canonical(terminal).decode()}}
-        self.config.update(mode='observe', originalClaim=claim)
-        self.config['receiptKey'] = self.config['receiptKey'].replace('/retire.json', '/observe-'+'4'*64+'.json')
-        self.native = self.native | {'taskArn': task['taskArn'][:-32]+'9'*32}
+        self.config.update(mode=mode, originalClaim=claim)
+        self.config['receiptKey'] = self.config['receiptKey'].replace('/retire.json', '/'+mode+'-'+'4'*64+'.json')
+        self.native = self.native | {'taskArn': task['taskArn'][:-32]+'9'*32,
+            'taskDefinitionArn':self.config['taskDefinitionFamily']+':4'}
         ecs, db = MagicMock(), MagicMock()
-        ecs.describe_task_definition.return_value = {'taskDefinition': self.definition(original_config)}
+        ecs.describe_task_definition.return_value = {'taskDefinition': original_definition}
         ecs.describe_tasks.return_value = {'tasks': [task]}
         db.get_item.return_value = {'Item': row}
         return ecs, db
@@ -259,3 +262,72 @@ class SetupRetirement(unittest.TestCase):
         terminal = json.loads(db.update_item.call_args.kwargs['ExpressionAttributeValues'][':observation']['S'])
         self.assertEqual(terminal['exitCode'], 0)
         self.assertEqual(terminal['lastStatus'], 'STOPPED')
+
+    def test_resume_finishes_each_pre_send_crash_without_changing_old_history_or_liabilities(self):
+        for cut in ('before-start-commit','start','active-setup-read','revoke-intent','revoke-dispatch-admission'):
+            with self.subTest(cut=cut):
+                self.setUp()
+                initial=copy.deepcopy(self.durable.state)
+                stage='start' if cut=='before-start-commit' else cut
+                def persist():
+                    if any(key.endswith('/'+stage) for key in self.durable.state['scenarioOperations']):
+                        raise RuntimeError('actual process interruption after stage')
+                self.durable._persist.side_effect=persist
+                with self.assertRaises(RuntimeError):self.retire()
+                if cut=='before-start-commit':self.durable.state=initial  # fresh process loads unchanged committed head
+                self.durable._persist.side_effect=None
+                originals=copy.deepcopy(self.durable.state['scenarioOperations'])
+                ledger=copy.deepcopy(self.durable.state['ledger'])
+                ecs,db=self.recovery(mode='resume')
+                proof=retirement.observe_original_retirement(self.config,self.durable,ecs=ecs,db=db)
+                receipt=self.retire(proof)
+                self.assertEqual(sum(method=='POST' for _,method,_ in self.calls),1)
+                self.assertEqual(receipt['postRevocationProbeStatus'],401)
+                self.assertEqual(proof['sendState'],'possibly-issued' if cut=='revoke-dispatch-admission' else 'not-issued')
+                for key,value in originals.items():self.assertEqual(self.durable.state['scenarioOperations'][key],value)
+                self.assertEqual(self.durable.state['ledger'],ledger)
+    def test_resume_retains_possibly_sent_request_and_performs_one_bounded_exact_key_revoke(self):
+        native_http=self.http
+        def ambiguous(config,credential,method,path):
+            if method=='POST':
+                self.calls.append((credential,method,path))
+                raise TimeoutError('wire outcome unknown; current authority still active')
+            return native_http(config,credential,method,path)
+        self.http=ambiguous
+        with self.assertRaisesRegex(ValueError,'did not prove original setup authority revoked'):self.retire()
+        originals=copy.deepcopy(self.durable.state['scenarioOperations'])
+        self.http=native_http
+        ecs,db=self.recovery(mode='resume')
+        proof=retirement.observe_original_retirement(self.config,self.durable,ecs=ecs,db=db)
+        receipt=self.retire(proof)
+        self.assertEqual(proof['sendState'],'possibly-issued')
+        self.assertTrue(receipt['possibleAdditionalAudit'])
+        self.assertEqual(sum(method=='POST' for _,method,_ in self.calls),2)
+        self.assertTrue(all(path=='/api/v1/admin/api-keys/'+self.config['setupKey']['apiKeyId']+'/revoke' for _,method,path in self.calls if method=='POST'))
+        for key,value in originals.items():self.assertEqual(self.durable.state['scenarioOperations'][key],value)
+    def test_resume_of_already_revoked_original_is_observation_only(self):
+        self.retire();ecs,db=self.recovery(mode='resume')
+        proof=retirement.observe_original_retirement(self.config,self.durable,ecs=ecs,db=db)
+        before=len(self.calls)
+        receipt=self.retire(proof)
+        self.assertEqual([method for _,method,_ in self.calls[before:]],['GET','GET','GET'])
+        self.assertEqual(receipt['beforeStatus'],401)
+        self.assertFalse(receipt['possibleAdditionalAudit'])
+    def test_resume_cannot_renew_expiry_or_skip_stopped_original_task(self):
+        for change in ('extend','expired','running-original','changed-custody-role'):
+            with self.subTest(change=change):
+                self.setUp();self.retire();ecs,db=self.recovery(mode='resume')
+                calls=len(self.calls)
+                if change=='extend':self.config['expiresAt']='2100-01-01T00:00:00Z'
+                elif change=='expired':self.config['expiresAt']='2020-01-01T00:00:00Z'
+                elif change=='changed-custody-role':self.config['taskRoleArn']='arn:aws:iam::585192672263:role/honua-pilot-foreign-agent-setup-retire'
+                else:ecs.describe_tasks.return_value['tasks'][0]['lastStatus']='RUNNING'
+                with self.assertRaises(ValueError):
+                    retirement.validate(self.config)
+                    retirement.observe_original_retirement(self.config,self.durable,ecs=ecs,db=db)
+                self.assertEqual(len(self.calls),calls)
+    def test_empty_or_aliased_effect_cleanup_reservations_refuse_before_http(self):
+        for rows in ({},{'infrastructure':'original-infra','cleanup':'original-infra'}):
+            self.config['operation']['reservationIds']=rows
+            with self.assertRaisesRegex(ValueError,'both distinct original'):self.retire()
+        self.assertEqual(self.calls,[])

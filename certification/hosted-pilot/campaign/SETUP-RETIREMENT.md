@@ -47,3 +47,24 @@ original observations remain a blocker. No ledger is reset or allowance
 replaced. Retirement proves neither a fresh model worker nor a successful case;
 the original stopped task and immutable retirement receipt must be joined into
 the subsequent independent case custody evidence.
+
+If the original task stopped before issuing a revoke, or its wire outcome is
+ambiguous and independent reads still show the original setup authority active,
+review `mode = "resume"` with that exact original stopped task/claim. This is a
+separate source-bound admission under the same retained global dispatch budget,
+bootstrap reservations, immutable setup key/version and original deployment
+`expiresAt`. Protocol 2 records a before-wire admission; missing admission is
+classified as not issued, while a retained admission remains possibly issued.
+Every earlier recovery task in the bounded original chain must also be
+independently stopped. The deadline cannot be renewed by a new task/config.
+
+A resume task freshly authenticates the exact old setup credential and
+independently reads that same native key's active status/permissions before
+admitting one revoke request. Native exact-ID revoke preserves its original
+`RevokedAt` when repeated; `UpdatedAt` and a native revoke audit can repeat.
+Possible earlier requests, audits and costs therefore remain unresolved in
+append-only custody. An already revoked key is handled by reads only. Every
+successful recovery still requires the independent revoked-status read and
+old-key 401; it never mints, rotates or selects another credential, discards a
+claim, resets a ledger or replaces original liabilities. A new task consumes
+another original dispatch slot even when a previous acknowledgement was lost.
