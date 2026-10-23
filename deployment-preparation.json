@@ -1,0 +1,8 @@
+{
+  "schema": "honua.deployment-preparation/v1",
+  "status": "unadmitted",
+  "candidateQualified": false,
+  "purpose": "Observe exact ECR Lambda mirror digest through the checked-in trunk cloud workflow before finishing PR821",
+  "serverRevision": "8cb074f77d01c0a00617ebe426460aa24c7d890b",
+  "sourceImageWorkflowRunId": 39876804619
+}
