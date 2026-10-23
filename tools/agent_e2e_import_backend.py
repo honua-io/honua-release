@@ -52,6 +52,50 @@ class Session(WorkerSession):
     OPTIONAL_FIELDS = {'sourceContribution'}
     DATABASE = ImportedFixtureDatabase
 
+    def cleanup_number(self):
+        active = getattr(self, '_import_cleanup_pass', None)
+        if active is not None:
+            return active
+        return max((row['passNumber'] for key, row in self.durable.state.get('importCleanupPasses', {}).items()
+                    if key.startswith(self.key+'/import-cleanup-')), default=None)
+
+    def retain(self, name, value):
+        number = getattr(self, '_import_cleanup_pass', None)
+        return super().retain(('import-cleanup-'+str(number)+'/' if number is not None else '')+name, value)
+
+    def phase(self, name):
+        number = self.cleanup_number()
+        if number is not None:
+            row = super().phase('import-cleanup-'+str(number)+'/'+name)
+            if row is not None:
+                return row
+        return super().phase(name)
+
+    def cleanup(self):
+        from agent_e2e_state import DurableExecution
+        self.durable._require_live_lease()
+        number = self.cleanup_number()
+        if number is not None:
+            previous = self.durable.state.get('importCleanupOutcomes', {}).get(self.key+'/import-cleanup-'+str(number))
+            if previous is not None and previous['result']['status'] == 'pass':
+                return copy.deepcopy(previous['result'])
+        number = DurableExecution.begin_import_cleanup(self.durable, self.context)
+        original = self.context
+        self.context = {**original, 'importCleanupPass': number}
+        self._import_cleanup_pass = number
+        try:
+            result = super().cleanup()
+            DurableExecution.finish_import_cleanup(self.durable, self.context, result)
+            return result
+        finally:
+            self.context = original
+            self._import_cleanup_pass = None
+
+    def cleanup_ownership(self):
+        number = self.cleanup_number()
+        key = self.key if number is None else self.key+'/import-cleanup-'+str(number)
+        return self.durable.state.get('fixtureOwnership', {}).get(key)
+
     def validate_observer(self, http, secrets):
         config = self.config['import']
         require(set(config) == {'workspaceId', 'ownerPrincipalId', 'tenantId', 'targetId', 'destinations',
@@ -202,13 +246,22 @@ class Session(WorkerSession):
     def prepare_cleanup_ownership(self):
         require(self.value('worker-stopped') is not None, 'native import ownership cannot change before task worker is independently stopped')
         observer = self.observer_for_recovery()
+        cleaned = {}
+        for key, record in self.durable.state.get('fixtureOwnership', {}).items():
+            if key != self.key and not key.startswith(self.key+'/import-cleanup-'):
+                continue
+            absence = self.durable.state.get('fixtureCleanup', {}).get(key+'/observation')
+            if absence is not None:
+                previous = self.database.previously_cleaned(record, absence)
+                require(not set(cleaned) & set(previous), 'duplicate prior cleanup job ownership')
+                cleaned.update(previous)
         intents = sorted((row for row in self.durable.state.get('scenarioOperations', {}).values() if
             row.get('producer') == self.PROFILE and row.get('identity') == identity(self.context) and
             row.get('phase', '').startswith('model-action-') and
             row.get('value', {}).get('action', {}).get('name') == 'mcp_call_tool' and
             row['value']['action'].get('input', {}).get('name') == SUBMIT),
             key=lambda row: int(row['phase'].rsplit('-', 1)[1]))
-        observations, unresolved, seen = [], [], set()
+        observations, unresolved, seen, previous_outputs = [], [], set(), []
         for row in intents:
             ordinal, value = int(row['phase'].rsplit('-', 1)[1]), row['value']
             arguments = value['action']['input'].get('arguments', {})
@@ -217,10 +270,13 @@ class Session(WorkerSession):
                 continue
             seen.add(task)
             try:
-                actual = observer.reconcile_submission(value['action'], value['dispatch'], step='cleanup-import-'+str(ordinal))
+                step = 'cleanup-import-'+str(self.cleanup_number() or 0)+'-'+str(ordinal)
+                actual = observer.reconcile_submission(value['action'], value['dispatch'], step=step, cleaned=cleaned)
                 receipt = actual['submission']
                 if actual['dataset'] is not None:
                     observations.append(actual)
+                elif actual.get('previousCleanup') is not None:
+                    previous_outputs.append(actual)
                 elif receipt.get('state') != 'accepted' or receipt.get('job', {}).get('status') not in ('failed', 'cancelled') or \
                         receipt.get('job', {}).get('outcomePending') is not False:
                     unresolved.append({'ordinal': ordinal, 'taskId': actual['taskId'], 'submission': receipt,
@@ -239,7 +295,8 @@ class Session(WorkerSession):
             if original is None or canonical_digest([original.get('taskId'), original.get('revision'), original.get('contentHash')]) not in seen:
                 unresolved.append({'ordinal': ordinal, 'taskId': original.get('taskId') if original else None,
                     'reason': 'created-task-or-source-retention-unresolved'})
-        self.retain('cleanup-import-reconciliation', {'materialized': observations, 'unresolved': unresolved})
+        self.retain('cleanup-import-reconciliation', {'materialized': observations, 'unresolved': unresolved,
+            'previouslyCleaned': previous_outputs})
         baseline = self.durable.state['fixtureBaselines'][self.key]
         if not observations:
             self.durable.retain_fixture_ownership(self.context, self.database.ownership_empty(baseline))

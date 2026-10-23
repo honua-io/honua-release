@@ -119,6 +119,33 @@ def validate_retained_import_transfer(state, context, request, candidate):
                 native['tableOid'] in used_oids or native['jobId'] in used_jobs):
             raise PackError('model import original task/job GETs do not corroborate exact actual physical output')
         used_oids.add(native['tableOid']); used_jobs.add(native['jobId'])
+    for retained_key, previous in state.get('importTransferRequests', {}).items():
+        if retained_key != key and not retained_key.startswith(key+'/'):
+            continue
+        if previous == request:
+            continue  # Private read-only revalidation of the exact retained request.
+        if ({row['oid'] for row in previous['tables']} & set(tables) or
+                any({row[field] for row in previous['nativeImports']} & {row[field] for row in request['nativeImports']}
+                    for field in ('jobId', 'leaseId')) or
+                {(row['taskId'], row['taskRevision'], row['taskContentHash']) for row in previous['nativeImports']} &
+                {(row['taskId'], row['taskRevision'], row['taskContentHash']) for row in request['nativeImports']}):
+            raise PackError('another retained import transfer already owns this table/job/lease/task effect')
+    return key
+
+
+def fixture_cleanup_key(durable, context):
+    base = durable._fixture_identity(context)
+    number = context.get('importCleanupPass')
+    if number is None:
+        return base
+    if type(number) is not int or not 1 <= number <= 240:
+        raise PackError('invalid bounded import cleanup pass')
+    key = base+'/import-cleanup-'+str(number)
+    row = durable.state.get('importCleanupPasses', {}).get(key)
+    if (not isinstance(row, dict) or row.get('candidateKey') != durable.store.candidate or
+            row.get('identity') != {field: context[field] for field in ('campaignId', 'caseId', 'attempt', 'campaignMode')} or
+            row.get('passNumber') != number):
+        raise PackError('cleanup pass lacks its original retained declaration')
     return key
 
 
@@ -272,7 +299,8 @@ def preserve_history(previous, current):
         return
     for field in ('campaigns', 'attemptArtifacts', 'scenarioOperations', 'fixtureBaselines', 'fixtureOwnership',
                   'fixtureCleanup', 'fixtureTransferRequests', 'nativeCostAllocations', 'nativeOverheadAllocations', 'nativeBindings',
-                  'studioBootstrapOperations', 'studioBootstrapFixtures', 'importTransferRequests'):
+                  'studioBootstrapOperations', 'studioBootstrapFixtures', 'importTransferRequests',
+                  'importCleanupPasses', 'importCleanupOutcomes'):
         for key, value in previous.get(field, {}).items():
             if canonical_digest(current.get(field, {}).get(key)) != canonical_digest(value):
                 raise PackError('cannot rewrite or erase retained campaign evidence')
@@ -512,10 +540,12 @@ class DurableExecution:
 
     def retain_fixture_ownership(self, context, record):
         """Bind actual created OIDs/revisions to the independently retained baseline."""
-        key = self._fixture_identity(context)
+        base = self._fixture_identity(context)
+        key = fixture_cleanup_key(self, context)
         if (record.get('candidateKey') != self.store.candidate or
-                key not in self.state.get('fixtureBaselines', {}) or
-                canonical_digest(record.get('baseline')) != canonical_digest(self.state['fixtureBaselines'][key])):
+                base not in self.state.get('fixtureBaselines', {}) or
+                canonical_digest(record.get('baseline')) != canonical_digest(self.state['fixtureBaselines'][base]) or
+                key != base and record.get('profile') != 'honua.model-import-owned-tables/v1'):
             raise PackError('fixture ownership differs from retained independent baseline')
         owned = self.state.setdefault('fixtureOwnership', {})
         if key in owned:
@@ -555,24 +585,25 @@ class DurableExecution:
 
     def retain_import_transfer_request(self, context, request):
         """Admit bounded exact native import outputs, preserving legacy P10 three."""
-        key = self._fixture_identity(context)
-        if validate_retained_import_transfer(self.state, context, request, self.store.candidate) != key:
+        base = self._fixture_identity(context)
+        if validate_retained_import_transfer(self.state, context, request, self.store.candidate) != base:
             raise PackError('model import request identity changed during revalidation')
         requests = self.state.setdefault('importTransferRequests', {})
-        if key in requests:
+        if any(previous == request for key, previous in requests.items() if key == base or key.startswith(base+'/')):
             raise PackError('model import transfer already retained; observe without redispatch')
+        key = base+'/'+canonical_digest(request)
         requests[key] = copy.deepcopy(request)
         self._persist()
         return {'key': key, 'sha256': canonical_digest(request)}
 
     def require_fixture_ownership(self, context, record):
-        key = self._fixture_identity(context)
+        key = fixture_cleanup_key(self, context)
         retained = self.state.get('fixtureOwnership', {}).get(key)
         if retained is None or canonical_digest(retained) != canonical_digest(record):
             raise PackError('cleanup differs from exact retained fixture ownership')
 
     def retain_fixture_cleanup(self, context, kind, value):
-        key = self._fixture_identity(context)
+        key = fixture_cleanup_key(self, context)
         record = self.state.get('fixtureOwnership', {}).get(key)
         if (kind not in ('intent', 'observation') or record is None or
                 value.get('ownershipDigest') != canonical_digest(record) or
@@ -588,6 +619,36 @@ class DurableExecution:
         references[key] = copy.deepcopy(value)
         self._persist()
         return {'key': key, 'sha256': canonical_digest(value)}
+
+    def begin_import_cleanup(self, context):
+        base = self._fixture_identity(context)
+        passes = self.state.setdefault('importCleanupPasses', {})
+        prior = sorted(((row['passNumber'], key, row) for key, row in passes.items()
+                        if key.startswith(base+'/import-cleanup-')), key=lambda row: row[0])
+        previous = None
+        if prior:
+            previous = self.state.get('importCleanupOutcomes', {}).get(prior[-1][1])
+            if previous is None or previous['result']['status'] != 'blocked':
+                raise PackError('previous import cleanup is ambiguous or already complete; reconcile without replay')
+        number = len(prior)+1
+        if number > 240 or [row[0] for row in prior] != list(range(1, number)):
+            raise PackError('cleanup pass history is missing or exceeds its bound')
+        row = {'schemaVersion': 1, 'candidateKey': self.store.candidate,
+            'identity': {field: context[field] for field in ('campaignId', 'caseId', 'attempt', 'campaignMode')},
+            'passNumber': number, 'previousOutcomeDigest': None if previous is None else canonical_digest(previous)}
+        key = base+'/import-cleanup-'+str(number)
+        passes[key] = copy.deepcopy(row)
+        self._persist()
+        return number
+
+    def finish_import_cleanup(self, context, result):
+        key = fixture_cleanup_key(self, context)
+        outcomes = self.state.setdefault('importCleanupOutcomes', {})
+        if key in outcomes or result.get('status') not in ('pass', 'blocked'):
+            raise PackError('import cleanup outcome cannot be rebound')
+        outcomes[key] = {'schemaVersion': 1, 'candidateKey': self.store.candidate,
+            'passDigest': canonical_digest(self.state['importCleanupPasses'][key]), 'result': copy.deepcopy(result)}
+        self._persist()
 
     def retain_worker_action(self, record, launch):
         """Publish reply references before returning any public action result."""

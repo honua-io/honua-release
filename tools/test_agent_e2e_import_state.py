@@ -40,12 +40,12 @@ def test_private_handoff_can_replay_exact_retained_originals_and_controller_cann
     durable, context, key, request = retained
     assert validate_retained_import_transfer(durable.state, context, request, durable.store.candidate) == key
     reference = DurableExecution.retain_import_transfer_request(durable, context, request)
-    assert reference == {'key': key, 'sha256': canonical_digest(request)}
+    assert reference == {'key': key+'/'+canonical_digest(request), 'sha256': canonical_digest(request)}
     with pytest.raises(PackError, match='already retained'):
         DurableExecution.retain_import_transfer_request(durable, context, request)
     before = copy.deepcopy(durable.state)
     after = copy.deepcopy(before)
-    after['importTransferRequests'][key]['nativeImports'][0]['jobId'] = 'rebound-job'
+    after['importTransferRequests'][reference['key']]['nativeImports'][0]['jobId'] = 'rebound-job'
     with pytest.raises(PackError, match='cannot rewrite or erase'):
         preserve_history(before, after)
 
@@ -62,3 +62,40 @@ def test_rehashed_declarations_cannot_replace_actual_original_scope(retained, ch
         state['fixtureBaselines'][key]['snapshot']['relations'].append(copy.deepcopy(request['tables'][0]))
         request['baselineDigest'] = canonical_digest(state['fixtureBaselines'][key])
     with pytest.raises(PackError): validate_retained_import_transfer(state, context, request, durable.store.candidate)
+
+
+def test_fresh_read_references_cannot_reclaim_an_existing_unknown_native_effect(retained, imported):
+    durable, context, key, request = retained
+    DurableExecution.retain_import_transfer_request(durable, context, request)
+    # Genuine new HTTP reads can have different references while naming the
+    # same immutable native effect; they must not create another owner claim.
+    selection = {'task': imported.state.task, 'bindingDigest': canonical_digest(imported.observer.binding)}
+    fresh = imported.observer.observe(selection, step='fresh-retained-owner-read')
+    duplicate = copy.deepcopy(request)
+    duplicate['nativeImports'][0].update(taskReference=fresh['nativeReferences']['task'],
+                                        submissionReference=fresh['nativeReferences']['submission'])
+    assert canonical_digest(duplicate) != canonical_digest(request)
+    with pytest.raises(PackError, match='already owns'): DurableExecution.retain_import_transfer_request(durable, context, duplicate)
+    assert len(durable.state['importTransferRequests']) == 1
+
+
+def test_legacy_request_is_readable_but_cannot_be_migrated_to_another_claim(retained):
+    durable, context, key, request = retained
+    durable.state['importTransferRequests'] = {key: copy.deepcopy(request)}
+    assert validate_retained_import_transfer(durable.state, context, request, durable.store.candidate) == key
+    with pytest.raises(PackError, match='already retained'): DurableExecution.retain_import_transfer_request(durable, context, request)
+    assert list(durable.state['importTransferRequests']) == [key]
+
+
+def test_cleanup_passes_append_immutable_original_outcomes_and_cannot_skip_ambiguous_effects(retained):
+    durable, context, key, _ = retained
+    assert DurableExecution.begin_import_cleanup(durable, context) == 1
+    before = copy.deepcopy(durable.state)
+    with pytest.raises(PackError, match='ambiguous'): DurableExecution.begin_import_cleanup(durable, context)
+    DurableExecution.finish_import_cleanup(durable, {**context, 'importCleanupPass': 1}, {'status': 'blocked'})
+    assert DurableExecution.begin_import_cleanup(durable, context) == 2
+    preserve_history(before, durable.state)
+    for field in ('importCleanupPasses', 'importCleanupOutcomes'):
+        changed = copy.deepcopy(durable.state)
+        changed[field].pop(key+'/import-cleanup-1')
+        with pytest.raises(PackError, match='rewrite or erase'): preserve_history(durable.state, changed)

@@ -3,7 +3,9 @@
 These local original-response controls exercise cleanup, never cloud qualification.
 """
 import copy
-from types import MethodType
+from types import MethodType, SimpleNamespace
+from uuid import uuid4
+from datetime import datetime, timezone
 
 import pytest
 
@@ -31,6 +33,10 @@ def recovery(imported_sql, imported, adapter, server, monkeypatch):
     imported.observer.sql = SqlImportedDataset(session.database, baseline=baseline)
     imported.observer.retain = session.retain
     durable = session.durable
+    for row in durable.state['ledger']['entries']:
+        row['campaignMode'] = 'qualification'
+    durable.state['workerLaunches'] = {'import': {'context': {field: session.context[field] for field in
+        ('campaignId', 'caseId', 'attempt', 'campaignMode')}}}
     for name in ('_fixture_identity', 'retain_fixture_baseline', 'retain_fixture_ownership', 'require_fixture_ownership', 'retain_fixture_cleanup'):
         setattr(durable, name, MethodType(getattr(DurableExecution, name), durable))
     durable.retain_fixture_baseline(session.context, baseline)
@@ -72,10 +78,11 @@ def recovery(imported_sql, imported, adapter, server, monkeypatch):
         tasks[task['taskId']] = (task, copy.deepcopy(imported.state.receipt))
         return task
     handoffs = []
-    def transfer(request, **_kwargs):
+    def transfer(request, **kwargs):
         import psycopg
         from psycopg import sql
         handoffs.append(copy.deepcopy(request))
+        DurableExecution.retain_import_transfer_request(durable, kwargs['context'], request)
         with psycopg.connect(dsn) as connection:
             for table in request['tables']:
                 connection.execute(sql.SQL('ALTER TABLE {} OWNER TO fixture_cleanup').format(sql.Identifier(table['schema'], table['name'])))
@@ -126,3 +133,63 @@ def test_partial_success_is_cleaned_while_pending_job_and_unknown_relation_keep_
         if unknown_relation:
             assert connection.execute('SELECT id FROM honua_data.unproven_pending_output').fetchall() == [(17,)]
     assert tasks[pending['taskId']][1]['job']['status'] == 'queued'
+
+
+def test_two_cleanup_passes_preserve_original_absence_and_finish_only_later_terminal_output(recovery):
+    import psycopg
+    from psycopg import sql
+    from agent_e2e_native_costs import reserve_overhead, OVERHEAD
+    from test_agent_e2e_native_costs import native
+    session, submit, tasks, dsn, physical, handoffs = recovery
+    task, definition, prices = native()  # Explicit local native-cost contract control, never cloud evidence.
+    stop = {'taskArn': task['taskArn'], 'taskStatus': 'STOPPED', 'stopRecorded': True, 'testOnly': True}
+    session.launch = {'attemptId': 'import', 'testOnly': True}
+    session.open_worker = lambda: None
+    session.await_worker = lambda **_kwargs: copy.deepcopy(stop)
+    session.lifecycle = SimpleNamespace(stop=lambda *_args: copy.deepcopy(stop), _task=lambda _arn: copy.deepcopy(task))
+    session.price_receipt = prices
+    session.retain('worker-definition', definition)
+    session.durable.state['ledger']['operations'].append({'id': 'shared-overhead', 'operationId': 'cleanup-recovery-control',
+        'purpose': 'shared-environment', 'kind': 'infrastructure', 'amountUsd': '1', 'basisDigest': 'sha256:'+'d'*64,
+        'state': 'reserved', 'actualUsd': None})
+    coverage = {'schemaVersion': 1, 'allocation': 'compute-infrastructure-including-cleanup', 'bindings': [{
+        'reservationId': 'shared-overhead', 'basisDigest': 'sha256:'+'d'*64, 'categories': sorted(OVERHEAD),
+        'perAttemptCeilingUsd': '0.25', 'maximumAttempts': 4}]}
+    session.config['accounting'] = {'overheadCoverage': coverage}
+    reserve_overhead(session.durable, session.context, coverage)
+    first = submit(complete=True)
+    pending = submit(complete=False, lose_reply=True)
+    ledger_before = copy.deepcopy(session.durable.state['ledger'])
+    overhead_before = copy.deepcopy(session.durable.state['nativeOverheadAllocations'])
+    first_result = session.cleanup()
+    assert first_result['status'] == 'blocked'
+    assert session.value('partial-import-sql-cleanup') is not None, (first_result, session.value('cleanup-import-reconciliation'))
+    assert session.durable.state['ledger'] == ledger_before
+    assert session.durable.state['nativeOverheadAllocations'] == overhead_before
+    assert not session.durable.state.get('nativeCostAllocations')
+    original = copy.deepcopy(session.durable.state)
+    with psycopg.connect(dsn) as connection:
+        assert connection.execute('SELECT to_regclass(%s)', ('honua_data.'+physical['physicalTableName'],)).fetchone()[0] is None
+    second_name = 'actual_later_import_'+uuid4().hex[:12]
+    with psycopg.connect(dsn) as connection:
+        connection.execute(sql.SQL('CREATE TABLE {} (id int)').format(sql.Identifier('honua_data', second_name)))
+        connection.execute(sql.SQL('COMMENT ON TABLE {} IS {}').format(sql.Identifier('honua_data', second_name), sql.Literal('honua:import-owned:v1')))
+        connection.execute(sql.SQL('GRANT SELECT ON {} TO fixture_observer').format(sql.Identifier('honua_data', second_name)))
+    tasks[pending['taskId']][1]['job'].update(status='succeeded', completedAt=datetime.now(timezone.utc).isoformat(),
+        output={**physical, 'physicalTableName': second_name})
+    second_result = session.cleanup()
+    assert second_result['status'] == 'pass' and second_result['fixtureSql']['resourceIds'] == []
+    assert float(second_result['observedInfrastructureUsd']) > 0
+    assert len(handoffs) == 2 and handoffs[0]['tables'][0]['oid'] != handoffs[1]['tables'][0]['oid']
+    assert len(session.durable.state['importTransferRequests']) == 2
+    assert session.durable.state['ledger'] == ledger_before
+    assert session.durable.state['nativeOverheadAllocations'] == overhead_before
+    assert len(session.durable.state['nativeCostAllocations']) == 1
+    from agent_e2e_state import preserve_history
+    preserve_history(original, session.durable.state)
+    assert session.value('cleanup-import-reconciliation')['previouslyCleaned'][0]['taskId'] == first['taskId']
+    assert [row['taskId'] for row in session.value('cleanup-import-reconciliation')['materialized']] == [pending['taskId']]
+    assert session.database.baseline()['snapshot'] == session.durable.state['fixtureBaselines'][session.key]['snapshot']
+    before_repeat = copy.deepcopy(session.durable.state)
+    assert session.cleanup() == second_result
+    assert session.durable.state == before_repeat

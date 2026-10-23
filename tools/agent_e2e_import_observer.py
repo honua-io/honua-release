@@ -186,7 +186,7 @@ class DatasetImportObserver:
         self.retain('import-selected-'+dispatch['actionId'], record)
         return record
 
-    def reconcile_submission(self, action, dispatch, *, step):
+    def reconcile_submission(self, action, dispatch, *, step, cleaned=None):
         """Read a dispatched submission without requiring a returned worker reply."""
         require(self.eligible(action) and action['input']['name'] == SUBMIT,
                 'cleanup reconciliation requires the original model submission intent')
@@ -203,9 +203,9 @@ class DatasetImportObserver:
         self.validate_task(task)
         selection = {'actionId': dispatch['actionId'], 'requestDigest': dispatch['requestDigest'], 'tool': SUBMIT,
             'task': task, 'bindingDigest': canonical_digest(self.binding), 'nativeReferences': {'task': answer['reference']}}
-        return self.observe(selection, step=step, cleanup=True)
+        return self.observe(selection, step=step, cleanup=True, cleaned=cleaned)
 
-    def observe(self, selected, *, step, cleanup=False):
+    def observe(self, selected, *, step, cleanup=False, cleaned=None):
         require(selected.get('bindingDigest') == canonical_digest(self.binding), 'import selection belongs to another exact native scope')
         task = selected['task']
         self.validate_task(task)
@@ -232,7 +232,16 @@ class DatasetImportObserver:
                 require(job.get('outcomePending') is False and job.get('errorCode') is None and
                         instant(job['createdAt']) <= instant(job.get('completedAt')) <= datetime.now(timezone.utc) and
                         isinstance(job.get('output'), dict), 'successful native import still has unknown completion/output')
-                observed['dataset'] = self.sql.ownership(job['output']) if cleanup else self.sql.observe(job['output'])
+                previous = (cleaned or {}).get(job['jobId']) if cleanup else None
+                if previous is not None:
+                    native, table = previous['native'], previous['table']
+                    require(native['taskId'] == task['taskId'] and native['taskRevision'] == task['revision'] and
+                        native['taskContentHash'] == task['contentHash'] and native['leaseId'] == job['leaseId'] and
+                        table['schema'] == job['output'].get('schema') and table['name'] == job['output'].get('physicalTableName'),
+                        'prior cleaned output no longer matches original terminal task/job/lease/table')
+                    observed['previousCleanup'] = {key: previous[key] for key in ('ownershipDigest', 'observationDigest')}
+                else:
+                    observed['dataset'] = self.sql.ownership(job['output']) if cleanup else self.sql.observe(job['output'])
                 if not cleanup:
                     features = observed['dataset']['features']
                     observed['features.exact'] = copy.deepcopy(features)

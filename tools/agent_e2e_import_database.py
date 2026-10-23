@@ -17,6 +17,24 @@ PROFILE = 'honua.model-import-owned-tables/v1'
 
 
 class ImportedFixtureDatabase(FixtureDatabase):
+    def previously_cleaned(self, record, observation):
+        require(record.get('profile') == PROFILE and record.get('candidateKey') == self.config['candidateKey'] and
+                observation.get('ownershipDigest') == canonical_digest(record) and
+                observation.get('candidateKey') == self.config['candidateKey'], 'prior import absence receipt changed ownership/candidate')
+        with self.connection() as (connection, identity):
+            require(record['baseline']['database'] == {key: identity[key] for key in record['baseline']['database']},
+                    'prior import absence database changed')
+            current = self.snapshot(connection)
+        require(not {row['oid'] for row in record['tables']} & {row['oid'] for row in current['relations']},
+                'previously cleaned original relation OID is still present')
+        request = record.get('ownershipRequest')
+        if request is None:
+            return {}
+        tables = {row['oid']: row for row in record['tables']}
+        return {native['jobId']: {'native': copy.deepcopy(native), 'table': copy.deepcopy(tables[native['tableOid']]),
+            'ownershipDigest': canonical_digest(record), 'observationDigest': canonical_digest(observation)}
+            for native in request['nativeImports']}
+
     def observe_import_tables(self, baseline, observations, *, partial=False):
         require(baseline.get('candidateKey') == self.config['candidateKey'] and
                 isinstance(observations, list) and 1 <= len(observations) <= 16,
