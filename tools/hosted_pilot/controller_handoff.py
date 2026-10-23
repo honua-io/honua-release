@@ -36,8 +36,12 @@ def git(*args):
     return result.stdout
 
 
-def validate_configuration(config):
-    require(isinstance(config, dict) and set(config) == {'schemaVersion', 'region', 'accountId', 'clusterArn', 'taskDefinitionArn', 'taskRoleArn', 'executionRoleArn', 'containerName', 'image', 'network', 'lifecycle', 'custody', 'dispatchBudget', 'maxSeconds'} and config['schemaVersion'] == 1, 'invalid reviewed private controller configuration')
+OBSERVATION_FIELDS = {'schemaVersion', 'region', 'accountId', 'clusterArn', 'taskDefinitionArn', 'taskRoleArn', 'executionRoleArn', 'containerName', 'image', 'network', 'lifecycle', 'custody', 'maxSeconds'}
+
+
+def validate_observation(config):
+    require(isinstance(config, dict) and set(config) == OBSERVATION_FIELDS and config['schemaVersion'] == 1,
+            'invalid read-only controller observation')
     require(re.fullmatch(r'[0-9]{12}', config['accountId']) and re.fullmatch(r'[a-z]{2}-[a-z]+-[0-9]', config['region']), 'controller account/region missing')
     regional = ':' + config['region'] + ':' + config['accountId'] + ':'
     require(re.fullmatch(re.escape('arn:aws:ecs' + regional) + r'cluster/honua-pilot-[a-z0-9-]+', config['clusterArn']) and re.fullmatch(re.escape('arn:aws:ecs' + regional) + r'task-definition/honua-pilot-[a-z0-9-]+-campaign-controller:[1-9][0-9]*', config['taskDefinitionArn']), 'controller task revision/cluster must be exact pilot resources')
@@ -60,6 +64,13 @@ def validate_configuration(config):
     for key in set(custody) - {'bucket'}:
         portable(custody[key].rstrip('/'))
         require(custody[key].startswith('controller/') and custody[key].endswith('/'), 'controller custody prefix must be bounded and retained')
+    require(type(config['maxSeconds']) is int and 60 <= config['maxSeconds'] <= 7200, 'controller observation deadline differs')
+
+
+def validate_configuration(config):
+    require(isinstance(config, dict) and set(config) == OBSERVATION_FIELDS | {'dispatchBudget'} and config['schemaVersion'] == 1,
+            'invalid reviewed private controller configuration')
+    validate_observation({key: value for key, value in config.items() if key != 'dispatchBudget'})
     budget = config['dispatchBudget']
     require(set(budget) == {'state', 'candidateKey', 'generationDigest', 'reservationId', 'operationId', 'basisDigest', 'perDispatchCeilingUsd', 'maximumDispatches', 'claimTable'} and set(budget['state']) == {'region', 'bucket', 'table'} and budget['state']['region'] == config['region'], 'controller dispatch requires an existing native allowance')
     for key in ('candidateKey', 'generationDigest', 'basisDigest'):

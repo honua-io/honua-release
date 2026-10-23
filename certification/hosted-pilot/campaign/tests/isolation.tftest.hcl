@@ -1,5 +1,6 @@
 mock_provider "aws" {
   override_during = plan
+  mock_resource "aws_iam_role_policy" { defaults = { name = "offline-reviewed-dispatch-policy" } }
   mock_data "aws_caller_identity" { defaults = { account_id = "123456789012" } }
   mock_data "aws_availability_zones" { defaults = { names = ["us-east-1a", "us-east-1b"] } }
   mock_resource "aws_s3_bucket" { defaults = { id = "honua-pilot-offline-agent-controller-123456789012", arn = "arn:aws:s3:::honua-pilot-offline-agent-controller-123456789012" } }
@@ -191,6 +192,12 @@ run "accounting_can_stage_without_inventing_a_generation" {
       output.native_bootstrap_handoff == null &&
       output.accounting_staging.dispatchEnabled == false &&
       output.accounting_staging.state == module.accounting.state_config &&
+      output.initialization_readiness.state == module.accounting.state_config &&
+      output.initialization_readiness.controller.taskDefinitionArn == aws_ecs_task_definition.controller.arn &&
+      output.initialization_readiness.fixture.taskDefinitionArn == aws_ecs_task_definition.fixture.arn &&
+      output.initialization_readiness.dispatcherRoleArn == aws_iam_role.dispatcher.arn &&
+      output.initialization_readiness.dispatcherPolicyDigests[aws_iam_role_policy.dispatcher.name] == "sha256:${sha256(aws_iam_role_policy.dispatcher.policy)}" &&
+      !contains(keys(output.initialization_readiness.controller), "dispatchBudget") &&
       length(aws_iam_role_policy.initializer) == 1 &&
       jsondecode(aws_iam_role.initializer.assume_role_policy) == {
         Version = "2012-10-17", Statement = [{ Effect = "Allow", Action = "sts:AssumeRoleWithWebIdentity",

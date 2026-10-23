@@ -2,7 +2,9 @@
 """Custody-first foundation bootstrap; never upload plans, state or logs to GitHub."""
 from __future__ import annotations
 import argparse
+import copy
 from datetime import datetime, timezone
+from decimal import Decimal
 import hashlib
 import json
 import os
@@ -25,6 +27,44 @@ CUSTODY = {
 IDENTITY_TAGS = {'foundation_source_sha': 'BootstrapFoundationSha',
                  'release_root_sha': 'BootstrapReleaseSha', 'config_path': 'BootstrapConfigPath',
                  'config_sha256': 'BootstrapConfigSha256', 'provider_lock_sha256': 'BootstrapLockSha256'}
+
+
+def resolve_image_funding(cfg, source_root, source_sha):
+    """Bind candidate-independent image funding to actual checked workflow source."""
+    cfg = copy.deepcopy(cfg)
+    if 'image_preparation_funding' not in cfg:
+        return cfg
+    require(cfg.pop('image_preparation_funding') is True and re.fullmatch(r'[a-f0-9]{40}', source_sha),
+            'image preparation funding requires the actual reviewed release source')
+    ledger = cfg['budget_ledger']
+    require(ledger['source_sha'] is None and ledger['config_sha256'] is None,
+            'source-resolved image funding cannot replace an existing source/config binding')
+    relative = 'certification/hosted-pilot/deployments/foss4g-image-preparation.tfvars.json'
+    path = Path(source_root)/relative
+    require(path.is_file() and not path.is_symlink(), 'tracked image funding configuration missing')
+    original = run(['git', 'show', source_sha+':'+relative])
+    require(path.read_bytes() == original, 'image funding differs from the exact workflow source')
+    value = json.loads(original)
+    require(set(value) == {'region', 'name_prefix', 'owner', 'expires_at'} and
+            all(value[key] == cfg[key] for key in value), 'image funding source differs from reviewed foundation identity')
+    basis = json.loads(run(['git', 'show', source_sha+':certification/hosted-pilot/foundation-funding-basis.json']))
+    required_reserve = Decimal(basis['priorUnknownUsageHold']['amountUsd'])+Decimal(basis['usageHoldExtension']['amountUsd'])
+    required_reserve += sum(Decimal(row['amountUsd']) for row in basis['additionalReservedLiabilities'])
+    require(basis['schema'] == 'honua.hosted-pilot-foundation-funding-basis/v1' and
+            basis['accountId'] == cfg['account_id'] and basis['region'] == cfg['region'] and
+            basis['accountZeroSpend'] is False and basis['originalHistoryMayBeReset'] is False and
+            required_reserve == Decimal(basis['reservedUsd']) and required_reserve > 0 and
+            Decimal(str(ledger['reserved_usd'])) >= required_reserve and
+            0 < Decimal(str(ledger['deployment_reservation_usd'])) <= Decimal(basis['nextPublicationReservationUsd']) and
+            Decimal(str(ledger['total_budget_usd'])) == Decimal(basis['totalBudgetUsd']) == 2000 and
+            Decimal(str(ledger['cleanup_reserve_usd'])) == Decimal(basis['protectedCleanupUsd']) == 200,
+            'foundation funding cannot discard original nonzero usage, legacy or cleanup reservations')
+    require(ledger.get('reservation_id') == basis['nextPublicationReservationId'] and
+            re.fullmatch(r'[A-Za-z0-9][A-Za-z0-9._-]{2,119}', ledger['reservation_id']),
+            'source compilation cannot mint a new original publication reservation')
+    ledger['source_sha'] = source_sha
+    ledger['config_sha256'] = hashlib.sha256(original).hexdigest()
+    return cfg
 
 
 def creation_tags(identity, run_id):
@@ -385,6 +425,7 @@ def main():
     work = Path(e['RUNNER_TEMP']) / 'hosted-pilot-bootstrap-private'
     work.mkdir(mode=0o700, exist_ok=True)
     cfg = json.loads(cfg_path.read_text())
+    cfg = resolve_image_funding(cfg, ROOT, e['PILOT_RELEASE_ROOT_SHA'])
     require(cfg['region'] == e['AWS_REGION'], 'bootstrap region mismatch')
     require(re.fullmatch(r'honua-pilot-[a-z0-9-]{4,16}', cfg['name_prefix']), 'invalid isolated prefix')
     account = aws('sts', 'get-caller-identity')['Account']
@@ -395,6 +436,9 @@ def main():
     identity = {'foundation_source_sha': e['GITHUB_SHA'], 'release_root_sha': e['PILOT_RELEASE_ROOT_SHA'],
                 'config_path': args.config, 'config_sha256': digest(cfg_path),
                 'provider_lock_sha256': digest(TF / '.terraform.lock.hcl')}
+    resolved_cfg_path = work / 'foundation-resolved.tfvars.json'
+    private_json(resolved_cfg_path, cfg)
+    resolved_cfg_digest = digest(resolved_cfg_path)
     if (work / 'creation-identity.json').exists():
         creation = json.loads((work / 'creation-identity.json').read_text())
         os.environ['PILOT_CREATION_RUN_ID'] = creation['run_id']
@@ -424,8 +468,8 @@ def main():
         refuse_unbound_initial_custody(cfg, work)
         if not remote:
             run(['terraform', 'init', '-backend=false', '-lockfile=readonly', '-input=false', '-no-color'], log=work / 'init.log')
-        initial, changes, initial_sha = plan(cfg_path, work, custody_only=True)
-        private_json(work / 'review.json', {'schema': 'honua.hosted-pilot-bootstrap-plan/v1', **identity, 'phase': 'custody-only', 'resource_changes': changes, 'plan_sha256': digest(initial)})
+        initial, changes, initial_sha = plan(resolved_cfg_path, work, custody_only=True)
+        private_json(work / 'review.json', {'schema': 'honua.hosted-pilot-bootstrap-plan/v1', **identity, 'resolved_config_sha256': resolved_cfg_digest, 'phase': 'custody-only', 'resource_changes': changes, 'plan_sha256': digest(initial)})
         if args.mode == 'plan':
             print('Custody-only plan metadata prepared; no binary plan/state/log is uploaded.')
             return
@@ -442,8 +486,8 @@ def main():
         except (ValueError, KeyError, OSError):
             save_recovery(binding, cfg, identity, work)
             raise ValueError('initial custody/migration failed; application/identity phase refused. Retain custody-recovery metadata and inspect encrypted recovery custody before retrying') from None
-    full, changes, full_sha = plan(cfg_path, work)
-    private_json(work / 'review.json', {'schema': 'honua.hosted-pilot-bootstrap-plan/v1', **identity, 'phase': 'remote-backed-foundation', 'resource_changes': changes, 'plan_sha256': digest(full)})
+    full, changes, full_sha = plan(resolved_cfg_path, work)
+    private_json(work / 'review.json', {'schema': 'honua.hosted-pilot-bootstrap-plan/v1', **identity, 'resolved_config_sha256': resolved_cfg_digest, 'phase': 'remote-backed-foundation', 'resource_changes': changes, 'plan_sha256': digest(full)})
     if args.mode == 'plan':
         print('Remote-backed foundation plan metadata prepared; no infrastructure applied.')
         return
@@ -454,7 +498,9 @@ def main():
     outputs = json.loads(run(['terraform', 'output', '-json']))
     private_json(work / 'bindings.json', {'schema': 'honua.hosted-pilot-bootstrap-bindings/v1',
         'release_root_sha': e['PILOT_RELEASE_ROOT_SHA'], 'foundation_source_sha': e['GITHUB_SHA'],
-        'foundation_run_id': e['GITHUB_RUN_ID'], 'saved_plan_sha256': plan_sha,
+        'foundation_run_id': e['GITHUB_RUN_ID'], 'foundation_run_attempt': e['GITHUB_RUN_ATTEMPT'],
+        'config_path': args.config, 'config_sha256': digest(cfg_path), 'resolved_config_sha256': resolved_cfg_digest,
+        'saved_plan_sha256': plan_sha,
         **{key: outputs[key]['value'] for key in ['deployment_bindings', 'permissions_boundary_arn', 'budget_binding']}})
     with open(e['GITHUB_STEP_SUMMARY'], 'a') as summary:
         summary.write('Foundation bindings SHA256: `' + digest(work / 'bindings.json') + '`\n')

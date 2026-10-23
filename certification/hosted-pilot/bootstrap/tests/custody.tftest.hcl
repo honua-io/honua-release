@@ -160,3 +160,15 @@ run "immutable_controller_publications_have_finite_service_managed_expiry" {
     error_message = "Controller archive/browser images must expire, including abandoned pushes, without granting publisher deletion."
   }
 }
+run "uncompiled_image_funding_cannot_create_an_unbound_owner_ledger" {
+  command = plan
+  variables {
+    budget_ledger = {
+      schema                     = "honua.hosted-pilot-budget/v1", expires_at = "2026-10-30T00:00:00Z",
+      source_sha                 = null, config_sha256 = null, reservation_id = "original-image-preparation-001",
+      total_budget_usd           = 2000, cleanup_reserve_usd = 200, spent_usd = 0, reserved_usd = 294,
+      deployment_reservation_usd = 5, active_paid_attempts = 0
+    }
+  }
+  expect_failures = [var.budget_ledger]
+}
