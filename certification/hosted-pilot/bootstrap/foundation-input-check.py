@@ -63,7 +63,7 @@ def check(root=ROOT, *, release_source=None, configuration_path=RELATIVE):
     require(set(ledger)=={'schema','expires_at','source_sha','config_sha256','total_budget_usd','cleanup_reserve_usd',
         'spent_usd','reserved_usd','deployment_reservation_usd','active_paid_attempts','reservation_id'} and
         ledger['schema']=='honua.hosted-pilot-budget/v1' and ledger['source_sha'] is None and ledger['config_sha256'] is None and
-        ledger['total_budget_usd']==2000 and ledger['cleanup_reserve_usd']==200 and ledger['reserved_usd']==294 and
+        ledger['total_budget_usd']==2000 and ledger['cleanup_reserve_usd']==200 and ledger['reserved_usd']==314 and
         ledger['spent_usd']==0 and ledger['deployment_reservation_usd']==5 and ledger['active_paid_attempts']==0 and
         ledger['reservation_id']=='foundation-image-preparation-001','original nonzero funding or stable publication identity differs')
     if release_source is not None:
