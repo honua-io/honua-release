@@ -37,7 +37,7 @@ module "accounting" {
   controller_role_arn = aws_iam_role.controller.arn
   # Dispatcher IAM grants only GetObjectVersion/GetItem on retained state. Its
   # explicit resource-policy exception permits observation, never ledger writes.
-  state_admin_role_arns  = setunion(var.state_admin_role_arns, [aws_iam_role.dispatcher.arn, aws_iam_role.fixture.arn, aws_iam_role.initializer.arn], [for role in aws_iam_role.native_bootstrap : role.arn])
+  state_admin_role_arns  = setunion(var.state_admin_role_arns, [aws_iam_role.dispatcher.arn, aws_iam_role.fixture.arn, aws_iam_role.initializer.arn], [for role in aws_iam_role.native_bootstrap : role.arn], [for role in aws_iam_role.setup_retirement : role.arn])
   claim_writer_role_arns = local.worker_claim_writers
 }
 resource "aws_s3_bucket" "handoff" {
@@ -73,7 +73,7 @@ resource "aws_s3_bucket_policy" "handoff" {
     { Sid = "TlsOnly", Effect = "Deny", Principal = "*", Action = "s3:*", Resource = [aws_s3_bucket.handoff.arn, "${aws_s3_bucket.handoff.arn}/*"], Condition = { Bool = { "aws:SecureTransport" = "false" } } },
     { Sid = "RetainImmutableCustody", Effect = "Deny", Principal = "*", Action = ["s3:DeleteObject", "s3:DeleteObjectVersion"], Resource = "${aws_s3_bucket.handoff.arn}/*" },
     { Sid = "ConditionalWritesOnly", Effect = "Deny", Principal = "*", Action = "s3:PutObject", Resource = "${aws_s3_bucket.handoff.arn}/*", Condition = { StringNotEquals = { "s3:if-none-match" = "*" } } },
-    { Sid = "TrustedCustodyOnly", Effect = "Deny", Principal = "*", Action = "s3:*", Resource = [aws_s3_bucket.handoff.arn, "${aws_s3_bucket.handoff.arn}/*"], Condition = { ArnNotEquals = { "aws:PrincipalArn" = concat([aws_iam_role.controller.arn, aws_iam_role.dispatcher.arn, aws_iam_role.fixture.arn], [for role in aws_iam_role.native_bootstrap : role.arn], tolist(var.state_admin_role_arns)) } } }
+    { Sid = "TrustedCustodyOnly", Effect = "Deny", Principal = "*", Action = "s3:*", Resource = [aws_s3_bucket.handoff.arn, "${aws_s3_bucket.handoff.arn}/*"], Condition = { ArnNotEquals = { "aws:PrincipalArn" = concat([aws_iam_role.controller.arn, aws_iam_role.dispatcher.arn, aws_iam_role.fixture.arn], [for role in aws_iam_role.native_bootstrap : role.arn], [for role in aws_iam_role.setup_retirement : role.arn], tolist(var.state_admin_role_arns)) } } }
   ] })
 }
 resource "aws_dynamodb_table" "claims" {

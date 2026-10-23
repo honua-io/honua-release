@@ -252,3 +252,122 @@ run "configured_native_bootstrap_without_budget_has_no_paid_launch_authority" {
     error_message = "Staging a native definition without retained accounting must grant no launch, pass-role or model authority; observation and original task cleanup must remain available."
   }
 }
+
+run "setup_retirement_has_separate_original_credentials_and_no_sql_or_model" {
+  command = plan
+  variables {
+    issued_native_keys = {
+      setup    = { apiKeyId = "11111111-1111-1111-1111-111111111111", versionId = "1111111111111111111111111111111111111111111111111111111111111111" }
+      observer = { apiKeyId = "22222222-2222-2222-2222-222222222222", versionId = "2222222222222222222222222222222222222222222222222222222222222222" }
+      agent    = { apiKeyId = "33333333-3333-3333-3333-333333333333", versionId = "3333333333333333333333333333333333333333333333333333333333333333" }
+    }
+    setup_key_retirement = {
+      bootstrapArtifactDigest    = "sha256:4444444444444444444444444444444444444444444444444444444444444444"
+      nativeBootstrapOperationId = "original-native-bootstrap"
+      operation = {
+        operationId    = "original-native-bootstrap", liabilityBasisDigest = "sha256:5555555555555555555555555555555555555555555555555555555555555555"
+        reservationIds = { infrastructure = "retained-native-infra", cleanup = "retained-native-cleanup" }
+      }
+      fixtureReference   = { key = "sha256:6666666666666666666666666666666666666666666666666666666666666666", sha256 = "sha256:7777777777777777777777777777777777777777777777777777777777777777" }
+      preparationOutcome = { bucket = "original-controller-bucket", key = "original-outcome-key", versionId = "original-version", sha256 = "sha256:8888888888888888888888888888888888888888888888888888888888888888" }
+      mode               = "retire", originalClaim = null
+    }
+  }
+  assert {
+    condition = (
+      length(aws_iam_role_policy.dispatch_setup_retirement) == 1 &&
+      length(jsondecode(aws_ecs_task_definition.setup_retirement[0].container_definitions)[0].secrets) == 2 &&
+      toset([for secret in jsondecode(aws_ecs_task_definition.setup_retirement[0].container_definitions)[0].secrets : secret.name]) == toset(["PILOT_SETUP_RETIRE_ROOT_KEY", "PILOT_SETUP_RETIRE_KEY"]) &&
+      endswith(one([for secret in jsondecode(aws_ecs_task_definition.setup_retirement[0].container_definitions)[0].secrets : secret.valueFrom if secret.name == "PILOT_SETUP_RETIRE_KEY"]), ":::${var.issued_native_keys.setup.versionId}") &&
+      local.retirement_config.mode == "retire" && local.retirement_config.originalClaim == null &&
+      local.retirement_config.setupKey.apiKeyId == var.issued_native_keys.setup.apiKeyId &&
+      endswith(local.retirement_config.receiptKey, "/retire.json") &&
+      !strcontains(aws_iam_role_policy.setup_retirement[0].policy, "secretsmanager:") &&
+      !strcontains(aws_iam_role_policy.setup_retirement[0].policy, "ecs:RunTask") &&
+      !strcontains(aws_iam_role_policy.setup_retirement[0].policy, "bedrock:") &&
+      one([for statement in jsondecode(aws_iam_role_policy.setup_retirement[0].policy).Statement : statement if statement.Action == "dynamodb:GetItem"]).Resource == aws_dynamodb_table.claims["dispatch"].arn &&
+      jsondecode(aws_ecs_task_definition.setup_retirement[0].container_definitions)[0].readonlyRootFilesystem &&
+      output.setup_retirement_handoff.configuration == local.retirement_config
+    )
+    error_message = "Retirement must receive only its original setup key and independent administrator; no model, SQL, minting, or task-launch privilege may enter that task."
+  }
+}
+run "configured_retirement_without_budget_has_no_launch_or_pass_role" {
+  command = plan
+  variables {
+    dispatch_budget = null
+    issued_native_keys = {
+      setup    = { apiKeyId = "11111111-1111-1111-1111-111111111111", versionId = "1111111111111111111111111111111111111111111111111111111111111111" }
+      observer = { apiKeyId = "22222222-2222-2222-2222-222222222222", versionId = "2222222222222222222222222222222222222222222222222222222222222222" }
+      agent    = { apiKeyId = "33333333-3333-3333-3333-333333333333", versionId = "3333333333333333333333333333333333333333333333333333333333333333" }
+    }
+    setup_key_retirement = {
+      bootstrapArtifactDigest    = "sha256:4444444444444444444444444444444444444444444444444444444444444444"
+      nativeBootstrapOperationId = "original-native-bootstrap"
+      operation = {
+        operationId    = "original-native-bootstrap", liabilityBasisDigest = "sha256:5555555555555555555555555555555555555555555555555555555555555555"
+        reservationIds = { infrastructure = "retained-native-infra", cleanup = "retained-native-cleanup" }
+      }
+      fixtureReference   = { key = "sha256:6666666666666666666666666666666666666666666666666666666666666666", sha256 = "sha256:7777777777777777777777777777777777777777777777777777777777777777" }
+      preparationOutcome = { bucket = "original-controller-bucket", key = "original-outcome-key", versionId = "original-version", sha256 = "sha256:8888888888888888888888888888888888888888888888888888888888888888" }
+      mode               = "retire", originalClaim = null
+    }
+  }
+  assert {
+    condition = (
+      length(aws_ecs_task_definition.setup_retirement) == 1 && length(aws_iam_role_policy.dispatch_setup_retirement) == 0 &&
+      output.setup_retirement_handoff == null &&
+      !strcontains(aws_iam_role_policy.observe_setup_retirement[0].policy, "ecs:RunTask") &&
+      !strcontains(aws_iam_role_policy.observe_setup_retirement[0].policy, "iam:PassRole") &&
+      strcontains(aws_iam_role_policy.observe_setup_retirement[0].policy, "ecs:StopTask")
+    )
+    error_message = "Retirement staging cannot bypass original paid launch accounting; observation and cleanup must remain possible."
+  }
+}
+run "retirement_cannot_invent_unissued_keys" {
+  command = plan
+  variables {
+    setup_key_retirement = {
+      bootstrapArtifactDigest    = "sha256:4444444444444444444444444444444444444444444444444444444444444444"
+      nativeBootstrapOperationId = "original-native-bootstrap"
+      operation = {
+        operationId    = "original-native-bootstrap", liabilityBasisDigest = "sha256:5555555555555555555555555555555555555555555555555555555555555555"
+        reservationIds = { infrastructure = "retained-native-infra", cleanup = "retained-native-cleanup" }
+      }
+      fixtureReference   = { key = "sha256:6666666666666666666666666666666666666666666666666666666666666666", sha256 = "sha256:7777777777777777777777777777777777777777777777777777777777777777" }
+      preparationOutcome = { bucket = "original-controller-bucket", key = "original-outcome-key", versionId = "original-version", sha256 = "sha256:8888888888888888888888888888888888888888888888888888888888888888" }
+      mode               = "retire", originalClaim = null
+    }
+  }
+  expect_failures = [output.setup_retirement_handoff]
+}
+run "retirement_recovery_retains_original_claim_and_separate_receipt" {
+  command = plan
+  variables {
+    issued_native_keys = {
+      setup    = { apiKeyId = "11111111-1111-1111-1111-111111111111", versionId = "1111111111111111111111111111111111111111111111111111111111111111" }
+      observer = { apiKeyId = "22222222-2222-2222-2222-222222222222", versionId = "2222222222222222222222222222222222222222222222222222222222222222" }
+      agent    = { apiKeyId = "33333333-3333-3333-3333-333333333333", versionId = "3333333333333333333333333333333333333333333333333333333333333333" }
+    }
+    setup_key_retirement = {
+      bootstrapArtifactDigest    = "sha256:4444444444444444444444444444444444444444444444444444444444444444"
+      nativeBootstrapOperationId = "original-native-bootstrap"
+      operation = {
+        operationId    = "original-native-bootstrap", liabilityBasisDigest = "sha256:5555555555555555555555555555555555555555555555555555555555555555"
+        reservationIds = { infrastructure = "retained-native-infra", cleanup = "retained-native-cleanup" }
+      }
+      fixtureReference   = { key = "sha256:6666666666666666666666666666666666666666666666666666666666666666", sha256 = "sha256:7777777777777777777777777777777777777777777777777777777777777777" }
+      preparationOutcome = { bucket = "original-controller-bucket", key = "original-outcome-key", versionId = "original-version", sha256 = "sha256:8888888888888888888888888888888888888888888888888888888888888888" }
+      mode               = "observe"
+      originalClaim      = { table = "original-claims", key = "dispatch:9999999999999999999999999999999999999999999999999999999999999999", bindingDigest = "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", taskArn = "original-task", taskDefinitionArn = "original-definition:1" }
+    }
+  }
+  assert {
+    condition = (
+      local.retirement_config.mode == "observe" &&
+      local.retirement_config.originalClaim == var.setup_key_retirement.originalClaim &&
+      endswith(local.retirement_config.receiptKey, "/observe-9999999999999999999999999999999999999999999999999999999999999999.json")
+    )
+    error_message = "Read-only recovery must retain the original permanent claim and publish separately without overwriting original revocation custody."
+  }
+}
