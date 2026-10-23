@@ -18,6 +18,7 @@ from test_agent_e2e_query_projection import query
 from test_agent_e2e_setup_http import server
 
 ROOT = Path(__file__).resolve().parents[1]
+CONNECTION = '12345678-1234-1234-1234-123456789abc'
 CONTEXT = {'campaignId': 'c', 'caseId': 'P10:A:local-docker', 'attempt': 1,
            'componentBindingDigest': 'sha256:'+'a'*64}
 
@@ -56,7 +57,7 @@ def test_seeds_actual_source_bytes_and_binds_product_ids(adapter, server):
     uploads = []
     def respond(method, path, body):
         if method == 'GET':
-            value = {'data': {'connectionId': 'connection-42'}}
+            value = {'tables': []} if path.endswith('/tables') else {'data': {'connectionId': CONNECTION}}
         elif path.endswith('/import/upload'):
             headers = server.seen[-1][2]
             parsed = BytesParser(policy=default).parsebytes(('Content-Type: '+headers['Content-Type']+'\r\n\r\n').encode()+body)
@@ -66,20 +67,25 @@ def test_seeds_actual_source_bytes_and_binds_product_ids(adapter, server):
             assert parts['SourceSrid'] == b'3857'
             uploads.append(parts['file'])
             value = {'success': True, 'featureCount': len(json.loads(parts['file'])['features']),
+                     'tableName': parts['TableName'].decode(),
                      'physicalTableName': parts['TableName'].decode(), 'schema': 'honua_data'}
         else:
-            assert method == 'POST' and path == '/api/v1/admin/connections/connection-42/layers'
-            value = {'data': {'layerId': 500+len(uploads)}}
+            assert method == 'POST' and path.startswith('/api/v1/operations/service.publish/')
+            request = json.loads(body)
+            value = {'data': {'isValid': True}} if path.endswith('/validate') else {'data': {
+                'operationId': 'service.publish', 'operationInstanceId': 'opinst-'+str(len(uploads)),
+                'correlationId': 'corr-'+str(len(uploads)), 'status': 'Completed',
+                'resourceIds': {'layerId': str(500+len(uploads)), 'serviceName': request['serviceName']}}}
         return 200, {}, json.dumps(value).encode()
     server.respond = respond
     manifest = ROOT/'certification/agent-e2e/corpus/manifest.v1.json'
     result = TownSetup(adapter.http, manifest).prepare(variant='A', namespace='case_a',
-        starting_state='published-town', connection_id='connection-42')
+        starting_state='published-town', connection_id=CONNECTION)
     assert result['layers']['shelters']['layerId'] == 503
     assert result['layers']['shelters']['service'] == 'case_a-shelters'
     for name, raw in zip(TownSetup.SOURCES, uploads):
         assert raw == (manifest.parent/f'town-A/{name}.3857.geojson').read_bytes()
-    assert len(adapter.durable.state['scenarioOperations']) == 14
+    assert len(adapter.durable.state['scenarioOperations']) == 26
     assert 'private-scenario-credential' not in json.dumps(adapter.durable.state)
 
 

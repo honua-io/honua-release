@@ -9,6 +9,10 @@ on:
         description: Completed trusted trunk release-train/nightly candidate-manifest run
         required: true
         type: string
+      candidate_run_attempt:
+        description: Exact candidate freeze run attempt; old artifacts from another attempt are refused
+        required: true
+        type: string
       mode:
         description: Development keeps C held out; qualification requires all 252 including EKS
         required: true
@@ -23,6 +27,7 @@ on:
 permissions:
   contents: read
   actions: read
+  attestations: read
 # One candidate-wide store/ledger is also protected by the durable fenced lease.
 concurrency:
   group: agent-e2e-campaign
@@ -52,6 +57,8 @@ jobs:
       - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97
         with:
           python-version: '3.12'
+      - name: Install candidate binding dependencies
+        run: python -m pip install 'pyyaml>=6.0' 'jsonschema>=4.23'
       - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c
         with:
           github-token: ${{ github.token }}
@@ -62,19 +69,14 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           CANDIDATE_RUN: ${{ inputs.candidate_run_id }}
+          CANDIDATE_ATTEMPT: ${{ inputs.candidate_run_attempt }}
         run: |
           set -euo pipefail
           [[ "$CANDIDATE_RUN" =~ ^[1-9][0-9]*$ ]]
-          gh api "repos/$GITHUB_REPOSITORY/actions/runs/$CANDIDATE_RUN" > candidate-run.json
-          python - <<'PYTHON'
-          import json, pathlib, subprocess
-          run = json.loads(pathlib.Path('candidate-run.json').read_text())
-          assert run['head_branch'] == 'trunk' and run['status'] == 'completed'
-          assert run['path'] in ('.github/workflows/release-train.yml', '.github/workflows/nightly-certification.yml')
-          assert run['event'] in ('schedule', 'workflow_dispatch')
-          expected = subprocess.check_output(['git', 'show', run['head_sha']+':platform-manifest.yaml'])
-          assert pathlib.Path('candidate-input/platform-manifest.yaml').read_bytes() == expected
-          PYTHON
+          [[ "$CANDIDATE_ATTEMPT" =~ ^[1-9][0-9]*$ ]]
+          python tools/agent_e2e_candidate.py --candidate-root candidate-input \
+            --run-id "$CANDIDATE_RUN" --run-attempt "$CANDIDATE_ATTEMPT" \
+            --output candidate-input/candidate-provenance.json
       - name: Freeze reviewed campaign before paid execution
         id: freeze
         env:
@@ -82,7 +84,9 @@ jobs:
         run: |
           set -euo pipefail
           python tools/agent_e2e_campaign.py freeze --mode "$MODE" \
-            --lock candidate-input/frozen-lock/platform-lock.json --bundle campaign | tee freeze-result.json
+            --lock candidate-input/frozen-lock/platform-lock.json \
+            --candidate-provenance candidate-input/candidate-provenance.json \
+            --bundle campaign | tee freeze-result.json
           python - <<'PYTHON'
           import json, os, pathlib
           result = json.loads(pathlib.Path('freeze-result.json').read_text())
@@ -409,6 +413,7 @@ jobs:
             campaign/budget-ledger.json
             campaign/attempt-registry.json
             campaign/qualification-summary.json
+            campaign/candidate-provenance.json
             campaign/receipts/
             campaign/evidence/
           if-no-files-found: error

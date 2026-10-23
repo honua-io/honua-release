@@ -423,6 +423,7 @@ def main(argv=None):
     parser.add_argument('operation', choices=['freeze', 'execute', 'finalize'])
     parser.add_argument('--bundle', type=Path, required=True)
     parser.add_argument('--lock', type=Path)
+    parser.add_argument('--candidate-provenance', type=Path)
     parser.add_argument('--mode', choices=['development', 'qualification'], default='development')
     parser.add_argument('--target', choices=list(__import__('agent_e2e_pack').TARGETS))
     parser.add_argument('--shard', type=int, default=0)
@@ -434,7 +435,13 @@ def main(argv=None):
         config = inputs(mode)
         if args.operation == 'freeze':
             require(args.lock is not None, 'candidate lock is required')
+            require(args.candidate_provenance is not None, 'authenticated exact candidate run/attempt provenance is required')
+            provenance = load_json(args.candidate_provenance)
+            require(provenance.get('schemaVersion') == 1 and
+                    provenance.get('qualificationLockDigest') == digest_bytes(args.lock.read_bytes()),
+                    'candidate authentication differs from frozen lock bytes')
             frozen = freeze(config, args.lock, args.bundle, args.mode)
+            atomic_write(args.bundle/'candidate-provenance.json', args.candidate_provenance.read_bytes())
             print(json.dumps({'status': 'frozen', 'campaignDigest': frozen, 'qualification': False}))
         elif args.operation == 'execute':
             execute(config, args.bundle, args.target, args.shard, args.shards, case_ids=args.case_ids)

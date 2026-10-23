@@ -17,6 +17,8 @@ from agent_e2e_pack import PackError, canonical_digest, digest_bytes, load_json,
 from agent_e2e_query_recipes import point_selection_recipe
 from agent_e2e_semantics import project_observation, verify
 from agent_e2e_setup_http import SetupHttp
+from agent_e2e_scenario_operations import (completed_import, connection_id as canonical_connection,
+    discover_tables, publication_request, submit_publication)
 
 
 def require(value, reason):
@@ -100,8 +102,7 @@ class TownSetup:
                 'invalid case-owned town namespace')
         require(starting_state in ('imported-town', 'published-town'), 'unsupported town starting state')
         if starting_state == 'published-town':
-            require(isinstance(connection_id, str) and re.fullmatch(r'[A-Za-z0-9-]{1,80}', connection_id),
-                    'publication requires controller-observed connection identity')
+            connection_id = canonical_connection(connection_id)
             observed = successful(self.http.json('observe-connection', 'GET',
                 '/api/v1/admin/connections/'+quote(connection_id, safe='')))
             require(observed.get('connectionId', observed.get('id')) == connection_id,
@@ -114,29 +115,25 @@ class TownSetup:
             raw = (self.manifest_path.parent/relative).read_bytes()
             require(digest_bytes(raw) == 'sha256:'+row['sha256'], 'town fixture changed before upload')
             table = namespace+'_'+name
+            before_tables = None if connection_id is None else discover_tables(
+                self.http, connection_id, 'before-tables-'+name.replace('_', '-'))
             imported_answer = self.http.upload('import-'+name.replace('_', '-'), raw, table=table, schema='honua_data', srid=3857)
-            imported = successful(imported_answer)
-            # An asynchronous response is retained but not guessed successful.
-            require(imported.get('success', True) is True and
-                    imported.get('featureCount') == len(load_json(self.manifest_path.parent/relative)['features']),
-                    'town import lacks exact completed feature count; reconcile retained response')
-            physical = imported.get('physicalTableName')
-            schema = imported.get('schema')
-            require(isinstance(physical, str) and re.fullmatch(r'[a-z][a-z0-9_]{0,62}', physical) and
-                    isinstance(schema, str) and re.fullmatch(r'[a-z][a-z0-9_]{0,62}', schema),
-                    'town import lacks observed physical table/schema')
+            imported = completed_import(self.http, imported_answer, table=table,
+                feature_count=len(load_json(self.manifest_path.parent/relative)['features']),
+                step='complete-'+name.replace('_', '-'), before_tables=before_tables, connection=connection_id)
+            physical, schema = imported['table'], imported['schema']
             binding = {'sourcePath': relative, 'sourceDigest': digest_bytes(raw), 'schema': schema,
-                       'table': physical, 'importResponse': imported_answer['reference']}
+                       'table': physical, 'importResponse': imported_answer['reference'],
+                       'importObservations': imported['references'], 'importJobId': imported['jobId']}
             if starting_state == 'published-town':
                 service = namespace+'-'+name.replace('_', '-')
-                answer = self.http.json('publish-'+name.replace('_', '-'), 'POST',
-                    '/api/v1/admin/connections/'+quote(connection_id, safe='')+'/layers',
-                    {'schema': schema, 'table': physical, 'layerName': service, 'serviceName': service,
-                     'geometryType': geometry, 'srid': 3857, 'enabled': True})
-                published = successful(answer)
-                layer = published.get('layerId')
-                require(type(layer) is int and 0 <= layer <= 2147483647, 'publication lacks actual layer ID')
-                binding.update(service=service, layerId=layer, publicationResponse=answer['reference'])
+                published = submit_publication(self.http, publication_request(connection=connection_id,
+                    schema=schema, table=physical, service=service, geometry_type=geometry, srid=3857),
+                    step='publish-'+name.replace('_', '-'))
+                require(published['status'] == 'completed',
+                        'fixture publication requires actual separate approval; preserve proposal and reconcile')
+                binding.update(service=service, layerId=published['layerId'], publicationResponse=published['reference'],
+                               publicationOperationId=published['operationInstanceId'])
             bindings[name] = binding
         return {'namespace': namespace, 'variant': variant, 'startingState': starting_state, 'layers': bindings}
 
