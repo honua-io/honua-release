@@ -22,7 +22,7 @@ from agent_e2e_query_projection import normalize
 from agent_e2e_scenario_backend import ScenarioHttp
 from agent_e2e_semantics import pointer
 from agent_e2e_studio_backend import Session as PublicationSession
-from agent_e2e_studio_composition_observer import StudioCompositionObserver, CREATE, SAVE
+from agent_e2e_studio_composition_observer import StudioCompositionObserver, CREATE, SAVE, MUTATIONS
 from agent_e2e_studio_database import StudioFixtureDatabase
 from agent_e2e_studio_observer import guid
 import agent_e2e_gate as gate
@@ -248,6 +248,13 @@ class Session(WorkerSession):
         binding = {key: studio[key] for key in ('itemId', 'namespace', 'ownerPrincipalId', 'family')}
         binding['notBefore'] = self.value('prepare-start')['startedAt']
         self.retain('authoring-binding', binding)
+        if 'styling' in self.config:
+            from agent_e2e_studio_style_observer import snapshot, starting_draft
+            observer = self.observer_for_recovery()
+            initial = self.value('initial-fixture')['fixture']
+            starting = snapshot(observer, initial['draftId'], step='prepared-authoring-draft')
+            starting_draft(observer, initial['initialVersion'], starting)
+            self.retain('style-starting-draft', starting)
         for declaration in expected_case.get('nativeBindings', {}).values():
             from agent_e2e_native_authoring_bindings import PROFILE
             relations = declaration.get('relationships', {})
@@ -277,6 +284,14 @@ class Session(WorkerSession):
         self.open_worker()
         action, dispatch = payload['action'], payload['dispatch']
         self.retain('model-action-'+str(dispatch['ordinal']), {'action': action, 'dispatch': dispatch})
+        if getattr(self, 'config', {}).get('styling') is not None and action.get('name') == 'mcp_call_tool' and action.get('input', {}).get('name') in MUTATIONS:
+            from agent_e2e_studio_style_observer import snapshot
+            try:
+                before = snapshot(self.observer_for_recovery(), action['input']['arguments'].get('draftId'),
+                    step='before-style-'+dispatch['actionId'][:32])
+                self.retain('style-before-ordinal-'+str(dispatch['ordinal']), before)
+            except (PackError, TypeError, KeyError, ValueError):
+                self.retain('style-before-refused-'+str(dispatch['ordinal']), {'reasonCode': 'native-before-style-unavailable'})
         observed = self.execute_action(action, dispatch, timeout)
         self.retain('model-result-'+str(dispatch['ordinal']), observed)
         self.observe_job_action(action, dispatch, observed)
@@ -348,7 +363,10 @@ class Session(WorkerSession):
                         from agent_e2e_studio_style_observer import observe
                         styled = observe(observer, config=styling,
                             initial=self.value('initial-fixture')['fixture']['initialVersion'], saved=saved,
-                            save_selection=saves[-1], selections=[row['value'] for row in selections])
+                            save_selection=saves[-1], selections=[row['value'] for row in selections],
+                            starting=self.value('style-starting-draft'), before_mutations={row['value']['ordinal']:
+                                self.value('style-before-ordinal-'+str(row['value']['ordinal'])) for row in selections
+                                if row['value']['tool'] in MUTATIONS})
                         observations['map.style'] = styled['actual']
                         self.retain('authoring-style', styled)
                     except (PackError, ValueError, TypeError, KeyError):

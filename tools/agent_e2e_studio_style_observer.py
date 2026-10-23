@@ -62,6 +62,39 @@ def preflight(*, config, initial, expected, item_id):
             'prepared fixture already contains the completed style task semantics')
 
 
+def snapshot(observer, draft_id, *, step):
+    resource, reference = observer.draft(draft_id, step=step)
+    return {'resource': copy.deepcopy(resource), 'nativeReference': reference}
+
+
+def original_draft(observer, value):
+    from agent_e2e_native_bindings import original
+    require(isinstance(value, dict) and set(value) == {'resource', 'nativeReference'}, 'live style draft snapshot is missing')
+    reference = value['nativeReference']
+    require(isinstance(reference, dict) and isinstance(value['resource'], dict), 'style draft snapshot lacks original identity')
+    records = observer.http.durable.state.get('scenarioOperations', {})
+    response = records.get(reference.get('key'))
+    require(isinstance(response, dict) and canonical_digest(response) == reference.get('sha256'), 'original live style draft read is missing or changed')
+    intent_ref = response.get('intentReference', {})
+    intent = records.get(intent_ref.get('key'))
+    require(isinstance(intent, dict) and canonical_digest(intent) == intent_ref.get('sha256'), 'original style draft intent is missing or changed')
+    resource = observer.owned(value['resource'])
+    live = original({'intent': intent, 'response': response}, observer={'endpoint': observer.http.client.endpoint,
+        'attemptId': observer.http.identity['attemptId'], 'credentialKind': observer.http.client.kind},
+        candidate=observer.http.durable.store.candidate, path='/api/v1/studio/package-drafts/'+guid(resource.get('draftId')))
+    require(canonical_digest(live) == canonical_digest(resource) and type(resource.get('generation')) is int,
+            'live style draft differs from its original native readback')
+    return resource
+
+
+def starting_draft(observer, initial, starting):
+    resource = original_draft(observer, starting)
+    require(resource.get('draftId') == initial.get('sourceDraftId') and
+            canonical_digest(resource.get('envelope')) == canonical_digest(initial.get('envelope')),
+            'live starting draft differs from the original saved map')
+    return resource
+
+
 def label_field(expression):
     # These are actual field lookups, not a literal string that happens to say
     # "name" or an unexecuted expression buried in a conditional branch.
@@ -116,10 +149,11 @@ def project(style, config, *, require_label=True):
         'floodColor': paint['fill-color'], 'floodOpacity': paint['fill-opacity']}
 
 
-def observe(observer, *, config, initial, saved, save_selection, selections):
+def observe(observer, *, config, initial, saved, save_selection, selections, starting, before_mutations):
     validate(config)
     observer.owned(initial)
     observer.owned(saved)
+    baseline = starting_draft(observer, initial, starting)
     require(guid(initial.get('versionId')) != guid(saved.get('versionId')) and
         type(initial.get('versionNumber')) is int and type(saved.get('versionNumber')) is int and
         saved['versionNumber'] > initial['versionNumber'], 'style task must save a demonstrably new version')
@@ -135,6 +169,24 @@ def observe(observer, *, config, initial, saved, save_selection, selections):
         type(row.get('ordinal')) is int and row['ordinal'] < save_selection['ordinal'] and
         isinstance(row.get('resource'), dict) and row['resource'].get('draftId') == saved.get('sourceDraftId')]
     require(mutation, 'saved style was not authored by an observed model mutation on this draft')
+    require(saved.get('sourceDraftId') == baseline['draftId'], 'saved style belongs to another starting draft')
+    fields = ('labelField', 'floodColor', 'floodOpacity')
+    needed = {key for key in fields if canonical_digest(before[key]) != canonical_digest(after[key])}
+    introduced = {}
+    for row in mutation:
+        require(isinstance(row.get('nativeReferences', {}).get('draft'), dict), 'style mutation lacks original native draft readback')
+        prior = original_draft(observer, before_mutations.get(row['ordinal']))
+        changed = original_draft(observer, {'resource': row['resource'], 'nativeReference': row['nativeReferences']['draft']})
+        args = row.get('request', {}).get('input', {}).get('arguments', {})
+        require(prior['draftId'] == changed['draftId'] == baseline['draftId'] and
+                prior['generation'] >= baseline['generation'] and type(args.get('generation')) is int and args['generation'] == prior['generation'] and
+                changed['generation'] == prior['generation']+1 and changed.get('updatedBy') == observer.binding['ownerPrincipalId'],
+                'model style mutation lacks its exact original before/after generation transition')
+        old = project(document(prior, config), config, require_label=False)
+        new = project(document(changed, config), config, require_label=False)
+        introduced.update({key: row['actionId'] for key in needed if canonical_digest(old[key]) != canonical_digest(new[key]) and
+                           canonical_digest(new[key]) == canonical_digest(after[key])})
+    require(needed <= introduced.keys(), 'model mutations did not introduce every required style change')
     selected = max(mutation, key=lambda row: row['ordinal'])
     resource = observer.owned(selected['resource'])
     arguments = save_selection.get('request', {}).get('input', {}).get('arguments', {})
@@ -147,4 +199,5 @@ def observe(observer, *, config, initial, saved, save_selection, selections):
     actual = {'mapId': observer.binding['itemId'], **project(style, config)}
     return {'actual': actual, 'mutationActionId': selected['actionId'], 'saveActionId': save_selection['actionId'],
         'versionId': saved['versionId'], 'sourceDraftId': saved['sourceDraftId'],
-        'mutationReference': copy.deepcopy(selected['nativeReferences']['draft'])}
+        'mutationReference': copy.deepcopy(selected['nativeReferences']['draft']),
+        'startingDraftReference': copy.deepcopy(starting['nativeReference']), 'styleActionIds': introduced}

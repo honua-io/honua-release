@@ -5,7 +5,7 @@ import json
 import pytest
 
 from agent_e2e_pack import PackError, canonical_digest
-from agent_e2e_studio_style_observer import observe, project, validate
+from agent_e2e_studio_style_observer import observe, project, validate, snapshot
 from test_agent_e2e_studio_composition_observer import authoring, CREATE, SAVE
 from test_agent_e2e_studio_authoring_backend import session
 from test_agent_e2e_scenario_backend import adapter
@@ -29,13 +29,18 @@ EXPECTED = {'styleDocumentSha256': canonical_digest(DESIRED['mapSpec'])[7:], 'la
 
 def prepare(authoring, body=INITIAL):
     authoring.execute(CREATE, {**authoring.create_args, 'body': copy.deepcopy(body)})
-    return authoring.execute(SAVE, {'draftId': authoring.state.draft['draftId'], 'generation': 1})['resource']
+    initial = authoring.execute(SAVE, {'draftId': authoring.state.draft['draftId'], 'generation': 1})['resource']
+    authoring.starting = snapshot(authoring.observer, initial['sourceDraftId'], step='starting-style-draft')
+    authoring.before_mutations = {}
+    return initial
 
 
 def mutate_and_save(authoring, body=DESIRED):
+    before = snapshot(authoring.observer, authoring.state.draft['draftId'], step='before-style-'+str(authoring.state.ordinal))
     edit = authoring.execute('honua_studio_update_draft', {'draftId': authoring.state.draft['draftId'],
         'generation': authoring.state.draft['generation'], 'packageKey': authoring.binding['namespace'],
         'schemaVersion': '1.0', 'body': copy.deepcopy(body)})
+    authoring.before_mutations[edit['ordinal']] = before
     saved = authoring.execute(SAVE, {'draftId': authoring.state.draft['draftId'],
         'generation': authoring.state.draft['generation']})
     return edit, saved
@@ -43,7 +48,7 @@ def mutate_and_save(authoring, body=DESIRED):
 
 def check(authoring, initial, edit, saved):
     return observe(authoring.observer, config=CONFIG, initial=initial, saved=saved['resource'],
-        save_selection=saved, selections=[edit, saved])
+        save_selection=saved, selections=[edit, saved], starting=authoring.starting, before_mutations=authoring.before_mutations)
 
 
 def test_real_worker_mcp_edit_save_and_native_http_prove_actual_style_not_reference_metadata(authoring):
@@ -148,6 +153,84 @@ def test_a_remaining_real_style_task_is_not_confused_with_an_unrelated_document_
     assert check(authoring, initial, edit, saved)['actual'] == {'mapId': authoring.binding['itemId'], **EXPECTED}
 
 
+@pytest.mark.parametrize('when', ['before-start', 'after-start'])
+@pytest.mark.parametrize('tool', ['honua_studio_set_view', 'honua_studio_update_draft'])
+def test_precompleted_unsaved_work_cannot_be_credited_to_view_or_noop_model_mutation(authoring, when, tool):
+    initial = prepare(authoring)
+    authoring.state.draft['envelope']['body'] = copy.deepcopy(DESIRED)
+    authoring.state.draft['generation'] += 1
+    if when == 'before-start': authoring.starting = snapshot(authoring.observer, initial['sourceDraftId'], step='actual-live-start')
+    before = snapshot(authoring.observer, initial['sourceDraftId'], step='actual-before-model')
+    args = {'draftId': initial['sourceDraftId'], 'generation': authoring.state.draft['generation']}
+    if tool.endswith('set_view'): args['view'] = {'bbox': [2, 2, 3, 3]}
+    else: args.update(packageKey=authoring.binding['namespace'], schemaVersion='1.0', body=copy.deepcopy(DESIRED))
+    edit = authoring.execute(tool, args)
+    authoring.before_mutations[edit['ordinal']] = before
+    saved = authoring.execute(SAVE, {'draftId': initial['sourceDraftId'], 'generation': authoring.state.draft['generation']})
+    with pytest.raises(PackError, match='live starting draft|did not introduce'):
+        check(authoring, initial, edit, saved)
+
+
+@pytest.mark.parametrize('change', ['missing-start', 'missing-before', 'missing-original', 'wrong-generation'])
+def test_missing_or_changed_live_draft_provenance_is_not_replaced_by_saved_version(authoring, change):
+    initial = prepare(authoring)
+    edit, saved = mutate_and_save(authoring)
+    if change == 'missing-start': authoring.starting = None
+    elif change == 'missing-before': authoring.before_mutations = {}
+    elif change == 'missing-original':
+        del authoring.observer.http.durable.state['scenarioOperations'][authoring.starting['nativeReference']['key']]
+    elif change == 'wrong-generation': authoring.before_mutations[edit['ordinal']]['resource']['generation'] += 1
+    with pytest.raises(PackError): check(authoring, initial, edit, saved)
+
+
+def test_each_requested_style_change_can_be_proven_across_multiple_model_mutations_before_final_view_and_save(authoring):
+    initial = prepare(authoring)
+    rows = []
+    for body in (dict(copy.deepcopy(DESIRED), mapSpec={**copy.deepcopy(DESIRED['mapSpec']),
+                       'layers': copy.deepcopy(DESIRED['mapSpec']['layers'][:-1])}), DESIRED):
+        before = snapshot(authoring.observer, initial['sourceDraftId'], step='multi-before-'+str(len(rows)))
+        row = authoring.execute('honua_studio_update_draft', {'draftId': initial['sourceDraftId'],
+            'generation': authoring.state.draft['generation'], 'packageKey': authoring.binding['namespace'],
+            'schemaVersion': '1.0', 'body': copy.deepcopy(body)})
+        authoring.before_mutations[row['ordinal']] = before
+        rows.append(row)
+    before = snapshot(authoring.observer, initial['sourceDraftId'], step='multi-before-view')
+    view = authoring.execute('honua_studio_set_view', {'draftId': initial['sourceDraftId'],
+        'generation': authoring.state.draft['generation'], 'view': {'bbox': [2, 2, 3, 3]}})
+    authoring.before_mutations[view['ordinal']] = before
+    saved = authoring.execute(SAVE, {'draftId': initial['sourceDraftId'], 'generation': authoring.state.draft['generation']})
+    result = observe(authoring.observer, config=CONFIG, initial=initial, saved=saved['resource'], save_selection=saved,
+        selections=[*rows, view, saved], starting=authoring.starting, before_mutations=authoring.before_mutations)
+    assert result['actual'] == {'mapId': authoring.binding['itemId'], **EXPECTED}
+    assert result['styleActionIds'] == {'floodColor': rows[0]['actionId'], 'floodOpacity': rows[0]['actionId'], 'labelField': rows[1]['actionId']}
+
+
+def test_session_reads_actual_native_before_state_before_dispatching_model_style_mutation(session, authoring):
+    initial = prepare(authoring)
+    session.config = {'styling': CONFIG}
+    session.retain('public-inputs', {})
+    session.open_worker = lambda: None
+    ordinal = authoring.state.ordinal+1
+    args = {'draftId': initial['sourceDraftId'], 'generation': authoring.state.draft['generation'],
+        'packageKey': authoring.binding['namespace'], 'schemaVersion': '1.0', 'body': copy.deepcopy(DESIRED)}
+    action = {'name': 'mcp_call_tool', 'input': {'name': 'honua_studio_update_draft', 'arguments': args}}
+    dispatch = {'ordinal': ordinal, 'actionId': canonical_digest({**{key: session.context[key]
+        for key in ('campaignId', 'caseId', 'attempt', 'componentBindingDigest')}, 'ordinal': ordinal})[7:],
+        'requestDigest': canonical_digest(action)}
+    def execute(chosen, selected, timeout):
+        before = session.value('style-before-ordinal-'+str(ordinal))
+        assert before['resource']['generation'] == args['generation']
+        assert before['resource']['envelope']['body'] == INITIAL
+        actual, native_dispatch, result = authoring.execute(chosen['input']['name'], chosen['input']['arguments'], observe=False)
+        assert actual == chosen and native_dispatch == selected
+        return result
+    session.execute_action = execute
+    result = session.action({'action': action, 'dispatch': dispatch}, 30)
+    assert result['agentResult']['isError'] is False
+    selected = session.value('authoring-ordinal-'+str(ordinal))
+    assert selected['resource']['generation'] == args['generation']+1
+
+
 def test_style_observation_configuration_cannot_select_model_derived_hashes_or_invent_layer_aliases():
     for config in [{'floodLayerId': 'same', 'shelterLayerId': 'same'}, {**CONFIG, 'styleDocumentSha256': 'a'*64}]:
         with pytest.raises(PackError): validate(config)
@@ -176,6 +259,8 @@ def test_session_observes_saved_style_but_does_not_substitute_missing_actual_bro
     path.write_text(json.dumps(case))
     session.retain('prepare-start', {'startedAt': authoring.binding['notBefore']})
     edit, saved = mutate_and_save(authoring)
+    session.retain('style-starting-draft', authoring.starting)
+    session.retain('style-before-ordinal-'+str(edit['ordinal']), authoring.before_mutations[edit['ordinal']])
     session.retain('authoring-ordinal-3', edit)
     session.retain('authoring-ordinal-4', saved)
     assert session.verify() == {'status': 'fail', 'failedAssertions': ['render.actual']}

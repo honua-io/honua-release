@@ -285,6 +285,10 @@ style-reference metadata, literal labels and an already-completed prepared style
 cannot substitute for that work. Expected style values and document hashes remain
 source-frozen. The existing `render.actual` browser, feature and pixel predicates
 are unchanged and remain mandatory even when style and save observations pass.
+The actual starting working draft must still match the saved starting map. Each
+required style change is joined to independent native reads before and after a
+model mutation with its exact generation; a view-only edit or no-op cannot claim
+an already-styled unsaved draft as model work.
 
 P13 still requires the original restored version identity. The current scoped
 native agent authority does not expose rollback; reopening or saving an identical
