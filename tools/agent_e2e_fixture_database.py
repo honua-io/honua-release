@@ -108,7 +108,8 @@ class FixtureDatabase:
         current = self._rows(connection, '''SELECT to_jsonb(t) AS value FROM honua.metadata_v2_current t
             WHERE environment = %s''', (environment,))
         require(len(current) <= 1, 'ambiguous metadata current pointer')
-        relations = self._rows(connection, '''SELECT c.oid::bigint AS oid, n.nspname AS schema, c.relname AS name
+        relations = self._rows(connection, '''SELECT c.oid::bigint AS oid, n.nspname AS schema, c.relname AS name,
+            pg_get_userbyid(c.relowner) AS owner
             FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace
             WHERE n.nspname = 'honua_data' AND c.relkind IN ('r', 'p') ORDER BY c.oid''')
         sidecars = {}
@@ -142,6 +143,8 @@ class FixtureDatabase:
             matches = [row for row in prepared['relations'] if row['schema'] == schema and row['name'] == name]
             require(len(matches) == 1 and matches[0]['oid'] not in baseline_oids,
                     'source relation was not newly observed after this setup')
+            require(matches[0]['owner'] == self.config['cleanupRole'],
+                    'source relation owner has not been transferred to the exact cleanup role')
             layer_id, service = binding.get('layerId'), binding.get('service')
             require(type(layer_id) is int and layer_id >= 0 and isinstance(service, str) and
                     re.fullmatch(r'[a-z][a-z0-9_-]{0,62}', service), 'invalid actual layer/service ownership')
@@ -165,6 +168,36 @@ class FixtureDatabase:
         require(self._without_owned(prepared, record) == baseline['snapshot'],
                 'setup changed unrelated catalog, source relation or retained metadata')
         return record
+
+    def observe_new_tables(self, baseline, bindings):
+        """Read exact product-returned OIDs for a separate trusted owner handoff.
+
+        This method never transfers ownership or uses master credentials. A
+        checked provisioner must independently fence and recheck every OID and
+        owner before its narrowly scoped ALTER TABLE OWNER transaction.
+        """
+        require(baseline.get('candidateKey') == self.config['candidateKey'] and
+                bindings.get('startingState') == 'published-town' and
+                set(bindings.get('layers', {})) == {'parcels', 'flood_zones', 'shelters'},
+                'owner handoff lacks exact published-town baseline and product bindings')
+        with self.connection() as (connection, identity):
+            require(baseline['database'] == {key: identity[key] for key in baseline['database']},
+                    'owner handoff database identity changed')
+            observed = self.snapshot(connection)
+        before = {row['oid'] for row in baseline['snapshot']['relations']}
+        tables = []
+        for binding in bindings['layers'].values():
+            schema, name = ident(binding['schema']), ident(binding['table'])
+            rows = [row for row in observed['relations'] if row['schema'] == schema and row['name'] == name]
+            require(schema == 'honua_data' and len(rows) == 1 and rows[0]['oid'] not in before,
+                    'owner handoff relation was not newly independently observed')
+            tables.append(rows[0])
+        require(len({row['oid'] for row in tables}) == 3 and
+                {row['oid'] for row in observed['relations'] if row['oid'] not in before} == {row['oid'] for row in tables},
+                'owner handoff includes duplicate or unowned new source relations')
+        return {'schemaVersion': 1, 'candidateKey': self.config['candidateKey'],
+            'database': copy.deepcopy(baseline['database']), 'baselineDigest': canonical_digest(baseline),
+            'expectedCleanupRole': self.config['cleanupRole'], 'tables': tables}
 
     def _without_owned(self, snapshot, record):
         result = copy.deepcopy(snapshot)

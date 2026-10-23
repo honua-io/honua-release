@@ -96,10 +96,10 @@ def inputs(mode='qualification'):
     backend = config['backend']
     require(set(backend) == {'kind', 'script', 'scriptSha256', 'configuration'} and
             backend['kind'] == 'in-process', 'campaign backend must share the producer-owned durable lease')
-    backend['script'] = str(source_file(backend['script'], backend['scriptSha256']))
+    source_file(backend['script'], backend['scriptSha256'])
     reference = backend['configuration']
     require(isinstance(reference, dict) and set(reference) == {'path', 'sha256'}, 'missing reviewed backend configuration')
-    reference['path'] = str(source_file(reference['path'], reference['sha256']))
+    source_file(reference['path'], reference['sha256'])
     for name in ('expectations', 'knowledge'):
         require(set(config[name]) == {'path', 'sha256'}, 'invalid reviewed ' + name)
         source_file(config[name]['path'], config[name]['sha256'])
@@ -428,9 +428,27 @@ def finalize(config, bundle, *, backend=None):
         durable.close()
 
 
+def reconcile_accounting(config, bundle):
+    """Recover retained charges in the same exact trusted campaign invocation."""
+    root = Path(bundle)
+    campaign = load_json(root/'campaign.json')
+    require(campaign['controller'] == controller_identity(), 'accounting recovery differs from frozen controller provenance')
+    require(config == load_json(root/'producer-inputs.json'), 'accounting recovery inputs changed after freeze')
+    durable = DurableExecution(open_store(config['state'], campaign['componentBindingDigest']), root/'budget-ledger.json')
+    try:
+        require(durable.state.get('campaigns', {}).get(campaign['campaignId']) == canonical_digest(campaign),
+                'accounting recovery differs from retained campaign')
+        from agent_e2e_native_costs import reconcile_measured
+        result = reconcile_measured(durable, campaign)
+        write(root/'accounting-reconciliation.json', result)
+        return result
+    finally:
+        durable.close()
+
+
 def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument('operation', choices=['freeze', 'execute', 'finalize'])
+    parser.add_argument('operation', choices=['freeze', 'execute', 'finalize', 'reconcile-accounting'])
     parser.add_argument('--bundle', type=Path, required=True)
     parser.add_argument('--lock', type=Path)
     parser.add_argument('--candidate-provenance', type=Path)
@@ -455,6 +473,8 @@ def main(argv=None):
             print(json.dumps({'status': 'frozen', 'campaignDigest': frozen, 'qualification': False}))
         elif args.operation == 'execute':
             execute(config, args.bundle, args.target, args.shard, args.shards, case_ids=args.case_ids)
+        elif args.operation == 'reconcile-accounting':
+            print(json.dumps(reconcile_accounting(config, args.bundle)))
         else:
             print(json.dumps(finalize(config, args.bundle)))
         return 0

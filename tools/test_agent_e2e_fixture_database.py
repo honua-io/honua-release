@@ -48,6 +48,7 @@ def postgres():
                 with psycopg.connect(dsn, connect_timeout=1, autocommit=True) as connection:
                     connection.execute("CREATE ROLE fixture_cleanup LOGIN PASSWORD 'local-cleanup-only'")
                     connection.execute("CREATE ROLE fixture_observer LOGIN PASSWORD 'local-observer-only'")
+                    connection.execute('CREATE ROLE fixture_app LOGIN')
                     break
             except psycopg.OperationalError:
                 time.sleep(0.2)
@@ -175,6 +176,31 @@ def test_real_transaction_removes_only_owned_data_and_independent_observer_prove
     assert set(retained) == {'intent', 'observation'}
     assert invalidated == record['services']
     assert database.baseline()['snapshot'] == record['baseline']['snapshot']
+
+
+def test_product_owned_tables_require_exact_observed_handoff_before_model_or_cleanup(fixture_db):
+    import psycopg
+    database, dsn = fixture_db
+    record = seed_owned(fixture_db)
+    bindings = {'startingState': 'published-town', 'layers': {
+        name: {'schema': 'honua_data', 'table': 'observed_'+name, 'service': record['services'][index],
+               'layerId': record['layerIds'][index]}
+        for index, name in enumerate(('parcels', 'flood_zones', 'shelters'))}}
+    with psycopg.connect(dsn) as connection:
+        connection.execute('ALTER TABLE honua_data.observed_shelters OWNER TO fixture_app')
+    observed = database.observe_new_tables(record['baseline'], bindings)
+    assert len(observed['tables']) == 3 and observed['baselineDigest'] == canonical_digest(record['baseline'])
+    shelters = next(row for row in observed['tables'] if row['name'] == 'observed_shelters')
+    assert shelters['owner'] == 'fixture_app' and shelters['oid'] == record['tables'][2]['oid']
+    with pytest.raises(PackError, match='owner has not been transferred'):
+        database.ownership(record['baseline'], bindings)
+    # Only the separate provisioner would perform this exact checked handoff in
+    # production. Here PostgreSQL verifies the actual owner/permissions boundary.
+    with psycopg.connect(dsn) as connection:
+        connection.execute('ALTER TABLE honua_data.observed_shelters OWNER TO fixture_cleanup')
+    owned = database.ownership(record['baseline'], bindings)
+    authorize, retain, invalidate, _, _ = callbacks(owned)
+    assert database.cleanup(owned, authorize=authorize, retain=retain, invalidate=invalidate)['resourceIds'] == []
 
 
 def test_drop_dependency_rolls_back_all_prior_metadata_and_data_deletions(fixture_db):

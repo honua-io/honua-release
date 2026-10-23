@@ -21,7 +21,7 @@ import threading
 import time
 
 from agent_e2e_budget import money, validate as validate_budget
-from agent_e2e_pack import PackError, canonical_digest, digest_bytes, load_json
+from agent_e2e_pack import PackError, canonical_digest, digest_bytes, load_json, portable_path
 
 PROTOCOL = 'honua.agent-e2e.backend/v1'
 
@@ -59,15 +59,31 @@ class InProcessBackend:
     WorkerLifecycle/McpActions and FixtureDatabase with the supplied durable
     instance. No operation may acquire a competing state lease.
     """
-    def __init__(self, config):
+    def __init__(self, config, *, source_root=None):
         require(set(config) == {'kind', 'script', 'scriptSha256', 'configuration'} and
                 config['kind'] == 'in-process', 'campaign requires a reviewed in-process backend')
         self.config = copy.deepcopy(config)
-        self.script = Path(config['script']).resolve(strict=True)
+        self.source_root = Path(source_root or Path(__file__).resolve().parents[1]).resolve(strict=True)
+        def source(value):
+            path = Path(value)
+            # Production configurations always use reviewed portable paths.
+            # Unit callers may inject absolute paths inside an explicit root;
+            # no JSON/environment option can enable that production escape.
+            if path.is_absolute():
+                require(source_root is not None, 'backend production source paths must be relative')
+            else:
+                portable_path(value)
+                path = self.source_root/path
+            require(path.is_file() and path.resolve(strict=True).is_relative_to(self.source_root) and
+                    not any(parent.is_symlink() for parent in (path, *path.parents)
+                            if parent == self.source_root or self.source_root in parent.parents),
+                    'backend source path escapes immutable execution root or is symlinked')
+            return path
+        self.script = source(config['script'])
         require(digest_bytes(self.script.read_bytes()) == config['scriptSha256'], 'backend code differs from reviewed source')
         reference = config['configuration']
         require(set(reference) == {'path', 'sha256'}, 'backend configuration lacks exact source binding')
-        path = Path(reference['path'])
+        path = source(reference['path'])
         require(path.is_file() and not path.is_symlink() and digest_bytes(path.read_bytes()) == reference['sha256'],
                 'backend configuration differs from reviewed source')
         self.settings = load_json(path)

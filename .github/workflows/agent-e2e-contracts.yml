@@ -80,7 +80,7 @@ jobs:
           python - <<'PY'
           import xml.etree.ElementTree as ET
           suites = list(ET.parse('agent-e2e-postgres-contracts.xml').getroot().iter('testsuite'))
-          assert sum(int(suite.get('tests', 0)) for suite in suites) >= 11
+          assert sum(int(suite.get('tests', 0)) for suite in suites) >= 12
           assert sum(int(suite.get('skipped', 0)) for suite in suites) == 0
           PY
       - name: Retain actual PostgreSQL contract results

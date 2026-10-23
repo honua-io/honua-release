@@ -54,7 +54,7 @@ def configured(tmp_path, script='raise RuntimeError("must never import during pr
         'expiresAt': (datetime.now(timezone.utc)+timedelta(hours=1)).isoformat()}}))
     config = {'kind': 'in-process', 'script': str(entry), 'scriptSha256': digest_bytes(entry.read_bytes()),
               'configuration': {'path': str(settings), 'sha256': digest_bytes(settings.read_bytes())}}
-    return InProcessBackend(config), config
+    return InProcessBackend(config, source_root=tmp_path), config
 
 
 @pytest.fixture
@@ -95,6 +95,37 @@ def test_preflight_rejects_wrong_candidate_or_missing_case_without_import(tmp_pa
     with pytest.raises(PackError, match='liability quote'):
         backend.preflight({**CONTEXT, 'caseId': 'P10:B:local-docker'})
     assert backend.module is None
+
+
+def test_frozen_relative_inputs_relocate_to_private_execution_source_without_rebinding(tmp_path):
+    import shutil
+    original, relocated = tmp_path/'github-checkout', tmp_path/'private-controller/source'
+    original.mkdir(); relocated.mkdir(parents=True)
+    _, absolute = configured(original)
+    config = {**absolute, 'script': 'entry.py', 'configuration': {**absolute['configuration'], 'path': 'execution.json'}}
+    frozen = json.loads(json.dumps(config))
+    shutil.copytree(original, relocated, dirs_exist_ok=True)
+    github = InProcessBackend(config, source_root=original)
+    controller = InProcessBackend(frozen, source_root=relocated)
+    assert github.config == controller.config == frozen
+    assert github.script.parent == original and controller.script.parent == relocated
+    assert github.inspect(CAMPAIGN) == controller.inspect(CAMPAIGN)
+    assert 'github-checkout' not in json.dumps(frozen)
+
+
+def test_production_config_cannot_enable_absolute_traversal_or_symlink_sources(tmp_path):
+    _, config = configured(tmp_path)
+    with pytest.raises(PackError, match='must be relative'):
+        InProcessBackend(config)
+    for field, value in [('script', '../entry.py'), ('configuration', '../execution.json')]:
+        changed = copy.deepcopy(config)
+        if field == 'script': changed[field] = value
+        else: changed[field]['path'] = value
+        with pytest.raises(PackError):
+            InProcessBackend(changed, source_root=tmp_path)
+    (tmp_path/'entry-link.py').symlink_to(tmp_path/'entry.py')
+    with pytest.raises(PackError, match='symlinked'):
+        InProcessBackend({**config, 'script': 'entry-link.py'}, source_root=tmp_path)
 
 
 def test_mutations_cannot_load_code_without_existing_lease_and_liabilities(tmp_path, execution):
@@ -252,6 +283,29 @@ def test_fixture_records_cannot_be_created_before_liability_or_after_lease_close
         execution.retain_fixture_baseline(CONTEXT, baseline)
 
 
+def test_fixture_owner_handoff_is_exact_new_oid_request_retained_once_before_provisioner(execution):
+    reserve(execution)
+    baseline = {'candidateKey': CANDIDATE, 'database': {'databaseOid': 42},
+                'snapshot': {'relations': [{'oid': 1, 'schema': 'honua_data', 'name': 'shared', 'owner': 'app'}]}}
+    execution.retain_fixture_baseline(CONTEXT, baseline)
+    request = {'schemaVersion': 1, 'candidateKey': CANDIDATE, 'database': baseline['database'],
+        'baselineDigest': canonical_digest(baseline), 'expectedCleanupRole': 'fixture_cleanup', 'tables': [
+            {'oid': number, 'schema': 'honua_data', 'name': 'created_'+name, 'owner': 'fixture_app'}
+            for number, name in enumerate(('parcels', 'flood_zones', 'shelters'), 10)]}
+    changed = copy.deepcopy(request)
+    changed['tables'][0]['oid'] = 1
+    with pytest.raises(PackError, match='preexisting'):
+        execution.retain_fixture_transfer_request(CONTEXT, changed)
+    assert not execution.state.get('fixtureTransferRequests')
+    ack = execution.retain_fixture_transfer_request(CONTEXT, request)
+    assert execution.store.state['fixtureTransferRequests'][ack['key']] == request
+    assert ack['sha256'] == canonical_digest(request)
+    with pytest.raises(PackError, match='already retained'):
+        execution.retain_fixture_transfer_request(CONTEXT, request)
+    changed_state = copy.deepcopy(execution.store.state)
+    changed_state['fixtureTransferRequests'].clear()
+    with pytest.raises(PackError, match='retained campaign evidence'):
+        preserve_history(execution.store.state, changed_state)
 def test_postgres_ci_explicitly_provisions_actual_fixture_and_rejects_skips():
     root = Path(__file__).resolve().parents[1]
     job = yaml.safe_load((root/'.github/workflows/agent-e2e-contracts.yml').read_text())['jobs']['postgres-fixture-contracts']
@@ -261,4 +315,4 @@ def test_postgres_ci_explicitly_provisions_actual_fixture_and_rejects_skips():
     assert 'psycopg[binary]' in commands and 'docker pull "$HONUA_AGENT_POSTGRES_TEST_IMAGE"' in commands
     assert 'test_agent_e2e_fixture_database.py' in commands
     assert "suite.get('tests', 0)" in commands and "suite.get('skipped', 0)" in commands
-    assert '>= 11' in commands and '== 0' in commands
+    assert '>= 12' in commands and '== 0' in commands

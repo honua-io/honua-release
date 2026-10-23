@@ -180,7 +180,8 @@ def preserve_history(previous, current):
     """A new campaign cannot delete spending or reclassify retained attempts."""
     if previous is None:
         return
-    for field in ('campaigns', 'attemptArtifacts', 'scenarioOperations', 'fixtureBaselines', 'fixtureOwnership', 'fixtureCleanup'):
+    for field in ('campaigns', 'attemptArtifacts', 'scenarioOperations', 'fixtureBaselines', 'fixtureOwnership',
+                  'fixtureCleanup', 'fixtureTransferRequests', 'nativeCostAllocations', 'nativeOverheadAllocations'):
         for key, value in previous.get(field, {}).items():
             if canonical_digest(current.get(field, {}).get(key)) != canonical_digest(value):
                 raise PackError('cannot rewrite or erase retained campaign evidence')
@@ -430,6 +431,36 @@ class DurableExecution:
             raise PackError('fixture ownership already retained; do not rebind resources')
         owned[key] = copy.deepcopy(record)
         self._persist()
+
+    def retain_fixture_transfer_request(self, context, request):
+        """Bind one exact observed owner handoff before the private provisioner."""
+        key = self._fixture_identity(context)
+        baseline = self.state.get('fixtureBaselines', {}).get(key)
+        tables = request.get('tables')
+        if (set(request) != {'schemaVersion', 'candidateKey', 'database', 'baselineDigest', 'expectedCleanupRole', 'tables'} or
+                request.get('schemaVersion') != 1 or request.get('candidateKey') != self.store.candidate or
+                baseline is None or request.get('baselineDigest') != canonical_digest(baseline) or
+                request.get('database') != baseline.get('database') or
+                not isinstance(request.get('expectedCleanupRole'), str) or
+                not re.fullmatch(r'[a-z][a-z0-9_]{0,62}', request['expectedCleanupRole']) or
+                not isinstance(tables, list) or len(tables) != 3):
+            raise PackError('fixture transfer differs from exact independently retained baseline')
+        before = {row['oid'] for row in baseline['snapshot']['relations']}
+        for table in tables:
+            if (not isinstance(table, dict) or set(table) != {'oid', 'schema', 'name', 'owner'} or
+                    type(table['oid']) is not int or table['oid'] <= 0 or table['oid'] in before or
+                    table['schema'] != 'honua_data' or
+                    any(not isinstance(table[field], str) or not re.fullmatch(r'[a-z][a-z0-9_]{0,62}', table[field])
+                        for field in ('name', 'owner'))):
+                raise PackError('fixture transfer table identity is ambiguous or preexisting')
+        if len({table['oid'] for table in tables}) != 3 or len({table['name'] for table in tables}) != 3:
+            raise PackError('fixture transfer contains duplicate relations')
+        requests = self.state.setdefault('fixtureTransferRequests', {})
+        if key in requests:
+            raise PackError('fixture transfer already retained; observe without redispatch')
+        requests[key] = copy.deepcopy(request)
+        self._persist()
+        return {'key': key, 'sha256': canonical_digest(request)}
 
     def require_fixture_ownership(self, context, record):
         key = self._fixture_identity(context)

@@ -77,6 +77,53 @@ def test_freeze_rejects_reduced_case_expectations(campaign, monkeypatch):
                         identity=producer.controller_identity(identity()))
 
 
+def test_reviewed_inputs_and_frozen_bundle_remain_identical_after_private_source_relocation(campaign, monkeypatch, tmp_path):
+    import shutil
+    from types import SimpleNamespace
+    original = campaign
+    old = load_json(original/'campaign.json')
+    expected = load_json(original/'expectations.json')
+    producer.write(original/'reviewed-expectations.json', {'cases': expected['cases']})
+    (original/'backend-entry.py').write_text('raise RuntimeError("preflight must not import code")\n')
+    producer.write(original/'backend-settings.json', {'offline': True})
+    pricing_path = original/'certification/agent-e2e/model-pricing.json'
+    pricing_path.parent.mkdir(parents=True)
+    pricing = {'modelId': old['modelId'], 'returnedModelId': old['returnedModelId'], 'region': 'us-east-1',
+               'inputUsdPerMillion': '1', 'outputUsdPerMillion': '2'}
+    producer.write(pricing_path, pricing)
+    def ref(relative):
+        return {'path': relative, 'sha256': producer.digest_bytes((original/relative).read_bytes())}
+    config = {'schemaVersion': 1, 'bootstrap': {'artifactDigest': 'sha256:'+'d'*64}, 'state': {},
+        'backend': {'kind': 'in-process', 'script': 'backend-entry.py',
+            'scriptSha256': producer.digest_bytes((original/'backend-entry.py').read_bytes()),
+            'configuration': ref('backend-settings.json')}, 'expectations': ref('reviewed-expectations.json'),
+        'knowledge': ref('evidence/knowledge/knowledge-manifest.json'),
+        'model': {**pricing, 'pricingDigest': producer.digest_bytes(pricing_path.read_bytes())}}
+    producer.write(original/'certification/agent-e2e/campaign-inputs.json', config)
+    def use_source(root):
+        monkeypatch.setattr(producer, 'ROOT', root)
+        monkeypatch.setattr(producer, 'PACK', root/'pack.json')
+        monkeypatch.setattr(producer, 'CONFIG', root/'certification/agent-e2e/campaign-inputs.json')
+    monkeypatch.setenv('TERMINAL_MODEL_NAME', old['modelId'])
+    # The surrounding source archive/index is authenticated by the handoff;
+    # this fixture only accepts the same nonmutating git tracked-file queries.
+    def tracked(argv, **kwargs):
+        assert argv[:1] == ['git'] and argv[3:5] == ['ls-files', '--error-unmatch']
+        assert not Path(argv[-1]).is_absolute()
+        return SimpleNamespace(returncode=0)
+    monkeypatch.setattr(producer.subprocess, 'run', tracked)
+    use_source(original)
+    reviewed = producer.inputs('development')
+    assert reviewed == config
+    producer.freeze(reviewed, original/'lock.json', original/'portable-frozen', 'development',
+                    identity=producer.controller_identity(identity()))
+    relocated = tmp_path/'private-controller/source'
+    shutil.copytree(original, relocated)
+    use_source(relocated)
+    assert producer.inputs('development') == load_json(relocated/'portable-frozen/producer-inputs.json') == config
+    assert str(original) not in json.dumps(config)
+
+
 @pytest.mark.parametrize('shard,shards', [(-1, 6), (6, 6), (0, 0), (0, 73), (True, 6)])
 def test_invalid_shards_fail(shard, shards):
     with pytest.raises(PackError):
