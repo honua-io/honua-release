@@ -87,15 +87,47 @@ jobs:
           python tools/agent_e2e_candidate.py --candidate-root candidate-input \
             --run-id "$CANDIDATE_RUN" --run-attempt "$CANDIDATE_ATTEMPT" \
             --output candidate-input/candidate-provenance.json
+      - name: Read exact original funding producer for a named amendment
+        id: funding
+        run: |
+          set -euo pipefail
+          python - <<'PYTHON'
+          import json, os
+          from pathlib import Path
+          config = json.loads(Path('certification/agent-e2e/campaign-inputs.json').read_text())
+          if 'budgetPolicy' in config:
+              original = config['bootstrap']
+              assert set(original) == {'artifactDigest', 'sourceSha', 'runId', 'runAttempt'}
+              assert type(original['runId']) is int and original['runId'] > 0
+              assert type(original['runAttempt']) is int and original['runAttempt'] > 0
+              with open(os.environ['GITHUB_OUTPUT'], 'a') as output:
+                  output.write('run_id='+str(original['runId'])+'\n')
+                  output.write('run_attempt='+str(original['runAttempt'])+'\n')
+          PYTHON
+      - name: Download the original funding artifact without AWS authority
+        if: steps.funding.outputs.run_id != ''
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          github-token: ${{ github.token }}
+          run-id: ${{ steps.funding.outputs.run_id }}
+          name: agent-e2e-budget-bootstrap-${{ steps.funding.outputs.run_attempt }}
+          path: bootstrap-import
       - name: Freeze reviewed campaign before paid execution
         id: freeze
         env:
           MODE: ${{ inputs.mode }}
+          GH_TOKEN: ${{ github.token }}
+          FUNDING_RUN: ${{ steps.funding.outputs.run_id }}
         run: |
           set -euo pipefail
+          funding_args=()
+          if [ -n "$FUNDING_RUN" ]; then
+            funding_args=(--bootstrap-artifact bootstrap-import/bootstrap-accounting.json)
+          fi
           python tools/agent_e2e_campaign.py freeze --mode "$MODE" \
             --lock candidate-input/frozen-lock/platform-lock.json \
             --candidate-provenance candidate-input/candidate-provenance.json \
+            "${funding_args[@]}" \
             --bundle campaign | tee freeze-result.json
           python - <<'PYTHON'
           import json, os, pathlib

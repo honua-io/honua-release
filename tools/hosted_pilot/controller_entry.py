@@ -15,8 +15,8 @@ from controller_archive import BUNDLE_LIMIT, SOURCE_LIMIT, bundle_bytes, canonic
 from controller_budget import read_allowance, read_version
 from controller_handoff import CONFIG_PATH, WORKFLOW, PREPARE_WORKFLOW, PREPARATIONS, bundle_identity, sdk, validate_configuration, put_once, model_runtime
 
-INPUTS = ('campaign.json', 'producer-inputs.json', 'qualification-lock.json', 'expectations.json', 'candidate-provenance.json', 'preparation.json')
-FINAL_FILES = {'campaign.json', 'producer-inputs.json', 'qualification-lock.json', 'expectations.json', 'candidate-provenance.json', 'trusted-inventory.json', 'budget-ledger.json', 'attempt-registry.json', 'qualification-summary.json'}
+INPUTS = ('campaign.json', 'producer-inputs.json', 'qualification-lock.json', 'expectations.json', 'candidate-provenance.json', 'preparation.json', 'budget-bootstrap-original.json')
+FINAL_FILES = {'campaign.json', 'producer-inputs.json', 'qualification-lock.json', 'expectations.json', 'candidate-provenance.json', 'budget-bootstrap-original.json', 'trusted-inventory.json', 'budget-ledger.json', 'attempt-registry.json', 'qualification-summary.json'}
 
 
 def approved_model_environment(config, campaign, producer, environment):

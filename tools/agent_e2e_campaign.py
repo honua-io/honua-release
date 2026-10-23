@@ -93,12 +93,17 @@ def inputs(mode='qualification'):
                    check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
     config = load_json(CONFIG)
     fields = {'schemaVersion', 'backend', 'model', 'state', 'expectations', 'knowledge', 'bootstrap'}
-    require(fields <= set(config) <= fields | {'scopeDecision'}, 'missing or extra producer configuration')
+    require(fields <= set(config) <= fields | {'scopeDecision', 'budgetPolicy'}, 'missing or extra producer configuration')
     require(config['schemaVersion'] == 1, 'unsupported producer configuration')
-    require(isinstance(config['bootstrap'], dict) and set(config['bootstrap']) == {'artifactDigest'} and
+    require(isinstance(config['bootstrap'], dict) and set(config['bootstrap']) in ({'artifactDigest'}, {'artifactDigest', 'sourceSha', 'runId', 'runAttempt'}) and
             isinstance(config['bootstrap']['artifactDigest'], str) and
             re.fullmatch(r'sha256:[0-9a-f]{64}', config['bootstrap']['artifactDigest']),
             'missing reviewed authenticated bootstrap artifact digest')
+    if 'budgetPolicy' in config:
+        from agent_e2e_campaign_budget import declaration
+        declaration(config['budgetPolicy'])
+        require(set(config['bootstrap']) == {'artifactDigest', 'sourceSha', 'runId', 'runAttempt'},
+                'amended campaign requires original bootstrap producer identity')
     # The current campaign includes 72 EKS cases while RC calls EKS Preview.
     # A reviewed scope decision is needed; neither truthy flags nor case removal qualify.
     if mode == 'qualification':
@@ -142,7 +147,7 @@ def inputs(mode='qualification'):
     return config
 
 
-def freeze(config, lock, destination, mode, *, identity=None, now=None):
+def freeze(config, lock, destination, mode, *, identity=None, now=None, bootstrap_artifact=None, authenticated_bootstrap=None):
     identity = identity or controller_identity()
     now = now or datetime.now(timezone.utc)
     require(mode in ('development', 'qualification'), 'invalid campaign mode')
@@ -179,6 +184,13 @@ def freeze(config, lock, destination, mode, *, identity=None, now=None):
         'controller': identity, 'startedAt': now.isoformat(), 'expiresAt': (now+timedelta(days=7)).isoformat(),
         'totalBudgetUsd': 500, 'expectationsDigest': digest_bytes((root/'expectations.json').read_bytes()),
         'knowledge': knowledge}
+    if 'budgetPolicy' in config:
+        from agent_e2e_campaign_budget import ORIGINAL, freeze_policy
+        require(bootstrap_artifact is not None and authenticated_bootstrap is not None,
+                'amended freeze requires authenticated original funding artifact')
+        policy, original = freeze_policy(config, campaign['componentBindingDigest'], bootstrap_artifact, authenticated_bootstrap)
+        campaign.update(totalBudgetUsd=2000, budgetPolicy=policy)
+        atomic_write(root/ORIGINAL, original)
     write(root/'campaign.json', campaign)
     write(root/'producer-inputs.json', config)
     return digest_bytes((root/'campaign.json').read_bytes())
@@ -356,7 +368,8 @@ def execute(config, bundle, target, shard, shards, *, case_ids=None, backend=Non
         require('bootstrapImport' in durable.state, 'missing authenticated bootstrap accounting')
         require(durable.state['bootstrapImport']['artifactDigest'] == config['bootstrap']['artifactDigest'],
                 'durable bootstrap accounting differs from reviewed import')
-        require(durable.state['ledger']['schemaVersion'] == 2, 'legacy campaign requires $500/$50 operation ledger')
+        from agent_e2e_campaign_budget import bind_ledger
+        bind_ledger(campaign, durable.state['ledger'], root, bootstrap=durable.state['bootstrapImport'])
         ledger_attempts = {(row['campaignId'], row['caseId'], row['attempt']) for row in durable.state['ledger']['entries']}
         registered_attempts = {(row['campaignId'], row['caseId'], row['attempt'])
                                for row in durable.state.get('registry', {}).get('attempts', [])}
@@ -481,6 +494,7 @@ def main(argv=None):
     parser.add_argument('--bundle', type=Path, required=True)
     parser.add_argument('--lock', type=Path)
     parser.add_argument('--candidate-provenance', type=Path)
+    parser.add_argument('--bootstrap-artifact', type=Path)
     parser.add_argument('--mode', choices=['development', 'qualification'], default='development')
     parser.add_argument('--target', choices=list(__import__('agent_e2e_pack').TARGETS))
     parser.add_argument('--shard', type=int, default=0)
@@ -497,7 +511,17 @@ def main(argv=None):
             require(provenance.get('schemaVersion') == 1 and
                     provenance.get('qualificationLockDigest') == digest_bytes(args.lock.read_bytes()),
                     'candidate authentication differs from frozen lock bytes')
-            frozen = freeze(config, args.lock, args.bundle, args.mode)
+            authenticated = None
+            if 'budgetPolicy' in config:
+                from agent_e2e_bootstrap import verify_import
+                require(args.bootstrap_artifact is not None, 'original funding artifact is required for amended freeze')
+                original = config['bootstrap']
+                authenticated = verify_import(args.bootstrap_artifact, original['artifactDigest'],
+                    gate.component_binding(load_json(args.lock)), original['sourceSha'], original['runId'], original['runAttempt'])
+            else:
+                require(args.bootstrap_artifact is None, 'legacy freeze cannot silently consume another funding artifact')
+            frozen = freeze(config, args.lock, args.bundle, args.mode,
+                bootstrap_artifact=args.bootstrap_artifact, authenticated_bootstrap=authenticated)
             atomic_write(args.bundle/'candidate-provenance.json', args.candidate_provenance.read_bytes())
             print(json.dumps({'status': 'frozen', 'campaignDigest': frozen, 'qualification': False}))
         elif args.operation == 'execute':

@@ -74,6 +74,7 @@ def environment(tmp_path):
     adapter.manifest = sample_manifest(tmp_path/'knowledge', pack)
     return {"pack": pack, "corpus": corpus, "case_id": "P10:A:local-docker",
             "campaign": {"campaignId": "campaign", "componentBindingDigest": KEY,
+                         "totalBudgetUsd": 500,
                          "campaignMode": "qualification", "knowledge": binding(adapter.manifest),
                          "qualificationLockDigest": BASIS, "modelId": "requested", "returnedModelId": "returned"},
             "ledger": ledger, "journal_root": tmp_path / "journals", "backend": adapter, "model": Model()}
