@@ -265,6 +265,26 @@ run "human_enrollment_separates_observation_from_provisioning" {
   }
 }
 
+run "token_counting_boundary_covers_only_reviewed_regional_foundation_models" {
+  command = plan
+  variables {
+    enable_agent_controller = true
+    controller_model_resource_arns = [
+      "arn:aws:bedrock:us-west-2:123456789012:inference-profile/us.anthropic.offline-v1:0",
+      "arn:aws:bedrock:us-west-2::foundation-model/anthropic.offline-v1:0",
+      "arn:aws:bedrock:us-east-1::foundation-model/anthropic.offline-v1:0"
+    ]
+  }
+  assert {
+    condition = (
+      one([for statement in jsondecode(aws_iam_policy.agent_boundary[0].policy).Statement : statement if try(statement.Sid, "") == "ReviewedTokenCountingOnly"]) == {
+        Sid      = "ReviewedTokenCountingOnly", Effect = "Allow", Action = "bedrock:CountTokens",
+        Resource = ["arn:aws:bedrock:us-west-2::foundation-model/anthropic.offline-v1:0"]
+      } && length(aws_iam_policy.agent_boundary[0].policy) <= 6144
+    )
+    error_message = "Token counting must retain exact reviewed regional foundation models and the AWS policy size bound."
+  }
+}
 run "original_custody_tags_are_separate_from_current_phase_identity" {
   command = plan
   variables {

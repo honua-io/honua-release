@@ -637,3 +637,58 @@ run "reject_native_studio_restore_empty_guid" {
   }
   expect_failures = [var.native_bootstrap]
 }
+
+run "controller_model_runtime_and_counting_member_are_pinned" {
+  command = plan
+  variables {
+    controller_model_resource_arns = [
+      "arn:aws:bedrock:us-east-1:123456789012:inference-profile/us.anthropic.offline-v1:0",
+      "arn:aws:bedrock:us-east-1::foundation-model/anthropic.offline-v1:0",
+      "arn:aws:bedrock:us-west-2::foundation-model/anthropic.offline-v1:0"
+    ]
+    controller_model = {
+      modelId               = "us.anthropic.offline-v1:0", returnedModelId = "offline-v1",
+      profileArn            = "arn:aws:bedrock:us-east-1:123456789012:inference-profile/us.anthropic.offline-v1:0",
+      tokenCountingModelArn = "arn:aws:bedrock:us-east-1::foundation-model/anthropic.offline-v1:0",
+      profileSha256         = "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+    }
+  }
+  assert {
+    condition = (
+      one([for statement in jsondecode(aws_iam_role_policy.controller.policy).Statement : statement if statement.Action == "bedrock:CountTokens"]) == {
+        Effect = "Allow", Action = "bedrock:CountTokens", Resource = [var.controller_model.tokenCountingModelArn]
+      } &&
+      local.controller_observation.model == var.controller_model &&
+      one([for row in jsondecode(aws_ecs_task_definition.controller.container_definitions)[0].environment : row.value if row.name == "TERMINAL_MODEL_NAME"]) == var.controller_model.modelId &&
+      jsondecode(one([for row in jsondecode(aws_ecs_task_definition.controller.container_definitions)[0].environment : row.value if row.name == "HONUA_CONTROLLER_MODEL_RUNTIME"])) == var.controller_model &&
+      !strcontains(aws_ecs_task_definition.fixture.container_definitions, "HONUA_CONTROLLER_MODEL_RUNTIME")
+    )
+    error_message = "Only the approved private controller may receive the exact profile/counting identity; CountTokens cannot cover profiles, other members or arbitrary models."
+  }
+}
+
+run "missing_model_runtime_grants_no_counting_or_model_environment" {
+  command = plan
+  assert {
+    condition = (
+      !strcontains(aws_iam_role_policy.controller.policy, "bedrock:CountTokens") &&
+      !strcontains(aws_ecs_task_definition.controller.container_definitions, "HONUA_CONTROLLER_MODEL_RUNTIME") &&
+      !can(local.controller_observation.model)
+    )
+    error_message = "An unconfigured model runtime cannot receive token-counting permission or an inferred model identity."
+  }
+}
+
+run "counting_member_cannot_be_an_unreviewed_model" {
+  command = plan
+  variables {
+    controller_model_resource_arns = ["arn:aws:bedrock:us-east-1:123456789012:inference-profile/us.anthropic.offline-v1:0"]
+    controller_model = {
+      modelId               = "us.anthropic.offline-v1:0", returnedModelId = "offline-v1",
+      profileArn            = "arn:aws:bedrock:us-east-1:123456789012:inference-profile/us.anthropic.offline-v1:0",
+      tokenCountingModelArn = "arn:aws:bedrock:us-east-1::foundation-model/anthropic.unrelated-v1:0",
+      profileSha256         = "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+    }
+  }
+  expect_failures = [var.controller_model]
+}

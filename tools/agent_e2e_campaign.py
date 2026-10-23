@@ -64,6 +64,28 @@ def controller_identity(environ=os.environ):
     return result
 
 
+def validate_model_profile(model, profile):
+    """Use the original profile members, never convert a profile name to a model."""
+    require(isinstance(profile, dict) and profile.get('status') == 'ACTIVE' and
+            profile.get('type') == 'SYSTEM_DEFINED' and
+            isinstance(profile.get('inferenceProfileId'), str) and
+            isinstance(profile.get('inferenceProfileArn'), str) and
+            re.fullmatch(r'arn:aws:bedrock:'+re.escape(model['region'])+r':[0-9]{12}:inference-profile/'+
+                         re.escape(profile['inferenceProfileId']), profile['inferenceProfileArn']) and
+            model['modelId'] in (profile['inferenceProfileId'], profile['inferenceProfileArn']) and
+            model.get('profileArn') == profile['inferenceProfileArn'],
+            'model differs from original active inference profile')
+    members = profile.get('models')
+    require(isinstance(members, list) and members and all(isinstance(row, dict) and set(row) == {'modelArn'} and
+            isinstance(row['modelArn'], str) and re.fullmatch(r'arn:aws:bedrock:[a-z0-9-]+::foundation-model/[A-Za-z0-9.:-]+', row['modelArn'])
+            for row in members) and len({row['modelArn'] for row in members}) == len(members),
+            'original inference profile members are missing or ambiguous')
+    require(isinstance(model.get('tokenCountingModelArn'), str) and
+            model['tokenCountingModelArn'] in [row['modelArn'] for row in members] and
+            model['tokenCountingModelArn'].startswith('arn:aws:bedrock:'+model['region']+'::foundation-model/'),
+            'token counting requires an explicit original regional profile member')
+
+
 def inputs(mode='qualification'):
     require(CONFIG.is_file(), 'missing reviewed certification/agent-e2e/campaign-inputs.json; '
             'full scenario backend, immutable model/pricing, knowledge, expectations, state and bootstrap must be configured')
@@ -111,7 +133,12 @@ def inputs(mode='qualification'):
     source_file('certification/agent-e2e/model-pricing.json', model['pricingDigest'])
     pricing = load_json(ROOT/'certification/agent-e2e/model-pricing.json')
     require(all(pricing[k] == model[k] for k in ('modelId', 'returnedModelId', 'region',
-                'inputUsdPerMillion', 'outputUsdPerMillion')), 'model differs from reviewed prices')
+                'inputUsdPerMillion', 'outputUsdPerMillion', 'tokenCountingModelArn', 'profileArn', 'profile')),
+            'model differs from reviewed prices/profile')
+    profile = model['profile']
+    require(isinstance(profile, dict) and set(profile) == {'path', 'sha256'} and
+            profile['path'] == 'certification/agent-e2e/model-profile.json', 'missing reviewed original model profile')
+    validate_model_profile(model, load_json(source_file(profile['path'], profile['sha256'])))
     return config
 
 

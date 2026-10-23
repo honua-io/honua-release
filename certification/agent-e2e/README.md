@@ -292,6 +292,34 @@ immutable MCP version. The old empty fixture-preparation path remains preparatio
 Missing native author projection, ordinary-human admission, real sign-in custody,
 linked workspace membership, or scoped grants blocks actual use.
 
+The first issued-key update must use the checked saved-plan deployment: review
+the actual bootstrap `apiKeyId` and immutable secret versions into
+`issued_native_keys`. The campaign application installs that exact agent principal
+on Server and that version on Console. Independently observe the applied task
+revisions and actual human/agent targets before creating or adopting the human
+turn. An earlier workspace paired to another key is not a substitute.
+
+The external model also needs a reviewed runtime binding. Campaign Terraform's
+optional `controller_model` contains `modelId`, `returnedModelId`, `profileArn`,
+`tokenCountingModelArn` and `profileSha256`. It must match the frozen producer
+model and the installed controller environment. The profile ARN and counting
+member come from original `GetInferenceProfile` bytes, never a profile-name
+conversion. `model-profile.json` retains the actual observed Sonnet 4.5 profile;
+it does not prove inference or token-counting availability. Reviewed pricing must
+bind its exact `{path, sha256}` as `model.profile`, plus `profileArn` and
+`tokenCountingModelArn`. The explicit counting ARN must be a profile member in
+the controller region. Token quotes use that ARN; inference keeps the original
+approved profile. Missing support or permission refuses without an estimated
+token fallback, another model, or another inference endpoint.
+
+Both the controller identity policy and its independent foundation boundary must
+allow `bedrock:CountTokens` on the exact reviewed regional foundation model.
+An unset runtime grants no counting permission on the controller. Rebuild the
+source-bound controller image after changing its entry/runtime contract, then
+use checked IaC to install the exact model environment and handoff. Required
+campaign inputs, pricing, handoff, actual human custody and worker configuration
+remain source-reviewed prerequisites; this profile record supplies none of them.
+
 A case may declare controller-only `consoleConversation: {nativeContext: {key,
 sha256}, workerMcp: {key, sha256}}`, where `workerMcp` refers to the original
 private MCP completed record. Before starting the case, the controller verifies
