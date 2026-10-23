@@ -115,3 +115,25 @@ def test_observed_pixels_cannot_redefine_expected_geometry_region(rendering):
     report['contractDigest'] = canonical_digest(contract)
     with pytest.raises(ValueError, match='region absent'):
         oracle_predicates.verify('render.actual', project(report, contract), expected)
+
+
+@pytest.mark.parametrize('change', [None, 'field', 'color', 'hidden', 'missing', 'duplicate', 'type'])
+def test_auxiliary_symbol_style_is_independently_frozen_with_its_composition_owner(rendering, change):
+    report, contract, _ = rendering
+    wanted = {'id': 'shelter-names', 'type': 'symbol', 'paint': {'text-color': '#1b1b1b'},
+        'layout': {'text-field': ['get', 'name'], 'text-size': 14, 'visibility': 'visible'}}
+    contract['layers'][0]['styles'] = [wanted]
+    report['contractDigest'] = canonical_digest(contract)
+    styles = report['render']['layers'][0]['styles']
+    styles.append(copy.deepcopy(wanted))
+    if change == 'field': styles[-1]['layout']['text-field'] = ['get', 'other']
+    elif change == 'color': styles[-1]['paint']['text-color'] = '#ffffff'
+    elif change == 'hidden': styles[-1]['layout']['visibility'] = 'none'
+    elif change == 'missing': styles.pop()
+    elif change == 'duplicate': styles.append(copy.deepcopy(wanted))
+    elif change == 'type': styles[-1]['type'] = 'circle'
+    if change is None:
+        assert project(report, contract)['loadedLayerIds'] == ['shelters']
+    else:
+        with pytest.raises(PackError, match='auxiliary MapLibre style differs'):
+            project(report, contract)

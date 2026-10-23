@@ -115,6 +115,18 @@ def project(report, contract):
         require(len(primary) == 1 and all(primary[0].get('paint', {}).get(key) == value for key, value in wanted['paint'].items()) and
                 all(primary[0].get('layout', {}).get(key) == value for key, value in wanted['layout'].items()),
                 'actual MapLibre layer paint/layout differs from frozen style predicates')
+        auxiliary = wanted.get('styles', [])
+        require(isinstance(auxiliary, list) and len(auxiliary) <= 100 and
+                all(isinstance(row, dict) and isinstance(row.get('id'), str) and row['id'] and
+                    isinstance(row.get('type'), str) and row['type'] and isinstance(row.get('paint'), dict) and
+                    isinstance(row.get('layout'), dict) for row in auxiliary) and
+                len({row['id'] for row in auxiliary}) == len(auxiliary), 'invalid frozen auxiliary style predicates')
+        for style in auxiliary:
+            matching = [row for row in styles if row.get('id') == style['id']]
+            require(len(matching) == 1 and matching[0].get('type') == style['type'] and
+                    all(matching[0].get('paint', {}).get(key) == value for key, value in style['paint'].items()) and
+                    all(matching[0].get('layout', {}).get(key) == value for key, value in style['layout'].items()),
+                    'actual auxiliary MapLibre style differs from frozen predicates')
         source_ids = set()
         for feature in features:
             require(isinstance(feature.get('properties'), dict) and isinstance(feature['properties'].get(wanted['sourceIdProperty']), str),

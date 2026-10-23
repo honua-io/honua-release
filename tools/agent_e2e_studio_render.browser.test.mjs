@@ -36,7 +36,7 @@ test('renderer refuses unpinned runtime, absent pixel geometry and unbound sourc
 });
 
 const enabled = process.env.HONUA_AGENT_RENDER_BROWSER_TESTS === '1';
-for (const strategy of ['direct', 'private-cli']) test(`real deployed read-only Studio SDK paints native HTTP source (${strategy}) without any writer request`, { skip: !enabled, timeout: 90000 }, async testContext => {
+for (const strategy of ['direct', 'direct-labels', 'private-cli', 'private-parent', 'private-parent-labels', 'private-parent-fence-loss']) test(`real deployed read-only Studio SDK paints native HTTP source (${strategy}) without any writer request`, { skip: !enabled, timeout: 90000 }, async testContext => {
   const root = await realpath(process.env.HONUA_AGENT_RENDER_ASSETS);
   const playwright = await import(pathToFileURL(process.env.HONUA_AGENT_RENDER_PLAYWRIGHT).href);
   const contract = declaration(), retained = [], seen = [];
@@ -51,6 +51,17 @@ for (const strategy of ['direct', 'private-cli']) test(`real deployed read-only 
   const body = { layers: [{ id: 'shelters', sourceId: 'service/1', type: 'circle', visible: true }],
     view: { center: [0,0], zoom: 2 }, mapSpec: { version: 8, sources: { 'service/1': { type: 'geojson', data: { type: 'FeatureCollection', features: [] } } },
       layers: [{ id: 'shelters', type: 'circle', source: 'service/1', paint: { 'circle-color': '#ef2020', 'circle-radius': 18 } }] } };
+  if (strategy.endsWith('labels')) {
+    // Freeze the label geometry/style and pixel window before any observation.
+    source.features[0].properties.name = 'Hālau, "North" refuge';
+    contract.layers[0].properties.s1.name = source.features[0].properties.name;
+    const paint = { 'text-color': '#1b1b1b' }, layout = { 'text-field': ['get', 'name'],
+      'text-size': 14, 'text-anchor': 'bottom', 'text-offset': [0,-2] };
+    body.mapSpec.layers.push({ id: 'shelter-names', type: 'symbol', source: 'service/1', paint, layout,
+      metadata: { 'honua:compositionLayerId': 'shelters' } });
+    contract.layers[0].styles = [{ id: 'shelter-names', type: 'symbol', paint, layout }];
+    contract.regions.push({ id: 'shelter-label', rect: [36,76,184,30], rgba: [27,27,27,255], tolerance: 25 });
+  }
   contract.scope.documentSha256 = sha(canonical(body));
   const base = { itemId: contract.scope.itemId, ownerId: contract.scope.ownerPrincipalId,
     workspaceId: contract.scope.namespace, packageKey: contract.scope.namespace,
@@ -125,10 +136,46 @@ for (const strategy of ['direct', 'private-cli']) test(`real deployed read-only 
     }, contract.mapLibreModule);
     let report;
     try {
-      if (strategy === 'direct') {
-        report = await observeStudioRender({ page, contract, authorize: async () => {}, retain: async report => retained.push(structuredClone(report)) });
+      if (strategy.startsWith('direct')) {
+        report = await observeStudioRender({ page, contract, ...(strategy.endsWith('labels') ? { contractJson: contractJson() } : {}),
+          authorize: async () => {}, retain: async report => retained.push(structuredClone(report)) });
       } else {
-        const child = spawn(process.execPath, [resolve('tools/agent_e2e_studio_render_cli.mjs')], {
+        const parent = strategy.startsWith('private-parent');
+        // This driver runs the actual private controller subprocess transport.
+        // Its only custody is the local fixture cookie below, never a human proof.
+        const parentDriver = `
+import json, os, sys, tempfile
+sys.path.insert(0, sys.argv[1])
+from hosted_pilot.browser_render import run_browser
+initial = json.loads(sys.stdin.readline())
+count = 0
+refuse = sys.argv[4] == 'private-parent-fence-loss'
+def authorize():
+    global count
+    count += 1
+    if refuse and count == 10:
+        raise ValueError('local test lease expired after actual map paint')
+environment = {key: os.environ[key] for key in ('PATH', 'LD_LIBRARY_PATH', 'HONUA_RENDER_PLAYWRIGHT', 'HONUA_RENDER_CHROMIUM') if key in os.environ}
+with tempfile.TemporaryDirectory(prefix='local-render-parent-') as directory:
+    try:
+        report = run_browser(contract=json.loads(initial['contractJson']), runtime=initial['runtime'],
+            state=initial['storageState'], authorize_effect=authorize, timeout=120,
+            command=[sys.argv[2], sys.argv[3]], environment=environment, work_directory=directory)
+    except ValueError as error:
+        assert refuse and count == 10
+        assert str(error) == 'private browser observation failed; preserve original attempt and liabilities'
+        report = None
+    assert not os.listdir(directory)
+if refuse:
+    assert report is None
+    print(json.dumps({'type':'fence-refused', 'authorizationCount':count}))
+else:
+    print(json.dumps({'type':'report', 'report':report}, separators=(',', ':'), ensure_ascii=False))
+    print(json.dumps({'type':'complete', 'authorizationCount':count}, separators=(',', ':')))
+`;
+        const cli = resolve('tools/agent_e2e_studio_render_cli.mjs');
+        const child = spawn(parent ? 'python3' : process.execPath,
+          parent ? ['-I', '-c', parentDriver, resolve('tools'), process.execPath, cli, strategy] : [cli], {
           env: { PATH: process.env.PATH, LD_LIBRARY_PATH: process.env.LD_LIBRARY_PATH,
             HONUA_RENDER_PLAYWRIGHT: process.env.HONUA_AGENT_RENDER_PLAYWRIGHT,
             HONUA_RENDER_CHROMIUM: process.env.HONUA_AGENT_RENDER_CHROMIUM },
@@ -153,8 +200,16 @@ for (const strategy of ['direct', 'private-cli']) test(`real deployed read-only 
           runtime: { playwright: '1.61.1', chromium: browser.version() } })+'\n');
         const status = await exit; await reading; child.stdin.end();
         assert.equal(status, 0, JSON.stringify(events.filter(row => row.type !== 'report')));
+        if (strategy === 'private-parent-fence-loss') {
+          assert.deepEqual(events, [{ type: 'fence-refused', authorizationCount: 10 }]);
+          assert.equal(retained.length, 0);
+          assert.ok(seen.some(row => row.path.startsWith('/api/studio/data/') && row.path.endsWith('/query')));
+          assert.ok(seen.every(row => row.method === 'GET'));
+          await context.close();
+          return;
+        }
         assert.equal(events.at(-1).type, 'complete');
-        assert.ok(events.filter(row => row.type === 'authorize').length > 5);
+        assert.ok(parent ? events.at(-1).authorizationCount > 5 : events.filter(row => row.type === 'authorize').length > 5);
         report = retained[0];
         assert.equal(report.contractDigest, 'sha256:'+sha(contractJson()));
         assert.deepEqual(report.browserRuntime, { playwright: '1.61.1', chromium: browser.version() });
@@ -167,6 +222,10 @@ for (const strategy of ['direct', 'private-cli']) test(`real deployed read-only 
     assert.ok(report.render.renderedFeatureCount > 0);
     assert.equal(report.render.layers[0].features[0].properties.source_id, 's1');
     assert.deepEqual(report.errors, []);
+    if (strategy.endsWith('labels')) {
+      const labels = report.render.layers.find(row => row.id === 'shelters');
+      assert.ok(labels.features.some(row => row.type === 'symbol' && row.properties.name === 'Hālau, "North" refuge'));
+    }
     assert.equal(await page.locator('#honua-agent-independent-render').count(), 0);
     assert.equal(retained.length, 1);
     assert.ok(seen.every(row => row.method === 'GET'));
@@ -175,9 +234,9 @@ for (const strategy of ['direct', 'private-cli']) test(`real deployed read-only 
       const { writeFile } = await import('node:fs/promises');
       await writeFile(process.env.HONUA_AGENT_RENDER_CONTROL_OUTPUT, JSON.stringify({ report: retained[0], contract })+'\n', { mode: 0o600 });
     }
-    if (process.env.HONUA_AGENT_RENDER_CONTROL_OUTPUT && strategy === 'private-cli') {
+    if (process.env.HONUA_AGENT_RENDER_CONTROL_OUTPUT && strategy !== 'direct') {
       const { writeFile } = await import('node:fs/promises');
-      await writeFile(process.env.HONUA_AGENT_RENDER_CONTROL_OUTPUT+'.private-cli',
+      await writeFile(process.env.HONUA_AGENT_RENDER_CONTROL_OUTPUT+'.'+strategy,
         JSON.stringify({ report: retained[0], contractJson: contractJson() })+'\n', { mode: 0o600 });
     }
     await context.close();

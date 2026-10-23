@@ -35,7 +35,11 @@ export function renderContract(contract) {
     && new Set(contract.layers.map(row => row.id)).size === contract.layers.length
     && contract.layers.every(row => typeof row.id === 'string' && row.id && typeof row.sourceIdProperty === 'string'
       && row.sourceIdProperty && Array.isArray(row.featureIds) && row.featureIds.length > 0
-      && row.featureIds.every(id => typeof id === 'string') && row.paint && row.layout), 'render lacks frozen feature/style predicates');
+      && row.featureIds.every(id => typeof id === 'string') && row.paint && row.layout
+      && (row.styles === undefined || Array.isArray(row.styles) && row.styles.length > 0 && row.styles.length <= 100
+        && new Set(row.styles.map(style => style.id)).size === row.styles.length
+        && row.styles.every(style => typeof style.id === 'string' && style.id && typeof style.type === 'string'
+          && style.type && style.paint && style.layout))), 'render lacks frozen feature/style predicates');
   const color = value => Array.isArray(value) && value.length === 4 && value.every(channel => Number.isInteger(channel) && channel >= 0 && channel <= 255);
   require(color(contract.background) && Number.isInteger(contract.backgroundTolerance) && contract.backgroundTolerance >= 0
     && contract.backgroundTolerance <= 255 && Array.isArray(contract.regions) && contract.regions.length > 0
