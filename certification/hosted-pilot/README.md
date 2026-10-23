@@ -175,6 +175,14 @@ operator CIDRs, compatible immutable component artifacts including both auth
 fixes (Console PR456 at a73b0f0181dac325fd5adda102edbb573d578eae), manifest/source digests, owner and cleanup deadline). No live ARNs, users,
 installed artifact identity or successful qualification are fabricated here.
 
+`console_agent_secret_arn = null` permits explicit foundation/authentication
+staging. It injects no agent credential; Console refuses native agent sessions
+and the native model remains disabled. This is never demo readiness. A random
+secret cannot substitute for a Server-issued, scoped, persistent credential and
+its exact canonical actor binding. The final Server image must contain reviewed
+workspace/turn authority sources as well as the browser-authentication changes;
+the standalone authentication branch does not contain that feature family.
+
 ## Offline verification
 
 The contract workflow validates both roots, runs provider-mocked refusal/custody

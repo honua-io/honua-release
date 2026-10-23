@@ -88,14 +88,15 @@ variable "audit_chain_secret_arn" {
 }
 
 variable "console_agent_secret_arn" {
-  description = "Existing dedicated agent API-key secret ARN. Console remains private and native inference disabled."
+  description = "Existing genuinely issued dedicated agent API-key secret ARN. Null is explicit authentication-only staging and refuses native sessions; it never qualifies the AI demo."
   type        = string
+  default     = null
   validation {
-    condition     = can(regex("^arn:aws:secretsmanager:[a-z0-9-]+:[0-9]{12}:secret:.+$", var.console_agent_secret_arn))
+    condition     = var.console_agent_secret_arn == null ? true : can(regex("^arn:aws:secretsmanager:[a-z0-9-]+:[0-9]{12}:secret:.+$", var.console_agent_secret_arn))
     error_message = "Supply the independently scoped agent's Secrets Manager ARN."
   }
   validation {
-    condition     = length(distinct([var.console_agent_secret_arn, var.operation_certificate_secret_arn, var.audit_chain_secret_arn])) == 3
+    condition     = length(distinct(compact([var.console_agent_secret_arn, var.operation_certificate_secret_arn, var.audit_chain_secret_arn]))) == length(compact([var.console_agent_secret_arn, var.operation_certificate_secret_arn, var.audit_chain_secret_arn]))
     error_message = "Agent, operation certificate and audit-chain secrets must be independent references."
   }
 }

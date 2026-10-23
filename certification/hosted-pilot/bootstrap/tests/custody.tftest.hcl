@@ -13,6 +13,12 @@ mock_provider "aws" {
   mock_resource "aws_iam_policy" {
     defaults = { arn = "arn:aws:iam::123456789012:policy/offline-boundary" }
   }
+  mock_resource "aws_ecr_repository" {
+    defaults = {
+      arn            = "arn:aws:ecr:us-west-2:123456789012:repository/honua-pilot-offline-trusted-controller"
+      repository_url = "123456789012.dkr.ecr.us-west-2.amazonaws.com/honua-pilot-offline-trusted-controller"
+    }
+  }
 }
 variables {
   account_id                = "123456789012"
@@ -38,6 +44,17 @@ variables {
 }
 run "custody_and_approval_boundaries" {
   command = plan
+  assert {
+    condition = (
+      aws_ecr_repository.controller.image_tag_mutability == "IMMUTABLE" &&
+      aws_ecr_repository.controller.image_scanning_configuration[0].scan_on_push &&
+      aws_iam_role_policy.controller_image.role == aws_iam_role.executor["apply"].id &&
+      jsondecode(aws_iam_role_policy.controller_image.policy).Statement[1].Resource == aws_ecr_repository.controller.arn &&
+      contains(jsondecode(aws_iam_role_policy.controller_image.policy).Statement[1].Action, "ecr:PutImage") &&
+      output.deployment_bindings.HOSTED_PILOT_CONTROLLER_ECR_REPOSITORY == aws_ecr_repository.controller.repository_url
+    )
+    error_message = "The trusted controller registry must be immutable, scanned and writable only through its exact apply-lane repository grant."
+  }
   assert {
     condition = alltrue([for lane, role in aws_iam_role.executor :
       jsondecode(role.assume_role_policy).Statement[0].Condition.StringEquals["token.actions.githubusercontent.com:sub"] == "repo:honua-io/honua-release:environment:hosted-pilot-${lane}" &&

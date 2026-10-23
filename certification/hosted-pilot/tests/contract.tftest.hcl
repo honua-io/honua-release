@@ -357,3 +357,15 @@ run "refuse_mutable_edge_image" {
   variables { edge_proxy_image = "registry.invalid/oauth2-proxy:latest" }
   expect_failures = [var.edge_proxy_image]
 }
+
+run "authentication_staging_without_agent_credential" {
+  command = plan
+  variables { console_agent_secret_arn = null }
+  assert {
+    condition = (
+      alltrue([for secret in jsondecode(aws_ecs_task_definition.console.container_definitions)[0].secrets : secret.name != "HONUA_AGENT_API_KEY"]) &&
+      alltrue([for setting in jsondecode(aws_ecs_task_definition.console.container_definitions)[0].environment : setting.name != "HONUA_NATIVE_MODEL_ENABLED" || setting.value == "false"])
+    )
+    error_message = "Authentication-only staging must inject no placeholder agent key or agent-secret grant and keep native inference disabled."
+  }
+}

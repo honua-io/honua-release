@@ -1,15 +1,16 @@
 locals {
   deployment_variables = {
-    HOSTED_PILOT_REGION           = var.region
-    HOSTED_PILOT_ACCOUNT_ID       = local.account
-    HOSTED_PILOT_STATE_BUCKET     = aws_s3_bucket.custody["state"].id
-    HOSTED_PILOT_STATE_KMS_ARN    = aws_kms_key.custody.arn
-    HOSTED_PILOT_STATE_KEY        = local.state_key
-    HOSTED_PILOT_BACKEND_ROLE_ARN = aws_iam_role.backend.arn
-    HOSTED_PILOT_PLAN_BUCKET      = aws_s3_bucket.custody["plans"].id
-    HOSTED_PILOT_PLAN_KMS_ARN     = aws_kms_key.custody.arn
-    HOSTED_PILOT_PLAN_ROLE_ARN    = aws_iam_role.executor["plan"].arn
-    HOSTED_PILOT_APPLY_ROLE_ARN   = aws_iam_role.executor["apply"].arn
+    HOSTED_PILOT_REGION                    = var.region
+    HOSTED_PILOT_ACCOUNT_ID                = local.account
+    HOSTED_PILOT_STATE_BUCKET              = aws_s3_bucket.custody["state"].id
+    HOSTED_PILOT_STATE_KMS_ARN             = aws_kms_key.custody.arn
+    HOSTED_PILOT_STATE_KEY                 = local.state_key
+    HOSTED_PILOT_BACKEND_ROLE_ARN          = aws_iam_role.backend.arn
+    HOSTED_PILOT_PLAN_BUCKET               = aws_s3_bucket.custody["plans"].id
+    HOSTED_PILOT_PLAN_KMS_ARN              = aws_kms_key.custody.arn
+    HOSTED_PILOT_PLAN_ROLE_ARN             = aws_iam_role.executor["plan"].arn
+    HOSTED_PILOT_APPLY_ROLE_ARN            = aws_iam_role.executor["apply"].arn
+    HOSTED_PILOT_CONTROLLER_ECR_REPOSITORY = aws_ecr_repository.controller.repository_url
   }
 }
 output "deployment_bindings" {

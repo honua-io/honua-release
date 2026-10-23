@@ -56,7 +56,7 @@ resource "aws_iam_role_policy_attachment" "console_execution" {
 data "aws_iam_policy_document" "console_secret" {
   statement {
     actions   = ["secretsmanager:GetSecretValue"]
-    resources = [var.console_agent_secret_arn, aws_secretsmanager_secret.edge.arn, aws_secretsmanager_secret.oidc_client["console_edge"].arn]
+    resources = compact([var.console_agent_secret_arn, aws_secretsmanager_secret.edge.arn, aws_secretsmanager_secret.oidc_client["console_edge"].arn])
   }
   dynamic "statement" {
     for_each = length(local.console_secret_kms_keys) > 0 ? [1] : []
@@ -103,10 +103,11 @@ resource "aws_ecs_task_definition" "console" {
       Honua__Console__Auth__Mode                               = "EdgeForwarded"
       Honua__Console__Auth__EdgeForwarded__ServerSessionIssuer = "https://${aws_cognito_user_pool.pilot.endpoint}"
     } : { name = name, value = value }],
-    secrets = [
-      { name = "HONUA_AGENT_API_KEY", valueFrom = var.console_agent_secret_arn },
+    secrets = concat(var.console_agent_secret_arn == null ? [] : [
+      { name = "HONUA_AGENT_API_KEY", valueFrom = var.console_agent_secret_arn }
+      ], [
       { name = "Honua__Console__Auth__EdgeForwarded__SharedSecret", valueFrom = "${aws_secretsmanager_secret.edge.arn}:shared::" }
-    ],
+    ]),
     logConfiguration = {
       logDriver = "awslogs", options = {
         "awslogs-group"  = aws_cloudwatch_log_group.console.name,
