@@ -1,6 +1,7 @@
 """Driver handoffs only; these tests do not qualify a live candidate journey."""
 import io
 import json
+import os
 import sys
 import tempfile
 import unittest
@@ -71,6 +72,33 @@ class RecoverableActionTransportTests(unittest.TestCase):
         with mock.patch.object(live_driver, "handle", return_value=response), \
              mock.patch.object(sys, "stdin", stdin), mock.patch.object(sys, "stdout", io.StringIO()):
             self.assertEqual(live_driver.main(), 1)
+
+
+class DatasourceProcessEnvironmentTests(unittest.TestCase):
+    def engine(self, directory, kind):
+        target = {"kind": kind, "adminPassword": {"env": "TEST_BOOTSTRAP", "default": ""},
+                  "execution": {"datasource": {"passwordEnv": "HONUA_JOURNEY_DATASOURCE_PASSWORD"}}}
+        with mock.patch.object(live_driver.local_fixture, "credentials", return_value={}):
+            return live_driver._executor({"workdir": directory, "baseUrl": "http://localhost"},
+                                         target, stages.Observation())
+
+    def test_new_driver_process_resolves_local_datasource_without_setup_environment(self):
+        with tempfile.TemporaryDirectory() as directory, mock.patch.dict(os.environ, {}, clear=True):
+            engine = self.engine(directory, "local-docker")
+            self.assertEqual(engine.datasource_arguments(), {"password": "honua"})
+
+    def test_explicit_environment_is_preserved_and_missing_cloud_secret_stays_blocked(self):
+        for kind in ("local-docker", "aws-serverless", "aws-ecs", "aws-eks"):
+            with self.subTest(kind=kind), tempfile.TemporaryDirectory() as directory:
+                with mock.patch.dict(os.environ, {"HONUA_JOURNEY_DATASOURCE_PASSWORD": "explicit-fixture"}, clear=True):
+                    self.assertEqual(self.engine(directory, kind).datasource_arguments(),
+                                     {"password": "explicit-fixture"})
+                if kind != "local-docker":
+                    with mock.patch.dict(os.environ, {}, clear=True):
+                        with self.assertRaises(live_driver.ExecutionError) as refused:
+                            self.engine(directory, kind).datasource_arguments()
+                        self.assertTrue(refused.exception.blocked)
+                        self.assertNotIn("HONUA_JOURNEY_DATASOURCE_PASSWORD", os.environ)
 
 
 if __name__ == "__main__":
