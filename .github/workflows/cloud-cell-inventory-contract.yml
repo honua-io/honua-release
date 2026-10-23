@@ -1,0 +1,27 @@
+name: Cloud cell inventory policy contract
+on:
+  pull_request:
+    paths:
+      - 'certification/cloud-cell-inventory/**'
+      - 'tools/cloud_cell_inventory_policy.py'
+      - 'tools/test_cloud_cell_inventory_policy.py'
+      - '.github/workflows/cloud-cell-inventory-contract.yml'
+permissions:
+  contents: read
+jobs:
+  contract:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: hashicorp/setup-terraform@dfe3c3f87815947d99a8997f908cb6525fc44e9e # v4.0.1
+        with:
+          terraform_version: 1.13.5
+          terraform_wrapper: false
+      - name: Validate the actual fixed policy root without AWS operations
+        working-directory: certification/cloud-cell-inventory
+        run: |
+          terraform fmt -check -recursive
+          terraform init -backend=false -input=false -lockfile=readonly
+          terraform validate
+          terraform test -no-color
