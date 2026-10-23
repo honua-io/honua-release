@@ -276,6 +276,11 @@ def main():
         if e['PILOT_OPERATION'] == 'apply':
             outputs = json.loads(run(['terraform', 'output', '-json']))
             private_json(work / 'outputs.json', outputs)
+            from enrollment_receipt import emit as emit_enrollment
+            enrollment = emit_enrollment(cfg=cfg, root=ROOT, root_path=TF_ROOT, outputs=outputs,
+                                         review=review, work=work, env=e, aws=aws)
+            with open(e['GITHUB_OUTPUT'], 'a') as out:
+                out.write(f"human_enrollment={'true' if enrollment else 'false'}\n")
         print('Exact reviewed saved plan applied. Authentication qualification remains a separate gate.')
 
 

@@ -26,3 +26,6 @@ output "admin_password_secret_arn" {
 output "runtime_bindings" {
   value = module.application.runtime_bindings
 }
+output "native_membership_credentials" {
+  value = module.application.native_membership_credentials
+}

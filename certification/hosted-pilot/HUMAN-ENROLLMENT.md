@@ -4,9 +4,10 @@ Use this path after the isolated Cognito pool exists and the operator has
 nominated real people. This prepares access for actual Console/Studio sessions;
 creating accounts does not qualify those sessions or the release demo.
 
-All account and membership changes use `hosted-pilot-deploy.yml` and its reviewed
-saved plan. Do not use AWS CLI/Console account creation, password changes or group
-edits. The sealing helper below performs resource reads and KMS encryption only.
+Cognito account and group changes use `hosted-pilot-deploy.yml` and its reviewed
+saved plan. Native Server memberships use the separately reviewed private task
+described below. Do not use AWS CLI/Console account creation, password changes or
+group edits. The sealing helper performs resource reads and KMS encryption only.
 
 ## Prepare the nominated identities
 
@@ -73,6 +74,72 @@ observed Cognito subject ID, nominated role and status, never email/password.
 Resource/action summaries use the opaque alias rather than the email.
 The campaign returns this under `application_deployment.human_enrollment`, with
 its same application identity references in `application_deployment.identity_preparation`.
+
+After the authenticated saved-plan apply succeeds, `enrollment_receipt.py` retains
+an identity-only carrier in the existing private plan bucket. It binds the actual
+Cognito subjects and reviewed roles to the candidate, application task revisions,
+configuration, original plan version, original review artifact and apply attempt.
+The exact original value-free `review.json` is retained alongside it under
+`hosted-pilot/plans/<run>/<plan-attempt>/`. Each apply attempt uses its own
+`human-identities-<apply-attempt>.json`; conditional writes and exact readback
+preserve earlier objects. A lost write reply permits readback, never a blind
+mutation retry. An unresolved result remains a failed apply job.
+
+Only `human-enrollment-reference.json` is published as a GitHub artifact. The
+carrier and full Terraform outputs stay private. The reference names an immutable
+version, digest and original custody key; it contains no user identities. A null
+enrollment produces no carrier. Missing task revisions, mismatched subjects,
+changed roles, a foreign target or a failed Terraform apply cannot produce an
+accepted enrollment receipt. The native membership helper must independently
+authenticate the successful original workflow job and review before using it.
+Provisioning always records `qualification: false`; neither this receipt nor a
+successful deployment proves that a human logged in or approved anything.
+
+## Native Server membership
+
+The application provisions an independent SCIM bearer secret and binds its exact
+version and actual Cognito issuer into the Server task. Its
+`native_membership_credentials` output contains only the SCIM and root secret
+ARNs and immutable version IDs. In a campaign this output is under
+`application_deployment`; neither output contains a credential value.
+
+Before the first native SQL/key bootstrap, review `native_bootstrap.humanMemberships`
+into the campaign configuration. It has exactly three fields:
+
+- `schemaVersion: 1`.
+- `enrollment`: the complete original `human-enrollment-reference.json` object.
+- `credentials`: the actual application's `native_membership_credentials` object.
+
+The foundation must include its distinct native-bootstrap task boundary before
+applying this campaign configuration. Both steps use their checked saved-plan
+workflows. The campaign refuses a different application's credential versions,
+a foreign enrollment bucket, or a saved-plan binary substituted for the identity
+carrier. Only the private bootstrap task receives the version-pinned SCIM/root
+credentials. Its execution role injects them; its task role cannot read secrets.
+Controller and worker custody-key exclusions remain unchanged.
+
+Review the resulting `native_bootstrap_handoff` into
+`certification/agent-e2e/native-bootstrap-handoff.json`, preserving the original
+operation and accounting references. Dispatch `hosted-pilot-native-bootstrap.yml`
+only from the reviewed protected source. The task independently verifies the
+original successful enrollment apply, configuration, private object versions and
+current deployed Server before using actual SCIM/role APIs. It uses observed raw
+Cognito subjects, preserves separate author/approver roles, and checks the exact
+effective grants. It does not invent identities, write membership tables directly,
+or issue human login tokens.
+
+Private enrollment and review objects use object-level S3 KMS encryption context;
+bucket keys are disabled and readback refuses them. The dedicated task boundary
+allows only these JSON object forms through S3, and the task's identity policy
+further limits the original keys and enrollment version. Foundation state,
+budget records and saved-plan binaries remain outside that read authority.
+
+Membership mutations retain intent before sending. A lost response permits native
+readback without another POST/PUT. Membership reconciliation runs before the first
+parent SQL/key intent; an already-started parent bootstrap refuses all new effects.
+Keep unresolved tasks, reservations and observations for explicit recovery. A
+completed membership receipt remains private, with only its digest and enrollment
+reference included in the parent receipt; it still records `qualification: false`.
 
 ## First login and qualification
 
