@@ -340,7 +340,7 @@ def test_workflow_attests_only_after_complete_gate_and_preserves_targets():
     assert final['needs'] == 'batch'
     assert final['if'] == "inputs.mode == 'qualification'"
     steps = final['steps']
-    validate_index = next(i for i, s in enumerate(steps) if 'finalize --bundle' in s.get('run', ''))
+    validate_index = next(i for i, s in enumerate(steps) if '--operation finalize' in s.get('run', ''))
     attest_index = next(i for i, s in enumerate(steps) if 'attest-build-provenance' in s.get('uses', ''))
     assert validate_index < attest_index
     assert 'campaign/campaign.json' in steps[attest_index]['with']['subject-path']
