@@ -1,5 +1,7 @@
 """Immutable custody completion metadata, distinct from the original creator."""
 import json
+from pathlib import Path
+import sys
 import re
 
 from deploy import digest, private_json, require
@@ -31,6 +33,10 @@ def retain(receipt, configuration, binding, work, *, aws, exists):
 
 def observe_successful_recovery(configuration, binding, original, work, *, aws, call=None):
     """Authenticate native recovery approval/apply; never turn its creator green."""
+    # Script invocation adds tools/hosted_pilot, while the authenticator also
+    # imports shared modules from tools. Anchor that dependency to this exact
+    # checked-out source rather than requiring ambient PYTHONPATH or cwd.
+    sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
     import history_reconciliation as history
     call = history.invoke if call is None else call
     base = prefix(configuration, original)

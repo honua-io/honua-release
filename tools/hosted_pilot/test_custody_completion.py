@@ -4,6 +4,8 @@ import hashlib
 import io
 import json
 import os
+import subprocess
+import sys
 from pathlib import Path
 import tempfile
 import unittest
@@ -157,6 +159,35 @@ class RecoveryContinuation(unittest.TestCase):
         result=custody_completion.retain(self.receipt,self.cfg,secured,self.work,aws=self.aws,exists=lambda *args:True)
         self.assertEqual(result['key'],stored[0][0])
         self.assertFalse(any(args[:2]==('s3api','put-object') or args[1].startswith('delete') for args in self.aws_calls))
+
+
+class WorkflowImportPath(unittest.TestCase):
+    def test_fresh_workflow_shaped_process_needs_no_pythonpath(self):
+        hosted=Path(__file__).resolve().parent
+        with tempfile.TemporaryDirectory() as directory:
+            launcher=Path(directory)/'entry.py'
+            launcher.write_text("""import sys, tempfile
+from pathlib import Path
+sys.path.insert(0, HOSTED)
+assert str(Path(HOSTED).parent) not in sys.path
+import custody_completion
+with tempfile.TemporaryDirectory() as directory:
+    try:
+        custody_completion.observe_successful_recovery(
+            {'name_prefix':'honua-pilot-fixture'}, {'bucket':'fixture'},
+            {'run_id':'99','identity':{}}, Path(directory),
+            aws=lambda *args: {'Contents': [], 'IsTruncated': False})
+    except ValueError as error:
+        assert str(error) == 'original creator is unsuccessful; authenticated successful custody recovery required'
+    else:
+        raise AssertionError('empty completion inventory cannot authenticate recovery')
+print('fresh workflow import passed; no native effects')
+""".replace('HOSTED',repr(str(hosted))))
+            environment=dict(os.environ);environment.pop('PYTHONPATH',None)
+            result=subprocess.run([sys.executable,str(launcher)],cwd=hosted.parents[1],env=environment,capture_output=True,text=True)
+            self.assertEqual(result.returncode,0,'workflow-shaped import must reach explicit incomplete-recovery refusal')
+            self.assertEqual(result.stdout.strip(),'fresh workflow import passed; no native effects')
+            self.assertEqual(result.stderr,'')
 
 
 class ObservationPlan(unittest.TestCase):
