@@ -44,16 +44,18 @@ override_data {
 override_module {
   target = module.application.module.server
   outputs = {
-    vpc_id                    = "vpc-12345678"
-    private_subnet_ids        = ["subnet-12345678"]
-    ecs_cluster_name          = "offline-test"
-    alb_dns_name              = "offline.invalid"
-    alb_security_group_id     = "sg-12345678"
-    https_listener_arn        = "arn:aws:elasticloadbalancing:us-west-2:123456789012:listener/app/offline/1234567890123456/1234567890123456"
-    ecs_service_name          = "offline-server"
-    db_endpoint               = "offline.rds.invalid"
-    db_connection_secret_arn  = "arn:aws:secretsmanager:us-west-2:123456789012:secret:honua-pilot-offline-db"
-    admin_password_secret_arn = "arn:aws:secretsmanager:us-west-2:123456789012:secret:honua-pilot-offline-admin"
+    vpc_id                           = "vpc-12345678"
+    private_subnet_ids               = ["subnet-12345678"]
+    ecs_cluster_name                 = "offline-test"
+    alb_dns_name                     = "offline.invalid"
+    alb_security_group_id            = "sg-12345678"
+    https_listener_arn               = "arn:aws:elasticloadbalancing:us-west-2:123456789012:listener/app/offline/1234567890123456/1234567890123456"
+    ecs_service_name                 = "offline-server"
+    db_endpoint                      = "offline.rds.invalid"
+    db_connection_secret_arn         = "arn:aws:secretsmanager:us-west-2:123456789012:secret:honua-pilot-offline-db"
+    admin_password_secret_arn        = "arn:aws:secretsmanager:us-west-2:123456789012:secret:honua-pilot-offline-admin"
+    admin_password_secret_version_id = "dddddddddddddddddddddddddddddddd"
+    ecs_task_definition_arn          = "arn:aws:ecs:us-west-2:123456789012:task-definition/honua-pilot-offline-agent-server:7"
   }
 }
 

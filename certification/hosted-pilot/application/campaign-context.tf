@@ -82,6 +82,19 @@ output "db_endpoint" {
 }
 output "db_connection_secret_arn" { value = module.server.db_connection_secret_arn }
 output "admin_password_secret_arn" { value = module.server.admin_password_secret_arn }
+output "native_membership_credentials" {
+  description = "References to the actual independent immutable provisioning credentials; never secret values or human qualification."
+  value = {
+    scim = {
+      secretArn = aws_secretsmanager_secret.native_scim.arn
+      versionId = aws_secretsmanager_secret_version.native_scim.version_id
+    }
+    root = {
+      secretArn = module.server.admin_password_secret_arn
+      versionId = module.server.admin_password_secret_version_id
+    }
+  }
+}
 output "runtime_bindings" {
   description = "Configured references for independent installed verification; not a readiness or qualification receipt."
   value = {

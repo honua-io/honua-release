@@ -36,7 +36,10 @@ def validate(config):
         'operation', 'databaseHost', 'database', 'appRole', 'cleanupRole', 'observerRole',
         'endpoint', 'targetId', 'itemId', 'expiresAt', 'readGrants', 'datasetImportScopes', 'managedProcessIds', 'secretArns', 'bucket', 'receiptKey',
         'clusterArn', 'taskDefinitionFamily', 'imageUri', 'generationDigest'}
-    require(isinstance(config, dict) and set(config) == fields and config['schemaVersion'] == 2, 'native bootstrap reviewed configuration missing')
+    require(isinstance(config, dict) and fields <= set(config) <= fields | {'humanMemberships'} and config['schemaVersion'] == 2, 'native bootstrap reviewed configuration missing')
+    if config.get('humanMemberships') is not None:
+        from human_memberships import validate as validate_memberships
+        validate_memberships(config['humanMemberships'], config)
     require(re.fullmatch(r'sha256:[a-f0-9]{64}', config['candidateKey']) and
             re.fullmatch(r'sha256:[a-f0-9]{64}', config['bootstrapArtifactDigest']) and
             re.fullmatch(r'[0-9]{12}', config['accountId']) and config['state']['region'] == config['region'], 'native bootstrap accounting identity differs')
@@ -160,6 +163,14 @@ def provision(config, durable, *, connection, secrets, root_key, native):
     operation_key = canonical_digest({'kind': 'native-bootstrap', 'candidateKey': config['candidateKey'], 'operationId': config['operation']['operationId']})
     retained = durable.state.setdefault('scenarioOperations', {})
     require(operation_key+'/start' not in retained, 'native bootstrap already started; reconcile original SQL/API/secret observations without replay')
+    # Existing SQL/key intent refuses before any newly requested human effects.
+    # When absent, the separate membership helper can GET-reconcile its original
+    # intents before the parent's first irreversible credential issuance.
+    memberships = None
+    if config.get('humanMemberships') is not None:
+        from human_memberships import provision_human_memberships
+        memberships = provision_human_memberships(configuration=config['humanMemberships'],
+            bootstrap=config, durable=durable, native=native, guard=guard)
     def retain(stage, value):
         guard()
         key = operation_key+'/'+stage
@@ -209,6 +220,10 @@ def provision(config, durable, *, connection, secrets, root_key, native):
         'configurationDigest': canonical_digest(config), 'operation': config['operation'], 'target': observed_target, 'sql': sql_result,
         'keys': issued, 'requiresReviewedAgentPrincipalInstallation': True, 'qualification': False,
         'completedAt': datetime.now(timezone.utc).isoformat(), 'native': native}
+    if memberships is not None:
+        receipt['humanMemberships'] = {'schema': memberships['schema'],
+            'enrollment': config['humanMemberships']['enrollment'],
+            'receiptDigest': canonical_digest(memberships), 'qualification': False}
     retain('completed', receipt)
     return receipt
 

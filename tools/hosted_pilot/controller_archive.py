@@ -33,6 +33,7 @@ CONTRACT_PATHS = (
     'tools/hosted_pilot/fixture_handoff.py',
     'tools/hosted_pilot/fixture_provisioner.py',
     'tools/hosted_pilot/native_bootstrap.py',
+    'tools/hosted_pilot/human_memberships.py',
     'tools/hosted_pilot/setup_key_retirement.py',
     'tools/hosted_pilot/setup_key_retirement_dispatch.py',
     'tools/hosted_pilot/prepare.py',

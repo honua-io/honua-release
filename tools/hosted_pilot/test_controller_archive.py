@@ -93,7 +93,8 @@ class ControllerArchives(unittest.TestCase):
             path.parent.mkdir(parents=True, exist_ok=True)
             shutil.copyfile(source/name, path)
         original = archive.contract(self.root)
-        for name in ('tools/agent_e2e_native_custody_bindings.py', 'tools/agent_e2e_studio_custody_observer.py'):
+        for name in ('tools/agent_e2e_native_custody_bindings.py', 'tools/agent_e2e_studio_custody_observer.py',
+                     'tools/hosted_pilot/human_memberships.py'):
             path = self.root/name
             data = path.read_bytes()
             path.write_bytes(data+b'\n# substituted runtime\n')
