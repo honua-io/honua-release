@@ -8,7 +8,7 @@ on:
         required: true
         default: certification/hosted-pilot
         type: choice
-        options: [certification/hosted-pilot, certification/hosted-pilot/campaign]
+        options: [certification/hosted-pilot, certification/hosted-pilot/campaign, certification/hosted-pilot/worker]
       config_path:
         description: Reviewed checked-in deployments/*.tfvars.json beneath the selected root
         required: true
@@ -158,6 +158,9 @@ jobs:
       - name: Inspect actual campaign target, controller lifecycle and custody
         if: inputs.operation == 'apply' && inputs.terraform_root == 'certification/hosted-pilot/campaign'
         run: python3 tools/hosted_pilot/campaign_readiness.py
+      - name: Inspect exact worker image, agent-only secret version and independent cleanup
+        if: inputs.operation == 'apply' && inputs.terraform_root == 'certification/hosted-pilot/worker'
+        run: python3 tools/hosted_pilot/worker_readiness.py
       - name: Publish value-free infrastructure readiness
         if: inputs.operation == 'apply'
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
