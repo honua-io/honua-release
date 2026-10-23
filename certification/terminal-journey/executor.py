@@ -701,6 +701,7 @@ class JourneyExecutor:
             # Unpaired drafts omit the nullable workspaceId in the published API.
             snapshot["workspaceId"] = output.get("workspaceId")
             if (type(snapshot["generation"]) is not int or snapshot["generation"] < 0
+                    or not isinstance(snapshot["family"], str) or snapshot["family"].lower() != "map"
                     or not isinstance(envelope, dict) or str(envelope.get("family", "")).lower() != "map"):
                 raise ValueError()
             previous = self.evidence.get("mapDraftReceipt")
@@ -735,6 +736,7 @@ class JourneyExecutor:
                   "family": str(envelope.get("family", "")).lower() == "map",
                   "body": "body" in envelope and body == self.expected_map_body()}
         if snapshot is not None:
+            fields["family"] = fields["family"] and str(value.get("family", "")).lower() == "map"
             fields.update({key: value.get(key) == snapshot.get(key) for key in
                 ("draftId", "generation", "ownerId", "workspaceId", "packageKey")})
             fields["draftReceipt"] = all(fields[key] for key in

@@ -194,7 +194,8 @@ def test_mutation_cannot_replace_original_item_owner_or_workspace(http_map, fiel
     engine, _, _, _, _ = setup_map(http_map)
     changed = copy.deepcopy(DRAFT)
     changed[field] = 'other'
-    with pytest.raises(ExecutionError, match='original identity binding'):
+    reason = 'content or canonical identity' if field == 'family' else 'original identity binding'
+    with pytest.raises(ExecutionError, match=reason):
         engine.record_map_draft('honua_studio_update_draft', {'draftId': 'draft', 'body': BODY}, changed)
 
 
@@ -254,3 +255,37 @@ def test_public_schema_observation_is_bounded_and_cannot_echo_credential(http_ma
         {'family': 'map', 'currentSchemaVersion': version}]})
     with pytest.raises(ExecutionError, match='bounded non-secret identity'):
         engine.terminal_surface(6)
+
+
+@pytest.mark.parametrize('family', ['dashboard', 'app', None, 7, []])
+def test_native_create_cannot_misidentify_resource_family_even_when_envelope_is_map(http_map, family):
+    engine, _, _, _, _ = setup_map(http_map)
+    wrong = copy.deepcopy(DRAFT)
+    wrong['family'] = family
+    with pytest.raises(ExecutionError, match='content or canonical identity'):
+        engine.record_map_draft('honua_studio_create_draft', {'family': 'map', 'body': BODY}, wrong)
+    assert engine.evidence['mapDraftReceipt']['family'] == 'map'
+
+
+def test_original_wrong_family_receipt_and_matching_actual_http_cannot_qualify_map(http_map):
+    engine, primary, _, _, _ = setup_map(http_map)
+    wrong = copy.deepcopy(DRAFT)
+    wrong['family'] = 'dashboard'
+    primary[DRAFT_PATH] = document(wrong)
+    # A retained receipt from the earlier source must not make two matching,
+    # consistently wrong family projections into proof of a map resource.
+    engine.evidence['mapDraftReceipt']['family'] = 'dashboard'
+    with pytest.raises(ExecutionError, match='original write receipt') as error:
+        save(engine)
+    assert not isinstance(error.value, ActionRejected)
+    engine.transport.tool.assert_not_called()
+    assert engine.evidence['mapReadbacks'][0]['fieldMatches']['family'] is False
+
+
+def test_canonical_resource_family_comparison_preserves_native_enum_case(http_map):
+    engine, primary, _, _, _ = setup_map(http_map)
+    receipt = copy.deepcopy(DRAFT)
+    receipt['family'] = 'Map'
+    engine.record_map_draft('honua_studio_create_draft', {'family': 'map', 'body': BODY}, receipt)
+    primary[DRAFT_PATH] = document(receipt)
+    assert save(engine)['mapReadbacks'][0]['fieldMatches']['family'] is True
