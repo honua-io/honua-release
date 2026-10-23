@@ -13,14 +13,16 @@ from agent_e2e_pack import PackError, canonical_digest
 
 def configuration():
     candidate, generation, basis = ('sha256:'+char*64 for char in ('a', 'b', 'c'))
-    return {'schemaVersion': 1, 'region': 'us-east-1', 'accountId': '123456789012', 'candidateKey': candidate,
+    return {'schemaVersion': 2, 'region': 'us-east-1', 'accountId': '123456789012', 'candidateKey': candidate,
         'generationDigest': generation, 'state': {'region': 'us-east-1', 'bucket': 'retained', 'table': 'retained'},
         'bootstrapArtifactDigest': 'sha256:'+'d'*64, 'operation': {'operationId': 'original-native-bootstrap', 'liabilityBasisDigest': basis,
         'reservationIds': {'infrastructure': 'original-infra', 'cleanup': 'original-cleanup'}},
         'databaseHost': 'isolated.rds.amazonaws.com', 'database': 'honua_agent_candidate',
         'appRole': 'honua_agent_app', 'cleanupRole': 'honua_agent_cleanup', 'observerRole': 'honua_agent_observer',
-        'endpoint': 'https://agent.pilot.demo.honua.io', 'itemId': '11111111-1111-1111-1111-111111111111',
+        'endpoint': 'https://agent.pilot.demo.honua.io', 'targetId': 'native-target', 'itemId': '11111111-1111-1111-1111-111111111111',
         'expiresAt': (datetime.now(timezone.utc)+timedelta(hours=1)).isoformat(), 'readGrants': ['read:parcels/0'],
+        'datasetImportScopes': ['native-target/honua_data/pilot_points'],
+        'managedProcessIds': ['analytics.buffer-aggregate-managed'],
         'secretArns': {kind: 'arn:aws:secretsmanager:us-east-1:123456789012:secret:honua-pilot-unit-agent/native-agent/'+kind+'-ABC123' for kind in ('setup', 'observer', 'agent')},
         'bucket': 'private-native-custody', 'receiptKey': 'native/bootstrap/receipt.json',
         'clusterArn': 'arn:aws:ecs:us-east-1:123456789012:cluster/honua-pilot-unit-agent',
@@ -42,6 +44,8 @@ class CredentialCustody(unittest.TestCase):
         self.secrets.put_secret_value.side_effect = lambda **kw: {'ARN': kw['SecretId'], 'VersionId': kw['ClientRequestToken']}
         self.permissions = {}
         def http(config, root_key, method, path, body=None):
+            if method == 'GET' and path == '/api/v1/agent/target':
+                return {'targetId': config['targetId']}
             if method == 'POST':
                 kind = body['name'].rsplit('-', 1)[1]
                 key_id = {'setup': '1', 'observer': '2', 'agent': '3'}[kind]*8+'-1111-1111-1111-111111111111'
@@ -66,15 +70,103 @@ class CredentialCustody(unittest.TestCase):
         self.assertEqual(receipt['keys']['observer']['permissions'], ['admin:read'])
         self.assertIn('agent:studio-compose:'+self.config['itemId'], receipt['keys']['agent']['permissions'])
 
+    def test_exact_mutation_ceilings_only_reach_the_agent_key(self):
+        receipt = self.provision()
+        imports = ['agent:dataset-import:'+scope for scope in self.config['datasetImportScopes']]
+        processes = ['agent:managed-process:'+value for value in self.config['managedProcessIds']]
+        for value in imports+processes:
+            self.assertIn(value, receipt['keys']['agent']['permissions'])
+            self.assertNotIn(value, receipt['keys']['observer']['permissions'])
+            self.assertNotIn(value, receipt['keys']['setup']['permissions'])
+        self.assertEqual(receipt['target'], {'targetId': 'native-target'})
+        self.assertNotIn('admin:write', receipt['keys']['agent']['permissions'])
+        self.assertFalse(receipt['qualification'])
+
+    def test_mutation_scopes_cannot_hide_in_read_grants_or_expand_authority(self):
+        for edit in [
+            {'schemaVersion': 1},
+            {'targetId': 'target/other'},
+            {'datasetImportScopes': ['foreign-target/honua_data/pilot_points']},
+            {'datasetImportScopes': ['native-target/honua_data/*']},
+            {'datasetImportScopes': ['native-target/honua_data.pilot_points']},
+            {'datasetImportScopes': ['native-target/honua_data/_hidden']},
+            {'datasetImportScopes': ['native-target/honua_data/'+'a'*64]},
+            {'datasetImportScopes': [None]},
+            {'datasetImportScopes': ['native-target/honua_data/points']*2},
+            {'managedProcessIds': ['*']},
+            {'managedProcessIds': ['analytics.buffer-aggregate']},
+            {'managedProcessIds': [None]},
+            {'managedProcessIds': ['analytics.buffer-aggregate-managed']*2},
+            {'readGrants': ['agent:managed-process:analytics.buffer-aggregate-managed']},
+        ]:
+            with self.subTest(edit=edit), self.assertRaises(PackError):
+                bootstrap.validate(self.config | edit)
+
+    def test_foreign_native_target_refuses_before_sql_or_key_mutations(self):
+        self.http = MagicMock(return_value={'targetId': 'foreign-target'})
+        with patch('native_bootstrap.sql_identities') as sql:
+            with self.assertRaisesRegex(PackError, 'target readback'):
+                with patch('native_bootstrap.http', side_effect=self.http):
+                    bootstrap.provision(self.config, self.durable, connection=MagicMock(), secrets=self.secrets,
+                                        root_key='private-root', native={'taskArn': 'native-task'})
+            sql.assert_not_called()
+        self.secrets.put_secret_value.assert_not_called()
+        self.assertEqual(self.http.call_args.args[2:], ('GET', '/api/v1/agent/target'))
+        self.assertFalse(any(key.endswith('/sql') for key in self.durable.state['scenarioOperations']))
+
+    def test_actual_http_target_read_uses_native_shape_and_rejects_foreign_identity(self):
+        from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+        import threading
+        observed = []
+        class Handler(BaseHTTPRequestHandler):
+            target = 'native-target'
+            def do_GET(self):
+                observed.append((self.path, self.headers.get('X-API-Key')))
+                body = json.dumps({'targetId': self.target, 'principal': {'actorId': 'private-setup-actor'}}).encode()
+                self.send_response(200)
+                self.send_header('Content-Type', 'application/json')
+                self.send_header('Content-Length', str(len(body)))
+                self.end_headers()
+                self.wfile.write(body)
+            def log_message(self, *args): pass
+        with ThreadingHTTPServer(('127.0.0.1', 0), Handler) as server:
+            thread = threading.Thread(target=server.serve_forever, daemon=True); thread.start()
+            try:
+                config = self.config | {'endpoint': f'http://127.0.0.1:{server.server_port}'}
+                self.assertEqual(bootstrap.http(config, 'test-only-root', 'GET', '/api/v1/agent/target'), {'targetId': 'native-target'})
+                Handler.target = 'foreign-target'
+                with self.assertRaisesRegex(PackError, 'endpoint target'):
+                    bootstrap.http(config, 'test-only-root', 'GET', '/api/v1/agent/target')
+            finally:
+                server.shutdown(); thread.join(timeout=2)
+        self.assertEqual(observed, [('/api/v1/agent/target', 'test-only-root')]*2)
+
+    def test_unreviewed_http_operations_refuse_before_opening_a_connection(self):
+        for method, path, body in [
+            ('POST', '/api/v1/agent/target', {}),
+            ('DELETE', '/api/v1/admin/api-keys', None),
+            ('POST', '/api/v1/admin/api-keys/foreign', {}),
+            ('GET', '/api/v1/admin/api-keys/foreign/effective-permissions', None),
+            ('GET', '/api/v1/agent/target', {}),
+            ('GET', '/api/v1/agent/target?other=1', None),
+        ]:
+            with self.subTest(method=method,path=path), patch('native_bootstrap.urllib.request.build_opener') as opener:
+                with self.assertRaises(PackError): bootstrap.http(self.config, 'private-root', method, path, body)
+                opener.assert_not_called()
+
     def test_lost_key_issuance_retains_prior_sql_and_intent_and_refuses_replay(self):
-        self.http = MagicMock(side_effect=TimeoutError('lost native mutation response'))
+        original = self.http
+        def lose_mutation(config, root_key, method, path, body=None):
+            if method == 'POST': raise TimeoutError('lost native mutation response')
+            return original(config, root_key, method, path, body)
+        self.http = MagicMock(side_effect=lose_mutation)
         with self.assertRaises(TimeoutError):
             self.provision()
         self.assertTrue(any(key.endswith('/sql') for key in self.durable.state['scenarioOperations']))
         self.assertTrue(any(key.endswith('/key-setup-intent') for key in self.durable.state['scenarioOperations']))
         with self.assertRaisesRegex(PackError, 'already started'):
             self.provision()
-        self.assertEqual(self.http.call_count, 1)
+        self.assertEqual(self.http.call_count, 2)
         self.secrets.put_secret_value.assert_not_called()
 
     def test_secret_version_identity_uses_retained_public_operation_not_issued_credential_fields(self):

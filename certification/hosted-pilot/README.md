@@ -224,3 +224,17 @@ tests, verifies the actual rendered proxy command/config against its pinned imag
 with networking disabled, and runs adversarial saved-plan/refusal checks. Mocks
 never call AWS or create infrastructure. They cannot prove actual cloud IAM,
 registry authorization, certificates, RBAC, Cognito login or application grants.
+
+### Native credential operation ceilings
+
+Native bootstrap configuration version 2 binds the independently observed native
+`targetId`. Before SQL identities or API keys are created, the private task reads
+that exact target through the native endpoint and refuses a mismatch. Reviewed
+`datasetImportScopes` name individual `target/schema/table` destinations;
+`managedProcessIds` currently admits only `analytics.buffer-aggregate-managed`.
+These operation grants are separate from `readGrants` and reach only the scoped
+agent key. They confer no approval authority and do not replace each native
+task's source, caller, workspace, turn or execution checks. Empty operation lists
+supply no such authority. Older configuration versions cannot silently acquire
+mutation permissions. Actual installed workflows and retained execution evidence
+remain required after issuance.
