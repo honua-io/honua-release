@@ -67,6 +67,8 @@ class HumanMembershipContracts(unittest.TestCase):
         self.disclose = False
         self.rollout_on_write = False
         self.same_attempt = False
+        self.bucket_key_enabled = False
+        self.wrap_target = False
         self.ecs = MagicMock()
         deployment = self.enrollment['deployment']
         self.server_definition = {'taskDefinitionArn': deployment['serverTaskDefinitionArn'], 'containerDefinitions': [{
@@ -139,7 +141,7 @@ class HumanMembershipContracts(unittest.TestCase):
                 if fault:
                     case.lost = None
                     self.connection.shutdown(socket.SHUT_RDWR); self.connection.close(); return
-                self.answer(value, status, root=not scim)
+                self.answer(value, status, root=not scim and (self.path != '/api/v1/agent/target' or case.wrap_target))
             do_GET = do_POST = do_PUT = handle_native
         self.server = ThreadingHTTPServer(('127.0.0.1', 0), Handler)
         self.thread = Thread(target=self.server.serve_forever, daemon=True); self.thread.start()
@@ -175,7 +177,8 @@ class HumanMembershipContracts(unittest.TestCase):
         s3 = MagicMock()
         def get(**kw):
             ref, raw = self.objects[kw['Key']]
-            return {'Body': io.BytesIO(raw), 'VersionId': ref['versionId'], 'ServerSideEncryption': 'aws:kms', 'SSEKMSKeyId': ref['kmsArn']}
+            return {'Body': io.BytesIO(raw), 'VersionId': ref['versionId'], 'ServerSideEncryption': 'aws:kms',
+                'SSEKMSKeyId': ref['kmsArn'], 'BucketKeyEnabled': self.bucket_key_enabled}
         s3.get_object.side_effect = get
         case = self
         def http_factory(endpoint, *, fence):
@@ -360,3 +363,15 @@ class HumanMembershipContracts(unittest.TestCase):
                 self.assertFalse(self.requests)
                 self.source = original
         self.reseal_source()
+
+    def test_bucket_key_encryption_context_cannot_replace_exact_object_custody(self):
+        self.bucket_key_enabled = True
+        with self.assertRaisesRegex(ValueError, 'bucket-key context'):
+            self.run_helper()
+        self.assertFalse(self.requests)
+
+    def test_target_does_not_accept_an_admin_envelope_as_a_native_target_identity(self):
+        self.wrap_target = True
+        with self.assertRaisesRegex(ValueError, 'actual native deployment'):
+            self.run_helper()
+        self.assertFalse(any(method != 'GET' for method, _ in self.requests))

@@ -54,10 +54,13 @@ def object_json(s3, reference, *, guard):
         '..' not in reference['key'].split('/'), 'original enrollment/review object reference is missing')
     guard()
     result = s3.get_object(Bucket=reference['bucket'], Key=reference['key'], VersionId=reference['versionId'])
-    raw = result['Body'].read(LIMIT+1)
     guard()
     require(result.get('VersionId') == reference['versionId'] and result.get('ServerSideEncryption') == 'aws:kms' and
-        result.get('SSEKMSKeyId') == reference['kmsArn'] and len(raw) <= LIMIT and digest_bytes(raw) == reference['sha256'],
+        result.get('SSEKMSKeyId') == reference['kmsArn'] and result.get('BucketKeyEnabled', False) is not True,
+        'original private object version, encryption or bucket-key context differs')
+    raw = result['Body'].read(LIMIT+1)
+    guard()
+    require(len(raw) <= LIMIT and digest_bytes(raw) == reference['sha256'],
         'original private object version, encryption or bytes differ')
     return json.loads(raw)
 
@@ -276,7 +279,7 @@ class NativeHttp:
         value = json.loads(data)
         require(all(secret not in json.dumps(value, ensure_ascii=False) for secret in self.credentials.values()),
             'native membership response contains private credential material')
-        if kind == 'root':
+        if kind == 'root' and path != '/api/v1/agent/target':
             require(isinstance(value, dict) and value.get('success') is True and 'data' in value,
                 'native role request lacks successful envelope')
         return {'httpStatus': status, 'body': value}
@@ -341,7 +344,7 @@ def provision_human_memberships(*, configuration, bootstrap, durable, native, gu
         reference = retain('http-'+stage+'-'+str(len(records)), {'request': {'credential': configuration['credentials'][kind],
             'method': method, 'path': path, 'body': payload}, 'response': observed})
         body = observed['body']
-        if kind == 'root':
+        if kind == 'root' and path != '/api/v1/agent/target':
             require(isinstance(body, dict) and body.get('success') is True and 'data' in body, 'native role read lacks successful envelope')
             body = body['data']
         return body, reference
