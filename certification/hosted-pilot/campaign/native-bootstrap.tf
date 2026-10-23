@@ -79,13 +79,13 @@ resource "aws_iam_role_policy" "native_bootstrap_execution" {
     { Effect = "Allow", Action = "kms:Decrypt", Resource = "arn:aws:kms:${var.region}:${var.account_id}:key/*", Condition = { StringEquals = { "kms:ViaService" = "secretsmanager.${var.region}.amazonaws.com", "aws:ResourceTag/ResetBoundary" = var.name_prefix }, ArnLike = { "kms:EncryptionContext:SecretARN" = "arn:aws:secretsmanager:${var.region}:${var.account_id}:secret:${var.name_prefix}*" } } }
     ], local.native_memberships == null ? [
     { Effect = "Allow", Action = "secretsmanager:GetSecretValue", Resource = module.application.admin_password_secret_arn }
-    ] : concat([for credential in values(local.native_memberships.credentials) : {
+    ] : [], local.native_memberships == null ? [] : [for credential in values(local.native_memberships.credentials) : {
       Effect    = "Allow", Action = "secretsmanager:GetSecretValue", Resource = credential.secretArn,
       Condition = { StringEquals = { "secretsmanager:VersionId" = credential.versionId } }
-      }], [for credential in values(local.native_memberships.credentials) : {
+      }], local.native_memberships == null ? [] : [for credential in values(local.native_memberships.credentials) : {
       Effect    = "Deny", Action = "secretsmanager:GetSecretValue", Resource = credential.secretArn,
       Condition = { StringNotEquals = { "secretsmanager:VersionId" = credential.versionId } }
-    }]), local.native_memberships == null || var.application.identity_secrets_kms_key_arn == "" ? [] : [
+    }], local.native_memberships == null || var.application.identity_secrets_kms_key_arn == "" ? [] : [
     { Effect = "Allow", Action = "kms:Decrypt", Resource = var.application.identity_secrets_kms_key_arn,
     Condition = { StringEquals = { "kms:ViaService" = "secretsmanager.${var.region}.amazonaws.com", "kms:EncryptionContext:SecretARN" = local.native_memberships.credentials.scim.secretArn } } }
   ]) })
@@ -139,11 +139,15 @@ resource "aws_iam_role_policy" "native_bootstrap" {
     { Effect = "Allow", Action = "secretsmanager:PutSecretValue", Resource = [for secret in aws_secretsmanager_secret.api : secret.arn] },
     { Effect = "Allow", Action = "ecs:DescribeTasks", Resource = "arn:aws:ecs:${var.region}:${var.account_id}:task/${module.application.ecs_cluster_name}/*" }
     ], local.native_memberships == null ? [] : [
-    { Effect = "Allow", Action = "s3:GetObjectVersion", Resource = local.membership_object_arns[0], Condition = { StringEquals = { "s3:VersionId" = local.native_memberships.enrollment.versionId } } },
-    { Effect = "Allow", Action = "s3:GetObjectVersion", Resource = local.membership_object_arns[1] },
+    { Effect = "Allow", Action = "s3:GetObjectVersion", Resource = local.membership_object_arns[0], Condition = { StringEquals = { "s3:VersionId" = local.native_memberships.enrollment.versionId } } }
+    ], local.native_memberships == null ? [] : [
+    { Effect = "Allow", Action = "s3:GetObjectVersion", Resource = local.membership_object_arns[1] }
+    ], local.native_memberships == null ? [] : [
     { Effect = "Allow", Action = "kms:Decrypt", Resource = local.native_memberships.enrollment.kmsArn,
-    Condition = { StringEquals = { "kms:ViaService" = "s3.${var.region}.amazonaws.com", "kms:EncryptionContext:aws:s3:arn" = local.membership_object_arns } } },
-    { Effect = "Allow", Action = "ecs:DescribeServices", Resource = "arn:aws:ecs:${var.region}:${var.account_id}:service/${module.application.ecs_cluster_name}/${module.application.ecs_service_name}" },
+    Condition = { StringEquals = { "kms:ViaService" = "s3.${var.region}.amazonaws.com", "kms:EncryptionContext:aws:s3:arn" = local.membership_object_arns } } }
+    ], local.native_memberships == null ? [] : [
+    { Effect = "Allow", Action = "ecs:DescribeServices", Resource = "arn:aws:ecs:${var.region}:${var.account_id}:service/${module.application.ecs_cluster_name}/${module.application.ecs_service_name}" }
+    ], local.native_memberships == null ? [] : [
     # ECS does not support resource-level grants for this read action. The
     # membership verifier independently requires both exact source-bound ARNs.
     { Effect = "Allow", Action = "ecs:DescribeTaskDefinition", Resource = "*", Condition = { StringEquals = { "aws:RequestedRegion" = var.region } } }
