@@ -219,12 +219,13 @@ run "native_bootstrap_is_private_and_separates_sql_root_from_controller" {
         operationId    = "original-native-bootstrap", liabilityBasisDigest = "sha256:5555555555555555555555555555555555555555555555555555555555555555"
         reservationIds = { infrastructure = "retained-native-infra", cleanup = "retained-native-cleanup" }
       }
-      itemId              = "11111111-1111-1111-1111-111111111111"
-      expiresAt           = "2026-10-29T00:00:00Z"
-      targetId            = "native-target"
-      readGrants          = []
-      datasetImportScopes = ["native-target/honua_data/pilot_points"]
-      managedProcessIds   = ["analytics.buffer-aggregate-managed"]
+      itemId               = "11111111-1111-1111-1111-111111111111"
+      expiresAt            = "2026-10-29T00:00:00Z"
+      targetId             = "native-target"
+      readGrants           = []
+      datasetImportScopes  = ["native-target/honua_data/pilot_points"]
+      managedProcessIds    = ["analytics.buffer-aggregate-managed"]
+      studioRestoreItemIds = ["11111111-1111-1111-1111-111111111111"]
     }
   }
   assert {
@@ -234,6 +235,7 @@ run "native_bootstrap_is_private_and_separates_sql_root_from_controller" {
       jsondecode(jsondecode(aws_ecs_task_definition.native_bootstrap[0].container_definitions)[0].environment[0].value).schemaVersion == 2 &&
       jsondecode(jsondecode(aws_ecs_task_definition.native_bootstrap[0].container_definitions)[0].environment[0].value).targetId == "native-target" &&
       toset(jsondecode(jsondecode(aws_ecs_task_definition.native_bootstrap[0].container_definitions)[0].environment[0].value).datasetImportScopes) == toset(["native-target/honua_data/pilot_points"]) &&
+      toset(jsondecode(jsondecode(aws_ecs_task_definition.native_bootstrap[0].container_definitions)[0].environment[0].value).studioRestoreItemIds) == toset(["11111111-1111-1111-1111-111111111111"]) &&
       aws_iam_role.native_bootstrap[0].name != aws_iam_role.controller.name &&
       length(aws_iam_role_policy.dispatch_native_bootstrap) == 1 &&
       strcontains(aws_iam_role_policy.dispatch_native_bootstrap[0].policy, "ecs:RunTask") &&
@@ -566,6 +568,71 @@ run "reject_native_mutation_in_read_grants" {
       readGrants          = ["agent:dataset-import:native-target/honua_data/pilot_points"]
       datasetImportScopes = ["native-target/honua_data/pilot_points"]
       managedProcessIds   = ["analytics.buffer-aggregate-managed"]
+    }
+  }
+  expect_failures = [var.native_bootstrap]
+}
+
+run "reject_native_studio_restore_wildcard" {
+  command = plan
+  variables {
+    native_bootstrap = {
+      bootstrapArtifactDigest = "sha256:4444444444444444444444444444444444444444444444444444444444444444"
+      operation = {
+        operationId    = "original-native-bootstrap", liabilityBasisDigest = "sha256:5555555555555555555555555555555555555555555555555555555555555555"
+        reservationIds = { infrastructure = "retained-native-infra", cleanup = "retained-native-cleanup" }
+      }
+      itemId               = "11111111-1111-1111-1111-111111111111"
+      expiresAt            = "2026-10-29T00:00:00Z"
+      targetId             = "native-target"
+      readGrants           = []
+      datasetImportScopes  = ["native-target/honua_data/pilot_points"]
+      managedProcessIds    = ["analytics.buffer-aggregate-managed"]
+      studioRestoreItemIds = ["*"]
+    }
+  }
+  expect_failures = [var.native_bootstrap]
+}
+
+
+run "reject_native_studio_restore_duplicate" {
+  command = plan
+  variables {
+    native_bootstrap = {
+      bootstrapArtifactDigest = "sha256:4444444444444444444444444444444444444444444444444444444444444444"
+      operation = {
+        operationId    = "original-native-bootstrap", liabilityBasisDigest = "sha256:5555555555555555555555555555555555555555555555555555555555555555"
+        reservationIds = { infrastructure = "retained-native-infra", cleanup = "retained-native-cleanup" }
+      }
+      itemId               = "11111111-1111-1111-1111-111111111111"
+      expiresAt            = "2026-10-29T00:00:00Z"
+      targetId             = "native-target"
+      readGrants           = []
+      datasetImportScopes  = ["native-target/honua_data/pilot_points"]
+      managedProcessIds    = ["analytics.buffer-aggregate-managed"]
+      studioRestoreItemIds = ["11111111-1111-1111-1111-111111111111", "11111111-1111-1111-1111-111111111111"]
+    }
+  }
+  expect_failures = [var.native_bootstrap]
+}
+
+
+run "reject_native_studio_restore_empty_guid" {
+  command = plan
+  variables {
+    native_bootstrap = {
+      bootstrapArtifactDigest = "sha256:4444444444444444444444444444444444444444444444444444444444444444"
+      operation = {
+        operationId    = "original-native-bootstrap", liabilityBasisDigest = "sha256:5555555555555555555555555555555555555555555555555555555555555555"
+        reservationIds = { infrastructure = "retained-native-infra", cleanup = "retained-native-cleanup" }
+      }
+      itemId               = "11111111-1111-1111-1111-111111111111"
+      expiresAt            = "2026-10-29T00:00:00Z"
+      targetId             = "native-target"
+      readGrants           = []
+      datasetImportScopes  = ["native-target/honua_data/pilot_points"]
+      managedProcessIds    = ["analytics.buffer-aggregate-managed"]
+      studioRestoreItemIds = ["00000000-0000-0000-0000-000000000000"]
     }
   }
   expect_failures = [var.native_bootstrap]

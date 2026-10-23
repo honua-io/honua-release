@@ -268,3 +268,18 @@ task's source, caller, workspace, turn or execution checks. Empty operation list
 supply no such authority. Older configuration versions cannot silently acquire
 mutation permissions. Actual installed workflows and retained execution evidence
 remain required after issuance.
+
+### Explicit Studio restore authority
+
+The optional `native_bootstrap.studioRestoreItemIds` list names the exact items
+whose saved-version pointers the agent may propose restoring. Its default is
+empty; composition and publication grants never imply restoration permission.
+The reviewed bootstrap issues `agent:studio-restore:<item-guid>` only for this
+list, retains the requested grants before issuance, and checks the native
+effective-permission readback. Wildcards, duplicate IDs and the empty GUID are
+rejected. The setup and observer credentials receive no restore grant.
+
+The installed server must implement the guarded native restoration contract
+(honua-server#6532). A successful issuance or offline mock run is not a P13
+qualification: retain the actual original version/hash and pointer revision,
+separate human approval, native receipt and independent observed restoration.
