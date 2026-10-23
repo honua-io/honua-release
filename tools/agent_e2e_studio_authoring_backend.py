@@ -39,10 +39,28 @@ class Session(WorkerSession):
     PROFILE = 'studio-authoring-native'
     CASE_PATTERN = r'P(?:08|09|11|12|13):[AB]:aws-ecs-redis-on'
     CONFIG_FIELDS = {'http', 'database', 'deployment', 'attempts', 'accounting', 'studio', 'sources'}
-    OPTIONAL_FIELDS = {'rendering'}
+    OPTIONAL_FIELDS = {'rendering', 'managedJob'}
     DATABASE = StudioFixtureDatabase
     initial_fixture = PublicationSession.initial_fixture
-    cleanup_fixture = PublicationSession.cleanup_fixture
+
+    def cleanup_fixture(self, ownership):
+        # SQL teardown still runs after worker stop, even when a native job needs
+        # separate retirement. Its receipt cannot stand in for that retirement.
+        sql = PublicationSession.cleanup_fixture(self, ownership)
+        if getattr(self, 'config', {}).get('managedJob') is not None:
+            self.retain('managed-job-sql-cleanup', sql)
+        return sql
+
+    def cleanup_resources(self):
+        # A job may have been dispatched before any Studio draft existed.
+        # Inventory runs after the worker-stop and SQL attempts independently.
+        if getattr(self, 'config', {}).get('managedJob') is None:
+            return
+        from agent_e2e_job_cleanup import inventory
+        remaining = inventory(self)
+        self.retain('managed-job-cleanup', remaining)
+        require(remaining['status'] == 'pass',
+                'managed job retirement is unresolved; retain original cleanup liabilities')
 
     def validate_observer(self, http, secrets):
         studio = self.config['studio']
@@ -69,6 +87,48 @@ class Session(WorkerSession):
             declarations = load_json(self.bundle/'expectations.json')['cases'][self.context['caseId']].get('nativeBindings', {})
             validate(self.config['rendering'], studio=studio, declarations=declarations,
                      candidate=self.context['componentBindingDigest'])
+        if 'managedJob' in self.config:
+            from agent_e2e_job_observer import PROCESS
+            job = self.config['managedJob']
+            require(self.case['scenarioId'] == 'P11' and isinstance(job, dict) and
+                    set(job) == {'processId', 'requesterPrincipalId', 'mapLayerId'} and job['processId'] == PROCESS and
+                    isinstance(job['requesterPrincipalId'], str) and 0 < len(job['requesterPrincipalId']) <= 512 and
+                    isinstance(job['mapLayerId'], str) and 0 < len(job['mapLayerId']) <= 200,
+                    'only the reviewed native buffer process/requester/map layer can join P11')
+        self.preflight_job_binding()
+
+    def preflight_job_binding(self):
+        """Refuse missing or inconsistent frozen job scope before paid effects."""
+        from agent_e2e_native_job_bindings import PROFILE, contract
+        expected = load_json(self.bundle/'expectations.json')['cases'][self.context['caseId']]
+        declarations = expected.get('nativeBindings', {})
+        matches = [(name, value) for name, value in declarations.items() if value.get('profile') == PROFILE]
+        job = self.config.get('managedJob')
+        if job is None:
+            require(not matches, 'frozen managed job requires its original execution configuration')
+            return expected
+        require(self.case['scenarioId'] == 'P11' and len(matches) == 1,
+                'managed execution requires exactly one frozen job binding before worker launch')
+        name, declaration = matches[0]
+        contract(declaration)
+        require(declaration['relationships'] == {
+                    'processId': job['processId'], 'requesterPrincipalId': job['requesterPrincipalId']} and
+                str(self.context['attempt']) in declaration['observers'],
+                'managed execution differs from its frozen process/requester/attempt')
+        http = self.config['http']
+        require(declaration['observers'][str(self.context['attempt'])] == {
+                    'endpoint': http['endpoint'].rstrip('/'),
+                    'attemptId': self.attempt_id+'-observer',
+                    'credentialKind': http['credentialKind']},
+                'managed job observer differs from its frozen endpoint/attempt/credential')
+        assertions = expected['assertions']
+        composition = assertions.get('map.composition', {})
+        require({'job.completed', 'buffer.metric', 'map.composition'} <= set(assertions) and
+                assertions['job.completed'].get('resourceId') == {'$native': name+'.jobId'} and
+                job['mapLayerId'] in composition.get('orderedLayerIds', []) and
+                composition.get('visibility', {}).get(job['mapLayerId']) is True,
+                'managed execution lacks frozen lifecycle, metric or mapped-output expectations')
+        return expected
 
     def source(self, *, step):
         snapshots, references = [], []
@@ -90,7 +150,68 @@ class Session(WorkerSession):
         self.observer = StudioCompositionObserver(http=self.http('observer'), binding=binding, retain=self.retain)
         return self.observer
 
+    def job_observer(self):
+        from agent_e2e_job_observer import JobObserver
+        binding = self.value('job-binding')
+        require(binding is not None, 'managed job initial requester scope is unresolved')
+        return JobObserver(http=self.http('observer'), binding=binding, retain=self.retain)
+
+    def job_selections(self):
+        selections = {}
+        for row in self.durable.state.get('scenarioOperations', {}).values():
+            if (row.get('producer') != self.PROFILE or row.get('identity') != identity(self.context) or
+                    not row.get('phase', '').startswith(('job-selected-', 'job-ordinal-'))):
+                continue
+            selected = row['value']
+            previous = selections.get(selected['ordinal'])
+            require(previous is None or canonical_digest(previous) == canonical_digest(selected),
+                    'durable job selection copies disagree; retain original evidence')
+            selections[selected['ordinal']] = selected
+        return sorted(selections.values(), key=lambda row: row['ordinal'])
+
+    def observe_job_action(self, action, dispatch, observed):
+        if getattr(self, 'config', {}).get('managedJob') is None:
+            return
+        observer = self.job_observer()
+        if observer.eligible(action):
+            try:
+                observer.selected(action, dispatch, observed)
+            except (PackError, ValueError, TypeError, KeyError) as error:
+                self.retain('job-rejected-'+str(dispatch['ordinal']), {'errorType': type(error).__name__, 'actionId': dispatch['actionId']})
+        else:
+            selected = self.job_selections()
+            if len(selected) == 1:
+                try:
+                    actual, reference = observer.observe(selected[0], step='gp-progress-'+dispatch['actionId'][:32])
+                    self.retain('job-observation-'+str(dispatch['ordinal']), {'ordinal': dispatch['ordinal'],
+                        'jobId': selected[0]['jobId'], 'resource': actual, 'reference': reference})
+                except (PackError, ValueError, TypeError, KeyError) as error:
+                    self.retain('job-observation-failed-'+str(dispatch['ordinal']), {'errorType': type(error).__name__})
+
+    def verify_job(self, declarations, native_context):
+        from agent_e2e_native_job_bindings import PROFILE, retain, observation
+        selected = self.job_selections()
+        require(len(selected) == 1, 'native buffer execution is absent or ambiguous; retain every original job')
+        selected = selected[0]
+        result = self.job_observer().results(selected, step='gp-final')
+        native_context['completedAt'] = datetime.now(timezone.utc).isoformat()
+        reads = sorted((row['value'] for row in self.durable.state.get('scenarioOperations', {}).values() if
+            row.get('producer') == self.PROFILE and row.get('identity') == identity(self.context) and
+            row.get('phase', '').startswith('job-observation-') and not row['phase'].startswith('job-observation-failed-')),
+            key=lambda row: row['ordinal'])
+        require(all(row['jobId'] == selected['jobId'] and row['ordinal'] > selected['ordinal'] for row in reads),
+                'job lifecycle observations belong to another execution')
+        references = [selected['initial']['reference'], *[row['reference'] for row in reads], result['nativeReferences']['completed']]
+        matches = [(name, value) for name, value in declarations.items() if value.get('profile') == PROFILE]
+        require(len(matches) == 1, 'managed execution lacks its exact frozen native binding')
+        name, declaration = matches[0]
+        report = retain(self.durable, self.context, name=name, declaration=declaration, responses=references,
+            selection=selected, started_at=native_context['startedAt'], completed_at=native_context['completedAt'])
+        self.retain('job-final', {'selection': selected, **result})
+        return result, name, report, observation(report, declaration, native_context)
+
     def prepare(self):
+        expected_case = self.preflight_job_binding()
         require(self.phase('prepare-start') is None, 'Studio authoring prepare already started; reconcile without replay')
         self.retain('prepare-start', {'namespace': self.namespace, 'attemptId': self.attempt_id,
             'startedAt': datetime.now(timezone.utc).isoformat()})
@@ -119,10 +240,18 @@ class Session(WorkerSession):
         binding = {key: studio[key] for key in ('itemId', 'namespace', 'ownerPrincipalId', 'family')}
         binding['notBefore'] = self.value('prepare-start')['startedAt']
         self.retain('authoring-binding', binding)
-        expected_case = load_json(self.bundle/'expectations.json')['cases'][self.context['caseId']]
         for declaration in expected_case.get('nativeBindings', {}).values():
             from agent_e2e_native_authoring_bindings import PROFILE
             relations = declaration.get('relationships', {})
+            if declaration.get('profile') == 'honua.managed-job-bindings/v1':
+                job = self.config.get('managedJob')
+                require(self.case['scenarioId'] == 'P11' and job is not None and relations == {
+                    'processId': job['processId'], 'requesterPrincipalId': job['requesterPrincipalId']} and
+                    job['mapLayerId'] in expected_case['assertions']['map.composition']['orderedLayerIds'] and
+                    expected_case['assertions']['map.composition']['visibility'].get(job['mapLayerId']) is True,
+                    'frozen managed-job relationship differs from original process/requester/mapped output')
+                self.retain('job-binding', {'requesterPrincipalId': job['requesterPrincipalId'], 'notBefore': binding['notBefore']})
+                continue
             starting = None if self.case['scenarioId'] in ('P08', 'P11') else self.value('initial-fixture')['fixture']['versionId']
             require(declaration.get('profile') == PROFILE and all(relations.get(key) == binding[key]
                     for key in ('itemId', 'family', 'namespace', 'ownerPrincipalId')) and relations.get('startingVersionId') == starting,
@@ -142,6 +271,7 @@ class Session(WorkerSession):
         self.retain('model-action-'+str(dispatch['ordinal']), {'action': action, 'dispatch': dispatch})
         observed = self.execute_action(action, dispatch, timeout)
         self.retain('model-result-'+str(dispatch['ordinal']), observed)
+        self.observe_job_action(action, dispatch, observed)
         observer = self.observer_for_recovery()
         if observer.eligible(action):
             try:
@@ -178,6 +308,16 @@ class Session(WorkerSession):
         native_context = {**self.context, 'startedAt': self.value('prepare-start')['startedAt'] if self.value('prepare-start') else '',
             'completedAt': completed, 'modelActions': [row for row in self.durable.state.get('journals', {}).get(self.key, [])
                                                        if row.get('event') == 'action']}
+        job_result = None
+        if getattr(self, 'config', {}).get('managedJob') is not None:
+            try:
+                job_result, name, report, lifecycle = self.verify_job(declarations, native_context)
+                completed = native_context['completedAt']
+                reports[name] = report
+                observations['job.completed'] = lifecycle
+                observations['buffer.metric'] = job_result['buffer']
+            except (PackError, ValueError, TypeError, KeyError) as error:
+                self.retain('job-verification-failed', {'errorType': type(error).__name__})
         if saves:
             saved, version_ref = observer.version(saves[-1]['resource']['versionId'], step='completed-model-version')
             current, current_ref = observer.current(step='completed-model-current')
@@ -185,12 +325,20 @@ class Session(WorkerSession):
             if (saved == saves[-1]['resource'] and current.get('currentVersionId') == saved['versionId'] and
                     current.get('publishedVersionId') is None and saved['envelope'] == draft['envelope']):
                 if 'map.composition' in observations:
-                    try: observations['map.composition'] = observer.map_composition(saved)
+                    try:
+                        if getattr(self, 'config', {}).get('managedJob') is not None:
+                            from agent_e2e_job_map import join
+                            require(job_result is not None, 'saved map cannot stand in for missing native job output')
+                            joined = join(saved, job_result['document'], layer_id=self.config['managedJob']['mapLayerId'])
+                            self.retain('job-saved-map', {'savedVersionId': saved['versionId'], **joined})
+                        observations['map.composition'] = observer.map_composition(saved)
                     except (PackError, TypeError, KeyError): pass
                 if 'state.saved' in observations: observations['state.saved'] = observer.saved(saved)
                 self.retain('authoring-final', {'resource': saved, 'nativeReferences': {
                     'version': version_ref, 'current': current_ref, 'draft': draft_ref}})
                 for name, declaration in declarations.items():
+                    if declaration.get('profile') == 'honua.managed-job-bindings/v1':
+                        continue
                     from agent_e2e_native_authoring_bindings import retain
                     reports[name] = retain(self.durable, self.context, name=name, declaration=declaration,
                         responses={'saveHandle': saves[-1]['nativeReferences']['handle'], 'savedVersion': version_ref, 'currentItem': current_ref},
@@ -216,6 +364,7 @@ class Session(WorkerSession):
         result = {'status': 'fail' if failed else 'pass', 'failedAssertions': failed, 'observations': observations,
             'unsupportedAssertions': [assertion for assertion in self.case['assertions'] if assertion not in
                 ({'map.composition', 'state.saved', 'source-content.unchanged'} |
+                 ({'job.completed', 'buffer.metric'} if getattr(self, 'config', {}).get('managedJob') is not None else set()) |
                  ({'render.actual'} if getattr(self, 'config', {}).get('rendering') is not None else set()))],
             'modelSaveCount': len(saves), 'modelCreateCount': sum(row['value']['tool'] == CREATE for row in selections)}
         self.retain('verification', result)
