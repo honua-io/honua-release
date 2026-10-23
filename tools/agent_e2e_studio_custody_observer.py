@@ -16,6 +16,9 @@ from urllib.parse import urlsplit
 from agent_e2e_pack import PackError, canonical_digest
 from agent_e2e_scenario_operations import data
 from agent_e2e_p10_backend import verify_worker_definition, worker_task_role
+from agent_e2e_native_costs import serializable
+from agent_e2e_worker_lifecycle import WorkerLifecycle
+from datetime import datetime, timezone
 
 ASSERTIONS = {'custody.bootstrap-revoked', 'custody.worker-replaced'}
 
@@ -23,6 +26,48 @@ ASSERTIONS = {'custody.bootstrap-revoked', 'custody.worker-replaced'}
 def require(value, reason):
     if not value:
         raise PackError(reason)
+
+
+def queue_document(config):
+    def arn(queue):
+        uri = urlsplit(queue)
+        require(uri.scheme == 'https' and uri.hostname == 'sqs.'+config['lifecycle']['region']+'.amazonaws.com' and
+                not uri.query and not uri.fragment and not uri.username and not uri.password and not uri.port,
+                'worker queue origin differs from reviewed transport')
+        parts = uri.path.strip('/').split('/')
+        require(len(parts) == 2 and parts[0] == config['taskRoleArn'].split(':')[4] and
+                re.fullmatch('[A-Za-z0-9_-]{1,80}', parts[1]), 'worker queue account/name differs')
+        return 'arn:aws:sqs:'+config['lifecycle']['region']+':'+parts[0]+':'+parts[1]
+    return {'Version': '2012-10-17', 'Statement': [
+        {'Effect': 'Allow', 'Action': ['sqs:ReceiveMessage', 'sqs:DeleteMessage'], 'Resource': arn(config['transport']['commandQueueUrl'])},
+        {'Effect': 'Allow', 'Action': ['sqs:SendMessage'], 'Resource': arn(config['transport']['replyQueueUrl'])}]}
+
+
+def isolated_definition(definition, config, mcp):
+    container = verify_worker_definition(definition, config)
+    require(definition.get('taskDefinitionArn') == config['lifecycle']['taskDefinitionArn'] and
+            container['secrets'] == [{'name': 'HONUA_AGENT_MCP_CONFIG', 'valueFrom': mcp['secretArn']+':::'+mcp['versionId']}],
+            'worker secret is not the original immutable agent-only MCP configuration')
+    require(not container.get('environmentFiles') and not container.get('volumesFrom') and
+            not container.get('credentialSpecs') and not container.get('repositoryCredentials') and
+            not container.get('logConfiguration', {}).get('secretOptions') and
+            sorted(container.get('mountPoints', []), key=lambda row: row.get('sourceVolume', '')) == [
+                {'sourceVolume': 'journal', 'containerPath': '/journal', 'readOnly': False},
+                {'sourceVolume': 'workspace', 'containerPath': '/workspace', 'readOnly': False}] and
+            len(definition.get('volumes', [])) == 2 and
+            {row.get('name') for row in definition['volumes']} == {'journal', 'workspace'} and
+            all(row in ({'name': row.get('name')}, {'name': row.get('name'), 'host': {}}) for row in definition['volumes']),
+            'worker has unreviewed external credential files, volumes or log secret injections')
+
+
+def isolated_task(native, config, task_arn):
+    tasks = native.get('tasks', [])
+    require(not native.get('failures') and len(tasks) == 1 and tasks[0].get('taskArn') == task_arn and
+            tasks[0].get('taskDefinitionArn') == config['lifecycle']['taskDefinitionArn'] and tasks[0].get('lastStatus') == 'RUNNING' and
+            not tasks[0].get('enableExecuteCommand', True) and
+            all(row == {'name': 'worker'} for row in tasks[0].get('overrides', {}).get('containerOverrides', [])) and
+            not tasks[0].get('overrides', {}).get('taskRoleArn') and not tasks[0].get('overrides', {}).get('executionRoleArn'),
+            'actual task worker has unreviewed credential/environment overrides')
 
 
 def validate(config):
@@ -147,6 +192,8 @@ class StudioCustodyObserver:
                 positive.get('value', {}).get('httpStatus') == 200, 'setup credential has no original authenticated success')
         self.effective(positive['value'].get('body'), setup, status='active', authenticates=True)
         setup_target = state.get('scenarioOperations', {}).get(positive_prefix+'/active-setup-target-read', {})
+        require(completed.get('setupTargetReference') == {'key': positive_prefix+'/active-setup-target-read',
+                    'sha256': canonical_digest(setup_target)}, 'completed retirement lost its original principal observation binding')
         projected = setup_target.get('value', {})
         target = projected.get('body', {})
         target = target.get('data', target)
@@ -212,6 +259,11 @@ class StudioCustodyObserver:
         require(actual.get('principal') == original['context']['agentPrincipal'] and
                 actual.get('targetId') == original['context']['target']['targetId'],
                 'active task credential differs from original issued agent principal')
+        response = self.session.durable.state['scenarioOperations'][target['reference']['key']]
+        require(canonical_digest(response) == target['reference']['sha256'], 'original task principal response changed')
+        intent = self.session.durable.state['scenarioOperations'][response['intentReference']['key']]
+        require(canonical_digest(intent) == response['intentReference']['sha256'], 'original task principal intent changed')
+        original['taskPrincipalRead'] = {'intent': copy.deepcopy(intent), 'response': copy.deepcopy(response)}
         result = {'bootstrapPrincipalId': original['setupPrincipal']['actorId'],
             'revokedCredentialIds': [original['setup']['apiKeyId']], 'postRevocationProbeStatus': 401}
         self.session.retain(step+'-revocation', {'observation': result, 'references': [row['reference'] for row in (live, denied, denied_target, target)],
@@ -226,59 +278,54 @@ class StudioCustodyObserver:
                 not inline.get('IsTruncated') and len(inline.get('PolicyNames', [])) == 1,
                 'worker role has additional or unobserved provisioning policies')
         policy = self.call(self.iam, 'get_role_policy', RoleName=role, PolicyName=inline['PolicyNames'][0])
-        def arn(queue):
-            uri = urlsplit(queue)
-            require(uri.scheme == 'https' and uri.hostname == 'sqs.'+config['lifecycle']['region']+'.amazonaws.com' and
-                    not uri.query and not uri.fragment and not uri.username and not uri.password,
-                    'worker queue origin differs from reviewed transport')
-            account, name = uri.path.strip('/').split('/')
-            require(account == config['taskRoleArn'].split(':')[4], 'worker queue account differs')
-            return 'arn:aws:sqs:'+config['lifecycle']['region']+':'+account+':'+name
-        expected = [{'Effect': 'Allow', 'Action': ['sqs:ReceiveMessage', 'sqs:DeleteMessage'],
-                     'Resource': arn(config['transport']['commandQueueUrl'])},
-                    {'Effect': 'Allow', 'Action': ['sqs:SendMessage'], 'Resource': arn(config['transport']['replyQueueUrl'])}]
         require(policy.get('RoleName') == role and policy.get('PolicyName') == inline['PolicyNames'][0] and
-                policy.get('PolicyDocument') == {'Version': '2012-10-17', 'Statement': expected},
+                policy.get('PolicyDocument') == queue_document(config),
                 'actual worker role grants authority beyond its two exact command/reply queues')
-        return {'roleArn': config['taskRoleArn'], 'policyDocument': policy['PolicyDocument']}
+        return {'roleArn': config['taskRoleArn'], 'policyDocument': policy['PolicyDocument'],
+                'attached': attached, 'inline': inline, 'policy': policy}
+
+    def observe_lifecycle(self):
+        session, reads = self.session, []
+        outer = self
+        class Reader:
+            def __init__(self, service, client):
+                self.service, self.client = service, client
+            def __getattr__(self, method):
+                require((self.service, method) in {('stepfunctions', 'describe_execution'),
+                    ('stepfunctions', 'get_execution_history'), ('dynamodb', 'get_item'), ('ecs', 'describe_tasks')},
+                    'custody lifecycle collector permits only original execution/claim/task reads')
+                def read(**arguments):
+                    response = outer.call(self.client, method, **arguments)
+                    reads.append({'service': self.service, 'operation': method, 'request': copy.deepcopy(arguments),
+                        'response': serializable(response), 'observedAt': datetime.now(timezone.utc).isoformat()})
+                    require(len(reads) <= 12, 'custody lifecycle original read bound exceeded')
+                    return response
+                return read
+        current = session.lifecycle
+        observed = WorkerLifecycle(current.config, states=Reader('stepfunctions', current.states),
+            ecs=Reader('ecs', current.ecs), db=Reader('dynamodb', current.db)).observe(session.launch)
+        return observed, reads
 
     def worker(self, *, step, original):
         session = self.session
         session.open_worker()
         session.durable.require_worker_launch(session.launch)
-        observed = session.lifecycle.observe(session.launch)
+        observed, reads = self.observe_lifecycle()
         require(observed.get('taskStatus') == 'RUNNING' and observed.get('executionStatus') == 'RUNNING' and
                 observed.get('taskArn') and observed['taskArn'] != original['preparation']['taskArn'],
                 'task worker is missing, reused or no longer running')
         config = session.worker_config
         definition = self.call(self.ecs, 'describe_task_definition', taskDefinition=config['lifecycle']['taskDefinitionArn'])['taskDefinition']
-        container = verify_worker_definition(definition, config)
-        require(definition.get('taskDefinitionArn') == config['lifecycle']['taskDefinitionArn'] and
-                container['secrets'] == [{'name': 'HONUA_AGENT_MCP_CONFIG',
-                    'valueFrom': original['mcp']['secretArn']+':::'+original['mcp']['versionId']}],
-                'worker secret is not the original immutable agent-only MCP configuration')
-        require(not container.get('environmentFiles') and not container.get('volumesFrom') and
-                not container.get('credentialSpecs') and not container.get('repositoryCredentials') and
-                not container.get('logConfiguration', {}).get('secretOptions') and
-                sorted(container.get('mountPoints', []), key=lambda row: row.get('sourceVolume', '')) == [
-                    {'sourceVolume': 'journal', 'containerPath': '/journal', 'readOnly': False},
-                    {'sourceVolume': 'workspace', 'containerPath': '/workspace', 'readOnly': False}] and
-                len(definition.get('volumes', [])) == 2 and
-                {row.get('name') for row in definition['volumes']} == {'journal', 'workspace'} and
-                all(row in ({'name': row.get('name')}, {'name': row.get('name'), 'host': {}}) for row in definition['volumes']),
-                'worker has unreviewed external credential files, volumes or log secret injections')
+        isolated_definition(definition, config, original['mcp'])
         native = self.call(self.ecs, 'describe_tasks', cluster=config['lifecycle']['clusterArn'], tasks=[observed['taskArn']])
-        tasks = native.get('tasks', [])
-        require(not native.get('failures') and len(tasks) == 1 and tasks[0].get('taskArn') == observed['taskArn'] and
-                tasks[0].get('taskDefinitionArn') == definition['taskDefinitionArn'] and tasks[0].get('lastStatus') == 'RUNNING' and
-                not tasks[0].get('enableExecuteCommand', True) and
-                all(row == {'name': 'worker'} for row in tasks[0].get('overrides', {}).get('containerOverrides', [])) and
-                not tasks[0].get('overrides', {}).get('taskRoleArn') and not tasks[0].get('overrides', {}).get('executionRoleArn'),
-                'actual task worker has unreviewed credential/environment overrides')
+        isolated_task(native, config, observed['taskArn'])
         role = self.queue_role(config)
         result = {'bootstrapWorkerId': original['preparation']['taskArn'], 'taskWorkerId': observed['taskArn'],
             'bootstrapWorkerTerminalState': 'terminated', 'taskPrincipalId': original['context']['agentPrincipal']['actorId'],
             'taskProvisioningCredentialIds': []}
         session.retain(step+'-worker', {'observation': result, 'lifecycle': observed,
-            'definition': copy.deepcopy(definition), 'nativeTasks': copy.deepcopy(native), 'role': role})
+            'definition': serializable(definition), 'nativeTasks': serializable(native), 'role': serializable(role),
+            'lifecycleReads': reads, 'lifecycleConfiguration': copy.deepcopy(session.lifecycle.config),
+            'launch': copy.deepcopy(session.launch), 'workerConfiguration': copy.deepcopy(config), 'mcp': copy.deepcopy(original['mcp']),
+            'taskPrincipalRead': copy.deepcopy(original['taskPrincipalRead'])})
         return result

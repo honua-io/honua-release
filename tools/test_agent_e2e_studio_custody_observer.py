@@ -4,6 +4,7 @@ import io
 import json
 from types import SimpleNamespace
 from unittest.mock import MagicMock
+from datetime import datetime, timedelta, timezone
 
 import pytest
 
@@ -33,6 +34,10 @@ def observed(adapter, server, tmp_path, monkeypatch):
         validate_retirement(value | {'endpoint': 'https://agent.pilot.demo.honua.io'}, **kwargs)
     monkeypatch.setattr(custody, 'helpers', lambda: (prepare, validate_loopback, verify_definition, retained_context, verify_injected))
     session = SimpleNamespace(durable=adapter.durable, campaign={'componentBindingDigest': candidate})
+    session.attempt_id = 'custody'
+    session.context = {**adapter.http.context, 'campaignMode': 'development'}
+    session.started_at = (datetime.now(timezone.utc)-timedelta(seconds=5)).isoformat()
+    session.durable._fixture_identity = lambda context: canonical_digest({key: context[key] for key in ('campaignId', 'caseId', 'attempt')})
     state = session.durable.state
     state['scenarioOperations'] = copy.deepcopy(retirement.durable.state['scenarioOperations'])
     state['studioBootstrapFixtures'] = copy.deepcopy(retirement.durable.state['studioBootstrapFixtures'])
@@ -59,7 +64,7 @@ def observed(adapter, server, tmp_path, monkeypatch):
         return ScenarioHttp(durable=session.durable, context=adapter.http.context, endpoint=server.url,
             credential_env={'setup': 'CUSTODY_OLD_KEY', 'task': 'CUSTODY_TASK_KEY', 'human': 'CUSTODY_HUMAN'}.get(role, 'SCENARIO_TEST_TOKEN'),
             credential_kind='bearer' if role == 'human' else 'api-key',
-            attempt_id='custody-'+role)
+            attempt_id='custody-custody-task' if role == 'task' else 'custody-'+role)
     def respond(method, path, body):
         assert method == 'GET'
         headers = {k.lower(): v for k,v in server.seen[-1][2].items()}
@@ -132,6 +137,9 @@ def observed(adapter, server, tmp_path, monkeypatch):
         'principal': {'actorId': 'original-observed-setup-actor', 'studioOwnerId': setup['apiKeyId'],
             'authenticationKind': 'api-key', 'isHumanSession': False}}})
     retain_original('old-setup-target-denied', {'httpStatus': 401, 'body': {'status': 401}})
+    receipt['setupTargetReference'] = {'key': prefix+'/active-setup-target-read',
+        'sha256': canonical_digest(records[prefix+'/active-setup-target-read'])}
+    records[prefix+'/completed']['value'] = copy.deepcopy(receipt)
     mcp = {'schema': 'honua.private-worker-mcp-binding/v1', 'secretArn': 'arn:aws:secretsmanager:us-east-1:585192672263:secret:honua-agent-custody-mcp-ABC123',
            'versionId': '9'*64, 'nativeContext': reference}
     public = {key: mcp[key] for key in ('secretArn', 'versionId', 'nativeContext')}
@@ -149,10 +157,17 @@ def observed(adapter, server, tmp_path, monkeypatch):
     session.requester = lambda **kwargs: http('task')
     session.initial_fixture = lambda: fixture
     retained = {}
+    session.phase_key = lambda name: canonical_digest({'producer': 'studio-publication-native',
+        'context': {key: session.context[key] for key in ('campaignId', 'caseId', 'attempt')}, 'phase': name})
     def retain(name, value):
         assert name not in retained
         retained[name] = copy.deepcopy(value)
+        records[session.phase_key(name)] = {'producer': 'studio-publication-native', 'candidateKey': candidate,
+            'identity': {key: session.context[key] for key in ('campaignId', 'caseId', 'attempt')}, 'phase': name, 'value': copy.deepcopy(value)}
+        session.durable._persist()
+        return {'key': session.phase_key(name), 'sha256': canonical_digest(records[session.phase_key(name)])}
     session.retain = retain
+    session.value = retained.get
     account, region = '585192672263', 'us-east-1'
     role = 'arn:aws:iam::'+account+':role/honua-agent-custody-worker'
     worker_definition = {'taskDefinitionArn': 'arn:aws:ecs:'+region+':'+account+':task-definition/honua-agent-custody:1',
@@ -166,13 +181,18 @@ def observed(adapter, server, tmp_path, monkeypatch):
             'environment': [{'name': 'HONUA_AGENT_TRANSPORT', 'value': '{}'}, {'name': 'AWS_DEFAULT_REGION', 'value': region}],
             'secrets': [{'name': 'HONUA_AGENT_MCP_CONFIG', 'valueFrom': mcp['secretArn']+':::'+mcp['versionId']}]}]}
     session.worker_config = {'attemptId': 'custody', 'taskRoleArn': role, 'imageUri': worker_definition['containerDefinitions'][0]['image'],
+        'publicBundleDigest': 'sha256:'+'8'*64, 'evidence': {'region': region, 'bucket': 'fixture-evidence'},
         'transport': {}, 'lifecycle': {'clusterArn': config['clusterArn'], 'region': region,
-            'taskDefinitionArn': worker_definition['taskDefinitionArn']}}
+            'taskDefinitionArn': worker_definition['taskDefinitionArn'], 'stateMachineArn': 'arn:aws:states:'+region+':'+account+':stateMachine:honua-agent-custody',
+            'definitionDigest': 'sha256:'+'7'*64, 'stateMachineRoleArn': role.replace('-worker', '-lifecycle'),
+            'claimTable': 'fixture-claims', 'expiresEpoch': 4102444800}}
     transport = {'commandQueueUrl': 'https://sqs.us-east-1.amazonaws.com/'+account+'/honua-agent-custody-commands',
                  'replyQueueUrl': 'https://sqs.us-east-1.amazonaws.com/'+account+'/honua-agent-custody-replies'}
     session.worker_config['transport'] = transport
     worker_definition['containerDefinitions'][0]['environment'][0]['value'] = json.dumps(transport)
     worker_task = {'taskArn': producer_task[:-32]+'2'*32, 'taskDefinitionArn': worker_definition['taskDefinitionArn'],
+        'clusterArn': config['clusterArn'], 'launchType': 'FARGATE', 'tags': [
+            {'key': 'honua-agent-attempt', 'value': 'custody'}, {'key': 'honua-agent-candidate', 'value': candidate}],
         'lastStatus': 'RUNNING', 'enableExecuteCommand': False, 'overrides': {'containerOverrides': [{'name': 'worker'}]}}
     controller = producer_task[:-32]+'3'*32
     monkeypatch.setenv('PILOT_CONTROLLER_TASK_ARN', controller)
@@ -200,9 +220,28 @@ def observed(adapter, server, tmp_path, monkeypatch):
         {'Effect': 'Allow', 'Action': ['sqs:SendMessage'], 'Resource': 'arn:aws:sqs:'+region+':'+account+':honua-agent-custody-replies'}]}
     iam.get_role_policy.return_value = {'RoleName': 'honua-agent-custody-worker', 'PolicyName': 'queue-only', 'PolicyDocument': policy}
     session.open_worker = lambda: None
-    session.launch = {'original': 'retained-launch'}
-    session.durable.require_worker_launch = lambda launch: None
-    session.lifecycle = SimpleNamespace(observe=lambda launch: {'taskStatus': 'RUNNING', 'executionStatus': 'RUNNING', 'taskArn': worker_task['taskArn']})
+    from agent_e2e_worker_lifecycle import WorkerLifecycle
+    live = {**session.worker_config['lifecycle'], 'candidateKey': candidate, 'attemptId': 'custody',
+        'context': {key: session.context[key] for key in ('campaignId', 'caseId', 'attempt', 'campaignMode')},
+        'transportDigest': canonical_digest(transport),
+        'liability': {'basisDigest': 'sha256:'+'b'*64, 'maximumInfrastructureUsd': '1', 'maximumCleanupUsd': '1'}}
+    claims = MagicMock()
+    session.lifecycle = WorkerLifecycle(live, states=states, ecs=ecs, db=claims)
+    session.launch = session.lifecycle._record({'infrastructure': 'infrastructure', 'cleanup': 'cleanup'})
+    state['workerLaunches'] = {'custody': copy.deepcopy(session.launch)}
+    def require_launch(launch):
+        if launch != state['workerLaunches']['custody']: raise PackError('different original launch')
+    session.durable.require_worker_launch = require_launch
+    execution = {'executionArn': session.lifecycle.execution_arn, 'stateMachineArn': live['stateMachineArn'],
+        'name': session.lifecycle.name, 'input': '{}', 'inputDetails': {'included': True}, 'redriveCount': 0,
+        'status': 'RUNNING', 'startDate': datetime.now(timezone.utc).isoformat()}
+    states.describe_execution.return_value = execution
+    states.get_execution_history.return_value = {'events': [{'id': 8, 'type': 'TaskStateExited', 'stateExitedEventDetails': {
+        'name': 'RunWorker', 'outputDetails': {'truncated': False}, 'output': json.dumps({'launched': {
+            'Tasks': [{'TaskArn': worker_task['taskArn']}], 'Failures': []}})}}]}
+    claim = {key: {'S': value} for key, value in {'candidateKey': session.lifecycle.claim_key,
+        'attemptId': 'custody', 'executionArn': session.lifecycle.execution_arn, 'taskDefinitionArn': live['taskDefinitionArn']}.items()}
+    claims.get_item.side_effect = lambda **kwargs: {'Item': claim} if kwargs['Key']['candidateKey']['S'] == session.lifecycle.claim_key else {}
     status.setup = 'revoked'
     observer = custody.StudioCustodyObserver(session, ecs=ecs, s3=s3, states=states, iam=iam)
     return SimpleNamespace(observer=observer, status=status, session=session, records=retained, ecs=ecs, iam=iam,
@@ -222,6 +261,17 @@ def test_original_success_revocation_refusal_and_separate_native_worker_are_inde
     assert all(method == 'GET' for method, *_ in observed.server.seen)
     for proof in observed.records.values():
         assert 'private-key' not in json.dumps(proof)
+
+
+def test_actual_sdk_datetime_fields_are_preserved_as_json_safe_originals(observed):
+    observed.worker_definition['registeredAt'] = datetime.now(timezone.utc)
+    observed.worker_task['startedAt'] = datetime.now(timezone.utc)
+    _, original = observed.observer.revoked(step='timestamp-before')
+    observed.observer.worker(step='timestamp-worker', original=original)
+    proof = observed.records['timestamp-worker-worker']
+    assert proof['definition']['registeredAt'] == observed.worker_definition['registeredAt'].isoformat()
+    assert proof['nativeTasks']['tasks'][0]['startedAt'] == observed.worker_task['startedAt'].isoformat()
+    assert json.loads(json.dumps(proof)) == proof
 
 
 @pytest.mark.parametrize('change', ['old-active', '403', '404', 'wrong-principal', 'no-original-positive', 'missing-original-turn',

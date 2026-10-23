@@ -140,6 +140,7 @@ class Session(WorkerSession):
         if 'custody' in studio:
             from agent_e2e_studio_custody_observer import validate
             validate(studio['custody'])
+        self.custody_declaration()
         route_path(studio['route'])
         require(validate_agent_context(studio['requesterAgentContext']) is not None,
                 'P14 task reads require an actual native workspace and turn')
@@ -155,15 +156,51 @@ class Session(WorkerSession):
         return StudioCustodyObserver(self, **{name: sdk(service, region) for name, service in
             (('ecs', 'ecs'), ('s3', 's3'), ('states', 'stepfunctions'), ('iam', 'iam'))})
 
+    def custody_declaration(self):
+        from agent_e2e_native_custody_bindings import PROFILE, contract
+        from agent_e2e_studio_custody_observer import record
+        declarations = load_json(self.bundle/'expectations.json')['cases'][self.context['caseId']].get('nativeBindings', {})
+        matches = [(name, row) for name, row in declarations.items() if row.get('profile') == PROFILE]
+        config = self.config['studio'].get('custody')
+        if config is None:
+            require(not matches, 'frozen worker custody requires original runtime inputs')
+            return None
+        require(len(matches) == 1, 'worker custody requires exactly one finite frozen task identity declaration')
+        name, declaration = matches[0]
+        contract(declaration)
+        candidate = self.campaign['componentBindingDigest']
+        retirement = record(self.durable.state, config['retirement'], producer='private-setup-key-retirement', candidate=candidate)
+        mcp = record(self.durable.state, config['workerMcp'], producer='private-worker-mcp', candidate=candidate)
+        context = self.durable.state.get('studioBootstrapOperations', {}).get(config['nativeContext']['key'])
+        require(isinstance(context, dict) and canonical_digest(context) == config['nativeContext']['sha256'] and
+                declaration['relationships'] == {'bootstrapWorkerId': retirement['preparation']['taskArn'],
+                    'taskPrincipalId': context['agentPrincipal']['actorId']} and
+                declaration['observers'][str(self.context['attempt'])] == {'worker': self.worker_config,
+                    'mcp': {key: mcp[key] for key in ('secretArn', 'versionId', 'nativeContext')},
+                    'http': {'endpoint': self.config['http']['endpoint'], 'attemptId': self.attempt_id+'-custody-task',
+                        'credentialKind': self.config['studio']['requesterCredentialKind']}},
+                'frozen custody differs from original bootstrap, worker, principal or immutable MCP inputs')
+        return name, declaration
+
     def start_worker(self, *, public_target):
         result = super().start_worker(public_target=public_target)
         if self.config['studio'].get('custody') is not None:
             custody = self.custody_observer()
             revoked, original = custody.revoked(step='custody-started')
             replaced = custody.worker(step='custody-started', original=original)
+            from agent_e2e_native_custody_bindings import retain
+            name, declaration = self.custody_declaration()
+            completed = datetime.now(timezone.utc).isoformat()
+            started = self.value('prepare-start')['startedAt']
+            report = retain(self.durable, self.context, name=name, declaration=declaration,
+                proof_reference={'key': self.phase_key('custody-started-worker'),
+                    'sha256': canonical_digest(self.phase('custody-started-worker'))}, started_at=started, completed_at=completed)
+            self.retain('custody-native-binding', report)
             expected = load_json(self.bundle/'expectations.json')['cases'][self.context['caseId']]['assertions']
             for assertion, actual in (('custody.bootstrap-revoked', revoked), ('custody.worker-replaced', replaced)):
-                gate.oracle_predicates.verify(assertion, actual, expected[assertion])
+                wanted = resolve(assertion, expected[assertion], {name: declaration}, {name: report},
+                    {**self.context, 'startedAt': started, 'completedAt': completed})
+                gate.oracle_predicates.verify(assertion, actual, wanted)
         return result
 
     def requester(self, *, role, timeout=300):
@@ -238,7 +275,8 @@ class Session(WorkerSession):
             requesterPrincipalId=fixture['ownerPrincipalId'], notBefore=self.value('prepare-start')['startedAt'])
         expected_case = load_json(self.bundle/'expectations.json')['cases'][self.context['caseId']]
         declarations = expected_case.get('nativeBindings', {})
-        require(len(declarations) == 1 and next(iter(declarations.values()))['relationships'] ==
+        publications = [row for row in declarations.values() if row.get('profile') == 'honua.studio-publication-bindings/v1']
+        require(len(publications) == 1 and len(declarations) == (2 if self.config['studio'].get('custody') is not None else 1) and publications[0]['relationships'] ==
                 {key: value for key, value in binding.items() if key != 'notBefore'},
                 'P14 frozen relationships do not match actual prefreeze initial fixture')
         self.retain('studio-binding', binding)
@@ -291,6 +329,7 @@ class Session(WorkerSession):
             if row.get('producer') == self.PROFILE and row.get('identity') == identity(self.context) and
                row.get('phase', '').startswith('publication-ordinal-')]
         expected = load_json(self.bundle/'expectations.json')['cases'][self.context['caseId']]
+        declarations, reports = expected.get('nativeBindings', {}), {}
         if self.config['studio'].get('custody') is not None:
             try:
                 require(self.value('custody-before-revocation') is not None and self.value('custody-started-worker') is not None,
@@ -301,6 +340,11 @@ class Session(WorkerSession):
                 require(revoked == self.value('custody-before-revocation')['observation'] and
                         replaced == self.value('custody-started-worker')['observation'],
                         'original credential or worker changed during model execution')
+                name, _ = self.custody_declaration()
+                report = self.value('custody-native-binding')
+                require(report is not None and report['values'] == {'taskWorkerId': replaced['taskWorkerId']},
+                        'current worker differs from its original before-model native binding')
+                reports[name] = report
                 observations.update({'custody.bootstrap-revoked': revoked, 'custody.worker-replaced': replaced})
             except (PackError, ValueError, KeyError, TypeError):
                 self.retain('custody-verification-refused', {'reasonCode': 'original-native-custody-proof-refused'})
@@ -312,7 +356,6 @@ class Session(WorkerSession):
                 observations['tenant.denied'] = tenant['observation']
             except PackError:
                 self.retain('tenant-verification-refused', {'reasonCode': 'native-tenant-proof-refused'})
-        declarations, reports = expected.get('nativeBindings', {}), {}
         completed = datetime.now(timezone.utc).isoformat()
         native_context = {**self.context, 'startedAt': self.value('prepare-start')['startedAt'], 'completedAt': completed}
         if len(selections) == 1:
@@ -320,7 +363,9 @@ class Session(WorkerSession):
             self.retain('publication-final', publication)
             for assertion in ('approval.separate', 'publication.public'):
                 observations[assertion] = publication.get(assertion)
-            name, declaration = next(iter(declarations.items()))
+            publications = [(name, row) for name, row in declarations.items() if row.get('profile') == 'honua.studio-publication-bindings/v1']
+            require(len(publications) == 1, 'publication lacks its exact finite original proposal declaration')
+            name, declaration = publications[0]
             reports[name] = observer.bind_native(publication, name=name, declaration=declaration, context=self.context,
                 started_at=native_context['startedAt'], completed_at=completed)
         failed = []
