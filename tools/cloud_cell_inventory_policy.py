@@ -10,6 +10,7 @@ import os
 from pathlib import Path
 import shutil
 import subprocess
+import time
 
 ROOT = Path(__file__).resolve().parents[1]
 SOURCE = ROOT / "certification/cloud-cell-inventory"
@@ -26,6 +27,16 @@ def require(condition, message):
 
 def digest(value):
     return hashlib.sha256(json.dumps(value, sort_keys=True, separators=(",", ":")).encode()).hexdigest()
+
+
+def write_receipt(path, value):
+    """Keep the prior parseable uncertainty record until replacement is complete."""
+    temporary = path.with_name(path.name + ".pending")
+    with temporary.open("w", encoding="utf-8") as stream:
+        stream.write(json.dumps(value, indent=2) + "\n")
+        stream.flush()
+        os.fsync(stream.fileno())
+    os.replace(temporary, path)
 
 
 def desired_policy(before):
@@ -59,6 +70,19 @@ def validate_plan(plan, original, desired, observed):
     require(not plan.get("resource_drift"), "unexpected resource drift")
     return {"importId": ROLE + ":" + POLICY, "actions": change["actions"],
             "beforeSha256": digest(observed), "afterSha256": digest(desired)}
+
+
+def confirm_policy(observe, original, desired, *, sleep=time.sleep, attempts=20, delay=3):
+    """Allow bounded IAM propagation of the original revision, never new drift."""
+    require(attempts > 0, "positive observation bound required")
+    for attempt in range(attempts):
+        current = observe()
+        if current == desired:
+            return True
+        require(current == original, "unreviewed policy observed after apply")
+        if attempt + 1 < attempts:
+            sleep(delay)
+    return False
 
 
 def run(mode):
@@ -107,17 +131,18 @@ def run(mode):
                    "savedPlanSha256": plan_hash, "applyAttempted": False,
                    "applied": False, "observedDesired": observed == desired})
     receipt = Path(os.environ["RUNNER_TEMP"]) / "cell-inventory-review.json"
-    receipt.write_text(json.dumps(review, indent=2) + "\n")
+    write_receipt(receipt, review)
     if mode == "deploy":
         require(observe() == observed, "live policy changed after planning")
         require(hashlib.sha256(saved.read_bytes()).hexdigest() == plan_hash, "saved plan changed")
         review.update({"applyAttempted": True, "applied": None, "observedDesired": None})
-        receipt.write_text(json.dumps(review, indent=2) + "\n")
+        write_receipt(receipt, review)
         terraform("apply", "-input=false", "-no-color", "reviewed.tfplan")
         review["applied"] = True
-        review["observedDesired"] = observe() == desired
-        receipt.write_text(json.dumps(review, indent=2) + "\n")
-        require(review["observedDesired"], "live policy readback differs")
+        write_receipt(receipt, review)
+        review["observedDesired"] = confirm_policy(observe, original, desired)
+        write_receipt(receipt, review)
+        require(review["observedDesired"], "live policy did not converge within the observation bound")
     print("Reviewed exactly one fixed inline policy; metadata-only receipt retained.")
 
 

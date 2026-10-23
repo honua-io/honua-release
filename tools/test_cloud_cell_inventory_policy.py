@@ -3,9 +3,10 @@ import copy
 import json
 
 import pytest
+import cloud_cell_inventory_policy as inventory
 
 from cloud_cell_inventory_policy import (
-    ADDRESS, POLICY, READ_ACTION, ROLE, SOURCE, desired_policy, validate_plan,
+    ADDRESS, POLICY, READ_ACTION, ROLE, SOURCE, confirm_policy, desired_policy, validate_plan,
 )
 
 
@@ -85,3 +86,58 @@ def test_only_exact_complete_import_plan_allowed(mutation):
         plan["resource_drift"] = [{}]
     with pytest.raises(ValueError):
         validate_plan(plan, before, after, before)
+
+
+def test_readback_allows_original_then_exact_desired_revision():
+    before, after, _ = inputs()
+    observations = iter([before, before, after])
+    sleeps = []
+    assert confirm_policy(lambda: next(observations), before, after, sleep=sleeps.append)
+    assert sleeps == [3, 3]
+
+
+def test_readback_never_accepts_stale_policy_and_stops_at_bound():
+    before, after, _ = inputs()
+    observations, sleeps = [], []
+    def observe():
+        observations.append(True)
+        return before
+    assert not confirm_policy(observe, before, after, sleep=sleeps.append, attempts=3)
+    assert len(observations) == 3 and sleeps == [3, 3]
+
+
+def test_readback_refuses_unreviewed_policy_immediately():
+    before, after, _ = inputs()
+    sleeps = []
+    with pytest.raises(ValueError, match="unreviewed policy"):
+        confirm_policy(lambda: {}, before, after, sleep=sleeps.append)
+    assert sleeps == []
+
+
+def test_readback_does_not_hide_api_failure():
+    before, after, _ = inputs()
+    def observe():
+        raise RuntimeError("inventory denied")
+    with pytest.raises(RuntimeError, match="inventory denied"):
+        confirm_policy(observe, before, after, sleep=lambda _: None)
+
+
+@pytest.mark.parametrize("operation", ["fsync", "replace"])
+def test_interrupted_receipt_transition_preserves_uncertainty(tmp_path, monkeypatch, operation):
+    path = tmp_path / "receipt.json"
+    previous = {"applyAttempted": True, "applied": None, "observedDesired": None}
+    inventory.write_receipt(path, previous)
+    def interrupt(*_):
+        raise InterruptedError("cancelled")
+    monkeypatch.setattr(inventory.os, operation, interrupt)
+    with pytest.raises(InterruptedError):
+        inventory.write_receipt(path, {"applied": True, "observedDesired": True})
+    assert json.loads(path.read_text()) == previous
+
+
+def test_complete_receipt_transition_replaces_only_after_write(tmp_path):
+    path = tmp_path / "receipt.json"
+    inventory.write_receipt(path, {"applied": None})
+    inventory.write_receipt(path, {"applied": True, "observedDesired": True})
+    assert json.loads(path.read_text()) == {"applied": True, "observedDesired": True}
+    assert not path.with_name(path.name + ".pending").exists()
