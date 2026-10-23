@@ -3104,6 +3104,40 @@ def test_seed_failure_names_the_call_status_instance_and_a_masked_body():
                                       ("POST", f"/api/v1/admin/connections/{cid}/layers")]
 
 
+@pytest.mark.parametrize("acknowledgement", [
+    {"storageMode": "managed", "capabilities": ["Query", "Create", "Update", "Delete"]},
+    {},
+    {"storageMode": "source", "capabilities": ["Query", "Create", "Update", "Delete"]},
+    {"storageMode": "managed", "capabilities": ["Query", "Create", "Delete"]},
+])
+def test_cloud_editing_fixture_requires_actual_managed_publication(acknowledgement):
+    published = 0
+
+    def answers(method, path):
+        nonlocal published
+        if path == "/api/v1/admin/connections/":
+            return 201, b'{"data":{"connectionId":"c1"}}', "task-a"
+        if method == "POST":
+            published += 1
+            data = {"layerId": published}
+            if published == 7:
+                data.update(acknowledgement)
+            return 201, json.dumps({"data": data}).encode(), "task-a"
+        return 200, b'{}', "task-a"
+
+    error, calls, wrote = _seed_cell_against(answers)
+    accepted = acknowledgement.get("storageMode") == "managed" and "Update" in acknowledgement.get("capabilities", [])
+    assert wrote is accepted
+    assert (error is None) is accepted
+    layers = [call[2] for call in calls if call[0] == "POST" and call[1].endswith("/layers")]
+    editable = [layer for layer in layers if "storageMode" in layer]
+    assert len(editable) == 1 and editable[0]["serviceName"] == "maui-inspections"
+    assert editable[0]["storageMode"] == "managed"
+    assert editable[0]["capabilities"] == ["Query", "Create", "Update", "Delete"]
+    if not accepted:
+        assert not any(call[0] == "PUT" and "/maui-inspections/" in call[1] for call in calls)
+
+
 def test_seed_failure_on_a_non_json_body_is_bounded_and_unnamed_instances_are_said():
     def answers(method, path):
         if path == "/api/v1/admin/connections/":
