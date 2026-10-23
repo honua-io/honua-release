@@ -85,8 +85,10 @@ def restore_datasource_environment(target):
 def prepare_style_catalog(target, transport):
     """Install the authored input preset, without applying it to any layer.
 
-    Both drivers need the same catalog input. The model must still discover,
-    select and apply it, and the existing renderer must prove its actual pixels.
+    The model needs the same catalog input as the deterministic driver. It must
+    still discover, select and apply it, and prove the actual rendered pixels.
+    The deterministic driver keeps its unconditional create and HTTP 201 check:
+    a cloud retry must not pass by reusing a prior attempt's retained style.
     Never replace a pre-existing catalog document with different content.
     """
     fixture = target.get("execution") or {}

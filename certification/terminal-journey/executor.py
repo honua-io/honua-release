@@ -1017,11 +1017,11 @@ class JourneyExecutor:
                  "schema": self.resources["importSchema"], "table": self.resources["importTable"]})
 
         def style():
-            import local_fixture
             if "layerId" not in self.resources:
                 raise ExecutionError("honua_apply_style_preset", "imported published layer is unavailable", blocked=True)
             params = {"serviceId": self.fixture["serviceId"], "layerId": self.resources["layerId"]}
-            local_fixture.prepare_style_catalog(self.target, self.transport)
+            self.transport.http("POST", "/ogc/styles", principal=self.principal(4), body=self.fixture["style"], expected=(201,),
+                                extra_headers={"X-Style-Id": self.fixture["styleId"]})
             call(4, "honua_get_style", {"styleId": self.fixture["styleId"], "includeStylesheet": True})
             call(4, "honua_apply_style_preset", {**params, "styleId": self.fixture["styleId"]})
             width, height = self.fixture["renderSize"]
