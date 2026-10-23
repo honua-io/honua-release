@@ -328,7 +328,7 @@ def bootstrap_contract_digest():
     # hash. The selected root SHA is independently bound to reviewed trunk.
     base = ROOT / 'certification/hosted-pilot/bootstrap'
     paths = sorted(path for path in base.glob('*.tf') if path.name != 'recovery-imports.tf')
-    paths += [base / '.terraform.lock.hcl', base / 'foundation-bootstrap-workflow.yml', ROOT / 'tools/hosted_pilot/bootstrap.py', ROOT / 'tools/hosted_pilot/deploy.py']
+    paths += [base / '.terraform.lock.hcl', base / 'foundation-bootstrap-workflow.yml', ROOT / 'tools/hosted_pilot/bootstrap.py', ROOT / 'tools/hosted_pilot/deploy.py', ROOT / 'tools/hosted_pilot/bootstrap_phase.py']
     value = hashlib.sha256()
     for path in paths:
         value.update(str(path.relative_to(ROOT)).encode() + b'\0' + path.read_bytes() + b'\0')
@@ -473,11 +473,126 @@ def exact_apply(path, expected, work):
     return expected
 
 
+def observe_original_custody(binding, identity, cfg, source_root, work):
+    """Preserve actual original custody tags, separately from this phase's new resources."""
+    from bootstrap_phase import api
+    secured = secure_backend(binding)
+    plans = dict(binding, bucket=f'honua-release-{cfg["name_prefix"].removeprefix("honua-")}-foundation-plans-{cfg["account_id"]}')
+    secured_plans = secure_backend(plans)
+    require(secured['kms_key_id'] == secured_plans['kms_key_id'], 'custody buckets no longer share their original key')
+    observed = []
+    for bucket in (secured['bucket'], secured_plans['bucket']):
+        observed.append({row['Key']: row['Value'] for row in aws('s3api', 'get-bucket-tagging', '--bucket', bucket)['TagSet']})
+    observed.append({row['TagKey']: row['TagValue'] for row in aws('kms', 'list-resource-tags', '--key-id', secured['kms_key_id'])['Tags']})
+    keys = {'ManagedBy', 'BootstrapExecution', *IDENTITY_TAGS.values()}
+    selected = [{key: tags[key] for key in keys if key in tags} for tags in observed]
+    require(all(tags == selected[0] for tags in selected) and set(selected[0]) == keys, 'original custody creation identity is missing or inconsistent')
+    tags = selected[0]
+    original = {key: tags[name] for key, name in IDENTITY_TAGS.items()}
+    require(tags == creation_tags(original, tags['BootstrapExecution']), 'custody source tags are invalid')
+    require(re.fullmatch(r'[0-9]+', tags['BootstrapExecution']), 'original custody run is not observed')
+    for key in ('foundation_source_sha', 'release_root_sha'):
+        require(re.fullmatch(r'[a-f0-9]{40}', original[key]), 'original custody source is invalid')
+    for key in ('config_sha256', 'provider_lock_sha256'):
+        require(re.fullmatch(r'[a-f0-9]{64}', original[key]), 'original custody source digest is invalid')
+    require(original['config_path'] == identity['config_path'], 'custody uses a different reviewed configuration path')
+    run(['git', '-C', str(source_root), 'merge-base', '--is-ancestor', original['foundation_source_sha'], identity['foundation_source_sha']])
+    run(['git', '-C', str(ROOT), 'merge-base', '--is-ancestor', original['release_root_sha'], identity['release_root_sha']])
+    require(hashlib.sha256(run(['git', '-C', str(source_root), 'show', original['foundation_source_sha']+':'+original['config_path']])).hexdigest() == original['config_sha256'], 'custody original configuration source differs')
+    require(hashlib.sha256(run(['git', '-C', str(ROOT), 'show', original['release_root_sha']+':certification/hosted-pilot/bootstrap/.terraform.lock.hcl'])).hexdigest() == original['provider_lock_sha256'], 'custody original provider lock differs')
+    producer = api('repos/honua-io/honua-iac/actions/runs/'+tags['BootstrapExecution'])
+    workflow = api('repos/honua-io/honua-iac/actions/workflows/hosted-pilot-bootstrap.yml')
+    require(producer.get('id') == int(tags['BootstrapExecution']) and producer.get('workflow_id') == workflow.get('id') and
+            workflow.get('path') == '.github/workflows/hosted-pilot-bootstrap.yml' and producer.get('head_sha') == original['foundation_source_sha'] and
+            producer.get('head_branch') == 'trunk' and producer.get('event') == 'workflow_dispatch' and producer.get('status') == 'completed' and producer.get('conclusion') == 'success',
+            'custody original native producer is not successful at its observed source')
+    private_json(work/'creation-identity.json', {'run_id': tags['BootstrapExecution'], 'identity': original})
+    return tags
+
+
+def phase_review(identity, actor, cfg, cfg_digest, phase, changes, plan_path, work):
+    from bootstrap_phase import SCHEMA, deadlines
+    review = {'schema': SCHEMA, **identity, 'resolved_config_sha256': cfg_digest,
+        'execution_identity': actor, 'creation_resources': json.loads((work/'creation-resources.json').read_text()),
+        'phase': phase, 'resource_changes': changes, 'plan_sha256': digest(plan_path),
+        'run_id': os.environ['GITHUB_RUN_ID'], 'run_attempt': os.environ['GITHUB_RUN_ATTEMPT'], **deadlines(cfg)}
+    private_json(work/'review.json', review)
+    return review
+
+
+def prepare_phase(identity, actor, cfg, cfg_digest, phase, changes, plan_path, binding, remote, work):
+    review = phase_review(identity, actor, cfg, cfg_digest, phase, changes, plan_path, work)
+    head = aws('s3api', 'head-object', '--bucket', binding['bucket'], '--key', binding['key']) if remote and exists('head-object', '--bucket', binding['bucket'], '--key', binding['key']) else None
+    if head is not None:
+        require(head.get('VersionId') not in (None, 'null'), 'canonical foundation state is not versioned')
+    private_json(work/'prepared.json', {'schema': 'honua.private-bootstrap-prepared/v1', 'review_sha256': digest(work/'review.json'),
+        'review': review, 'binary': plan_path.name, 'binding': binding, 'remote': remote,
+        'state_version_id': None if head is None else head['VersionId']})
+    print('One exact phase prepared; saved binary remains only on this executor pending actual human review.')
+
+
+def apply_prepared(identity, actor, cfg, cfg_digest, phase, binding, work):
+    from bootstrap_phase import approved_review, stamp, validate_review, utcnow
+    prepared = json.loads((work/'prepared.json').read_text())
+    review = json.loads((work/'review.json').read_text())
+    validate_review(review, phase=phase)
+    require(prepared.get('schema') == 'honua.private-bootstrap-prepared/v1' and prepared.get('review') == review and
+        prepared.get('review_sha256') == digest(work/'review.json') and prepared.get('binding') == binding and
+        all(review.get(key) == value for key, value in identity.items()) and review.get('execution_identity') == actor and
+        review.get('resolved_config_sha256') == cfg_digest, 'private saved-plan source, actor or configuration changed')
+    require(stamp(review['execution_expires_at']) <= min(stamp(cfg['expires_at']), stamp(cfg['budget_ledger']['expires_at'])), 'saved phase exceeds original reservation expiry')
+    expected_name = 'custody.tfplan' if phase == 'custody-only' else 'saved.tfplan'
+    require(prepared.get('binary') == expected_name and (phase == 'custody-only' or prepared.get('remote') is True), 'saved phase binary or canonical backend differs')
+    proof = approved_review(review, phase=phase)
+    require(proof is not None, 'actual same-run exact-plan approval is absent')
+    # A changed canonical state cannot be silently replanned after approval.
+    if prepared['remote']:
+        present = exists('head-object', '--bucket', binding['bucket'], '--key', binding['key'])
+        if prepared['state_version_id'] is None:
+            require(not present, 'canonical state appeared after review; new plan required')
+        else:
+            require(present, 'canonical state disappeared after review; new plan required')
+            head = aws('s3api', 'head-object', '--bucket', binding['bucket'], '--key', binding['key'])
+            require(head.get('VersionId') == prepared['state_version_id'], 'canonical state changed after review; new plan required')
+    validate_review(review, phase=phase)
+    private_json(work/'verified-approval.json', proof)
+    path = work/expected_name
+    require(digest(path) == review['plan_sha256'], 'exact approved binary plan changed')
+    private_json(work/'apply-admitted.json', {'schema': 'honua.hosted-pilot-phase-admitted/v1', 'review': review, 'approval': proof,
+        'admitted_at': utcnow().isoformat(), 'financial_settlement': False, 'partial_failure_liability_retained': True})
+    exact_apply(path, review['plan_sha256'], work)
+    if phase == 'custody-only':
+        secured = secure_backend(binding)
+        if not prepared['remote']:
+            require(save_recovery(binding, cfg, identity, work), 'custody created but encrypted recovery state persistence failed')
+            private_json(TF/'backend.tf.json', {'terraform': {'backend': {'s3': secured}}})
+            run(['terraform', 'init', '-migrate-state', '-force-copy', '-input=false', '-no-color'], log=work/'migrate.log')
+        require(exists('head-object', '--bucket', secured['bucket'], '--key', secured['key']), 'custody canonical state migration not verified')
+        if prepared['remote']:
+            save_recovery(binding, cfg, identity, work)
+        # This receipt contains no application bindings; the foundation has not run.
+        private_json(work/'custody-applied.json', {'schema': 'honua.hosted-pilot-custody-applied/v1', 'review': review,
+            'approval': proof, 'state_binding': secured, 'apply_admission_sha256': digest(work/'apply-admitted.json'), 'custody_recovery_sha256': digest(work/'custody-recovery.json')})
+        print('Only reviewed custody applied and canonical state verified; foundation phase has not run.')
+        return
+    outputs = json.loads(run(['terraform', 'output', '-json']))
+    private_json(work/'bindings.json', {'schema': 'honua.hosted-pilot-bootstrap-bindings/v2',
+        'phase_review': review, 'phase_approval': proof, 'apply_admission_sha256': digest(work/'apply-admitted.json'),
+        'release_root_sha': os.environ['PILOT_RELEASE_ROOT_SHA'], 'foundation_source_sha': os.environ['GITHUB_SHA'],
+        'foundation_run_id': os.environ['GITHUB_RUN_ID'], 'foundation_run_attempt': os.environ['GITHUB_RUN_ATTEMPT'],
+        'config_path': identity['config_path'], 'config_sha256': identity['config_sha256'], 'resolved_config_sha256': cfg_digest,
+        'execution_identity': actor, 'creation_resources': review['creation_resources'], 'saved_plan_sha256': review['plan_sha256'],
+        **{key: outputs[key]['value'] for key in ['deployment_bindings', 'permissions_boundary_arn', 'budget_binding']}})
+    print('Only reviewed remote-backed foundation applied; no target or campaign was dispatched.')
+
+
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument('mode', choices=['plan', 'deploy', 'journal'])
+    parser.add_argument('mode', choices=['plan', 'prepare', 'apply', 'journal'])
     parser.add_argument('--config', required=True)
+    parser.add_argument('--phase', choices=['custody-only', 'remote-backed-foundation'])
     args = parser.parse_args()
+    require(args.mode in ('plan', 'journal') or args.phase is not None, 'explicit single phase required')
     e = os.environ
     require(e['GITHUB_REPOSITORY'] == 'honua-io/honua-iac' and e['GITHUB_REF'] == 'refs/heads/trunk', 'foundation runs only in honua-iac trunk')
     require(re.fullmatch(r'[a-f0-9]{40}', e['PILOT_RELEASE_ROOT_SHA']), 'exact reviewed release root SHA required')
@@ -493,6 +608,7 @@ def main():
     work.mkdir(mode=0o700, exist_ok=True)
     cfg = json.loads(cfg_path.read_text())
     cfg = resolve_image_funding(cfg, ROOT, e['PILOT_RELEASE_ROOT_SHA'], config_path=cfg_path.relative_to(source_root).as_posix())
+    require(not cfg.get('bootstrap_custody_creation_tags'), 'caller-provided custody creation identity refused')
     require(cfg['region'] == e['AWS_REGION'], 'bootstrap region mismatch')
     require(re.fullmatch(r'honua-pilot-[a-z0-9-]{4,16}', cfg['name_prefix']), 'invalid isolated prefix')
     caller = aws('sts', 'get-caller-identity')
@@ -521,6 +637,16 @@ def main():
         with open(e['GITHUB_STEP_SUMMARY'], 'a') as summary:
             summary.write('Custody recovery metadata SHA256: `' + digest(work / 'custody-recovery.json') + '`\n')
         return
+    if args.mode == 'apply':
+        # Reload only the same private resolved configuration prepared in this
+        # job. Do not init, import, plan or fall back to an alternative phase.
+        # The source compiler above must match every field except the custody
+        # tags independently observed during preparation.
+        original_cfg = json.loads((work/'prepared-config.json').read_text())
+        require({key: value for key, value in original_cfg.items() if key != 'bootstrap_custody_creation_tags'} == cfg, 'source resolved configuration changed')
+        private_json(resolved_cfg_path, original_cfg)
+        apply_prepared(identity, actor, original_cfg, digest(resolved_cfg_path), args.phase, binding, work)
+        return
     recover_imports(identity, work, binding, cfg)
     remote = False
     has_state = False
@@ -534,48 +660,37 @@ def main():
             require(has_state or (work / 'recovery-input/custody-recovery.json').exists(), 'custody exists without canonical state; reviewed recovery journal required before adopting resources')
         except (ValueError, KeyError):
             require((work / 'recovery-input/custody-recovery.json').exists(), 'partial insecure custody requires its governed recovery journal; no application infrastructure will run')
+    if args.phase == 'remote-backed-foundation':
+        require(remote and has_state, 'foundation phase requires existing secured canonical custody; custody apply is a separate reviewed run')
+    if args.phase == 'custody-only':
+        require(not has_state, 'canonical custody already exists; initial custody phase cannot maintain or replace it')
+    if remote and has_state:
+        cfg['bootstrap_custody_creation_tags'] = observe_original_custody(binding, identity, cfg, source_root, work)
+        # Only custody retains original producer tags; this phase's newly created
+        # IAM/orchestration resources belong to the current native run.
+        e['PILOT_CREATION_RUN_ID'] = e['GITHUB_RUN_ID']
+        e['PILOT_CREATION_IDENTITY'] = json.dumps(identity)
+        private_json(resolved_cfg_path, cfg)
+        resolved_cfg_digest = digest(resolved_cfg_path)
+    private_json(work/'prepared-config.json', cfg)
     if not remote or not has_state:
         refuse_unbound_initial_custody(cfg, work)
         if not remote:
             run(['terraform', 'init', '-backend=false', '-lockfile=readonly', '-input=false', '-no-color'], log=work / 'init.log')
         initial, changes, initial_sha = plan(resolved_cfg_path, work, custody_only=True)
-        private_json(work / 'review.json', {'schema': 'honua.hosted-pilot-bootstrap-plan/v1', **identity, 'resolved_config_sha256': resolved_cfg_digest, 'execution_identity':actor,'creation_resources':json.loads((work/'creation-resources.json').read_text()),'phase': 'custody-only', 'resource_changes': changes, 'plan_sha256': digest(initial)})
-        if args.mode == 'plan':
+        if args.mode == 'prepare':
+            prepare_phase(identity, actor, cfg, resolved_cfg_digest, 'custody-only', changes, initial, binding, remote, work)
+        else:
+            phase_review(identity, actor, cfg, resolved_cfg_digest, 'custody-only', changes, initial, work)
             print('Custody-only plan metadata prepared; no binary plan/state/log is uploaded.')
-            return
-        try:
-            exact_apply(initial, initial_sha, work)
-            # Preserve an encrypted, versioned recovery state before attempting
-            # migration, including when migration itself subsequently fails.
-            secured = secure_backend(binding)
-            if not remote:
-                require(save_recovery(binding, cfg, identity, work), 'custody created but encrypted recovery state persistence failed')
-                private_json(TF / 'backend.tf.json', {'terraform': {'backend': {'s3': secured}}})
-                run(['terraform', 'init', '-migrate-state', '-force-copy', '-input=false', '-no-color'], log=work / 'migrate.log')
-            require(exists('head-object', '--bucket', secured['bucket'], '--key', secured['key']), 'remote foundation state migration not verified')
-        except (ValueError, KeyError, OSError):
-            save_recovery(binding, cfg, identity, work)
-            raise ValueError('initial custody/migration failed; application/identity phase refused. Retain custody-recovery metadata and inspect encrypted recovery custody before retrying') from None
-    full, changes, full_sha = plan(resolved_cfg_path, work)
-    private_json(work / 'review.json', {'schema': 'honua.hosted-pilot-bootstrap-plan/v1', **identity, 'resolved_config_sha256': resolved_cfg_digest, 'execution_identity':actor,'creation_resources':json.loads((work/'creation-resources.json').read_text()),'phase': 'remote-backed-foundation', 'resource_changes': changes, 'plan_sha256': digest(full)})
-    if args.mode == 'plan':
-        print('Remote-backed foundation plan metadata prepared; no infrastructure applied.')
         return
-    try:
-        plan_sha = exact_apply(full, full_sha, work)
-    except ValueError:
-        raise ValueError('foundation apply failed; partial resource liability remains in encrypted remote state. Use a fresh source-reviewed plan to reconcile; never discard custody') from None
-    outputs = json.loads(run(['terraform', 'output', '-json']))
-    private_json(work / 'bindings.json', {'schema': 'honua.hosted-pilot-bootstrap-bindings/v1',
-        'release_root_sha': e['PILOT_RELEASE_ROOT_SHA'], 'foundation_source_sha': e['GITHUB_SHA'],
-        'foundation_run_id': e['GITHUB_RUN_ID'], 'foundation_run_attempt': e['GITHUB_RUN_ATTEMPT'],
-        'config_path': args.config, 'config_sha256': digest(cfg_path), 'resolved_config_sha256': resolved_cfg_digest,
-        'execution_identity':actor,'creation_resources':json.loads((work/'creation-resources.json').read_text()),
-        'saved_plan_sha256': plan_sha,
-        **{key: outputs[key]['value'] for key in ['deployment_bindings', 'permissions_boundary_arn', 'budget_binding']}})
-    with open(e['GITHUB_STEP_SUMMARY'], 'a') as summary:
-        summary.write('Foundation bindings SHA256: `' + digest(work / 'bindings.json') + '`\n')
-    print('Exact source-reviewed bootstrap plans applied. Full phase is remote-backed; no binary plan/state/log is uploaded.')
+    full, changes, full_sha = plan(resolved_cfg_path, work)
+    require(all(not allowed_address(row['address']) or row['actions'] in (['read'], ['no-op']) for row in changes), 'foundation phase attempts custody maintenance; original custody must remain unchanged')
+    if args.mode == 'prepare':
+        prepare_phase(identity, actor, cfg, resolved_cfg_digest, 'remote-backed-foundation', changes, full, binding, True, work)
+    else:
+        phase_review(identity, actor, cfg, resolved_cfg_digest, 'remote-backed-foundation', changes, full, work)
+        print('Remote-backed foundation plan metadata prepared; no infrastructure applied.')
 
 
 if __name__ == '__main__':

@@ -13,13 +13,36 @@ its exact trunk branch policy. It verifies the result and refuses to overwrite
 an existing different protection policy. Configuration stays in source and the
 checked-in workflow; no manual repository or AWS configuration is required.
 
-Plan mode uses the existing ephemeral environment. Deploy mode uses
-`terraform-live-approval`, whose declared reviewer is Mike McDougall. The owner
-can review and approve a dispatch they initiated; the assistant does not approve
-or bypass that review. Prepare the concrete configuration and plan metadata
-before requesting deployment approval.
+Plan preparation uses `terraform-ephemeral`. Select one phase explicitly:
+`custody-only` or `remote-backed-foundation`. Plan-only dispatches discard the
+binary and cannot later be converted into apply authorization.
 
-The source-reviewed bootstrap apply step has a 30-minute limit within a
-45-minute job. Later recovery-journal and artifact steps retain time after an
-apply timeout. Recovery can identify the original producer run without an
-Actions artifact; consult the bootstrap recovery instructions before retrying.
+An apply dispatch retains its newly prepared binary privately on the original
+runner. Its review artifact is published before the separate
+`terraform-live-approval` job starts. The declared reviewer is Mike McDougall;
+the owner can review a dispatch they initiated. The assistant does not approve or
+bypass that review. The approval job binds actual native review history to the
+exact original source, run/attempt, phase, configuration and saved-plan hash. The
+original runner waits for the protected job to finish successfully, then applies
+that binary only and stops. The dependency graph never makes approval depend on
+the still-running prepare/apply job.
+
+Review metadata shows immutable preparation, approval and execution deadlines.
+The approval window is at most twenty minutes and leaves fifteen minutes for
+execution, within the unchanged original funding and infrastructure expiry.
+Preparation is limited to eight minutes, apply to twelve minutes, and the runner
+job to forty-five minutes, leaving bounded recovery/cleanup time. A separate
+watchdog has no AWS credentials and alone receives `actions:write`; it verifies
+its exact workflow/source/run/attempt and accepts no other cancellation target.
+It cancels its own failed or expired run so an unreviewed environment job cannot
+wait indefinitely. Original apply-admission metadata is retained even on failure.
+Cancellation can leave partial resources or unknown costs: all original funding,
+expiry and liabilities remain held, and native state/recovery observations are
+required before retry or settlement. No timeout is a deletion or zero-cost proof.
+
+The first phase creates and verifies only custody. The next dispatch produces a
+distinct full-foundation plan, preserving custody's original creation identity.
+A previous custody plan is never authorization for full-foundation apply. Recovery
+can identify the original producer without an Actions artifact; consult the
+bootstrap recovery instructions before retrying. Neither phase qualifies a hosted
+candidate or launches a model worker.

@@ -17,10 +17,15 @@ on:
         type: string
         default: us-west-2
       mode:
-        description: Plan metadata only, or custody-first exact local saved plans plus remote state migration
+        description: Plan one explicit phase, or prepare and apply only its exact privately retained saved plan after human review
         required: true
         type: choice
-        options: [plan, deploy]
+        options: [plan, apply]
+      phase:
+        description: One isolated phase; foundation requires existing secured custody and canonical state
+        required: true
+        type: choice
+        options: [custody-only, remote-backed-foundation]
       recovery_run_id:
         description: Optional failed initial custody run to recover from its metadata-only import journal
         type: string
@@ -70,7 +75,7 @@ jobs:
     needs: approval-policy
     if: github.repository == 'honua-io/honua-iac' && github.ref == 'refs/heads/trunk'
     runs-on: ubuntu-latest
-    environment: ${{ inputs.mode == 'deploy' && 'terraform-live-approval' || 'terraform-ephemeral' }}
+    environment: terraform-ephemeral
     # The apply step has its own smaller deadline so journal persistence and
     # upload steps still have time after a slow or interrupted deployment.
     timeout-minutes: 45
@@ -147,13 +152,39 @@ jobs:
           aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
           aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
           aws-region: ${{ inputs.region }}
-      - name: Custody-first source-reviewed bootstrap in one ephemeral job
-        timeout-minutes: 30
+      - name: Prepare exactly one source-reviewed phase without applying
+        timeout-minutes: 8
         working-directory: release-source
         env:
-          MODE: ${{ inputs.mode }}
+          GH_TOKEN: ${{ github.token }}
+          MODE: ${{ inputs.mode == 'apply' && 'prepare' || 'plan' }}
+          PHASE: ${{ inputs.phase }}
           CONFIG: ${{ inputs.config_path }}
-        run: python3 tools/hosted_pilot/bootstrap.py "$MODE" --config "$CONFIG"
+        run: python3 tools/hosted_pilot/bootstrap.py "$MODE" --phase "$PHASE" --config "$CONFIG"
+      - name: Publish value-free review before waiting for native approval
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: hosted-pilot-phase-review-${{ github.run_id }}-${{ github.run_attempt }}-${{ inputs.phase }}
+          path: ${{ runner.temp }}/hosted-pilot-bootstrap-private/review.json
+          if-no-files-found: error
+          retention-days: 7
+      - name: Wait for original exact-plan approval from the separate protected job
+        if: inputs.mode == 'apply'
+        timeout-minutes: 21
+        working-directory: release-source
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PHASE: ${{ inputs.phase }}
+        run: python3 tools/hosted_pilot/bootstrap_phase.py wait --phase "$PHASE" --review-path "$RUNNER_TEMP/hosted-pilot-bootstrap-private/review.json"
+      - name: Apply only the exact reviewed phase and stop
+        if: inputs.mode == 'apply'
+        timeout-minutes: 12
+        working-directory: release-source
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PHASE: ${{ inputs.phase }}
+          CONFIG: ${{ inputs.config_path }}
+        run: python3 tools/hosted_pilot/bootstrap.py apply --phase "$PHASE" --config "$CONFIG"
       - name: Preserve initial-custody recovery identities after failure or cancellation
         if: failure() || cancelled()
         timeout-minutes: 4
@@ -161,14 +192,14 @@ jobs:
         env:
           CONFIG: ${{ inputs.config_path }}
         run: python3 tools/hosted_pilot/bootstrap.py journal --config "$CONFIG"
-      - name: Retain only value-free review metadata
-        if: always()
+      - name: Preserve original apply admission even if execution is interrupted
+        if: always() && inputs.mode == 'apply'
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
-          name: hosted-pilot-foundation-review-${{ github.run_id }}
-          path: ${{ runner.temp }}/hosted-pilot-bootstrap-private/review.json
+          name: hosted-pilot-phase-admitted-${{ github.run_id }}-${{ github.run_attempt }}-${{ inputs.phase }}
+          path: ${{ runner.temp }}/hosted-pilot-bootstrap-private/apply-admitted.json
           if-no-files-found: ignore
-          retention-days: 7
+          retention-days: 30
       - name: Retain only custody resource-ID recovery journal
         if: failure() || cancelled()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
@@ -178,15 +209,87 @@ jobs:
           if-no-files-found: error
           retention-days: 30
       - name: Retain only allowlisted nonsecret deployment bindings
-        if: inputs.mode == 'deploy' && success()
+        if: inputs.mode == 'apply' && inputs.phase == 'remote-backed-foundation' && success()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: hosted-pilot-foundation-bindings-${{ github.run_id }}
           path: ${{ runner.temp }}/hosted-pilot-bootstrap-private/bindings.json
           if-no-files-found: error
           retention-days: 7
+      - name: Retain only exact custody-phase completion metadata
+        if: inputs.mode == 'apply' && inputs.phase == 'custody-only' && success()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: hosted-pilot-custody-applied-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/hosted-pilot-bootstrap-private/custody-applied.json
+          if-no-files-found: error
+          retention-days: 30
       - name: Remove private executor material
         if: always()
         run: |
           rm -rf "$RUNNER_TEMP/hosted-pilot-bootstrap-private" release-source/certification/hosted-pilot/bootstrap/.terraform
           rm -f release-source/certification/hosted-pilot/bootstrap/backend.tf.json release-source/certification/hosted-pilot/bootstrap/terraform.tfstate* release-source/certification/hosted-pilot/bootstrap/recovery-imports.tf
+
+  # These jobs deliberately do not depend on completion of bootstrap: it retains
+  # the only binary plan while waiting. The graph has no prepare/approval cycle.
+  review-ready:
+    needs: approval-policy
+    if: inputs.mode == 'apply'
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    env:
+      GH_TOKEN: ${{ github.token }}
+      PILOT_RELEASE_ROOT_SHA: ${{ inputs.release_root_sha }}
+      PHASE: ${{ inputs.phase }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: honua-io/honua-release
+          ref: ${{ inputs.release_root_sha }}
+          persist-credentials: false
+      - run: python3 tools/hosted_pilot/bootstrap_phase.py review-ready --phase "$PHASE"
+  phase-approval:
+    needs: [approval-policy, review-ready]
+    if: inputs.mode == 'apply'
+    runs-on: ubuntu-latest
+    environment: terraform-live-approval
+    timeout-minutes: 5
+    env:
+      GH_TOKEN: ${{ github.token }}
+      PILOT_RELEASE_ROOT_SHA: ${{ inputs.release_root_sha }}
+      PHASE: ${{ inputs.phase }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: honua-io/honua-release
+          ref: ${{ inputs.release_root_sha }}
+          persist-credentials: false
+      - name: Create exact-plan approval receipt from native human review history
+        run: python3 tools/hosted_pilot/bootstrap_phase.py approve --phase "$PHASE"
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: hosted-pilot-phase-approval-${{ github.run_id }}-${{ github.run_attempt }}-${{ inputs.phase }}
+          path: ${{ runner.temp }}/approved.json
+          if-no-files-found: error
+          retention-days: 7
+  phase-watchdog:
+    needs: approval-policy
+    if: inputs.mode == 'apply'
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    # This job has no AWS credentials and can cancel only its own authenticated
+    # workflow run through the fixed helper. It cannot approve an environment.
+    permissions:
+      contents: read
+      actions: write
+    env:
+      GH_TOKEN: ${{ github.token }}
+      PILOT_RELEASE_ROOT_SHA: ${{ inputs.release_root_sha }}
+      PHASE: ${{ inputs.phase }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: honua-io/honua-release
+          ref: ${{ inputs.release_root_sha }}
+          persist-credentials: false
+      - run: python3 tools/hosted_pilot/bootstrap_phase.py watchdog --phase "$PHASE"
