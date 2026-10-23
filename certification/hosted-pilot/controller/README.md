@@ -15,6 +15,17 @@ readonly filesystem and networking disabled. Every published image has a
 nonsecret source/tree/archive/image/run receipt. Deployment must use its digest
 and verify the producing workflow identity, never a mutable image tag.
 
+Publication also requires `config_path`, `budget_version_id` and `budget_sha256`
+from the original reconciled owner allowance. The immutable budget must bind
+this exact source/config and can fund only this producing workflow run; retries
+do not mint another allowance. Actual registry expiry is checked before the
+budget/build and again before registry authentication/push. Controller images
+are limited to 4 GiB. IaC makes all immutable images eligible for service-managed
+expiry after fourteen days and untagged artifacts after one day, including pushes
+whose acknowledgment was lost. Actual asynchronous deletion is not a settled
+storage charge. The source receipt retains image bytes, original funding and
+the independently observed expiry policy. Publisher IAM grants no image delete.
+
 The image has no default executable campaign. An explicitly reviewed task must
 supply its frozen bundle, authenticated producer metadata and private work
 volume. Only the controller/provisioner receives SQL and setup credentials.

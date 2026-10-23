@@ -1,6 +1,19 @@
 name: Hosted pilot trusted controller image
 on:
   workflow_dispatch:
+    inputs:
+      config_path:
+        description: Reviewed deployments config bound by this build's original owner reservation
+        required: true
+        type: string
+      budget_version_id:
+        description: Actual immutable owner budget version reserved for this workflow run
+        required: true
+        type: string
+      budget_sha256:
+        description: Actual SHA256 of the retained nonzero owner budget
+        required: true
+        type: string
 permissions:
   contents: read
 concurrency:
@@ -19,6 +32,12 @@ jobs:
       PILOT_ACCOUNT_ID: ${{ vars.HOSTED_PILOT_ACCOUNT_ID }}
       PILOT_REGION: ${{ vars.HOSTED_PILOT_REGION }}
       PILOT_CONTROLLER_REPOSITORY: ${{ vars.HOSTED_PILOT_CONTROLLER_ECR_REPOSITORY }}
+      PILOT_PLAN_BUCKET: ${{ vars.HOSTED_PILOT_PLAN_BUCKET }}
+      PILOT_PLAN_KMS_ARN: ${{ vars.HOSTED_PILOT_PLAN_KMS_ARN }}
+      PILOT_CONFIG_PATH: ${{ inputs.config_path }}
+      PILOT_BUDGET_VERSION_ID: ${{ inputs.budget_version_id }}
+      PILOT_BUDGET_SHA256: ${{ inputs.budget_sha256 }}
+      PILOT_OPERATION: apply
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:

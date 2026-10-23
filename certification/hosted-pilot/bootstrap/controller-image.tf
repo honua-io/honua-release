@@ -34,3 +34,14 @@ resource "aws_ecr_lifecycle_policy" "worker" {
   ] })
   lifecycle { prevent_destroy = true }
 }
+
+resource "aws_ecr_lifecycle_policy" "controller" {
+  repository = aws_ecr_repository.controller.name
+  policy = jsonencode({ rules = [
+    { rulePriority = 1, description = "Expire untagged controller artifacts after one day",
+    selection = { tagStatus = "untagged", countType = "sinceImagePushed", countUnit = "days", countNumber = 1 }, action = { type = "expire" } },
+    { rulePriority = 2, description = "Expire immutable controller artifacts after fourteen days",
+    selection = { tagStatus = "any", countType = "sinceImagePushed", countUnit = "days", countNumber = 14 }, action = { type = "expire" } }
+  ] })
+  lifecycle { prevent_destroy = true }
+}

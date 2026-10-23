@@ -32,3 +32,11 @@ class ImageRetention(unittest.TestCase):
             value=json.loads(self.response(policy()));value[field]='foreign'
             with self.subTest(field=field),self.assertRaisesRegex(ValueError,'actual worker registry'):
                 verify('honua-pilot-unit-worker','585192672263','us-east-1',call=lambda *args,**kwargs:json.dumps(value))
+    def test_controller_requires_its_own_exact_policy_on_actual_registry_response(self):
+        name = 'honua-pilot-unit-trusted-controller'
+        value = {'registryId':'585192672263','repositoryName':name,'lifecyclePolicyText':json.dumps(policy('controller'))}
+        observed = verify(name,'585192672263','us-east-1',kind='controller',call=lambda *args,**kwargs:json.dumps(value))
+        self.assertEqual(observed['expiryEligibilityDays'],14)
+        value['lifecyclePolicyText'] = json.dumps(policy('worker'))
+        with self.assertRaisesRegex(ValueError,'actual controller registry'):
+            verify(name,'585192672263','us-east-1',kind='controller',call=lambda *args,**kwargs:json.dumps(value))

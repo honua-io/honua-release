@@ -144,3 +144,19 @@ run "immutable_worker_publications_have_finite_service_managed_expiry" {
     error_message = "Every immutable image, including an acknowledged-lost push, must expire without granting arbitrary publisher deletion."
   }
 }
+run "immutable_controller_publications_have_finite_service_managed_expiry" {
+  command = plan
+  assert {
+    condition = (
+      aws_ecr_lifecycle_policy.controller.repository == aws_ecr_repository.controller.name &&
+      jsondecode(aws_ecr_lifecycle_policy.controller.policy).rules[0].selection.tagStatus == "untagged" &&
+      jsondecode(aws_ecr_lifecycle_policy.controller.policy).rules[0].selection.countNumber == 1 &&
+      jsondecode(aws_ecr_lifecycle_policy.controller.policy).rules[1].selection.tagStatus == "any" &&
+      jsondecode(aws_ecr_lifecycle_policy.controller.policy).rules[1].selection.countType == "sinceImagePushed" &&
+      jsondecode(aws_ecr_lifecycle_policy.controller.policy).rules[1].selection.countNumber == 14 &&
+      jsondecode(aws_ecr_lifecycle_policy.controller.policy).rules[1].action.type == "expire" &&
+      !strcontains(aws_iam_role_policy.controller_image.policy, "ecr:BatchDeleteImage")
+    )
+    error_message = "Controller archive/browser images must expire, including abandoned pushes, without granting publisher deletion."
+  }
+}
