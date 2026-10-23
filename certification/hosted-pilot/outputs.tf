@@ -5,6 +5,7 @@ output "deployment" {
     claimed_candidate       = var.candidate
     server_origin           = local.server_origin
     server_alb              = module.server.alb_dns_name
+    edge_proxy_image        = var.edge_proxy_image
     console_service         = aws_ecs_service.console.name
     console_task_definition = aws_ecs_task_definition.console.arn
     console_log_group       = aws_cloudwatch_log_group.console.name
