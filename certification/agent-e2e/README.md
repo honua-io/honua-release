@@ -275,3 +275,24 @@ approve publication. Missing configuration remains an explicit unsupported
 assertion, and a configured but invalid proof fails the assertion. Separate human
 publication approval and the remaining custody assertions are unchanged. Local
 HTTP and PostgreSQL controls do not qualify real IdP custody or a campaign run.
+
+P09 development attempts can configure `styling` with the exact
+`floodLayerId` and `shelterLayerId` from the prepared map. The style observer
+projects the independently saved `mapSpec`, including its full document digest,
+flood paint and actual shelter field-label expression. It requires a new saved
+version joined to the original model mutation's draft, actor and generation;
+style-reference metadata, literal labels and an already-completed prepared style
+cannot substitute for that work. Expected style values and document hashes remain
+source-frozen. The existing `render.actual` browser, feature and pixel predicates
+are unchanged and remain mandatory even when style and save observations pass.
+The actual starting working draft must still match the saved starting map. Each
+required style change is joined to independent native reads before and after a
+model mutation with its exact generation; a view-only edit or no-op cannot claim
+an already-styled unsaved draft as model work.
+Corrections to intermediate styles remain supported, while the final saved style
+stays strict. Repeated saves require their original native completion handles and
+immutable versions to account for each generation advance.
+
+P13 still requires the original restored version identity. The current scoped
+native agent authority does not expose rollback; reopening or saving an identical
+new version does not satisfy `version.restored`.
