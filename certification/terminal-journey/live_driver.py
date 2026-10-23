@@ -419,9 +419,7 @@ def op_observe(request: dict[str, Any]) -> dict[str, Any]:
                 "proposalId": proposal_id if pending else None,
                 "observation": {**_observation_payload(observation), "resources": dict(engine.resources),
                                 "fixture": _target.get("execution", {}),
-                                "terminalSurface": {"sdkCommand": "honua-journey-sdk",
-                                                    "sdkMethods": sorted(executor.SDK_METHODS),
-                                                    "uploadCommand": executor.UPLOAD_COMMAND} if number == 3 else {},
+                                "terminalSurface": engine.terminal_surface(number),
                                 "evidence": checks},
                 "toolView": _tool_view(observation),
                 # The tool calls this stage admits (the executor refuses any other as an invalid action):
