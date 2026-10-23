@@ -49,6 +49,8 @@ class InitialCustodyRecovery(unittest.TestCase):
 
     def test_unacknowledged_key_is_discovered_only_by_exact_creation_tags(self):
         def api(*args):
+            if args[:2] == ('kms', 'describe-key'):
+                return {'KeyMetadata': {'KeyId': args[-1], 'KeyManager': 'CUSTOMER', 'AWSAccountId': '123456789012'}}
             if args == ('kms', 'list-keys'):
                 return {'Keys': [{'KeyId': 'owned'}, {'KeyId': 'foreign'}]}
             if args[:2] == ('kms', 'list-resource-tags'):
@@ -71,6 +73,8 @@ class InitialCustodyRecovery(unittest.TestCase):
     def test_discovered_bucket_collision_does_not_grant_ownership(self):
         bucket = 'honua-release-pilot-offline-foundation-state-123456789012'
         def api(*args):
+            if args[:2] == ('kms', 'describe-key'):
+                return {'KeyMetadata': {'KeyId': args[-1], 'KeyManager': 'CUSTOMER', 'AWSAccountId': '123456789012'}}
             return {'Keys': []} if args == ('kms', 'list-keys') else {'Buckets': [{'Name': bucket}]}
         with patch('bootstrap.aws', side_effect=api), patch('bootstrap.optional_aws', return_value={'TagSet': [{'Key': 'ResetBoundary', 'Value': 'public-demo'}]}):
             value = bootstrap.journal(self.cfg, self.identity, self.work)
@@ -98,6 +102,8 @@ class InitialCustodyRecovery(unittest.TestCase):
         os.environ['GITHUB_RUN_ID'] = '456'
         tags = bootstrap.creation_tags(self.identity, '123') | {'ResetBoundary': self.cfg['name_prefix']}
         def api(*args):
+            if args[:2] == ('kms', 'describe-key'):
+                return {'KeyMetadata': {'KeyId': args[-1], 'KeyManager': 'CUSTOMER', 'AWSAccountId': '123456789012'}}
             if args == ('kms', 'list-keys'):
                 return {'Keys': [{'KeyId': 'owned'}]}
             if args[:2] == ('kms', 'list-resource-tags'):
@@ -116,6 +122,8 @@ class InitialCustodyRecovery(unittest.TestCase):
         bucket = 'honua-release-pilot-offline-foundation-state-123456789012'
         tags = bootstrap.creation_tags(self.identity, '123') | {'ResetBoundary': self.cfg['name_prefix']}
         def api(*args):
+            if args[:2] == ('kms', 'describe-key'):
+                return {'KeyMetadata': {'KeyId': args[-1], 'KeyManager': 'CUSTOMER', 'AWSAccountId': '123456789012'}}
             if args == ('kms', 'list-keys'):
                 return {'Keys': []}
             return {'Buckets': [{'Name': bucket}]} if args == ('s3api', 'list-buckets') else {}
@@ -143,6 +151,8 @@ class InitialCustodyRecovery(unittest.TestCase):
         self.producer()
         tags = {'ManagedBy': 'honua-release-hosted-pilot-bootstrap', 'ResetBoundary': self.cfg['name_prefix'], 'BootstrapExecution': '123'}
         def api(*args):
+            if args[:2] == ('kms', 'describe-key'):
+                return {'KeyMetadata': {'KeyId': args[-1], 'KeyManager': 'CUSTOMER', 'AWSAccountId': '123456789012'}}
             if args == ('kms', 'list-keys'):
                 return {'Keys': [{'KeyId': 'legacy'}]}
             return {'Tags': [{'TagKey': key, 'TagValue': value} for key, value in tags.items()]}
@@ -161,6 +171,8 @@ class InitialCustodyRecovery(unittest.TestCase):
         import hashlib
         key = bootstrap.recovery_prefix(self.cfg, '123') + 'journals/' + hashlib.sha256(content).hexdigest() + '.json'
         def api(*args):
+            if args[:2] == ('kms', 'describe-key'):
+                return {'KeyMetadata': {'KeyId': args[-1], 'KeyManager': 'CUSTOMER', 'AWSAccountId': '123456789012'}}
             if args[:2] == ('s3api', 'list-object-versions'):
                 return {'Versions': [{'Key': key, 'VersionId': 'original-version', 'LastModified': '2026-10-22'}]}
             if args[:2] == ('s3api', 'get-object'):
@@ -176,6 +188,8 @@ class InitialCustodyRecovery(unittest.TestCase):
         self.producer()
         key = bootstrap.recovery_prefix(self.cfg, '123') + 'journals/' + 'a' * 64 + '.json'
         def api(*args):
+            if args[:2] == ('kms', 'describe-key'):
+                return {'KeyMetadata': {'KeyId': args[-1], 'KeyManager': 'CUSTOMER', 'AWSAccountId': '123456789012'}}
             if args[:2] == ('s3api', 'list-object-versions'):
                 return {'Versions': [{'Key': key, 'VersionId': 'v1', 'LastModified': 'now'}]}
             Path(args[-1]).write_text('tampered')
@@ -187,6 +201,8 @@ class InitialCustodyRecovery(unittest.TestCase):
     def test_key_only_native_rerun_requires_explicit_original_recovery_binding(self):
         tags = bootstrap.creation_tags(self.identity, '123') | {'ResetBoundary': self.cfg['name_prefix']}
         def api(*args):
+            if args[:2] == ('kms', 'describe-key'):
+                return {'KeyMetadata': {'KeyId': args[-1], 'KeyManager': 'CUSTOMER', 'AWSAccountId': '123456789012'}}
             return {'Keys': [{'KeyId': 'prior-key'}]} if args == ('kms', 'list-keys') else {'Tags': [{'TagKey': key, 'TagValue': value} for key, value in tags.items()]}
         # GITHUB_RUN_ID is still the original ID on a native rerun. That alone
         # is insufficient: only governed recovery authorizes resource adoption.
@@ -204,6 +220,8 @@ class InitialCustodyRecovery(unittest.TestCase):
         os.environ['GITHUB_RUN_ID'] = '456'
         tags = bootstrap.creation_tags(self.identity, '123') | {'ResetBoundary': self.cfg['name_prefix']}
         def api(*args):
+            if args[:2] == ('kms', 'describe-key'):
+                return {'KeyMetadata': {'KeyId': args[-1], 'KeyManager': 'CUSTOMER', 'AWSAccountId': '123456789012'}}
             return {'Keys': [{'KeyId': 'prior-key'}]} if args == ('kms', 'list-keys') else {'Tags': [{'TagKey': key, 'TagValue': value} for key, value in tags.items()]}
         with patch('bootstrap.aws', side_effect=api), patch('bootstrap.exists', return_value=False):
             with self.assertRaisesRegex(ValueError, 'explicit original recovery_run_id'):
@@ -232,6 +250,56 @@ class InitialCustodyRecovery(unittest.TestCase):
         self.assertFalse(bootstrap.allowed_address('aws_iam_role.executor["apply"]'))
         self.assertFalse(bootstrap.allowed_address('aws_s3_bucket.custody["other-customer"]'))
 
+
+
+    def test_aws_managed_key_is_excluded_only_after_actual_description(self):
+        calls = []
+        def api(*args):
+            calls.append(args)
+            if args == ('kms', 'list-keys'):
+                return {'Keys': [{'KeyId': 'aws-service-key'}, {'KeyId': 'customer-orphan'}]}
+            if args[:2] == ('kms', 'describe-key'):
+                return {'KeyMetadata': {'KeyId': args[-1], 'AWSAccountId': '123456789012',
+                    'KeyManager': 'AWS' if args[-1] == 'aws-service-key' else 'CUSTOMER'}}
+            if args[:2] == ('kms', 'list-resource-tags'):
+                self.assertEqual(args[-1], 'customer-orphan')
+                return {'Tags': [{'TagKey': 'ManagedBy', 'TagValue': 'honua-release-hosted-pilot-bootstrap'},
+                    {'TagKey': 'ResetBoundary', 'TagValue': self.cfg['name_prefix']}]}
+            raise AssertionError(args[:2])
+        with patch('bootstrap.aws', side_effect=api), patch('bootstrap.exists', return_value=False):
+            with self.assertRaisesRegex(ValueError, 'existing custody key requires'):
+                bootstrap.refuse_unbound_initial_custody(self.cfg, self.work)
+        self.assertEqual([args[-1] for args in calls if args[:2] == ('kms','list-resource-tags')], ['customer-orphan'])
+
+    def test_unknown_foreign_or_substituted_key_metadata_cannot_be_skipped(self):
+        original = {'KeyId': 'actual-key', 'AWSAccountId': '123456789012', 'KeyManager': 'AWS'}
+        for field, value in (('KeyId', 'foreign-key'), ('AWSAccountId', '999999999999'), ('KeyManager', 'unknown'), ('KeyManager', None)):
+            metadata = dict(original); metadata[field] = value
+            with self.subTest(field=field,value=value), patch('bootstrap.aws', return_value={'KeyMetadata':metadata}) as api:
+                with self.assertRaisesRegex(ValueError, 'actual same-account key identity and manager'):
+                    bootstrap.discover_customer_key_tags('actual-key')
+                self.assertEqual(api.call_count,1)
+        for answer in (None, [], {}, {'KeyMetadata':None}):
+            with self.subTest(answer=answer), patch('bootstrap.aws', return_value=answer):
+                with self.assertRaisesRegex(ValueError, 'actual same-account key identity and manager'):
+                    bootstrap.discover_customer_key_tags('actual-key')
+
+    def test_denied_description_or_customer_tags_remains_incomplete_discovery(self):
+        for cut in ('describe-key', 'list-resource-tags'):
+            def api(*args):
+                if args == ('kms','list-keys'):return {'Keys':[{'KeyId':'blocked'}]}
+                if args == ('kms','list-aliases'):return {'Aliases':[]}
+                if args == ('s3api','list-buckets'):return {'Buckets':[]}
+                if args[:2] == ('kms',cut):raise ValueError('bounded denial')
+                if args[:2] == ('kms','describe-key'):
+                    return {'KeyMetadata':{'KeyId':'blocked','AWSAccountId':'123456789012','KeyManager':'CUSTOMER'}}
+                raise AssertionError(args[:2])
+            with self.subTest(cut=cut), patch('bootstrap.aws',side_effect=api):
+                with self.assertRaisesRegex(ValueError,'bounded denial'):
+                    bootstrap.refuse_unbound_initial_custody(self.cfg,self.work)
+                result=bootstrap.journal(self.cfg,self.identity,self.work)
+                self.assertFalse(result['cloud_discovery_complete'])
+                self.assertEqual(result['resources'],[])
 
 if __name__ == '__main__':
     unittest.main()
