@@ -40,7 +40,7 @@ output "fixture_handoff" {
   value       = var.dispatch_budget == null ? null : local.fixture_handoff
 }
 output "target_readiness" {
-  value = { service = module.target.ecs_service_name, workerSecurityGroupIds = [aws_security_group.worker.id] }
+  value = { service = module.application.ecs_service_name, workerSecurityGroupIds = [aws_security_group.worker.id] }
 }
 output "fixture_secret_versions" {
   description = "Only immutable references; credential values stay private in state and ECS secret injection. SQL roles still require the checked private provisioner."

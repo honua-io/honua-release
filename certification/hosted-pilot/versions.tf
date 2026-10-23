@@ -13,7 +13,8 @@ terraform {
 }
 
 provider "aws" {
-  region = var.region
+  region              = var.region
+  allowed_account_ids = [split(":", var.permissions_boundary_arn)[4]]
   default_tags {
     tags = {
       ManagedBy     = "honua-release-hosted-pilot"
