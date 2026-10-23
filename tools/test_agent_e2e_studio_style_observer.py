@@ -231,6 +231,56 @@ def test_session_reads_actual_native_before_state_before_dispatching_model_style
     assert selected['resource']['generation'] == args['generation']+1
 
 
+@pytest.mark.parametrize('extra_saves', [1, 2])
+def test_successful_unchanged_saves_preserve_actual_style_authorship_and_native_generation(authoring, extra_saves):
+    initial = prepare(authoring)
+    edit, saved = mutate_and_save(authoring)
+    rows = [edit, saved]
+    for _ in range(extra_saves):
+        rows.append(authoring.execute(SAVE, {'draftId': initial['sourceDraftId'], 'generation': authoring.state.draft['generation']}))
+    result = observe(authoring.observer, config=CONFIG, initial=initial, saved=rows[-1]['resource'], save_selection=rows[-1],
+        selections=rows, starting=authoring.starting, before_mutations=authoring.before_mutations)
+    assert result['actual'] == {'mapId': authoring.binding['itemId'], **EXPECTED}
+    assert len(result['interveningSaveReferences']) == extra_saves
+
+
+@pytest.mark.parametrize('change', ['missing-handle', 'wrong-handle', 'missing-version', 'wrong-generation', 'duplicate-version'])
+def test_unobserved_or_forged_intervening_save_cannot_explain_a_generation_gap(authoring, change):
+    initial = prepare(authoring)
+    edit, saved = mutate_and_save(authoring)
+    last = authoring.execute(SAVE, {'draftId': initial['sourceDraftId'], 'generation': authoring.state.draft['generation']})
+    if change == 'missing-handle': del saved['nativeReferences']['handle']
+    elif change == 'wrong-handle': saved['publicResult']['content']['structuredContent']['operation']['operationInstanceId'] = 'foreign-operation'
+    elif change == 'missing-version': del saved['nativeReferences']['version']
+    elif change == 'wrong-generation': saved['request']['input']['arguments']['generation'] += 1
+    elif change == 'duplicate-version': saved['resource']['versionId'] = last['resource']['versionId']
+    with pytest.raises(PackError):
+        observe(authoring.observer, config=CONFIG, initial=initial, saved=last['resource'], save_selection=last,
+            selections=[edit, saved, last], starting=authoring.starting, before_mutations=authoring.before_mutations)
+
+
+@pytest.mark.parametrize('incorrect', ['literal-label', 'hidden-label', 'opacity-expression'])
+def test_incorrect_intermediate_style_can_be_corrected_without_relaxing_final_style_validation(authoring, incorrect):
+    initial = prepare(authoring)
+    wrong = copy.deepcopy(DESIRED)
+    if incorrect == 'literal-label': wrong['mapSpec']['layers'][-1]['layout']['text-field'] = 'name'
+    elif incorrect == 'hidden-label': wrong['mapSpec']['layers'][-1]['layout']['visibility'] = 'none'
+    else: wrong['mapSpec']['layers'][0]['paint']['fill-opacity'] = ['get', 'opacity']
+    rows = []
+    for body in (wrong, DESIRED):
+        before = snapshot(authoring.observer, initial['sourceDraftId'], step='correction-before-'+str(len(rows)))
+        row = authoring.execute('honua_studio_update_draft', {'draftId': initial['sourceDraftId'],
+            'generation': authoring.state.draft['generation'], 'packageKey': authoring.binding['namespace'],
+            'schemaVersion': '1.0', 'body': copy.deepcopy(body)})
+        authoring.before_mutations[row['ordinal']] = before
+        rows.append(row)
+    saved = authoring.execute(SAVE, {'draftId': initial['sourceDraftId'], 'generation': authoring.state.draft['generation']})
+    result = observe(authoring.observer, config=CONFIG, initial=initial, saved=saved['resource'], save_selection=saved,
+        selections=[*rows, saved], starting=authoring.starting, before_mutations=authoring.before_mutations)
+    assert result['actual'] == {'mapId': authoring.binding['itemId'], **EXPECTED}
+    with pytest.raises(PackError): project(wrong['mapSpec'], CONFIG)
+
+
 def test_style_observation_configuration_cannot_select_model_derived_hashes_or_invent_layer_aliases():
     for config in [{'floodLayerId': 'same', 'shelterLayerId': 'same'}, {**CONFIG, 'styleDocumentSha256': 'a'*64}]:
         with pytest.raises(PackError): validate(config)

@@ -11,7 +11,7 @@ import re
 
 from agent_e2e_pack import PackError, canonical_digest
 from agent_e2e_studio_composition_observer import MUTATIONS, SAVE
-from agent_e2e_studio_observer import guid
+from agent_e2e_studio_observer import guid, instant
 
 
 def require(value, reason):
@@ -68,23 +68,28 @@ def snapshot(observer, draft_id, *, step):
 
 
 def original_draft(observer, value):
-    from agent_e2e_native_bindings import original
     require(isinstance(value, dict) and set(value) == {'resource', 'nativeReference'}, 'live style draft snapshot is missing')
     reference = value['nativeReference']
     require(isinstance(reference, dict) and isinstance(value['resource'], dict), 'style draft snapshot lacks original identity')
+    resource = observer.owned(value['resource'])
+    live = original_resource(observer, reference, '/api/v1/studio/package-drafts/'+guid(resource.get('draftId')))
+    require(canonical_digest(live) == canonical_digest(resource) and type(resource.get('generation')) is int,
+            'live style draft differs from its original native readback')
+    return resource
+
+
+def original_resource(observer, reference, path):
+    from agent_e2e_native_bindings import original
+    require(isinstance(reference, dict), 'original style resource reference is missing')
     records = observer.http.durable.state.get('scenarioOperations', {})
     response = records.get(reference.get('key'))
     require(isinstance(response, dict) and canonical_digest(response) == reference.get('sha256'), 'original live style draft read is missing or changed')
     intent_ref = response.get('intentReference', {})
     intent = records.get(intent_ref.get('key'))
     require(isinstance(intent, dict) and canonical_digest(intent) == intent_ref.get('sha256'), 'original style draft intent is missing or changed')
-    resource = observer.owned(value['resource'])
-    live = original({'intent': intent, 'response': response}, observer={'endpoint': observer.http.client.endpoint,
+    return original({'intent': intent, 'response': response}, observer={'endpoint': observer.http.client.endpoint,
         'attemptId': observer.http.identity['attemptId'], 'credentialKind': observer.http.client.kind},
-        candidate=observer.http.durable.store.candidate, path='/api/v1/studio/package-drafts/'+guid(resource.get('draftId')))
-    require(canonical_digest(live) == canonical_digest(resource) and type(resource.get('generation')) is int,
-            'live style draft differs from its original native readback')
-    return resource
+        candidate=observer.http.durable.store.candidate, path=path)
 
 
 def starting_draft(observer, initial, starting):
@@ -93,6 +98,34 @@ def starting_draft(observer, initial, starting):
             canonical_digest(resource.get('envelope')) == canonical_digest(initial.get('envelope')),
             'live starting draft differs from the original saved map')
     return resource
+
+
+def intervening_save(observer, row, *, generation, saved, config):
+    args = row.get('request', {}).get('input', {}).get('arguments', {})
+    resource = observer.owned(row.get('resource', {}))
+    require(type(args.get('generation')) is int and args['generation'] == generation and
+            args.get('draftId') == resource.get('sourceDraftId') == saved['sourceDraftId'] and
+            resource.get('createdBy') == observer.binding['ownerPrincipalId'] and
+            canonical_digest(document(resource, config)) == canonical_digest(document(saved, config)),
+            'intervening save changes the original style, actor or generation')
+    version = guid(resource.get('versionId'))
+    references = row.get('nativeReferences', {})
+    live = original_resource(observer, references.get('version'),
+        '/api/v1/studio/content-items/'+observer.binding['itemId']+'/versions/'+version)
+    require(canonical_digest(live) == canonical_digest(resource), 'intervening save lacks its original immutable version')
+    public = row.get('publicResult', {})
+    payload = public.get('content', {})
+    operation = payload.get('structuredContent', {}).get('operation', {})
+    operation_id = operation.get('operationInstanceId')
+    require(public.get('isError') is False and payload.get('isError', False) is False and
+            operation.get('status') == 'Completed' and isinstance(operation_id, str) and
+            re.fullmatch('[A-Za-z0-9_-]{1,200}', operation_id), 'intervening save lacks its actual successful model result')
+    handle = original_resource(observer, references.get('handle'), '/api/v1/operations/handles/'+operation_id)
+    require(handle.get('operationInstanceId') == operation_id and handle.get('operationId') == 'studio.draft.save-version' and
+            handle.get('status') == 'Completed' and observer.not_before <= instant(handle.get('createdAt')) and
+            all(handle.get('resourceIds', {}).get(key) == resource.get(key) for key in ('itemId', 'versionId', 'contentHash')),
+            'intervening save lacks the exact original native completion handle')
+    return generation+1
 
 
 def label_field(expression):
@@ -112,7 +145,7 @@ def label_field(expression):
     return field
 
 
-def project(style, config, *, require_label=True):
+def project(style, config, *, require_label=True, intermediate=False):
     def owner(row):
         metadata = row.get('metadata', {})
         require(isinstance(metadata, dict), 'map style ownership metadata is malformed')
@@ -128,25 +161,37 @@ def project(style, config, *, require_label=True):
         len({row['source'] for row in shelters}) == 1, 'shelter label is attached to another or missing data source')
     flood = floods[0]
     paint, layout = flood.get('paint', {}), flood.get('layout', {})
-    require(isinstance(paint, dict) and isinstance(layout, dict) and layout.get('visibility', 'visible') == 'visible' and
-        isinstance(paint.get('fill-color'), str) and 0 < len(paint['fill-color']) <= 128 and
-        type(paint.get('fill-opacity')) in (int, float) and math.isfinite(paint['fill-opacity']) and
-        0 <= paint['fill-opacity'] <= 1, 'flood style lacks explicit actual color/opacity')
+    require(isinstance(paint, dict) and isinstance(layout, dict), 'flood style paint/layout is malformed')
+    visible = layout.get('visibility', 'visible') == 'visible'
+    color = paint.get('fill-color')
+    opacity = paint.get('fill-opacity')
+    valid_color = visible and isinstance(color, str) and 0 < len(color) <= 128
+    valid_opacity = visible and type(opacity) in (int, float) and math.isfinite(opacity) and 0 <= opacity <= 1
+    require(intermediate or valid_color and valid_opacity, 'flood style lacks explicit actual color/opacity')
+    if not valid_color: color = {'unsupportedIntermediateColor': canonical_digest({'paint': paint, 'layout': layout})}
+    if not valid_opacity: opacity = {'unsupportedIntermediateOpacity': canonical_digest({'paint': paint, 'layout': layout})}
     labels = [row for row in shelters if row.get('type') == 'symbol' and
               isinstance(row.get('layout'), dict) and 'text-field' in row['layout']]
-    require(len(labels) == 1 or not require_label and not labels, 'shelter names need one actual owned symbol label layer')
+    require(intermediate or len(labels) == 1 or not require_label and not labels, 'shelter names need one actual owned symbol label layer')
     field = None
-    if labels:
+    if len(labels) == 1:
         label = labels[0]
         label_paint = label.get('paint', {})
-        require(label['layout'].get('visibility', 'visible') == 'visible' and isinstance(label_paint, dict) and
+        visible_label = (label['layout'].get('visibility', 'visible') == 'visible' and isinstance(label_paint, dict) and
             type(label_paint.get('text-opacity', 1)) in (int, float) and
-            math.isfinite(label_paint.get('text-opacity', 1)) and 0 < label_paint.get('text-opacity', 1) <= 1,
-            'saved shelter label is hidden or transparent')
-        field = label_field(label['layout']['text-field'])
+            math.isfinite(label_paint.get('text-opacity', 1)) and 0 < label_paint.get('text-opacity', 1) <= 1)
+        require(intermediate or visible_label, 'saved shelter label is hidden or transparent')
+        try:
+            require(visible_label, 'intermediate label is hidden')
+            field = label_field(label['layout']['text-field'])
+        except PackError:
+            require(intermediate, 'saved shelter label does not resolve its source field')
+            field = {'unsupportedIntermediateLabel': canonical_digest(label)}
+    elif labels:
+        field = {'unsupportedIntermediateLabels': canonical_digest(labels)}
     return {'styleDocumentSha256': canonical_digest(style)[7:],
         'labelField': field,
-        'floodColor': paint['fill-color'], 'floodOpacity': paint['fill-opacity']}
+        'floodColor': color, 'floodOpacity': opacity}
 
 
 def observe(observer, *, config, initial, saved, save_selection, selections, starting, before_mutations):
@@ -182,16 +227,26 @@ def observe(observer, *, config, initial, saved, save_selection, selections, sta
                 prior['generation'] >= baseline['generation'] and type(args.get('generation')) is int and args['generation'] == prior['generation'] and
                 changed['generation'] == prior['generation']+1 and changed.get('updatedBy') == observer.binding['ownerPrincipalId'],
                 'model style mutation lacks its exact original before/after generation transition')
-        old = project(document(prior, config), config, require_label=False)
-        new = project(document(changed, config), config, require_label=False)
+        old = project(document(prior, config), config, require_label=False, intermediate=True)
+        new = project(document(changed, config), config, require_label=False, intermediate=True)
         introduced.update({key: row['actionId'] for key in needed if canonical_digest(old[key]) != canonical_digest(new[key]) and
                            canonical_digest(new[key]) == canonical_digest(after[key])})
     require(needed <= introduced.keys(), 'model mutations did not introduce every required style change')
     selected = max(mutation, key=lambda row: row['ordinal'])
     resource = observer.owned(selected['resource'])
     arguments = save_selection.get('request', {}).get('input', {}).get('arguments', {})
+    generation = resource.get('generation')
+    require(type(generation) is int, 'style mutation lacks its actual generation')
+    intervening = sorted((row for row in selections if row.get('tool') == SAVE and type(row.get('ordinal')) is int and
+        selected['ordinal'] < row['ordinal'] < save_selection['ordinal']), key=lambda row: row['ordinal'])
+    seen = {initial['versionId'], saved['versionId']}
+    for row in intervening:
+        version = guid(row.get('resource', {}).get('versionId'))
+        require(version not in seen, 'intervening save repeats an unrelated original version')
+        seen.add(version)
+        generation = intervening_save(observer, row, generation=generation, saved=saved, config=config)
     require(type(resource.get('generation')) is int and type(arguments.get('generation')) is int and
-        resource['generation'] == arguments['generation'] and arguments.get('draftId') == saved.get('sourceDraftId') and
+        generation == arguments['generation'] and arguments.get('draftId') == saved.get('sourceDraftId') and
         resource.get('updatedBy') == observer.binding['ownerPrincipalId'] and
         canonical_digest(document(resource, config)) == canonical_digest(style) and
         isinstance(selected.get('nativeReferences', {}).get('draft'), dict),
@@ -200,4 +255,5 @@ def observe(observer, *, config, initial, saved, save_selection, selections, sta
     return {'actual': actual, 'mutationActionId': selected['actionId'], 'saveActionId': save_selection['actionId'],
         'versionId': saved['versionId'], 'sourceDraftId': saved['sourceDraftId'],
         'mutationReference': copy.deepcopy(selected['nativeReferences']['draft']),
-        'startingDraftReference': copy.deepcopy(starting['nativeReference']), 'styleActionIds': introduced}
+        'startingDraftReference': copy.deepcopy(starting['nativeReference']), 'styleActionIds': introduced,
+        'interveningSaveReferences': [copy.deepcopy(row['nativeReferences']) for row in intervening]}

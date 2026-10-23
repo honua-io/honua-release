@@ -289,6 +289,9 @@ The actual starting working draft must still match the saved starting map. Each
 required style change is joined to independent native reads before and after a
 model mutation with its exact generation; a view-only edit or no-op cannot claim
 an already-styled unsaved draft as model work.
+Corrections to intermediate styles remain supported, while the final saved style
+stays strict. Repeated saves require their original native completion handles and
+immutable versions to account for each generation advance.
 
 P13 still requires the original restored version identity. The current scoped
 native agent authority does not expose rollback; reopening or saving an identical
