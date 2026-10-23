@@ -770,3 +770,16 @@ def test_transport_reports_a_persistent_connection_failure(monkeypatch):
     _scripted_urlopen(monkeypatch, [urllib.error.URLError("down")] * len(preflight.REQUEST_DELAYS))
     with pytest.raises(preflight.PreflightError, match="registry probe failed"):
         preflight.UrllibTransport().get("https://registry.npmjs.org/x")
+
+
+def test_transport_retries_qgis_timeout_then_preserves_actual_not_found(monkeypatch):
+    calls, sleeps = _scripted_urlopen(monkeypatch, [522, 404])
+    response = preflight.UrllibTransport().get("https://plugins.qgis.org/plugins/honua/")
+    assert response.status == 404 and len(calls) == 2 and sleeps == [5]
+
+
+def test_transport_preserves_persistent_qgis_timeout_as_failure(monkeypatch):
+    calls, sleeps = _scripted_urlopen(monkeypatch, [522] * len(preflight.REQUEST_DELAYS))
+    response = preflight.UrllibTransport().get("https://plugins.qgis.org/plugins/honua/")
+    assert response.status == 522 and len(calls) == len(preflight.REQUEST_DELAYS)
+    assert sleeps == list(preflight.REQUEST_DELAYS[1:])

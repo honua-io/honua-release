@@ -140,7 +140,7 @@ class Response:
 # Retry it with bounded backoff (npm answered 502 on pinned version documents for over an hour on
 # 2026-10-22 while the tarballs served). A persistent outage still fails; a 4xx is never retried.
 REQUEST_DELAYS = (0, 5, 15, 30)
-TRANSIENT_STATUSES = frozenset({429, 500, 502, 503, 504})
+TRANSIENT_STATUSES = frozenset({429, 500, 502, 503, 504, 522})
 _sleep = time.sleep
 
 
