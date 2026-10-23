@@ -104,9 +104,16 @@ def native_context(durable, config):
         console_observation = observe_session(durable, adopted['sessionCustody'], config['endpoint'], human_principal)
         require(console_observation['nativeTarget'] == target, 'Console and native bearer target differ')
         workspace_path = '/api/v1/agent/workspaces/'+adopted['workspaceId']
-        workspace_answer = client.json('native-human-workspace-read', 'GET', workspace_path+'?viewId='+config['viewId'])
         turn_answer = client.json('native-human-turn-read', 'GET', workspace_path+'/turns/'+config['turnId'])
-        workspace, turn = body(workspace_answer), body(turn_answer)
+        turn = body(turn_answer)
+        # Native GETworkspace initializes an unknown view. Establish the actual
+        # original turn's existing view first so adoption cannot initialize one.
+        require(turn.get('context', {}).get('viewId') == config['viewId'] and
+            turn.get('context', {}).get('workspaceId') == adopted['workspaceId'] and
+            turn.get('originatingActorId') == human_principal['actorId'],
+            'Console adoption cannot initialize a view or select another original author')
+        workspace_answer = client.json('native-human-workspace-read', 'GET', workspace_path+'?viewId='+config['viewId'])
+        workspace = body(workspace_answer)
         require(workspace.get('viewId') == config['viewId'] and workspace.get('targetId') == target['targetId'],
             'Console workspace selected a different view or native target')
         validate_turn(adopted, turn=turn, workspace=workspace, turn_id=config['turnId'], human=human_principal)

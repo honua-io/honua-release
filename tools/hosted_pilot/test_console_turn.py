@@ -39,7 +39,7 @@ class ConsoleTurnAdoption(unittest.TestCase):
             'contextSha256': canonical_digest(workspace), 'sourceSha256': canonical_digest(sources)}
         def answers(values):
             return [{'observation': {'httpStatus': 200, 'body': value}} for value in values]
-        client.json.side_effect = answers((self.human_target, workspace, turn))
+        client.json.side_effect = answers((self.human_target, turn, workspace))
         self.agent.json.side_effect = answers((self.agent_target, workspace, turn))
         return config, durable, client, workspace, turn, observed
 
@@ -94,3 +94,11 @@ class ConsoleTurnAdoption(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, 'pack bytes differ'):
             self.run_adoption(config, durable, observed)
         client.json.assert_not_called()
+
+    def test_wrong_view_refuses_before_native_get_can_initialize_that_view(self):
+        config, durable, client, _, _, observed = self.adopted()
+        config['viewId'] = 'not-the-captured-view'
+        with self.assertRaisesRegex(ValueError, 'initialize a view'):
+            self.run_adoption(config, durable, observed)
+        self.assertEqual(client.json.call_count, 2)
+        self.assertTrue(client.json.call_args.args[2].endswith('/turns/'+config['turnId']))
