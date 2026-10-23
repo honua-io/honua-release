@@ -67,6 +67,11 @@ def config(path):
     require(not any(re.search(r'password|token|api_key|client_secret|signing_key', key, re.I) for key in value if not key.endswith(('_arn', '_arns'))), 'only secret references are accepted')
     prefix_pattern = r'honua-pilot-[a-z0-9-]{4,16}-agent' if CAMPAIGN else r'honua-pilot-[a-z0-9-]{4,16}'
     require(re.fullmatch(prefix_pattern, value.get('name_prefix', '')), 'isolated pilot prefix required')
+    if value.get('human_enrollment') is not None:
+        require(TF_ROOT == 'certification/hosted-pilot', 'human enrollment belongs only to the reviewed pilot root')
+        from human_enrollment import validate_configuration
+        validate_configuration(value['human_enrollment'], region=os.environ['PILOT_REGION'],
+                               custody_key_arn=os.environ['PILOT_STATE_KMS_ARN'])
     expiry = datetime.fromisoformat(value['expires_at'].replace('Z', '+00:00'))
     require(expiry.tzinfo is not None, 'expiry must include a timezone')
     if os.environ['PILOT_OPERATION'] == 'apply':
