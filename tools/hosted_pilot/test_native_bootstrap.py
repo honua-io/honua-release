@@ -77,6 +77,36 @@ class CredentialCustody(unittest.TestCase):
         self.assertEqual(self.http.call_count, 1)
         self.secrets.put_secret_value.assert_not_called()
 
+    def test_secret_version_identity_uses_retained_public_operation_not_issued_credential_fields(self):
+        original = self.http
+        def with_private_response_fields(*args, **kwargs):
+            value = original(*args, **kwargs)
+            if 'apiKey' in value:
+                value['apiKey']['password'] = 'private-extra-native-response-field'
+            return value
+        self.http = with_private_response_fields
+        receipt = self.provision()
+        operation = canonical_digest({'kind': 'native-bootstrap', 'candidateKey': self.config['candidateKey'],
+                                     'operationId': self.config['operation']['operationId']})
+        for kind in ('setup', 'observer', 'agent'):
+            version = canonical_digest({'operation': operation, 'kind': kind, 'secretArn': self.config['secretArns'][kind]})[7:]
+            self.assertEqual(receipt['keys'][kind]['versionId'], version)
+            intent = self.durable.state['scenarioOperations'][operation+'/key-'+kind+'-intent']['value']
+            self.assertEqual(intent['secretVersionId'], version)
+        self.assertNotIn('private-extra-native-response-field', json.dumps(self.durable.state))
+
+    def test_secret_in_native_public_identity_is_refused_before_secret_write_or_retention(self):
+        original = self.http
+        def malformed_identity(*args, **kwargs):
+            value = original(*args, **kwargs)
+            if 'apiKey' in value:
+                value['key'] = value['apiKey']['id']
+            return value
+        self.http = malformed_identity
+        with self.assertRaisesRegex(PackError, 'public identity fields'):
+            self.provision()
+        self.secrets.put_secret_value.assert_not_called()
+
     def test_settled_cleanup_or_changed_generation_cannot_authorize_more_native_effects(self):
         self.durable.state['ledger']['operations'][1].update(state='settled', actualUsd='1')
         with self.assertRaisesRegex(PackError, 'original liability'):

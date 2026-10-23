@@ -156,7 +156,10 @@ def provision(config, durable, *, connection, secrets, root_key, native):
         'agent:studio-propose-publication:'+config['itemId'], *config['readGrants']]}
     issued = {}
     for kind, permissions in permission_sets.items():
-        retain('key-'+kind+'-intent', {'permissions': permissions, 'expiresAt': config['expiresAt']})
+        # Secret version identity binds the retained operation and destination.
+        # No issued credential or credential-response field enters this digest.
+        version = canonical_digest({'operation': operation_key, 'kind': kind, 'secretArn': config['secretArns'][kind]})[7:]
+        retain('key-'+kind+'-intent', {'permissions': permissions, 'expiresAt': config['expiresAt'], 'secretVersionId': version})
         guard()
         result = http(config, root_key, 'POST', '/api/v1/admin/api-keys', {'name': 'pilot-'+operation_key[7:23]+'-'+kind,
                       'permissions': permissions, 'expiresAt': config['expiresAt']})
@@ -165,7 +168,9 @@ def provision(config, durable, *, connection, secrets, root_key, native):
                 sorted(record['permissions']) == sorted(permissions) and isinstance(key, str) and len(key) >= 32 and
                 datetime.fromisoformat(record['expiresAt'].replace('Z', '+00:00')) == datetime.fromisoformat(config['expiresAt'].replace('Z', '+00:00')),
                 'native API-key identity/grants differ from reviewed issuance')
-        version = canonical_digest({'operation': operation_key, 'kind': kind, 'apiKeyId': record['id']})[7:]
+        public_record = {'apiKeyId': record['id'], 'permissions': permissions, 'expiresAt': record['expiresAt']}
+        require(root_key.encode() not in encoded(public_record) and key.encode() not in encoded(public_record),
+                'native credential response disclosed secret material in public identity fields')
         guard()
         response = secrets.put_secret_value(SecretId=config['secretArns'][kind], SecretString=key, ClientRequestToken=version)
         require(response['ARN'] == config['secretArns'][kind] and response['VersionId'] == version, 'native API-key secret custody differs')

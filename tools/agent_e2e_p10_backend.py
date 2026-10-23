@@ -52,7 +52,24 @@ def identity(context):
     return {key: context[key] for key in ('campaignId', 'caseId', 'attempt')}
 
 
+def worker_task_role(worker_config):
+    """Bind the reviewed per-attempt unprivileged role, excluding control roles."""
+    attempt = worker_config.get('attemptId')
+    cluster = worker_config.get('lifecycle', {}).get('clusterArn', '')
+    native = re.fullmatch(r'arn:aws:ecs:[a-z0-9-]+:([0-9]{12}):cluster/[A-Za-z0-9_-]+', cluster)
+    require(native is not None and isinstance(attempt, str) and re.fullmatch(r'[a-z0-9-]{3,40}', attempt),
+            'worker task role requires exact reviewed attempt and ECS account binding')
+    expected = 'arn:aws:iam::'+native[1]+':role/honua-agent-'+attempt+'-worker'
+    require(worker_config.get('taskRoleArn') == expected and
+            expected != worker_config['lifecycle'].get('stateMachineRoleArn'),
+            'worker task role is not its exact isolated attempt role; controller/fixture/oracle roles are forbidden')
+    return expected
+
+
 def verify_worker_definition(definition, worker_config):
+    expected_role = worker_task_role(worker_config)
+    require(definition.get('taskRoleArn') == expected_role and definition.get('executionRoleArn') != expected_role,
+            'native worker task role differs from reviewed isolated identity or shares execution credentials')
     containers = definition.get('containerDefinitions', [])
     require(len(containers) == 1, 'P10 worker task must have one isolated container')
     container = containers[0]
@@ -103,10 +120,11 @@ class Session:
         self.price_receipt = load_json(path)
         self.worker_config = self.config['attempts'].get(str(context['attempt']))
         require(isinstance(self.worker_config, dict) and set(self.worker_config) ==
-                {'attemptId', 'imageUri', 'publicBundleDigest', 'lifecycle', 'transport', 'evidence'},
+                {'attemptId', 'imageUri', 'publicBundleDigest', 'taskRoleArn', 'lifecycle', 'transport', 'evidence'},
                 'fresh IaC worker binding unavailable for exact P10 attempt')
         self.attempt_id = self.worker_config['attemptId']
         require(re.fullmatch(r'[a-z0-9-]{3,40}', self.attempt_id), 'invalid immutable worker attempt identity')
+        worker_task_role(self.worker_config)
         self.key = canonical_digest(identity(context))
         self.namespace = 'ae_'+canonical_digest({'candidate': campaign['componentBindingDigest'],
             'attemptId': self.attempt_id, **identity(context)})[7:27]

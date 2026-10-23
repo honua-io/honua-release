@@ -140,9 +140,14 @@ def test_long_model_turns_do_not_reuse_an_expired_observer_http_deadline(session
     assert first.http is opened[0] and second.http is opened[1] and first.http is not second.http
 
 
-@pytest.mark.parametrize('change', [None, 'root', 'writable', 'command', 'added-capability', 'controller-secret', 'transport'])
+@pytest.mark.parametrize('change', [None, 'root', 'writable', 'command', 'added-capability', 'controller-secret', 'transport',
+    'missing-observed-role', 'mismatched-role', 'controller-role', 'fixture-role', 'oracle-role', 'missing-configured-role',
+    'configured-controller-role', 'configured-fixture-role', 'configured-oracle-role', 'foreign-account', 'shared-execution-role'])
 def test_worker_native_definition_enforces_runtime_and_credential_custody(change):
-    config = {'imageUri': 'registry/worker@sha256:'+'a'*64, 'transport': {'attemptId': 'fixture'}}
+    role = 'arn:aws:iam::123456789012:role/honua-agent-fixture-worker'
+    config = {'imageUri': 'registry/worker@sha256:'+'a'*64, 'transport': {'attemptId': 'fixture'},
+        'attemptId': 'fixture', 'taskRoleArn': role, 'lifecycle': {'clusterArn': 'arn:aws:ecs:us-east-1:123456789012:cluster/fixture',
+        'stateMachineRoleArn': 'arn:aws:iam::123456789012:role/honua-agent-fixture-lifecycle'}}
     container = {'name': 'worker', 'image': config['imageUri'], 'user': '10001:10001', 'readonlyRootFilesystem': True,
         'privileged': False, 'command': ['python', '-I', '/app/agent_e2e_container_entry.py'],
         'linuxParameters': {'initProcessEnabled': True, 'capabilities': {'drop': ['ALL']}},
@@ -156,8 +161,19 @@ def test_worker_native_definition_enforces_runtime_and_credential_custody(change
     elif change == 'added-capability': container['linuxParameters']['capabilities']['add'] = ['SYS_ADMIN']
     elif change == 'controller-secret': container['secrets'][0]['name'] = 'FIXTURE_CLEANUP_DSN'
     elif change == 'transport': container['environment'][0]['value'] = '{}'
+    definition = {'taskRoleArn': role, 'executionRoleArn': 'arn:aws:iam::123456789012:role/honua-agent-fixture-execution',
+                  'containerDefinitions': [container]}
+    if change == 'missing-observed-role': del definition['taskRoleArn']
+    elif change == 'mismatched-role': definition['taskRoleArn'] = role.replace('fixture-worker', 'other-worker')
+    elif change in ('controller-role', 'fixture-role', 'oracle-role'):
+        definition['taskRoleArn'] = 'arn:aws:iam::123456789012:role/honua-pilot-'+change
+    elif change == 'missing-configured-role': del config['taskRoleArn']
+    elif change in ('configured-controller-role', 'configured-fixture-role', 'configured-oracle-role'):
+        config['taskRoleArn'] = definition['taskRoleArn'] = 'arn:aws:iam::123456789012:role/honua-pilot-'+change
+    elif change == 'foreign-account': config['taskRoleArn'] = definition['taskRoleArn'] = role.replace('123456789012', '999999999999')
+    elif change == 'shared-execution-role': definition['executionRoleArn'] = role
     if change is None:
-        assert backend.verify_worker_definition({'containerDefinitions': [container]}, config) == container
+        assert backend.verify_worker_definition(definition, config) == container
     else:
         with pytest.raises(PackError):
-            backend.verify_worker_definition({'containerDefinitions': [container]}, config)
+            backend.verify_worker_definition(definition, config)
