@@ -39,4 +39,3 @@ jobs:
           path: ${{ runner.temp }}/hosted-pilot-controller-image.json
           if-no-files-found: error
           retention-days: 30
-
