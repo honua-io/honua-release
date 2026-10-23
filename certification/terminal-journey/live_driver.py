@@ -449,10 +449,14 @@ def op_observe(request: dict[str, Any]) -> dict[str, Any]:
 
 
 # Typed MCP tool error codes that describe the request, not a candidate fault: a well-formed call the
-# candidate refused because of what was asked (missing resource, invalid argument, wrong state). Server
-# faults, transport failures, permission or proof failures stay candidate-execution (infrastructure).
-CANDIDATE_REFUSAL_CODES = frozenset({"not_found", "invalid_argument", "invalid_input", "conflict",
-                                     "already_exists", "failed_precondition", "validation_failed"})
+# candidate refused because of what was asked (missing resource, wrong state). A schema-valid,
+# stage-admitted call that the candidate still rejects as invalid_argument is a candidate defect:
+# the executor already checked the observed tool schema, so that code is not model feedback.
+# Server faults, transport failures, permission or proof failures stay candidate-execution.
+CANDIDATE_REFUSAL_CODES = frozenset({"not_found", "conflict", "already_exists", "failed_precondition"})
+# These codes are model feedback only when the executor rejects the action before any candidate
+# request (ActionRejected -> invalid-action). After admission they are candidate-execution.
+ADMITTED_CALL_DEFECT_CODES = frozenset({"invalid_argument", "invalid_input", "validation_failed"})
 
 
 def op_execute(request: dict[str, Any]) -> dict[str, Any]:
@@ -478,9 +482,12 @@ def op_execute(request: dict[str, Any]) -> dict[str, Any]:
                     # invalid-action: the selected action was refused before its candidate write
                     # (model feedback). candidate-execution: a valid action failed in the candidate or
                     # its proof (never model feedback).
-                    # candidate-refusal: a typed client-side tool error for a well-formed call (e.g. asking
-                    # for a service that is not published yet) - feedback an agent is expected to act on.
+                    # candidate-refusal: a typed client-side tool error for a well-formed call the model
+                    # can correct (e.g. asking for a service that is not published yet).
+                    # invalid_argument after the stage admitted the call is candidate-execution.
                     "refusal": ("invalid-action" if isinstance(exc, ActionRejected)
+                                else "candidate-execution"
+                                if exc.problem.get("code") in ADMITTED_CALL_DEFECT_CODES
                                 else "candidate-refusal" if exc.problem.get("code") in CANDIDATE_REFUSAL_CODES
                                 else "candidate-execution"),
                     "result": {"accepted": False, "command": exc.command, "reason": exc.reason,

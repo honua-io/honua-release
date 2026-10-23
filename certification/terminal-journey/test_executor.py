@@ -1701,5 +1701,30 @@ def test_install_and_preflight_stages_act_as_the_operator_when_one_exists():
 
 def test_typed_client_side_tool_errors_are_candidate_refusals_and_server_faults_are_not():
     import live_driver
-    assert {"not_found", "invalid_argument"} <= live_driver.CANDIDATE_REFUSAL_CODES
-    assert not {"internal", "unavailable", "permission_denied"} & live_driver.CANDIDATE_REFUSAL_CODES
+    assert {"not_found", "failed_precondition"} <= live_driver.CANDIDATE_REFUSAL_CODES
+    assert not {"internal", "unavailable", "permission_denied", "invalid_argument"} & live_driver.CANDIDATE_REFUSAL_CODES
+    assert "invalid_argument" in live_driver.ADMITTED_CALL_DEFECT_CODES
+
+
+def test_a_stage_admitted_call_rejected_as_invalid_argument_is_a_candidate_defect():
+    """A schema-valid render the candidate refuses is not model feedback."""
+    import live_driver
+    from transport import ActionRejected, ExecutionError
+
+    admitted = ExecutionError(
+        "honua_render_map", "candidate rejected supported inputs",
+        problem={"code": "invalid_argument"})
+    missing = ExecutionError(
+        "honua_render_map", "service is not published",
+        problem={"code": "not_found"})
+    invalid = ActionRejected("honua_render_map", "arguments do not satisfy the observed tool schema")
+
+    def classify(exc):
+        return ("invalid-action" if isinstance(exc, ActionRejected)
+                else "candidate-execution" if exc.problem.get("code") in live_driver.ADMITTED_CALL_DEFECT_CODES
+                else "candidate-refusal" if exc.problem.get("code") in live_driver.CANDIDATE_REFUSAL_CODES
+                else "candidate-execution")
+
+    assert classify(admitted) == "candidate-execution"
+    assert classify(missing) == "candidate-refusal"
+    assert classify(invalid) == "invalid-action"
