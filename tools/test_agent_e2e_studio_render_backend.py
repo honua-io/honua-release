@@ -1,5 +1,8 @@
 """Render identity joins replay genuine local MCP/HTTP save originals."""
 import copy
+from pathlib import Path
+import subprocess
+import sys
 
 import pytest
 
@@ -50,3 +53,32 @@ def test_render_cannot_select_unrelated_save_or_derive_expected_content(saved, r
     elif change == 'missing-original': saved['report']['records'].pop('saveHandle')
     elif change == 'different-candidate': value['contract']['candidateKey'] = 'sha256:'+'f'*64
     with pytest.raises((PackError, KeyError)): joined(value, saved)
+
+
+def test_tools_script_entry_reaches_private_observer_without_repository_on_module_path(tmp_path):
+    # Production launches `python tools/agent_e2e_campaign.py`, whereas pytest
+    # also exposes the repository root. Keep that extra namespace unavailable.
+    code = '''
+import sys, types
+sys.path.insert(0, sys.argv[1])
+import agent_e2e_studio_render_backend as backend
+backend.bind = lambda *args, **kwargs: {}
+package = types.ModuleType('hosted_pilot')
+package.__path__ = []
+observer = types.ModuleType('hosted_pilot.browser_render')
+def reached(**kwargs):
+    raise RuntimeError('private-observer-reached')
+observer.observe_original_render = reached
+sys.modules['hosted_pilot'] = package
+sys.modules['hosted_pilot.browser_render'] = observer
+try:
+    backend.observe({'savedVersionBinding':'save','observer':{}}, studio={},
+        declarations={'save':{}}, reports={'save':{}}, context={}, selection={}, durable=None)
+except RuntimeError as error:
+    if str(error) != 'private-observer-reached': raise
+else:
+    raise AssertionError('private observer was not invoked')
+'''
+    result = subprocess.run([sys.executable, '-I', '-c', code, str(Path(__file__).resolve().parent)],
+                            cwd=tmp_path, capture_output=True, text=True, timeout=10)
+    assert result.returncode == 0, result.stderr

@@ -63,7 +63,7 @@ def bind(value, *, studio, declarations, reports, context, selection):
 def observe(value, *, studio, declarations, reports, context, selection, durable):
     contract = bind(value, studio=studio, declarations=declarations, reports=reports, context=context, selection=selection)
     try:
-        from tools.hosted_pilot.browser_render import observe_original_render
+        from hosted_pilot.browser_render import observe_original_render
     except ImportError:
         raise PackError('private signed-in browser observer runtime is unavailable') from None
     receipt = observe_original_render(contract=contract, selection=selection, durable=durable,
