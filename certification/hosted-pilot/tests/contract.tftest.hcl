@@ -25,7 +25,7 @@ mock_provider "aws" {
     defaults = { arn = "arn:aws:iam::123456789012:role/offline-test" }
   }
   mock_resource "aws_cognito_user_pool" {
-    defaults        = { id = "us-west-2_Offline123", endpoint = "cognito-idp.us-west-2.amazonaws.com/us-west-2_Offline123" }
+    defaults = { id = "us-west-2_Offline123", endpoint = "cognito-idp.us-west-2.amazonaws.com/us-west-2_Offline123" }
   }
 }
 mock_provider "random" {}
