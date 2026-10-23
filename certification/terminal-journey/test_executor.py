@@ -1184,6 +1184,127 @@ def test_a_passing_render_carries_no_blocker():
     assert rejected.check_render(output).status == "fail"
 
 
+def test_wrong_selected_size_stays_failed_until_a_later_render_repairs_it_over_real_http():
+    import live_driver
+    served, reads = [png_fixture()], []
+
+    class Handler(BaseHTTPRequestHandler):
+        def do_GET(self):
+            reads.append(self.path)
+            self.send_response(200)
+            self.send_header("Content-Type", "image/png")
+            self.end_headers()
+            self.wfile.write(served[0])
+
+        def log_message(self, *_):
+            pass
+
+    server = ThreadingHTTPServer(("127.0.0.1", 0), Handler)
+    thread = threading.Thread(target=server.serve_forever)
+    thread.start()
+    try:
+        transport = transport_for(f"http://127.0.0.1:{server.server_port}")
+        # The frozen authored goal is deliberately different from the first
+        # PNG. Nothing changes that expected size to accommodate the result.
+        fixture = {**RENDER_FIXTURE, "renderSize": [40, 20]}
+        engine = engine_for(transport, execution=fixture)
+        engine.state.update(stackUp=True, executionEnabled=True)
+        engine.state["armedError"] = {"id": "fault", "stageNumber": 4, "status": "observed"}
+        engine._check(4, "style-applied", "style", lambda: {"styleId": "journey-solid-red"})
+        output = {"image": {"format": "image/png", "uri": "/render.png"},
+                  "operation": {**STUDIO_ENVELOPE["operation"], "operationId": "map.render"}}
+        stage = json.loads((live_driver.HERE / "journey.v1.json").read_text())["stages"][3]
+        status = {"number": 4, "id": stage["id"], "command": stage["command"], "checks": [], "status": "ready"}
+
+        def observe():
+            with mock.patch.object(live_driver, "_rehydrate", return_value=(engine.state, {}, {}, engine.observation, None)), \
+                 mock.patch.object(live_driver, "_executor", return_value=engine), \
+                 mock.patch.object(live_driver, "_stage_status", return_value=status), \
+                 mock.patch.object(live_driver, "_write_state"):
+                return live_driver.op_observe({"stage": stage["id"]})
+
+        with mock.patch.object(transport, "tool", return_value={"structuredContent": output}):
+            result = engine.execute(4, {"kind": "tool_call", "tool": "honua_render_map",
+                                        "arguments": {"width": 20, "height": 10}})
+            assert result["recoveredError"] is None
+            assert engine.result(4).status == "fail"
+            assert "pixel" not in engine.evidence["proofs"]
+            observed = observe()
+            assert observed["stageStatus"]["status"] == "ready"
+            assert observed["observation"]["repairableChecks"] == ["4.pixel"]
+            assert next(c for c in observed["stageStatus"]["checks"] if c["id"] == "4.pixel")["status"] == "fail"
+            assert engine.state["armedError"]["status"] == "observed"
+            for blocked in (False, True):
+                def refuse():
+                    raise ExecutionError("style", "candidate style failure", blocked=blocked)
+                engine._check(4, "style-applied", "style", refuse)
+                assert observe()["stageStatus"]["status"] == ("blocked" if blocked else "fail")
+            engine._check(4, "style-applied", "style", lambda: {"styleId": "journey-solid-red"})
+
+            # A genuine decoded PNG of the authored size and independently
+            # computed point colour is required for the repair.
+            def chunk(tag, body):
+                return struct.pack(">I", len(body)) + tag + body + struct.pack(">I", zlib.crc32(tag + body))
+            rows = [bytearray(40 * 4) for _ in range(20)]
+            rows[5][80:84] = bytes(RENDER_FIXTURE["pixelRgba"])
+            served[0] = (b"\x89PNG\r\n\x1a\n" + chunk(b"IHDR", struct.pack(">IIBBBBB", 40, 20, 8, 6, 0, 0, 0))
+                         + chunk(b"IDAT", zlib.compress(b"".join(b"\0" + row for row in rows))) + chunk(b"IEND", b""))
+            result = engine.execute(4, {"kind": "tool_call", "tool": "honua_render_map",
+                                        "arguments": {"width": 40, "height": 20}})
+            assert result["recoveredError"] == {"id": "fault", "recovered": True}
+            assert engine.result(4).status == "pass"
+            assert observe()["stageStatus"]["status"] == "pass"
+            assert engine.fixture["renderSize"] == [40, 20]
+            assert reads == ["/render.png", "/render.png"]
+    finally:
+        server.shutdown()
+        thread.join()
+        server.server_close()
+
+
+@pytest.mark.parametrize("selected", [{"width": 40, "height": 20}, {}, {"width": 20},
+                                      {"width": "20", "height": 10}, {"width": True, "height": 10}])
+def test_render_ignoring_selected_size_or_missing_selection_stays_terminal(selected):
+    engine = engine_for(mock.Mock(), execution={**RENDER_FIXTURE, "renderSize": [40, 20]})
+    # Declared dimensions cannot override the actual decoded 20x10 PNG.
+    output = {"image": {"format": "image/png", "width": 40, "height": 20,
+                        "base64": base64.b64encode(png_fixture()).decode()}}
+    check = engine.check_render(output, selected_arguments=selected)
+    assert check.status == "fail"
+    assert engine.evidence["renderDimensions"]["decoded"] == [20, 10]
+    assert not engine.repairable_render_selection(4, check)
+
+
+def test_matching_wrong_size_with_incorrect_pixels_cannot_be_repaired_away():
+    engine = engine_for(mock.Mock(), execution={**RENDER_FIXTURE, "renderSize": [40, 20]})
+    output = {"image": {"format": "image/png",
+                        "base64": base64.b64encode(png_fixture((0, 0, 0, 0))).decode()}}
+    check = engine.check_render(output, selected_arguments={"width": 20, "height": 10})
+    assert check.status == "fail" and "render pixel at (10, 2)" in check.detail
+    assert engine.evidence["renderDimensions"]["requested"] == engine.evidence["renderDimensions"]["decoded"] == [20, 10]
+    assert engine.evidence["renderDimensions"]["requestedPixelVerified"] is False
+    assert not engine.repairable_render_selection(4, check)
+    assert "pixel" not in engine.evidence["proofs"]
+
+
+@pytest.mark.parametrize("failure", ["pixel", "media", "png", "transport"])
+def test_render_feedback_never_suppresses_other_pixel_or_transport_failures(failure):
+    transport = mock.Mock(credentials={"proposer": "unit"})
+    engine = engine_for(transport, execution=dict(RENDER_FIXTURE))
+    image = {"format": "image/png", "base64": base64.b64encode(png_fixture((0, 0, 0, 0))).decode()}
+    if failure == "media":
+        image["format"] = "image/jpeg"
+    elif failure == "png":
+        image["base64"] = base64.b64encode(b"not a PNG").decode()
+    elif failure == "transport":
+        image = {"format": "image/png", "uri": "/render.png"}
+        transport.http.side_effect = ExecutionError("render", "candidate failed")
+    check = engine.check_render({"image": image}, selected_arguments={"width": 20, "height": 10})
+    assert check.status == "fail"
+    assert not engine.repairable_render_selection(4, check)
+    assert "pixel" not in engine.evidence["proofs"]
+
+
 def test_render_reads_the_servers_format_field_and_refuses_conflicts():
     # honua-server RenderMapTool returns image.format, not image.mimeType.
     png = base64.b64encode(png_fixture()).decode()

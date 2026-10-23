@@ -1573,6 +1573,19 @@ def test_driver_exception_diagnostics_never_include_arbitrary_error_values(error
     assert canary.driver_failure_diagnostic({"status": "fail", "error": error}) == expected
 
 
+def test_render_dimension_diagnostic_only_retains_bounded_integer_pairs():
+    response = {"stageStatus": {"checks": [{"id": "4.pixel", "status": "fail",
+        "detail": "PNG dimensions differ from the authored render size"}]},
+        "observation": {"renderDimensions": {"requested": [512, 512], "expected": [256, 256],
+            "decoded": [512, 512], "private": "private-sentinel"}}}
+    diagnostic = canary.driver_failure_diagnostic(response)
+    assert diagnostic == ("; checks=4.pixel=fail/render-size-mismatch; "
+                          "renderSize=requested=512x512,expected=256x256,decoded=512x512")
+    for value in (None, ["private-sentinel", 2], [True, 2], [0, 2], [16385, 2], [1, 2, 3]):
+        response["observation"]["renderDimensions"]["requested"] = value
+        assert canary.driver_failure_diagnostic(response) == "; checks=4.pixel=fail/render-size-mismatch"
+
+
 @pytest.mark.parametrize("category,exception", [
     ("DriverError", "live_driver.DriverError('private-sentinel')"),
     ("ExecutionError", "live_driver.ExecutionError('private-command', 'private-sentinel')"),
