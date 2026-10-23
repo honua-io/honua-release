@@ -415,6 +415,10 @@ class Session:
             self.retain('sql-cleanup', sql)
         except Exception as exc:
             failures.append({'component': 'sql-cleanup', 'errorType': type(exc).__name__})
+        try:
+            self.cleanup_resources()
+        except Exception as exc:
+            failures.append({'component': 'resource-cleanup', 'errorType': type(exc).__name__})
         cleanup = {'status': 'pass' if not failures and sql is not None and stop is not None else 'blocked',
                    'worker': stop, 'fixtureSql': sql, 'failures': failures,
                    'completedAt': datetime.now(timezone.utc).isoformat()}
@@ -435,6 +439,10 @@ class Session:
 
     def prepare_cleanup_ownership(self):
         """Case adapters may adopt final native outputs only after worker stop."""
+        return None
+
+    def cleanup_resources(self):
+        """Observe non-SQL obligations even when fixture ownership is missing."""
         return None
 
     def cleanup_ownership(self):
