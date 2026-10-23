@@ -185,13 +185,37 @@ operator CIDRs, compatible immutable component artifacts including both auth
 fixes (Console PR456 at a73b0f0181dac325fd5adda102edbb573d578eae), manifest/source digests, owner and cleanup deadline). No live ARNs, users,
 installed artifact identity or successful qualification are fabricated here.
 
-`console_agent_secret_arn = null` permits explicit foundation/authentication
+Leaving `console_agent_secret_arn`, `console_agent_key_id` and
+`console_agent_secret_version_id` null permits explicit foundation/authentication
 staging. It injects no agent credential; Console refuses native agent sessions
 and the native model remains disabled. This is never demo readiness. A random
 secret cannot substitute for a Server-issued, scoped, persistent credential and
 its exact canonical actor binding. The final Server image must contain reviewed
 workspace/turn authority sources as well as the browser-authentication changes;
 the standalone authentication branch does not contain that feature family.
+
+For the campaign, use `campaign/` as the sole application deployment root. Its
+`application` block binds the same manifest and Server image to Console and
+Cognito through the shared providerless `application/` module; the parent
+campaign still owns its network, private controllers and accounting. Standalone
+and campaign deployment roots each configure the provider explicitly. The
+composed application reuses that network and the original
+candidate database, Server resource names and file bucket. Cognito and Console
+retain the foundation's exact pilot namespace and runtime permission boundary;
+the application receives no controller/model authority. Do not deploy a separate
+standalone application for this campaign. The declared state moves preserve
+resource ownership, but every saved plan must still be inspected for actual
+provider replacements, including the certificate expansion and DNS transition.
+
+Create authentication staging first, enroll the real nominated humans, then run
+the existing trusted native bootstrap. Review its actual `issued_native_keys`
+receipt into the campaign inputs. The next saved-plan update installs the same
+agent ID as the Server workspace member and injects only its original secret
+version into Console. Capture the human workspace after this update and verify
+independent agent readback. Host configuration does not prove that a supplied
+secret really authenticates as the declared key; installed target/credential
+observations remain mandatory. Native inference stays disabled until its
+separate approved provider/accounting path is connected and qualified.
 
 ## Offline verification
 

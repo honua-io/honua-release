@@ -12,3 +12,17 @@ provider "aws" {
     tags = { ManagedBy = "honua-release-hosted-pilot", ResetBoundary = var.name_prefix, Purpose = "isolated-agent-campaign", Owner = var.owner, ExpiresAt = var.expires_at, "honua-agent-candidate" = var.candidate_digest }
   }
 }
+
+# Application resources use the original foundation namespace, while campaign
+# controllers retain their separate namespace and permissions boundary.
+provider "aws" {
+  alias               = "application"
+  region              = var.region
+  allowed_account_ids = [var.account_id]
+  default_tags {
+    tags = {
+      ManagedBy = "honua-release-hosted-pilot", ResetBoundary = trimsuffix(var.name_prefix, "-agent"),
+      Candidate = var.application.candidate.manifest_sha256, Owner = var.owner, ExpiresAt = var.expires_at
+    }
+  }
+}

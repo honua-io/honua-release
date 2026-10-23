@@ -56,7 +56,19 @@ resource "aws_iam_role_policy_attachment" "console_execution" {
 data "aws_iam_policy_document" "console_secret" {
   statement {
     actions   = ["secretsmanager:GetSecretValue"]
-    resources = compact([var.console_agent_secret_arn, aws_secretsmanager_secret.edge.arn, aws_secretsmanager_secret.oidc_client["console_edge"].arn])
+    resources = [aws_secretsmanager_secret.edge.arn, aws_secretsmanager_secret.oidc_client["console_edge"].arn]
+  }
+  dynamic "statement" {
+    for_each = var.console_agent_secret_arn == null ? [] : [1]
+    content {
+      actions   = ["secretsmanager:GetSecretValue"]
+      resources = [var.console_agent_secret_arn]
+      condition {
+        test     = "StringEquals"
+        variable = "secretsmanager:VersionId"
+        values   = [var.console_agent_secret_version_id]
+      }
+    }
   }
   dynamic "statement" {
     for_each = length(local.console_secret_kms_keys) > 0 ? [1] : []
@@ -104,7 +116,7 @@ resource "aws_ecs_task_definition" "console" {
       Honua__Console__Auth__EdgeForwarded__ServerSessionIssuer = "https://${aws_cognito_user_pool.pilot.endpoint}"
     } : { name = name, value = value }],
     secrets = concat(var.console_agent_secret_arn == null ? [] : [
-      { name = "HONUA_AGENT_API_KEY", valueFrom = var.console_agent_secret_arn }
+      { name = "HONUA_AGENT_API_KEY", valueFrom = "${var.console_agent_secret_arn}:::${var.console_agent_secret_version_id}" }
       ], [
       { name = "Honua__Console__Auth__EdgeForwarded__SharedSecret", valueFrom = "${aws_secretsmanager_secret.edge.arn}:shared::" }
     ]),

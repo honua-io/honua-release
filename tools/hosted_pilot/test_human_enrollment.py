@@ -162,6 +162,41 @@ class HumanEnrollment(unittest.TestCase):
                     deploy.config(str(path.relative_to(root)))
                 self.assertEqual(run.call_args.args[0][:2], ['git', 'ls-files'])
 
+    def test_campaign_enrollment_uses_same_sealed_input_boundary(self):
+        sealed, _ = self.seal()
+        application = {
+            'candidate': dict.fromkeys(('manifest_sha256', 'server_image', 'console_image', 'server_revision',
+                                       'console_revision', 'studio_revision', 'sdk_revision'), 'reviewed-binding'),
+            'permissions_boundary_arn': 'reviewed-runtime-boundary', 'allowed_operator_cidrs': ['192.0.2.10/32'],
+            'identity_redirects': dict.fromkeys(('console_origin', 'edge_callback_url', 'edge_logout_url',
+                                                'server_bff_callback_url', 'server_bff_logout_url'), 'reviewed-url'),
+            'human_enrollment': sealed,
+        }
+        for mutation in (
+            None,
+            lambda app: app.update(password='private-value'),
+            lambda app: app['candidate'].update(token='private-value'),
+            lambda app: app['identity_redirects'].update(client_secret='private-value'),
+            lambda app: app['human_enrollment']['users']['human_author'].update(email='private@example.invalid'),
+            lambda app: app['human_enrollment'].update(key_arn=KEY.replace('11111111', '22222222')),
+        ):
+            with self.subTest(mutation=mutation), tempfile.TemporaryDirectory() as directory:
+                root = Path(directory); tf = root / 'certification/hosted-pilot/campaign'
+                path = tf / 'deployments/pilot.tfvars.json'; path.parent.mkdir(parents=True)
+                changed = copy.deepcopy(application)
+                if mutation: mutation(changed)
+                path.write_text(json.dumps({'name_prefix': PREFIX+'-agent', 'region': 'us-east-1',
+                    'expires_at': (datetime.now(timezone.utc)+timedelta(days=1)).isoformat(), 'application': changed}))
+                with patch.multiple(deploy, ROOT=root, TF=tf, TF_ROOT='certification/hosted-pilot/campaign', CAMPAIGN=True), \
+                        patch.object(deploy, 'run') as run, patch.dict(os.environ,
+                            {'PILOT_REGION': 'us-east-1', 'PILOT_OPERATION': 'apply', 'PILOT_STATE_KMS_ARN': KEY}):
+                    if mutation:
+                        with self.assertRaises(ValueError): deploy.config(str(path.relative_to(root)))
+                    else:
+                        self.assertEqual(deploy.config(str(path.relative_to(root))), path)
+                    self.assertEqual(run.call_count, 1)
+                    self.assertEqual(run.call_args.args[0][:2], ['git', 'ls-files'])
+
 
 if __name__ == '__main__':
     unittest.main()
