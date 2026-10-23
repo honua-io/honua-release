@@ -82,8 +82,8 @@ resource "aws_iam_role_policy" "backend" {
   role = aws_iam_role.backend.id
   policy = jsonencode({ Version = "2012-10-17", Statement = [
     { Effect = "Allow", Action = ["s3:ListBucket", "s3:GetBucketLocation"], Resource = aws_s3_bucket.custody["state"].arn },
-    { Effect = "Allow", Action = ["s3:GetObject", "s3:PutObject"], Resource = ["${aws_s3_bucket.custody["state"].arn}/${local.state_key}", "${aws_s3_bucket.custody["state"].arn}/${local.state_key}.tflock"] },
-    { Effect = "Allow", Action = "s3:DeleteObject", Resource = "${aws_s3_bucket.custody["state"].arn}/${local.state_key}.tflock" },
+    { Effect = "Allow", Action = ["s3:GetObject", "s3:PutObject"], Resource = flatten([for key in local.deployment_state_keys : ["${aws_s3_bucket.custody["state"].arn}/${key}", "${aws_s3_bucket.custody["state"].arn}/${key}.tflock"]]) },
+    { Effect = "Allow", Action = "s3:DeleteObject", Resource = [for key in local.deployment_state_keys : "${aws_s3_bucket.custody["state"].arn}/${key}.tflock"] },
     { Effect = "Allow", Action = ["kms:Decrypt", "kms:Encrypt", "kms:GenerateDataKey"], Resource = aws_kms_key.custody.arn }
   ] })
 }
@@ -110,9 +110,9 @@ resource "aws_iam_role_policy" "custody" {
     { Effect = "Deny", Action = ["kms:DisableKey", "kms:ScheduleKeyDeletion", "kms:PutKeyPolicy", "kms:CreateGrant"], Resource = aws_kms_key.custody.arn },
     { Effect = "Deny", Action = ["s3:PutBucket*", "s3:DeleteBucket*"], Resource = [for bucket in aws_s3_bucket.custody : bucket.arn] },
     { Effect = "Deny", Action = ["iam:CreatePolicyVersion", "iam:SetDefaultPolicyVersion", "iam:DeletePolicy", "iam:DeletePolicyVersion"], Resource = "arn:aws:iam::${local.account}:policy/${local.foundation_prefix}*" },
-    { Effect = "Deny", Action = ["iam:PassRole", "iam:PutRolePolicy", "iam:AttachRolePolicy", "iam:DetachRolePolicy", "iam:DeleteRolePolicy", "iam:UpdateAssumeRolePolicy", "iam:DeleteRole", "iam:UpdateRole"], NotResource = "arn:aws:iam::${local.account}:role/${var.name_prefix}*" },
+    { Effect = "Deny", Action = ["iam:CreateRole", "iam:PutRolePermissionsBoundary", "iam:PassRole", "iam:PutRolePolicy", "iam:AttachRolePolicy", "iam:DetachRolePolicy", "iam:DeleteRolePolicy", "iam:UpdateAssumeRolePolicy", "iam:DeleteRole", "iam:UpdateRole"], NotResource = local.workload_role_patterns },
     { Effect = "Deny", Action = ["iam:DeleteRolePermissionsBoundary"], Resource = "*" },
-    { Effect = "Deny", Action = ["iam:CreateRole", "iam:PutRolePermissionsBoundary"], Resource = "*", Condition = { ArnNotEquals = { "iam:PermissionsBoundary" = aws_iam_policy.runtime_boundary.arn } } },
+    { Effect = "Deny", Action = ["iam:CreateRole", "iam:PutRolePermissionsBoundary"], Resource = "*", Condition = { ArnNotEquals = { "iam:PermissionsBoundary" = local.workload_boundary_arns } } },
     { Effect = "Deny", Action = ["iam:UpdateAssumeRolePolicy", "iam:PutRolePolicy", "iam:AttachRolePolicy", "iam:DetachRolePolicy", "iam:DeleteRolePolicy", "iam:DeleteRole"], Resource = "arn:aws:iam::${local.account}:role/${local.foundation_prefix}*" }
     ], each.key == "plan" ? [
     { Effect = "Allow", Action = "s3:PutObject", Resource = "${aws_s3_bucket.custody["plans"].arn}/hosted-pilot/plans/*", Condition = { Null = { "s3:if-none-match" = "false" } } }

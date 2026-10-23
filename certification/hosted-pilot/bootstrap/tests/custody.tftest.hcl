@@ -49,7 +49,7 @@ run "custody_and_approval_boundaries" {
       aws_ecr_repository.controller.image_tag_mutability == "IMMUTABLE" &&
       aws_ecr_repository.controller.image_scanning_configuration[0].scan_on_push &&
       aws_iam_role_policy.controller_image.role == aws_iam_role.executor["apply"].id &&
-      jsondecode(aws_iam_role_policy.controller_image.policy).Statement[1].Resource == aws_ecr_repository.controller.arn &&
+      toset(jsondecode(aws_iam_role_policy.controller_image.policy).Statement[1].Resource) == toset([aws_ecr_repository.controller.arn, aws_ecr_repository.worker.arn]) &&
       contains(jsondecode(aws_iam_role_policy.controller_image.policy).Statement[1].Action, "ecr:PutImage") &&
       output.deployment_bindings.HOSTED_PILOT_CONTROLLER_ECR_REPOSITORY == aws_ecr_repository.controller.repository_url
     )
@@ -93,6 +93,23 @@ run "custody_and_approval_boundaries" {
       one([for statement in jsondecode(aws_iam_policy.runtime_boundary.policy).Statement : statement if try(statement.Sid, "") == "DecryptPilotGeneratedSecrets"]).Condition.ArnLike["kms:EncryptionContext:SecretARN"] == "arn:aws:secretsmanager:${var.region}:123456789012:secret:${var.name_prefix}*"
     )
     error_message = "Saved-plan versions and single-use reservations must be immutable; runtime credentials cannot administer identities or invoke models."
+  }
+}
+
+run "agent_orchestration_is_opt_in_and_bounded" {
+  command = plan
+  variables { enable_agent_controller = true }
+  assert {
+    condition = (
+      length(aws_iam_policy.agent_boundary[0].policy) <= 6144 &&
+      length(aws_iam_policy.agent_read[0].policy) <= 6144 &&
+      one([for statement in jsondecode(aws_iam_policy.agent_boundary[0].policy).Statement : statement if try(statement.Sid, "") == "NoUnreviewedModel"]).Effect == "Deny" &&
+      one([for statement in jsondecode(aws_iam_policy.agent_boundary[0].policy).Statement : statement if try(statement.Sid, "") == "ExcludeFoundationCustodyKey"]).Resource == aws_kms_key.custody.arn &&
+      length(local.workload_boundary_arns) == 2 &&
+      contains(local.workload_role_patterns, "arn:aws:iam::123456789012:role/honua-agent-*") &&
+      contains(local.deployment_state_keys, "honua/hosted-pilot/${var.name_prefix}/workers/*")
+    )
+    error_message = "Agent orchestration must fit IAM policy limits, preserve custody/model refusals and use isolated role/state namespaces."
   }
 }
 run "refuse_global_action_grant" {

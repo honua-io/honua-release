@@ -73,3 +73,22 @@ variable "bootstrap_execution_id" {
     error_message = "Use the immutable GitHub workflow run ID."
   }
 }
+
+variable "enable_agent_controller" {
+  description = "Opt in to isolated controller/worker orchestration; does not initialize or reset a campaign accounting ledger."
+  type        = bool
+  default     = false
+}
+
+variable "controller_model_resource_arns" {
+  description = "Reviewed exact Bedrock profile and member-model resources. Empty refuses model invocation. No wildcard, provider change or model substitution at runtime."
+  type        = list(string)
+  default     = []
+  validation {
+    condition = alltrue([for arn in var.controller_model_resource_arns :
+      can(regex("^arn:aws:bedrock:[a-z0-9-]+:([0-9]{12})?:(inference-profile|foundation-model)/[a-zA-Z0-9.:-]+$", arn)) &&
+      (split(":", arn)[4] == "" || split(":", arn)[4] == var.account_id)
+    ])
+    error_message = "Use exact model/profile ARNs in this account (foundation models have no account component)."
+  }
+}
