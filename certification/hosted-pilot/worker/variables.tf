@@ -41,6 +41,18 @@ variable "controller_role_arn" {
   }
 }
 variable "claim_table_name" { type = string }
+variable "accounting_claim_roles" {
+  description = "Complete reviewed campaign.worker_claims administratorRoleArns and writerRoleArns, renamed administrators/workers. Readiness compares the whole actual resource policy, never a subset exemption."
+  type        = object({ administrators = set(string), workers = set(string) })
+  validation {
+    condition = (length(var.accounting_claim_roles.administrators) > 0 && length(var.accounting_claim_roles.workers) <= 4 &&
+      length(setintersection(var.accounting_claim_roles.administrators, var.accounting_claim_roles.workers)) == 0 &&
+      contains(var.accounting_claim_roles.workers, "arn:aws:iam::${var.account_id}:role/honua-agent-${var.attempt_id}-lifecycle") &&
+      alltrue([for arn in var.accounting_claim_roles.administrators : can(regex("^arn:aws:iam::${var.account_id}:role/[A-Za-z0-9+=,.@_/-]+$", arn))]) &&
+    alltrue([for arn in var.accounting_claim_roles.workers : can(regex("^arn:aws:iam::${var.account_id}:role/honua-agent-[a-z0-9-]{3,40}-lifecycle$", arn))]))
+    error_message = "Use every actual reviewed accounting administrator and at most four exact fixed lifecycle roles, including this worker; wildcards or another account are refused."
+  }
+}
 variable "cleanup_alarm_topic_arn" { type = string }
 variable "permissions_boundary_arn" { type = string }
 variable "mcp_configuration" {

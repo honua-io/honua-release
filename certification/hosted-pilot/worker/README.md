@@ -57,3 +57,16 @@ mocked, using the reviewed Linux provider lock and readonly init. Those controls
 include exact secret/version scopes, queue-only worker authority, fixed lifetime,
 candidate fencing, independent cleanup and permission boundaries. Neither set
 is a replacement for actual hosted execution.
+
+Before reserving the worker's source-bound operation, copy the complete current
+campaign `worker_claims.administratorRoleArns` and `writerRoleArns` into the
+worker configuration's `accounting_claim_roles.administrators` and `.workers`.
+These are reviewed full sets, including this exact lifecycle role, rather than a
+subset discovered from the live policy. Readiness compares all five fixed claim
+resource-policy statements, every exempt principal and the complete policy
+against that reviewed binding. Additional allows/exemptions, missing guards or
+changed statement fields refuse readiness. It also compares the actual cleanup
+schedule expression, timezone, exact start/end timestamps, disabled flexible
+window, target role/input, retry policy, DLQ and completion action with applied
+IaC and the worker's original absolute expiry. No schedule read is a launch or a
+passing runtime-cleanup receipt.

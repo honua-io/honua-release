@@ -61,3 +61,19 @@ identify a human, then the actual issued agent must independently read its own
 principal and the human-created workspace/turn. The observed Studio owner UUID
 and canonical workspace actor are distinct fields. Neither the target identity
 projection nor local controls qualify hosted Cognito sign-in.
+
+Before planning or applying the campaign root's initializer trust, run the
+checked `hosted-pilot-accounting-environment.yml` from protected release trunk.
+It creates only the source-defined `hosted-pilot-accounting-initialize`
+environment with the named human reviewer, exact trunk branch policy and no
+administrator bypass. Existing weaker protection is refused rather than
+silently rewritten. Both saved-plan jobs verify this protection before AWS
+credentials can create or apply the initializer trust.
+
+The initializer role's AWS OIDC subject names that dedicated protected
+**environment**, rather than every trunk job in the repository. The initialization
+job declares the same environment and rechecks its source-defined protections
+before obtaining credentials. Its application-level workflow identity checks
+remain additional checks. After a reviewed retained `dispatch_budget` is
+installed, the campaign root removes the initializer's S3/DynamoDB mutation
+policy; the original accounting/history and administrator custody are preserved.

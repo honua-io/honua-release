@@ -38,7 +38,7 @@ def validate(config):
     require(re.fullmatch(r'arn:aws:secretsmanager:us-east-1:585192672263:secret:honua-pilot-[a-z0-9-]+-[A-Za-z0-9]{6}', config['rootSecretArn']) and
             re.fullmatch(r'arn:aws:iam::585192672263:role/honua-pilot-[a-z0-9-]+-setup-retire', config['taskRoleArn']) and
             re.fullmatch(r'arn:aws:iam::585192672263:role/honua-pilot-[a-z0-9-]+-retire-execution', config['executionRoleArn']) and
-            re.fullmatch(r'585192672263.dkr.ecr.us-east-1.amazonaws.com/honua-pilot-[a-z0-9-]+-trusted-controller@sha256:[a-f0-9]{64}', config['imageUri']),
+            re.fullmatch(r'585192672263\.dkr\.ecr\.us-east-1\.amazonaws\.com/honua-pilot-[a-z0-9-]+-trusted-controller@sha256:[a-f0-9]{64}', config['imageUri']),
             'retirement must retain separate private issuer/task/execution custody')
     require(config['mode'] in ('retire', 'observe') and re.fullmatch(r'honua-pilot-[a-z0-9-]+-controller-dispatch-claims', config['claimTable']),
             'retirement needs a fixed effect/observation mode and original dispatch claims')

@@ -60,6 +60,7 @@ jobs:
     environment: hosted-pilot-plan
     permissions:
       contents: read
+      actions: read
       id-token: write
     outputs:
       review_artifact_id: ${{ steps.review.outputs.artifact-id }}
@@ -87,6 +88,11 @@ jobs:
           branches = policy.get('deployment_branch_policy') or {}
           assert branches.get('custom_branch_policies') or branches.get('protected_branches'), 'environment branch restriction missing'
           PY
+      - name: Verify accounting credential environment before planning its IAM trust
+        if: inputs.terraform_root == 'certification/hosted-pilot/campaign'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: python3 tools/hosted_pilot/foundation_environment.py check --policy accounting
       - uses: hashicorp/setup-terraform@dfe3c3f87815947d99a8997f908cb6525fc44e9e # v4.0.1
         with:
           terraform_version: 1.13.5
@@ -137,6 +143,11 @@ jobs:
         with:
           artifact-ids: ${{ needs.plan.outputs.review_artifact_id }}
           path: ${{ runner.temp }}/hosted-pilot-private
+      - name: Reverify accounting credential protection before applying its IAM trust
+        if: inputs.terraform_root == 'certification/hosted-pilot/campaign'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: python3 tools/hosted_pilot/foundation_environment.py check --policy accounting
       - uses: hashicorp/setup-terraform@dfe3c3f87815947d99a8997f908cb6525fc44e9e # v4.0.1
         with:
           terraform_version: 1.13.5

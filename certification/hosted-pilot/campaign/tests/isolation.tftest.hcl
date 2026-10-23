@@ -191,9 +191,26 @@ run "accounting_can_stage_without_inventing_a_generation" {
       output.native_bootstrap_handoff == null &&
       output.accounting_staging.dispatchEnabled == false &&
       output.accounting_staging.state == module.accounting.state_config &&
+      length(aws_iam_role_policy.initializer) == 1 &&
+      jsondecode(aws_iam_role.initializer.assume_role_policy) == {
+        Version = "2012-10-17", Statement = [{ Effect = "Allow", Action = "sts:AssumeRoleWithWebIdentity",
+          Principal = { Federated = var.oidc_provider_arn }, Condition = { StringEquals = {
+            "token.actions.githubusercontent.com:aud" = "sts.amazonaws.com",
+            "token.actions.githubusercontent.com:sub" = "repo:honua-io/honua-release:environment:hosted-pilot-accounting-initialize"
+        } } }]
+      } &&
       !strcontains(aws_iam_role_policy.dispatcher.policy, "states:StartExecution")
     )
     error_message = "Accounting staging must not fabricate a generation or enable dispatch before authenticated create-only initialization."
+  }
+}
+
+run "retained_generation_removes_initializer_mutation_authority" {
+  command = plan
+  assert {
+    condition = (length(aws_iam_role_policy.initializer) == 0 && !output.accounting_initializer.initializationEnabled &&
+    output.accounting_initializer.protectedEnvironment == "hosted-pilot-accounting-initialize")
+    error_message = "After retained accounting is installed, the initializer must have no standing S3/DynamoDB mutation policy."
   }
 }
 

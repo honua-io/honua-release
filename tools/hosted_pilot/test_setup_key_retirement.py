@@ -128,6 +128,11 @@ class SetupRetirement(unittest.TestCase):
             with self.subTest(edit=edit), self.assertRaisesRegex(ValueError, 'original separate setup authority|actual native saved fixture'):
                 self.retire()
         self.assertEqual(self.calls, [])
+    def test_registry_hostname_separators_cannot_match_foreign_hosts(self):
+        for host in ('585192672263Xdkr.ecr.us-east-1.amazonaws.com', '585192672263.dkr.ecr.us-east-1Xamazonaws.com',
+                     '585192672263.dkr.ecr.us-east-1.amazonawsXcom'):
+            config = self.config | {'imageUri': self.config['imageUri'].replace(self.config['imageUri'].split('/')[0], host)}
+            with self.subTest(host=host), self.assertRaisesRegex(ValueError, 'separate private issuer'): retirement.validate(config)
     def test_settled_cleanup_and_unstopped_original_task_refuse_before_http(self):
         self.durable.state['ledger']['operations'][1].update(state='settled', actualUsd='1')
         with self.assertRaisesRegex(ValueError, 'original liability'): self.retire()

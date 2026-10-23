@@ -13,5 +13,9 @@ locals {
   ]]))
 }
 output "worker_claims" {
-  value = { table = module.accounting.claim_table_name, writerRoleArns = local.worker_claim_writers }
+  value = {
+    table = module.accounting.claim_table_name, writerRoleArns = local.worker_claim_writers
+    administratorRoleArns = setunion(var.state_admin_role_arns, [aws_iam_role.dispatcher.arn, aws_iam_role.fixture.arn, aws_iam_role.initializer.arn],
+    [for role in aws_iam_role.native_bootstrap : role.arn], [for role in aws_iam_role.setup_retirement : role.arn])
+  }
 }

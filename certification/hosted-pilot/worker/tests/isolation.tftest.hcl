@@ -39,22 +39,26 @@ override_module {
   }
 }
 variables {
-  region                   = "us-east-1"
-  account_id               = "123456789012"
-  name_prefix              = "honua-pilot-offline"
-  owner                    = "offline-contract"
-  expires_at               = "2033-05-18T05:13:20Z"
-  candidate_digest         = "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
-  attempt_id               = "offline-attempt"
-  issued_epoch             = 2000000000
-  lifetime_seconds         = 6000
-  cluster_arn              = "arn:aws:ecs:us-east-1:123456789012:cluster/honua-pilot-offline-agent"
-  subnet_ids               = ["subnet-00000000000000001"]
-  security_group_ids       = ["sg-00000000000000001"]
-  worker_image             = "123456789012.dkr.ecr.us-east-1.amazonaws.com/honua-pilot-offline-worker@sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
-  public_bundle_digest     = "sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
-  controller_role_arn      = "arn:aws:iam::123456789012:role/honua-pilot-offline-agent-controller"
-  claim_table_name         = "honua-agent-aaaaaaaaaaaaaaaaaaaaaaaa-claims"
+  region               = "us-east-1"
+  account_id           = "123456789012"
+  name_prefix          = "honua-pilot-offline"
+  owner                = "offline-contract"
+  expires_at           = "2033-05-18T05:13:20Z"
+  candidate_digest     = "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+  attempt_id           = "offline-attempt"
+  issued_epoch         = 2000000000
+  lifetime_seconds     = 6000
+  cluster_arn          = "arn:aws:ecs:us-east-1:123456789012:cluster/honua-pilot-offline-agent"
+  subnet_ids           = ["subnet-00000000000000001"]
+  security_group_ids   = ["sg-00000000000000001"]
+  worker_image         = "123456789012.dkr.ecr.us-east-1.amazonaws.com/honua-pilot-offline-worker@sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+  public_bundle_digest = "sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
+  controller_role_arn  = "arn:aws:iam::123456789012:role/honua-pilot-offline-agent-controller"
+  claim_table_name     = "honua-agent-aaaaaaaaaaaaaaaaaaaaaaaa-claims"
+  accounting_claim_roles = {
+    administrators = ["arn:aws:iam::123456789012:role/honua-pilot-offline-agent-plan"]
+    workers        = ["arn:aws:iam::123456789012:role/honua-agent-offline-attempt-lifecycle"]
+  }
   cleanup_alarm_topic_arn  = "arn:aws:sns:us-east-1:123456789012:honua-pilot-offline-cleanup"
   permissions_boundary_arn = "arn:aws:iam::123456789012:policy/honua-pilot-offline-agent-boundary"
   mcp_configuration = {
@@ -94,4 +98,24 @@ run "reject_cluster_outside_original_pilot" {
   command = plan
   variables { cluster_arn = "arn:aws:ecs:us-east-1:123456789012:cluster/unrelated-campaign" }
   expect_failures = [output.worker_backend]
+}
+run "unreviewed_or_missing_current_claim_writer_is_refused" {
+  command = plan
+  variables {
+    accounting_claim_roles = {
+      administrators = ["arn:aws:iam::123456789012:role/honua-pilot-offline-agent-plan"]
+      workers        = ["arn:aws:iam::123456789012:role/honua-agent-foreign-attempt-lifecycle"]
+    }
+  }
+  expect_failures = [var.accounting_claim_roles]
+}
+run "wildcard_claim_administrator_is_refused" {
+  command = plan
+  variables {
+    accounting_claim_roles = {
+      administrators = ["*"]
+      workers        = ["arn:aws:iam::123456789012:role/honua-agent-offline-attempt-lifecycle"]
+    }
+  }
+  expect_failures = [var.accounting_claim_roles]
 }
