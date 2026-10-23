@@ -2,6 +2,7 @@
 import copy
 import importlib.util
 import json
+import subprocess
 import unittest
 from pathlib import Path
 
@@ -12,6 +13,27 @@ helper = runner.agent_map
 
 
 class AgentMapTests(unittest.TestCase):
+    def test_browser_proposal_is_bound_to_the_authenticated_human(self):
+        script = """
+import assert from 'node:assert/strict';
+import {isPendingHumanProposal} from './publication_identity.mjs';
+const proposal = {proposalId:'proposal1', status:'AwaitingApproval',
+                  requestedBy:'human1', requestedByAgent:false};
+assert.equal(isPendingHumanProposal(proposal, 'proposal1', 'human1'), true);
+assert.equal(isPendingHumanProposal(proposal, 'proposal1', 'human2'), false);
+for (const requestedByAgent of [undefined, null, '', 0, true, 'false']) {
+  assert.equal(isPendingHumanProposal({...proposal, requestedByAgent}, 'proposal1', 'human1'), false);
+}
+for (const patch of [{requestedBy:'human2'}, {proposalId:'old'},
+                     {status:'Succeeded'}, {resolvedBy:'human2'}]) {
+  assert.equal(isPendingHumanProposal({...proposal, ...patch}, 'proposal1', 'human1'), false);
+}
+assert.equal(isPendingHumanProposal({...proposal, requestedBy:''}, 'proposal1', ''), false);
+"""
+        result = subprocess.run(['node', '--input-type=module', '-e', script],
+                                cwd=Path(__file__).parent, text=True, capture_output=True)
+        self.assertEqual(result.returncode, 0, result.stderr)
+
     def setUp(self):
         self.original = {'workspaceId': 'w1', 'turnId': 'import-turn', 'targetId': 'target1', 'tenantId': 'tenant1'}
         self.service = {'turnId': 'service-turn', 'studioSourceId': 'source1'}

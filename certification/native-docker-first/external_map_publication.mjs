@@ -4,6 +4,7 @@ import {createRequire} from 'node:module';
 import {readFileSync,openSync,writeFileSync,closeSync} from 'node:fs';
 import {resolve} from 'node:path';
 import {createHash} from 'node:crypto';
+import {isPendingHumanProposal} from './publication_identity.mjs';
 const [consoleRoot,origin,humanBrowserCdp,inputPath,outputPath,route,proposalId]=process.argv.slice(2);
 if (!consoleRoot || !/^http:\/\/127\.0\.0\.1:\d+$/.test(origin || '') || !/^\/[a-z0-9][a-z0-9/_-]{0,126}$/.test(route || '')) throw Error('Exact installed origin and scoped route required.');
 const cdpPort=/^http:\/\/127\.0\.0\.1:([0-9]{1,5})$/.exec(humanBrowserCdp || '')?.[1];
@@ -66,7 +67,7 @@ try {
   },map.layerId);
   check(liveBlue,'Live rendered presentation layer does not have the observed blue refinement.');
   const proposal=await read(`/api/processes/admin/proposals/${encodeURIComponent(proposalId)}`);
-  check(proposal.proposalId===proposalId && proposal.status?.toLowerCase()==='awaitingapproval' && typeof proposal.requestedBy==='string' && proposal.requestedBy.trim() && !proposal.requestedByAgent && !proposal.resolvedBy,'Exact unresolved human proposal unavailable; direct publication is refused.');
+  check(isPendingHumanProposal(proposal,proposalId,session.principalId),'Exact unresolved proposal from the authenticated human unavailable; direct publication is refused.');
   const records=await page.locator('honua-studio-app').evaluate(node=>{
     const storage=node.workspace?.storage, values=[];
     if(storage)for(let i=0;i<storage.length;i++){const key=storage.key(i);if(key?.startsWith('honua.studio.publication.'))values.push(JSON.parse(storage.getItem(key)));}
