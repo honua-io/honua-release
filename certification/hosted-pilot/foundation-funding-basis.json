@@ -36,6 +36,11 @@
       "amountUsd": "20",
       "id": "legacy-model-39946356426",
       "status": "unsettled-genuine-model-original-receipt-retained"
+    },
+    {
+      "amountUsd": "20",
+      "id": "legacy-model-39987311356",
+      "status": "failed-unsettled-original-reservation-retained"
     }
   ],
   "candidateIndependent": true,
@@ -55,6 +60,20 @@
   "nextPublicationReservationUsd": "5",
   "numericSpentFieldMeaning": "No attributable pilot settlement has been authenticated; all gross usage and original live liabilities remain nonzero reserved obligations, never zero-cost evidence",
   "originalHistoryMayBeReset": false,
+  "postCutoffModelObservations": [
+    {
+      "path": "certification/hosted-pilot/history/canary-reservation-39987311356.json",
+      "sha256": "sha256:41192a53249ead1768d9be9558113bceb40c00318e9c05c6d58d68ffc66399e9"
+    },
+    {
+      "path": "certification/hosted-pilot/history/canary-outcome-39987311356.json",
+      "sha256": "sha256:80e681d228a6fd9b799eaa2f4462d6012e8d84010619acdfcf58ae168cc6e82b"
+    }
+  ],
+  "priorFundingBasis": {
+    "path": "certification/hosted-pilot/history/foundation-funding-basis-original-294.json",
+    "sha256": "sha256:0d38f926c259c7fd65f76a6114dece8751b5036700a96aea5cac01865f02a3e7"
+  },
   "priorUnknownUsageHold": {
     "amountUsd": "151",
     "source": {
@@ -64,7 +83,7 @@
   },
   "protectedCleanupUsd": "200",
   "region": "us-east-1",
-  "reservedUsd": "294",
+  "reservedUsd": "314",
   "schema": "honua.hosted-pilot-foundation-funding-basis/v1",
   "settledAttributablePilotUsd": null,
   "totalBudgetUsd": "2000",

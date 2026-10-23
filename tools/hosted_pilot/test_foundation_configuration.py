@@ -59,6 +59,38 @@ class FoundationConfiguration(unittest.TestCase):
                 self.resolve()
             self.cfg = before
 
+    def test_new_twenty_dollar_liability_cannot_reuse_the_older_294_reserve(self):
+        self.assertEqual(self.resolve()['budget_ledger']['reserved_usd'],314)
+        self.cfg['budget_ledger']['reserved_usd']=294
+        self.reviewed_cfg=copy.deepcopy(self.cfg)
+        with self.assertRaisesRegex(ValueError,'cannot discard original nonzero'):
+            self.resolve()
+        self.cfg['budget_ledger']['reserved_usd']=314
+        self.reviewed_cfg=copy.deepcopy(self.cfg)
+        basis=json.loads(self.basis)
+        basis['additionalReservedLiabilities']=[row for row in basis['additionalReservedLiabilities'] if row['id']!='legacy-model-39987311356']
+        self.basis=json.dumps(basis).encode()
+        with self.assertRaisesRegex(ValueError,'cannot discard original nonzero'):
+            self.resolve()
+
+    def test_original_basis_and_new_failed_outcome_remain_separate_immutable_evidence(self):
+        root=Path(__file__).resolve().parents[2];basis=json.loads(self.basis)
+        def source(reference):
+            raw=(root/reference['path']).read_bytes()
+            self.assertEqual('sha256:'+hashlib.sha256(raw).hexdigest(),reference['sha256'])
+            return json.loads(raw)
+        prior=source(basis['priorFundingBasis'])
+        self.assertEqual(prior['reservedUsd'],'294')
+        self.assertEqual(basis['additionalReservedLiabilities'][:-1],prior['additionalReservedLiabilities'])
+        reservation,outcome=map(source,basis['postCutoffModelObservations'])
+        self.assertEqual(reservation['state'],'dispatched-unsettled')
+        self.assertEqual(reservation['additionalReservedUsd'],'20')
+        self.assertEqual(outcome['nativeRun']['conclusion'],'failure')
+        self.assertEqual(outcome['usage']['modelCalls'],31)
+        self.assertEqual(outcome['usage']['totalTokens'],1120537)
+        self.assertIsNone(outcome['actualUsd'])
+        self.assertEqual(outcome['retainedReservationUsd'],'20')
+
     def test_changed_untracked_bytes_or_another_foundation_identity_refuse(self):
         self.path.write_bytes(self.raw+b' ')
         with self.assertRaisesRegex(ValueError, 'exact workflow source'):

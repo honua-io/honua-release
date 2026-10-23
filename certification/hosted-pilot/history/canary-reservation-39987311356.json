@@ -1,0 +1,19 @@
+{
+  "schema": "honua.canary-attempt-reservation/v1",
+  "createdAt": "2026-10-23T16:30:09.851241+00:00",
+  "workflow": "honua-io/honua-release/.github/workflows/terminal-model-canary.yml",
+  "repairMerge": "3b6afbadf0a4be24a006af6b422e1ad06570e114",
+  "model": "us.anthropic.claude-sonnet-4-5-20250929-v1:0",
+  "target": "local-docker",
+  "priorReservedUsd": "294",
+  "additionalReservedUsd": "20",
+  "aggregateReservedUsd": "314",
+  "actualUsd": null,
+  "state": "dispatched-unsettled",
+  "originalFundingBasisUnchanged": true,
+  "previousReceiptsRetained": true,
+  "concurrentObservedCanaryRuns": 0,
+  "maxActionsPerStage": 12,
+  "runId": 39987311356,
+  "runUrl": "https://github.com/honua-io/honua-release/actions/runs/39987311356"
+}
