@@ -61,6 +61,9 @@ STAGE_TOOLS = {
 STAGE_PRINCIPALS = {1: "operator", 2: "operator", 3: "operator", 4: "operator", 5: "operator",
                     6: "proposer", 7: "proposer", 8: "operator"}
 SDK_METHODS = {"CreateConnectionAsync", "TestConnectionAsync"}
+# A model may select the authored datasource without round-tripping credential
+# environment references, which the canary correctly redacts before prompting.
+DATASOURCE_REFERENCE = {"fixtureReference": "journey.datasource"}
 # Cross-replica read through a cloud cell's single endpoint (honua-server#5790): how many times the
 # saved map is re-read, the pause between sequential reads, and the bound on an instance id the server stamps
 # (printable ASCII, at most 128 characters, as ServerInstanceIdentity sanitizes it).
@@ -266,8 +269,9 @@ class JourneyExecutor:
             "sdkCommand": "honua-journey-sdk",
             "sdkMethods": sorted(SDK_METHODS),
             "sdkSyntax": "honua-journey-sdk METHOD JSON_ARRAY",
+            "sdkFixtureReferences": {"datasource": dict(DATASOURCE_REFERENCE)},
             "sdkArgumentSources": {
-                "CreateConnectionAsync": ["observation.fixture.datasource (unchanged; retain Env references)"],
+                "CreateConnectionAsync": ["terminalSurface.sdkFixtureReferences.datasource (unchanged)"],
                 "TestConnectionAsync": ["currentState.connectionId"],
             },
             "uploadCommand": UPLOAD_COMMAND,
@@ -307,7 +311,8 @@ class JourneyExecutor:
             "CreateConnectionAsync": [self.fixture["datasource"]],
             "TestConnectionAsync": [self.resources.get("connectionId")],
         }[method]
-        if arguments != expected or any(value is None for value in expected):
+        fixture_reference = method == "CreateConnectionAsync" and arguments == [DATASOURCE_REFERENCE]
+        if (arguments != expected and not fixture_reference) or any(value is None for value in expected):
             raise ActionRejected(method, "SDK arguments do not bind the authored fixture and observed resource identities")
         if method == "CreateConnectionAsync":
             arguments = [self.datasource_arguments()]
