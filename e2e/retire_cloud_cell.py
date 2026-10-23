@@ -136,6 +136,21 @@ def compute_absence(record, session):
     return {"scope": sorted(checks), "resources": observed, "pendingSecretDeletion": pending}
 
 
+def private_retirement_directory(root, iac):
+    # Recovery uses the exact old source, whose ignore rules may predate the
+    # helper. Protect private evidence locally without changing tracked IaC.
+    exclude = Path(subprocess.run(["git", "-C", str(iac), "rev-parse", "--path-format=absolute",
+                                  "--git-path", "info/exclude"],
+                                 capture_output=True, text=True, check=True).stdout.strip())
+    exclude.parent.mkdir(parents=True, exist_ok=True)
+    with exclude.open("a") as stream:
+        stream.write("\n**/.release-cell-retirement/\n**/release_cell_retirement_override.tf.json\n")
+    private = root / ".release-cell-retirement"
+    private.mkdir(mode=0o700, exist_ok=True)
+    os.chmod(private, 0o700)
+    return private
+
+
 def perform(args):
     import boto3
     import cost_meter
@@ -174,10 +189,9 @@ def perform(args):
     receipt = {**request, "recoveryRunId": current_run, "recoveryRunAttempt": current_attempt,
                "status": "incomplete", "terraformRetired": False, "costReconciled": False,
                "originalStateKeyRetained": True, "recoveryStateSealed": False}
-    private = args.directory / "private"
-    private.mkdir(mode=0o700, exist_ok=True)
     try:
         run_cloud.open_state(root, args.bundle, key_name)
+        private = private_retirement_directory(root, args.iac)
         state = json.loads((root / "terraform.tfstate").read_text())
         rows = [{**instance["attributes"], "resourceType": group["type"], "resourceName": group["name"]}
                 for group in state["resources"] if group["mode"] == "managed" for instance in group["instances"]]
@@ -188,7 +202,8 @@ def perform(args):
         os.environ["HONUA_GP_BATCH_IMAGE"] = json.loads(job["container_properties"])["image"]
         initialized = subprocess.run(["terraform", f"-chdir={root}", "init", "-input=false", "-no-color"],
                                      text=True, capture_output=True)
-        (private / "terraform-init.log").write_text(initialized.stdout + initialized.stderr)
+        with os.fdopen(os.open(private / "terraform-init.log", os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600), "w") as log:
+            log.write(initialized.stdout + initialized.stderr)
         require(initialized.returncode == 0, "original Terraform initialization failed; private diagnostics retained")
         target._workdir = root
         try:
