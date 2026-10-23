@@ -1,0 +1,74 @@
+{
+  "schema": "honua.hosted-pilot-original-environment-proof/v1",
+  "observedAt": "2026-10-23T16:29:45.912688+00:00",
+  "producer": {
+    "repository": "honua-io/honua-release",
+    "runId": 39937421185,
+    "runAttempt": 1,
+    "sourceSha": "7342099da90f715f44a181f9d025c5740149b15a",
+    "workflow": ".github/workflows/hosted-pilot-foundation-environment.yml"
+  },
+  "nativeRunStatus": "completed",
+  "nativeRunConclusion": "success",
+  "jobCount": 1,
+  "lastOriginalJobCompletedAt": "2026-10-23T10:12:30Z",
+  "historyCutoff": "2026-10-23T16:15:00Z",
+  "sourceFiles": {
+    ".github/workflows/hosted-pilot-foundation-environment.yml": "9a86a948f8702a939d00e8ac2c6bae9e4f13ca4bb087a4573cf91b44c74e90d2",
+    "tools/hosted_pilot/foundation_environment.py": "5b3a4225b8eb5d738d05ee6a19907a341aaa3088645274fd325c553e32bbe89f",
+    "tools/hosted_pilot/bind_github.py": "a548c91b113d488a5b0eff9db4a56ea22a53e129250053fadd694086ade19e4c",
+    "tools/hosted_pilot/deploy.py": "875b556054f5e104277f56486077d29a78c66a05ab2a3692b253d90b0a35726f",
+    "certification/hosted-pilot/foundation-environment.json": "a2aa5e4a94dc5a9fc6168aea18e213fb1f28e416f025ff8a66f8932bf875087b"
+  },
+  "observations": [
+    {
+      "method": "GET",
+      "path": "repos/honua-io/honua-release/actions/runs/39937421185/attempts/1",
+      "responseSha256": "sha256:b53110fec8ff4058700cf8fcb337024268c463b7f7fe557fa292ae88f7c7b815"
+    },
+    {
+      "method": "GET",
+      "path": "repos/honua-io/honua-release/branches/trunk",
+      "responseSha256": "sha256:d69d2a00cab33d82eec7d30e4e949e0a436cea08625d7e03ad06df749f429805"
+    },
+    {
+      "method": "GET",
+      "path": "repos/honua-io/honua-release/compare/7342099da90f715f44a181f9d025c5740149b15a...trunk",
+      "responseSha256": "sha256:f199fea57e2c27bdfbd78de87984a4ec18899f694ad88dca610b0ee4fa9e6862"
+    },
+    {
+      "method": "GET",
+      "path": "repos/honua-io/honua-release/actions/runs/39937421185/attempts/1/jobs?per_page=100",
+      "responseSha256": "sha256:608e6c1b72687c21408a3bc9182151a1f404314eb4584e2a22fa3ea548bc9fd6"
+    },
+    {
+      "method": "GET",
+      "path": "repos/honua-io/honua-release/contents/.github/workflows/hosted-pilot-foundation-environment.yml?ref=7342099da90f715f44a181f9d025c5740149b15a",
+      "responseSha256": "sha256:0c2570edcbe9ed0ce155c8f71c2d532417261f7a458b2e214f5f0633ac6bcce9"
+    },
+    {
+      "method": "GET",
+      "path": "repos/honua-io/honua-release/contents/tools/hosted_pilot/foundation_environment.py?ref=7342099da90f715f44a181f9d025c5740149b15a",
+      "responseSha256": "sha256:a062b387d6d7bc29e83d14ae952400698d7dabff80219be2a5d6285001e903b2"
+    },
+    {
+      "method": "GET",
+      "path": "repos/honua-io/honua-release/contents/tools/hosted_pilot/bind_github.py?ref=7342099da90f715f44a181f9d025c5740149b15a",
+      "responseSha256": "sha256:dcceb0b9b109191482b6be2a6ff5d3857466663732e7d36bde20862e92924f3e"
+    },
+    {
+      "method": "GET",
+      "path": "repos/honua-io/honua-release/contents/tools/hosted_pilot/deploy.py?ref=7342099da90f715f44a181f9d025c5740149b15a",
+      "responseSha256": "sha256:b58025b78663624ea64fcb4c913b6c11d54436111ca364524106ef51e9274318"
+    },
+    {
+      "method": "GET",
+      "path": "repos/honua-io/honua-release/contents/certification/hosted-pilot/foundation-environment.json?ref=7342099da90f715f44a181f9d025c5740149b15a",
+      "responseSha256": "sha256:48631e2d3f1834a41390824fd0dcd4424c0197c42b657ed6771aec9b908c5ead"
+    }
+  ],
+  "classification": "source-verified GitHub environment configuration only; no AWS credential or model execution step",
+  "funding": "retain original diagnostic/gross-usage reservations; no zero-cost settlement",
+  "qualification": false,
+  "moduleSha256": "sha256:3ac5bc9418549a73a98c6e9771a60de25fd98932e62e6ed3b08b19d6ce056c5f"
+}
