@@ -132,7 +132,10 @@ def budget():
     claim = {'run_id': e['GITHUB_RUN_ID'], 'source_sha': e['GITHUB_SHA'], 'ledger_sha256': e['PILOT_BUDGET_SHA256']}
     claim_path = Path(e['RUNNER_TEMP']) / 'pilot-budget-claim.json'
     private_json(claim_path, claim)
-    claim_key = 'hosted-pilot/reservations/' + e['PILOT_BUDGET_SHA256'] + '.json'
+    reservation = ledger.get('reservation_id') or e['PILOT_BUDGET_SHA256']
+    require(isinstance(reservation, str) and re.fullmatch(r'[A-Za-z0-9][A-Za-z0-9._-]{2,119}', reservation),
+            'original owner reservation identity is invalid')
+    claim_key = 'hosted-pilot/reservations/' + reservation + '.json'
     attempt = subprocess.run(['aws', 's3api', 'put-object', '--bucket', e['PILOT_PLAN_BUCKET'], '--key', claim_key, '--body', str(claim_path), '--if-none-match', '*', '--server-side-encryption', 'aws:kms', '--ssekms-key-id', e['PILOT_PLAN_KMS_ARN']], capture_output=True)
     if attempt.returncode != 0:
         aws('s3api', 'get-object', '--bucket', e['PILOT_PLAN_BUCKET'], '--key', claim_key, str(claim_path))

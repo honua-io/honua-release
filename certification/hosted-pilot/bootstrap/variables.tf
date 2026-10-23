@@ -57,10 +57,15 @@ variable "budget_ledger" {
     reserved_usd               = number
     deployment_reservation_usd = number
     active_paid_attempts       = number
+    reservation_id             = optional(string)
   })
   validation {
-    condition     = var.budget_ledger.schema == "honua.hosted-pilot-budget/v1" && var.budget_ledger.total_budget_usd == 2000 && var.budget_ledger.cleanup_reserve_usd == 200 && var.budget_ledger.spent_usd >= 0 && var.budget_ledger.reserved_usd >= 0 && var.budget_ledger.deployment_reservation_usd > 0 && var.budget_ledger.spent_usd + var.budget_ledger.reserved_usd + var.budget_ledger.deployment_reservation_usd <= 1800 && var.budget_ledger.active_paid_attempts >= 0 && var.budget_ledger.active_paid_attempts < 4
-    error_message = "Preserve the approved pilot $2000/$200 reserve/four-attempt policy."
+    condition = (
+      var.budget_ledger.schema == "honua.hosted-pilot-budget/v1" && var.budget_ledger.total_budget_usd == 2000 && var.budget_ledger.cleanup_reserve_usd == 200 && var.budget_ledger.spent_usd >= 0 && var.budget_ledger.reserved_usd >= 0 && var.budget_ledger.deployment_reservation_usd > 0 && var.budget_ledger.spent_usd + var.budget_ledger.reserved_usd + var.budget_ledger.deployment_reservation_usd <= 1800 && var.budget_ledger.active_paid_attempts >= 0 && var.budget_ledger.active_paid_attempts < 4 &&
+      can(regex("^[a-f0-9]{40}$", var.budget_ledger.source_sha)) && can(regex("^[a-f0-9]{64}$", var.budget_ledger.config_sha256)) &&
+      (var.budget_ledger.reservation_id == null ? true : can(regex("^[A-Za-z0-9][A-Za-z0-9._-]{2,119}$", var.budget_ledger.reservation_id)))
+    )
+    error_message = "Preserve approved pilot limits and bind an actual source/config before creating any owner ledger."
   }
 }
 

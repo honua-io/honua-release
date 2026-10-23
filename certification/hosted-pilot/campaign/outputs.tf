@@ -1,6 +1,5 @@
-output "controller_handoff" {
-  description = "Nonsecret checked-source handoff contract. Snapshot this reviewed output into certification/agent-e2e/controller-handoff.json before dispatch. Does not assert readiness or create an accounting generation."
-  value = var.dispatch_budget == null ? null : {
+locals {
+  controller_observation = {
     schemaVersion     = 1
     region            = var.region
     accountId         = var.account_id
@@ -13,13 +12,27 @@ output "controller_handoff" {
     network           = { subnetIds = module.network.private_subnets, securityGroupIds = [aws_security_group.controller.id] }
     lifecycle         = { stateMachineArn = aws_sfn_state_machine.controller.state_machine_version_arn, stateMachineRoleArn = aws_iam_role.lifecycle.arn, definitionDigest = "sha256:${sha256(jsonencode(local.controller_definition))}" }
     custody           = local.custody
-    dispatchBudget    = merge(var.dispatch_budget, { candidateKey = var.candidate_digest, claimTable = aws_dynamodb_table.claims["dispatch"].name })
     maxSeconds        = var.controller_max_seconds
   }
+}
+output "controller_handoff" {
+  description = "Nonsecret checked-source handoff contract. Snapshot this reviewed output into certification/agent-e2e/controller-handoff.json before dispatch. Does not assert readiness or create an accounting generation."
+  value = var.dispatch_budget == null ? null : merge(local.controller_observation, {
+    dispatchBudget = merge(var.dispatch_budget, { candidateKey = var.candidate_digest, claimTable = aws_dynamodb_table.claims["dispatch"].name })
+  })
   precondition {
     condition     = var.dispatch_budget == null ? true : var.dispatch_budget.state == module.accounting.state_config
     error_message = "The original retained candidate accounting namespace must match this root; import/reconcile existing history instead of resetting or substituting a fresh allowance."
   }
+}
+output "initialization_readiness" {
+  description = "Read-only initial-stage observations. No retained generation or executable dispatch contract is asserted."
+  value = var.dispatch_budget == null ? {
+    controller              = local.controller_observation, fixture = local.fixture_handoff,
+    dispatcherRoleArn       = aws_iam_role.dispatcher.arn, claimTable = aws_dynamodb_table.claims["dispatch"].name,
+    dispatcherPolicyDigests = { (aws_iam_role_policy.dispatcher.name) = "sha256:${sha256(aws_iam_role_policy.dispatcher.policy)}" },
+    state                   = module.accounting.state_config, candidateKey = var.candidate_digest
+  } : null
 }
 output "dispatcher_role_arn" { value = aws_iam_role.dispatcher.arn }
 output "fixture_handoff" {
