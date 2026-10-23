@@ -1898,7 +1898,7 @@ def test_native_map_diagnostic_rejects_unreviewed_fields_and_unbounded_values(ch
     elif change == 'digest': row['bodyDigest'] = 'opaque-unclassified-value'
     elif change == 'size': row['responseBytes'] = 4 * 1024 * 1024 + 1
     elif change == 'unpaired': del row['responseBytes']
-    elif change == 'excess': rows *= 11
+    elif change == 'excess': rows *= 13
     with pytest.raises(canary.CanaryError, match='invalid native map readback diagnostics'):
         canary.map_readback_diagnostic(rows)
 
@@ -1912,3 +1912,13 @@ def test_map_failure_retains_field_diagnostics_without_unrelated_prior_render_di
     assert '6.saved-map=fail/assertion-refused' in diagnostic
     assert 'nativeMap=' + canary.map_readback_diagnostic([row]) in diagnostic
     assert 'renderSize' not in diagnostic
+
+
+def test_map_diagnostics_allow_saved_version_replicas_and_both_public_verifications():
+    row = map_diagnostic_fixture()
+    rows = [{**row, 'slot': slot} for slot in ['pre-save', 'saved-primary',
+        *(['saved-replica'] * 8), 'published-route', 'published-route']]
+    assert len(json.loads(canary.map_readback_diagnostic(rows))) == 12
+    response = {'stageStatus': {'checks': [{'id': '8.final-map', 'status': 'fail',
+        'detail': 'map identity or actual map body differs'}]}, 'observation': {'mapReadbacks': rows}}
+    assert 'nativeMap=' in canary.driver_failure_diagnostic(response)

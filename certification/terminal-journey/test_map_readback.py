@@ -289,3 +289,41 @@ def test_canonical_resource_family_comparison_preserves_native_enum_case(http_ma
     engine.record_map_draft('honua_studio_create_draft', {'family': 'map', 'body': BODY}, receipt)
     primary[DRAFT_PATH] = document(receipt)
     assert save(engine)['mapReadbacks'][0]['fieldMatches']['family'] is True
+
+
+PUBLIC_PATH = '/api/v1/studio/published/maps/journey'
+
+
+def public_map(engine, originals):
+    engine.fixture['publishedPath'] = PUBLIC_PATH
+    engine.evidence['approvalResolution'] = {'proposalId': 'actual-test-approval'}
+    value = {key: copy.deepcopy(VERSION[key]) for key in ('itemId', 'versionId', 'contentHash', 'envelope')}
+    value.update(publicationId='publication', route='/maps/journey', visibility='public')
+    originals[PUBLIC_PATH] = document(value)
+    return value
+
+
+def test_public_dto_omits_private_draft_metadata_but_preserves_full_saved_content(http_map):
+    engine, originals, seen, _, _ = setup_map(http_map)
+    save(engine)
+    public_map(engine, originals)
+    assert engine.verify_final().status == 'pass'
+    assert seen[-1] == (PUBLIC_PATH, None)
+    row = engine.evidence['mapReadbacks'][-1]
+    assert row['slot'] == 'published-route'
+    assert all(row['fieldMatches'].values())
+    assert not {'ownerId', 'packageKey', 'sourceDraftId', 'draftReceipt'} & row['fieldMatches'].keys()
+    assert row['responseSha256'] == hashlib.sha256(originals[PUBLIC_PATH]).hexdigest()
+
+
+@pytest.mark.parametrize('field', ['itemId', 'versionId', 'contentHash', 'family', 'body'])
+def test_public_route_still_rejects_foreign_identity_family_or_actual_content(http_map, field):
+    engine, originals, _, _, _ = setup_map(http_map)
+    save(engine)
+    public = public_map(engine, originals)
+    if field in {'family', 'body'}: public['envelope'][field] = 'dashboard' if field == 'family' else {}
+    else: public[field] = 'other'
+    originals[PUBLIC_PATH] = document(public)
+    assert engine.verify_final().status == 'fail'
+    assert engine.evidence['mapReadbacks'][-1]['fieldMatches'][field] is False
+    assert engine.expected_map_body() == BODY

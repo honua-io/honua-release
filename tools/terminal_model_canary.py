@@ -1094,12 +1094,12 @@ class CandidateProxyClient:
 
 def map_readback_diagnostic(rows: Any) -> str:
     """Validate a finite diagnostic vocabulary before making it public."""
-    if not isinstance(rows, list) or len(rows) > 10:
+    if not isinstance(rows, list) or len(rows) > 12:
         raise CanaryError("driver returned invalid native map readback diagnostics")
     for row in rows:
         if (not isinstance(row, dict) or set(row) !=
                 {"slot", "fieldMatches", "bodyDigest", "authoredBodyDigest", "responseSha256", "responseBytes"}
-                or row.get("slot") not in {"pre-save", "saved-primary", "saved-replica"}
+                or row.get("slot") not in {"pre-save", "saved-primary", "saved-replica", "published-route"}
                 or not isinstance(row.get("fieldMatches"), dict) or not row["fieldMatches"]
                 or not set(row["fieldMatches"]) <= {"itemId", "versionId", "contentHash", "family", "body",
                     "draftReceipt", "bodyMatchesDraft", "draftId", "generation", "ownerId", "workspaceId",
@@ -1154,7 +1154,7 @@ def driver_failure_diagnostic(response: Any) -> str:
                 diagnostic += "; renderSize=" + ",".join(
                     key + "=" + "x".join(str(value) for value in pair) for key, pair in pairs.items())
         readbacks = observation.get("mapReadbacks") if isinstance(observation, dict) else None
-        if any(row.startswith("6.") for row in rows) and readbacks is not None:
+        if any(row.startswith(("6.", "8.final-map=")) for row in rows) and readbacks is not None:
             diagnostic += "; nativeMap=" + map_readback_diagnostic(readbacks)
         return diagnostic
     error = response.get("error")

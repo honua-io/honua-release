@@ -747,9 +747,13 @@ class JourneyExecutor:
             fields["contentHash"] = value.get("contentHash") == self.resources.get("contentHash")
             saved_input = self.evidence.get("mapSaveInput")
             if isinstance(saved_input, dict):
-                fields.update({key: value.get(key) == saved_input[key] for key in ("ownerId", "packageKey")})
-                fields["sourceDraftId"] = value.get("sourceDraftId") == saved_input["draftId"]
-                fields["draftReceipt"] = all(fields[key] for key in ("sourceDraftId", "ownerId", "packageKey"))
+                # Public artifacts deliberately omit private draft provenance.
+                # Exact content/version remains joined to the independently read
+                # immutable version, whose private provenance was checked above.
+                if slot in {"saved-primary", "saved-replica"}:
+                    fields.update({key: value.get(key) == saved_input[key] for key in ("ownerId", "packageKey")})
+                    fields["sourceDraftId"] = value.get("sourceDraftId") == saved_input["draftId"]
+                    fields["draftReceipt"] = all(fields[key] for key in ("sourceDraftId", "ownerId", "packageKey"))
                 fields["bodyMatchesDraft"] = ("body" in envelope and
                     oracles.content_digest(body) == saved_input["bodyDigest"] and
                     saved_input.get("savedVersionId") == self.resources.get("versionId"))
@@ -1026,7 +1030,7 @@ class JourneyExecutor:
         def prove():
             if not self.evidence.get("approvalResolution"):
                 raise ExecutionError("GET final published map", "separate-principal approval has not completed", blocked=True)
-            return self._prove_map(self.transport, self.fixture["publishedPath"], principal=None)
+            return self._prove_map(self.transport, self.fixture["publishedPath"], principal=None, slot="published-route")
         return self._check(8, "final-map", "GET final published map content", prove)
 
     def verify_fake_success(self):
