@@ -11,7 +11,7 @@ from types import SimpleNamespace
 from unittest.mock import Mock, patch
 from botocore.exceptions import ClientError
 
-from retire_cloud_cell import RecoveryRefused, compute_absence, original_request, verify_handoff, perform
+from retire_cloud_cell import RecoveryRefused, compute_absence, original_request, verify_handoff, perform, preflight
 
 
 class RecoveryBindingTests(unittest.TestCase):
@@ -40,6 +40,12 @@ class RecoveryBindingTests(unittest.TestCase):
             with self.subTest(patch=patch), self.assertRaises(RecoveryRefused):
                 self.request()
             self.metadata = saved
+
+    def test_non_trunk_dispatch_fails_before_any_remote_call(self):
+        command = Mock(side_effect=AssertionError('non-trunk must not contact remote services'))
+        with patch.dict(os.environ,{'GITHUB_REF':'refs/heads/feature'}), self.assertRaisesRegex(RecoveryRefused,'on trunk'):
+            preflight(SimpleNamespace(),run=command)
+        command.assert_not_called()
 
     def test_stale_candidate_or_foreign_cell_cannot_authorize_cleanup(self):
         request = self.request()
