@@ -117,11 +117,46 @@ class StudioFixtureDatabase(FixtureDatabase):
         record['prepared'] = prepared
         return record
 
+    def ownership_created_draft(self, baseline, draft, *, item_id, namespace, owner_id):
+        """Adopt only an actual model-created draft observed through native GET.
+
+        This is the new-map starting state, before the model saves a first
+        version. No fixture envelope or generated version ID is supplied by the
+        controller. Later owned versions are discovered from exact native rows.
+        """
+        item_id, draft_id = guid(item_id), guid(draft.get('draftId'))
+        require(baseline.get('candidateKey') == self.config['candidateKey'] and
+                draft.get('itemId') == item_id and draft.get('ownerId') == owner_id and
+                draft.get('packageKey') == draft.get('workspaceId') == namespace and
+                draft.get('baseVersionId') is None and draft.get('generation') == 1,
+                'model-created draft differs from exact absent-item scope')
+        record = {'schemaVersion': 1, 'candidateKey': self.config['candidateKey'], 'baseline': copy.deepcopy(baseline),
+            'itemId': item_id, 'draftId': draft_id, 'versionId': None, 'namespace': namespace,
+            'ownerPrincipalId': owner_id, 'contentHash': None, 'creationMode': 'model-created-draft'}
+        with self.connection() as (connection, observed_identity):
+            require(baseline['database'] == {key: observed_identity[key] for key in baseline['database']},
+                    'model-created draft database differs from original absence baseline')
+            prepared = self.snapshot(connection)
+        owned = self.owned(prepared, record)
+        require(not any(self.owned(baseline['snapshot'], record).values()), 'model-created draft was preexisting shared content')
+        require(len(owned['studio_content_items']) == len(owned['studio_package_drafts']) == 1 and
+                not any(owned[table] for table in ('studio_content_versions', 'studio_content_version_dependencies',
+                                                  'studio_publication_requests', 'studio_rollback_requests')),
+                'model-created draft is not the exact first unsaved item')
+        item, actual = owned['studio_content_items'][0], owned['studio_package_drafts'][0]
+        require(item['current_version_id'] is item['published_version_id'] is None and actual['draft_id'] == draft_id and
+                actual['envelope'] == draft.get('envelope') and
+                all(row['owner_id'] == owner_id and row['workspace_id'] == row['package_key'] == namespace for row in (item, actual)),
+                'model-created draft SQL identity/content/pointers differ from native HTTP')
+        require(self.without_owned(prepared, record) == baseline['snapshot'], 'model draft creation changed unrelated shared state')
+        record['prepared'] = prepared
+        return record
+
     def check_references(self, connection, snapshot, record):
         from psycopg.errors import InsufficientPrivilege
         from psycopg import sql
         owned = self.owned(snapshot, record)
-        identifiers = {record['itemId'], record['draftId'], record['versionId']}
+        identifiers = {value for value in (record['itemId'], record['draftId'], record['versionId']) if value is not None}
         for table, column in self.PARENTS.items():
             identifiers.update(row[column] for row in owned[table])
         remaining = self.without_owned(snapshot, record)

@@ -204,3 +204,33 @@ def test_actual_unknown_delete_trigger_fails_before_owned_effects(studio_db):
         database.cleanup(record, authorize=authorize, retain=retain)
     with psycopg.connect(dsn) as connection:
         assert connection.execute('SELECT count(*) FROM honua.studio_content_items').fetchone()[0] == 1
+
+
+def test_actual_model_created_unsaved_draft_is_adopted_before_later_model_versions(studio_db):
+    import psycopg
+    from psycopg.types.json import Jsonb
+    database, dsn = studio_db
+    baseline = database.baseline()
+    item, draft, saved = (str(uuid4()) for _ in range(3))
+    namespace, owner = 'ae_actual_model_scope', 'api-key:'+str(uuid4())
+    envelope = {'family': 'map', 'schemaVersion': '1.0', 'body': {'layers': []}}
+    observed = {'itemId': item, 'draftId': draft, 'ownerId': owner, 'packageKey': namespace,
+                'workspaceId': namespace, 'baseVersionId': None, 'generation': 1, 'envelope': envelope}
+    with psycopg.connect(dsn) as connection:
+        connection.execute('INSERT INTO honua.studio_content_items VALUES (%s,%s,%s,%s,NULL,NULL)',
+                           (item, owner, namespace, namespace))
+        connection.execute('INSERT INTO honua.studio_package_drafts VALUES (%s,%s,%s,%s,%s,%s)',
+                           (draft, item, owner, namespace, namespace, Jsonb(envelope)))
+    record = database.ownership_created_draft(baseline, observed, item_id=item, namespace=namespace, owner_id=owner)
+    assert record['versionId'] is None and record['creationMode'] == 'model-created-draft'
+    # The independent SQL observer discovers the subsequent actual saved version;
+    # no controller placeholder is ever treated as a native version identity.
+    with psycopg.connect(dsn) as connection:
+        envelope['body']['layers'] = [{'id': 'actual-model-added-layer'}]
+        connection.execute('UPDATE honua.studio_package_drafts SET envelope=%s WHERE draft_id=%s', (Jsonb(envelope), draft))
+        connection.execute('INSERT INTO honua.studio_content_versions VALUES (%s,%s,%s,%s,%s,%s,1,%s,%s)',
+                           (saved, item, draft, owner, namespace, namespace, 'b'*64, Jsonb(envelope)))
+        connection.execute('UPDATE honua.studio_content_items SET current_version_id=%s WHERE item_id=%s', (saved, item))
+    state, authorize, retain = hooks(record)
+    result = database.cleanup(record, authorize=authorize, retain=retain)
+    assert result['resourceIds'] == [] and database.baseline()['snapshot'] == baseline['snapshot']

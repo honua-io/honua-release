@@ -37,7 +37,7 @@ def server():
                 self.send_header(key, value)
             self.end_headers()
             self.wfile.write(body)
-        do_GET = do_POST = do_PUT = handle_request
+        do_GET = do_POST = do_PUT = do_DELETE = handle_request
     httpd = ThreadingHTTPServer(('127.0.0.1', 0), Handler)
     thread = threading.Thread(target=lambda: httpd.serve_forever(poll_interval=0.01), daemon=True)
     thread.start()
