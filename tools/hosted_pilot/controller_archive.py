@@ -19,6 +19,7 @@ CONTRACT_PATHS = (
     'tools/hosted_pilot/controller_source.py',
     'tools/hosted_pilot/fixture_handoff.py',
     'tools/hosted_pilot/fixture_provisioner.py',
+    'tools/hosted_pilot/native_bootstrap.py',
 )
 SOURCE_LIMIT = 256 * 1024 * 1024
 BUNDLE_LIMIT = 128 * 1024 * 1024

@@ -123,3 +123,32 @@ run "reject_wildcard_model_authority" {
   }
   expect_failures = [var.controller_model_resource_arns]
 }
+
+run "native_bootstrap_is_private_and_separates_sql_root_from_controller" {
+  command = plan
+  variables {
+    native_bootstrap = {
+      bootstrapArtifactDigest = "sha256:4444444444444444444444444444444444444444444444444444444444444444"
+      operation = {
+        operationId    = "original-native-bootstrap", liabilityBasisDigest = "sha256:5555555555555555555555555555555555555555555555555555555555555555"
+        reservationIds = { infrastructure = "retained-native-infra", cleanup = "retained-native-cleanup" }
+      }
+      itemId     = "11111111-1111-1111-1111-111111111111"
+      expiresAt  = "2026-10-29T00:00:00Z"
+      readGrants = []
+    }
+  }
+  assert {
+    condition = (
+      tolist(jsondecode(aws_ecs_task_definition.native_bootstrap[0].container_definitions)[0].command) == tolist(["python", "tools/hosted_pilot/native_bootstrap.py"]) &&
+      jsondecode(aws_ecs_task_definition.native_bootstrap[0].container_definitions)[0].readonlyRootFilesystem &&
+      aws_iam_role.native_bootstrap[0].name != aws_iam_role.controller.name &&
+      !strcontains(aws_iam_role_policy.native_bootstrap[0].policy, "secretsmanager:GetSecretValue") &&
+      !strcontains(aws_iam_role_policy.controller.policy, "secretsmanager:PutSecretValue") &&
+      !strcontains(aws_iam_role_policy.dispatcher.policy, "secretsmanager:GetSecretValue") &&
+      contains([for secret in jsondecode(aws_ecs_task_definition.native_bootstrap[0].container_definitions)[0].secrets : secret.name], "PILOT_FIXTURE_MASTER_CONNECTION") &&
+      !contains([for secret in jsondecode(aws_ecs_task_definition.controller.container_definitions)[0].secrets : secret.name], "PILOT_FIXTURE_MASTER_CONNECTION")
+    )
+    error_message = "Native provisioning must stay in its separate private task; SQL/root credentials cannot reach the controller, dispatcher or model."
+  }
+}

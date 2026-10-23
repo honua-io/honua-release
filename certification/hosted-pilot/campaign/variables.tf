@@ -80,6 +80,21 @@ variable "issued_agent_key_id" {
     error_message = "Use the actual native-issued key UUID, never a fabricated actor."
   }
 }
+variable "issued_native_keys" {
+  description = "Actual private native-bootstrap receipt identities/immutable versions, reviewed into source after issuance. No secret values."
+  type = object({
+    setup    = object({ apiKeyId = string, versionId = string })
+    observer = object({ apiKeyId = string, versionId = string })
+    agent    = object({ apiKeyId = string, versionId = string })
+  })
+  default = null
+  validation {
+    condition = var.issued_native_keys == null ? true : alltrue([for record in values(var.issued_native_keys) :
+      can(regex("^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$", record.apiKeyId)) && can(regex("^[a-f0-9]{64}$", record.versionId))
+    ]) && length(toset([for record in values(var.issued_native_keys) : record.apiKeyId])) == 3
+    error_message = "Bind three distinct actual native-issued key IDs and immutable secret versions from the retained receipt."
+  }
+}
 variable "dispatch_budget" {
   description = "Original authenticated shared-operation binding; this root never creates or resets a campaign allowance."
   type        = object({ state = object({ region = string, bucket = string, table = string }), generationDigest = string, reservationId = string, operationId = string, basisDigest = string, perDispatchCeilingUsd = string, maximumDispatches = number })

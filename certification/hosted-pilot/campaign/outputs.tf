@@ -43,7 +43,11 @@ output "fixture_staging" {
     endpoint                  = local.origin
     workerNetwork             = { subnetIds = module.network.private_subnets, securityGroupIds = [aws_security_group.worker.id] }
     controllerSecurityGroupId = aws_security_group.controller.id
-    nativeAgentConfigured     = var.issued_agent_key_id != null
+    nativeAgentConfigured     = local.native_agent_key_id != null
     modelReady                = false
+  }
+  precondition {
+    condition     = var.issued_native_keys == null || var.issued_agent_key_id == null ? true : var.issued_native_keys.agent.apiKeyId == var.issued_agent_key_id
+    error_message = "The legacy explicit agent key ID and retained native-bootstrap identity must agree."
   }
 }

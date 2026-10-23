@@ -1,11 +1,12 @@
 data "aws_availability_zones" "available" { state = "available" }
 data "aws_caller_identity" "current" {}
 locals {
-  candidate_hex = trimprefix(var.candidate_digest, "sha256:")
-  database      = "honua_agent_${substr(local.candidate_hex, 0, 24)}"
-  app_role      = "honua_agent_app"
-  fixture_roles = { cleanup = "honua_agent_cleanup", observer = "honua_agent_observer" }
-  origin        = "https://${var.target_domain}"
+  candidate_hex       = trimprefix(var.candidate_digest, "sha256:")
+  database            = "honua_agent_${substr(local.candidate_hex, 0, 24)}"
+  app_role            = "honua_agent_app"
+  fixture_roles       = { cleanup = "honua_agent_cleanup", observer = "honua_agent_observer" }
+  origin              = "https://${var.target_domain}"
+  native_agent_key_id = var.issued_native_keys == null ? var.issued_agent_key_id : var.issued_native_keys.agent.apiKeyId
 }
 module "network" {
   source               = "terraform-aws-modules/vpc/aws"
@@ -142,7 +143,7 @@ module "target" {
   additional_env = merge({
     AgentWorkspace__DeploymentId = var.name_prefix
     AgentWorkspace__ReleaseId    = var.candidate_digest
-  }, var.issued_agent_key_id == null ? {} : { AgentWorkspace__LocalAgentPrincipalId = "apikey:api-key:${var.issued_agent_key_id}" })
+  }, local.native_agent_key_id == null ? {} : { AgentWorkspace__LocalAgentPrincipalId = "apikey:api-key:${local.native_agent_key_id}" })
 }
 
 resource "aws_s3_bucket" "target_files" {
