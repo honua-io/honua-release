@@ -1707,12 +1707,18 @@ def test_typed_client_side_tool_errors_are_candidate_refusals_and_server_faults_
 
 
 def test_a_stage_admitted_call_rejected_as_invalid_argument_is_a_candidate_defect():
-    """A schema-valid render the candidate refuses is not model feedback."""
+    """Fixture-proven inputs the candidate rejects are not model feedback.
+
+    A schema-valid unknown style is still a value the model can correct.
+    """
     import live_driver
     from transport import ActionRejected, ExecutionError
 
     admitted = ExecutionError(
         "honua_render_map", "candidate rejected supported inputs",
+        problem={"code": "invalid_argument", "argumentsProven": True})
+    unknown_style = ExecutionError(
+        "honua_apply_style_preset", "unknown style",
         problem={"code": "invalid_argument"})
     missing = ExecutionError(
         "honua_render_map", "service is not published",
@@ -1720,11 +1726,43 @@ def test_a_stage_admitted_call_rejected_as_invalid_argument_is_a_candidate_defec
     invalid = ActionRejected("honua_render_map", "arguments do not satisfy the observed tool schema")
 
     def classify(exc):
-        return ("invalid-action" if isinstance(exc, ActionRejected)
-                else "candidate-execution" if exc.problem.get("code") in live_driver.ADMITTED_CALL_DEFECT_CODES
-                else "candidate-refusal" if exc.problem.get("code") in live_driver.CANDIDATE_REFUSAL_CODES
-                else "candidate-execution")
+        code = exc.problem.get("code")
+        if isinstance(exc, ActionRejected):
+            return "invalid-action"
+        if code in live_driver.ADMITTED_CALL_DEFECT_CODES and exc.problem.get("argumentsProven") is True:
+            return "candidate-execution"
+        if code in live_driver.CANDIDATE_REFUSAL_CODES or code in live_driver.ADMITTED_CALL_DEFECT_CODES:
+            return "candidate-refusal"
+        return "candidate-execution"
 
     assert classify(admitted) == "candidate-execution"
+    assert classify(unknown_style) == "candidate-refusal"
     assert classify(missing) == "candidate-refusal"
     assert classify(invalid) == "invalid-action"
+
+
+def test_only_authored_fixture_arguments_mark_a_validation_error_proven():
+    transport = mock.Mock()
+    transport.credentials = {"proposer": "p", "operator": "o"}
+    observation = stages.Observation(setup_view_present=True, setup_discovery={
+        "tools": [
+            {"name": "honua_render_map", "inputSchema": {"type": "object"}},
+            {"name": "honua_apply_style_preset", "inputSchema": {"type": "object"}},
+        ],
+        "metadata": {"view": "setup"}})
+    engine = executor.JourneyExecutor(
+        {"workspaceId": "workspace"},
+        {"execution": {"styleId": "journey-solid-red", "renderSize": [128, 128], "bbox": [-2, -2, 2, 2]}},
+        observation, transport)
+    transport.tool.return_value = {"isError": True, "structuredContent": {"code": "invalid_argument"}}
+
+    def rejected(tool, arguments):
+        with pytest.raises(ExecutionError) as caught:
+            engine.execute(4, {"kind": "tool_call", "tool": tool, "arguments": arguments})
+        return caught.value
+
+    assert rejected("honua_apply_style_preset", {"styleId": "journey-solid-red-unknown"}).problem.get("argumentsProven") is not True
+    assert rejected("honua_apply_style_preset", {"styleId": "journey-solid-red"}).problem["argumentsProven"] is True
+    assert rejected("honua_render_map", {"width": 20, "height": 10}).problem.get("argumentsProven") is not True
+    assert rejected("honua_render_map", {"width": 128, "height": 128, "bbox": [0, 0, 1, 1]}).problem.get("argumentsProven") is not True
+    assert rejected("honua_render_map", {"width": 128, "height": 128, "bbox": [-2, -2, 2, 2]}).problem["argumentsProven"] is True

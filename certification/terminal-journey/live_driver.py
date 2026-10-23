@@ -449,13 +449,14 @@ def op_observe(request: dict[str, Any]) -> dict[str, Any]:
 
 
 # Typed MCP tool error codes that describe the request, not a candidate fault: a well-formed call the
-# candidate refused because of what was asked (missing resource, wrong state). A schema-valid,
-# stage-admitted call that the candidate still rejects as invalid_argument is a candidate defect:
-# the executor already checked the observed tool schema, so that code is not model feedback.
-# Server faults, transport failures, permission or proof failures stay candidate-execution.
+# candidate refused because of what was asked (missing resource, wrong state).
+# invalid_argument, invalid_input, and validation_failed stay in that model-feedback set when the
+# call was only schema-admitted. An unknown styleId, a bad bbox, or an unsupported encoding is a
+# value the model can correct. The same codes are candidate-execution only when the executor proved
+# the arguments against the authored fixture (problem["argumentsProven"]). Schema admission is not
+# that proof. Server faults, transport failures, and permission or proof failures stay
+# candidate-execution. ActionRejected, before any candidate write, stays invalid-action.
 CANDIDATE_REFUSAL_CODES = frozenset({"not_found", "conflict", "already_exists", "failed_precondition"})
-# These codes are model feedback only when the executor rejects the action before any candidate
-# request (ActionRejected -> invalid-action). After admission they are candidate-execution.
 ADMITTED_CALL_DEFECT_CODES = frozenset({"invalid_argument", "invalid_input", "validation_failed"})
 
 
@@ -478,18 +479,22 @@ def op_execute(request: dict[str, Any]) -> dict[str, Any]:
         except ExecutionError as exc:
             _write_state(state["workspaceId"], state)
             from transport import ActionRejected  # noqa: PLC0415 - same module path as the executor
+            code = exc.problem.get("code")
+            # invalid-action: refused before the candidate write (model feedback).
+            # candidate-refusal: a typed request error the model can correct, including a
+            # schema-valid invalid_argument whose values were not fixture-proven.
+            # candidate-execution: a fixture-proven call the candidate still rejected, or any
+            # other failure of a call that already passed admission (never model feedback).
+            if isinstance(exc, ActionRejected):
+                refusal = "invalid-action"
+            elif code in ADMITTED_CALL_DEFECT_CODES and exc.problem.get("argumentsProven") is True:
+                refusal = "candidate-execution"
+            elif code in CANDIDATE_REFUSAL_CODES or code in ADMITTED_CALL_DEFECT_CODES:
+                refusal = "candidate-refusal"
+            else:
+                refusal = "candidate-execution"
             return {"status": "blocked" if exc.blocked else "fail", "stageStatus": status,
-                    # invalid-action: the selected action was refused before its candidate write
-                    # (model feedback). candidate-execution: a valid action failed in the candidate or
-                    # its proof (never model feedback).
-                    # candidate-refusal: a typed client-side tool error for a well-formed call the model
-                    # can correct (e.g. asking for a service that is not published yet).
-                    # invalid_argument after the stage admitted the call is candidate-execution.
-                    "refusal": ("invalid-action" if isinstance(exc, ActionRejected)
-                                else "candidate-execution"
-                                if exc.problem.get("code") in ADMITTED_CALL_DEFECT_CODES
-                                else "candidate-refusal" if exc.problem.get("code") in CANDIDATE_REFUSAL_CODES
-                                else "candidate-execution"),
+                    "refusal": refusal,
                     "result": {"accepted": False, "command": exc.command, "reason": exc.reason,
                                "injectedError": None, "recoveredError": None,
                                **({"mapReadbacks": engine.evidence.get("mapReadbacks", [])}
