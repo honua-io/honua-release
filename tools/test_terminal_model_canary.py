@@ -1423,6 +1423,8 @@ def test_a_proxy_http_refusal_names_its_problem_fields_redacted(monkeypatch):
 
 def test_the_prompt_offers_only_the_stage_admitted_tools_from_the_server_view(monkeypatch):
     calls = []
+    terminal_surface = {"sdkSyntax": "honua-journey-sdk METHOD JSON_ARRAY",
+                        "uploadCommand": "honua admin import uploadImportFile"}
 
     class Driver:
         def __init__(self, *_):
@@ -1434,7 +1436,7 @@ def test_the_prompt_offers_only_the_stage_admitted_tools_from_the_server_view(mo
             if operation == "inject_error":
                 return {"status": "armed", "errorId": "recoverable-error-1", "recoverable": True}
             if operation == "observe":
-                return {"status": "ready", "stageStatus": "ready", "observation": {},
+                return {"status": "ready", "stageStatus": "ready", "observation": {"terminalSurface": terminal_surface},
                         "toolView": {"tools": [{"name": "honua_list_capabilities"}, {"name": "honua_list_layers"}]},
                         "stageTools": ["honua_list_capabilities", "honua_not_in_view"]}
             return {"status": "pass"}
@@ -1456,6 +1458,9 @@ def test_the_prompt_offers_only_the_stage_admitted_tools_from_the_server_view(mo
     system = calls[0][0]["content"]
     assert "Allowed tool_call names (the server-authored view for this stage): honua_list_capabilities." in system
     assert "honua_list_layers" not in system and "honua_not_in_view" not in system
+    assert "terminalSurface" in system
+    prompt = json.loads(calls[0][-1]["content"])
+    assert prompt["terminalSurface"] == terminal_surface
     assert all(a["role"] != b["role"] for call in calls for a, b in zip(call[1:], call[2:]))
     assert "This stage admits no tool_call" in canary._system_contract([])
 

@@ -318,8 +318,13 @@ datasource connection (`CreateConnectionAsync`, `TestConnectionAsync`), or the
 fixed `honua admin import uploadImportFile` step. The bridge invokes the built SDK
 with stdin JSON; it never executes that command string. Arguments bind the
 authored fixture and previously returned resource identities. The model observes
-the fixture, available method names and action results, rather than a forced
-sequence. An upload cannot be repeated within a session.
+the fixture, available method names, command grammar, argument sources and action
+results. The stage observation exposes these as `terminalSurface`, also included
+at the top of the model prompt. The model chooses each action; the bridge never
+supplies a sequence or executes a missing prerequisite automatically. Publication
+before an observed connection and uploaded table returns an `invalid-action`
+response naming the missing bindings, without contacting the candidate. An upload
+cannot be repeated within a session.
 
 Stage 3 imports by file upload, not by GeoServices URL. The pinned CLI sends the
 committed `fixtures/journey-source.geojson` (pinned by SHA-256 in the target and

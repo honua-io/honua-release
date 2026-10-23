@@ -258,6 +258,28 @@ class JourneyExecutor:
                 "canonicalIds": self.evidence["canonicalIds"].get(str(number), {}),
                 "resources": dict(self.resources)}
 
+    def terminal_surface(self, number):
+        """Describe the harness bridge grammar without choosing or executing an action."""
+        if number != 3 or "honua_ingest_dataset" not in {tool["name"] for tool in self.view()["tools"]}:
+            return {}
+        return {
+            "sdkCommand": "honua-journey-sdk",
+            "sdkMethods": sorted(SDK_METHODS),
+            "sdkSyntax": "honua-journey-sdk METHOD JSON_ARRAY",
+            "sdkArgumentSources": {
+                "CreateConnectionAsync": ["observation.fixture.datasource (unchanged; retain Env references)"],
+                "TestConnectionAsync": ["currentState.connectionId"],
+            },
+            "uploadCommand": UPLOAD_COMMAND,
+            "uploadArguments": "None. Use this exact command; the bridge supplies the committed fixture file and options.",
+            "uploadResult": "currentState.importTable and currentState.importSchema identify the uploaded dataset.",
+            "publicationBindings": {"connectionId": "currentState.connectionId",
+                                    "table": "currentState.importTable", "schema": "currentState.importSchema"},
+            "scope": "This stage requires the committed file upload, not a URL ingestion. "
+                     "These terminal commands use kind=terminal_command; they are not MCP tool names. "
+                     "No shell, extra flags, or other SDK methods are accepted.",
+        }
+
     def execute_sdk_command(self, number, action, view):
         """Interpret one typed bridge command; never invoke a shell or model argv."""
         command = action.get("command", "")
@@ -389,10 +411,12 @@ class JourneyExecutor:
         """service.publish must publish exactly the table this journey uploaded."""
         wanted = {"connectionId": self.resources.get("connectionId"), "table": self.resources.get("importTable"),
                   "schema": self.resources.get("importSchema")}
-        if any(value is None for value in wanted.values()):
-            raise ExecutionError("honua_publish_service", "uploaded dataset is unavailable", blocked=True)
+        missing = [key for key, value in wanted.items() if value is None]
+        if missing:
+            raise ActionRejected("honua_publish_service", "publication prerequisites are missing: "
+                                 + ", ".join(missing) + "; consult terminalSurface and currentState")
         if any(arguments.get(key) != value for key, value in wanted.items()):
-            raise ExecutionError("honua_publish_service", "publication does not bind the uploaded dataset and connection")
+            raise ActionRejected("honua_publish_service", "publication does not bind the uploaded dataset and connection")
 
     def record_publication(self, output):
         if output.get("status") != "Completed" or output.get("requiresApproval"):
