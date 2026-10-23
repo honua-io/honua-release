@@ -22,6 +22,86 @@ CUSTODY = {
 }
 
 
+IDENTITY_TAGS = {'foundation_source_sha': 'BootstrapFoundationSha',
+                 'release_root_sha': 'BootstrapReleaseSha', 'config_path': 'BootstrapConfigPath',
+                 'config_sha256': 'BootstrapConfigSha256', 'provider_lock_sha256': 'BootstrapLockSha256'}
+
+
+def creation_tags(identity, run_id):
+    require(re.fullmatch(r'[0-9]+', run_id), 'invalid bootstrap creation run')
+    require(set(identity) == set(IDENTITY_TAGS), 'incomplete bootstrap creation identity')
+    require(all(isinstance(value, str) and 0 < len(value) <= 256 for value in identity.values()), 'invalid bootstrap creation identity values')
+    return {'ManagedBy': 'honua-release-hosted-pilot-bootstrap', 'BootstrapExecution': run_id,
+            **{tag: identity[key] for key, tag in IDENTITY_TAGS.items()}}
+
+
+def producer_identity():
+    producer = json.loads((Path(os.environ['RUNNER_TEMP']) / 'recovery-producer.json').read_text())
+    require(str(producer['id']) == os.environ['PILOT_RECOVERY_RUN_ID'], 'recovery producer run differs')
+    return producer
+
+
+def validate_recovery(value, identity):
+    require(value['schema'] == 'honua.hosted-pilot-custody-recovery/v1' and recovery_compatible(value, identity), 'custody recovery source/config identity mismatch; a reviewed compatibility mapping is required for a fixed helper')
+    producer = producer_identity()
+    require(producer['head_sha'] == value['foundation_source_sha'] and str(producer['id']) == value['bootstrap_run_id'], 'journal source differs from its observed producing run')
+    require(value.get('cloud_discovery_complete') is True, 'initial custody discovery incomplete; do not discard retained cloud resources or state')
+    require(value['resources'], 'no imported custody identities; retain creation liability')
+
+
+def recovery_prefix(cfg, run_id):
+    return f"honua/hosted-pilot/{cfg['name_prefix']}/foundation-recovery/{run_id}/"
+
+
+def retrieve_recovery(binding, cfg, identity, work):
+    """Recover independently of replaceable GitHub artifacts, including key-only failures."""
+    run_id = os.environ.get('PILOT_RECOVERY_RUN_ID', '')
+    if not run_id:
+        return None
+    producer = producer_identity()
+    # Once secure custody existed, its immutable versioned journals survive both
+    # native job reruns and later artifact retention/deletion.
+    if exists('head-bucket', '--bucket', binding['bucket']):
+        try:
+            secured = secure_backend(binding)
+        except (ValueError, KeyError):
+            secured = None
+        if secured:
+            objects = aws('s3api', 'list-object-versions', '--bucket', secured['bucket'],
+                          '--prefix', recovery_prefix(cfg, run_id) + 'journals/').get('Versions', [])
+            for obj in sorted(objects, key=lambda item: item['LastModified'], reverse=True):
+                require(obj.get('VersionId') not in (None, 'null') and re.fullmatch(re.escape(recovery_prefix(cfg, run_id)) + r'journals/[a-f0-9]{64}\.json', obj['Key']), 'invalid durable recovery journal identity')
+                target = work / 'durable-recovery.json'
+                aws('s3api', 'get-object', '--bucket', secured['bucket'], '--key', obj['Key'], '--version-id', obj['VersionId'], str(target))
+                require(digest(target) == Path(obj['Key']).stem, 'durable journal digest differs')
+                value = json.loads(target.read_text())
+                validate_recovery(value, identity)
+                return value
+    # A crash can precede bucket privacy/encryption/versioning. KMS source tags are written atomically with key creation. Bucket tags
+    # are verified independently: an interrupted CreateBucket before tagging
+    # remains an unresolved ownership liability, never an inferred import.
+    candidates = []
+    for key in aws('kms', 'list-keys').get('Keys', []):
+        tags = {tag['TagKey']: tag['TagValue'] for tag in aws('kms', 'list-resource-tags', '--key-id', key['KeyId']).get('Tags', [])}
+        if tags.get('ManagedBy') == 'honua-release-hosted-pilot-bootstrap' and tags.get('ResetBoundary') == cfg['name_prefix'] and tags.get('BootstrapExecution') == run_id:
+            require(all(tag in tags for tag in IDENTITY_TAGS.values()), 'creation tags lack durable source/config identity; retain liability')
+            candidates.append({key: tags[tag] for key, tag in IDENTITY_TAGS.items()})
+    for kind in ['state', 'plans']:
+        bucket = f'honua-release-{cfg["name_prefix"].removeprefix("honua-")}-foundation-{kind}-' + os.environ['PILOT_BOOTSTRAP_ACCOUNT_ID']
+        if exists('head-bucket', '--bucket', bucket):
+            observed = optional_aws('s3api', 'get-bucket-tagging', '--bucket', bucket)
+            tags = {tag['Key']: tag['Value'] for tag in (observed or {}).get('TagSet', [])}
+            require(tags.get('ManagedBy') == 'honua-release-hosted-pilot-bootstrap' and tags.get('ResetBoundary') == cfg['name_prefix'] and tags.get('BootstrapExecution') == run_id, 'creation bucket ownership/producer differs; retain collision liability')
+            require(all(tag in tags for tag in IDENTITY_TAGS.values()), 'creation bucket lacks durable source/config identity')
+            candidates.append({key: tags[tag] for key, tag in IDENTITY_TAGS.items()})
+    require(candidates and all(value == candidates[0] for value in candidates), 'cannot uniquely recover creation identity; retain partial custody liability')
+    original = candidates[0]
+    require(original['foundation_source_sha'] == producer['head_sha'] and recovery_compatible(original, identity), 'creation tags differ from reviewed recovery producer/config')
+    value = journal(cfg, original, work, run_id=run_id)
+    validate_recovery(value, identity)
+    return value
+
+
 def allowed_address(address):
     base = address.split('[', 1)[0]
     return base in CUSTODY and (address == base or address in (base + '["state"]', base + '["plans"]'))
@@ -63,7 +143,9 @@ def secure_backend(binding):
     return binding | {'kms_key_id': default['KMSMasterKeyID']}
 
 
-def journal(cfg, identity, work, *, remote_state=None):
+def journal(cfg, identity, work, *, remote_state=None, run_id=None):
+    run_id = run_id or os.environ['GITHUB_RUN_ID']
+    expected_tags = creation_tags(identity, run_id)
     # Custody contains AWS-owned KMS material and metadata only. Preserve only
     # import IDs, never Terraform state, values, attributes, plans or logs.
     rows = []
@@ -96,7 +178,8 @@ def journal(cfg, identity, work, *, remote_state=None):
             matches = []
             for key in aws('kms', 'list-keys').get('Keys', []):
                 tags = {tag['TagKey']: tag['TagValue'] for tag in aws('kms', 'list-resource-tags', '--key-id', key['KeyId']).get('Tags', [])}
-                if tags.get('ManagedBy') == 'honua-release-hosted-pilot-bootstrap' and tags.get('ResetBoundary') == cfg['name_prefix'] and tags.get('BootstrapExecution') == os.environ['GITHUB_RUN_ID']:
+                if tags.get('ManagedBy') == 'honua-release-hosted-pilot-bootstrap' and tags.get('ResetBoundary') == cfg['name_prefix'] and tags.get('BootstrapExecution') == run_id:
+                    require(all(tags.get(key) == val for key, val in expected_tags.items()), 'creation key identity tags differ')
                     matches.append(key['KeyId'])
             if len(matches) == 1:
                 rows.append({'address': 'aws_kms_key.custody', 'id': matches[0]})
@@ -111,7 +194,7 @@ def journal(cfg, identity, work, *, remote_state=None):
                 continue
             observed = optional_aws('s3api', 'get-bucket-tagging', '--bucket', bucket)
             tags = {tag['Key']: tag['Value'] for tag in (observed or {}).get('TagSet', [])}
-            if tags.get('ManagedBy') != 'honua-release-hosted-pilot-bootstrap' or tags.get('ResetBoundary') != cfg['name_prefix']:
+            if tags.get('ResetBoundary') != cfg['name_prefix'] or any(tags.get(key) != val for key, val in expected_tags.items()):
                 unverified_buckets.append(bucket)
                 discovery_complete = False
                 continue
@@ -140,13 +223,35 @@ def journal(cfg, identity, work, *, remote_state=None):
     except (ValueError, KeyError, OSError):
         discovery_complete = False
     value = {'schema': 'honua.hosted-pilot-custody-recovery/v1', **identity,
-             'bootstrap_run_id': os.environ['GITHUB_RUN_ID'],
+             'bootstrap_run_id': run_id,
              'resources': rows, 'remote_recovery_state': remote_state, 'cloud_discovery_complete': discovery_complete, 'unmapped_owned_key_ids': unmapped_owned_keys, 'unverified_bucket_names': unverified_buckets,
-             'cloud_discovery_tags': {'ManagedBy': 'honua-release-hosted-pilot-bootstrap', 'ResetBoundary': cfg['name_prefix'], 'BootstrapExecution': os.environ['GITHUB_RUN_ID']},
+             'cloud_discovery_tags': expected_tags | {'ResetBoundary': cfg['name_prefix']},
              'foundation_backend': {'bucket': f'honua-release-{cfg["name_prefix"].removeprefix("honua-")}-foundation-state-' + os.environ.get('PILOT_BOOTSTRAP_ACCOUNT_ID', ''), 'key': f'honua/hosted-pilot/{cfg["name_prefix"]}/foundation.tfstate'},
              'status': 'recovery-required-until-remote-state-verified'}
     private_json(work / 'custody-recovery.json', value)
     return value
+
+
+def refuse_unbound_initial_custody(cfg, work):
+    """No implicit fresh allowance after any partial creation, including key-only."""
+    path = work / 'recovery-input/custody-recovery.json'
+    recovery = json.loads(path.read_text()) if path.exists() else None
+    expected = creation_tags({key: recovery[key] for key in IDENTITY_TAGS}, recovery['bootstrap_run_id']) if recovery else None
+    owned_keys = []
+    for key in aws('kms', 'list-keys').get('Keys', []):
+        tags = {tag['TagKey']: tag['TagValue'] for tag in aws('kms', 'list-resource-tags', '--key-id', key['KeyId']).get('Tags', [])}
+        if tags.get('ManagedBy') == 'honua-release-hosted-pilot-bootstrap' and tags.get('ResetBoundary') == cfg['name_prefix']:
+            require(expected is not None, 'existing custody key requires explicit original recovery_run_id; no new initial plan')
+            require(all(tags.get(name) == value for name, value in expected.items()), 'existing custody key differs from original recovery binding; retain all creation liability')
+            owned_keys.append(key['KeyId'])
+    require(len(owned_keys) <= 1, 'multiple custody keys retain unresolved liability; no initial plan')
+    for kind in ['state', 'plans']:
+        bucket = f'honua-release-{cfg["name_prefix"].removeprefix("honua-")}-foundation-{kind}-' + os.environ['PILOT_BOOTSTRAP_ACCOUNT_ID']
+        if exists('head-bucket', '--bucket', bucket):
+            require(expected is not None, 'existing custody bucket requires explicit original recovery_run_id; no new initial plan')
+            observed = optional_aws('s3api', 'get-bucket-tagging', '--bucket', bucket)
+            tags = {tag['Key']: tag['Value'] for tag in (observed or {}).get('TagSet', [])}
+            require(tags.get('ResetBoundary') == cfg['name_prefix'] and all(tags.get(name) == value for name, value in expected.items()), 'existing custody bucket differs from original recovery binding; retain collision liability')
 
 
 def bootstrap_contract_digest():
@@ -179,18 +284,22 @@ def recovery_compatible(value, identity):
     return False
 
 
-def recover_imports(identity, work):
+def recover_imports(identity, work, binding=None, cfg=None):
     path = work / 'recovery-input/custody-recovery.json'
-    if not path.exists():
+    if path.exists():
+        require(digest(path) == os.environ['PILOT_RECOVERY_SHA256'], 'custody recovery journal digest mismatch')
+        value = json.loads(path.read_text())
+        validate_recovery(value, identity)
+    elif os.environ.get('PILOT_RECOVERY_RUN_ID'):
+        value = retrieve_recovery(binding, cfg, identity, work)
+        path.parent.mkdir(parents=True, exist_ok=True)
+        private_json(path, value)
+    else:
         return
-    require(digest(path) == os.environ['PILOT_RECOVERY_SHA256'], 'custody recovery journal digest mismatch')
-    value = json.loads(path.read_text())
-    require(value['schema'] == 'honua.hosted-pilot-custody-recovery/v1' and recovery_compatible(value, identity), 'custody recovery source/config identity mismatch; a reviewed compatibility mapping is required for a fixed helper')
-    require(value['bootstrap_run_id'] == os.environ['PILOT_RECOVERY_RUN_ID'], 'custody recovery producer mismatch')
-    producer = json.loads((Path(os.environ['RUNNER_TEMP']) / 'recovery-producer.json').read_text())
-    require(producer['head_sha'] == value['foundation_source_sha'] and str(producer['id']) == value['bootstrap_run_id'], 'journal source differs from its observed producing run')
-    require(value.get('cloud_discovery_complete') is True, 'initial custody discovery incomplete; do not discard retained cloud resources or state')
-    require(value['resources'], 'no imported custody identities; inspect the recorded cloud discovery tags before recovery')
+    # Preserve original creation identity through import and subsequent reruns.
+    os.environ['PILOT_CREATION_RUN_ID'] = value['bootstrap_run_id']
+    os.environ['PILOT_CREATION_IDENTITY'] = json.dumps({key: value[key] for key in IDENTITY_TAGS})
+    private_json(work / 'creation-identity.json', {'run_id': value['bootstrap_run_id'], 'identity': json.loads(os.environ['PILOT_CREATION_IDENTITY'])})
     imports = []
     for row in value['resources']:
         require(allowed_address(row['address']) and isinstance(row['id'], str), 'unapproved custody import')
@@ -214,14 +323,31 @@ def save_recovery(binding, cfg, identity, work):
             # The metadata-only import journal and AWS creation tags remain the
             # recovery boundary. No application/identity bootstrap ran yet.
             pass
-    journal(cfg, identity, work, remote_state=remote)
+    creation_identity = json.loads(os.environ.get('PILOT_CREATION_IDENTITY', json.dumps(identity)))
+    creation_run = os.environ.get('PILOT_CREATION_RUN_ID', os.environ['GITHUB_RUN_ID'])
+    journal(cfg, creation_identity, work, remote_state=remote, run_id=creation_run)
+    try:
+        secured = secure_backend(binding)
+        path = work / 'custody-recovery.json'
+        key = recovery_prefix(cfg, creation_run) + 'journals/' + digest(path) + '.json'
+        # Existing identical bytes are already durable. No overwrite or delete.
+        if not exists('head-object', '--bucket', secured['bucket'], '--key', key):
+            result = aws('s3api', 'put-object', '--bucket', secured['bucket'], '--key', key,
+                         '--body', str(path), '--server-side-encryption', 'aws:kms',
+                         '--ssekms-key-id', secured['kms_key_id'], '--if-none-match', '*')
+            require(result.get('VersionId') not in (None, 'null'), 'durable recovery journal version missing')
+    except (ValueError, KeyError, OSError):
+        # Before secure custody, atomically created identity tags remain the
+        # recovery source. The workflow retains honest partial-creation liability.
+        pass
     return remote
 
 
 def plan(cfg_path, work, *, custody_only=False):
     path = work / ('custody.tfplan' if custody_only else 'saved.tfplan')
     cmd = ['terraform', 'plan', '-input=false', '-no-color', f'-var-file={cfg_path}',
-           '-var=bootstrap_execution_id=' + os.environ['GITHUB_RUN_ID'], f'-out={path}']
+           '-var=bootstrap_execution_id=' + os.environ.get('PILOT_CREATION_RUN_ID', os.environ['GITHUB_RUN_ID']),
+           '-var=bootstrap_creation_identity=' + os.environ['PILOT_CREATION_IDENTITY'], f'-out={path}']
     if custody_only:
         cmd += ['-target=' + address for address in sorted(CUSTODY)]
     run(cmd, log=work / 'plan.log')
@@ -269,13 +395,19 @@ def main():
     identity = {'foundation_source_sha': e['GITHUB_SHA'], 'release_root_sha': e['PILOT_RELEASE_ROOT_SHA'],
                 'config_path': args.config, 'config_sha256': digest(cfg_path),
                 'provider_lock_sha256': digest(TF / '.terraform.lock.hcl')}
+    if (work / 'creation-identity.json').exists():
+        creation = json.loads((work / 'creation-identity.json').read_text())
+        os.environ['PILOT_CREATION_RUN_ID'] = creation['run_id']
+        os.environ['PILOT_CREATION_IDENTITY'] = json.dumps(creation['identity'])
+    else:
+        os.environ['PILOT_CREATION_IDENTITY'] = json.dumps(identity)
     if args.mode == 'journal':
         # Also runs with always() after failed/cancelled initial apply.
         save_recovery(binding, cfg, identity, work)
         with open(e['GITHUB_STEP_SUMMARY'], 'a') as summary:
             summary.write('Custody recovery metadata SHA256: `' + digest(work / 'custody-recovery.json') + '`\n')
         return
-    recover_imports(identity, work)
+    recover_imports(identity, work, binding, cfg)
     remote = False
     has_state = False
     if exists('head-bucket', '--bucket', binding['bucket']):
@@ -289,6 +421,7 @@ def main():
         except (ValueError, KeyError):
             require((work / 'recovery-input/custody-recovery.json').exists(), 'partial insecure custody requires its governed recovery journal; no application infrastructure will run')
     if not remote or not has_state:
+        refuse_unbound_initial_custody(cfg, work)
         if not remote:
             run(['terraform', 'init', '-backend=false', '-lockfile=readonly', '-input=false', '-no-color'], log=work / 'init.log')
         initial, changes, initial_sha = plan(cfg_path, work, custody_only=True)

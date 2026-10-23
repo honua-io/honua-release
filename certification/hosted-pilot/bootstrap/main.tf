@@ -54,6 +54,9 @@ resource "aws_s3_bucket_policy" "custody" {
     { Sid = "TlsOnly", Effect = "Deny", Principal = "*", Action = "s3:*", Resource = [each.value.arn, "${each.value.arn}/*"], Condition = { Bool = { "aws:SecureTransport" = "false" } } },
     { Sid = "KmsOnly", Effect = "Deny", Principal = "*", Action = "s3:PutObject", Resource = "${each.value.arn}/*", Condition = { StringNotEqualsIfExists = { "s3:x-amz-server-side-encryption" = "aws:kms" } } }
     ], [for statement in [
+      { Sid = "RetainBootstrapRecovery", Effect = "Deny", Principal = "*", Action = ["s3:DeleteObject", "s3:DeleteObjectVersion"], Resource = "${each.value.arn}/honua/hosted-pilot/${var.name_prefix}/foundation-recovery/*" },
+      { Sid = "ConditionalBootstrapRecovery", Effect = "Deny", Principal = "*", Action = "s3:PutObject", Resource = "${each.value.arn}/honua/hosted-pilot/${var.name_prefix}/foundation-recovery/*", Condition = { Null = { "s3:if-none-match" = "true" } } }
+      ] : statement if each.key == "state"], [for statement in [
       { Sid = "ImmutableArtifacts", Effect = "Deny", Principal = "*", Action = ["s3:DeleteObject", "s3:DeleteObjectVersion"], Resource = ["${each.value.arn}/hosted-pilot/plans/*", "${each.value.arn}/hosted-pilot/reservations/*"] },
       { Sid = "ConditionalArtifacts", Effect = "Deny", Principal = "*", Action = "s3:PutObject", Resource = ["${each.value.arn}/hosted-pilot/plans/*", "${each.value.arn}/hosted-pilot/reservations/*"], Condition = { Null = { "s3:if-none-match" = "true" } } }
   ] : statement if each.key == "plans"]) })

@@ -130,27 +130,35 @@ metadata; its binary is discarded. No binary plan, Terraform state or private
 log is ever uploaded to GitHub. Normal deployment remains the separate OIDC
 saved-plan workflow described above.
 
-A failed initial custody apply can leave resources. The workflow retains only
-a source/config-bound custody resource-ID import journal, while writing actual
-state only to verified private, KMS-encrypted, versioned S3 when available.
-Read-only discovery requires exact ManagedBy/ResetBoundary ownership tags on
-deterministic bucket names and uses KMS creation
-tags (`ResetBoundary` and `BootstrapExecution`) for API acknowledgements lost
-before local state flush. Recovery inputs verify the producing workflow and
-journal digest, then generate constrained Terraform import blocks for custody
-resources only. A fixed helper can recover an older journal through a reviewed
-entry in `bootstrap/recovery-compatibility.json`: bind the old release/foundation
-SHAs, unchanged config digest/path, old/new provider locks and the new bootstrap
-contract content digest, with a reason. The contract digest includes runtime
-helper, Terraform and workflow sources; its map is excluded to avoid a
-self-referential hash. The old journal is still tied to its observed producing
-run on trunk. The new helper runs from the new reviewed root; no execution of a
-broken old helper or manual AWS/import command is required. The default map is
-empty. Incomplete ownership discovery or failed state migration stops
-the bootstrap with explicit recovery liability; it never proceeds to IAM or
-silently retries another namespace. Remote custody and creation tags survive
-runner loss. A failure in the later phase retains partial resource state in the
-already encrypted remote backend.
+A failed initial custody apply can leave resources. Actual state is written only
+to verified private, KMS-encrypted, versioned S3. Metadata-only recovery journals
+are also retained there under immutable content-addressed keys with exact object
+versions; the recovery prefix refuses overwrites and version deletion. GitHub
+artifacts are supplementary copies, so a native rerun cannot remove the sole
+recovery record. Supply the original `recovery_run_id`; artifact ID and digest
+are optional together. The helper verifies that native producing workflow/run
+on trunk, then retrieves and hashes its durable journal. When an artifact is
+supplied its exact digest remains mandatory.
+
+Before secure storage exists, recovery reconstructs custody import IDs through
+read-only AWS discovery. KMS creation stores original foundation/release source,
+config path/digest, provider lock and run ID as atomic creation tags. Buckets
+must independently have the same identity plus ManagedBy/ResetBoundary tags;
+an untagged name collision or cancellation between bucket creation and tagging
+retains explicit unresolved ownership liability and refuses adoption. Incomplete
+or ambiguous discovery cannot proceed to IAM/application creation. Original
+creation identity survives imported-resource plans and reruns.
+
+Recovery generates constrained Terraform import blocks for custody resources
+only. A fixed helper can recover an older identity through a reviewed entry in
+`bootstrap/recovery-compatibility.json`: bind old release/foundation SHAs,
+unchanged config digest/path, old/new provider locks and the new bootstrap
+contract content digest, with a reason. The digest includes helper, Terraform
+and workflow sources; its map is excluded to avoid self-reference. No execution
+of a broken old helper or manual AWS/import command is required. The default
+map is empty. Failed state migration stops bootstrap with explicit liability;
+remote custody and creation tags survive runner loss. Later-phase failures
+retain partial resource state in the encrypted remote backend.
 
 GitHub configuration is separate: `hosted-pilot-bind.yml` uses the existing
 release GitHub token to verify the exact successful foundation producer and

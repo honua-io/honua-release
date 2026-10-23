@@ -92,3 +92,16 @@ variable "controller_model_resource_arns" {
     error_message = "Use exact model/profile ARNs in this account (foundation models have no account component)."
   }
 }
+
+variable "bootstrap_creation_identity" {
+  description = "Source/config identity stored atomically with AWS custody creation for artifact-independent partial recovery. The checked-in bootstrap helper supplies this map."
+  type        = map(string)
+  default     = {}
+  validation {
+    condition = length(var.bootstrap_creation_identity) == 0 || (
+      toset(keys(var.bootstrap_creation_identity)) == toset(["foundation_source_sha", "release_root_sha", "config_path", "config_sha256", "provider_lock_sha256"]) &&
+      alltrue([for value in values(var.bootstrap_creation_identity) : length(value) > 0 && length(value) <= 256])
+    )
+    error_message = "Supply the complete source/config/lock creation identity or an empty map for validation-only plans."
+  }
+}

@@ -73,6 +73,14 @@ run "custody_and_approval_boundaries" {
   }
   assert {
     condition = (
+      one([for statement in jsondecode(aws_s3_bucket_policy.custody["state"].policy).Statement : statement if statement.Sid == "RetainBootstrapRecovery"]).Effect == "Deny" &&
+      contains(one([for statement in jsondecode(aws_s3_bucket_policy.custody["state"].policy).Statement : statement if statement.Sid == "RetainBootstrapRecovery"]).Action, "s3:DeleteObjectVersion") &&
+      one([for statement in jsondecode(aws_s3_bucket_policy.custody["state"].policy).Statement : statement if statement.Sid == "ConditionalBootstrapRecovery"]).Condition.Null["s3:if-none-match"] == "true"
+    )
+    error_message = "Bootstrap recovery custody must survive native reruns through immutable conditional writes and retained object versions."
+  }
+  assert {
+    condition = (
       alltrue([for statement in jsondecode(aws_iam_role_policy.custody["apply"].policy).Statement :
         !(statement.Effect == "Allow" && try(statement.Resource == "${aws_s3_bucket.custody["plans"].arn}/hosted-pilot/plans/*", false) && try(statement.Action == "s3:PutObject", false))
       ])
