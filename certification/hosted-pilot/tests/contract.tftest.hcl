@@ -31,6 +31,16 @@ mock_provider "aws" {
 mock_provider "random" {}
 mock_provider "null" {}
 
+# No real person, key or credential is used by these mocked plans.
+override_data {
+  target = data.aws_kms_secrets.humans["human_author"]
+  values = { plaintext = { identity = "{\"schema\":\"honua.pilot-human-enrollment/v1\",\"email\":\"author@example.invalid\",\"temporaryPassword\":\"OfflineFixture0000!\",\"emailOwnershipConfirmed\":true}" } }
+}
+override_data {
+  target = data.aws_kms_secrets.humans["human_approver"]
+  values = { plaintext = { identity = "{\"schema\":\"honua.pilot-human-enrollment/v1\",\"email\":\"approver@example.invalid\",\"temporaryPassword\":\"OfflineFixture1111!\",\"emailOwnershipConfirmed\":true}" } }
+}
+
 override_module {
   target = module.server
   outputs = {
@@ -368,4 +378,79 @@ run "authentication_staging_without_agent_credential" {
     )
     error_message = "Authentication-only staging must inject no placeholder agent key or agent-secret grant and keep native inference disabled."
   }
+}
+
+run "human_enrollment_is_empty_until_explicitly_configured" {
+  command = plan
+  assert {
+    condition     = length(aws_cognito_user.humans) == 0 && length(aws_cognito_user_in_group.humans) == 0
+    error_message = "Staging must never invent human accounts or memberships."
+  }
+}
+
+run "sealed_humans_bind_exact_pool_role_and_private_temporary_credentials" {
+  command = apply
+  variables {
+    human_enrollment = {
+      pool_id = "us-west-2_Offline123"
+      key_arn = "arn:aws:kms:us-west-2:123456789012:key/11111111-1111-1111-1111-111111111111"
+      users = {
+        human_author   = { role = "authors", payload = "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA" }
+        human_approver = { role = "approvers", payload = "BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB" }
+      }
+    }
+  }
+  assert {
+    condition = alltrue([for alias, person in aws_cognito_user.humans :
+      person.user_pool_id == var.human_enrollment.pool_id && person.message_action == "SUPPRESS" &&
+      !person.force_alias_creation && person.password == null && length(person.temporary_password) >= 16 &&
+      person.attributes.email_verified == "true" &&
+      aws_cognito_user_in_group.humans[alias].group_name == local.identity_groups[var.human_enrollment.users[alias].role]
+    ])
+    error_message = "Only nominated temporary-password users and their exact group may be configured; invitations and alias migration remain disabled."
+  }
+  assert {
+    condition = alltrue([for alias, secret in data.aws_kms_secrets.humans :
+      one(secret.secret).key_id == var.human_enrollment.key_arn &&
+      one(secret.secret).context == tomap({
+        Purpose = "honua.pilot-human-enrollment/v1", Pilot = var.name_prefix,
+        PoolId  = var.human_enrollment.pool_id, Alias = alias, Role = var.human_enrollment.users[alias].role
+      })
+    ]) && toset(keys(output.human_enrollment.human_author)) == toset(["subject_id", "role", "status"])
+    error_message = "Ciphertext must bind the original key, pool, alias and role; public references contain no email or password."
+  }
+}
+
+run "foreign_pool_cannot_receive_nomination" {
+  command = plan
+  variables {
+    human_enrollment = {
+      pool_id = "us-west-2_AnotherPool"
+      key_arn = "arn:aws:kms:us-west-2:123456789012:key/11111111-1111-1111-1111-111111111111"
+      users = {
+        human_author   = { role = "authors", payload = "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA" }
+        human_approver = { role = "approvers", payload = "BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB" }
+      }
+    }
+  }
+  expect_failures = [terraform_data.human_enrollment]
+}
+
+run "duplicate_decrypted_person_cannot_be_the_approver" {
+  command = plan
+  variables {
+    human_enrollment = {
+      pool_id = "us-west-2_Offline123"
+      key_arn = "arn:aws:kms:us-west-2:123456789012:key/11111111-1111-1111-1111-111111111111"
+      users = {
+        human_author   = { role = "authors", payload = "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA" }
+        human_approver = { role = "approvers", payload = "BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB" }
+      }
+    }
+  }
+  override_data {
+    target = data.aws_kms_secrets.humans["human_approver"]
+    values = { plaintext = { identity = "{\"schema\":\"honua.pilot-human-enrollment/v1\",\"email\":\"author@example.invalid\",\"temporaryPassword\":\"OfflineFixture1111!\",\"emailOwnershipConfirmed\":true}" } }
+  }
+  expect_failures = [terraform_data.human_enrollment]
 }

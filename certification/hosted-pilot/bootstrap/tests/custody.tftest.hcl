@@ -188,3 +188,43 @@ run "uncompiled_image_funding_cannot_create_an_unbound_owner_ledger" {
   }
   expect_failures = [var.budget_ledger]
 }
+
+run "human_enrollment_has_no_implicit_identity_grants" {
+  command = plan
+  assert {
+    condition     = length(aws_iam_role_policy.human_enrollment_read) == 0 && length(aws_iam_role_policy.human_enrollment_apply) == 0
+    error_message = "Image preparation must not silently enable human account administration."
+  }
+}
+
+run "human_enrollment_separates_observation_from_provisioning" {
+  command = plan
+  variables { enable_human_enrollment = true }
+  assert {
+    condition = (
+      toset(keys(aws_iam_role_policy.human_enrollment_read)) == toset(["plan", "apply"]) &&
+      alltrue([for lane, policy in aws_iam_role_policy.human_enrollment_read :
+        policy.role == aws_iam_role.executor[lane].id &&
+        toset(jsondecode(policy.policy).Statement[0].Action) == toset(["cognito-idp:AdminGetUser", "cognito-idp:AdminListGroupsForUser"]) &&
+        jsondecode(policy.policy).Statement[0].Resource == "arn:aws:cognito-idp:us-west-2:123456789012:userpool/*" &&
+        jsondecode(policy.policy).Statement[0].Condition.StringEquals == {
+          "aws:ResourceTag/ResetBoundary" = var.name_prefix,
+          "aws:ResourceTag/ManagedBy"     = "honua-release-hosted-pilot"
+        }
+      ]) &&
+      length(aws_iam_role_policy.human_enrollment_apply) == 1 &&
+      aws_iam_role_policy.human_enrollment_apply[0].role == aws_iam_role.executor["apply"].id &&
+      toset(jsondecode(aws_iam_role_policy.human_enrollment_apply[0].policy).Statement[0].Action) == toset([
+        "cognito-idp:AdminCreateUser", "cognito-idp:AdminUpdateUserAttributes",
+        "cognito-idp:AdminDeleteUser", "cognito-idp:AdminDisableUser", "cognito-idp:AdminEnableUser",
+        "cognito-idp:AdminSetUserPassword", "cognito-idp:AdminAddUserToGroup", "cognito-idp:AdminRemoveUserFromGroup"
+      ]) &&
+      jsondecode(aws_iam_role_policy.human_enrollment_apply[0].policy).Statement[0].Resource == "arn:aws:cognito-idp:us-west-2:123456789012:userpool/*" &&
+      jsondecode(aws_iam_role_policy.human_enrollment_apply[0].policy).Statement[0].Condition.StringEquals == {
+        "aws:ResourceTag/ResetBoundary" = var.name_prefix,
+        "aws:ResourceTag/ManagedBy"     = "honua-release-hosted-pilot"
+      }
+    )
+    error_message = "Only the apply executor may provision users, and both readers and writers must be confined to this tagged pilot pool."
+  }
+}

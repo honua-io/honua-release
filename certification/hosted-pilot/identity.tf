@@ -15,8 +15,8 @@ locals {
   }
 }
 
-# No users, memberships or invitations. Provision separate real human subjects
-# through a reviewed identity workflow before claiming runtime qualification.
+# Human enrollment is empty by default. Explicit sealed nominations use the
+# same reviewed saved-plan workflow; they never establish runtime qualification.
 resource "aws_cognito_user_pool" "pilot" {
   name                = "${var.name_prefix}-operators"
   deletion_protection = var.deletion_protection ? "ACTIVE" : "INACTIVE"

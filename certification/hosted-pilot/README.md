@@ -49,10 +49,12 @@ and refresh. An older image that ignores that setting is not qualified.
 The edge identity is raw Cognito `sub`, never an email or forwarded role.
 State/profile/server binding alone does not prove same-subject BFF identity.
 
-The pool disables public registration and self-service account recovery. No users,
-memberships, invitations or application grants are silently created. Real distinct
-author/approver subjects and the independently scoped agent still require a
-reviewed identity/application provisioning workflow and separate runtime proof.
+The pool disables public registration and self-service account recovery. Human
+enrollment defaults to null. Explicit, sealed nominations create distinct
+author/approver accounts and group memberships through the same saved-plan
+workflow; see [human enrollment](HUMAN-ENROLLMENT.md). No invitations are sent.
+Application grants, the independently scoped agent, and actual human sign-in
+and approval evidence remain separate requirements.
 The two configured Server admin-role slots contain only the approver group.
 
 ## Saved-plan workflow
