@@ -1866,3 +1866,49 @@ def test_cloud_target_reaches_driver_setup_without_claiming_unexecuted_model_suc
     assert seen[0][1]["target"] == str(config.resolve())
     assert [operation for operation, _ in seen] == ["setup", "teardown"]
     assert receipt["status"] == "fail" and receipt["totals"]["modelCalls"] == 0
+
+
+def map_diagnostic_fixture():
+    return {'slot': 'pre-save', 'fieldMatches': {'itemId': True, 'family': True, 'body': False,
+        'draftReceipt': True, 'bodyMatchesDraft': True}, 'bodyDigest': 'a' * 64,
+        'authoredBodyDigest': 'b' * 64, 'responseSha256': 'c' * 64, 'responseBytes': 157}
+
+
+def test_native_map_diagnostic_retains_original_response_binding_without_candidate_body():
+    builder = _builder()
+    stage_id = builder.journey['stages'][5]['id']
+    selected = builder.capture_transcript('assistant', 'model action', stage_id=stage_id)
+    row = map_diagnostic_fixture()
+    result = {'result': {'mapReadbacks': [row], 'private': {'body': 'opaque-unclassified-value'}}}
+    sequence = builder.record_action(stage_id=stage_id, attribution=canary.MODEL_SELECTED, kind='tool_call',
+        status='fail', request={}, result=result, transcript_sequence=selected)
+    receipt = builder.validated_receipt(_schema())
+    assert receipt['notices'][-1] == f'action {sequence} native map readbacks: ' + json.dumps([row], sort_keys=True, separators=(',', ':'))
+    assert 'opaque-unclassified-value' not in json.dumps(receipt)
+
+
+@pytest.mark.parametrize('change', ['raw', 'slot', 'field', 'boolean', 'digest', 'size', 'unpaired', 'excess'])
+def test_native_map_diagnostic_rejects_unreviewed_fields_and_unbounded_values(change):
+    row = map_diagnostic_fixture()
+    rows = [row]
+    if change == 'raw': row['body'] = 'opaque-unclassified-value'
+    elif change == 'slot': row['slot'] = 'opaque-unclassified-value'
+    elif change == 'field': row['fieldMatches']['opaque-unclassified-value'] = True
+    elif change == 'boolean': row['fieldMatches']['body'] = 'opaque-unclassified-value'
+    elif change == 'digest': row['bodyDigest'] = 'opaque-unclassified-value'
+    elif change == 'size': row['responseBytes'] = 4 * 1024 * 1024 + 1
+    elif change == 'unpaired': del row['responseBytes']
+    elif change == 'excess': rows *= 11
+    with pytest.raises(canary.CanaryError, match='invalid native map readback diagnostics'):
+        canary.map_readback_diagnostic(rows)
+
+
+def test_map_failure_retains_field_diagnostics_without_unrelated_prior_render_dimensions():
+    row = map_diagnostic_fixture()
+    response = {'stageStatus': {'checks': [{'id': '6.saved-map', 'status': 'fail',
+        'detail': 'map identity or actual map body differs'}]}, 'observation': {'mapReadbacks': [row],
+        'renderDimensions': {'requested': [128, 128], 'expected': [128, 128], 'decoded': [128, 128]}}}
+    diagnostic = canary.driver_failure_diagnostic(response)
+    assert '6.saved-map=fail/assertion-refused' in diagnostic
+    assert 'nativeMap=' + canary.map_readback_diagnostic([row]) in diagnostic
+    assert 'renderSize' not in diagnostic

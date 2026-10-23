@@ -226,6 +226,8 @@ class JourneyExecutor:
             self.evidence.setdefault("proofs", {}).pop("pixel", None)
             self.evidence["checks"].setdefault("4", {}).pop("pixel", None)
             self.evidence.pop("renderDimensions", None)
+        if name == "honua_studio_save_version":
+            self.prepare_map_save(arguments)
         result = self.transport.tool(name, send_arguments, view, self.principal(number))
         if fault and fault["status"] == "submitted":
             error = result.get("structuredContent") or {}
@@ -242,6 +244,9 @@ class JourneyExecutor:
             self._check(4, "style-applied", name, lambda: {"styleId": identity(output["styleId"], name)})
         if name == "honua_publish_service":
             self.record_publication(output)
+        if number == 6 and name in {"honua_studio_create_draft", "honua_studio_update_draft",
+                                     *stages.STUDIO_COMPOSITION_TOOLS}:
+            self.record_map_draft(name, arguments, output)
         self._record(number, name, output)
         if name == "honua_render_map":
             self.check_render(output, selected_arguments=arguments)
@@ -253,6 +258,7 @@ class JourneyExecutor:
             self.record_job(output)
             self.check_job()
         if name == "honua_studio_save_version":
+            self.evidence["mapSaveInput"]["savedVersionId"] = self.resources["versionId"]
             self.check_map()
         if name == "honua_studio_reopen_version":
             self.check_reopened()
@@ -261,11 +267,32 @@ class JourneyExecutor:
         return {"status": "pass", "accepted": True, "injectedError": injected, "recoveredError": recovered,
                 "canonicalIds": self.evidence["canonicalIds"].get(str(number), {}),
                 "resources": dict(self.resources),
+                **({"mapReadbacks": list(self.evidence.get("mapReadbacks", []))}
+                   if name == "honua_studio_save_version" else {}),
                 **({"nativePublication": dict(self.evidence["nativePublication"])}
                    if name == "honua_publish_service" else {})}
 
     def terminal_surface(self, number):
         """Describe the harness bridge grammar without choosing or executing an action."""
+        if number == 6:
+            try:
+                authored_body = self.expected_map_body()
+            except ExecutionError as exc:
+                if not exc.blocked:
+                    raise
+                return {"compositionContract": {"available": False,
+                    "blockedBy": "independently observed published layer identity"}}
+            return {"compositionContract": {
+                "family": "map", "bodyFormat": "honua_map_package.v1",
+                "schemaVersion": self.family_schema_version("map"),
+                "currentDraft": {key: value for key, value in (self.evidence.get("mapDraftReceipt") or {}).items()
+                                 if key in {"draftId", "generation", "packageKey"}},
+                "requirement": "Save the authored portable map package body exactly. Native catalog composition "
+                               "tools produce a different representation; a valid composition draft alone does not "
+                               "satisfy this case. Create or update the draft body with this portable package, "
+                               "using the candidate's advertised map schema version. The model selects every write.",
+                "authoredBody": authored_body,
+                "bodySource": "committed execution.mapBody with the independently published layerId bound",}}
         if number != 3 or "honua_ingest_dataset" not in {tool["name"] for tool in self.view()["tools"]}:
             return {}
         return {
@@ -636,7 +663,12 @@ class JourneyExecutor:
         if len(matches) != 1 or not isinstance(matches[0].get("currentSchemaVersion"), str):
             raise ExecutionError("GET /api/v1/studio/package-families",
                                  f"candidate does not advertise one current {family} schema version")
-        return matches[0]["currentSchemaVersion"]
+        version = matches[0]["currentSchemaVersion"]
+        if (not 1 <= len(version) <= 50 or any(ord(c) < 32 for c in version) or
+                any(secret and secret in version for secret in credential_values(self.transport.credentials))):
+            raise ExecutionError("GET /api/v1/studio/package-families",
+                                 "candidate map schema version is not a bounded non-secret identity")
+        return version
 
     def map_path(self):
         return ("/api/v1/studio/content-items/" + identity(self.resources.get("itemId"), "read saved map")
@@ -660,10 +692,106 @@ class JourneyExecutor:
             return value
         return bind(self.fixture["mapBody"])
 
-    def _prove_map(self, transport, path, principal="proposer"):
-        return oracles.prove_map(transport.get_json(path, principal=principal), self.expected_map_body(),
-                                item_id=self.resources["itemId"], version_id=self.resources["versionId"],
-                                content_hash=self.resources["contentHash"])
+    def record_map_draft(self, command, arguments, output):
+        """Retain the actual last write receipt for a later independent HTTP read."""
+        try:
+            envelope = output["envelope"]
+            snapshot = {key: output[key] for key in
+                        ("draftId", "itemId", "generation", "ownerId", "packageKey", "family")}
+            # Unpaired drafts omit the nullable workspaceId in the published API.
+            snapshot["workspaceId"] = output.get("workspaceId")
+            if (type(snapshot["generation"]) is not int or snapshot["generation"] < 0
+                    or not isinstance(envelope, dict) or str(envelope.get("family", "")).lower() != "map"):
+                raise ValueError()
+            previous = self.evidence.get("mapDraftReceipt")
+            if command != "honua_studio_create_draft" and isinstance(previous, dict):
+                if (arguments.get("draftId") != previous["draftId"] or
+                        any(snapshot[key] != previous[key] for key in
+                            ("draftId", "itemId", "ownerId", "workspaceId", "packageKey", "family"))):
+                    raise ExecutionError(command, "native draft write changed its original identity binding")
+            snapshot["bodyDigest"] = oracles.content_digest(envelope["body"])
+            if command in {"honua_studio_create_draft", "honua_studio_update_draft"} and "body" in arguments:
+                if envelope["body"] != arguments["body"]:
+                    raise ExecutionError(command, "native draft write body differs from the selected body")
+            package_key = snapshot["packageKey"]
+            if (not isinstance(package_key, str) or not 1 <= len(package_key) <= 200 or
+                    any(ord(c) < 32 for c in package_key) or
+                    any(secret and secret in package_key for secret in credential_values(self.transport.credentials))):
+                raise ExecutionError(command, "native draft omitted a bounded non-secret package identity")
+            self.evidence["mapDraftReceipt"] = snapshot
+        except (KeyError, TypeError, ValueError) as exc:
+            raise ExecutionError(command, "native draft write omitted its content or canonical identity") from exc
+
+    def _map_readback(self, transport, path, slot, *, snapshot=None, principal="proposer"):
+        document = transport.get_json(path, principal=principal)
+        value = document.get("data", document) if isinstance(document, dict) else {}
+        value = value if isinstance(value, dict) else {}
+        envelope = value.get("envelope")
+        envelope = envelope if isinstance(envelope, dict) else {}
+        body = envelope.get("body")
+        # Only fixed field names, booleans and digests leave private state. Never
+        # retain candidate keys/values or use candidate content as an expectation.
+        fields = {"itemId": value.get("itemId") == self.resources.get("itemId"),
+                  "family": str(envelope.get("family", "")).lower() == "map",
+                  "body": "body" in envelope and body == self.expected_map_body()}
+        if snapshot is not None:
+            fields.update({key: value.get(key) == snapshot.get(key) for key in
+                ("draftId", "generation", "ownerId", "workspaceId", "packageKey")})
+            fields["draftReceipt"] = all(fields[key] for key in
+                ("draftId", "itemId", "generation", "ownerId", "workspaceId", "packageKey")) and value.get("family") == snapshot.get("family")
+            fields["bodyMatchesDraft"] = "body" in envelope and oracles.content_digest(body) == snapshot["bodyDigest"]
+        elif slot != "pre-save":
+            fields["versionId"] = value.get("versionId") == self.resources.get("versionId")
+            fields["contentHash"] = value.get("contentHash") == self.resources.get("contentHash")
+            saved_input = self.evidence.get("mapSaveInput")
+            if isinstance(saved_input, dict):
+                fields.update({key: value.get(key) == saved_input[key] for key in ("ownerId", "packageKey")})
+                fields["sourceDraftId"] = value.get("sourceDraftId") == saved_input["draftId"]
+                fields["draftReceipt"] = all(fields[key] for key in ("sourceDraftId", "ownerId", "packageKey"))
+                fields["bodyMatchesDraft"] = ("body" in envelope and
+                    oracles.content_digest(body) == saved_input["bodyDigest"] and
+                    saved_input.get("savedVersionId") == self.resources.get("versionId"))
+        diagnostic = {"slot": slot, "fieldMatches": fields,
+                      "bodyDigest": oracles.content_digest(body),
+                      "authoredBodyDigest": oracles.content_digest(self.expected_map_body())}
+        original = getattr(transport, "last_json_observation", None)
+        if isinstance(original, dict) and original.get("path") == path:
+            diagnostic.update({key: original[key] for key in ("responseSha256", "responseBytes")})
+        self.evidence.setdefault("mapReadbacks", []).append(diagnostic)
+        return document, fields
+
+    def prepare_map_save(self, arguments):
+        self.evidence["mapReadbacks"] = []
+        snapshot = self.evidence.get("mapDraftReceipt")
+        if not isinstance(snapshot, dict):
+            raise ExecutionError("save map", "original native draft write receipt is unavailable")
+        if (arguments.get("draftId") != snapshot["draftId"] or
+                type(arguments.get("generation")) is not int or
+                arguments.get("generation") != snapshot["generation"] or
+                self.resources.get("draftId") != snapshot["draftId"] or
+                self.resources.get("itemId") != snapshot["itemId"]):
+            raise ActionRejected("save map", "save must bind the latest observed draft and generation")
+        path = "/api/v1/studio/package-drafts/" + identity(snapshot["draftId"], "read draft before save")
+        _, fields = self._map_readback(self.transport, path, "pre-save", snapshot=snapshot,
+                                       principal=self.principal(6))
+        if not all(fields[key] for key in ("itemId", "family", "draftReceipt", "bodyMatchesDraft")):
+            raise ExecutionError("read draft before save", "native draft readback differs from its original write receipt")
+        if not fields["body"]:
+            raise ActionRejected("save map", "draft body differs from the authored portable map package; "
+                                 "consult terminalSurface.compositionContract and select a draft body update")
+        self.evidence["mapSaveInput"] = dict(snapshot)
+
+    def _prove_map(self, transport, path, principal="proposer", *, slot=None):
+        slot = slot or ("saved-primary" if transport is self.transport else "saved-replica")
+        document, fields = self._map_readback(transport, path, slot, principal=principal)
+        proof = oracles.prove_map(document, self.expected_map_body(),
+                                 item_id=self.resources["itemId"], version_id=self.resources["versionId"],
+                                 content_hash=self.resources["contentHash"])
+        if fields.get("draftReceipt") is False:
+            raise oracles.ProofError("saved map identity differs from its independently read pre-save draft")
+        if fields.get("bodyMatchesDraft") is False:
+            raise oracles.ProofError("saved map body differs from its independently read pre-save draft")
+        return proof
 
     def check_map(self):
         self._check(6, "saved-map", "GET saved immutable map version", lambda: self._prove_map(self.transport, self.map_path()))
@@ -744,7 +872,7 @@ class JourneyExecutor:
             for number in range(REPLICA_READS):
                 if number:
                     time.sleep(REPLICA_READ_DELAY_SECONDS)
-                self._prove_map(self.transport, self.map_path())
+                self._prove_map(self.transport, self.map_path(), slot="saved-replica")
                 observed.append(self._instance(self.transport))
                 if len({value for value in observed if value}) >= 2:
                     break

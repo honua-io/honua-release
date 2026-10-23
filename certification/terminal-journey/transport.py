@@ -1,6 +1,7 @@
 """Credential-safe live transports; responses stay private to the executor."""
 from __future__ import annotations
 
+import hashlib
 import json
 import os
 import re
@@ -27,9 +28,10 @@ class ExecutionError(RuntimeError):
 
 
 class ActionRejected(ExecutionError):
-    """The selected action itself was refused before any candidate request: outside the stage's bounded
+    """The selected action itself was refused before its candidate write: outside the stage's bounded
     view, not a typed call, or arguments that fail the observed schema or fixture bindings. Only this
-    class is model feedback; every other ExecutionError is a candidate or execution failure."""
+    class is model feedback; independent read-only preconditions may precede refusal. Every other
+    ExecutionError is a candidate or execution failure."""
 
 
 # The typed fields of an MCP tool error (honua-server McpToolHelpers.ErrorResult mirrors the problem
@@ -191,9 +193,13 @@ class Transport:
         return value if isinstance(value, str) else None
 
     def get_json(self, path, **kwargs):
+        self.last_json_observation = None
         raw, _ = self.http("GET", path, **kwargs)
         try:
-            return discovery.parse(raw)
+            value = discovery.parse(raw)
+            self.last_json_observation = {"path": path, "responseSha256": hashlib.sha256(raw).hexdigest(),
+                                          "responseBytes": len(raw)}
+            return value
         except discovery.DiscoveryError as exc:
             raise ExecutionError("GET " + path, "candidate did not return valid bounded JSON") from exc
 
