@@ -55,7 +55,9 @@ def native_context(durable, config):
     require(issued.get('producer') == 'private-native-bootstrap' and issued.get('candidateKey') == config['candidateKey'], 'native context lacks actual retained agent key issuance')
     key_record = issued['value']
     require('agent:workspace' in key_record['permissions'] and isinstance(key_record['apiKeyId'], str), 'native context key lacks observed workspace grant')
-    phase = canonical_digest({'kind': 'native-agent-context', 'candidateKey': config['candidateKey'], 'operation': config['operation'], 'keyId': key_record['apiKeyId'], 'humanCreator': human})
+    # One original operation owns this namespace even if a caller substitutes a
+    # different issued key. Exact public key identity remains in retained custody.
+    phase = canonical_digest({'kind': 'native-agent-context', 'candidateKey': config['candidateKey'], 'operation': config['operation'], 'nativeBootstrapOperationId': config['nativeBootstrapOperationId'], 'humanCreator': human})
     stages = durable.state.setdefault('studioBootstrapOperations', {})
     require(phase+'/start' not in stages, 'native context setup already started; reconcile original observations without replay')
     def transport(credential_env, credential_kind, agent_context=None):

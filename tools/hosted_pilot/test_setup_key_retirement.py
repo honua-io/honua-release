@@ -131,6 +131,13 @@ class SetupRetirement(unittest.TestCase):
             with self.subTest(edit=edit), self.assertRaisesRegex(ValueError, 'original separate setup authority|actual native saved fixture'):
                 self.retire()
         self.assertEqual(self.calls, [])
+    def test_substituted_key_id_cannot_select_a_new_retirement_namespace(self):
+        original = retirement.retention_prefix(self.config, self.native)
+        self.config['setupKey']['apiKeyId'] = '44444444-4444-4444-4444-444444444444'
+        self.assertEqual(retirement.retention_prefix(self.config, self.native), original)
+        with self.assertRaisesRegex(ValueError, 'custody differs from the original candidate'):
+            self.retire()
+        self.assertEqual(self.calls, [])
     def test_registry_hostname_separators_cannot_match_foreign_hosts(self):
         for host in ('585192672263Xdkr.ecr.us-east-1.amazonaws.com', '585192672263.dkr.ecr.us-east-1Xamazonaws.com',
                      '585192672263.dkr.ecr.us-east-1.amazonawsXcom'):

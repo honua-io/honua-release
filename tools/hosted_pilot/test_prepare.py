@@ -92,6 +92,18 @@ class PreparationBoundary(unittest.TestCase):
         self.assertTrue(any(key.endswith('/start') for key in durable.state['studioBootstrapOperations']))
         self.assertFalse(any(key.endswith('/completed') for key in durable.state['studioBootstrapOperations']))
 
+    def test_different_issued_key_cannot_reopen_original_context_operation(self):
+        config, durable, client, _ = self.context_setup()
+        with patch('prepare.BootstrapHttp', side_effect=self.factory), patch('prepare.verify_injected_secret'), patch.dict(os.environ, {'PILOT_CONTROLLER_TASK_ARN': 'actual-native-task'}):
+            prepare.native_context(durable, config)
+        issued = next(iter(durable.state['scenarioOperations'].values()))
+        issued['value'] = dict(issued['value'], apiKeyId='22222222-2222-2222-2222-222222222222')
+        with patch('prepare.BootstrapHttp', side_effect=self.factory), patch('prepare.verify_injected_secret'), patch.dict(os.environ, {'PILOT_CONTROLLER_TASK_ARN': 'actual-native-task'}):
+            with self.assertRaisesRegex(ValueError, 'already started'):
+                prepare.native_context(durable, config)
+        self.assertEqual(client.json.call_count, 3)
+        self.assertEqual(self.agent.json.call_count, 3)
+
 
     def test_machine_creator_is_refused_before_workspace_creation(self):
         config, durable, client, _ = self.context_setup()

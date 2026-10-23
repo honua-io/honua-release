@@ -175,7 +175,7 @@ def native_http(config, credential, method, path):
 
 def retention_prefix(config, native):
     base = canonical_digest({'kind': 'setup-key-retirement', 'candidateKey': config['candidateKey'],
-        'operationId': config['operation']['operationId'], 'setupKeyId': config['setupKey']['apiKeyId'], 'fixture': config['fixtureReference']})
+        'operationId': config['operation']['operationId'], 'fixture': config['fixtureReference']})
     return base if config['mode'] == 'retire' else base+'/recoveries/'+config['mode']+'/'+canonical_digest({'taskArn': native['taskArn']})[7:]
 
 
