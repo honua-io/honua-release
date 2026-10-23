@@ -2,7 +2,8 @@
 """Collect authenticated read-only history for a reviewed pilot initialization.
 
 This is evidence, never a ledger initializer or proof of whole-account zero cost.
-Raw CloudTrail records stay private; public projections omit access credentials.
+Only resource identities and aggregate usage are persisted. Raw request payloads,
+credential overrides, role policies and personal caller details are never cached.
 """
 from __future__ import annotations
 import argparse
@@ -11,6 +12,7 @@ from datetime import datetime, timezone, timedelta
 from decimal import Decimal
 import hashlib
 import json
+import re
 from pathlib import Path
 import subprocess
 from urllib.parse import urlencode
@@ -58,6 +60,31 @@ def dispatch_history(pages):
         'allRunBindingsDigest': digest(canonical([{key: row[key] for key in ('id', 'path', 'head_sha', 'created_at')} for row in rows]))}
 
 
+def resource_identities(row, native):
+    """Only API resource identities, never execution inputs/overrides/policies."""
+    name = native['eventName']
+    request = native.get('requestParameters') or {}
+    response = native.get('responseElements') or {}
+    fields = {
+        'RunTask': ('cluster', 'taskDefinition'),
+        'CreateRole': ('roleName',),
+        'CreateBucket': ('bucketName',),
+        'CreateStateMachine': ('name',),
+        'StartExecution': ('stateMachineArn', 'name'),
+    }[name]
+    selected = [request.get(key) for key in fields]
+    for key in ('stateMachineArn', 'executionArn'):
+        selected.append(response.get(key))
+    role = response.get('role') or {}
+    selected.extend(role.get(key) for key in ('arn', 'roleName'))
+    selected.extend(task.get(key) for task in response.get('tasks', []) for key in ('taskArn', 'clusterArn', 'taskDefinitionArn'))
+    selected.extend(resource.get('ResourceName') for resource in row.get('Resources', []))
+    # AWS identifiers have a narrow alphabet; arbitrary free-form values are not
+    # useful identity evidence and cannot enter the retained projection.
+    return sorted({value for value in selected if isinstance(value, str) and
+                   0 < len(value) <= 512 and re.fullmatch(r'[A-Za-z0-9_+=,.@:/-]+', value)})
+
+
 def event_history(value, event_name):
     require(not value.get('NextToken'), 'CloudTrail pagination incomplete')
     rows = value['Events']
@@ -68,11 +95,46 @@ def event_history(value, event_name):
         require(row['EventName'] == native['eventName'] == event_name and native['awsRegion'] == REGION,
                 'CloudTrail event/region differs')
         bindings = {key: native.get(key) for key in ('requestParameters', 'responseElements', 'resources')}
+        # Preserve the original conservative detection scope, including a pilot
+        # mention outside projected identities. Payloads are inspected transiently
+        # and hashed, never copied into the report or response cache.
         if any(prefix in canonical(bindings).decode() for prefix in PREFIXES):
+            identities = resource_identities(row, native)
+            error = native.get('errorCode')
+            if error is not None and (not isinstance(error, str) or not re.fullmatch(r'[A-Za-z0-9_.]{1,80}', error)):
+                error = 'unclassified'
             matches.append({'eventId': row['EventId'], 'eventTime': native['eventTime'],
-                'eventName': event_name, 'bindings': bindings, 'errorCode': native.get('errorCode')})
+                'eventName': event_name, 'resourceIdentities': identities, 'errorCode': error,
+                'unprojectedNamespaceReference': not any(prefix in identity for prefix in PREFIXES for identity in identities),
+                'nativeEventSha256': digest(canonical(native))})
     return {'totalEvents': len(rows), 'pilotEvents': matches,
             'allEventIdsDigest': digest(canonical(sorted(row['EventId'] for row in rows)))}
+
+
+def cache_projection(label, value):
+    """Persist only evidence needed for this audit; never an API response dump."""
+    if label.startswith('cloudtrail-'):
+        return event_history(value, label.removeprefix('cloudtrail-'))
+    if label == 'caller':
+        return {'Account': value['Account'], 'Arn': value['Arn']}
+    if label.endswith('-trunk'):
+        return {'name': value['name'], 'protected': value['protected'], 'commit': {'sha': value['commit']['sha']}}
+    if label.endswith('-workflow-source'):
+        return [{key: row[key] for key in ('path', 'sha', 'type')} for row in value]
+    if label.endswith('-dispatches'):
+        fields = ('id', 'path', 'head_sha', 'head_branch', 'created_at', 'event', 'status', 'conclusion', 'run_attempt')
+        return [{'total_count': page['total_count'], 'workflow_runs': [
+            {key: row[key] for key in fields} for row in page['workflow_runs']]} for page in value]
+    if label == 'roles':
+        return {'Roles': [{key: row[key] for key in ('RoleName', 'Arn')} for row in value['Roles']],
+                'paginationComplete': not value.get('IsTruncated') and not value.get('Marker')}
+    if label == 'buckets':
+        return {'Buckets': [{'Name': row['Name']} for row in value['Buckets']]}
+    if label == 'tables':
+        return {'TableNames': value['TableNames'], 'paginationComplete': not value.get('LastEvaluatedTableName')}
+    if label == 'account-costs':
+        return costs(value)
+    raise ValueError('history response has no reviewed identity projection')
 
 
 def costs(value):
@@ -108,10 +170,12 @@ def collect(start, cutoff, output, *, call=invoke):
     evidence = {}
     def query(label, argv):
         value = call(argv)
-        raw = canonical(value)+b'\n'
+        response_sha256 = digest(canonical(value)+b'\n')
+        raw = canonical(cache_projection(label, value))+b'\n'
         path = output/(label+'.json')
         path.write_bytes(raw); path.chmod(0o600)
-        evidence[label] = {'path': path.name, 'sha256': digest(raw), 'command': argv}
+        evidence[label] = {'path': path.name, 'sha256': digest(raw), 'responseSha256': response_sha256,
+                           'projection': 'identity-and-aggregate-usage-only', 'command': argv}
         return value
     identity = query('caller', ['aws', 'sts', 'get-caller-identity', '--output', 'json'])
     require(identity['Account'] == ACCOUNT, 'wrong budget history account')
@@ -147,14 +211,14 @@ def collect(start, cutoff, output, *, call=invoke):
         '--time-period', 'Start='+begin.date().isoformat()+',End='+end.date().isoformat(),
         '--granularity', 'DAILY', '--metrics', 'UnblendedCost', '--group-by',
         'Type=DIMENSION,Key=SERVICE', 'Type=DIMENSION,Key=RECORD_TYPE', '--output', 'json'])
-    billing = costs(usage)
-    billing['collectorRequestFeeLowerBoundUsd'] = '0.01'
-    billing['pricingSource'] = 'https://aws.amazon.com/aws-cost-management/aws-cost-explorer/pricing/'
+    usage_totals = costs(usage)
+    usage_totals['collectorRequestFeeLowerBoundUsd'] = '0.01'
+    usage_totals['pricingSource'] = 'https://aws.amazon.com/aws-cost-management/aws-cost-explorer/pricing/'
     no_observed_producer = not any(row['producerRuns'] for row in repos.values()) and not any(row['pilotEvents'] for row in cloud.values())
     report = {'schema': 'honua.hosted-pilot-budget-history/v1', 'accountId': ACCOUNT, 'resourceRegion': REGION,
         'observedAt': datetime.now(timezone.utc).isoformat(), 'coverage': {'start': start, 'cutoff': cutoff,
             'workflowEvents': ['workflow_dispatch'], 'cloudTrailEvents': list(EVENTS), 'cloudTrailRegion': REGION},
-        'repositories': repos, 'cloudTrail': cloud, 'currentNamespace': resources, 'billing': billing,
+        'repositories': repos, 'cloudTrail': cloud, 'currentNamespace': resources, 'billing': usage_totals,
         'boundedFinding': 'no pilot producer dispatch or named resource creation observed in covered history' if no_observed_producer else 'pilot producer/resource history requires reconciliation',
         'initializationAllowed': False, 'wholeAccountZeroSpend': False,
         'policy': {'pilotCeilingUsd': '2000', 'pilotProtectedCleanupUsd': '200', 'maximumActivePaidAttempts': 4,

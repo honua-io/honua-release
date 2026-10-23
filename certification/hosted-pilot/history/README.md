@@ -34,3 +34,12 @@ live resource and cleanup liabilities, and fixed bootstrap infrastructure and
 cleanup reservations. Unknown charges must remain reserved, not be settled as
 zero or replaced by a new namespace. No ledger, generation or resource was
 created by this collection.
+
+New collections retain only explicit resource identities, workflow bindings and
+aggregate usage projections. They do not cache execution input, container
+environment overrides, role policy documents, credentials or personal caller
+fields. Each projection has its own digest plus the digest of the original
+response inspected transiently in memory. A namespace reference in excluded
+payload data still counts as observed history requiring reconciliation; removing
+payloads cannot turn it into a zero-history finding. The original dated report,
+amounts, response digests and existing private cache custody remain unchanged.
