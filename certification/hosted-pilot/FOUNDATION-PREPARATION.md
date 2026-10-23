@@ -30,8 +30,12 @@ The original 151 USD unresolved usage hold is retained with an 8 USD extension.
 The 159 USD minimum follows observed 157.0291032026 USD gross account usage plus
 rounding/diagnostic allowance; credits do not reduce it. The owner metadata also
 reserves both original 20 USD Lambda cell liabilities, 25 USD foundation
-infrastructure, 10 USD cleanup and three additional 20 USD conservative genuine
-model holds. Total reserved metadata is 294 USD; the next image allocation is
+infrastructure, 10 USD cleanup and five additional 20 USD conservative genuine
+model holds. Total reserved metadata is 334 USD: the original 294 USD basis,
+the separately retained 20 USD for failed canary 39987311356, and the new 20 USD
+pre-dispatch reservation for canary 40001824669. The exact original 294 and
+314 USD bases and all original reservations remain archived; none is a
+settlement. The next image allocation is
 5 USD under stable identity foundation-image-preparation-001. These are reserves,
 not measured or settled prices. The spent field contains no authenticated
 attributable pilot settlement; it does not establish zero spend. Original
