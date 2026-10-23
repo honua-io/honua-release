@@ -429,6 +429,7 @@ def op_observe(request: dict[str, Any]) -> dict[str, Any]:
                                 "fixture": _target.get("execution", {}),
                                 "terminalSurface": engine.terminal_surface(number),
                                 "renderDimensions": engine.evidence.get("renderDimensions"),
+                                "mapReadbacks": engine.evidence.get("mapReadbacks", []),
                                 "repairableChecks": sorted(repairable),
                                 "evidence": checks},
                 "toolView": _tool_view(observation),
@@ -474,7 +475,7 @@ def op_execute(request: dict[str, Any]) -> dict[str, Any]:
             _write_state(state["workspaceId"], state)
             from transport import ActionRejected  # noqa: PLC0415 - same module path as the executor
             return {"status": "blocked" if exc.blocked else "fail", "stageStatus": status,
-                    # invalid-action: the selected action was refused before any candidate request
+                    # invalid-action: the selected action was refused before its candidate write
                     # (model feedback). candidate-execution: a valid action failed in the candidate or
                     # its proof (never model feedback).
                     # candidate-refusal: a typed client-side tool error for a well-formed call (e.g. asking
@@ -483,7 +484,9 @@ def op_execute(request: dict[str, Any]) -> dict[str, Any]:
                                 else "candidate-refusal" if exc.problem.get("code") in CANDIDATE_REFUSAL_CODES
                                 else "candidate-execution"),
                     "result": {"accepted": False, "command": exc.command, "reason": exc.reason,
-                               "injectedError": None, "recoveredError": None},
+                               "injectedError": None, "recoveredError": None,
+                               **({"mapReadbacks": engine.evidence.get("mapReadbacks", [])}
+                                  if action.get("tool") == "honua_studio_save_version" else {})},
                     "canonicalIds": {k: None for k in executor.ID_FIELDS},
                     "blockedBy": [stagelib.JOURNEY_DRIVER] if exc.blocked else []}
         _write_state(state["workspaceId"], state)

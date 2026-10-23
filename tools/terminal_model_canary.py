@@ -690,6 +690,10 @@ class ReceiptBuilder:
                     or type(diagnostic.get("fixtureServiceNameMatches")) is not bool):
                 raise CanaryError("driver returned an invalid native publication diagnostic")
             self.notice(f"action {sequence} native publication: " + json.dumps(diagnostic, sort_keys=True, separators=(",", ":")))
+        readbacks = result.get("result", {}).get("mapReadbacks") if isinstance(result, dict) and isinstance(result.get("result"), dict) else None
+        if readbacks is not None:
+            diagnostic = map_readback_diagnostic(readbacks)
+            self.notice(f"action {sequence} native map readbacks: " + diagnostic)
         return sequence
 
     def arm_injection(self, *, stage_id: str, result: Any) -> int:
@@ -1088,6 +1092,28 @@ class CandidateProxyClient:
         return content, usage, elapsed_ms, evidence
 
 
+def map_readback_diagnostic(rows: Any) -> str:
+    """Validate a finite diagnostic vocabulary before making it public."""
+    if not isinstance(rows, list) or len(rows) > 12:
+        raise CanaryError("driver returned invalid native map readback diagnostics")
+    for row in rows:
+        if (not isinstance(row, dict) or set(row) !=
+                {"slot", "fieldMatches", "bodyDigest", "authoredBodyDigest", "responseSha256", "responseBytes"}
+                or row.get("slot") not in {"pre-save", "saved-primary", "saved-replica", "published-route"}
+                or not isinstance(row.get("fieldMatches"), dict) or not row["fieldMatches"]
+                or not set(row["fieldMatches"]) <= {"itemId", "versionId", "contentHash", "family", "body",
+                    "draftReceipt", "bodyMatchesDraft", "draftId", "generation", "ownerId", "workspaceId",
+                    "packageKey", "sourceDraftId"}
+                or any(type(value) is not bool for value in row["fieldMatches"].values())
+                or any(not isinstance(row.get(key), str) or not re.fullmatch(r"[0-9a-f]{64}", row[key])
+                       for key in ("bodyDigest", "authoredBodyDigest"))
+                or ("responseSha256" in row and (not isinstance(row["responseSha256"], str)
+                    or not re.fullmatch(r"[0-9a-f]{64}", row["responseSha256"])
+                    or type(row["responseBytes"]) is not int or not 0 <= row["responseBytes"] <= 4 * 1024 * 1024))):
+            raise CanaryError("driver returned invalid native map readback diagnostics")
+    return json.dumps(rows, sort_keys=True, separators=(",", ":"))
+
+
 def driver_failure_diagnostic(response: Any) -> str:
     """Keep bounded assertion identities/codes, never arbitrary driver payloads."""
     if not isinstance(response, dict):
@@ -1120,13 +1146,16 @@ def driver_failure_diagnostic(response: Any) -> str:
         diagnostic = "; checks=" + ",".join(rows)
         observation = response.get("observation")
         dimensions = observation.get("renderDimensions") if isinstance(observation, dict) else None
-        if isinstance(dimensions, dict):
+        if any(row.startswith("4.") for row in rows) and isinstance(dimensions, dict):
             pairs = {key: dimensions.get(key) for key in ("requested", "expected", "decoded")}
             if all(isinstance(pair, list) and len(pair) == 2 and
                    all(type(value) is int and 0 < value <= 16384 for value in pair)
                    for pair in pairs.values()):
                 diagnostic += "; renderSize=" + ",".join(
                     key + "=" + "x".join(str(value) for value in pair) for key, pair in pairs.items())
+        readbacks = observation.get("mapReadbacks") if isinstance(observation, dict) else None
+        if any(row.startswith(("6.", "8.final-map=")) for row in rows) and readbacks is not None:
+            diagnostic += "; nativeMap=" + map_readback_diagnostic(readbacks)
         return diagnostic
     error = response.get("error")
     category = response.get("errorCategory")
