@@ -270,6 +270,11 @@ class JourneyExecutor:
             "sdkMethods": sorted(SDK_METHODS),
             "sdkSyntax": "honua-journey-sdk METHOD JSON_ARRAY",
             "sdkFixtureReferences": {"datasource": dict(DATASOURCE_REFERENCE)},
+            "sdkCommandExamples": {
+                "CreateConnectionAsync": "honua-journey-sdk CreateConnectionAsync " + json.dumps([DATASOURCE_REFERENCE]),
+                **({"TestConnectionAsync": "honua-journey-sdk TestConnectionAsync " + json.dumps([self.resources["connectionId"]])}
+                   if self.resources.get("connectionId") else {}),
+            },
             "sdkArgumentSources": {
                 "CreateConnectionAsync": ["terminalSurface.sdkFixtureReferences.datasource (unchanged)"],
                 "TestConnectionAsync": ["currentState.connectionId"],
@@ -313,7 +318,11 @@ class JourneyExecutor:
         }[method]
         fixture_reference = method == "CreateConnectionAsync" and arguments == [DATASOURCE_REFERENCE]
         if (arguments != expected and not fixture_reference) or any(value is None for value in expected):
-            raise ActionRejected(method, "SDK arguments do not bind the authored fixture and observed resource identities")
+            hint = ("use the exact CreateConnectionAsync command in terminalSurface.sdkCommandExamples; "
+                    "the bridge resolves the authored datasource privately"
+                    if method == "CreateConnectionAsync" else
+                    "create the connection first, then use currentState.connectionId in the TestConnectionAsync command")
+            raise ActionRejected(method, "SDK arguments do not bind the authored fixture and observed resource identities; " + hint)
         if method == "CreateConnectionAsync":
             arguments = [self.datasource_arguments()]
         output = self.sdk_call(method, arguments)
@@ -367,7 +376,7 @@ class JourneyExecutor:
 
     def upload_dataset(self):
         if self.resources.get("importTable"):
-            raise ExecutionError(UPLOAD_COMMAND, "fixture dataset has already been uploaded; publish its observed table")
+            raise ActionRejected(UPLOAD_COMMAND, "fixture dataset has already been uploaded; publish its observed table")
         spec, path = self.fixture_dataset()
         body = {"file": "@" + str(path), "TableName": spec["tableName"],
                 "TargetSrid": str(spec["targetSrid"]), "OverwriteExisting": "true"}
