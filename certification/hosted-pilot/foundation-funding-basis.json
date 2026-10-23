@@ -36,6 +36,16 @@
       "amountUsd": "20",
       "id": "legacy-model-39946356426",
       "status": "unsettled-genuine-model-original-receipt-retained"
+    },
+    {
+      "amountUsd": "20",
+      "id": "legacy-model-39987311356",
+      "status": "failed-unsettled-original-reservation-retained"
+    },
+    {
+      "amountUsd": "20",
+      "id": "legacy-model-40001824669",
+      "status": "dispatched-unsettled-original-reservation-retained"
     }
   ],
   "candidateIndependent": true,
@@ -55,6 +65,28 @@
   "nextPublicationReservationUsd": "5",
   "numericSpentFieldMeaning": "No attributable pilot settlement has been authenticated; all gross usage and original live liabilities remain nonzero reserved obligations, never zero-cost evidence",
   "originalHistoryMayBeReset": false,
+  "postCutoffModelObservations": [
+    {
+      "path": "certification/hosted-pilot/history/canary-reservation-39987311356.json",
+      "sha256": "sha256:41192a53249ead1768d9be9558113bceb40c00318e9c05c6d58d68ffc66399e9"
+    },
+    {
+      "path": "certification/hosted-pilot/history/canary-outcome-39987311356.json",
+      "sha256": "sha256:80e681d228a6fd9b799eaa2f4462d6012e8d84010619acdfcf58ae168cc6e82b"
+    },
+    {
+      "path": "certification/hosted-pilot/history/canary-reservation-40001824669.json",
+      "sha256": "sha256:6eda522543d07d12824e1d129d083dbead4480adbe72e7ce6e7b6cba411ed4da"
+    },
+    {
+      "path": "certification/hosted-pilot/history/canary-dispatch-40001824669.json",
+      "sha256": "sha256:8e1c98c2819b165aa3ba6967131aba86873a75738f6ae0dccc5594cc7c73282a"
+    }
+  ],
+  "priorFundingBasis": {
+    "path": "certification/hosted-pilot/history/foundation-funding-basis-original-314.json",
+    "sha256": "sha256:a7d1ab492469963c23840696fdade50cca8c8b0c0d7edec9a5faede2d9fb1da0"
+  },
   "priorUnknownUsageHold": {
     "amountUsd": "151",
     "source": {
@@ -64,7 +96,7 @@
   },
   "protectedCleanupUsd": "200",
   "region": "us-east-1",
-  "reservedUsd": "294",
+  "reservedUsd": "334",
   "schema": "honua.hosted-pilot-foundation-funding-basis/v1",
   "settledAttributablePilotUsd": null,
   "totalBudgetUsd": "2000",

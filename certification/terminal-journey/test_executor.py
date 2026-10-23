@@ -154,7 +154,8 @@ def live_http():
                 return
             self.send_response(200)
             self.end_headers()
-            self.wfile.write(b'{"status":"Pending","proposalId":"proposal-1","requestedBy":"operator-1"}')
+            self.wfile.write(json.dumps({'status': 'Pending', 'proposalId': 'proposal-1',
+                                        'requestedBy': 'operator-1', 'diff': SEALED_DIFF}).encode())
         def do_POST(self):
             seen.append(("POST", self.path, self.headers.get("X-API-Key")))
             self.send_response(403)
@@ -199,8 +200,7 @@ def engine_for(transport, **target):
 def test_self_approval_cli_usage_error_cannot_substitute_for_candidate_denial(live_http):
     url, seen = live_http
     transport = transport_for(url)
-    engine = engine_for(transport)
-    engine.resources["proposalId"] = "proposal-1"
+    engine = approval_engine(transport)
     with mock.patch.object(transport, "cli_approve", side_effect=[(2, None), (1, None)]) as cli:
         with pytest.raises(ExecutionError, match="separate-principal approval failed"):
             engine.approve("proposal-1")
@@ -849,13 +849,14 @@ def test_sdk_poll_cannot_replace_the_expected_identity_with_its_own_result(metho
 
 
 SEALED = {"itemId": "item-1", "versionId": "version-1", "contentHash": "hash-1"}
-SEALED_DIFF = ["itemId=item-1", "versionId=version-1", "contentHash=hash-1", "route=/journey-map"]
+SEALED_DIFF = ["itemId=item-1", "versionId=version-1", "contentHash=hash-1", "route=/journey-map", "visibility=public"]
 SEALED_HANDLE = {"status": "Completed", "resourceIds": {"itemId": "item-1", "versionId": "version-1"}}
 
 
 def approval_engine(transport):
-    engine = engine_for(transport)
+    engine = engine_for(transport, execution={"route": "/journey-map"})
     engine.resources.update(proposalId="proposal-1", **SEALED)
+    engine.evidence["publicationIntent"] = {**SEALED, "route": "/journey-map", "visibility": "public"}
     return engine
 
 
@@ -937,7 +938,7 @@ def test_approval_without_execution_id_joins_the_publication_handle_on_sealed_co
     other = {**OBSERVED_PROPOSAL, "diff": ["itemId=item-1", "versionId=version-1", "contentHash=other"]}
     transport.get_json.side_effect = [pending, pending, other, {"data": OBSERVED_HANDLE}]
     transport.cli_approve.side_effect = [(1, None), (0, None)]
-    with pytest.raises(ExecutionError, match="does not join the proposal"):
+    with pytest.raises(ExecutionError, match="differs from the authored intent"):
         engine.approve("proposal-1")
 
 

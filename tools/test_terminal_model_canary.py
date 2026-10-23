@@ -13,6 +13,8 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 import pytest
+
+
 import yaml
 from jsonschema import Draft202012Validator
 from cryptography.hazmat.primitives import serialization
@@ -22,6 +24,21 @@ REPO_ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 import terminal_model_canary as canary  # noqa: E402
+
+
+@pytest.mark.parametrize('status', [401, 403, 404, 429, 500, 503])
+def test_final_publication_diagnostic_retains_only_bounded_http_status(status):
+    response = {'stageStatus': {'checks': [{'id': '8.final-map', 'status': 'fail',
+                                          'detail': f'HTTP {status}'}]},
+                'observation': {'mapReadbacks': []}}
+    assert canary.driver_failure_diagnostic(response) == f'; checks=8.final-map=fail/http-{status}; nativeMap=[]'
+
+
+@pytest.mark.parametrize('detail', ['HTTP 404 private-secret', 'HTTP 999', 'HTTP 40',
+                                  'HTTP 404\nprivate-secret', 'candidate private-secret'])
+def test_publication_diagnostic_never_copies_arbitrary_error_text(detail):
+    response = {'stageStatus': {'checks': [{'id': '8.final-map', 'status': 'fail', 'detail': detail}]}}
+    assert canary.driver_failure_diagnostic(response) == '; checks=8.final-map=fail/assertion-refused'
 
 
 @pytest.mark.parametrize("state", ["ready", "awaiting_approval"])
@@ -41,7 +58,8 @@ def test_owned_journey_execution_and_independent_proof_regressions_run_in_the_re
     import subprocess
     result = subprocess.run([sys.executable, "-m", "pytest", str(REPO_ROOT / "certification" /
                              "terminal-journey" / "test_executor.py"), str(REPO_ROOT / "certification" /
-                             "terminal-journey" / "test_live_driver.py"), "-q"],
+                             "terminal-journey" / "test_live_driver.py"),
+                             str(REPO_ROOT / "certification" / "terminal-journey" / "test_publication_intent.py"), "-q"],
                             cwd=REPO_ROOT, capture_output=True, text=True, timeout=60, check=False)
     assert result.returncode == 0, result.stdout + result.stderr
 

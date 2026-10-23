@@ -54,8 +54,14 @@ class SetupRetirement(unittest.TestCase):
                        'taskDefinitionArn': self.config['taskDefinitionFamily']+':3', 'imageUri': self.config['imageUri']}
         self.preparation = {'taskArn': 'original-fixture-task', 'lastStatus': 'STOPPED'}
         self.status = 'active'; self.calls = []; self.lost_ack = False; self.denied_status = 401
+        self.target_denied_status=401
+        self.target={'targetId':'actual-native-target','principal':{'actorId':'native-observed-opaque-setup-actor',
+            'studioOwnerId':key_id,'authenticationKind':'api-key','isHumanSession':False}}
     def http(self, config, credential, method, path):
         self.calls.append((credential, method, path))
+        if path=='/api/v1/agent/target':
+            self.assertEqual((credential,method),(self.setup,'GET'))
+            return {'httpStatus':self.target_denied_status,'body':None} if self.status=='revoked' else {'httpStatus':200,'body':copy.deepcopy(self.target)}
         self.assertTrue(path.startswith('/api/v1/admin/api-keys/'+self.config['setupKey']['apiKeyId']+'/'))
         if method == 'POST':
             self.assertEqual(credential, self.root); self.assertTrue(path.endswith('/revoke'))
@@ -104,14 +110,17 @@ class SetupRetirement(unittest.TestCase):
     def test_original_identity_positive_revoke_independent_read_and_old_key_401(self):
         prior = copy.deepcopy(self.durable.state['ledger'])
         receipt = self.retire()
-        self.assertEqual([method for _,method,_ in self.calls], ['GET', 'POST', 'GET', 'GET'])
+        self.assertEqual([method for _,method,_ in self.calls], ['GET', 'GET', 'POST', 'GET', 'GET', 'GET'])
         self.assertEqual(receipt['revokedKeyId'], self.config['setupKey']['apiKeyId'])
         self.assertEqual(receipt['postRevocationProbeStatus'], 401)
         self.assertEqual(self.durable.state['ledger'], prior)
         self.assertNotIn(self.root, json.dumps(self.durable.state)); self.assertNotIn(self.setup, json.dumps(self.durable.state))
         self.assertFalse(receipt['qualification'])
+        actual=self.durable.state['scenarioOperations'][receipt['setupTargetReference']['key']]
+        self.assertEqual(canonical_digest(actual),receipt['setupTargetReference']['sha256'])
+        self.assertEqual(actual['value']['body']['principal']['actorId'],'native-observed-opaque-setup-actor')
         with self.assertRaisesRegex(ValueError, 'already started'): self.retire()
-        self.assertEqual(len(self.calls), 4)
+        self.assertEqual(len(self.calls), 6)
     def test_lost_revoke_ack_is_reconciled_by_actual_reads_without_second_post(self):
         self.lost_ack = True
         receipt = self.retire()
@@ -122,6 +131,25 @@ class SetupRetirement(unittest.TestCase):
         self.denied_status = 403
         with self.assertRaisesRegex(ValueError, '403 is not revocation proof'): self.retire()
         self.assertFalse(any(key.endswith('/completed') for key in self.durable.state['scenarioOperations']))
+    def test_actual_target_projection_is_required_before_revoke(self):
+        original=copy.deepcopy(self.target)
+        for field,value in [('actorId',''),('studioOwnerId','foreign-key'),('authenticationKind','operator-bearer'),('isHumanSession',True)]:
+            self.setUp();self.target=copy.deepcopy(original);self.target['principal'][field]=value
+            with self.subTest(field=field),self.assertRaisesRegex(ValueError,'native target/principal positive control'):self.retire()
+            self.assertFalse(any(method=='POST' for _,method,_ in self.calls))
+    def test_post_revoke_target_requires_401_and_cannot_use_scope_or_missing_route(self):
+        for status in (200,403,404):
+            self.setUp();self.target_denied_status=status
+            with self.subTest(status=status),self.assertRaisesRegex(ValueError,'exact401 is required'):self.retire()
+            self.assertFalse(any(key.endswith('/completed') for key in self.durable.state['scenarioOperations']))
+    def test_observation_recovery_cannot_manufacture_a_missing_active_target(self):
+        self.retire();ecs,db=self.recovery()
+        proof=retirement.observe_original_retirement(self.config,self.durable,ecs=ecs,db=db)
+        records=self.durable.state['scenarioOperations']
+        del records[next(key for key in records if key.endswith('/active-setup-target-read'))]
+        calls=len(self.calls)
+        with self.assertRaisesRegex(ValueError,'pre-revocation native setup principal'):self.retire(proof)
+        self.assertEqual(len(self.calls),calls)
     def test_changed_original_version_or_fixture_cannot_revoke_any_key(self):
         original = copy.deepcopy(self.config)
         for edit in ('version', 'fixture'):
@@ -172,7 +200,7 @@ class SetupRetirement(unittest.TestCase):
                 proof = retirement.observe_original_retirement(self.config, self.durable, ecs=ecs, db=db)
                 calls = len(self.calls)
                 receipt = self.retire(proof)
-                self.assertEqual([method for _,method,_ in self.calls[calls:]], ['GET', 'GET'])
+                self.assertEqual([method for _,method,_ in self.calls[calls:]], ['GET', 'GET', 'GET'])
                 self.assertEqual(sum(method == 'POST' for _,method,_ in self.calls), 1)
                 self.assertEqual(receipt['originalRetirement']['exitCode'], 1)
                 self.assertEqual(receipt['postRevocationProbeStatus'], 401)
@@ -227,6 +255,29 @@ class SetupRetirement(unittest.TestCase):
             self.assertEqual(result['bodySha256'], digest(body))
             self.assertEqual(result['bodyFormat'], 'empty' if not body else 'json' if body.startswith(b'{') else 'non-json')
 
+    def test_actual_target_transport_retains_positive_principal_then_empty_401(self):
+        expected = copy.deepcopy(self.target)
+        observed = []
+        class Handler(BaseHTTPRequestHandler):
+            def do_GET(handler):
+                observed.append((handler.path, handler.headers.get('X-API-Key')))
+                handler.send_response(200 if len(observed) == 1 else 401)
+                handler.end_headers()
+                if len(observed) == 1:
+                    handler.wfile.write(json.dumps(expected).encode())
+            def log_message(*args): pass
+        with HTTPServer(('127.0.0.1', 0), Handler) as server:
+            thread = threading.Thread(target=lambda: [server.handle_request() for _ in range(2)])
+            thread.start()
+            config = self.config | {'endpoint': 'http://127.0.0.1:'+str(server.server_port)}
+            positive = retirement.native_http(config, self.setup, 'GET', '/api/v1/agent/target')
+            denied = retirement.native_http(config, self.setup, 'GET', '/api/v1/agent/target')
+            thread.join(5)
+        retirement.setup_target(positive, config['setupKey'])
+        self.assertEqual(positive['body'], expected)
+        self.assertEqual(observed, [('/api/v1/agent/target', self.setup)]*2)
+        self.assertEqual((denied['httpStatus'], denied['bodyFormat'], denied['bodyBytes']), (401, 'empty', 0))
+
     def handoff(self):
         return {'schemaVersion': 1, **{key: self.config[key] for key in ('region', 'accountId', 'clusterArn', 'taskRoleArn', 'executionRoleArn', 'imageUri')},
             'taskDefinitionArn': self.native['taskDefinitionArn'], 'subnetIds': ['private-subnet'], 'securityGroupIds': ['controller-sg'],
@@ -271,7 +322,7 @@ class SetupRetirement(unittest.TestCase):
         self.assertEqual(terminal['lastStatus'], 'STOPPED')
 
     def test_resume_finishes_each_pre_send_crash_without_changing_old_history_or_liabilities(self):
-        for cut in ('before-start-commit','start','active-setup-read','revoke-intent','revoke-dispatch-admission'):
+        for cut in ('before-start-commit','start','active-setup-read','active-setup-target-read','revoke-intent','revoke-dispatch-admission'):
             with self.subTest(cut=cut):
                 self.setUp()
                 initial=copy.deepcopy(self.durable.state)
@@ -317,7 +368,7 @@ class SetupRetirement(unittest.TestCase):
         proof=retirement.observe_original_retirement(self.config,self.durable,ecs=ecs,db=db)
         before=len(self.calls)
         receipt=self.retire(proof)
-        self.assertEqual([method for _,method,_ in self.calls[before:]],['GET','GET','GET'])
+        self.assertEqual([method for _,method,_ in self.calls[before:]],['GET','GET','GET','GET'])
         self.assertEqual(receipt['beforeStatus'],401)
         self.assertFalse(receipt['possibleAdditionalAudit'])
     def test_resume_cannot_renew_expiry_or_skip_stopped_original_task(self):
