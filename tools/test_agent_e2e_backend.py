@@ -177,6 +177,41 @@ def handle(operation, payload, *, durable, campaign, bundle, configuration, time
     assert execution.store.state['fixtureBaselines'][result['retained']['key']]['nativeDatabaseOid'] == 123
 
 
+def test_console_admission_runs_before_case_effects_and_stays_out_of_public_inputs(tmp_path, execution, monkeypatch):
+    from types import SimpleNamespace
+    backend, _ = configured(tmp_path, '''
+def handle(operation, payload, **kwargs):
+    assert 'consoleConversation' not in kwargs['configuration']['cases'][payload['caseId']]
+    return {'publicInputs': {'files': []}}
+''')
+    backend.settings['configuration']['cases'] = {CASE: {'consoleConversation': {'original': 'reviewed-reference'}}}
+    bind(backend, execution, tmp_path); reserve(execution)
+    calls = []
+    def admission(**kwargs):
+        calls.append(kwargs)
+        return SimpleNamespace(append=lambda payload: {'status': 'delivered', 'evidenceKind': 'conversation'})
+    monkeypatch.setattr('agent_e2e_console_conversation.Conversation', admission)
+    result = backend.call('prepare', CONTEXT)
+    assert len(calls) == 1 and calls[0]['durable'] is execution
+    assert result['consoleConversation'] is True and result['publicInputs'] == {'files': []}
+    assert backend.settings['configuration']['cases'][CASE]['consoleConversation'] == {'original': 'reviewed-reference'}
+    result = backend.call('conversation_response', {**CONTEXT, 'response': {'original': 'model-payload'}})
+    assert result['evidenceKind'] == 'conversation'
+
+
+def test_failed_console_turn_admission_does_not_load_or_start_case_backend(tmp_path, execution, monkeypatch):
+    backend, _ = configured(tmp_path)
+    backend.settings['configuration']['cases'] = {CASE: {'consoleConversation': {}}}
+    bind(backend, execution, tmp_path); reserve(execution)
+    def refuse(**kwargs):
+        raise PackError('original human turn unavailable')
+    monkeypatch.setattr('agent_e2e_console_conversation.Conversation', refuse)
+    with pytest.raises(PackError, match='original human turn'):
+        backend.call('prepare', CONTEXT)
+    assert backend.module is None
+    assert all(row['state'] == 'reserved' for row in execution.state['ledger']['entries'])
+
+
 def test_paid_prepare_loads_pinned_handler_and_rechecks_script(tmp_path, execution):
     backend, _ = configured(tmp_path, 'def handle(*args, **kwargs):\n    return {"observed": "offline-handler"}\n')
     bind(backend, execution, tmp_path)

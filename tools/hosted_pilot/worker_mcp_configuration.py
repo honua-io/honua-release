@@ -56,6 +56,8 @@ def retained_context(durable, reference, endpoint):
     paths = {'workspaceReadback': '/api/v1/agent/workspaces/'+workspace['workspaceId']+'?viewId='+workspace['viewId'],
              'turnReadback': '/api/v1/agent/workspaces/'+workspace['workspaceId']+'/turns/'+turn['turnId'],
              'agentTarget': '/api/v1/agent/target', 'target': '/api/v1/agent/target'}
+    if 'consoleTurn' in value:
+        paths.update(workspace=paths['workspaceReadback'], turn=paths['turnReadback'])
     for name, path in paths.items():
         selected = value['nativeOriginals'][name]['reference']
         response = originals.get(selected['key'])
@@ -64,7 +66,7 @@ def retained_context(durable, reference, endpoint):
         intent = originals.get(origin.get('key'))
         require(isinstance(intent, dict) and canonical_digest(intent) == origin.get('sha256') and
                 intent.get('method') == 'GET' and intent.get('path') == path and intent.get('endpoint') == endpoint and
-                intent.get('credentialKind') == ('bearer' if name == 'target' else 'api-key') and intent.get('candidateKey') == durable.store.candidate and
+                intent.get('credentialKind') == ('bearer' if name in ('target', 'workspace', 'turn') else 'api-key') and intent.get('candidateKey') == durable.store.candidate and
                 intent.get('attemptId') == 'native-context-'+reference['key'][7:31] and response.get('attemptId') == intent.get('attemptId') and
                 response.get('candidateKey') == durable.store.candidate and response.get('intentDigest') == canonical_digest(intent) and
                 response.get('response', {}).get('httpStatus') == 200, 'MCP context is not an authenticated native original on the exact target')
@@ -74,9 +76,24 @@ def retained_context(durable, reference, endpoint):
                     raw.get('principal') == (human if name == 'target' else principal),
                     'MCP native principal differs from authenticated original')
         else:
-            require(raw == workspace if name == 'workspaceReadback' else isinstance(raw, dict) and
+            require(raw == workspace if name in ('workspaceReadback', 'workspace') else isinstance(raw, dict) and
                     raw.get('turnId') == turn['turnId'] and raw.get('context') == workspace and raw.get('status') == turn.get('status'),
                     'MCP retained native context changed after observation')
+    if 'consoleTurn' in value:
+        from console_turn import retained_session, validate_turn
+        adopted = value['consoleTurn']
+        require(set(adopted) == {'configuration', 'sessionObservation'}, 'retained Console adoption shape differs')
+        custody = retained_session(durable, adopted['configuration']['sessionCustody'], endpoint, human)
+        require(all(adopted['sessionObservation'][name] == custody['observed'][name]
+            for name in ('session', 'nativeTarget', 'consoleProfile', 'deployment')),
+            'retained Console session differs from original custody')
+        validate_turn(adopted['configuration'], turn=turn, workspace=workspace, turn_id=turn['turnId'], human=human)
+        # Agent and human must independently read exactly the same captured
+        # author, prompt, source, and context; not merely a matching turn id.
+        selected = value['nativeOriginals']['turnReadback']['reference']
+        human_selected = value['nativeOriginals']['turn']['reference']
+        require(originals[selected['key']]['response']['body'] == turn == originals[human_selected['key']]['response']['body'],
+            'MCP issued agent original human turn/source differs')
     return value
 
 
@@ -109,8 +126,11 @@ def provision(durable, reference, operation, configuration, *, secrets=None, ecs
     authorize(durable, operation)
     context = retained_context(durable, reference, configuration['endpoint'].removesuffix('/mcp'))
     verify_injected_credential(context, configuration['region'], ecs=ecs)
-    token = canonical_digest({'kind': 'native-worker-mcp', 'candidateKey': durable.store.candidate,
-        'operationId': operation['operationId'], 'destination': configuration['secretArn']})[7:]
+    identity = {'kind': 'native-worker-mcp', 'candidateKey': durable.store.candidate,
+        'operationId': operation['operationId'], 'destination': configuration['secretArn']}
+    if 'consoleTurn' in context:
+        identity['nativeContext'] = reference
+    token = canonical_digest(identity)[7:]
     key = 'native-worker-mcp:'+token
     records = durable.state.setdefault('scenarioOperations', {})
     public = {**configuration, 'agentContext': context['agentContext'], 'issuedAgentKey': context['issuedAgentKey'],
