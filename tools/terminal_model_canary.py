@@ -677,6 +677,19 @@ class ReceiptBuilder:
         receipt_stage = self._stage_record(stage_id)
         key = "modelActionSequences" if attribution == MODEL_SELECTED else "harnessActionSequences"
         receipt_stage[key].append(sequence)
+        # Keep only bounded identity hashes, never arbitrary native/model text.
+        # This makes a stale fixture name distinguishable from the service the
+        # candidate actually published while the original result stays digest-only.
+        diagnostic = result.get("result", {}).get("nativePublication") if isinstance(result, dict) and isinstance(result.get("result"), dict) else None
+        if diagnostic is not None:
+            if (not isinstance(diagnostic, dict) or set(diagnostic) != {
+                    "serviceNameSha256", "serviceUriSha256", "layerId", "fixtureServiceNameMatches"}
+                    or any(not isinstance(diagnostic.get(name), str) or not re.fullmatch(r"[0-9a-f]{64}", diagnostic[name])
+                           for name in ("serviceNameSha256", "serviceUriSha256"))
+                    or type(diagnostic.get("layerId")) is not int or diagnostic["layerId"] < 0
+                    or type(diagnostic.get("fixtureServiceNameMatches")) is not bool):
+                raise CanaryError("driver returned an invalid native publication diagnostic")
+            self.notice(f"action {sequence} native publication: " + json.dumps(diagnostic, sort_keys=True, separators=(",", ":")))
         return sequence
 
     def arm_injection(self, *, stage_id: str, result: Any) -> int:

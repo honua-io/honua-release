@@ -1,6 +1,7 @@
 """Independent proof fixtures and actual HTTP refusal tests (no release claim)."""
 import base64
 import copy
+import hashlib
 import io
 import json
 import math
@@ -535,7 +536,8 @@ def test_failed_cli_upload_is_not_a_pass():
 
 PUBLISH_OUTPUT = {"status": "Completed", "requiresApproval": False, "operationId": "service.publish",
                   "operationInstanceId": "opinst-publish-1", "correlationId": "00-corr-publish",
-                  "auditId": "audit-publish-1", "layerId": "7", "serviceName": "journey"}
+                  "auditId": "audit-publish-1", "layerId": "7", "serviceName": "journey",
+                  "serviceUri": "honua://published-services/journey"}
 
 
 def publish_arguments(engine, **changes):
@@ -617,6 +619,65 @@ def test_publish_awaiting_operator_approval_is_not_a_published_layer():
         engine.execute(3, {"kind": "tool_call", "tool": "honua_publish_service",
                            "arguments": publish_arguments(engine)})
     assert "layerId" not in engine.resources
+
+
+@pytest.mark.parametrize("service", ["native-published", "default", 'Hālau district/"North"'])
+def test_returned_publication_identity_replaces_fixture_alias_without_changing_expected_content(service):
+    engine = upload_engine()
+    fixture = copy.deepcopy(engine.fixture)
+    engine.resources.update(importTable="imported_journey_source", importSchema="public")
+    returned = {**PUBLISH_OUTPUT, "serviceName": service,
+        "serviceUri": "honua://published-services/" + executor.urllib.parse.quote(service, safe="")}
+    engine.transport.tool.return_value = {"structuredContent": returned}
+    engine.transport.get_json.return_value = {"type": "FeatureCollection", "features": copy.deepcopy(fixture["features"])}
+    result = engine.execute(3, {"kind": "tool_call", "tool": "honua_publish_service",
+        "arguments": publish_arguments(engine, serviceName="model-requested")})
+    assert engine.resources["serviceName"] == engine.resources["serviceId"] == service
+    assert engine.resources["serviceUri"] == returned["serviceUri"] and engine.resources["layerId"] == 7
+    assert result["resources"] == engine.resources
+    assert result["nativePublication"]["fixtureServiceNameMatches"] is False
+    assert result["nativePublication"]["serviceNameSha256"] == hashlib.sha256(service.encode()).hexdigest()
+    assert engine.fixture == fixture and engine.evidence["checks"]["3"]["imported-content"]["status"] == "pass"
+
+
+@pytest.mark.parametrize("changes", [{"serviceName": None}, {"serviceUri": None},
+    {"serviceUri": "honua://published-services/other"}, {"serviceUri": "https://foreign.test/journey"},
+    {"serviceName": "not/a/service"}, {"serviceName": ""}, {"serviceName": " padded "},
+    {"serviceName": "line\nbreak"}, {"serviceName": "a" * 201},
+    {"requiresApproval": None}, {"requiresApproval": 0},
+    {"layerId": None}, {"layerId": True}, {"layerId": "not-a-layer"}])
+def test_completed_publish_cannot_supply_partial_or_contradictory_identity_from_requested_names(changes):
+    engine = upload_engine()
+    engine.resources.update(importTable="imported_journey_source", importSchema="public")
+    engine.transport.tool.return_value = {"structuredContent": {**PUBLISH_OUTPUT, **changes}}
+    with pytest.raises(ExecutionError):
+        engine.execute(3, {"kind": "tool_call", "tool": "honua_publish_service", "arguments": publish_arguments(engine)})
+    assert not {"serviceName", "serviceId", "serviceUri", "layerId"} & set(engine.resources)
+    assert "nativePublication" not in engine.evidence
+    engine.transport.get_json.assert_not_called()
+
+
+def test_publication_identity_cannot_echo_the_operator_credential_into_context_or_public_hash():
+    engine = upload_engine(operator="private-operator")
+    engine.resources.update(importTable="imported_journey_source", importSchema="public")
+    engine.transport.tool.return_value = {"structuredContent": {**PUBLISH_OUTPUT, "serviceName": "private-operator",
+        "serviceUri": "honua://published-services/private-operator"}}
+    with pytest.raises(ExecutionError, match="credential material"):
+        engine.execute(3, {"kind": "tool_call", "tool": "honua_publish_service", "arguments": publish_arguments(engine)})
+    assert "nativePublication" not in engine.evidence and "private-operator" not in json.dumps(engine.resources)
+
+
+@pytest.mark.parametrize("layer", ["012345678901234567", 12345678901234567, "12345678901234567", "０１２３４５６７８９０１２３４５６７"])
+def test_decimal_layer_identity_cannot_normalize_a_credential_into_model_context_or_receipt(layer):
+    secret = "012345678901234567"
+    engine = upload_engine(operator=secret)
+    engine.resources.update(importTable="imported_journey_source", importSchema="public")
+    engine.transport.tool.return_value = {"structuredContent": {**PUBLISH_OUTPUT, "layerId": layer}}
+    with pytest.raises(ExecutionError):
+        engine.execute(3, {"kind": "tool_call", "tool": "honua_publish_service", "arguments": publish_arguments(engine)})
+    assert "nativePublication" not in engine.evidence and "layerId" not in engine.resources
+    assert secret not in json.dumps(engine.evidence)
+    engine.transport.get_json.assert_not_called()
 
 
 OPERATOR_KEY = "hk_operator_0123456789abcdef"

@@ -814,6 +814,42 @@ def test_receipt_payload_allowlist_excludes_unknown_secrets_and_raw_output():
     assert list(Draft202012Validator(_schema()).iter_errors(forged))
 
 
+def test_native_publication_diagnostic_retains_only_bounded_hashes_and_original_action_link():
+    builder = _builder()
+    stage_id = builder.journey["stages"][2]["id"]
+    selected = builder.capture_transcript("assistant", "model action", stage_id=stage_id)
+    diagnostic = {"serviceNameSha256": hashlib.sha256(b'actual-native').hexdigest(),
+        "serviceUriSha256": hashlib.sha256(b'honua://published-services/actual-native').hexdigest(),
+        "layerId": 17, "fixtureServiceNameMatches": False}
+    result = {"status": "pass", "result": {"nativePublication": diagnostic,
+        "resources": {"serviceName": "opaque-private-name", "secret": "opaque-unclassified-value"}}}
+    sequence = builder.record_action(stage_id=stage_id, attribution=canary.MODEL_SELECTED, kind="tool_call",
+        status="pass", request={"kind": "tool_call"}, result=result, transcript_sequence=selected)
+    receipt = builder.validated_receipt(_schema())
+    notice = receipt["notices"][-1]
+    assert notice.startswith(f"action {sequence} native publication: ")
+    assert json.loads(notice.split(": ", 1)[1]) == diagnostic
+    assert "opaque-private-name" not in json.dumps(receipt) and "opaque-unclassified-value" not in json.dumps(receipt)
+    assert receipt["actions"][sequence - 1]["result"] == builder.summarize(result)
+
+
+@pytest.mark.parametrize("change", ["extra", "raw-name", "layer-bool", "match-string"])
+def test_native_publication_diagnostic_cannot_retain_raw_or_unbounded_candidate_fields(change):
+    builder = _builder()
+    stage_id = builder.journey["stages"][2]["id"]
+    selected = builder.capture_transcript("assistant", "model action", stage_id=stage_id)
+    diagnostic = {"serviceNameSha256": "a" * 64, "serviceUriSha256": "b" * 64,
+        "layerId": 17, "fixtureServiceNameMatches": False}
+    if change == "extra": diagnostic["serviceName"] = "opaque-unclassified-value"
+    elif change == "raw-name": diagnostic["serviceNameSha256"] = "opaque-unclassified-value"
+    elif change == "layer-bool": diagnostic["layerId"] = True
+    else: diagnostic["fixtureServiceNameMatches"] = "false"
+    with pytest.raises(canary.CanaryError, match="invalid native publication diagnostic"):
+        builder.record_action(stage_id=stage_id, attribution=canary.MODEL_SELECTED, kind="tool_call", status="pass",
+            request={}, result={"result": {"nativePublication": diagnostic}}, transcript_sequence=selected)
+    assert "opaque-unclassified-value" not in json.dumps(builder.receipt)
+
+
 def test_stage_evidence_binding_rejects_contradiction_and_wrong_stage():
     stage = canary.load_journey(JOURNEY)["stages"][0]
     evidence = {"id": stage["id"], "number": stage["number"], "command": stage["command"],
