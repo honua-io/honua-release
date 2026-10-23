@@ -9,6 +9,14 @@ variable "native_bootstrap" {
     readGrants              = list(string)
     datasetImportScopes     = list(string)
     managedProcessIds       = list(string)
+    humanMemberships = optional(object({
+      schemaVersion = number
+      enrollment    = object({ bucket = string, key = string, versionId = string, sha256 = string, kmsArn = string })
+      credentials = object({
+        scim = object({ secretArn = string, versionId = string })
+        root = object({ secretArn = string, versionId = string })
+      })
+    }))
   })
   default = null
   validation {
@@ -27,6 +35,16 @@ variable "native_bootstrap" {
 }
 
 locals {
+  native_memberships = try(var.native_bootstrap.humanMemberships, null)
+  native_bootstrap_secrets = merge(local.fixture_secrets, local.native_memberships == null ? {} : {
+    HONUA_NATIVE_SCIM_TOKEN      = "${local.native_memberships.credentials.scim.secretArn}:::${local.native_memberships.credentials.scim.versionId}"
+    PILOT_FIXTURE_ADMIN_PASSWORD = "${local.native_memberships.credentials.root.secretArn}:::${local.native_memberships.credentials.root.versionId}"
+  })
+  membership_review_key = local.native_memberships == null ? null : "${dirname(local.native_memberships.enrollment.key)}/review.json"
+  membership_object_arns = local.native_memberships == null ? [] : [
+    "arn:aws:s3:::${local.native_memberships.enrollment.bucket}/${local.native_memberships.enrollment.key}",
+    "arn:aws:s3:::${local.native_memberships.enrollment.bucket}/${local.membership_review_key}"
+  ]
   native_bootstrap_config = var.native_bootstrap == null ? null : merge(var.native_bootstrap, {
     schemaVersion        = 2, region = var.region, accountId = var.account_id, candidateKey = var.candidate_digest,
     generationDigest     = var.dispatch_budget == null ? null : var.dispatch_budget.generationDigest,
@@ -41,8 +59,36 @@ locals {
 resource "aws_iam_role" "native_bootstrap" {
   count                = var.native_bootstrap == null ? 0 : 1
   name                 = "${var.name_prefix}-native-bootstrap"
+  permissions_boundary = "${trimsuffix(var.permissions_boundary_arn, "-agent-boundary")}-native-bootstrap-boundary"
+  assume_role_policy   = local.ecs_trust
+}
+resource "aws_iam_role" "native_bootstrap_execution" {
+  count                = var.native_bootstrap == null ? 0 : 1
+  name                 = "${var.name_prefix}-native-bootstrap-execution"
   permissions_boundary = var.permissions_boundary_arn
   assume_role_policy   = local.ecs_trust
+}
+resource "aws_iam_role_policy" "native_bootstrap_execution" {
+  count = var.native_bootstrap == null ? 0 : 1
+  role  = aws_iam_role.native_bootstrap_execution[0].id
+  policy = jsonencode({ Version = "2012-10-17", Statement = concat([
+    { Effect = "Allow", Action = "ecr:GetAuthorizationToken", Resource = "*" },
+    { Effect = "Allow", Action = ["ecr:BatchGetImage", "ecr:GetDownloadUrlForLayer", "ecr:BatchCheckLayerAvailability"], Resource = "arn:aws:ecr:${var.region}:${var.account_id}:repository/${split("/", split("@", var.controller_image.uri)[0])[1]}" },
+    { Effect = "Allow", Action = ["logs:CreateLogStream", "logs:PutLogEvents"], Resource = "${aws_cloudwatch_log_group.controller["fixture"].arn}:*" },
+    { Effect = "Allow", Action = "secretsmanager:GetSecretValue", Resource = concat([module.application.db_connection_secret_arn], [for secret in aws_secretsmanager_secret.fixture : secret.arn]) },
+    { Effect = "Allow", Action = "kms:Decrypt", Resource = "arn:aws:kms:${var.region}:${var.account_id}:key/*", Condition = { StringEquals = { "kms:ViaService" = "secretsmanager.${var.region}.amazonaws.com", "aws:ResourceTag/ResetBoundary" = var.name_prefix }, ArnLike = { "kms:EncryptionContext:SecretARN" = "arn:aws:secretsmanager:${var.region}:${var.account_id}:secret:${var.name_prefix}*" } } }
+    ], local.native_memberships == null ? [
+    { Effect = "Allow", Action = "secretsmanager:GetSecretValue", Resource = module.application.admin_password_secret_arn }
+    ] : concat([for credential in values(local.native_memberships.credentials) : {
+      Effect    = "Allow", Action = "secretsmanager:GetSecretValue", Resource = credential.secretArn,
+      Condition = { StringEquals = { "secretsmanager:VersionId" = credential.versionId } }
+      }], [for credential in values(local.native_memberships.credentials) : {
+      Effect    = "Deny", Action = "secretsmanager:GetSecretValue", Resource = credential.secretArn,
+      Condition = { StringNotEquals = { "secretsmanager:VersionId" = credential.versionId } }
+    }]), local.native_memberships == null || var.application.identity_secrets_kms_key_arn == "" ? [] : [
+    { Effect = "Allow", Action = "kms:Decrypt", Resource = var.application.identity_secrets_kms_key_arn,
+    Condition = { StringEquals = { "kms:ViaService" = "secretsmanager.${var.region}.amazonaws.com", "kms:EncryptionContext:SecretARN" = local.native_memberships.credentials.scim.secretArn } } }
+  ]) })
 }
 resource "aws_ecs_task_definition" "native_bootstrap" {
   count                    = var.native_bootstrap == null ? 0 : 1
@@ -52,7 +98,21 @@ resource "aws_ecs_task_definition" "native_bootstrap" {
   network_mode             = "awsvpc"
   requires_compatibilities = ["FARGATE"]
   task_role_arn            = aws_iam_role.native_bootstrap[0].arn
-  execution_role_arn       = aws_iam_role.execution["fixture"].arn
+  execution_role_arn       = aws_iam_role.native_bootstrap_execution[0].arn
+  lifecycle {
+    precondition {
+      condition = local.native_memberships == null ? true : (
+        local.native_memberships.schemaVersion == 1 &&
+        local.native_memberships.credentials == module.application.native_membership_credentials &&
+        local.native_memberships.enrollment.bucket == "honua-release-${trimprefix(trimsuffix(var.name_prefix, "-agent"), "honua-")}-foundation-plans-${var.account_id}" &&
+        can(regex("^hosted-pilot/plans/[1-9][0-9]*/[1-9][0-9]*/human-identities-[1-9][0-9]*\\.json$", local.native_memberships.enrollment.key)) &&
+        can(regex("^sha256:[a-f0-9]{64}$", local.native_memberships.enrollment.sha256)) &&
+        can(regex("^arn:aws:kms:${var.region}:${var.account_id}:key/[a-f0-9-]+$", local.native_memberships.enrollment.kmsArn)) &&
+        length(local.native_memberships.enrollment.versionId) > 0 && local.native_memberships.enrollment.versionId != "null"
+      )
+      error_message = "Human membership setup requires the actual application's separate immutable credentials and original private enrollment object."
+    }
+  }
   runtime_platform {
     cpu_architecture        = "X86_64"
     operating_system_family = "LINUX"
@@ -63,7 +123,7 @@ resource "aws_ecs_task_definition" "native_bootstrap" {
     command          = ["python", "tools/hosted_pilot/native_bootstrap.py"], user = "10001:10001", readonlyRootFilesystem = true,
     mountPoints      = [{ sourceVolume = "work", containerPath = "/work", readOnly = false }],
     environment      = [{ name = "PILOT_NATIVE_BOOTSTRAP_CONFIG", value = jsonencode(local.native_bootstrap_config) }],
-    secrets          = [for name, ref in local.fixture_secrets : { name = name, valueFrom = ref }],
+    secrets          = [for name, ref in local.native_bootstrap_secrets : { name = name, valueFrom = ref }],
     linuxParameters  = { capabilities = { drop = ["ALL"] } },
     logConfiguration = { logDriver = "awslogs", options = { awslogs-group = aws_cloudwatch_log_group.controller["fixture"].name, awslogs-region = var.region, awslogs-stream-prefix = "native-bootstrap" } }
   }])
@@ -71,21 +131,30 @@ resource "aws_ecs_task_definition" "native_bootstrap" {
 resource "aws_iam_role_policy" "native_bootstrap" {
   count = var.native_bootstrap == null ? 0 : 1
   role  = aws_iam_role.native_bootstrap[0].id
-  policy = jsonencode({ Version = "2012-10-17", Statement = [
+  policy = jsonencode({ Version = "2012-10-17", Statement = concat([
     { Effect = "Allow", Action = ["s3:GetBucketVersioning", "s3:ListBucketVersions"], Resource = local.state_bucket_arn },
     { Effect = "Allow", Action = ["s3:GetObject", "s3:GetObjectVersion", "s3:PutObject"], Resource = "${local.state_bucket_arn}/agent-e2e/${local.candidate_hex}/*" },
     { Effect = "Allow", Action = "s3:PutObject", Resource = "${aws_s3_bucket.handoff.arn}/native/bootstrap/${local.candidate_hex}/*", Condition = { StringEquals = { "s3:if-none-match" = "*" } } },
     { Effect = "Allow", Action = ["dynamodb:GetItem", "dynamodb:UpdateItem"], Resource = local.state_table_arn, Condition = { "ForAllValues:StringEquals" = { "dynamodb:LeadingKeys" = [var.candidate_digest] } } },
     { Effect = "Allow", Action = "secretsmanager:PutSecretValue", Resource = [for secret in aws_secretsmanager_secret.api : secret.arn] },
     { Effect = "Allow", Action = "ecs:DescribeTasks", Resource = "arn:aws:ecs:${var.region}:${var.account_id}:task/${module.application.ecs_cluster_name}/*" }
-  ] })
+    ], local.native_memberships == null ? [] : [
+    { Effect = "Allow", Action = "s3:GetObjectVersion", Resource = local.membership_object_arns[0], Condition = { StringEquals = { "s3:VersionId" = local.native_memberships.enrollment.versionId } } },
+    { Effect = "Allow", Action = "s3:GetObjectVersion", Resource = local.membership_object_arns[1] },
+    { Effect = "Allow", Action = "kms:Decrypt", Resource = local.native_memberships.enrollment.kmsArn,
+    Condition = { StringEquals = { "kms:ViaService" = "s3.${var.region}.amazonaws.com", "kms:EncryptionContext:aws:s3:arn" = local.membership_object_arns } } },
+    { Effect = "Allow", Action = "ecs:DescribeServices", Resource = "arn:aws:ecs:${var.region}:${var.account_id}:service/${module.application.ecs_cluster_name}/${module.application.ecs_service_name}" },
+    # ECS does not support resource-level grants for this read action. The
+    # membership verifier independently requires both exact source-bound ARNs.
+    { Effect = "Allow", Action = "ecs:DescribeTaskDefinition", Resource = "*", Condition = { StringEquals = { "aws:RequestedRegion" = var.region } } }
+  ]) })
 }
 resource "aws_iam_role_policy" "dispatch_native_bootstrap" {
   count = var.native_bootstrap == null || var.dispatch_budget == null ? 0 : 1
   role  = aws_iam_role.dispatcher.id
   policy = jsonencode({ Version = "2012-10-17", Statement = [
     { Effect = "Allow", Action = "ecs:RunTask", Resource = aws_ecs_task_definition.native_bootstrap[0].arn, Condition = { ArnEquals = { "ecs:cluster" = local.target_cluster_arn } } },
-    { Effect = "Allow", Action = "iam:PassRole", Resource = [aws_iam_role.native_bootstrap[0].arn, aws_iam_role.execution["fixture"].arn], Condition = { StringEquals = { "iam:PassedToService" = "ecs-tasks.amazonaws.com" } } }
+    { Effect = "Allow", Action = "iam:PassRole", Resource = [aws_iam_role.native_bootstrap[0].arn, aws_iam_role.native_bootstrap_execution[0].arn], Condition = { StringEquals = { "iam:PassedToService" = "ecs-tasks.amazonaws.com" } } }
   ] })
 }
 # A missing allowance disables new launches, while retaining observation and
@@ -94,7 +163,7 @@ resource "aws_iam_role_policy" "observe_native_bootstrap" {
   count = var.native_bootstrap == null ? 0 : 1
   role  = aws_iam_role.dispatcher.id
   policy = jsonencode({ Version = "2012-10-17", Statement = [
-    { Effect = "Allow", Action = "ecs:DescribeTaskDefinition", Resource = aws_ecs_task_definition.native_bootstrap[0].arn },
+    { Effect = "Allow", Action = "ecs:DescribeTaskDefinition", Resource = "*", Condition = { StringEquals = { "aws:RequestedRegion" = var.region } } },
     { Effect = "Allow", Action = "ecs:StopTask", Resource = "arn:aws:ecs:${var.region}:${var.account_id}:task/${module.application.ecs_cluster_name}/*" },
     { Effect = "Allow", Action = ["s3:GetObject", "s3:GetObjectVersion"], Resource = "${aws_s3_bucket.handoff.arn}/native/bootstrap/${local.candidate_hex}/*" }
   ] })
@@ -104,7 +173,7 @@ output "native_bootstrap_handoff" {
   value = var.native_bootstrap == null || var.dispatch_budget == null ? null : {
     schemaVersion     = 1, region = var.region, accountId = var.account_id, clusterArn = local.target_cluster_arn,
     taskDefinitionArn = aws_ecs_task_definition.native_bootstrap[0].arn, taskRoleArn = aws_iam_role.native_bootstrap[0].arn,
-    executionRoleArn  = aws_iam_role.execution["fixture"].arn, containerName = "native-bootstrap", imageUri = var.controller_image.uri,
+    executionRoleArn  = aws_iam_role.native_bootstrap_execution[0].arn, containerName = "native-bootstrap", imageUri = var.controller_image.uri,
     subnetIds         = module.network.private_subnets, securityGroupIds = [aws_security_group.controller.id],
     configuration     = local.native_bootstrap_config, configurationSha256 = "sha256:${sha256(jsonencode(local.native_bootstrap_config))}",
     dispatchBudget    = merge(var.dispatch_budget, { candidateKey = var.candidate_digest, claimTable = aws_dynamodb_table.claims["dispatch"].name })

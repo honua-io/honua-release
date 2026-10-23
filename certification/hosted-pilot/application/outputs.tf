@@ -15,6 +15,7 @@ output "deployment" {
     public_console_origin   = var.identity_redirects.console_origin
     ecs_cluster             = module.server.ecs_cluster_name
     server_service          = module.server.ecs_service_name
+    server_task_definition  = module.server.ecs_task_definition_arn
     public_audience_origin  = null
   }
 }

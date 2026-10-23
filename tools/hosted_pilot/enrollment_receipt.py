@@ -173,7 +173,8 @@ def retain_once(path, *, key, env, aws):
     bucket, kms = env['PILOT_PLAN_BUCKET'], env['PILOT_PLAN_KMS_ARN']
     try:
         written = aws('s3api', 'put-object', '--bucket', bucket, '--key', key, '--body', str(path),
-                      '--if-none-match', '*', '--server-side-encryption', 'aws:kms', '--ssekms-key-id', kms)
+                      '--if-none-match', '*', '--server-side-encryption', 'aws:kms', '--ssekms-key-id', kms,
+                      '--no-bucket-key-enabled')
     except (ValueError, OSError):
         written = {}
     # Read after every write, including a lost reply; never replay the mutation.
@@ -184,6 +185,7 @@ def retain_once(path, *, key, env, aws):
     observed = aws(*args, str(readback))
     observed_version = version(observed.get('VersionId'))
     require(observed.get('ServerSideEncryption') == 'aws:kms' and observed.get('SSEKMSKeyId') == kms and
+            observed.get('BucketKeyEnabled', False) is False and
             (not written.get('VersionId') or written['VersionId'] == observed_version) and
             readback.stat().st_size == len(data) and readback.read_bytes() == data,
             'private enrollment object readback differs; retain original effects')

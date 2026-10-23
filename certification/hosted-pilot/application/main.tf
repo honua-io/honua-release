@@ -62,14 +62,20 @@ module "server" {
   public_base_url             = local.server_origin
   generic_oidc                = local.server_generic_oidc
   operator_bearer             = local.server_operator_bearer
-  additional_env              = merge(local.server_identity_environment, local.application_agent_environment)
-  allow_https_ingress_cidrs   = concat(var.allowed_operator_cidrs, [for ip in local.application_network.nat_public_ips : "${ip}/32"])
-  allow_http_ingress_cidrs    = []
-  alb_enable_http_redirect    = false
-  assign_public_ip            = false
-  enable_nat_gateway          = true
-  single_nat_gateway          = true
-  log_retention_days          = 14
+  scim_provisioning = {
+    oidc_issuer                     = local.server_generic_oidc.authority
+    bearer_token_secret_arn         = aws_secretsmanager_secret.native_scim.arn
+    bearer_token_secret_version_id  = aws_secretsmanager_secret_version.native_scim.version_id
+    bearer_token_secret_kms_key_arn = var.identity_secrets_kms_key_arn == "" ? null : var.identity_secrets_kms_key_arn
+  }
+  additional_env            = merge(local.server_identity_environment, local.application_agent_environment)
+  allow_https_ingress_cidrs = concat(var.allowed_operator_cidrs, [for ip in local.application_network.nat_public_ips : "${ip}/32"])
+  allow_http_ingress_cidrs  = []
+  alb_enable_http_redirect  = false
+  assign_public_ip          = false
+  enable_nat_gateway        = true
+  single_nat_gateway        = true
+  log_retention_days        = 14
   # Cognito is selected explicitly; actual identities/grants
   # require runtime qualification. Both configured AdminRoles indices replace the Server's
   # two appsettings admin role names. A compatible Server must also replace
@@ -88,6 +94,7 @@ module "server" {
   depends_on = [
     aws_secretsmanager_secret_version.oidc_client,
     aws_secretsmanager_secret_version.operator_bearer,
+    aws_secretsmanager_secret_version.native_scim,
     terraform_data.campaign_network,
   ]
 }

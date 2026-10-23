@@ -210,6 +210,20 @@ class PrivateEnrollmentReceipt(unittest.TestCase):
         self.assertEqual(len([call for call in self.calls if call[1] == 'get-object']), 2)
         self.assertIn(reference['key'], self.objects)
 
+    def test_bucket_key_context_is_refused_before_enrollment_is_published(self):
+        original = self.aws
+        def bucket_context(*args):
+            observed = original(*args)
+            if args[1] == 'get-object':
+                observed['BucketKeyEnabled'] = True
+            return observed
+        self.aws = bucket_context
+        with self.assertRaisesRegex(ValueError, 'readback differs'):
+            self.emit()
+        self.assertNotIn('hosted-pilot/plans/1234/1/human-identities-2.json', self.objects)
+        self.assertFalse((self.work / 'human-enrollment-reference.json').exists())
+        self.assertIn('--no-bucket-key-enabled', self.calls[0])
+
     def test_repeated_emit_preserves_exact_original_versions(self):
         original = self.emit()
         retained = copy.deepcopy(self.objects)

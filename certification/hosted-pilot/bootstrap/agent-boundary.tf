@@ -1,7 +1,7 @@
 locals {
   agent_role_pattern     = "arn:aws:iam::${local.account}:role/honua-agent-*"
   workload_role_patterns = concat(["arn:aws:iam::${local.account}:role/${var.name_prefix}*"], var.enable_agent_controller ? [local.agent_role_pattern] : [])
-  workload_boundary_arns = concat([aws_iam_policy.runtime_boundary.arn], var.enable_agent_controller ? [aws_iam_policy.agent_boundary[0].arn] : [])
+  workload_boundary_arns = concat([aws_iam_policy.runtime_boundary.arn], var.enable_agent_controller ? [aws_iam_policy.agent_boundary[0].arn, aws_iam_policy.native_bootstrap_boundary[0].arn] : [])
   deployment_state_keys  = concat([local.state_key], var.enable_agent_controller ? ["honua/hosted-pilot/${var.name_prefix}/campaign.tfstate", "honua/hosted-pilot/${var.name_prefix}/workers/*"] : [])
 }
 

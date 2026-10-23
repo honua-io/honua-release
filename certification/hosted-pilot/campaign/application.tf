@@ -66,10 +66,11 @@ module "application" {
 
 output "application_deployment" {
   value = {
-    deployment           = module.application.deployment
-    identity_preparation = module.application.identity_preparation
-    runtime_bindings     = module.application.runtime_bindings
-    human_enrollment     = module.application.human_enrollment
+    deployment                    = module.application.deployment
+    identity_preparation          = module.application.identity_preparation
+    runtime_bindings              = module.application.runtime_bindings
+    human_enrollment              = module.application.human_enrollment
+    native_membership_credentials = module.application.native_membership_credentials
   }
   precondition {
     condition = var.human_browser == null ? true : (
