@@ -1478,6 +1478,9 @@ def execute_live(
                 if stage_status == "complete":
                     if not builder._stage_record(stage_id)["modelActionSequences"]:
                         raise CanaryError(f"stage {stage_id} completed without a model-selected action")
+                    if (stage_id == receipt["errorInjection"]["stageId"]
+                            and receipt["errorInjection"]["status"] != "recovered"):
+                        raise ModelFailure("stage completed without proving recovery of the injected error")
                     builder.mark_stage(stage_id, "pass")
                     break
                 if stage_status != "ready":
@@ -1595,6 +1598,12 @@ def execute_live(
                     builder.observe_injected_error(action_sequence)
                 elif receipt["errorInjection"]["status"] == "observed" and action_status == "pass":
                     recovered = fault_evidence(execution, "recoveredError")
+                    # Inspection can legitimately precede repair. It consumes the
+                    # same bounded action budget and proves no recovery by itself.
+                    # The injection stage cannot complete until a later candidate
+                    # result explicitly proves recovery of this exact error ID.
+                    if recovered is None:
+                        continue
                     if (
                         not isinstance(recovered, dict)
                         or recovered.get("id") != receipt["errorInjection"]["id"]
