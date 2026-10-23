@@ -370,6 +370,44 @@ def test_model_sdk_commands_bind_observed_view_fixture_and_credential_reference(
     engine.transport.tool.assert_not_called()
 
 
+def test_model_can_select_datasource_after_real_canary_redaction(monkeypatch):
+    monkeypatch.syspath_prepend(str(Path(__file__).resolve().parents[2] / "tools"))
+    from terminal_model_canary import Redactor
+
+    engine = sdk_engine()
+    monkeypatch.setenv("JOURNEY_TEST_PASSWORD", "private-database-key")
+    redactor = Redactor(["private-database-key", "private-proposer"])
+    observation = redactor.value({"fixture": engine.fixture, "terminalSurface": engine.terminal_surface(3)})
+    # Reproduce the failed live canary boundary: a masked Env value cannot be
+    # faithfully returned. Keep that masking; use the fixed authored reference.
+    assert observation["fixture"]["datasource"]["passwordEnv"] == "[REDACTED]"
+    selected = observation["terminalSurface"]["sdkFixtureReferences"]["datasource"]
+    with mock.patch.object(executor.sdk, "invoke", return_value={"connectionId": "connection-1"}) as invoke:
+        with pytest.raises(ExecutionError, match="do not bind"):
+            engine.execute(3, sdk_action("CreateConnectionAsync", [observation["fixture"]["datasource"]]))
+        invoke.assert_not_called()
+        result = engine.execute(3, sdk_action("CreateConnectionAsync", [selected]))
+    assert invoke.call_count == 1
+    assert invoke.call_args.args[2] == [{"name": "source", "password": "private-database-key"}]
+    assert result["resources"]["connectionId"] == "connection-1"
+    assert "private-database-key" not in json.dumps([observation, result, selected])
+    engine.transport.tool.assert_not_called()
+
+
+@pytest.mark.parametrize("method,arguments", [
+    ("CreateConnectionAsync", [{"fixtureReference": "foreign.datasource"}]),
+    ("CreateConnectionAsync", [{"fixtureReference": "journey.datasource", "host": "foreign"}]),
+    ("CreateConnectionAsync", [{"fixtureReference": "journey.datasource"}, {}]),
+    ("TestConnectionAsync", [{"fixtureReference": "journey.datasource"}]),
+])
+def test_datasource_reference_cannot_override_fixture_or_other_sdk_arguments(method, arguments):
+    engine = sdk_engine()
+    with mock.patch.object(executor.sdk, "invoke") as invoke:
+        with pytest.raises(ExecutionError, match="do not bind"):
+            engine.execute(3, sdk_action(method, arguments))
+    invoke.assert_not_called()
+
+
 @pytest.mark.parametrize("command,number", [
     ("sh -c echo secret", 3), ("honua-journey-sdk DeleteConnectionAsync []", 3),
     ("honua-journey-sdk TestConnectionAsync [null]", 3),
