@@ -167,6 +167,11 @@ run "native_bootstrap_is_private_and_separates_sql_root_from_controller" {
       tolist(jsondecode(aws_ecs_task_definition.native_bootstrap[0].container_definitions)[0].command) == tolist(["python", "tools/hosted_pilot/native_bootstrap.py"]) &&
       jsondecode(aws_ecs_task_definition.native_bootstrap[0].container_definitions)[0].readonlyRootFilesystem &&
       aws_iam_role.native_bootstrap[0].name != aws_iam_role.controller.name &&
+      length(aws_iam_role_policy.dispatch_native_bootstrap) == 1 &&
+      strcontains(aws_iam_role_policy.dispatch_native_bootstrap[0].policy, "ecs:RunTask") &&
+      strcontains(aws_iam_role_policy.dispatch_native_bootstrap[0].policy, "iam:PassRole") &&
+      strcontains(aws_iam_role_policy.controller.policy, "ecs:RunTask") &&
+      strcontains(aws_iam_role_policy.lifecycle.policy, "ecs:RunTask") &&
       !strcontains(aws_iam_role_policy.native_bootstrap[0].policy, "secretsmanager:GetSecretValue") &&
       !strcontains(aws_iam_role_policy.controller.policy, "secretsmanager:PutSecretValue") &&
       !strcontains(aws_iam_role_policy.dispatcher.policy, "secretsmanager:GetSecretValue") &&
@@ -208,5 +213,42 @@ run "actual_human_session_is_private_and_immutable" {
       strcontains(aws_iam_role_policy.execution["controller"].policy, var.human_operator_credential.secretArn)
     )
     error_message = "Only the trusted controller may receive the actual immutable human session credential."
+  }
+}
+
+run "configured_native_bootstrap_without_budget_has_no_paid_launch_authority" {
+  command = plan
+  variables {
+    dispatch_budget = null
+    native_bootstrap = {
+      bootstrapArtifactDigest = "sha256:4444444444444444444444444444444444444444444444444444444444444444"
+      operation = {
+        operationId    = "original-native-bootstrap", liabilityBasisDigest = "sha256:5555555555555555555555555555555555555555555555555555555555555555"
+        reservationIds = { infrastructure = "retained-native-infra", cleanup = "retained-native-cleanup" }
+      }
+      itemId     = "11111111-1111-1111-1111-111111111111"
+      expiresAt  = "2026-10-29T00:00:00Z"
+      readGrants = []
+    }
+    controller_model_resource_arns = ["arn:aws:bedrock:us-east-1::foundation-model/anthropic.claude-sonnet-4-5-20250929-v1:0"]
+  }
+  assert {
+    condition = (
+      length(aws_ecs_task_definition.native_bootstrap) == 1 &&
+      length(aws_iam_role_policy.dispatch_native_bootstrap) == 0 &&
+      output.controller_handoff == null && output.fixture_handoff == null && output.native_bootstrap_handoff == null &&
+      !strcontains(aws_iam_role_policy.dispatcher.policy, "states:StartExecution") &&
+      !strcontains(aws_iam_role_policy.controller.policy, "ecs:RunTask") &&
+      !strcontains(aws_iam_role_policy.controller.policy, "iam:PassRole") &&
+      !strcontains(aws_iam_role_policy.controller.policy, "bedrock:InvokeModel") &&
+      !strcontains(aws_iam_role_policy.lifecycle.policy, "ecs:RunTask") &&
+      !strcontains(aws_iam_role_policy.lifecycle.policy, "iam:PassRole") &&
+      !strcontains(aws_iam_role_policy.observe_native_bootstrap[0].policy, "ecs:RunTask") &&
+      !strcontains(aws_iam_role_policy.observe_native_bootstrap[0].policy, "iam:PassRole") &&
+      strcontains(aws_iam_role_policy.observe_native_bootstrap[0].policy, "ecs:StopTask") &&
+      strcontains(aws_iam_role_policy.controller.policy, "ecs:StopTask") &&
+      strcontains(aws_iam_role_policy.lifecycle.policy, "ecs:StopTask")
+    )
+    error_message = "Staging a native definition without retained accounting must grant no launch, pass-role or model authority; observation and original task cleanup must remain available."
   }
 }

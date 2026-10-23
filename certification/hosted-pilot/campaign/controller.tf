@@ -199,10 +199,11 @@ resource "aws_sfn_state_machine" "controller" {
 }
 resource "aws_iam_role_policy" "lifecycle" {
   role = aws_iam_role.lifecycle.id
-  policy = jsonencode({ Version = "2012-10-17", Statement = [
-    { Effect = "Allow", Action = "ecs:RunTask", Resource = aws_ecs_task_definition.controller.arn, Condition = { ArnEquals = { "ecs:cluster" = local.target_cluster_arn } } },
+  policy = jsonencode({ Version = "2012-10-17", Statement = concat([
     { Effect = "Allow", Action = ["ecs:DescribeTasks", "ecs:StopTask"], Resource = "arn:aws:ecs:${var.region}:${var.account_id}:task/${module.target.ecs_cluster_name}/*" },
-    { Effect = "Allow", Action = "iam:PassRole", Resource = [aws_iam_role.controller.arn, aws_iam_role.execution["controller"].arn], Condition = { StringEquals = { "iam:PassedToService" = "ecs-tasks.amazonaws.com" } } },
     { Effect = "Allow", Action = ["events:PutTargets", "events:PutRule", "events:DescribeRule"], Resource = "arn:aws:events:${var.region}:${var.account_id}:rule/StepFunctionsGetEventsForECSTaskRule" }
-  ] })
+    ], [for statement in [
+      { Effect = "Allow", Action = "ecs:RunTask", Resource = aws_ecs_task_definition.controller.arn, Condition = { ArnEquals = { "ecs:cluster" = local.target_cluster_arn } } },
+      { Effect = "Allow", Action = "iam:PassRole", Resource = [aws_iam_role.controller.arn, aws_iam_role.execution["controller"].arn], Condition = { StringEquals = { "iam:PassedToService" = "ecs-tasks.amazonaws.com" } } }
+  ] : statement if var.dispatch_budget != null]) })
 }

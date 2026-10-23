@@ -29,12 +29,13 @@ resource "aws_iam_role_policy" "controller" {
     { Effect = "Allow", Action = ["states:DescribeExecution", "states:GetExecutionHistory"], Resource = local.execution_pattern },
     { Effect = "Allow", Action = ["ecs:DescribeTasks", "ecs:StopTask"], Resource = "arn:aws:ecs:${var.region}:${var.account_id}:task/${module.target.ecs_cluster_name}/*" },
     { Effect = "Allow", Action = "ecs:DescribeTaskDefinition", Resource = "arn:aws:ecs:${var.region}:${var.account_id}:task-definition/${var.name_prefix}-*" },
-    { Effect = "Allow", Action = "ecs:RunTask", Resource = aws_ecs_task_definition.fixture.arn, Condition = { ArnEquals = { "ecs:cluster" = local.target_cluster_arn } } },
-    { Effect = "Allow", Action = "ecs:TagResource", Resource = "arn:aws:ecs:${var.region}:${var.account_id}:task/${module.target.ecs_cluster_name}/*", Condition = { StringEquals = { "ecs:CreateAction" = "RunTask" } } },
-    { Effect = "Allow", Action = "iam:PassRole", Resource = [aws_iam_role.fixture.arn, aws_iam_role.execution["fixture"].arn], Condition = { StringEquals = { "iam:PassedToService" = "ecs-tasks.amazonaws.com" } } },
     { Effect = "Allow", Action = ["ecs:ListTasks", "ecs:DescribeServices"], Resource = "*", Condition = { ArnEquals = { "ecs:cluster" = local.target_cluster_arn } } },
     { Effect = "Allow", Action = "elasticache:DescribeReplicationGroups", Resource = "arn:aws:elasticache:${var.region}:${var.account_id}:replicationgroup:${var.name_prefix}*" }
-    ], length(var.controller_model_resource_arns) == 0 ? [] : [
+    ], [for statement in [
+      { Effect = "Allow", Action = "ecs:RunTask", Resource = aws_ecs_task_definition.fixture.arn, Condition = { ArnEquals = { "ecs:cluster" = local.target_cluster_arn } } },
+      { Effect = "Allow", Action = "ecs:TagResource", Resource = "arn:aws:ecs:${var.region}:${var.account_id}:task/${module.target.ecs_cluster_name}/*", Condition = { StringEquals = { "ecs:CreateAction" = "RunTask" } } },
+      { Effect = "Allow", Action = "iam:PassRole", Resource = [aws_iam_role.fixture.arn, aws_iam_role.execution["fixture"].arn], Condition = { StringEquals = { "iam:PassedToService" = "ecs-tasks.amazonaws.com" } } }
+    ] : statement if var.dispatch_budget != null], var.dispatch_budget == null || length(var.controller_model_resource_arns) == 0 ? [] : [
     { Effect = "Allow", Action = ["bedrock:InvokeModel", "bedrock:InvokeModelWithResponseStream"], Resource = var.controller_model_resource_arns }
   ]) })
 }

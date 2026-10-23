@@ -65,13 +65,21 @@ resource "aws_iam_role_policy" "native_bootstrap" {
   ] })
 }
 resource "aws_iam_role_policy" "dispatch_native_bootstrap" {
-  count = var.native_bootstrap == null ? 0 : 1
+  count = var.native_bootstrap == null || var.dispatch_budget == null ? 0 : 1
   role  = aws_iam_role.dispatcher.id
   policy = jsonencode({ Version = "2012-10-17", Statement = [
     { Effect = "Allow", Action = "ecs:RunTask", Resource = aws_ecs_task_definition.native_bootstrap[0].arn, Condition = { ArnEquals = { "ecs:cluster" = local.target_cluster_arn } } },
+    { Effect = "Allow", Action = "iam:PassRole", Resource = [aws_iam_role.native_bootstrap[0].arn, aws_iam_role.execution["fixture"].arn], Condition = { StringEquals = { "iam:PassedToService" = "ecs-tasks.amazonaws.com" } } }
+  ] })
+}
+# A missing allowance disables new launches, while retaining observation and
+# bounded stop authority for any original task that still needs cleanup.
+resource "aws_iam_role_policy" "observe_native_bootstrap" {
+  count = var.native_bootstrap == null ? 0 : 1
+  role  = aws_iam_role.dispatcher.id
+  policy = jsonencode({ Version = "2012-10-17", Statement = [
     { Effect = "Allow", Action = "ecs:DescribeTaskDefinition", Resource = aws_ecs_task_definition.native_bootstrap[0].arn },
     { Effect = "Allow", Action = "ecs:StopTask", Resource = "arn:aws:ecs:${var.region}:${var.account_id}:task/${module.target.ecs_cluster_name}/*" },
-    { Effect = "Allow", Action = "iam:PassRole", Resource = [aws_iam_role.native_bootstrap[0].arn, aws_iam_role.execution["fixture"].arn], Condition = { StringEquals = { "iam:PassedToService" = "ecs-tasks.amazonaws.com" } } },
     { Effect = "Allow", Action = ["s3:GetObject", "s3:GetObjectVersion"], Resource = "${aws_s3_bucket.handoff.arn}/native/bootstrap/${local.candidate_hex}/*" }
   ] })
 }
