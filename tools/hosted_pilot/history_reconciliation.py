@@ -34,6 +34,7 @@ GITHUB_KINDS = {
 KINDS = {
     'foundation':('honua-io/honua-iac','.github/workflows/hosted-pilot-bootstrap.yml','bindings.json'),
     'foundation-plan':('honua-io/honua-iac','.github/workflows/hosted-pilot-bootstrap.yml','review.json'),
+    'foundation-plan-refused':('honua-io/honua-iac','.github/workflows/hosted-pilot-bootstrap.yml','custody-recovery.json'),
     'controller-image':('honua-io/honua-release','.github/workflows/hosted-pilot-controller-image.yml','hosted-pilot-controller-image.json'),
     'worker-image':('honua-io/honua-release','.github/workflows/hosted-pilot-worker-image.yml','hosted-pilot-worker-image.json'),
     'campaign-staging':('honua-io/honua-release','.github/workflows/hosted-pilot-deploy.yml','readiness.json'),
@@ -102,6 +103,9 @@ def authenticate(record, *, call=invoke):
             'unknown environment producer cannot be admitted')
     else:
         require(kind in KINDS and (p['repository'],p['workflow'])==KINDS[kind][:2],'unknown or model producer cannot be bootstrap history')
+    if kind=='foundation-plan-refused':
+        from history_failed_plan import authenticate_refused_plan
+        return authenticate_refused_plan(record,call)
     base='repos/'+p['repository']
     run=api(base+f"/actions/runs/{p['runId']}/attempts/{p['runAttempt']}",call)
     require((run['id'],run['run_attempt'],run['head_sha'],run['path'],run['head_branch'],run['event'],run['status'],run['conclusion'])==
@@ -151,14 +155,18 @@ def authenticate(record, *, call=invoke):
             int(receipt['foundation_run_id'])==p['runId'] and int(receipt['foundation_run_attempt'])==p['runAttempt'],
                 'foundation receipt differs from original completed run')
         execution_sha=receipt['release_root_sha']
-        workflow={p['workflow']:hashlib.sha256((ROOT/'certification/hosted-pilot/bootstrap/foundation-bootstrap-workflow.yml').read_bytes()).hexdigest(),
+        original_sources=None
+        if kind=='foundation-plan':
+            from history_failed_plan import original_success_sources
+            original_sources=original_success_sources(record,receipt)
+        workflow=original_sources[0] if original_sources is not None else {p['workflow']:hashlib.sha256((ROOT/'certification/hosted-pilot/bootstrap/foundation-bootstrap-workflow.yml').read_bytes()).hexdigest(),
             'scripts/check-hosted-pilot-foundation-inputs.py':hashlib.sha256((ROOT/'certification/hosted-pilot/bootstrap/foundation-input-check.py').read_bytes()).hexdigest()}
         verify_sources(p['repository'],p['sourceSha'],workflow,call)
         paths=['tools/hosted_pilot/bootstrap.py','tools/hosted_pilot/deploy.py','tools/hosted_pilot/foundation_environment.py',
             'tools/hosted_pilot/bind_github.py','certification/hosted-pilot/foundation-environment.json',
             'certification/hosted-pilot/bootstrap/.terraform.lock.hcl',
             *[str(path.relative_to(ROOT)) for path in sorted((ROOT/'certification/hosted-pilot/bootstrap').glob('*.tf')) if path.name!='recovery-imports.tf']]
-        verify_sources('honua-io/honua-release',execution_sha,file_hashes(paths),call)
+        verify_sources('honua-io/honua-release',execution_sha,original_sources[1] if original_sources is not None else file_hashes(paths),call)
         config=source_file(p['repository'],p['sourceSha'],receipt['config_path'],call)
         require(digest_bytes(config)=='sha256:'+receipt['config_sha256'] and json.loads(config).get('image_preparation_funding') is True,
                 'original foundation configuration changed or has unknown funding mode')
@@ -249,7 +257,7 @@ def reconcile(history, ledger, references, *, read, cutoff, call=invoke, authent
         if authenticate_originals and record['kind'] not in GITHUB_KINDS:
             actual=source_file('honua-io/honua-release',execution_sha,record['fundingBasis']['path'],call)
             require(digest_bytes(actual)==record['fundingBasis']['sha256'],'funding basis did not exist in original executable source')
-            if record['kind']=='foundation-plan':
+            if record['kind'] in ('foundation-plan','foundation-plan-refused'):
                 require(record['ownerLedger'] is None,'a source plan cannot invent a published owner ledger')
             else:
                 validate_original_owner(record,receipt,rows,execution_sha,p,read,call)
