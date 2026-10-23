@@ -20,6 +20,7 @@ from budget_bootstrap import reviewed, validate_history
 from controller_archive import canonical, require
 from controller_handoff import ROOT, git
 from fixture_handoff import sdk
+from accounting_snapshot import observe as observe_existing
 
 
 def initialize(config, artifact, ledger_path, *, verify=verify_import, open_state=open_store, execution=DurableExecution, sts=None, recover=False):
@@ -45,29 +46,34 @@ def initialize(config, artifact, ledger_path, *, verify=verify_import, open_stat
         validate_history(history, imported['artifact']['ledger'])
     require(not Path(ledger_path).exists(), 'initialization scratch ledger already exists; reconcile rather than replace')
     store = open_state(config['state'], candidate)
-    # Recovery can only open an authenticated existing generation. It never
-    # supplies bootstrap to the constructor or falls back to initialization.
-    durable = execution(store, ledger_path, initialize=not recover, bootstrap=None if recover else imported)
+    # Recovery performs GETs only: even acquiring a controller lease would need
+    # mutation authority that is removed after initial accounting is installed.
+    durable = None
+    if recover:
+        state, generation = observe_existing(store)
+    else:
+        durable = execution(store, ledger_path, initialize=True, bootstrap=imported)
+        state, generation = durable.state, store.generation
     try:
-        require(durable.state.get('bootstrapImport') == imported, 'state differs from authenticated original bootstrap')
+        require(state.get('bootstrapImport') == imported, 'state differs from authenticated original bootstrap')
         if recover:
             # The original report is retained history, not a new allowance. Its
             # age cannot authorize fresh initialization, nor erase later spend.
             validate_history(history, imported['artifact']['ledger'], require_fresh=False)
-            preserve_history({'ledger': imported['artifact']['ledger']}, {'ledger': durable.state['ledger']})
+            preserve_history({'ledger': imported['artifact']['ledger']}, {'ledger': state['ledger']})
         else:
-            require(durable.state['ledger'] == imported['artifact']['ledger'], 'created state differs from authenticated original liabilities')
-        generation = store.generation
+            require(state['ledger'] == imported['artifact']['ledger'], 'created state differs from authenticated original liabilities')
         require(isinstance(generation, dict) and set(generation) == {'key', 'version', 'digest'} and generation['version'] not in ('', 'null'),
                 'actual immutable generation receipt missing')
         return {'schema': 'honua.hosted-pilot-accounting-initialization/v1', 'candidateKey': candidate, 'state': config['state'],
-            'generation': generation, 'ledgerDigest': canonical_digest(durable.state['ledger']),
+            'generation': generation, 'ledgerDigest': canonical_digest(state['ledger']),
             'bootstrapLedgerDigest': canonical_digest(imported['artifact']['ledger']),
             'bootstrapArtifactDigest': original['artifactDigest'], 'qualification': False,
             'mode': 'recovered' if recover else 'created',
             'modelExecution': 'not-executed-by-recovery' if recover else 'not-run'}
     finally:
-        durable.close()
+        if durable is not None:
+            durable.close()
 
 
 def main():
@@ -83,7 +89,10 @@ def main():
     git('ls-files', '--error-unmatch', '--', str(args.configuration))
     result = initialize(load_json(args.configuration), args.artifact, args.ledger, recover=args.recover)
     args.output.write_bytes(canonical(result)+b'\n')
-    print('Original nonzero accounting imported. Review the actual immutable generation receipt before enabling dispatch.')
+    if args.recover:
+        print('Existing accounting receipt recovered by observation. Original generation and liabilities retained.')
+    else:
+        print('Original nonzero accounting imported. Review the actual immutable generation receipt before enabling dispatch.')
 
 
 if __name__ == '__main__':

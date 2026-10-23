@@ -212,6 +212,17 @@ run "retained_generation_removes_initializer_mutation_authority" {
     output.accounting_initializer.protectedEnvironment == "hosted-pilot-accounting-initialize")
     error_message = "After retained accounting is installed, the initializer must have no standing S3/DynamoDB mutation policy."
   }
+  assert {
+    condition = jsondecode(aws_iam_role_policy.initializer_observer.policy) == {
+      Version = "2012-10-17", Statement = [
+        { Effect = "Allow", Action = "s3:GetObjectVersion", Resource = "${local.state_bucket_arn}/agent-e2e/${local.candidate_hex}/*" },
+        { Effect    = "Allow", Action = "dynamodb:GetItem", Resource = local.state_table_arn,
+          Condition = { "ForAllValues:StringEquals" = { "dynamodb:LeadingKeys" = [var.candidate_digest] } }
+        }
+      ]
+    }
+    error_message = "Receipt recovery must retain only versioned object GET and consistent candidate-head GET permissions, without any lease, write or list authority."
+  }
 }
 
 run "actual_human_session_is_private_and_immutable" {

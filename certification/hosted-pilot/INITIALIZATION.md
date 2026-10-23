@@ -88,3 +88,9 @@ digest alongside the original bootstrap ledger digest. The original historical
 report need not become fresh again to observe that committed generation; fresh
 initialization still requires the current history admission checks. The original
 configuration expiry and protected environment remain enforced.
+Recovery reads the consistent DynamoDB head, exact versioned S3 marker/snapshot
+and the head again, verifying candidate, version and digests. It never acquires
+or renews a controller lease. A separate candidate-scoped GET-only policy remains
+after initialization mutation authority is removed, so receipt recovery does not
+require restoring that authority. Changed heads and oversized snapshots refuse
+the observation; they do not create a new allowance.
