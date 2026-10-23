@@ -304,6 +304,26 @@ GET readback resolves lost append replies without another POST or model request.
 Unknown outcomes retain their originals. Conversation text remains conversation;
 resource outcomes still require the independent native and browser oracles.
 
+P14 can configure `studio.custody` with schema version 1 and immutable
+`retirement`, `nativeContext` and `workerMcp` state references (`key`/`sha256`).
+The observer requires the original active setup principal read, independent
+revoked-key metadata, fresh old-credential 401 probes, the stopped original
+fixture producer and retirement task, and a separate running task worker. It
+independently reads the exact worker definition, immutable MCP injection and
+queue-only IAM policy; missing native reads fail closed.
+
+Only `custody.worker-replaced.taskWorkerId` may use the finite
+`honua.worker-custody-bindings/v1` profile. Freeze the bootstrap worker/principal
+relationships and, for each attempt, the existing worker configuration, immutable
+MCP/context reference and authenticated task HTTP observer. Its replay uses the
+retained before-send launch intent and original execution, claim, task and
+principal reads. The existing publication profile remains separate. The only
+other permitted pair is the existing authoring/job profiles for P11.
+
+These custody observations do not retire per-attempt infrastructure, release a
+worker slot or settle costs. Actual per-attempt cleanup and genuine hosted human
+custody remain required; contract fixtures do not qualify a campaign.
+
 P09 development attempts can configure `styling` with the exact
 `floodLayerId` and `shelterLayerId` from the prepared map. The style observer
 projects the independently saved `mapSpec`, including its full document digest,
