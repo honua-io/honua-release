@@ -13,3 +13,27 @@ Before foundation infrastructure writes, the checked source records actual STS p
 Existing-state receipt recovery remains GET-only and requires the authenticated immutable original bootstrap import to match the loaded generation before original history may be revalidated without fresh network queries. It never creates a replacement generation, reapplies stale history or removes later liabilities. There is no configuration or CLI switch to bypass fresh first initialization.
 
 IaC PR 289 merged as `a13fd362f8ed893a3d980a707422a7f157b4a0ed`; release preparation PR 845 merged as `db986f78472601b664aa4f3cf03763041e1e88e9`. The first foundation **plan** uses the fixed nonsecret `bootstrap/deployments/foss4g-images.tfvars.json` and actual selected protected-trunk release SHA. Select the merged source containing these actor receipts before the first deploy. Review the actual saved-plan metadata; protected apply still requires the real declared human approval. No infrastructure, image publication, accounting initialization or model execution is represented by this source checkpoint.
+
+
+Explicit phase metadata retains the original v1 plan profiles and adds v2
+source-plan authentication. A v2 source plan requires native prepare success,
+positively skipped apply/approval jobs and no execution artifacts. It cannot be
+reclassified from an actual apply dispatch. Custody-only completion has its own
+`foundation-custody` classification: no owner ledger has been published yet, but
+both original nonzero infrastructure and cleanup reservations remain required.
+Its original review, actual protected approval, apply admission, immutable
+execution deadline and exact source/run/attempt must independently match native
+artifacts and job observations. AWS creation events still require the original
+actual STS actor, exact planned resource and independent current creation tags.
+Full foundation emits versioned bindings with the same retained phase proof.
+These rules do not create financial rows, settle unknown costs, reset earlier
+history or turn missing/failed/cancelled observations into successful execution.
+
+
+A recovered custody receipt carries the original creation scope separately from
+the successful recovery executor. CloudTrail actor/time checks still bind the
+actual executing run; independent tag checks bind the retained original scope.
+A failed original remains a failed original and its liabilities stay visible.
+Successful recovery does not transform earlier failure into zero spend or paid
+qualification. Completion acknowledgement can be reconciled with an approved
+no-op custody plan; physical changes and imports remain refused.

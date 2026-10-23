@@ -8,6 +8,7 @@ locals {
   lanes             = toset(["plan", "apply"])
 }
 resource "aws_kms_key" "custody" {
+  tags                    = var.bootstrap_custody_creation_tags
   description             = "Hosted pilot encrypted state and private saved plans"
   enable_key_rotation     = true
   deletion_window_in_days = 30
@@ -17,6 +18,7 @@ resource "aws_s3_bucket" "custody" {
   for_each      = toset(["state", "plans"])
   bucket        = "${local.foundation_prefix}-${each.key}-${local.account}"
   force_destroy = false
+  tags          = var.bootstrap_custody_creation_tags
   lifecycle { prevent_destroy = true }
 }
 resource "aws_s3_bucket_public_access_block" "custody" {
