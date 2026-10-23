@@ -192,7 +192,8 @@ def test_cloud_setup_observes_external_endpoint_and_never_manages_compose(tmp_pa
          mock.patch.object(live_driver.pins, "install_executables", return_value=(tmp_path / "bin", "", [])), \
          mock.patch.object(live_driver, "_compose_for", side_effect=AssertionError("cloud must never start local Docker")), \
          mock.patch.object(driver, "observe", return_value=observation) as observe, \
-         mock.patch.object(live_driver.local_fixture, "credentials", return_value={}) as credentials:
+         mock.patch.object(live_driver.local_fixture, "credentials", return_value={"operator": "unit"}) as credentials, \
+         mock.patch.object(live_driver.local_fixture, "prepare_style_catalog") as prepare_style:
         response = live_driver.op_setup({"target": str(target_path), "deploymentReceipt": deployment})
         assert response["status"] == "ready"
         assert response["baseUrl"] == target["replicaBaseUrl"]
@@ -202,6 +203,9 @@ def test_cloud_setup_observes_external_endpoint_and_never_manages_compose(tmp_pa
         assert "same-job deployment readback" in live_driver._read_state(response["workspaceId"])["deploymentDetail"]
 
         assert credentials.call_args.kwargs["mint"] is True
+        credentials.assert_called_once()
+        assert prepare_style.call_args.args[0] == target
+        assert prepare_style.call_args.args[1].credentials == {"operator": "unit"}
         state = live_driver._read_state(response["workspaceId"])
         assert state["external"] is True
 

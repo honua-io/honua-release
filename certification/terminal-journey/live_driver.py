@@ -307,9 +307,12 @@ def op_setup(request: dict[str, Any]) -> dict[str, Any]:
         blockers.append(stagelib.JOURNEY_DRIVER)
     if stack_up and observation.ready:
         try:
-            local_fixture.credentials(target, workdir, base_url, mint=True,
+            credentials = local_fixture.credentials(target, workdir, base_url, mint=True,
                 **({"tenant_signing_key": os.environ["HONUA_CANARY_TENANT_SIGNING_KEY"]}
                    if cloud and os.environ.get("HONUA_CANARY_TENANT_SIGNING_KEY") else {}))
+            if serving_fixture is None:
+                local_fixture.prepare_style_catalog(target,
+                    Transport(base_url, None, None, workdir, credentials))
         except (ExecutionError, KeyError, ValueError, TypeError, AttributeError):
             blockers.append(stagelib.JOURNEY_DRIVER)
 
