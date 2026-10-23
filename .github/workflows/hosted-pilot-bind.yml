@@ -2,6 +2,10 @@ name: Hosted pilot GitHub binding
 on:
   workflow_dispatch:
     inputs:
+      release_root_sha:
+        description: Exact reviewed release-root SHA used by the foundation producer
+        required: true
+        type: string
       bootstrap_run_id:
         description: Successful honua-iac foundation bootstrap deploy run
         required: true
@@ -29,6 +33,12 @@ jobs:
         with:
           ref: ${{ github.sha }}
           persist-credentials: false
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ inputs.release_root_sha }}
+          path: _pilot-bootstrap-source
+          fetch-depth: 0
+          persist-credentials: false
       - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
           github-token: ${{ secrets.RELEASE_GH_TOKEN }}
@@ -40,6 +50,8 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.RELEASE_GH_TOKEN }}
           PILOT_BOOTSTRAP_RUN_ID: ${{ inputs.bootstrap_run_id }}
+          PILOT_BOOTSTRAP_ROOT_SHA: ${{ inputs.release_root_sha }}
+          PILOT_BINDINGS_ARTIFACT_ID: ${{ inputs.bindings_artifact_id }}
           PILOT_BINDINGS_SHA256: ${{ inputs.bindings_sha256 }}
         run: python3 tools/hosted_pilot/bind_github.py
       - name: Remove account bindings from executor

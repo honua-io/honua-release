@@ -68,6 +68,9 @@ run "custody_and_approval_boundaries" {
       length([for statement in jsondecode(aws_s3_bucket_policy.custody["plans"].policy).Statement : statement if statement.Sid == "ImmutableArtifacts" && contains(statement.Action, "s3:DeleteObjectVersion")]) == 1 &&
       jsondecode(aws_iam_policy.runtime_boundary.policy).Statement[0].Effect == "Deny" &&
       contains(jsondecode(aws_iam_policy.runtime_boundary.policy).Statement[0].Action, "bedrock:*") &&
+      one([for statement in jsondecode(aws_iam_policy.runtime_boundary.policy).Statement : statement if try(statement.Sid, "") == "ExcludeFoundationCustodyKey"]).Effect == "Deny" &&
+      one([for statement in jsondecode(aws_iam_policy.runtime_boundary.policy).Statement : statement if try(statement.Sid, "") == "ExcludeFoundationCustodyKey"]).Action == "kms:*" &&
+      one([for statement in jsondecode(aws_iam_policy.runtime_boundary.policy).Statement : statement if try(statement.Sid, "") == "ExcludeFoundationCustodyKey"]).Resource == aws_kms_key.custody.arn &&
       one([for statement in jsondecode(aws_iam_policy.runtime_boundary.policy).Statement : statement if try(statement.Sid, "") == "DecryptPilotGeneratedSecrets"]).Condition.StringEquals["aws:ResourceTag/ResetBoundary"] == var.name_prefix &&
       one([for statement in jsondecode(aws_iam_policy.runtime_boundary.policy).Statement : statement if try(statement.Sid, "") == "DecryptPilotGeneratedSecrets"]).Condition.StringEquals["kms:ViaService"] == "secretsmanager.${var.region}.amazonaws.com" &&
       one([for statement in jsondecode(aws_iam_policy.runtime_boundary.policy).Statement : statement if try(statement.Sid, "") == "DecryptPilotGeneratedSecrets"]).Condition.ArnLike["kms:EncryptionContext:SecretARN"] == "arn:aws:secretsmanager:${var.region}:123456789012:secret:${var.name_prefix}*"

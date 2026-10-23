@@ -3,6 +3,7 @@
 import json
 import os
 from pathlib import Path
+import re
 import subprocess
 import sys
 
@@ -18,16 +19,35 @@ def api(method, endpoint, body=None):
     return json.loads(result.stdout) if result.stdout else None
 
 
+def verify_release_source(binding):
+    """Consume an older reviewed root without freezing unrelated trunk work."""
+    sha = os.environ['PILOT_BOOTSTRAP_ROOT_SHA']
+    require(re.fullmatch(r'[a-f0-9]{40}', sha), 'immutable foundation release-root SHA required')
+    require(binding['release_root_sha'] == sha, 'foundation release-root input mismatch')
+    source = ROOT / '_pilot-bootstrap-source'
+    checked = subprocess.run(['git', '-C', str(source), 'rev-parse', 'HEAD'], capture_output=True)
+    require(checked.returncode == 0 and checked.stdout.decode().strip() == sha, 'foundation source checkout mismatch')
+    ancestor = subprocess.run(['git', '-C', str(source), 'merge-base', '--is-ancestor', sha, 'origin/trunk'], capture_output=True)
+    require(ancestor.returncode == 0, 'foundation release-root source is not on trunk')
+    branch = api('GET', 'repos/honua-io/honua-release/branches/trunk')
+    require(branch['protected'], 'foundation release-root provenance requires protected trunk')
+    contract = Path('certification/hosted-pilot/github-bindings.json')
+    require(digest(source / contract) == digest(ROOT / contract), 'GitHub binding contract changed since foundation production; review and rerun foundation')
+
+
 def main():
     e = os.environ
     require(e['GITHUB_REPOSITORY'] == 'honua-io/honua-release' and e['GITHUB_REF'] == 'refs/heads/trunk', 'GitHub binding only runs in release trunk')
     path = Path(e['RUNNER_TEMP']) / 'pilot-foundation-bindings/bindings.json'
     require(digest(path) == e['PILOT_BINDINGS_SHA256'], 'foundation bindings digest mismatch')
     binding = json.loads(path.read_text())
-    require(binding['schema'] == 'honua.hosted-pilot-bootstrap-bindings/v1' and binding['release_root_sha'] == e['GITHUB_SHA'] and binding['foundation_run_id'] == e['PILOT_BOOTSTRAP_RUN_ID'], 'foundation binding identity mismatch')
+    require(binding['schema'] == 'honua.hosted-pilot-bootstrap-bindings/v1' and binding['foundation_run_id'] == e['PILOT_BOOTSTRAP_RUN_ID'], 'foundation binding identity mismatch')
+    verify_release_source(binding)
     producer = api('GET', f"repos/honua-io/honua-iac/actions/runs/{e['PILOT_BOOTSTRAP_RUN_ID']}")
     workflow = api('GET', 'repos/honua-io/honua-iac/actions/workflows/hosted-pilot-bootstrap.yml')
     require(producer['workflow_id'] == workflow['id'] and producer['event'] == 'workflow_dispatch' and producer['head_branch'] == 'trunk' and producer['head_sha'] == binding['foundation_source_sha'] and producer['conclusion'] == 'success', 'untrusted foundation binding producer')
+    artifact = api('GET', f"repos/honua-io/honua-iac/actions/artifacts/{e['PILOT_BINDINGS_ARTIFACT_ID']}")
+    require(str(artifact['workflow_run']['id']) == e['PILOT_BOOTSTRAP_RUN_ID'] and artifact['workflow_run']['head_sha'] == binding['foundation_source_sha'] and not artifact['expired'], 'untrusted foundation binding artifact')
     spec = json.loads((ROOT / 'certification/hosted-pilot/github-bindings.json').read_text())
     require(spec['schema'] == 'honua.hosted-pilot-github-bindings/v1' and spec['repository'] == e['GITHUB_REPOSITORY'], 'unexpected GitHub desired state')
     base = 'repos/' + spec['repository']

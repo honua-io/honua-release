@@ -106,6 +106,8 @@ state-access role, immutable-plan/reservation policies, workload boundary and
 owner budget ledger. The runtime boundary admits module-generated CMK decryption
 only for this pilot ResetBoundary tag, its Secrets Manager encryption context and
 regional Secrets Manager service; custody-key access is excluded. Foundation names are outside the workload namespace.
+An explicit deny on the exact custody key remains effective even though recovery
+ownership tags include the same ResetBoundary value as the workload.
 The account-specific provisioning policy is an explicit reviewed input, with
 no global action wildcard; grants must cover this root's tagged network,
 ECS/RDS/Redis, scoped IAM, Cognito, DNS/certificate and S3 operations. No blanket
@@ -152,7 +154,13 @@ already encrypted remote backend.
 
 GitHub configuration is separate: `hosted-pilot-bind.yml` uses the existing
 release GitHub token to verify the exact successful foundation producer and
-nonsecret bindings digest, then reconcile `github-bindings.json`. It creates
+nonsecret bindings digest, then reconcile `github-bindings.json`.
+The explicit `release_root_sha` is the producer's immutable release source,
+checked out independently and verified against protected trunk ancestry and the
+unchanged GitHub desired-state contract. Later unrelated trunk commits do not
+invalidate it; the consumer helper executes from its own immutable workflow SHA.
+The normal plan/apply jobs share one fixed workflow-run SHA, including job reruns,
+so later trunk commits do not change saved-plan identity either. The binding creates
 trunk-only pilot environments and workflow variables and preserves any existing
 reviewer policy. It needs no new GitHub admin token in IaC. Actual token
 permissions must permit workflow dispatch, run/artifact reads and release

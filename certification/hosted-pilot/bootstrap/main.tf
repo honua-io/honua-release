@@ -130,6 +130,7 @@ resource "aws_iam_policy" "runtime_boundary" {
   name = "${local.foundation_prefix}-runtime-boundary"
   policy = jsonencode({ Version = "2012-10-17", Statement = concat([
     { Effect = "Deny", Action = ["iam:*", "organizations:*", "account:*", "bedrock:*"], Resource = "*" },
+    { Sid = "ExcludeFoundationCustodyKey", Effect = "Deny", Action = "kms:*", Resource = aws_kms_key.custody.arn },
     { Effect = "Allow", Action = ["ecr:GetAuthorizationToken", "ecr:BatchGetImage", "ecr:GetDownloadUrlForLayer", "ecr:BatchCheckLayerAvailability"], Resource = "*" },
     { Effect = "Allow", Action = ["logs:CreateLogStream", "logs:PutLogEvents"], Resource = ["arn:aws:logs:${var.region}:${local.account}:log-group:/ecs/${var.name_prefix}*:*", "arn:aws:logs:${var.region}:${local.account}:log-group:/honua/pilot/${var.name_prefix}*:*", "arn:aws:logs:${var.region}:${local.account}:log-group:/aws/ecs/${var.name_prefix}*:*"] },
     { Sid = "DecryptPilotGeneratedSecrets", Effect = "Allow", Action = "kms:Decrypt", Resource = "arn:aws:kms:${var.region}:${local.account}:key/*", Condition = {
