@@ -677,6 +677,19 @@ class ReceiptBuilder:
         receipt_stage = self._stage_record(stage_id)
         key = "modelActionSequences" if attribution == MODEL_SELECTED else "harnessActionSequences"
         receipt_stage[key].append(sequence)
+        # Keep only bounded identity hashes, never arbitrary native/model text.
+        # This makes a stale fixture name distinguishable from the service the
+        # candidate actually published while the original result stays digest-only.
+        diagnostic = result.get("result", {}).get("nativePublication") if isinstance(result, dict) and isinstance(result.get("result"), dict) else None
+        if diagnostic is not None:
+            if (not isinstance(diagnostic, dict) or set(diagnostic) != {
+                    "serviceNameSha256", "serviceUriSha256", "layerId", "fixtureServiceNameMatches"}
+                    or any(not isinstance(diagnostic.get(name), str) or not re.fullmatch(r"[0-9a-f]{64}", diagnostic[name])
+                           for name in ("serviceNameSha256", "serviceUriSha256"))
+                    or type(diagnostic.get("layerId")) is not int or diagnostic["layerId"] < 0
+                    or type(diagnostic.get("fixtureServiceNameMatches")) is not bool):
+                raise CanaryError("driver returned an invalid native publication diagnostic")
+            self.notice(f"action {sequence} native publication: " + json.dumps(diagnostic, sort_keys=True, separators=(",", ":")))
         return sequence
 
     def arm_injection(self, *, stage_id: str, result: Any) -> int:
@@ -1075,6 +1088,56 @@ class CandidateProxyClient:
         return content, usage, elapsed_ms, evidence
 
 
+def driver_failure_diagnostic(response: Any) -> str:
+    """Keep bounded assertion identities/codes, never arbitrary driver payloads."""
+    if not isinstance(response, dict):
+        return ""
+    evidence = response.get("stageStatus")
+    checks = evidence.get("checks") if isinstance(evidence, dict) else None
+    rows = []
+    reasons = {
+        "PNG dimensions differ from the authored render size": "render-size-mismatch",
+        "render media type is not image/png": "render-media-type",
+        "render image declares conflicting media types": "render-media-type-conflict",
+        "render response media type conflicts with the declared image type": "render-media-type-conflict",
+        "fixture point lies outside the image": "render-fixture-outside-image",
+        "live assertion omitted required evidence": "required-evidence-missing",
+    }
+    for check in checks[:16] if isinstance(checks, list) else []:
+        if not isinstance(check, dict) or check.get("status") not in ("fail", "blocked"):
+            continue
+        identifier = check.get("id")
+        if not isinstance(identifier, str) or not re.fullmatch(r"[1-8]\.[a-z0-9-]{1,64}", identifier):
+            continue
+        detail = check.get("detail")
+        reason = reasons.get(detail, "assertion-refused") if isinstance(detail, str) else "assertion-refused"
+        if isinstance(detail, str) and detail.startswith("render pixel at ("):
+            reason = "render-pixel-mismatch"
+        elif isinstance(detail, str) and detail.startswith("PNG decoder refused:"):
+            reason = "render-png-invalid"
+        rows.append(identifier + "=" + check["status"] + "/" + reason)
+    if rows:
+        diagnostic = "; checks=" + ",".join(rows)
+        observation = response.get("observation")
+        dimensions = observation.get("renderDimensions") if isinstance(observation, dict) else None
+        if isinstance(dimensions, dict):
+            pairs = {key: dimensions.get(key) for key in ("requested", "expected", "decoded")}
+            if all(isinstance(pair, list) and len(pair) == 2 and
+                   all(type(value) is int and 0 < value <= 16384 for value in pair)
+                   for pair in pairs.values()):
+                diagnostic += "; renderSize=" + ",".join(
+                    key + "=" + "x".join(str(value) for value in pair) for key, pair in pairs.items())
+        return diagnostic
+    error = response.get("error")
+    category = response.get("errorCategory")
+    if not isinstance(category, str):
+        category = error.split(":", 1)[0] if isinstance(error, str) else ""
+    if category in {"DriverError", "ExecutionError", "KeyError", "ValueError", "TypeError",
+                    "AttributeError", "OSError", "RuntimeError", "JSONDecodeError", "NameError"}:
+        return "; driverError=" + category
+    return "; structuredFailure=" + str(response.get("status") == "fail").lower()
+
+
 class DriverAdapter:
     """Invoke the future #123 live driver through the reviewed JSON protocol."""
 
@@ -1116,7 +1179,8 @@ class DriverAdapter:
                     and response.get("refusal") in MODEL_FEEDBACK_REFUSALS):
                 result = response.get("result") if isinstance(response, dict) else None
                 reason = result.get("reason") if isinstance(result, dict) else None
-                detail = f": {str(reason)[:240]}" if operation == "execute" and reason else ""
+                detail = (f": {str(reason)[:240]}" if operation == "execute" and reason
+                          else driver_failure_diagnostic(response))
                 raise CanaryError(f"#123 driver {operation} failed with exit code {completed.returncode}{detail}")
         if response is None:
             raise CanaryError(f"#123 driver {operation} returned non-JSON output")
@@ -1438,7 +1502,9 @@ def execute_live(
                 builder.arm_injection(stage_id=stage_id, result=injection_response)
 
             messages: list[dict[str, str]] = [{"role": "system", "content": _system_contract()}]
-            for _ in range(max_actions_per_stage):
+            # One final observation may verify the last permitted action. It
+            # cannot select another model action or increase the action budget.
+            for action_slot in range(max_actions_per_stage + 1):
                 observed = builder.redactor.value(
                     driver.invoke("observe", {"workspaceId": workspace_id, "stage": stage_id})
                 )
@@ -1478,6 +1544,9 @@ def execute_live(
                 if stage_status == "complete":
                     if not builder._stage_record(stage_id)["modelActionSequences"]:
                         raise CanaryError(f"stage {stage_id} completed without a model-selected action")
+                    if (stage_id == receipt["errorInjection"]["stageId"]
+                            and receipt["errorInjection"]["status"] != "recovered"):
+                        raise ModelFailure("stage completed without proving recovery of the injected error")
                     builder.mark_stage(stage_id, "pass")
                     break
                 if stage_status != "ready":
@@ -1489,6 +1558,10 @@ def execute_live(
                                       f"{problem.get('invocation', stage['command'])}: "
                                       f"{problem.get('detail', 'driver cannot advance')}; blockedBy={blockers}")
 
+                if action_slot == max_actions_per_stage:
+                    raise ModelFailure(
+                        f"stage {stage_id} exceeded the bounded limit of {max_actions_per_stage} model actions"
+                    )
                 stage_tools = observed.get("stageTools")
                 allowed = (sorted(t for t in stage_tools if isinstance(t, str) and t)
                            if isinstance(stage_tools, list) else _tool_names(observed.get("toolView")))
@@ -1595,6 +1668,12 @@ def execute_live(
                     builder.observe_injected_error(action_sequence)
                 elif receipt["errorInjection"]["status"] == "observed" and action_status == "pass":
                     recovered = fault_evidence(execution, "recoveredError")
+                    # Inspection can legitimately precede repair. It consumes the
+                    # same bounded action budget and proves no recovery by itself.
+                    # The injection stage cannot complete until a later candidate
+                    # result explicitly proves recovery of this exact error ID.
+                    if recovered is None:
+                        continue
                     if (
                         not isinstance(recovered, dict)
                         or recovered.get("id") != receipt["errorInjection"]["id"]

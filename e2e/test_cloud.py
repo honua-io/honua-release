@@ -561,6 +561,7 @@ def test_serverless_rejects_broad_db_ingress(monkeypatch):
 
 
 def test_teardown_reconstructs_redis_mode_vars(monkeypatch):
+    import normal_cell_retirement
     monkeypatch.setenv("HONUA_LAMBDA_IMAGE_URI", "img")
     monkeypatch.setenv("HONUA_AWS_DB_INGRESS_CIDR", "192.0.2.10/32")
     monkeypatch.setenv("HONUA_AWS_RUNNER_CIDR", "192.0.2.10/32")
@@ -573,7 +574,7 @@ def test_teardown_reconstructs_redis_mode_vars(monkeypatch):
         calls.append(args)
         return subprocess.CompletedProcess(args, 0, "", "")
 
-    monkeypatch.setattr(target, "_tf", _record)
+    monkeypatch.setattr(normal_cell_retirement, "retire", lambda _target, root, variables, mode: _record(root, *variables))
     target.teardown(redis_enabled=True)
     values = _tf_vars(calls[0])
     assert values["redis_enabled"] == "true"
@@ -2610,7 +2611,8 @@ def _phase_env(monkeypatch, run_id="phase381"):
 @pytest.mark.parametrize("cleanup_raises", [False, True])
 @pytest.mark.parametrize("preview", [False, True])
 @pytest.mark.parametrize("tenant_fixture", [False, True])
-def test_teardown_job_fails_closed_when_provisioned_state_never_arrives(monkeypatch, tenant_fixture, preview, cleanup_raises):
+@pytest.mark.parametrize("retained_retirement", [False, True])
+def test_teardown_job_fails_closed_when_provisioned_state_never_arrives(monkeypatch, tenant_fixture, preview, cleanup_raises, retained_retirement):
     monkeypatch.setenv("HONUA_CLOUD_TENANT_FIXTURE", "true" if tenant_fixture else "false")
     cj = run_cloud.cloud_journey
     directory = _phase_env(monkeypatch)
@@ -2618,6 +2620,8 @@ def test_teardown_job_fails_closed_when_provisioned_state_never_arrives(monkeypa
         monkeypatch.setattr(cj, "PREVIEW_TARGETS", ("aws-ecs",))
     with tempfile.TemporaryDirectory() as scratch:
         stub = _PhaseStub(Path(scratch))
+        if retained_retirement:
+            stub.retirement_receipt = {"originalStateKeyRetained": True, "costReconciled": False}
         monkeypatch.setattr(run_cloud, "REGISTRY", {**run_cloud.REGISTRY, "aws-ecs": lambda **kw: stub})
         monkeypatch.setattr(run_cloud, "REPORT_PATH", Path(scratch) / "report.json")
         monkeypatch.setattr(cj, "check_cost", lambda *a, **k: {"status": "pass"})
@@ -2652,8 +2656,10 @@ def test_teardown_job_fails_closed_when_provisioned_state_never_arrives(monkeypa
             assert json.loads(run_cloud.REPORT_PATH.read_text())["status"] == "fail"  # qualification is retained
             if cleanup_raises:
                 assert "journey-cleanup-failed" in json.loads(run_cloud.REPORT_PATH.read_text())["cleanupFailures"]
-            assert stub.torn_down == 1 and forgotten == [*expected_secrets,
-                                                         run_cloud.state_secret_name("aws-ecs/redis-off")]
+            assert stub.torn_down == 1 and forgotten == expected_secrets + (
+                [] if retained_retirement else [run_cloud.state_secret_name("aws-ecs/redis-off")])
+            if retained_retirement:
+                assert json.loads(run_cloud.REPORT_PATH.read_text())["retirement"] == stub.retirement_receipt
             # A handoff from another run attempt cannot be adopted.
             run_cloud._write_json(directory / run_cloud.HANDOFF_NAME, {**state, "runAttempt": "2"})
             run_cloud.main(argv)
@@ -3102,6 +3108,40 @@ def test_seed_failure_names_the_call_status_instance_and_a_masked_body():
         assert secret not in error
     assert [c[:2] for c in calls] == [("POST", "/api/v1/admin/connections/"),
                                       ("POST", f"/api/v1/admin/connections/{cid}/layers")]
+
+
+@pytest.mark.parametrize("acknowledgement", [
+    {"storageMode": "managed", "capabilities": ["Query", "Create", "Update", "Delete"]},
+    {},
+    {"storageMode": "source", "capabilities": ["Query", "Create", "Update", "Delete"]},
+    {"storageMode": "managed", "capabilities": ["Query", "Create", "Delete"]},
+])
+def test_cloud_editing_fixture_requires_actual_managed_publication(acknowledgement):
+    published = 0
+
+    def answers(method, path):
+        nonlocal published
+        if path == "/api/v1/admin/connections/":
+            return 201, b'{"data":{"connectionId":"c1"}}', "task-a"
+        if method == "POST":
+            published += 1
+            data = {"layerId": published}
+            if published == 7:
+                data.update(acknowledgement)
+            return 201, json.dumps({"data": data}).encode(), "task-a"
+        return 200, b'{}', "task-a"
+
+    error, calls, wrote = _seed_cell_against(answers)
+    accepted = acknowledgement.get("storageMode") == "managed" and "Update" in acknowledgement.get("capabilities", [])
+    assert wrote is accepted
+    assert (error is None) is accepted
+    layers = [call[2] for call in calls if call[0] == "POST" and call[1].endswith("/layers")]
+    editable = [layer for layer in layers if "storageMode" in layer]
+    assert len(editable) == 1 and editable[0]["serviceName"] == "maui-inspections"
+    assert editable[0]["storageMode"] == "managed"
+    assert editable[0]["capabilities"] == ["Query", "Create", "Update", "Delete"]
+    if not accepted:
+        assert not any(call[0] == "PUT" and "/maui-inspections/" in call[1] for call in calls)
 
 
 def test_seed_failure_on_a_non_json_body_is_bounded_and_unnamed_instances_are_said():

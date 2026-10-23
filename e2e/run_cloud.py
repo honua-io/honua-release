@@ -561,6 +561,10 @@ def teardown_phase(state: dict, journey: dict, target, *, reference_endpoint: st
                     prior = report.get("why")
                     report["status"] = "fail"
                     report["why"] = f"{prior}; teardown failed: {e}" if prior else f"teardown failed: {e}"
+                finally:
+                    retirement = getattr(target, "retirement_receipt", None)
+                    if retirement is not None:
+                        report["retirement"] = retirement
 
     if report.get("status") == "fail":
         return report
@@ -1766,7 +1770,7 @@ def _phase_teardown(args) -> int:
         problems.append("the cell provisioned infrastructure but its sealed Terraform state never "
                         "reached teardown; reap it by hand (honua-iac#142)")
     secret_names = [app_key_secret_name(cell)] + ([tenant_secret_name(cell)] if
-        state.get("tenantFixtureEnabled") or os.environ.get("HONUA_CLOUD_TENANT_FIXTURE") == "true" else []) + ([state_secret_name(cell)] if state.get("destroyed") else [])
+        state.get("tenantFixtureEnabled") or os.environ.get("HONUA_CLOUD_TENANT_FIXTURE") == "true" else []) + ([state_secret_name(cell)] if state.get("destroyed") and not report.get("retirement", {}).get("originalStateKeyRetained") else [])
     for name in secret_names:
         try:
             forget_secret(name)

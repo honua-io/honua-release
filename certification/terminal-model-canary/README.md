@@ -56,8 +56,15 @@ Every action is attributed as either:
 Model actions must reference the redacted assistant transcript entry that selected them. The harness
 injects one recoverable error through the driver, records the harness action that armed it, the model
 action whose driver result reports that exact error ID, and the later model action whose driver result
-reports recovery of that ID. Prompts, responses, requests, and results are recursively redacted;
-the receipt stores only their SHA-256, UTF-8 byte count and `digest-only` marker.
+reports recovery of that ID.
+
+Intermediate diagnostic actions may succeed without proving recovery. They consume
+the existing stage action budget; the stage cannot complete until a candidate
+result proves recovery of the exact injected error. Unrelated success, a different
+error ID, a false recovery claim or exhausted limits cannot pass this requirement.
+
+Prompts, responses, requests, and results are recursively redacted; the receipt
+stores only their SHA-256, UTF-8 byte count and `digest-only` marker.
 The schema rejects raw payloads and extra fields. Redacted model context stays in
 memory for subsequent turns and is never replayed from receipt digests. Each live run
 uses a cryptographically random nonce, signed provider-event bytes bind both SSE names and data, and

@@ -225,6 +225,7 @@ class JourneyExecutor:
         if name == "honua_render_map":
             self.evidence.setdefault("proofs", {}).pop("pixel", None)
             self.evidence["checks"].setdefault("4", {}).pop("pixel", None)
+            self.evidence.pop("renderDimensions", None)
         result = self.transport.tool(name, send_arguments, view, self.principal(number))
         if fault and fault["status"] == "submitted":
             error = result.get("structuredContent") or {}
@@ -239,11 +240,11 @@ class JourneyExecutor:
             if output.get("applied") is not True or output.get("styleId") != arguments.get("styleId"):
                 raise ExecutionError(name, "candidate did not apply the selected canonical style")
             self._check(4, "style-applied", name, lambda: {"styleId": identity(output["styleId"], name)})
-        self._record(number, name, output)
         if name == "honua_publish_service":
             self.record_publication(output)
+        self._record(number, name, output)
         if name == "honua_render_map":
-            self.check_render(output)
+            self.check_render(output, selected_arguments=arguments)
             if (fault and fault["status"] == "observed"
                     and self.evidence["checks"].get("4", {}).get("pixel", {}).get("status") == "pass"):
                 fault["status"] = "recovered"
@@ -259,7 +260,9 @@ class JourneyExecutor:
             self.check_proposal()
         return {"status": "pass", "accepted": True, "injectedError": injected, "recoveredError": recovered,
                 "canonicalIds": self.evidence["canonicalIds"].get(str(number), {}),
-                "resources": dict(self.resources)}
+                "resources": dict(self.resources),
+                **({"nativePublication": dict(self.evidence["nativePublication"])}
+                   if name == "honua_publish_service" else {})}
 
     def terminal_surface(self, number):
         """Describe the harness bridge grammar without choosing or executing an action."""
@@ -433,7 +436,7 @@ class JourneyExecutor:
             raise ActionRejected("honua_publish_service", "publication does not bind the uploaded dataset and connection")
 
     def record_publication(self, output):
-        if output.get("status") != "Completed" or output.get("requiresApproval"):
+        if output.get("status") != "Completed" or output.get("requiresApproval") is not False:
             # service.publish is synchronous on the candidate (the submit handle is terminal), so name
             # the terminal state it returned instead (masked; never the raw tool output).
             seen = masked_fields({name: output.get(name) for name in (
@@ -441,13 +444,42 @@ class JourneyExecutor:
                 credential_values(self.transport.credentials))
             raise ExecutionError("honua_publish_service", "service.publish did not complete for the operator"
                                  + (f" ({describe_fields(seen)})" if seen else ""))
+        # McpPublishServiceOutput projects these from the completed canonical
+        # handle. Requested serviceName and the fixture are not publication proof.
+        service = output.get("serviceName")
+        if (not isinstance(service, str) or not 0 < len(service) <= 200
+                or not service.isprintable() or service.strip() != service):
+            raise ExecutionError("honua_publish_service", "candidate omitted a bounded published service name")
+        try:
+            service_bytes = service.encode("utf-8")
+        except UnicodeEncodeError as exc:
+            raise ExecutionError("honua_publish_service", "candidate returned an invalid published service name") from exc
+        if any(secret and secret in service for secret in credential_values(self.transport.credentials)):
+            raise ExecutionError("honua_publish_service", "candidate returned credential material as a service identity")
+        uri = output.get("serviceUri")
+        if uri != "honua://published-services/" + urllib.parse.quote_from_bytes(service_bytes, safe=""):
+            raise ExecutionError("honua_publish_service", "candidate omitted or contradicted the published service URI")
         layer = output.get("layerId")
+        raw_layer = str(layer) if isinstance(layer, str) or type(layer) is int else None
+        if raw_layer is not None and any(secret and (secret == raw_layer or
+                secret.isdecimal() and raw_layer.isdecimal() and secret.lstrip("0") == raw_layer.lstrip("0"))
+                for secret in credential_values(self.transport.credentials)):
+            raise ExecutionError("honua_publish_service", "candidate returned credential material as a layer identity")
         if type(layer) is int and layer >= 0:
-            self.resources["layerId"] = layer
-        elif isinstance(layer, str) and layer.isdigit() and len(layer) <= 18:
-            self.resources["layerId"] = int(layer)
+            layer_id = layer
+        elif isinstance(layer, str) and re.fullmatch(r"[0-9]{1,18}", layer):
+            layer_id = int(layer)
         else:
             raise ExecutionError("honua_publish_service", "candidate omitted the published layer identity")
+        # Native map tools accept the published service name as serviceId.
+        # Keep the returned name too, so this normalization stays explicit.
+        self.resources.update(serviceName=service, serviceId=service, serviceUri=uri, layerId=layer_id)
+        self.evidence["nativePublication"] = {
+            "serviceNameSha256": hashlib.sha256(service_bytes).hexdigest(),
+            "serviceUriSha256": hashlib.sha256(uri.encode()).hexdigest(),
+            "layerId": layer_id,
+            "fixtureServiceNameMatches": service == self.fixture.get("serviceId"),
+        }
         self.check_features()
 
     def record_job(self, output):
@@ -496,7 +528,9 @@ class JourneyExecutor:
             self.transport.get_json(self.fixture["featurePath"].format(**self.resources), principal=self.principal(3)),
             self.fixture["features"]))
 
-    def check_render(self, output):
+    def check_render(self, output, *, selected_arguments=None):
+        self.evidence.pop("renderDimensions", None)
+
         def media_type_of(value):
             if not isinstance(value, str):
                 return ""
@@ -520,11 +554,51 @@ class JourneyExecutor:
                 if not fetched or (declared and declared != fetched):
                     raise oracles.ProofError("render response media type conflicts with the declared image type")
                 media_type = fetched
+            # Record only independently decoded dimensions, never image-declared
+            # width/height. This distinguishes a model-selected wrong size from
+            # a renderer returning different bytes than the model requested.
+            if media_type == "image/png":
+                try:
+                    width, height, _ = oracles.decode_png(raw)
+                except oracles.PngError as exc:
+                    raise oracles.ProofError(f"PNG decoder refused: {exc.code}") from exc
+                selected = [(selected_arguments or {}).get(key) for key in ("width", "height")]
+                self.evidence["renderDimensions"] = {
+                    "expected": list(self.fixture["renderSize"]),
+                    "requested": selected if all(type(v) is int and 0 < v <= 16384 for v in selected) else None,
+                    "decoded": [width, height], "sha256": hashlib.sha256(raw).hexdigest(),
+                    "requestedPixelVerified": False}
+                if (self.evidence["renderDimensions"]["requested"] == [width, height]
+                        and selected != self.fixture["renderSize"]):
+                    # Matching dimensions alone cannot exclude a renderer defect
+                    # that occurs only at the model's selected size. Independently
+                    # sample the authored point/colour in that actual frame too.
+                    oracles.prove_pixel(raw, bbox=self.fixture["bbox"], point=self.fixture["pixelPoint"],
+                        size=selected, rgba=self.fixture["pixelRgba"], media_type=media_type)
+                    self.evidence["renderDimensions"]["requestedPixelVerified"] = True
             proof = oracles.prove_pixel(raw, bbox=self.fixture["bbox"], point=self.fixture["pixelPoint"],
                 size=self.fixture["renderSize"], rgba=self.fixture["pixelRgba"], media_type=media_type)
             return proof
         row = self._check(4, "pixel", "honua_render_map + decode PNG", prove)
         return row
+
+    def repairable_render_selection(self, number, check):
+        """A correct render of a wrong selected size is unfinished model work.
+
+        The failed pixel assertion remains unchanged. Missing selection, invalid
+        PNG, wrong pixels, transport failures and a renderer ignoring the request
+        are never admitted through this narrow feedback path.
+        """
+        dimensions = self.evidence.get("renderDimensions") or {}
+        requested = dimensions.get("requested")
+        return (number == 4 and check.id == "4.pixel" and check.status == "fail"
+                and check.detail == "PNG dimensions differ from the authored render size"
+                and isinstance(requested, list) and len(requested) == 2
+                and all(type(v) is int and 0 < v <= 16384 for v in requested)
+                and requested == dimensions.get("decoded")
+                and dimensions.get("requestedPixelVerified") is True
+                and dimensions.get("expected") == self.fixture.get("renderSize")
+                and requested != dimensions["expected"])
 
     def check_job(self):
         def prove():
