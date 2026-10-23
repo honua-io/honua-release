@@ -126,6 +126,23 @@ def test_missing_unexecuted_assertions_remain_actionable_before_first_attempt():
     assert response["blockedBy"] == []
 
 
+def test_observe_exposes_the_actual_stage_terminal_bridge_contract():
+    import executor
+    engine = executor.JourneyExecutor({"workspaceId": "unit", "stackUp": True, "executionEnabled": True}, {},
+        stages.Observation(setup_view_present=True,
+            setup_discovery={"tools": [{"name": "honua_ingest_dataset"}], "metadata": {"view": "setup"}}),
+        mock.Mock(credentials={"proposer": "test-proposer"}))
+    stage = json.loads((live_driver.HERE / "journey.v1.json").read_text())["stages"][2]
+    status = {"number": 3, "id": stage["id"], "command": stage["command"], "checks": [], "status": "blocked"}
+    with mock.patch.object(live_driver, "_rehydrate", return_value=(engine.state, {}, {}, engine.observation, None)), \
+         mock.patch.object(live_driver, "_executor", return_value=engine), \
+         mock.patch.object(live_driver, "_stage_status", return_value=status), mock.patch.object(live_driver, "_write_state"):
+        response = live_driver.op_observe({"stage": stage["id"]})
+    assert response["observation"]["terminalSurface"] == engine.terminal_surface(3)
+    assert response["stageStatus"]["status"] == "ready"
+    assert not engine.evidence["actions"]
+
+
 def _cloud_target_file(path, cell="aws-ecs/redis-on"):
     import cloud_target
     target = cloud_target.build(json.loads(live_driver.DEFAULT_TARGET.read_text()),

@@ -493,6 +493,37 @@ def test_publication_must_bind_the_uploaded_table_and_connection_before_any_call
     engine.transport.tool.assert_not_called()
 
 
+@pytest.mark.parametrize("present,missing", [({}, "connectionId, table, schema"),
+    ({"connectionId": "connection-1"}, "table, schema"),
+    ({"importTable": "uploaded", "importSchema": "public"}, "connectionId")])
+def test_premature_publication_is_action_feedback_with_exact_missing_prerequisites(present, missing):
+    engine = upload_engine()
+    engine.resources.clear()
+    engine.resources.update(present)
+    with pytest.raises(executor.ActionRejected, match="prerequisites are missing: " + missing) as error:
+        engine.execute(3, {"kind": "tool_call", "tool": "honua_publish_service", "arguments": {}})
+    assert error.value.blocked is False
+    engine.transport.tool.assert_not_called()
+    assert not engine.evidence["checks"].get("3")
+
+
+def test_terminal_bridge_describes_grammar_and_argument_sources_without_resolving_credentials():
+    engine = sdk_engine()
+    surface = engine.terminal_surface(3)
+    assert surface["sdkSyntax"] == "honua-journey-sdk METHOD JSON_ARRAY"
+    assert set(surface["sdkArgumentSources"]) == executor.SDK_METHODS
+    assert surface["sdkArgumentSources"]["TestConnectionAsync"] == ["currentState.connectionId"]
+    assert surface["uploadCommand"] == executor.UPLOAD_COMMAND
+    assert surface["uploadArguments"].startswith("None.")
+    assert surface["publicationBindings"] == {"connectionId": "currentState.connectionId",
+        "table": "currentState.importTable", "schema": "currentState.importSchema"}
+    assert "private-proposer" not in json.dumps(surface)
+    assert engine.terminal_surface(4) == {}
+    engine.observation.setup_discovery["tools"] = []
+    assert engine.terminal_surface(3) == {}
+    engine.transport.tool.assert_not_called()
+
+
 @pytest.mark.parametrize("layout", ["columns", "import-jsonb-properties"])
 def test_completed_service_publish_supplies_stage_3_operation_ids_and_feature_proof(layout):
     engine = upload_engine(operator="private-operator")
