@@ -1075,6 +1075,46 @@ class CandidateProxyClient:
         return content, usage, elapsed_ms, evidence
 
 
+def driver_failure_diagnostic(response: Any) -> str:
+    """Keep bounded assertion identities/codes, never arbitrary driver payloads."""
+    if not isinstance(response, dict):
+        return ""
+    evidence = response.get("stageStatus")
+    checks = evidence.get("checks") if isinstance(evidence, dict) else None
+    rows = []
+    reasons = {
+        "PNG dimensions differ from the authored render size": "render-size-mismatch",
+        "render media type is not image/png": "render-media-type",
+        "render image declares conflicting media types": "render-media-type-conflict",
+        "render response media type conflicts with the declared image type": "render-media-type-conflict",
+        "fixture point lies outside the image": "render-fixture-outside-image",
+        "live assertion omitted required evidence": "required-evidence-missing",
+    }
+    for check in checks[:16] if isinstance(checks, list) else []:
+        if not isinstance(check, dict) or check.get("status") not in ("fail", "blocked"):
+            continue
+        identifier = check.get("id")
+        if not isinstance(identifier, str) or not re.fullmatch(r"[1-8]\.[a-z0-9-]{1,64}", identifier):
+            continue
+        detail = check.get("detail")
+        reason = reasons.get(detail, "assertion-refused") if isinstance(detail, str) else "assertion-refused"
+        if isinstance(detail, str) and detail.startswith("render pixel at ("):
+            reason = "render-pixel-mismatch"
+        elif isinstance(detail, str) and detail.startswith("PNG decoder refused:"):
+            reason = "render-png-invalid"
+        rows.append(identifier + "=" + check["status"] + "/" + reason)
+    if rows:
+        return "; checks=" + ",".join(rows)
+    error = response.get("error")
+    category = response.get("errorCategory")
+    if not isinstance(category, str):
+        category = error.split(":", 1)[0] if isinstance(error, str) else ""
+    if category in {"DriverError", "ExecutionError", "KeyError", "ValueError", "TypeError",
+                    "AttributeError", "OSError", "RuntimeError", "JSONDecodeError", "NameError"}:
+        return "; driverError=" + category
+    return "; structuredFailure=" + str(response.get("status") == "fail").lower()
+
+
 class DriverAdapter:
     """Invoke the future #123 live driver through the reviewed JSON protocol."""
 
@@ -1116,7 +1156,8 @@ class DriverAdapter:
                     and response.get("refusal") in MODEL_FEEDBACK_REFUSALS):
                 result = response.get("result") if isinstance(response, dict) else None
                 reason = result.get("reason") if isinstance(result, dict) else None
-                detail = f": {str(reason)[:240]}" if operation == "execute" and reason else ""
+                detail = (f": {str(reason)[:240]}" if operation == "execute" and reason
+                          else driver_failure_diagnostic(response))
                 raise CanaryError(f"#123 driver {operation} failed with exit code {completed.returncode}{detail}")
         if response is None:
             raise CanaryError(f"#123 driver {operation} returned non-JSON output")

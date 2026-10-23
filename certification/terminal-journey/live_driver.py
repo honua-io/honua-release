@@ -693,10 +693,10 @@ def handle(request: dict[str, Any]) -> dict[str, Any]:
     try:
         response = handler(request)
     except DriverError as exc:
-        return {"status": "fail", "operation": operation, "error": str(exc)}
+        return {"status": "fail", "operation": operation, "errorCategory": "DriverError", "error": str(exc)}
     except ExecutionError as exc:
         return {"status": "blocked" if exc.blocked else "fail", "operation": operation,
-                "error": f"{exc.command}: {exc.reason}"}
+                "errorCategory": "ExecutionError", "error": f"{exc.command}: {exc.reason}"}
     except Exception as exc:  # noqa: BLE001 - a driver crash must never read as pass
         return {"status": "fail", "operation": operation, "error": f"{type(exc).__name__}: {exc}"}
     response.setdefault("protocol", PROTOCOL)
