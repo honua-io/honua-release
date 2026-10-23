@@ -1017,13 +1017,16 @@ clientArtifacts:
   create-honua-app:
     ecosystem: "npm"
     package: "create-honua-app"
-    version: "0.2.2"
-    integrity: "sha512-z26SBWPq7uZ7ihNTPyH2Ud0rtYELBMqCmmu61VlC3EzENJP+6FhdorWNi0LZicF8bZa9jqDsO3U+KbH5YpqYoA=="
+    # 2026-10-22: create-honua-app 0.2.3 (release-please honua-sdk-js#2203, npm 21:57Z; npm gitHead
+    # c7d517b0, dist.integrity below). Its scaffold templates move the certified fallback to
+    # @honua/sdk-js 0.2.6 (honua-sdk-js#2205), so they pin the manifest's JS cohort.
+    version: "0.2.3"
+    integrity: "sha512-c0BtwadHMxHbxIFKyAti3hmugy1Sb+h0/lw7o034mj+rAmDUUQiYFSmU0nZwSaQj2qBdtXSzFHou1qPD9xS2qg=="
     repository: "honua-io/honua-sdk-js"
-    sourceSha: "bd178cf762574379c8c0cfe6e923fe9a39ce9832"
+    sourceSha: "c7d517b0dd12842ed31161d77dd0114abfee2673"
     publicationState: "published"
     targets: [node]
-    filename: "create-honua-app-0.2.2.tgz"
+    filename: "create-honua-app-0.2.3.tgz"
   honua-sdk-python-wheel:
     ecosystem: pypi
     package: "honua-sdk"
