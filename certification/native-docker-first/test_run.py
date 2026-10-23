@@ -283,10 +283,11 @@ class NativeFirstUseTests(unittest.TestCase):
 
     def test_candidate_does_not_invent_sdk_mcp_version_coupling(self):
         manifest, _ = runner.candidate(runner.ROOT / 'platform-manifest.yaml')
+        sdk_version = manifest['clientArtifacts']['honua-sdk-js']['version']
         manifest['clientArtifacts']['honua-mcp-server']['version'] = '0.2.1'
         with patch.object(runner.yaml, 'safe_load', return_value=manifest):
             _, binding = runner.candidate(runner.ROOT / 'platform-manifest.yaml')
-        self.assertEqual(binding['clients']['honua-sdk-js']['version'], '0.2.3')
+        self.assertEqual(binding['clients']['honua-sdk-js']['version'], sdk_version)
         self.assertEqual(binding['clients']['honua-mcp-server']['version'], '0.2.1')
 
     def test_attempt_binding_rejects_changed_artifacts_or_browser_producer(self):

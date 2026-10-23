@@ -1413,3 +1413,9 @@ def test_install_and_preflight_stages_act_as_the_operator_when_one_exists():
     assert [with_operator.principal(n) for n in (1, 2, 6, 7)] == ["operator", "operator", "proposer", "proposer"]
     without = engine_for(mock.Mock(credentials={"proposer": "p"}))
     assert without.principal(1) == "proposer"
+
+
+def test_typed_client_side_tool_errors_are_candidate_refusals_and_server_faults_are_not():
+    import live_driver
+    assert {"not_found", "invalid_argument"} <= live_driver.CANDIDATE_REFUSAL_CODES
+    assert not {"internal", "unavailable", "permission_denied"} & live_driver.CANDIDATE_REFUSAL_CODES

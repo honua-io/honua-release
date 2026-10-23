@@ -439,6 +439,13 @@ def op_observe(request: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+# Typed MCP tool error codes that describe the request, not a candidate fault: a well-formed call the
+# candidate refused because of what was asked (missing resource, invalid argument, wrong state). Server
+# faults, transport failures, permission or proof failures stay candidate-execution (infrastructure).
+CANDIDATE_REFUSAL_CODES = frozenset({"not_found", "invalid_argument", "invalid_input", "conflict",
+                                     "already_exists", "failed_precondition", "validation_failed"})
+
+
 def op_execute(request: dict[str, Any]) -> dict[str, Any]:
     """Execute the selected bounded call and retain only observed identities."""
     if request.get("profile") is not None:
@@ -462,7 +469,11 @@ def op_execute(request: dict[str, Any]) -> dict[str, Any]:
                     # invalid-action: the selected action was refused before any candidate request
                     # (model feedback). candidate-execution: a valid action failed in the candidate or
                     # its proof (never model feedback).
-                    "refusal": "invalid-action" if isinstance(exc, ActionRejected) else "candidate-execution",
+                    # candidate-refusal: a typed client-side tool error for a well-formed call (e.g. asking
+                    # for a service that is not published yet) - feedback an agent is expected to act on.
+                    "refusal": ("invalid-action" if isinstance(exc, ActionRejected)
+                                else "candidate-refusal" if exc.problem.get("code") in CANDIDATE_REFUSAL_CODES
+                                else "candidate-execution"),
                     "result": {"accepted": False, "command": exc.command, "reason": exc.reason,
                                "injectedError": None, "recoveredError": None},
                     "canonicalIds": {k: None for k in executor.ID_FIELDS},
