@@ -63,16 +63,18 @@ override_module {
 override_module {
   target = module.application.module.server
   outputs = {
-    vpc_id                    = "vpc-0123456789abcdef0"
-    private_subnet_ids        = ["subnet-11111111111111111", "subnet-22222222222222222"]
-    alb_dns_name              = "offline.elb.invalid"
-    alb_security_group_id     = "sg-0123456789abcdef0"
-    https_listener_arn        = "arn:aws:elasticloadbalancing:us-east-1:123456789012:listener/app/offline/1234567890123456/1234567890123456"
-    ecs_cluster_name          = "honua-pilot-offline-agent"
-    ecs_service_name          = "honua-pilot-offline-agent"
-    db_endpoint               = "isolated.example.us-east-1.rds.amazonaws.com"
-    db_connection_secret_arn  = "arn:aws:secretsmanager:us-east-1:123456789012:secret:honua-pilot-offline-agent-master-db-123456"
-    admin_password_secret_arn = "arn:aws:secretsmanager:us-east-1:123456789012:secret:honua-pilot-offline-agent-admin-password-123456"
+    vpc_id                           = "vpc-0123456789abcdef0"
+    private_subnet_ids               = ["subnet-11111111111111111", "subnet-22222222222222222"]
+    alb_dns_name                     = "offline.elb.invalid"
+    alb_security_group_id            = "sg-0123456789abcdef0"
+    https_listener_arn               = "arn:aws:elasticloadbalancing:us-east-1:123456789012:listener/app/offline/1234567890123456/1234567890123456"
+    ecs_cluster_name                 = "honua-pilot-offline-agent"
+    ecs_service_name                 = "honua-pilot-offline-agent"
+    db_endpoint                      = "isolated.example.us-east-1.rds.amazonaws.com"
+    db_connection_secret_arn         = "arn:aws:secretsmanager:us-east-1:123456789012:secret:honua-pilot-offline-agent-master-db-123456"
+    admin_password_secret_arn        = "arn:aws:secretsmanager:us-east-1:123456789012:secret:honua-pilot-offline-agent-admin-password-123456"
+    admin_password_secret_version_id = "dddddddddddddddddddddddddddddddd"
+    ecs_task_definition_arn          = "arn:aws:ecs:us-east-1:123456789012:task-definition/honua-pilot-offline-agent-server:7"
   }
 }
 override_module {

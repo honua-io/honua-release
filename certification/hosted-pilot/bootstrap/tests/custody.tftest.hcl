@@ -113,7 +113,7 @@ run "agent_orchestration_is_opt_in_and_bounded" {
       length(aws_iam_policy.agent_read[0].policy) <= 6144 &&
       one([for statement in jsondecode(aws_iam_policy.agent_boundary[0].policy).Statement : statement if try(statement.Sid, "") == "NoUnreviewedModel"]).Effect == "Deny" &&
       one([for statement in jsondecode(aws_iam_policy.agent_boundary[0].policy).Statement : statement if try(statement.Sid, "") == "ExcludeFoundationCustodyKey"]).Resource == aws_kms_key.custody.arn &&
-      length(local.workload_boundary_arns) == 2 &&
+      length(local.workload_boundary_arns) == 3 &&
       contains(local.workload_role_patterns, "arn:aws:iam::123456789012:role/honua-agent-*") &&
       contains(local.deployment_state_keys, "honua/hosted-pilot/${var.name_prefix}/workers/*")
     )
@@ -134,6 +134,42 @@ run "worker_custody_boundary_ceiling_is_read_only" {
       one([for statement in jsondecode(aws_iam_policy.agent_boundary[0].policy).Statement : statement if try(statement.Sid, "") == "NoIdentityAdministration"]).Effect == "Deny"
     )
     error_message = "The boundary must cap three custody reads to agent roles while retaining identity-administration denial; identity policies must narrow the actual attempts."
+  }
+}
+
+run "native_membership_boundary_preserves_controller_and_foundation_isolation" {
+  command = plan
+  variables { enable_agent_controller = true }
+  assert {
+    condition = (
+      length(aws_iam_policy.native_bootstrap_boundary[0].policy) <= 6144 &&
+      contains(local.workload_boundary_arns, aws_iam_policy.native_bootstrap_boundary[0].arn) &&
+      jsondecode(aws_iam_policy.native_bootstrap_boundary[0].policy).Statement[0].Effect == "Deny" &&
+      contains(jsondecode(aws_iam_policy.native_bootstrap_boundary[0].policy).Statement[0].Action, "secretsmanager:GetSecretValue") &&
+      contains(jsondecode(aws_iam_policy.native_bootstrap_boundary[0].policy).Statement[0].Action, "bedrock:*") &&
+      one([for row in jsondecode(aws_iam_policy.native_bootstrap_boundary[0].policy).Statement : row if try(row.Action == "ecs:DescribeTaskDefinition", false)]) == {
+        Effect = "Allow", Action = "ecs:DescribeTaskDefinition", Resource = "*", Condition = { StringEquals = { "aws:RequestedRegion" = "us-west-2" } }
+      } &&
+      one([for row in jsondecode(aws_iam_policy.agent_boundary[0].policy).Statement : row if try(row.Sid, "") == "ExcludeFoundationCustodyKey"]) == {
+        Sid = "ExcludeFoundationCustodyKey", Effect = "Deny", Action = "kms:*", Resource = aws_kms_key.custody.arn
+      } &&
+      one([for row in jsondecode(aws_iam_policy.native_bootstrap_boundary[0].policy).Statement : row if try(row.Sid, "") == "DecryptOriginalMembershipObjects"]).Condition.ArnEquals["aws:PrincipalArn"] == "arn:aws:iam::123456789012:role/honua-pilot-offline-agent-native-bootstrap" &&
+      one([for row in jsondecode(aws_iam_policy.native_bootstrap_boundary[0].policy).Statement : row if try(row.Sid, "") == "DecryptOriginalMembershipObjects"]).Condition.StringEquals["kms:ViaService"] == "s3.us-west-2.amazonaws.com" &&
+      toset(one([for row in jsondecode(aws_iam_policy.native_bootstrap_boundary[0].policy).Statement : row if try(row.Sid, "") == "DecryptOriginalMembershipObjects"]).Condition.ArnLike["kms:EncryptionContext:aws:s3:arn"]) == toset([
+        "${aws_s3_bucket.custody["plans"].arn}/hosted-pilot/plans/*/review.json",
+        "${aws_s3_bucket.custody["plans"].arn}/hosted-pilot/plans/*/human-identities-*.json"
+      ]) &&
+      alltrue([for configuration in aws_s3_bucket_server_side_encryption_configuration.custody : !one(configuration.rule).bucket_key_enabled])
+    )
+    error_message = "Only native bootstrap may decrypt enrollment JSON through object-scoped S3 KMS context; workers/controllers retain blanket custody denial and bucket keys cannot broaden context."
+  }
+  assert {
+    condition = (
+      one([for row in jsondecode(aws_iam_role_policy.custody["apply"].policy).Statement : row if try(row.Sid, "") == "WriteOriginalHumanEnrollment"]).Condition.StringEquals["s3:if-none-match"] == "*" &&
+      toset(one([for row in jsondecode(aws_iam_role_policy.custody["apply"].policy).Statement : row if try(row.Sid, "") == "WriteOriginalHumanEnrollment"]).Resource) == toset(local.native_membership_objects) &&
+      one([for row in jsondecode(aws_iam_role_policy.custody["apply"].policy).Statement : row if try(row.Sid, "") == "WriteOriginalHumanEnrollment"]).Condition.StringEquals["s3:x-amz-server-side-encryption-aws-kms-key-id"] == aws_kms_key.custody.arn
+    )
+    error_message = "Apply may only conditionally retain the original review/enrollment JSON with the original KMS key; it cannot overwrite binary plans."
   }
 }
 run "refuse_global_action_grant" {
