@@ -39,7 +39,7 @@ class Session(WorkerSession):
     PROFILE = 'studio-authoring-native'
     CASE_PATTERN = r'P(?:08|09|11|12|13):[AB]:aws-ecs-redis-on'
     CONFIG_FIELDS = {'http', 'database', 'deployment', 'attempts', 'accounting', 'studio', 'sources'}
-    OPTIONAL_FIELDS = {'rendering', 'managedJob'}
+    OPTIONAL_FIELDS = {'rendering', 'managedJob', 'styling'}
     DATABASE = StudioFixtureDatabase
     initial_fixture = PublicationSession.initial_fixture
 
@@ -90,6 +90,10 @@ class Session(WorkerSession):
                     isinstance(job['requesterPrincipalId'], str) and 0 < len(job['requesterPrincipalId']) <= 512 and
                     isinstance(job['mapLayerId'], str) and 0 < len(job['mapLayerId']) <= 200,
                     'only the reviewed native buffer process/requester/map layer can join P11')
+        if 'styling' in self.config:
+            from agent_e2e_studio_style_observer import validate
+            require(self.case['scenarioId'] == 'P09', 'style observation belongs to the authored P09 case')
+            validate(self.config['styling'])
         self.preflight_job_binding()
 
     def preflight_job_binding(self):
@@ -225,6 +229,10 @@ class Session(WorkerSession):
             self.durable.retain_fixture_baseline(self.context, initial['baseline'])
             self.durable.retain_fixture_ownership(self.context, ownership)
             self.retain('initial-fixture', {'reference': studio['bootstrapFixture'], 'fixture': initial['fixture']})
+            if 'styling' in self.config:
+                from agent_e2e_studio_style_observer import preflight
+                preflight(config=self.config['styling'], initial=initial['fixture']['initialVersion'],
+                    expected=expected_case['assertions']['map.style'], item_id=studio['itemId'])
         binding = {key: studio[key] for key in ('itemId', 'namespace', 'ownerPrincipalId', 'family')}
         binding['notBefore'] = self.value('prepare-start')['startedAt']
         self.retain('authoring-binding', binding)
@@ -322,6 +330,17 @@ class Session(WorkerSession):
                         observations['map.composition'] = observer.map_composition(saved)
                     except (PackError, TypeError, KeyError): pass
                 if 'state.saved' in observations: observations['state.saved'] = observer.saved(saved)
+                styling = getattr(self, 'config', {}).get('styling')
+                if 'map.style' in observations and styling is not None:
+                    try:
+                        from agent_e2e_studio_style_observer import observe
+                        styled = observe(observer, config=styling,
+                            initial=self.value('initial-fixture')['fixture']['initialVersion'], saved=saved,
+                            save_selection=saves[-1], selections=[row['value'] for row in selections])
+                        observations['map.style'] = styled['actual']
+                        self.retain('authoring-style', styled)
+                    except (PackError, ValueError, TypeError, KeyError):
+                        self.retain('authoring-style-failure', {'code': 'original-model-style-unavailable-or-invalid'})
                 self.retain('authoring-final', {'resource': saved, 'nativeReferences': {
                     'version': version_ref, 'current': current_ref, 'draft': draft_ref}})
                 for name, declaration in declarations.items():
@@ -352,6 +371,7 @@ class Session(WorkerSession):
         result = {'status': 'fail' if failed else 'pass', 'failedAssertions': failed, 'observations': observations,
             'unsupportedAssertions': [assertion for assertion in self.case['assertions'] if assertion not in
                 ({'map.composition', 'state.saved', 'source-content.unchanged'} |
+                 ({'map.style'} if getattr(self, 'config', {}).get('styling') is not None else set()) |
                  ({'job.completed', 'buffer.metric'} if getattr(self, 'config', {}).get('managedJob') is not None else set()) |
                  ({'render.actual'} if getattr(self, 'config', {}).get('rendering') is not None else set()))],
             'modelSaveCount': len(saves), 'modelCreateCount': sum(row['value']['tool'] == CREATE for row in selections)}

@@ -255,3 +255,17 @@ expectation resolution; that backend is not implemented here. The gate already
 rejects arbitrary observation blobs, missing assertions, altered corpus bytes,
 overlapping target campaigns, and repeated failures hidden behind new campaign IDs.
 All 252 cases remain unqualified until actual independent evidence is available.
+
+P09 development attempts can configure `styling` with the exact
+`floodLayerId` and `shelterLayerId` from the prepared map. The style observer
+projects the independently saved `mapSpec`, including its full document digest,
+flood paint and actual shelter field-label expression. It requires a new saved
+version joined to the original model mutation's draft, actor and generation;
+style-reference metadata, literal labels and an already-completed prepared style
+cannot substitute for that work. Expected style values and document hashes remain
+source-frozen. The existing `render.actual` browser, feature and pixel predicates
+are unchanged and remain mandatory even when style and save observations pass.
+
+P13 still requires the original restored version identity. The current scoped
+native agent authority does not expose rollback; reopening or saving an identical
+new version does not satisfy `version.restored`.
