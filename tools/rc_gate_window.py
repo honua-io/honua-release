@@ -59,12 +59,12 @@ AI_GATES: tuple[str, ...] = (
 # Operator triage 2026-10-22 (release#376): these gates are deferred to GA. They are reported, never
 # required, for rc.N. capacity-soak needs a producer bundle the nightly cannot yet mint; rollback-
 # certification needs a signed lock (gate-upgrade's rollback leg covers rc); gate-journey needs cloud-cell
-# receipts plus the data-driven roster; gate-agent-e2e has no campaign producer yet (#619).
+# receipts plus the data-driven roster. The owner's later explicit ruling keeps
+# both AI gates required for rc, including gate-agent-e2e while its producer work remains open.
 GA_DEFERRED: tuple[str, ...] = (
     "capacity-soak.yml",
     "rollback-certification.yml",
     "gate-journey.yml",
-    "gate-agent-e2e.yml",
 )
 RC_GATES: tuple[str, ...] = tuple(g for g in TRAIN_GATES + AI_GATES if g not in GA_DEFERRED)
 
