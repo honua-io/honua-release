@@ -37,10 +37,42 @@ concurrency:
   group: hosted-pilot-foundation
   cancel-in-progress: false
 jobs:
-  bootstrap:
+  approval-policy:
     if: github.repository == 'honua-io/honua-iac' && github.ref == 'refs/heads/trunk'
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: honua-io/honua-release
+          ref: ${{ inputs.release_root_sha }}
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Verify reviewed source and existing foundation approval policy
+        env:
+          ROOT_SHA: ${{ inputs.release_root_sha }}
+          GH_TOKEN: ${{ github.token }}
+          RECOVERY_RUN: ${{ inputs.recovery_run_id }}
+          RECOVERY_ARTIFACT: ${{ inputs.recovery_artifact_id }}
+          RECOVERY_SHA: ${{ inputs.recovery_sha256 }}
+        run: |
+          set -euo pipefail
+          [[ "$ROOT_SHA" =~ ^[0-9a-f]{40}$ ]]
+          test "$(git rev-parse HEAD)" = "$ROOT_SHA"
+          git merge-base --is-ancestor "$ROOT_SHA" origin/trunk
+          if [ -n "$RECOVERY_ARTIFACT" ] || [ -n "$RECOVERY_SHA" ]; then
+            test -n "$RECOVERY_RUN" && [[ "$RECOVERY_ARTIFACT" =~ ^[0-9]+$ ]]
+            [[ "$RECOVERY_SHA" =~ ^[0-9a-f]{64}$ ]]
+          fi
+          python3 tools/hosted_pilot/foundation_environment.py check
+  bootstrap:
+    needs: approval-policy
+    if: github.repository == 'honua-io/honua-iac' && github.ref == 'refs/heads/trunk'
+    runs-on: ubuntu-latest
+    environment: ${{ inputs.mode == 'deploy' && 'terraform-live-approval' || 'terraform-ephemeral' }}
+    # The apply step has its own smaller deadline so journal persistence and
+    # upload steps still have time after a slow or interrupted deployment.
+    timeout-minutes: 45
     env:
       TF_IN_AUTOMATION: 'true'
       AWS_EC2_METADATA_DISABLED: 'true'
@@ -91,7 +123,7 @@ jobs:
           subprocess.run(['git', '-C', os.environ['PILOT_FOUNDATION_SOURCE_ROOT'], 'merge-base', '--is-ancestor', run['head_sha'], os.environ['GITHUB_SHA']], check=True)
           PY
       - name: Download only custody import metadata; no binary plan/state/log input
-        if: inputs.recovery_run_id != ''
+        if: inputs.recovery_artifact_id != ''
         uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
           github-token: ${{ github.token }}
@@ -108,6 +140,7 @@ jobs:
           aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
           aws-region: ${{ inputs.region }}
       - name: Custody-first source-reviewed bootstrap in one ephemeral job
+        timeout-minutes: 30
         working-directory: release-source
         env:
           MODE: ${{ inputs.mode }}
@@ -115,6 +148,7 @@ jobs:
         run: python3 tools/hosted_pilot/bootstrap.py "$MODE" --config "$CONFIG"
       - name: Preserve initial-custody recovery identities after failure or cancellation
         if: failure() || cancelled()
+        timeout-minutes: 4
         working-directory: release-source
         env:
           CONFIG: ${{ inputs.config_path }}
