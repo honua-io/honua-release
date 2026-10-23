@@ -252,3 +252,51 @@ def test_amended_freeze_downloads_only_original_release_artifact_without_aws_ide
     command = next(step for step in freeze['steps'] if step.get('name') == 'Freeze reviewed campaign before paid execution')
     assert '--bootstrap-artifact bootstrap-import/bootstrap-accounting.json' in command['run']
     assert command['env']['GH_TOKEN'] == '${{ github.token }}'
+
+
+@pytest.mark.parametrize('omit_original', [False, True])
+def test_published_amended_artifact_reaches_actual_consumer_gate(campaign, omit_original):
+    import shutil
+    import zipfile
+    import yaml
+    from test_agent_e2e_gate import NOW
+    import agent_e2e_gate as gate
+    gate_amend(campaign)
+    source, consumer = campaign/'campaign', campaign/'consumer'
+    source.mkdir(); consumer.mkdir()
+    for before, after in {'campaign.json': 'campaign.json', 'trusted.json': 'trusted-inventory.json',
+            'lock.json': 'qualification-lock.json', 'expectations.json': 'expectations.json',
+            'ledger.json': 'budget-ledger.json', 'registry.json': 'attempt-registry.json',
+            policy.ORIGINAL: policy.ORIGINAL}.items():
+        shutil.copyfile(campaign/before, source/after)
+    for name in ('receipts', 'evidence'):
+        shutil.copytree(campaign/name, source/name)
+    workflow = yaml.safe_load((Path(__file__).resolve().parents[1]/'.github/workflows/agent-e2e-campaign.yml').read_text())
+    publish = next(step for step in workflow['jobs']['finalize']['steps']
+        if step.get('name') == 'Publish consumer-compatible qualification bundle')
+    archive = campaign/'published.zip'
+    with zipfile.ZipFile(archive, 'w', zipfile.ZIP_DEFLATED) as output:
+        for value in publish['with']['path'].splitlines():
+            relative = Path(value).relative_to('campaign')
+            if omit_original and relative.as_posix() == policy.ORIGINAL:
+                continue
+            item = source/relative
+            for path in (sorted(item.rglob('*')) if item.is_dir() else [item]):
+                if path.is_file(): output.write(path, path.relative_to(source).as_posix())
+    with zipfile.ZipFile(archive) as incoming:
+        for entry in incoming.infolist():
+            target = consumer/entry.filename
+            target.resolve().relative_to(consumer.resolve())
+            target.parent.mkdir(parents=True, exist_ok=True)
+            target.write_bytes(incoming.read(entry))
+    def validate():
+        return gate.validate(campaign/'pack.json', consumer/'campaign.json', consumer/'qualification-lock.json',
+            consumer/'trusted-inventory.json', consumer/'receipts', consumer/'evidence', consumer/'budget-ledger.json',
+            consumer/'expectations.json', consumer/'attempt-registry.json', now=NOW)
+    if omit_original:
+        with pytest.raises(PackError, match='original bootstrap funding artifact missing'):
+            validate()
+    else:
+        result = validate()
+        assert result['casesPassed'] == result['casesExpected'] == 252
+        assert (consumer/policy.ORIGINAL).read_bytes() == (source/policy.ORIGINAL).read_bytes()

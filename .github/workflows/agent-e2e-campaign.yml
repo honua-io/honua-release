@@ -550,6 +550,7 @@ jobs:
             campaign/qualification-lock.json
             campaign/expectations.json
             campaign/budget-ledger.json
+            campaign/budget-bootstrap-original.json
             campaign/attempt-registry.json
             campaign/qualification-summary.json
             campaign/candidate-provenance.json
