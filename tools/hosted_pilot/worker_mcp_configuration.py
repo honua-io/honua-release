@@ -1,5 +1,6 @@
 """Private immutable agent-only MCP configuration from retained native context."""
 from __future__ import annotations
+import hmac
 import json
 import os
 from pathlib import Path
@@ -94,22 +95,37 @@ def provision(durable, reference, operation, configuration, *, secrets=None, ecs
         'operationId': operation['operationId'], 'destination': configuration['secretArn']})[7:]
     key = 'native-worker-mcp:'+token
     records = durable.state.setdefault('scenarioOperations', {})
-    require(key+'/intent' not in records, 'MCP secret provisioning already started; observe retained version without replay')
     public = {**configuration, 'agentContext': context['agentContext'], 'issuedAgentKey': context['issuedAgentKey'],
         'nativeContext': reference, 'operation': operation, 'versionId': token}
-    records[key+'/intent'] = {'producer': 'private-worker-mcp', 'candidateKey': durable.store.candidate, 'value': public}
-    durable._persist()
     credential = os.environ.get('HONUA_AGENT_REQUESTER_KEY')
     require(isinstance(credential, str) and len(credential) >= 32, 'actual issued private agent credential missing')
     payload = {'endpoint': configuration['endpoint'], 'credentialKind': 'api-key', 'credential': credential,
         'workflowView': configuration['workflowView'], 'agentContext': context['agentContext']}
-    authorize(durable, operation)
+    expected_intent = {'producer': 'private-worker-mcp', 'candidateKey': durable.store.candidate, 'value': public}
     secrets = secrets or sdk('secretsmanager', configuration['region'])
-    response = secrets.put_secret_value(SecretId=configuration['secretArn'], ClientRequestToken=token, SecretString=encoded(payload).decode())
-    require(response['ARN'] == configuration['secretArn'] and response['VersionId'] == token, 'actual private MCP secret version differs')
     authorize(durable, operation)
-    result = {'schema': 'honua.private-worker-mcp-binding/v1', 'secretArn': response['ARN'], 'versionId': response['VersionId'],
+    if key+'/intent' in records:
+        require(records[key+'/intent'] == expected_intent, 'MCP retained provisioning intent differs from the original binding')
+        # A lost write acknowledgement or completion persist cannot justify a
+        # second write. Read only the original deterministic immutable version;
+        # an absent version remains unresolved rather than creating a new one.
+        response = secrets.get_secret_value(SecretId=configuration['secretArn'], VersionId=token)
+        require(response.get('ARN') == configuration['secretArn'] and response.get('VersionId') == token and
+                isinstance(response.get('SecretString'), str) and 'SecretBinary' not in response and
+                hmac.compare_digest(response['SecretString'].encode(), encoded(payload)),
+                'MCP original immutable secret version or private bytes differ')
+    else:
+        require(key+'/completed' not in records, 'MCP completion lacks its original provisioning intent')
+        records[key+'/intent'] = expected_intent
+        durable._persist()
+        authorize(durable, operation)
+        response = secrets.put_secret_value(SecretId=configuration['secretArn'], ClientRequestToken=token, SecretString=encoded(payload).decode())
+        require(response['ARN'] == configuration['secretArn'] and response['VersionId'] == token, 'actual private MCP secret version differs')
+    authorize(durable, operation)
+    result = {'schema': 'honua.private-worker-mcp-binding/v1', 'secretArn': configuration['secretArn'], 'versionId': token,
         'nativeContext': reference, 'publicBindingDigest': canonical_digest(public), 'qualification': False}
-    records[key+'/completed'] = {'producer': 'private-worker-mcp', 'candidateKey': durable.store.candidate, 'value': result}
+    completed = {'producer': 'private-worker-mcp', 'candidateKey': durable.store.candidate, 'value': result}
+    require(key+'/completed' not in records or records[key+'/completed'] == completed, 'MCP retained completion differs from the original binding')
+    records[key+'/completed'] = completed
     durable._persist()
     return result

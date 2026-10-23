@@ -45,7 +45,15 @@ class WorkerMcpCustody(unittest.TestCase):
             value['nativeOriginals'][name] = {'reference': {'key': name+'-response', 'sha256': canonical_digest(response)}}
         self.reference = {'key': self.phase+'/completed', 'sha256': canonical_digest(value)}
         self.durable.state = {'ledger': ledger, 'scenarioOperations': originals, 'studioBootstrapOperations': {self.reference['key']: value}}
-        self.secrets = MagicMock(); self.secrets.put_secret_value.side_effect = lambda **kw: {'ARN': kw['SecretId'], 'VersionId': kw['ClientRequestToken']}
+        self.versions = {}
+        self.secrets = MagicMock()
+        def put(**kw):
+            response = {'ARN': kw['SecretId'], 'VersionId': kw['ClientRequestToken'], 'SecretString': kw['SecretString']}
+            self.versions[kw['ClientRequestToken']] = response
+            return {key: response[key] for key in ['ARN', 'VersionId']}
+        self.put = put
+        self.secrets.put_secret_value.side_effect = put
+        self.secrets.get_secret_value.side_effect = lambda **kw: self.versions[kw['VersionId']]
         self.ecs = MagicMock()
         self.ecs.describe_tasks.return_value = {'tasks': [{'taskArn': self.task, 'taskDefinitionArn': 'exact-controller:1'}]}
         self.ecs.describe_task_definition.return_value = {'taskDefinition': {'containerDefinitions': [{'name': 'campaign-controller',
@@ -64,9 +72,9 @@ class WorkerMcpCustody(unittest.TestCase):
         self.assertEqual(written['ClientRequestToken'], result['versionId'])
         self.assertFalse(result['qualification'])
         self.assertNotIn('actual-private-agent-key-', json.dumps(self.durable.state))
-        with self.assertRaisesRegex(PackError, 'already started'):
-            self.provision()
+        self.assertEqual(self.provision(), result)
         self.assertEqual(self.secrets.put_secret_value.call_count, 1)
+        self.secrets.get_secret_value.assert_called_once_with(SecretId=self.cfg['secretArn'], VersionId=result['versionId'])
 
     def test_wrong_injected_key_version_cannot_be_copied_into_worker(self):
         self.ecs.describe_task_definition.return_value['taskDefinition']['containerDefinitions'][0]['secrets'][0]['valueFrom'] += 'different'
@@ -86,11 +94,61 @@ class WorkerMcpCustody(unittest.TestCase):
         self.secrets.put_secret_value.assert_not_called()
 
     def test_lost_secret_write_retains_intent_without_publishing_a_success(self):
-        self.secrets.put_secret_value.side_effect = TimeoutError('native secret write acknowledgement lost')
+        def lost(**kw):
+            self.put(**kw)
+            raise TimeoutError('native secret write acknowledgement lost')
+        self.secrets.put_secret_value.side_effect = lost
         with self.assertRaises(TimeoutError):
             self.provision()
         records = self.durable.state['scenarioOperations']
         self.assertTrue(any(key.startswith('native-worker-mcp:') and key.endswith('/intent') for key in records))
         self.assertFalse(any(key.startswith('native-worker-mcp:') and key.endswith('/completed') for key in records))
-        with self.assertRaisesRegex(PackError, 'already started'):
+        result = self.provision()
+        self.assertEqual(self.secrets.put_secret_value.call_count, 1)
+        self.assertEqual(result['versionId'], next(iter(self.versions)))
+        self.assertFalse(result['qualification'])
+        self.assertNotIn('actual-private-agent-key-', json.dumps(self.durable.state))
+
+    def test_crash_after_write_before_completion_persist_recovers_original_version(self):
+        persisted = []
+        def persist():
+            if persisted:
+                raise RuntimeError('completion persist lost')
+            persisted.append(copy.deepcopy(self.durable.state))
+        self.durable._persist.side_effect = persist
+        with self.assertRaisesRegex(RuntimeError, 'completion persist lost'):
             self.provision()
+        self.durable.state = persisted[0]
+        self.durable._persist.side_effect = None
+        result = self.provision()
+        self.assertEqual(self.secrets.put_secret_value.call_count, 1)
+        self.assertEqual(self.secrets.get_secret_value.call_count, 1)
+        self.assertEqual(result['versionId'], next(iter(self.versions)))
+
+    def test_unknown_write_without_original_version_never_remints(self):
+        self.secrets.put_secret_value.side_effect = TimeoutError('unknown write')
+        with self.assertRaises(TimeoutError):
+            self.provision()
+        with self.assertRaises(KeyError):
+            self.provision()
+        self.assertEqual(self.secrets.put_secret_value.call_count, 1)
+        self.assertFalse(any(key.endswith('/completed') for key in self.durable.state['scenarioOperations']))
+
+    def test_recovery_rejects_changed_version_metadata_or_private_bytes(self):
+        result = self.provision()
+        original = self.versions[result['versionId']]
+        for field, value in [('ARN', self.cfg['secretArn']+'other'), ('VersionId', 'f'*64),
+                             ('SecretString', original['SecretString']+' '), ('SecretBinary', b'unexpected')]:
+            with self.subTest(field=field):
+                self.versions[result['versionId']] = {**original, field: value}
+                with self.assertRaisesRegex(PackError, 'immutable secret version or private bytes differ'):
+                    self.provision()
+        self.assertEqual(self.secrets.put_secret_value.call_count, 1)
+
+    def test_recovery_rejects_changed_public_intent_before_reading_secret(self):
+        self.provision()
+        self.cfg['workflowView'] = 'changed-view'
+        with self.assertRaisesRegex(PackError, 'retained provisioning intent differs'):
+            self.provision()
+        self.secrets.get_secret_value.assert_not_called()
+        self.assertEqual(self.secrets.put_secret_value.call_count, 1)

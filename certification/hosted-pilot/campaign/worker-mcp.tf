@@ -7,7 +7,7 @@ resource "aws_secretsmanager_secret" "worker_mcp" {
 resource "aws_iam_role_policy" "controller_mcp_configuration" {
   role = aws_iam_role.controller.id
   policy = jsonencode({ Version = "2012-10-17", Statement = [
-    { Effect = "Allow", Action = "secretsmanager:PutSecretValue", Resource = aws_secretsmanager_secret.worker_mcp.arn }
+    { Effect = "Allow", Action = ["secretsmanager:PutSecretValue", "secretsmanager:GetSecretValue"], Resource = aws_secretsmanager_secret.worker_mcp.arn }
   ] })
 }
 output "worker_mcp_secret_arn" {
