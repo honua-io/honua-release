@@ -90,6 +90,15 @@ def test_reviewed_inputs_and_frozen_bundle_remain_identical_after_private_source
     pricing_path.parent.mkdir(parents=True)
     pricing = {'modelId': old['modelId'], 'returnedModelId': old['returnedModelId'], 'region': 'us-east-1',
                'inputUsdPerMillion': '1', 'outputUsdPerMillion': '2'}
+    profile = {'inferenceProfileId': old['modelId'],
+        'inferenceProfileArn': 'arn:aws:bedrock:us-east-1:123456789012:inference-profile/'+old['modelId'],
+        'status': 'ACTIVE', 'type': 'SYSTEM_DEFINED',
+        'models': [{'modelArn': 'arn:aws:bedrock:us-east-1::foundation-model/anthropic.offline-v1:0'}]}
+    profile_path = original/'certification/agent-e2e/model-profile.json'
+    producer.write(profile_path, profile)
+    pricing.update(profile={'path': 'certification/agent-e2e/model-profile.json',
+        'sha256': producer.digest_bytes(profile_path.read_bytes())}, profileArn=profile['inferenceProfileArn'],
+        tokenCountingModelArn=profile['models'][0]['modelArn'])
     producer.write(pricing_path, pricing)
     def ref(relative):
         return {'path': relative, 'sha256': producer.digest_bytes((original/relative).read_bytes())}

@@ -129,6 +129,9 @@ class BedrockModel:
         for field in ("modelId", "returnedModelId", "pricingDigest"):
             if not config.get(field):
                 raise ControllerError(f"missing pinned model {field}")
+        if not isinstance(config.get('tokenCountingModelArn'), str) or not re.fullmatch(
+                r'arn:aws:bedrock:'+re.escape(config['region'])+r'::foundation-model/[A-Za-z0-9.:-]+', config['tokenCountingModelArn']):
+            raise ControllerError('missing exact regional token-counting model')
         for field in ("inputUsdPerMillion", "outputUsdPerMillion"):
             if money(config[field]) <= 0:
                 raise ControllerError("reviewed positive model pricing is required")
@@ -142,7 +145,7 @@ class BedrockModel:
     def quote(self, request):
         # CountTokens is a provider observation, not a character/token guess.
         body = json.dumps(request, separators=(",", ":"), ensure_ascii=False).encode()
-        result = self.client.count_tokens(modelId=self.config["modelId"], input={"invokeModel": {"body": body}})
+        result = self.client.count_tokens(modelId=self.config["tokenCountingModelArn"], input={"invokeModel": {"body": body}})
         count = result["inputTokens"]
         if type(count) is not int or count <= 0:
             raise ControllerError("provider did not return an input token count")

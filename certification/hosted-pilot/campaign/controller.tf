@@ -164,10 +164,13 @@ resource "aws_ecs_task_definition" "controller" {
     name        = "campaign-controller", image = var.controller_image.uri, essential = true,
     command     = ["python", "tools/hosted_pilot/controller_entry.py"], user = "10001:10001", readonlyRootFilesystem = true,
     mountPoints = [{ sourceVolume = "work", containerPath = "/work", readOnly = false }],
-    environment = [
+    environment = concat([
       { name = "PILOT_CONTROLLER_CUSTODY", value = jsonencode({ region = var.region, accountId = var.account_id, bucket = aws_s3_bucket.handoff.id, requestPrefix = local.custody.requestPrefix }) },
       { name = "PILOT_FIXTURE_HANDOFF", value = jsonencode(local.fixture_handoff) }
-    ],
+      ], var.controller_model == null ? [] : [
+      { name = "TERMINAL_MODEL_NAME", value = var.controller_model.modelId },
+      { name = "HONUA_CONTROLLER_MODEL_RUNTIME", value = jsonencode(var.controller_model) }
+    ]),
     secrets          = [for name, ref in local.controller_secrets : { name = name, valueFrom = ref }],
     linuxParameters  = { capabilities = { drop = ["ALL"] } },
     logConfiguration = { logDriver = "awslogs", options = { awslogs-group = aws_cloudwatch_log_group.controller["controller"].name, awslogs-region = var.region, awslogs-stream-prefix = "controller" } }

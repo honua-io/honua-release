@@ -35,6 +35,8 @@ resource "aws_iam_policy" "agent_boundary" {
     { Sid = "NoUnreviewedModel", Effect = "Deny", Action = ["bedrock:*"], Resource = ["*"] }
     ] : [
     { Sid = "ReviewedModelsOnly", Effect = "Allow", Action = ["bedrock:InvokeModel", "bedrock:InvokeModelWithResponseStream"], Resource = var.controller_model_resource_arns }
+    ], length([for arn in var.controller_model_resource_arns : arn if startswith(arn, "arn:aws:bedrock:${var.region}::foundation-model/")]) == 0 ? [] : [
+    { Sid = "ReviewedTokenCountingOnly", Effect = "Allow", Action = "bedrock:CountTokens", Resource = [for arn in var.controller_model_resource_arns : arn if startswith(arn, "arn:aws:bedrock:${var.region}::foundation-model/")] }
     ], length(var.runtime_kms_key_arns) == 0 ? [] : [
     { Effect = "Allow", Action = ["kms:Decrypt", "kms:DescribeKey"], Resource = var.runtime_kms_key_arns }
   ]) })
