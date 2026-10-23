@@ -1438,7 +1438,9 @@ def execute_live(
                 builder.arm_injection(stage_id=stage_id, result=injection_response)
 
             messages: list[dict[str, str]] = [{"role": "system", "content": _system_contract()}]
-            for _ in range(max_actions_per_stage):
+            # One final observation may verify the last permitted action. It
+            # cannot select another model action or increase the action budget.
+            for action_slot in range(max_actions_per_stage + 1):
                 observed = builder.redactor.value(
                     driver.invoke("observe", {"workspaceId": workspace_id, "stage": stage_id})
                 )
@@ -1492,6 +1494,10 @@ def execute_live(
                                       f"{problem.get('invocation', stage['command'])}: "
                                       f"{problem.get('detail', 'driver cannot advance')}; blockedBy={blockers}")
 
+                if action_slot == max_actions_per_stage:
+                    raise ModelFailure(
+                        f"stage {stage_id} exceeded the bounded limit of {max_actions_per_stage} model actions"
+                    )
                 stage_tools = observed.get("stageTools")
                 allowed = (sorted(t for t in stage_tools if isinstance(t, str) and t)
                            if isinstance(stage_tools, list) else _tool_names(observed.get("toolView")))

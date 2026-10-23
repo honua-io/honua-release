@@ -866,7 +866,7 @@ def test_failed_setup_still_tears_down_allocated_workspace(monkeypatch):
 
 
 @pytest.mark.parametrize("owned_verification", [False, True])
-@pytest.mark.parametrize("recovery_mode", ["direct", "inspect-then-repair", "never-repair",
+@pytest.mark.parametrize("recovery_mode", ["direct", "inspect-then-repair", "final-slot-repair", "never-repair",
                                           "premature-complete", "wrong-error", "not-recovered"])
 def test_loop_handoffs_preserve_error_context_and_multiple_approval_boundaries(monkeypatch, owned_verification, recovery_mode):
     """State-machine unit test only; it makes no candidate or genuine-model claim."""
@@ -897,6 +897,8 @@ def test_loop_handoffs_preserve_error_context_and_multiple_approval_boundaries(m
                 return {"status": "armed", "errorId": error_id, "recoverable": True}
             if operation == "observe":
                 required = 2 if recovery_mode in ("direct", "premature-complete") else 3
+                if recovery_mode == "final-slot-repair":
+                    required = 4
                 if ((stage_id == injection_stage and recovery_mode == "never-repair") or
                         attempts[stage_id] < (required if stage_id == injection_stage else 1)):
                     return {"status": "ready", "stageStatus": "ready", "observation": {}, "toolView": {}}
@@ -913,6 +915,7 @@ def test_loop_handoffs_preserve_error_context_and_multiple_approval_boundaries(m
                             "detail": "test fault: inspect state before retry"}}
                 if stage_id == injection_stage:
                     if (recovery_mode in ("never-repair", "premature-complete") or
+                            (recovery_mode == "final-slot-repair" and attempts[stage_id] < 4) or
                             (recovery_mode != "direct" and attempts[stage_id] == 2)):
                         return {"status": "pass", "result": {"inspection": "current candidate state"}}
                     return {"status": "pass", "result": {"recoveredError": {
@@ -943,7 +946,7 @@ def test_loop_handoffs_preserve_error_context_and_multiple_approval_boundaries(m
     monkeypatch.setattr(canary, "CandidateProxyClient", Model)
     receipt = canary.execute_live(builder, endpoint=_endpoint(), driver_command=canary.DEFAULT_DRIVER,
                                   max_actions_per_stage=4)
-    if recovery_mode not in ("direct", "inspect-then-repair"):
+    if recovery_mode not in ("direct", "inspect-then-repair", "final-slot-repair"):
         assert receipt["status"] == "fail", receipt["notices"]
         assert receipt["failureAttribution"] == "model"
         assert receipt["errorInjection"]["recoveryModelActionSequence"] is None
@@ -961,7 +964,8 @@ def test_loop_handoffs_preserve_error_context_and_multiple_approval_boundaries(m
     assert receipt["errorInjection"]["status"] == "recovered"
     recovery_action = receipt["errorInjection"]["recoveryModelActionSequence"]
     fault_action = receipt["errorInjection"]["triggeringModelActionSequence"]
-    assert recovery_action == fault_action + (2 if recovery_mode == "inspect-then-repair" else 1)
+    assert recovery_action == fault_action + {"direct": 1, "inspect-then-repair": 2, "final-slot-repair": 3}[recovery_mode]
+    assert attempts[injection_stage] <= 4
     recovery_prompt = [messages for stage_id, messages in prompts if stage_id == injection_stage][1]
     assert "test fault: inspect state before retry" in json.dumps(recovery_prompt)
     assert any(m["role"] == "assistant" for m in recovery_prompt)
