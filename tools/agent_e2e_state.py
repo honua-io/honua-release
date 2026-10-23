@@ -180,6 +180,10 @@ def preserve_history(previous, current):
     """A new campaign cannot delete spending or reclassify retained attempts."""
     if previous is None:
         return
+    for field in ('campaigns', 'attemptArtifacts', 'scenarioOperations'):
+        for key, value in previous.get(field, {}).items():
+            if canonical_digest(current.get(field, {}).get(key)) != canonical_digest(value):
+                raise PackError('cannot rewrite or erase retained campaign evidence')
     for key, record in previous.get('workerLaunches', {}).items():
         if canonical_digest(current.get('workerLaunches', {}).get(key)) != canonical_digest(record):
             raise PackError('cannot rewrite or erase retained worker launch intent')
