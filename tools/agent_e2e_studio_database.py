@@ -213,6 +213,6 @@ class StudioFixtureDatabase(FixtureDatabase):
         result = {'schemaVersion': 1, 'candidateKey': record['candidateKey'], 'ownershipDigest': canonical_digest(record),
             'cleanupPrincipal': cleanup_identity['principal'], 'observerPrincipal': observer_identity['principal'],
             'baselineDigest': canonical_digest(observed), 'resourceIds': [], 'qualification': False}
-        acknowledgement = retain('absence', result)
+        acknowledgement = retain('observation', result)
         require(isinstance(acknowledgement, dict) and acknowledgement.get('sha256') == canonical_digest(result), 'Studio independent absence not retained')
         return result

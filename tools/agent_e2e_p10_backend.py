@@ -76,16 +76,22 @@ def verify_worker_definition(definition, worker_config):
 
 
 class Session:
+    PROFILE = 'p10-native'
+    CASE_PATTERN = r'P10:[AB]:aws-ecs-redis-on'
+    CONFIG_FIELDS = {'http', 'observerMcp', 'connectionId', 'database', 'deployment', 'attempts', 'accounting'}
+    OPTIONAL_FIELDS = {'ownershipTransfer'}
+    DATABASE = FixtureDatabase
+
     def __init__(self, *, durable, campaign, bundle, configuration, context):
         require(campaign['campaignMode'] == 'development' and
-                re.fullmatch(r'P10:[AB]:aws-ecs-redis-on', context['caseId']),
-                'P10 backend implements only explicit A/B ECS development; full 252 qualification remains unavailable')
+                re.fullmatch(self.CASE_PATTERN, context['caseId']),
+                self.PROFILE+' backend implements only explicit A/B ECS development; full 252 qualification remains unavailable')
         require(set(configuration) == {'knowledgeRoot', 'cases'} and context['caseId'] in configuration['cases'],
                 'missing reviewed P10 native target configuration')
         self.durable, self.campaign, self.bundle = durable, copy.deepcopy(campaign), Path(bundle)
         self.context, self.config = copy.deepcopy(context), copy.deepcopy(configuration['cases'][context['caseId']])
-        fields = {'http', 'observerMcp', 'connectionId', 'database', 'deployment', 'attempts', 'accounting'}
-        require(fields <= set(self.config) <= fields | {'ownershipTransfer'},
+        fields = self.CONFIG_FIELDS
+        require(fields <= set(self.config) <= fields | self.OPTIONAL_FIELDS,
                 'invalid P10 case configuration')
         accounting = self.config['accounting']
         require(set(accounting) == {'priceReceipt', 'overheadCoverage'} and
@@ -114,6 +120,15 @@ class Session:
         require(set(http) == {'endpoint', 'credentialKind', 'setupCredentialEnv', 'observerCredentialEnv'} and
                 http['setupCredentialEnv'] != http['observerCredentialEnv'], 'P10 requires separate controller HTTP identities')
         secrets = [os.environ.get(http[key]) for key in ('setupCredentialEnv', 'observerCredentialEnv')]
+        self.validate_observer(http, secrets)
+        database = self.config['database']
+        require(database['candidateKey'] == campaign['componentBindingDigest'] and database['target'] == self.case['target'],
+                'P10 SQL target differs from frozen case')
+        self.database = self.DATABASE(database)
+        self.lifecycle = self.worker = self.launch = self.observer = None
+        self.setup = self.http('setup', timeout=600)
+
+    def validate_observer(self, http, secrets):
         observer = self.config['observerMcp']
         require(set(observer) == {'endpoint', 'credentialKind', 'credentialEnv', 'workflowView'} and
                 all(secrets) and secrets[0] != secrets[1] and os.environ.get(observer['credentialEnv']) and
@@ -121,15 +136,9 @@ class Session:
                 'P10 observer cannot use privileged setup credentials')
         require(observer['endpoint'].rstrip('/') == http['endpoint'].rstrip('/')+'/mcp',
                 'P10 observer MCP origin differs from fixture product origin')
-        database = self.config['database']
-        require(database['candidateKey'] == campaign['componentBindingDigest'] and database['target'] == self.case['target'],
-                'P10 SQL target differs from frozen case')
-        self.database = FixtureDatabase(database)
-        self.lifecycle = self.worker = self.launch = self.observer = None
-        self.setup = self.http('setup', timeout=600)
 
     def phase_key(self, name):
-        return canonical_digest({'producer': 'p10-native', 'attempt': self.key, 'phase': name})
+        return canonical_digest({'producer': self.PROFILE, 'attempt': self.key, 'phase': name})
 
     def phase(self, name):
         return self.durable.state.get('scenarioOperations', {}).get(self.phase_key(name))
@@ -139,7 +148,7 @@ class Session:
         records = self.durable.state.setdefault('scenarioOperations', {})
         key = self.phase_key(name)
         require(key not in records, 'P10 phase already retained; reconcile without replay')
-        record = {'producer': 'p10-native', 'identity': identity(self.context),
+        record = {'producer': self.PROFILE, 'identity': identity(self.context),
                   'candidateKey': self.campaign['componentBindingDigest'], 'phase': name, 'value': copy.deepcopy(value)}
         records[key] = record
         self.durable._persist()
@@ -272,6 +281,11 @@ class Session:
         gate.oracle_predicates.verify('source-content.unchanged', {'profile': 'honua.protected-content/v1',
             'before': [source['snapshot']], 'after': [source['snapshot']]}, expected['source-content.unchanged'])
         self.retain('source-before', source)
+        return self.start_worker(public_target=self.config['http']['endpoint']+'; isolated published services: '+', '.join(
+            binding['service'] for binding in bindings['layers'].values()))
+
+    def start_worker(self, *, public_target):
+        """Start one fresh worker and verify only its selected public inputs."""
         self.open_worker()
         definition = self.lifecycle.ecs.describe_task_definition(
             taskDefinition=self.lifecycle.config['taskDefinitionArn'])['taskDefinition']
@@ -297,8 +311,7 @@ class Session:
         self.retain('public-inputs', observed)
         return {'workerKnowledgeManifest': self.knowledge_manifest, 'publicInputs': {
             'files': observed['files'], 'documentation': ['/opt/honua-public/knowledge/okf/domain-graph.v1.json'],
-            'target': self.config['http']['endpoint']+'; isolated published services: '+', '.join(
-                binding['service'] for binding in bindings['layers'].values()),
+            'target': public_target,
             'credentialReferences': ['Worker MCP identity is configured; discover tools with mcp_list_tools.']}}
 
     def observer_for_recovery(self):
@@ -317,6 +330,14 @@ class Session:
         self.retain('model-action-'+str(dispatch['ordinal']), {'action': action, 'dispatch': dispatch})
         observer = self.observer_for_recovery()
         before = observer.source('before-'+dispatch['actionId']) if observer.eligible(action) else None
+        observed = self.execute_action(action, dispatch, timeout)
+        self.retain('model-result-'+str(dispatch['ordinal']), observed)
+        if before is not None:
+            result = observer.replay(action, dispatch, before, observed)
+            self.retain('query-ordinal-'+str(dispatch['ordinal']), result)
+        return observed
+
+    def execute_action(self, action, dispatch, timeout):
         if action['name'] == 'terminal':
             router = TerminalActions(durable=self.durable, lifecycle=self.lifecycle, launch=self.launch,
                 worker=self.worker, retain=self.retain)
@@ -326,17 +347,13 @@ class Session:
                 evidence_factory=lambda action_id: open_evidence(self.worker_config['evidence'],
                     self.campaign['componentBindingDigest'], self.attempt_id, action_id))
             observed = router.execute(self.context, action, dispatch, timeout=max(1, min(120, int(timeout))))
-        self.retain('model-result-'+str(dispatch['ordinal']), observed)
-        if before is not None:
-            result = observer.replay(action, dispatch, before, observed)
-            self.retain('query-ordinal-'+str(dispatch['ordinal']), result)
         return observed
 
     def verify(self):
         observer = self.observer_for_recovery()
         after, before = observer.source('completed-source'), self.value('source-before')
         queries = [record for record in self.durable.state.get('scenarioOperations', {}).values() if
-            record.get('producer') == 'p10-native' and record.get('identity') == identity(self.context) and
+            record.get('producer') == self.PROFILE and record.get('identity') == identity(self.context) and
             record.get('phase', '').startswith('query-ordinal-')]
         latest = max(queries, key=lambda record: int(record['phase'].rsplit('-', 1)[1]))['value'] if queries else None
         preservation = {'profile': 'honua.protected-content/v1', 'before': [before['snapshot']], 'after': [after['snapshot']]}
@@ -372,18 +389,7 @@ class Session:
         sql = None
         try:
             require(ownership is not None, 'P10 exact fixture ownership is unresolved')
-            self.setup = self.http('setup-cleanup', timeout=300)
-            def invalidate(services):
-                answers = []
-                for index, service in enumerate(services):
-                    answers.append(self.setup.json('invalidate-owned-'+str(index), 'POST', '/api/v1/admin/cache/invalidate',
-                        {'scope': 'service', 'serviceId': service}))
-                    value = successful(answers[-1])
-                    require(value.get('success') is True, 'P10 exact service cache invalidation failed')
-                self.retain('cache-invalidations', answers)
-            sql = self.database.cleanup(ownership,
-                authorize=lambda record: self.durable.require_fixture_ownership(self.context, record),
-                retain=lambda kind, value: self.durable.retain_fixture_cleanup(self.context, kind, value), invalidate=invalidate)
+            sql = self.cleanup_fixture(ownership)
             self.retain('sql-cleanup', sql)
         except Exception as exc:
             failures.append({'component': 'sql-cleanup', 'errorType': type(exc).__name__})
@@ -404,6 +410,20 @@ class Session:
         return {**cleanup, 'accountingStatus': 'settled', 'observedInfrastructureUsd': settlement['infrastructureUsd'],
                 'observedCleanupUsd': settlement['cleanupUsd']}
 
+    def cleanup_fixture(self, ownership):
+        self.setup = self.http('setup-cleanup', timeout=300)
+        def invalidate(services):
+            answers = []
+            for index, service in enumerate(services):
+                answers.append(self.setup.json('invalidate-owned-'+str(index), 'POST', '/api/v1/admin/cache/invalidate',
+                    {'scope': 'service', 'serviceId': service}))
+                value = successful(answers[-1])
+                require(value.get('success') is True, 'P10 exact service cache invalidation failed')
+            self.retain('cache-invalidations', answers)
+        return self.database.cleanup(ownership,
+            authorize=lambda record: self.durable.require_fixture_ownership(self.context, record),
+            retain=lambda kind, value: self.durable.retain_fixture_cleanup(self.context, kind, value), invalidate=invalidate)
+
     def export_attempt(self, payload):
         result = payload['controllerResult']
         self.retain('controller-result', result)
@@ -412,7 +432,7 @@ class Session:
         require(ledger and all(row['state'] == 'settled' for row in ledger),
                 'P10 native costs remain unknown; original result/evidence/liabilities retained, complete receipt unavailable')
         artifacts = {}
-        prefix = 'p10/'+self.key[7:]+'/'
+        prefix = self.PROFILE+'/'+self.key[7:]+'/'
         def evidence(name, value):
             raw = (json.dumps(value, sort_keys=True, allow_nan=False)+'\n').encode()
             path = prefix+name+'.json'
@@ -437,18 +457,26 @@ class Session:
             report = {**identity(self.context), 'componentBindingDigest': self.campaign['componentBindingDigest'],
                 'producer': 'independent-oracle', 'assertions': assertions}
             declarations = load_json(self.bundle/'expectations.json')['cases'][self.context['caseId']].get('nativeBindings', {})
-            if declarations:
+            if declarations and result['status'] == 'pass':
                 from agent_e2e_native_bindings import export as export_bindings
                 report['nativeBindings'] = export_bindings(self.durable, {**self.campaign, **identity(self.context),
                     'startedAt': self.value('prepare-start')['startedAt'],
                     'completedAt': self.value('cleanup')['completedAt']}, declarations, evidence)
-            oracle = evidence('oracle', report)
+            if result['status'] == 'pass':
+                oracle = evidence('oracle', report)
+            else:
+                # Failed or incomplete native observations remain original
+                # evidence, never the passing oracle field of a failure receipt.
+                reports = {key: value for key, value in self.durable.state.get('nativeBindings', {}).items()
+                           if key.startswith(self.key+'/')}
+                evidence('failed-native-bindings', reports)
+                evidence('failed-oracle', report)
         worker_knowledge = evidence('worker-knowledge', self.knowledge_manifest)
         interfaces = []
         for record in self.durable.state.get('scenarioOperations', {}).values():
             if record.get('candidateKey') == self.campaign['componentBindingDigest'] and record.get('attemptId', '').startswith(self.attempt_id+'-'):
                 evidence('http-'+canonical_digest(record)[7:], record)
-            if record.get('producer') != 'p10-native' or record.get('identity') != identity(self.context):
+            if record.get('producer') != self.PROFILE or record.get('identity') != identity(self.context):
                 continue
             reference = evidence('phase-'+record['phase'], record)
             if record['phase'].startswith('model-result-') and record['value'].get('operationCategory') == 'discovery':

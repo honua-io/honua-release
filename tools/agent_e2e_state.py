@@ -181,7 +181,8 @@ def preserve_history(previous, current):
     if previous is None:
         return
     for field in ('campaigns', 'attemptArtifacts', 'scenarioOperations', 'fixtureBaselines', 'fixtureOwnership',
-                  'fixtureCleanup', 'fixtureTransferRequests', 'nativeCostAllocations', 'nativeOverheadAllocations', 'nativeBindings'):
+                  'fixtureCleanup', 'fixtureTransferRequests', 'nativeCostAllocations', 'nativeOverheadAllocations', 'nativeBindings',
+                  'studioBootstrapOperations', 'studioBootstrapFixtures'):
         for key, value in previous.get(field, {}).items():
             if canonical_digest(current.get(field, {}).get(key)) != canonical_digest(value):
                 raise PackError('cannot rewrite or erase retained campaign evidence')

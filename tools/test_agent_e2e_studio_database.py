@@ -92,7 +92,7 @@ def test_actual_studio_transaction_restores_baseline_and_independent_role_observ
     state, authorize, retain = hooks(record)
     result = database.cleanup(record, authorize=authorize, retain=retain)
     assert result['resourceIds'] == [] and result['cleanupPrincipal'] != result['observerPrincipal']
-    assert state['records']['absence'] == result
+    assert state['records']['observation'] == result
     assert database.baseline()['snapshot'] == record['baseline']['snapshot']
 
 

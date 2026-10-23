@@ -18,7 +18,7 @@ import urllib.error
 import urllib.parse
 import urllib.request
 
-from agent_e2e_mcp import parse
+from agent_e2e_mcp import validate_agent_context, parse
 from agent_e2e_pack import PackError, canonical_digest, digest_bytes
 from agent_e2e_semantics import MAX_RESPONSE_BYTES, response_evidence
 
@@ -35,7 +35,7 @@ class NoRedirect(urllib.request.HTTPRedirectHandler):
 
 class SetupHttp:
     def __init__(self, endpoint, credential_env, *, identity, authorize, retain,
-                 credential_kind='api-key', private_values=(), timeout=300, clock=time.monotonic):
+                 credential_kind='api-key', private_values=(), timeout=300, clock=time.monotonic, agent_context=None):
         require(isinstance(endpoint, str) and all(ord(c) > 32 for c in endpoint)
                 and '\\' not in endpoint, 'invalid setup endpoint')
         try:
@@ -67,6 +67,8 @@ class SetupHttp:
                 'invalid private setup values')
         require(type(timeout) in (int, float) and 0 < timeout <= 600, 'invalid setup deadline')
         self.endpoint, self.token, self.kind = endpoint.rstrip('/'), token, credential_kind
+        self.agent_context = validate_agent_context(agent_context)
+        require(self.agent_context is None or credential_kind != 'anonymous', 'anonymous observation cannot carry agent context')
         self.private_values = (*(() if token is None else (token,)), *private_values)
         self.identity, self.authorize, self.retain = dict(identity), authorize, retain
         self.clock, self.deadline, self.attempted = clock, clock()+timeout, set()
@@ -126,6 +128,8 @@ class SetupHttp:
         intent = {'schemaVersion': 1, **self.identity, 'step': step, 'endpoint': self.endpoint,
                   'method': method, 'path': path, 'credentialKind': self.kind, 'contentType': content_type,
                   'requestBodyDigest': digest_bytes(body or b'')}
+        if self.agent_context is not None:
+            intent['agentContext'] = dict(self.agent_context)
         self.check_private_metadata(intent)
         self.attempted.add(step)
         # Required to reject every pre-existing key, even identical intent bytes.
@@ -133,6 +137,8 @@ class SetupHttp:
         self.authorize()
         timeout = self.remaining()
         headers = {'Content-Type': content_type, 'Accept': 'application/json'}
+        if self.agent_context is not None:
+            headers.update({'X-Honua-Workspace': self.agent_context['workspaceId'], 'X-Honua-Turn': self.agent_context['turnId']})
         if self.kind != 'anonymous':
             headers['X-API-Key' if self.kind == 'api-key' else 'Authorization'] = (
                 self.token if self.kind == 'api-key' else 'Bearer '+self.token)

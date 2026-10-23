@@ -90,6 +90,32 @@ def test_missing_native_costs_never_become_zero_or_passing_receipt(session):
     assert not list(session.bundle.glob('backend-exports/*'))
 
 
+def test_failed_attempt_exports_original_oracle_evidence_without_claiming_a_passing_oracle(session):
+    for kind in ('infrastructure', 'cleanup'):
+        session.durable.update(session.durable.path, 'settle', candidate_key=CANDIDATE, reservation_id=kind, amount='0.1')
+    session.campaign.update(packDigest='sha256:'+'b'*64, corpusDigest='sha256:'+'c'*64,
+        qualificationLockDigest='sha256:'+'d'*64, modelId='fixture-model', returnedModelId='fixture-returned-model',
+        controller={'fixture': True}, knowledge={'fixture': True})
+    session.case = {'scenarioId': 'P10', 'variant': 'A', 'target': 'aws-ecs-redis-on', 'promptDigest': 'sha256:'+'e'*64}
+    session.knowledge_manifest = {'fixture': 'offline-only'}
+    session.durable.state['journals'] = {session.key: []}
+    session.retain('prepare-start', {'startedAt': '2026-10-22T01:00:00+00:00'})
+    session.retain('cleanup', {'completedAt': '2026-10-22T01:01:00+00:00', 'fixtureSql': {'resourceIds': []}})
+    session.retain('verification', {'failedAssertions': ['filter.exact'], 'observations': {'filter.exact': {'resourceIds': ['wrong']}}})
+    directory = session.bundle/'backend-exports'
+    directory.mkdir()
+    result = {'status': 'fail', 'failureAttribution': 'model', 'usage': {'modelTurns': 0, 'executedActions': 0},
+              'cleanup': {'status': 'pass'}}
+    destination = directory/'failed.json'
+    session.export_attempt({'controllerResult': result, 'exportPath': str(destination)})
+    exported = load_json(destination)
+    assert exported['receipt']['oracle'] is None and exported['receipt']['failureEvidence'] is not None
+    artifacts = exported['evidence']
+    report_path = next(key for key in artifacts if key.endswith('/failed-oracle.json'))
+    report = json.loads(base64.b64decode(artifacts[report_path]))
+    assert report['assertions'][0]['status'] == 'fail'
+
+
 @pytest.mark.parametrize('mode,case', [('qualification', CASE), ('development', 'P10:C:aws-ecs-redis-on'),
                                     ('development', 'P10:A:aws-eks'), ('development', 'P11:A:aws-ecs-redis-on')])
 def test_handler_refuses_qualification_holdout_and_unimplemented_cases(tmp_path, mode, case):

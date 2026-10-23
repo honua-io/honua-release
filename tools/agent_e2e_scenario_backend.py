@@ -34,13 +34,14 @@ class ScenarioHttp:
     it. Every HTTP intent and observation is persisted before returning.
     """
     def __init__(self, *, durable, context, endpoint, credential_env, attempt_id,
-                 credential_kind='api-key', timeout=300, http_factory=SetupHttp):
+                 credential_kind='api-key', timeout=300, http_factory=SetupHttp, agent_context=None):
         self.durable, self.context = durable, copy.deepcopy(context)
         self.identity = {'candidateKey': durable.store.candidate, 'attemptId': attempt_id}
         require(context['componentBindingDigest'] == durable.store.candidate,
                 'scenario setup differs from durable candidate')
         self.client = http_factory(endpoint, credential_env, identity=self.identity,
-            authorize=self.authorize, retain=self.retain, credential_kind=credential_kind, timeout=timeout)
+            authorize=self.authorize, retain=self.retain, credential_kind=credential_kind, timeout=timeout,
+            **({'agent_context': agent_context} if agent_context is not None else {}))
 
     def authorize(self):
         self.durable._require_live_lease()

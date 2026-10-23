@@ -328,3 +328,24 @@ def test_anonymous_response_keeps_strict_json_and_private_canary_checks(wiring, 
     with pytest.raises(PackError):
         anonymous_client(wiring, server).json('public-probe', 'GET', '/read')
     assert ('response', 'public-probe') not in wiring.records
+
+
+def test_task_read_binds_native_workspace_turn_in_before_request_custody(wiring, server):
+    context = {'workspaceId': 'native-workspace-17', 'turnId': 'native-turn-29'}
+    def respond(*_):
+        assert wiring.records['intent', 'task-version']['agentContext'] == context
+        return 200, {}, b'{"data":{"saved":true}}'
+    server.respond = respond
+    reply = wiring.client(agent_context=context).json('task-version', 'GET', '/api/v1/studio/content-items/exact/versions/exact')
+    assert reply['observation']['httpStatus'] == 200
+    headers = {key.lower(): value for key, value in server.seen[0][2].items()}
+    assert headers['x-honua-workspace'] == context['workspaceId'] and headers['x-honua-turn'] == context['turnId']
+    assert 'private-setup-token' not in json.dumps(list(wiring.records.values()))
+
+
+@pytest.mark.parametrize('context', [{'workspaceId': 'native', 'turnId': 'turn\r\nInjected:true'},
+    {'workspaceId': 'native'}, {'workspaceId': 'native', 'turnId': 'turn', 'Authorization': 'other'}])
+def test_task_context_cannot_inject_headers_or_omit_native_turn(wiring, server, context):
+    with pytest.raises(ValueError):
+        wiring.client(agent_context=context)
+    assert not wiring.records and not server.seen
