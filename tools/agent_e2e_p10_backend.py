@@ -434,8 +434,15 @@ class Session:
         if verification is not None:
             assertions = [{'id': key, 'status': 'fail' if key in verification['failedAssertions'] else 'pass',
                            'evidence': evidence('assertion-'+key, value)} for key, value in verification['observations'].items()]
-            oracle = evidence('oracle', {**identity(self.context), 'componentBindingDigest': self.campaign['componentBindingDigest'],
-                'producer': 'independent-oracle', 'assertions': assertions})
+            report = {**identity(self.context), 'componentBindingDigest': self.campaign['componentBindingDigest'],
+                'producer': 'independent-oracle', 'assertions': assertions}
+            declarations = load_json(self.bundle/'expectations.json')['cases'][self.context['caseId']].get('nativeBindings', {})
+            if declarations:
+                from agent_e2e_native_bindings import export as export_bindings
+                report['nativeBindings'] = export_bindings(self.durable, {**self.campaign, **identity(self.context),
+                    'startedAt': self.value('prepare-start')['startedAt'],
+                    'completedAt': self.value('cleanup')['completedAt']}, declarations, evidence)
+            oracle = evidence('oracle', report)
         worker_knowledge = evidence('worker-knowledge', self.knowledge_manifest)
         interfaces = []
         for record in self.durable.state.get('scenarioOperations', {}).values():

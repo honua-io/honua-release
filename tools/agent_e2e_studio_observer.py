@@ -144,7 +144,8 @@ class StudioPublicationObserver:
                     owner['observation']['httpStatus'] == anonymous['observation']['httpStatus'] == 404,
                     'pending proposal already published or native transition remains unresolved')
             observation = {'approval.pending': {'proposalId': selected['proposalId'], 'status': proposal['status'],
-                'publishedResourceIds': []}, 'references': [proposal_ref, owner['reference'], anonymous['reference']]}
+                'publishedResourceIds': []}, 'references': [proposal_ref, owner['reference'], anonymous['reference']],
+                'nativeSources': {'submissionHandle': selected['nativeHandleReference'], 'proposal': proposal_ref}}
             self.retain(step+'-observation', observation)
             return observation
         require(proposal['status'] == 'Succeeded' and isinstance(proposal.get('resolvedBy'), str) and
@@ -180,7 +181,10 @@ class StudioPublicationObserver:
         observation = {'approval.separate': {'proposalId': selected['proposalId'],
             'requesterPrincipalId': self.binding['requesterPrincipalId'], 'approverPrincipalId': proposal['resolvedBy'],
             'approvedVersionId': self.binding['versionId'], 'auditId': token(handle.get('auditId'), 'Studio approval audit')},
-            'nativeExecutionId': execution_id, 'nativePublicationId': publication_id, 'references': references}
+            'nativeExecutionId': execution_id, 'nativePublicationId': publication_id, 'references': references,
+            'nativeSources': {'submissionHandle': selected['nativeHandleReference'], 'proposal': proposal_ref,
+                'approvedHandle': answer['reference'], 'publicationRequest': request_answer['reference'],
+                'savedVersion': version['rawReference']}}
         if self.binding['visibility'] == 'public':
             public_artifact = self.artifact(anonymous, publication_id=publication_id)
             require(public_artifact == artifact, 'anonymous Studio payload differs from authenticated positive control')
@@ -198,3 +202,15 @@ class StudioPublicationObserver:
                 'positiveControlReference': owner['reference'], 'negativeReference': anonymous['reference']}
         self.retain(step+'-observation', observation)
         return observation
+
+    def bind_native(self, observation, *, name, declaration, context, started_at, completed_at):
+        """Bind only this observer's retained native HTTP originals, never model fields."""
+        from agent_e2e_native_bindings import retain
+        require(declaration.get('relationships') == {key: self.binding[key] for key in
+                    ('itemId', 'versionId', 'contentHash', 'route', 'visibility', 'requesterPrincipalId')},
+                'frozen native relationship differs from independently prepared Studio version')
+        require(all(self.observer.context[key] == context[key] for key in ('campaignId', 'caseId', 'attempt')),
+                'Studio native originals belong to another controller attempt')
+        stage = 'approved' if 'approval.separate' in observation else 'proposal'
+        return retain(self.observer.durable, context, name=name, declaration=declaration,
+            responses=observation['nativeSources'], stage=stage, started_at=started_at, completed_at=completed_at)

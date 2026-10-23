@@ -132,7 +132,9 @@ def freeze(config, lock, destination, mode, *, identity=None, now=None):
             'reviewed expectations must cover exact 252 cases for qualification or explicit development cases')
     for cid, value in expected['cases'].items():
         case = cases[cid]
-        require(set(value) == {'assertions', 'cleanup'} and set(value['assertions']) == case['assertions'],
+        from agent_e2e_native_bindings import validate_case
+        validate_case(value)
+        require(set(value['assertions']) == case['assertions'],
                 'reviewed expectations differ from assertions: ' + cid)
     expected.update(schemaVersion=1, campaignId=campaign_id, createdAt=now.isoformat())
     write(root/'expectations.json', expected)

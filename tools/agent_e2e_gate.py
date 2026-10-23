@@ -24,6 +24,7 @@ from typing import Any
 
 import agent_e2e_budget
 import agent_e2e_knowledge as knowledge
+import agent_e2e_native_bindings as native_bindings
 
 _ORACLE_PATH = Path(__file__).resolve().parents[1] / 'certification/agent-e2e/corpus/oracle.py'
 _ORACLE_SPEC = importlib.util.spec_from_file_location('agent_e2e_independent_oracle', _ORACLE_PATH)
@@ -256,7 +257,7 @@ def validate(pack_path: Path, campaign_path: Path, lock_path: Path, trusted_path
     require(isinstance(expectations['cases'], dict) and set(expectations['cases']) == set(cases),
             'expectations must cover exact frozen inventory')
     for cid, value in expectations['cases'].items():
-        exact_keys(value, {'assertions', 'cleanup'}, f'{cid}: frozen expectations')
+        native_bindings.validate_case(value)
         require(isinstance(value['assertions'], dict) and set(value['assertions']) == cases[cid]['assertions'],
                 f'{cid}: expectation assertions differ from pack')
     current = now or datetime.now(timezone.utc)
@@ -411,12 +412,21 @@ def validate(pack_path: Path, campaign_path: Path, lock_path: Path, trusted_path
             require(receipt['failureAttribution'] is None and receipt['failureEvidence'] is None,
                     f'{cid}: pass carries failure')
             report = read_json(evidence(evidence_root, receipt['oracle']))
-            exact_keys(report, {'campaignId', 'caseId', 'attempt', 'componentBindingDigest', 'producer', 'assertions'},
+            declarations = expectations['cases'][cid].get('nativeBindings', {})
+            report_fields = {'campaignId', 'caseId', 'attempt', 'componentBindingDigest', 'producer', 'assertions'}
+            if declarations:
+                report_fields.add('nativeBindings')
+            exact_keys(report, report_fields,
                        'oracle report')
             for key in ('campaignId', 'caseId', 'attempt', 'componentBindingDigest'):
                 require(canonical_digest(report[key]) == canonical_digest(receipt[key]),
                         f'{cid}: oracle bound to different attempt')
             require(report['producer'] == 'independent-oracle', f'{cid}: model self-report cannot qualify')
+            bound_reports = report.get('nativeBindings', {})
+            require(isinstance(bound_reports, dict) and set(bound_reports) == set(declarations),
+                    f'{cid}: native binding reports differ from frozen declarations')
+            bound_reports = {name: read_json(evidence(evidence_root, reference))
+                             for name, reference in bound_reports.items()}
             observed = set()
             require(isinstance(report['assertions'], list), f'{cid}: missing assertions')
             for assertion in report['assertions']:
@@ -427,7 +437,9 @@ def validate(pack_path: Path, campaign_path: Path, lock_path: Path, trusted_path
                 observed.add(aid)
                 require(assertion['status'] == 'pass', f'{cid}: failed assertion {aid}')
                 observation = read_json(evidence(evidence_root, assertion['evidence']))
-                oracle_predicates.verify(aid, observation, expectations['cases'][cid]['assertions'][aid])
+                resolved_expectation = native_bindings.resolve(aid, expectations['cases'][cid]['assertions'][aid],
+                                                              declarations, bound_reports, receipt)
+                oracle_predicates.verify(aid, observation, resolved_expectation)
             require(observed == expected['assertions'], f'{cid}: missing independent assertions')
         else:
             require(receipt['failureAttribution'] in ('infrastructure', 'model', 'product', 'undetermined'),

@@ -66,6 +66,7 @@ def studio(adapter, server):
         elif path == '/api/v1/operations/handles/replay-1':
             result = {'operationInstanceId': 'replay-1', 'operationId': OPERATION,
                 'status': 'Completed', 'proposalId': 'proposal-1', 'auditId': 'audit-approved-1',
+                'createdAt': (created+timedelta(seconds=1)).isoformat(),
                 'resourceIds': {'itemId': ITEM, 'versionId': VERSION, 'publicationId': PUBLICATION,
                     'route': binding['route'], 'activeUrl': route_path(binding['route'])}}
             if state.change == 'wrong-replay': result['proposalId'] = 'foreign-proposal'
