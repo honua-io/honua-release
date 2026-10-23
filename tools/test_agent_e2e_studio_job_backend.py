@@ -9,6 +9,7 @@ import pytest
 from agent_e2e_job_observer import PROCESS, EXECUTE
 from agent_e2e_native_job_bindings import PROFILE
 from agent_e2e_pack import PackError, canonical_digest
+from agent_e2e_scenario_backend import ScenarioHttp
 from test_agent_e2e_studio_authoring_backend import session
 from test_agent_e2e_studio_composition_observer import authoring, CREATE, SAVE
 from test_agent_e2e_job_observer import native_job
@@ -33,7 +34,11 @@ def job_session(session, authoring, adapter, server, request):
             return jobs(method, path, body)
         return studio(method, path, body)
     server.respond = respond
-    session.config = {'managedJob': {'processId': PROCESS, 'requesterPrincipalId': native.binding['requesterPrincipalId'], 'mapLayerId': 'buffer'}}
+    session.attempt_id = adapter.http.identity['attemptId']
+    adapter.http = ScenarioHttp(durable=adapter.durable, context=adapter.http.context,
+        endpoint=server.url, credential_env='SCENARIO_TEST_TOKEN', attempt_id=session.attempt_id+'-observer')
+    session.config = {'managedJob': {'processId': PROCESS, 'requesterPrincipalId': native.binding['requesterPrincipalId'], 'mapLayerId': 'buffer'},
+        'http': {'endpoint': adapter.http.client.endpoint, 'credentialKind': 'api-key'}}
     session.case = {'scenarioId': 'P11', 'assertions': ['job.completed', 'buffer.metric', 'map.composition', 'source-content.unchanged']}
     session.http = lambda *_: adapter.http
     session.retain('prepare-start', {'startedAt': native.binding['notBefore']})
@@ -117,7 +122,8 @@ def test_native_job_fingerprint_failure_stays_failed_even_when_model_saves_corre
 
 
 @pytest.mark.parametrize('mutation', ['missing', 'duplicate', 'wrong-requester', 'wrong-process',
-    'wrong-attempt', 'missing-metric', 'wrong-marker', 'unmapped', 'hidden', 'missing-configuration'])
+    'wrong-attempt', 'missing-metric', 'wrong-marker', 'unmapped', 'hidden', 'missing-configuration',
+    'wrong-observer-endpoint', 'wrong-observer-attempt', 'wrong-observer-credential'])
 def test_invalid_frozen_job_scope_refuses_before_any_prepare_or_worker_effect(job_session, mutation):
     session, _, _ = job_session
     path = session.bundle/'expectations.json'
@@ -144,6 +150,12 @@ def test_invalid_frozen_job_scope_refuses_before_any_prepare_or_worker_effect(jo
         case['assertions']['map.composition']['visibility']['buffer'] = False
     elif mutation == 'missing-configuration':
         session.config = {}
+    elif mutation == 'wrong-observer-endpoint':
+        declaration['observers']['1']['endpoint'] = 'https://another-candidate.example'
+    elif mutation == 'wrong-observer-attempt':
+        declaration['observers']['1']['attemptId'] = 'another-attempt-observer'
+    elif mutation == 'wrong-observer-credential':
+        declaration['observers']['1']['credentialKind'] = 'bearer'
     path.write_text(json.dumps(frozen))
     before = copy.deepcopy(session.durable.state)
     effects = []

@@ -110,6 +110,12 @@ class Session(WorkerSession):
                     'processId': job['processId'], 'requesterPrincipalId': job['requesterPrincipalId']} and
                 str(self.context['attempt']) in declaration['observers'],
                 'managed execution differs from its frozen process/requester/attempt')
+        http = self.config['http']
+        require(declaration['observers'][str(self.context['attempt'])] == {
+                    'endpoint': http['endpoint'].rstrip('/'),
+                    'attemptId': self.attempt_id+'-observer',
+                    'credentialKind': http['credentialKind']},
+                'managed job observer differs from its frozen endpoint/attempt/credential')
         assertions = expected['assertions']
         composition = assertions.get('map.composition', {})
         require({'job.completed', 'buffer.metric', 'map.composition'} <= set(assertions) and
