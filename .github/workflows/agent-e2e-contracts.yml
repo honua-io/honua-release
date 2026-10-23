@@ -76,6 +76,7 @@ jobs:
         run: |
           set -euo pipefail
           python -m pytest --import-mode=importlib tools/test_agent_e2e_fixture_database.py \
+            tools/test_agent_e2e_studio_tenant_database.py \
             -q --junitxml=agent-e2e-postgres-contracts.xml
           python - <<'PY'
           import xml.etree.ElementTree as ET

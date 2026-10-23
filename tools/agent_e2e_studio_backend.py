@@ -17,12 +17,14 @@ from agent_e2e_budget import validate as validate_budget
 from agent_e2e_native_bindings import resolve
 from agent_e2e_mcp import validate_agent_context
 from agent_e2e_native_costs import reserve_overhead
-from agent_e2e_p10_backend import Session as WorkerSession, identity
+from agent_e2e_p10_backend import Session as WorkerSession, identity, sdk
 from agent_e2e_pack import PackError, canonical_digest, load_json
 from agent_e2e_scenario_backend import ScenarioHttp
 from agent_e2e_studio_database import StudioFixtureDatabase
 from agent_e2e_studio_fixture import StudioSetup
 from agent_e2e_studio_observer import StudioPublicationObserver, guid, route_path
+from agent_e2e_studio_tenant_observer import (StudioTenantObserver, validate_configuration as validate_tenant,
+    verify_owner_injection)
 import agent_e2e_gate as gate
 
 SESSIONS = {}
@@ -124,11 +126,17 @@ class Session(WorkerSession):
 
     def validate_observer(self, http, secrets):
         studio = self.config['studio']
-        require(set(studio) == {'bootstrapFixture', 'route', 'requesterCredentialEnv', 'requesterCredentialKind', 'requesterAgentContext'} and
+        require({'bootstrapFixture', 'route', 'requesterCredentialEnv', 'requesterCredentialKind', 'requesterAgentContext'} <= set(studio) <=
+                {'bootstrapFixture', 'route', 'requesterCredentialEnv', 'requesterCredentialKind', 'requesterAgentContext', 'tenantIsolation'} and
                 set(studio['bootstrapFixture']) == {'key', 'sha256'} and
                 studio['requesterCredentialKind'] in ('api-key', 'bearer') and all(secrets) and secrets[0] != secrets[1] and
                 os.environ.get(studio['requesterCredentialEnv']) and os.environ[studio['requesterCredentialEnv']] != secrets[0],
                 'P14 requires distinct setup and actual task credentials plus retained native bootstrap fixture')
+        if 'tenantIsolation' in studio:
+            config = validate_tenant(studio['tenantIsolation'])
+            owner = os.environ.get(config['ownerCredentialEnv'])
+            require(owner and owner not in (*secrets, os.environ[studio['requesterCredentialEnv']]),
+                    'private tenant human owner must have separate controller-only custody')
         route_path(studio['route'])
         require(validate_agent_context(studio['requesterAgentContext']) is not None,
                 'P14 task reads require an actual native workspace and turn')
@@ -162,6 +170,26 @@ class Session(WorkerSession):
         self.observer = StudioPublicationObserver(observer=self.http('observer'), anonymous=anonymous,
             binding=binding, retain=self.retain)
         return self.observer
+
+    def tenant_proof(self, *, step, observer, previous=None):
+        config = self.config['studio'].get('tenantIsolation')
+        if config is None:
+            return None
+        validate_tenant(config)
+        region = self.config['deployment']['clusterArn'].split(':')[3]
+        observer.observer.authorize()
+        credential = verify_owner_injection(config, region=region, ecs=sdk('ecs', region))
+        self.retain(step+'-credential', credential)
+        protected = self.database.observe_private_tenant_source(self.initial_fixture()['baseline'],
+            item_id=config['itemId'], version_id=config['versionId'], authorize=observer.observer.authorize)
+        self.retain(step+'-source', protected)
+        owner = ScenarioHttp(durable=self.durable, context=self.context, endpoint=self.config['http']['endpoint'],
+            credential_env=config['ownerCredentialEnv'], credential_kind='bearer',
+            attempt_id=self.attempt_id+'-private-owner', timeout=300)
+        tenant = StudioTenantObserver(owner=owner, outsider=observer.observer,
+            task=self.requester(role='tenant-task'), source=protected['source'],
+            public_binding=observer.binding, retain=self.retain)
+        return tenant.observe(step=step, previous=previous)
 
     def prepare(self):
         require(self.phase('prepare-start') is None, 'P14 prepare already started; reconcile without replay')
@@ -205,6 +233,9 @@ class Session(WorkerSession):
         task_read = self.requester(role='task-read').json('task-saved-version', 'GET', observer.version_path())
         require(data(task_read) == fixture['initialVersion'], 'P14 task identity cannot reopen exact saved starting version')
         self.retain('task-initial-read', task_read['reference'])
+        tenant = self.tenant_proof(step='tenant-before', observer=observer)
+        if tenant is not None:
+            gate.oracle_predicates.verify('tenant.denied', tenant['observation'], expected_case['assertions']['tenant.denied'])
         return self.start_worker(public_target=self.config['http']['endpoint']+'; saved map '+fixture['itemId']+
             ', version '+fixture['versionId']+', content hash '+fixture['contentHash']+
             '; requested public route '+binding['route'])
@@ -232,6 +263,14 @@ class Session(WorkerSession):
             if row.get('producer') == self.PROFILE and row.get('identity') == identity(self.context) and
                row.get('phase', '').startswith('publication-ordinal-')]
         expected = load_json(self.bundle/'expectations.json')['cases'][self.context['caseId']]
+        if self.config['studio'].get('tenantIsolation') is not None:
+            try:
+                prior = self.value('tenant-before-observation')
+                require(prior is not None, 'original before-worker tenant proof is missing')
+                tenant = self.tenant_proof(step='tenant-after', observer=observer, previous=prior)
+                observations['tenant.denied'] = tenant['observation']
+            except PackError:
+                self.retain('tenant-verification-refused', {'reasonCode': 'native-tenant-proof-refused'})
         declarations, reports = expected.get('nativeBindings', {}), {}
         completed = datetime.now(timezone.utc).isoformat()
         native_context = {**self.context, 'startedAt': self.value('prepare-start')['startedAt'], 'completedAt': completed}
@@ -253,7 +292,8 @@ class Session(WorkerSession):
         result = {'status': 'fail' if failed else 'pass', 'failedAssertions': failed, 'observations': observations,
             'selectedActionId': selections[0]['actionId'] if len(selections) == 1 else None,
             'unsupportedAssertions': [name for name in self.case['assertions'] if name not in
-                {'approval.separate', 'publication.public', 'source-content.unchanged'}]}
+                ({'approval.separate', 'publication.public', 'source-content.unchanged'} |
+                 ({'tenant.denied'} if self.config['studio'].get('tenantIsolation') is not None else set()))]}
         self.retain('verification', result)
         return {key: result[key] for key in ('status', 'failedAssertions')}
 
