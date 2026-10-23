@@ -34,9 +34,9 @@ class NoRedirect(urllib.request.HTTPRedirectHandler):
 def validate(config):
     fields = {'schemaVersion', 'region', 'accountId', 'candidateKey', 'state', 'bootstrapArtifactDigest',
         'operation', 'databaseHost', 'database', 'appRole', 'cleanupRole', 'observerRole',
-        'endpoint', 'itemId', 'expiresAt', 'readGrants', 'secretArns', 'bucket', 'receiptKey',
+        'endpoint', 'targetId', 'itemId', 'expiresAt', 'readGrants', 'datasetImportScopes', 'managedProcessIds', 'secretArns', 'bucket', 'receiptKey',
         'clusterArn', 'taskDefinitionFamily', 'imageUri', 'generationDigest'}
-    require(isinstance(config, dict) and set(config) == fields and config['schemaVersion'] == 1, 'native bootstrap reviewed configuration missing')
+    require(isinstance(config, dict) and set(config) == fields and config['schemaVersion'] == 2, 'native bootstrap reviewed configuration missing')
     require(re.fullmatch(r'sha256:[a-f0-9]{64}', config['candidateKey']) and
             re.fullmatch(r'sha256:[a-f0-9]{64}', config['bootstrapArtifactDigest']) and
             re.fullmatch(r'[0-9]{12}', config['accountId']) and config['state']['region'] == config['region'], 'native bootstrap accounting identity differs')
@@ -49,6 +49,16 @@ def validate(config):
             all(re.fullmatch('arn:aws:secretsmanager:'+config['region']+':'+config['accountId']+r':secret:honua-pilot-[a-z0-9-]+-agent/native-agent/(setup|observer|agent)-[A-Za-z0-9]{6}', arn) for arn in config['secretArns'].values()), 'native bootstrap secrets are outside isolated native custody')
     require(isinstance(config['readGrants'], list) and len(config['readGrants']) == len(set(config['readGrants'])) and
             all(re.fullmatch(r'read:[a-z0-9_-]+/[0-9]+', grant) for grant in config['readGrants']), 'native bootstrap data access must name exact service/layer grants')
+    require(isinstance(config['targetId'], str) and re.fullmatch(r'[A-Za-z0-9_-]{1,128}', config['targetId']),
+            'native bootstrap requires the observed exact native target identity')
+    scopes = config['datasetImportScopes']
+    require(isinstance(scopes, list) and all(isinstance(scope, str) for scope in scopes) and len(scopes) == len(set(scopes)) and
+            all(re.fullmatch(re.escape(config['targetId'])+r'/[a-z_][a-z0-9_]{0,62}/[a-z][a-z0-9_]{0,62}', scope) for scope in scopes),
+            'native import authority must name exact observed-target/schema/new-table scopes')
+    processes = config['managedProcessIds']
+    require(isinstance(processes, list) and all(isinstance(process, str) for process in processes) and
+            len(processes) == len(set(processes)) and all(process == 'analytics.buffer-aggregate-managed' for process in processes),
+            'native managed-process authority must name the supported exact process')
     expires = datetime.fromisoformat(config['expiresAt'].replace('Z', '+00:00'))
     require(expires.tzinfo and 0 < (expires-datetime.now(timezone.utc)).total_seconds() <= 7*86400, 'native bootstrap key expiry must be within seven days')
     operation = config['operation']
@@ -122,7 +132,11 @@ def sql_identities(connection, config, credentials, *, guard):
 
 
 def http(config, root_key, method, path, body=None):
-    require(path.startswith('/api/v1/admin/api-keys'), 'native bootstrap HTTP path is outside credential issuance')
+    target_read = method == 'GET' and path == '/api/v1/agent/target'
+    key_issue = method == 'POST' and path == '/api/v1/admin/api-keys'
+    key_read = method == 'GET' and re.fullmatch(r'/api/v1/admin/api-keys/[a-f0-9-]{36}/effective-permissions', path)
+    require(target_read or key_issue or key_read, 'native bootstrap HTTP operation is outside reviewed target/key paths')
+    require((key_issue and isinstance(body, dict)) or (not key_issue and body is None), 'native bootstrap HTTP body differs')
     request = urllib.request.Request(config['endpoint']+path, method=method,
         headers={'X-API-Key': root_key, 'Accept': 'application/json', 'Content-Type': 'application/json'},
         data=None if body is None else encoded(body))
@@ -131,6 +145,10 @@ def http(config, root_key, method, path, body=None):
         raw = response.read(1024*1024+1)
         require(response.status == (201 if method == 'POST' else 200) and len(raw) <= 1024*1024, 'native key issuance response differs')
     value = json.loads(raw)
+    require(isinstance(value, dict), 'native bootstrap response must be an object')
+    if target_read:
+        require(value.get('targetId') == config['targetId'], 'native bootstrap endpoint target differs from reviewed identity')
+        return {'targetId': value['targetId']}
     require(value.get('success') is True and isinstance(value.get('data'), dict), 'native key issuance did not return a successful native envelope')
     return value['data']
 
@@ -149,11 +167,18 @@ def provision(config, durable, *, connection, secrets, root_key, native):
         retained[key] = {'producer': 'private-native-bootstrap', 'candidateKey': config['candidateKey'], 'value': value}
         durable._persist()
     retain('start', {'configurationDigest': canonical_digest(config), 'startedAt': datetime.now(timezone.utc).isoformat()})
+    guard()
+    observed_target = http(config, root_key, 'GET', '/api/v1/agent/target')
+    require(observed_target == {'targetId': config['targetId']}, 'native bootstrap target readback differs')
+    require(root_key.encode() not in encoded(observed_target), 'native target response disclosed credential material')
+    retain('target', observed_target)
     sql_result = sql_identities(connection, config, {kind: os.environ['HONUA_AGENT_FIXTURE_'+kind.upper()+'_DSN'] for kind in ('cleanup', 'observer')}, guard=guard)
     retain('sql', sql_result)
     permission_sets = {'setup': ['admin:write'], 'observer': ['admin:read'], 'agent': [
         'admin:read', 'agent:workspace', 'agent:propose-publication', 'agent:studio-compose:'+config['itemId'],
-        'agent:studio-propose-publication:'+config['itemId'], *config['readGrants']]}
+        'agent:studio-propose-publication:'+config['itemId'], *config['readGrants'],
+        *('agent:dataset-import:'+scope for scope in config['datasetImportScopes']),
+        *('agent:managed-process:'+process for process in config['managedProcessIds'])]}
     issued = {}
     for kind, permissions in permission_sets.items():
         # Secret version identity binds the retained operation and destination.
@@ -181,7 +206,7 @@ def provision(config, durable, *, connection, secrets, root_key, native):
         issued[kind] = {'apiKeyId': record['id'], 'secretArn': response['ARN'], 'versionId': version, 'permissions': permissions, 'effectivePermissions': effective}
         retain('key-'+kind, issued[kind])
     receipt = {'schema': 'honua.private-native-bootstrap/v1', 'candidateKey': config['candidateKey'],
-        'configurationDigest': canonical_digest(config), 'operation': config['operation'], 'sql': sql_result,
+        'configurationDigest': canonical_digest(config), 'operation': config['operation'], 'target': observed_target, 'sql': sql_result,
         'keys': issued, 'requiresReviewedAgentPrincipalInstallation': True, 'qualification': False,
         'completedAt': datetime.now(timezone.utc).isoformat(), 'native': native}
     retain('completed', receipt)

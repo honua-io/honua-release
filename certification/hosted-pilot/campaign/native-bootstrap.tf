@@ -3,16 +3,32 @@ variable "native_bootstrap" {
   type = object({
     bootstrapArtifactDigest = string
     operation               = object({ operationId = string, liabilityBasisDigest = string, reservationIds = object({ infrastructure = string, cleanup = string }) })
+    targetId                = string
     itemId                  = string
     expiresAt               = string
     readGrants              = list(string)
+    datasetImportScopes     = list(string)
+    managedProcessIds       = list(string)
   })
   default = null
+  validation {
+    condition = var.native_bootstrap == null ? true : (
+      can(regex("^[A-Za-z0-9_-]{1,128}$", var.native_bootstrap.targetId)) &&
+      length(var.native_bootstrap.datasetImportScopes) == length(toset(var.native_bootstrap.datasetImportScopes)) &&
+      alltrue([for scope in var.native_bootstrap.datasetImportScopes :
+        can(regex("^${var.native_bootstrap.targetId}/[a-z_][a-z0-9_]{0,62}/[a-z][a-z0-9_]{0,62}$", scope))
+      ]) &&
+      length(var.native_bootstrap.managedProcessIds) == length(toset(var.native_bootstrap.managedProcessIds)) &&
+      alltrue([for process in var.native_bootstrap.managedProcessIds : process == "analytics.buffer-aggregate-managed"]) &&
+      alltrue([for grant in var.native_bootstrap.readGrants : can(regex("^read:[a-z0-9_-]+/[0-9]+$", grant))])
+    )
+    error_message = "Use the observed native target, exact new-table import destinations, the supported managed process, and separate exact read grants."
+  }
 }
 
 locals {
   native_bootstrap_config = var.native_bootstrap == null ? null : merge(var.native_bootstrap, {
-    schemaVersion        = 1, region = var.region, accountId = var.account_id, candidateKey = var.candidate_digest,
+    schemaVersion        = 2, region = var.region, accountId = var.account_id, candidateKey = var.candidate_digest,
     generationDigest     = var.dispatch_budget == null ? null : var.dispatch_budget.generationDigest,
     state                = module.accounting.state_config, databaseHost = nonsensitive(module.application.db_endpoint), database = local.database,
     appRole              = local.app_role, cleanupRole = local.fixture_roles.cleanup, observerRole = local.fixture_roles.observer,
