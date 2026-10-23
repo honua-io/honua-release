@@ -127,7 +127,7 @@ class Session(WorkerSession):
     def validate_observer(self, http, secrets):
         studio = self.config['studio']
         require({'bootstrapFixture', 'route', 'requesterCredentialEnv', 'requesterCredentialKind', 'requesterAgentContext'} <= set(studio) <=
-                {'bootstrapFixture', 'route', 'requesterCredentialEnv', 'requesterCredentialKind', 'requesterAgentContext', 'tenantIsolation'} and
+                {'bootstrapFixture', 'route', 'requesterCredentialEnv', 'requesterCredentialKind', 'requesterAgentContext', 'tenantIsolation', 'custody'} and
                 set(studio['bootstrapFixture']) == {'key', 'sha256'} and
                 studio['requesterCredentialKind'] in ('api-key', 'bearer') and all(secrets) and secrets[0] != secrets[1] and
                 os.environ.get(studio['requesterCredentialEnv']) and os.environ[studio['requesterCredentialEnv']] != secrets[0],
@@ -137,9 +137,34 @@ class Session(WorkerSession):
             owner = os.environ.get(config['ownerCredentialEnv'])
             require(owner and owner not in (*secrets, os.environ[studio['requesterCredentialEnv']]),
                     'private tenant human owner must have separate controller-only custody')
+        if 'custody' in studio:
+            from agent_e2e_studio_custody_observer import validate
+            validate(studio['custody'])
         route_path(studio['route'])
         require(validate_agent_context(studio['requesterAgentContext']) is not None,
                 'P14 task reads require an actual native workspace and turn')
+
+    def deployment_http(self):
+        # Ordinary target reads continue with the independent active observer;
+        # the retired setup credential is used only for its refusal probe.
+        return self.http('observer')
+
+    def custody_observer(self):
+        from agent_e2e_studio_custody_observer import StudioCustodyObserver
+        region = self.config['deployment']['clusterArn'].split(':')[3]
+        return StudioCustodyObserver(self, **{name: sdk(service, region) for name, service in
+            (('ecs', 'ecs'), ('s3', 's3'), ('states', 'stepfunctions'), ('iam', 'iam'))})
+
+    def start_worker(self, *, public_target):
+        result = super().start_worker(public_target=public_target)
+        if self.config['studio'].get('custody') is not None:
+            custody = self.custody_observer()
+            revoked, original = custody.revoked(step='custody-started')
+            replaced = custody.worker(step='custody-started', original=original)
+            expected = load_json(self.bundle/'expectations.json')['cases'][self.context['caseId']]['assertions']
+            for assertion, actual in (('custody.bootstrap-revoked', revoked), ('custody.worker-replaced', replaced)):
+                gate.oracle_predicates.verify(assertion, actual, expected[assertion])
+        return result
 
     def requester(self, *, role, timeout=300):
         studio = self.config['studio']
@@ -236,6 +261,9 @@ class Session(WorkerSession):
         tenant = self.tenant_proof(step='tenant-before', observer=observer)
         if tenant is not None:
             gate.oracle_predicates.verify('tenant.denied', tenant['observation'], expected_case['assertions']['tenant.denied'])
+        if self.config['studio'].get('custody') is not None:
+            revoked, _ = self.custody_observer().revoked(step='custody-before')
+            gate.oracle_predicates.verify('custody.bootstrap-revoked', revoked, expected_case['assertions']['custody.bootstrap-revoked'])
         return self.start_worker(public_target=self.config['http']['endpoint']+'; saved map '+fixture['itemId']+
             ', version '+fixture['versionId']+', content hash '+fixture['contentHash']+
             '; requested public route '+binding['route'])
@@ -263,6 +291,19 @@ class Session(WorkerSession):
             if row.get('producer') == self.PROFILE and row.get('identity') == identity(self.context) and
                row.get('phase', '').startswith('publication-ordinal-')]
         expected = load_json(self.bundle/'expectations.json')['cases'][self.context['caseId']]
+        if self.config['studio'].get('custody') is not None:
+            try:
+                require(self.value('custody-before-revocation') is not None and self.value('custody-started-worker') is not None,
+                        'original before-model setup and separate worker proof is missing')
+                custody = self.custody_observer()
+                revoked, original = custody.revoked(step='custody-after')
+                replaced = custody.worker(step='custody-after', original=original)
+                require(revoked == self.value('custody-before-revocation')['observation'] and
+                        replaced == self.value('custody-started-worker')['observation'],
+                        'original credential or worker changed during model execution')
+                observations.update({'custody.bootstrap-revoked': revoked, 'custody.worker-replaced': replaced})
+            except (PackError, ValueError, KeyError, TypeError):
+                self.retain('custody-verification-refused', {'reasonCode': 'original-native-custody-proof-refused'})
         if self.config['studio'].get('tenantIsolation') is not None:
             try:
                 prior = self.value('tenant-before-observation')
@@ -293,7 +334,8 @@ class Session(WorkerSession):
             'selectedActionId': selections[0]['actionId'] if len(selections) == 1 else None,
             'unsupportedAssertions': [name for name in self.case['assertions'] if name not in
                 ({'approval.separate', 'publication.public', 'source-content.unchanged'} |
-                 ({'tenant.denied'} if self.config['studio'].get('tenantIsolation') is not None else set()))]}
+                 ({'tenant.denied'} if self.config['studio'].get('tenantIsolation') is not None else set()) |
+                 ({'custody.bootstrap-revoked', 'custody.worker-replaced'} if self.config['studio'].get('custody') is not None else set()))]}
         self.retain('verification', result)
         return {key: result[key] for key in ('status', 'failedAssertions')}
 

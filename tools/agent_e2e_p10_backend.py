@@ -224,10 +224,13 @@ class Session:
         require(len(groups) == 1 and groups[0].get('ReplicationGroupId') == config['redisReplicationGroupId'] and
                 groups[0].get('Status') == 'available' and groups[0].get('TransitEncryptionEnabled') is True,
                 'P10 Redis-on deployment is not independently available with TLS')
-        cache = successful(self.setup.json('observe-cache', 'GET', '/api/v1/admin/cache/status'))
+        cache = successful(self.deployment_http().json('observe-cache', 'GET', '/api/v1/admin/cache/status'))
         require(cache.get('isHealthy') is True and cache.get('isUsingFallback') is False,
                 'P10 product cache is unavailable or using fallback')
         self.retain('deployment', {'deployment': deployed, 'definitions': definitions, 'redis': serializable(redis)})
+
+    def deployment_http(self):
+        return self.setup
 
     def open_worker(self):
         if self.lifecycle is not None:
