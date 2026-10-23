@@ -50,13 +50,16 @@ export function renderContract(contract) {
 }
 
 /** No lifecycle calls, prompts, draft attachment, save or source writes occur. */
-export async function observeStudioRender({ page, contract, authorize, retain }) {
+export async function observeStudioRender({ page, contract, contractJson, authorize, retain }) {
   renderContract(contract);
+  require(contractJson === undefined || typeof contractJson === 'string'
+    && Buffer.byteLength(contractJson) <= MAX_BODY && isDeepStrictEqual(JSON.parse(contractJson), contract),
+  'render contract bytes differ from its frozen declaration');
   require(typeof authorize === 'function' && typeof retain === 'function', 'render requires fenced private custody');
   await authorize();
   require(new URL(page.url()).origin === contract.endpoint, 'browser is not on the exact signed-in installed Console');
   const report = { schema: 'honua.studio-browser-render/v1', candidateKey: contract.candidateKey,
-    contractDigest: 'sha256:' + sha(canonical(contract)), startedAt: new Date().toISOString(), native: {}, runtimeAssets: [],
+    contractDigest: 'sha256:' + sha(contractJson ?? canonical(contract)), startedAt: new Date().toISOString(), native: {}, runtimeAssets: [],
     network: [], errors: [], png: null, render: null, session: null };
   const pending = new Set();
   const recordError = (kind, value) => { report.errors.push({ kind, sha256: sha(String(value)) }); };
@@ -121,8 +124,9 @@ export async function observeStudioRender({ page, contract, authorize, retain })
       && value.workspaceId === scope.namespace && value.packageKey === scope.namespace && value.envelope?.family === 'map'
       && value.envelope?.schemaVersion === '1.0', 'renderer native resource escaped exact authored scope');
     require(draft.draftId === scope.draftId && version.versionId === scope.versionId && version.sourceDraftId === draft.draftId
-      && isDeepStrictEqual(draft.envelope, version.envelope) && sha(canonical(version.envelope.body)) === scope.documentSha256,
-    'render source differs from original immutable save or independently frozen body');
+      && isDeepStrictEqual(draft.envelope, version.envelope), 'render source differs from the original immutable save');
+    // Python independently hashes the retained original body against the frozen
+    // expectation. Re-serializing parsed JS numbers here loses e.g. 1.0 vs 1.
     require(current.total === 1 && current.nextCursor == null && current.items?.length === 1
       && current.items[0].itemId === scope.itemId && current.items[0].currentVersionId === scope.versionId,
     'renderer current pointer changed from the selected model save');

@@ -39,7 +39,7 @@ class Session(WorkerSession):
     PROFILE = 'studio-authoring-native'
     CASE_PATTERN = r'P(?:08|09|11|12|13):[AB]:aws-ecs-redis-on'
     CONFIG_FIELDS = {'http', 'database', 'deployment', 'attempts', 'accounting', 'studio', 'sources'}
-    OPTIONAL_FIELDS = set()
+    OPTIONAL_FIELDS = {'rendering'}
     DATABASE = StudioFixtureDatabase
     initial_fixture = PublicationSession.initial_fixture
     cleanup_fixture = PublicationSession.cleanup_fixture
@@ -64,6 +64,11 @@ class Session(WorkerSession):
                     isinstance(source['path'], str) and source['path'].startswith('/') and
                     isinstance(source['pointer'], str) and source['pointer'].startswith('/') and
                     source['normalizer'] in (None, 'feature-server-points/v1'), 'unreviewed source-content readback profile')
+        if 'rendering' in self.config:
+            from agent_e2e_studio_render_backend import validate
+            declarations = load_json(self.bundle/'expectations.json')['cases'][self.context['caseId']].get('nativeBindings', {})
+            validate(self.config['rendering'], studio=studio, declarations=declarations,
+                     candidate=self.context['componentBindingDigest'])
 
     def source(self, *, step):
         snapshots, references = [], []
@@ -190,6 +195,16 @@ class Session(WorkerSession):
                     reports[name] = retain(self.durable, self.context, name=name, declaration=declaration,
                         responses={'saveHandle': saves[-1]['nativeReferences']['handle'], 'savedVersion': version_ref, 'currentItem': current_ref},
                         selection=saves[-1], started_at=native_context['startedAt'], completed_at=completed)
+                rendering = getattr(self, 'config', {}).get('rendering')
+                if 'render.actual' in observations and rendering is not None:
+                    try:
+                        from agent_e2e_studio_render_backend import observe
+                        rendered = observe(rendering, studio=self.config['studio'], declarations=declarations,
+                            reports=reports, context=native_context, selection=saves[-1], durable=self.durable)
+                        observations['render.actual'] = rendered['actual']
+                        self.retain('authoring-render', rendered)
+                    except (PackError, ValueError, TypeError, KeyError):
+                        self.retain('authoring-render-failure', {'code': 'original-browser-render-unavailable-or-invalid'})
         expected = expected_case['assertions']
         failed = []
         for assertion in self.case['assertions']:
@@ -200,7 +215,8 @@ class Session(WorkerSession):
             except (ValueError, TypeError, PackError): failed.append(assertion)
         result = {'status': 'fail' if failed else 'pass', 'failedAssertions': failed, 'observations': observations,
             'unsupportedAssertions': [assertion for assertion in self.case['assertions'] if assertion not in
-                {'map.composition', 'state.saved', 'source-content.unchanged'}],
+                ({'map.composition', 'state.saved', 'source-content.unchanged'} |
+                 ({'render.actual'} if getattr(self, 'config', {}).get('rendering') is not None else set()))],
             'modelSaveCount': len(saves), 'modelCreateCount': sum(row['value']['tool'] == CREATE for row in selections)}
         self.retain('verification', result)
         return {key: result[key] for key in ('status', 'failedAssertions')}

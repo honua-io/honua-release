@@ -6,6 +6,8 @@ import { readFile, realpath } from 'node:fs/promises';
 import { resolve, relative, sep } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { createHash } from 'node:crypto';
+import { spawn } from 'node:child_process';
+import { createInterface } from 'node:readline';
 import { observeStudioRender, renderContract } from './agent_e2e_studio_render.mjs';
 
 const sha = raw => createHash('sha256').update(raw).digest('hex');
@@ -34,10 +36,12 @@ test('renderer refuses unpinned runtime, absent pixel geometry and unbound sourc
 });
 
 const enabled = process.env.HONUA_AGENT_RENDER_BROWSER_TESTS === '1';
-test('real deployed read-only Studio SDK paints native HTTP source without any writer request', { skip: !enabled, timeout: 90000 }, async testContext => {
+for (const strategy of ['direct', 'private-cli']) test(`real deployed read-only Studio SDK paints native HTTP source (${strategy}) without any writer request`, { skip: !enabled, timeout: 90000 }, async testContext => {
   const root = await realpath(process.env.HONUA_AGENT_RENDER_ASSETS);
   const playwright = await import(pathToFileURL(process.env.HONUA_AGENT_RENDER_PLAYWRIGHT).href);
   const contract = declaration(), retained = [], seen = [];
+  contract.layers[0].paint['circle-radius'] = 18;
+  const contractJson = () => canonical(contract).replace('"circle-radius":18', '"circle-radius":18.0');
   const source = { type: 'FeatureCollection', features: [{ type: 'Feature', id: 's1',
     properties: { source_id: 's1', name: 'First shelter' }, geometry: { type: 'Point', coordinates: [0,0] } }] };
   const metadata = { id: 1, name: 'Shelters', objectIdField: 'OBJECTID', geometryType: 'esriGeometryPoint',
@@ -68,7 +72,10 @@ test('real deployed read-only Studio SDK paints native HTTP source without any w
       }
       let value;
       if (path === '/version.json') value = { commit: contract.consoleCommit };
-      else if (path === '/api/agent-workspace/session') value = { ...contract.session, authenticated: true, csrfToken: 'private-test-csrf-value' };
+      else if (path === '/api/agent-workspace/session') {
+        if (request.headers.cookie !== 'fixture-human-session=local-private-test-cookie') { response.writeHead(401).end(); return; }
+        value = { ...contract.session, authenticated: true, csrfToken: 'private-test-csrf-value' };
+      }
       else if (path.startsWith('/api/studio/data/')) {
         assert.equal(request.headers['x-honua-environment'], contract.session.environmentId);
         assert.equal(request.headers['x-honua-session-partition'], contract.session.principalId);
@@ -79,7 +86,7 @@ test('real deployed read-only Studio SDK paints native HTTP source without any w
       } else if (path.includes('/package-drafts/')) value = draft;
       else if (path.includes('/versions/')) value = version;
       else if (path === '/api/studio/v1/studio/content-items') value = { total: 1, nextCursor: null, items: [{ itemId: base.itemId, currentVersionId: version.versionId }] };
-      else if (path === '/') {
+      else if (path === '/' || path === '/studio') {
         response.writeHead(200, { 'Content-Type': 'text/html' }).end('<!doctype html><honua-studio-app></honua-studio-app><script>document.querySelector("honua-studio-app").sourceCatalog='+JSON.stringify(catalog)+'</script>'); return;
       } else { response.writeHead(404).end(); return; }
       response.writeHead(200, { 'Content-Type': 'application/json' }).end(JSON.stringify(value));
@@ -102,6 +109,7 @@ test('real deployed read-only Studio SDK paints native HTTP source without any w
     headless: true, args: ['--use-angle=swiftshader', '--enable-unsafe-swiftshader'] });
   try {
     const context = await browser.newContext({ viewport: { width: 512, height: 512 }, deviceScaleFactor: 1 });
+    await context.addCookies([{ name: 'fixture-human-session', value: 'local-private-test-cookie', url: contract.endpoint }]);
     const page = await context.newPage();
     await page.goto(contract.endpoint);
     // Local control diagnostics only: the server above has no live credentials
@@ -117,7 +125,40 @@ test('real deployed read-only Studio SDK paints native HTTP source without any w
     }, contract.mapLibreModule);
     let report;
     try {
-      report = await observeStudioRender({ page, contract, authorize: async () => {}, retain: async report => retained.push(structuredClone(report)) });
+      if (strategy === 'direct') {
+        report = await observeStudioRender({ page, contract, authorize: async () => {}, retain: async report => retained.push(structuredClone(report)) });
+      } else {
+        const child = spawn(process.execPath, [resolve('tools/agent_e2e_studio_render_cli.mjs')], {
+          env: { PATH: process.env.PATH, LD_LIBRARY_PATH: process.env.LD_LIBRARY_PATH,
+            HONUA_RENDER_PLAYWRIGHT: process.env.HONUA_AGENT_RENDER_PLAYWRIGHT,
+            HONUA_RENDER_CHROMIUM: process.env.HONUA_AGENT_RENDER_CHROMIUM },
+          stdio: ['pipe', 'pipe', 'pipe'],
+        });
+        testContext.after(() => { if (child.exitCode === null) child.kill('SIGKILL'); });
+        const events = [], failures = [], exit = new Promise((resolve, reject) => {
+          child.once('error', reject); child.once('exit', resolve);
+        });
+        child.stderr.on('data', raw => { failures.push(raw.toString()); assert.ok(failures.join('').length < 32768); });
+        const output = createInterface({ input: child.stdout });
+        const reading = (async () => {
+          for await (const line of output) {
+            assert.ok(Buffer.byteLength(line) <= 8*1024*1024);
+            assert.ok(!line.includes('local-private-test-cookie') && !line.includes('private-test-csrf-value'));
+            const event = JSON.parse(line); events.push(event);
+            if (event.type === 'authorize') child.stdin.write(JSON.stringify({ type: 'authorized', id: event.id })+'\n');
+            else if (event.type === 'report') retained.push(event.report);
+          }
+        })();
+        child.stdin.write(JSON.stringify({ contractJson: contractJson(), storageState: await context.storageState(),
+          runtime: { playwright: '1.61.1', chromium: browser.version() } })+'\n');
+        const status = await exit; await reading; child.stdin.end();
+        assert.equal(status, 0, JSON.stringify(events.filter(row => row.type !== 'report')));
+        assert.equal(events.at(-1).type, 'complete');
+        assert.ok(events.filter(row => row.type === 'authorize').length > 5);
+        report = retained[0];
+        assert.equal(report.contractDigest, 'sha256:'+sha(contractJson()));
+        assert.deepEqual(report.browserRuntime, { playwright: '1.61.1', chromium: browser.version() });
+      }
     } catch (error) {
       testContext.diagnostic(JSON.stringify(await page.evaluate(() => window.__localRenderControlErrors)));
       throw error;
@@ -130,9 +171,14 @@ test('real deployed read-only Studio SDK paints native HTTP source without any w
     assert.equal(retained.length, 1);
     assert.ok(seen.every(row => row.method === 'GET'));
     assert.ok(!JSON.stringify(retained).includes('private-test-csrf-value'));
-    if (process.env.HONUA_AGENT_RENDER_CONTROL_OUTPUT) {
+    if (process.env.HONUA_AGENT_RENDER_CONTROL_OUTPUT && strategy === 'direct') {
       const { writeFile } = await import('node:fs/promises');
       await writeFile(process.env.HONUA_AGENT_RENDER_CONTROL_OUTPUT, JSON.stringify({ report: retained[0], contract })+'\n', { mode: 0o600 });
+    }
+    if (process.env.HONUA_AGENT_RENDER_CONTROL_OUTPUT && strategy === 'private-cli') {
+      const { writeFile } = await import('node:fs/promises');
+      await writeFile(process.env.HONUA_AGENT_RENDER_CONTROL_OUTPUT+'.private-cli',
+        JSON.stringify({ report: retained[0], contractJson: contractJson() })+'\n', { mode: 0o600 });
     }
     await context.close();
   } finally { await browser.close(); }
