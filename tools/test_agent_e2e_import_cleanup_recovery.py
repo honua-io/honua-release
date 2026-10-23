@@ -196,11 +196,12 @@ def test_two_cleanup_passes_preserve_original_absence_and_finish_only_later_term
 
 
 @pytest.mark.parametrize('window', ['after-begin','after-stop','after-ownership','after-intent',
-    'commit-before-observation','after-observation','after-cost','before-outcome'])
+    'commit-before-observation','commit-before-observation-with-new-relation','after-observation','after-cost','before-outcome'])
 def test_process_loss_recovers_original_sql_custody_without_erasing_history_or_double_charge(recovery, window):
     from agent_e2e_native_costs import reserve_overhead, OVERHEAD
     from test_agent_e2e_native_costs import native
-    session, submit, _, _, _, handoffs = recovery
+    session, submit, _, dsn, _, handoffs = recovery
+    interruption_window = window.replace('-with-new-relation','')
     task, definition, prices = native()
     stop = {'taskArn':task['taskArn'],'taskStatus':'STOPPED','stopRecorded':True,'testOnly':True}
     session.launch = {'attemptId':'import','testOnly':True}
@@ -233,10 +234,10 @@ def test_process_loss_recovers_original_sql_custody_without_erasing_history_or_d
             'after-observation':key+'/observation' in state.get('fixtureCleanup',{}),
             'after-cost':bool(state.get('nativeCostAllocations')),
             'before-outcome':key in state.get('importCleanupOutcomes',{}),
-        }[window]
+        }[interruption_window]
         if ready and not interrupted:
             interrupted.append(window)
-            if window not in ('commit-before-observation','before-outcome'):
+            if interruption_window not in ('commit-before-observation','before-outcome'):
                 persist()
             raise SystemExit('simulated process termination at '+window)
         persist()
@@ -247,6 +248,17 @@ def test_process_loss_recovers_original_sql_custody_without_erasing_history_or_d
     durable.state = copy.deepcopy(durable.snapshots[-1])
     before_recovery = copy.deepcopy(durable.state)
     assert key not in durable.state.get('importCleanupOutcomes',{})
+    if window.endswith('-with-new-relation'):
+        import psycopg
+        with psycopg.connect(dsn) as connection:
+            connection.execute('CREATE TABLE honua_data.arrived_later (id int)')
+            connection.execute('INSERT INTO honua_data.arrived_later VALUES (23)')
+        assert session.cleanup()['status'] == 'blocked'
+        assert key+'/observation' in durable.state['fixtureCleanup']
+        assert not durable.state.get('nativeCostAllocations')
+        with psycopg.connect(dsn) as connection:
+            assert connection.execute('SELECT id FROM honua_data.arrived_later').fetchall() == [(23,)]
+            connection.execute('DROP TABLE honua_data.arrived_later')
     result = session.cleanup()
     assert result['status'] == 'pass', result
     assert result['fixtureSql']['resourceIds'] == []

@@ -147,7 +147,15 @@ class ImportedFixtureDatabase(FixtureDatabase):
         require(isinstance(acknowledgement, dict) and acknowledgement.get('sha256') == canonical_digest(intent), 'import cleanup intent not retained')
         with self.connection(cleanup=True) as (connection, cleanup_identity):
             before = self.snapshot(connection)
-            committed = recover and before == preservation
+            preserved_oids = {row['oid'] for row in preservation['relations']}
+            prior_projection = copy.deepcopy(before)
+            prior_projection['relations'] = [row for row in before['relations'] if row['oid'] in preserved_oids]
+            committed = (recover and not {row['oid'] for row in record['tables']} &
+                         {row['oid'] for row in before['relations']} and prior_projection == preservation)
+            # Another pending import may materialize after the original COMMIT.
+            # Observe original absence without dropping the new relation. Keep
+            # every extra relation in the receipt and its cleanup liabilities.
+            observed_preservation = before if committed else preservation
             if not committed:
                 # A prior COMMIT may have succeeded without its final receipt.
                 # Only the exact retained full OID/owner set can be dropped;
@@ -159,17 +167,17 @@ class ImportedFixtureDatabase(FixtureDatabase):
             require(connection.execute("SELECT 1 FROM pg_event_trigger WHERE evtenabled <> 'D' LIMIT 1").fetchone() is None,
                     'import cleanup refuses unreviewed DDL event triggers')
             current = self.snapshot(connection)
-            require(current == preservation if committed else self.without_owned(current, record) == preservation and
+            require(current == observed_preservation if committed else self.without_owned(current, record) == preservation and
                     all(table in current['relations'] for table in record['tables']), 'owned import OIDs/owners or unrelated state changed')
             authorize(record)
             if not committed:
                 for table in record['tables']:
                     connection.execute(sql.SQL('DROP TABLE {} RESTRICT').format(sql.Identifier(table['schema'], table['name'])))
-            require(self.snapshot(connection) == preservation, 'import transaction failed to preserve exact unrelated objects')
+            require(self.snapshot(connection) == observed_preservation, 'import transaction failed to preserve exact unrelated objects')
             authorize(record)
         with self.connection() as (connection, observer_identity):
             observed = self.snapshot(connection)
-            require(observer_identity['principal'] != cleanup_identity['principal'] and observed == preservation,
+            require(observer_identity['principal'] != cleanup_identity['principal'] and observed == observed_preservation,
                     'independent import SQL observer found remaining or changed resources')
         result = {'schemaVersion': 1, 'candidateKey': self.config['candidateKey'], 'ownershipDigest': canonical_digest(record),
             'cleanupPrincipal': cleanup_identity['principal'], 'observerPrincipal': observer_identity['principal'],
