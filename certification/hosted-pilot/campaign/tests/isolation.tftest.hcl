@@ -406,3 +406,29 @@ run "retirement_recovery_retains_original_claim_and_separate_receipt" {
     error_message = "Read-only recovery must retain the original permanent claim and publish separately without overwriting original revocation custody."
   }
 }
+run "worker_custody_read_is_absent_without_declared_attempts" {
+  command = plan
+  variables { worker_attempt_ids = [] }
+  assert {
+    condition     = length(aws_iam_role_policy.worker_custody_observer) == 0
+    error_message = "Unconfigured custody observation cannot grant IAM or task-definition reads."
+  }
+}
+run "worker_custody_read_has_only_exact_declared_roles_and_families" {
+  command = plan
+  variables { worker_attempt_ids = ["p14-first", "p14-second"] }
+  assert {
+    condition = aws_iam_role_policy.worker_custody_observer[0].policy == jsonencode({ Version = "2012-10-17", Statement = [
+      { Effect = "Allow", Action = ["iam:GetRolePolicy", "iam:ListRolePolicies", "iam:ListAttachedRolePolicies"],
+      Resource = ["arn:aws:iam::123456789012:role/honua-agent-p14-first-worker", "arn:aws:iam::123456789012:role/honua-agent-p14-second-worker"] },
+      { Effect = "Allow", Action = "ecs:DescribeTaskDefinition",
+      Resource = ["arn:aws:ecs:us-east-1:123456789012:task-definition/honua-agent-p14-first:*", "arn:aws:ecs:us-east-1:123456789012:task-definition/honua-agent-p14-second:*"] }
+    ] })
+    error_message = "Custody may read only the two declared worker policies/task families, without launch, secret, other-role or wildcard IAM authority."
+  }
+}
+run "worker_custody_attempt_cannot_expand_to_a_role_wildcard" {
+  command = plan
+  variables { worker_attempt_ids = ["*"] }
+  expect_failures = [var.worker_attempt_ids]
+}

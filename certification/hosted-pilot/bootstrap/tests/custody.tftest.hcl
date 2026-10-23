@@ -120,6 +120,22 @@ run "agent_orchestration_is_opt_in_and_bounded" {
     error_message = "Agent orchestration must fit IAM policy limits, preserve custody/model refusals and use isolated role/state namespaces."
   }
 }
+run "worker_custody_boundary_ceiling_is_read_only" {
+  command = plan
+  variables { enable_agent_controller = true }
+  assert {
+    condition = (
+      one([for statement in jsondecode(aws_iam_policy.agent_boundary[0].policy).Statement : statement if try(statement.Sid, "") == "ReadDeclaredWorkerCustody"]) == {
+        Sid      = "ReadDeclaredWorkerCustody", Effect = "Allow",
+        Action   = ["iam:GetRolePolicy", "iam:ListRolePolicies", "iam:ListAttachedRolePolicies"],
+        Resource = "arn:aws:iam::123456789012:role/honua-agent-*"
+      } &&
+      contains(one([for statement in jsondecode(aws_iam_policy.agent_boundary[0].policy).Statement : statement if try(statement.Sid, "") == "NoIdentityAdministration"]).Action, "iam:Put*") &&
+      one([for statement in jsondecode(aws_iam_policy.agent_boundary[0].policy).Statement : statement if try(statement.Sid, "") == "NoIdentityAdministration"]).Effect == "Deny"
+    )
+    error_message = "The boundary must cap three custody reads to agent roles while retaining identity-administration denial; identity policies must narrow the actual attempts."
+  }
+}
 run "refuse_global_action_grant" {
   command = plan
   variables {

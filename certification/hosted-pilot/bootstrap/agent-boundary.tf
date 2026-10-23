@@ -13,6 +13,7 @@ resource "aws_iam_policy" "agent_boundary" {
   name  = "${local.foundation_prefix}-agent-boundary"
   policy = jsonencode({ Version = "2012-10-17", Statement = concat([
     { Sid = "NoIdentityAdministration", Effect = "Deny", Action = ["iam:Create*", "iam:Delete*", "iam:Put*", "iam:Update*", "iam:Attach*", "iam:Detach*", "iam:Set*", "iam:Tag*", "iam:Untag*", "organizations:*", "account:*"], Resource = "*" },
+    { Sid = "ReadDeclaredWorkerCustody", Effect = "Allow", Action = ["iam:GetRolePolicy", "iam:ListRolePolicies", "iam:ListAttachedRolePolicies"], Resource = local.agent_role_pattern },
     { Sid = "ExcludeFoundationCustodyKey", Effect = "Deny", Action = "kms:*", Resource = aws_kms_key.custody.arn },
     { Effect = "Allow", Action = "ecr:GetAuthorizationToken", Resource = "*" },
     { Effect = "Allow", Action = ["ecr:BatchGetImage", "ecr:GetDownloadUrlForLayer", "ecr:BatchCheckLayerAvailability"], Resource = [aws_ecr_repository.controller.arn, aws_ecr_repository.worker.arn] },

@@ -59,6 +59,66 @@ class FoundationConfiguration(unittest.TestCase):
                 self.resolve()
             self.cfg = before
 
+    def test_new_twenty_dollar_liability_cannot_reuse_the_older_294_reserve(self):
+        self.assertEqual(self.resolve()['budget_ledger']['reserved_usd'],334)
+        self.cfg['budget_ledger']['reserved_usd']=294
+        self.reviewed_cfg=copy.deepcopy(self.cfg)
+        with self.assertRaisesRegex(ValueError,'cannot discard original nonzero'):
+            self.resolve()
+        self.cfg['budget_ledger']['reserved_usd']=334
+        self.reviewed_cfg=copy.deepcopy(self.cfg)
+        basis=json.loads(self.basis)
+        basis['additionalReservedLiabilities']=[row for row in basis['additionalReservedLiabilities'] if row['id']!='legacy-model-39987311356']
+        self.basis=json.dumps(basis).encode()
+        with self.assertRaisesRegex(ValueError,'cannot discard original nonzero'):
+            self.resolve()
+
+    def test_original_basis_and_new_failed_outcome_remain_separate_immutable_evidence(self):
+        root=Path(__file__).resolve().parents[2];basis=json.loads(self.basis)
+        def source(reference):
+            raw=(root/reference['path']).read_bytes()
+            self.assertEqual('sha256:'+hashlib.sha256(raw).hexdigest(),reference['sha256'])
+            return json.loads(raw)
+        latest=source(basis['priorFundingBasis'])
+        self.assertEqual(latest['reservedUsd'],'314')
+        self.assertEqual(basis['additionalReservedLiabilities'][:-1],latest['additionalReservedLiabilities'])
+        prior=source(latest['priorFundingBasis'])
+        self.assertEqual(prior['reservedUsd'],'294')
+        self.assertEqual(latest['additionalReservedLiabilities'][:-1],prior['additionalReservedLiabilities'])
+        self.assertEqual(basis['postCutoffModelObservations'][:2],latest['postCutoffModelObservations'])
+        reservation,outcome=map(source,basis['postCutoffModelObservations'][:2])
+        self.assertEqual(reservation['state'],'dispatched-unsettled')
+        self.assertEqual(reservation['additionalReservedUsd'],'20')
+        self.assertEqual(outcome['nativeRun']['conclusion'],'failure')
+        self.assertEqual(outcome['usage']['modelCalls'],31)
+        self.assertEqual(outcome['usage']['totalTokens'],1120537)
+        self.assertIsNone(outcome['actualUsd'])
+        self.assertEqual(outcome['retainedReservationUsd'],'20')
+
+    def test_latest_pre_dispatch_reservation_adds_twenty_without_reset_or_renewal(self):
+        root=Path(__file__).resolve().parents[2];basis=json.loads(self.basis)
+        prior=json.loads((root/basis['priorFundingBasis']['path']).read_bytes())
+        for field in prior:
+            if field not in ('additionalReservedLiabilities','postCutoffModelObservations','priorFundingBasis','reservedUsd'):
+                self.assertEqual(basis[field],prior[field])
+        reservation,dispatch=[json.loads((root/ref['path']).read_bytes()) for ref in basis['postCutoffModelObservations'][2:]]
+        for ref in basis['postCutoffModelObservations'][2:]:
+            self.assertEqual(ref['sha256'],'sha256:'+hashlib.sha256((root/ref['path']).read_bytes()).hexdigest())
+        self.assertEqual(reservation['state'],'reserved-before-dispatch')
+        self.assertIsNone(reservation['runId']);self.assertIsNone(reservation['actualUsd'])
+        self.assertEqual(reservation['priorReservedUsd'],'314');self.assertEqual(reservation['aggregateReservedUsd'],'334')
+        self.assertEqual(dispatch['runId'],40001824669);self.assertEqual(dispatch['reservationSha256'],basis['postCutoffModelObservations'][2]['sha256'])
+        self.assertLess(reservation['createdAt'],dispatch['createdAt'])
+        self.assertEqual(self.cfg['budget_ledger']['expires_at'],'2026-10-24T13:45:00Z')
+        self.assertEqual(self.cfg['budget_ledger']['reservation_id'],'foundation-image-preparation-001')
+        for amount in (294,314,333):
+            self.cfg['budget_ledger']['reserved_usd']=amount;self.reviewed_cfg=copy.deepcopy(self.cfg)
+            with self.subTest(amount=amount),self.assertRaisesRegex(ValueError,'cannot discard original nonzero'):self.resolve()
+        self.cfg['budget_ledger']['reserved_usd']=334;self.reviewed_cfg=copy.deepcopy(self.cfg)
+        basis['additionalReservedLiabilities']=prior['additionalReservedLiabilities']
+        self.basis=json.dumps(basis).encode()
+        with self.assertRaisesRegex(ValueError,'cannot discard original nonzero'):self.resolve()
+
     def test_changed_untracked_bytes_or_another_foundation_identity_refuse(self):
         self.path.write_bytes(self.raw+b' ')
         with self.assertRaisesRegex(ValueError, 'exact workflow source'):

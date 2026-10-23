@@ -1128,6 +1128,9 @@ def driver_failure_diagnostic(response: Any) -> str:
         "render response media type conflicts with the declared image type": "render-media-type-conflict",
         "fixture point lies outside the image": "render-fixture-outside-image",
         "live assertion omitted required evidence": "required-evidence-missing",
+        "original publication intent is unavailable": "publication-intent-missing",
+        "publication proposal differs from the authored intent": "publication-intent-mismatch",
+        "publication response changed its original content binding": "publication-content-binding-mismatch",
     }
     for check in checks[:16] if isinstance(checks, list) else []:
         if not isinstance(check, dict) or check.get("status") not in ("fail", "blocked"):
@@ -1141,6 +1144,8 @@ def driver_failure_diagnostic(response: Any) -> str:
             reason = "render-pixel-mismatch"
         elif isinstance(detail, str) and detail.startswith("PNG decoder refused:"):
             reason = "render-png-invalid"
+        elif isinstance(detail, str) and re.fullmatch(r"HTTP [1-5][0-9]{2}", detail):
+            reason = "http-" + detail[5:]
         rows.append(identifier + "=" + check["status"] + "/" + reason)
     if rows:
         diagnostic = "; checks=" + ",".join(rows)
