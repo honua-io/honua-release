@@ -535,7 +535,16 @@ class JourneyExecutor:
                 self.evidence["renderDimensions"] = {
                     "expected": list(self.fixture["renderSize"]),
                     "requested": selected if all(type(v) is int and 0 < v <= 16384 for v in selected) else None,
-                    "decoded": [width, height], "sha256": hashlib.sha256(raw).hexdigest()}
+                    "decoded": [width, height], "sha256": hashlib.sha256(raw).hexdigest(),
+                    "requestedPixelVerified": False}
+                if (self.evidence["renderDimensions"]["requested"] == [width, height]
+                        and selected != self.fixture["renderSize"]):
+                    # Matching dimensions alone cannot exclude a renderer defect
+                    # that occurs only at the model's selected size. Independently
+                    # sample the authored point/colour in that actual frame too.
+                    oracles.prove_pixel(raw, bbox=self.fixture["bbox"], point=self.fixture["pixelPoint"],
+                        size=selected, rgba=self.fixture["pixelRgba"], media_type=media_type)
+                    self.evidence["renderDimensions"]["requestedPixelVerified"] = True
             proof = oracles.prove_pixel(raw, bbox=self.fixture["bbox"], point=self.fixture["pixelPoint"],
                 size=self.fixture["renderSize"], rgba=self.fixture["pixelRgba"], media_type=media_type)
             return proof
@@ -556,6 +565,7 @@ class JourneyExecutor:
                 and isinstance(requested, list) and len(requested) == 2
                 and all(type(v) is int and 0 < v <= 16384 for v in requested)
                 and requested == dimensions.get("decoded")
+                and dimensions.get("requestedPixelVerified") is True
                 and dimensions.get("expected") == self.fixture.get("renderSize")
                 and requested != dimensions["expected"])
 

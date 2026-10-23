@@ -1275,6 +1275,18 @@ def test_render_ignoring_selected_size_or_missing_selection_stays_terminal(selec
     assert not engine.repairable_render_selection(4, check)
 
 
+def test_matching_wrong_size_with_incorrect_pixels_cannot_be_repaired_away():
+    engine = engine_for(mock.Mock(), execution={**RENDER_FIXTURE, "renderSize": [40, 20]})
+    output = {"image": {"format": "image/png",
+                        "base64": base64.b64encode(png_fixture((0, 0, 0, 0))).decode()}}
+    check = engine.check_render(output, selected_arguments={"width": 20, "height": 10})
+    assert check.status == "fail" and "render pixel at (10, 2)" in check.detail
+    assert engine.evidence["renderDimensions"]["requested"] == engine.evidence["renderDimensions"]["decoded"] == [20, 10]
+    assert engine.evidence["renderDimensions"]["requestedPixelVerified"] is False
+    assert not engine.repairable_render_selection(4, check)
+    assert "pixel" not in engine.evidence["proofs"]
+
+
 @pytest.mark.parametrize("failure", ["pixel", "media", "png", "transport"])
 def test_render_feedback_never_suppresses_other_pixel_or_transport_failures(failure):
     transport = mock.Mock(credentials={"proposer": "unit"})
