@@ -21,11 +21,13 @@ jobs:
   offline-contract:
     strategy:
       matrix:
-        root: [certification/hosted-pilot, certification/hosted-pilot/bootstrap, certification/hosted-pilot/campaign, certification/hosted-pilot/worker]
+        root: [certification/hosted-pilot, certification/hosted-pilot/application, certification/hosted-pilot/bootstrap, certification/hosted-pilot/campaign, certification/hosted-pilot/worker]
     runs-on: ubuntu-latest
     timeout-minutes: 10
     env:
       AWS_EC2_METADATA_DISABLED: 'true'
+      AWS_CONFIG_FILE: /dev/null
+      AWS_SHARED_CREDENTIALS_FILE: /dev/null
       TF_IN_AUTOMATION: 'true'
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -52,7 +54,7 @@ jobs:
           terraform -chdir="$module_root" validate -no-color
           terraform -chdir="$module_root" test -no-color
       - name: Validate actual rendered edge configuration against pinned proxy
-        if: matrix.root == 'certification/hosted-pilot'
+        if: matrix.root == 'certification/hosted-pilot/application'
         run: python3 tools/hosted_pilot/check_edge_config.py "$RUNNER_TEMP/hosted-pilot-tests.jsonl"
       - name: Verify saved-plan tampering and refusal boundaries
         if: matrix.root == 'certification/hosted-pilot'

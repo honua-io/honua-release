@@ -102,6 +102,22 @@ def config(path):
         from human_enrollment import validate_configuration
         validate_configuration(value['human_enrollment'], region=os.environ['PILOT_REGION'],
                                custody_key_arn=os.environ['PILOT_STATE_KMS_ARN'])
+    if CAMPAIGN:
+        application = value.get('application')
+        required = {'candidate', 'permissions_boundary_arn', 'allowed_operator_cidrs', 'identity_redirects'}
+        optional = {'identity_secrets_kms_key_arn', 'secret_kms_key_arns', 'human_enrollment'}
+        require(isinstance(application, dict) and required <= set(application) <= required | optional,
+                'campaign application has missing or unreviewed fields')
+        for name, fields in (
+            ('candidate', {'manifest_sha256', 'server_image', 'console_image', 'server_revision', 'console_revision', 'studio_revision', 'sdk_revision'}),
+            ('identity_redirects', {'console_origin', 'edge_callback_url', 'edge_logout_url', 'server_bff_callback_url', 'server_bff_logout_url'}),
+        ):
+            require(isinstance(application[name], dict) and set(application[name]) == fields,
+                    'campaign application '+name+' has missing or unreviewed fields')
+        if application.get('human_enrollment') is not None:
+            from human_enrollment import validate_configuration
+            validate_configuration(application['human_enrollment'], region=os.environ['PILOT_REGION'],
+                                   custody_key_arn=os.environ['PILOT_STATE_KMS_ARN'])
     expiry = datetime.fromisoformat(value['expires_at'].replace('Z', '+00:00'))
     require(expiry.tzinfo is not None, 'expiry must include a timezone')
     if os.environ['PILOT_OPERATION'] == 'apply':

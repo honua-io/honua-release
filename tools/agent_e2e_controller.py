@@ -265,6 +265,9 @@ def run_goal(*, pack, corpus, case_id, campaign, backend, model, ledger, journal
             if not calls:
                 if message.get("stop_reason") != "end_turn":
                     raise ModelFailure("incomplete-model-response")
+                if prepared.get('consoleConversation') is True:
+                    backend.call('conversation_response', {**context, 'response': {
+                        'message': message, 'providerRequestId': provider_request, 'turn': turns}}, timeout=remaining())
                 result = backend.call("verify", context, timeout=remaining())
                 # Incorrect state alone does not establish the cause. Only an
                 # independent diagnosis can establish a retryable outage.

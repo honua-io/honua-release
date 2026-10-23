@@ -51,7 +51,8 @@ before using new output; do not assume an account was created.
 ## Review and apply
 
 Copy only the sealed output object into the tracked application configuration's
-`human_enrollment` field. Its fields are `pool_id`, `key_arn` and `users`; each
+`human_enrollment` field (or `application.human_enrollment` in the campaign
+configuration). Its fields are `pool_id`, `key_arn` and `users`; each
 user contains only `role` and `payload`. Do not commit either private input or
 the handoff. The deployment helper refuses plaintext/unknown nested fields and
 any key other than the original state-custody key before Terraform actions.
@@ -70,6 +71,8 @@ temporary credentials. Keep the existing encrypted state/plan custody and
 value-free GitHub review artifacts. The `human_enrollment` output contains only opaque alias,
 observed Cognito subject ID, nominated role and status, never email/password.
 Resource/action summaries use the opaque alias rather than the email.
+The campaign returns this under `application_deployment.human_enrollment`, with
+its same application identity references in `application_deployment.identity_preparation`.
 
 ## First login and qualification
 
@@ -84,6 +87,10 @@ Each person signs in through the real hosted Console URL. Record the actual
 Cognito issuer and `sub`, then the independently observed Server/Console
 identity. Do not parse a namespaced actor/Studio owner ID to invent a Cognito
 subject. Use those actual identities in the separate application-grant path.
+Ordinary authors require the narrow current-membership grants tracked in
+[Server #6533](https://github.com/honua-io/honua-server/issues/6533); Cognito group
+membership alone does not grant native workspace admission. Do not add authors
+to administrator roles to bypass that prerequisite.
 An `email_verified` attribute here records the operator's enrollment attestation;
 it is not proof that a person signed in or approved anything.
 

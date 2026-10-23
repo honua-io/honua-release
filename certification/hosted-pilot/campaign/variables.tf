@@ -76,8 +76,8 @@ variable "issued_agent_key_id" {
   type        = string
   default     = null
   validation {
-    condition     = var.issued_agent_key_id == null ? true : can(regex("^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$", var.issued_agent_key_id))
-    error_message = "Use the actual native-issued key UUID, never a fabricated actor."
+    condition     = var.issued_agent_key_id == null ? true : try(var.issued_agent_key_id == var.issued_native_keys.agent.apiKeyId, false)
+    error_message = "The legacy key ID can only repeat the actual native-bootstrap key with its retained immutable secret version."
   }
 }
 variable "issued_native_keys" {

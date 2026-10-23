@@ -22,7 +22,7 @@ locals {
     imageUri             = var.controller_image.uri
     # Endpoint is routing metadata; the module marks related database outputs
     # sensitive together. No password or connection string enters this config.
-    databaseHost = nonsensitive(module.target.db_endpoint)
+    databaseHost = nonsensitive(module.application.db_endpoint)
     database     = local.database
     appRole      = local.app_role
     cleanupRole  = local.fixture_roles.cleanup
@@ -62,7 +62,7 @@ resource "aws_ecs_task_definition" "fixture" {
     name             = "fixture-provisioner", image = var.controller_image.uri, essential = true,
     command          = ["python", "tools/hosted_pilot/fixture_provisioner.py", "transfer-ownership"], user = "10001:10001", readonlyRootFilesystem = true,
     environment      = [{ name = "PILOT_PROVISIONER_CONFIG", value = jsonencode(local.fixture_config) }],
-    secrets          = [{ name = "PILOT_FIXTURE_MASTER_CONNECTION", valueFrom = module.target.db_connection_secret_arn }],
+    secrets          = [{ name = "PILOT_FIXTURE_MASTER_CONNECTION", valueFrom = module.application.db_connection_secret_arn }],
     linuxParameters  = { capabilities = { drop = ["ALL"] } },
     logConfiguration = { logDriver = "awslogs", options = { awslogs-group = aws_cloudwatch_log_group.controller["fixture"].name, awslogs-region = var.region, awslogs-stream-prefix = "fixture" } }
   }])
@@ -75,6 +75,6 @@ resource "aws_iam_role_policy" "fixture" {
     { Effect = "Allow", Action = "s3:PutObject", Resource = "${aws_s3_bucket.handoff.arn}/${local.fixture_config.receiptPrefix}*", Condition = { StringEquals = { "s3:if-none-match" = "*" } } },
     { Effect = "Allow", Action = ["dynamodb:GetItem", "dynamodb:ConditionCheckItem"], Resource = local.state_table_arn, Condition = { "ForAllValues:StringEquals" = { "dynamodb:LeadingKeys" = [var.candidate_digest] } } },
     { Effect = "Allow", Action = ["dynamodb:PutItem"], Resource = aws_dynamodb_table.claims["fixture"].arn },
-    { Effect = "Allow", Action = "ecs:DescribeTasks", Resource = "arn:aws:ecs:${var.region}:${var.account_id}:task/${module.target.ecs_cluster_name}/*" }
+    { Effect = "Allow", Action = "ecs:DescribeTasks", Resource = "arn:aws:ecs:${var.region}:${var.account_id}:task/${module.application.ecs_cluster_name}/*" }
   ] })
 }

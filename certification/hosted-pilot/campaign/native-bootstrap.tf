@@ -14,7 +14,7 @@ locals {
   native_bootstrap_config = var.native_bootstrap == null ? null : merge(var.native_bootstrap, {
     schemaVersion        = 1, region = var.region, accountId = var.account_id, candidateKey = var.candidate_digest,
     generationDigest     = var.dispatch_budget == null ? null : var.dispatch_budget.generationDigest,
-    state                = module.accounting.state_config, databaseHost = nonsensitive(module.target.db_endpoint), database = local.database,
+    state                = module.accounting.state_config, databaseHost = nonsensitive(module.application.db_endpoint), database = local.database,
     appRole              = local.app_role, cleanupRole = local.fixture_roles.cleanup, observerRole = local.fixture_roles.observer,
     endpoint             = local.origin, secretArns = { for kind, secret in aws_secretsmanager_secret.api : kind => secret.arn },
     bucket               = aws_s3_bucket.handoff.id, receiptKey = "native/bootstrap/${local.candidate_hex}/${var.native_bootstrap.operation.operationId}.json",
@@ -61,7 +61,7 @@ resource "aws_iam_role_policy" "native_bootstrap" {
     { Effect = "Allow", Action = "s3:PutObject", Resource = "${aws_s3_bucket.handoff.arn}/native/bootstrap/${local.candidate_hex}/*", Condition = { StringEquals = { "s3:if-none-match" = "*" } } },
     { Effect = "Allow", Action = ["dynamodb:GetItem", "dynamodb:UpdateItem"], Resource = local.state_table_arn, Condition = { "ForAllValues:StringEquals" = { "dynamodb:LeadingKeys" = [var.candidate_digest] } } },
     { Effect = "Allow", Action = "secretsmanager:PutSecretValue", Resource = [for secret in aws_secretsmanager_secret.api : secret.arn] },
-    { Effect = "Allow", Action = "ecs:DescribeTasks", Resource = "arn:aws:ecs:${var.region}:${var.account_id}:task/${module.target.ecs_cluster_name}/*" }
+    { Effect = "Allow", Action = "ecs:DescribeTasks", Resource = "arn:aws:ecs:${var.region}:${var.account_id}:task/${module.application.ecs_cluster_name}/*" }
   ] })
 }
 resource "aws_iam_role_policy" "dispatch_native_bootstrap" {
@@ -79,7 +79,7 @@ resource "aws_iam_role_policy" "observe_native_bootstrap" {
   role  = aws_iam_role.dispatcher.id
   policy = jsonencode({ Version = "2012-10-17", Statement = [
     { Effect = "Allow", Action = "ecs:DescribeTaskDefinition", Resource = aws_ecs_task_definition.native_bootstrap[0].arn },
-    { Effect = "Allow", Action = "ecs:StopTask", Resource = "arn:aws:ecs:${var.region}:${var.account_id}:task/${module.target.ecs_cluster_name}/*" },
+    { Effect = "Allow", Action = "ecs:StopTask", Resource = "arn:aws:ecs:${var.region}:${var.account_id}:task/${module.application.ecs_cluster_name}/*" },
     { Effect = "Allow", Action = ["s3:GetObject", "s3:GetObjectVersion"], Resource = "${aws_s3_bucket.handoff.arn}/native/bootstrap/${local.candidate_hex}/*" }
   ] })
 }

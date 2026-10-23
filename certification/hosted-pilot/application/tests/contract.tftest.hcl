@@ -44,18 +44,21 @@ override_data {
 override_module {
   target = module.server
   outputs = {
-    vpc_id                = "vpc-12345678"
-    private_subnet_ids    = ["subnet-12345678"]
-    ecs_cluster_name      = "offline-test"
-    alb_dns_name          = "offline.invalid"
-    alb_security_group_id = "sg-12345678"
-    https_listener_arn    = "arn:aws:elasticloadbalancing:us-west-2:123456789012:listener/app/offline/1234567890123456/1234567890123456"
-    ecs_service_name      = "offline-server"
+    vpc_id                    = "vpc-12345678"
+    private_subnet_ids        = ["subnet-12345678"]
+    ecs_cluster_name          = "offline-test"
+    alb_dns_name              = "offline.invalid"
+    alb_security_group_id     = "sg-12345678"
+    https_listener_arn        = "arn:aws:elasticloadbalancing:us-west-2:123456789012:listener/app/offline/1234567890123456/1234567890123456"
+    ecs_service_name          = "offline-server"
+    db_endpoint               = "offline.rds.invalid"
+    db_connection_secret_arn  = "arn:aws:secretsmanager:us-west-2:123456789012:secret:honua-pilot-offline-db"
+    admin_password_secret_arn = "arn:aws:secretsmanager:us-west-2:123456789012:secret:honua-pilot-offline-admin"
   }
 }
 
 override_module {
-  target = module.network
+  target = module.network[0]
   outputs = {
     vpc_id          = "vpc-12345678"
     vpc_cidr_block  = "10.0.0.0/16"
@@ -85,7 +88,9 @@ variables {
   allowed_operator_cidrs           = ["192.0.2.1/32"]
   operation_certificate_secret_arn = "arn:aws:secretsmanager:us-west-2:123456789012:secret:offline-operations"
   audit_chain_secret_arn           = "arn:aws:secretsmanager:us-west-2:123456789012:secret:offline-audit"
-  console_agent_secret_arn         = "arn:aws:secretsmanager:us-west-2:123456789012:secret:offline-agent"
+  console_agent_secret_arn         = "arn:aws:secretsmanager:us-west-2:123456789012:secret:honua-pilot-offline-agent/native-agent/agent-ABC123"
+  console_agent_key_id             = "11111111-1111-1111-1111-111111111111"
+  console_agent_secret_version_id  = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
   identity_redirects = {
     console_origin          = "https://console.pilot.offline.invalid"
     edge_callback_url       = "https://console.pilot.offline.invalid/oauth2/callback"
@@ -112,7 +117,7 @@ run "authenticated_edge_configuration" {
   assert {
     condition = alltrue([for setting in jsondecode(aws_ecs_task_definition.console.container_definitions)[0].environment :
       setting.name != "HONUA_NATIVE_MODEL_ENABLED" || setting.value == "false"
-    ]) && jsondecode(aws_ecs_task_definition.console.container_definitions)[0].secrets[0] == { name = "HONUA_AGENT_API_KEY", valueFrom = var.console_agent_secret_arn }
+    ]) && jsondecode(aws_ecs_task_definition.console.container_definitions)[0].secrets[0] == { name = "HONUA_AGENT_API_KEY", valueFrom = "${var.console_agent_secret_arn}:::${var.console_agent_secret_version_id}" }
     error_message = "Native inference must remain disabled and only the dedicated agent credential used for agent transport."
   }
 }
@@ -370,7 +375,11 @@ run "refuse_mutable_edge_image" {
 
 run "authentication_staging_without_agent_credential" {
   command = plan
-  variables { console_agent_secret_arn = null }
+  variables {
+    console_agent_secret_arn        = null
+    console_agent_key_id            = null
+    console_agent_secret_version_id = null
+  }
   assert {
     condition = (
       alltrue([for secret in jsondecode(aws_ecs_task_definition.console.container_definitions)[0].secrets : secret.name != "HONUA_AGENT_API_KEY"]) &&
