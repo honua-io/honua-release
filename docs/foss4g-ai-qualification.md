@@ -82,3 +82,29 @@ Scope overlap was reconciled into existing tickets: #619 retains the broad
 campaign, #652 the platform audit, #277 commercial readiness, #377/#480 the
 terminal journey and scheduled proofs, #481 canary binding, and #791 toil metrics.
 No issue is closed while it still owns an unsatisfied unique requirement.
+
+## Current execution status — 2026-10-23 20:55 UTC
+
+The [current canonical release checkpoint](https://github.com/honua-io/honua-release/issues/378)
+and [interaction plan](plans/agent-console-interaction-plan.md#712-execution-checkpoint--2026-10-23-2055-utc)
+retain the original acceptance requirements. Shared application topology #870 and
+original foundation history #872 are merged. Exact native operation ceilings
+#873 and Console-turn adoption #871 remain under CI/review. The identity-only
+enrollment emitter at `5d1019cd` passed 290 Python checks and actionlint; its
+complete deployment integration still needs the reviewed Server task output and
+SCIM credential binding. None of these source checks qualifies human sign-in.
+
+The last measured RC result remains 18/20: AWS cloud and the full agent campaign
+are incomplete. The genuine terminal-model canary passed on original run
+40001824669; do not repeat paid inference merely to refresh a status note.
+Original cloud deployment39942695095 still awaits genuine environment approval.
+Custody PLAN40014973402 is successful and unapplied. Separate exact-plan custody
+and foundation phases are being implemented and reviewed before deployment.
+
+Preserve the 252-case legacy campaign, the separate134-case pilot, all original
+failed attempts and the $334 aggregate reservations. Distinct real author/approver
+nominations, actual Cognito sessions, five user sessions, complete AI journeys,
+recovery and the installed-candidate recording are still outstanding. The runbook
+remains at `/home/mike/honua-io/RC1-RUNBOOK-20261022.md`; its historical commands do
+not override the requirement to configure infrastructure only through IaC and
+checked workflows.
