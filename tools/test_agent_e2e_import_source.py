@@ -1,6 +1,7 @@
 """Original MCP task plus authenticated HTTP custody bounds source contribution."""
 import copy
 from pathlib import Path
+import sys
 from types import SimpleNamespace
 
 import pytest
@@ -19,13 +20,18 @@ CORPUS = ROOT/'certification/agent-e2e/corpus'
 MANIFEST = load_json(CORPUS/'manifest.v1.json')
 
 
-@pytest.fixture
-def contribution(imported, adapter):
+def exact_source(imported):
     source_path = 'town-A/parcels.4326.geojson'
     row = next(row for row in MANIFEST['files'] if row['path'] == source_path)
     source = imported.create['request']['source']
     source.update(fileName=Path(source_path).name, expectedSha256=row['sha256'], totalBytes=row['bytes'])
     imported.observer.binding['destinations'][0].update(fileName=source['fileName'], sourceSha256=row['sha256'], totalBytes=row['bytes'])
+    return row
+
+
+@pytest.fixture
+def contribution(imported, adapter):
+    row = exact_source(imported)
     context = {**adapter.http.context, 'caseId': 'P04:A:aws-ecs-redis-on', 'campaignMode': 'development'}
     imported.observer.http.context = copy.deepcopy(context)
     for reserved in adapter.durable.state['ledger']['entries']:
@@ -117,3 +123,36 @@ def test_changed_or_symlinked_corpus_never_reaches_private_transfer(contribution
     source.symlink_to(CORPUS/contribution.source['path'])
     with pytest.raises(PackError): contribute_selected_source(**kwargs)
     assert not contribution.calls
+
+
+def test_session_contributes_after_actual_worker_create_before_next_model_action(imported, adapter, monkeypatch):
+    row = exact_source(imported)
+    context = {**adapter.http.context, 'caseId': 'P04:A:aws-ecs-redis-on', 'campaignMode': 'development'}
+    imported.observer.http.context = copy.deepcopy(context)
+    for reserved in adapter.durable.state['ledger']['entries']:
+        reserved['caseId'] = context['caseId']
+    session = Session.__new__(Session)
+    session.durable, session.context = adapter.durable, context
+    session.key, session.campaign = canonical_digest(identity(context)), context
+    session.pack, session.corpus_path = PACK, CORPUS/'manifest.v1.json'
+    session.config = {'sourceContribution': {'schemaVersion': 1}}
+    session.open_worker = lambda: None
+    session.observer_for_recovery = lambda: imported.observer
+    imported.observer.retain = session.retain
+    session.execute_action = lambda action, dispatch, timeout: imported.execute(CREATE, action['input']['arguments'], observe=False)[2]
+    session.retain('public-inputs', {'files': [{'path': row['path'], 'sha256': 'sha256:'+row['sha256']}]})
+    calls = []
+    def private(**kwargs):
+        assert session.value('model-result-1') is not None
+        assert session.value('import-ordinal-1')['task'] == kwargs['task']
+        assert session.value('source-contribution-1') is None
+        calls.append(kwargs)
+        return {'inputPreparationOnly': True}
+    monkeypatch.setitem(sys.modules, 'hosted_pilot.source_contribution', SimpleNamespace(contribute_original_source=private))
+    action = {'name': 'mcp_call_tool', 'input': {'name': CREATE, 'arguments': imported.create}}
+    dispatch = {'ordinal': 1, 'actionId': canonical_digest({**identity(context),
+        'componentBindingDigest': context['componentBindingDigest'], 'ordinal': 1})[7:], 'requestDigest': canonical_digest(action)}
+    reply = session.action({'action': action, 'dispatch': dispatch}, 30)
+    assert calls[0]['source']['sha256'] == row['sha256']
+    assert reply['agentResult']['content']['structuredContent']['taskId'] == calls[0]['task']['taskId']
+    assert session.value('source-contribution-1') == {'inputPreparationOnly': True}

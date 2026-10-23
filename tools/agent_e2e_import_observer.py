@@ -33,6 +33,33 @@ class SqlImportedDataset:
                 'import SQL observer lacks its original independent candidate baseline')
         self.database, self.baseline = database, copy.deepcopy(baseline)
 
+    def ownership(self, receipt):
+        """Read exact physical identity even when feature verification failed.
+
+        Cleanup must not depend on valid geometry/properties or an expected row
+        count. Original successful native job output, new OID and importer marker
+        still limit the cleanup target; unknown references remain DROP RESTRICT.
+        """
+        from psycopg import sql
+        require(isinstance(receipt, dict) and receipt.get('schema') == 'honua_data',
+                'cleanup import lacks its actual physical output')
+        schema, table = ident(receipt['schema']), ident(receipt.get('physicalTableName'))
+        before = self.baseline['snapshot'].get('product', self.baseline['snapshot'])['relations']
+        require(not any(row['schema'] == schema and row['name'] == table for row in before),
+                'cleanup import output names preexisting shared content')
+        with self.database.connection() as (connection, identity):
+            require(self.baseline['database'] == {key: identity[key] for key in self.baseline['database']},
+                    'cleanup import database changed from original baseline')
+            connection.execute(sql.SQL('LOCK TABLE {} IN ACCESS SHARE MODE').format(sql.Identifier(schema, table)))
+            relation = connection.execute('''SELECT c.oid::bigint AS oid, c.relkind::text AS kind, c.relrowsecurity AS row_security,
+                pg_get_userbyid(c.relowner) AS owner, obj_description(c.oid, 'pg_class') AS marker
+                FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace WHERE n.nspname=%s AND c.relname=%s''',
+                (schema, table)).fetchone()
+            require(relation is not None and relation['kind'] == 'r' and relation['marker'] == 'honua:import-owned:v1' and
+                    relation['oid'] not in {row['oid'] for row in before},
+                    'cleanup import physical output is absent, replaced or lacks native ownership marker')
+        return {'table': {'schema': schema, 'name': table, **relation}, 'observerPrincipal': identity['principal']}
+
     def observe(self, receipt):
         from psycopg import sql
         require(isinstance(receipt, dict) and set(receipt) == {'physicalTableName', 'schema', 'featureCount', 'detectedSrid'} and
@@ -159,7 +186,26 @@ class DatasetImportObserver:
         self.retain('import-selected-'+dispatch['actionId'], record)
         return record
 
-    def observe(self, selected, *, step):
+    def reconcile_submission(self, action, dispatch, *, step):
+        """Read a dispatched submission without requiring a returned worker reply."""
+        require(self.eligible(action) and action['input']['name'] == SUBMIT,
+                'cleanup reconciliation requires the original model submission intent')
+        arguments = action['input'].get('arguments', {})
+        require(arguments.get('workspaceId') == self.binding['workspaceId'] and
+                dispatch.get('requestDigest') == canonical_digest({key: action[key] for key in ('name', 'input')}),
+                'cleanup submission differs from its original model request/workspace')
+        path = self.task_path(arguments.get('taskId'), arguments.get('revision'))
+        answer = self.http.json(step+'-original-task', 'GET', path)
+        task = data(answer)
+        require(task.get('taskId') == arguments['taskId'] and task.get('revision') == arguments['revision'] and
+                task.get('contentHash') == arguments.get('request', {}).get('taskContentHash'),
+                'cleanup native task differs from original dispatched immutable task')
+        self.validate_task(task)
+        selection = {'actionId': dispatch['actionId'], 'requestDigest': dispatch['requestDigest'], 'tool': SUBMIT,
+            'task': task, 'bindingDigest': canonical_digest(self.binding), 'nativeReferences': {'task': answer['reference']}}
+        return self.observe(selection, step=step, cleanup=True)
+
+    def observe(self, selected, *, step, cleanup=False):
         require(selected.get('bindingDigest') == canonical_digest(self.binding), 'import selection belongs to another exact native scope')
         task = selected['task']
         self.validate_task(task)
@@ -186,11 +232,12 @@ class DatasetImportObserver:
                 require(job.get('outcomePending') is False and job.get('errorCode') is None and
                         instant(job['createdAt']) <= instant(job.get('completedAt')) <= datetime.now(timezone.utc) and
                         isinstance(job.get('output'), dict), 'successful native import still has unknown completion/output')
-                observed['dataset'] = self.sql.observe(job['output'])
-                features = observed['dataset']['features']
-                observed['features.exact'] = copy.deepcopy(features)
-                observed['geometry.crs'] = {'sourceSrid': job['output'].get('detectedSrid'), 'returnedSrid': features['srid'],
-                    'coordinateDigest': canonical_digest([{'sourceId': row['id'], 'geometry': row['geometry']} for row in features['features']])[7:]}
+                observed['dataset'] = self.sql.ownership(job['output']) if cleanup else self.sql.observe(job['output'])
+                if not cleanup:
+                    features = observed['dataset']['features']
+                    observed['features.exact'] = copy.deepcopy(features)
+                    observed['geometry.crs'] = {'sourceSrid': job['output'].get('detectedSrid'), 'returnedSrid': features['srid'],
+                        'coordinateDigest': canonical_digest([{'sourceId': row['id'], 'geometry': row['geometry']} for row in features['features']])[7:]}
             else:
                 require(job.get('output') is None, 'incomplete or failed import cannot expose completed dataset output')
         self.retain(step+'-observation', observed)

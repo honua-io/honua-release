@@ -11,9 +11,10 @@ from __future__ import annotations
 import copy
 from datetime import datetime, timezone
 import os
+from pathlib import Path
 
 from agent_e2e_import_database import ImportedFixtureDatabase
-from agent_e2e_import_observer import DatasetImportObserver, SqlImportedDataset, SUBMIT
+from agent_e2e_import_observer import DatasetImportObserver, SqlImportedDataset, CREATE, SUBMIT
 from agent_e2e_mcp import validate_agent_context
 from agent_e2e_native_costs import reserve_overhead
 from agent_e2e_p10_backend import Session as WorkerSession, identity
@@ -48,9 +49,8 @@ class Session(WorkerSession):
     PROFILE = 'dataset-import-native'
     CASE_PATTERN = r'P0[45]:[AB]:aws-ecs-redis-on'
     CONFIG_FIELDS = {'http', 'database', 'deployment', 'attempts', 'accounting', 'import', 'ownershipTransfer'}
-    OPTIONAL_FIELDS = set()
+    OPTIONAL_FIELDS = {'sourceContribution'}
     DATABASE = ImportedFixtureDatabase
-    cleanup_fixture = PublicationSession.cleanup_fixture
 
     def validate_observer(self, http, secrets):
         config = self.config['import']
@@ -61,6 +61,21 @@ class Session(WorkerSession):
             validate_agent_context(config['requesterAgentContext']) is not None and
             config['requesterAgentContext']['workspaceId'] == config['workspaceId'],
             'native import requires separate setup/task credentials and the actual captured workspace/turn')
+        contribution = self.config.get('sourceContribution')
+        if contribution is not None:
+            fields = {'schemaVersion', 'endpoint', 'credentialEnv', 'credentialBinding', 'humanCustody', 'corpusManifest'}
+            require(isinstance(contribution, dict) and fields <= set(contribution) <= fields | {'materializerIndex'} and
+                contribution['schemaVersion'] == 1 and contribution['endpoint'] == http['endpoint'] and
+                contribution['credentialEnv'] == 'HONUA_SOURCE_CONTRIBUTOR_OPERATOR_TOKEN' and
+                os.environ.get(contribution['credentialEnv']) and os.environ[contribution['credentialEnv']] not in
+                (*secrets, os.environ[config['requesterCredentialEnv']]),
+                'source contribution requires its separate actual-human bearer and reviewed native custody')
+            reference = contribution['corpusManifest']
+            require(isinstance(reference, dict) and set(reference) == {'path', 'sha256'} and
+                gate.safe_file(self.corpus_path.parent, self.corpus_path.name).resolve() ==
+                Path(reference['path']).resolve(strict=True) and
+                digest_bytes(self.corpus_path.read_bytes()) == reference['sha256'],
+                'source contribution differs from the exact frozen corpus manifest')
 
     def source(self):
         rows = selected_files(self.pack, self.context['caseId'], load_json(self.corpus_path))
@@ -128,6 +143,15 @@ class Session(WorkerSession):
                 self.retain('import-rejected-'+str(dispatch['ordinal']), {'actionId': dispatch['actionId'], 'errorType': type(error).__name__})
                 return observed
             self.retain('import-ordinal-'+str(dispatch['ordinal']), selected)
+            if selected['tool'] == CREATE and self.config.get('sourceContribution') is not None:
+                from agent_e2e_import_source import contribute_selected_source
+                client = observer.http.client
+                receipt = contribute_selected_source(selected=selected, dispatch=dispatch, durable=self.durable,
+                    context=self.context, observer={'endpoint': client.endpoint, 'credentialKind': client.kind,
+                        'attemptId': client.identity['attemptId'], 'agentContext': client.agent_context},
+                    configuration=self.config['sourceContribution'], pack=self.pack,
+                    corpus_root=self.corpus_path.parent, manifest=load_json(self.corpus_path))
+                self.retain('source-contribution-'+str(dispatch['ordinal']), receipt)
         return observed
 
     def verify(self):
@@ -177,18 +201,66 @@ class Session(WorkerSession):
 
     def prepare_cleanup_ownership(self):
         require(self.value('worker-stopped') is not None, 'native import ownership cannot change before task worker is independently stopped')
-        observations = self.value('completed-imports')
-        require(observations, 'native import output remains unresolved; retain all jobs and cleanup liabilities')
+        observer = self.observer_for_recovery()
+        intents = sorted((row for row in self.durable.state.get('scenarioOperations', {}).values() if
+            row.get('producer') == self.PROFILE and row.get('identity') == identity(self.context) and
+            row.get('phase', '').startswith('model-action-') and
+            row.get('value', {}).get('action', {}).get('name') == 'mcp_call_tool' and
+            row['value']['action'].get('input', {}).get('name') == SUBMIT),
+            key=lambda row: int(row['phase'].rsplit('-', 1)[1]))
+        observations, unresolved, seen = [], [], set()
+        for row in intents:
+            ordinal, value = int(row['phase'].rsplit('-', 1)[1]), row['value']
+            arguments = value['action']['input'].get('arguments', {})
+            task = canonical_digest([arguments.get('taskId'), arguments.get('revision'), arguments.get('request', {}).get('taskContentHash')])
+            if task in seen:
+                continue
+            seen.add(task)
+            try:
+                actual = observer.reconcile_submission(value['action'], value['dispatch'], step='cleanup-import-'+str(ordinal))
+                receipt = actual['submission']
+                if actual['dataset'] is not None:
+                    observations.append(actual)
+                elif receipt.get('state') != 'accepted' or receipt.get('job', {}).get('status') not in ('failed', 'cancelled') or \
+                        receipt.get('job', {}).get('outcomePending') is not False:
+                    unresolved.append({'ordinal': ordinal, 'taskId': actual['taskId'], 'submission': receipt,
+                        'nativeReferences': actual['nativeReferences']})
+            except (PackError, ValueError, KeyError, TypeError) as error:
+                unresolved.append({'ordinal': ordinal, 'taskId': arguments.get('taskId'), 'errorType': type(error).__name__})
+        creations = [row for row in self.durable.state.get('scenarioOperations', {}).values() if
+            row.get('producer') == self.PROFILE and row.get('identity') == identity(self.context) and
+            row.get('phase', '').startswith('model-action-') and
+            row.get('value', {}).get('action', {}).get('name') == 'mcp_call_tool' and
+            row['value']['action'].get('input', {}).get('name') == CREATE]
+        for row in creations:
+            ordinal = int(row['phase'].rsplit('-', 1)[1])
+            selected = self.value('import-ordinal-'+str(ordinal))
+            original = selected.get('task') if selected else None
+            if original is None or canonical_digest([original.get('taskId'), original.get('revision'), original.get('contentHash')]) not in seen:
+                unresolved.append({'ordinal': ordinal, 'taskId': original.get('taskId') if original else None,
+                    'reason': 'created-task-or-source-retention-unresolved'})
+        self.retain('cleanup-import-reconciliation', {'materialized': observations, 'unresolved': unresolved})
         baseline = self.durable.state['fixtureBaselines'][self.key]
-        request = self.database.observe_import_tables(baseline, observations)
+        if not observations:
+            self.durable.retain_fixture_ownership(self.context, self.database.ownership_empty(baseline))
+            return
+        request = self.database.observe_import_tables(baseline, observations, partial=True)
         self.retain('observed-source-owners', request)
         if any(table['owner'] != request['expectedCleanupRole'] for table in request['tables']):
             from hosted_pilot.fixture_handoff import transfer_ownership
             receipt = transfer_ownership(request, durable=self.durable, context=self.context,
                 configuration=self.config['ownershipTransfer'], timeout=300)
             self.retain('ownership-transfer-receipt', receipt)
-        ownership = self.database.ownership_imports(baseline, request)
+        ownership = self.database.ownership_imports(baseline, request, partial=True)
         self.durable.retain_fixture_ownership(self.context, ownership)
+
+    def cleanup_fixture(self, ownership):
+        result = PublicationSession.cleanup_fixture(self, ownership)
+        reconciliation = self.value('cleanup-import-reconciliation')
+        if reconciliation is None or reconciliation['unresolved'] or result['resourceIds']:
+            self.retain('partial-import-sql-cleanup', result)
+            raise PackError('proven import outputs cleaned; unresolved native jobs/relations retain all remaining liabilities')
+        return result
 
 
 def handle(operation, payload, *, durable, campaign, bundle, configuration, timeout):

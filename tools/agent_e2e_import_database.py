@@ -17,7 +17,7 @@ PROFILE = 'honua.model-import-owned-tables/v1'
 
 
 class ImportedFixtureDatabase(FixtureDatabase):
-    def observe_import_tables(self, baseline, observations):
+    def observe_import_tables(self, baseline, observations, *, partial=False):
         require(baseline.get('candidateKey') == self.config['candidateKey'] and
                 isinstance(observations, list) and 1 <= len(observations) <= 16,
                 'import ownership requires exact independent baseline and completed native outputs')
@@ -56,13 +56,33 @@ class ImportedFixtureDatabase(FixtureDatabase):
                 'jobId': token(job['jobId'], 'owned import job'), 'leaseId': token(job.get('leaseId'), 'owned import lease'),
                 'tableOid': table['oid'], 'taskReference': references['task'], 'submissionReference': references['submission']})
         require(len({row['oid'] for row in tables}) == len(tables) and len({row['jobId'] for row in imports}) == len(imports) and
-                {row['oid'] for row in snapshot['relations']} - before == {row['oid'] for row in tables},
+                (partial or {row['oid'] for row in snapshot['relations']} - before == {row['oid'] for row in tables}),
                 'import handoff contains duplicate or unrelated new physical output')
         return {'schemaVersion': 1, 'profile': PROFILE, 'candidateKey': self.config['candidateKey'],
             'database': copy.deepcopy(baseline['database']), 'baselineDigest': canonical_digest(baseline),
             'expectedCleanupRole': self.config['cleanupRole'], 'tables': tables, 'nativeImports': imports}
 
-    def ownership_imports(self, baseline, request):
+    def preserve_unowned(self, snapshot, baseline, record):
+        """Allow untouched new relations while preserving every original object."""
+        preservation = self.without_owned(snapshot, record)
+        require({key: value for key, value in preservation.items() if key != 'relations'} ==
+                {key: value for key, value in baseline['snapshot'].items() if key != 'relations'} and
+                all(row in preservation['relations'] for row in baseline['snapshot']['relations']),
+                'partial import cleanup changed an original shared catalog/source relation')
+        return preservation
+
+    def ownership_empty(self, baseline):
+        """Observe absence of proven outputs without inventing an owned table."""
+        require(baseline.get('candidateKey') == self.config['candidateKey'], 'empty import cleanup baseline changed candidate')
+        with self.connection() as (connection, identity):
+            require(baseline['database'] == {key: identity[key] for key in baseline['database']}, 'empty import database identity changed')
+            prepared = self.snapshot(connection)
+        record = {'schemaVersion': 1, 'profile': PROFILE, 'candidateKey': self.config['candidateKey'],
+            'baseline': copy.deepcopy(baseline), 'prepared': prepared, 'tables': [], 'ownershipRequest': None}
+        record['preservation'] = self.preserve_unowned(prepared, baseline, record)
+        return record
+
+    def ownership_imports(self, baseline, request, *, partial=False):
         require(set(request) == {'schemaVersion', 'profile', 'candidateKey', 'database', 'baselineDigest',
                 'expectedCleanupRole', 'tables', 'nativeImports'} and request.get('schemaVersion') == 1 and
                 isinstance(request['tables'], list) and 1 <= len(request['tables']) <= 16 and
@@ -84,7 +104,10 @@ class ImportedFixtureDatabase(FixtureDatabase):
         require(len({row['oid'] for row in tables}) == len(tables), 'duplicate imported output ownership')
         record = {'schemaVersion': 1, 'profile': PROFILE, 'candidateKey': self.config['candidateKey'],
             'baseline': copy.deepcopy(baseline), 'prepared': prepared, 'tables': tables, 'ownershipRequest': copy.deepcopy(request)}
-        require(self.without_owned(prepared, record) == baseline['snapshot'], 'model import changed unrelated shared catalog or source state')
+        if partial:
+            record['preservation'] = self.preserve_unowned(prepared, baseline, record)
+        else:
+            require(self.without_owned(prepared, record) == baseline['snapshot'], 'model import changed unrelated shared catalog or source state')
         return record
 
     def without_owned(self, snapshot, record):
@@ -97,6 +120,9 @@ class ImportedFixtureDatabase(FixtureDatabase):
         from psycopg import sql
         require(record.get('profile') == PROFILE and record.get('candidateKey') == self.config['candidateKey'],
                 'import cleanup lacks exact retained native physical ownership')
+        preservation = record.get('preservation', record['baseline']['snapshot'])
+        require(self.preserve_unowned(record['prepared'], record['baseline'], record) == preservation,
+                'retained partial cleanup preservation differs from exact prepared objects')
         authorize(record)
         intent = {'schemaVersion': 1, 'candidateKey': self.config['candidateKey'], 'ownershipDigest': canonical_digest(record)}
         acknowledgement = retain('intent', intent)
@@ -107,20 +133,21 @@ class ImportedFixtureDatabase(FixtureDatabase):
             require(connection.execute("SELECT 1 FROM pg_event_trigger WHERE evtenabled <> 'D' LIMIT 1").fetchone() is None,
                     'import cleanup refuses unreviewed DDL event triggers')
             current = self.snapshot(connection)
-            require(self.without_owned(current, record) == record['baseline']['snapshot'] and
+            require(self.without_owned(current, record) == preservation and
                     all(table in current['relations'] for table in record['tables']), 'owned import OIDs/owners or unrelated state changed')
             authorize(record)
             for table in record['tables']:
                 connection.execute(sql.SQL('DROP TABLE {} RESTRICT').format(sql.Identifier(table['schema'], table['name'])))
-            require(self.snapshot(connection) == record['baseline']['snapshot'], 'import transaction failed to restore original exact baseline')
+            require(self.snapshot(connection) == preservation, 'import transaction failed to preserve exact unrelated objects')
             authorize(record)
         with self.connection() as (connection, observer_identity):
             observed = self.snapshot(connection)
-            require(observer_identity['principal'] != cleanup_identity['principal'] and observed == record['baseline']['snapshot'],
+            require(observer_identity['principal'] != cleanup_identity['principal'] and observed == preservation,
                     'independent import SQL observer found remaining or changed resources')
         result = {'schemaVersion': 1, 'candidateKey': self.config['candidateKey'], 'ownershipDigest': canonical_digest(record),
             'cleanupPrincipal': cleanup_identity['principal'], 'observerPrincipal': observer_identity['principal'],
-            'baselineDigest': canonical_digest(observed), 'resourceIds': [], 'qualification': False}
+            'baselineDigest': canonical_digest(observed), 'resourceIds': [row['schema']+'.'+row['name'] for row in observed['relations']
+                if row['oid'] not in {old['oid'] for old in record['baseline']['snapshot']['relations']}], 'qualification': False}
         acknowledgement = retain('observation', result)
         require(isinstance(acknowledgement, dict) and acknowledgement.get('sha256') == canonical_digest(result), 'import absence not retained')
         return result
