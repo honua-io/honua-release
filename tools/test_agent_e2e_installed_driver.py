@@ -9,6 +9,7 @@ import pytest
 from agent_e2e_console_runtime import ExecutionJournal
 from agent_e2e_installed_driver import InstalledExecutionDriver, GuardedModel, queue_role
 from agent_e2e_pack import PackError
+from agent_e2e_execution_protocol import validate_worker_bound
 from hosted_pilot import installed_controller as entry
 from test_agent_e2e_console_runtime import runtime, original, E
 from test_agent_e2e_interactive_budget import interactive
@@ -187,3 +188,13 @@ def test_native_control_unicode_question_retains_actual_utf8_wire_under_existing
     posts = [row for row in server.seen if row[0] == 'POST']
     assert len(posts) == 1 and len(posts[0][3]) < 65536
     assert json.loads(posts[0][3])['text'] == text
+
+
+def test_worker_binding_local_reference_is_closed_metadata_before_any_retention():
+    original = {'protocol': 'honua.installed-worker-bind/v1', 'executionId': E, 'workerId': 'actual-task', 'claimGeneration': 1}
+    reply = {**original, 'protocol': 'honua.installed-worker-bound/v1', 'nativeRead': {'key': 'bind-read-1', 'sha256': BASIS}}
+    assert validate_worker_bound(reply, original) == reply
+    for value in ({'key': 'private-key-material', 'sha256': BASIS}, {'key': 'bind-read-1', 'sha256': BASIS, 'credential': 'private'},
+                  {'key': 'bind-read-1', 'sha256': 'not-a-hash'}, {'key': 'bind-read-١', 'sha256': BASIS}):
+        with pytest.raises(PackError): validate_worker_bound({**reply, 'nativeRead': value}, original)
+    with pytest.raises(PackError): validate_worker_bound({**reply, 'executionId': 'another-execution'}, original)

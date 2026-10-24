@@ -16,10 +16,12 @@ from agent_e2e_console_dispatcher import McpDispatcher
 from agent_e2e_console_loop import ExecutionLoop
 from agent_e2e_console_runtime import ExecutionJournal, secret_for, require
 from agent_e2e_controller import BedrockModel
-from agent_e2e_installed_container import BIND_PROTOCOL, BOUND_PROTOCOL
+from agent_e2e_installed_container import BIND_PROTOCOL
+from agent_e2e_execution_protocol import validate_worker_bound
 from agent_e2e_installed_worker import InstalledSlot, sdk_original
 from agent_e2e_pack import canonical_digest
 from agent_e2e_worker import Worker, encode
+from agent_e2e_execution_witness import original_http
 
 
 class GuardedModel:
@@ -216,11 +218,13 @@ class InstalledExecutionDriver:
             require(len(acknowledged) == 1 and journal.values('worker-binding-reply'),
                     'original worker acknowledgement is ambiguous or lacks its worker reply')
             reference = acknowledged[0]['reference']
-            retained = journal.durable.state.get('nativeRuntimeHttp', {}).get(reference.get('key'))
-            require(isinstance(retained, dict) and canonical_digest(retained) == reference.get('sha256'),
-                    'original native worker acknowledgement is unavailable')
+            record = journal.record
+            retained = original_http(journal.durable.state.get('nativeRuntimeHttp', {}), reference,
+                path='/api/v1/agent/runtimes/'+record['runtimeId']+'/executions/'+record['executionId']+
+                    '?workspaceId='+record['workspaceId']+'&turnId='+record['turnId'],
+                endpoint=record['endpoint'], candidate=record['candidateKey'], runtime=record['runtimeId'], execution=record['executionId'])
             observed = self._physical(journal, slot, task)
-            require(observed['value'].get('workerBinding') == retained['response']['body'].get('workerBinding'),
+            require(observed['value'].get('workerBinding') == retained.get('workerBinding'),
                     'current native acknowledgement replaced the original task/context')
             return observed
         if not prior:
@@ -237,8 +241,7 @@ class InstalledExecutionDriver:
             for message in response.get('Messages', []):
                 require(len(message['Body'].encode()) <= 32768, 'oversized native worker binding reply')
                 reply = json.loads(message['Body'])
-                require(isinstance(reply, dict) and set(reply) == set(value) | {'nativeRead'} and reply.get('protocol') == BOUND_PROTOCOL and
-                        all(reply.get(k) == v for k, v in value.items() if k != 'protocol'), 'worker binding reply differs from original E')
+                validate_worker_bound(reply, value)
                 journal.append('worker-binding-reply', {'reply': reply})
                 observed = self._read(journal)
                 actual = observed['value'].get('workerBinding', {})
