@@ -36,7 +36,7 @@ def validate(config):
         'operation', 'databaseHost', 'database', 'appRole', 'cleanupRole', 'observerRole',
         'endpoint', 'targetId', 'itemId', 'expiresAt', 'readGrants', 'datasetImportScopes', 'managedProcessIds', 'secretArns', 'bucket', 'receiptKey',
         'clusterArn', 'taskDefinitionFamily', 'imageUri', 'generationDigest'}
-    require(isinstance(config, dict) and fields <= set(config) <= fields | {'humanMemberships'} and config['schemaVersion'] == 2, 'native bootstrap reviewed configuration missing')
+    require(isinstance(config, dict) and fields <= set(config) <= fields | {'humanMemberships', 'studioRestoreItemIds'} and config['schemaVersion'] == 2, 'native bootstrap reviewed configuration missing')
     if config.get('humanMemberships') is not None:
         from human_memberships import validate as validate_memberships
         validate_memberships(config['humanMemberships'], config)
@@ -62,6 +62,12 @@ def validate(config):
     require(isinstance(processes, list) and all(isinstance(process, str) for process in processes) and
             len(processes) == len(set(processes)) and all(process == 'analytics.buffer-aggregate-managed' for process in processes),
             'native managed-process authority must name the supported exact process')
+    restore_items = config.get('studioRestoreItemIds', [])
+    require(isinstance(restore_items, list) and all(isinstance(item, str) for item in restore_items) and
+            len(restore_items) == len(set(restore_items)) and
+            all(re.fullmatch(r'[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}', item) and
+                item != '00000000-0000-0000-0000-000000000000' for item in restore_items),
+            'native Studio restoration authority must name separate exact nonempty item IDs')
     expires = datetime.fromisoformat(config['expiresAt'].replace('Z', '+00:00'))
     require(expires.tzinfo and 0 < (expires-datetime.now(timezone.utc)).total_seconds() <= 7*86400, 'native bootstrap key expiry must be within seven days')
     operation = config['operation']
@@ -188,6 +194,7 @@ def provision(config, durable, *, connection, secrets, root_key, native):
     permission_sets = {'setup': ['admin:write'], 'observer': ['admin:read'], 'agent': [
         'admin:read', 'agent:workspace', 'agent:propose-publication', 'agent:studio-compose:'+config['itemId'],
         'agent:studio-propose-publication:'+config['itemId'], *config['readGrants'],
+        *('agent:studio-restore:'+item for item in config.get('studioRestoreItemIds', [])),
         *('agent:dataset-import:'+scope for scope in config['datasetImportScopes']),
         *('agent:managed-process:'+process for process in config['managedProcessIds'])]}
     issued = {}
