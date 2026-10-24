@@ -57,6 +57,8 @@ class InstalledRuntimeCustody(unittest.TestCase):
         self.assertEqual(control['secretArn'], self.config['secretArns']['control'])
         self.assertEqual(control['effectivePermissions']['id'], control['apiKeyId'])
         agent = receipt['keys']['agent']['permissions']
+        self.assertIn('agent:runtime-task:runtime-original', agent)
+        self.assertNotIn('agent:runtime-task:runtime-original', control['permissions'])
         self.assertIn('agent:studio-create-map-runtime:runtime-original', agent)
         self.assertIn('agent:studio-compose-runtime:runtime-original', agent)
         self.assertIn('agent:studio-propose-publication-runtime:runtime-original', agent)
@@ -81,6 +83,17 @@ class InstalledRuntimeCustody(unittest.TestCase):
         self.assertIn('agent:studio-restore-runtime:runtime-original', receipt['keys']['agent']['permissions'])
         self.assertNotIn('agent:studio-restore:'+self.config['itemId'], receipt['keys']['agent']['permissions'])
         self.assertEqual(receipt['keys']['control']['permissions'], ['admin:read', 'agent:runtime-control:runtime-original'])
+
+    def test_import_only_runtime_keeps_its_required_non_authorizing_task_marker(self):
+        self.config['installedRuntime']['mutationCeilings'].update({name: False for name in bootstrap.RUNTIME_STUDIO_PERMISSIONS})
+        receipt = self.fixture.provision()
+        task = receipt['keys']['agent']['permissions']
+        self.assertEqual([permission for permission in task if '-runtime:' in permission], [])
+        self.assertEqual([permission for permission in task if permission.startswith('agent:runtime-task:')],
+                         ['agent:runtime-task:runtime-original'])
+        self.assertIn('agent:dataset-import:'+self.config['datasetImportScopes'][0], task)
+        self.assertEqual(receipt['runtimeInstallation']['state'], 'registration-pending')
+        self.assertFalse(receipt['qualification'])
 
     def test_partial_installation_or_reused_control_secret_refuses_before_issuance(self):
         for change in ('missing-runtime', 'missing-control', 'shared-secret', 'swapped-secret'):

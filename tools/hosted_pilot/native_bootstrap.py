@@ -48,7 +48,11 @@ def installed_runtime_permissions(config):
             ceilings['datasetImportScopes'] == config['datasetImportScopes'] and
             ceilings['managedProcessIds'] == config['managedProcessIds'],
             'installed native runtime ceilings must be explicit and preserve original import/process scopes')
-    return [permission+runtime['runtimeId'] for name, permission in RUNTIME_STUDIO_PERMISSIONS.items() if ceilings[name]]
+    # This non-authorizing marker identifies an installed task even when every
+    # Studio operation is disabled. Native authorization requires its registered
+    # execution binding on resource paths; missing bindings cannot use static grants.
+    return ['agent:runtime-task:'+runtime['runtimeId'],
+            *[permission+runtime['runtimeId'] for name, permission in RUNTIME_STUDIO_PERMISSIONS.items() if ceilings[name]]]
 
 
 class NoRedirect(urllib.request.HTTPRedirectHandler):

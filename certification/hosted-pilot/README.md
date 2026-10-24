@@ -315,6 +315,15 @@ is independent of composition/publication. The additional
 original bootstrap scopes. Existing item-scoped permissions remain unchanged;
 none of these permissions conveys human approval.
 
+Every installed task key also carries `agent:runtime-task:<runtimeId>`, including
+an import-only installation with all five Studio ceilings disabled. This marker
+grants no operation. The native server must use it to require the current
+registered task key and exact execution/workspace/turn/generation/capability
+binding on all resource paths; omitted headers or missing registration cannot
+fall back to static-key authority. Only fixed read-only installation metadata
+(target identity and that key's own effective permissions) is available before
+registration. The three-key bootstrap without `installedRuntime` is separate.
+
 Credential issuance ends at `registration-pending`, with `qualification: false`.
 Installation then follows this order:
 
