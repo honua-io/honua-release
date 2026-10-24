@@ -8,10 +8,10 @@ import pytest
 
 from agent_e2e_console_runtime import ExecutionJournal
 from agent_e2e_installed_driver import InstalledExecutionDriver, GuardedModel, queue_role
-from agent_e2e_pack import PackError
+from agent_e2e_pack import PackError, canonical_digest
 from agent_e2e_execution_protocol import validate_worker_bound
 from hosted_pilot import installed_controller as entry
-from test_agent_e2e_console_runtime import runtime, original, E
+from test_agent_e2e_console_runtime import runtime, original, slot, E
 from test_agent_e2e_interactive_budget import interactive
 from test_agent_e2e_setup_http import server
 from test_agent_e2e_budget import KEY, BASIS
@@ -210,3 +210,94 @@ def test_actual_task_cannot_override_checked_command_environment_roles_or_resour
         {'containerOverrides': [{'name': container['name'], 'environment': [{'name': 'ROOT_KEY', 'value': 'private'}]}]}):
         with pytest.raises(PackError): entry.verify_task_overrides({**task, 'overrides': change}, container)
     with pytest.raises(PackError): entry.verify_task_overrides({**task, 'enableExecuteCommand': True}, container)
+
+
+@pytest.mark.parametrize('lost_ack,wrong_principal', [(False, False), (True, False), (False, True)])
+def test_real_first_bind_joins_worker_sqlite_native_http_and_original_slot_claims(
+        runtime, slot, server, tmp_path, monkeypatch, lost_ack, wrong_principal):
+    from agent_e2e_installed_container import InstalledBinding, native_binding_ack, native_binding_read
+    iam, _, boundary = role_fixture()
+    role_name = slot.config['taskRoleArn'].rsplit('/', 1)[1]
+    iam.get_role.return_value['Role']['Arn'] = slot.config['taskRoleArn']
+    iam.get_role_policy.return_value['RoleName'] = role_name
+    # Use the original retained E/admission/claim from the maintained slot
+    # fixture. This control never resets a ledger or manufactures retirement.
+    body = runtime.value
+    body['execution'].update(state='claimed', claim={'generation': 1,
+        'expiresEpoch': slot.worker.input['expiresEpoch'], 'slotId': slot.config['slotId'],
+        'nativeBindingDigest': BASIS})
+    registered = {'actorId': 'actual-task-fixture', 'credentialVersion': 'original-version'}
+    registration = {'schemaVersion': 1, 'candidateKey': KEY, 'runtimeId': 'runtime-original', 'targetId': 'target-original',
+        'configurationDigest': BASIS, 'registrationDigest': BASIS, 'taskPrincipal': registered}
+    model = {'region': 'us-east-1', 'modelId': 'fixture-profile', 'returnedModelId': 'fixture-returned',
+        'tokenCountingModelArn': 'arn:aws:bedrock:us-east-1::foundation-model/fixture-returned',
+        'pricingDigest': BASIS, 'inputUsdPerMillion': '3', 'outputUsdPerMillion': '15', 'maxOutputTokens': 128}
+    driver = InstalledExecutionDriver(native=runtime.control, verified={'configurationDigest': BASIS,
+        'runtimeId': 'runtime-original', 'targetId': 'target-original', 'model': model,
+        'workers': [{'descriptor': slot.config, 'proof': {'native': {'permissionsBoundaryArn': boundary}}}]},
+        registration=registration, states=slot.states, ecs=slot.ecs, db=slot.claims, sqs=None, iam=iam,
+        bedrock=Mock(), guard=lambda: None, clock=lambda: runtime.now)
+    active = {}
+    def respond(method, path, raw):
+        if path.endswith('/registration'): return 200, {}, json.dumps(registration).encode()
+        if path.endswith('/worker-binding'):
+            if method == 'POST':
+                acknowledgement = {**registered, **({'actorId': 'different-task'} if wrong_principal else {})}
+                body['execution']['state'] = 'running'
+                body['execution']['stateRevision'] += 1
+                body['workerBinding'] = {'schemaVersion': 1, 'state': 'running',
+                    **{key: active[key] for key in ('candidateKey', 'runtimeId', 'slotId', 'executionId',
+                        'workspaceId', 'turnId', 'claimGeneration', 'expiresEpoch', 'workerId', 'nativeBindingDigest')},
+                    'context': copy.deepcopy(body['binding']['turn']['context']),
+                    'contextDigest': canonical_digest(body['binding']['turn']['context']),
+                    'acknowledgement': acknowledgement}
+            return 200, {}, json.dumps(body['workerBinding']).encode()
+        if method == 'POST':
+            assert path.endswith('/worker')
+            body['execution']['claim']['workerId'] = json.loads(raw)['workerId']
+            body['execution']['stateRevision'] += 1
+        return 200, {}, json.dumps(body).encode()
+    server.respond = respond
+    transport = {'schemaVersion': 2, 'mode': 'installed-slot', **{key: slot.config[key] for key in
+        ('candidateKey', 'runtimeId', 'slotId', 'commandQueueUrl', 'replyQueueUrl', 'originalFundingExpiresEpoch', 'maxExecutionSeconds')}}
+    ack_calls = []
+    def acknowledge(*arguments):
+        ack_calls.append(arguments[2]['executionId'])
+        observed = native_binding_ack(*arguments)
+        if lost_ack: raise TimeoutError('original native acknowledgement reply lost')
+        return observed
+    monkeypatch.delenv('HONUA_AGENT_MCP_CONFIG', raising=False)
+    binding = InstalledBinding(transport, {'endpoint': server.url+'/mcp', 'credentialKind': 'api-key',
+        'credential': 'private-task-fixture', 'workflowView': 'workspace', 'bindingMode': 'native-execution/v1',
+        'runtimeId': 'runtime-original', 'slotId': slot.config['slotId']}, worker_id=slot.ecs.task['taskArn'],
+        journal=tmp_path/'actual-worker.sqlite', native_read=native_binding_read, native_ack=acknowledge,
+        clock=lambda: runtime.now)
+    replies, sends, deletes = [], [], []
+    def send(**request):
+        value = json.loads(request['MessageBody'])
+        sends.append(value)
+        active.update(value)
+        replies.append(binding.accept(value))
+        return {'MessageId': 'actual-queue-fixture'}
+    queue = SimpleNamespace(send_message=send,
+        receive_message=lambda **_: {'Messages': [{'Body': json.dumps(replies[0]), 'ReceiptHandle': 'original-reply'}]},
+        delete_message=lambda **request: deletes.append(request['ReceiptHandle']))
+    driver.sqs = queue
+    physical = slot.worker.start(slot.journal, slot.launch)
+    try:
+        if wrong_principal:
+            with pytest.raises(PackError, match='registered task/context'):
+                driver._binding(slot.journal, slot.worker, original(runtime), physical, 'a'*64)
+            assert not slot.journal.values('worker-binding-observation') and not deletes
+        else:
+            observed = driver._binding(slot.journal, slot.worker, original(runtime), physical, 'a'*64)
+            assert observed['value']['workerBinding']['acknowledgement'] == registered
+            assert deletes == ['original-reply']
+            runtime.durable.state = json.loads(json.dumps(runtime.durable.state))
+            recovered = ExecutionJournal(runtime.durable, original(runtime))
+            assert driver._binding(recovered, slot.worker, original(runtime), physical, 'a'*64)['value']['workerBinding'] == observed['value']['workerBinding']
+        assert ack_calls == [E] and len(sends) == 1
+        assert len([row for row in server.seen if row[0] == 'POST' and row[1].endswith('/worker-binding')]) == 1
+        assert not driver.model.client.invoke_model.called
+    finally:
+        binding.close()
