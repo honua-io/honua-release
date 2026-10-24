@@ -204,6 +204,9 @@ def verify_definition(lock, registration, *, aws=aws_json):
         raise DeploymentError("Custom workers require Fargate without a task IAM role")
     if container.get("environmentFiles") or container.get("environment") or container.get("secrets"):
         raise DeploymentError("Custom worker definitions cannot inject environment values, files or secrets")
+    if (container.get("volumes") or container.get("mountPoints") or container.get("privileged")
+            or container.get("repositoryCredentials") or container.get("logConfiguration", {}).get("secretOptions")):
+        raise DeploymentError("Custom workers cannot mount shared data or consume additional credential channels")
     return {"kind": "aws-batch", "jobDefinitionArn": arn}
 
 

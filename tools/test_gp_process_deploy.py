@@ -365,6 +365,29 @@ def test_provider_verification_refuses_ambient_credential_paths(docs, mutation):
         deploy.verify_definition(lock, deploy.registration_for(lock, state), aws=lambda args: {"jobDefinitions": [definition]})
 
 
+@pytest.mark.parametrize("channel", ["efs-volume", "host-volume", "mount", "privileged", "registry", "logging-secret"])
+def test_provider_verification_refuses_shared_data_and_extra_secret_channels(docs, channel):
+    lock, _, state, _, _ = docs
+    image = lock["runtimeImage"]["reference"].split("@")[0] + "@" + lock["targets"][0]["workerImageDigest"]
+    container = {"image":image}
+    if channel == "efs-volume":
+        container["volumes"] = [{"name":"private-data","efsVolumeConfiguration":{"fileSystemId":"fs-private"}}]
+    elif channel == "host-volume":
+        container["volumes"] = [{"name":"private-data","host":{"sourcePath":"/private"}}]
+    elif channel == "mount":
+        container["mountPoints"] = [{"sourceVolume":"private-data","containerPath":"/private","readOnly":True}]
+    elif channel == "privileged":
+        container["privileged"] = True
+    elif channel == "registry":
+        container["repositoryCredentials"] = {"credentialsParameter":"arn:aws:secretsmanager:us-west-2:123456789012:secret:private"}
+    else:
+        container["logConfiguration"] = {"logDriver":"splunk","secretOptions":[{"name":"splunk-token","valueFrom":"private"}]}
+    definition = {"jobDefinitionArn":ARN,"jobDefinitionName":"honua-gp-buffer-features","status":"ACTIVE",
+                  "platformCapabilities":["FARGATE"],"containerProperties":container}
+    with pytest.raises(deploy.DeploymentError, match="shared data|credential channels"):
+        deploy.verify_definition(lock, deploy.registration_for(lock,state), aws=lambda args:{"jobDefinitions":[definition]})
+
+
 @pytest.mark.parametrize("link", ["https://other.example/output", "//other.example/output", "/other/path",
                                    "/api/geoprocessing/jobs/other/custom-artifacts/result.json",
                                    "/api/geoprocessing/jobs/job-1/custom-artifacts/../secret"])
