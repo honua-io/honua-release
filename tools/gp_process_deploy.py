@@ -120,8 +120,9 @@ def promotion_predecessor(state, process, current, *, client=None):
     """Capture a reviewed forward or rollback predecessor for the next pin PR.
 
     A successful rollback leaves the forward pin unchanged. Only its exact
-    previous lock, with native reverse lineage to that forward release, can be
-    reconciled here. Unknown native locks still require separate review.
+    previous lock can be reconciled after native reverse lineage proves rollback,
+    or its unchanged expected version proves the forward pin never activated.
+    Unknown native locks or versions still require separate review.
     """
     if state.get("deploymentTooling", {}).get("kind") == "reference":
         return (current["release"] if current else None), state["bindingVersion"]
@@ -136,9 +137,12 @@ def promotion_predecessor(state, process, current, *, client=None):
     previous = current.get("previous") if current else None
     if observed.get("lockDigest") == (forward["lockDigest"] if forward else None):
         return forward, observed["bindingVersion"]
-    if (forward and previous and observed.get("lockDigest") == previous["lockDigest"]
-            and observed.get("previousLockDigest") == forward["lockDigest"]):
-        return previous, observed["bindingVersion"]
+    if forward and previous and observed.get("lockDigest") == previous["lockDigest"]:
+        rolled_back = observed.get("previousLockDigest") == forward["lockDigest"]
+        unactivated = (type(current.get("expectedBindingVersion")) is int
+                       and observed["bindingVersion"] == current["expectedBindingVersion"])
+        if rolled_back or unactivated:
+            return previous, observed["bindingVersion"]
     raise DeploymentError("Live promotion binding is outside reviewed forward/rollback lineage")
 
 

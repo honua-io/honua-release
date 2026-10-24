@@ -155,8 +155,9 @@ the release of jobs already admitted.
 Rollback additionally requires the live current and previous digests to match the reviewed pin,
 then uses the freshly read live version for compare-and-set. After a successful rollback, promote
 again from the observed live state. Promotion accepts the reviewed previous release only
-when the native reverse lineage points back to the reviewed forward release, and records
-that live predecessor/version in the next pin PR. Unknown lineage is refused; later concurrent
+when native reverse lineage points back to the reviewed forward release, or when the
+unchanged live version equals the forward pin's expected version and proves that forward
+release never activated. It records that live predecessor/version in the next pin PR. Unknown lineage is refused; later concurrent
 changes still fail deployment CAS. Server binding history records the activation.
 
 ## Reference environment

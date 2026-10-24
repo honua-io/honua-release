@@ -603,3 +603,31 @@ def test_supported_native_output_http_shape_checks_independent_bytes(docs, wrong
         assert all(key == "private-test-key" for _,_,key in requests) and len(requests) == 5
     finally:
         server.shutdown();server.server_close();thread.join(timeout=5)
+
+
+def test_unactivated_forward_pin_can_be_replaced_with_current_version_and_cas(docs):
+    lock, pin, state, index, live = docs
+    current=copy.deepcopy(pin)
+    current.update(previous={"lockDigest":"sha256:"+"a"*64},expectedBindingVersion=8)
+    live.update(lockDigest=current["previous"]["lockDigest"],previousLockDigest="sha256:"+"b"*64,bindingVersion=8)
+    server=FakeServer(lock,live)
+    predecessor,version=deploy.promotion_predecessor(state,lock["process"]["name"],current,client=server)
+    assert predecessor == current["previous"] and version == 8
+    replacement=copy.deepcopy(pin);replacement.update(previous=predecessor,expectedBindingVersion=version)
+    decision,_=deploy.live_preflight(server,lock,replacement,state,index,"deploy")
+    assert decision["admissible"]
+    server.live.update(bindingVersion=9,lockDigest=current["release"]["lockDigest"])
+    refused,_=deploy.live_preflight(server,lock,replacement,state,index,"deploy")
+    assert not refused["admissible"] and "STALE_BINDING_VERSION" in refused["refusalReasons"]
+    assert all(method == "GET" for method,_,_ in server.requests)
+
+
+@pytest.mark.parametrize("changed", [{"bindingVersion":9},{"bindingVersion":7},{"bindingVersion":True},
+                                    {"lockDigest":"sha256:"+"f"*64}])
+def test_unactivated_pin_reconciliation_refuses_unreviewed_versions_or_digests(docs,changed):
+    lock,pin,state,_,live=docs
+    current=copy.deepcopy(pin);current.update(previous={"lockDigest":"sha256:"+"a"*64},expectedBindingVersion=8)
+    live.update(lockDigest=current["previous"]["lockDigest"],previousLockDigest="sha256:"+"b"*64,bindingVersion=8)
+    live.update(changed)
+    with pytest.raises(deploy.DeploymentError):
+        deploy.promotion_predecessor(state,lock["process"]["name"],current,client=FakeServer(lock,live))
