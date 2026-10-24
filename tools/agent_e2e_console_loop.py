@@ -39,7 +39,7 @@ def provider_message(observation, model):
     require(message.get('model') == model.config['returnedModelId'], 'original response model differs')
     usage = message.get('usage', {})
     require(all(type(usage.get(k)) is int and usage[k] >= 0 for k in ('input_tokens', 'output_tokens')) and
-            usage['input_tokens'] > 0 and usage['output_tokens'] > 0 and
+            0 < usage['input_tokens'] <= 200000 and usage['output_tokens'] > 0 and
             not usage.get('cache_creation_input_tokens', 0) and not usage.get('cache_read_input_tokens', 0),
             'original model usage is missing or unpriced')
     cost = (usage['input_tokens'] * money(model.config['inputUsdPerMillion']) +

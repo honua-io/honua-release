@@ -168,10 +168,11 @@ class NativeControl:
 
 
 EVENTS = {'native-observation', 'admission', 'reservation', 'worker-intent', 'worker-start-response', 'worker-history',
-          'worker-observation', 'loop-binding',
+          'worker-installation-observation', 'worker-observation', 'worker-binding-observation', 'loop-binding',
           'model-quote', 'model-intent', 'provider-response', 'model-response', 'action-intent', 'action-response', 'question-intent',
           'question-observation', 'final-response-intent', 'final-response-observation', 'effect-observation',
           'fence-observation', 'retirement-observation', 'settlement', 'slot-release-observation'}
+EVENTS |= {'witness-export-intent', 'witness-export-observation'}
 
 
 def validate_execution_history(record):
