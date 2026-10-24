@@ -848,17 +848,13 @@ def test_default_consumer_lock_exception_preserves_exact_observed_coordinates_on
             assert prose and all(hit.exception is None for hit in prose)
 
 
-@pytest.mark.parametrize("revision,sha256,issue", [
-    ("99dee72", "b0be5ceeb94f8fc8433426dc17645dfe4d33d27acaec1c7ac63e6f3b854f87d2", "721"),
-    ("21f8fe5", "5d0af325f397e2a41c6313552a087df666d0c7da77204c132e9285e76a921678", "851"),
-])
-def test_immutable_gp_guide_exception_is_exact_and_remains_visible(revision, sha256, issue):
+def test_immutable_gp_guide_exception_is_exact_and_remains_visible():
     import hashlib
 
-    path = f"certification/executable-docs/fixtures/site-geoprocessing-{revision}.md"
+    path = "certification/executable-docs/fixtures/site-geoprocessing-99dee72.md"
     raw = (vt.ROOT / path).read_bytes()
     assert len(raw) == 4504
-    assert hashlib.sha256(raw).hexdigest() == sha256
+    assert hashlib.sha256(raw).hexdigest() == "b0be5ceeb94f8fc8433426dc17645dfe4d33d27acaec1c7ac63e6f3b854f87d2"
     entries = vt.load_allowlist(vt.ALLOWLIST)
     selected = [entry for entry in entries if entry.covers("honua-release", path, "Esri")]
     assert len(selected) == 1
@@ -866,11 +862,11 @@ def test_immutable_gp_guide_exception_is_exact_and_remains_visible(revision, sha
     assert entry.paths == (path,) and entry.tokens == ("Esri",)
     assert entry.owner == "@mikemcdougall"
     source_entry = json.loads(vt.ALLOWLIST.read_text())["entries"][entry.index]
-    assert source_entry["issue"] == f"honua-io/honua-release#{issue}"
-    assert sha256 in entry.reason
+    assert source_entry["issue"] == "honua-io/honua-release#721"
+    assert "b0be5cee" in entry.reason
     for repo, candidate, content, excepted in [
         ("honua-release", path, raw, True),
-        ("honua-release", path.replace(revision, "sibling"), raw, False),
+        ("honua-release", path.replace("99dee72", "sibling"), raw, False),
         ("honua-site", path, raw, False),
         ("honua-release", path, b"ArcGIS Online\n", False),
     ]:

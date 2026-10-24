@@ -38,19 +38,19 @@ def gp_source():
     sources = json.loads((HERE / "sources.json").read_text())
     doc = next(d for d in sources["documents"] if d["repo"] == "honua-io/honua-site"
                and d["path"] == "docs/geoprocessing/index.md")
-    return doc, (HERE / "fixtures/site-geoprocessing-21f8fe5.md").read_text()
+    return doc, (HERE / "fixtures/site-geoprocessing-94dd703.md").read_text()
 
 
 def test_actual_guide_binds_all_six_frozen_blocks_and_only_documented_key():
     doc, text = gp_source()
-    # Full source bytes from honua-site 21f8fe5b5fffa385c5c8bf1b0c15b414651dfb0c, Git blob
-    # 493fd48f88582286a6c0adfe7ed3416c23e20fdb; the published .NET installation now selects Honua.Sdk 1.12.0.
-    assert hashlib.sha256(text.encode()).hexdigest() == "5d0af325f397e2a41c6313552a087df666d0c7da77204c132e9285e76a921678"
+    # Full source bytes from honua-site 94dd703553024d695e03b36dcbc9362b5b267fc9, Git blob
+    # 05703de35fafcd3c6c1f2f63f6bc407c71e71d62; the published .NET installation now selects Honua.Sdk 1.12.0.
+    assert hashlib.sha256(text.encode()).hexdigest() == "93d38dd2ec5fa36a64a962405eaad4e650b7c5335d20aff59fb0422347c843b9"
     plan = compile_plan(doc, extract(text, "markdown"))
     frozen = json.loads((HERE / "inventory.json").read_text())
     row = next(d for d in frozen["documents"] if d["id"] == "honua-site-docs-geoprocessing-index")
     # The retained full source and its executable block bindings advance together.
-    assert row["revision"] == "1f300f2978216f1328283f2390bb78c3de5f4870"
+    assert row["revision"] == "94dd703553024d695e03b36dcbc9362b5b267fc9"
     assert [b.sha256 for b in extract(text, "markdown")] == [b["sha256"] for b in row["blocks"]]
     assert [plan[i]["runtime"] for i in range(6)] == ["node", "node", "python", "python", "dotnet", "dotnet"]
     variables = load_vars(HERE / "vars", row["id"])

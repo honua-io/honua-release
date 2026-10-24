@@ -19,7 +19,7 @@ Run a geoprocessing job — over OGC API - Processes, from JavaScript, Python an
 
 **OGC API Processes.** Submit and poll jobs through OGC API - Processes.
 
-**Geoprocessing Task Execution.** Submit and poll geoprocessing tasks through the Esri GeoServices GPServer surface. Print/export-specific tasks are gated by printing.* entitlement keys.
+**Geoprocessing Task Execution.** Submit and poll geoprocessing tasks through the GeoServices GPServer surface. Print/export-specific tasks are gated by printing.* entitlement keys.
 
 ## Set it up
 
