@@ -128,11 +128,23 @@ def registered_runtime(durable, verified):
         require(response('register', path, method='POST') == registration, 'installed binding original POST response differs')
     # A lost POST acknowledgement can complete from GETs, but its original setup
     # identity was observed and durably retained before the mutation was sent.
-    setup_rows = [(key, row) for key, row in records.items() if key.startswith(prefix+'/http/response/setup-target-')]
-    require(len(setup_rows) == 1, 'installed binding lacks the original separate registrar identity')
-    key, row = setup_rows[0]
+    # The producer increments GET serials across retries and never sends another
+    # setup GET once the permanent registration POST intent exists. Its last
+    # setup response therefore belongs to the sole POST, including lost-ACK
+    # recovery whose completion references contain only the later control GETs.
+    setup_rows = []
+    for key, row in records.items():
+        if key.startswith(prefix+'/http/response/setup-target-'):
+            serial = re.fullmatch(re.escape(prefix+'/http/response/setup-target-')+r'([0-9]+)', key)
+            require(serial is not None, 'installed binding registrar observation serial differs')
+            setup_rows.append((int(serial[1]), key, row))
+    require(setup_rows, 'installed binding lacks the original separate registrar identity')
+    _, key, row = max(setup_rows, key=lambda item: item[0])
+    setup_reference = {'key': key, 'sha256': canonical_digest(row)}
+    require('setup-target' not in originals or originals['setup-target'] == setup_reference,
+            'installed binding completion substituted its original registrar identity')
     setup = native_target(response('setup-target', '/api/v1/agent/target',
-        reference={'key': key, 'sha256': canonical_digest(row)}), verified['targetId'])
+        reference=setup_reference), verified['targetId'])
     require(setup['tenantId'] == registration['tenantId'] and
             setup['actorId'] not in {principal['actorId'] for principal in principals['before'].values()},
             'installed binding registrar is not separate original tenant authority')

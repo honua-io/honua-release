@@ -32,7 +32,7 @@ resource "aws_iam_policy" "native_bootstrap_boundary" {
     # source-bound verifier still requests and validates exact task revisions.
     { Effect = "Allow", Action = "ecs:DescribeTaskDefinition", Resource = "*", Condition = { StringEquals = { "aws:RequestedRegion" = var.region } } }
     ], length(var.installed_worker_identity_scopes) == 0 ? [] : [
-    { Sid = "ObserveOriginalRegistrarImage", Effect = "Allow", Action = "ecr:BatchGetImage", Resource = aws_ecr_repository.controller.arn },
+    { Sid = "ObserveOriginalRegistrarImage", Effect = "Allow", Action = "ecr:BatchGetImage", Resource = [aws_ecr_repository.controller.arn] },
     { Sid = "ObserveExactInstalledWorkerDefinitions", Effect = "Allow", Action = "states:DescribeStateMachine",
       Resource = [for slot in var.installed_worker_identity_scopes :
     "arn:aws:states:${var.region}:${local.account}:stateMachine:honua-agent-${slot.slot_id}"] }

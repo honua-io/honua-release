@@ -346,6 +346,32 @@ run "only_apply_can_create_exact_identity_objects" {
     error_message = "Identity retention must be exact create-only objects, never ledger, initialization or head writes."
   }
 }
+run "native_boundary_installation_reads_are_exact_and_optional" {
+  command = plan
+  variables {
+    enable_agent_controller          = true
+    installed_worker_identity_scopes = [{ candidate_digest = "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", runtime_id = "reviewed-runtime", slot_id = "fixed-slot" }]
+  }
+  assert {
+    condition = (
+      one([for statement in jsondecode(aws_iam_policy.native_bootstrap_boundary[0].policy).Statement : statement if try(statement.Sid, "") == "ObserveOriginalRegistrarImage"]).Resource == [aws_ecr_repository.controller.arn] &&
+      one([for statement in jsondecode(aws_iam_policy.native_bootstrap_boundary[0].policy).Statement : statement if try(statement.Sid, "") == "ObserveOriginalRegistrarImage"]).Action == "ecr:BatchGetImage" &&
+      one([for statement in jsondecode(aws_iam_policy.native_bootstrap_boundary[0].policy).Statement : statement if try(statement.Sid, "") == "ObserveExactInstalledWorkerDefinitions"]).Resource == ["arn:aws:states:${var.region}:${var.account_id}:stateMachine:honua-agent-fixed-slot"] &&
+      one([for statement in jsondecode(aws_iam_policy.native_bootstrap_boundary[0].policy).Statement : statement if try(statement.Sid, "") == "ObserveExactInstalledWorkerDefinitions"]).Action == "states:DescribeStateMachine"
+    )
+    error_message = "Registrar observations must remain exact read-only image and allocated base-worker definitions."
+  }
+}
+run "native_boundary_without_installation_has_no_new_image_or_definition_authority" {
+  command = plan
+  variables { enable_agent_controller = true }
+  assert {
+    condition = alltrue([for statement in jsondecode(aws_iam_policy.native_bootstrap_boundary[0].policy).Statement :
+      !contains(["ObserveOriginalRegistrarImage", "ObserveExactInstalledWorkerDefinitions"], try(statement.Sid, ""))
+    ])
+    error_message = "Legacy/default bootstrap cannot inherit installed registrar image or definition reads."
+  }
+}
 run "identity_writer_requires_accounting_foundation" {
   command = plan
   variables {

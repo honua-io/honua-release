@@ -92,6 +92,55 @@ def test_original_lost_post_acknowledgement_can_export_from_completed_get_readba
     assert export(installation, publish(installation))['registrationDigest'] == installation.protocol.original['registrationDigest']
 
 
+@pytest.mark.parametrize('lost_post_ack', [False, True])
+def test_failed_setup_observation_then_recovery_exports_only_original_post_authority(installation, lost_post_ack):
+    protocol = installation.protocol
+    original_open = protocol.open
+    failed = False
+    def transient_setup(request, timeout):
+        nonlocal failed
+        if request.get_header('X-api-key') == protocol.secrets['setup'] and not failed:
+            failed = True
+            return native_protocol.Response(503, {'error': 'transient-setup-read'})
+        return original_open(request, timeout)
+    protocol.open = transient_setup
+    with pytest.raises(PackError, match='did not succeed'): protocol.provision()
+    assert not protocol.posts()
+    failed_records = copy.deepcopy(protocol.durable.state['scenarioOperations'])
+    protocol.lose_post = lost_post_ack
+    if lost_post_ack:
+        with pytest.raises(PackError, match='reconcile without replay'): protocol.provision()
+    result = protocol.provision()
+    assert len(protocol.posts()) == 1
+    assert all(protocol.durable.state['scenarioOperations'][key] == row for key,row in failed_records.items())
+    assert export(installation, publish(installation))['registrationDigest'] == result['registration']['registrationDigest']
+
+
+@pytest.mark.parametrize('mutation', ['failed-completion-reference', 'missing-successful-setup'])
+def test_recovery_cannot_substitute_earlier_failed_setup_for_original_post_authority(installation, mutation):
+    protocol = installation.protocol
+    original_open = protocol.open
+    failed = False
+    def transient_setup(request, timeout):
+        nonlocal failed
+        if request.get_header('X-api-key') == protocol.secrets['setup'] and not failed:
+            failed = True
+            return native_protocol.Response(503, {'error': 'transient-setup-read'})
+        return original_open(request, timeout)
+    protocol.open = transient_setup
+    with pytest.raises(PackError): protocol.provision()
+    result = protocol.provision()
+    records = protocol.durable.state['scenarioOperations']
+    prefix = next(key.removesuffix('/completed') for key in records if key.endswith('/completed'))
+    failed_key, failed_row = next((key,row) for key,row in records.items()
+        if key.startswith(prefix+'/http/response/setup-target-') and row['response']['httpStatus'] == 503)
+    if mutation == 'failed-completion-reference':
+        records[prefix+'/completed']['value']['nativeOriginals']['setup-target'] = {'key':failed_key,'sha256':canonical_digest(failed_row)}
+    else:
+        records.pop(result['nativeOriginals']['setup-target']['key'])
+    with pytest.raises((ValueError, PackError)): export(installation, publish(installation))
+
+
 @pytest.mark.parametrize('mutation', ['missing-completion', 'missing-post-intent', 'missing-setup', 'declared-digest',
     'changed-provenance', 'response-scope', 'raw-response', 'current-permissions', 'final-registration'])
 def test_authenticated_snapshot_does_not_make_missing_or_changed_native_proof_valid(installation, mutation):
