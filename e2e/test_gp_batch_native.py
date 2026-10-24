@@ -82,3 +82,19 @@ def test_cli_scenario_flag_reports_blocked_without_provisioning():
     assert row["scenario"] == "gp_batch_native"
     assert row["status"] == "blocked"
     assert "terraform" not in completed.stderr.lower()
+
+
+def test_cli_require_real_fails_the_missing_receipt_without_provisioning():
+    completed = subprocess.run(
+        [sys.executable, "run_cloud.py", "--scenario", "gp_batch_native", "--require-real", "--target", "aws-serverless"],
+        cwd=E2E,
+        capture_output=True,
+        text=True,
+        timeout=30,
+        check=False,
+    )
+    assert completed.returncode == 1, completed.stderr
+    row = json.loads(completed.stdout)
+    assert row["status"] == "fail"
+    assert row["why"].startswith("require_real:")
+    assert "terraform" not in completed.stderr.lower()

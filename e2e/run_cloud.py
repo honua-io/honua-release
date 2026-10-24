@@ -1825,7 +1825,7 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--cost-ceiling-usd", default=os.environ.get("HONUA_CLOUD_COST_CEILING_USD", "20"))
     ap.add_argument("--cost-report", type=Path)
     ap.add_argument("--scenario", choices=("gp_batch_native",), default=None,
-                    help="judge gp_batch_native without provisioning; a missing native receipt stays blocked")
+                    help="judge gp_batch_native without provisioning; a missing native receipt stays blocked, or fails under --require-real")
     ap.add_argument("--target", default="aws-serverless", choices=sorted(REGISTRY))
     ap.add_argument("--redis", choices=["on", "off"], default="off",
                     help="run the target with Redis enabled or disabled (parity must hold either way)")
@@ -1834,12 +1834,17 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--reference-endpoint", default=os.environ.get("HONUA_REFERENCE_ENDPOINT") or None,
                     help="a reference (local-docker) endpoint to assert parity against")
     args = ap.parse_args(argv)
-    if args.scenario == "gp_batch_native" and not args.require_real:
-        # Do not fall through into provision. A native receipt is supplied by a
-        # confirmed candidate run; this flag only reports that it is absent.
+    if args.scenario == "gp_batch_native":
+        # Never fall through into provision. A native receipt is supplied by a
+        # confirmed candidate run; this flag only judges that it is absent.
         from scenarios.gp_batch_native.scenario import evaluate
-        print(json.dumps(evaluate(None)))
-        return 0
+        row = evaluate(None)
+        if args.require_real and row.get("status") == "blocked":
+            row = {**row, "status": "fail", "why": f"require_real: {row.get('why', '')}"}
+            print(json.dumps(row))
+            return 1
+        print(json.dumps(row))
+        return 0 if row.get("status") != "fail" else 1
     phases = {"provision": _phase_provision, "seal-state": _phase_seal, "journey": _phase_journey,
               "model-canary": _phase_model_canary, "update-rollback": _phase_update_rollback,
               "deliver-key": _phase_deliver_key, "admit": _phase_admit, "open-state": _phase_open,
