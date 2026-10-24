@@ -85,7 +85,7 @@ jobs:
           git show "$SOURCE:platform-manifest.yaml" > candidate/platform-manifest.yaml
           echo "producer head $HEAD_SHA; candidate manifest from $SOURCE"
           echo "digest=$(sha256sum candidate/platform-manifest.yaml | cut -d' ' -f1)" >> "$GITHUB_OUTPUT"
-      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: candidate-manifest
           path: candidate/platform-manifest.yaml
@@ -171,7 +171,7 @@ jobs:
           fi
       - name: Upload journey gate report
         if: always()
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: journey-gate-report
           path: out/gate-report-journey.json

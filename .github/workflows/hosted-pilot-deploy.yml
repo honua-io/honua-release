@@ -110,7 +110,7 @@ jobs:
         run: python3 tools/hosted_pilot/deploy.py plan --config "$PILOT_CONFIG_PATH"
       - name: Publish value-free plan identity and resource actions for approval
         id: review
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: hosted-pilot-review-${{ github.run_id }}-${{ github.run_attempt }}
           path: ${{ runner.temp }}/hosted-pilot-private/review.json
@@ -167,7 +167,7 @@ jobs:
         run: python3 tools/hosted_pilot/deploy.py apply --config "$PILOT_CONFIG_PATH"
       - name: Publish private human enrollment reference when nominated
         if: inputs.operation == 'apply' && steps.applied.outputs.human_enrollment == 'true'
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: hosted-pilot-human-enrollment-reference-${{ github.run_id }}-${{ github.run_attempt }}
           path: ${{ runner.temp }}/hosted-pilot-private/human-enrollment-reference.json
@@ -192,7 +192,7 @@ jobs:
         run: python3 tools/hosted_pilot/installed_worker_receipt.py
       - name: Publish installed worker immutable identity reference
         if: inputs.operation == 'apply' && steps.installed_identity.outputs.installed_worker_reference == 'true'
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: hosted-pilot-installed-worker-reference-${{ github.run_id }}-${{ github.run_attempt }}
           path: ${{ runner.temp }}/hosted-pilot-private/installed-worker-reference.json
@@ -200,7 +200,7 @@ jobs:
           retention-days: 90
       - name: Publish value-free infrastructure readiness
         if: inputs.operation == 'apply'
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: hosted-pilot-infrastructure-readiness-${{ github.run_id }}-${{ github.run_attempt }}
           path: ${{ runner.temp }}/hosted-pilot-private/readiness.json

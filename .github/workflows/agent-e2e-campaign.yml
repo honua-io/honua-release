@@ -139,7 +139,7 @@ jobs:
               stream.write('Frozen pre-execution campaign digest: `'+result['campaignDigest']+'`\n')
           PYTHON
       - name: Retain immutable pre-execution inputs
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: agent-e2e-frozen-${{ github.run_attempt }}
           path: campaign/
@@ -194,7 +194,7 @@ jobs:
             --evidence-directory "$RUNNER_TEMP/agent-e2e-private/development/evidence"
       - name: Retain native dispatch outcome receipts including first failures
         if: always()
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: agent-e2e-development-${{ github.run_attempt }}
           # Raw evidence and controller logs stay in private native custody.
@@ -251,7 +251,7 @@ jobs:
           done
       - name: Retain native dispatch outcome receipts including first failures
         if: always()
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: agent-e2e-diagnostics-docker-${{ github.run_attempt }}
           # Raw evidence and controller logs stay in private native custody.
@@ -308,7 +308,7 @@ jobs:
           done
       - name: Retain native dispatch outcome receipts including first failures
         if: always()
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: agent-e2e-diagnostics-ecs-${{ github.run_attempt }}
           # Raw evidence and controller logs stay in private native custody.
@@ -365,7 +365,7 @@ jobs:
           done
       - name: Retain native dispatch outcome receipts including first failures
         if: always()
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: agent-e2e-diagnostics-eks-${{ github.run_attempt }}
           # Raw evidence and controller logs stay in private native custody.
@@ -422,7 +422,7 @@ jobs:
           done
       - name: Retain native dispatch outcome receipts including first failures
         if: always()
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: agent-e2e-diagnostics-lambda-${{ github.run_attempt }}
           # Raw evidence and controller logs stay in private native custody.
@@ -479,7 +479,7 @@ jobs:
           done
       - name: Retain native dispatch outcome receipts including first failures
         if: always()
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: agent-e2e-diagnostics-batch-${{ github.run_attempt }}
           # Raw evidence and controller logs stay in private native custody.
@@ -541,7 +541,7 @@ jobs:
             campaign/campaign.json
             campaign/trusted-inventory.json
       - name: Publish consumer-compatible qualification bundle
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: agent-e2e-campaign-${{ github.run_attempt }}
           path: |
@@ -608,7 +608,7 @@ jobs:
         uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
         with:
           subject-path: budget-bootstrap/bootstrap-accounting.json
-      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: agent-e2e-budget-bootstrap-${{ github.run_attempt }}
           path: budget-bootstrap/bootstrap-accounting.json

@@ -250,7 +250,7 @@ jobs:
         run: |
           python tools/release_train_mode.py --preparation-receipt frozen-lock/preparation-status.json
           echo 'Candidate inputs authenticated. All qualification gates remain unrun; no release signature or publication was produced.' >> "$GITHUB_STEP_SUMMARY"
-      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: candidate-manifest
           path: |
@@ -785,14 +785,14 @@ jobs:
           cp candidate-input/frozen-lock/platform-lock.json out/certified-candidate/qualification-lock.json
 
       - name: Upload bound platform gate-report.json
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: platform-gate-report
           path: out/gate-report.json
 
       - name: Upload the certified candidate bundle
         if: inputs.dry_run || steps.assemble.outputs.overall == 'pass'
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: ${{ inputs.nightly && 'qualified-candidate' || 'certified-candidate' }}
           path: out/certified-candidate/

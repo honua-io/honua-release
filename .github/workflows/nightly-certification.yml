@@ -119,7 +119,7 @@ jobs:
             git commit-tree "$tree" -p "$GITHUB_SHA" -m 'chore: prepare unadmitted capacity inputs')"
           git push origin "${sha}:refs/prepared-deployments/${sha}"
           echo "prepared_ref=${sha}" >> "$GITHUB_OUTPUT"
-      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: resolved-candidate
           path: |
@@ -129,7 +129,7 @@ jobs:
           if-no-files-found: error
       # The resolver writes skips.json and its job-summary table on refusal too: which newer trunk
       # commits it passed over and why, and STALE-CANDIDATE when the selected sha lags trunk head.
-      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         if: always()
         with:
           name: resolved-candidate-skips
@@ -137,7 +137,7 @@ jobs:
           if-no-files-found: warn
       # Exit 75 stops the job before the ordinary resolved-candidate upload; keep the
       # transient-registry-unavailable outcome the step annotation points operators to.
-      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         if: always()
         with:
           name: resolved-candidate-outcome
@@ -186,7 +186,7 @@ jobs:
             git commit-tree "$tree" -p "$GITHUB_SHA" -m 'chore: prepare unadmitted deployment inputs')"
           git push origin "${sha}:refs/prepared-deployments/${sha}"
           echo "prepared_ref=${sha}" >> "$GITHUB_OUTPUT"
-      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: prepared-deployment
           path: prepared-deployment/
@@ -221,7 +221,7 @@ jobs:
             --operating-envelope docs/2026.1-operating-envelope.md \
             --lambda-record prepared-deployment/lambda-record.json \
             --out qualification/deployment-qualification.json
-      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: deployment-qualification
           path: qualification/
@@ -346,7 +346,7 @@ jobs:
           PY
           git push origin "${sha}:refs/nightly-candidates/${sha}"
           echo "candidate_ref=${sha}" >> "$GITHUB_OUTPUT"
-      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         if: always()
         with:
           name: protocol-ledger
@@ -546,7 +546,7 @@ jobs:
             GIT_COMMITTER_NAME='Mike McDougall' GIT_COMMITTER_EMAIL='mike@honua.io' \
             git commit-tree "$tree" -p "$notes_revision" -m "chore: nightly lock ${label}")"
           git push origin "${commit}:refs/tags/nightly-lock/${label}"
-      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: nightly-lock-${{ steps.mint.outputs.label }}
           path: nightly-lock/
@@ -558,85 +558,85 @@ jobs:
           cp -a certified/. final-certified/
           cp -a nightly-lock/. final-certified/
       - name: Upload the minted certified candidate consumed by promotion
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: certified-candidate
           path: final-certified/
           if-no-files-found: error
       - name: Retain the build-test promotion receipt
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: promotion-receipt-build-test
           path: nightly-lock/promotion-receipts/build-test/receipt.json
           if-no-files-found: error
       - name: Retain the contract promotion receipt
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: promotion-receipt-contract
           path: nightly-lock/promotion-receipts/contract/receipt.json
           if-no-files-found: error
       - name: Retain the sbom promotion receipt
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: promotion-receipt-sbom
           path: nightly-lock/promotion-receipts/sbom/receipt.json
           if-no-files-found: error
       - name: Retain the security promotion receipt
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: promotion-receipt-security
           path: nightly-lock/promotion-receipts/security/receipt.json
           if-no-files-found: error
       - name: Retain the upgrade promotion receipt
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: promotion-receipt-upgrade
           path: nightly-lock/promotion-receipts/upgrade/receipt.json
           if-no-files-found: error
       - name: Retain the capacity-soak promotion receipt
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: promotion-receipt-capacity-soak
           path: nightly-lock/promotion-receipts/capacity-soak/receipt.json
           if-no-files-found: error
       - name: Retain the dr promotion receipt
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: promotion-receipt-dr
           path: nightly-lock/promotion-receipts/dr/receipt.json
           if-no-files-found: error
       - name: Retain the lambda-certification promotion receipt
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: promotion-receipt-lambda-certification
           path: nightly-lock/promotion-receipts/lambda-certification/receipt.json
           if-no-files-found: error
       - name: Retain the protocol-ledger promotion receipt
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: promotion-receipt-protocol-ledger
           path: nightly-lock/promotion-receipts/protocol-ledger/receipt.json
           if-no-files-found: error
       - name: Retain the deterministic-journey promotion receipt
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: promotion-receipt-deterministic-journey
           path: nightly-lock/promotion-receipts/deterministic-journey/receipt.json
           if-no-files-found: error
       - name: Retain the nightly-model-journey promotion receipt
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: promotion-receipt-nightly-model-journey
           path: nightly-lock/promotion-receipts/nightly-model-journey/receipt.json
           if-no-files-found: error
       - name: Retain the executable-docs promotion receipt
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: promotion-receipt-executable-docs
           path: nightly-lock/promotion-receipts/executable-docs/receipt.json
           if-no-files-found: error
       - name: Retain the installed-clients promotion receipt
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: promotion-receipt-installed-clients
           path: nightly-lock/promotion-receipts/installed-clients/receipt.json
