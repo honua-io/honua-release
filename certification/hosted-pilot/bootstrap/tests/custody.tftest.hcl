@@ -113,11 +113,63 @@ run "agent_orchestration_is_opt_in_and_bounded" {
       length(aws_iam_policy.agent_read[0].policy) <= 6144 &&
       one([for statement in jsondecode(aws_iam_policy.agent_boundary[0].policy).Statement : statement if try(statement.Sid, "") == "NoUnreviewedModel"]).Effect == "Deny" &&
       one([for statement in jsondecode(aws_iam_policy.agent_boundary[0].policy).Statement : statement if try(statement.Sid, "") == "ExcludeFoundationCustodyKey"]).Resource == aws_kms_key.custody.arn &&
-      length(local.workload_boundary_arns) == 2 &&
+      length(local.workload_boundary_arns) == 3 &&
       contains(local.workload_role_patterns, "arn:aws:iam::123456789012:role/honua-agent-*") &&
       contains(local.deployment_state_keys, "honua/hosted-pilot/${var.name_prefix}/workers/*")
     )
     error_message = "Agent orchestration must fit IAM policy limits, preserve custody/model refusals and use isolated role/state namespaces."
+  }
+}
+run "worker_custody_boundary_ceiling_is_read_only" {
+  command = plan
+  variables { enable_agent_controller = true }
+  assert {
+    condition = (
+      one([for statement in jsondecode(aws_iam_policy.agent_boundary[0].policy).Statement : statement if try(statement.Sid, "") == "ReadDeclaredWorkerCustody"]) == {
+        Sid      = "ReadDeclaredWorkerCustody", Effect = "Allow",
+        Action   = ["iam:GetRolePolicy", "iam:ListRolePolicies", "iam:ListAttachedRolePolicies"],
+        Resource = "arn:aws:iam::123456789012:role/honua-agent-*"
+      } &&
+      contains(one([for statement in jsondecode(aws_iam_policy.agent_boundary[0].policy).Statement : statement if try(statement.Sid, "") == "NoIdentityAdministration"]).Action, "iam:Put*") &&
+      one([for statement in jsondecode(aws_iam_policy.agent_boundary[0].policy).Statement : statement if try(statement.Sid, "") == "NoIdentityAdministration"]).Effect == "Deny"
+    )
+    error_message = "The boundary must cap three custody reads to agent roles while retaining identity-administration denial; identity policies must narrow the actual attempts."
+  }
+}
+
+run "native_membership_boundary_preserves_controller_and_foundation_isolation" {
+  command = plan
+  variables { enable_agent_controller = true }
+  assert {
+    condition = (
+      length(aws_iam_policy.native_bootstrap_boundary[0].policy) <= 6144 &&
+      contains(local.workload_boundary_arns, aws_iam_policy.native_bootstrap_boundary[0].arn) &&
+      jsondecode(aws_iam_policy.native_bootstrap_boundary[0].policy).Statement[0].Effect == "Deny" &&
+      contains(jsondecode(aws_iam_policy.native_bootstrap_boundary[0].policy).Statement[0].Action, "secretsmanager:GetSecretValue") &&
+      contains(jsondecode(aws_iam_policy.native_bootstrap_boundary[0].policy).Statement[0].Action, "bedrock:*") &&
+      one([for row in jsondecode(aws_iam_policy.native_bootstrap_boundary[0].policy).Statement : row if try(row.Action == "ecs:DescribeTaskDefinition", false)]) == {
+        Effect = "Allow", Action = "ecs:DescribeTaskDefinition", Resource = "*", Condition = { StringEquals = { "aws:RequestedRegion" = "us-west-2" } }
+      } &&
+      one([for row in jsondecode(aws_iam_policy.agent_boundary[0].policy).Statement : row if try(row.Sid, "") == "ExcludeFoundationCustodyKey"]) == {
+        Sid = "ExcludeFoundationCustodyKey", Effect = "Deny", Action = "kms:*", Resource = aws_kms_key.custody.arn
+      } &&
+      one([for row in jsondecode(aws_iam_policy.native_bootstrap_boundary[0].policy).Statement : row if try(row.Sid, "") == "DecryptOriginalMembershipObjects"]).Condition.ArnEquals["aws:PrincipalArn"] == "arn:aws:iam::123456789012:role/honua-pilot-offline-agent-native-bootstrap" &&
+      one([for row in jsondecode(aws_iam_policy.native_bootstrap_boundary[0].policy).Statement : row if try(row.Sid, "") == "DecryptOriginalMembershipObjects"]).Condition.StringEquals["kms:ViaService"] == "s3.us-west-2.amazonaws.com" &&
+      toset(one([for row in jsondecode(aws_iam_policy.native_bootstrap_boundary[0].policy).Statement : row if try(row.Sid, "") == "DecryptOriginalMembershipObjects"]).Condition.ArnLike["kms:EncryptionContext:aws:s3:arn"]) == toset([
+        "${aws_s3_bucket.custody["plans"].arn}/hosted-pilot/plans/*/review.json",
+        "${aws_s3_bucket.custody["plans"].arn}/hosted-pilot/plans/*/human-identities-*.json"
+      ]) &&
+      alltrue([for configuration in aws_s3_bucket_server_side_encryption_configuration.custody : !one(configuration.rule).bucket_key_enabled])
+    )
+    error_message = "Only native bootstrap may decrypt enrollment JSON through object-scoped S3 KMS context; workers/controllers retain blanket custody denial and bucket keys cannot broaden context."
+  }
+  assert {
+    condition = (
+      one([for row in jsondecode(aws_iam_role_policy.custody["apply"].policy).Statement : row if try(row.Sid, "") == "WriteOriginalHumanEnrollment"]).Condition.StringEquals["s3:if-none-match"] == "*" &&
+      toset(one([for row in jsondecode(aws_iam_role_policy.custody["apply"].policy).Statement : row if try(row.Sid, "") == "WriteOriginalHumanEnrollment"]).Resource) == toset(local.native_membership_objects) &&
+      one([for row in jsondecode(aws_iam_role_policy.custody["apply"].policy).Statement : row if try(row.Sid, "") == "WriteOriginalHumanEnrollment"]).Condition.StringEquals["s3:x-amz-server-side-encryption-aws-kms-key-id"] == aws_kms_key.custody.arn
+    )
+    error_message = "Apply may only conditionally retain the original review/enrollment JSON with the original KMS key; it cannot overwrite binary plans."
   }
 }
 run "refuse_global_action_grant" {
@@ -171,4 +223,96 @@ run "uncompiled_image_funding_cannot_create_an_unbound_owner_ledger" {
     }
   }
   expect_failures = [var.budget_ledger]
+}
+
+run "human_enrollment_has_no_implicit_identity_grants" {
+  command = plan
+  assert {
+    condition     = length(aws_iam_role_policy.human_enrollment_read) == 0 && length(aws_iam_role_policy.human_enrollment_apply) == 0
+    error_message = "Image preparation must not silently enable human account administration."
+  }
+}
+
+run "human_enrollment_separates_observation_from_provisioning" {
+  command = plan
+  variables { enable_human_enrollment = true }
+  assert {
+    condition = (
+      toset(keys(aws_iam_role_policy.human_enrollment_read)) == toset(["plan", "apply"]) &&
+      alltrue([for lane, policy in aws_iam_role_policy.human_enrollment_read :
+        policy.role == aws_iam_role.executor[lane].id &&
+        toset(jsondecode(policy.policy).Statement[0].Action) == toset(["cognito-idp:AdminGetUser", "cognito-idp:AdminListGroupsForUser"]) &&
+        jsondecode(policy.policy).Statement[0].Resource == "arn:aws:cognito-idp:us-west-2:123456789012:userpool/*" &&
+        jsondecode(policy.policy).Statement[0].Condition.StringEquals == {
+          "aws:ResourceTag/ResetBoundary" = var.name_prefix,
+          "aws:ResourceTag/ManagedBy"     = "honua-release-hosted-pilot"
+        }
+      ]) &&
+      length(aws_iam_role_policy.human_enrollment_apply) == 1 &&
+      aws_iam_role_policy.human_enrollment_apply[0].role == aws_iam_role.executor["apply"].id &&
+      toset(jsondecode(aws_iam_role_policy.human_enrollment_apply[0].policy).Statement[0].Action) == toset([
+        "cognito-idp:AdminCreateUser", "cognito-idp:AdminUpdateUserAttributes",
+        "cognito-idp:AdminDeleteUser", "cognito-idp:AdminDisableUser", "cognito-idp:AdminEnableUser",
+        "cognito-idp:AdminSetUserPassword", "cognito-idp:AdminAddUserToGroup", "cognito-idp:AdminRemoveUserFromGroup"
+      ]) &&
+      jsondecode(aws_iam_role_policy.human_enrollment_apply[0].policy).Statement[0].Resource == "arn:aws:cognito-idp:us-west-2:123456789012:userpool/*" &&
+      jsondecode(aws_iam_role_policy.human_enrollment_apply[0].policy).Statement[0].Condition.StringEquals == {
+        "aws:ResourceTag/ResetBoundary" = var.name_prefix,
+        "aws:ResourceTag/ManagedBy"     = "honua-release-hosted-pilot"
+      }
+    )
+    error_message = "Only the apply executor may provision users, and both readers and writers must be confined to this tagged pilot pool."
+  }
+}
+
+run "token_counting_boundary_covers_only_reviewed_regional_foundation_models" {
+  command = plan
+  variables {
+    enable_agent_controller = true
+    controller_model_resource_arns = [
+      "arn:aws:bedrock:us-west-2:123456789012:inference-profile/us.anthropic.offline-v1:0",
+      "arn:aws:bedrock:us-west-2::foundation-model/anthropic.offline-v1:0",
+      "arn:aws:bedrock:us-east-1::foundation-model/anthropic.offline-v1:0"
+    ]
+  }
+  assert {
+    condition = (
+      one([for statement in jsondecode(aws_iam_policy.agent_boundary[0].policy).Statement : statement if try(statement.Sid, "") == "ReviewedTokenCountingOnly"]) == {
+        Sid      = "ReviewedTokenCountingOnly", Effect = "Allow", Action = "bedrock:CountTokens",
+        Resource = ["arn:aws:bedrock:us-west-2::foundation-model/anthropic.offline-v1:0"]
+      } && length(aws_iam_policy.agent_boundary[0].policy) <= 6144
+    )
+    error_message = "Token counting must retain exact reviewed regional foundation models and the AWS policy size bound."
+  }
+}
+run "original_custody_tags_are_separate_from_current_phase_identity" {
+  command = plan
+  variables {
+    bootstrap_execution_id = "200"
+    bootstrap_creation_identity = {
+      foundation_source_sha = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+      release_root_sha      = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+      config_path           = "certification/hosted-pilot/bootstrap/deployments/test.tfvars.json"
+      config_sha256         = "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
+      provider_lock_sha256  = "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd"
+    }
+    bootstrap_custody_creation_tags = {
+      ManagedBy              = "honua-release-hosted-pilot-bootstrap"
+      BootstrapExecution     = "199"
+      BootstrapFoundationSha = "1111111111111111111111111111111111111111"
+      BootstrapReleaseSha    = "2222222222222222222222222222222222222222"
+      BootstrapConfigPath    = "certification/hosted-pilot/bootstrap/deployments/test.tfvars.json"
+      BootstrapConfigSha256  = "3333333333333333333333333333333333333333333333333333333333333333"
+      BootstrapLockSha256    = "4444444444444444444444444444444444444444444444444444444444444444"
+    }
+  }
+  assert {
+    condition     = aws_kms_key.custody.tags == var.bootstrap_custody_creation_tags && alltrue([for bucket in aws_s3_bucket.custody : bucket.tags == var.bootstrap_custody_creation_tags])
+    error_message = "The actual retained key and both buckets must preserve the original custody creator, not this later phase's source/run."
+  }
+}
+run "incomplete_original_custody_identity_refused" {
+  command = plan
+  variables { bootstrap_custody_creation_tags = { ManagedBy = "honua-release-hosted-pilot-bootstrap" } }
+  expect_failures = [var.bootstrap_custody_creation_tags]
 }

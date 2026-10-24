@@ -37,12 +37,42 @@ def private_json(path, value):
     Path(path).chmod(0o600)
 
 
+AWS_DIAGNOSTIC_ACTIONS = {
+    ('kms', 'list-keys'): 'aws kms list-keys',
+    ('kms', 'list-resource-tags'): 'aws kms list-resource-tags',
+    ('kms', 'describe-key'): 'aws kms describe-key',
+    ('kms', 'list-aliases'): 'aws kms list-aliases',
+    ('sts', 'get-caller-identity'): 'aws sts get-caller-identity',
+}
+AWS_DIAGNOSTIC_CODES = frozenset({
+    'AccessDenied', 'AccessDeniedException', 'NotFoundException',
+    'ResourceNotFoundException', 'ThrottlingException', 'ExpiredToken',
+    'ExpiredTokenException', 'InvalidClientTokenId', 'UnrecognizedClientException',
+    'ValidationException', 'KMSInvalidStateException', 'DisabledException',
+})
+
+
+def failure_diagnostic(args, stderr, *, retained):
+    if args and args[0] == 'aws':
+        action = AWS_DIAGNOSTIC_ACTIONS.get(tuple(args[1:3]), 'aws command')
+        matches = re.findall(rb'An error occurred \(([A-Za-z0-9]+)\) when calling (?:the )?[A-Za-z0-9]+ operation:', stderr)
+        code = matches[0].decode('ascii') if len(matches) == 1 else 'UnclassifiedAwsError'
+        if code not in AWS_DIAGNOSTIC_CODES:
+            code = 'UnclassifiedAwsError'
+        return f'{action} failed; service_error={code}; request/response details omitted'
+    public_commands = {'terraform': {'init', 'plan', 'show', 'apply', 'output'}, 'git': {'show', 'rev-parse', 'ls-files'}}
+    label = ' '.join(args[:2]) if len(args) >= 2 and args[1] in public_commands.get(args[0], set()) else 'reviewed command'
+    suffix = 'private diagnostic retained only on executor' if retained else 'command output omitted'
+    return f'{label} failed; {suffix}'
+
+
 def run(args, *, log=None):
     result = subprocess.run(args, cwd=TF, capture_output=True, check=False)
     if log:
         Path(log).write_bytes(result.stdout + result.stderr)
         Path(log).chmod(0o600)
-    require(result.returncode == 0, f'{args[0]} {args[1]} failed; private diagnostic retained only on executor')
+    if result.returncode != 0:
+        raise ValueError(failure_diagnostic(args, result.stderr, retained=log is not None))
     return result.stdout
 
 
@@ -67,6 +97,27 @@ def config(path):
     require(not any(re.search(r'password|token|api_key|client_secret|signing_key', key, re.I) for key in value if not key.endswith(('_arn', '_arns'))), 'only secret references are accepted')
     prefix_pattern = r'honua-pilot-[a-z0-9-]{4,16}-agent' if CAMPAIGN else r'honua-pilot-[a-z0-9-]{4,16}'
     require(re.fullmatch(prefix_pattern, value.get('name_prefix', '')), 'isolated pilot prefix required')
+    if value.get('human_enrollment') is not None:
+        require(TF_ROOT == 'certification/hosted-pilot', 'human enrollment belongs only to the reviewed pilot root')
+        from human_enrollment import validate_configuration
+        validate_configuration(value['human_enrollment'], region=os.environ['PILOT_REGION'],
+                               custody_key_arn=os.environ['PILOT_STATE_KMS_ARN'])
+    if CAMPAIGN:
+        application = value.get('application')
+        required = {'candidate', 'permissions_boundary_arn', 'allowed_operator_cidrs', 'identity_redirects'}
+        optional = {'identity_secrets_kms_key_arn', 'secret_kms_key_arns', 'human_enrollment'}
+        require(isinstance(application, dict) and required <= set(application) <= required | optional,
+                'campaign application has missing or unreviewed fields')
+        for name, fields in (
+            ('candidate', {'manifest_sha256', 'server_image', 'console_image', 'server_revision', 'console_revision', 'studio_revision', 'sdk_revision'}),
+            ('identity_redirects', {'console_origin', 'edge_callback_url', 'edge_logout_url', 'server_bff_callback_url', 'server_bff_logout_url'}),
+        ):
+            require(isinstance(application[name], dict) and set(application[name]) == fields,
+                    'campaign application '+name+' has missing or unreviewed fields')
+        if application.get('human_enrollment') is not None:
+            from human_enrollment import validate_configuration
+            validate_configuration(application['human_enrollment'], region=os.environ['PILOT_REGION'],
+                                   custody_key_arn=os.environ['PILOT_STATE_KMS_ARN'])
     expiry = datetime.fromisoformat(value['expires_at'].replace('Z', '+00:00'))
     require(expiry.tzinfo is not None, 'expiry must include a timezone')
     if os.environ['PILOT_OPERATION'] == 'apply':
@@ -225,6 +276,11 @@ def main():
         if e['PILOT_OPERATION'] == 'apply':
             outputs = json.loads(run(['terraform', 'output', '-json']))
             private_json(work / 'outputs.json', outputs)
+            from enrollment_receipt import emit as emit_enrollment
+            enrollment = emit_enrollment(cfg=cfg, root=ROOT, root_path=TF_ROOT, outputs=outputs,
+                                         review=review, work=work, env=e, aws=aws)
+            with open(e['GITHUB_OUTPUT'], 'a') as out:
+                out.write(f"human_enrollment={'true' if enrollment else 'false'}\n")
         print('Exact reviewed saved plan applied. Authentication qualification remains a separate gate.')
 
 

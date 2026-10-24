@@ -1,37 +1,31 @@
 output "deployment" {
-  description = "Deployment references only; not installed provenance or a passing human qualification receipt."
-  value = {
-    status                  = "configured-cognito-edge-awaiting-readiness"
-    claimed_candidate       = var.candidate
-    server_origin           = local.server_origin
-    server_alb              = module.server.alb_dns_name
-    edge_proxy_image        = var.edge_proxy_image
-    console_service         = aws_ecs_service.console.name
-    console_task_definition = aws_ecs_task_definition.console.arn
-    console_log_group       = aws_cloudwatch_log_group.console.name
-    artifacts_bucket        = aws_s3_bucket.artifacts.id
-    reset_prefix            = var.name_prefix
-    expires_at              = var.expires_at
-    public_console_origin   = var.identity_redirects.console_origin
-    ecs_cluster             = module.server.ecs_cluster_name
-    server_service          = module.server.ecs_service_name
-    public_audience_origin  = null
-  }
+  value = module.application.deployment
 }
-
 output "identity_preparation" {
-  description = "Cognito and Server binding references only; no secret values, users or live human qualification."
-  value = {
-    status                             = "cognito-configured-awaiting-human-qualification"
-    pool_id                            = aws_cognito_user_pool.pilot.id
-    issuer                             = "https://${aws_cognito_user_pool.pilot.endpoint}"
-    hosted_login_url                   = "https://${aws_cognito_user_pool_domain.pilot.domain}.auth.${var.region}.amazoncognito.com"
-    groups                             = local.identity_groups
-    redirects                          = var.identity_redirects
-    operator_bearer_signing_secret_arn = aws_secretsmanager_secret.operator_bearer.arn
-    clients = { for name, client in aws_cognito_user_pool_client.operators : name => {
-      client_id         = client.id
-      client_secret_arn = aws_secretsmanager_secret.oidc_client[name].arn
-    } }
-  }
+  value = module.application.identity_preparation
+}
+output "human_enrollment" {
+  value = module.application.human_enrollment
+}
+output "ecs_cluster_name" {
+  value = module.application.ecs_cluster_name
+}
+output "ecs_service_name" {
+  value = module.application.ecs_service_name
+}
+output "db_endpoint" {
+  value     = module.application.db_endpoint
+  sensitive = true
+}
+output "db_connection_secret_arn" {
+  value = module.application.db_connection_secret_arn
+}
+output "admin_password_secret_arn" {
+  value = module.application.admin_password_secret_arn
+}
+output "runtime_bindings" {
+  value = module.application.runtime_bindings
+}
+output "native_membership_credentials" {
+  value = module.application.native_membership_credentials
 }

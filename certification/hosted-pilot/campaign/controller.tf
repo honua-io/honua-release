@@ -8,7 +8,7 @@ locals {
     outcomePrefix  = "controller/outcomes/${local.candidate_hex}/"
     evidencePrefix = "controller/evidence/${local.candidate_hex}/"
   }
-  target_cluster_arn = "arn:aws:ecs:${var.region}:${var.account_id}:cluster/${module.target.ecs_cluster_name}"
+  target_cluster_arn = "arn:aws:ecs:${var.region}:${var.account_id}:cluster/${module.application.ecs_cluster_name}"
 }
 resource "aws_iam_role" "controller" {
   name                 = "${var.name_prefix}-controller"
@@ -103,7 +103,7 @@ resource "aws_secretsmanager_secret" "fixture" {
 resource "aws_secretsmanager_secret_version" "fixture" {
   for_each      = local.fixture_roles
   secret_id     = aws_secretsmanager_secret.fixture[each.key].id
-  secret_string = "postgresql://${each.value}:${random_password.fixture[each.key].result}@${module.target.db_endpoint}:5432/${local.database}?sslmode=verify-full&sslrootcert=/controller/certification/hosted-pilot/controller/rds-global-bundle.pem"
+  secret_string = "postgresql://${each.value}:${random_password.fixture[each.key].result}@${module.application.db_endpoint}:5432/${local.database}?sslmode=verify-full&sslrootcert=/controller/certification/hosted-pilot/controller/rds-global-bundle.pem"
 }
 # Values are populated only by native API-key issuance in the checked provisioner.
 # Empty secrets are foundation staging; missing versions prevent task startup.
@@ -132,8 +132,8 @@ locals {
     HONUA_CONSOLE_BROWSER_STORAGE_STATE = "${var.human_browser.storageState.secretArn}:::${var.human_browser.storageState.versionId}"
   })
   fixture_secrets = merge(local.fixture_sql_secrets, {
-    PILOT_FIXTURE_MASTER_CONNECTION = module.target.db_connection_secret_arn
-    PILOT_FIXTURE_ADMIN_PASSWORD    = module.target.admin_password_secret_arn
+    PILOT_FIXTURE_MASTER_CONNECTION = module.application.db_connection_secret_arn
+    PILOT_FIXTURE_ADMIN_PASSWORD    = module.application.admin_password_secret_arn
   })
 }
 resource "aws_iam_role_policy" "execution" {
@@ -143,7 +143,7 @@ resource "aws_iam_role_policy" "execution" {
     { Effect = "Allow", Action = ["ecr:GetAuthorizationToken"], Resource = "*" },
     { Effect = "Allow", Action = ["ecr:BatchGetImage", "ecr:GetDownloadUrlForLayer", "ecr:BatchCheckLayerAvailability"], Resource = "arn:aws:ecr:${var.region}:${var.account_id}:repository/${split("/", split("@", var.controller_image.uri)[0])[1]}" },
     { Effect = "Allow", Action = ["logs:CreateLogStream", "logs:PutLogEvents"], Resource = "${aws_cloudwatch_log_group.controller[each.key].arn}:*" },
-    { Effect = "Allow", Action = "secretsmanager:GetSecretValue", Resource = each.key == "fixture" ? concat([module.target.db_connection_secret_arn, module.target.admin_password_secret_arn], [for secret in aws_secretsmanager_secret.fixture : secret.arn]) : concat([for secret in aws_secretsmanager_secret.fixture : secret.arn], var.issued_native_keys == null ? [] : [for secret in aws_secretsmanager_secret.api : secret.arn], var.human_operator_credential == null ? [] : [var.human_operator_credential.secretArn]) },
+    { Effect = "Allow", Action = "secretsmanager:GetSecretValue", Resource = each.key == "fixture" ? concat([module.application.db_connection_secret_arn, module.application.admin_password_secret_arn], [for secret in aws_secretsmanager_secret.fixture : secret.arn]) : concat([for secret in aws_secretsmanager_secret.fixture : secret.arn], var.issued_native_keys == null ? [] : [for secret in aws_secretsmanager_secret.api : secret.arn], var.human_operator_credential == null ? [] : [var.human_operator_credential.secretArn]) },
     { Effect = "Allow", Action = "kms:Decrypt", Resource = "arn:aws:kms:${var.region}:${var.account_id}:key/*", Condition = { StringEquals = { "kms:ViaService" = "secretsmanager.${var.region}.amazonaws.com", "aws:ResourceTag/ResetBoundary" = var.name_prefix }, ArnLike = { "kms:EncryptionContext:SecretARN" = "arn:aws:secretsmanager:${var.region}:${var.account_id}:secret:${var.name_prefix}*" } } }
   ] })
 }
@@ -164,10 +164,13 @@ resource "aws_ecs_task_definition" "controller" {
     name        = "campaign-controller", image = var.controller_image.uri, essential = true,
     command     = ["python", "tools/hosted_pilot/controller_entry.py"], user = "10001:10001", readonlyRootFilesystem = true,
     mountPoints = [{ sourceVolume = "work", containerPath = "/work", readOnly = false }],
-    environment = [
+    environment = concat([
       { name = "PILOT_CONTROLLER_CUSTODY", value = jsonencode({ region = var.region, accountId = var.account_id, bucket = aws_s3_bucket.handoff.id, requestPrefix = local.custody.requestPrefix }) },
       { name = "PILOT_FIXTURE_HANDOFF", value = jsonencode(local.fixture_handoff) }
-    ],
+      ], var.controller_model == null ? [] : [
+      { name = "TERMINAL_MODEL_NAME", value = var.controller_model.modelId },
+      { name = "HONUA_CONTROLLER_MODEL_RUNTIME", value = jsonencode(var.controller_model) }
+    ]),
     secrets          = [for name, ref in local.controller_secrets : { name = name, valueFrom = ref }],
     linuxParameters  = { capabilities = { drop = ["ALL"] } },
     logConfiguration = { logDriver = "awslogs", options = { awslogs-group = aws_cloudwatch_log_group.controller["controller"].name, awslogs-region = var.region, awslogs-stream-prefix = "controller" } }
@@ -202,7 +205,7 @@ resource "aws_sfn_state_machine" "controller" {
 resource "aws_iam_role_policy" "lifecycle" {
   role = aws_iam_role.lifecycle.id
   policy = jsonencode({ Version = "2012-10-17", Statement = concat([
-    { Effect = "Allow", Action = ["ecs:DescribeTasks", "ecs:StopTask"], Resource = "arn:aws:ecs:${var.region}:${var.account_id}:task/${module.target.ecs_cluster_name}/*" },
+    { Effect = "Allow", Action = ["ecs:DescribeTasks", "ecs:StopTask"], Resource = "arn:aws:ecs:${var.region}:${var.account_id}:task/${module.application.ecs_cluster_name}/*" },
     { Effect = "Allow", Action = ["events:PutTargets", "events:PutRule", "events:DescribeRule"], Resource = "arn:aws:events:${var.region}:${var.account_id}:rule/StepFunctionsGetEventsForECSTaskRule" }
     ], [for statement in [
       { Effect = "Allow", Action = "ecs:RunTask", Resource = aws_ecs_task_definition.controller.arn, Condition = { ArnEquals = { "ecs:cluster" = local.target_cluster_arn } } },

@@ -153,7 +153,7 @@ def observe_preparation(config, *, s3, ecs, directory, states=None):
 
 def native_http(config, credential, method, path):
     root = '/api/v1/admin/api-keys/'+config['setupKey']['apiKeyId']
-    require((method, path) in (('GET', root+'/effective-permissions'), ('POST', root+'/revoke')) and
+    require((method, path) in (('GET', root+'/effective-permissions'), ('POST', root+'/revoke'), ('GET','/api/v1/agent/target')) and
             (method == 'GET' or config['mode'] in ('retire', 'resume')),
             'retirement HTTP may only observe or revoke the original setup key')
     request = urllib.request.Request(config['endpoint']+path, method=method,
@@ -177,6 +177,37 @@ def retention_prefix(config, native):
     base = canonical_digest({'kind': 'setup-key-retirement', 'candidateKey': config['candidateKey'],
         'operationId': config['operation']['operationId'], 'fixture': config['fixtureReference']})
     return base if config['mode'] == 'retire' else base+'/recoveries/'+config['mode']+'/'+canonical_digest({'taskArn': native['taskArn']})[7:]
+
+
+def setup_target(answer, issued):
+    """Use only the server's observed principal, never a key-ID formula."""
+    body=answer.get('body') or {}
+    require(isinstance(body,dict) and set(body)=={'targetId','principal'} and isinstance(body.get('principal'),dict),
+        'setup target returned an unsupported native principal projection')
+    principal=body['principal']
+    require(set(principal)<={'actorId','studioOwnerId','subjectId','tenantId','authenticationKind','isHumanSession'},
+        'setup target returned an unsupported native principal projection')
+    require(answer.get('httpStatus')==200 and isinstance(body.get('targetId'),str) and 0<len(body['targetId'])<=256 and
+        isinstance(principal.get('actorId'),str) and 0<len(principal['actorId'])<=384 and
+        principal.get('studioOwnerId')==issued['apiKeyId'] and principal.get('authenticationKind')=='api-key' and
+        principal.get('isHumanSession') is False,
+        'setup authority lacks its actual native target/principal positive control')
+    return body
+
+
+def original_setup_target(records, original, candidate, issued):
+    current=original
+    for _ in range(8):
+        if current is None:break
+        key=current['originalPrefix']+'/active-setup-target-read'
+        record=records.get(key)
+        if record is not None:
+            require(record.get('producer')=='private-setup-key-retirement' and record.get('candidateKey')==candidate,
+                'original native setup principal has foreign custody')
+            setup_target(record['value'],issued)
+            return {'key':key,'sha256':canonical_digest(record)}
+        current=current.get('ancestor')
+    raise ValueError('original retirement lacks its retained pre-revocation native setup principal')
 
 
 def retire(config, durable, *, root_credential, setup_credential, preparation, native, http=native_http, original=None):
@@ -218,12 +249,19 @@ def retire(config, durable, *, root_credential, setup_credential, preparation, n
     if original is not None:
         retain('original-retirement', original)
     before_status = None
+    target_reference=None
     if config['mode'] in ('retire', 'resume'):
         guard()
         before = http(config, setup_credential, 'GET', path+'/effective-permissions')
         before_status = before['httpStatus']
         if effective(before, 'active', True):
             retain('active-setup-read', before)
+            guard()
+            target=http(config,setup_credential,'GET','/api/v1/agent/target')
+            setup_target(target,issued)
+            retain('active-setup-target-read',target)
+            target_key=prefix+'/active-setup-target-read'
+            target_reference={'key':target_key,'sha256':canonical_digest(records[target_key])}
             if config['mode'] == 'resume':
                 guard()
                 independent = http(config, root_credential, 'GET', path+'/effective-permissions')
@@ -253,6 +291,8 @@ def retire(config, durable, *, root_credential, setup_credential, preparation, n
             require(config['mode'] == 'resume' and before['httpStatus'] == 401,
                     'original setup credential lacks its actual authenticated positive control')
             retain('already-denied-read', before)
+    if target_reference is None:
+        target_reference=original_setup_target(records,original,config['candidateKey'],issued)
     guard()
     after = http(config, root_credential, 'GET', path+'/effective-permissions')
     require(effective(after, 'revoked', False), 'independent native read did not prove original setup authority revoked')
@@ -261,9 +301,14 @@ def retire(config, durable, *, root_credential, setup_credential, preparation, n
     denied = http(config, setup_credential, 'GET', path+'/effective-permissions')
     require(denied['httpStatus'] == 401, 'old setup credential still authenticates or only lacks scope; 403 is not revocation proof')
     retain('old-setup-denied', denied)
+    guard()
+    target_denied=http(config,setup_credential,'GET','/api/v1/agent/target')
+    require(target_denied['httpStatus']==401,'old setup target still authenticates or only lacks scope; exact401 is required')
+    retain('old-setup-target-denied',target_denied)
     receipt = {'schema': 'honua.private-setup-key-retirement/v1', 'candidateKey': config['candidateKey'],
         'configurationDigest': canonical_digest(config), 'operation': config['operation'], 'setupKey': config['setupKey'],
         'fixtureReference': config['fixtureReference'], 'preparation': preparation, 'native': native,
+        'setupTargetReference':target_reference,
         'revokedKeyId': issued['apiKeyId'], 'beforeStatus': before_status, 'postRevocationProbeStatus': 401,
         'retainedPrefix': prefix, 'mode': config['mode'], 'originalRetirement': original,
         'possibleAdditionalAudit': bool(original and original['sendState'] == 'possibly-issued' and before_status == 200),

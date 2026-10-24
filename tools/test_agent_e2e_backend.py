@@ -97,6 +97,23 @@ def test_preflight_rejects_wrong_candidate_or_missing_case_without_import(tmp_pa
     assert backend.module is None
 
 
+def test_amended_preflight_uses_only_the_exact_reviewed_worker_and_absolute_expiry(tmp_path, execution):
+    _, config = configured(tmp_path)
+    path = Path(config['configuration']['path'])
+    source = json.loads(path.read_text())
+    source['configuration']['cases'] = {CASE: {'attempts': {'1': {
+        'attemptId': 'original-worker-first', 'lifecycle': {'expiresEpoch': 2000000000}}}}}
+    path.write_text(json.dumps(source))
+    config['configuration']['sha256'] = digest_bytes(path.read_bytes())
+    backend = InProcessBackend(config, source_root=tmp_path)
+    execution.update(execution.path, 'amend-foss4g', candidate_key=CANDIDATE)
+    bind(backend, execution, tmp_path)
+    assert backend.preflight(CONTEXT)['paidAttempt'] == {'id': 'original-worker-first', 'expiresEpoch': 2000000000}
+    with pytest.raises(PackError, match='exact source worker'):
+        backend.preflight(CONTEXT | {'attempt': 2})
+    assert backend.module is None
+
+
 def test_frozen_relative_inputs_relocate_to_private_execution_source_without_rebinding(tmp_path):
     import shutil
     original, relocated = tmp_path/'github-checkout', tmp_path/'private-controller/source'
@@ -175,6 +192,41 @@ def handle(operation, payload, *, durable, campaign, bundle, configuration, time
     assert backend.module.RECEIVED_DURABLE is execution
     assert execution.store.acquisitions == 1
     assert execution.store.state['fixtureBaselines'][result['retained']['key']]['nativeDatabaseOid'] == 123
+
+
+def test_console_admission_runs_before_case_effects_and_stays_out_of_public_inputs(tmp_path, execution, monkeypatch):
+    from types import SimpleNamespace
+    backend, _ = configured(tmp_path, '''
+def handle(operation, payload, **kwargs):
+    assert 'consoleConversation' not in kwargs['configuration']['cases'][payload['caseId']]
+    return {'publicInputs': {'files': []}}
+''')
+    backend.settings['configuration']['cases'] = {CASE: {'consoleConversation': {'original': 'reviewed-reference'}}}
+    bind(backend, execution, tmp_path); reserve(execution)
+    calls = []
+    def admission(**kwargs):
+        calls.append(kwargs)
+        return SimpleNamespace(append=lambda payload: {'status': 'delivered', 'evidenceKind': 'conversation'})
+    monkeypatch.setattr('agent_e2e_console_conversation.Conversation', admission)
+    result = backend.call('prepare', CONTEXT)
+    assert len(calls) == 1 and calls[0]['durable'] is execution
+    assert result['consoleConversation'] is True and result['publicInputs'] == {'files': []}
+    assert backend.settings['configuration']['cases'][CASE]['consoleConversation'] == {'original': 'reviewed-reference'}
+    result = backend.call('conversation_response', {**CONTEXT, 'response': {'original': 'model-payload'}})
+    assert result['evidenceKind'] == 'conversation'
+
+
+def test_failed_console_turn_admission_does_not_load_or_start_case_backend(tmp_path, execution, monkeypatch):
+    backend, _ = configured(tmp_path)
+    backend.settings['configuration']['cases'] = {CASE: {'consoleConversation': {}}}
+    bind(backend, execution, tmp_path); reserve(execution)
+    def refuse(**kwargs):
+        raise PackError('original human turn unavailable')
+    monkeypatch.setattr('agent_e2e_console_conversation.Conversation', refuse)
+    with pytest.raises(PackError, match='original human turn'):
+        backend.call('prepare', CONTEXT)
+    assert backend.module is None
+    assert all(row['state'] == 'reserved' for row in execution.state['ledger']['entries'])
 
 
 def test_paid_prepare_loads_pinned_handler_and_rechecks_script(tmp_path, execution):

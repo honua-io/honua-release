@@ -76,8 +76,8 @@ variable "issued_agent_key_id" {
   type        = string
   default     = null
   validation {
-    condition     = var.issued_agent_key_id == null ? true : can(regex("^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$", var.issued_agent_key_id))
-    error_message = "Use the actual native-issued key UUID, never a fabricated actor."
+    condition     = var.issued_agent_key_id == null ? true : try(var.issued_agent_key_id == var.issued_native_keys.agent.apiKeyId, false)
+    error_message = "The legacy key ID can only repeat the actual native-bootstrap key with its retained immutable secret version."
   }
 }
 variable "issued_native_keys" {
@@ -123,5 +123,24 @@ variable "controller_model_resource_arns" {
       (split(":", arn)[4] == "" || split(":", arn)[4] == var.account_id)
     ])
     error_message = "Bind exact same-account profiles and their exact regional foundation models; no wildcard resources."
+  }
+}
+
+variable "controller_model" {
+  description = "Approved external-model identity and original profile digest. Null keeps model execution unavailable; no fallback or second model host."
+  type        = object({ modelId = string, returnedModelId = string, profileArn = string, tokenCountingModelArn = string, profileSha256 = string })
+  default     = null
+  validation {
+    condition = var.controller_model == null ? true : (
+      can(regex("^[a-zA-Z0-9.:/_-]{1,256}$", var.controller_model.modelId)) &&
+      can(regex("^[a-zA-Z0-9.:/_-]{1,256}$", var.controller_model.returnedModelId)) &&
+      can(regex("^sha256:[a-f0-9]{64}$", var.controller_model.profileSha256)) &&
+      can(regex("^arn:aws:bedrock:${var.region}::foundation-model/[a-zA-Z0-9.:-]+$", var.controller_model.tokenCountingModelArn)) &&
+      contains(var.controller_model_resource_arns, var.controller_model.tokenCountingModelArn) &&
+      can(regex("^arn:aws:bedrock:${var.region}:${var.account_id}:inference-profile/[a-zA-Z0-9.:-]+$", var.controller_model.profileArn)) &&
+      try(contains([var.controller_model.profileArn, split("/", var.controller_model.profileArn)[1]], var.controller_model.modelId), false) &&
+      contains(var.controller_model_resource_arns, var.controller_model.profileArn)
+    )
+    error_message = "Pin the reviewed profile, returned identity, original metadata digest and exact regional counting member within the existing model resource allowlist."
   }
 }

@@ -101,6 +101,7 @@ class InProcessBackend:
                     and money(quote['maximumInfrastructureUsd']) > 0 and money(quote['maximumCleanupUsd']) > 0 and
                     re.fullmatch(r'sha256:[0-9a-f]{64}', quote['liabilityBasisDigest']), 'invalid reviewed case liability quote')
         self.module = self.durable = self.campaign = self.bundle = None
+        self.conversations = {}
 
     def inspect(self, campaign):
         contract = self.settings['contract']
@@ -117,7 +118,14 @@ class InProcessBackend:
         self.inspect(context)
         quote = self.settings['contract']['cases'].get(context['caseId'])
         require(quote is not None, 'case lacks reviewed backend liability quote')
-        return {**copy.deepcopy(quote), 'target': context['caseId'].rsplit(':', 1)[1]}
+        result = {**copy.deepcopy(quote), 'target': context['caseId'].rsplit(':', 1)[1]}
+        if self.durable is not None and self.durable.state['ledger']['schemaVersion'] == 3:
+            worker = self.settings['configuration'].get('cases', {}).get(context['caseId'], {}).get('attempts', {}).get(str(context['attempt']))
+            require(isinstance(worker, dict) and isinstance(worker.get('attemptId'), str) and
+                    type(worker.get('lifecycle', {}).get('expiresEpoch')) is int,
+                    'missing exact source worker paid-admission policy')
+            result['paidAttempt'] = {'id': worker['attemptId'], 'expiresEpoch': worker['lifecycle']['expiresEpoch']}
+        return result
 
     def bind_execution(self, durable, campaign, bundle):
         require(self.durable is None and durable.store.candidate == campaign['componentBindingDigest'],
@@ -141,7 +149,7 @@ class InProcessBackend:
                     payload.get('caseId') in self.settings['contract']['cases'] and
                     type(payload.get('attempt')) is int and payload['attempt'] in (1, 2),
                     'backend request lacks reviewed case and attempt identity')
-        if operation in ('prepare', 'agent_action', 'verify', 'cleanup'):
+        if operation in ('prepare', 'agent_action', 'verify', 'cleanup', 'conversation_response'):
             ledger = self.durable.state['ledger']
             validate_budget(ledger)
             matching = [row for row in ledger['entries'] if row['state'] == 'reserved' and
@@ -154,7 +162,7 @@ class InProcessBackend:
             # This is local contract inspection, never evidence of live readiness.
             return self.inspect(payload['campaign'])
         require(operation in ('prepare', 'agent_action', 'verify', 'cleanup', 'authorize_retry',
-                              'export_attempt', 'export_campaign'), 'unknown controller backend operation')
+                              'export_attempt', 'export_campaign', 'conversation_response'), 'unknown controller backend operation')
         self._authorize(operation, payload)
         if operation == 'authorize_retry':
             # Do not load executable backend code before attempt-two admission.
@@ -179,6 +187,17 @@ class InProcessBackend:
             return {'protocol': PROTOCOL, 'authorized': authorized, 'previousAttemptDigest': previous,
                     'previousFailureAttribution': 'infrastructure' if authorized else 'undetermined'}
         with deadline(timeout):
+            configuration = copy.deepcopy(self.settings['configuration'])
+            case = configuration.get('cases', {}).get(payload.get('caseId'), {})
+            conversation_config = case.pop('consoleConversation', None)
+            if conversation_config is not None and operation in ('prepare', 'conversation_response'):
+                conversation_key = canonical_digest({name: payload[name] for name in ('campaignId', 'caseId', 'attempt')})
+                from agent_e2e_console_conversation import Conversation
+                self.conversations[conversation_key] = Conversation(durable=self.durable, context=payload,
+                    configuration=conversation_config, case=case)
+            if operation == 'conversation_response':
+                require(conversation_config is not None, 'this case has no reviewed original Console turn delivery')
+                return {'protocol': PROTOCOL, **self.conversations[conversation_key].append(payload['response'])}
             if self.module is None:
                 artifacts = self.durable.state.get('attemptArtifacts', {})
                 recover_export = (operation in ('export_attempt', 'export_campaign') and artifacts and
@@ -196,8 +215,11 @@ class InProcessBackend:
                 self.module = module
             result = self.module.handle(operation, copy.deepcopy(payload), durable=self.durable,
                 campaign=copy.deepcopy(self.campaign), bundle=self.bundle,
-                configuration=copy.deepcopy(self.settings['configuration']), timeout=timeout)
+                configuration=configuration, timeout=timeout)
         require(isinstance(result, dict), 'backend returned a non-object response')
+        require('consoleConversation' not in result, 'backend cannot invent Console turn delivery')
+        if operation == 'prepare' and conversation_config is not None:
+            result['consoleConversation'] = True
         result = {'protocol': PROTOCOL, **result}
         require(result['protocol'] == PROTOCOL and len(json.dumps(result, allow_nan=False).encode()) <= 1024*1024,
                 'backend public response is unbound or exceeds observation limit')

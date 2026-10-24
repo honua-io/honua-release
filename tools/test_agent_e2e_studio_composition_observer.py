@@ -66,6 +66,7 @@ def authoring(adapter, server):
                     assert args['draftId'] == state.draft['draftId'] and args['generation'] == state.draft['generation']
                     if tool == 'honua_studio_add_layer': state.draft['envelope']['body']['layers'].append(copy.deepcopy(args['layer']))
                     elif tool == 'honua_studio_set_view': state.draft['envelope']['body']['view'] = copy.deepcopy(args['view'])
+                    elif tool == 'honua_studio_update_draft': state.draft['envelope']['body'] = copy.deepcopy(args['body'])
                     elif tool == 'honua_studio_add_widget': state.draft['envelope']['body'].setdefault('widgets', []).append(copy.deepcopy(args['widget']))
                     else: raise AssertionError(tool)
                     state.draft['generation'] += 1

@@ -141,23 +141,29 @@ class JourneyExecutor:
     def semantic_arguments_proven(self, name, arguments):
         """True when these values are the harness's authored fixture, not merely schema-valid.
 
-        An unknown styleId or a bbox the fixture did not author stays unproven, so a candidate
-        invalid_argument remains model feedback. A render of the authored size and bbox, or the
-        authored style id, is proven: the same code is then a candidate defect.
+        Check every supplied value, including layer identity and optional rendering arguments.
+        Matching only dimensions or styleId cannot prove an unsupported encoding or foreign layer.
         """
         if not isinstance(arguments, dict):
             return False
+        service_id = self.fixture.get("serviceId")
+        layer_id = self.resources.get("layerId")
+        if not isinstance(service_id, str) or not service_id or type(layer_id) is not int:
+            return False
+        layer = {"serviceId": service_id, "layerId": layer_id}
         if name == "honua_apply_style_preset":
             style_id = self.fixture.get("styleId")
-            return isinstance(style_id, str) and bool(style_id) and arguments.get("styleId") == style_id
+            return (isinstance(style_id, str) and bool(style_id)
+                    and arguments == {**layer, "styleId": style_id})
         if name == "honua_render_map":
             size = self.fixture.get("renderSize")
-            if (not isinstance(size, list) or len(size) != 2
-                    or arguments.get("width") != size[0] or arguments.get("height") != size[1]):
+            bbox = self.fixture.get("bbox")
+            if not isinstance(size, list) or len(size) != 2 or not isinstance(bbox, list) or len(bbox) != 4:
                 return False
-            if "bbox" in arguments and arguments.get("bbox") != self.fixture.get("bbox"):
-                return False
-            return True
+            required = {"layers": [layer], "bbox": bbox, "width": size[0], "height": size[1]}
+            supported = {**required, "bboxSrid": 4326, "transparent": True, "maxInlineBytes": 1024 * 1024}
+            return (all(arguments.get(key) == value for key, value in required.items())
+                    and all(key in supported and value == supported[key] for key, value in arguments.items()))
         return False
 
     def _attribute_request_validation(self, name, arguments, exc):
@@ -255,6 +261,8 @@ class JourneyExecutor:
             self.evidence.pop("renderDimensions", None)
         if name == "honua_studio_save_version":
             self.prepare_map_save(arguments)
+        if name == "honua_studio_propose_publication":
+            self.prepare_publication(arguments)
         try:
             result = self.transport.tool(name, send_arguments, view, self.principal(number))
         except ExecutionError as exc:
@@ -309,6 +317,12 @@ class JourneyExecutor:
 
     def terminal_surface(self, number):
         """Describe the harness bridge grammar without choosing or executing an action."""
+        if number == 7:
+            return {"publicationContract": {
+                **self.expected_publication(),
+                "requirement": "Propose this exact saved version at the authored route with public visibility. "
+                               "The final map is independently read without credentials after separate human "
+                               "approval. The model selects the proposal; do not approve it yourself."}}
         if number == 6:
             try:
                 authored_body = self.expected_map_body()
@@ -976,6 +990,41 @@ class JourneyExecutor:
             return {"contentDigest": oracles.content_digest(expected)}
         self._check(6, "reopened-map", "GET reopened map draft", prove)
 
+    def expected_publication(self):
+        expected = {key: identity(self.resources.get(key), "publication contract")
+                    for key in ("itemId", "versionId", "contentHash")}
+        route = self.fixture.get("route")
+        if not isinstance(route, str) or not route.startswith("/") or route.startswith("//"):
+            raise ExecutionError("publication contract", "authored publication route is unavailable", blocked=True)
+        return {**expected, "route": route, "visibility": "public"}
+
+    def prepare_publication(self, arguments):
+        expected = self.expected_publication()
+        if any(arguments.get(key) != value for key, value in expected.items()):
+            raise ActionRejected("publication proposal", "proposal must bind the saved item/version/hash, "
+                                 "authored route and public visibility; consult terminalSurface.publicationContract")
+        # Freeze the authored binding before candidate output can update resources.
+        # This records the selected intent; it never rewrites the model's action.
+        self.evidence["publicationIntent"] = expected
+        self.evidence.setdefault("proofs", {}).pop("durable-proposal", None)
+        self.evidence["checks"].setdefault("7", {}).pop("durable-proposal", None)
+
+    def require_publication_intent(self, proposal):
+        expected = self.evidence.get("publicationIntent")
+        if (not isinstance(expected, dict) or set(expected) !=
+                {"itemId", "versionId", "contentHash", "route", "visibility"}):
+            raise ExecutionError("GET publication proposal", "original publication intent is unavailable")
+        rows = proposal.get("diff") if isinstance(proposal, dict) else None
+        if (not isinstance(rows, list) or len(rows) > 32 or
+                any(not isinstance(row, str) or len(row) > 1024 for row in rows)):
+            raise ExecutionError("GET publication proposal", "publication proposal differs from the authored intent")
+        for key, value in expected.items():
+            selected = [row for row in rows if row.partition("=")[0] == key]
+            if selected != [f"{key}={value}"]:
+                raise ExecutionError("GET publication proposal", "publication proposal differs from the authored intent")
+        if any(self.resources.get(key) != expected[key] for key in ("itemId", "versionId", "contentHash")):
+            raise ExecutionError("GET publication proposal", "publication response changed its original content binding")
+
     def check_proposal(self):
         def prove():
             proposal_id = identity(self.resources.get("proposalId"), "GET publication proposal")
@@ -984,6 +1033,7 @@ class JourneyExecutor:
             proposal = self.transport.get_json("/api/v1/admin/proposals/" + proposal_id, principal=self.principal(8))
             if proposal.get("proposalId") != proposal_id or proposal.get("status") not in {"Pending", "AwaitingApproval"}:
                 raise ExecutionError("GET publication proposal", "publication did not persist awaiting separate approval")
+            self.require_publication_intent(proposal)
             return {"proposalId": proposal_id, "status": "AwaitingApproval"}
         return self._check(7, "durable-proposal", "GET publication proposal", prove)
 
@@ -997,10 +1047,15 @@ class JourneyExecutor:
         path = "/api/v1/admin/proposals/" + proposal_id
         reader = self.principal(8)
         before = self.transport.get_json(path, principal=reader)
+        if before.get("proposalId") != proposal_id or before.get("status") not in {"Pending", "AwaitingApproval"}:
+            raise ExecutionError("GET publication proposal", "publication did not persist awaiting separate approval")
+        self.require_publication_intent(before)
         code, _ = self.transport.cli_approve(proposal_id, "proposer")
         denied = self.transport.get_json(path, principal=reader)
-        if code == 0 or denied.get("status") != before.get("status") or denied.get("resolvedBy"):
+        if (code == 0 or denied.get("proposalId") != proposal_id or
+                denied.get("status") != before.get("status") or denied.get("resolvedBy")):
             raise ExecutionError("approveOperationProposal --profile proposer", "self-approval was not refused without mutation")
+        self.require_publication_intent(denied)
         # A CLI usage error is not a security denial. Independently exercise the
         # authenticated candidate endpoint and require its actual 403 response.
         self.transport.http("POST", path + "/approve", principal="proposer", expected=(403,))
@@ -1010,8 +1065,10 @@ class JourneyExecutor:
         final = self.poll("GET approved proposal", lambda: self.transport.get_json(path, principal="approver"),
                           lambda r: r.get("status") in {"Succeeded", "Approved", "Applied", "Rejected", "Failed"})
         if (final.get("proposalId") != proposal_id or final.get("status") not in {"Succeeded", "Approved", "Applied"}
+                or final.get("requestedBy") != before.get("requestedBy")
                 or not final.get("resolvedBy") or final["resolvedBy"] == final.get("requestedBy")):
             raise ExecutionError("GET approved proposal", "candidate did not prove separate principal resolution")
+        self.require_publication_intent(final)
         self.evidence["approvalResolution"] = {"proposalId": proposal_id,
                                               "requestedBy": identity(final["requestedBy"], "GET approved proposal"),
                                               "resolvedBy": identity(final["resolvedBy"], "GET approved proposal")}

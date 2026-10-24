@@ -31,8 +31,17 @@ def verify_task(ecs, config):
     environment = {row['name']: row['value'] for row in container.get('environment', [])}
     require(set(environment) == {'PILOT_NATIVE_BOOTSTRAP_CONFIG'} and
             json.loads(environment['PILOT_NATIVE_BOOTSTRAP_CONFIG']) == config['configuration'], 'native bootstrap task configuration differs')
-    require({row['name'] for row in container['secrets']} == {'PILOT_FIXTURE_MASTER_CONNECTION', 'PILOT_FIXTURE_ADMIN_PASSWORD',
-        'HONUA_AGENT_FIXTURE_CLEANUP_DSN', 'HONUA_AGENT_FIXTURE_OBSERVER_DSN'}, 'native bootstrap secret injection differs')
+    expected_secrets = {'PILOT_FIXTURE_MASTER_CONNECTION', 'PILOT_FIXTURE_ADMIN_PASSWORD',
+        'HONUA_AGENT_FIXTURE_CLEANUP_DSN', 'HONUA_AGENT_FIXTURE_OBSERVER_DSN'}
+    memberships = config['configuration'].get('humanMemberships')
+    if memberships is not None:
+        expected_secrets.add('HONUA_NATIVE_SCIM_TOKEN')
+        for name, kind in (('HONUA_NATIVE_SCIM_TOKEN', 'scim'), ('PILOT_FIXTURE_ADMIN_PASSWORD', 'root')):
+            reference = memberships['credentials'][kind]
+            require([row['valueFrom'] for row in container['secrets'] if row['name'] == name] ==
+                [reference['secretArn']+':::'+reference['versionId']], 'native bootstrap human credential version differs')
+    require({row['name'] for row in container['secrets']} == expected_secrets and
+            len(container['secrets']) == len(expected_secrets), 'native bootstrap secret injection differs')
     require(container.get('mountPoints') == [{'sourceVolume': 'work', 'containerPath': '/work', 'readOnly': False}], 'native bootstrap writable mounts differ')
 
 

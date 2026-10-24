@@ -110,3 +110,21 @@ variable "bootstrap_creation_identity" {
     error_message = "Supply the complete source/config/lock creation identity or an empty map for validation-only plans."
   }
 }
+
+variable "bootstrap_custody_creation_tags" {
+  description = "Original identity independently observed on the retained custody key and both buckets. Only custody overrides current producer tags; never caller-provided to the checked helper."
+  type        = map(string)
+  default     = {}
+  validation {
+    condition = length(var.bootstrap_custody_creation_tags) == 0 || (
+      toset(keys(var.bootstrap_custody_creation_tags)) == toset(["ManagedBy", "BootstrapExecution", "BootstrapFoundationSha", "BootstrapReleaseSha", "BootstrapConfigPath", "BootstrapConfigSha256", "BootstrapLockSha256"]) &&
+      try(var.bootstrap_custody_creation_tags.ManagedBy == "honua-release-hosted-pilot-bootstrap", false) &&
+      can(regex("^[0-9]+$", var.bootstrap_custody_creation_tags.BootstrapExecution)) &&
+      alltrue([for key in ["BootstrapFoundationSha", "BootstrapReleaseSha"] : can(regex("^[a-f0-9]{40}$", var.bootstrap_custody_creation_tags[key]))]) &&
+      alltrue([for key in ["BootstrapConfigSha256", "BootstrapLockSha256"] : can(regex("^[a-f0-9]{64}$", var.bootstrap_custody_creation_tags[key]))]) &&
+      can(regex("^certification/hosted-pilot/bootstrap/deployments/[A-Za-z0-9._-]+\\.tfvars\\.json$", var.bootstrap_custody_creation_tags.BootstrapConfigPath)) &&
+      alltrue([for value in values(var.bootstrap_custody_creation_tags) : length(value) > 0 && length(value) <= 256])
+    )
+    error_message = "Use only the complete independently observed original custody identity."
+  }
+}

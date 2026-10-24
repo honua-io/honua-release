@@ -224,10 +224,13 @@ class Session:
         require(len(groups) == 1 and groups[0].get('ReplicationGroupId') == config['redisReplicationGroupId'] and
                 groups[0].get('Status') == 'available' and groups[0].get('TransitEncryptionEnabled') is True,
                 'P10 Redis-on deployment is not independently available with TLS')
-        cache = successful(self.setup.json('observe-cache', 'GET', '/api/v1/admin/cache/status'))
+        cache = successful(self.deployment_http().json('observe-cache', 'GET', '/api/v1/admin/cache/status'))
         require(cache.get('isHealthy') is True and cache.get('isUsingFallback') is False,
                 'P10 product cache is unavailable or using fallback')
         self.retain('deployment', {'deployment': deployed, 'definitions': definitions, 'redis': serializable(redis)})
+
+    def deployment_http(self):
+        return self.setup
 
     def open_worker(self):
         if self.lifecycle is not None:
@@ -412,6 +415,10 @@ class Session:
             self.retain('sql-cleanup', sql)
         except Exception as exc:
             failures.append({'component': 'sql-cleanup', 'errorType': type(exc).__name__})
+        try:
+            self.cleanup_resources()
+        except Exception as exc:
+            failures.append({'component': 'resource-cleanup', 'errorType': type(exc).__name__})
         cleanup = {'status': 'pass' if not failures and sql is not None and stop is not None else 'blocked',
                    'worker': stop, 'fixtureSql': sql, 'failures': failures,
                    'completedAt': datetime.now(timezone.utc).isoformat()}
@@ -432,6 +439,10 @@ class Session:
 
     def prepare_cleanup_ownership(self):
         """Case adapters may adopt final native outputs only after worker stop."""
+        return None
+
+    def cleanup_resources(self):
+        """Observe non-SQL obligations even when fixture ownership is missing."""
         return None
 
     def cleanup_ownership(self):

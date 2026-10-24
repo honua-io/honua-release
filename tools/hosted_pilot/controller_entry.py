@@ -13,10 +13,36 @@ import urllib.request
 
 from controller_archive import BUNDLE_LIMIT, SOURCE_LIMIT, bundle_bytes, canonical, contract, digest, extract, require, seal_source
 from controller_budget import read_allowance, read_version
-from controller_handoff import CONFIG_PATH, WORKFLOW, PREPARE_WORKFLOW, PREPARATIONS, bundle_identity, sdk, validate_configuration, put_once
+from controller_handoff import CONFIG_PATH, WORKFLOW, PREPARE_WORKFLOW, PREPARATIONS, bundle_identity, sdk, validate_configuration, put_once, model_runtime
 
-INPUTS = ('campaign.json', 'producer-inputs.json', 'qualification-lock.json', 'expectations.json', 'candidate-provenance.json', 'preparation.json')
-FINAL_FILES = {'campaign.json', 'producer-inputs.json', 'qualification-lock.json', 'expectations.json', 'candidate-provenance.json', 'trusted-inventory.json', 'budget-ledger.json', 'attempt-registry.json', 'qualification-summary.json'}
+INPUTS = ('campaign.json', 'producer-inputs.json', 'qualification-lock.json', 'expectations.json', 'candidate-provenance.json', 'preparation.json', 'budget-bootstrap-original.json')
+FINAL_FILES = {'campaign.json', 'producer-inputs.json', 'qualification-lock.json', 'expectations.json', 'candidate-provenance.json', 'budget-bootstrap-original.json', 'trusted-inventory.json', 'budget-ledger.json', 'attempt-registry.json', 'qualification-summary.json'}
+
+
+def approved_model_environment(config, campaign, producer, environment):
+    pin = config.get('model')
+    expected = model_runtime(pin, config['region'], config['accountId'])
+    model = producer['model']
+    require(all(model[name] == pin[name] for name in ('modelId', 'returnedModelId', 'profileArn', 'tokenCountingModelArn')) and
+            model['profile']['sha256'] == pin['profileSha256'] and
+            all(campaign[name] == pin[name] for name in ('modelId', 'returnedModelId')),
+            'frozen campaign model differs from installed controller runtime binding')
+    require(all(environment.get(name) == value for name, value in expected.items()),
+            'private controller model environment is missing or changed')
+    return expected
+
+
+def approved_model_environment(config, campaign, producer, environment):
+    pin = config.get('model')
+    expected = model_runtime(pin, config['region'], config['accountId'])
+    model = producer['model']
+    require(all(model[name] == pin[name] for name in ('modelId', 'returnedModelId', 'profileArn', 'tokenCountingModelArn')) and
+            model['profile']['sha256'] == pin['profileSha256'] and
+            all(campaign[name] == pin[name] for name in ('modelId', 'returnedModelId')),
+            'frozen campaign model differs from installed controller runtime binding')
+    require(all(environment.get(name) == value for name, value in expected.items()),
+            'private controller model environment is missing or changed')
+    return expected
 
 
 def http_json(url, *, limit=1024 * 1024):
@@ -140,11 +166,16 @@ def main():
     command = [sys.executable, 'tools/agent_e2e_campaign.py', selected['operation'], '--bundle', str(bundle)]
     if selected['operation'] in PREPARATIONS:
         command = [sys.executable, 'tools/hosted_pilot/prepare.py', 'execute', '--bundle', str(bundle), '--output', str(evidence/'preparation-result.json')]
+        if selected['operation'] == 'prepare-installed-mcp-base':
+            command = [sys.executable, 'tools/hosted_pilot/installed_mcp_configuration.py', 'execute', '--bundle', str(bundle), '--output', str(evidence/'preparation-result.json')]
     if selected['caseId']:
         command += ['--case-id', selected['caseId']]
     if selected['target']:
         command += ['--target', selected['target'], '--shard', str(selected['shard']), '--shards', str(selected['shards'])]
     env = os.environ.copy()
+    if selected['operation'] not in PREPARATIONS:
+        env.update(approved_model_environment(config, campaign,
+            json.loads((bundle/'producer-inputs.json').read_text()), env))
     producer = campaign['controller']
     env.update(GITHUB_REPOSITORY=producer['repository'], GITHUB_REF='refs/heads/trunk', GITHUB_EVENT_NAME='workflow_dispatch', GITHUB_SHA=producer['sourceSha'], GITHUB_RUN_ID=str(producer['runId']), GITHUB_RUN_ATTEMPT=str(producer['runAttempt']), PYTHONDONTWRITEBYTECODE='1', PGSSLROOTCERT='/controller/certification/hosted-pilot/controller/rds-global-bundle.pem')
     env['PILOT_CONTROLLER_TASK_ARN'] = task_arn

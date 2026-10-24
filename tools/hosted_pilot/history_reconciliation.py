@@ -33,7 +33,10 @@ GITHUB_KINDS = {
 
 KINDS = {
     'foundation':('honua-io/honua-iac','.github/workflows/hosted-pilot-bootstrap.yml','bindings.json'),
+    'foundation-custody':('honua-io/honua-iac','.github/workflows/hosted-pilot-bootstrap.yml','custody-applied.json'),
     'foundation-plan':('honua-io/honua-iac','.github/workflows/hosted-pilot-bootstrap.yml','review.json'),
+    'foundation-expired-before-apply':('honua-io/honua-iac','.github/workflows/hosted-pilot-bootstrap.yml','custody-recovery.json'),
+    'foundation-plan-refused':('honua-io/honua-iac','.github/workflows/hosted-pilot-bootstrap.yml','custody-recovery.json'),
     'controller-image':('honua-io/honua-release','.github/workflows/hosted-pilot-controller-image.yml','hosted-pilot-controller-image.json'),
     'worker-image':('honua-io/honua-release','.github/workflows/hosted-pilot-worker-image.yml','hosted-pilot-worker-image.json'),
     'campaign-staging':('honua-io/honua-release','.github/workflows/hosted-pilot-deploy.yml','readiness.json'),
@@ -102,6 +105,12 @@ def authenticate(record, *, call=invoke):
             'unknown environment producer cannot be admitted')
     else:
         require(kind in KINDS and (p['repository'],p['workflow'])==KINDS[kind][:2],'unknown or model producer cannot be bootstrap history')
+    if kind=='foundation-expired-before-apply':
+        from history_expired_phase import authenticate as expired_phase
+        return expired_phase(record,call)
+    if kind=='foundation-plan-refused':
+        from history_failed_plan import authenticate_refused_plan
+        return authenticate_refused_plan(record,call)
     base='repos/'+p['repository']
     run=api(base+f"/actions/runs/{p['runId']}/attempts/{p['runAttempt']}",call)
     require((run['id'],run['run_attempt'],run['head_sha'],run['path'],run['head_branch'],run['event'],run['status'],run['conclusion'])==
@@ -130,15 +139,21 @@ def authenticate(record, *, call=invoke):
     entry=KINDS[kind][2]
     expected_name={'foundation':f"hosted-pilot-foundation-bindings-{p['runId']}",
         'foundation-plan':f"hosted-pilot-foundation-review-{p['runId']}",
+        'foundation-custody':f"hosted-pilot-custody-applied-{p['runId']}-{p['runAttempt']}",
         'controller-image':f"hosted-pilot-controller-image-{p['runId']}-{p['runAttempt']}",
         'worker-image':f"hosted-pilot-worker-image-{p['runId']}-{p['runAttempt']}",
         'campaign-staging':f"hosted-pilot-infrastructure-readiness-{p['runId']}-{p['runAttempt']}"}[kind]
+    if kind=='foundation-plan' and record['artifact']['name'].startswith('hosted-pilot-phase-review-'):
+        from history_phase import review_name
+        require(record['artifact']['name'] in [review_name(p,phase) for phase in ('custody-only','remote-backed-foundation')], 'phase artifact source/attempt differs')
+        expected_name=record['artifact']['name']
     require(record['artifact']['name']==expected_name,'original producer artifact identity differs')
     receipt=native_artifact(p,record['artifact'],entry,call)
     execution_sha=p['sourceSha']
-    if kind in ('foundation','foundation-plan'):
+    if kind in ('foundation','foundation-plan','foundation-custody'):
+        phase_protocol = kind=='foundation-custody' or receipt.get('schema') in ('honua.hosted-pilot-bootstrap-plan/v2','honua.hosted-pilot-bootstrap-bindings/v2')
         if kind=='foundation-plan':
-            require(receipt['schema']=='honua.hosted-pilot-bootstrap-plan/v1' and
+            require(receipt['schema'] in ('honua.hosted-pilot-bootstrap-plan/v1','honua.hosted-pilot-bootstrap-plan/v2') and
                 receipt['foundation_source_sha']==p['sourceSha'] and receipt['phase'] in ('custody-only','remote-backed-foundation') and
                 record['planArtifact'] is None and record['ownerLedger'] is None and not record['cloudEvents'],
                 'foundation plan cannot claim applied effects, a published owner version or new resources')
@@ -146,19 +161,34 @@ def authenticate(record, *, call=invoke):
             require(len(artifacts['artifacts'])==artifacts['total_count'] and not any(
                 row['name']==f"hosted-pilot-foundation-bindings-{p['runId']}" for row in artifacts['artifacts']),
                 'foundation plan classification conflicts with actual deployment artifact')
+            if phase_protocol:
+                from history_phase import plan_only
+                plan_only(record,receipt,jobs,artifacts['artifacts'])
+        elif kind=='foundation-custody':
+            from history_phase import applied
+            receipt=applied(record,receipt,jobs,native_artifact=native_artifact,api=api,source_file=source_file,call=call)
         else:
-            require(receipt['schema']=='honua.hosted-pilot-bootstrap-bindings/v1' and receipt['foundation_source_sha']==p['sourceSha'] and
+            require(receipt['schema'] in ('honua.hosted-pilot-bootstrap-bindings/v1','honua.hosted-pilot-bootstrap-bindings/v2') and receipt['foundation_source_sha']==p['sourceSha'] and
             int(receipt['foundation_run_id'])==p['runId'] and int(receipt['foundation_run_attempt'])==p['runAttempt'],
                 'foundation receipt differs from original completed run')
+            if phase_protocol:
+                from history_phase import applied
+                applied(record,receipt,jobs,native_artifact=native_artifact,api=api,source_file=source_file,call=call)
         execution_sha=receipt['release_root_sha']
-        workflow={p['workflow']:hashlib.sha256((ROOT/'certification/hosted-pilot/bootstrap/foundation-bootstrap-workflow.yml').read_bytes()).hexdigest(),
+        original_sources=None
+        if kind=='foundation-plan':
+            from history_failed_plan import original_success_sources
+            original_sources=original_success_sources(record,receipt)
+        workflow=original_sources[0] if original_sources is not None else {p['workflow']:hashlib.sha256((ROOT/'certification/hosted-pilot/bootstrap/foundation-bootstrap-workflow.yml').read_bytes()).hexdigest(),
             'scripts/check-hosted-pilot-foundation-inputs.py':hashlib.sha256((ROOT/'certification/hosted-pilot/bootstrap/foundation-input-check.py').read_bytes()).hexdigest()}
         verify_sources(p['repository'],p['sourceSha'],workflow,call)
         paths=['tools/hosted_pilot/bootstrap.py','tools/hosted_pilot/deploy.py','tools/hosted_pilot/foundation_environment.py',
             'tools/hosted_pilot/bind_github.py','certification/hosted-pilot/foundation-environment.json',
             'certification/hosted-pilot/bootstrap/.terraform.lock.hcl',
             *[str(path.relative_to(ROOT)) for path in sorted((ROOT/'certification/hosted-pilot/bootstrap').glob('*.tf')) if path.name!='recovery-imports.tf']]
-        verify_sources('honua-io/honua-release',execution_sha,file_hashes(paths),call)
+        if phase_protocol:
+            paths += ['tools/hosted_pilot/bootstrap_phase.py', 'tools/hosted_pilot/custody_completion.py']
+        verify_sources('honua-io/honua-release',execution_sha,original_sources[1] if original_sources is not None else file_hashes(paths),call)
         config=source_file(p['repository'],p['sourceSha'],receipt['config_path'],call)
         require(digest_bytes(config)=='sha256:'+receipt['config_sha256'] and json.loads(config).get('image_preparation_funding') is True,
                 'original foundation configuration changed or has unknown funding mode')
@@ -236,6 +266,9 @@ def reconcile(history, ledger, references, *, read, cutoff, call=invoke, authent
         require(record['kind'] in GITHUB_KINDS or
             {row['kind'] for row in rows}=={'infrastructure','cleanup'} and all(row['purpose']=='bootstrap' for row in rows),
             'paid bootstrap must retain both original infrastructure and cleanup funding')
+        if record['kind']=='foundation-expired-before-apply':
+            from history_expired_phase import validate_funding_rows
+            validate_funding_rows(record,rows,ledger)
         run,jobs,receipt,execution_sha=authenticate(record,call=call) if authenticate_originals else (None,None,None,None)
         if authenticate_originals:
             limit=datetime.fromisoformat(cutoff.replace('Z','+00:00'))
@@ -249,7 +282,7 @@ def reconcile(history, ledger, references, *, read, cutoff, call=invoke, authent
         if authenticate_originals and record['kind'] not in GITHUB_KINDS:
             actual=source_file('honua-io/honua-release',execution_sha,record['fundingBasis']['path'],call)
             require(digest_bytes(actual)==record['fundingBasis']['sha256'],'funding basis did not exist in original executable source')
-            if record['kind']=='foundation-plan':
+            if record['kind'] in ('foundation-plan','foundation-plan-refused','foundation-custody','foundation-expired-before-apply'):
                 require(record['ownerLedger'] is None,'a source plan cannot invent a published owner ledger')
             else:
                 validate_original_owner(record,receipt,rows,execution_sha,p,read,call)
@@ -259,7 +292,7 @@ def reconcile(history, ledger, references, *, read, cutoff, call=invoke, authent
                 events[event_key]['nativeEventSha256']==item['nativeEventSha256'] and item['eventName'] in ('CreateRole','CreateBucket','CreateStateMachine'),
                 'unknown, duplicated or model/task execution event cannot become bootstrap')
             event=events[event_key]
-            require(record['kind'] in ('foundation','campaign-staging') and event['resourceIdentities'] and not event['unprojectedNamespaceReference'],
+            require(record['kind'] in ('foundation','foundation-custody','campaign-staging') and event['resourceIdentities'] and not event['unprojectedNamespaceReference'],
                     'AWS event lacks independently bounded bootstrap resource identities')
             if authenticate_originals:
                 authenticate_event(event,record,run,jobs,receipt,ledger['candidateKey'])
@@ -290,7 +323,7 @@ def authenticate_event(event,record,run,jobs,receipt,candidate_key):
         'original AWS event identity/account differs')
     identity=event.get('principal') or {}
     issuer=identity.get('sessionIssuer') or {}
-    if record['kind']=='foundation':
+    if record['kind'] in ('foundation','foundation-custody'):
         actor=receipt.get('execution_identity') or {}
         require(actor.get('schema')=='honua.hosted-pilot-bootstrap-execution-identity/v1' and
             actor.get('foundation_source_sha')==record['producer']['sourceSha'] and
@@ -307,10 +340,13 @@ def authenticate_event(event,record,run,jobs,receipt,candidate_key):
         matches=[row for row in rows if row['name']==name]
         require(len(matches)==1,'creation event lacks its exact original saved-plan physical resource')
         planned=matches[0]
-        require(planned['creation_tags'].get('BootstrapExecution')==str(record['producer']['runId']) and
-            planned['creation_tags'].get('BootstrapFoundationSha')==record['producer']['sourceSha'] and
-            planned['creation_tags'].get('BootstrapReleaseSha')==receipt['release_root_sha'] and
-            all(planned['creation_tags'].get(tag)==actor.get(key) for key,tag in {
+        original=receipt.get('original_creation') if record['kind']=='foundation-custody' else None
+        scope=original['identity'] if original else actor
+        creator=original['run_id'] if original else str(record['producer']['runId'])
+        require(planned['creation_tags'].get('BootstrapExecution')==creator and
+            planned['creation_tags'].get('BootstrapFoundationSha')==scope.get('foundation_source_sha') and
+            planned['creation_tags'].get('BootstrapReleaseSha')==scope.get('release_root_sha') and
+            all(planned['creation_tags'].get(tag)==scope.get(key) for key,tag in {
                 'config_path':'BootstrapConfigPath','config_sha256':'BootstrapConfigSha256',
                 'provider_lock_sha256':'BootstrapLockSha256'}.items()),
             'planned resource does not belong to this original source/run')

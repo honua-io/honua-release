@@ -15,6 +15,24 @@ mock_provider "aws" {
     defaults = { domain_validation_options = [{ domain_name = "agent.pilot.demo.honua.io", resource_record_name = "_validation.agent.pilot.demo.honua.io", resource_record_type = "CNAME", resource_record_value = "_validation.acm-validations.aws" }] }
   }
 }
+mock_provider "aws" {
+  alias           = "application"
+  override_during = plan
+  mock_data "aws_caller_identity" { defaults = { account_id = "123456789012" } }
+  mock_data "aws_availability_zones" { defaults = { names = ["us-east-1a", "us-east-1b"] } }
+  mock_resource "aws_s3_bucket" { defaults = { id = "honua-pilot-offline-agent-controller-123456789012", arn = "arn:aws:s3:::honua-pilot-offline-agent-controller-123456789012" } }
+  mock_resource "aws_iam_role" { defaults = { arn = "arn:aws:iam::123456789012:role/honua-pilot-offline-agent" } }
+  mock_resource "aws_ecs_task_definition" { defaults = { arn = "arn:aws:ecs:us-east-1:123456789012:task-definition/honua-pilot-offline-agent-campaign-controller:1" } }
+  mock_resource "aws_security_group" { defaults = { id = "sg-0123456789abcdef0" } }
+  mock_resource "aws_dynamodb_table" { defaults = { arn = "arn:aws:dynamodb:us-east-1:123456789012:table/honua-pilot-offline-agent-controller-claims" } }
+  mock_resource "aws_secretsmanager_secret" { defaults = { arn = "arn:aws:secretsmanager:us-east-1:123456789012:secret:honua-pilot-offline-agent-fixture-offline", id = "arn:aws:secretsmanager:us-east-1:123456789012:secret:honua-pilot-offline-agent-fixture-offline" } }
+  mock_resource "aws_secretsmanager_secret_version" { defaults = { version_id = "offline-version" } }
+  mock_resource "aws_cloudwatch_log_group" { defaults = { arn = "arn:aws:logs:us-east-1:123456789012:log-group:/ecs/honua-pilot-offline-agent" } }
+  mock_resource "aws_sfn_state_machine" { defaults = { state_machine_version_arn = "arn:aws:states:us-east-1:123456789012:stateMachine:honua-pilot-offline-agent-campaign-controller:1" } }
+  mock_resource "aws_acm_certificate" {
+    defaults = { domain_validation_options = [{ domain_name = "agent.pilot.demo.honua.io", resource_record_name = "_validation.agent.pilot.demo.honua.io", resource_record_type = "CNAME", resource_record_value = "_validation.acm-validations.aws" }] }
+  }
+}
 mock_provider "random" {}
 override_module {
   target = module.network
@@ -26,8 +44,14 @@ override_module {
   }
 }
 override_module {
-  target = module.target
+  target = module.application
   outputs = {
+    deployment = {
+      console_service         = "honua-pilot-offline-console"
+      console_task_definition = "arn:aws:ecs:us-east-1:123456789012:task-definition/honua-pilot-offline-console:7"
+      edge_proxy_image        = "quay.io/oauth2-proxy/oauth2-proxy@sha256:8e4bec4f9fe4de10de63070209204075e4407503170aa19893d6e8d99f083d1b"
+    }
+    identity_preparation      = { issuer = "https://cognito-idp.us-east-1.amazonaws.com/us-east-1_Offline" }
     ecs_cluster_name          = "honua-pilot-offline-agent"
     ecs_service_name          = "honua-pilot-offline-agent"
     db_endpoint               = "isolated.example.us-east-1.rds.amazonaws.com"
@@ -40,6 +64,26 @@ override_module {
   outputs = { state_config = { region = "us-east-1", bucket = "retained-original-accounting", table = "retained-original-head" } }
 }
 variables {
+  application = {
+    candidate = {
+      manifest_sha256  = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+      server_image     = "ghcr.io/honua-io/honua-server@sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+      console_image    = "ghcr.io/honua-io/honua-console@sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
+      server_revision  = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+      console_revision = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+      studio_revision  = "cccccccccccccccccccccccccccccccccccccccc"
+      sdk_revision     = "dddddddddddddddddddddddddddddddddddddddd"
+    }
+    permissions_boundary_arn = "arn:aws:iam::123456789012:policy/honua-release-pilot-offline-foundation-runtime-boundary"
+    allowed_operator_cidrs   = ["192.0.2.10/32"]
+    identity_redirects = {
+      console_origin          = "https://console.pilot.demo.honua.io"
+      edge_callback_url       = "https://console.pilot.demo.honua.io/oauth2/callback"
+      edge_logout_url         = "https://console.pilot.demo.honua.io/auth/login"
+      server_bff_callback_url = "https://console.pilot.demo.honua.io/admin/auth/callback"
+      server_bff_logout_url   = "https://console.pilot.demo.honua.io/admin"
+    }
+  }
   region                   = "us-east-1"
   account_id               = "123456789012"
   name_prefix              = "honua-pilot-offline-agent"
@@ -77,11 +121,11 @@ run "immutable_human_browser_storage_reaches_only_private_controller" {
     human_browser = {
       storageState = { secretArn = "arn:aws:secretsmanager:us-east-1:123456789012:secret:honua-pilot-offline-agent/human-session/browser-ABC123", versionId = "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee" }
       consoleDeployment = {
-        region            = "us-east-1", clusterArn = "arn:aws:ecs:us-east-1:123456789012:cluster/honua-pilot-offline",
-        serviceArn        = "arn:aws:ecs:us-east-1:123456789012:service/honua-pilot-offline/honua-pilot-offline-console",
+        region            = "us-east-1", clusterArn = "arn:aws:ecs:us-east-1:123456789012:cluster/honua-pilot-offline-agent",
+        serviceArn        = "arn:aws:ecs:us-east-1:123456789012:service/honua-pilot-offline-agent/honua-pilot-offline-console",
         taskDefinitionArn = "arn:aws:ecs:us-east-1:123456789012:task-definition/honua-pilot-offline-console:7",
-        imageUri          = "ghcr.io/honua-io/honua-console@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
-        edgeImageUri      = "quay.io/oauth2-proxy/oauth2-proxy@sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        imageUri          = "ghcr.io/honua-io/honua-console@sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+        edgeImageUri      = "quay.io/oauth2-proxy/oauth2-proxy@sha256:8e4bec4f9fe4de10de63070209204075e4407503170aa19893d6e8d99f083d1b",
         issuer            = "https://cognito-idp.us-east-1.amazonaws.com/us-east-1_Offline"
       }
     }
@@ -95,8 +139,85 @@ run "immutable_human_browser_storage_reaches_only_private_controller" {
       jsondecode(aws_iam_role_policy.browser_execution[0].policy).Statement[0].Resource == var.human_browser.storageState.secretArn &&
       jsondecode(aws_iam_role_policy.browser_execution[0].policy).Statement[0].Condition.StringEquals["secretsmanager:VersionId"] == var.human_browser.storageState.versionId &&
       toset([for statement in jsondecode(aws_iam_role_policy.browser_observation[0].policy).Statement : statement.Action]) == toset(["ecs:DescribeServices", "ecs:DescribeTaskDefinition"]) &&
+      one([for statement in jsondecode(aws_iam_role_policy.browser_observation[0].policy).Statement : statement if statement.Action == "ecs:DescribeTaskDefinition"]) == {
+        Effect    = "Allow", Action = "ecs:DescribeTaskDefinition", Resource = "*",
+        Condition = { StringEquals = { "aws:RequestedRegion" = var.region } }
+      } &&
+      one([for statement in jsondecode(aws_iam_role_policy.browser_observation[0].policy).Statement : statement if statement.Action == "ecs:DescribeServices"]).Resource == var.human_browser.consoleDeployment.serviceArn &&
       !strcontains(aws_iam_role_policy.browser_observation[0].policy, "secretsmanager:")
     )
     error_message = "Only the trusted controller may receive immutable human browser custody; its separate native deployment observations must remain read-only."
   }
+}
+
+run "refuse_other_console_service" {
+  command = plan
+  variables {
+    human_browser = {
+      storageState = { secretArn = "arn:aws:secretsmanager:us-east-1:123456789012:secret:honua-pilot-offline-agent/human-session/browser-ABC123", versionId = "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee" }
+      consoleDeployment = {
+        region            = "us-east-1", clusterArn = "arn:aws:ecs:us-east-1:123456789012:cluster/honua-pilot-offline-agent",
+        serviceArn        = "arn:aws:ecs:us-east-1:123456789012:service/honua-pilot-offline-agent/other-console",
+        taskDefinitionArn = "arn:aws:ecs:us-east-1:123456789012:task-definition/honua-pilot-offline-console:7",
+        imageUri          = "ghcr.io/honua-io/honua-console@sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+        edgeImageUri      = "quay.io/oauth2-proxy/oauth2-proxy@sha256:8e4bec4f9fe4de10de63070209204075e4407503170aa19893d6e8d99f083d1b",
+        issuer            = "https://cognito-idp.us-east-1.amazonaws.com/us-east-1_Offline"
+      }
+    }
+  }
+  expect_failures = [output.application_deployment]
+}
+
+run "refuse_stale_console_revision" {
+  command = plan
+  variables {
+    human_browser = {
+      storageState = { secretArn = "arn:aws:secretsmanager:us-east-1:123456789012:secret:honua-pilot-offline-agent/human-session/browser-ABC123", versionId = "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee" }
+      consoleDeployment = {
+        region            = "us-east-1", clusterArn = "arn:aws:ecs:us-east-1:123456789012:cluster/honua-pilot-offline-agent",
+        serviceArn        = "arn:aws:ecs:us-east-1:123456789012:service/honua-pilot-offline-agent/honua-pilot-offline-console",
+        taskDefinitionArn = "arn:aws:ecs:us-east-1:123456789012:task-definition/honua-pilot-offline-console:6",
+        imageUri          = "ghcr.io/honua-io/honua-console@sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+        edgeImageUri      = "quay.io/oauth2-proxy/oauth2-proxy@sha256:8e4bec4f9fe4de10de63070209204075e4407503170aa19893d6e8d99f083d1b",
+        issuer            = "https://cognito-idp.us-east-1.amazonaws.com/us-east-1_Offline"
+      }
+    }
+  }
+  expect_failures = [output.application_deployment]
+}
+
+run "refuse_other_console_image" {
+  command = plan
+  variables {
+    human_browser = {
+      storageState = { secretArn = "arn:aws:secretsmanager:us-east-1:123456789012:secret:honua-pilot-offline-agent/human-session/browser-ABC123", versionId = "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee" }
+      consoleDeployment = {
+        region            = "us-east-1", clusterArn = "arn:aws:ecs:us-east-1:123456789012:cluster/honua-pilot-offline-agent",
+        serviceArn        = "arn:aws:ecs:us-east-1:123456789012:service/honua-pilot-offline-agent/honua-pilot-offline-console",
+        taskDefinitionArn = "arn:aws:ecs:us-east-1:123456789012:task-definition/honua-pilot-offline-console:7",
+        imageUri          = "ghcr.io/honua-io/honua-console@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        edgeImageUri      = "quay.io/oauth2-proxy/oauth2-proxy@sha256:8e4bec4f9fe4de10de63070209204075e4407503170aa19893d6e8d99f083d1b",
+        issuer            = "https://cognito-idp.us-east-1.amazonaws.com/us-east-1_Offline"
+      }
+    }
+  }
+  expect_failures = [output.application_deployment]
+}
+
+run "refuse_other_console_issuer" {
+  command = plan
+  variables {
+    human_browser = {
+      storageState = { secretArn = "arn:aws:secretsmanager:us-east-1:123456789012:secret:honua-pilot-offline-agent/human-session/browser-ABC123", versionId = "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee" }
+      consoleDeployment = {
+        region            = "us-east-1", clusterArn = "arn:aws:ecs:us-east-1:123456789012:cluster/honua-pilot-offline-agent",
+        serviceArn        = "arn:aws:ecs:us-east-1:123456789012:service/honua-pilot-offline-agent/honua-pilot-offline-console",
+        taskDefinitionArn = "arn:aws:ecs:us-east-1:123456789012:task-definition/honua-pilot-offline-console:7",
+        imageUri          = "ghcr.io/honua-io/honua-console@sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+        edgeImageUri      = "quay.io/oauth2-proxy/oauth2-proxy@sha256:8e4bec4f9fe4de10de63070209204075e4407503170aa19893d6e8d99f083d1b",
+        issuer            = "https://cognito-idp.us-east-1.amazonaws.com/us-east-1_Foreign"
+      }
+    }
+  }
+  expect_failures = [output.application_deployment]
 }

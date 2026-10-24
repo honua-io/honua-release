@@ -21,7 +21,7 @@ COMMAND = ['python', 'tools/hosted_pilot/controller_entry.py']
 CONFIG_PATH = 'certification/agent-e2e/controller-handoff.json'
 WORKFLOW = 'agent-e2e-campaign.yml'
 PREPARE_WORKFLOW = 'hosted-pilot-prepare.yml'
-PREPARATIONS = {'prepare-native-context', 'prepare-studio-fixture', 'capture-console-session'}
+PREPARATIONS = {'prepare-native-context', 'prepare-studio-fixture', 'capture-console-session', 'prepare-installed-mcp-base'}
 
 
 def sdk(service, region):
@@ -39,9 +39,23 @@ def git(*args):
 OBSERVATION_FIELDS = {'schemaVersion', 'region', 'accountId', 'clusterArn', 'taskDefinitionArn', 'taskRoleArn', 'executionRoleArn', 'containerName', 'image', 'network', 'lifecycle', 'custody', 'maxSeconds'}
 
 
+def model_runtime(value, region, account_id):
+    require(isinstance(value, dict) and set(value) == {'modelId', 'returnedModelId', 'profileArn', 'tokenCountingModelArn', 'profileSha256'} and
+            all(isinstance(value[name], str) and value[name] for name in value) and
+            re.fullmatch(r'[A-Za-z0-9.:/_-]{1,256}', value['modelId']) and
+            re.fullmatch(r'[A-Za-z0-9.:/_-]{1,256}', value['returnedModelId']) and
+            re.fullmatch(r'arn:aws:bedrock:'+re.escape(region)+':'+re.escape(account_id)+r':inference-profile/[A-Za-z0-9.:-]+', value['profileArn']) and
+            value['modelId'] in (value['profileArn'], value['profileArn'].split('/')[-1]) and
+            re.fullmatch(r'arn:aws:bedrock:'+re.escape(region)+r'::foundation-model/[A-Za-z0-9.:-]+', value['tokenCountingModelArn']) and
+            re.fullmatch(r'sha256:[a-f0-9]{64}', value['profileSha256']), 'invalid exact controller model runtime binding')
+    return {'TERMINAL_MODEL_NAME': value['modelId'], 'HONUA_CONTROLLER_MODEL_RUNTIME': canonical(value).decode()}
+
+
 def validate_observation(config):
-    require(isinstance(config, dict) and set(config) == OBSERVATION_FIELDS and config['schemaVersion'] == 1,
+    require(isinstance(config, dict) and set(config) in (OBSERVATION_FIELDS, OBSERVATION_FIELDS | {'model'}) and config['schemaVersion'] == 1,
             'invalid read-only controller observation')
+    if 'model' in config:
+        model_runtime(config['model'], config['region'], config['accountId'])
     require(re.fullmatch(r'[0-9]{12}', config['accountId']) and re.fullmatch(r'[a-z]{2}-[a-z]+-[0-9]', config['region']), 'controller account/region missing')
     regional = ':' + config['region'] + ':' + config['accountId'] + ':'
     require(re.fullmatch(re.escape('arn:aws:ecs' + regional) + r'cluster/honua-pilot-[a-z0-9-]+', config['clusterArn']) and re.fullmatch(re.escape('arn:aws:ecs' + regional) + r'task-definition/honua-pilot-[a-z0-9-]+-campaign-controller:[1-9][0-9]*', config['taskDefinitionArn']), 'controller task revision/cluster must be exact pilot resources')
@@ -68,7 +82,7 @@ def validate_observation(config):
 
 
 def validate_configuration(config):
-    require(isinstance(config, dict) and set(config) == OBSERVATION_FIELDS | {'dispatchBudget'} and config['schemaVersion'] == 1,
+    require(isinstance(config, dict) and set(config) in (OBSERVATION_FIELDS | {'dispatchBudget'}, OBSERVATION_FIELDS | {'dispatchBudget', 'model'}) and config['schemaVersion'] == 1,
             'invalid reviewed private controller configuration')
     validate_observation({key: value for key, value in config.items() if key != 'dispatchBudget'})
     budget = config['dispatchBudget']
@@ -125,6 +139,10 @@ def verify_lifecycle(sm, ecs, config):
     require(task['taskDefinitionArn'] == config['taskDefinitionArn'] and task['taskRoleArn'] == config['taskRoleArn'] and task['executionRoleArn'] == config['executionRoleArn'] and task['networkMode'] == 'awsvpc' and task.get('runtimePlatform') == {'cpuArchitecture': 'X86_64', 'operatingSystemFamily': 'LINUX'} and len(task['containerDefinitions']) == 1, 'controller task identity/platform differs')
     container = task['containerDefinitions'][0]
     require(container['name'] == config['containerName'] and container['image'] == config['image']['uri'] and container.get('command') == COMMAND and container.get('readonlyRootFilesystem') is True and container.get('user') == '10001:10001' and not container.get('privileged', False) and not container.get('entryPoint') and not container.get('portMappings'), 'controller immutable image/command/isolation differs')
+    expected_model = model_runtime(config['model'], config['region'], config['accountId']) if 'model' in config else {}
+    actual_model = [row for row in container.get('environment', []) if row.get('name') in ('TERMINAL_MODEL_NAME', 'HONUA_CONTROLLER_MODEL_RUNTIME')]
+    require(len(actual_model) == len(expected_model) and {row['name']: row['value'] for row in actual_model} == expected_model,
+            'controller task model environment differs from reviewed runtime binding')
     return observed
 
 
@@ -169,7 +187,7 @@ def restore_artifacts(outcome, *, configuration, bundle, evidence_directory):
     import tempfile
     config, custody = configuration, configuration['custody']
     s3 = sdk('s3', config['region'])
-    immutable_names = {'campaign.json', 'producer-inputs.json', 'qualification-lock.json', 'expectations.json', 'candidate-provenance.json', 'preparation.json'}
+    immutable_names = {'campaign.json', 'producer-inputs.json', 'qualification-lock.json', 'expectations.json', 'candidate-provenance.json', 'preparation.json', 'budget-bootstrap-original.json'}
     final_names = immutable_names | {'trusted-inventory.json', 'budget-ledger.json', 'attempt-registry.json', 'qualification-summary.json'}
     expected_inputs = {name: digest((Path(bundle) / name).read_bytes()) for name in immutable_names if (Path(bundle) / name).is_file()}
     prefix = custody['evidencePrefix'] + outcome['invocationId'] + '/'

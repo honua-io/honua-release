@@ -16,6 +16,25 @@ mock_provider "aws" {
     defaults = { domain_validation_options = [{ domain_name = "agent.pilot.demo.honua.io", resource_record_name = "_validation.agent.pilot.demo.honua.io", resource_record_type = "CNAME", resource_record_value = "_validation.acm-validations.aws" }] }
   }
 }
+mock_provider "aws" {
+  alias           = "application"
+  override_during = plan
+  mock_resource "aws_iam_role_policy" { defaults = { name = "offline-reviewed-dispatch-policy" } }
+  mock_data "aws_caller_identity" { defaults = { account_id = "123456789012" } }
+  mock_data "aws_availability_zones" { defaults = { names = ["us-east-1a", "us-east-1b"] } }
+  mock_resource "aws_s3_bucket" { defaults = { id = "honua-pilot-offline-agent-controller-123456789012", arn = "arn:aws:s3:::honua-pilot-offline-agent-controller-123456789012" } }
+  mock_resource "aws_iam_role" { defaults = { arn = "arn:aws:iam::123456789012:role/honua-pilot-offline-agent" } }
+  mock_resource "aws_ecs_task_definition" { defaults = { arn = "arn:aws:ecs:us-east-1:123456789012:task-definition/honua-pilot-offline-agent-campaign-controller:1" } }
+  mock_resource "aws_security_group" { defaults = { id = "sg-0123456789abcdef0" } }
+  mock_resource "aws_dynamodb_table" { defaults = { arn = "arn:aws:dynamodb:us-east-1:123456789012:table/honua-pilot-offline-agent-controller-claims" } }
+  mock_resource "aws_secretsmanager_secret" { defaults = { arn = "arn:aws:secretsmanager:us-east-1:123456789012:secret:honua-pilot-offline-agent-fixture-offline", id = "arn:aws:secretsmanager:us-east-1:123456789012:secret:honua-pilot-offline-agent-fixture-offline" } }
+  mock_resource "aws_secretsmanager_secret_version" { defaults = { version_id = "offline-version" } }
+  mock_resource "aws_cloudwatch_log_group" { defaults = { arn = "arn:aws:logs:us-east-1:123456789012:log-group:/ecs/honua-pilot-offline-agent" } }
+  mock_resource "aws_sfn_state_machine" { defaults = { state_machine_version_arn = "arn:aws:states:us-east-1:123456789012:stateMachine:honua-pilot-offline-agent-campaign-controller:1" } }
+  mock_resource "aws_acm_certificate" {
+    defaults = { domain_validation_options = [{ domain_name = "agent.pilot.demo.honua.io", resource_record_name = "_validation.agent.pilot.demo.honua.io", resource_record_type = "CNAME", resource_record_value = "_validation.acm-validations.aws" }] }
+  }
+}
 mock_provider "random" {}
 override_module {
   target = module.network
@@ -27,7 +46,7 @@ override_module {
   }
 }
 override_module {
-  target = module.target
+  target = module.application
   outputs = {
     ecs_cluster_name          = "honua-pilot-offline-agent"
     ecs_service_name          = "honua-pilot-offline-agent"
@@ -41,6 +60,26 @@ override_module {
   outputs = { state_config = { region = "us-east-1", bucket = "retained-original-accounting", table = "retained-original-head" } }
 }
 variables {
+  application = {
+    candidate = {
+      manifest_sha256  = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+      server_image     = "ghcr.io/honua-io/honua-server@sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+      console_image    = "ghcr.io/honua-io/honua-console@sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
+      server_revision  = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+      console_revision = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+      studio_revision  = "cccccccccccccccccccccccccccccccccccccccc"
+      sdk_revision     = "dddddddddddddddddddddddddddddddddddddddd"
+    }
+    permissions_boundary_arn = "arn:aws:iam::123456789012:policy/honua-release-pilot-offline-foundation-runtime-boundary"
+    allowed_operator_cidrs   = ["192.0.2.10/32"]
+    identity_redirects = {
+      console_origin          = "https://console.pilot.demo.honua.io"
+      edge_callback_url       = "https://console.pilot.demo.honua.io/oauth2/callback"
+      edge_logout_url         = "https://console.pilot.demo.honua.io/auth/login"
+      server_bff_callback_url = "https://console.pilot.demo.honua.io/admin/auth/callback"
+      server_bff_logout_url   = "https://console.pilot.demo.honua.io/admin"
+    }
+  }
   region                   = "us-east-1"
   account_id               = "123456789012"
   name_prefix              = "honua-pilot-offline-agent"
@@ -107,6 +146,28 @@ run "private_sql_and_credential_custody" {
   }
 }
 
+run "task_definition_reads_use_only_region_scoped_wildcards" {
+  command = plan
+  assert {
+    condition = alltrue([for policy in [aws_iam_role_policy.dispatcher.policy, aws_iam_role_policy.controller.policy] :
+      one([for statement in jsondecode(policy).Statement : statement if statement.Action == "ecs:DescribeTaskDefinition"]) == {
+        Effect    = "Allow", Action = "ecs:DescribeTaskDefinition", Resource = "*",
+        Condition = { StringEquals = { "aws:RequestedRegion" = var.region } }
+      }
+    ])
+    error_message = "DescribeTaskDefinition must be isolated to its supported region-scoped wildcard, without adding other actions."
+  }
+  assert {
+    condition = (
+      one([for statement in jsondecode(aws_iam_role_policy.dispatcher.policy).Statement : statement if statement.Action == "ecs:DescribeTasks"]).Resource == "arn:aws:ecs:${var.region}:${var.account_id}:task/${module.application.ecs_cluster_name}/*" &&
+      one([for statement in jsondecode(aws_iam_role_policy.controller.policy).Statement : statement if try(toset(statement.Action), toset([])) == toset(["ecs:DescribeTasks", "ecs:StopTask"])]).Resource == "arn:aws:ecs:${var.region}:${var.account_id}:task/${module.application.ecs_cluster_name}/*" &&
+      one([for statement in jsondecode(aws_iam_role_policy.controller.policy).Statement : statement if statement.Action == "ecs:RunTask"]).Resource == aws_ecs_task_definition.fixture.arn &&
+      one([for statement in jsondecode(aws_iam_role_policy.controller.policy).Statement : statement if statement.Action == "iam:PassRole"]).Resource == [aws_iam_role.fixture.arn, aws_iam_role.execution["fixture"].arn]
+    )
+    error_message = "Task reads, stopping, launching and role passing must retain their original exact resources."
+  }
+}
+
 run "installed_native_keys_use_actual_immutable_version_ids" {
   command = plan
   variables {
@@ -158,15 +219,23 @@ run "native_bootstrap_is_private_and_separates_sql_root_from_controller" {
         operationId    = "original-native-bootstrap", liabilityBasisDigest = "sha256:5555555555555555555555555555555555555555555555555555555555555555"
         reservationIds = { infrastructure = "retained-native-infra", cleanup = "retained-native-cleanup" }
       }
-      itemId     = "11111111-1111-1111-1111-111111111111"
-      expiresAt  = "2026-10-29T00:00:00Z"
-      readGrants = []
+      itemId               = "11111111-1111-1111-1111-111111111111"
+      expiresAt            = "2026-10-29T00:00:00Z"
+      targetId             = "native-target"
+      readGrants           = []
+      datasetImportScopes  = ["native-target/honua_data/pilot_points"]
+      managedProcessIds    = ["analytics.buffer-aggregate-managed"]
+      studioRestoreItemIds = ["11111111-1111-1111-1111-111111111111"]
     }
   }
   assert {
     condition = (
       tolist(jsondecode(aws_ecs_task_definition.native_bootstrap[0].container_definitions)[0].command) == tolist(["python", "tools/hosted_pilot/native_bootstrap.py"]) &&
       jsondecode(aws_ecs_task_definition.native_bootstrap[0].container_definitions)[0].readonlyRootFilesystem &&
+      jsondecode(jsondecode(aws_ecs_task_definition.native_bootstrap[0].container_definitions)[0].environment[0].value).schemaVersion == 2 &&
+      jsondecode(jsondecode(aws_ecs_task_definition.native_bootstrap[0].container_definitions)[0].environment[0].value).targetId == "native-target" &&
+      toset(jsondecode(jsondecode(aws_ecs_task_definition.native_bootstrap[0].container_definitions)[0].environment[0].value).datasetImportScopes) == toset(["native-target/honua_data/pilot_points"]) &&
+      toset(jsondecode(jsondecode(aws_ecs_task_definition.native_bootstrap[0].container_definitions)[0].environment[0].value).studioRestoreItemIds) == toset(["11111111-1111-1111-1111-111111111111"]) &&
       aws_iam_role.native_bootstrap[0].name != aws_iam_role.controller.name &&
       length(aws_iam_role_policy.dispatch_native_bootstrap) == 1 &&
       strcontains(aws_iam_role_policy.dispatch_native_bootstrap[0].policy, "ecs:RunTask") &&
@@ -261,9 +330,12 @@ run "configured_native_bootstrap_without_budget_has_no_paid_launch_authority" {
         operationId    = "original-native-bootstrap", liabilityBasisDigest = "sha256:5555555555555555555555555555555555555555555555555555555555555555"
         reservationIds = { infrastructure = "retained-native-infra", cleanup = "retained-native-cleanup" }
       }
-      itemId     = "11111111-1111-1111-1111-111111111111"
-      expiresAt  = "2026-10-29T00:00:00Z"
-      readGrants = []
+      itemId              = "11111111-1111-1111-1111-111111111111"
+      expiresAt           = "2026-10-29T00:00:00Z"
+      targetId            = "native-target"
+      readGrants          = []
+      datasetImportScopes = ["native-target/honua_data/pilot_points"]
+      managedProcessIds   = ["analytics.buffer-aggregate-managed"]
     }
     controller_model_resource_arns = ["arn:aws:bedrock:us-east-1::foundation-model/anthropic.claude-sonnet-4-5-20250929-v1:0"]
   }
@@ -322,6 +394,14 @@ run "setup_retirement_has_separate_original_credentials_and_no_sql_or_model" {
       !strcontains(aws_iam_role_policy.setup_retirement[0].policy, "bedrock:") &&
       one([for statement in jsondecode(aws_iam_role_policy.setup_retirement[0].policy).Statement : statement if statement.Action == "dynamodb:GetItem"]).Resource == aws_dynamodb_table.claims["dispatch"].arn &&
       jsondecode(aws_ecs_task_definition.setup_retirement[0].container_definitions)[0].readonlyRootFilesystem &&
+      alltrue([for policy in [aws_iam_role_policy.setup_retirement[0].policy, aws_iam_role_policy.observe_setup_retirement[0].policy] :
+        one([for statement in jsondecode(policy).Statement : statement if statement.Action == "ecs:DescribeTaskDefinition"]) == {
+          Effect    = "Allow", Action = "ecs:DescribeTaskDefinition", Resource = "*",
+          Condition = { StringEquals = { "aws:RequestedRegion" = var.region } }
+        }
+      ]) &&
+      one([for statement in jsondecode(aws_iam_role_policy.observe_setup_retirement[0].policy).Statement : statement if statement.Action == "ecs:StopTask"]).Resource == "arn:aws:ecs:${var.region}:${var.account_id}:task/${module.application.ecs_cluster_name}/*" &&
+      one([for statement in jsondecode(aws_iam_role_policy.dispatch_setup_retirement[0].policy).Statement : statement if statement.Action == "ecs:RunTask"]).Resource == aws_ecs_task_definition.setup_retirement[0].arn &&
       output.setup_retirement_handoff.configuration == local.retirement_config
     )
     error_message = "Retirement must receive only its original setup key and independent administrator; no model, SQL, minting, or task-launch privilege may enter that task."
@@ -405,4 +485,210 @@ run "retirement_recovery_retains_original_claim_and_separate_receipt" {
     )
     error_message = "Read-only recovery must retain the original permanent claim and publish separately without overwriting original revocation custody."
   }
+}
+run "worker_custody_read_is_absent_without_declared_attempts" {
+  command = plan
+  variables { worker_attempt_ids = [] }
+  assert {
+    condition     = length(aws_iam_role_policy.worker_custody_observer) == 0
+    error_message = "Unconfigured custody observation cannot grant IAM or task-definition reads."
+  }
+}
+run "worker_custody_read_has_exact_roles_and_region_scoped_definition_read" {
+  command = plan
+  variables { worker_attempt_ids = ["p14-first", "p14-second"] }
+  assert {
+    condition = aws_iam_role_policy.worker_custody_observer[0].policy == jsonencode({ Version = "2012-10-17", Statement = [
+      { Effect = "Allow", Action = ["iam:GetRolePolicy", "iam:ListRolePolicies", "iam:ListAttachedRolePolicies"],
+      Resource = ["arn:aws:iam::123456789012:role/honua-agent-p14-first-worker", "arn:aws:iam::123456789012:role/honua-agent-p14-second-worker"] },
+      { Effect = "Allow", Action = "ecs:DescribeTaskDefinition",
+      Resource = "*", Condition = { StringEquals = { "aws:RequestedRegion" = var.region } } }
+    ] })
+    error_message = "Custody must retain exact worker role reads and isolate the region-scoped task-definition wildcard without launch, secrets or wildcard IAM authority."
+  }
+}
+run "worker_custody_attempt_cannot_expand_to_a_role_wildcard" {
+  command = plan
+  variables { worker_attempt_ids = ["*"] }
+  expect_failures = [var.worker_attempt_ids]
+}
+
+run "reject_native_import_foreign_target" {
+  command = plan
+  variables {
+    native_bootstrap = {
+      bootstrapArtifactDigest = "sha256:4444444444444444444444444444444444444444444444444444444444444444"
+      operation = {
+        operationId    = "original-native-bootstrap", liabilityBasisDigest = "sha256:5555555555555555555555555555555555555555555555555555555555555555"
+        reservationIds = { infrastructure = "retained-native-infra", cleanup = "retained-native-cleanup" }
+      }
+      itemId              = "11111111-1111-1111-1111-111111111111"
+      expiresAt           = "2026-10-29T00:00:00Z"
+      targetId            = "native-target"
+      readGrants          = []
+      datasetImportScopes = ["foreign-target/honua_data/pilot_points"]
+      managedProcessIds   = ["analytics.buffer-aggregate-managed"]
+    }
+  }
+  expect_failures = [var.native_bootstrap]
+}
+
+run "reject_native_managed_process_wildcard" {
+  command = plan
+  variables {
+    native_bootstrap = {
+      bootstrapArtifactDigest = "sha256:4444444444444444444444444444444444444444444444444444444444444444"
+      operation = {
+        operationId    = "original-native-bootstrap", liabilityBasisDigest = "sha256:5555555555555555555555555555555555555555555555555555555555555555"
+        reservationIds = { infrastructure = "retained-native-infra", cleanup = "retained-native-cleanup" }
+      }
+      itemId              = "11111111-1111-1111-1111-111111111111"
+      expiresAt           = "2026-10-29T00:00:00Z"
+      targetId            = "native-target"
+      readGrants          = []
+      datasetImportScopes = ["native-target/honua_data/pilot_points"]
+      managedProcessIds   = ["*"]
+    }
+  }
+  expect_failures = [var.native_bootstrap]
+}
+
+run "reject_native_mutation_in_read_grants" {
+  command = plan
+  variables {
+    native_bootstrap = {
+      bootstrapArtifactDigest = "sha256:4444444444444444444444444444444444444444444444444444444444444444"
+      operation = {
+        operationId    = "original-native-bootstrap", liabilityBasisDigest = "sha256:5555555555555555555555555555555555555555555555555555555555555555"
+        reservationIds = { infrastructure = "retained-native-infra", cleanup = "retained-native-cleanup" }
+      }
+      itemId              = "11111111-1111-1111-1111-111111111111"
+      expiresAt           = "2026-10-29T00:00:00Z"
+      targetId            = "native-target"
+      readGrants          = ["agent:dataset-import:native-target/honua_data/pilot_points"]
+      datasetImportScopes = ["native-target/honua_data/pilot_points"]
+      managedProcessIds   = ["analytics.buffer-aggregate-managed"]
+    }
+  }
+  expect_failures = [var.native_bootstrap]
+}
+
+run "reject_native_studio_restore_wildcard" {
+  command = plan
+  variables {
+    native_bootstrap = {
+      bootstrapArtifactDigest = "sha256:4444444444444444444444444444444444444444444444444444444444444444"
+      operation = {
+        operationId    = "original-native-bootstrap", liabilityBasisDigest = "sha256:5555555555555555555555555555555555555555555555555555555555555555"
+        reservationIds = { infrastructure = "retained-native-infra", cleanup = "retained-native-cleanup" }
+      }
+      itemId               = "11111111-1111-1111-1111-111111111111"
+      expiresAt            = "2026-10-29T00:00:00Z"
+      targetId             = "native-target"
+      readGrants           = []
+      datasetImportScopes  = ["native-target/honua_data/pilot_points"]
+      managedProcessIds    = ["analytics.buffer-aggregate-managed"]
+      studioRestoreItemIds = ["*"]
+    }
+  }
+  expect_failures = [var.native_bootstrap]
+}
+
+
+run "reject_native_studio_restore_duplicate" {
+  command = plan
+  variables {
+    native_bootstrap = {
+      bootstrapArtifactDigest = "sha256:4444444444444444444444444444444444444444444444444444444444444444"
+      operation = {
+        operationId    = "original-native-bootstrap", liabilityBasisDigest = "sha256:5555555555555555555555555555555555555555555555555555555555555555"
+        reservationIds = { infrastructure = "retained-native-infra", cleanup = "retained-native-cleanup" }
+      }
+      itemId               = "11111111-1111-1111-1111-111111111111"
+      expiresAt            = "2026-10-29T00:00:00Z"
+      targetId             = "native-target"
+      readGrants           = []
+      datasetImportScopes  = ["native-target/honua_data/pilot_points"]
+      managedProcessIds    = ["analytics.buffer-aggregate-managed"]
+      studioRestoreItemIds = ["11111111-1111-1111-1111-111111111111", "11111111-1111-1111-1111-111111111111"]
+    }
+  }
+  expect_failures = [var.native_bootstrap]
+}
+
+
+run "reject_native_studio_restore_empty_guid" {
+  command = plan
+  variables {
+    native_bootstrap = {
+      bootstrapArtifactDigest = "sha256:4444444444444444444444444444444444444444444444444444444444444444"
+      operation = {
+        operationId    = "original-native-bootstrap", liabilityBasisDigest = "sha256:5555555555555555555555555555555555555555555555555555555555555555"
+        reservationIds = { infrastructure = "retained-native-infra", cleanup = "retained-native-cleanup" }
+      }
+      itemId               = "11111111-1111-1111-1111-111111111111"
+      expiresAt            = "2026-10-29T00:00:00Z"
+      targetId             = "native-target"
+      readGrants           = []
+      datasetImportScopes  = ["native-target/honua_data/pilot_points"]
+      managedProcessIds    = ["analytics.buffer-aggregate-managed"]
+      studioRestoreItemIds = ["00000000-0000-0000-0000-000000000000"]
+    }
+  }
+  expect_failures = [var.native_bootstrap]
+}
+
+run "controller_model_runtime_and_counting_member_are_pinned" {
+  command = plan
+  variables {
+    controller_model_resource_arns = [
+      "arn:aws:bedrock:us-east-1:123456789012:inference-profile/us.anthropic.offline-v1:0",
+      "arn:aws:bedrock:us-east-1::foundation-model/anthropic.offline-v1:0",
+      "arn:aws:bedrock:us-west-2::foundation-model/anthropic.offline-v1:0"
+    ]
+    controller_model = {
+      modelId               = "us.anthropic.offline-v1:0", returnedModelId = "offline-v1",
+      profileArn            = "arn:aws:bedrock:us-east-1:123456789012:inference-profile/us.anthropic.offline-v1:0",
+      tokenCountingModelArn = "arn:aws:bedrock:us-east-1::foundation-model/anthropic.offline-v1:0",
+      profileSha256         = "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+    }
+  }
+  assert {
+    condition = (
+      one([for statement in jsondecode(aws_iam_role_policy.controller.policy).Statement : statement if statement.Action == "bedrock:CountTokens"]) == {
+        Effect = "Allow", Action = "bedrock:CountTokens", Resource = [var.controller_model.tokenCountingModelArn]
+      } &&
+      local.controller_observation.model == var.controller_model &&
+      one([for row in jsondecode(aws_ecs_task_definition.controller.container_definitions)[0].environment : row.value if row.name == "TERMINAL_MODEL_NAME"]) == var.controller_model.modelId &&
+      jsondecode(one([for row in jsondecode(aws_ecs_task_definition.controller.container_definitions)[0].environment : row.value if row.name == "HONUA_CONTROLLER_MODEL_RUNTIME"])) == var.controller_model &&
+      !strcontains(aws_ecs_task_definition.fixture.container_definitions, "HONUA_CONTROLLER_MODEL_RUNTIME")
+    )
+    error_message = "Only the approved private controller may receive the exact profile/counting identity; CountTokens cannot cover profiles, other members or arbitrary models."
+  }
+}
+
+run "missing_model_runtime_grants_no_counting_or_model_environment" {
+  command = plan
+  assert {
+    condition = (
+      !strcontains(aws_iam_role_policy.controller.policy, "bedrock:CountTokens") &&
+      !strcontains(aws_ecs_task_definition.controller.container_definitions, "HONUA_CONTROLLER_MODEL_RUNTIME") &&
+      !can(local.controller_observation.model)
+    )
+    error_message = "An unconfigured model runtime cannot receive token-counting permission or an inferred model identity."
+  }
+}
+
+run "counting_member_cannot_be_an_unreviewed_model" {
+  command = plan
+  variables {
+    controller_model_resource_arns = ["arn:aws:bedrock:us-east-1:123456789012:inference-profile/us.anthropic.offline-v1:0"]
+    controller_model = {
+      modelId               = "us.anthropic.offline-v1:0", returnedModelId = "offline-v1",
+      profileArn            = "arn:aws:bedrock:us-east-1:123456789012:inference-profile/us.anthropic.offline-v1:0",
+      tokenCountingModelArn = "arn:aws:bedrock:us-east-1::foundation-model/anthropic.unrelated-v1:0",
+      profileSha256         = "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+    }
+  }
+  expect_failures = [var.controller_model]
 }

@@ -1,16 +1,18 @@
 # Reuse the Server module's pinned network recipe at this root so its NAT source
 # can be bound to HTTPS ingress without a module dependency cycle.
 data "aws_availability_zones" "pilot" {
+  count = var.campaign_context == null ? 1 : 0
   state = "available"
 }
 
 module "network" {
+  count   = var.campaign_context == null ? 1 : 0
   source  = "terraform-aws-modules/vpc/aws"
   version = "5.21.0"
 
   name                           = "${var.name_prefix}-network"
   cidr                           = "10.0.0.0/16"
-  azs                            = slice(data.aws_availability_zones.pilot.names, 0, 2)
+  azs                            = slice(data.aws_availability_zones.pilot[0].names, 0, 2)
   public_subnets                 = ["10.0.101.0/24", "10.0.102.0/24"]
   private_subnets                = ["10.0.1.0/24", "10.0.2.0/24"]
   enable_nat_gateway             = true

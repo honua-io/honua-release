@@ -1,7 +1,7 @@
 locals {
   agent_role_pattern     = "arn:aws:iam::${local.account}:role/honua-agent-*"
   workload_role_patterns = concat(["arn:aws:iam::${local.account}:role/${var.name_prefix}*"], var.enable_agent_controller ? [local.agent_role_pattern] : [])
-  workload_boundary_arns = concat([aws_iam_policy.runtime_boundary.arn], var.enable_agent_controller ? [aws_iam_policy.agent_boundary[0].arn] : [])
+  workload_boundary_arns = concat([aws_iam_policy.runtime_boundary.arn], var.enable_agent_controller ? [aws_iam_policy.agent_boundary[0].arn, aws_iam_policy.native_bootstrap_boundary[0].arn] : [])
   deployment_state_keys  = concat([local.state_key], var.enable_agent_controller ? ["honua/hosted-pilot/${var.name_prefix}/campaign.tfstate", "honua/hosted-pilot/${var.name_prefix}/workers/*"] : [])
 }
 
@@ -13,6 +13,7 @@ resource "aws_iam_policy" "agent_boundary" {
   name  = "${local.foundation_prefix}-agent-boundary"
   policy = jsonencode({ Version = "2012-10-17", Statement = concat([
     { Sid = "NoIdentityAdministration", Effect = "Deny", Action = ["iam:Create*", "iam:Delete*", "iam:Put*", "iam:Update*", "iam:Attach*", "iam:Detach*", "iam:Set*", "iam:Tag*", "iam:Untag*", "organizations:*", "account:*"], Resource = "*" },
+    { Sid = "ReadDeclaredWorkerCustody", Effect = "Allow", Action = ["iam:GetRolePolicy", "iam:ListRolePolicies", "iam:ListAttachedRolePolicies"], Resource = local.agent_role_pattern },
     { Sid = "ExcludeFoundationCustodyKey", Effect = "Deny", Action = "kms:*", Resource = aws_kms_key.custody.arn },
     { Effect = "Allow", Action = "ecr:GetAuthorizationToken", Resource = "*" },
     { Effect = "Allow", Action = ["ecr:BatchGetImage", "ecr:GetDownloadUrlForLayer", "ecr:BatchCheckLayerAvailability"], Resource = [aws_ecr_repository.controller.arn, aws_ecr_repository.worker.arn] },
@@ -34,6 +35,8 @@ resource "aws_iam_policy" "agent_boundary" {
     { Sid = "NoUnreviewedModel", Effect = "Deny", Action = ["bedrock:*"], Resource = ["*"] }
     ] : [
     { Sid = "ReviewedModelsOnly", Effect = "Allow", Action = ["bedrock:InvokeModel", "bedrock:InvokeModelWithResponseStream"], Resource = var.controller_model_resource_arns }
+    ], length([for arn in var.controller_model_resource_arns : arn if startswith(arn, "arn:aws:bedrock:${var.region}::foundation-model/")]) == 0 ? [] : [
+    { Sid = "ReviewedTokenCountingOnly", Effect = "Allow", Action = "bedrock:CountTokens", Resource = [for arn in var.controller_model_resource_arns : arn if startswith(arn, "arn:aws:bedrock:${var.region}::foundation-model/")] }
     ], length(var.runtime_kms_key_arns) == 0 ? [] : [
     { Effect = "Allow", Action = ["kms:Decrypt", "kms:DescribeKey"], Resource = var.runtime_kms_key_arns }
   ]) })

@@ -1,5 +1,5 @@
 locals {
-  controller_observation = {
+  controller_observation = merge({
     schemaVersion     = 1
     region            = var.region
     accountId         = var.account_id
@@ -13,7 +13,7 @@ locals {
     lifecycle         = { stateMachineArn = aws_sfn_state_machine.controller.state_machine_version_arn, stateMachineRoleArn = aws_iam_role.lifecycle.arn, definitionDigest = "sha256:${sha256(jsonencode(local.controller_definition))}" }
     custody           = local.custody
     maxSeconds        = var.controller_max_seconds
-  }
+  }, var.controller_model == null ? {} : { model = var.controller_model })
 }
 output "controller_handoff" {
   description = "Nonsecret checked-source handoff contract. Snapshot this reviewed output into certification/agent-e2e/controller-handoff.json before dispatch. Does not assert readiness or create an accounting generation."
@@ -40,7 +40,7 @@ output "fixture_handoff" {
   value       = var.dispatch_budget == null ? null : local.fixture_handoff
 }
 output "target_readiness" {
-  value = { service = module.target.ecs_service_name, workerSecurityGroupIds = [aws_security_group.worker.id] }
+  value = { service = module.application.ecs_service_name, workerSecurityGroupIds = [aws_security_group.worker.id] }
 }
 output "fixture_secret_versions" {
   description = "Only immutable references; credential values stay private in state and ECS secret injection. SQL roles still require the checked private provisioner."

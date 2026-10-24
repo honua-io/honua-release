@@ -24,7 +24,7 @@ locals {
     endpoint         = local.origin, setupKey = merge(var.issued_native_keys.setup, { secretArn = aws_secretsmanager_secret.api["setup"].arn }),
     bucket           = aws_s3_bucket.handoff.id, receiptKey = "native/setup-key-retirement/${local.candidate_hex}/${var.issued_native_keys.setup.apiKeyId}/${var.setup_key_retirement.mode == "retire" ? "retire" : "${var.setup_key_retirement.mode}-${trimprefix(var.setup_key_retirement.originalClaim.key, "dispatch:")}"}.json",
     clusterArn       = local.target_cluster_arn, taskDefinitionFamily = "arn:aws:ecs:${var.region}:${var.account_id}:task-definition/${var.name_prefix}-setup-key-retirement",
-    imageUri         = var.controller_image.uri, rootSecretArn = module.target.admin_password_secret_arn,
+    imageUri         = var.controller_image.uri, rootSecretArn = module.application.admin_password_secret_arn,
     taskRoleArn      = aws_iam_role.setup_retirement[0].arn, executionRoleArn = aws_iam_role.retirement_execution[0].arn,
     claimTable       = aws_dynamodb_table.claims["dispatch"].name, expiresAt = var.expires_at, retirementProtocol = 2
   })
@@ -53,7 +53,7 @@ resource "aws_iam_role_policy" "retirement_execution" {
     { Effect = "Allow", Action = "ecr:GetAuthorizationToken", Resource = "*" },
     { Effect = "Allow", Action = ["ecr:BatchGetImage", "ecr:GetDownloadUrlForLayer", "ecr:BatchCheckLayerAvailability"], Resource = "arn:aws:ecr:${var.region}:${var.account_id}:repository/${split("/", split("@", var.controller_image.uri)[0])[1]}" },
     { Effect = "Allow", Action = ["logs:CreateLogStream", "logs:PutLogEvents"], Resource = "${aws_cloudwatch_log_group.setup_retirement[0].arn}:*" },
-    { Effect = "Allow", Action = "secretsmanager:GetSecretValue", Resource = module.target.admin_password_secret_arn }
+    { Effect = "Allow", Action = "secretsmanager:GetSecretValue", Resource = module.application.admin_password_secret_arn }
     ], var.issued_native_keys == null ? [] : [
     { Effect = "Allow", Action = "secretsmanager:GetSecretValue", Resource = aws_secretsmanager_secret.api["setup"].arn,
     Condition = { StringEquals = { "secretsmanager:VersionId" = var.issued_native_keys.setup.versionId } } }
@@ -79,7 +79,7 @@ resource "aws_ecs_task_definition" "setup_retirement" {
     mountPoints = [{ sourceVolume = "work", containerPath = "/work", readOnly = false }],
     environment = [{ name = "PILOT_SETUP_RETIREMENT_CONFIG", value = jsonencode(local.retirement_config) }],
     secrets = var.issued_native_keys == null ? [] : [
-      { name = "PILOT_SETUP_RETIRE_ROOT_KEY", valueFrom = module.target.admin_password_secret_arn },
+      { name = "PILOT_SETUP_RETIRE_ROOT_KEY", valueFrom = module.application.admin_password_secret_arn },
       { name = "PILOT_SETUP_RETIRE_KEY", valueFrom = "${aws_secretsmanager_secret.api["setup"].arn}:::${var.issued_native_keys.setup.versionId}" }
     ],
     linuxParameters  = { capabilities = { drop = ["ALL"] } },
@@ -96,8 +96,8 @@ resource "aws_iam_role_policy" "setup_retirement" {
     { Effect = "Allow", Action = "s3:PutObject", Resource = "${aws_s3_bucket.handoff.arn}/native/setup-key-retirement/${local.candidate_hex}/*", Condition = { StringEquals = { "s3:if-none-match" = "*" } } },
     { Effect = "Allow", Action = ["dynamodb:GetItem", "dynamodb:UpdateItem"], Resource = local.state_table_arn, Condition = { "ForAllValues:StringEquals" = { "dynamodb:LeadingKeys" = [var.candidate_digest] } } },
     { Effect = "Allow", Action = "dynamodb:GetItem", Resource = aws_dynamodb_table.claims["dispatch"].arn },
-    { Effect = "Allow", Action = "ecs:DescribeTasks", Resource = "arn:aws:ecs:${var.region}:${var.account_id}:task/${module.target.ecs_cluster_name}/*" },
-    { Effect = "Allow", Action = "ecs:DescribeTaskDefinition", Resource = ["arn:aws:ecs:${var.region}:${var.account_id}:task-definition/${var.name_prefix}-setup-key-retirement:*", "arn:aws:ecs:${var.region}:${var.account_id}:task-definition/${var.name_prefix}-campaign-controller:*"] },
+    { Effect = "Allow", Action = "ecs:DescribeTasks", Resource = "arn:aws:ecs:${var.region}:${var.account_id}:task/${module.application.ecs_cluster_name}/*" },
+    { Effect = "Allow", Action = "ecs:DescribeTaskDefinition", Resource = "*", Condition = { StringEquals = { "aws:RequestedRegion" = var.region } } },
     { Effect = "Allow", Action = "states:DescribeExecution", Resource = local.execution_pattern }
   ] })
 }
@@ -113,8 +113,8 @@ resource "aws_iam_role_policy" "observe_setup_retirement" {
   count = local.retirement_enabled ? 1 : 0
   role  = aws_iam_role.dispatcher.id
   policy = jsonencode({ Version = "2012-10-17", Statement = [
-    { Effect = "Allow", Action = "ecs:DescribeTaskDefinition", Resource = aws_ecs_task_definition.setup_retirement[0].arn },
-    { Effect = "Allow", Action = "ecs:StopTask", Resource = "arn:aws:ecs:${var.region}:${var.account_id}:task/${module.target.ecs_cluster_name}/*" },
+    { Effect = "Allow", Action = "ecs:DescribeTaskDefinition", Resource = "*", Condition = { StringEquals = { "aws:RequestedRegion" = var.region } } },
+    { Effect = "Allow", Action = "ecs:StopTask", Resource = "arn:aws:ecs:${var.region}:${var.account_id}:task/${module.application.ecs_cluster_name}/*" },
     { Effect = "Allow", Action = ["s3:GetObject", "s3:GetObjectVersion"], Resource = "${aws_s3_bucket.handoff.arn}/native/setup-key-retirement/${local.candidate_hex}/*" }
   ] })
 }

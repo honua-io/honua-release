@@ -64,3 +64,14 @@ The 13:54 completed canary is outside the 13:45 billing/history cutoff and remai
 separately reserved. Older unknown charges are not released by this projection.
 No raw model transcript, browser cookies, secret values or Terraform state is
 committed here.
+
+The `foundation-plan-refused` reconciliation is limited to the original failed
+plan [40007575185](https://github.com/honua-io/honua-iac/actions/runs/40007575185),
+attempt 1. It authenticates the original source, recovery artifact, failed job
+and runner-rendered plan invocation. Discovery remains incomplete; no AWS actor,
+applied resources or execution qualification is inferred. Actual nonzero
+infrastructure and cleanup operation IDs must still come from the authenticated
+ledger. The later successful custody-only plan
+[40014973402](https://github.com/honua-io/honua-iac/actions/runs/40014973402)
+retains its exact original source contract independently of later helper changes.
+Neither observation releases reservations or initializes accounting.

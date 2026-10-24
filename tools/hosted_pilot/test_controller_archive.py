@@ -1,5 +1,6 @@
 """Archive custody rejects traversal/link substitution and proves actual Git trees."""
 import io
+import shutil
 from pathlib import Path
 import subprocess
 import tarfile
@@ -84,3 +85,18 @@ class ControllerArchives(unittest.TestCase):
             first = archive.contract(self.root)
             path.write_text('changed')
             self.assertNotEqual(first, archive.contract(self.root))
+
+    def test_actual_runtime_contract_rejects_custody_collector_or_replayer_drift(self):
+        source = Path(__file__).resolve().parents[2]
+        for name in archive.CONTRACT_PATHS:
+            path = self.root/name
+            path.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copyfile(source/name, path)
+        original = archive.contract(self.root)
+        for name in ('tools/agent_e2e_native_custody_bindings.py', 'tools/agent_e2e_studio_custody_observer.py',
+                     'tools/hosted_pilot/human_memberships.py'):
+            path = self.root/name
+            data = path.read_bytes()
+            path.write_bytes(data+b'\n# substituted runtime\n')
+            self.assertNotEqual(original, archive.contract(self.root))
+            path.write_bytes(data)

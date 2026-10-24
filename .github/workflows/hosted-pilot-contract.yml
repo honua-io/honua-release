@@ -21,11 +21,13 @@ jobs:
   offline-contract:
     strategy:
       matrix:
-        root: [certification/hosted-pilot, certification/hosted-pilot/bootstrap, certification/hosted-pilot/campaign, certification/hosted-pilot/worker]
+        root: [certification/hosted-pilot, certification/hosted-pilot/application, certification/hosted-pilot/bootstrap, certification/hosted-pilot/campaign, certification/hosted-pilot/worker]
     runs-on: ubuntu-latest
     timeout-minutes: 10
     env:
       AWS_EC2_METADATA_DISABLED: 'true'
+      AWS_CONFIG_FILE: /dev/null
+      AWS_SHARED_CREDENTIALS_FILE: /dev/null
       TF_IN_AUTOMATION: 'true'
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -52,7 +54,7 @@ jobs:
           terraform -chdir="$module_root" validate -no-color
           terraform -chdir="$module_root" test -no-color
       - name: Validate actual rendered edge configuration against pinned proxy
-        if: matrix.root == 'certification/hosted-pilot'
+        if: matrix.root == 'certification/hosted-pilot/application'
         run: python3 tools/hosted_pilot/check_edge_config.py "$RUNNER_TEMP/hosted-pilot-tests.jsonl"
       - name: Verify saved-plan tampering and refusal boundaries
         if: matrix.root == 'certification/hosted-pilot'
@@ -61,5 +63,6 @@ jobs:
       - name: Verify original import handoff custody and append-only request claims
         if: matrix.root == 'certification/hosted-pilot/campaign'
         run: |
-          python3 -m pip install 'pytest>=8,<9'
+          python3 -m pip install 'pytest>=8,<9' 'pyyaml>=6,<7'
           python3 -m pytest tools/hosted_pilot/fixture_import_handoff_test.py -k independently_replays -q
+          python3 -m pytest tools/test_agent_e2e_campaign_budget.py tools/test_agent_e2e_campaign.py tools/test_agent_e2e_controller.py tools/test_agent_e2e_gate.py tools/test_agent_e2e_budget.py tools/test_agent_e2e_interactive_budget.py tools/test_agent_e2e_console_runtime.py tools/test_agent_e2e_backend.py tools/test_agent_e2e_operation_accounting.py -q

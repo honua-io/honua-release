@@ -154,7 +154,8 @@ def live_http():
                 return
             self.send_response(200)
             self.end_headers()
-            self.wfile.write(b'{"status":"Pending","proposalId":"proposal-1","requestedBy":"operator-1"}')
+            self.wfile.write(json.dumps({'status': 'Pending', 'proposalId': 'proposal-1',
+                                        'requestedBy': 'operator-1', 'diff': SEALED_DIFF}).encode())
         def do_POST(self):
             seen.append(("POST", self.path, self.headers.get("X-API-Key")))
             self.send_response(403)
@@ -199,8 +200,7 @@ def engine_for(transport, **target):
 def test_self_approval_cli_usage_error_cannot_substitute_for_candidate_denial(live_http):
     url, seen = live_http
     transport = transport_for(url)
-    engine = engine_for(transport)
-    engine.resources["proposalId"] = "proposal-1"
+    engine = approval_engine(transport)
     with mock.patch.object(transport, "cli_approve", side_effect=[(2, None), (1, None)]) as cli:
         with pytest.raises(ExecutionError, match="separate-principal approval failed"):
             engine.approve("proposal-1")
@@ -849,13 +849,14 @@ def test_sdk_poll_cannot_replace_the_expected_identity_with_its_own_result(metho
 
 
 SEALED = {"itemId": "item-1", "versionId": "version-1", "contentHash": "hash-1"}
-SEALED_DIFF = ["itemId=item-1", "versionId=version-1", "contentHash=hash-1", "route=/journey-map"]
+SEALED_DIFF = ["itemId=item-1", "versionId=version-1", "contentHash=hash-1", "route=/journey-map", "visibility=public"]
 SEALED_HANDLE = {"status": "Completed", "resourceIds": {"itemId": "item-1", "versionId": "version-1"}}
 
 
 def approval_engine(transport):
-    engine = engine_for(transport)
+    engine = engine_for(transport, execution={"route": "/journey-map"})
     engine.resources.update(proposalId="proposal-1", **SEALED)
+    engine.evidence["publicationIntent"] = {**SEALED, "route": "/journey-map", "visibility": "public"}
     return engine
 
 
@@ -937,7 +938,7 @@ def test_approval_without_execution_id_joins_the_publication_handle_on_sealed_co
     other = {**OBSERVED_PROPOSAL, "diff": ["itemId=item-1", "versionId=version-1", "contentHash=other"]}
     transport.get_json.side_effect = [pending, pending, other, {"data": OBSERVED_HANDLE}]
     transport.cli_approve.side_effect = [(1, None), (0, None)]
-    with pytest.raises(ExecutionError, match="does not join the proposal"):
+    with pytest.raises(ExecutionError, match="differs from the authored intent"):
         engine.approve("proposal-1")
 
 
@@ -1726,14 +1727,20 @@ def test_a_stage_admitted_call_rejected_as_invalid_argument_is_a_candidate_defec
     invalid = ActionRejected("honua_render_map", "arguments do not satisfy the observed tool schema")
 
     def classify(exc):
-        code = exc.problem.get("code")
-        if isinstance(exc, ActionRejected):
-            return "invalid-action"
-        if code in live_driver.ADMITTED_CALL_DEFECT_CODES and exc.problem.get("argumentsProven") is True:
-            return "candidate-execution"
-        if code in live_driver.CANDIDATE_REFUSAL_CODES or code in live_driver.ADMITTED_CALL_DEFECT_CODES:
-            return "candidate-refusal"
-        return "candidate-execution"
+        state = {"workspaceId": "workspace", "stackUp": True}
+        observation = stages.Observation(setup_view_present=True)
+        engine = mock.Mock()
+        engine.execute.side_effect = exc
+        with mock.patch.object(live_driver, "_rehydrate", return_value=(state, {}, {}, observation, mock.Mock())), \
+             mock.patch.object(live_driver, "_stage_status", return_value={"number": 4}), \
+             mock.patch.object(live_driver, "_tool_view", return_value={}), \
+             mock.patch.object(live_driver, "_executor", return_value=engine), \
+             mock.patch.object(live_driver, "_write_state"):
+            response = live_driver.op_execute({"action": {"kind": "tool_call", "tool": exc.command}})
+        engine.execute.assert_called_once()
+        assert response["status"] == "fail"
+        assert response["result"]["accepted"] is False
+        return response["refusal"]
 
     assert classify(admitted) == "candidate-execution"
     assert classify(unknown_style) == "candidate-refusal"
@@ -1752,8 +1759,9 @@ def test_only_authored_fixture_arguments_mark_a_validation_error_proven():
         "metadata": {"view": "setup"}})
     engine = executor.JourneyExecutor(
         {"workspaceId": "workspace"},
-        {"execution": {"styleId": "journey-solid-red", "renderSize": [128, 128], "bbox": [-2, -2, 2, 2]}},
+        {"execution": {"serviceId": "journey", "styleId": "journey-solid-red", "renderSize": [128, 128], "bbox": [-2, -2, 2, 2]}},
         observation, transport)
+    engine.resources["layerId"] = 7
     transport.tool.return_value = {"isError": True, "structuredContent": {"code": "invalid_argument"}}
 
     def rejected(tool, arguments):
@@ -1761,8 +1769,15 @@ def test_only_authored_fixture_arguments_mark_a_validation_error_proven():
             engine.execute(4, {"kind": "tool_call", "tool": tool, "arguments": arguments})
         return caught.value
 
-    assert rejected("honua_apply_style_preset", {"styleId": "journey-solid-red-unknown"}).problem.get("argumentsProven") is not True
-    assert rejected("honua_apply_style_preset", {"styleId": "journey-solid-red"}).problem["argumentsProven"] is True
-    assert rejected("honua_render_map", {"width": 20, "height": 10}).problem.get("argumentsProven") is not True
-    assert rejected("honua_render_map", {"width": 128, "height": 128, "bbox": [0, 0, 1, 1]}).problem.get("argumentsProven") is not True
-    assert rejected("honua_render_map", {"width": 128, "height": 128, "bbox": [-2, -2, 2, 2]}).problem["argumentsProven"] is True
+    layer = {"serviceId": "journey", "layerId": 7}
+    style = {**layer, "styleId": "journey-solid-red"}
+    render = {"layers": [layer], "width": 128, "height": 128, "bbox": [-2, -2, 2, 2]}
+    assert rejected("honua_apply_style_preset", {**style, "styleId": "unknown"}).problem.get("argumentsProven") is not True
+    assert rejected("honua_apply_style_preset", {**style, "layerId": 8}).problem.get("argumentsProven") is not True
+    assert rejected("honua_apply_style_preset", style).problem["argumentsProven"] is True
+    for changed in [{"width": 20}, {"bbox": [0, 0, 1, 1]}, {"layers": [{**layer, "layerId": 8}]},
+                    {"encoding": "unsupported"}, {"bboxSrid": 999999}]:
+        assert rejected("honua_render_map", {**render, **changed}).problem.get("argumentsProven") is not True
+    assert rejected("honua_render_map", render).problem["argumentsProven"] is True
+    assert rejected("honua_render_map", {**render, "bboxSrid": 4326, "transparent": True,
+                                         "maxInlineBytes": 1024 * 1024}).problem["argumentsProven"] is True

@@ -250,6 +250,28 @@ import authenticated bootstrap accounting; see the
 Those histories must live in durable controller-only storage across campaigns.
 Deleting both histories is not a valid retry or a fresh spending allowance.
 
+The default campaign remains $500/$50. An explicit `budgetPolicy` containing
+only the existing `policyId: "foss4g-ai-2026-owner-2000-200"` and the actual
+`priorLedgerDigest` binds the named $2,000/$200 amendment. The source `bootstrap`
+reference must also contain its original `sourceSha`, `runId`, `runAttempt` and
+`artifactDigest`. The checked freeze job downloads that exact release artifact
+and authenticates it through the existing bootstrap verifier without AWS
+authority. Frozen inputs retain its original bytes. A v2 original records an
+expected amendment, never a claim that durable accounting was already upgraded;
+execution and qualification still require the matching actual v3 amendment,
+same candidate and retained history. A source label cannot create an allowance.
+
+The named path admits a paid case only under its exact reviewed worker attempt
+ID and original absolute expiry, through the existing four-attempt ledger.
+Expiry or a lost reply never frees capacity. Model/action checks retain the
+admission, and release requires independent successful cleanup and settlement of
+every attempt liability, including model calls. An unresolved native job,
+artifact, cleanup or charge keeps the hold; whole-campaign teardown does not
+prove per-attempt retirement. Final qualification refuses active holds and
+requires each current amended receipt's original released admission. The full
+252-case inventory and qualification scope decision remain authoritative; the
+separate 134-case pilot is unchanged.
+
 Dynamic resource IDs require independently captured creation events and reviewed
 expectation resolution; that backend is not implemented here. The gate already
 rejects arbitrary observation blobs, missing assertions, altered corpus bytes,
@@ -275,3 +297,100 @@ approve publication. Missing configuration remains an explicit unsupported
 assertion, and a configured but invalid proof fails the assertion. Separate human
 publication approval and the remaining custody assertions are unchanged. Local
 HTTP and PostgreSQL controls do not qualify real IdP custody or a campaign run.
+
+Private `prepare-native-context` can adopt a Console-authored turn through optional
+`configuration.consoleTurn`: `{workspaceId, sessionCustody: {key, sha256}, pack:
+{path: "certification/agent-e2e/pack.v2.json", sha256}, caseId, contextSha256,
+sourceSha256}`. `turnId` and `viewId` remain the reviewed outer configuration.
+The prompt must equal that original case/variant's frozen prompt. The context hash
+covers the exact native captured context; the source hash covers the object
+`{draft, localProcessSnapshot, datasetImportContext, browserFileSelection}` with
+missing fields represented as null. Review these original input references before
+execution. They never replace expected output bodies or oracle predicates.
+Adoption uses only GETs under the real human and issued agent. It requires the
+native original `originatingActorId`, a matching validated human/Console subject
+and partition, unchanged source/context, independent agent readback, and the exact
+immutable MCP version. The old empty fixture-preparation path remains preparation.
+Missing native author projection, ordinary-human admission, real sign-in custody,
+linked workspace membership, or scoped grants blocks actual use.
+
+The first issued-key update must use the checked saved-plan deployment: review
+the actual bootstrap `apiKeyId` and immutable secret versions into
+`issued_native_keys`. The campaign application installs that exact agent principal
+on Server and that version on Console. Independently observe the applied task
+revisions and actual human/agent targets before creating or adopting the human
+turn. An earlier workspace paired to another key is not a substitute.
+
+The external model also needs a reviewed runtime binding. Campaign Terraform's
+optional `controller_model` contains `modelId`, `returnedModelId`, `profileArn`,
+`tokenCountingModelArn` and `profileSha256`. It must match the frozen producer
+model and the installed controller environment. The profile ARN and counting
+member come from original `GetInferenceProfile` bytes, never a profile-name
+conversion. `model-profile.json` retains the actual observed Sonnet 4.5 profile;
+it does not prove inference or token-counting availability. Reviewed pricing must
+bind its exact `{path, sha256}` as `model.profile`, plus `profileArn` and
+`tokenCountingModelArn`. The explicit counting ARN must be a profile member in
+the controller region. Token quotes use that ARN; inference keeps the original
+approved profile. Missing support or permission refuses without an estimated
+token fallback, another model, or another inference endpoint.
+
+Both the controller identity policy and its independent foundation boundary must
+allow `bedrock:CountTokens` on the exact reviewed regional foundation model.
+An unset runtime grants no counting permission on the controller. Rebuild the
+source-bound controller image after changing its entry/runtime contract, then
+use checked IaC to install the exact model environment and handoff. Required
+campaign inputs, pricing, handoff, actual human custody and worker configuration
+remain source-reviewed prerequisites; this profile record supplies none of them.
+
+A case may declare controller-only `consoleConversation: {nativeContext: {key,
+sha256}, workerMcp: {key, sha256}}`, where `workerMcp` refers to the original
+private MCP completed record. Before starting the case, the controller verifies
+that the native context was adopted for this case and that the exact worker
+revision injects that immutable MCP version. The existing funded external model
+remains the sole model path; Console's native model can stay disabled. The final
+provider response is retained privately with its original journal digest/request
+identity and appended verbatim through the turn-bound conversation API. Native
+GET readback resolves lost append replies without another POST or model request.
+Unknown outcomes retain their originals. Conversation text remains conversation;
+resource outcomes still require the independent native and browser oracles.
+
+P14 can configure `studio.custody` with schema version 1 and immutable
+`retirement`, `nativeContext` and `workerMcp` state references (`key`/`sha256`).
+The observer requires the original active setup principal read, independent
+revoked-key metadata, fresh old-credential 401 probes, the stopped original
+fixture producer and retirement task, and a separate running task worker. It
+independently reads the exact worker definition, immutable MCP injection and
+queue-only IAM policy; missing native reads fail closed.
+
+Only `custody.worker-replaced.taskWorkerId` may use the finite
+`honua.worker-custody-bindings/v1` profile. Freeze the bootstrap worker/principal
+relationships and, for each attempt, the existing worker configuration, immutable
+MCP/context reference and authenticated task HTTP observer. Its replay uses the
+retained before-send launch intent and original execution, claim, task and
+principal reads. The existing publication profile remains separate. The only
+other permitted pair is the existing authoring/job profiles for P11.
+
+These custody observations do not retire per-attempt infrastructure, release a
+worker slot or settle costs. Actual per-attempt cleanup and genuine hosted human
+custody remain required; contract fixtures do not qualify a campaign.
+
+P09 development attempts can configure `styling` with the exact
+`floodLayerId` and `shelterLayerId` from the prepared map. The style observer
+projects the independently saved `mapSpec`, including its full document digest,
+flood paint and actual shelter field-label expression. It requires a new saved
+version joined to the original model mutation's draft, actor and generation;
+style-reference metadata, literal labels and an already-completed prepared style
+cannot substitute for that work. Expected style values and document hashes remain
+source-frozen. The existing `render.actual` browser, feature and pixel predicates
+are unchanged and remain mandatory even when style and save observations pass.
+The actual starting working draft must still match the saved starting map. Each
+required style change is joined to independent native reads before and after a
+model mutation with its exact generation; a view-only edit or no-op cannot claim
+an already-styled unsaved draft as model work.
+Corrections to intermediate styles remain supported, while the final saved style
+stays strict. Repeated saves require their original native completion handles and
+immutable versions to account for each generation advance.
+
+P13 still requires the original restored version identity. The current scoped
+native agent authority does not expose rollback; reopening or saving an identical
+new version does not satisfy `version.restored`.
