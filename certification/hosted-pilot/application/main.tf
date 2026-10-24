@@ -14,6 +14,7 @@ locals {
     max_lifetime_minutes    = 15
   }
   server_identity_environment = {
+    Identity__RequiredManagedIssuers__0              = local.server_generic_oidc.authority
     Oidc__ClaimsMapping__AdditionalRoleClaimTypes__0 = "cognito:groups"
     Oidc__AdminRoles__0                              = local.identity_groups.approvers
     Oidc__AdminRoles__1                              = local.identity_groups.approvers
