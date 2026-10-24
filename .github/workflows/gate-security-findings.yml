@@ -27,6 +27,9 @@ on:
     - cron: "53 5 * * *"
   workflow_dispatch:
   workflow_call:
+    outputs:
+      overall_status:
+        value: ${{ jobs.security-findings.outputs.overall_status }}
 
 permissions:
   contents: read
@@ -39,6 +42,8 @@ concurrency:
 jobs:
   security-findings:
     runs-on: ubuntu-latest
+    outputs:
+      overall_status: ${{ steps.verdict.outputs.overall_status }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
@@ -48,6 +53,9 @@ jobs:
       - name: Self-test the security findings rules
         run: python -m pytest tools/test_release_decision_record.py -q
       - name: Verify fixed rows against their merged PRs and the computed Decision
+        id: verdict
         env:
           GH_TOKEN: ${{ github.token }}
-        run: python tools/release_decision_record.py --verify-security
+        run: |
+          python tools/release_decision_record.py --verify-security
+          echo "overall_status=pass" >> "$GITHUB_OUTPUT"

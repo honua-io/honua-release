@@ -10,7 +10,7 @@ from __future__ import annotations
 
 import json
 import sys
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 import pytest
@@ -167,6 +167,7 @@ def test_driver_refuses_substituted_candidate_before_writing_release_files(tmp_p
         "--train-run-attempt", str(identity["train_run_attempt"]),
         "--train-run-url", identity["train_run_url"],
         "--certification-mode", identity["certification_mode"],
+        "--certification-time", report["generatedAt"],
         "--out-manifest", str(out_manifest),
         "--out-notes", str(out_notes),
     ])
@@ -247,11 +248,53 @@ def test_driver_refuses_an_incoherent_ga_stamp_before_writing_release_files(tmp_
         "--train-run-attempt", str(identity["train_run_attempt"]),
         "--train-run-url", identity["train_run_url"],
         "--certification-mode", identity["certification_mode"],
+        "--certification-time", report["generatedAt"],
         "--out-manifest", str(out_manifest),
         "--out-notes", str(out_notes),
     ])
     assert rc == 1
     assert not out_manifest.exists() and not out_notes.exists()
+
+
+@pytest.mark.parametrize("finding_status,receipt_age,expected", [
+    ("pass", 0, 0), ("fail", 0, 1), ("blocked", 0, 1), ("pass", 25, 1),
+])
+def test_finalize_after_sixty_hour_burn_preserves_freshness_and_findings_policy(
+        tmp_path, finding_status, receipt_age, expected):
+    import yaml
+    minted = datetime.now(timezone.utc) - timedelta(hours=60)
+    manifest = tmp_path / cb.PLATFORM_MANIFEST
+    matrix = tmp_path / cb.COMPATIBILITY_MATRIX
+    manifest.write_text(yaml.safe_dump(_promotable()))
+    matrix.write_text("matrixVersion: 1\n")
+    identity = {
+        "source_repository": "honua-io/honua-release", "source_sha": "a" * 40,
+        "source_branch": "trunk", "workflow_path": ".github/workflows/release-train.yml",
+        "train_run_id": "28720697360", "train_run_attempt": 1,
+        "train_run_url": "https://github.com/honua-io/honua-release/actions/runs/28720697360",
+        "certification_mode": "live",
+    }
+    report = cb.bind_gate_report({**_report("pass"),
+        "gates": [{"gate": gate, "status": "pass"}
+                  for gate in sorted(cb.REQUIRED_RELEASE_GATES)]}, manifest, matrix, **identity)
+    # Binding enforces wall-clock freshness at minting. Simulate retained bytes after the burn,
+    # with negative cases for a report stale at minting and a corrupted findings receipt.
+    report["generatedAt"] = (minted - timedelta(hours=receipt_age)).isoformat()
+    next(row for row in report["gates"] if row["gate"] == "security-findings")["status"] = finding_status
+    report_path = tmp_path / "gate-report.json"
+    report_path.write_text(json.dumps(report))
+    out_manifest, out_notes = tmp_path / "finalized.yaml", tmp_path / "notes.md"
+    arguments = ["--label", "2026.1", "--gate-report", str(report_path),
+                 "--released-at", datetime.now(timezone.utc).isoformat(),
+                 "--manifest", str(manifest), "--matrix", str(matrix),
+                 "--certification-time", minted.isoformat(),
+                 "--out-manifest", str(out_manifest), "--out-notes", str(out_notes)]
+    for key, value in identity.items():
+        arguments.extend(["--" + key.replace("_", "-"), str(value)])
+    assert fr.main(arguments) == expected
+    assert out_manifest.exists() == out_notes.exists() == (expected == 0)
+    if expected == 0:
+        assert yaml.safe_load(out_manifest.read_text())["status"] == "released"
 
 
 def test_release_notes_render_the_stamped_artifact_version():
