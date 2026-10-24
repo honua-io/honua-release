@@ -3,6 +3,7 @@ from pathlib import Path
 import argparse
 import hashlib
 import json
+import re
 
 
 RUNTIME = ("agent_e2e_errors.py", "agent_e2e_worker.py", "agent_e2e_container.py", "agent_e2e_container_entry.py",
@@ -11,11 +12,43 @@ RUNTIME = ("agent_e2e_errors.py", "agent_e2e_worker.py", "agent_e2e_container.py
            "agent_e2e_public.py", "agent_e2e_public_entry.py")
 
 
-def bundle(destination, *, knowledge_root=None, pack_path=None, case_id=None):
+def _runtime_sources():
     tools = Path(__file__).resolve().parent
     image = tools.parent / "certification" / "agent-e2e" / "worker"
     sources = {name: tools/name for name in RUNTIME}
     sources.update({name: image/name for name in ("Dockerfile", "requirements.txt")})
+    return sources
+
+
+def runtime_index():
+    """Finite maintained worker bytes from the checked controller source.
+
+    This is compatibility data, never publication or installation authority.
+    The caller independently authenticates the original published index/image.
+    """
+    return {"schemaVersion": 1, "files": {name: "sha256:"+hashlib.sha256(path.read_bytes().replace(b"\r\n", b"\n")).hexdigest()
+        for name, path in sorted(_runtime_sources().items())}}
+
+
+def verify_runtime_index(index):
+    """Reject older/different runtime bytes even if transport schema agrees."""
+    if (not isinstance(index, dict) or set(index) != {'schemaVersion', 'files'} or
+        type(index['schemaVersion']) is not int or index['schemaVersion'] != 1 or not isinstance(index['files'], dict)):
+        raise ValueError('original published runtime index is missing or malformed')
+    for name, digest in index['files'].items():
+        if (not isinstance(name, str) or not name or name.startswith('/') or '\\' in name or
+            any(part in ('', '.', '..') for part in name.split('/')) or any(ord(character) < 32 for character in name) or
+            not isinstance(digest, str) or re.fullmatch(r'sha256:[0-9a-f]{64}', digest) is None):
+            raise ValueError('original published runtime index has an invalid path or digest')
+    observed = {name: digest for name, digest in index['files'].items() if not name.startswith('public/')}
+    expected = runtime_index()
+    if observed != expected['files']:
+        raise ValueError('published worker runtime differs from the reviewed controller source')
+    return expected
+
+
+def bundle(destination, *, knowledge_root=None, pack_path=None, case_id=None):
+    sources = _runtime_sources()
     target = Path(destination)
     target.mkdir(parents=True, exist_ok=False)
     files = {}

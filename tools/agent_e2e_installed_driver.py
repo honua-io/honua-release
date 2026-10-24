@@ -89,6 +89,9 @@ class InstalledExecutionDriver:
                 'installed driver differs from its original native registration')
         self.workers = {row['descriptor']['slotId']: row for row in self.verified['workers']}
         require(1 <= len(self.workers) == len(verified['workers']) <= 4, 'installed physical slots overlap or are unbounded')
+        from agent_e2e_runtime_configuration import validate_worker_runtime
+        for worker in self.workers.values():
+            validate_worker_runtime(worker)
         self.model = BedrockModel(verified['model'], client=bedrock)
 
     def _authorize(self):
@@ -150,7 +153,9 @@ class InstalledExecutionDriver:
 
     def _read(self, journal):
         record = journal.record
-        return self.native.read(record['executionId'], record['workspaceId'], record['turnId'])
+        observed = self.native.read(record['executionId'], record['workspaceId'], record['turnId'])
+        require(observed['value']['requestDigest'] == record['requestDigest'], 'native replaced the original execution authority binding')
+        return observed
 
     def _claim(self, journal, selected, expiry):
         original = self._read(journal)
@@ -195,7 +200,10 @@ class InstalledExecutionDriver:
         selected = self.workers[slot.config['slotId']]
         policies = queue_role(self.iam, slot.config, selected['proof']['native'].get('permissionsBoundaryArn'))
         journal.append('worker-authority-observation', {'physical': sdk_original(response), 'iam': policies})
-        return self._read(journal)
+        observed = self._read(journal)
+        require(observed['value']['execution']['state'] in ('claimed', 'running'),
+                'original native execution is no longer eligible for worker effects')
+        return observed
 
     def _binding(self, journal, slot, original, physical, capability):
         task = physical['taskArn']
@@ -259,6 +267,9 @@ class InstalledExecutionDriver:
     def execute(self, original):
         self._authorize()
         journal = self.journal_factory(self.native.durable, original)
+        original = self._read(journal)
+        require(original['value']['execution']['state'] in ('queued', 'claimed', 'running'),
+                'original native execution is no longer eligible for admission')
         selected = self._choose(journal, original)
         slot = self._slot(selected)
         expiry, reservations = self._fund(journal, slot.config)
@@ -271,6 +282,10 @@ class InstalledExecutionDriver:
         else:
             launch = slot.bind(claimed, generation=claim['generation'], expiry=expiry,
                 native_binding_digest=claim['nativeBindingDigest'], reservation_ids=reservations)
+            current = self._read(journal)
+            require(current['value']['execution']['state'] == 'claimed' and
+                    current['value']['execution']['claim'] == claim,
+                    'original native execution changed before its one worker start')
             physical = slot.start(journal, launch)
         while physical['taskStatus'] != 'RUNNING':
             require(physical['taskStatus'] != 'STOPPED' and self.clock() < expiry,

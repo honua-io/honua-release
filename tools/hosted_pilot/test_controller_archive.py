@@ -94,7 +94,8 @@ class ControllerArchives(unittest.TestCase):
             shutil.copyfile(source/name, path)
         original = archive.contract(self.root)
         for name in ('tools/agent_e2e_native_custody_bindings.py', 'tools/agent_e2e_studio_custody_observer.py',
-                     'tools/hosted_pilot/human_memberships.py'):
+                     'tools/hosted_pilot/human_memberships.py', 'tools/bundle_agent_e2e_container.py',
+                     'tools/agent_e2e_mcp_runner.py', 'certification/agent-e2e/worker/Dockerfile'):
             path = self.root/name
             data = path.read_bytes()
             path.write_bytes(data+b'\n# substituted runtime\n')
