@@ -83,8 +83,9 @@ That is a derivation, not a guess, and it fails closed on every side:
   collection — the verifier does not fetch these URLs, so a plausible URL on another host is not
   an enumeration — and each count must be a genuine nonnegative integer, because a string or
   `null` count would otherwise sum to zero and read as emptiness. One ref of any shape — a
-  prerelease, a nightly, a chart tag — withdraws the model and sends every capability back to
-  per-capability introduction evidence;
+  prerelease, a version tag, a chart tag, any GitHub release — withdraws the model and sends
+  every capability back to per-capability introduction evidence. The single exception is the
+  release program's own dispatch anchors (below);
 - the enumeration must be inside the pinned `maxAgeDays` at the time it is checked, **and** the
   gate re-enumerates the publisher's namespaces live and qualifies on that reading. Emptiness
   proven once is not emptiness at the cut, and a bound on staleness is not a proof either: a
@@ -101,6 +102,23 @@ That is a derivation, not a guess, and it fails closed on every side:
   precedence. A lock whose server image still carries the `pre-release` sentinel names no shipped
   release, so nothing resolves;
 - a capability may not carry both the model and a different number.
+
+**Dispatch anchors are not publications.** Since the 2026-09-26 receipt the nightly creates
+`nightly-candidate-<sha7>` and `nightly-candidate/<sha40>` tags on honua-server so that gated
+workflows (nightly-container-build, capacity-soak-candidate, the DR drill, the attestation signer
+identity) can run at a non-head trunk commit. Such a tag's name is the commit it points at; it
+carries no version, so no capability can be introduced "in" it and no floor can name it. The
+images those runs build are the same nightlies that already existed untagged. The receipt
+therefore lists each anchor in `dispatchAnchors` with the commit the tags API resolves it to, and
+`server_publication_history.verify` accepts an anchor only when its name is exactly one of those
+two forms and its hex is a prefix of that commit. Collection also requires the independent
+git-ref observation to name the same lightweight commit; moved refs, missing targets and
+unresolved annotated objects cannot inherit a prior tags-listing classification.
+Both tag namespaces must be fully accounted for
+by the anchors, any GitHub release (even on an anchor) is a publication, and every other tag
+still withdraws the model. Without this, the program's own nightly would have silently withdrawn
+the premise every SDK floor rests on: on 2026-10-18 honua-server carried 14 anchors and nothing
+else, and the strict check refused all four SDKs for it.
 
 The model raises the floor with the release: whatever SemVer the first server release is issued
 under becomes the floor for every capability introduced by it, and the component floor stays the
@@ -197,49 +215,55 @@ changes nothing until that SDK publishes a package built from a commit that cont
 the `clientArtifacts` pin is moved to that publication (R25). Until then the resolver reads the
 old published revision, finds no file, and refuses.
 
-## Current qualification blocker
+## Runtime floor constants
 
-As of 2026-09-26, the pinned manifests do not contain capability introduction
-versions and the platform lock generator still reports unresolved release inputs.
-`components.honua-server.version` is still the `pre-release` sentinel. The pinned
-declarations still conflict: JavaScript `d7cec2d5` declares `1.0.0`, .NET
-`6ba49ec3` declares `0.1.0`, and Python `40ecf731` declares `1.0.0` plus a hidden
-`2026.3.0` CalVer floor. MCP `d5a09d13` has no introduction floors. JavaScript,
-.NET, and MCP trunk heads match those pins. Python trunk `28d90152` (honua-sdk-python#224,
-`2e91603f`) drops the CalVer floor and keeps `1.0.0`, but that revision is not the
-pinned artifact. Replacing these with one chosen number would not implement the
-derivation rule.
+An SDK also enforces its floor at run time, by comparing the server's reported
+`serverVersion` with a constant. That constant is a declaration like any other and must agree
+with `release/sdk-capability-baseline.json`:
 
-As of 2026-10-03 (WI-5), the resolver reads the baseline file. None of the four repositories
-carries it at a published revision yet, so every night refuses on the four SDK rows until each
-repository commits its file, republishes, and moves its pin. After that, the generator still
-refuses until two facts are present in the lock. The first is a `honua-server` image whose
-version is the platform version (WI-2/R22). The second is the publication-history receipt pinned
-as `components.honua-server.publicationHistory`.
+- a numeric `minimumServerVersion` is used as is;
+- `first-release` is the least SemVer identity of the first server release line, `2026.1.0-0`.
+  R22 makes the first release `2026.1.0` and its candidates `2026.1.0-rc.N`; every one of them,
+  and every later server, compares at or above `2026.1.0-0`, while builds that predate the
+  release line's version identity (the .NET default `1.0.0`, `0.0.0`) compare below it. An SDK
+  is published before any candidate is cut, so it cannot name `rc.N`; `-0` is the SemVer floor
+  of the whole line, not a guess at a candidate.
 
-WI-2 (R22) produces the first fact. When the nightly stamps its label, `mint_nightly_lock.py
---stamp` gives honua-server, honua-console and the Helm chart `artifactVersion` set to the label's
-platform version (`platform_version.artifact_version`: `2026.1-rc.N` is `2026.1.0-rc.N`, GA
-`2026.1.0` is `2026.1.0`). It also sets honua-server's `releaseVersion` to that version. A component
-is stamped only when its digest, artifact source revision and per-architecture digests (for a
-chart, the package checksum) are bound. The resolver drops any version carried forward from another
-night, and drops a chart digest whose `artifactSourceRevision` is not the sha selected tonight,
-because the chart package is not re-resolved the way an image is. The generator and
-`validate_platform.py` refuse a platform version without those bound facts. Promotion does not
-rebuild the bytes: `finalize_release.finalize_manifest` restamps the same bound identity to the GA
-platform version (`2026.1.0`) when it rewrites `platformRelease` to the base label. Release notes
-render `artifactVersion` when it is present. An exact candidate whose imaged identity is already
-bound must carry that stamp, and a manual freeze fails closed when the generator refuses an
-artifact version. SDK, gRPC and MCP rows keep their own semver.
+Each prepared SDK branch includes a drift test that reads its baseline file and fails when the runtime constant,
+the public API snapshot or a published compatibility document disagrees with this mapping.
+`1.0.0` (JavaScript, Python) and `0.1.0` (.NET) were not derived from any capability. Each SDK
+replaces its constant with the mapped value in its own repository, on branch
+`fix/233-runtime-server-floor` of honua-sdk-js, honua-sdk-dotnet and honua-sdk-python (linked
+from #233). geospatial-mcp and `@honua/mcp-server` enforce no numeric server floor, so their
+baseline file is their only declaration. Builds from before honua-server#4693 gave the server a
+version identity report `1.0.0+<sha>`; they are not release identities. The prepared SDK changes
+refuse them, but that behavior is not shipped until the changes merge and verified packages are published.
 
-Before #233 can close, protocol publishers must bind introduction evidence — for
-2026.1 that means the first-release model above, since no earlier server exists —
-each SDK repository must correct and gate its own declarations in a linked PR, and
-the release cut must pin those published artifacts and consumed manifests.
-The generated table remains explicitly unqualified until then. The conflicting
-declarations cannot be reconciled by choosing among `1.0.0`, `0.1.0` and `2026.3.0`:
-none of them is the first server release, because the first server release does not
-exist yet. Naming it is part of cutting the candidate, not of declaring a floor.
+## Current state (2026-10-24)
+
+All four repositories commit `release/sdk-capability-baseline.json` with
+`minimumServerVersion: first-release` (honua-sdk-js#2016, honua-sdk-dotnet#427,
+honua-sdk-python#290, geospatial-mcp#99). The manifest pins the unchanged committed
+publication-history receipt (`sha256:3069fde14a32cc579e4ee92cbe7e86bd88a14c1405df94457e1393c63fe092d1`)
+with `maxAgeDays: 90`; its 2026-09-26 observation expires on 2026-12-25. Every strict check also
+re-enumerates current publication history. A fresh 2026-10-24 enumeration found 24 dispatch
+anchors and no releases or other tags, with matching commit targets in both tag namespaces.
+
+The runtime-floor changes remain on the three `fix/233-runtime-server-floor` branches.
+JavaScript trunk still declares `1.0.0` and .NET trunk `0.1.0`; prepared branches do not change
+published behavior. Integration, current verification and package publication remain required.
+
+The committed draft (`docs/platform-lock.v1.draft.yaml`) is regenerated from the current
+manifest and retains 35 unresolved release fields. Its SDK rows remain explicitly unqualified
+because the required consumed capability/protocol manifests are not pinned. Documentation
+freshness establishes only that the table matches that draft; candidate artifact-pair receipts
+and the strict compatibility gate must still establish release qualification.
+
+The upgrade-edge section of the table states the only edge the lock can establish: the first
+release is a fresh install, because the pinned and live-verified publication history proves no
+earlier server exists. Every other edge — from a nightly or earlier candidate, or to the next
+release — stays explicitly unqualified until it has separate application-rollback,
+database-rollback and backup-restore receipts.
 
 ## Commands
 

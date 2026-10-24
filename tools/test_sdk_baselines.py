@@ -83,7 +83,10 @@ def test_table_is_deterministic_and_does_not_imply_upgrade_support():
     output = render(lock)
     assert output == render(copy.deepcopy(lock))
     assert "## UPGRADE EDGES" in output
-    assert "No qualified edge is pinned" in output
+    edges = output.split("## UPGRADE EDGES", 1)[1]
+    assert "fresh install" not in edges
+    assert "No edge receipt is pinned; pre-release builds are not release identities" in edges
+    assert "No later release is locked" in edges
     assert "restoring a verified pre-upgrade backup is required" in output
     assert "| honua-sdk-python | source pin only | unqualified |" in output
 
