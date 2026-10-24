@@ -26,7 +26,7 @@ ACTION = 'prepare-runtime-registration-budget'
 
 
 def checked_source(path, sha256):
-    require(path.startswith('certification/hosted-pilot/quotes/') and path.endswith('.json') and
+    require(path.startswith(('certification/hosted-pilot/quotes/', 'certification/hosted-pilot/history/', 'certification/agent-e2e/')) and path.endswith('.json') and
             '..' not in path.split('/'), 'registrar quote source escaped its reviewed namespace')
     selected = ROOT/path
     require(selected.is_file() and not selected.is_symlink() and digest(selected.read_bytes()) == sha256,

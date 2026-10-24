@@ -57,4 +57,26 @@ class RegistrationPreparation(unittest.TestCase):
             with self.assertRaisesRegex(Exception,'original protected custody'):preparation.provision(self.durable,self.config)
 
 
+class DefaultPreparationSource(unittest.TestCase):
+    def test_default_reader_accepts_actual_tracked_original_history_and_funding_namespaces(self):
+        for relative in ('certification/hosted-pilot/history/20261023T161500Z.json',
+                         'certification/agent-e2e/foss4g-pilot.v1.json'):
+            path=preparation.ROOT/relative
+            with self.subTest(path=relative):
+                self.assertEqual(preparation.checked_source(relative,preparation.digest(path.read_bytes())),path)
+    def test_default_reader_still_refuses_changed_digest_and_escaped_namespaces(self):
+        with self.assertRaisesRegex(Exception,'bytes differ'):
+            preparation.checked_source('certification/hosted-pilot/history/20261023T161500Z.json','sha256:'+'0'*64)
+        for relative in ('tools/private.json','certification/hosted-pilot/history/../private.json','/tmp/unreviewed.json'):
+            with self.subTest(path=relative),self.assertRaisesRegex(Exception,'namespace'):
+                preparation.checked_source(relative,'sha256:'+'0'*64)
+    def test_default_reader_still_requires_original_tracked_files(self):
+        from unittest.mock import patch
+        import subprocess
+        relative='certification/hosted-pilot/history/20261023T161500Z.json'
+        path=preparation.ROOT/relative
+        with patch.object(preparation,'git',side_effect=subprocess.CalledProcessError(1,['git','ls-files'])):
+            with self.assertRaises(subprocess.CalledProcessError):
+                preparation.checked_source(relative,preparation.digest(path.read_bytes()))
+
 if __name__=='__main__':unittest.main()
