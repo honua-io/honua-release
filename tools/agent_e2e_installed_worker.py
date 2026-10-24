@@ -160,11 +160,16 @@ class InstalledSlot:
     def inspect(self):
         c = self.config
         definition = self.states.describe_state_machine(stateMachineArn=c['stateMachineArn'])
+        response = self.ecs.describe_task_definition(taskDefinition=c['taskDefinitionArn'])
+        return self._validate_installation(definition, response)
+
+    def _validate_installation(self, definition, response):
+        c = self.config
+        require(isinstance(definition, dict) and isinstance(response, dict), 'original worker installation is malformed')
         require(definition.get('stateMachineArn') == c['stateMachineArn'] and definition.get('roleArn') == c['stateMachineRoleArn'] and
                 definition.get('status') == 'ACTIVE' and definition.get('type') == 'STANDARD' and
                 terraform_definition_digest(definition.get('definition')) == c['definitionDigest'],
                 'installed lifecycle differs from reviewed source')
-        response = self.ecs.describe_task_definition(taskDefinition=c['taskDefinitionArn'])
         task = response.get('taskDefinition', {})
         containers = task.get('containerDefinitions', [])
         require(task.get('taskDefinitionArn') == c['taskDefinitionArn'] and task.get('taskRoleArn') == c['taskRoleArn'] and
@@ -196,7 +201,16 @@ class InstalledSlot:
         journal.durable._require_live_lease()
         self._authorize(journal, launch)
         require(not journal.values('worker-intent'), 'worker already intended; reconcile original execution without relaunch')
-        self.inspect()
+        observed = self.inspect()  # Always recheck the current pinned resources.
+        prior = journal.values('worker-installation-observation')
+        if prior:
+            require(len(prior) == 1 and isinstance(prior[0], dict) and set(prior[0]) == {'lifecycle', 'taskDefinition'},
+                'original worker installation observation is ambiguous')
+            self._validate_installation(prior[0]['lifecycle'], prior[0]['taskDefinition'])
+            # Keep the first actual original. Fresh SDK RequestIds/timestamps do
+            # not replace it or create an ambiguous second installation receipt.
+        else:
+            journal.append('worker-installation-observation', observed)
         require(self.clock() < self.input['expiresEpoch'], 'original native worker admission expired')
         journal.append('worker-intent', launch)
         self._authorize(journal, launch)
@@ -234,16 +248,19 @@ class InstalledSlot:
         result = {'executionArn': self.execution_arn, 'executionStatus': execution['status'],
             'taskArn': task_arn, 'launchEventId': event, 'taskStatus': 'unobserved', 'retired': False}
         if task_arn is not None:
+            claims = []
             expected = {'executionId': self.input['executionId'], 'runtimeId': self.config['runtimeId'],
                 'slotId': self.config['slotId'], 'executionArn': self.execution_arn,
                 'taskDefinitionArn': self.config['taskDefinitionArn'], 'inputDigest': canonical_digest(self.input)}
             for key in (self.claim_key, self.slot_key):
                 claim = self._claim(key)
+                claims.append({'key': key, 'row': copy.deepcopy(claim)})
                 fields = copy.deepcopy(expected)
                 if key == self.slot_key:
                     fields['activeExecutionId'] = fields.pop('executionId')
                 require(claim is not None and all(claim.get(k) == {'S': v} for k, v in fields.items()),
                         'actual installed permanent/slot claim differs')
+            result['claims'] = claims
             response = self.ecs.describe_tasks(cluster=self.config['clusterArn'], tasks=[task_arn], include=['TAGS'])
             tasks = response.get('tasks', [])
             require(not response.get('failures') and len(tasks) == 1, 'actual installed physical task unavailable')

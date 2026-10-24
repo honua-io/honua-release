@@ -105,7 +105,9 @@ jobs:
         with:
           python-version: '3.12'
       - name: Install unit-test dependency
-        run: python -m pip install 'pytest>=8,<10' 'pyyaml>=6.0' 'jsonschema>=4.23' 'cryptography>=45.0'
+        run: |
+          python -m pip install --require-hashes -r certification/hosted-pilot/controller/requirements.txt
+          python -m pip install 'pytest>=8,<10'
       - name: Check controller contracts and corpus oracles
         # These are offline tests with fixture model responses, never live E2E evidence.
         # Explicit files avoid collecting unrelated conformance/cloud suites.
