@@ -48,10 +48,10 @@ class CredentialCustody(unittest.TestCase):
                 return {'targetId': config['targetId']}
             if method == 'POST':
                 kind = body['name'].rsplit('-', 1)[1]
-                key_id = {'setup': '1', 'observer': '2', 'agent': '3'}[kind]*8+'-1111-1111-1111-111111111111'
+                key_id = {'setup': '1', 'observer': '2', 'agent': '3', 'control': '4'}[kind]*8+'-1111-1111-1111-111111111111'
                 self.permissions[key_id] = body['permissions']
                 return {'apiKey': {'id': key_id, 'permissions': body['permissions'], 'expiresAt': body['expiresAt']}, 'key': 'private-key-'+kind+'x'*48}
-            return {'canAuthenticate': True, 'permissions': self.permissions[path.split('/')[-2]]}
+            return {'id': path.split('/')[-2], 'canAuthenticate': True, 'permissions': self.permissions[path.split('/')[-2]]}
         self.http = http
 
     def provision(self):
@@ -81,6 +81,40 @@ class CredentialCustody(unittest.TestCase):
         self.assertEqual(receipt['target'], {'targetId': 'native-target'})
         self.assertNotIn('admin:write', receipt['keys']['agent']['permissions'])
         self.assertFalse(receipt['qualification'])
+
+    def test_restore_is_not_inferred_from_composition_or_publication_permissions(self):
+        receipt = self.provision()
+        permissions = receipt['keys']['agent']['permissions']
+        self.assertIn('agent:studio-compose:'+self.config['itemId'], permissions)
+        self.assertIn('agent:studio-propose-publication:'+self.config['itemId'], permissions)
+        self.assertFalse(any(value.startswith('agent:studio-restore:') for value in permissions))
+
+    def test_exact_restore_ceiling_reaches_only_agent_issuance_and_retained_readback(self):
+        items = [self.config['itemId'], '22222222-2222-2222-2222-222222222222']
+        self.config['studioRestoreItemIds'] = items
+        receipt = self.provision()
+        expected = {'agent:studio-restore:'+item for item in items}
+        permissions = receipt['keys']['agent']['permissions']
+        self.assertEqual({value for value in permissions if value.startswith('agent:studio-restore:')}, expected)
+        for kind in ('setup', 'observer'):
+            self.assertFalse(expected.intersection(receipt['keys'][kind]['permissions']))
+        intents = [value['value']['permissions'] for key, value in self.durable.state['scenarioOperations'].items()
+                   if key.endswith('/key-agent-intent')]
+        self.assertEqual(len(intents), 1)
+        self.assertTrue(expected.issubset(intents[0]))
+        self.assertFalse(receipt['qualification'])
+
+    def test_restore_ceiling_rejects_ambiguous_or_broad_authority_before_effects(self):
+        invalid = [None, '*', ['*'], [None], [42], [self.config['itemId']]*2,
+                   ['00000000-0000-0000-0000-000000000000'],
+                   ['agent:studio-restore:'+self.config['itemId']],
+                   [self.config['itemId']+'/other']]
+        for values in invalid:
+            with self.subTest(values=values), self.assertRaises(PackError):
+                bootstrap.validate(self.config | {'studioRestoreItemIds': values})
+        with self.assertRaises(PackError):
+            bootstrap.validate(self.config | {'readGrants': ['agent:studio-restore:'+self.config['itemId']]})
+        self.secrets.put_secret_value.assert_not_called()
 
     def test_mutation_scopes_cannot_hide_in_read_grants_or_expand_authority(self):
         for edit in [

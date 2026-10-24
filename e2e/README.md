@@ -33,6 +33,8 @@ e2e/
       probes/{probe.py, probe.mjs, dotnet/Probe.cs+csproj}   # one per-language probe, shared exit-code contract
     sync_no_duplicates/            # STUB
       scenario.py                  #   edit->sync->edit->sync->restart->sync => exactly ONE server feature
+    gp_batch_native/               # judge only; a missing native receipt stays blocked (honua-release#85)
+      scenario.py                  #   pass only for a native GDAL-worker OGC job; busybox, managed geometry, and Redis-off fail
 ```
 
 ### Run it

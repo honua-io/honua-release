@@ -13,7 +13,12 @@ on:
       mode:
         required: true
         type: choice
-        options: [plan, deploy]
+        options: [plan, apply]
+      phase:
+        description: Exactly one reviewed foundation phase; full foundation requires existing secured custody
+        required: true
+        type: choice
+        options: [custody-only, remote-backed-foundation]
       recovery_run_id:
         description: Optional failed initial custody run to reconcile through metadata-only imports
         type: string
@@ -38,6 +43,7 @@ jobs:
           CONFIG: ${{ inputs.config_path }}
           REGION: ${{ inputs.region }}
           MODE: ${{ inputs.mode }}
+          PHASE: ${{ inputs.phase }}
           RECOVERY_RUN: ${{ inputs.recovery_run_id }}
           RECOVERY_ARTIFACT: ${{ inputs.recovery_artifact_id }}
           RECOVERY_SHA: ${{ inputs.recovery_sha256 }}
@@ -45,6 +51,6 @@ jobs:
           set -euo pipefail
           gh workflow run hosted-pilot-bootstrap.yml --repo honua-io/honua-iac --ref trunk \
             -f "release_root_sha=$ROOT_SHA" -f "config_path=$CONFIG" -f "region=$REGION" \
-            -f "mode=$MODE" -f "recovery_run_id=$RECOVERY_RUN" -f "recovery_artifact_id=$RECOVERY_ARTIFACT" \
+            -f "mode=$MODE" -f "phase=$PHASE" -f "recovery_run_id=$RECOVERY_RUN" -f "recovery_artifact_id=$RECOVERY_ARTIFACT" \
             -f "recovery_sha256=$RECOVERY_SHA"
           echo 'Foundation bootstrap dispatched. Only value-free review/recovery/binding metadata may be published.'

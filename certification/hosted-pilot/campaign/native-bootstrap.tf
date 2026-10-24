@@ -9,6 +9,7 @@ variable "native_bootstrap" {
     readGrants              = list(string)
     datasetImportScopes     = list(string)
     managedProcessIds       = list(string)
+    studioRestoreItemIds    = optional(list(string), [])
     humanMemberships = optional(object({
       schemaVersion = number
       enrollment    = object({ bucket = string, key = string, versionId = string, sha256 = string, kmsArn = string })
@@ -26,11 +27,16 @@ variable "native_bootstrap" {
       alltrue([for scope in var.native_bootstrap.datasetImportScopes :
         can(regex("^${var.native_bootstrap.targetId}/[a-z_][a-z0-9_]{0,62}/[a-z][a-z0-9_]{0,62}$", scope))
       ]) &&
+      length(var.native_bootstrap.studioRestoreItemIds) == length(toset(var.native_bootstrap.studioRestoreItemIds)) &&
+      alltrue([for item in var.native_bootstrap.studioRestoreItemIds :
+        can(regex("^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$", item)) &&
+        item != "00000000-0000-0000-0000-000000000000"
+      ]) &&
       length(var.native_bootstrap.managedProcessIds) == length(toset(var.native_bootstrap.managedProcessIds)) &&
       alltrue([for process in var.native_bootstrap.managedProcessIds : process == "analytics.buffer-aggregate-managed"]) &&
       alltrue([for grant in var.native_bootstrap.readGrants : can(regex("^read:[a-z0-9_-]+/[0-9]+$", grant))])
     )
-    error_message = "Use the observed native target, exact new-table import destinations, the supported managed process, and separate exact read grants."
+    error_message = "Use the observed native target, exact new-table import destinations, the supported managed process, separate exact Studio restore item IDs, and separate exact read grants."
   }
 }
 

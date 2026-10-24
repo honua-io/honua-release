@@ -166,6 +166,8 @@ def main():
     command = [sys.executable, 'tools/agent_e2e_campaign.py', selected['operation'], '--bundle', str(bundle)]
     if selected['operation'] in PREPARATIONS:
         command = [sys.executable, 'tools/hosted_pilot/prepare.py', 'execute', '--bundle', str(bundle), '--output', str(evidence/'preparation-result.json')]
+        if selected['operation'] == 'prepare-installed-mcp-base':
+            command = [sys.executable, 'tools/hosted_pilot/installed_mcp_configuration.py', 'execute', '--bundle', str(bundle), '--output', str(evidence/'preparation-result.json')]
     if selected['caseId']:
         command += ['--case-id', selected['caseId']]
     if selected['target']:

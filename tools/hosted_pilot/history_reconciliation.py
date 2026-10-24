@@ -35,6 +35,7 @@ KINDS = {
     'foundation':('honua-io/honua-iac','.github/workflows/hosted-pilot-bootstrap.yml','bindings.json'),
     'foundation-custody':('honua-io/honua-iac','.github/workflows/hosted-pilot-bootstrap.yml','custody-applied.json'),
     'foundation-plan':('honua-io/honua-iac','.github/workflows/hosted-pilot-bootstrap.yml','review.json'),
+    'foundation-expired-before-apply':('honua-io/honua-iac','.github/workflows/hosted-pilot-bootstrap.yml','custody-recovery.json'),
     'foundation-plan-refused':('honua-io/honua-iac','.github/workflows/hosted-pilot-bootstrap.yml','custody-recovery.json'),
     'controller-image':('honua-io/honua-release','.github/workflows/hosted-pilot-controller-image.yml','hosted-pilot-controller-image.json'),
     'worker-image':('honua-io/honua-release','.github/workflows/hosted-pilot-worker-image.yml','hosted-pilot-worker-image.json'),
@@ -104,6 +105,9 @@ def authenticate(record, *, call=invoke):
             'unknown environment producer cannot be admitted')
     else:
         require(kind in KINDS and (p['repository'],p['workflow'])==KINDS[kind][:2],'unknown or model producer cannot be bootstrap history')
+    if kind=='foundation-expired-before-apply':
+        from history_expired_phase import authenticate as expired_phase
+        return expired_phase(record,call)
     if kind=='foundation-plan-refused':
         from history_failed_plan import authenticate_refused_plan
         return authenticate_refused_plan(record,call)
@@ -262,6 +266,9 @@ def reconcile(history, ledger, references, *, read, cutoff, call=invoke, authent
         require(record['kind'] in GITHUB_KINDS or
             {row['kind'] for row in rows}=={'infrastructure','cleanup'} and all(row['purpose']=='bootstrap' for row in rows),
             'paid bootstrap must retain both original infrastructure and cleanup funding')
+        if record['kind']=='foundation-expired-before-apply':
+            from history_expired_phase import validate_funding_rows
+            validate_funding_rows(record,rows,ledger)
         run,jobs,receipt,execution_sha=authenticate(record,call=call) if authenticate_originals else (None,None,None,None)
         if authenticate_originals:
             limit=datetime.fromisoformat(cutoff.replace('Z','+00:00'))
@@ -275,7 +282,7 @@ def reconcile(history, ledger, references, *, read, cutoff, call=invoke, authent
         if authenticate_originals and record['kind'] not in GITHUB_KINDS:
             actual=source_file('honua-io/honua-release',execution_sha,record['fundingBasis']['path'],call)
             require(digest_bytes(actual)==record['fundingBasis']['sha256'],'funding basis did not exist in original executable source')
-            if record['kind'] in ('foundation-plan','foundation-plan-refused','foundation-custody'):
+            if record['kind'] in ('foundation-plan','foundation-plan-refused','foundation-custody','foundation-expired-before-apply'):
                 require(record['ownerLedger'] is None,'a source plan cannot invent a published owner ledger')
             else:
                 validate_original_owner(record,receipt,rows,execution_sha,p,read,call)
