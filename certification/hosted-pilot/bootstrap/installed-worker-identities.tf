@@ -19,8 +19,8 @@ variable "installed_worker_identity_scopes" {
 locals {
   installed_worker_identity_objects = flatten([
     for scope in var.installed_worker_identity_scopes : [
-      for object in ["installation", "review", "readiness"] :
-      "arn:aws:s3:::honua-agent-${substr(trimprefix(scope.candidate_digest, "sha256:"), 0, 24)}-${local.account}/agent-e2e/${trimprefix(scope.candidate_digest, "sha256:")}/installed-workers/${scope.runtime_id}/${scope.slot_id}/*/*/${object}.json"
+      for object in ["installation.json", "review.json", "readiness.json", "worker-publication.zip", "runtime-index.json"] :
+      "arn:aws:s3:::honua-agent-${substr(trimprefix(scope.candidate_digest, "sha256:"), 0, 24)}-${local.account}/agent-e2e/${trimprefix(scope.candidate_digest, "sha256:")}/installed-workers/${scope.runtime_id}/${scope.slot_id}/*/*/${object}"
     ]
   ])
 }

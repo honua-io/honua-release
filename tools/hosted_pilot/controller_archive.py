@@ -82,6 +82,13 @@ CONTRACT_PATHS = (
     'tools/hosted_pilot/human_enrollment.py',
     'tools/hosted_pilot/worker_allowance.py',
     'tools/hosted_pilot/registration_allowance_preparation.py',
+    'tools/hosted_pilot/worker_runtime_publication.py',
+    'tools/hosted_pilot/worker_publication_installation.py',
+    'tools/hosted_pilot/worker_readiness.py',
+    'certification/hosted-pilot/worker/main.tf',
+    'certification/hosted-pilot/worker/variables.tf',
+    'certification/hosted-pilot/campaign/worker-bindings.tf',
+    'certification/hosted-pilot/bootstrap/installed-worker-identities.tf',
 )
 SOURCE_LIMIT = 256 * 1024 * 1024
 BUNDLE_LIMIT = 128 * 1024 * 1024

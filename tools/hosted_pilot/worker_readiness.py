@@ -11,6 +11,7 @@ from urllib.parse import unquote
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from agent_e2e_p10_backend import verify_worker_definition
+from agent_e2e_worker_lifecycle import terraform_definition_digest
 from deploy import ROOT, aws, private_json, require, run
 from image_manifest import manifest_bytes
 
@@ -22,7 +23,7 @@ def resources(module):
     return result
 
 
-def verify_claim_policy(policy, *, table_arn, roles, required, account_id):
+def verify_claim_policy(policy, *, table_arn, roles, required, account_id, installed_slots=None, controller_role_arn=None, candidate=None):
     require(isinstance(roles, dict) and set(roles) == {'administrators', 'workers'}, 'complete reviewed accounting role sets are required')
     administrators, writers = roles['administrators'], roles['workers']
     require(isinstance(administrators, list) and administrators and len(set(administrators)) == len(administrators) and
@@ -43,6 +44,35 @@ def verify_claim_policy(policy, *, table_arn, roles, required, account_id):
         statement('OnlyFixedLifecycleMayTransactWrites', {'Action': 'dynamodb:*'}, all_writers, ('StringEquals', 'TransactWriteItems')),
         statement('RuntimeCannotTransactReads', {'Action': 'dynamodb:*'}, admins, ('StringEquals', 'TransactGetItems')),
         statement('RuntimeClaimWritesMustBeTransactional', {'Action': 'dynamodb:PutItem'}, admins, ('StringNotEquals', 'TransactWriteItems'))]}
+    slots = installed_slots or []
+    if slots:
+        require(isinstance(slots, list) and 1 <= len(slots) <= 4 and
+            re.fullmatch(r'sha256:[a-f0-9]{64}', str(candidate)) and
+            re.fullmatch(r'arn:aws:iam::'+re.escape(account_id)+r':role/[A-Za-z0-9+=,.@_/-]+', str(controller_role_arn)) and
+            len({row['slot_id'] for row in slots}) == len(slots) and all(
+                set(row) == {'runtime_id', 'slot_id'} and re.fullmatch(r'[A-Za-z0-9_-]{1,128}', row['runtime_id']) and
+                re.fullmatch(r'[a-z0-9-]{3,40}', row['slot_id']) and
+                'arn:aws:iam::'+account_id+':role/honua-agent-'+row['slot_id']+'-lifecycle' in writers for row in slots),
+                'complete exact installed allocation policy binding missing')
+        lifecycle_roles = ['arn:aws:iam::'+account_id+':role/honua-agent-'+row['slot_id']+'-lifecycle' for row in slots]
+        slot_keys = [candidate+'/runtime/'+row['runtime_id']+'/slot/'+row['slot_id'] for row in slots]
+        retired_keys = list(dict.fromkeys(candidate+'/runtime/'+row['runtime_id']+'/execution/execution-'+'?'*32+'/retired' for row in slots))
+        expected['Statement'][0]['NotAction'].append('dynamodb:UpdateItem')
+        for index in (1, 2):
+            expected['Statement'][index]['Condition']['ArnNotEquals']['aws:PrincipalArn'] = sorted(set(all_writers+[controller_role_arn]))
+        expected['Statement'] += [
+            statement('OnlyInstalledPrincipalsMayUpdateSlots', {'Action':'dynamodb:UpdateItem'}, sorted(set(admins+lifecycle_roles+[controller_role_arn]))),
+            statement('SlotUpdatesMustBeTransactional', {'Action':'dynamodb:UpdateItem'}, admins, ('StringNotEquals','TransactWriteItems')),
+            {'Sid':'ControllerWritesOnlyInstalledRetirementKeys','Effect':'Deny','Principal':'*',
+             'Action':['dynamodb:PutItem','dynamodb:UpdateItem'],'Resource':table_arn,
+             'Condition':{'ArnEquals':{'aws:PrincipalArn':controller_role_arn},
+                          'ForAnyValue:StringNotLike':{'dynamodb:LeadingKeys':slot_keys+retired_keys}}},
+        ]
+        for index, row in enumerate(slots):
+            expected['Statement'].append({'Sid':'Slot'+str(index)+'LifecycleUpdatesOnlyOwnSlot','Effect':'Deny','Principal':'*',
+                'Action':'dynamodb:UpdateItem','Resource':table_arn,'Condition':{
+                    'ArnEquals':{'aws:PrincipalArn':lifecycle_roles[index]},
+                    'ForAnyValue:StringNotEquals':{'dynamodb:LeadingKeys':[slot_keys[index]]}}})
     # DDB may reorder statements, but cannot add an Allow, omit a guard or
     # broaden any field/exemption while retaining the same familiar Sid.
     def normalized(value):
@@ -52,7 +82,7 @@ def verify_claim_policy(policy, *, table_arn, roles, required, account_id):
     require(normalized(policy) == normalized(expected), 'complete actual claim-table policy differs from reviewed writer/administrator controls')
 
 
-def verify_schedule(actual, expected, *, schedule_arn, cleanup, expires_epoch):
+def verify_schedule(actual, expected, *, schedule_arn, cleanup, expires_epoch, installed=False):
     def instant(value):
         parsed = value if isinstance(value, datetime) else datetime.fromisoformat(value.replace('Z', '+00:00'))
         require(parsed.tzinfo is not None, 'cleanup schedule date has no timezone')
@@ -62,7 +92,8 @@ def verify_schedule(actual, expected, *, schedule_arn, cleanup, expires_epoch):
         actual['ScheduleExpression'] == expected['schedule_expression'] == 'rate(1 minute)' and
         actual['ScheduleExpressionTimezone'] == expected['schedule_expression_timezone'] == 'UTC' and
         actual['FlexibleTimeWindow'] == {'Mode': expected['flexible_time_window'][0]['mode']} == {'Mode': 'OFF'} and
-        instant(actual['StartDate']) == instant(expected['start_date']) == expires_epoch and
+        ((expected.get('start_date') is None and actual.get('StartDate') is None) if installed else
+            instant(actual['StartDate']) == instant(expected['start_date']) == expires_epoch) and
         instant(actual['EndDate']) == instant(expected['end_date']) == expires_epoch+86400 and
         actual.get('ActionAfterCompletion', 'NONE') == (expected.get('action_after_completion') or 'NONE') and
         actual['Target']['Arn'] == target['arn'] == cleanup['state_machine_arn'] and
@@ -74,16 +105,38 @@ def verify_schedule(actual, expected, *, schedule_arn, cleanup, expires_epoch):
 
 
 def inspect(config, outputs, state):
-    worker = outputs['worker_backend']['value']
+    installed = config.get('installed_slot') is not None
+    if installed:
+        from agent_e2e_installed_worker import InstalledSlot
+        from types import SimpleNamespace
+        descriptor = outputs['installed_worker_slot']['value']
+        slot = config['installed_slot']
+        require(descriptor['runtimeId'] == slot['runtime_id'] and descriptor['slotId'] == config['attempt_id'] == slot['slot_id'] and
+            descriptor['candidateKey'] == config['candidate_digest'] and descriptor['image'] == config['worker_image'] and
+            descriptor['originalFundingExpiresEpoch'] == slot['original_funding_expires_epoch'] and
+            descriptor['maxExecutionSeconds'] == slot['max_execution_seconds'] and descriptor['liability'] == config['execution_liability'], 'installed descriptor differs from original source/quote')
+        actual = InstalledSlot(descriptor,
+            states=SimpleNamespace(describe_state_machine=lambda **kwargs: aws('stepfunctions','describe-state-machine','--state-machine-arn',kwargs['stateMachineArn'])),
+            ecs=SimpleNamespace(describe_task_definition=lambda **kwargs: aws('ecs','describe-task-definition','--task-definition',kwargs['taskDefinition'])), db=None).inspect()
+        worker = {'attemptId':descriptor['slotId'],'imageUri':descriptor['image'],'publicBundleDigest':config['public_bundle_digest'],
+            'taskRoleArn':descriptor['taskRoleArn'],'transport':{key:descriptor[key] for key in ('commandQueueUrl','replyQueueUrl')},
+            'lifecycle':{'stateMachineArn':descriptor['stateMachineArn'],'taskDefinitionArn':descriptor['taskDefinitionArn'],
+                'expiresEpoch':descriptor['originalFundingExpiresEpoch']}}
+        definition = actual['taskDefinition']['taskDefinition']
+        container = definition['containerDefinitions'][0]
+    else:
+        worker = outputs['worker_backend']['value']
     cleanup = outputs['worker_cleanup']['value']
     require(worker['attemptId'] == config['attempt_id'] and worker['imageUri'] == config['worker_image'] and
             worker['publicBundleDigest'] == config['public_bundle_digest'] and
-            worker['lifecycle']['expiresEpoch'] == config['issued_epoch']+config['lifetime_seconds'] and
-            60 <= config['lifetime_seconds'] <= 6000 and config['issued_epoch'] <= datetime.now(timezone.utc).timestamp() < worker['lifecycle']['expiresEpoch'],
+            worker['lifecycle']['expiresEpoch'] == (config['installed_slot']['original_funding_expires_epoch'] if installed else config['issued_epoch']+config['lifetime_seconds']) and
+            datetime.now(timezone.utc).timestamp() < worker['lifecycle']['expiresEpoch'] and
+            (installed or 60 <= config['lifetime_seconds'] <= 6000 and config['issued_epoch'] <= datetime.now(timezone.utc).timestamp()),
             'actual worker configuration is expired, sliding or differs from reviewed source')
-    definition = aws('ecs', 'describe-task-definition', '--task-definition', worker['lifecycle']['taskDefinitionArn'])['taskDefinition']
+    if not installed:
+        definition = aws('ecs', 'describe-task-definition', '--task-definition', worker['lifecycle']['taskDefinitionArn'])['taskDefinition']
+        container = verify_worker_definition(definition, worker)
     require(definition['taskDefinitionArn'] == worker['lifecycle']['taskDefinitionArn'], 'native worker revision differs')
-    container = verify_worker_definition(definition, worker)
     require(container['secrets'] == [{'name': 'HONUA_AGENT_MCP_CONFIG',
             'valueFrom': config['mcp_configuration']['secret_arn']+':::'+config['mcp_configuration']['version_id']}], 'actual worker secret is not its exact observed native MCP version')
     manifest_bytes(config['worker_image'], aws=aws)
@@ -92,7 +145,7 @@ def inspect(config, outputs, state):
         expected = planned['module.worker.aws_sfn_state_machine.'+name]
         actual = aws('stepfunctions', 'describe-state-machine', '--state-machine-arn', arn)
         require(actual['type'] == 'STANDARD' and actual['roleArn'] == expected['role_arn'] and
-                json.loads(actual['definition']) == json.loads(expected['definition']), 'native worker/cleanup lifecycle differs from exact applied IaC')
+                terraform_definition_digest(actual['definition']) == terraform_definition_digest(expected['definition']), 'native worker/cleanup lifecycle differs from exact applied IaC')
     groups = aws('ec2', 'describe-security-groups', '--group-ids', *config['security_group_ids'])['SecurityGroups']
     require(len(groups) == len(config['security_group_ids']) and all(not group['IpPermissions'] for group in groups) and
             all(rule.get('FromPort') == rule.get('ToPort') and rule.get('ToPort') in (53, 443) and rule.get('IpProtocol') in ('tcp', 'udp')
@@ -130,22 +183,27 @@ def inspect(config, outputs, state):
     require(backup.get('PointInTimeRecoveryDescription', {}).get('PointInTimeRecoveryStatus') == 'ENABLED', 'actual worker claims lack retained point-in-time recovery')
     policy = json.loads(aws('dynamodb', 'get-resource-policy', '--resource-arn', table['TableArn'])['Policy'])
     verify_claim_policy(policy, table_arn=table['TableArn'], roles=config['accounting_claim_roles'],
-        required=outputs['required_accounting_claim_writers']['value'], account_id=config['account_id'])
+        required=outputs['required_accounting_claim_writers']['value'], account_id=config['account_id'],
+        installed_slots=config.get('accounting_installed_worker_slots'), controller_role_arn=config['controller_role_arn'], candidate=config['candidate_digest'])
     schedule_arn = cleanup['schedule_arn']
     group, name = schedule_arn.split(':schedule/', 1)[1].split('/', 1)
     schedule = aws('scheduler', 'get-schedule', '--group-name', group, '--name', name)
     verify_schedule(schedule, planned['module.worker.aws_scheduler_schedule.reaper'], schedule_arn=schedule_arn,
-        cleanup=cleanup, expires_epoch=worker['lifecycle']['expiresEpoch'])
+        cleanup=cleanup, expires_epoch=worker['lifecycle']['expiresEpoch'], installed=installed)
     alarms = aws('cloudwatch', 'describe-alarms', '--alarm-names', *[arn.split(':alarm:', 1)[1] for arn in cleanup['alarm_arns']])['MetricAlarms']
     require(len(alarms) == len(cleanup['alarm_arns']) and all(row['ActionsEnabled'] and row['AlarmActions'] == [config['cleanup_alarm_topic_arn']] for row in alarms),
             'independent cleanup alarms do not target the reviewed monitor')
     subscriptions = aws('sns', 'list-subscriptions-by-topic', '--topic-arn', config['cleanup_alarm_topic_arn'])['Subscriptions']
     require(any(row.get('SubscriptionArn', '').startswith('arn:aws:sns:') for row in subscriptions), 'cleanup topic has no actually confirmed subscriber')
-    return {'schema': 'honua.hosted-worker-readiness/v1', 'source_sha': os.environ['GITHUB_SHA'], 'run_id': os.environ['GITHUB_RUN_ID'],
+    result = {'schema': 'honua.hosted-worker-readiness/v1', 'source_sha': os.environ['GITHUB_SHA'], 'run_id': os.environ['GITHUB_RUN_ID'],
         'attempt_id': config['attempt_id'], 'registered_task_definition_verified': True, 'immutable_agent_mcp_binding_verified': True,
         'worker_role_queue_only': True, 'independent_expiry_schedule_verified': True, 'cleanup_monitor_confirmed': True,
         'worker_not_launched': True, 'actual_runtime_and_cleanup_qualification': 'not-run', 'qualification': False,
         'status': 'worker-defined-genuine-runtime-cleanup-and-model-evidence-required'}
+    if installed:
+        result.pop('worker_not_launched')
+        result.update(mode='installed-slot', runtime_execution_not_attempted_by_this_workflow=True)
+    return result
 
 
 def main():
