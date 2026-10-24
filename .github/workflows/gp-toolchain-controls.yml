@@ -46,6 +46,8 @@ jobs:
             --no-index --no-cache-dir --require-hashes --only-binary=:all: \
             --find-links "$RUNNER_TEMP/gp-wheels" -r tools/requirements-gp.txt
           "$RUNNER_TEMP/gp-toolchain/bin/python" -m pip check
+          # Executed workflow snippets resolve python through PATH as well.
+          echo "$RUNNER_TEMP/gp-toolchain/bin" >> "$GITHUB_PATH"
       - name: Exercise the release and deployment controls
         run: |
           set -euo pipefail
