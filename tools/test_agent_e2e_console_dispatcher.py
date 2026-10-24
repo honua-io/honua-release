@@ -10,6 +10,7 @@ from agent_e2e_container import Executor
 from agent_e2e_pack import PackError
 from agent_e2e_worker import Worker
 from test_agent_e2e_console_runtime import runtime, original, E
+from test_agent_e2e_interactive_budget import interactive
 from test_agent_e2e_setup_http import server
 from test_agent_e2e_mcp import server as mcp_server
 from test_agent_e2e_mcp_worker import Exchange
