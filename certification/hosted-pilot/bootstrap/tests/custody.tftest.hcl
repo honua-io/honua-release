@@ -396,3 +396,20 @@ run "identity_writer_rejects_candidate_wildcard" {
   }
   expect_failures = [var.installed_worker_identity_scopes]
 }
+
+run "registrar_schedule_boundary_read_is_exact_and_nonmutating" {
+  command = plan
+  variables { enable_agent_controller = true }
+  assert {
+    condition = (
+      one([for row in jsondecode(aws_iam_policy.agent_boundary[0].policy).Statement : row if try(row.Sid, "") == "ReadRegistrarSchedule"]) == {
+        Sid      = "ReadRegistrarSchedule", Effect = "Allow", Action = "scheduler:GetSchedule",
+        Resource = "arn:aws:scheduler:us-west-2:123456789012:schedule/${var.name_prefix}-agent-registration/${var.name_prefix}-agent-registration-reaper"
+      } &&
+      length([for row in jsondecode(aws_iam_policy.agent_boundary[0].policy).Statement : row if row.Effect == "Allow" && strcontains(jsonencode(row.Action), "scheduler:")]) == 1 &&
+      !strcontains(one([for row in jsondecode(aws_iam_policy.agent_boundary[0].policy).Statement : row if try(row.Sid, "") == "ReadRegistrarSchedule"]).Resource, "*") &&
+      length(aws_iam_policy.agent_boundary[0].policy) <= 6144
+    )
+    error_message = "Dispatcher boundary may inspect only this original registrar schedule; no foreign schedule, wildcard inventory or scheduler mutation."
+  }
+}
