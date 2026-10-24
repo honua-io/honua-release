@@ -47,6 +47,10 @@ def witness(slot, runtime, server, tmp_path, monkeypatch, request):
     monkeypatch.setenv('WITNESS_REGISTRATION_FIXTURE_KEY', 'private-observer-fixture-'+'8'*32)
     objects = Objects()
     body = runtime.value
+    body['execution'].update(schemaVersion=1, createdAt='2026-10-23T00:00:00+00:00',
+        updatedAt='2026-10-23T00:00:00+00:00', operations=[], artifacts=[],
+        claim={'generation': 1, 'expiresEpoch': slot.launch['input']['expiresEpoch'],
+               'slotId': slot.config['slotId'], 'workerId': slot.ecs.task['taskArn'], 'nativeBindingDigest': BASIS})
     if getattr(request, 'param', None) == 'prelaunch-restart':
         slot.journal.append('worker-installation-observation', slot.worker.inspect())
     slot.worker.start(slot.journal, slot.launch)
@@ -125,7 +129,7 @@ def witness(slot, runtime, server, tmp_path, monkeypatch, request):
     slot.journal.append('effect-observation', {'reference': effect['reference'], 'executionReference': final['reference']})
     human = {'turnId': 'turn-original', 'originatingActorId': 'human-original',
         'context': copy.deepcopy(body['binding']['turn']['context']), 'submission': copy.deepcopy(body['submission']),
-        'execution': copy.deepcopy(body['execution'])}
+        'execution': {key: copy.deepcopy(value) for key, value in body['execution'].items() if key != 'claim'}}
     def read_source(path, sha):
         selected = source if path == source_ref['path'] else ROOT/path
         assert digest_bytes(selected.read_bytes()) == sha
@@ -153,6 +157,18 @@ def test_private_projection_joins_actual_http_originals_and_provider_usage(witne
     encoded = json.dumps(result)
     assert 'Actual fixture question' not in encoded and 'The actual original response' not in encoded
     assert 'private-' not in encoded
+
+
+@pytest.mark.parametrize('change', ['private-claim', 'extra-field', 'missing-timestamp', 'contradictory-revision', 'contradictory-artifact'])
+def test_human_execution_join_is_the_exact_native_public_projection(witness, change):
+    value = witness.human['execution']
+    if change == 'private-claim': value['claim'] = copy.deepcopy(witness.body['execution']['claim'])
+    if change == 'extra-field': value['controllerAssertedSuccess'] = True
+    if change == 'missing-timestamp': del value['updatedAt']
+    if change == 'contradictory-revision': value['stateRevision'] += 1
+    if change == 'contradictory-artifact': value['artifacts'].append({'itemId': 'unrelated'})
+    options = {**witness.options, 'human_turn_response_text': json.dumps(witness.human)}
+    with pytest.raises(PackError): project_execution(witness.reference, **options)
 
 
 @pytest.mark.parametrize('witness', ['prelaunch-restart'], indirect=True)
