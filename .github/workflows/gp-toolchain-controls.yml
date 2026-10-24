@@ -1,0 +1,67 @@
+name: Locked GP toolchain controls
+
+on:
+  pull_request:
+    paths:
+      - 'tools/requirements-gp.txt'
+      - 'tools/gp_process_release.py'
+      - 'tools/gp_process_deploy.py'
+      - 'tools/test_gp_process_release.py'
+      - 'tools/test_gp_process_deploy.py'
+      - 'tools/fixtures/gp-process-release/**'
+      - '.github/workflows/gp-toolchain-controls.yml'
+  push:
+    branches: [trunk]
+    paths:
+      - 'tools/requirements-gp.txt'
+      - 'tools/gp_process_release.py'
+      - 'tools/gp_process_deploy.py'
+      - 'tools/test_gp_process_release.py'
+      - 'tools/test_gp_process_deploy.py'
+      - 'tools/fixtures/gp-process-release/**'
+      - '.github/workflows/gp-toolchain-controls.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  controls:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: '3.12'
+      - name: Download only hash-locked wheels
+        run: |
+          python -m pip download --require-hashes --only-binary=:all: \
+            --dest "$RUNNER_TEMP/gp-wheels" -r tools/requirements-gp.txt
+      - name: Install the same toolchain used by GP deployment
+        run: |
+          python -m venv "$RUNNER_TEMP/gp-toolchain"
+          "$RUNNER_TEMP/gp-toolchain/bin/python" -m pip install \
+            --no-index --no-cache-dir --require-hashes --only-binary=:all: \
+            --find-links "$RUNNER_TEMP/gp-wheels" -r tools/requirements-gp.txt
+          "$RUNNER_TEMP/gp-toolchain/bin/python" -m pip check
+          # Executed workflow snippets resolve python through PATH as well.
+          echo "$RUNNER_TEMP/gp-toolchain/bin" >> "$GITHUB_PATH"
+      - name: Exercise the release and deployment controls
+        run: |
+          set -euo pipefail
+          mkdir -p artifacts/gp-toolchain-controls
+          cp tools/requirements-gp.txt artifacts/gp-toolchain-controls/
+          sha256sum "$RUNNER_TEMP/gp-wheels/"*.whl > artifacts/gp-toolchain-controls/wheels.sha256
+          "$RUNNER_TEMP/gp-toolchain/bin/python" -m pip inspect > artifacts/gp-toolchain-controls/installed.json
+          "$RUNNER_TEMP/gp-toolchain/bin/python" -m pytest \
+            tools/test_gp_process_release.py tools/test_gp_process_deploy.py -q \
+            --junitxml=artifacts/gp-toolchain-controls/results.xml \
+            2>&1 | tee artifacts/gp-toolchain-controls/controls.log
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        if: always()
+        with:
+          name: gp-toolchain-controls-${{ github.sha }}
+          path: artifacts/gp-toolchain-controls/
+          if-no-files-found: error

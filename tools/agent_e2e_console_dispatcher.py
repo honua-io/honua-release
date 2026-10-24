@@ -12,6 +12,7 @@ import json
 
 from agent_e2e_console_runtime import require, validate_execution_history
 from agent_e2e_controller import validate_action
+from agent_e2e_execution_protocol import validate_worker_bound
 from agent_e2e_worker import ReplyChunks, Worker
 
 
@@ -85,6 +86,16 @@ class McpDispatcher:
                 'oversized recovered MCP reply')
         chunk = json.loads(message['Body'])
         require(isinstance(chunk, dict), 'invalid recovered MCP reply')
+        if chunk.get('protocol') == 'honua.installed-worker-bound/v1':
+            intents = self.journal.values('worker-binding-intent')
+            require(len(intents) == 1 and self.journal.values('worker-binding-observation') and
+                    self.journal.values('worker-binding-reply'), 'worker control reply lacks original acknowledged binding')
+            original = intents[0]
+            validate_worker_bound(chunk, original)
+            if not any(row.get('reply') == chunk for row in self.journal.values('worker-binding-reply')):
+                self.journal.append('worker-binding-reply', {'reply': chunk})
+            self.queues.delete_message(QueueUrl=self.worker.config['replyQueueUrl'], ReceiptHandle=message['ReceiptHandle'])
+            return True
         action_id = chunk.get('actionId')
         if action_id == self.current_action:
             return False  # The current bound Worker/ReplyChunks validates it.
