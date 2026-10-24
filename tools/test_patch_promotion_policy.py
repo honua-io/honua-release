@@ -69,6 +69,15 @@ def patch_fixture(tmp_path, age=12, *, server_changed=True):
         if cell['actuator'] == 'terraform-exact-apply':
             cell['rollbackOperation']['imageDigest'] = source
     _write(rollback, value)
+    # This fixture changes the candidate after the initial RC fixture was built.
+    # Its synthetic campaign must bind that final patch cohort, including Helm.
+    # Production receipts are never rebound by the promotion checker.
+    from test_mint_nightly_lock import agent_summary
+    agent_receipt = evidence / 'evidence/agent-e2e' / next(
+        row['runId'] for row in record['evidence'] if row['class'] == 'agent-e2e') / 'receipt.json'
+    agent_value = json.loads(agent_receipt.read_text())
+    agent_value['agentPack'] = agent_summary(lock, agent_value['completedAt'])
+    _write(agent_receipt, agent_value)
     return record, lock, evidence, fixture[3]
 
 
@@ -86,6 +95,12 @@ def test_patch_short_burn_and_missing_canary_refuse(tmp_path):
     assert _decision(f)['checks']['burn-duration']['status'] == 'fail'
     f[0]['demoCanaries'].pop()
     assert _decision(f)['checks']['demo-canaries']['status'] == 'fail'
+
+
+def test_patch_rejects_agent_campaign_for_a_different_component_set(tmp_path):
+    f = patch_fixture(tmp_path)
+    _edit(_receipt(f, 'agent-e2e'), lambda d: d['agentPack'].update(componentBindingDigest='sha256:' + 'f' * 64))
+    assert _decision(f)['checks']['evidence:agent-e2e']['status'] == 'fail'
 
 
 @pytest.mark.parametrize('mutation', ['profile', 'baseline-digest', 'changed-omitted', 'changed-extra', 'baseline-foreign'])

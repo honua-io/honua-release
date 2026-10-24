@@ -51,6 +51,7 @@ TRAIN_GATES: tuple[str, ...] = (
     "terminal-journey-contract.yml",
     "gate-journey.yml",
     "gate-installed-clients.yml",
+    "gate-agent-e2e.yml",
 )
 AI_GATES: tuple[str, ...] = (
     "gate-agent-e2e.yml",
@@ -66,7 +67,7 @@ GA_DEFERRED: tuple[str, ...] = (
     "rollback-certification.yml",
     "gate-journey.yml",
 )
-RC_GATES: tuple[str, ...] = tuple(g for g in TRAIN_GATES + AI_GATES if g not in GA_DEFERRED)
+RC_GATES: tuple[str, ...] = tuple(dict.fromkeys(g for g in TRAIN_GATES + AI_GATES if g not in GA_DEFERRED))
 
 
 def _get(url: str, token: str) -> dict:
