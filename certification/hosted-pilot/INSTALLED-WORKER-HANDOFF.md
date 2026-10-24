@@ -70,3 +70,30 @@ The registrar task definition, checked dispatch route, independent
 same-deadline reaper, actual positive quote and deployed references remain
 required integration steps. This source interface does not assert a deployed
 registration, successful execution, cleanup or settlement.
+
+## Private installed-browser binding before the first turn
+
+After the checked registration workflow has completed, export the existing
+installation's browser-test input from the same reviewed release checkout:
+
+```bash
+python3 -I tools/hosted_pilot/installed_evaluation_binding.py \
+  --configuration certification/agent-e2e/installed-runtimes/REVIEWED_RUNTIME.json \
+  --sha256 SHA256_OF_REVIEWED_DECLARATION \
+  --release-sha EXACT_REVIEWED_RELEASE_COMMIT \
+  --output /private/installed-workspace-binding.json
+```
+
+The operator supplies existing read credentials through the normal AWS provider
+chain. This command performs reads only. It derives the candidate, bucket, table,
+region, runtime and registration digest from checked source, the authenticated
+versioned accounting snapshot, original native HTTP bytes and installed-worker
+receipts. It refuses changed source/head, missing registration, altered principals
+or permissions, expired original funding, and missing immutable receipts. It never
+initializes accounting, takes a lease, provisions a key, starts a worker or renews
+funding. Output is private (0600), exclusive-create, and contains no credentials.
+
+Use this file as the Console installed-workspace execution binding. A genuine
+signed-in human browser session, configured model provider, authorized service
+data and the complete installed acceptance suite are still required. Producing
+this input does not establish a passing human journey or release qualification.

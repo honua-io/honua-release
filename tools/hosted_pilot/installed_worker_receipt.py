@@ -15,6 +15,7 @@ import sys
 sys.path.insert(0,str(Path(__file__).resolve().parents[1]))
 
 from agent_e2e_pack import canonical_digest
+from agent_e2e_worker_lifecycle import terraform_definition_digest
 from agent_e2e_interactive_budget import validate_retained_funding
 from enrollment_receipt import original_review, positive_integer, private_bytes
 from fixture_handoff import require, encoded
@@ -282,7 +283,7 @@ def verify_installation(selected, *, durable, runtime_id, target_id, original_ex
         'proof':{'nativeEndpoint':base['_nativeEndpoint'],'installation':selected,'readiness':value['readiness'],'review':plan['review'],'publicOriginals':proofs,
                  'native':{'stateMachineArn':actual['lifecycle']['stateMachineArn'],
                      'stateMachineRoleArn':actual['lifecycle']['roleArn'],
-                     'definitionDigest':canonical_digest(json.loads(actual['lifecycle']['definition'])),
+                     'definitionDigest':terraform_definition_digest(actual['lifecycle']['definition']),
                      'taskDefinitionArn':actual['taskDefinition']['taskDefinition']['taskDefinitionArn'],
                      'taskRoleArn':actual['taskDefinition']['taskDefinition']['taskRoleArn'],
                      'image':actual['taskDefinition']['taskDefinition']['containerDefinitions'][0]['image']}},'activation':False,'qualification':False}

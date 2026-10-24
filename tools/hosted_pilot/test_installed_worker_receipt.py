@@ -145,6 +145,13 @@ class InstalledOutputOriginals(unittest.TestCase):
         self.ecs.describe_task_definition.assert_called_once_with(taskDefinition=self.descriptor['taskDefinitionArn'])
         self.states.describe_state_machine.assert_called_once_with(stateMachineArn=self.descriptor['stateMachineArn'])
 
+    def test_proof_replays_terraform_definition_bytes_without_float_decoding(self):
+        raw = '{"Comment":"<>&","precise":0.12345678901234567890123456789}'
+        self.native.inspect.return_value['lifecycle']['definition'] = raw
+        answer = self.verify()
+        self.assertEqual(answer['proof']['native']['definitionDigest'], receipt.terraform_definition_digest(raw))
+        self.assertNotEqual(answer['proof']['native']['definitionDigest'], canonical_digest(json.loads(raw)))
+
     def test_visible_output_before_job_completion_is_not_successful_apply(self):
         self.run_status='in_progress'
         with self.assertRaisesRegex(PackError,'not successfully completed'):self.verify()
