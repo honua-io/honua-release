@@ -59,7 +59,7 @@ def terminal(command, seconds, workspace):
                 "stderr": stderr.read(MAX_STDERR).decode("utf-8", errors="ignore")}
 
 
-def mcp_action(action, seconds, workspace):
+def mcp_action(action, seconds, workspace, *, action_id=None):
     if os.name != 'posix' or os.geteuid() == 0:
         raise PackError('MCP execution requires a non-root Linux container')
     import resource
@@ -77,7 +77,8 @@ def mcp_action(action, seconds, workspace):
             start_new_session=True, preexec_fn=limits)
         status = 'completed'
         try:
-            process.communicate(encode({'action':action, 'seconds':seconds}).encode(), timeout=seconds)
+            process.communicate(encode({'action':action, 'seconds':seconds,
+                **({'actionId': action_id} if action_id is not None else {})}).encode(), timeout=seconds)
         except subprocess.TimeoutExpired:
             status = 'timed-out'
         finally:
@@ -138,7 +139,7 @@ class Executor:
                 result = unfinished('timed-out')
             else:
                 # Exceptions leave the durable started row intact for recovery.
-                result = (self.execute_mcp(request['action'], min(seconds, remaining), self.workspace) if structured else
+                result = (self._execute_mcp(request, min(seconds, remaining)) if structured else
                           self.execute(request["command"], min(seconds, remaining), self.workspace))
         reply = {"protocol": request['protocol'], "attemptId": request["attemptId"], "actionId": request["actionId"],
                  "commandDigest": digest, **result}
@@ -146,6 +147,9 @@ class Executor:
         self.db.execute("UPDATE actions SET reply=? WHERE id=?", (encode(reply), request["actionId"]))
         self.db.commit()
         return reply
+
+    def _execute_mcp(self, request, seconds):
+        return self.execute_mcp(request['action'], seconds, self.workspace)
 
 
 def serve(sqs, config, executor, *, clock=time.time, control_handler=None):

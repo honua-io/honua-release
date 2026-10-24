@@ -102,7 +102,7 @@ def execution_headers(value):
 
 class Client:
     def __init__(self, endpoint, *, credential_env=None, credential_kind='bearer', workflow_view=None,
-                 timeout=60, clock=time.monotonic, agent_context=None, execution_context=None):
+                 timeout=60, clock=time.monotonic, agent_context=None, execution_context=None, execution_action=None):
         require(isinstance(endpoint, str) and all(ord(c) > 0x20 for c in endpoint), 'invalid-endpoint')
         try:
             parsed = urllib.parse.urlsplit(endpoint)
@@ -119,6 +119,9 @@ class Client:
         self.agent_context = validate_agent_context(agent_context)
         self.execution_context = validate_execution_context(execution_context)
         require(self.execution_context is None or self.agent_context is not None, 'execution-requires-native-turn')
+        require(execution_action is None or self.execution_context is not None and isinstance(execution_action, str) and
+                re.fullmatch(r'[A-Za-z0-9_-]{1,128}', execution_action), 'invalid-native-execution-action')
+        self.execution_action = execution_action
         require(type(timeout) in (int,float) and 0 < timeout <= 120, 'invalid-deadline')
         self.endpoint, self.clock, self.deadline = endpoint, clock, clock()+timeout
         self.secret = None
@@ -176,6 +179,8 @@ class Client:
         if self.agent_context is not None:
             headers.update({'X-Honua-Workspace': self.agent_context['workspaceId'], 'X-Honua-Turn': self.agent_context['turnId']})
         headers.update(execution_headers(self.execution_context))
+        if self.execution_action is not None:
+            headers['X-Honua-Execution-Action'] = self.execution_action
         if self.secret:
             headers['Authorization' if self.credential_kind == 'bearer' else 'X-API-Key'] = (
                 'Bearer '+self.secret if self.credential_kind == 'bearer' else self.secret)

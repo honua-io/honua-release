@@ -234,6 +234,11 @@ class McpOnlyExecutor(Executor):
                 'installed Console workers accept canonical native MCP actions only')
         return super().handle(request)
 
+    def _execute_mcp(self, request, seconds):
+        # The validated, durable transport command owns this identity. Tool
+        # arguments cannot select or replace the native operation's action.
+        return self.execute_mcp(request['action'], seconds, self.workspace, action_id=request['actionId'])
+
 
 def serve_installed(sqs, configuration, *, journal='/journal/installed.sqlite', workspace='/workspace',
                     task_reader=actual_task, clock=time.time):
