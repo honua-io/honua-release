@@ -158,7 +158,7 @@ output "native_runtime_registration_handoff" {
       definitionDigest    = "sha256:${sha256(jsonencode(jsondecode(aws_sfn_state_machine.registration_reaper[0].definition)))}",
       stateMachineRoleArn = aws_iam_role.registration_reaper[0].arn,
       scheduleGroup       = aws_scheduler_schedule_group.registration[0].name, scheduleName = aws_scheduler_schedule.registration_reaper[0].name,
-    roleArn = aws_iam_role.registration_schedule[0].arn, endDate = var.expires_at },
+    roleArn = aws_iam_role.registration_schedule[0].arn, endDate = aws_scheduler_schedule.registration_reaper[0].end_date },
     installation   = local.registration_installation,
     dispatchBudget = merge(var.dispatch_budget, { candidateKey = var.candidate_digest, claimTable = aws_dynamodb_table.claims["dispatch"].name })
   }
