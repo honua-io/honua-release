@@ -1485,12 +1485,23 @@ def expected_studio_requester(original: dict) -> str:
     return match[1]
 
 
-def require_agent_map_approver(witness: dict, original: dict, final: dict) -> None:
+def require_agent_map_approver(witness: dict, original: dict, final: dict,
+                               originating_principal: str) -> None:
     expected = expected_studio_requester(original)
-    if (final.get('expectedRequestedBy') != expected or witness.get('requestedBy') != expected or
+    if (not isinstance(originating_principal, str) or not originating_principal.strip() or
+            originating_principal == expected or
+            final.get('expectedRequestedBy') != expected or witness.get('requestedBy') != expected or
             not isinstance(witness.get('resolvedBy'), str) or not witness['resolvedBy'].strip() or
-            witness['resolvedBy'] == expected):
-        raise Blocked('publication requester must be the original agent with a distinct actual approver')
+            witness['resolvedBy'] in (expected, originating_principal)):
+        raise Blocked('approver must differ from both the original human and original agent')
+
+
+def require_agent_map_audience_approvers(witness, original, final, visual, share):
+    origin = visual.get('principalId')
+    require_agent_map_approver(witness, original, final, origin)
+    if share.get('requiresApproval'):
+        require_agent_map_approver({'requestedBy': witness.get('policyRequestedBy'),
+                                  'resolvedBy': witness.get('policyResolvedBy')}, original, final, origin)
 
 
 def observed_agent_map_finish(transcript: str, original: dict, map_receipt: dict,
@@ -1762,6 +1773,9 @@ def phase_agent_map_share_request(args, state, binding, attempt):
         if result.returncode:
             raise Blocked('map approval or actual human service-sharing turn absent; inspect private browser log')
         value = read_json(receipt)
+        require_agent_map_approver({'requestedBy': value.get('mapRequestedBy'),
+                                  'resolvedBy': value.get('mapApproverId')},
+                                 state['agentImportTask'], final, state['agentMapVisual'].get('principalId'))
         if (value.get('status') != 'human-sharing-turn-observed' or
                 value.get('workspaceId') != first['workspaceId'] or
                 value.get('prompt') != map_share_prompt(first['service'], final) or
@@ -1992,7 +2006,7 @@ def phase_agent_map_audience(args, state, binding, attempt):
     witness = read_json(attempt / 'agent-map-audience.json')
     final, visual, first = state['agentMapFinish'], state['agentMapVisual'], state['agentMap']
     share = state['agentMapShare']
-    require_agent_map_approver(witness, state['agentImportTask'], final)
+    require_agent_map_audience_approvers(witness, state['agentImportTask'], final, visual, share)
     if (witness.get('status') != 'pass' or
             any(witness.get(key) != final.get(key) for key in
                 ('proposalId', 'operationInstanceId', 'itemId', 'versionId', 'contentHash', 'route')) or

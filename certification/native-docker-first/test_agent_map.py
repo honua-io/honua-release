@@ -367,17 +367,61 @@ class AgentMapApprovalIdentityTests(unittest.TestCase):
         original = {'ownerActorId': 'apikey:api-key:' + agent_id}
         final = {'expectedRequestedBy': agent_id}
         witness = {'requestedBy': agent_id, 'resolvedBy': 'actual-distinct-human'}
-        runner.require_agent_map_approver(witness, original, final)
+        runner.require_agent_map_approver(witness, original, final, "originating-human")
         with self.assertRaises(runner.Blocked):
-            runner.require_agent_map_approver({**witness, 'requestedBy': '33333333-3333-4333-8333-333333333333'}, original, final)
+            runner.require_agent_map_approver({**witness, 'requestedBy': '33333333-3333-4333-8333-333333333333'}, original, final, 'originating-human')
         with self.assertRaises(runner.Blocked):
-            runner.require_agent_map_approver({**witness, 'resolvedBy': agent_id}, original, final)
+            runner.require_agent_map_approver({**witness, 'resolvedBy': agent_id}, original, final, 'originating-human')
         with self.assertRaises(runner.Blocked):
-            runner.require_agent_map_approver(witness, original, {'expectedRequestedBy': 'foreign-agent'})
+            runner.require_agent_map_approver(witness, original, {'expectedRequestedBy': 'foreign-agent'}, 'originating-human')
         for actor in ('operatorbearer:subject:' + agent_id, 'ApiKey:api-key:' + agent_id,
                       'apikey:api-key:00000000-0000-0000-0000-000000000000', 'apikey:api-key:bad-id'):
             with self.subTest(actor=actor), self.assertRaises(runner.Blocked):
-                runner.require_agent_map_approver(witness, {'ownerActorId': actor}, final)
+                runner.require_agent_map_approver(witness, {'ownerActorId': actor}, final, 'originating-human')
+
+    def test_originating_human_cannot_supply_map_or_required_policy_approval(self):
+        agent_id = '22222222-2222-4222-8222-222222222222'
+        original = {'ownerActorId': 'apikey:api-key:' + agent_id}
+        final = {'expectedRequestedBy': agent_id}
+        visual = {'principalId': 'originating-human'}
+        witness = {'requestedBy': agent_id, 'resolvedBy': 'separate-human',
+                   'policyRequestedBy': agent_id, 'policyResolvedBy': 'separate-human'}
+        required = {'requiresApproval': True}
+        runner.require_agent_map_audience_approvers(witness, original, final, visual, required)
+        for field in ('resolvedBy', 'policyResolvedBy'):
+            for resolver in ('originating-human', agent_id, '', None):
+                with self.subTest(field=field, resolver=resolver), self.assertRaises(runner.Blocked):
+                    runner.require_agent_map_audience_approvers(
+                        {**witness, field: resolver}, original, final, visual, required)
+        for origin in (None, '', agent_id):
+            with self.subTest(origin=origin), self.assertRaises(runner.Blocked):
+                runner.require_agent_map_audience_approvers(
+                    witness, original, final, {'principalId': origin}, required)
+        with self.assertRaises(runner.Blocked):
+            runner.require_agent_map_audience_approvers(
+                {**witness, 'policyRequestedBy': 'foreign-agent'}, original, final, visual, required)
+        runner.require_agent_map_audience_approvers(
+            {**witness, 'policyRequestedBy': None, 'policyResolvedBy': None},
+            original, final, visual, {'requiresApproval': False})
+
+    def test_browser_approval_identity_requires_a_second_actual_human(self):
+        script = """
+import assert from 'node:assert/strict';
+import {isDistinctHumanApproval} from './publication_identity.mjs';
+const approved = {requestedBy: 'agent', resolvedBy: 'approver'};
+assert.equal(isDistinctHumanApproval(approved, 'agent', 'author'), true);
+for (const resolvedBy of ['author', 'agent', '', null, undefined, false]) {
+  assert.equal(isDistinctHumanApproval({...approved, resolvedBy}, 'agent', 'author'), false);
+}
+for (const origin of ['', null, undefined, 'agent']) {
+  assert.equal(isDistinctHumanApproval(approved, 'agent', origin), false);
+}
+assert.equal(isDistinctHumanApproval({...approved, requestedBy:'other'}, 'agent', 'author'), false);
+"""
+        result = subprocess.run(['node', '--input-type=module', '-e', script],
+                                cwd=Path(__file__).parent, text=True, capture_output=True)
+        self.assertEqual(result.returncode, 0, result.stderr)
+
 
 class MapWorkflowDispatchTests(unittest.TestCase):
     def dispatch(self, phase, workflow, requested=None):

@@ -5,6 +5,7 @@ import assert from 'node:assert/strict';
 import { createRequire } from 'node:module';
 import { join } from 'node:path';
 import { readFileSync, openSync, writeFileSync, closeSync } from 'node:fs';
+import { isDistinctHumanApproval } from './publication_identity.mjs';
 
 const required = name => { const value = process.env[name]?.trim(); assert(value, `${name} required`); return value; };
 const requireConsole = createRequire(join(required('HONUA_AGENT_MAP_CONSOLE_ROOT'), 'e2e/playwright/package.json'));
@@ -38,9 +39,8 @@ try {
   const proposal = await read(`/api/processes/admin/proposals/${encodeURIComponent(handoff.proposalId)}`);
   assert.equal(proposal.proposalId, handoff.proposalId);
   assert.equal(proposal.status?.toLowerCase(), 'succeeded');
-  assert.equal(proposal.requestedBy, handoff.expectedRequestedBy, 'original installed agent must be the proposer');
-  assert(proposal.requestedBy && proposal.resolvedBy);
-  assert.notEqual(proposal.requestedBy, proposal.resolvedBy, 'proposer cannot approve');
+  assert(isDistinctHumanApproval(proposal, handoff.expectedRequestedBy, visual.principalId),
+    'map approver must differ from the originating human and agent');
   const agentRead = await request.newContext({ baseURL: serverOrigin,
     extraHTTPHeaders: { 'X-API-Key': required('HONUA_AGENT_MAP_AGENT_KEY'), Accept: 'application/json' } });
   let operation, policyOperation, policyProposal = null;
@@ -72,8 +72,8 @@ try {
     policyProposal = await read(`/api/processes/admin/proposals/${encodeURIComponent(share.proposalId)}`);
     assert.equal(policyProposal.proposalId, share.proposalId);
     assert.equal(policyProposal.status?.toLowerCase(), 'succeeded');
-    assert.equal(policyProposal.requestedBy, handoff.expectedRequestedBy);
-    assert(policyProposal.resolvedBy && policyProposal.resolvedBy !== policyProposal.requestedBy);
+    assert(isDistinctHumanApproval(policyProposal, handoff.expectedRequestedBy, visual.principalId),
+      'policy approver must differ from the originating human and agent');
   } else {
     assert.equal(share.status, 'Completed');
     assert.equal(share.proposalId, null);
@@ -214,7 +214,8 @@ try {
   } finally { await publicContext.close(); }
   const receipt = { status:'pass', proposalId:handoff.proposalId,
     policyOperationInstanceId:share.operationInstanceId, policyProposalId:share.proposalId,
-    policyStatus:policyOperation.status, policyResolvedBy:policyProposal?.resolvedBy ?? null,
+    policyStatus:policyOperation.status, policyRequestedBy:policyProposal?.requestedBy ?? null,
+    policyResolvedBy:policyProposal?.resolvedBy ?? null,
     operationInstanceId:handoff.operationInstanceId, requestId,
     requestedBy:proposal.requestedBy, resolvedBy:proposal.resolvedBy,
     originConsolePartition:visual.principalId, itemId:handoff.itemId, versionId:handoff.versionId,

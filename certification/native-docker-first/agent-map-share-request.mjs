@@ -5,6 +5,7 @@ import assert from 'node:assert/strict';
 import { createRequire } from 'node:module';
 import { join } from 'node:path';
 import { readFileSync, openSync, writeFileSync, closeSync } from 'node:fs';
+import { isDistinctHumanApproval } from './publication_identity.mjs';
 
 const required = name => { const value = process.env[name]?.trim(); assert(value, `${name} required`); return value; };
 const requireConsole = createRequire(join(required('HONUA_AGENT_MAP_CONSOLE_ROOT'), 'e2e/playwright/package.json'));
@@ -37,8 +38,8 @@ try {
   const proposal = await read(`/api/processes/admin/proposals/${encodeURIComponent(final.proposalId)}`);
   assert.equal(proposal.proposalId, final.proposalId);
   assert.equal(proposal.status?.toLowerCase(), 'succeeded', 'separate map approval required before source sharing');
-  assert.equal(proposal.requestedBy, final.expectedRequestedBy);
-  assert(proposal.resolvedBy && proposal.resolvedBy !== proposal.requestedBy);
+  assert(isDistinctHumanApproval(proposal, final.expectedRequestedBy, visual.principalId),
+    'map approver must differ from the originating human and agent');
   const agentRead = await request.newContext({baseURL: required('HONUA_AGENT_MAP_SERVER_ORIGIN'),
     extraHTTPHeaders:{'X-API-Key':required('HONUA_AGENT_MAP_AGENT_KEY'), Accept:'application/json'}});
   let operation;
@@ -95,7 +96,8 @@ try {
     layerId:first.service.layerId, mapProposalId:final.proposalId,
     mapOperationInstanceId:final.operationInstanceId, mapItemId:final.itemId,
     mapVersionId:final.versionId, mapContentHash:final.contentHash,
-    mapApproverId:proposal.resolvedBy, mapPublicationRequestId:requestId};
+    mapRequestedBy:proposal.requestedBy, mapApproverId:proposal.resolvedBy,
+    mapPublicationRequestId:requestId};
   const fd = openSync(required('HONUA_AGENT_MAP_SHARE_REQUEST_RECEIPT'), 'wx', 0o600);
   try { writeFileSync(fd, JSON.stringify(receipt, null, 2) + '\n'); } finally { closeSync(fd); }
 } finally { await browser.close(); }
