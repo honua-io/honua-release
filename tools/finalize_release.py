@@ -18,7 +18,9 @@ Four pure, unit-tested pieces:
                         IS the platform release.
   render_release_notes— aggregate notes from the pinned set: components + versions/shas/images, the
                         contract versions, the DB-schema floor, and an explicit breaking-changes /
-                        upgrade-actions section.
+                        upgrade-actions section. An optional hand-written narrative
+                        (release-notes/<base-label>.md, passed as --notes-intro) is placed ahead of
+                        the generated record; it carries no pins.
 
 Usage (the workflow calls this):
   python tools/finalize_release.py --label 2026.1 --gate-report report.json \
@@ -133,8 +135,16 @@ def _component_version(comp: dict) -> str:
     return str(comp.get("artifactVersion") or comp.get("version") or "—")
 
 
+def _narrative_body(intro: str) -> str:
+    """Strip a leading H1 from a hand-written narrative so the generated title stays the only one."""
+    text = intro.strip()
+    if text.startswith("# "):
+        text = text.split("\n", 1)[1] if "\n" in text else ""
+    return text.strip()
+
+
 def render_release_notes(manifest: dict, matrix: dict, label: str, gate_report: dict,
-                         evidence_url: str = "") -> str:
+                         evidence_url: str = "", intro: str | None = None) -> str:
     base = _base_label(label)
     components = manifest.get("components") or {}
     lines: list[str] = []
@@ -145,6 +155,19 @@ def render_release_notes(manifest: dict, matrix: dict, label: str, gate_report: 
     lines.append("")
     if evidence_url:
         lines.append(f"_Certified by the release train: {evidence_url}_")
+        lines.append("")
+    # Hand-written narrative (release-notes/<base>.md): what the release is and who it is for.
+    # It never carries pins; the generated sections below remain the factual record.
+    narrative = _narrative_body(intro) if intro else ""
+    if narrative:
+        lines.append(narrative)
+        lines.append("")
+        lines.append("---")
+        lines.append("")
+        lines.append(f"## Release record for {base}")
+        lines.append("")
+        lines.append("The sections below are generated from the certified `platform-manifest.yaml`, "
+                     "`compatibility-matrix.yaml` and gate report. They are the authoritative pins.")
         lines.append("")
 
     lines.append("## Components")
@@ -248,6 +271,9 @@ def main(argv: list[str] | None = None) -> int:
                     help="timezone-aware completion time of the certifying train")
     ap.add_argument("--out-manifest", required=True)
     ap.add_argument("--out-notes", required=True)
+    ap.add_argument("--notes-intro", default=None,
+                    help="hand-written narrative to place ahead of the generated record "
+                         "(release-notes/<base-label>.md); skipped when the file is absent")
     args = ap.parse_args(argv)
 
     report = json.loads(Path(args.gate_report).read_text(encoding="utf-8"))
@@ -286,8 +312,16 @@ def main(argv: list[str] | None = None) -> int:
         return 1
     Path(args.out_manifest).write_text(yaml.safe_dump(finalized, sort_keys=False), encoding="utf-8")
 
+    intro = None
+    if args.notes_intro:
+        intro_path = Path(args.notes_intro)
+        if intro_path.is_file():
+            intro = intro_path.read_text(encoding="utf-8")
+            print(f"release notes intro -> {intro_path}")
+        else:
+            print(f"release notes intro: {intro_path} absent; generated record only")
     notes = render_release_notes(
-        finalized, matrix, args.label, report, str(report.get("evidence_url", "")))
+        finalized, matrix, args.label, report, str(report.get("evidence_url", "")), intro)
     Path(args.out_notes).write_text(notes, encoding="utf-8")
 
     print(f"finalized manifest -> {args.out_manifest}")
