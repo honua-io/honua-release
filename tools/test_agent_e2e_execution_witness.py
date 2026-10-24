@@ -47,6 +47,8 @@ def witness(slot, runtime, server, tmp_path, monkeypatch, request):
     monkeypatch.setenv('WITNESS_REGISTRATION_FIXTURE_KEY', 'private-observer-fixture-'+'8'*32)
     objects = Objects()
     body = runtime.value
+    if getattr(request, 'param', None) == 'prelaunch-restart':
+        slot.journal.append('worker-installation-observation', slot.worker.inspect())
     slot.worker.start(slot.journal, slot.launch)
     worker_binding = {'schemaVersion': 1, 'state': 'running', 'candidateKey': KEY, 'runtimeId': 'runtime-original',
         'slotId': slot.config['slotId'], 'executionId': E, 'workspaceId': 'workspace-original', 'turnId': 'turn-original',
@@ -151,6 +153,12 @@ def test_private_projection_joins_actual_http_originals_and_provider_usage(witne
     encoded = json.dumps(result)
     assert 'Actual fixture question' not in encoded and 'The actual original response' not in encoded
     assert 'private-' not in encoded
+
+
+@pytest.mark.parametrize('witness', ['prelaunch-restart'], indirect=True)
+def test_prelaunch_restart_still_projects_the_one_original_installation(witness):
+    result = project_execution(witness.reference, **witness.options)
+    assert result['native']['state'] == 'completed' and result['qualification'] is False
 
 
 def test_human_response_text_uses_python_canonicalization_without_js_number_roundtrip():

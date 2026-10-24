@@ -367,6 +367,30 @@ def test_lost_installed_start_ack_recovers_same_e_task_and_never_relaunches(slot
     assert len(slot.durable.state['ledger']['interactivePaidAdmissions']) == 1
 
 
+def test_prelaunch_restart_reuses_first_actual_installation_and_rechecks_pins(slot):
+    first = slot.worker.inspect()
+    slot.journal.append('worker-installation-observation', first)
+    slot.states.definition['ResponseMetadata'] = {'RequestId': 'another-actual-read'}
+    slot.worker.start(slot.journal, slot.launch)
+    assert slot.journal.values('worker-installation-observation') == [first]
+    assert [operation for operation, _ in slot.states.calls].count('definition') == 2
+    assert [operation for operation, _ in slot.states.calls].count('start') == 1
+    assert len(slot.durable.state['ledger']['interactivePaidAdmissions']) == 1
+
+
+@pytest.mark.parametrize('change', ['prior-role', 'prior-secret', 'duplicate', 'current-drift'])
+def test_prelaunch_restart_refuses_contradictory_history_or_current_installation(slot, change):
+    prior = slot.worker.inspect()
+    if change == 'prior-role': prior['taskDefinition']['taskDefinition']['taskRoleArn'] += '-foreign'
+    elif change == 'prior-secret': prior['taskDefinition']['taskDefinition']['containerDefinitions'][0]['secrets'][0]['valueFrom'] += '-foreign'
+    slot.journal.append('worker-installation-observation', prior)
+    if change == 'duplicate': slot.journal.append('worker-installation-observation', copy.deepcopy(prior))
+    if change == 'current-drift': slot.states.definition['definition'] = '{}'
+    with pytest.raises(PackError): slot.worker.start(slot.journal, slot.launch)
+    assert not slot.journal.values('worker-intent')
+    assert not any(operation == 'start' for operation, _ in slot.states.calls)
+
+
 def test_actual_sdk_timestamp_shapes_and_launch_pages_survive_durable_recovery(slot):
     stamp = datetime(2026, 10, 23, 12, 34, 56, 123456, timezone.utc)
     slot.states.definition['creationDate'] = stamp
