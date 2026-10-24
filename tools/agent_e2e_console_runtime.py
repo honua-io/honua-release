@@ -78,8 +78,9 @@ class NativeControl:
                     rows[0]['kind'] == kind and rows[0]['state'] == 'reserved' and rows[0]['actualUsd'] is None,
                     'runtime control lacks its original reserved shared infrastructure/cleanup liability')
 
-    def _call(self, operation, method, suffix, *, execution=None, body=None, mutation=None, capability=None, reconcile=False):
+    def _call(self, operation, method, suffix, *, execution=None, body=None, mutation=None, capability=None, reconcile=False, timeout=120):
         identifier(operation, 'control operation')
+        require(type(timeout) is int and 1 <= timeout <= 120, 'native control timeout is unbounded')
         self.authorize(reconcile=reconcile)
         identity = {'candidateKey': self.durable.store.candidate, 'runtimeId': self.runtime}
         if execution is not None: identity['executionId'] = execution_id(execution)
@@ -106,9 +107,9 @@ class NativeControl:
             self.durable._persist()
             return {'key': key, 'sha256': canonical_digest(value)}
         http = self.factory(self.configuration['endpoint'], CONTROL_ENV, identity=identity,
-            authorize=lambda: self.authorize(reconcile=reconcile), retain=retain, credential_kind='api-key', timeout=120,
+            authorize=lambda: self.authorize(reconcile=reconcile), retain=retain, credential_kind='api-key', timeout=timeout,
             execution_capability=capability)
-        answer = http.json(step, method, self.base+suffix, body)
+        answer = http.json(step, method, self.base+suffix, body, ensure_ascii=False)
         require(answer['observation']['httpStatus'] in (200, 201), 'native external execution operation did not succeed')
         value = answer['observation']['body']
         require(isinstance(value, dict) and value.get('schemaVersion') == 1 and value.get('runtimeId') == self.runtime and
@@ -135,7 +136,7 @@ class NativeControl:
             r'arn:aws:ecs:[a-z0-9-]+:[0-9]{12}:task/[A-Za-z0-9_-]+/[0-9a-f]{32}', controller_worker_id),
             'installed heartbeat requires actual controller ECS task identity')
         digest(configuration_digest)
-        prior = self._call('heartbeat-read', 'GET', '/heartbeat')
+        prior = self._call('heartbeat-read', 'GET', '/heartbeat', timeout=10)
         retained = prior['value'].get('heartbeat')
         require(retained is None or isinstance(retained, dict) and type(retained.get('stateRevision')) is int and
                 retained['stateRevision'] > 0, 'native original heartbeat revision missing')
@@ -143,12 +144,12 @@ class NativeControl:
             'registrationDigest': self.configuration['runtimeBindingDigest'], 'configurationDigest': configuration_digest,
             'expectedRevision': 0 if retained is None else retained['stateRevision']}
         try:
-            self._call('heartbeat', 'POST', '/heartbeat', body=body, mutation=body)
+            self._call('heartbeat', 'POST', '/heartbeat', body=body, mutation=body, timeout=10)
         except Exception:
             # Even an explicit failure cannot be relabelled successful. Only a
             # fresh exact native original below can establish this CAS outcome.
             pass
-        observed = self._call('heartbeat-read', 'GET', '/heartbeat')
+        observed = self._call('heartbeat-read', 'GET', '/heartbeat', timeout=10)
         value = observed['value'].get('heartbeat')
         require(isinstance(value, dict) and all(value.get(k) == body[k] for k in
             ('controllerWorkerId', 'registrationDigest', 'configurationDigest')) and
@@ -211,6 +212,7 @@ EVENTS = {'native-observation', 'admission', 'reservation', 'worker-intent', 'wo
           'fence-observation', 'retirement-observation', 'settlement', 'slot-release-observation'}
 EVENTS |= {'witness-export-intent', 'witness-export-observation'}
 EVENTS |= {'worker-command-dispatch', 'worker-command-chunk'}
+EVENTS |= {'worker-authority-observation', 'worker-binding-intent', 'worker-binding-reply'}
 
 
 def validate_execution_history(record):

@@ -72,7 +72,7 @@ def runtime(interactive, server, monkeypatch):
         'submission': {'turnId': 'turn-original', 'requestDigest': BASIS, 'disposition': 'accepted', 'executionId': E}}
     server.respond = lambda *args: (200, {}, json.dumps(value).encode())
     return SimpleNamespace(durable=durable, config=config, value=value,
-        control=NativeControl(durable=durable, configuration=config), now=now)
+        control=NativeControl(durable=durable, configuration=config, clock=lambda: now), now=now)
 
 
 def original(runtime):

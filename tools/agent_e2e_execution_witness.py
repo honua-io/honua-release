@@ -29,6 +29,24 @@ SCHEMA = 'honua.workspace-execution-witness/v1'
 MAX_OBJECT = 64 * 1024 * 1024
 
 
+def public_execution(execution, *, private=False):
+    """The native human DTO, with only the declared private claim removed.
+
+    Native control carries the same revisioned public fields plus its claim.
+    This is a closed projection; arbitrary controller-only fields cannot be
+    ignored to make a contradictory human observation appear to match.
+    """
+    required = {'schemaVersion', 'executionId', 'state', 'stateRevision', 'createdAt', 'updatedAt', 'operations', 'artifacts'}
+    optional = {'claimExpiresAt', 'finalMessageId', 'question', 'replyAdmission'}
+    allowed = required | optional | ({'claim'} if private else set())
+    require(isinstance(execution, dict) and required <= set(execution) <= allowed and
+            type(execution.get('schemaVersion')) is int and execution['schemaVersion'] == 1 and
+            type(execution.get('stateRevision')) is int and execution['stateRevision'] >= 0 and
+            execution.get('state') in STATES and all(isinstance(execution.get(k), list) for k in ('operations', 'artifacts')),
+            'native execution public projection is incomplete or contains undeclared fields')
+    return {key: copy.deepcopy(value) for key, value in execution.items() if key != 'claim'}
+
+
 def human_context_digest(response_text):
     require(isinstance(response_text, str) and 0 < len(response_text.encode()) <= 1024*1024,
             'original human turn response text missing or oversized')
@@ -257,9 +275,11 @@ def project_execution(reference, *, s3, candidate_key, runtime_id, workspace_id,
     effects = native(effect_rows[-1]['reference'], effects=True)
     latest = native(effect_rows[-1]['executionReference'])
     execution = latest['execution']
+    observed_public = public_execution(execution, private=True)
     require(execution.get('executionId') == original_id and execution.get('state') in STATES and
             type(execution.get('stateRevision')) is int and execution['stateRevision'] >= 0 and
-            (human is None or execution == human['execution']) and effects.get('effects') == {'operations': execution.get('operations', []),
+            (human is None or observed_public == public_execution(human['execution'])) and
+            effects.get('effects') == {'operations': execution.get('operations', []),
                 'artifacts': execution.get('artifacts', [])}, 'native effects/current revision differ from original human read')
     public_native = {k: copy.deepcopy(execution[k]) for k in ('state', 'stateRevision', 'operations', 'artifacts', 'finalMessageId') if k in execution}
     finals = events('final-response-observation')
