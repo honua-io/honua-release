@@ -2,25 +2,94 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://honua.io/schemas/gp-environment-state.v1.schema.json",
   "title": "GP environment state v1",
-  "description": "What a deployment must know about an environment before it changes the active binding: the server execution-contract version it runs, the target kinds it can execute, and the binding version last observed. Until honua-server#6221 exposes the binding API this is a reviewed file in Git; afterwards the deploy workflow reads the live values and refuses when they disagree with the file.",
+  "description": "Reviewed deployment policy. Live deploy reads the server contract, supported targets and per-process binding version from the binding API; immutable Batch revisions and smoke fixtures are provisioned in advance.",
   "type": "object",
   "additionalProperties": false,
-  "required": ["schema", "environment", "serverContractVersion", "targets", "bindingVersion", "deploymentTooling"],
+  "required": [
+    "schema",
+    "environment",
+    "serverContractVersion",
+    "targets",
+    "bindingVersion",
+    "deploymentTooling"
+  ],
   "properties": {
-    "schema": {"const": "honua.gp-environment-state/v1"},
-    "environment": {"type": "string", "pattern": "^[a-z][a-z0-9-]{1,31}$"},
-    "serverContractVersion": {"type": "integer", "minimum": 1},
-    "targets": {"type": "array", "minItems": 1, "uniqueItems": true, "items": {"enum": ["kubernetes-job", "aws-batch"]}},
-    "bindingVersion": {"type": "integer", "minimum": 0},
+    "schema": {
+      "const": "honua.gp-environment-state/v1"
+    },
+    "environment": {
+      "type": "string",
+      "pattern": "^[a-z][a-z0-9-]{1,31}$"
+    },
+    "serverContractVersion": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "targets": {
+      "type": "array",
+      "minItems": 1,
+      "uniqueItems": true,
+      "items": {
+        "enum": [
+          "kubernetes-job",
+          "aws-batch"
+        ]
+      }
+    },
+    "bindingVersion": {
+      "type": "integer",
+      "minimum": 0
+    },
     "deploymentTooling": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["kind"],
+      "required": [
+        "kind"
+      ],
       "properties": {
-        "kind": {"enum": ["helm", "aws-batch", "reference"]},
-        "helmRelease": {"type": "string", "pattern": "^[a-z][a-z0-9-]{0,52}$"},
-        "namespace": {"type": "string", "pattern": "^[a-z][a-z0-9-]{0,62}$"},
-        "jobQueue": {"type": "string", "pattern": "^[A-Za-z0-9_-]{1,128}$"}
+        "kind": {
+          "enum": [
+            "helm",
+            "aws-batch",
+            "reference"
+          ]
+        },
+        "helmRelease": {
+          "type": "string",
+          "pattern": "^[a-z][a-z0-9-]{0,52}$"
+        },
+        "namespace": {
+          "type": "string",
+          "pattern": "^[a-z][a-z0-9-]{0,62}$"
+        },
+        "jobQueue": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9_-]{1,128}$"
+        },
+        "releases": {
+          "type": "object",
+          "propertyNames": {
+            "pattern": "^sha256:[0-9a-f]{64}$"
+          },
+          "additionalProperties": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "jobDefinitionArn",
+              "smokeFixture"
+            ],
+            "properties": {
+              "jobDefinitionArn": {
+                "type": "string",
+                "pattern": "^arn:aws(-[a-z]+)*:batch:[a-z0-9-]+:[0-9]{12}:job-definition/[A-Za-z0-9_-]+:[1-9][0-9]*$"
+              },
+              "smokeFixture": {
+                "type": "string",
+                "minLength": 1
+              }
+            }
+          }
+        }
       }
     }
   }

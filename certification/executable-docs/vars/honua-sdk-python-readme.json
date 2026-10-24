@@ -3,17 +3,17 @@
   "env": {
     "HONUA_API_KEY": {
       "value": "{candidate.apiKey}",
-      "documentedAt": "README.md:184-187 — \"Admin needs a server of your own ... set `HONUA_API_KEY` to an admin API key for your server\""
+      "documentedAt": "README.md:210-214 — \"Admin needs a server of your own ... set `HONUA_API_KEY` to an admin API key for your server\""
     }
   },
   "substitute": {
     "https://your-honua-server.com": {
       "value": "{candidate.baseUrl}",
-      "documentedAt": "README.md:184 — \"Admin needs a server of your own\" (the `your-honua-server.com` placeholder at README.md:197)"
+      "documentedAt": "README.md:210 — \"Admin needs a server of your own\" (the `your-honua-server.com` placeholder at README.md:223)"
     },
     "https://demo.honua.io": {
       "value": "{candidate.baseUrl}",
-      "documentedAt": "README.md:99-103 — the examples read the public demo `https://demo.honua.io` `maui-zoning` layer 2; \"To use your own server, change the base URL\""
+      "documentedAt": "README.md:112-115 — the examples read the public demo `https://demo.honua.io` `maui-zoning` layer 2; \"To use your own server, change the base URL\""
     }
   }
 }

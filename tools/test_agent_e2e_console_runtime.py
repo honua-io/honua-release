@@ -5,6 +5,7 @@ import os
 import sqlite3
 import subprocess
 import sys
+import urllib.error
 from datetime import datetime, timezone
 from types import SimpleNamespace
 
@@ -65,14 +66,69 @@ def runtime(interactive, server, monkeypatch):
         'requestDigest': BASIS, 'execution': {'executionId': E, 'state': 'queued', 'stateRevision': 0},
         'binding': {'workspaceId': 'workspace-original', 'targetId': 'target-original',
             'runtimeId': 'runtime-original', 'runtimeBindingDigest': BASIS,
-            'turn': {'turnId': 'turn-original', 'prompt': 'Actual fixture question', 'context': {'targetId': 'target-original'}}}}
+            'turn': {'turnId': 'turn-original', 'actorId': 'human-original', 'prompt': 'Actual fixture question',
+                'context': {'workspaceId': 'workspace-original', 'targetId': 'target-original',
+                    'viewId': 'view-original', 'revision': 0, 'selectedResources': [], 'task': None}}},
+        'submission': {'turnId': 'turn-original', 'requestDigest': BASIS, 'disposition': 'accepted', 'executionId': E}}
     server.respond = lambda *args: (200, {}, json.dumps(value).encode())
     return SimpleNamespace(durable=durable, config=config, value=value,
-        control=NativeControl(durable=durable, configuration=config), now=now)
+        control=NativeControl(durable=durable, configuration=config, clock=lambda: now), now=now)
 
 
 def original(runtime):
     return runtime.control.read(E, 'workspace-original', 'turn-original')
+
+
+@pytest.mark.parametrize('lose_ack', [False, True])
+def test_staging_heartbeat_uses_original_server_cas_and_readback(runtime, server, lose_ack):
+    heartbeat, posts = None, []
+    task = 'arn:aws:ecs:us-east-1:123456789012:task/controller/'+'a'*32
+    def respond(method, path, raw):
+        nonlocal heartbeat
+        assert path.endswith('/heartbeat')
+        if method == 'POST':
+            body = json.loads(raw)
+            posts.append(body)
+            assert body['expectedRevision'] == (0 if heartbeat is None else heartbeat['stateRevision'])
+            heartbeat = {key: body[key] for key in ('controllerWorkerId', 'registrationDigest', 'configurationDigest')}
+            heartbeat.update(stateRevision=body['expectedRevision']+1,
+                observedAt=datetime.fromtimestamp(runtime.now, timezone.utc).isoformat(),
+                expiresAt=datetime.fromtimestamp(runtime.now+60, timezone.utc).isoformat())
+            if lose_ack:
+                return None
+        return 200, {}, json.dumps({**runtime.value, 'heartbeat': heartbeat}).encode()
+    server.respond = respond
+    observed = runtime.control.heartbeat(task, BASIS)
+    assert observed['value']['heartbeat'] == heartbeat and len(posts) == 1
+    # A new periodic observation is a different CAS, with the original raw
+    # response still retained; it never reuses the lost request identity.
+    runtime.control.heartbeat(task, BASIS)
+    assert [post['expectedRevision'] for post in posts] == [0, 1]
+    assert len([row for row in runtime.durable.state['nativeRuntimeHttp'].values()
+                if row.get('method') == 'POST']) == 2
+
+
+@pytest.mark.parametrize('change', ['worker', 'registration', 'revision', 'future', 'expired'])
+def test_heartbeat_mismatched_or_stale_original_never_becomes_ready(runtime, server, change):
+    task = 'arn:aws:ecs:us-east-1:123456789012:task/controller/'+'a'*32
+    body = None
+    def respond(method, path, raw):
+        nonlocal body
+        if method == 'POST':
+            request = json.loads(raw)
+            body = {key: request[key] for key in ('controllerWorkerId', 'registrationDigest', 'configurationDigest')}
+            body.update(stateRevision=1, observedAt=datetime.fromtimestamp(runtime.now, timezone.utc).isoformat(),
+                expiresAt=datetime.fromtimestamp(runtime.now+60, timezone.utc).isoformat())
+            if change == 'worker': body['controllerWorkerId'] = task[:-1]+'b'
+            if change == 'registration': body['registrationDigest'] = 'sha256:'+'f'*64
+            if change == 'revision': body['stateRevision'] = 2
+            if change == 'future': body['observedAt'] = datetime.fromtimestamp(runtime.now+1, timezone.utc).isoformat()
+            if change == 'expired': body['expiresAt'] = datetime.fromtimestamp(runtime.now, timezone.utc).isoformat()
+        return 200, {}, json.dumps({**runtime.value, 'heartbeat': body}).encode()
+    server.respond = respond
+    with pytest.raises(PackError, match='heartbeat'):
+        runtime.control.heartbeat(task, BASIS)
+    assert len([row for row in server.seen if row[0] == 'POST']) == 1
 
 
 def test_actual_authenticated_native_original_creates_append_only_same_e_journal(runtime, server):
@@ -161,6 +217,10 @@ def installed(server, tmp_path, interactive):
         'slotId': 'slot-original', 'executionId': E, 'workspaceId': 'workspace-original', 'turnId': 'turn-original',
         'claimGeneration': 1, 'expiresEpoch': now+600, 'workerId': TASK, 'nativeBindingDigest': BASIS, 'capability': CAP}
     expected = {'schemaVersion': 1, **{k: v for k, v in value.items() if k not in ('protocol', 'capability')}, 'state': 'running'}
+    expected['context'] = {'workspaceId': 'workspace-original', 'targetId': 'target-original', 'viewId': 'view-original',
+        'revision': 9007199254740993, 'selectedResources': []}
+    expected['contextDigest'] = canonical_digest(expected['context'])
+    expected['acknowledgement'] = {'actorId': 'original-native-task-actor', 'credentialVersion': 'original-native-key-version'}
     server.respond = lambda *args: (200, {}, json.dumps(expected).encode())
     binding = InstalledBinding(configuration, mcp, tmp_path/'binding.sqlite', worker_id=TASK)
     yield SimpleNamespace(binding=binding, value=value, expected=expected, path=tmp_path/'binding.sqlite')
@@ -172,7 +232,8 @@ def test_actual_private_first_bind_replays_same_native_authority_without_rebindi
     reply = installed.binding.accept(installed.value)
     replay = installed.binding.accept(copy.deepcopy(installed.value))
     assert reply['workerId'] == replay['workerId'] == TASK
-    assert len(server.seen) == 2
+    assert [row[0] for row in server.seen] == ['POST', 'GET', 'GET']
+    assert server.seen[0][3] == b'{}'
     headers = {k.lower(): v for k, v in server.seen[0][2].items()}
     assert headers['x-honua-execution-capability'] == CAP and headers['x-honua-worker'] == TASK
     assert CAP not in json.dumps(reply)
@@ -181,7 +242,49 @@ def test_actual_private_first_bind_replays_same_native_authority_without_rebindi
     assert private['executionContext']['executionId'] == E
     changed = copy.deepcopy(installed.value); changed['executionId'] = 'execution-'+'5'*32
     with pytest.raises(PackError, match='cannot rebind'): installed.binding.accept(changed)
-    assert len(server.seen) == 2 and installed.path.stat().st_mode & 0o777 == 0o600
+    assert len(server.seen) == 3 and installed.path.stat().st_mode & 0o777 == 0o600
+
+
+def test_lost_actual_native_ack_reply_recovers_by_get_without_post_replay(installed, server, monkeypatch):
+    monkeypatch.delenv('HONUA_AGENT_MCP_CONFIG', raising=False)
+    acknowledged = []
+    def respond(method, path, body):
+        if method == 'POST':
+            acknowledged.append(body)
+            return None  # Actual HTTP socket closes after the native effect.
+        assert acknowledged == [b'{}']
+        return 200, {}, json.dumps(installed.expected).encode()
+    server.respond = respond
+    installed.binding.accept(installed.value)
+    installed.binding.accept(installed.value)
+    assert [row[0] for row in server.seen] == ['POST', 'GET', 'GET']
+    assert installed.binding.db.execute('SELECT COUNT(*) FROM native_ack_intent').fetchone()[0] == 1
+    persisted = '\n'.join(installed.binding.db.iterdump())
+    assert CAP not in persisted and installed.binding.mcp['credential'] not in persisted
+
+
+def test_actual_ack_credential_refusal_is_not_reclassified_as_lost_reply(installed, server, monkeypatch):
+    monkeypatch.delenv('HONUA_AGENT_MCP_CONFIG', raising=False)
+    server.respond = lambda *_: (401, {}, b'{"code":"credential_refused"}')
+    with pytest.raises(urllib.error.HTTPError) as error:
+        installed.binding.accept(installed.value)
+    assert getattr(error.value, 'code', None) == 401
+    assert [row[0] for row in server.seen] == ['POST']
+    assert installed.binding.binding is None and 'HONUA_AGENT_MCP_CONFIG' not in os.environ
+
+
+def test_changed_native_context_after_ack_blocks_private_mcp_installation(installed, server, monkeypatch):
+    monkeypatch.delenv('HONUA_AGENT_MCP_CONFIG', raising=False)
+    def respond(method, *_):
+        body = copy.deepcopy(installed.expected)
+        if method == 'GET':
+            body['context']['viewId'] = 'unrelated-new-context'
+            body['contextDigest'] = canonical_digest(body['context'])
+        return 200, {}, json.dumps(body).encode()
+    server.respond = respond
+    with pytest.raises(PackError, match='context changed'):
+        installed.binding.accept(installed.value)
+    assert installed.binding.binding is None and 'HONUA_AGENT_MCP_CONFIG' not in os.environ
 
 
 def test_bind_specific_bound_does_not_reject_a_valid_large_mcp_command(installed):
@@ -213,12 +316,14 @@ def test_installed_worker_keeps_capability_off_disk_and_cannot_start_an_untruste
     executor.db.close()
 
 
-@pytest.mark.parametrize('change', ['worker', 'turn', 'capability-echo', 'claim-generation'])
+@pytest.mark.parametrize('change', ['worker', 'turn', 'capability-echo', 'claim-generation', 'context-digest', 'acknowledgement'])
 def test_first_bind_refuses_foreign_native_projection_and_disclosed_capability(installed, server, monkeypatch, change):
     monkeypatch.delenv('HONUA_AGENT_MCP_CONFIG', raising=False)
     if change == 'worker': installed.expected['workerId'] = TASK[:-1]+'3'
     elif change == 'turn': installed.expected['turnId'] = 'other'
     elif change == 'claim-generation': installed.expected['claimGeneration'] = 2
+    elif change == 'context-digest': installed.expected['contextDigest'] = 'sha256:'+'f'*64
+    elif change == 'acknowledgement': installed.expected.pop('acknowledgement')
     else: installed.expected['echo'] = CAP
     with pytest.raises(ValueError): installed.binding.accept(installed.value)
     assert installed.binding.binding is None and 'HONUA_AGENT_MCP_CONFIG' not in os.environ
@@ -313,6 +418,30 @@ def test_lost_installed_start_ack_recovers_same_e_task_and_never_relaunches(slot
     assert observed['taskStatus'] == 'RUNNING' and observed['retired'] is False
     assert [op for op, _ in slot.states.calls].count('start') == 1
     assert len(slot.durable.state['ledger']['interactivePaidAdmissions']) == 1
+
+
+def test_prelaunch_restart_reuses_first_actual_installation_and_rechecks_pins(slot):
+    first = slot.worker.inspect()
+    slot.journal.append('worker-installation-observation', first)
+    slot.states.definition['ResponseMetadata'] = {'RequestId': 'another-actual-read'}
+    slot.worker.start(slot.journal, slot.launch)
+    assert slot.journal.values('worker-installation-observation') == [first]
+    assert [operation for operation, _ in slot.states.calls].count('definition') == 2
+    assert [operation for operation, _ in slot.states.calls].count('start') == 1
+    assert len(slot.durable.state['ledger']['interactivePaidAdmissions']) == 1
+
+
+@pytest.mark.parametrize('change', ['prior-role', 'prior-secret', 'duplicate', 'current-drift'])
+def test_prelaunch_restart_refuses_contradictory_history_or_current_installation(slot, change):
+    prior = slot.worker.inspect()
+    if change == 'prior-role': prior['taskDefinition']['taskDefinition']['taskRoleArn'] += '-foreign'
+    elif change == 'prior-secret': prior['taskDefinition']['taskDefinition']['containerDefinitions'][0]['secrets'][0]['valueFrom'] += '-foreign'
+    slot.journal.append('worker-installation-observation', prior)
+    if change == 'duplicate': slot.journal.append('worker-installation-observation', copy.deepcopy(prior))
+    if change == 'current-drift': slot.states.definition['definition'] = '{}'
+    with pytest.raises(PackError): slot.worker.start(slot.journal, slot.launch)
+    assert not slot.journal.values('worker-intent')
+    assert not any(operation == 'start' for operation, _ in slot.states.calls)
 
 
 def test_actual_sdk_timestamp_shapes_and_launch_pages_survive_durable_recovery(slot):

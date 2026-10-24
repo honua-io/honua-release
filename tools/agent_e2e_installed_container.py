@@ -9,6 +9,7 @@ from __future__ import annotations
 import copy
 import base64
 import hashlib
+import http.client
 import hmac
 import json
 import os
@@ -17,6 +18,7 @@ import re
 import sqlite3
 import time
 import urllib.parse
+import urllib.error
 import urllib.request
 
 from agent_e2e_execution_protocol import require, identifier, execution_id, digest, canonical_digest
@@ -30,7 +32,16 @@ BOUND_PROTOCOL = 'honua.installed-worker-bound/v1'
 
 
 def native_binding_read(origin, credential, value):
-    """Fixed GET only; no setup/admin or oracle modules in a worker image."""
+    """Reconcile an original acknowledgement with an authenticated GET only."""
+    return _native_binding_request(origin, credential, value, method='GET')
+
+
+def native_binding_ack(origin, credential, value):
+    """One native task-authenticated acknowledgement; no setup/control key."""
+    return _native_binding_request(origin, credential, value, method='POST')
+
+
+def _native_binding_request(origin, credential, value, *, method):
     uri = urllib.parse.urlsplit(origin)
     require(not uri.username and not uri.password and not uri.query and not uri.fragment and uri.path == '' and
             (uri.scheme == 'https' or uri.scheme == 'http' and uri.hostname in ('127.0.0.1', 'localhost', '::1')),
@@ -38,7 +49,9 @@ def native_binding_read(origin, credential, value):
     headers = {'X-API-Key': credential, 'Accept': 'application/json',
         'X-Honua-Workspace': value['workspaceId'], 'X-Honua-Turn': value['turnId'],
         **execution_headers({k: value[k] for k in ('executionId', 'claimGeneration', 'workerId', 'capability')})}
-    request = urllib.request.Request(origin+'/api/v1/agent/executions/'+value['executionId']+'/worker-binding', headers=headers)
+    if method == 'POST': headers['Content-Type'] = 'application/json'
+    request = urllib.request.Request(origin+'/api/v1/agent/executions/'+value['executionId']+'/worker-binding', headers=headers,
+        data=b'{}' if method == 'POST' else None, method=method)
     opener = urllib.request.build_opener(urllib.request.ProxyHandler({}), NoRedirect())
     with opener.open(request, timeout=10) as response:
         raw = response.read(32769)
@@ -84,14 +97,15 @@ def actual_task():
 
 
 class InstalledBinding:
-    def __init__(self, configuration, mcp, journal, *, worker_id, clock=time.time, native_read=native_binding_read):
+    def __init__(self, configuration, mcp, journal, *, worker_id, clock=time.time,
+                 native_read=native_binding_read, native_ack=native_binding_ack):
         self.config, self.clock = transport(configuration), clock
         require(isinstance(mcp, dict) and set(mcp) == {'endpoint', 'credentialKind', 'credential', 'workflowView',
             'bindingMode', 'runtimeId', 'slotId'} and mcp['bindingMode'] == 'native-execution/v1' and
             mcp['runtimeId'] == self.config['runtimeId'] and mcp['slotId'] == self.config['slotId'] and
             mcp['credentialKind'] == 'api-key' and isinstance(mcp['credential'], str) and mcp['credential'],
             'installed MCP secret must be immutable and initially unbound')
-        self.mcp, self.worker_id, self.native_read = copy.deepcopy(mcp), worker_id, native_read
+        self.mcp, self.worker_id, self.native_read, self.native_ack = copy.deepcopy(mcp), worker_id, native_read, native_ack
         require(isinstance(worker_id, str) and re.fullmatch(r'arn:aws:ecs:[a-z0-9-]+:[0-9]{12}:task/[A-Za-z0-9_-]+/[0-9a-f]{32}', worker_id),
                 'installed worker requires actual ECS task identity')
         endpoint = urllib.parse.urlsplit(mcp['endpoint'])
@@ -103,6 +117,7 @@ class InstalledBinding:
         self.db.execute('PRAGMA synchronous=FULL')
         self.db.execute('CREATE TABLE IF NOT EXISTS installed_binding (id INTEGER PRIMARY KEY CHECK(id=1), value TEXT NOT NULL)')
         self.db.execute('CREATE TABLE IF NOT EXISTS binding_reads (id TEXT PRIMARY KEY, value TEXT NOT NULL)')
+        self.db.execute('CREATE TABLE IF NOT EXISTS native_ack_intent (id INTEGER PRIMARY KEY CHECK(id=1), request_digest TEXT NOT NULL)')
         self.db.commit()
         self.binding = None
 
@@ -134,13 +149,30 @@ class InstalledBinding:
             self.db.commit()  # Permanent before native read or any action.
         else:
             require(row[0] == raw, 'physical worker cannot rebind to another execution/claim')
+        intent_digest = canonical_digest({'method': 'POST', 'path': '/api/v1/agent/executions/'+value['executionId']+
+            '/worker-binding', 'body': {}, 'binding': persisted})
+        prior = self.db.execute('SELECT request_digest FROM native_ack_intent WHERE id=1').fetchone()
+        if prior is None:
+            self.db.execute('INSERT INTO native_ack_intent(id,request_digest) VALUES(1,?)', (intent_digest,))
+            self.db.commit()  # Permanent before the one acknowledgement call.
+            try:
+                acknowledged = self.native_ack(self.origin, self.mcp['credential'], value)
+            except urllib.error.HTTPError:
+                raise  # An actual authorization refusal is not an unknown reply.
+            except (urllib.error.URLError, http.client.HTTPException, TimeoutError, ConnectionError):
+                pass  # Recover the same native record by GET; never repeat POST.
+            else:
+                self.validate_observation(acknowledged, value)
+                self.db.execute('INSERT INTO binding_reads(id,value) VALUES(?,?)', ('ack-response', encode(acknowledged)))
+                self.db.commit()
+        else:
+            require(prior[0] == intent_digest, 'original native acknowledgement intent changed')
         index = self.db.execute('SELECT COUNT(*) FROM binding_reads').fetchone()[0]
         observed = self.native_read(self.origin, self.mcp['credential'], value)
         self.validate(value)
         expected = {k: value[k] for k in ('candidateKey', 'runtimeId', 'slotId', 'executionId',
             'workspaceId', 'turnId', 'claimGeneration', 'expiresEpoch', 'workerId', 'nativeBindingDigest')}
-        require(observed['httpStatus'] == 200 and observed['body'] == {'schemaVersion': 1, **expected, 'state': 'running'},
-                'native did not independently authorize the original physical worker binding')
+        self.validate_observation(observed, value)
         key = 'bind-read-'+str(index)
         self.db.execute('INSERT INTO binding_reads(id,value) VALUES(?,?)', (key, encode(observed)))
         self.db.commit()
@@ -152,6 +184,26 @@ class InstalledBinding:
         private['executionContext'] = {k: value[k] for k in ('executionId', 'claimGeneration', 'workerId', 'capability')}
         os.environ['HONUA_AGENT_MCP_CONFIG'] = encode(private)
         return {'protocol': BOUND_PROTOCOL, **expected, 'nativeRead': {'key': key, 'sha256': canonical_digest(observed)}}
+
+    def validate_observation(self, observed, value):
+        expected = {k: value[k] for k in ('candidateKey', 'runtimeId', 'slotId', 'executionId',
+            'workspaceId', 'turnId', 'claimGeneration', 'expiresEpoch', 'workerId', 'nativeBindingDigest')}
+        body = observed.get('body', {})
+        require(observed.get('httpStatus') == 200 and isinstance(body, dict) and set(body) ==
+            {'schemaVersion', 'state', 'context', 'contextDigest', 'acknowledgement', *expected} and
+            body['schemaVersion'] == 1 and body['state'] == 'running' and all(body[k] == v for k, v in expected.items()),
+            'native did not independently authorize the original physical worker binding')
+        context = body['context']
+        require(isinstance(context, dict) and context.get('workspaceId') == value['workspaceId'] and
+            canonical_digest(context) == body['contextDigest'], 'native task context digest differs from original bytes')
+        acknowledgement = body['acknowledgement']
+        require(isinstance(acknowledgement, dict) and set(acknowledgement) == {'actorId', 'credentialVersion'} and
+            all(isinstance(acknowledgement[k], str) and 0 < len(acknowledgement[k]) <= 2048 and
+                not any(ord(character) < 32 for character in acknowledgement[k]) for k in acknowledgement),
+            'native task acknowledgement principal/version missing')
+        prior = self.db.execute('SELECT value FROM binding_reads').fetchall()
+        require(all(json.loads(row[0])['body'] == body for row in prior),
+            'original acknowledged native task/context changed')
 
     def close(self):
         self.db.close()

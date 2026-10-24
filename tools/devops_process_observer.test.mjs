@@ -1,10 +1,10 @@
 // Actual local process observations only; no native/cloud qualification.
-import test from 'node:test';
+import test, { mock } from 'node:test';
 import assert from 'node:assert/strict';
 import { spawn, execFile } from 'node:child_process';
 import { once } from 'node:events';
 import { mkdtemp, mkdir, writeFile, readFile, rm, open } from 'node:fs/promises';
-import { constants } from 'node:fs';
+import { constants, promises as fsPromises } from 'node:fs';
 import { promisify } from 'node:util';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -18,6 +18,67 @@ function claim(root) {
 }
 const claimArgs = value => ['--claim-dir', value.claimDirectory, '--plan', value.planPath, '--action', value.action];
 const delay = () => new Promise(resolve => setTimeout(resolve, 20));
+
+async function retainObservation(name, value) {
+  const directory = join(process.cwd(), 'artifacts', 'devops-source-controls');
+  await mkdir(directory, { recursive: true });
+  const original = await mkdtemp(join(directory, name + '-'));
+  await writeFile(join(original, 'observations.json'), JSON.stringify(value, null, 2) + '\n', { mode: 0o600 });
+}
+
+test('actual exit between stat and cmdline requires a fresh absence observation', async () => {
+  const child = spawn('/bin/bash', ['-c', 'read value'], { stdio: ['pipe', 'ignore', 'pipe'] });
+  const exited = once(child, 'exit');
+  let hook;
+  try {
+    await once(child, 'spawn');
+    const admission = await observeProcess(child.pid), reads = [];
+    const originalOpen = fsPromises.open;
+    let triggered = false;
+    hook = mock.method(fsPromises, 'open', async (path, ...args) => {
+      reads.push(path);
+      if (path === `/proc/${child.pid}/cmdline` && !triggered) {
+        triggered = true;
+        child.stdin.end('owned-normal-exit\n'); await exited;
+      }
+      return originalOpen(path, ...args);
+    });
+    const observed = await observeProcess(child.pid);
+    assert.equal(triggered, true);
+    assert.equal(observed.status, 'absent');
+    assert.equal(reads.filter(path => path === `/proc/${child.pid}/stat`).length, 2);
+    assert.equal(terminalObservation(observed, { ...admission.identity, bootId: admission.bootId }).terminal, true);
+    assert.equal(isTerminalWitness(observed, admission), false);
+    await retainObservation('exit-between-reads', { admission, observed, reads });
+  } finally {
+    hook?.mock.restore();
+    if (!child.stdin.destroyed) child.stdin.end();
+    await exited;
+  }
+});
+
+test('missing mid-read data has a finite retry bound and access errors never mean absence', async () => {
+  const admission = await observeProcess(process.pid), originalOpen = fsPromises.open;
+  const outcomes = [];
+  for (const code of ['ENOENT', 'ESRCH', 'EACCES', 'EIO']) {
+    let attempts = 0;
+    const hook = mock.method(fsPromises, 'open', async (path, ...args) => {
+      if (path === `/proc/${process.pid}/cmdline`) {
+        attempts += 1;
+        throw Object.assign(new Error('controlled read fault'), { code });
+      }
+      return originalOpen(path, ...args);
+    });
+    try {
+      await assert.rejects(observeProcess(process.pid), /process-observation-(raced|unverified)/);
+      assert.equal(attempts, ['ENOENT', 'ESRCH'].includes(code) ? 3 : 1);
+      outcomes.push({ code, attempts, verdict: 'refused' });
+    } finally { hook.mock.restore(); }
+  }
+  const current = await observeProcess(process.pid);
+  assert.equal(terminalObservation(current, { ...admission.identity, bootId: admission.bootId }).terminal, false);
+  await retainObservation('read-fault-refusals', { admission, current, outcomes });
+});
 
 test('raw live stat/cmdline/boot originals cannot be counted as terminal or foreign birth', async () => {
   const raw = await observeProcess(process.pid);
@@ -44,6 +105,7 @@ test('wrapper exit cannot release ownership while an actually tracked child surv
     env: { PATH: '/usr/bin:/bin', SOURCE_CHILD_SCRIPT: childScript, SOURCE_FIFO: fifo, SOURCE_PID_FILE: pidFile } });
   const exited = once(child, 'exit');
   let descendantPid;
+  let observationHook;
   async function finishDescendant() {
     // Owned FIFO only. NONBLOCK prevents a failed fixture from hanging cleanup
     // if the original child has already ceased; no PID signal is ever sent.
@@ -62,8 +124,27 @@ test('wrapper exit cannot release ownership while an actually tracked child surv
     const native = await observeProcess(process.pid);
     const lease = await bindExecutorToNative(child.pid, native, script, context);
     assert.ok(lease.observations().some(entry => entry.admission.pid === descendantPid));
-    child.stdin.end('owned-wrapper-exit\n'); await exited;
+    // End the real wrapper between its already-admitted child's stat/cmdline
+    // reads. No process bytes are mocked, and the child remains blocked on its
+    // owned FIFO until the later explicit normal completion.
+    const originalOpen = fsPromises.open;
+    let reparented = false;
+    observationHook = mock.method(fsPromises, 'open', async (path, ...args) => {
+      if (path === `/proc/${descendantPid}/cmdline` && !reparented) {
+        reparented = true;
+        child.stdin.end('owned-wrapper-exit\n'); await exited;
+      }
+      return originalOpen(path, ...args);
+    });
     await assert.rejects(lease.observeTerminal(), /descendant-still-live/);
+    assert.equal(reparented, true);
+    observationHook.mock.restore(); observationHook = null;
+    const stillLive = await observeProcess(descendantPid);
+    const originalChild = lease.observations().find(entry => entry.admission.pid === descendantPid);
+    assert.equal(originalChild.parentBirth.pid, child.pid);
+    assert.notEqual(stillLive.identity.parentPid, child.pid);
+    assert.equal(terminalObservation(stillLive, { ...originalChild.admission.identity,
+      bootId: originalChild.admission.bootId }).terminal, false);
     await finishDescendant();
     let witness;
     for (let attempt = 0; attempt < 100; attempt++) {
@@ -73,7 +154,9 @@ test('wrapper exit cannot release ownership while an actually tracked child surv
     assert.ok(witness);
     assert.equal(isTerminalWitness(witness, native), true);
     assert.ok(witness.executorTree.some(entry => entry.admission.pid === descendantPid && entry.terminal));
+    await retainObservation('tracked-child-reparenting', { native, originalChild, stillLive, witness });
   } finally {
+    observationHook?.mock.restore();
     if (!child.stdin.destroyed) child.stdin.end();
     await exited;
     await finishDescendant();
