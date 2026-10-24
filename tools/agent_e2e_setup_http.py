@@ -18,7 +18,7 @@ import urllib.error
 import urllib.parse
 import urllib.request
 
-from agent_e2e_mcp import validate_agent_context, parse
+from agent_e2e_mcp import validate_agent_context, validate_execution_context, execution_headers, parse
 from agent_e2e_pack import PackError, canonical_digest, digest_bytes
 from agent_e2e_semantics import MAX_RESPONSE_BYTES, response_evidence
 
@@ -35,7 +35,8 @@ class NoRedirect(urllib.request.HTTPRedirectHandler):
 
 class SetupHttp:
     def __init__(self, endpoint, credential_env, *, identity, authorize, retain,
-                 credential_kind='api-key', private_values=(), timeout=300, clock=time.monotonic, agent_context=None):
+                 credential_kind='api-key', private_values=(), timeout=300, clock=time.monotonic, agent_context=None,
+                 execution_context=None, execution_capability=None):
         require(isinstance(endpoint, str) and all(ord(c) > 32 for c in endpoint)
                 and '\\' not in endpoint, 'invalid setup endpoint')
         try:
@@ -57,9 +58,15 @@ class SetupHttp:
             token = os.environ.get(credential_env)
             require(isinstance(token, str) and 0 < len(token) <= 8192 and all(33 <= ord(c) <= 126 for c in token),
                     'missing or invalid setup credential')
-        require(isinstance(identity, dict) and set(identity) == {'candidateKey', 'attemptId'}
-                and isinstance(identity['candidateKey'], str) and re.fullmatch(r'sha256:[0-9a-f]{64}', identity['candidateKey'])
-                and isinstance(identity['attemptId'], str) and re.fullmatch(r'[A-Za-z0-9-]{1,80}', identity['attemptId']),
+        legacy = isinstance(identity, dict) and set(identity) == {'candidateKey', 'attemptId'}
+        runtime = isinstance(identity, dict) and set(identity) in (
+            {'candidateKey', 'runtimeId'}, {'candidateKey', 'runtimeId', 'executionId'})
+        require((legacy or runtime) and isinstance(identity['candidateKey'], str) and
+                re.fullmatch(r'sha256:[0-9a-f]{64}', identity['candidateKey']) and
+                (not legacy or isinstance(identity['attemptId'], str) and re.fullmatch(r'[A-Za-z0-9-]{1,80}', identity['attemptId'])) and
+                (not runtime or isinstance(identity['runtimeId'], str) and re.fullmatch(r'[A-Za-z0-9_-]{1,128}', identity['runtimeId'])) and
+                ('executionId' not in identity or isinstance(identity['executionId'], str) and
+                    re.fullmatch(r'execution-[0-9a-f]{32}', identity['executionId'])),
                 'invalid setup identity')
         require(callable(authorize) and callable(retain), 'setup requires authorization and retention')
         require(isinstance(private_values, (tuple, list)) and len(private_values) <= 16
@@ -68,8 +75,15 @@ class SetupHttp:
         require(type(timeout) in (int, float) and 0 < timeout <= 600, 'invalid setup deadline')
         self.endpoint, self.token, self.kind = endpoint.rstrip('/'), token, credential_kind
         self.agent_context = validate_agent_context(agent_context)
+        self.execution_context = validate_execution_context(execution_context)
+        require(self.execution_context is None or self.agent_context is not None, 'execution observation requires original native turn')
+        require(execution_capability is None or isinstance(execution_capability, str) and 32 <= len(execution_capability) <= 8192 and
+                all(33 <= ord(c) <= 126 for c in execution_capability), 'invalid private execution capability')
+        self.execution_capability = execution_capability
         require(self.agent_context is None or credential_kind != 'anonymous', 'anonymous observation cannot carry agent context')
-        self.private_values = (*(() if token is None else (token,)), *private_values)
+        self.private_values = (*(() if token is None else (token,)), *private_values,
+            *(() if execution_capability is None else (execution_capability,)),
+            *(() if self.execution_context is None else (self.execution_context['capability'],)))
         self.identity, self.authorize, self.retain = dict(identity), authorize, retain
         self.clock, self.deadline, self.attempted = clock, clock()+timeout, set()
         self.opener = urllib.request.build_opener(urllib.request.ProxyHandler({}), NoRedirect(),
@@ -130,6 +144,8 @@ class SetupHttp:
                   'requestBodyDigest': digest_bytes(body or b'')}
         if self.agent_context is not None:
             intent['agentContext'] = dict(self.agent_context)
+        if self.execution_context is not None:
+            intent['executionContext'] = {name: value for name, value in self.execution_context.items() if name != 'capability'}
         self.check_private_metadata(intent)
         self.attempted.add(step)
         # Required to reject every pre-existing key, even identical intent bytes.
@@ -139,6 +155,10 @@ class SetupHttp:
         headers = {'Content-Type': content_type, 'Accept': 'application/json'}
         if self.agent_context is not None:
             headers.update({'X-Honua-Workspace': self.agent_context['workspaceId'], 'X-Honua-Turn': self.agent_context['turnId']})
+        headers.update(execution_headers(self.execution_context))
+        if self.execution_capability is not None:
+            require('X-Honua-Execution-Capability' not in headers, 'execution capability source is ambiguous')
+            headers['X-Honua-Execution-Capability'] = self.execution_capability
         if self.kind != 'anonymous':
             headers['X-API-Key' if self.kind == 'api-key' else 'Authorization'] = (
                 self.token if self.kind == 'api-key' else 'Bearer '+self.token)
