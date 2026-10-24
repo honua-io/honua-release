@@ -115,6 +115,33 @@ def promotion_binding_version(state, process, previous, *, client=None):
     return observed["bindingVersion"]
 
 
+
+def promotion_predecessor(state, process, current, *, client=None):
+    """Capture a reviewed forward or rollback predecessor for the next pin PR.
+
+    A successful rollback leaves the forward pin unchanged. Only its exact
+    previous lock, with native reverse lineage to that forward release, can be
+    reconciled here. Unknown native locks still require separate review.
+    """
+    if state.get("deploymentTooling", {}).get("kind") == "reference":
+        return (current["release"] if current else None), state["bindingVersion"]
+    if state.get("deploymentTooling", {}).get("kind") != "aws-batch":
+        raise DeploymentError("Live promotion requires the supported IaC Batch deployment contract")
+    client = client or Client(os.environ.get("HONUA_GP_SERVER_URL", ""), os.environ.get("HONUA_GP_ADMIN_API_KEY", ""))
+    observed = client.request("GET", f"{BASE}/bindings/{quote(process, safe='')}")
+    if (observed.get("process") != process or type(observed.get("bindingVersion")) is not int
+            or observed["bindingVersion"] < 0):
+        raise DeploymentError("Live promotion binding identity or version differs")
+    forward = current["release"] if current else None
+    previous = current.get("previous") if current else None
+    if observed.get("lockDigest") == (forward["lockDigest"] if forward else None):
+        return forward, observed["bindingVersion"]
+    if (forward and previous and observed.get("lockDigest") == previous["lockDigest"]
+            and observed.get("previousLockDigest") == forward["lockDigest"]):
+        return previous, observed["bindingVersion"]
+    raise DeploymentError("Live promotion binding is outside reviewed forward/rollback lineage")
+
+
 def live_preflight(client, lock, pin, state, index, operation):
     """Use the current binding, never a checked-in version as live state."""
     process = lock["process"]["name"]
@@ -175,9 +202,8 @@ def verify_definition(lock, registration, *, aws=aws_json):
     container = definition.get("containerProperties", {})
     if definition.get("platformCapabilities") != ["FARGATE"] or container.get("jobRoleArn"):
         raise DeploymentError("Custom workers require Fargate without a task IAM role")
-    names = [item.get("name", "").upper() for item in container.get("environment", []) + container.get("secrets", [])]
-    if container.get("environmentFiles") or any(n.startswith(("AWS_", "ECS_CONTAINER_")) for n in names):
-        raise DeploymentError("Custom worker definition may inject ambient cloud credentials")
+    if container.get("environmentFiles") or container.get("environment") or container.get("secrets"):
+        raise DeploymentError("Custom worker definitions cannot inject environment values, files or secrets")
     return {"kind": "aws-batch", "jobDefinitionArn": arn}
 
 

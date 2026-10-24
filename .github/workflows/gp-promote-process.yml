@@ -45,7 +45,27 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+  dependencies:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.12"
+      - name: Resolve only reviewed wheel bytes without deployment credentials
+        run: |
+          python -m pip download --require-hashes --only-binary=:all: --dest _gp-wheels -r tools/requirements-gp.txt
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: gp-reviewed-wheels
+          path: _gp-wheels
+          if-no-files-found: error
+          retention-days: 1
+
   promote:
+    needs: dependencies
     runs-on: ubuntu-latest
     environment: ${{ inputs.environment }}
     steps:
@@ -56,7 +76,13 @@ jobs:
       - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
         with:
           python-version: "3.12"
-      - run: python -m pip install "jsonschema>=4.23" "pyyaml>=6.0" pytest
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: gp-reviewed-wheels
+          path: _gp-wheels
+      - name: Install only hash-verified offline wheels
+        run: |
+          python -m pip install --no-index --no-cache-dir --require-hashes --only-binary=:all: --find-links _gp-wheels -r tools/requirements-gp.txt
 
       - name: Self-test the release gate
         run: python -m pytest tools/test_gp_process_release.py tools/test_gp_process_deploy.py -q
@@ -94,7 +120,8 @@ jobs:
           import json, os, re, sys
           from pathlib import Path
           sys.path.insert(0, "tools")
-          from gp_process_deploy import promotion_binding_version
+          from gp_process_deploy import promotion_predecessor
+          from gp_process_release import validate_pin
           env, process, digest = os.environ["ENVIRONMENT"], os.environ["PROCESS"], os.environ["LOCK_DIGEST"]
           if not re.fullmatch(r"[a-z][a-z0-9-]{1,31}", env):
               print("::error::environment must name one reviewed environment directory"); sys.exit(1)
@@ -112,13 +139,12 @@ jobs:
           lock_path.parent.mkdir(parents=True, exist_ok=True)
           lock_path.write_text(json.dumps(lock, indent=2, sort_keys=True) + "\n", encoding="utf-8")
           pin_path = Path("release/gp-environments") / env / f"{process}.pin.json"
-          previous = None
-          if pin_path.is_file():
-              current = json.load(open(pin_path))
-              if current["release"]["lockDigest"] == digest:
-                  print(f"::error::{env} already pins {process} to {digest}"); sys.exit(1)
-              previous = current["release"]
-          binding_version = promotion_binding_version(state, process, previous)
+          current = json.load(open(pin_path)) if pin_path.is_file() else None
+          if current is not None:
+              validate_pin(current, Path("."))
+          previous, binding_version = promotion_predecessor(state, process, current)
+          if previous and previous["lockDigest"] == digest:
+              print(f"::error::{env} already runs {process} at the requested release"); sys.exit(1)
           pin = {
               "schema": "honua.gp-environment-pin/v1", "environment": env, "process": process,
               "release": {"lockPath": str(lock_path).replace(os.sep, "/"), "lockDigest": digest},
@@ -153,7 +179,7 @@ jobs:
           RELEASE_RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ inputs.release_run_id }}
         run: |
           set -euo pipefail
-          branch="gp-pin/$ENVIRONMENT/$PROCESS/$SHORT"
+          branch="gp-pin/$ENVIRONMENT/$PROCESS/$SHORT-v$EXPECTED_BINDING_VERSION"
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git checkout -b "$branch"

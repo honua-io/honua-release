@@ -124,7 +124,9 @@ def test_actual_promotion_workflow_records_two_native_versions_with_unchanged_co
     environment.mkdir(parents=True)
     (environment / "environment.json").write_text(json.dumps(state))
     pin_path = environment / (process + ".pin.json")
-    pin_path.write_text(json.dumps({"release":{"lockPath":str(previous_path), "lockDigest":gate.digest(predecessor)}}))
+    initial_pin = copy.deepcopy(docs[1])
+    initial_pin.update(release={"lockPath":str(previous_path), "lockDigest":gate.digest(predecessor)}, previous=None)
+    pin_path.write_text(json.dumps(initial_pin))
     original_state = (environment / "environment.json").read_bytes()
     wire = {"process":process, "bindingVersion":8, "lockDigest":gate.digest(predecessor)}
     requests = []
@@ -149,18 +151,27 @@ def test_actual_promotion_workflow_records_two_native_versions_with_unchanged_co
             "HONUA_GP_ADMIN_API_KEY":"private-test-key"}.items(): monkeypatch.setenv(key,value)
     (tmp_path/"_release").mkdir()
     try:
-        for version, expected in [("1.0.0",8),("2.0.0",9)]:
+        forward_digest = None
+        rollback_digest = None
+        for version, expected in [("1.0.0",8),("2.0.0",9),("2.0.0",11)]:
+            if expected == 11:
+                # Actual rollback changed the server, while the committed pin
+                # still names the forward release. Re-promote that same release.
+                wire.update(bindingVersion=11, lockDigest=rollback_digest, previousLockDigest=forward_digest)
             candidate = copy.deepcopy(lock); candidate["process"]["version"] = version
             (tmp_path/"_release/process-release-lock.json").write_text(json.dumps(candidate))
             monkeypatch.setenv("LOCK_DIGEST", gate.digest(candidate))
             exec(compile(script,"gp-promote-process.yml","exec"), {})
             pin = json.loads(pin_path.read_text())
             assert pin["expectedBindingVersion"] == expected
+            if expected == 8: rollback_digest = gate.digest(candidate)
+            if expected == 9: forward_digest = gate.digest(candidate)
+            if expected == 11: assert pin["previous"]["lockDigest"] == rollback_digest
             gate.validate_pin(pin, tmp_path)
             assert (environment/"environment.json").read_bytes() == original_state
             wire.update(bindingVersion=expected+1, lockDigest=gate.digest(candidate))
-        assert len(requests) == 2 and all(method == "GET" for method, _, _ in requests)
-        assert "expected_binding_version=9" in (tmp_path/"step-output").read_text()
+        assert len(requests) == 3 and all(method == "GET" for method, _, _ in requests)
+        assert "expected_binding_version=11" in (tmp_path/"step-output").read_text()
     finally:
         server.shutdown(); server.server_close(); thread.join(timeout=5)
 
@@ -331,7 +342,7 @@ def test_client_refuses_unsafe_base_urls(url):
         deploy.Client(url, "public-test-key")
 
 
-@pytest.mark.parametrize("mutation", ["role", "ec2", "credential", "secret", "envfile"])
+@pytest.mark.parametrize("mutation", ["role", "ec2", "credential", "secret", "envfile", "noncloud-secret", "plaintext", "nonsecret-env"])
 def test_provider_verification_refuses_ambient_credential_paths(docs, mutation):
     lock, _, state, _, _ = docs
     image = lock["runtimeImage"]["reference"].split("@")[0] + "@" + lock["targets"][0]["workerImageDigest"]
@@ -344,8 +355,10 @@ def test_provider_verification_refuses_ambient_credential_paths(docs, mutation):
         definition["platformCapabilities"] = ["EC2"]
     elif mutation == "credential":
         container["environment"] = [{"name": "AWS_CONTAINER_CREDENTIALS_FULL_URI", "value": "fake"}]
-    elif mutation == "secret":
-        container["secrets"] = [{"name": "AWS_SECRET_ACCESS_KEY", "valueFrom": "fake"}]
+    elif mutation in ("secret", "noncloud-secret"):
+        container["secrets"] = [{"name": "AWS_SECRET_ACCESS_KEY" if mutation == "secret" else "HONUA_SERVICE_TOKEN", "valueFrom": "fake"}]
+    elif mutation in ("plaintext", "nonsecret-env"):
+        container["environment"] = [{"name": "DATABASE_PASSWORD" if mutation == "plaintext" else "PYTHONUNBUFFERED", "value": "fake"}]
     else:
         container["environmentFiles"] = [{"value": "fake"}]
     with pytest.raises(deploy.DeploymentError):
@@ -458,3 +471,46 @@ def test_executed_rollback_plan_checks_identity_without_stale_committed_version(
     env["TARGET_LOCK_PATH"] = str(FIXTURES / "lock-v2.json")
     refused = subprocess.run(["bash", "-c", step["run"]], cwd=tmp_path, env=env, capture_output=True, text=True)
     assert refused.returncode != 0 and "ROLLBACK_TARGET_MISMATCH" in refused.stderr
+
+
+def test_promotion_after_verified_live_rollback_reconciles_only_the_reviewed_previous(docs):
+    lock, pin, state, _, live = docs
+    old = {"lockDigest": "sha256:" + "a" * 64, "lockPath": "release/gp-process-locks/buffer-features/aaaaaaaaaaaa.json"}
+    current = copy.deepcopy(pin)
+    current["previous"] = old
+    live.update(lockDigest=old["lockDigest"], previousLockDigest=current["release"]["lockDigest"], bindingVersion=10)
+    server = FakeServer(lock, live)
+    predecessor, version = deploy.promotion_predecessor(state, lock["process"]["name"], current, client=server)
+    assert predecessor == old and version == 10
+    assert [method for method, _, _ in server.requests] == ["GET"]
+    assert current == dict(pin, previous=old)
+
+
+@pytest.mark.parametrize("changes", [{"previousLockDigest": "sha256:" + "f" * 64},
+                                      {"previousLockDigest": None}, {"lockDigest": "sha256:" + "f" * 64}])
+def test_promotion_cannot_reconcile_unreviewed_or_foreign_rollback_lineage(docs, changes):
+    lock, pin, state, _, live = docs
+    current = copy.deepcopy(pin);current["previous"] = {"lockDigest": "sha256:" + "a" * 64}
+    live.update(lockDigest=current["previous"]["lockDigest"], previousLockDigest=current["release"]["lockDigest"], bindingVersion=10)
+    live.update(changes)
+    with pytest.raises(deploy.DeploymentError, match="reviewed forward/rollback lineage"):
+        deploy.promotion_predecessor(state, lock["process"]["name"], current, client=FakeServer(lock, live))
+
+
+def test_live_gp_dependency_resolution_is_separate_and_hash_locked():
+    repo = Path(__file__).parents[1]
+    for name, caller in [("gp-promote-process.yml", "promote"), ("gp-deploy-process.yml", "deploy")]:
+        workflow = yaml.safe_load((repo/".github/workflows"/name).read_text())
+        dependencies = workflow["jobs"]["dependencies"]
+        assert "environment" not in dependencies and dependencies["permissions"] == {"contents":"read"}
+        assert "secrets." not in json.dumps(dependencies)
+        commands = [step.get("run", "") for step in dependencies["steps"]]
+        assert any("pip download --require-hashes --only-binary=:all:" in cmd for cmd in commands)
+        job = workflow["jobs"][caller]
+        assert "dependencies" in job["needs"]
+        commands = [step.get("run", "") for step in job["steps"]]
+        assert not any("pip download" in cmd for cmd in commands)
+        installs = [cmd for cmd in commands if "pip install" in cmd]
+        assert len(installs) == 1 and "--no-index" in installs[0] and "--require-hashes" in installs[0] and "--only-binary=:all:" in installs[0]
+    requirements = (repo/"tools/requirements-gp.txt").read_text()
+    assert ">=" not in requirements and "--hash=sha256:" in requirements
