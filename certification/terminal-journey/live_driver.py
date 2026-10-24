@@ -449,10 +449,15 @@ def op_observe(request: dict[str, Any]) -> dict[str, Any]:
 
 
 # Typed MCP tool error codes that describe the request, not a candidate fault: a well-formed call the
-# candidate refused because of what was asked (missing resource, invalid argument, wrong state). Server
-# faults, transport failures, permission or proof failures stay candidate-execution (infrastructure).
-CANDIDATE_REFUSAL_CODES = frozenset({"not_found", "invalid_argument", "invalid_input", "conflict",
-                                     "already_exists", "failed_precondition", "validation_failed"})
+# candidate refused because of what was asked (missing resource, wrong state).
+# invalid_argument, invalid_input, and validation_failed stay in that model-feedback set when the
+# call was only schema-admitted. An unknown styleId, a bad bbox, or an unsupported encoding is a
+# value the model can correct. The same codes are candidate-execution only when the executor proved
+# the arguments against the authored fixture (problem["argumentsProven"]). Schema admission is not
+# that proof. Server faults, transport failures, and permission or proof failures stay
+# candidate-execution. ActionRejected, before any candidate write, stays invalid-action.
+CANDIDATE_REFUSAL_CODES = frozenset({"not_found", "conflict", "already_exists", "failed_precondition"})
+ADMITTED_CALL_DEFECT_CODES = frozenset({"invalid_argument", "invalid_input", "validation_failed"})
 
 
 def op_execute(request: dict[str, Any]) -> dict[str, Any]:
@@ -474,15 +479,22 @@ def op_execute(request: dict[str, Any]) -> dict[str, Any]:
         except ExecutionError as exc:
             _write_state(state["workspaceId"], state)
             from transport import ActionRejected  # noqa: PLC0415 - same module path as the executor
+            code = exc.problem.get("code")
+            # invalid-action: refused before the candidate write (model feedback).
+            # candidate-refusal: a typed request error the model can correct, including a
+            # schema-valid invalid_argument whose values were not fixture-proven.
+            # candidate-execution: a fixture-proven call the candidate still rejected, or any
+            # other failure of a call that already passed admission (never model feedback).
+            if isinstance(exc, ActionRejected):
+                refusal = "invalid-action"
+            elif code in ADMITTED_CALL_DEFECT_CODES and exc.problem.get("argumentsProven") is True:
+                refusal = "candidate-execution"
+            elif code in CANDIDATE_REFUSAL_CODES or code in ADMITTED_CALL_DEFECT_CODES:
+                refusal = "candidate-refusal"
+            else:
+                refusal = "candidate-execution"
             return {"status": "blocked" if exc.blocked else "fail", "stageStatus": status,
-                    # invalid-action: the selected action was refused before its candidate write
-                    # (model feedback). candidate-execution: a valid action failed in the candidate or
-                    # its proof (never model feedback).
-                    # candidate-refusal: a typed client-side tool error for a well-formed call (e.g. asking
-                    # for a service that is not published yet) - feedback an agent is expected to act on.
-                    "refusal": ("invalid-action" if isinstance(exc, ActionRejected)
-                                else "candidate-refusal" if exc.problem.get("code") in CANDIDATE_REFUSAL_CODES
-                                else "candidate-execution"),
+                    "refusal": refusal,
                     "result": {"accepted": False, "command": exc.command, "reason": exc.reason,
                                "injectedError": None, "recoveredError": None,
                                **({"mapReadbacks": engine.evidence.get("mapReadbacks", [])}

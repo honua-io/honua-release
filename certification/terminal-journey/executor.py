@@ -138,6 +138,39 @@ class JourneyExecutor:
     def resources(self):
         return self.evidence["resources"]
 
+    def semantic_arguments_proven(self, name, arguments):
+        """True when these values are the harness's authored fixture, not merely schema-valid.
+
+        Check every supplied value, including layer identity and optional rendering arguments.
+        Matching only dimensions or styleId cannot prove an unsupported encoding or foreign layer.
+        """
+        if not isinstance(arguments, dict):
+            return False
+        service_id = self.fixture.get("serviceId")
+        layer_id = self.resources.get("layerId")
+        if not isinstance(service_id, str) or not service_id or type(layer_id) is not int:
+            return False
+        layer = {"serviceId": service_id, "layerId": layer_id}
+        if name == "honua_apply_style_preset":
+            style_id = self.fixture.get("styleId")
+            return (isinstance(style_id, str) and bool(style_id)
+                    and arguments == {**layer, "styleId": style_id})
+        if name == "honua_render_map":
+            size = self.fixture.get("renderSize")
+            bbox = self.fixture.get("bbox")
+            if not isinstance(size, list) or len(size) != 2 or not isinstance(bbox, list) or len(bbox) != 4:
+                return False
+            required = {"layers": [layer], "bbox": bbox, "width": size[0], "height": size[1]}
+            supported = {**required, "bboxSrid": 4326, "transparent": True, "maxInlineBytes": 1024 * 1024}
+            return (all(arguments.get(key) == value for key, value in required.items())
+                    and all(key in supported and value == supported[key] for key, value in arguments.items()))
+        return False
+
+    def _attribute_request_validation(self, name, arguments, exc):
+        if (exc.problem.get("code") in {"invalid_argument", "invalid_input", "validation_failed"}
+                and self.semantic_arguments_proven(name, arguments)):
+            exc.problem["argumentsProven"] = True
+
     def view(self):
         found = self.observation.setup_discovery or {}
         if not self.observation.setup_view_present:
@@ -230,7 +263,11 @@ class JourneyExecutor:
             self.prepare_map_save(arguments)
         if name == "honua_studio_propose_publication":
             self.prepare_publication(arguments)
-        result = self.transport.tool(name, send_arguments, view, self.principal(number))
+        try:
+            result = self.transport.tool(name, send_arguments, view, self.principal(number))
+        except ExecutionError as exc:
+            self._attribute_request_validation(name, send_arguments, exc)
+            raise
         if fault and fault["status"] == "submitted":
             error = result.get("structuredContent") or {}
             if result.get("isError") is not True or error.get("code") not in {"invalid_argument", "invalid_input"}:
@@ -239,7 +276,11 @@ class JourneyExecutor:
             injected = {"id": fault["id"], "recoverable": True}
             return {"status": "fail", "accepted": False, "injectedError": injected,
                     "recoveredError": None, "reason": "candidate refused the injected invalid render width"}
-        output = structured(result, name, credential_values(self.transport.credentials))
+        try:
+            output = structured(result, name, credential_values(self.transport.credentials))
+        except ExecutionError as exc:
+            self._attribute_request_validation(name, send_arguments, exc)
+            raise
         if name == "honua_apply_style_preset":
             if output.get("applied") is not True or output.get("styleId") != arguments.get("styleId"):
                 raise ExecutionError(name, "candidate did not apply the selected canonical style")
